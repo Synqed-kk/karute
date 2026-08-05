@@ -10,12 +10,15 @@ The interactive accent is blue-600 `#2563eb` (dark mode `#60a5fa`), carried by
 override there (the @synqed-kk/ui package ships a black accent — the override
 is the app-side fix until the package retints).
 
-- Selected/pressed state (tabs, filters, chips, options): `bg-primary/10
+- Selected/pressed state (tabs, filters, chips, options): `bg-primary/8
   text-primary` + `border-primary` where the control has a border. Never a
-  solid dark fill.
+  solid dark fill. (/8 not /10: accent text on the 10% wash computes to
+  4.49:1 — just under WCAG AA; 8% passes.)
 - Commit/primary action (save, create, confirm): `bg-primary
-  text-primary-foreground hover:bg-primary/90`. Never `bg-foreground`,
-  `bg-sage-800`, or a dark hover.
+  text-primary-foreground hover:bg-primary-hover`. Never `bg-foreground`,
+  `bg-sage-800`, a dark hover, or an opacity hover on the fill —
+  `hover:opacity-90`/`hover:bg-primary/90` LIGHTEN toward the page and drop
+  white text below AA; `--primary-hover` darkens within the accent.
 - Destructive stays red; status colors untouched; dark fills are legal only on
   non-interactive surfaces (photo canvases, scrims — allowlist them in the
   guard).

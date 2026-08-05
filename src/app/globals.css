@@ -67,6 +67,7 @@
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -95,6 +96,10 @@
    * action = bg-primary + text-primary-foreground. Guard:
    * scripts/audit/check-dark-interactive.mjs */
   --primary: #2563eb;
+  /* Commit hover darkens WITHIN the accent (spike's #1d4ed8 pair) — opacity
+   * blends lighten toward the white page and drop white text below WCAG AA
+   * (fresh-eyes round, PR #671). */
+  --primary-hover: #1d4ed8;
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -133,8 +138,10 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  /* R13 dark: blue-400 fill + near-black ink (white on blue-400 fails contrast). */
+  /* R13 dark: blue-400 fill + near-black ink (white on blue-400 fails contrast).
+   * Hover lightens (dark-mode inverse of the light-mode darken). */
   --primary: #60a5fa;
+  --primary-hover: #93c5fd;
   --primary-foreground: oklch(0.205 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);

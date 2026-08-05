@@ -275,7 +275,7 @@ export function KaruteRecordListView({
           <button
             type="button"
             onClick={() => setNewKaruteOpen(true)}
-            className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md bg-primary px-4 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md bg-primary px-4 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary-hover"
           >
             <FilePlus2 className="size-3.5" aria-hidden />
             {t('newKarute')}

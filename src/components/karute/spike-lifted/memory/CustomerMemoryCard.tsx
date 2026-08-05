@@ -359,7 +359,7 @@ export function CustomerMemoryCard({
           <button
             type="button"
             onClick={openAdd}
-            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-opacity hover:opacity-90"
+            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary-hover"
           >
             <Plus className="size-3.5" />
             {t('addManually')}

@@ -148,7 +148,7 @@ export function RecordingSection({ orgSettings }: RecordingSectionProps) {
               }}
               className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
                 audioSource === s.value
-                  ? 'border-primary bg-primary/10 text-primary'
+                  ? 'border-primary bg-primary/8 text-primary'
                   : 'border-border text-muted-foreground hover:bg-muted'
               }`}
             >
@@ -207,7 +207,7 @@ export function RecordingSection({ orgSettings }: RecordingSectionProps) {
               }}
               className={`rounded-lg border px-3 py-2 text-sm font-medium text-left transition-colors ${
                 disclosureMode === m.value
-                  ? 'border-primary bg-primary/10 text-primary'
+                  ? 'border-primary bg-primary/8 text-primary'
                   : 'border-border text-muted-foreground hover:bg-muted'
               }`}
             >

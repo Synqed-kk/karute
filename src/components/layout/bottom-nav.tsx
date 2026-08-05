@@ -168,7 +168,7 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
                 onClick={() => setMenuOpen(false)}
                 className={`flex items-center gap-3 rounded-lg px-3 py-3 transition-colors ${
                   active
-                    ? 'bg-primary/10 text-primary'
+                    ? 'bg-primary/8 text-primary'
                     : 'text-foreground hover:bg-muted'
                 }`}
               >

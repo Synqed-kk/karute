@@ -425,7 +425,7 @@ export function EntryEditSheet({
                   'rounded-full border px-3 text-[11.5px] font-semibold transition-colors',
                   folded ? 'h-6 shrink-0' : 'h-[26px]',
                   category === c
-                    ? 'border-foreground/30 bg-foreground/10 text-foreground'
+                    ? 'border-primary bg-primary/8 text-primary'
                     : 'border-border bg-muted text-muted-foreground',
                 )}
               >
