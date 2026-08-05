@@ -31,7 +31,7 @@ export default async function LandingPage({
           <ThemeToggle />
           <Link
             href={'/login' as Parameters<typeof Link>[0]['href']}
-            className="rounded-full bg-foreground px-5 py-2 text-sm font-semibold text-background hover:opacity-90 transition-opacity"
+            className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
           >
             {t('header.login')}
           </Link>
@@ -52,7 +52,7 @@ export default async function LandingPage({
         <div className="flex items-center justify-center gap-4 flex-wrap">
           <Link
             href={'/signup' as Parameters<typeof Link>[0]['href']}
-            className="rounded-full bg-foreground px-8 py-3.5 text-base font-semibold text-background hover:opacity-90 transition-opacity"
+            className="rounded-full bg-primary px-8 py-3.5 text-base font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
           >
             {t('hero.ctaPrimary')}
           </Link>
@@ -154,7 +154,7 @@ export default async function LandingPage({
         </p>
         <Link
           href={'/signup' as Parameters<typeof Link>[0]['href']}
-          className="inline-block rounded-full bg-foreground px-10 py-4 text-base font-semibold text-background hover:opacity-90 transition-opacity"
+          className="inline-block rounded-full bg-primary px-10 py-4 text-base font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
         >
           {t('cta.button')}
         </Link>

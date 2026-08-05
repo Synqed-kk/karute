@@ -405,7 +405,7 @@ export function PostSessionResolutionDialog({
                   onClick={() => setReason(r)}
                   className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                     reason === r
-                      ? 'border-foreground bg-foreground text-background'
+                      ? 'border-primary bg-primary/10 text-primary'
                       : 'border-border text-muted-foreground hover:bg-muted'
                   }`}
                 >
@@ -447,7 +447,7 @@ export function PostSessionResolutionDialog({
                   : null,
               )
             }
-            className="inline-flex h-11 items-center justify-center rounded-xl bg-foreground text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-40"
+            className="inline-flex h-11 items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
           >
             {saving ? t('saving') : t('save')}
           </button>

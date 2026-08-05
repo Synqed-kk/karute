@@ -281,7 +281,7 @@ function PlanCard({
       )}
       {isCurrent && (
         <span
-          className={`absolute -top-2.5 ${highlight ? 'right-3' : 'left-1/2 -translate-x-1/2'} whitespace-nowrap rounded-full bg-sage-800 px-2.5 py-0.5 text-[10.5px] font-bold text-white`}
+          className={`absolute -top-2.5 ${highlight ? 'right-3' : 'left-1/2 -translate-x-1/2'} whitespace-nowrap rounded-full bg-primary px-2.5 py-0.5 text-[10.5px] font-bold text-primary-foreground`}
         >
           {currentPill}
         </span>

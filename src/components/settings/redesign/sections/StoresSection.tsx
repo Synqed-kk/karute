@@ -340,7 +340,7 @@ export function StoresSection({
             }
             disabled={!canAdd}
             title={!canAdd ? t('limitReached') : undefined}
-            className="h-10 gap-1.5 bg-sage-800 text-white hover:bg-sage-900"
+            className="h-10 gap-1.5"
           >
             <Plus className="size-3.5" />
             {t('addStore')}

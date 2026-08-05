@@ -491,7 +491,7 @@ export function EntryEditSheet({
               // (other write paths don't bound content) stays possible.
               (entry !== null && content !== entry.body && content.trim() === '')
             }
-            className="rounded-full bg-foreground px-8 py-2.5 text-sm font-semibold text-background disabled:opacity-50"
+            className="rounded-full bg-primary px-8 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
           >
             {t('save')}
           </button>

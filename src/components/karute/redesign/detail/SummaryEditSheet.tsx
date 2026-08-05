@@ -388,7 +388,7 @@ export function SummaryEditSheet({
             disabled={
               saving || content.length > 4000 || summaryTextToBullets(content).length === 0
             }
-            className="rounded-full bg-foreground px-8 py-2.5 text-sm font-semibold text-background disabled:opacity-50"
+            className="rounded-full bg-primary px-8 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
           >
             {t('save')}
           </button>

@@ -44,7 +44,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   if (isUser) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[86%] whitespace-pre-wrap rounded-[16px_16px_4px_16px] bg-foreground px-3.5 py-2.5 text-sm font-medium text-background">
+        <div className="max-w-[86%] whitespace-pre-wrap rounded-[16px_16px_4px_16px] bg-primary px-3.5 py-2.5 text-sm font-medium text-primary-foreground">
           {message.text}
         </div>
       </div>

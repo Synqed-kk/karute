@@ -43,7 +43,7 @@ class Boundary extends Component<Props, State> {
         <button
           type="button"
           onClick={this.reset}
-          className="rounded-lg bg-foreground px-4 py-1.5 text-sm font-medium text-background"
+          className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground"
         >
           再読み込み
         </button>

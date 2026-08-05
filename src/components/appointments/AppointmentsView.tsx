@@ -14,7 +14,7 @@ import {
   type WeekDayCardData,
 } from '@synqed-kk/ui'
 import { useTranslations, useLocale } from 'next-intl'
-import { Bell, CalendarPlus } from 'lucide-react'
+import { Bell } from 'lucide-react'
 import { useRouter, usePathname } from '@/i18n/navigation'
 import {
   formatCompactDateJst,
@@ -243,66 +243,32 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         </div>
       </div>
 
-      {/* Wrapper scopes --color-accent to blue so the package's Today
-       *  button (which uses `text-[var(--color-accent)]`) renders blue
-       *  + clickable, matching the spike. Hover gets a blue tint via
-       *  the package's `hover:bg-[var(--color-accent)]/10`. CSS rule
-       *  defined in globals.css under `.reservation-today-blue`.
-       *
-       *  newBookingSlot is REQUIRED here — the package's default
-       *  new-booking button also uses --color-accent for its bg,
-       *  which would tint blue from our wrapper. The spike + Liam
-       *  want it dark/black (primary contrast against the page).
-       *  Custom slot below uses bg-foreground / text-background so
-       *  it's independent of --color-accent. */}
-      <div className="reservation-today-blue">
-        <ReservationPageHeader
-          dateDisplay={formatLongDateJst(headerDate, locale)}
-          dateDisplayCompact={formatCompactDateJst(headerDate, locale)}
-          onPrev={handlePrev}
-          onNext={handleNext}
-          onToday={handleToday}
-          onPickDate={handlePickDate}
-          onNewBooking={() => setDialogOpen(true)}
-          // @synqed-kk/ui ships English defaults baked into the component
-          // ("Today", "New Reservation", etc.). Same pattern as the
-          // DayWeekMonthToggle — pass localized strings via the `copy`
-          // prop so the JA build reads "今日" instead of "Today".
-          copy={{
-            title: tReservation('title'),
-            todayLabel: tReservation('today'),
-            newReservationLabel: tReservation('new'),
-            prevLabel: tReservation('prev'),
-            nextLabel: tReservation('next'),
-          }}
-          // Replaces the package's default new-booking button so the
-          // wrapper's blue --color-accent override doesn't leak into
-          // the button's bg. Mirrors the package's default markup
-          // (mobile icon-button, desktop labeled button) but uses
-          // bg-foreground/text-background so the styling is locked
-          // to dark regardless of the surrounding accent scope.
-          newBookingSlot={
-            <>
-              <button
-                type="button"
-                onClick={() => setDialogOpen(true)}
-                aria-label={tReservation('new')}
-                className="inline-flex size-9 shrink-0 items-center justify-center rounded-md bg-foreground text-background transition-colors hover:opacity-90 md:hidden"
-              >
-                <CalendarPlus className="size-4" aria-hidden />
-              </button>
-              <button
-                type="button"
-                onClick={() => setDialogOpen(true)}
-                className="hidden h-9 shrink-0 items-center gap-1.5 rounded-md bg-foreground px-3 text-sm font-medium text-background transition-colors hover:opacity-90 md:inline-flex"
-              >
-                <CalendarPlus className="size-3.5" aria-hidden />
-                {tReservation('new')}
-              </button>
-            </>
-          }
-        />
-      </div>
+      {/* R13 (2026-08-06): the app-level karute-theme accent override in
+       *  globals.css turned --color-accent blue system-wide, so the old
+       *  .reservation-today-blue wrapper and the custom dark newBookingSlot
+       *  (the "intentional black button" — carve-out killed by Liam 8/6)
+       *  are gone; the package defaults now render Today + new-booking in
+       *  the accent. */}
+      <ReservationPageHeader
+        dateDisplay={formatLongDateJst(headerDate, locale)}
+        dateDisplayCompact={formatCompactDateJst(headerDate, locale)}
+        onPrev={handlePrev}
+        onNext={handleNext}
+        onToday={handleToday}
+        onPickDate={handlePickDate}
+        onNewBooking={() => setDialogOpen(true)}
+        // @synqed-kk/ui ships English defaults baked into the component
+        // ("Today", "New Reservation", etc.). Same pattern as the
+        // DayWeekMonthToggle — pass localized strings via the `copy`
+        // prop so the JA build reads "今日" instead of "Today".
+        copy={{
+          title: tReservation('title'),
+          todayLabel: tReservation('today'),
+          newReservationLabel: tReservation('new'),
+          prevLabel: tReservation('prev'),
+          nextLabel: tReservation('next'),
+        }}
+      />
 
       {/* Chrome: Day/Week/Month toggle + Self/All segmented + per-staff pills
        *  Row 1: DWM toggle (localized via copy prop — defaults to English

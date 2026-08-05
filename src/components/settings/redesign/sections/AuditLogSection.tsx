@@ -448,7 +448,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
                 i > 0 ? 'border-l border-border' : ''
               } ${
                 range === r
-                  ? 'bg-foreground text-background'
+                  ? 'bg-primary/10 text-primary'
                   : 'text-muted-foreground hover:bg-muted'
               }`}
             >
@@ -798,7 +798,7 @@ function FilterChip({
       onClick={onClick}
       className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
         active
-          ? 'border-foreground bg-foreground text-background'
+          ? 'border-primary bg-primary/10 text-primary'
           : 'border-border text-muted-foreground hover:bg-muted'
       }`}
     >

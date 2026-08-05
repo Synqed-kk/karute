@@ -2,6 +2,28 @@
 
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
+## Design law — no black interactive elements (R13, Liam 2026-08-06)
+
+No tab, button, chip, toggle, or segmented control is EVER deliberately black.
+The interactive accent is blue-600 `#2563eb` (dark mode `#60a5fa`), carried by
+`--primary` in `src/app/globals.css` plus the `--color-accent` karute-theme
+override there (the @synqed-kk/ui package ships a black accent — the override
+is the app-side fix until the package retints).
+
+- Selected/pressed state (tabs, filters, chips, options): `bg-primary/10
+  text-primary` + `border-primary` where the control has a border. Never a
+  solid dark fill.
+- Commit/primary action (save, create, confirm): `bg-primary
+  text-primary-foreground hover:bg-primary/90`. Never `bg-foreground`,
+  `bg-sage-800`, or a dark hover.
+- Destructive stays red; status colors untouched; dark fills are legal only on
+  non-interactive surfaces (photo canvases, scrims — allowlist them in the
+  guard).
+
+Enforced by `npm run audit:dark-interactive`
+(`scripts/audit/check-dark-interactive.mjs`, runs in CI). If it fails, fix the
+color — don't allowlist an interactive element.
+
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
 ## 1. Think Before Coding

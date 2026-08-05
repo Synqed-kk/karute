@@ -322,7 +322,7 @@ function AlertRow({
                 type="button"
                 onClick={dismiss}
                 disabled={busy}
-                className="inline-flex items-center gap-1 rounded-md bg-foreground px-2 py-0.5 text-[11px] font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-60"
+                className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-0.5 text-[11px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
               >
                 {busy ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
                 {t('dismissConfirm')}

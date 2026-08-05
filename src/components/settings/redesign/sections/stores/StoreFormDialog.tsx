@@ -176,11 +176,7 @@ function StoreFormDialogBody({
         <Button variant="outline" onClick={onClose} disabled={saved}>
           {t('cancel')}
         </Button>
-        <Button
-          onClick={handleSave}
-          disabled={!canSave}
-          className="bg-sage-800 hover:bg-sage-900"
-        >
+        <Button onClick={handleSave} disabled={!canSave}>
           {saved ? t('saved') : isEdit ? t('saveEdit') : t('save')}
         </Button>
       </DialogFooter>

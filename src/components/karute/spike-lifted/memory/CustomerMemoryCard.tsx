@@ -359,7 +359,7 @@ export function CustomerMemoryCard({
           <button
             type="button"
             onClick={openAdd}
-            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-foreground px-3 text-[13px] font-medium text-background transition-opacity hover:opacity-90"
+            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-opacity hover:opacity-90"
           >
             <Plus className="size-3.5" />
             {t('addManually')}
@@ -679,7 +679,7 @@ function PassportFieldRow({
           type="button"
           onClick={save}
           disabled={pending}
-          className="shrink-0 rounded bg-foreground px-1.5 py-0.5 text-[10px] font-medium text-background disabled:opacity-50"
+          className="shrink-0 rounded bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground disabled:opacity-50"
         >
           {pending ? '…' : t('passportSave')}
         </button>

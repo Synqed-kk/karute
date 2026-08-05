@@ -110,10 +110,7 @@ export function AddStoreSubscriptionDialog({
               </Button>
               <Link
                 href={manageHref}
-                className={cn(
-                  buttonVariants({ variant: 'default' }),
-                  'bg-sage-800 hover:bg-sage-900',
-                )}
+                className={cn(buttonVariants({ variant: 'default' }))}
               >
                 {t('seePlansCta')}
                 <ArrowRight className="ml-1 size-3.5" aria-hidden />
@@ -191,10 +188,7 @@ export function AddStoreSubscriptionDialog({
               <Button variant="outline" onClick={onClose}>
                 {t('cancel')}
               </Button>
-              <Button
-                onClick={handleConfirm}
-                className="bg-sage-800 hover:bg-sage-900"
-              >
+              <Button onClick={handleConfirm}>
                 {t('addSeatCta')}
               </Button>
             </DialogFooter>
@@ -247,10 +241,7 @@ export function AddStoreSubscriptionDialog({
               <Button variant="outline" onClick={onClose}>
                 {t('cancel')}
               </Button>
-              <Button
-                onClick={handleConfirm}
-                className="bg-sage-800 hover:bg-sage-900"
-              >
+              <Button onClick={handleConfirm}>
                 {t('confirmAddCta')}
               </Button>
             </DialogFooter>
