@@ -222,7 +222,7 @@ export function PacksSection({ orgSettings }: PacksSectionProps) {
         type="button"
         onClick={save}
         disabled={saving}
-        className="w-full rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground transition-opacity disabled:opacity-50 md:w-auto md:px-8"
+        className="w-full rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-hover disabled:opacity-50 md:w-auto md:px-8"
       >
         {saving ? t('saving') : t('save')}
       </button>

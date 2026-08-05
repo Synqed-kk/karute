@@ -679,7 +679,7 @@ function PassportFieldRow({
           type="button"
           onClick={save}
           disabled={pending}
-          className="shrink-0 rounded bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground disabled:opacity-50"
+          className="shrink-0 rounded bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground transition-colors hover:bg-primary-hover disabled:opacity-50"
         >
           {pending ? '…' : t('passportSave')}
         </button>

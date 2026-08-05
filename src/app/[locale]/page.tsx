@@ -40,7 +40,7 @@ export default async function LandingPage({
 
       {/* Hero */}
       <section className="max-w-5xl mx-auto px-6 pt-16 pb-20 text-center">
-        <div className="inline-block rounded-full bg-primary/10 px-4 py-1.5 text-xs font-semibold text-primary mb-6">
+        <div className="inline-block rounded-full bg-primary/8 px-4 py-1.5 text-xs font-semibold text-primary mb-6">
           {t('hero.badge')}
         </div>
         <h1 className="text-5xl md:text-6xl font-bold tracking-tight leading-[1.1] mb-6">

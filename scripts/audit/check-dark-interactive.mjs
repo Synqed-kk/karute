@@ -40,18 +40,22 @@ const rootDir = process.cwd()
 // bg-black/40) legal — a wash is a tint, not a black box.
 const NEARBLACK_HEX = '#(?:[0-3][0-9a-fA-F][0-3][0-9a-fA-F][0-3][0-9a-fA-F]\\b|[0-3][0-3][0-3]\\b)'
 const LOW_CHANNEL = '(?:[0-5]?\\d|6[0-3])' // 0–63 of 255
-// (?!\s*,\s*0?\.) — rgba with alpha < 1 is a scrim/wash, same legality as
-// bg-black/40; only opaque low-rgb fills count.
-const LOW_RGB = `rgba?\\(\\s*${LOW_CHANNEL}\\s*,\\s*${LOW_CHANNEL}\\s*,\\s*${LOW_CHANNEL}(?!\\s*,\\s*0?\\.)`
+// Channels may be comma-, space-, or underscore-separated (CSS Color 4 +
+// Tailwind arbitrary-value underscores). (?![\s,_/]*0?\.) — a following
+// fractional alpha in ANY syntax (",.85" / "/ .85" / "_/_.85") makes it a
+// scrim/wash, same legality as bg-black/40; only opaque low-rgb fills count.
+const LOW_SEP = '[\\s,_]+'
+const LOW_RGB = `rgba?\\(\\s*${LOW_CHANNEL}${LOW_SEP}${LOW_CHANNEL}${LOW_SEP}${LOW_CHANNEL}(?![\\s,_/]*0?\\.)`
+// Arbitrary-value forms consume to the closing "]" and reject a /NN opacity
+// modifier after it — bg-[#1a1a1a]/20 is a legal scrim, bg-[#1a1a1a] is not.
+// oklch band: L < 0.4 mirrors the ≤ #3f3f3f hex band (≈ oklch L 0.37).
+const ARBITRARY_DARK = `bg-\\[(?:${NEARBLACK_HEX}[^\\]]*|black|${LOW_RGB}[^\\]]*|oklch\\(\\s*0?\\.[0-3][^\\]]*)\\](?!\\/)`
 const CLASS_PATTERNS = [
   { re: /(?<!dark:)bg-foreground(?!\/)/g, label: 'bg-foreground solid fill (ink as fill)' },
   { re: /bg-sage-(?:[6-9]\d\d)/g, label: 'bg-sage-600+ (near-black sage step)' },
   { re: /bg-black(?![/\w-])/g, label: 'solid bg-black (any mode)' },
   { re: /(?<!dark:)bg-(?:zinc|neutral|gray|stone|slate)-(?:8|9)\d\d(?!\/)/g, label: 'light-mode dark neutral fill' },
-  {
-    re: new RegExp(`bg-\\[(?:${NEARBLACK_HEX}|black\\]|${LOW_RGB}|oklch\\(\\s*0?\\.[0-2])`, 'g'),
-    label: 'arbitrary-value near-black fill',
-  },
+  { re: new RegExp(ARBITRARY_DARK, 'g'), label: 'arbitrary-value near-black fill' },
 ]
 // Inline styles: background/backgroundColor with a near-black hex, the
 // keyword 'black', or an all-low rgb()/rgba().
@@ -59,6 +63,12 @@ const INLINE_RE = new RegExp(
   `background(?:Color)?:\\s*['"](?:${NEARBLACK_HEX}|black\\b|${LOW_RGB})`,
   'g',
 )
+// Exempted lines must carry no on-line interactivity marker: closes the
+// "move the pinned string onto a real control" swap (guard-verify round) —
+// the pin's legality claim is "non-interactive", so any interactivity
+// evidence on the same line voids it. Multi-line JSX where the tag opens on
+// an earlier line is a documented residual.
+const INTERACTIVE_MARKERS = /<button|<a\s|onClick|onPointerDown|role="button"|href=|cursor-pointer/
 
 // Known-legal dark fills. Each exemption is scoped to the EXACT documented
 // occurrence: path + label + a `match` substring the flagged line must
@@ -122,10 +132,12 @@ for (const file of files) {
   const lines = readFileSync(file, 'utf8').split('\n')
   let inBlockComment = false
   lines.forEach((line, i) => {
-    // Comment handling (guard-attack round findings 7/8): strip inline
-    // /* … */ and JSX {/* … */} spans, whole-line // comments, and lines
-    // inside a multi-line block comment — comment PROSE mentioning a
-    // forbidden class must not flag, and code after a comment must still scan.
+    // Comment handling (two verify rounds): strip inline /* … */ and JSX
+    // {/* … */} spans, whole-line AND trailing // comments, and lines inside
+    // a multi-line block comment — comment PROSE mentioning a forbidden
+    // class must not flag, code after a comment must still scan, and a
+    // stray "/*" inside // prose must NOT latch the block-comment state
+    // (it blinded the rest of the file before the // strip ran first).
     let code = line
     if (inBlockComment) {
       const end = code.indexOf('*/')
@@ -133,13 +145,15 @@ for (const file of files) {
       code = code.slice(end + 2)
       inBlockComment = false
     }
+    // Trailing // requires preceding whitespace or line start so protocol
+    // slashes (https://…) survive; then a "/*" seen afterwards is real code.
+    code = code.replace(/(^|\s)\/\/.*$/, '$1').replace(/^\s*\*.*$/, '')
     code = code.replace(/\{?\/\*[\s\S]*?\*\/\}?/g, '')
     const open = code.indexOf('/*')
     if (open !== -1) {
       code = code.slice(0, open)
       inBlockComment = true
     }
-    code = code.replace(/^\s*\/\/.*$/, '').replace(/^\s*\*.*$/, '')
 
     for (const { re, label } of CLASS_PATTERNS) {
       re.lastIndex = 0
@@ -148,6 +162,19 @@ for (const file of files) {
         (a) => a.path === rel && a.label === label && a.match.some((m) => line.includes(m)),
       )
       if (entry) {
+        // A pin's legality claim is "non-interactive" — interactivity
+        // evidence on the exempted line voids the exemption outright
+        // (guard-verify round: pin text MOVED onto a real control kept the
+        // occurrence count flat and slipped through).
+        if (INTERACTIVE_MARKERS.test(code)) {
+          findings.push({
+            rel,
+            line: i + 1,
+            label: `${label} — pinned substring on an INTERACTIVE line`,
+            text: line.trim().slice(0, 120),
+          })
+          continue
+        }
         // Exempt only as many OCCURRENCES as the pinned substrings themselves
         // carry (Greptile r4 #671): a second same-pattern fill added beside
         // the pin on the same line must not ride the exemption.
