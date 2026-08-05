@@ -148,6 +148,26 @@ for (const file of files) {
         (a) => a.path === rel && a.label === label && a.match.some((m) => line.includes(m)),
       )
       if (entry) {
+        // Exempt only as many OCCURRENCES as the pinned substrings themselves
+        // carry (Greptile r4 #671): a second same-pattern fill added beside
+        // the pin on the same line must not ride the exemption.
+        re.lastIndex = 0
+        const lineHits = [...code.matchAll(re)].length
+        const pinHits = entry.match
+          .filter((m) => line.includes(m))
+          .reduce((n, m) => {
+            re.lastIndex = 0
+            return n + [...m.matchAll(re)].length
+          }, 0)
+        if (lineHits > pinHits) {
+          findings.push({
+            rel,
+            line: i + 1,
+            label: `${label} — ${lineHits} occurrences exceed the ${pinHits} pinned on this line`,
+            text: line.trim().slice(0, 120),
+          })
+          continue
+        }
         if (!exemptUses.has(entry)) exemptUses.set(entry, [])
         exemptUses.get(entry).push({ line: i + 1, text: line.trim().slice(0, 120) })
         continue
