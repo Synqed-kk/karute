@@ -35,14 +35,40 @@ const CLASS_PATTERNS = [
 const INLINE_RE =
   /background(?:Color)?:\s*['"]#(?:[0-3][0-3][0-3]\b|[0-3][0-9a-fA-F][0-3][0-9a-fA-F][0-3][0-9a-fA-F])/g
 
-// Known-legal dark fills. Path + which label it excuses + why it's legal.
+// Known-legal dark fills. Each exemption is scoped to the EXACT documented
+// occurrence: path + label + a `match` substring the flagged line must contain
+// (Greptile #671: a path-wide exemption would let a future black interactive
+// element in the same file pass under an unrelated excuse). A new dark fill in
+// an allowlisted file that doesn't reproduce the pinned line still fails.
 const ALLOW = [
-  { path: 'src/components/staff/PinPad.tsx', label: 'bg-foreground solid fill (ink as fill)', reason: 'passcode-entry dots — non-interactive filled/unfilled indicators (iOS PIN pattern)' },
-  { path: 'src/components/profile/redesign/ProfilePageView.tsx', label: 'bg-foreground solid fill (ink as fill)', reason: 'avatar-initials circle — non-interactive identity mark' },
-  { path: 'src/components/customers/redesign/profile/PhotoCompareView.tsx', label: 'solid bg-black', reason: 'photo canvas — media surface behind photos' },
-  { path: 'src/components/customers/redesign/profile/PhotoPresentationOverlay.tsx', label: 'solid bg-black', reason: 'customer-facing fullscreen photo canvas' },
-  { path: 'src/components/layout/sidebar.tsx', label: 'light-mode dark neutral fill', reason: 'the "dark" sidebar appearance setting — a themed surface, not a control fill' },
-  { path: 'src/components/settings/redesign/sections/ThemeSection.tsx', label: 'light-mode dark neutral fill', reason: 'theme-preview thumbnails — miniature non-interactive illustrations of the dark theme' },
+  {
+    path: 'src/components/staff/PinPad.tsx',
+    label: 'bg-foreground solid fill (ink as fill)',
+    match: ["'bg-foreground border-foreground'"],
+    reason: 'passcode-entry dots — non-interactive filled/unfilled indicators (iOS PIN pattern)',
+  },
+  {
+    path: 'src/components/profile/redesign/ProfilePageView.tsx',
+    label: 'bg-foreground solid fill (ink as fill)',
+    match: ['rounded-full bg-foreground text-base font-semibold'],
+    reason: 'avatar-initials circle — non-interactive identity mark',
+  },
+  {
+    path: 'src/components/layout/sidebar.tsx',
+    label: 'light-mode dark neutral fill',
+    match: ["'dark bg-neutral-900'"],
+    reason: 'the "dark" sidebar appearance setting — a themed surface, not a control fill',
+  },
+  {
+    path: 'src/components/settings/redesign/sections/ThemeSection.tsx',
+    label: 'light-mode dark neutral fill',
+    match: [
+      'h-1.5 w-10 rounded-sm bg-gray-900',
+      'h-1.5 w-12 rounded-sm bg-gray-800',
+      'w-14 space-y-1 bg-gray-900 p-1.5',
+    ],
+    reason: 'theme-preview thumbnails — miniature non-interactive illustrations of the dark theme',
+  },
 ]
 
 function walk(dir, out) {
@@ -67,7 +93,10 @@ for (const file of files) {
     for (const { re, label } of CLASS_PATTERNS) {
       re.lastIndex = 0
       if (!re.test(code)) continue
-      if (ALLOW.some((a) => a.path === rel && a.label === label)) continue
+      const exempt = ALLOW.some(
+        (a) => a.path === rel && a.label === label && a.match.some((m) => line.includes(m)),
+      )
+      if (exempt) continue
       findings.push({ rel, line: i + 1, label, text: line.trim().slice(0, 120) })
     }
     INLINE_RE.lastIndex = 0
