@@ -350,7 +350,7 @@ function StoreRow({
     <div className="flex items-start gap-2.5 px-3 py-2 bg-muted/30">
       <Check
         className={`size-3.5 shrink-0 mt-0.5 ${
-          active ? 'text-blue-500' : 'text-transparent'
+          active ? 'text-foreground' : 'text-transparent'
         }`}
       />
       <div className="flex-1 min-w-0">

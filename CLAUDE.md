@@ -47,6 +47,15 @@ a solid `bg-primary` fill on a non-pressable), focus rings and focus-visible
 styles (a11y), semantic colors (red destructive, green success, amber
 warning), chart/data colors.
 
+The law binds the saturated blue family in ANY spelling (Liam, phase 2
+2026-08-06): the primary tokens above, literal Tailwind blues
+(`text-blue-400`–`700`, solid `bg-blue-400`–`700`, `border-blue-400`–`700` —
+blue-400 is the dark-mode primary, saturated, not a wash), and raw accent
+hexes are all the same accent. Wash-level tints (*-50, *-100,
+opacity washes) stay in the legal soft-wash tier — the approved icon-chip
+treatment is `bg-blue-100 text-blue-700` + dark `bg-blue-500/15
+text-blue-300`.
+
 No sound fully-automated gate exists for this law — pressability is semantic;
 a grep heuristic (like check-dark-interactive's INTERACTIVE_MARKERS) can flag
 candidates but not judge them. Enforcement is review plus class-contract

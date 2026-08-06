@@ -154,7 +154,7 @@ function FormatCard({
   return (
     <div className="rounded-xl bg-card p-3 shadow-sm ring-1 ring-black/5 dark:ring-white/10">
       <div className="mb-1.5 flex items-center gap-2">
-        <Icon className="size-4 text-blue-600 dark:text-blue-300" aria-hidden />
+        <Icon className="size-4 text-muted-foreground" aria-hidden />
         <span className="text-xs font-semibold text-foreground">
           {t(titleKey)}
         </span>
