@@ -38,7 +38,8 @@ status/informational text, and non-pressable indicators must be neutral
 
 The law is ONE-WAY: pressables may be quieter than accent (outline cancel
 buttons, neutral tappable rows, muted icons) — that is fine and NOT a
-violation.
+violation. The allowance covers resting-state quietness only; it does not
+override the R13 selected-state recipe above.
 
 LEGAL and out of scope: soft washes (`bg-primary/8`, `bg-blue-50` info
 banners, wash-styled status chips — wash-level opacity or a *-50 tint, never
@@ -50,7 +51,8 @@ No sound fully-automated gate exists for this law — pressability is semantic;
 a grep heuristic (like check-dark-interactive's INTERACTIVE_MARKERS) can flag
 candidates but not judge them. Enforcement is review plus class-contract
 tests pinning adjudicated sites
-(`src/__tests__/integration/accent-tier-contract.test.tsx` and siblings).
+(`src/__tests__/integration/accent-tier-contract.test.tsx` today; siblings
+accrue as more sites are adjudicated).
 Judge the ELEMENT, not the file: accent on a span INSIDE a link/button is
 part of the pressable and legal.
 
