@@ -22,6 +22,7 @@
 //                                  scoping can layer in later)
 
 import { Button } from '@/components/ui/button'
+import { FilePlus2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { useSearchParams } from 'next/navigation'
@@ -283,18 +284,24 @@ export function KaruteRecordListView({
            *  earlier this CTA routed there too, conflating manual entry
            *  with starting a recording. Two distinct intents now have
            *  two distinct surfaces. */}
-          {/* Unified create pill (Liam 8/6, 案A): all three list-page
-           *  create CTAs share the plain Button default — same height,
-           *  radius, and「+ ラベル」wording as 顧客's + 新規顧客. */}
-          <Button type="button" onClick={() => setNewKaruteOpen(true)}>
-            {t('newKarute')}
+          {/* Unified create pill (Liam 8/6 案A + 8/7 responsive ruling):
+           *  shared Button default, recognizable icon always, label
+           *  collapses on narrow phones (<380px). */}
+          <Button
+            type="button"
+            aria-label={t('newKarute')}
+            onClick={() => setNewKaruteOpen(true)}
+          >
+            <FilePlus2 className="size-3.5" aria-hidden />
+            <span className="hidden min-[380px]:inline">{t('newKarute')}</span>
           </Button>
         </div>
       </div>
 
-      {/* Staff-scope filter — "your customers / all / specific staff" */}
+      {/* Staff-scope filter — "your customers / all / specific staff".
+       *  mt-4/pt-4 below: 16px header rhythm (Liam 8/7), matching 顧客/予約. */}
       {staffList.length > 0 && (
-        <div className="mt-3">
+        <div className="mt-4">
           <CustomersStaffFilter
             staffList={staffList}
             selfStaffId={currentStaffId ?? null}
@@ -305,7 +312,7 @@ export function KaruteRecordListView({
       )}
 
       {/* Search input — reuses the customer search input visually */}
-      <div className="pt-3">
+      <div className="pt-4">
         <label className="flex w-full items-center gap-2 rounded-[10px] border border-border bg-card px-3 focus-within:border-sky-500">
           <svg
             xmlns="http://www.w3.org/2000/svg"

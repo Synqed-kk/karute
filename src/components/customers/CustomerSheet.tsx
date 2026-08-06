@@ -12,6 +12,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { UserPlus } from 'lucide-react'
 import { CustomerForm } from '@/components/customers/CustomerForm'
 
 interface CustomerSheetProps {
@@ -40,10 +41,15 @@ export function CustomerSheet({ assignableStaff }: CustomerSheetProps) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
+      {/* Responsive CTA (Liam 8/7): recognizable icon always; label joins
+       *  it on regular widths, collapses away on narrow phones (<380px)
+       *  where the words crowd the row. aria-label keeps the accessible
+       *  name when only the icon shows. */}
       <DialogTrigger
         render={
-          <Button>
-            {t('newCustomer')}
+          <Button aria-label={t('newCustomer')}>
+            <UserPlus className="size-3.5" aria-hidden />
+            <span className="hidden min-[380px]:inline">{t('newCustomer')}</span>
           </Button>
         }
       />

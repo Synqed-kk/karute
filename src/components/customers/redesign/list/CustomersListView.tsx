@@ -305,7 +305,9 @@ export function CustomersListView({
     // padding now (system rule). Matches the spike's customer list page
     // which wraps with px-4 md:px-8; using md:px-6 here for consistency
     // with reservation + karute customer detail conventions.
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-4 pt-0 pb-6 md:gap-4 md:px-6 md:pb-6">
+    // gap-4 on mobile too (Liam 8/7): bordered control rows read cramped
+    // at 12px — 16px matches the desktop rhythm this page already used.
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 pt-0 pb-6 md:px-6 md:pb-6">
       <CustomersListHeader
         total={totalRegistered}
         showing={filteredRows.length}

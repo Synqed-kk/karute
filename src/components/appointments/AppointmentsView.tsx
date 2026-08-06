@@ -14,7 +14,7 @@ import {
   type WeekDayCardData,
 } from '@synqed-kk/ui'
 import { useTranslations, useLocale } from 'next-intl'
-import { Bell } from 'lucide-react'
+import { Bell, CalendarPlus } from 'lucide-react'
 import { useRouter, usePathname } from '@/i18n/navigation'
 import { Button } from '@/components/ui/button'
 import {
@@ -176,7 +176,10 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     // reservation page wrapper (`px-4 md:px-6`). Cards inside this
     // wrapper sit at 16/24px from edge — chrome (date selector, toggles,
     // legend) lands at the same offset for visual alignment.
-    <div className="relative space-y-3 px-4 md:px-6">
+    // space-y-4 (Liam 8/7): the date-nav row and the 日週月/filter row
+    // both carry borders — 12px read as touching; 16px matches the
+    // 顧客/カルテ header rhythm.
+    <div className="relative space-y-4 px-4 md:px-6">
       {/* Hidden native date picker; opened by the header's date button. */}
       <input
         ref={datePickerRef}
@@ -268,8 +271,13 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         // props entirely, so they are not passed — the slot's own onClick
         // and label are the single source of truth.
         newBookingSlot={
-          <Button type="button" onClick={() => setDialogOpen(true)}>
-            {tReservation('new')}
+          <Button
+            type="button"
+            aria-label={tReservation('new')}
+            onClick={() => setDialogOpen(true)}
+          >
+            <CalendarPlus className="size-3.5" aria-hidden />
+            <span className="hidden min-[380px]:inline">{tReservation('new')}</span>
           </Button>
         }
         // @synqed-kk/ui ships English defaults baked into the component
