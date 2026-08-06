@@ -680,7 +680,7 @@
   },
   "customers": {
     "title": "Customers",
-    "newCustomer": "+ New Customer",
+    "newCustomer": "+ New customer",
     "unknownName": "Unknown",
     "deletionBanner": {
       "title": "{name} is deleted — restorable for {days, plural, one {# more day} other {# more days}}",

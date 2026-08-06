@@ -257,10 +257,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         onNext={handleNext}
         onToday={handleToday}
         onPickDate={handlePickDate}
-        onNewBooking={() => setDialogOpen(true)}
         // Unified create pill (Liam 8/6, 案A): the package default is an
         // icon-only square on mobile — the slot override keeps the same
-        // shared-Button「+ ラベル」pill as the 顧客/カルテ list pages.
+        // shared-Button「+ ラベル」pill as the 顧客/カルテ list pages. The
+        // slot bypasses the package's onNewBooking/newReservationLabel
+        // props entirely, so they are not passed — the slot's own onClick
+        // and label are the single source of truth.
         newBookingSlot={
           <Button type="button" onClick={() => setDialogOpen(true)}>
             {tReservation('new')}
@@ -273,7 +275,6 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         copy={{
           title: tReservation('title'),
           todayLabel: tReservation('today'),
-          newReservationLabel: tReservation('new'),
           prevLabel: tReservation('prev'),
           nextLabel: tReservation('next'),
         }}
