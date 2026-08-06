@@ -39,10 +39,14 @@ describe('create-CTA unification (案A 2026-08-06)', () => {
     expect(trigger).not.toMatch(/className/)
   })
 
-  it('the「+ ラベル」wording is baked into all three labels', () => {
+  it('the「+ ラベル」wording is baked into all three labels, both locales', () => {
     const ja = JSON.parse(read('messages/ja.json'))
     expect(ja.customers.newCustomer).toBe('+ 新規顧客')
     expect(ja.karute.recordList.newKarute).toBe('+ 新規カルテ')
     expect(ja.reservation.new).toBe('+ 新規予約')
+    const en = JSON.parse(read('messages/en.json'))
+    expect(en.customers.newCustomer).toBe('+ New Customer')
+    expect(en.karute.recordList.newKarute).toBe('+ New karute')
+    expect(en.reservation.new).toBe('+ New booking')
   })
 })
