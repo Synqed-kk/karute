@@ -195,7 +195,7 @@ export function ExportSummaryRail({
             {t('generating')} <span className="font-mono">{fileName}</span>
           </div>
           <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-            <div className="h-full bg-blue-500 animate-pulse" style={{ width: '64%' }} />
+            <div className="h-full bg-blue-200 dark:bg-blue-500/30 animate-pulse" style={{ width: '64%' }} />
           </div>
         </>
       )}

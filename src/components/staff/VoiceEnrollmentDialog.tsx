@@ -208,7 +208,7 @@ export function VoiceEnrollmentDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base font-semibold">
-            <Mic className="size-4 text-blue-600" aria-hidden />
+            <Mic className="size-4 text-muted-foreground" aria-hidden />
             {t('title')}
           </DialogTitle>
           <DialogDescription className="text-sm leading-relaxed">
@@ -314,7 +314,7 @@ export function VoiceEnrollmentDialog({
 
         {step === 'uploading' && (
           <div className="flex flex-col items-center gap-3 py-8">
-            <Mic className="size-6 animate-pulse text-blue-600" aria-hidden />
+            <Mic className="size-6 animate-pulse text-foreground" aria-hidden />
             <span className="text-sm text-muted-foreground">{t('uploading')}</span>
           </div>
         )}

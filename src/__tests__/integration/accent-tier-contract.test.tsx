@@ -29,6 +29,7 @@ jest.mock('@/i18n/navigation', () => ({
       {children}
     </a>
   ),
+  useRouter: () => ({ push: () => {} }),
 }))
 jest.mock('@/i18n/client-messages', () => ({
   PAGE_PICKS: { landing: [] },
@@ -55,6 +56,27 @@ describe('landing hero badge (decoration)', () => {
     // One-way: the pressable signup CTA keeps the solid accent fill.
     const cta = screen.getByText('hero.ctaPrimary')
     expect(cta.className).toMatch(cls('bg-primary'))
+  })
+})
+
+describe('phase 2 — literal blues (non-pressable decoration)', () => {
+  it('import stepper current step is wash+border, never solid blue-600', () => {
+    const { ImportStepper } = require('@/components/data-import/ImportStepper')
+    const { container } = render(<ImportStepper activeStep={1} />)
+    expect(container.querySelector('[class*="bg-blue-600"]')).toBeNull()
+    const chips = container.querySelectorAll('.size-7')
+    const active = chips[1]?.className ?? ''
+    expect(active).toMatch(cls('bg-blue-100'))
+    expect(active).toMatch(cls('border-blue-300'))
+    expect(chips[0]?.className ?? '').toMatch(cls('bg-blue-50'))
+  })
+
+  it('export page eyebrow and heading icon are muted, never accent blue', () => {
+    const { PageHeader } = require('@/components/export/redesign/sections/PageHeader')
+    render(<PageHeader />)
+    const eyebrow = screen.getByText('eyebrow')
+    expect(eyebrow.className).toMatch(cls('text-muted-foreground'))
+    expect(eyebrow.className).not.toMatch(cls('text-blue-500'))
   })
 })
 

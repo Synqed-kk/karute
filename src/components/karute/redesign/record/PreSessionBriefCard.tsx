@@ -122,10 +122,10 @@ export function PreSessionBriefCard({
     return (
       <section className="rounded-2xl bg-gradient-to-br from-blue-50/60 via-card to-card p-4 ring-1 ring-blue-100 dark:from-blue-500/10 dark:via-card dark:to-card dark:ring-blue-500/20 md:p-5">
         <header className="mb-2 flex items-center gap-2">
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
+          <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
             <Sparkles className="size-3.5" aria-hidden />
           </div>
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-300">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             {t('title')}
           </span>
         </header>
@@ -199,10 +199,10 @@ export function PreSessionBriefCard({
     return (
       <section className="rounded-2xl bg-gradient-to-br from-blue-50/60 via-card to-card p-4 ring-1 ring-blue-100 dark:from-blue-500/10 dark:via-card dark:to-card dark:ring-blue-500/20 md:p-5">
         <div className="mb-2 flex items-center gap-2">
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
+          <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
             <Sparkles className="size-3.5" aria-hidden />
           </div>
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-300">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             {t('firstTimeHeader')}
           </span>
         </div>
@@ -235,11 +235,11 @@ export function PreSessionBriefCard({
     <section className="rounded-2xl bg-gradient-to-br from-blue-50/60 via-card to-card p-4 ring-1 ring-blue-100 dark:from-blue-500/10 dark:via-card dark:to-card dark:ring-blue-500/20 md:p-5">
       {/* Header — Sparkles icon + label + last-visit subtitle */}
       <header className="mb-3 flex items-center gap-2">
-        <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
+        <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
           <Sparkles className="size-3.5" aria-hidden />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-300">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             {t('title')}
           </div>
           {brief.lastVisitDate && (
@@ -285,7 +285,7 @@ export function PreSessionBriefCard({
        *  time. THE first thing staff read: how to start the conversation. */}
       {hasOpener && (
         <div className="mb-3 rounded-lg border border-blue-200/70 bg-card/70 p-3 dark:border-blue-500/20">
-          <div className="mb-1.5 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-blue-700 dark:text-blue-300">
+          <div className="mb-1.5 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
             <MessageCircle className="size-3" aria-hidden />
             {t('opener')}
           </div>
@@ -337,7 +337,7 @@ export function PreSessionBriefCard({
                 key={i}
                 className="flex gap-2 text-[14px] leading-relaxed text-foreground/90"
               >
-                <span className="shrink-0 font-semibold tabular-nums text-blue-500">
+                <span className="shrink-0 font-semibold tabular-nums text-muted-foreground">
                   {i + 1}.
                 </span>
                 <span>{a}</span>
@@ -610,7 +610,7 @@ function MemoAnalysisBlock({
     >
       <Wand2 className="mt-0.5 size-3 shrink-0 text-blue-500/80 dark:text-blue-300/80" aria-hidden />
       <div className="min-w-0 flex-1">
-        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
           {label}
         </div>
         <ul className="space-y-0.5">

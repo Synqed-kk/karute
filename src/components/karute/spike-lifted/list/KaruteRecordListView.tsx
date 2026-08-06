@@ -360,7 +360,7 @@ export function KaruteRecordListView({
                   {dayLabel && (
                     <>
                       <span aria-hidden> · </span>
-                      <span className="text-blue-700 dark:text-blue-300">
+                      <span className="text-muted-foreground">
                         {dayLabel}
                       </span>
                     </>

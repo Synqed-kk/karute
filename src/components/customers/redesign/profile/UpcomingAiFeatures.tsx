@@ -260,21 +260,21 @@ const ACCENT_CLASSES: Record<
 > = {
   blue: {
     ring: 'border-blue-200/60 dark:border-blue-500/20',
-    iconBg: 'bg-blue-600 dark:bg-blue-500/80',
-    iconText: 'text-white',
-    label: 'text-blue-700 dark:text-blue-300',
+    iconBg: 'bg-blue-100 dark:bg-blue-500/15',
+    iconText: 'text-blue-700 dark:text-blue-300',
+    label: 'text-foreground',
   },
   amber: {
     ring: 'border-amber-200/60 dark:border-amber-500/20',
-    iconBg: 'bg-amber-500 dark:bg-amber-500/80',
-    iconText: 'text-white',
-    label: 'text-amber-700 dark:text-amber-300',
+    iconBg: 'bg-amber-100 dark:bg-amber-500/15',
+    iconText: 'text-amber-700 dark:text-amber-300',
+    label: 'text-foreground',
   },
   rose: {
     ring: 'border-rose-200/60 dark:border-rose-500/20',
-    iconBg: 'bg-rose-500 dark:bg-rose-500/80',
-    iconText: 'text-white',
-    label: 'text-rose-700 dark:text-rose-300',
+    iconBg: 'bg-rose-100 dark:bg-rose-500/15',
+    iconText: 'text-rose-700 dark:text-rose-300',
+    label: 'text-foreground',
   },
 }
 

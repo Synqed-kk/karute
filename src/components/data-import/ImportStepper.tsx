@@ -37,9 +37,9 @@ export function ImportStepper({ activeStep }: ImportStepperProps) {
               <div
                 className={`flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
                   isActive
-                    ? 'bg-blue-600 text-white'
+                    ? 'border-[1.5px] border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-300'
                     : isDone
-                      ? 'border border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-300'
+                      ? 'border border-blue-200 bg-blue-50 text-blue-600 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-300/80'
                       : 'border border-gray-200 bg-gray-100 text-muted-foreground dark:border-white/10 dark:bg-neutral-800'
                 }`}
               >
@@ -47,7 +47,11 @@ export function ImportStepper({ activeStep }: ImportStepperProps) {
               </div>
               <span
                 className={`text-xs font-medium tabular-nums ${
-                  isActive || isDone ? 'text-foreground' : 'text-muted-foreground'
+                  isActive
+                    ? 'text-foreground font-semibold'
+                    : isDone
+                      ? 'text-foreground'
+                      : 'text-muted-foreground'
                 }`}
               >
                 {i + 1}.{' '}
@@ -57,7 +61,7 @@ export function ImportStepper({ activeStep }: ImportStepperProps) {
             {i < STEPS.length - 1 && (
               <div
                 className={`mx-2 h-px min-w-4 flex-1 md:mx-3 ${
-                  isDone ? 'bg-blue-300' : 'bg-gray-200 dark:bg-white/10'
+                  isDone ? 'bg-blue-200 dark:bg-blue-500/20' : 'bg-gray-200 dark:bg-white/10'
                 }`}
               />
             )}

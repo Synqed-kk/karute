@@ -87,7 +87,7 @@ export function SubscriptionSummaryCard() {
       : 0
     return (
       <div className="flex items-start gap-3 rounded-xl bg-gradient-to-br from-blue-50/70 via-white to-white px-4 py-3 ring-1 ring-blue-200/70 dark:bg-card dark:from-transparent dark:via-transparent dark:to-transparent dark:ring-blue-500/25">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
           <Sparkles className="size-4" aria-hidden />
         </div>
         <div className="min-w-0 flex-1">
@@ -144,7 +144,7 @@ export function SubscriptionSummaryCard() {
         className={`flex size-8 shrink-0 items-center justify-center rounded-full ${
           isPro
             ? 'bg-amber-500 text-white dark:bg-amber-400'
-            : 'bg-blue-600 text-white'
+            : 'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300'
         }`}
       >
         {isPro ? (
