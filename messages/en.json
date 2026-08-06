@@ -138,7 +138,7 @@
   },
   "reservation": {
     "title": "Appointments",
-    "new": "New booking",
+    "new": "+ New booking",
     "today": "Today",
     "prev": "Previous",
     "next": "Next",
