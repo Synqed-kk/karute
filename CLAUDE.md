@@ -27,6 +27,30 @@ Enforced by `npm run audit:dark-interactive`
 (`scripts/audit/check-dark-interactive.mjs`, runs in CI). If it fails, fix the
 color — don't allowlist an interactive element.
 
+## Design law — the one-way accent law (Liam 2026-08-06)
+
+Saturated accent (`text-primary` used as a text color, `border-primary` as a
+border, solid `bg-primary` fill) is RESERVED for interactive elements — things
+a user can press: links, buttons, and the selected/active state OF pressable
+controls (tabs, filter pills, options). Decoration, section labels,
+status/informational text, and non-pressable indicators must be neutral
+(`muted-foreground` / `border-border` / foreground-family).
+
+The law is ONE-WAY: pressables may be quieter than accent (outline cancel
+buttons, neutral tappable rows, muted icons) — that is fine and NOT a
+violation.
+
+LEGAL and out of scope: soft washes (`bg-primary/8`, `bg-blue-50` info
+banners, status chips), focus rings and focus-visible styles (a11y), semantic
+colors (red destructive, green success, amber warning), chart/data colors.
+
+No grep guard can enforce this law (pressability is semantic, not textual) —
+it is enforced by review plus class-contract tests pinning adjudicated sites
+(`src/__tests__/integration/next-customer-hero-tone.test.tsx`,
+`src/__tests__/integration/accent-tier-contract.test.tsx`). Judge the
+ELEMENT, not the file: accent on a span INSIDE a link/button is part of the
+pressable and legal.
+
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
 ## 1. Think Before Coding
