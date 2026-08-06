@@ -30,13 +30,29 @@ const RESPONSIVE_LABEL = 'hidden min-[380px]:inline'
 const buttonTags = (src: string) => src.match(/<Button\b[^>]*>/g) ?? []
 
 /** A CTA Button may carry ONLY type/onClick/aria-label — anything else
- *  (className, size, variant, ...) changes pixels and breaks the ruling. */
+ *  (className, size, variant, bare booleans like disabled, ...) changes
+ *  the recipe and breaks the ruling. Spreads are banned outright (they
+ *  would smuggle props past the scan); stripping expression/string
+ *  bodies and tokenizing what remains catches value-less props too. */
 const expectPlain = (tag: string | undefined) => {
   expect(tag).toBeDefined()
-  // A JSX spread would smuggle props past the name scan below.
+  // A JSX spread would smuggle props past the token scan below.
   expect(tag).not.toMatch(/\{\s*\.\.\./)
-  const props = [...(tag as string).matchAll(/([\w-]+)=/g)].map((m) => m[1])
+  let s = (tag as string).replace(/^<Button\b/, '').replace(/\/?>$/, '')
+  while (/\{[^{}]*\}/.test(s)) s = s.replace(/\{[^{}]*\}/g, '')
+  s = s.replace(/"[^"]*"/g, '')
+  const props = s.match(/[\w-]+/g) ?? []
   expect(props.filter((p) => !['type', 'onClick', 'aria-label'].includes(p))).toEqual([])
+}
+
+/** Anchored row pin: the info+create row div followed directly by its
+ *  truncating status <p> — matched together, so a class reorder, a
+ *  decoy string elsewhere in the file, or a comment copy cannot
+ *  satisfy it (verify-round exploits 8/7). */
+const rowWithStatus = (src: string, rowClass: string) => {
+  const m = src.match(new RegExp(`<div className="${rowClass}">\\s*<p className="([^"]*)"`))
+  expect(m).toBeTruthy()
+  expect(m?.[1]).toBe('min-w-0 flex-1 truncate text-xs tabular-nums text-muted-foreground')
 }
 
 /** The CTA body: narrow-only per-page icon + wide-only label span —
@@ -86,26 +102,28 @@ describe('create-CTA unification (案A 8/6 + responsive 8/7)', () => {
   })
 
   it('header structure contract: one shared top offset, natural-height centered rows, no wrap, 16px rhythm, 24px 予約 seam', () => {
-    // Exact-string row pins: appending flex-wrap/items-start (any position)
-    // or reordering breaks the match — order-proof, unlike an ordered regex.
+    // The (app) layout's py-4/md:py-6 is the shared top offset all
+    // three list pages sit under — pinned as the single source.
+    const layout = read('src/app/[locale]/(app)/layout.tsx')
+    expect(layout).toContain('py-4 md:py-6')
     const kokyaku = read('src/components/customers/redesign/list/CustomersListHeader.tsx')
-    expect(kokyaku).toContain('<div className="flex items-center justify-between gap-3">')
-    expect(kokyaku).toContain('min-w-0 flex-1 truncate')
+    rowWithStatus(kokyaku, 'flex items-center justify-between gap-3')
     const kokyakuView = read('src/components/customers/redesign/list/CustomersListView.tsx')
     expect(kokyakuView).toMatch(/flex-col gap-4/)
     const karute = read('src/components/karute/spike-lifted/list/KaruteRecordListView.tsx')
     expect(karute).toContain('<div className="md:mt-5">')
-    expect(karute).toContain('<div className="flex items-center justify-between gap-3 md:mt-1">')
-    expect(karute).toContain('min-w-0 flex-1 truncate')
+    rowWithStatus(karute, 'flex items-center justify-between gap-3 md:mt-1')
     expect(karute).toContain('<div className="mt-4">')
     expect(karute).toContain('<div className="pt-4">')
     const yoyaku = read('src/components/appointments/AppointmentsView.tsx')
     const headerTag = yoyaku.match(/<ReservationPageHeader[\s\S]*?className="([^"]*)"/)?.[1] ?? ''
     expect(headerTag).toContain('mb-0')
     expect(yoyaku).toMatch(/relative space-y-4/)
-    // 24px seam: mb-0 zeroes space-y-4's margin on the header (same
-    // property, higher specificity), so the pt-6 wrapper owns the seam.
-    expect(yoyaku).toContain('<div className="pt-6">')
+    // 24px seam, anchored to the element it protects: mb-0 zeroes
+    // space-y-4's margin on the header (same property, higher
+    // specificity), so the pt-6 wrapper directly around the staff
+    // filter owns the seam (decoy-proofed — verify-round exploit 8/7).
+    expect(yoyaku).toMatch(/<div className="pt-6">\s*<ReservationStaffFilter\b/)
     const filter = read('src/components/karute/spike-lifted/reservation/ReservationStaffFilter.tsx')
     expect(filter).toContain('gap-x-2 gap-y-3')
   })
