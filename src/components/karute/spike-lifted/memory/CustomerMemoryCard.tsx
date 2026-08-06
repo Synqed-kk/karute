@@ -300,7 +300,7 @@ export function CustomerMemoryCard({
         <div className="mt-3 rounded-lg border border-blue-200/70 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/[0.05]">
           <div className="mb-2 flex items-center gap-1.5">
             <MessageCircle className="size-3.5 text-muted-foreground" />
-            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
+            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               {t('talkingPoints')}
             </h4>
           </div>

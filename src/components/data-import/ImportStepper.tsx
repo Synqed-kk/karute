@@ -5,8 +5,9 @@
 // ─────────────────────────────────────────────────────────────
 // LIFTED FROM SPIKE: components/import/ImportStepper.tsx
 // Steps: Upload → Mapping → Validate → Done. Active step has a
-// solid blue chip; completed steps have a bordered blue chip;
-// future steps are muted.
+// blue-100 wash chip with a heavier border; completed steps drop
+// to the blue-50 tier; future steps are muted. (Accent law: the
+// stepper is non-pressable, so no solid accent fill.)
 
 import { Check, ListChecks, ShieldCheck, Upload } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
