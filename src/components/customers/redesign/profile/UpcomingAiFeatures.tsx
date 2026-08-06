@@ -262,19 +262,19 @@ const ACCENT_CLASSES: Record<
     ring: 'border-blue-200/60 dark:border-blue-500/20',
     iconBg: 'bg-blue-100 dark:bg-blue-500/15',
     iconText: 'text-blue-700 dark:text-blue-300',
-    label: 'text-foreground',
+    label: 'text-muted-foreground',
   },
   amber: {
     ring: 'border-amber-200/60 dark:border-amber-500/20',
     iconBg: 'bg-amber-100 dark:bg-amber-500/15',
     iconText: 'text-amber-700 dark:text-amber-300',
-    label: 'text-foreground',
+    label: 'text-muted-foreground',
   },
   rose: {
     ring: 'border-rose-200/60 dark:border-rose-500/20',
     iconBg: 'bg-rose-100 dark:bg-rose-500/15',
     iconText: 'text-rose-700 dark:text-rose-300',
-    label: 'text-foreground',
+    label: 'text-muted-foreground',
   },
 }
 

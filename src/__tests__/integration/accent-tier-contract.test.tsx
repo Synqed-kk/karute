@@ -73,10 +73,14 @@ describe('phase 2 — literal blues (non-pressable decoration)', () => {
 
   it('export page eyebrow and heading icon are muted, never accent blue', () => {
     const { PageHeader } = require('@/components/export/redesign/sections/PageHeader')
-    render(<PageHeader />)
+    const { container } = render(<PageHeader />)
     const eyebrow = screen.getByText('eyebrow')
     expect(eyebrow.className).toMatch(cls('text-muted-foreground'))
     expect(eyebrow.className).not.toMatch(cls('text-blue-500'))
+    const icon = container.querySelector('h1 svg')
+    const iconClass = icon?.getAttribute('class') ?? ''
+    expect(iconClass).toMatch(cls('text-muted-foreground'))
+    expect(iconClass).not.toMatch(cls('text-blue-500'))
   })
 })
 
