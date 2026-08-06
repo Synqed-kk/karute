@@ -251,6 +251,10 @@ export function AppointmentsView(props: AppointmentsViewProps) {
        *  are gone; the package defaults now render Today + new-booking in
        *  the accent. */}
       <ReservationPageHeader
+        // Header structure contract (Liam 8/7): kill the package's baked
+        // mb-4 so the page's space-y-3 owns the 12px rhythm (same as
+        // 顧客/カルテ), and min-h-12 centers the row to the shared slot.
+        className="mb-0 min-h-12"
         dateDisplay={formatLongDateJst(headerDate, locale)}
         dateDisplayCompact={formatCompactDateJst(headerDate, locale)}
         onPrev={handlePrev}

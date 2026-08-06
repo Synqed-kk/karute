@@ -64,6 +64,21 @@ describe('create-CTA unification (案A 2026-08-06)', () => {
     expectPlain(trigger?.match(/<Button\b[^>]*>/)?.[0])
   })
 
+  it('header structure contract: fixed info+create row geometry on all three pages', () => {
+    // 顧客 + カルテ: the info+create row is min-h-12 and vertically centered.
+    const kokyaku = read('src/components/customers/redesign/list/CustomersListHeader.tsx')
+    expect(kokyaku).toMatch(/min-h-12[^"]*items-center|items-center[^"]*min-h-12/)
+    const karute = read('src/components/karute/spike-lifted/list/KaruteRecordListView.tsx')
+    expect(karute).toMatch(/min-h-12[^"]*items-center|items-center[^"]*min-h-12/)
+    expect(karute).not.toMatch(/items-start[^"]*justify-between/)
+    // 予約: the package header's baked mb-4 is neutralized and the row
+    // carries the same min-h-12 slot.
+    const yoyaku = read('src/components/appointments/AppointmentsView.tsx')
+    const headerTag = yoyaku.match(/<ReservationPageHeader[\s\S]*?className="([^"]*)"/)?.[1] ?? ''
+    expect(headerTag).toContain('mb-0')
+    expect(headerTag).toContain('min-h-12')
+  })
+
   it('the「+ ラベル」wording is baked into all three labels, both locales', () => {
     const ja = JSON.parse(read('messages/ja.json'))
     expect(ja.customers.newCustomer).toBe('+ 新規顧客')

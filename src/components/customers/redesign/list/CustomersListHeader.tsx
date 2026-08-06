@@ -78,7 +78,10 @@ export function CustomersListHeader({ total, showing, heading, assignableStaff }
       {/* Status line (left) + action button (right) — scrolls with the
        *  list. Spacing handled by parent flex-col's `gap-3` so no
        *  explicit pt here. */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Header structure contract (Liam 8/7): info+create row is min-h-12
+       *  items-center on 顧客/カルテ/予約 alike — the create button sits at
+       *  the same vertical slot on every list page. */}
+      <div className="flex min-h-12 flex-wrap items-center justify-between gap-3">
         <p className="text-xs tabular-nums text-muted-foreground">
           {t('statusLine', { total, showing })}
         </p>

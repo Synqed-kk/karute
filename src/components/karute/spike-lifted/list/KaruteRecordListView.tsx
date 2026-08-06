@@ -266,7 +266,10 @@ export function KaruteRecordListView({
         <h1 className="hidden text-2xl font-semibold tracking-tight text-foreground md:block md:text-[26px]">
           {tHead('tabHeading')}
         </h1>
-        <div className="mt-1 flex items-start justify-between gap-3">
+        {/* Header structure contract (Liam 8/7): same min-h-12 items-center
+         *  row as 顧客/予約; mt-1 is desktop-only (spaces from the md h1
+         *  above) so the mobile top gap stays the shared 12px rhythm. */}
+        <div className="flex min-h-12 items-center justify-between gap-3 md:mt-1">
           <p className="min-w-0 flex-1 text-xs tabular-nums text-muted-foreground">
             {t('statusLine', { monthCount, showingCount: filtered.length })}
           </p>
