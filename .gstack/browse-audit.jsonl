@@ -1,0 +1,13 @@
+{"ts":"2026-08-06T07:12:26.943Z","cmd":"viewport","args":"393x852","origin":"about:blank","durationMs":6,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-08-06T07:12:27.127Z","cmd":"goto","args":"http://localhost:3111/ja/login","origin":"http://localhost:3111/ja/login","durationMs":184,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-08-06T07:12:27.311Z","cmd":"wait","args":"--load","origin":"http://localhost:3111/ja/login","durationMs":184,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-08-06T07:12:27.923Z","cmd":"chain","args":"[\n  [\"viewport\",\"393x852\"],\n  [\"goto\",\"http://localhost:3111/ja/login\"],\n  [\"wait\",\"--load\"]\n]","origin":"http://localhost:3111/ja/login","durationMs":988,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-08-06T07:12:27.978Z","cmd":"snapshot","args":"-i","origin":"http://localhost:3111/ja/login","durationMs":19,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-08-06T07:12:34.328Z","cmd":"fill","args":"@e1 dev@karute.test","origin":"http://localhost:3111/ja/login","durationMs":26,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-08-06T07:12:34.346Z","cmd":"fill","args":"@e2 TestPass123!","origin":"http://localhost:3111/ja/login","durationMs":9,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-08-06T07:12:34.383Z","cmd":"click","args":"@e3","origin":"http://localhost:3111/ja/login","durationMs":37,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-08-06T07:12:34.384Z","cmd":"wait","args":"--networkidle","origin":"http://localhost:3111/ja/login","durationMs":0,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-08-06T07:12:34.384Z","cmd":"url","args":"","origin":"http://localhost:3111/ja/login","durationMs":0,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-08-06T07:12:34.384Z","cmd":"chain","args":"[\n  [\"fill\",\"@e1\",\"dev@karute.test\"],\n  [\"fill\",\"@e2\",\"TestPass123!\"],\n  [\"click\",\"@e3\"],\n  [\"wait\",\"--networkidle\"],\n  [\"url\"]\n]","origin":"http://localhost:3111/ja/login","durationMs":82,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-08-06T07:12:45.527Z","cmd":"url","args":"","origin":"http://localhost:3111/ja/login","durationMs":1,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-08-06T07:12:45.567Z","cmd":"text","args":"","origin":"http://localhost:3111/ja/login","durationMs":3,"status":"ok","hasCookies":false,"mode":"launched"}

@@ -169,6 +169,14 @@ export function CustomersListView({
     [staffList],
   )
 
+  // 指名スタッフ picker source for CustomerSheet's "+ 新規顧客" dialog — the
+  // FULL tenant roster (same `staffList` the filter pills use), never a
+  // store-filtered subset, so 指名 can point at any staff in the tenant.
+  const assignableStaff = useMemo(
+    () => staffList.map((s) => ({ id: s.id, name: s.name })),
+    [staffList],
+  )
+
   // Counts come from THE SAME predicate the filter uses (applyCustomerFilter)
   // — the pill number and the filtered list can never disagree. Previously the
   // predicates were hand-duplicated here and had already drifted (the 新規 pill
@@ -301,6 +309,7 @@ export function CustomersListView({
         total={totalRegistered}
         showing={filteredRows.length}
         heading={heading}
+        assignableStaff={assignableStaff}
       />
 
       {/* Order mirrors the design spike: staff scope first (who am I

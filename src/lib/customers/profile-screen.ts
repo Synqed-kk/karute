@@ -75,9 +75,9 @@ export interface CustomerProfileScreen {
   consentGranted: boolean
   consentGrantedAtLabel: string | null
   /** Tenant staff roster for the 指名スタッフ picker (CustomerEditDialog →
-   *  CustomerForm). Same {id,name} shape the web listAssignableStaff action
-   *  returns, so the thin edit dialog can seed the picker from the screen DTO
-   *  instead of a client-side server-action read the facade doesn't expose. */
+   *  CustomerForm). {id,name} shape, so both the web page and the thin edit
+   *  dialog seed the picker straight from this screen build — no client-side
+   *  server-action read either platform has to make. */
   assignableStaff: { id: string; name: string }[]
 }
 

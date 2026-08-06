@@ -1,0 +1,31 @@
+[2026-08-06T07:12:27.204Z] [log] [Client Instrumentation Hook] Slow execution detected: 20ms (Note: Code download overhead is not included in this measurement)
+[2026-08-06T07:12:27.218Z] [info] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[2026-08-06T07:12:27.310Z] [log] [HMR] connected
+[2026-08-06T07:12:34.394Z] [error] Failed to load resource: net::ERR_NAME_NOT_RESOLVED
+[2026-08-06T07:12:34.396Z] [error] TypeError: Failed to fetch (rvkhxludlxxidjjgcnva.supabase.co)
+    at http://localhost:3111/_next/static/chunks/node_modules_%40sentry_core_build_esm_0fj0uzk._.js:10937:34
+    at http://localhost:3111/_next/static/chunks/node_modules_0tz82ny._.js:11229:23
+    at _handleRequest (http://localhost:3111/_next/static/chunks/node_modules_0tz82ny._.js:11583:24)
+    at _request (http://localhost:3111/_next/static/chunks/node_modules_0tz82ny._.js:11570:24)
+    at SupabaseAuthClient.signInWithPassword (http://localhost:3111/_next/static/chunks/node_modules_0tz82ny._.js:14269:219)
+    at handleSubmit (http://localhost:3111/_next/static/chunks/src_00gez68._.js:163:47)
+    at executeDispatch (http://localhost:3111/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:10330:13)
+    at runWithFiberInDEV (http://localhost:3111/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:966:74)
+    at processDispatchQueue (http://localhost:3111/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:10356:41)
+    at http://localhost:3111/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:10634:13
+    at batchedUpdates$1 (http://localhost:3111/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:2254:44)
+    at dispatchEventForPluginEventSystem (http://localhost:3111/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:10432:9)
+    at dispatchEvent (http://localhost:3111/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:13003:37)
+    at dispatchDiscreteEvent (http://localhost:3111/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:12985:64)
+    at HTMLDocument.sentryWrapped (http://localhost:3111/_next/static/chunks/node_modules_%40sentry_browser_build_npm_esm_dev_0aure1t._.js:429:23)
+[2026-08-06T07:15:55.902Z] [error] WebSocket connection to 'ws://localhost:3111/_next/webpack-hmr?id=Oh-7VL2kvki-oHycU4Szm' failed: 
+[2026-08-06T07:15:56.901Z] [error] WebSocket connection to 'ws://localhost:3111/_next/webpack-hmr?id=Oh-7VL2kvki-oHycU4Szm' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED
+[2026-08-06T07:15:57.904Z] [error] WebSocket connection to 'ws://localhost:3111/_next/webpack-hmr?id=Oh-7VL2kvki-oHycU4Szm' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED
+[2026-08-06T07:15:58.905Z] [error] WebSocket connection to 'ws://localhost:3111/_next/webpack-hmr?id=Oh-7VL2kvki-oHycU4Szm' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED
+[2026-08-06T07:15:59.908Z] [error] WebSocket connection to 'ws://localhost:3111/_next/webpack-hmr?id=Oh-7VL2kvki-oHycU4Szm' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED
+[2026-08-06T07:16:00.911Z] [error] WebSocket connection to 'ws://localhost:3111/_next/webpack-hmr?id=Oh-7VL2kvki-oHycU4Szm' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED
+[2026-08-06T07:16:05.919Z] [error] WebSocket connection to 'ws://localhost:3111/_next/webpack-hmr?id=Oh-7VL2kvki-oHycU4Szm' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED
+[2026-08-06T07:16:10.926Z] [error] WebSocket connection to 'ws://localhost:3111/_next/webpack-hmr?id=Oh-7VL2kvki-oHycU4Szm' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED
+[2026-08-06T07:16:15.936Z] [error] WebSocket connection to 'ws://localhost:3111/_next/webpack-hmr?id=Oh-7VL2kvki-oHycU4Szm' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED
+[2026-08-06T07:16:20.973Z] [error] WebSocket connection to 'ws://localhost:3111/_next/webpack-hmr?id=Oh-7VL2kvki-oHycU4Szm' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED
+[2026-08-06T07:16:26.020Z] [error] WebSocket connection to 'ws://localhost:3111/_next/webpack-hmr?id=Oh-7VL2kvki-oHycU4Szm' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED

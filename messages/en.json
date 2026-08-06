@@ -281,7 +281,6 @@
       "description": "Add an appointment for an existing customer.",
       "customer": "Customer",
       "customerPlaceholder": "Search customers…",
-      "createCustomerHint": "Create new customers from the Customers tab first.",
       "date": "Date",
       "time": "Time",
       "duration": "Duration",

@@ -11,25 +11,12 @@
 //                            (this dialog)
 //   bottom-nav 「録音」     → start an AI-assisted recording flow
 //
-// SCHEMA-GATED FIELDS
-// ────────────────────
-// karute_records currently persists customer_id + staff_id + status.
-// The dialog renders 5 fields though — customer, session date,
-// duration, staff, service — because the spec for the dialog is
-// what owner needs to log a backdated session manually.
-//
-// Three of those (session date / duration / service) are rendered
-// DISABLED with a Coming-Soon chip today because karute_records
-// has no `session_date`, `duration_minutes`, or `service` column.
-// The inputs are intentionally visible (not deleted) so:
-//   • Anthony sees the spec at code-review time — the schema
-//     columns he needs are right here next to the disabled inputs.
-//   • The dialog stays honest — staff can't fill the fields but
-//     can see the intent (and the recording-flow tip banner
-//     redirects them for full session capture today).
-//   • Re-enabling is a one-line change per field when the
-//     columns ship: remove the `disabled` prop, drop the
-//     ComingSoon chip, plumb the value through handleSubmit.
+// FIELDS
+// ──────
+// karute_records has persisted session_date/duration_minutes/service
+// since the 2026-06-11 migration (synqed-core), and
+// createManualKaruteRecord already forwards all three — so every field
+// below is live and writes through on submit.
 //
 // Customer picker uses the same CustomerCombobox + QuickCreateCustomer
 // pair the recording flow uses (SaveKaruteFlow / RecordingPanel),
@@ -48,7 +35,6 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { ComingSoonChip } from '@/components/customers/redesign/ComingSoonChip'
 
 import {
   CustomerCombobox,
@@ -103,10 +89,9 @@ export function NewKaruteDialog({
     useState<string | null>(null)
   const [customerFlow, setCustomerFlow] =
     useState<CustomerFlowState>('combobox')
-  // date / duration / service kept in local state so the inputs
-  // render with sensible placeholders today. ANTHONY: when the
-  // columns ship, drop the `disabled` props in the JSX below and
-  // these values flow straight through handleSubmit.
+  // Seeds QuickCreateCustomer's name input with whatever the staff had
+  // already typed into the combobox before tapping "+ 新規顧客".
+  const [quickCreateSeed, setQuickCreateSeed] = useState('')
   const [date, setDate] = useState<string>(todayIso())
   const [duration, setDuration] = useState<Duration>(60)
   const [staffId, setStaffId] = useState<string>(
@@ -124,6 +109,7 @@ export function NewKaruteDialog({
   const canSubmit =
     !!selectedCustomer &&
     !!staffId &&
+    !!date &&
     customerFlow === 'combobox' &&
     !pending
 
@@ -132,6 +118,7 @@ export function NewKaruteDialog({
     setCustomerList(customers)
     setSelectedCustomerId(null)
     setCustomerFlow('combobox')
+    setQuickCreateSeed('')
     setDate(todayIso())
     setDuration(60)
     setStaffId(defaultStaffId ?? staffList[0]?.id ?? '')
@@ -157,9 +144,6 @@ export function NewKaruteDialog({
       const result = await createManualKaruteRecord({
         customerId: selectedCustomer.id,
         staffId,
-        // ANTHONY: passing real local state through even though the
-        // server action drops these today — when the columns land
-        // the values flow without further code change here.
         sessionDate: date,
         durationMinutes: duration,
         service: service.trim(),
@@ -193,60 +177,55 @@ export function NewKaruteDialog({
               <QuickCreateCustomer
                 onCreated={handleCustomerCreated}
                 onCancel={() => setCustomerFlow('combobox')}
+                initialName={quickCreateSeed}
               />
             ) : (
               <CustomerCombobox
                 customers={customerList}
                 selectedId={selectedCustomerId}
                 onSelect={(id) => setSelectedCustomerId(id)}
-                onCreateNew={() => setCustomerFlow('quick-create')}
+                onCreateNew={(q) => {
+                  setQuickCreateSeed(q ?? '')
+                  setCustomerFlow('quick-create')
+                }}
                 placeholder={t('customerPlaceholder')}
                 disabled={pending}
               />
             )}
           </div>
 
-          {/* Date + Duration — two-up. SCHEMA-GATED — disabled until
-           *  karute_records has `session_date date` and
-           *  `duration_minutes int` columns. Inputs visible so the
-           *  spec is obvious to Anthony at code review time. */}
+          {/* Date + Duration — two-up. ACTIVE. */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <div className="flex items-center gap-1.5">
-                <label
-                  htmlFor="new-karute-date"
-                  className="text-xs font-medium text-foreground"
-                >
-                  {t('dateLabel')}
-                </label>
-                <ComingSoonChip />
-              </div>
+              <label
+                htmlFor="new-karute-date"
+                className="text-xs font-medium text-foreground"
+              >
+                {t('dateLabel')}
+              </label>
               <Input
                 id="new-karute-date"
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                disabled
+                disabled={pending}
                 className="h-10"
               />
             </div>
             <div className="space-y-1.5">
-              <div className="flex items-center gap-1.5">
-                <label
-                  htmlFor="new-karute-duration"
-                  className="text-xs font-medium text-foreground"
-                >
-                  {t('durationLabel')}
-                </label>
-                <ComingSoonChip />
-              </div>
+              <label
+                htmlFor="new-karute-duration"
+                className="text-xs font-medium text-foreground"
+              >
+                {t('durationLabel')}
+              </label>
               <select
                 id="new-karute-duration"
                 value={duration}
                 onChange={(e) =>
                   setDuration(Number(e.target.value) as Duration)
                 }
-                disabled
+                disabled={pending}
                 className="h-10 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {DURATION_OPTIONS.map((m) => (
@@ -281,24 +260,20 @@ export function NewKaruteDialog({
             </select>
           </div>
 
-          {/* Service — SCHEMA-GATED — disabled until karute_records has
-           *  a `service text` column. */}
+          {/* Service — ACTIVE. */}
           <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5">
-              <label
-                htmlFor="new-karute-service"
-                className="text-xs font-medium text-foreground"
-              >
-                {t('serviceLabel')}
-              </label>
-              <ComingSoonChip />
-            </div>
+            <label
+              htmlFor="new-karute-service"
+              className="text-xs font-medium text-foreground"
+            >
+              {t('serviceLabel')}
+            </label>
             <Input
               id="new-karute-service"
               value={service}
               onChange={(e) => setService(e.target.value)}
               placeholder={t('servicePlaceholder')}
-              disabled
+              disabled={pending}
               className="h-10"
             />
           </div>

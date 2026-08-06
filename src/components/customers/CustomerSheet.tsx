@@ -14,6 +14,12 @@ import {
 import { Button } from '@/components/ui/button'
 import { CustomerForm } from '@/components/customers/CustomerForm'
 
+interface CustomerSheetProps {
+  /** Tenant staff roster for the 指名スタッフ picker — threaded straight
+   *  through to CustomerForm (no fetch fallback there anymore). */
+  assignableStaff?: { id: string; name: string }[]
+}
+
 /**
  * "+ 新規顧客" button → centered modal dialog for creating a new
  * customer. Previously a side-sliding Sheet; switched to Dialog to
@@ -22,7 +28,7 @@ import { CustomerForm } from '@/components/customers/CustomerForm'
  * still owns the trigger + dialog wrapper, only the underlying
  * primitive changed.
  */
-export function CustomerSheet() {
+export function CustomerSheet({ assignableStaff }: CustomerSheetProps) {
   const t = useTranslations('customers')
   const [open, setOpen] = useState(false)
 
@@ -47,6 +53,7 @@ export function CustomerSheet() {
           <DialogDescription>{t('form.description')}</DialogDescription>
         </DialogHeader>
         <CustomerForm
+          assignableStaff={assignableStaff}
           onSuccess={handleSuccess}
           onCancel={() => setOpen(false)}
         />

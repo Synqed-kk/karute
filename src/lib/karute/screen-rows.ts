@@ -36,8 +36,14 @@ export interface SessionsListScreen {
   staffList: Array<{ id: string; name: string; initials: string }>
   /** The viewer's staff id, or null when the session has no active staff. */
   currentStaffId: string | null
-  /** New カルテ dialog combobox source (id + name). */
-  customerOptions: Array<{ id: string; name: string }>
+  /** New カルテ dialog combobox source — id + name, plus phone/furigana so
+   *  the combobox can match on those too. */
+  customerOptions: Array<{
+    id: string
+    name: string
+    phone: string | null
+    furigana: string | null
+  }>
 }
 
 export function buildSessionsListScreen(args: {
@@ -290,12 +296,14 @@ export function buildSessionsListScreen(args: {
   // Customer combobox source for the NewKaruteDialog. Reuses the same
   // list we already loaded above for the customer-name lookup map —
   // no extra round trip. Shape matches the shared CustomerOption
-  // contract from src/components/karute/CustomerCombobox (id + name)
-  // so the dialog plugs straight into the same picker the recording
-  // flow uses.
+  // contract from src/components/karute/CustomerCombobox (id + name +
+  // phone + furigana) so the dialog plugs straight into the same
+  // picker the recording flow uses, phone search included.
   const customerOptions = allCustomersList.customers.map((c) => ({
     id: c.id,
     name: c.name,
+    phone: c.phone ?? null,
+    furigana: c.furigana ?? null,
   }))
 
   return {

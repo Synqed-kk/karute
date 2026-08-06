@@ -281,7 +281,6 @@
       "description": "既存のお客様に予約を追加します。",
       "customer": "お客様",
       "customerPlaceholder": "お客様を検索…",
-      "createCustomerHint": "新しいお客様は顧客タブから先に作成してください。",
       "date": "日付",
       "time": "時刻",
       "duration": "所要時間",
