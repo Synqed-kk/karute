@@ -12,8 +12,11 @@
  *
  * Source-pin (not render) contract: both views need heavy data/provider
  * scaffolding to mount, and what the rulings fix is the authored recipe
- * itself. Structure is pinned, names are not. (Cannot catch
- * cascade/layout issues — that is the visual pass's job.)
+ * itself. Structure is pinned, names are not — and the pins are exact
+ * strings on purpose: consolidating the triplicated CTA body into a
+ * shared component, or reordering pinned class strings, must come
+ * through this contract deliberately rather than slide past it.
+ * (Cannot catch cascade/layout issues — that is the visual pass's job.)
  */
 import { readFileSync } from 'fs'
 import { join } from 'path'
@@ -30,6 +33,8 @@ const buttonTags = (src: string) => src.match(/<Button\b[^>]*>/g) ?? []
  *  (className, size, variant, ...) changes pixels and breaks the ruling. */
 const expectPlain = (tag: string | undefined) => {
   expect(tag).toBeDefined()
+  // A JSX spread would smuggle props past the name scan below.
+  expect(tag).not.toMatch(/\{\s*\.\.\./)
   const props = [...(tag as string).matchAll(/([\w-]+)=/g)].map((m) => m[1])
   expect(props.filter((p) => !['type', 'onClick', 'aria-label'].includes(p))).toEqual([])
 }
@@ -80,19 +85,28 @@ describe('create-CTA unification (案A 8/6 + responsive 8/7)', () => {
     expect(en.reservation.new).toBe('+ New booking')
   })
 
-  it('header structure contract: one shared top offset, natural-height centered rows, no wrap, 16px rhythm', () => {
+  it('header structure contract: one shared top offset, natural-height centered rows, no wrap, 16px rhythm, 24px 予約 seam', () => {
+    // Exact-string row pins: appending flex-wrap/items-start (any position)
+    // or reordering breaks the match — order-proof, unlike an ordered regex.
     const kokyaku = read('src/components/customers/redesign/list/CustomersListHeader.tsx')
-    expect(kokyaku).toMatch(/<div className="flex items-center justify-between[^"]*">/)
-    expect(kokyaku).not.toMatch(/flex-wrap[^"]*justify-between/)
+    expect(kokyaku).toContain('<div className="flex items-center justify-between gap-3">')
+    expect(kokyaku).toContain('min-w-0 flex-1 truncate')
     const kokyakuView = read('src/components/customers/redesign/list/CustomersListView.tsx')
     expect(kokyakuView).toMatch(/flex-col gap-4/)
     const karute = read('src/components/karute/spike-lifted/list/KaruteRecordListView.tsx')
-    expect(karute).not.toMatch(/"mt-3 md:mt-5"/)
-    expect(karute).toMatch(/flex items-center justify-between/)
-    expect(karute).not.toMatch(/items-start[^"]*justify-between/)
+    expect(karute).toContain('<div className="md:mt-5">')
+    expect(karute).toContain('<div className="flex items-center justify-between gap-3 md:mt-1">')
+    expect(karute).toContain('min-w-0 flex-1 truncate')
+    expect(karute).toContain('<div className="mt-4">')
+    expect(karute).toContain('<div className="pt-4">')
     const yoyaku = read('src/components/appointments/AppointmentsView.tsx')
     const headerTag = yoyaku.match(/<ReservationPageHeader[\s\S]*?className="([^"]*)"/)?.[1] ?? ''
     expect(headerTag).toContain('mb-0')
     expect(yoyaku).toMatch(/relative space-y-4/)
+    // 24px seam: mb-0 zeroes space-y-4's margin on the header (same
+    // property, higher specificity), so the pt-6 wrapper owns the seam.
+    expect(yoyaku).toContain('<div className="pt-6">')
+    const filter = read('src/components/karute/spike-lifted/reservation/ReservationStaffFilter.tsx')
+    expect(filter).toContain('gap-x-2 gap-y-3')
   })
 })

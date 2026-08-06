@@ -254,9 +254,11 @@ export function AppointmentsView(props: AppointmentsViewProps) {
        *  are gone; the package defaults now render Today + new-booking in
        *  the accent. */}
       <ReservationPageHeader
-        // Header structure contract (Liam 8/7): kill the package's baked
-        // mb-4 so the page's space-y-3 owns the 12px rhythm — same
-        // natural-height row as 顧客/カルテ (32px controls set the height).
+        // Header structure contract (Liam 8/7): mb-0 kills the package's
+        // baked mb-4 — and, same property, the page's space-y-4 margin
+        // (v4 space-y is a zero-specificity :where() rule) — so the pt-6
+        // wrapper below owns the whole 24px seam. Same natural-height
+        // row as 顧客/カルテ (32px controls set the height).
         className="mb-0"
         dateDisplay={formatLongDateJst(headerDate, locale)}
         dateDisplayCompact={formatCompactDateJst(headerDate, locale)}
@@ -304,10 +306,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
        *  schedule (matches the spike's mobile screenshot Liam shared).
        *  Picker mutates ?staff= which the page reads server-side to
        *  refilter reservationViews. */}
-      {/* pt-2 on top of the page's space-y-4 = 24px above this block
-       *  (Liam 8/7): both neighbors are bordered 36px controls — 16px
-       *  still read as touching. Padding, not margin: margins collapse. */}
-      <div className="pt-2">
+      {/* pt-6 = the whole 24px seam (Liam 8/7): both neighbors are
+       *  bordered controls and 16px read as touching. The header's mb-0
+       *  zeroes space-y-4's contribution too (same margin property,
+       *  higher specificity), so this padding is the seam's single
+       *  owner. Padding, not margin: margins collapse. */}
+      <div className="pt-6">
       <ReservationStaffFilter
         staffList={props.staff.map<ReservationStaffEntry>((s) => ({
           id: s.id,

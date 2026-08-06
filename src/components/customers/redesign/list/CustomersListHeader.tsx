@@ -76,7 +76,7 @@ export function CustomersListHeader({ total, showing, heading, assignableStaff }
       </div>
 
       {/* Status line (left) + action button (right) — scrolls with the
-       *  list. Spacing handled by parent flex-col's `gap-3` so no
+       *  list. Spacing handled by the parent flex-col's `gap-4` so no
        *  explicit pt here. */}
       {/* Header structure contract (Liam 8/7): natural-height items-center
        *  row, no wrap — the 32px create button dictates row height on

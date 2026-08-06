@@ -274,7 +274,7 @@ export function KaruteRecordListView({
          *  row like 顧客/予約; mt-1 is desktop-only (spaces from the md h1
          *  above) so mobile keeps the shared offset. */}
         <div className="flex items-center justify-between gap-3 md:mt-1">
-          <p className="min-w-0 flex-1 text-xs tabular-nums text-muted-foreground">
+          <p className="min-w-0 flex-1 truncate text-xs tabular-nums text-muted-foreground">
             {t('statusLine', { monthCount, showingCount: filtered.length })}
           </p>
           {/* + 新規カルテ — primary CTA. Opens the manual-entry dialog
