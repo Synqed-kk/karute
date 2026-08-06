@@ -4,7 +4,8 @@
  * Render coverage for ImportStepper (PR 23, replay/23): the 4-step progress
  * indicator. next-intl is mocked so step labels render as their translation
  * KEYs. Active/completed/future state is asserted via the chip class names
- * (solid blue = active, bordered blue = done, muted = future).
+ * (blue-100 wash + heavy border = active, blue-50 wash = done, muted =
+ * future — accent law: the stepper is non-pressable, no solid fill).
  */
 import { render, screen } from '@testing-library/react'
 

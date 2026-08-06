@@ -384,7 +384,7 @@ export function PreSessionBriefCard({
                     key={i}
                     className="flex gap-2 text-[14px] leading-relaxed text-foreground/90"
                   >
-                    <span className="mt-0.5 shrink-0 text-blue-400">•</span>
+                    <span className="mt-0.5 shrink-0 text-muted-foreground">•</span>
                     <span>
                       <span className="font-medium">{h.title}</span>
                       {h.body && <span className="text-muted-foreground"> — {h.body}</span>}
@@ -608,7 +608,7 @@ function MemoAnalysisBlock({
     <div
       className={`flex gap-2 rounded-lg border border-blue-200/70 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/[0.07] ${className ?? ''}`}
     >
-      <Wand2 className="mt-0.5 size-3 shrink-0 text-blue-500/80 dark:text-blue-300/80" aria-hidden />
+      <Wand2 className="mt-0.5 size-3 shrink-0 text-muted-foreground" aria-hidden />
       <div className="min-w-0 flex-1">
         <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
           {label}
@@ -619,7 +619,7 @@ function MemoAnalysisBlock({
               key={i}
               className="flex gap-1.5 text-[12px] leading-relaxed text-foreground/85"
             >
-              <span className="mt-0.5 shrink-0 text-blue-400">•</span>
+              <span className="mt-0.5 shrink-0 text-muted-foreground">•</span>
               {/* The model occasionally emits a stray leading colon (":猫背改善中→…").
                *  Strip it at render — a lone bullet+colon reads as broken. */}
               <span>{p.replace(/^[:：]\s*/, '')}</span>
