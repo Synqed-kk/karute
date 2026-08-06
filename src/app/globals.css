@@ -91,7 +91,7 @@
   /* R13 (Liam, 2026-08-06): interactive accent is NEVER black. --primary is
    * the single commit/selection accent — blue-600, the design spike's
    * dominant accent (#2563eb, hover pair #1d4ed8) and the same family as the
-   * 新規 badge + reservation Today button. Selected state = bg-primary/10 +
+   * 新規 badge + reservation Today button. Selected state = bg-primary/8 +
    * text-primary (+ border-primary where the control has a border); commit
    * action = bg-primary + text-primary-foreground. Guard:
    * scripts/audit/check-dark-interactive.mjs */
