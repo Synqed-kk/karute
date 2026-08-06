@@ -11,6 +11,8 @@
 import { render, screen } from '@testing-library/react'
 import LandingPage from '@/app/[locale]/page'
 import { ProcessingModal } from '@/components/review/ProcessingModal'
+import { ImportStepper } from '@/components/data-import/ImportStepper'
+import { PageHeader } from '@/components/export/redesign/sections/PageHeader'
 
 jest.mock('next-intl/server', () => ({
   getTranslations: async () => (key: string) => key,
@@ -61,7 +63,6 @@ describe('landing hero badge (decoration)', () => {
 
 describe('phase 2 — literal blues (non-pressable decoration)', () => {
   it('import stepper current step is wash+border, never solid blue-600', () => {
-    const { ImportStepper } = require('@/components/data-import/ImportStepper')
     const { container } = render(<ImportStepper activeStep={1} />)
     expect(container.querySelector('[class*="bg-blue-600"]')).toBeNull()
     const chips = container.querySelectorAll('.size-7')
@@ -72,7 +73,6 @@ describe('phase 2 — literal blues (non-pressable decoration)', () => {
   })
 
   it('export page eyebrow and heading icon are muted, never accent blue', () => {
-    const { PageHeader } = require('@/components/export/redesign/sections/PageHeader')
     const { container } = render(<PageHeader />)
     const eyebrow = screen.getByText('eyebrow')
     expect(eyebrow.className).toMatch(cls('text-muted-foreground'))
