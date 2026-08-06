@@ -64,19 +64,23 @@ describe('create-CTA unification (案A 2026-08-06)', () => {
     expectPlain(trigger?.match(/<Button\b[^>]*>/)?.[0])
   })
 
-  it('header structure contract: fixed info+create row geometry on all three pages', () => {
-    // 顧客 + カルテ: the info+create row is min-h-12 and vertically centered.
+  it('header structure contract: one shared top offset, natural-height centered rows, no wrap', () => {
+    // 顧客: centered row, flex-wrap banned (it dropped the CTA to a second
+    // line on narrow phones), status text truncates instead of pushing.
     const kokyaku = read('src/components/customers/redesign/list/CustomersListHeader.tsx')
-    expect(kokyaku).toMatch(/min-h-12[^"]*items-center|items-center[^"]*min-h-12/)
+    const kokyakuRow = kokyaku.match(/<div className="flex items-center justify-between[^"]*">/)?.[0]
+    expect(kokyakuRow).toBeDefined()
+    expect(kokyaku).not.toMatch(/flex-wrap[^"]*justify-between/)
+    // カルテ: no mobile top margin (the stray mt-3 was the tab-switch jump —
+    // the layout's py-4 is the one shared offset); row is centered.
     const karute = read('src/components/karute/spike-lifted/list/KaruteRecordListView.tsx')
-    expect(karute).toMatch(/min-h-12[^"]*items-center|items-center[^"]*min-h-12/)
+    expect(karute).not.toMatch(/"mt-3 md:mt-5"/)
+    expect(karute).toMatch(/flex items-center justify-between/)
     expect(karute).not.toMatch(/items-start[^"]*justify-between/)
-    // 予約: the package header's baked mb-4 is neutralized and the row
-    // carries the same min-h-12 slot.
+    // 予約: the package header's baked mb-4 stays neutralized.
     const yoyaku = read('src/components/appointments/AppointmentsView.tsx')
     const headerTag = yoyaku.match(/<ReservationPageHeader[\s\S]*?className="([^"]*)"/)?.[1] ?? ''
     expect(headerTag).toContain('mb-0')
-    expect(headerTag).toContain('min-h-12')
   })
 
   it('the「+ ラベル」wording is baked into all three labels, both locales', () => {

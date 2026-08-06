@@ -262,14 +262,17 @@ export function KaruteRecordListView({
        *  Earlier version used flex-wrap which pushed the button
        *  below the stats column on mobile, making it invisible
        *  inside the viewport. */}
-      <div className="mt-3 md:mt-5">
+      {/* Header structure contract (Liam 8/7): no mobile top margin — the
+       *  layout's py-4 is the one shared offset under the title bar on all
+       *  three list pages (this stray mt-3 was the tab-switch jump). */}
+      <div className="md:mt-5">
         <h1 className="hidden text-2xl font-semibold tracking-tight text-foreground md:block md:text-[26px]">
           {tHead('tabHeading')}
         </h1>
-        {/* Header structure contract (Liam 8/7): same min-h-12 items-center
-         *  row as 顧客/予約; mt-1 is desktop-only (spaces from the md h1
-         *  above) so the mobile top gap stays the shared 12px rhythm. */}
-        <div className="flex min-h-12 items-center justify-between gap-3 md:mt-1">
+        {/* Header structure contract (Liam 8/7): natural-height items-center
+         *  row like 顧客/予約; mt-1 is desktop-only (spaces from the md h1
+         *  above) so mobile keeps the shared offset. */}
+        <div className="flex items-center justify-between gap-3 md:mt-1">
           <p className="min-w-0 flex-1 text-xs tabular-nums text-muted-foreground">
             {t('statusLine', { monthCount, showingCount: filtered.length })}
           </p>

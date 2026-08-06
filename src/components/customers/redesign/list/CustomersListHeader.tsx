@@ -78,11 +78,13 @@ export function CustomersListHeader({ total, showing, heading, assignableStaff }
       {/* Status line (left) + action button (right) — scrolls with the
        *  list. Spacing handled by parent flex-col's `gap-3` so no
        *  explicit pt here. */}
-      {/* Header structure contract (Liam 8/7): info+create row is min-h-12
-       *  items-center on 顧客/カルテ/予約 alike — the create button sits at
-       *  the same vertical slot on every list page. */}
-      <div className="flex min-h-12 flex-wrap items-center justify-between gap-3">
-        <p className="text-xs tabular-nums text-muted-foreground">
+      {/* Header structure contract (Liam 8/7): natural-height items-center
+       *  row, no wrap — the 32px create button dictates row height on
+       *  顧客/カルテ/予約 alike, so it holds one slot across tabs. flex-wrap
+       *  removed: it dropped the button to a second line on narrow phones
+       *  (same bug カルテ fixed earlier); the status text truncates instead. */}
+      <div className="flex items-center justify-between gap-3">
+        <p className="min-w-0 flex-1 truncate text-xs tabular-nums text-muted-foreground">
           {t('statusLine', { total, showing })}
         </p>
         <CustomerSheet assignableStaff={assignableStaff} />
