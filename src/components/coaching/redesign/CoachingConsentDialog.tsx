@@ -82,7 +82,7 @@ export function CoachingConsentDialog({
         onOpenChange(o)
       }}
     >
-      <DialogContent className="max-h-[88vh] max-w-2xl overflow-y-auto">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-lg">
             <Shield className="size-5 text-indigo-600 dark:text-indigo-300" />

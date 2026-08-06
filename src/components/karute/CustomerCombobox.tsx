@@ -151,7 +151,10 @@ export function CustomerCombobox({
           role="listbox"
           className="absolute z-50 mt-1 w-full rounded-lg border border-border bg-popover shadow-md"
         >
-          <ul className="max-h-60 overflow-y-auto py-1">
+          {/* 35dvh cap: on Android the keyboard shrinks dvh, so the list
+           *  adapts to the room actually left instead of clipping at a
+           *  fixed 240px inside the keyboard-shrunk dialog. */}
+          <ul className="max-h-[min(15rem,35dvh)] overflow-y-auto py-1">
             {filtered.length === 0 ? (
               <li className="px-3 py-2 text-sm text-muted-foreground">
                 {t('table.noResults')}
