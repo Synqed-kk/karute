@@ -70,3 +70,4 @@ scripts/shell/.last-build-number
 ios/DerivedData/
 # Claude worktree gitlinks must never be committed (dangling-submodule warnings on Xcode Cloud)
 .claude/worktrees/
+.gstack/
