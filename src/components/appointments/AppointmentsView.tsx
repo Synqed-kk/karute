@@ -276,7 +276,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             aria-label={tReservation('new')}
             onClick={() => setDialogOpen(true)}
           >
-            <CalendarPlus className="size-3.5" aria-hidden />
+            <CalendarPlus className="size-3.5 min-[380px]:hidden" aria-hidden />
             <span className="hidden min-[380px]:inline">{tReservation('new')}</span>
           </Button>
         }
@@ -304,6 +304,10 @@ export function AppointmentsView(props: AppointmentsViewProps) {
        *  schedule (matches the spike's mobile screenshot Liam shared).
        *  Picker mutates ?staff= which the page reads server-side to
        *  refilter reservationViews. */}
+      {/* pt-2 on top of the page's space-y-4 = 24px above this block
+       *  (Liam 8/7): both neighbors are bordered 36px controls — 16px
+       *  still read as touching. Padding, not margin: margins collapse. */}
+      <div className="pt-2">
       <ReservationStaffFilter
         staffList={props.staff.map<ReservationStaffEntry>((s) => ({
           id: s.id,
@@ -324,6 +328,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
           />
         }
       />
+      </div>
 
       {/* Legend — wrapped in a bordered card matching the spike.
        *

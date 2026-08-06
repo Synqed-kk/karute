@@ -285,14 +285,14 @@ export function KaruteRecordListView({
            *  with starting a recording. Two distinct intents now have
            *  two distinct surfaces. */}
           {/* Unified create pill (Liam 8/6 案A + 8/7 responsive ruling):
-           *  shared Button default, recognizable icon always, label
-           *  collapses on narrow phones (<380px). */}
+           *  shared Button default; words only on regular widths, icon
+           *  only below 380px — never both. */}
           <Button
             type="button"
             aria-label={t('newKarute')}
             onClick={() => setNewKaruteOpen(true)}
           >
-            <FilePlus2 className="size-3.5" aria-hidden />
+            <FilePlus2 className="size-3.5 min-[380px]:hidden" aria-hidden />
             <span className="hidden min-[380px]:inline">{t('newKarute')}</span>
           </Button>
         </div>

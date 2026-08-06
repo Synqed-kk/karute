@@ -34,9 +34,10 @@ const expectPlain = (tag: string | undefined) => {
   expect(props.filter((p) => !['type', 'onClick', 'aria-label'].includes(p))).toEqual([])
 }
 
-/** The CTA body: per-page icon + responsive label span. */
+/** The CTA body: narrow-only per-page icon + wide-only label span —
+ *  words on regular widths, icon below 380px, never both at once. */
 const expectIconPlusLabel = (src: string, icon: string, labelExpr: string) => {
-  expect(src).toContain(`<${icon} className="size-3.5" aria-hidden />`)
+  expect(src).toContain(`<${icon} className="size-3.5 min-[380px]:hidden" aria-hidden />`)
   expect(src).toContain(`<span className="${RESPONSIVE_LABEL}">{${labelExpr}}</span>`)
 }
 

@@ -41,14 +41,14 @@ export function CustomerSheet({ assignableStaff }: CustomerSheetProps) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      {/* Responsive CTA (Liam 8/7): recognizable icon always; label joins
-       *  it on regular widths, collapses away on narrow phones (<380px)
-       *  where the words crowd the row. aria-label keeps the accessible
+      {/* Responsive CTA (Liam 8/7): words only on regular widths; below
+       *  380px the label collapses and the recognizable icon takes its
+       *  place — never both at once. aria-label keeps the accessible
        *  name when only the icon shows. */}
       <DialogTrigger
         render={
           <Button aria-label={t('newCustomer')}>
-            <UserPlus className="size-3.5" aria-hidden />
+            <UserPlus className="size-3.5 min-[380px]:hidden" aria-hidden />
             <span className="hidden min-[380px]:inline">{t('newCustomer')}</span>
           </Button>
         }
