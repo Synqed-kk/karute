@@ -97,6 +97,28 @@ describe('CustomerCombobox', () => {
     expect(screen.getAllByRole('option')).toHaveLength(8)
   })
 
+  it('clears the input when the selection is externally reset', () => {
+    const list: CustomerOption[] = [{ id: 'c1', name: '田中花子' }]
+    const { rerender } = render(
+      <CustomerCombobox
+        customers={list}
+        selectedId="c1"
+        onSelect={jest.fn()}
+        onCreateNew={jest.fn()}
+      />,
+    )
+    expect(screen.getByRole('combobox')).toHaveValue('田中花子')
+    rerender(
+      <CustomerCombobox
+        customers={list}
+        selectedId={null}
+        onSelect={jest.fn()}
+        onCreateNew={jest.fn()}
+      />,
+    )
+    expect(screen.getByRole('combobox')).toHaveValue('')
+  })
+
   it('closes the list on blur', () => {
     render(
       <CustomerCombobox

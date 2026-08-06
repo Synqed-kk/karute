@@ -59,10 +59,16 @@ export function CustomerCombobox({
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Sync query when selection changes externally (e.g. after quick-create)
+  // Sync query when selection changes externally (e.g. after quick-create).
+  // The else-branch clears the text on external DESELECT (selectedId → null,
+  // e.g. a dialog re-seeding on reopen) — without it the input keeps showing
+  // the previous customer's name while the real selection is empty, which
+  // reads as a filled-in form with an inexplicably dead save button.
   useEffect(() => {
     if (selectedCustomer) {
       setQuery(selectedCustomer.name)
+    } else {
+      setQuery('')
     }
   }, [selectedCustomer])
 

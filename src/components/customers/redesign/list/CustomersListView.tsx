@@ -65,6 +65,14 @@ interface CustomersListViewProps {
    */
   staffList: StaffFilterEntry[]
   /**
+   * 指名スタッフ roster for CustomerSheet's "+ 新規顧客" dialog. Passed
+   * EXPLICITLY by each mount (web page / thin screen) as the FULL tenant
+   * roster — never derived from `staffList`, which the web page store-clamps
+   * for the 担当 filter pills. 指名 can point at any staff in the tenant,
+   * matching the profile-edit dialog's behavior.
+   */
+  assignableStaff: { id: string; name: string }[]
+  /**
    * When `true`, every customer card renders an AI-status chip row
    * underneath the contact line (体調予測 / 推奨 / 要約 / 録音, all
    * 対応予定). Used by the カルテ tab to frame the same customer
@@ -93,6 +101,7 @@ export function CustomersListView({
   query,
   selfStaffId,
   staffList,
+  assignableStaff,
   bookingDataAvailable = true,
   burnByCustomer = null,
   burnUnpricedIds = [],
@@ -166,14 +175,6 @@ export function CustomersListView({
   // Each card looks up its own key by the displayed 担当 (指名 → booking).
   const staffColors = useMemo(
     () => assignStaffColors(staffList.map((s) => s.id)),
-    [staffList],
-  )
-
-  // 指名スタッフ picker source for CustomerSheet's "+ 新規顧客" dialog — the
-  // FULL tenant roster (same `staffList` the filter pills use), never a
-  // store-filtered subset, so 指名 can point at any staff in the tenant.
-  const assignableStaff = useMemo(
-    () => staffList.map((s) => ({ id: s.id, name: s.name })),
     [staffList],
   )
 

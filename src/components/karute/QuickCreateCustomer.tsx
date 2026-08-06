@@ -54,8 +54,11 @@ export function QuickCreateCustomer({ onCreated, onCancel, initialName }: QuickC
       } else {
         setError(result.error)
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('toast.error'))
+    } catch {
+      // Unexpected/infra failures (incl. the thin shell's not-wired action
+      // stub) get the translated generic — never a raw internal message.
+      // Expected validation errors arrive via result.error above.
+      setError(t('toast.error'))
     } finally {
       setIsPending(false)
     }

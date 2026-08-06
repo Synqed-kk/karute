@@ -53,12 +53,15 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "fixed top-[calc(env(safe-area-inset-top,0px)+1.5rem)] left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] max-h-[calc(100dvh-env(safe-area-inset-top,0px)-3rem)] -translate-x-1/2 gap-4 overflow-y-auto rounded-xl bg-background p-4 text-sm ring-1 ring-foreground/10 duration-100 outline-none sm:top-1/2 sm:max-h-[85vh] sm:max-w-lg sm:-translate-y-1/2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "fixed top-[calc(env(safe-area-inset-top,0px)+1.5rem)] left-1/2 z-50 flex w-full max-w-[calc(100%-2rem)] max-h-[calc(100dvh-env(safe-area-inset-top,0px)-3rem)] -translate-x-1/2 flex-col overflow-hidden rounded-xl bg-background text-sm ring-1 ring-foreground/10 duration-100 outline-none sm:top-1/2 sm:max-h-[85vh] sm:max-w-lg sm:-translate-y-1/2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}
       >
-        {children}
+        {/* Content scrolls INSIDE this wrapper (not on the popup itself) so
+         *  the absolutely-positioned close button stays pinned to the dialog
+         *  frame instead of scrolling away with tall content. */}
+        <div className="grid gap-4 overflow-y-auto p-4">{children}</div>
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
