@@ -39,11 +39,15 @@ const OutreachSchema = z.object({
  *  care-instruction phrasing and a false positive costs a cache skip per
  *  open: dash ranges (週2-3回) · bare ordinals without a month (the 3rd
  *  session) · slash values followed by a quantity counter (1/2カップ,
- *  1/3ほど — the trailing-counter lookahead below). Residual accepted: a
- *  counter-less fraction (「1/2ずつ」) still false-positives — cache-skip
- *  only, the draft itself is never affected. */
+ *  1/3ほど — the trailing-counter lookahead below). Also covered (Greptile
+ *  #680): day-first EN dates (21 August / 21st August) and ISO dates
+ *  (2026-08-21). Residuals accepted, cache-skip-only cost either way: a
+ *  counter-less fraction (「1/2ずつ」) still false-positives, and RELATIVE
+ *  date phrasing ("in two weeks", 「2週間後」) is deliberately NOT matched —
+ *  it names no concrete calendar fact to go stale, and is legitimate
+ *  care-advice phrasing (次は2週間後がおすすめ). */
 const DATE_TIME_TOKEN_RE =
-  /[0-9０-９]{1,2}\s*月\s*[0-9０-９]{1,2}\s*日|[0-9]{1,2}:[0-9]{2}|[0-9０-９]{1,2}\s*時(?:半|[0-9０-９]{1,2}分)?|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+[0-9]{1,2}(?:st|nd|rd|th)?\b|(?<![0-9０-９])[0-9０-９]{1,2}[/／][0-9０-９]{1,2}(?![0-9０-９])(?!\s*(?:個|カップ|杯|錠|包|回|本|枚|滴|袋|量|程度|ほど|cc|ml|g\b))/i
+  /[0-9０-９]{1,2}\s*月\s*[0-9０-９]{1,2}\s*日|[0-9]{1,2}:[0-9]{2}|[0-9０-９]{1,2}\s*時(?:半|[0-9０-９]{1,2}分)?|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+[0-9]{1,2}(?:st|nd|rd|th)?\b|\b[0-9]{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\b|\b[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\b|(?<![0-9０-９])[0-9０-９]{1,2}[/／][0-9０-９]{1,2}(?![0-9０-９])(?!\s*(?:個|カップ|杯|錠|包|回|本|枚|滴|袋|量|程度|ほど|cc|ml|g\b))/i
 
 /**
  * AI推奨メッセージ — drafts the post-session follow-up shown on the karute
@@ -199,13 +203,15 @@ async function appendNextBookingLine(
     const sameDay = ymdInJst(startsAt) === ymdInJst(new Date())
     const time = formatBookingTimeJst(startsAt, opts.locale)
 
-    // Cross-store naming (D7): only when the booking landed at a store
-    // DIFFERENT from this session's own — a same-store result never names
-    // itself. FC2: an unresolved cross-store name must not render
-    // location-blind (reads as same-store when it isn't) — so a failed or
-    // empty resolution drops the WHOLE line, not just the name.
+    // Cross-store naming (D7): name the store whenever same-store can't be
+    // PROVEN — a booking at a different store than this session's, or a
+    // session whose own store is unknown (legacy null storeId — Greptile
+    // #680 P1: silently omitting the location there reads as "here" when it
+    // may not be). Only a proven same-store result stays name-less. FC2: an
+    // unresolved name must not render location-blind — a failed or empty
+    // resolution drops the WHOLE line, not just the name.
     let storeName: string | null = null
-    if (opts.storeId && next.store_id && next.store_id !== opts.storeId) {
+    if (next.store_id && next.store_id !== opts.storeId) {
       try {
         storeName = await synqed.stores.get(next.store_id).then((s) => s.name)
       } catch (err) {

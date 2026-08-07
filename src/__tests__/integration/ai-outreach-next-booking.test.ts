@@ -233,6 +233,27 @@ describe('next-booking line — via getSuggestedFollowUpWithClient (facade, clie
     expect(draft?.body).not.toContain('にて')
   })
 
+  // Greptile #680 P1: a legacy karute with NO recorded store must not render
+  // location-blind — same-store can't be proven, so the store gets named.
+  it('own store unknown (storeId null) + booking has a store → store IS named', async () => {
+    appointmentsList.mockResolvedValue(listResult([appt({ store_id: 'store-ginza' })]))
+    storesGet.mockResolvedValue({ id: 'store-ginza', name: '銀座店' })
+    const draft = await call({ ...BASE_PARAMS, storeId: null })
+    expect(draft?.body).toContain('銀座店にて')
+  })
+
+  it('own store unknown + store name unresolvable → NO line (body unchanged)', async () => {
+    appointmentsList.mockResolvedValue(listResult([appt({ store_id: 'store-ginza' })]))
+    storesGet.mockRejectedValueOnce(new Error('down'))
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const draft = await call({ ...BASE_PARAMS, storeId: null })
+      expect(draft?.body).toBe(DRAFT_BODY)
+    } finally {
+      consoleErrorSpy.mockRestore()
+    }
+  })
+
   it('en locale: 12-hour time, natural EN line', async () => {
     appointmentsList.mockResolvedValue(listResult([appt()]))
     const draft = await call({ ...BASE_PARAMS, locale: 'en' })
@@ -370,6 +391,33 @@ describe('FC4 — cache-lock guard on date/time-token bodies', () => {
     })
     await getSuggestedFollowUpWithClient(fakeClient, 'biz-1', 'staff-1', 'req-1', BASE_PARAMS)
     expect(setCachedAI).not.toHaveBeenCalled()
+  })
+
+  // Greptile #680 P2: day-first EN and ISO date forms were uncovered.
+  it('day-first EN date (21st August) IS a date token → setCachedAI NOT called', async () => {
+    ;(openai.chat.completions.parse as jest.Mock).mockResolvedValue({
+      choices: [{ message: { parsed: { body: 'We look forward to seeing you on 21st August!' } } }],
+    })
+    await getSuggestedFollowUpWithClient(fakeClient, 'biz-1', 'staff-1', 'req-1', BASE_PARAMS)
+    expect(setCachedAI).not.toHaveBeenCalled()
+  })
+
+  it('ISO date (2026-08-21) IS a date token → setCachedAI NOT called', async () => {
+    ;(openai.chat.completions.parse as jest.Mock).mockResolvedValue({
+      choices: [{ message: { parsed: { body: '次回来店の目安は2026-08-21です。' } } }],
+    })
+    await getSuggestedFollowUpWithClient(fakeClient, 'biz-1', 'staff-1', 'req-1', BASE_PARAMS)
+    expect(setCachedAI).not.toHaveBeenCalled()
+  })
+
+  // Relative dates are DELIBERATELY not matched (regex doc): no concrete
+  // calendar fact to go stale, and legitimate care-advice phrasing.
+  it('relative phrasing (2週間後) is NOT a date token → setCachedAI still called', async () => {
+    ;(openai.chat.completions.parse as jest.Mock).mockResolvedValue({
+      choices: [{ message: { parsed: { body: '次のお手入れは2週間後ごろがおすすめです。' } } }],
+    })
+    await getSuggestedFollowUpWithClient(fakeClient, 'biz-1', 'staff-1', 'req-1', BASE_PARAMS)
+    expect(setCachedAI).toHaveBeenCalledTimes(1)
   })
 })
 
