@@ -344,6 +344,33 @@ describe('FC4 — cache-lock guard on date/time-token bodies', () => {
     await getSuggestedFollowUpWithClient(fakeClient, 'biz-1', 'staff-1', 'req-1', BASE_PARAMS)
     expect(setCachedAI).toHaveBeenCalledTimes(1)
   })
+
+  // Fresh-eyes catch (2026-08-07): a bare slash also matches fractions in
+  // care instructions (1/2カップ) — the counter lookahead excludes those;
+  // full-width digits/slash are covered like the JA alternatives.
+  it('fraction with counter (1/2カップ) is NOT a date token → setCachedAI still called', async () => {
+    ;(openai.chat.completions.parse as jest.Mock).mockResolvedValue({
+      choices: [{ message: { parsed: { body: 'お湯で1/2カップほど薄めてお使いください。' } } }],
+    })
+    await getSuggestedFollowUpWithClient(fakeClient, 'biz-1', 'staff-1', 'req-1', BASE_PARAMS)
+    expect(setCachedAI).toHaveBeenCalledTimes(1)
+  })
+
+  it('slash date with particle (8/21に) IS a date token → setCachedAI NOT called', async () => {
+    ;(openai.chat.completions.parse as jest.Mock).mockResolvedValue({
+      choices: [{ message: { parsed: { body: 'また8/21にお会いできるのを楽しみにしております。' } } }],
+    })
+    await getSuggestedFollowUpWithClient(fakeClient, 'biz-1', 'staff-1', 'req-1', BASE_PARAMS)
+    expect(setCachedAI).not.toHaveBeenCalled()
+  })
+
+  it('full-width slash date (８／２１) IS a date token → setCachedAI NOT called', async () => {
+    ;(openai.chat.completions.parse as jest.Mock).mockResolvedValue({
+      choices: [{ message: { parsed: { body: '次は８／２１ごろにどうぞ。' } } }],
+    })
+    await getSuggestedFollowUpWithClient(fakeClient, 'biz-1', 'staff-1', 'req-1', BASE_PARAMS)
+    expect(setCachedAI).not.toHaveBeenCalled()
+  })
 })
 
 describe('outreach cache key — outreach-only suffix (D9), passport cache untouched', () => {

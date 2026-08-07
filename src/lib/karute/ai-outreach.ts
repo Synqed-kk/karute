@@ -34,13 +34,16 @@ const OutreachSchema = z.object({
  *  Covers: JA month/day (8月21日), HH:MM time, JA 時/半/分 clock phrasing,
  *  EN month-abbreviation + day incl. ordinal suffix (Aug 21 / August 21st —
  *  the ordinal's `1`→`s` char pair defeats a bare \b, so the suffix is
- *  matched explicitly), and slash dates (8/21). Dash dates (8-21) are
- *  DELIBERATELY not matched: the same shape is a common legitimate range in
- *  these drafts (週2-3回のセルフケア) and a false positive here costs a
- *  cache skip per open — bare ordinals without a month (「the 21st」) are
- *  excluded for the same reason (the 3rd session). */
+ *  matched explicitly), and slash dates (8/21, incl. full-width ８／２１).
+ *  Deliberate NON-matches, each because the same shape is common legitimate
+ *  care-instruction phrasing and a false positive costs a cache skip per
+ *  open: dash ranges (週2-3回) · bare ordinals without a month (the 3rd
+ *  session) · slash values followed by a quantity counter (1/2カップ,
+ *  1/3ほど — the trailing-counter lookahead below). Residual accepted: a
+ *  counter-less fraction (「1/2ずつ」) still false-positives — cache-skip
+ *  only, the draft itself is never affected. */
 const DATE_TIME_TOKEN_RE =
-  /[0-9０-９]{1,2}\s*月\s*[0-9０-９]{1,2}\s*日|[0-9]{1,2}:[0-9]{2}|[0-9０-９]{1,2}\s*時(?:半|[0-9０-９]{1,2}分)?|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+[0-9]{1,2}(?:st|nd|rd|th)?\b|\b[0-9]{1,2}\/[0-9]{1,2}\b/i
+  /[0-9０-９]{1,2}\s*月\s*[0-9０-９]{1,2}\s*日|[0-9]{1,2}:[0-9]{2}|[0-9０-９]{1,2}\s*時(?:半|[0-9０-９]{1,2}分)?|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+[0-9]{1,2}(?:st|nd|rd|th)?\b|(?<![0-9０-９])[0-9０-９]{1,2}[/／][0-9０-９]{1,2}(?![0-9０-９])(?!\s*(?:個|カップ|杯|錠|包|回|本|枚|滴|袋|量|程度|ほど|cc|ml|g\b))/i
 
 /**
  * AI推奨メッセージ — drafts the post-session follow-up shown on the karute
