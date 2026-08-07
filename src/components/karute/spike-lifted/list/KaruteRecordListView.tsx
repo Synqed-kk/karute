@@ -263,10 +263,12 @@ export function KaruteRecordListView({
        *  Earlier version used flex-wrap which pushed the button
        *  below the stats column on mobile, making it invisible
        *  inside the viewport. */}
-      {/* Header structure contract (Liam 8/7): no mobile top margin — the
-       *  layout's py-4 is the one shared offset under the title bar on all
-       *  three list pages (this stray mt-3 was the tab-switch jump). */}
-      <div className="md:mt-5">
+      {/* Header structure contract (Liam 8/7, desktop unified late 8/7):
+       *  NO per-page top offset at any width — the layout's py-4/md:py-6
+       *  is the one shared offset under the title bar on all three list
+       *  pages. (The old mobile mt-3 was the tab-switch jump; the old
+       *  md:mt-5 was the same jump on desktop, 44px vs 24px.) */}
+      <div>
         <h1 className="hidden text-2xl font-semibold tracking-tight text-foreground md:block md:text-[26px]">
           {tHead('tabHeading')}
         </h1>

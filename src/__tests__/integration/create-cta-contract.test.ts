@@ -114,7 +114,9 @@ describe('create-CTA unification (案A 8/6 + responsive 8/7)', () => {
     const kokyakuView = read('src/components/customers/redesign/list/CustomersListView.tsx')
     expect(kokyakuView).toMatch(/flex-col gap-4/)
     const karute = read('src/components/karute/spike-lifted/list/KaruteRecordListView.tsx')
-    expect(karute).toContain('<div className="md:mt-5">')
+    // No per-page top offset at any width (Liam 8/7 desktop-unify ruling):
+    // the header zone wrapper is a bare <div> directly before the md h1.
+    expect(karute).toMatch(/<div>\s*<h1 className="hidden/)
     rowWithStatus(karute, 'flex items-center justify-between gap-3 md:mt-1')
     expect(karute).toContain('<div className="mt-4">')
     expect(karute).toContain('<div className="pt-4">')
