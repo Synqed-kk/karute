@@ -314,6 +314,36 @@ describe('FC4 — cache-lock guard on date/time-token bodies', () => {
     await getSuggestedFollowUpWithClient(fakeClient, 'biz-1', 'staff-1', 'req-1', BASE_PARAMS)
     expect(setCachedAI).toHaveBeenCalledTimes(1)
   })
+
+  // Delta-verify catch (2026-08-07): ordinal-suffixed EN dates and slash dates
+  // slipped the original regex — the `1`→`s` char pair in "21st" defeats a
+  // bare \b, and 8/21 had no alternative at all.
+  it('EN ordinal date (August 21st) in the generated body → setCachedAI NOT called', async () => {
+    ;(openai.chat.completions.parse as jest.Mock).mockResolvedValue({
+      choices: [{ message: { parsed: { body: 'Thank you for today. See you again on August 21st!' } } }],
+    })
+    await getSuggestedFollowUpWithClient(fakeClient, 'biz-1', 'staff-1', 'req-1', BASE_PARAMS)
+    expect(setCachedAI).not.toHaveBeenCalled()
+  })
+
+  it('slash date (8/21) in the generated body → setCachedAI NOT called', async () => {
+    ;(openai.chat.completions.parse as jest.Mock).mockResolvedValue({
+      choices: [{ message: { parsed: { body: '本日はありがとうございました。また8/21にお待ちしております。' } } }],
+    })
+    await getSuggestedFollowUpWithClient(fakeClient, 'biz-1', 'staff-1', 'req-1', BASE_PARAMS)
+    expect(setCachedAI).not.toHaveBeenCalled()
+  })
+
+  // Dash ranges are DELIBERATELY not matched (see DATE_TIME_TOKEN_RE's doc):
+  // 週2-3回 is a common legitimate self-care phrase — a false positive here
+  // would skip caching on every such draft.
+  it('dash range (週2-3回) is NOT a date token → setCachedAI still called', async () => {
+    ;(openai.chat.completions.parse as jest.Mock).mockResolvedValue({
+      choices: [{ message: { parsed: { body: '週2-3回のセルフケアを続けてみてください。' } } }],
+    })
+    await getSuggestedFollowUpWithClient(fakeClient, 'biz-1', 'staff-1', 'req-1', BASE_PARAMS)
+    expect(setCachedAI).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('outreach cache key — outreach-only suffix (D9), passport cache untouched', () => {

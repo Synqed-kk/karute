@@ -32,9 +32,15 @@ const OutreachSchema = z.object({
  *  so a possibly-invented date/time can't get cache-locked for a year (the
  *  draft is still returned and shown — staff review is the real gate).
  *  Covers: JA month/day (8月21日), HH:MM time, JA 時/半/分 clock phrasing,
- *  EN month-abbreviation + day (Aug 21). */
+ *  EN month-abbreviation + day incl. ordinal suffix (Aug 21 / August 21st —
+ *  the ordinal's `1`→`s` char pair defeats a bare \b, so the suffix is
+ *  matched explicitly), and slash dates (8/21). Dash dates (8-21) are
+ *  DELIBERATELY not matched: the same shape is a common legitimate range in
+ *  these drafts (週2-3回のセルフケア) and a false positive here costs a
+ *  cache skip per open — bare ordinals without a month (「the 21st」) are
+ *  excluded for the same reason (the 3rd session). */
 const DATE_TIME_TOKEN_RE =
-  /[0-9０-９]{1,2}\s*月\s*[0-9０-９]{1,2}\s*日|[0-9]{1,2}:[0-9]{2}|[0-9０-９]{1,2}\s*時(?:半|[0-9０-９]{1,2}分)?|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+[0-9]{1,2}\b/i
+  /[0-9０-９]{1,2}\s*月\s*[0-9０-９]{1,2}\s*日|[0-9]{1,2}:[0-9]{2}|[0-9０-９]{1,2}\s*時(?:半|[0-9０-９]{1,2}分)?|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+[0-9]{1,2}(?:st|nd|rd|th)?\b|\b[0-9]{1,2}\/[0-9]{1,2}\b/i
 
 /**
  * AI推奨メッセージ — drafts the post-session follow-up shown on the karute
