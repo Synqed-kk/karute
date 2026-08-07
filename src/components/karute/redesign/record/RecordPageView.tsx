@@ -270,6 +270,16 @@ export function RecordPageView({
   // take-lifecycle boundaries useRecordingGen already bumps at (a new take
   // starting or the current one being discarded). Invariant: ONE resolution
   // per take.
+  //
+  // Accepted residual (fresh-eyes round, PR-0 round 2): this is a component
+  // ref, not persisted state — a full page unmount+remount inside the
+  // ≤1500ms session-mint window (awaitRecordingSessionId's default timeout,
+  // global-recorder.ts) re-arms a fresh ref for an already-resolved take.
+  // Judged unreachable in practice: a real navigation round-trip doesn't
+  // complete inside that window. resolvingOutcomeRef has the same pre-
+  // existing exposure. Upgrade path if it ever matters: carry a
+  // resolvedTakeId on the globalRecorder singleton (survives remount)
+  // instead of a boolean ref on the component.
   const outcomeResolvedRef = useRef(false)
 
   // Re-entry + staleness guards for the use-recording flow (it awaits the

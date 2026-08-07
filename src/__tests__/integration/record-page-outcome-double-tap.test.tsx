@@ -35,8 +35,21 @@ jest.mock('@/i18n/navigation', () => ({
 }))
 jest.mock('@/actions/recordings', () => ({ startRecordingSession: jest.fn() }))
 jest.mock('@/actions/karute', () => ({ saveKaruteRecord: jest.fn() }))
+// Overridable per-test (mockResolvedValueOnce) — the handleStartRecording
+// regression test below needs consent GRANTED to reach the real record-start
+// button (RecordButtonCard's onStart no-ops while recordingBlocked). Widened
+// return type (not the full RecordingConsent shape) — isConsentCurrent only
+// reads policy_version, same partial shape review-screen-discard.test.tsx
+// already mocks.
+const mockGetCustomerConsent = jest.fn(
+  async (
+    _id: string,
+  ): Promise<{ consent: { policy_version: string; granted_at: string } | null }> => ({
+    consent: null,
+  }),
+)
 jest.mock('@/actions/customers', () => ({
-  getCustomerConsent: jest.fn(async () => ({ consent: null })),
+  getCustomerConsent: (id: string) => mockGetCustomerConsent(id),
   grantCustomerConsent: jest.fn(async () => ({ ok: true })),
 }))
 
@@ -123,6 +136,7 @@ import {
   RecordPageView,
   type RecordPageViewProps,
 } from '@/components/karute/redesign/record/RecordPageView'
+import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 
 afterEach(() => {
   cleanup()
@@ -405,5 +419,51 @@ describe('RecordPageView — per-take outcome resolution latch (Greptile P1, #67
 
     expect(mockCreatePackAction).toHaveBeenCalledTimes(1)
     expect(mockRedeemSessionAction).toHaveBeenCalledTimes(1)
+  })
+
+  // Fresh-eyes P2: the "new take unlocks it" tests above all drive the reset
+  // through handleDiscard's own `outcomeResolvedRef.current = false` line.
+  // The everyday production loop never touches discard: resolve → the save
+  // completes on its own (phase → idle) → the staffer taps the REAL
+  // record-start control for the next customer. That path clears the latch
+  // in handleStartRecording (and handleStartAnyway), not handleDiscard —
+  // pin it directly through the real control, no synthetic calls.
+  it('the real record-start control (handleStartRecording, not discard) also clears the latch for the next take', async () => {
+    // RecordButtonCard's onStart no-ops while recordingBlocked (consent not
+    // granted) — grant it so the click actually reaches handleStartRecording.
+    mockGetCustomerConsent.mockResolvedValueOnce({
+      consent: { policy_version: RECORDING_CONSENT_POLICY_VERSION, granted_at: '2026-01-01' },
+    })
+    const { rerenderSame } = await renderRecordedPage()
+    openDialogAtSuccess()
+
+    // Take A: resolve normally and let handleUseRecording's OWN post-await
+    // completion flip `phase` to 'idle' — no explicit discard this time.
+    fireEvent.click(screen.getByText('save'))
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    // Idle now — recorderControls (discard/useRecording) is gone, the real
+    // record-start button (RecordButtonCard) is on screen instead.
+    expect(screen.queryByText('useRecording')).toBeNull()
+
+    // Customer B: tap the REAL start control — this IS handleStartRecording,
+    // not a synthetic call to it.
+    fireEvent.click(screen.getByLabelText('startAria'))
+
+    // Drive the lifecycle to 'recorded' for take B.
+    mockRecState = 'recording'
+    await rerenderSame()
+    mockRecState = 'recorded'
+    await rerenderSame()
+
+    fireEvent.click(screen.getByText('useRecording'))
+    fireEvent.click(screen.getByText('noDeal.title'))
+
+    expect(screen.getByText('save')).toBeInTheDocument()
+    expect(screen.getByText('save')).not.toBeDisabled()
   })
 })
