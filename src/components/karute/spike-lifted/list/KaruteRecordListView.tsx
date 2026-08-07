@@ -22,6 +22,7 @@
 //                                  scoping can layer in later)
 
 import { Button } from '@/components/ui/button'
+import { FilePlus2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { useSearchParams } from 'next/navigation'
@@ -262,12 +263,20 @@ export function KaruteRecordListView({
        *  Earlier version used flex-wrap which pushed the button
        *  below the stats column on mobile, making it invisible
        *  inside the viewport. */}
-      <div className="mt-3 md:mt-5">
+      {/* Header structure contract (Liam 8/7, desktop unified late 8/7):
+       *  NO per-page top offset at any width — the layout's py-4/md:py-6
+       *  is the one shared offset under the title bar on all three list
+       *  pages. (The old mobile mt-3 was the tab-switch jump; the old
+       *  md:mt-5 was the same jump on desktop, 44px vs 24px.) */}
+      <div>
         <h1 className="hidden text-2xl font-semibold tracking-tight text-foreground md:block md:text-[26px]">
           {tHead('tabHeading')}
         </h1>
-        <div className="mt-1 flex items-start justify-between gap-3">
-          <p className="min-w-0 flex-1 text-xs tabular-nums text-muted-foreground">
+        {/* Header structure contract (Liam 8/7): natural-height items-center
+         *  row like 顧客/予約; mt-1 is desktop-only (spaces from the md h1
+         *  above) so mobile keeps the shared offset. */}
+        <div className="flex items-center justify-between gap-3 md:mt-1">
+          <p className="min-w-0 flex-1 truncate text-xs tabular-nums text-muted-foreground">
             {t('statusLine', { monthCount, showingCount: filtered.length })}
           </p>
           {/* + 新規カルテ — primary CTA. Opens the manual-entry dialog
@@ -277,18 +286,24 @@ export function KaruteRecordListView({
            *  earlier this CTA routed there too, conflating manual entry
            *  with starting a recording. Two distinct intents now have
            *  two distinct surfaces. */}
-          {/* Unified create pill (Liam 8/6, 案A): all three list-page
-           *  create CTAs share the plain Button default — same height,
-           *  radius, and「+ ラベル」wording as 顧客's + 新規顧客. */}
-          <Button type="button" onClick={() => setNewKaruteOpen(true)}>
-            {t('newKarute')}
+          {/* Unified create pill (Liam 8/6 案A + 8/7 responsive ruling):
+           *  shared Button default; words only on regular widths, icon
+           *  only below 380px — never both. */}
+          <Button
+            type="button"
+            aria-label={t('newKarute')}
+            onClick={() => setNewKaruteOpen(true)}
+          >
+            <FilePlus2 className="size-3.5 min-[380px]:hidden" aria-hidden />
+            <span className="hidden min-[380px]:inline">{t('newKarute')}</span>
           </Button>
         </div>
       </div>
 
-      {/* Staff-scope filter — "your customers / all / specific staff" */}
+      {/* Staff-scope filter — "your customers / all / specific staff".
+       *  mt-4/pt-4 below: 16px header rhythm (Liam 8/7), matching 顧客/予約. */}
       {staffList.length > 0 && (
-        <div className="mt-3">
+        <div className="mt-4">
           <CustomersStaffFilter
             staffList={staffList}
             selfStaffId={currentStaffId ?? null}
@@ -299,7 +314,7 @@ export function KaruteRecordListView({
       )}
 
       {/* Search input — reuses the customer search input visually */}
-      <div className="pt-3">
+      <div className="pt-4">
         <label className="flex w-full items-center gap-2 rounded-[10px] border border-border bg-card px-3 focus-within:border-sky-500">
           <svg
             xmlns="http://www.w3.org/2000/svg"

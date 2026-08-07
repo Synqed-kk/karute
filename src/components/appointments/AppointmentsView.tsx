@@ -14,7 +14,7 @@ import {
   type WeekDayCardData,
 } from '@synqed-kk/ui'
 import { useTranslations, useLocale } from 'next-intl'
-import { Bell } from 'lucide-react'
+import { Bell, CalendarPlus } from 'lucide-react'
 import { useRouter, usePathname } from '@/i18n/navigation'
 import { Button } from '@/components/ui/button'
 import {
@@ -176,7 +176,10 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     // reservation page wrapper (`px-4 md:px-6`). Cards inside this
     // wrapper sit at 16/24px from edge — chrome (date selector, toggles,
     // legend) lands at the same offset for visual alignment.
-    <div className="relative space-y-3 px-4 md:px-6">
+    // space-y-4 (Liam 8/7): the date-nav row and the 日週月/filter row
+    // both carry borders — 12px read as touching; 16px matches the
+    // 顧客/カルテ header rhythm.
+    <div className="relative space-y-4 px-4 md:px-6">
       {/* Hidden native date picker; opened by the header's date button. */}
       <input
         ref={datePickerRef}
@@ -251,6 +254,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
        *  are gone; the package defaults now render Today + new-booking in
        *  the accent. */}
       <ReservationPageHeader
+        // Header structure contract (Liam 8/7): mb-0 kills the package's
+        // baked mb-4 — and, same property, the page's space-y-4 margin
+        // (v4 space-y is a zero-specificity :where() rule) — so the pt-6
+        // wrapper below owns the whole 24px seam. Same natural-height
+        // row as 顧客/カルテ (32px controls set the height).
+        className="mb-0"
         dateDisplay={formatLongDateJst(headerDate, locale)}
         dateDisplayCompact={formatCompactDateJst(headerDate, locale)}
         onPrev={handlePrev}
@@ -264,8 +273,13 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         // props entirely, so they are not passed — the slot's own onClick
         // and label are the single source of truth.
         newBookingSlot={
-          <Button type="button" onClick={() => setDialogOpen(true)}>
-            {tReservation('new')}
+          <Button
+            type="button"
+            aria-label={tReservation('new')}
+            onClick={() => setDialogOpen(true)}
+          >
+            <CalendarPlus className="size-3.5 min-[380px]:hidden" aria-hidden />
+            <span className="hidden min-[380px]:inline">{tReservation('new')}</span>
           </Button>
         }
         // @synqed-kk/ui ships English defaults baked into the component
@@ -292,6 +306,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
        *  schedule (matches the spike's mobile screenshot Liam shared).
        *  Picker mutates ?staff= which the page reads server-side to
        *  refilter reservationViews. */}
+      {/* pt-6 = the whole 24px seam (Liam 8/7): both neighbors are
+       *  bordered controls and 16px read as touching. The header's mb-0
+       *  zeroes space-y-4's contribution too (same margin property,
+       *  higher specificity), so this padding is the seam's single
+       *  owner. Padding, not margin: margins collapse. */}
+      <div className="pt-6">
       <ReservationStaffFilter
         staffList={props.staff.map<ReservationStaffEntry>((s) => ({
           id: s.id,
@@ -312,6 +332,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
           />
         }
       />
+      </div>
 
       {/* Legend — wrapped in a bordered card matching the spike.
        *

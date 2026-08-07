@@ -70,8 +70,11 @@ export function ReservationStaffFilter({
     // staff is picked, so all three fit on one line at 440px. flex-wrap is a
     // graceful backstop on the narrowest phones; the dropdown clamps itself
     // on-screen (StaffSelector) if the chip ever wraps far-left.
+    // gap-y-3 (Liam 8/7): when 担当 wraps to its own line on narrow phones
+    // the 8px row gap read as touching — vertical breathing room only,
+    // horizontal stays gap-2.
     <div
-      className={`flex flex-wrap items-center gap-2 ${isPending ? 'opacity-60' : ''}`}
+      className={`flex flex-wrap items-center gap-x-2 gap-y-3 ${isPending ? 'opacity-60' : ''}`}
     >
       {prependSlot}
       <div className="inline-flex h-9 w-fit items-stretch rounded-full border border-border bg-muted/50 p-0.5 text-xs font-medium">
