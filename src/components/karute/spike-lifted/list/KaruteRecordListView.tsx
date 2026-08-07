@@ -21,7 +21,7 @@
 //                                  on records + filters; per-staff
 //                                  scoping can layer in later)
 
-import { FilePlus2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { useSearchParams } from 'next/navigation'
@@ -272,14 +272,12 @@ export function KaruteRecordListView({
            *  earlier this CTA routed there too, conflating manual entry
            *  with starting a recording. Two distinct intents now have
            *  two distinct surfaces. */}
-          <button
-            type="button"
-            onClick={() => setNewKaruteOpen(true)}
-            className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md bg-primary px-4 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary-hover"
-          >
-            <FilePlus2 className="size-3.5" aria-hidden />
+          {/* Unified create pill (Liam 8/6, 案A): all three list-page
+           *  create CTAs share the plain Button default — same height,
+           *  radius, and「+ ラベル」wording as 顧客's + 新規顧客. */}
+          <Button type="button" onClick={() => setNewKaruteOpen(true)}>
             {t('newKarute')}
-          </button>
+          </Button>
         </div>
       </div>
 

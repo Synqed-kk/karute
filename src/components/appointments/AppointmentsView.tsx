@@ -16,6 +16,7 @@ import {
 import { useTranslations, useLocale } from 'next-intl'
 import { Bell } from 'lucide-react'
 import { useRouter, usePathname } from '@/i18n/navigation'
+import { Button } from '@/components/ui/button'
 import {
   formatCompactDateJst,
   formatLongDateJst,
@@ -256,7 +257,17 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         onNext={handleNext}
         onToday={handleToday}
         onPickDate={handlePickDate}
-        onNewBooking={() => setDialogOpen(true)}
+        // Unified create pill (Liam 8/6, 案A): the package default is an
+        // icon-only square on mobile — the slot override keeps the same
+        // shared-Button「+ ラベル」pill as the 顧客/カルテ list pages. The
+        // slot bypasses the package's onNewBooking/newReservationLabel
+        // props entirely, so they are not passed — the slot's own onClick
+        // and label are the single source of truth.
+        newBookingSlot={
+          <Button type="button" onClick={() => setDialogOpen(true)}>
+            {tReservation('new')}
+          </Button>
+        }
         // @synqed-kk/ui ships English defaults baked into the component
         // ("Today", "New Reservation", etc.). Same pattern as the
         // DayWeekMonthToggle — pass localized strings via the `copy`
@@ -264,7 +275,6 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         copy={{
           title: tReservation('title'),
           todayLabel: tReservation('today'),
-          newReservationLabel: tReservation('new'),
           prevLabel: tReservation('prev'),
           nextLabel: tReservation('next'),
         }}

@@ -138,7 +138,7 @@
   },
   "reservation": {
     "title": "予約",
-    "new": "新規予約",
+    "new": "+ 新規予約",
     "today": "今日",
     "prev": "前へ",
     "next": "次へ",

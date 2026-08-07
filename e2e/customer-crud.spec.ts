@@ -10,7 +10,7 @@ const FULL = `${FAMILY} ${GIVEN}`
 
 test('create a customer via the form and see it in the list', async ({ page }) => {
   await page.goto('/en/customers')
-  await page.getByRole('button', { name: '+ New Customer' }).click()
+  await page.getByRole('button', { name: '+ New customer' }).click()
   await expect(page.getByText('Add New Customer')).toBeVisible()
   await page.getByPlaceholder('Tanaka').fill(FAMILY)
   await page.getByPlaceholder('Misaki').fill(GIVEN)
