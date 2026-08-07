@@ -80,7 +80,7 @@ export function RecentImportsTable({ records }: RecentImportsTableProps) {
                 className="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-gray-50 dark:hover:bg-white/5"
               >
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-blue-100 bg-blue-50 dark:border-blue-500/15 dark:bg-blue-500/10">
-                  <FileSpreadsheet className="size-4 text-blue-600 dark:text-blue-300" />
+                  <FileSpreadsheet className="size-4 text-muted-foreground" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-2">

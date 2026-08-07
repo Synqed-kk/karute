@@ -86,7 +86,7 @@ export function ExportColumnsPicker({
       <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
         <div>
           <h3 className="text-[14.5px] font-semibold flex items-center gap-2">
-            <ListChecks className="size-3.5 text-blue-500 dark:text-blue-300" />
+            <ListChecks className="size-3.5 text-muted-foreground" />
             {t('columns')}
             <span className="text-[11px] font-normal text-muted-foreground ml-1">
               {t('columnsSummary', {

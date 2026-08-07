@@ -144,3 +144,30 @@ export function effectiveCapabilities(
 export function can(caps: Set<Capability>, capability: Capability): boolean {
   return caps.has(capability)
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// Ask AI access — ONE shared rule for every entry point (H0, 2026-07-30).
+//
+// The facade chat + facade ask-ai screen have always guarded customers.view;
+// the web page and the legacy cookie chat route guarded only session presence,
+// so a same-business account with NO capabilities (blank custom preset) could
+// still pull karute/customer-derived AI context. All four surfaces now consume
+// THIS list so the effective rule can never drift between them.
+//
+// customers.view is the rule because the AI context is view-shaped data —
+// karute content + customer names, the same data customers.view gates
+// everywhere else. Tightening the rule (e.g. adding records.write to exclude
+// Front Desk) is a product decision: change THIS list and every entry point
+// and its tests follow. Do not add Permission-v2 vocabulary here.
+// ───────────────────────────────────────────────────────────────────────────
+// Non-empty tuple type: emptying this list must FAIL THE BUILD — [].every()
+// is vacuously true and an empty ensureCapability loop doesn't iterate, so an
+// empty rule would silently admit everyone on all four surfaces at once.
+export const ASK_AI_REQUIRED_CAPABILITIES: readonly [Capability, ...Capability[]] = [
+  'customers.view',
+]
+
+/** True when the resolved capability set satisfies the shared Ask AI rule. */
+export function canUseAskAi(caps: Set<Capability>): boolean {
+  return ASK_AI_REQUIRED_CAPABILITIES.every((c) => caps.has(c))
+}

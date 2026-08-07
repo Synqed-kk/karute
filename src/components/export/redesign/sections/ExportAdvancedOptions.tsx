@@ -33,7 +33,7 @@ export function ExportAdvancedOptions({
     <section className="rounded-xl border border-border/30 bg-card/50 p-5">
       <div className="mb-3">
         <h3 className="text-[14.5px] font-semibold flex items-center gap-2">
-          <Sparkles className="size-3.5 text-blue-500 dark:text-blue-300" />
+          <Sparkles className="size-3.5 text-muted-foreground" />
           {t('advanced')}
         </h3>
         <div className="text-[12px] text-muted-foreground mt-0.5">
@@ -96,7 +96,7 @@ export function ExportAdvancedOptions({
         </div>
         {schedule !== 'once' && (
           <div className="mt-3 flex items-start gap-2 text-[12px] text-muted-foreground">
-            <Info className="size-3 mt-0.5 text-blue-500 dark:text-blue-300" />
+            <Info className="size-3 mt-0.5 text-muted-foreground" />
             <span>
               {schedule === 'weekly'
                 ? t('scheduleHintWeekly')

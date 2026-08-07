@@ -67,6 +67,7 @@
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -87,7 +88,18 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  /* R13 (Liam, 2026-08-06): interactive accent is NEVER black. --primary is
+   * the single commit/selection accent — blue-600, the design spike's
+   * dominant accent (#2563eb, hover pair #1d4ed8) and the same family as the
+   * 新規 badge + reservation Today button. Selected state = bg-primary/8 +
+   * text-primary (+ border-primary where the control has a border); commit
+   * action = bg-primary + text-primary-foreground. Guard:
+   * scripts/audit/check-dark-interactive.mjs */
+  --primary: #2563eb;
+  /* Commit hover darkens WITHIN the accent (spike's #1d4ed8 pair) — opacity
+   * blends lighten toward the white page and drop white text below WCAG AA
+   * (fresh-eyes round, PR #671). */
+  --primary-hover: #1d4ed8;
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -126,7 +138,10 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
+  /* R13 dark: blue-400 fill + near-black ink (white on blue-400 fails contrast).
+   * Hover lightens (dark-mode inverse of the light-mode darken). */
+  --primary: #60a5fa;
+  --primary-hover: #93c5fd;
   --primary-foreground: oklch(0.205 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
@@ -151,6 +166,27 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+}
+
+/* R13 (Liam, 2026-08-06): @synqed-kk/ui's karute theme ships
+ * --color-accent: #18181b (black) — every package component that fills with
+ * the accent (Button default, ReservationPageHeader new-booking,
+ * BookingActionSheet, MonthGrid selection …) rendered as a black box. Same
+ * selectors as the package's tokens.css, declared later in the cascade so
+ * they win. Values = the app accent above (--primary), in the package's hex
+ * form. Retint upstream in @synqed-kk/ui = Anthony ask; this override is the
+ * app-side source of truth until then. */
+:root[data-theme="karute"] {
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-light: #eff6ff;
+}
+:root[data-theme="karute"].dark,
+html.dark[data-theme="karute"] {
+  --color-accent: #60a5fa;
+  --color-accent-hover: #93c5fd;
+  --color-accent-light: rgba(96, 165, 250, 0.16);
+  --color-accent-text: #18181b;
 }
 
 @layer base {
@@ -324,33 +360,5 @@
     display: none;
   }
 
-  /* Make @synqed-kk/ui's ReservationPageHeader "Today" button render
-   * blue + with a clickable affordance, matching the design spike.
-   *
-   * The package ships the Today button as the only child using
-   * `text-[var(--color-accent)]` — but karute's accent token is
-   * near-white (oklch(0.97 0 0)), so it renders as nearly-invisible
-   * grey text. The button reads as plain content, not clickable.
-   *
-   * Fix: scope the accent CSS variable to blue ONLY inside the
-   * `.reservation-today-blue` wrapper we apply around the header.
-   * Tailwind's `text-[var(--color-accent)]` then picks up blue from
-   * the wrapper, and `hover:bg-[var(--color-accent)]/10` (also in
-   * the package) gives the matching blue hover ring.
-   *
-   * Scoped to the wrapper so no other component in the system that
-   * uses --color-accent gets recolored. The new-booking icon button
-   * inside the header uses `bg-[var(--color-accent)]` too, but it
-   * sits next to the date selector chip and reads fine in blue as
-   * a "primary action" affordance — same look as the spike.
-   */
-  .reservation-today-blue {
-    --color-accent: oklch(0.546 0.215 262.881);    /* ~ Tailwind blue-600 */
-    --color-accent-hover: oklch(0.488 0.243 264.376); /* ~ blue-700 */
-  }
-  .dark .reservation-today-blue {
-    --color-accent: oklch(0.776 0.156 256.6);      /* ~ blue-300 */
-    --color-accent-hover: oklch(0.700 0.180 258.0); /* ~ blue-400 */
-  }
 }
 

@@ -1,3 +1,5 @@
+import { QuietRefresh } from '@/components/perf/QuietRefresh'
+import { renderStamp } from '@/lib/perf/render-stamp'
 import { notFound } from 'next/navigation'
 
 import { auditWeb } from '@/lib/audit-web'
@@ -135,5 +137,12 @@ export default async function CustomerProfilePage({
     packs,
   })
 
-  return <CustomerProfileView {...screen} />
+  return (
+    <>
+      {/* SWR delivery: stamp when the SERVER built this so a stale
+          router-cache copy refreshes itself behind the paint. */}
+      <QuietRefresh renderedAt={renderStamp()} />
+      <CustomerProfileView {...screen} />
+    </>
+  )
 }

@@ -196,7 +196,7 @@ export function SyncSection() {
           type="button"
           onClick={saveConfig}
           disabled={syncing}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
         >
           {t('saveConfig')}
         </button>

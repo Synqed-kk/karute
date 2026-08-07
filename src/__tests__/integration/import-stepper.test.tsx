@@ -4,7 +4,8 @@
  * Render coverage for ImportStepper (PR 23, replay/23): the 4-step progress
  * indicator. next-intl is mocked so step labels render as their translation
  * KEYs. Active/completed/future state is asserted via the chip class names
- * (solid blue = active, bordered blue = done, muted = future).
+ * (blue-100 wash + heavy border = active, blue-50 wash = done, muted =
+ * future — accent law: the stepper is non-pressable, no solid fill).
  */
 import { render, screen } from '@testing-library/react'
 
@@ -42,36 +43,41 @@ describe('ImportStepper', () => {
     }
   })
 
-  it('highlights the active step with a solid blue chip', () => {
+  // Whole-class matcher — 'bg-blue-50' must not match 'dark:bg-blue-500/10'.
+  const cls = (name: string) =>
+    new RegExp(`(^|\\s)${name.replace('/', '\\/')}(\\s|$)`)
+
+  it('highlights the active step with a wash + border chip (accent law: no solid fill)', () => {
     render(<ImportStepper activeStep={1} />)
     const chip = chipForStep(1)
-    expect(chip.className).toContain('bg-blue-600')
-    expect(chip.className).toContain('text-white')
+    expect(chip.className).toMatch(cls('bg-blue-100'))
+    expect(chip.className).toMatch(cls('border-blue-300'))
+    expect(chip.className).not.toMatch(cls('bg-blue-600'))
   })
 
-  it('marks steps before the active step as completed (bordered blue chip)', () => {
+  it('marks steps before the active step as completed (demoted wash chip)', () => {
     render(<ImportStepper activeStep={2} />)
     const chip = chipForStep(0)
-    expect(chip.className).toContain('bg-blue-100')
-    expect(chip.className).toContain('border-blue-300')
-    // not the active solid style
-    expect(chip.className).not.toContain('bg-blue-600')
+    expect(chip.className).toMatch(cls('bg-blue-50'))
+    expect(chip.className).toMatch(cls('border-blue-200'))
+    // not the active tier
+    expect(chip.className).not.toMatch(cls('bg-blue-100'))
   })
 
   it('marks steps after the active step as future (muted chip)', () => {
     render(<ImportStepper activeStep={0} />)
     const chip = chipForStep(3)
-    expect(chip.className).toContain('bg-gray-100')
-    expect(chip.className).not.toContain('bg-blue-600')
-    expect(chip.className).not.toContain('bg-blue-100')
+    expect(chip.className).toMatch(cls('bg-gray-100'))
+    expect(chip.className).not.toMatch(cls('bg-blue-100'))
+    expect(chip.className).not.toMatch(cls('bg-blue-50'))
   })
 
   it('treats the final step as active when activeStep points at it', () => {
     render(<ImportStepper activeStep={3} />)
     const chip = chipForStep(3)
-    expect(chip.className).toContain('bg-blue-600')
+    expect(chip.className).toMatch(cls('bg-blue-100'))
     // every earlier step is then completed
-    expect(chipForStep(0).className).toContain('bg-blue-100')
-    expect(chipForStep(2).className).toContain('bg-blue-100')
+    expect(chipForStep(0).className).toMatch(cls('bg-blue-50'))
+    expect(chipForStep(2).className).toMatch(cls('bg-blue-50'))
   })
 })

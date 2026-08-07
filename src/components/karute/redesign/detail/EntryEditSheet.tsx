@@ -425,7 +425,7 @@ export function EntryEditSheet({
                   'rounded-full border px-3 text-[11.5px] font-semibold transition-colors',
                   folded ? 'h-6 shrink-0' : 'h-[26px]',
                   category === c
-                    ? 'border-foreground/30 bg-foreground/10 text-foreground'
+                    ? 'border-primary bg-primary/8 text-primary'
                     : 'border-border bg-muted text-muted-foreground',
                 )}
               >
@@ -491,7 +491,7 @@ export function EntryEditSheet({
               // (other write paths don't bound content) stays possible.
               (entry !== null && content !== entry.body && content.trim() === '')
             }
-            className="rounded-full bg-foreground px-8 py-2.5 text-sm font-semibold text-background disabled:opacity-50"
+            className="rounded-full bg-primary px-8 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-hover disabled:opacity-50"
           >
             {t('save')}
           </button>

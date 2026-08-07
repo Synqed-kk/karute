@@ -1,7 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { NextIntlClientProvider } from 'next-intl'
+import { getMessages } from 'next-intl/server'
 import { DataExportView } from '@/components/export/redesign/DataExportView'
+import { PAGE_PICKS, pickMessages } from '@/i18n/client-messages'
 import type { ScopeKey } from '@/lib/export/scopes'
 
 export default async function DataExportPage({
@@ -72,10 +75,14 @@ export default async function DataExportPage({
   const recipientEmail = user?.email ?? 'owner@example.com'
 
   return (
-    <DataExportView
-      locale={locale}
-      totals={totals}
-      recipientEmail={recipientEmail}
-    />
+    <NextIntlClientProvider
+      messages={pickMessages(await getMessages(), PAGE_PICKS.dataExport)}
+    >
+      <DataExportView
+        locale={locale}
+        totals={totals}
+        recipientEmail={recipientEmail}
+      />
+    </NextIntlClientProvider>
   )
 }

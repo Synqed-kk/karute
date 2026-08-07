@@ -65,6 +65,14 @@ interface CustomersListViewProps {
    */
   staffList: StaffFilterEntry[]
   /**
+   * 指名スタッフ roster for CustomerSheet's "+ 新規顧客" dialog. Passed
+   * EXPLICITLY by each mount (web page / thin screen) as the FULL tenant
+   * roster — never derived from `staffList`, which the web page store-clamps
+   * for the 担当 filter pills. 指名 can point at any staff in the tenant,
+   * matching the profile-edit dialog's behavior.
+   */
+  assignableStaff: { id: string; name: string }[]
+  /**
    * When `true`, every customer card renders an AI-status chip row
    * underneath the contact line (体調予測 / 推奨 / 要約 / 録音, all
    * 対応予定). Used by the カルテ tab to frame the same customer
@@ -93,6 +101,7 @@ export function CustomersListView({
   query,
   selfStaffId,
   staffList,
+  assignableStaff,
   bookingDataAvailable = true,
   burnByCustomer = null,
   burnUnpricedIds = [],
@@ -296,11 +305,14 @@ export function CustomersListView({
     // padding now (system rule). Matches the spike's customer list page
     // which wraps with px-4 md:px-8; using md:px-6 here for consistency
     // with reservation + karute customer detail conventions.
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-4 pt-0 pb-6 md:gap-4 md:px-6 md:pb-6">
+    // gap-4 on mobile too (Liam 8/7): bordered control rows read cramped
+    // at 12px — 16px matches the desktop rhythm this page already used.
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 pt-0 pb-6 md:px-6 md:pb-6">
       <CustomersListHeader
         total={totalRegistered}
         showing={filteredRows.length}
         heading={heading}
+        assignableStaff={assignableStaff}
       />
 
       {/* Order mirrors the design spike: staff scope first (who am I

@@ -2,6 +2,69 @@
 
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
+## Design law — no black interactive elements (R13, Liam 2026-08-06)
+
+No tab, button, chip, toggle, or segmented control is EVER deliberately black.
+The interactive accent is blue-600 `#2563eb` (dark mode `#60a5fa`), carried by
+`--primary` in `src/app/globals.css` plus the `--color-accent` karute-theme
+override there (the @synqed-kk/ui package ships a black accent — the override
+is the app-side fix until the package retints).
+
+- Selected/pressed state (tabs, filters, chips, options): `bg-primary/8
+  text-primary` + `border-primary` where the control has a border. Never a
+  solid dark fill. (/8 not /10: accent text on the 10% wash computes to
+  4.49:1 — just under WCAG AA; 8% passes.)
+- Commit/primary action (save, create, confirm): `bg-primary
+  text-primary-foreground hover:bg-primary-hover`. Never `bg-foreground`,
+  `bg-sage-800`, a dark hover, or an opacity hover on the fill —
+  `hover:opacity-90`/`hover:bg-primary/90` LIGHTEN toward the page and drop
+  white text below AA; `--primary-hover` darkens within the accent.
+- Destructive stays red; status colors untouched; dark fills are legal only on
+  non-interactive surfaces (photo canvases, scrims — allowlist them in the
+  guard).
+
+Enforced by `npm run audit:dark-interactive`
+(`scripts/audit/check-dark-interactive.mjs`, runs in CI). If it fails, fix the
+color — don't allowlist an interactive element.
+
+## Design law — the one-way accent law (Liam 2026-08-06)
+
+Saturated accent (`text-primary` used as a text color, `border-primary` as a
+border, solid `bg-primary` fill) is RESERVED for interactive elements — things
+a user can press: links, buttons, and the selected/active state OF pressable
+controls (tabs, filter pills, options). Decoration, section labels,
+status/informational text, and non-pressable indicators must be neutral
+(`muted-foreground` / `border-border` / foreground-family).
+
+The law is ONE-WAY: pressables may be quieter than accent (outline cancel
+buttons, neutral tappable rows, muted icons) — that is fine and NOT a
+violation. The allowance covers resting-state quietness only; it does not
+override the R13 selected-state recipe above.
+
+LEGAL and out of scope: soft washes (`bg-primary/8`, `bg-blue-50` info
+banners, wash-styled status chips — wash-level opacity or a *-50 tint, never
+a solid `bg-primary` fill on a non-pressable), focus rings and focus-visible
+styles (a11y), semantic colors (red destructive, green success, amber
+warning), chart/data colors.
+
+The law binds the saturated blue family in ANY spelling (Liam, phase 2
+2026-08-06): the primary tokens above, literal Tailwind blues
+(`text-blue-400`–`700`, solid `bg-blue-400`–`700`, `border-blue-400`–`700` —
+blue-400 is the dark-mode primary, saturated, not a wash), and raw accent
+hexes are all the same accent. Wash-level tints (*-50, *-100,
+opacity washes) stay in the legal soft-wash tier — the approved icon-chip
+treatment is `bg-blue-100 text-blue-700` + dark `bg-blue-500/15
+text-blue-300`.
+
+No sound fully-automated gate exists for this law — pressability is semantic;
+a grep heuristic (like check-dark-interactive's INTERACTIVE_MARKERS) can flag
+candidates but not judge them. Enforcement is review plus class-contract
+tests pinning adjudicated sites
+(`src/__tests__/integration/accent-tier-contract.test.tsx` today; siblings
+accrue as more sites are adjudicated).
+Judge the ELEMENT, not the file: accent on a span INSIDE a link/button is
+part of the pressable and legal.
+
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
 ## 1. Think Before Coding

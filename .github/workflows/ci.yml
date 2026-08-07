@@ -170,6 +170,9 @@ jobs:
           node scripts/audit/generate-audit-actions-doc.mjs
           test -z "$(git status --porcelain --ignored -- docs/AUDIT_ACTIONS.md)" || { echo "::error::docs/AUDIT_ACTIONS.md is stale or was deleted — run npm run audit:actions-doc and commit the result"; git status -- docs/AUDIT_ACTIONS.md; git diff -- docs/AUDIT_ACTIONS.md; exit 1; }
 
+      - name: Dark interactive fill guard (R13)
+        run: node scripts/audit/check-dark-interactive.mjs
+
       - name: Audit weakening gate
         # Explicit refspec (contract §8 CP8 hardening): actions/checkout@v4's
         # default shallow clone has no refs/remotes/origin/main until this
@@ -185,3 +188,59 @@ jobs:
         run: |
           git fetch origin +main:refs/remotes/origin/main --depth=1
           node scripts/audit/check-audit-weakening.mjs
+
+  # ── Business isolation guard — ISOLATED job (phone-safety lock 3) ────────
+  # Fails any PR that touches Business territory (scripts/business/
+  # business-territory.json) AND anything outside it — deny-by-default, so
+  # phone-owned surfaces (thin/, facade routes, shared screens at every
+  # width, messages/, package.json) never need enumerating. Same isolation
+  # philosophy as audit-gates: no npm install, no lifecycle scripts — the
+  # chain is checkout → node on CODEOWNERS-protected scripts + the preinstalled
+  # gh CLI. The PR files API (not a local git diff) supplies the change list:
+  # exact, pagination-safe, and includes previous_filename so a rename can't
+  # smuggle a phone file into territory. The jest import-isolation half
+  # (business-isolation.test.ts) runs in the main ci job's suite.
+  business-guard:
+    name: Business isolation guard
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # Same SHA pin as every other job (Greptile #635).
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # Same pin + version as the other jobs — without this the job rides
+      # ubuntu-latest's ambient node, which drifts on every image bump.
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+
+      - name: Guard selftest (boundary + rename cases)
+        run: node scripts/business/check-business-isolation.selftest.mjs
+
+      - name: Business PRs touch only Business territory
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # pipefail is load-bearing (blind round): the default step shell is
+        # plain `bash -e` — without it a failed gh api call feeds the script
+        # empty stdin and the pipeline exits with node's status. The script
+        # ALSO fails closed on empty input; two independent layers. The
+        # changed_files pre-check (Greptile P2): the files endpoint silently
+        # truncates at 3000 entries, so a padded PR could hide an
+        # outside-territory file past the cap — refuse anything near it
+        # outright (a ~3000-file PR is already far outside this repo's
+        # 50–200 LOC convention).
+        run: |
+          set -eo pipefail
+          changed=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq '.changed_files')
+          if [ "$changed" -gt 2900 ]; then
+            echo "::error::PR has $changed changed files — beyond the files API's reliable range (3000 cap). Split the PR."
+            exit 1
+          fi
+          gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
+            --jq '.[] | .filename, (.previous_filename // empty)' \
+          | node scripts/business/check-business-isolation.mjs

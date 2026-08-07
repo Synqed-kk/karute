@@ -1,4 +1,6 @@
-import { getTranslations } from 'next-intl/server'
+import { getTranslations, getMessages } from 'next-intl/server'
+import { NextIntlClientProvider } from 'next-intl'
+import { PAGE_PICKS, pickMessages } from '@/i18n/client-messages'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { listStores, getActiveStoreId } from '@/actions/stores'
@@ -71,6 +73,11 @@ export default async function SettingsPage({
   const auditTargetId = initialTab === 'audit' && sp.target ? sp.target : null
 
   return (
+    // The layout provider ships only settings.stores — the full settings
+    // dictionary (and this subtree's other namespaces) ride this pick.
+    <NextIntlClientProvider
+      messages={pickMessages(await getMessages(), PAGE_PICKS.settings)}
+    >
     <SettingsPageChrome title={t('title')}>
       <SettingsShell
         orgSettings={orgSettings}
@@ -90,5 +97,6 @@ export default async function SettingsPage({
         initialEntitlement={entitlement}
       />
     </SettingsPageChrome>
+    </NextIntlClientProvider>
   )
 }

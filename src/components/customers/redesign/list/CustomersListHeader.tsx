@@ -15,6 +15,8 @@ interface CustomersListHeaderProps {
    * is fully owned by the calling page.
    */
   heading?: string
+  /** Tenant staff roster — threaded through to CustomerSheet's 指名スタッフ picker. */
+  assignableStaff?: { id: string; name: string }[]
 }
 
 /**
@@ -40,7 +42,7 @@ interface CustomersListHeaderProps {
  * MobileHeader bell is `md:hidden`, so exactly one bell is visible at
  * any width.
  */
-export function CustomersListHeader({ total, showing, heading }: CustomersListHeaderProps) {
+export function CustomersListHeader({ total, showing, heading, assignableStaff }: CustomersListHeaderProps) {
   const t = useTranslations('customers.list')
   // Fragment (not a wrapping div) so the sticky bar and the info row
   // become DIRECT children of CustomersListView's outer flex-col.
@@ -74,13 +76,18 @@ export function CustomersListHeader({ total, showing, heading }: CustomersListHe
       </div>
 
       {/* Status line (left) + action button (right) — scrolls with the
-       *  list. Spacing handled by parent flex-col's `gap-3` so no
+       *  list. Spacing handled by the parent flex-col's `gap-4` so no
        *  explicit pt here. */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs tabular-nums text-muted-foreground">
+      {/* Header structure contract (Liam 8/7): natural-height items-center
+       *  row, no wrap — the 32px create button dictates row height on
+       *  顧客/カルテ/予約 alike, so it holds one slot across tabs. flex-wrap
+       *  removed: it dropped the button to a second line on narrow phones
+       *  (same bug カルテ fixed earlier); the status text truncates instead. */}
+      <div className="flex items-center justify-between gap-3">
+        <p className="min-w-0 flex-1 truncate text-xs tabular-nums text-muted-foreground">
           {t('statusLine', { total, showing })}
         </p>
-        <CustomerSheet />
+        <CustomerSheet assignableStaff={assignableStaff} />
       </div>
     </>
   )

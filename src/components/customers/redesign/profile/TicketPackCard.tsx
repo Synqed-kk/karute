@@ -375,7 +375,7 @@ function LifecycleRow({
   const chip = (active: boolean) =>
     `rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-60 ${
       active
-        ? 'border-foreground/20 bg-foreground/10 text-foreground'
+        ? 'border-primary bg-primary/8 text-primary'
         : 'border-border text-muted-foreground hover:text-foreground'
     }`
 

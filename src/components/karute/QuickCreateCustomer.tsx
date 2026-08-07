@@ -12,6 +12,9 @@ type QuickCreateCustomerProps = {
   onCreated: (customer: CustomerOption) => void
   /** Called when user dismisses the quick-create form without creating */
   onCancel: () => void
+  /** Seeds the name input — e.g. whatever the staff had already typed into
+   *  the combobox before tapping "+ 新規顧客". */
+  initialName?: string
 }
 
 /**
@@ -21,9 +24,9 @@ type QuickCreateCustomerProps = {
  * On success, calls onCreated so the parent can immediately select the new customer.
  * On cancel (Escape or Cancel button), calls onCancel so the parent can show the combobox again.
  */
-export function QuickCreateCustomer({ onCreated, onCancel }: QuickCreateCustomerProps) {
+export function QuickCreateCustomer({ onCreated, onCancel, initialName }: QuickCreateCustomerProps) {
   const t = useTranslations('customers')
-  const [name, setName] = useState('')
+  const [name, setName] = useState(initialName ?? '')
   const [isPending, setIsPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -51,8 +54,11 @@ export function QuickCreateCustomer({ onCreated, onCancel }: QuickCreateCustomer
       } else {
         setError(result.error)
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('toast.error'))
+    } catch {
+      // Unexpected/infra failures (incl. the thin shell's not-wired action
+      // stub) get the translated generic — never a raw internal message.
+      // Expected validation errors arrive via result.error above.
+      setError(t('toast.error'))
     } finally {
       setIsPending(false)
     }

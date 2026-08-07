@@ -160,7 +160,12 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
         activeStaffId:
           screen.visibleActiveStaffId ?? screen.staff[0]?.id ?? null,
         authProfileId: ctx.identity.authUserId,
-        customers: customers.map((c) => ({ id: c.id, name: c.name })),
+        customers: customers.map((c) => ({
+          id: c.id,
+          name: c.name,
+          phone: c.phone ?? null,
+          furigana: c.furigana ?? null,
+        })),
         reservationViews: screen.reservationViews,
         reservationStaff: screen.reservationStaff,
         businessHours: screen.businessHours,

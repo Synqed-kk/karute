@@ -251,8 +251,8 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(dto.activeStaffId).toBe('auth-user-1')
     expect(dto.staff.map((s) => s.id)).toEqual(['auth-user-1', 'profile-2'])
     expect(dto.customers).toEqual([
-      { id: 'cust-1', name: '田中' },
-      { id: 'cust-2', name: '佐藤' },
+      { id: 'cust-1', name: '田中', phone: null, furigana: null },
+      { id: 'cust-2', name: '佐藤', phone: null, furigana: null },
     ])
 
     expect(dto.reservationViews).toHaveLength(2)

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { createCustomer, updateCustomer, listAssignableStaff } from '@/actions/customers'
+import { createCustomer, updateCustomer } from '@/actions/customers'
 import { formatJpPhone, formatJpPhoneProgressive } from '@/lib/format/phone'
 
 // ---------------------------------------------------------------------------
@@ -66,10 +66,9 @@ interface CustomerFormProps {
    */
   currentStaff?: { id: string; name: string } | null
   /**
-   * Pre-loaded 指名スタッフ roster. When supplied (the thin app threads it
-   * from the profile-screen DTO — its facade doesn't expose the
-   * listAssignableStaff server action), the picker seeds from this and skips
-   * the client-side fetch. Omitted (the web app) → self-fetch as before.
+   * 指名スタッフ roster. Every caller threads this from its own screen data
+   * (web page / facade DTO) — there is no client-side fetch fallback, so an
+   * omitted prop just means an empty picker (plus currentStaff, if given).
    */
   assignableStaff?: { id: string; name: string }[]
   onSuccess?: () => void
@@ -90,35 +89,16 @@ export function CustomerForm({
 }: CustomerFormProps) {
   const t = useTranslations('customers')
 
-  // 指名スタッフ options — fetched once on mount via the server action. The
-  // currently-assigned stylist (currentStaff) is merged in up front so the
-  // select renders the right selection before the roster resolves and never
-  // drops a since-departed stylist from view.
-  const [staffOptions, setStaffOptions] = useState<{ id: string; name: string }[]>(
-    assignableStaff ?? [],
-  )
-  useEffect(() => {
-    // Roster supplied by the caller (thin app) → no client-side fetch needed.
-    if (assignableStaff) return
-    let active = true
-    listAssignableStaff()
-      .then((list) => {
-        if (active) setStaffOptions(list)
-      })
-      .catch(() => {
-        /* non-fatal: dropdown just shows currentStaff + 指名なし */
-      })
-    return () => {
-      active = false
-    }
-  }, [assignableStaff])
+  // 指名スタッフ options come from the caller's roster only. The
+  // currently-assigned stylist (currentStaff) is merged in so the select
+  // renders the right selection even if they've since left the roster.
   const staffChoices = useMemo(() => {
-    const list = [...staffOptions]
+    const list = [...(assignableStaff ?? [])]
     if (currentStaff && !list.some((s) => s.id === currentStaff.id)) {
       list.unshift(currentStaff)
     }
     return list
-  }, [staffOptions, currentStaff])
+  }, [assignableStaff, currentStaff])
 
   const schema = createCustomerFormSchema({
     nameRequired: t('form.nameRequired'),
@@ -377,7 +357,7 @@ function Field({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex min-w-0 flex-col gap-1.5">
       <label className="text-sm font-medium">
         {label}
         {required && <span className="ml-0.5 text-destructive">*</span>}

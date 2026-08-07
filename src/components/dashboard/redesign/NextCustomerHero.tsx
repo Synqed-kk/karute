@@ -71,7 +71,9 @@ function Countdown({ startIso }: { startIso: string }) {
     return () => clearInterval(id)
   }, [startIso, t])
   if (!label) return null
-  return <span className="text-primary">{label}</span>
+  // Neutral on purpose (案A, Liam 8/6): the countdown is state, not an
+  // action — it reads in the same ink as the time it annotates.
+  return <span>{label}</span>
 }
 
 function RoundTag({ round }: { round: VisitRound }) {
@@ -94,9 +96,11 @@ function Slide({ slide }: { slide: HeroSlideView }) {
   const t = useTranslations('dashboard.flow')
   return (
     <div className="w-full shrink-0 snap-center px-0.5">
-      <div className="rounded-2xl border-2 border-primary/30 bg-card p-4">
+      {/* Neutral frame + label (案A, Liam 8/6): blue is reserved for the
+       *  pressable links below — state and decoration stay achromatic. */}
+      <div className="rounded-2xl border-2 border-border bg-card p-4">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="text-[11px] font-semibold text-primary">{t('nextCustomer')}</span>
+          <span className="text-[11px] font-semibold text-muted-foreground">{t('nextCustomer')}</span>
           <span className="text-sm font-medium tabular-nums">
             {slide.timeHm} · <Countdown startIso={slide.startIso} />
           </span>
@@ -184,10 +188,10 @@ export function NextCustomerHero({ slides, tomorrow, doneCount }: NextCustomerHe
 
   if (slides.length === 0) {
     return (
-      <section className="rounded-2xl border-2 border-primary/20 bg-card p-4">
+      <section className="rounded-2xl border-2 border-border bg-card p-4">
         {tomorrow ? (
           <>
-            <span className="text-[11px] font-semibold text-primary">{t('tomorrowFirst')}</span>
+            <span className="text-[11px] font-semibold text-muted-foreground">{t('tomorrowFirst')}</span>
             <div className="mt-1.5 flex items-baseline gap-2">
               <span className="text-xl font-semibold">
                 {t('customerHonorific', { name: tomorrow.customerName })}
@@ -202,7 +206,7 @@ export function NextCustomerHero({ slides, tomorrow, doneCount }: NextCustomerHe
           </>
         ) : (
           <>
-            <span className="text-[11px] font-semibold text-primary">{t('dayDoneTitle')}</span>
+            <span className="text-[11px] font-semibold text-muted-foreground">{t('dayDoneTitle')}</span>
             <p className="mt-1.5 text-xl font-semibold">{t('dayDone', { n: doneCount })}</p>
           </>
         )}
@@ -230,7 +234,7 @@ export function NextCustomerHero({ slides, tomorrow, doneCount }: NextCustomerHe
             <span
               key={s.appointmentId}
               className={`h-1.5 rounded-full transition-all ${
-                i === index ? 'w-4 bg-primary' : 'w-1.5 bg-muted-foreground/30'
+                i === index ? 'w-4 bg-foreground/50' : 'w-1.5 bg-muted-foreground/30'
               }`}
             />
           ))}

@@ -296,7 +296,7 @@ export function StoresSection({
       {/* Owner permissions banner — only renders for owners */}
       {isOwner && (
         <div className="flex items-start gap-3 rounded-xl bg-blue-50 px-4 py-3 ring-1 ring-blue-100 dark:bg-blue-500/10 dark:ring-blue-500/15">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
             <Crown className="size-4" aria-hidden />
           </div>
           <div className="min-w-0 flex-1">
@@ -340,7 +340,7 @@ export function StoresSection({
             }
             disabled={!canAdd}
             title={!canAdd ? t('limitReached') : undefined}
-            className="h-10 gap-1.5 bg-sage-800 text-white hover:bg-sage-900"
+            className="h-10 gap-1.5"
           >
             <Plus className="size-3.5" />
             {t('addStore')}

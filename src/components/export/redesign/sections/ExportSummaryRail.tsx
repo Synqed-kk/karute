@@ -172,7 +172,7 @@ export function ExportSummaryRail({
             type="button"
             onClick={onExport}
             disabled={columns.length === 0 || busy}
-            className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Download className="size-4" />
             {t('exportRows', { count: estimated.toLocaleString() })}
@@ -217,7 +217,7 @@ export function ExportSummaryRail({
             <a
               href={downloadUrl}
               download={fileName}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary-hover"
             >
               <Download className="size-4" />
               {t('downloadFile', { ext: format.toUpperCase() })}
@@ -230,7 +230,7 @@ export function ExportSummaryRail({
               type="button"
               onClick={onDeliverFile}
               disabled={delivering}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Download className="size-4" />
               {t('downloadFile', { ext: format.toUpperCase() })}

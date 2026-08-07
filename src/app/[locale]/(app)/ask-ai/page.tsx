@@ -1,5 +1,10 @@
+import { QuietRefresh } from '@/components/perf/QuietRefresh'
+import { renderStamp } from '@/lib/perf/render-stamp'
 import { getTranslations } from 'next-intl/server'
+import { redirect } from 'next/navigation'
 import { getOrgSettings } from '@/actions/org-settings'
+import { getMyCapabilities } from '@/lib/auth/require-permission'
+import { canUseAskAi, type Capability } from '@/lib/auth/permissions'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { AIAssistantView } from '@/components/ai/redesign/AIAssistantView'
 import { getTodaySignals } from '@/lib/karute/ai-signals'
@@ -16,6 +21,20 @@ export default async function AskAIPage({
 }) {
   const { locale } = await params
   const localeArg = locale === 'ja' ? 'ja' : 'en'
+
+  // Shared Ask-AI capability rule (H0) — same rule as the chat routes, checked
+  // BEFORE the scope-count fan-out below so a denied account never preloads
+  // karute/customer/appointment counts. A REJECTED capability resolve is
+  // treated as no capabilities → redirect away (this surface has no error
+  // envelope; the API routes return their own 500 instead). The deeper
+  // resolver degrades query failures to the practitioner preset by design
+  // (pre-RBAC-migration grace) — that system-wide posture is Permission v2's
+  // to revisit, not this guard's.
+  const caps = await getMyCapabilities().catch(() => new Set<Capability>())
+  if (!canUseAskAi(caps)) {
+    redirect(`/${localeArg}/dashboard`)
+  }
+
   const t = await getTranslations('askAi')
 
   // Scope counts from synqed-core (the Supabase karute_records mirror is empty
@@ -63,12 +82,18 @@ export default async function AskAIPage({
   const prompts = getConsultationQuestions(businessType, localeArg).slice(0, 3)
 
   return (
-    <AIAssistantView
-      scope={scope}
-      profile={profile}
-      prompts={prompts}
-      signals={signals}
-      locale={locale}
-    />
+    <>
+      {/* SWR delivery: this screen may have been served from the
+          router cache — stamp when the SERVER built it so a stale
+          copy refreshes itself behind the paint. */}
+      <QuietRefresh renderedAt={renderStamp()} />
+      <AIAssistantView
+        scope={scope}
+        profile={profile}
+        prompts={prompts}
+        signals={signals}
+        locale={locale}
+      />
+    </>
   )
 }

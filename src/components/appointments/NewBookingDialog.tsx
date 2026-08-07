@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { useRouter } from '@/i18n/navigation'
@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { CustomerCombobox } from '@/components/karute/CustomerCombobox'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
+import { QuickCreateCustomer } from '@/components/karute/QuickCreateCustomer'
 import { createAppointment } from '@/actions/appointments'
 import { hmInJst, jstWallTimeToDate, ymdInJst } from '@/lib/date/jst'
 
@@ -36,6 +37,8 @@ interface NewBookingDialogProps {
 }
 
 const DURATION_OPTIONS = ['30', '45', '60', '75', '90']
+
+type CustomerFlowState = 'combobox' | 'quick-create'
 
 function todayYmdJst(): string {
   return ymdInJst()
@@ -73,18 +76,44 @@ export function NewBookingDialog({
   )
   const [service, setService] = useState('')
   const [saving, setSaving] = useState(false)
+  // Local mirror of `customers` so QuickCreateCustomer can append + auto-select
+  // without a server round-trip back to the page (same pattern as NewKaruteDialog).
+  const [customerList, setCustomerList] = useState<CustomerOption[]>(customers)
+  const [customerFlow, setCustomerFlow] = useState<CustomerFlowState>('combobox')
+  // Seeds QuickCreateCustomer's name input with whatever the staff had already
+  // typed into the combobox before tapping "+ 新規顧客".
+  const [quickCreateSeed, setQuickCreateSeed] = useState('')
 
-  // Re-seed defaults when the dialog reopens for a different slot.
+  // Re-seed defaults ONLY on the closed→open transition. Quick-create's
+  // revalidateTag refresh hands this component fresh prop identities while
+  // the dialog is still open — reacting to those would wipe the staff's
+  // in-progress entry (including the just-created customer selection).
+  const wasOpen = useRef(false)
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      wasOpen.current = false
+      return
+    }
+    if (wasOpen.current) return
+    wasOpen.current = true
     setClientId(initialClientId ?? null)
     setDate(initialDate ?? todayYmdJst())
     setTime(initialTime ?? defaultTimeJst())
     setStaffId(initialStaffId ?? staff[0]?.id ?? '')
     setService('')
-  }, [open, initialClientId, initialDate, initialTime, initialStaffId, staff])
+    setCustomerList(customers)
+    setCustomerFlow('combobox')
+    setQuickCreateSeed('')
+  }, [open, initialClientId, initialDate, initialTime, initialStaffId, staff, customers])
 
-  const canSubmit = !!clientId && !!date && !!time && !!staffId && !saving
+  const canSubmit =
+    !!clientId && !!date && !!time && !!staffId && customerFlow === 'combobox' && !saving
+
+  function handleCustomerCreated(newCustomer: CustomerOption) {
+    setCustomerList((prev) => [newCustomer, ...prev])
+    setClientId(newCustomer.id)
+    setCustomerFlow('combobox')
+  }
 
   async function handleSave() {
     if (!clientId) {
@@ -142,15 +171,24 @@ export function NewBookingDialog({
 
         <div className="space-y-3">
           <Field label={t('newBookingDialog.customer')} required>
-            <CustomerCombobox
-              customers={customers}
-              selectedId={clientId}
-              onSelect={setClientId}
-              onCreateNew={() => {
-                toast.message(t('newBookingDialog.createCustomerHint'))
-              }}
-              placeholder={t('newBookingDialog.customerPlaceholder')}
-            />
+            {customerFlow === 'quick-create' ? (
+              <QuickCreateCustomer
+                onCreated={handleCustomerCreated}
+                onCancel={() => setCustomerFlow('combobox')}
+                initialName={quickCreateSeed}
+              />
+            ) : (
+              <CustomerCombobox
+                customers={customerList}
+                selectedId={clientId}
+                onSelect={setClientId}
+                onCreateNew={(q) => {
+                  setQuickCreateSeed(q ?? '')
+                  setCustomerFlow('quick-create')
+                }}
+                placeholder={t('newBookingDialog.customerPlaceholder')}
+              />
+            )}
           </Field>
 
           <div className="grid grid-cols-2 gap-3">

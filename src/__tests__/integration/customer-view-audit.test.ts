@@ -30,7 +30,10 @@ jest.mock('@/lib/customers/customer-detail-cached', () => ({
   getCustomerContact: jest.fn(async () => ({})),
 }))
 jest.mock('@/lib/karute/synqed-records', () => ({ listSynqedKaruteRows: jest.fn(async () => []) }))
-jest.mock('@/lib/customers/list-all', () => ({ listAllCustomers: jest.fn(async () => ({ customers: [] })) }))
+jest.mock('@/lib/customers/list-all', () => ({
+  listAllCustomers: jest.fn(async () => ({ customers: [] })),
+  listAllCustomersCached: jest.fn(async () => ({ customers: [] })),
+}))
 jest.mock('@/actions/customers', () => ({
   listCustomerPhotos: jest.fn(async () => ({ photos: [] })),
   getCustomerConsent: jest.fn(async () => ({ consent: null })),

@@ -138,7 +138,7 @@
   },
   "reservation": {
     "title": "Appointments",
-    "new": "New booking",
+    "new": "+ New booking",
     "today": "Today",
     "prev": "Previous",
     "next": "Next",
@@ -281,7 +281,6 @@
       "description": "Add an appointment for an existing customer.",
       "customer": "Customer",
       "customerPlaceholder": "Search customers…",
-      "createCustomerHint": "Create new customers from the Customers tab first.",
       "date": "Date",
       "time": "Time",
       "duration": "Duration",
@@ -680,7 +679,7 @@
   },
   "customers": {
     "title": "Customers",
-    "newCustomer": "+ New Customer",
+    "newCustomer": "+ New customer",
     "unknownName": "Unknown",
     "deletionBanner": {
       "title": "{name} is deleted — restorable for {days, plural, one {# more day} other {# more days}}",
@@ -719,7 +718,18 @@
       "addPhoto": "Add photo",
       "uploading": "Uploading…",
       "uploadError": "Upload failed. Please try again.",
-      "categoryLabel": "Category"
+      "categoryLabel": "Category",
+      "compareButton": "Compare",
+      "compareExit": "Exit compare",
+      "comparePickHint": "Select two photos to compare",
+      "comparePickHintDone": "Tap a photo to swap the selection",
+      "compareSideBySide": "Side by side",
+      "compareOverlay": "Overlay",
+      "compareOpacity": "Opacity",
+      "presentButton": "Show customer",
+      "presentClose": "Close",
+      "presentFilterAll": "All",
+      "presentBackToGrid": "Back to grid"
     },
     "comingSoon": "Coming soon",
     "privacy": {

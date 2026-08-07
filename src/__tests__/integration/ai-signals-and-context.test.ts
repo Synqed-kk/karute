@@ -16,6 +16,13 @@ jest.mock('@/lib/auth/store-scope', () => ({
 jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(),
 }))
+// The chat route's H0 Ask-AI capability guard — granted here so the hint-routing
+// pins keep exercising the post-guard body; denial itself is pinned in
+// ask-ai-authz.test.ts.
+jest.mock('@/lib/auth/require-permission', () => ({
+  ...jest.requireActual('@/lib/auth/require-permission'),
+  getMyCapabilities: jest.fn(async () => new Set(['customers.view'])),
+}))
 jest.mock('@/lib/ai-rate-limit', () => ({
   enforceAiRateLimit: jest.fn(async () => null),
   reportAiUsage: jest.fn(),

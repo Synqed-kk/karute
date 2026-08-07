@@ -84,8 +84,16 @@ export const AppointmentsScreenDTO = z.object({
   /** The view's active-staff default (store-clamped, first-visible fallback). */
   activeStaffId: z.string().nullable(),
   authProfileId: z.string().nullable(),
-  /** Slim combobox options for the new-booking dialog — id/name only. */
-  customers: z.array(z.object({ id: z.string(), name: z.string() })),
+  /** Combobox options for the new-booking dialog — id/name plus phone/furigana
+   *  so the combobox can match on those too. */
+  customers: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      phone: z.string().nullable(),
+      furigana: z.string().nullable(),
+    }),
+  ),
   reservationViews: z.array(ReservationViewDTO),
   reservationStaff: z.array(
     z.object({

@@ -219,24 +219,6 @@ export async function createQuickCustomer(
 }
 
 // ---------------------------------------------------------------------------
-// listAssignableStaff — staff options for the 指名スタッフ picker in
-// CustomerForm. Returns the tenant roster as {id, name}. Dynamic import keeps
-// the staff/auth module off the rest of this server-action bundle (mirrors the
-// pattern used by grantCustomerConsent below).
-// ---------------------------------------------------------------------------
-
-export async function listAssignableStaff(): Promise<{ id: string; name: string }[]> {
-  try {
-    const { getStaffList } = await import('@/lib/staff')
-    const staff = await getStaffList()
-    return staff.map((s) => ({ id: s.id, name: s.full_name ?? 'Unknown' }))
-  } catch (err) {
-    console.error('[listAssignableStaff] failed:', err)
-    return []
-  }
-}
-
-// ---------------------------------------------------------------------------
 // updateCustomer
 // ---------------------------------------------------------------------------
 
@@ -426,7 +408,26 @@ export async function uploadCustomerPhotoWithClient(
   file: File,
   options: { category?: string; caption?: string } = {},
 ) {
-  return synqed.customers.uploadPhoto(customerId, file, options)
+  try {
+    return await synqed.customers.uploadPhoto(customerId, file, options)
+  } catch (err) {
+    // Retry ONLY fetch()'s own network rejection — undici's invariant
+    // TypeError('fetch failed'): no response headers ever arrived, so core
+    // almost certainly never processed the write (8/1 field bug: intermittent
+    // 502 in ~300ms, core logged nothing — suspect stale keep-alive socket;
+    // undici evicts the dead socket, so the immediate retry dials fresh).
+    // Everything else rethrows: a SynqedError means core answered, and a
+    // res.json() failure AFTER a 2xx (SyntaxError / TypeError('terminated'))
+    // means the photo IS saved — retrying those double-writes it. If undici
+    // ever renames the message this degrades to no-retry, the pre-fix
+    // behavior. ponytail: residual dup window (request delivered, connection
+    // died pre-response-headers) closes only with core-side Idempotency-Key
+    // dedup — asked; never widen this check without it.
+    if (!(err instanceof TypeError && err.message === 'fetch failed')) throw err
+    console.warn('[uploadCustomerPhoto] network-level failure, retrying once:', err)
+    // The SDK builds a new FormData per call, so the File is safely re-sent.
+    return synqed.customers.uploadPhoto(customerId, file, options)
+  }
 }
 
 export async function uploadCustomerPhoto(

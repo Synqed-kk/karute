@@ -70,6 +70,21 @@ type NavRoute = {
   href: string
   labelKey: SidebarLabelKey
   Icon: () => React.ReactElement
+  /** Full prefetch (data included, not just the loading shell) for the heavy
+   *  screens, so a sidebar click paints instantly EVEN on first visit — the
+   *  screen is already in the router cache before the click. Verified against
+   *  the installed Next 16.2.3 source: prefetch={true} → FetchStrategy.Full;
+   *  the default ("auto") only prefetches up to the loading.tsx boundary,
+   *  which is why prod clicks still paid the full 1.0–2.8s server wait
+   *  (measured 2026-07-30) despite 20+ background prefetches per pageview.
+   *  Deliberately NOT set on the light/rare screens (sessions, coaching,
+   *  settings, exports) — each full prefetch is a real server render, and the
+   *  five screens below are the ones the speed lane measured as the daily
+   *  loop. Server-load ceiling: ≤5 extra renders per staleTimes window (300s)
+   *  per tab; entries refresh via the same staleTimes/QuietRefresh envelope
+   *  as clicked navigations. Web-only: this sidebar is web chrome — the
+   *  native shell renders its own chrome from the thin bundle. */
+  prefetch?: true
 }
 
 // /data-import stays flag-gated: ImportDropzone.tsx fires
@@ -86,12 +101,12 @@ type NavRoute = {
 // "coming soon" honestly via `isWired()` in DataExportView).
 const NAV_ROUTES: NavRoute[] = [
   { id: 'recording', href: '/sessions', labelKey: 'recording', Icon: MicIcon },
-  { id: 'dashboard', href: '/dashboard', labelKey: 'dashboard', Icon: HomeIcon },
-  { id: 'appointments', href: '/appointments', labelKey: 'appointments', Icon: CalendarIcon },
-  { id: 'customers', href: '/customers', labelKey: 'customers', Icon: UsersIcon },
-  { id: 'karute', href: '/karute', labelKey: 'karute', Icon: ClipboardIcon },
+  { id: 'dashboard', href: '/dashboard', labelKey: 'dashboard', Icon: HomeIcon, prefetch: true },
+  { id: 'appointments', href: '/appointments', labelKey: 'appointments', Icon: CalendarIcon, prefetch: true },
+  { id: 'customers', href: '/customers', labelKey: 'customers', Icon: UsersIcon, prefetch: true },
+  { id: 'karute', href: '/karute', labelKey: 'karute', Icon: ClipboardIcon, prefetch: true },
   { id: 'coaching', href: '/coaching', labelKey: 'coaching', Icon: GraduationCapIcon },
-  { id: 'askAi', href: '/ask-ai', labelKey: 'askAi', Icon: SparklesIcon },
+  { id: 'askAi', href: '/ask-ai', labelKey: 'askAi', Icon: SparklesIcon, prefetch: true },
   ...(process.env.NEXT_PUBLIC_FEATURE_DATA_IMPORT === 'true'
     ? [{ id: 'dataImport' as const, href: '/data-import', labelKey: 'dataImport' as const, Icon: ImportIcon }]
     : []),
@@ -156,6 +171,7 @@ export function Sidebar() {
             <Link
               key={route.id}
               href={route.href as Parameters<typeof Link>[0]['href']}
+              prefetch={route.prefetch}
               className="relative flex items-center"
               aria-current={isActive ? 'page' : undefined}
             >
@@ -334,7 +350,7 @@ function StoreRow({
     <div className="flex items-start gap-2.5 px-3 py-2 bg-muted/30">
       <Check
         className={`size-3.5 shrink-0 mt-0.5 ${
-          active ? 'text-blue-500' : 'text-transparent'
+          active ? 'text-foreground' : 'text-transparent'
         }`}
       />
       <div className="flex-1 min-w-0">

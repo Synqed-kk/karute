@@ -138,7 +138,7 @@
   },
   "reservation": {
     "title": "予約",
-    "new": "新規予約",
+    "new": "+ 新規予約",
     "today": "今日",
     "prev": "前へ",
     "next": "次へ",
@@ -281,7 +281,6 @@
       "description": "既存のお客様に予約を追加します。",
       "customer": "お客様",
       "customerPlaceholder": "お客様を検索…",
-      "createCustomerHint": "新しいお客様は顧客タブから先に作成してください。",
       "date": "日付",
       "time": "時刻",
       "duration": "所要時間",
@@ -719,7 +718,18 @@
       "addPhoto": "写真を追加",
       "uploading": "アップロード中…",
       "uploadError": "アップロードに失敗しました。もう一度お試しください。",
-      "categoryLabel": "カテゴリ"
+      "categoryLabel": "カテゴリ",
+      "compareButton": "比較",
+      "compareExit": "比較を終了",
+      "comparePickHint": "比較する写真を2枚選んでください",
+      "comparePickHintDone": "写真をタップすると選び直せます",
+      "compareSideBySide": "並べて表示",
+      "compareOverlay": "重ねて表示",
+      "compareOpacity": "不透明度",
+      "presentButton": "お客様に見せる",
+      "presentClose": "閉じる",
+      "presentFilterAll": "すべて",
+      "presentBackToGrid": "グリッドに戻る"
     },
     "comingSoon": "対応予定",
     "privacy": {

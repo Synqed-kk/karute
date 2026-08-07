@@ -263,7 +263,7 @@ export function CustomerMemoryCard({
         {/* Header */}
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
+            <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
               <Brain className="size-3.5" aria-hidden />
             </div>
             <div className="min-w-0">
@@ -299,8 +299,8 @@ export function CustomerMemoryCard({
          *  items appear, the placeholder is replaced by the list. */}
         <div className="mt-3 rounded-lg border border-blue-200/70 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/[0.05]">
           <div className="mb-2 flex items-center gap-1.5">
-            <MessageCircle className="size-3.5 text-blue-700 dark:text-blue-300" />
-            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-300">
+            <MessageCircle className="size-3.5 text-muted-foreground" />
+            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               {t('talkingPoints')}
             </h4>
           </div>
@@ -359,7 +359,7 @@ export function CustomerMemoryCard({
           <button
             type="button"
             onClick={openAdd}
-            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-foreground px-3 text-[13px] font-medium text-background transition-opacity hover:opacity-90"
+            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary-hover"
           >
             <Plus className="size-3.5" />
             {t('addManually')}
@@ -679,7 +679,7 @@ function PassportFieldRow({
           type="button"
           onClick={save}
           disabled={pending}
-          className="shrink-0 rounded bg-foreground px-1.5 py-0.5 text-[10px] font-medium text-background disabled:opacity-50"
+          className="shrink-0 rounded bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground transition-colors hover:bg-primary-hover disabled:opacity-50"
         >
           {pending ? '…' : t('passportSave')}
         </button>

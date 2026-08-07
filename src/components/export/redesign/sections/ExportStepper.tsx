@@ -29,9 +29,9 @@ export function ExportStepper({ activeStep }: ExportStepperProps) {
               <div
                 className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${
                   isActive
-                    ? 'bg-blue-600 text-white'
+                    ? 'border-[1.5px] border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-300'
                     : isDone
-                      ? 'bg-blue-500/15 text-blue-600 dark:text-blue-300 border border-blue-500/30'
+                      ? 'border border-blue-200 bg-blue-50 text-blue-600 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-300/80'
                       : 'bg-muted text-muted-foreground border border-border/40'
                 }`}
               >
@@ -39,9 +39,11 @@ export function ExportStepper({ activeStep }: ExportStepperProps) {
               </div>
               <span
                 className={`text-xs font-medium ${
-                  isActive || isDone
-                    ? 'text-foreground'
-                    : 'text-muted-foreground'
+                  isActive
+                    ? 'text-foreground font-semibold'
+                    : isDone
+                      ? 'text-foreground'
+                      : 'text-muted-foreground'
                 }`}
               >
                 {i + 1}.{' '}
@@ -51,7 +53,7 @@ export function ExportStepper({ activeStep }: ExportStepperProps) {
             {i < steps.length - 1 && (
               <div
                 className={`flex-1 h-px mx-3 ${
-                  isDone ? 'bg-blue-500/40' : 'bg-border/40'
+                  isDone ? 'bg-blue-200 dark:bg-blue-500/20' : 'bg-border/40'
                 }`}
               />
             )}

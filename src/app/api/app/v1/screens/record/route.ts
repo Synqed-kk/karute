@@ -132,6 +132,8 @@ export const GET = facadeHandler('screens.record', async (ctx) => {
       return {
         id: c.id,
         name: c.name,
+        phone: c.phone ?? null,
+        furigana: c.furigana ?? null,
         isExistingCustomer: qr.is_existing_customer ?? false,
         created_at: c.created_at,
         visitCount: qr.visit_count ?? 0,

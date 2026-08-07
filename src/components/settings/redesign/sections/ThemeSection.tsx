@@ -373,7 +373,7 @@ function LangButton({
       onClick={onClick}
       className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
         active
-          ? 'border-foreground bg-foreground text-background'
+          ? 'border-primary bg-primary/8 text-primary'
           : 'border-border text-muted-foreground hover:bg-muted'
       }`}
     >
@@ -399,7 +399,7 @@ function ModeButton({
       onClick={onClick}
       className={`inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
         active
-          ? 'border-foreground bg-foreground text-background'
+          ? 'border-primary bg-primary/8 text-primary'
           : 'border-border text-muted-foreground hover:bg-muted'
       }`}
     >

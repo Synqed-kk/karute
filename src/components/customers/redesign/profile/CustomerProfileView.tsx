@@ -83,10 +83,9 @@ interface CustomerProfileViewProps {
    *  uses. Drives the Privacy tab's revoke row (shown only when granted). */
   consentGranted?: boolean
   consentGrantedAtLabel?: string | null
-  /** Tenant staff roster for the edit dialog's 指名スタッフ picker. The thin
-   *  app threads it from the profile-screen DTO (its facade has no
-   *  listAssignableStaff read); web leaves it undefined → CustomerForm
-   *  self-fetches, unchanged. */
+  /** Tenant staff roster for the edit dialog's 指名スタッフ picker. Both web
+   *  (page.tsx) and the thin app (profile-screen DTO) thread it from
+   *  buildCustomerProfileScreen — CustomerForm has no fetch fallback. */
   assignableStaff?: { id: string; name: string }[]
 }
 
