@@ -72,10 +72,17 @@ jest.mock('@/lib/karute/take-store', () => ({
 // (not the singleton) so RecordPageView's phase-sync effect renders the
 // post-recording "このまま使う" card directly.
 const mockResult = { blob: new Blob(['x']), mimeType: 'audio/webm', durationMs: 5000 }
+// Mutable so tests can drive a genuine take-lifecycle transition (discard →
+// new recording → recorded) instead of the static 'recorded' every render
+// used to return — needed to prove the P1 latch (outcomeResolvedRef) clears
+// for a real NEW take instead of just staying latched forever. Reset to
+// 'recorded' in afterEach so every OTHER test's fresh render still starts
+// exactly where they already assume.
+let mockRecState: 'idle' | 'recording' | 'paused' | 'recorded' = 'recorded'
 jest.mock('@/hooks/use-global-recorder', () => ({
   useGlobalRecorder: () => ({
-    state: 'recorded',
-    result: mockResult,
+    state: mockRecState,
+    result: mockRecState === 'recorded' ? mockResult : null,
     error: null,
     stream: null,
     startedAt: null,
@@ -120,6 +127,7 @@ import {
 afterEach(() => {
   cleanup()
   jest.clearAllMocks()
+  mockRecState = 'recorded'
 })
 
 const NEXT_APPOINTMENT = {
@@ -145,7 +153,13 @@ const PRESETS = [{ size: 10, unitPrice: 9900 }]
 const REPURCHASE_PACK = { id: 'p1', remaining: 2, size: 10 }
 
 async function renderRecordedPage(overrides: Partial<RecordPageViewProps> = {}) {
-  const result = render(
+  // A factory, not a cached element: React bails out of re-rendering a fiber
+  // whose element is REFERENTIALLY the same object as last commit (no
+  // scheduled update, no prop change) — reusing one `ui` const across
+  // `rerender()` calls would silently no-op every one of them. A fresh
+  // element each call has a new (but shallow-equal) props object, which
+  // avoids that bailout so a `mockRecState` change is actually picked up.
+  const buildUi = () => (
     <RecordPageView
       customers={[]}
       locale="ja"
@@ -160,8 +174,9 @@ async function renderRecordedPage(overrides: Partial<RecordPageViewProps> = {}) 
       staffCanCustomizePacks
       ticketsEnabled
       {...overrides}
-    />,
+    />
   )
+  const result = render(buildUi())
   // The AI-brief Suspense boundary (StreamingBriefCard, use(aiBriefPromise))
   // always suspends on its first pass even for an already-resolved promise —
   // React needs a microtask to learn the resolved value. Flush it inside
@@ -172,7 +187,22 @@ async function renderRecordedPage(overrides: Partial<RecordPageViewProps> = {}) 
     await Promise.resolve()
     await Promise.resolve()
   })
-  return result
+  return {
+    ...result,
+    // Re-render with the SAME props (a fresh element) so a `mockRecState`
+    // change made between calls is picked up by the next
+    // useGlobalRecorder() call — drives the take-lifecycle transitions
+    // (recording → recorded) the phase-sync effect reacts to in production.
+    // The extra microtask tick (same reasoning as the Suspense flush above)
+    // is required for the resulting setPhase(...) inside that effect to
+    // actually commit before the caller's next assertion/interaction.
+    rerenderSame: async () => {
+      await act(async () => {
+        result.rerender(buildUi())
+        await Promise.resolve()
+      })
+    },
+  }
 }
 
 /** Drive the UI from "recorded" to the outcome dialog's 成約 pack panel, where
@@ -228,6 +258,13 @@ describe('RecordPageView — outcome dialog 保存 single-flight guard', () => {
 // targetPack=null, so `redeemPack && targetPack && boundCustomerId` was
 // always false and mockRedeemSessionAction never fired). These three close
 // that gap and pin the decoupling (F1) + open-transition reset (F2).
+//
+// PR-0 round 2 (Greptile P1, #679): F2's open-transition reset was correct
+// for a genuinely NEW take but also reset for the SAME take on a re-tap —
+// the "take B" scenarios below now go through an actual discard + new
+// recording (mockRecState cycled via rerenderSame) instead of an immediate
+// reopen of the SAME take, which the new outcomeResolvedRef latch now blocks
+// (see the dedicated describe block further down for that regression test).
 describe('RecordPageView — outcome dialog redemption half (F1 decouple + F2 open-reset)', () => {
   it('two 保存 taps landing in the same tick fire redeemSessionAction exactly once', async () => {
     await renderRecordedPage({ targetPack: REPURCHASE_PACK })
@@ -247,28 +284,41 @@ describe('RecordPageView — outcome dialog redemption half (F1 decouple + F2 op
     expect(mockCreatePackAction).not.toHaveBeenCalled()
   })
 
-  it('a rejecting createPackAction does not skip redemption — redemption still fires, the guard resets, and nothing goes unhandled', async () => {
+  it('a rejecting createPackAction does not skip redemption — redemption still fires for take A, take B (a genuine new take) resolves independently, and nothing goes unhandled', async () => {
     const unhandled: unknown[] = []
     const onUnhandledRejection = (reason: unknown) => unhandled.push(reason)
     process.on('unhandledRejection', onUnhandledRejection)
     try {
-      await renderRecordedPage({ targetPack: REPURCHASE_PACK })
+      const { rerenderSame } = await renderRecordedPage({ targetPack: REPURCHASE_PACK })
       // 'success' — opens the newPack panel too (prefilled valid from
       // PRESETS[0]), so BOTH halves of onResolve fire on one tap.
       openRepurchaseDialogAtStatus('success')
       mockCreatePackAction.mockRejectedValueOnce(new Error('boom'))
 
-      // Take A save, then IMMEDIATELY reopen for take B — same
-      // don't-flush-yet reasoning as the take-B test below: handleUseRecording
-      // flips `phase` to 'idle' on its own unrelated awaited continuation,
-      // which would swap the "useRecording" button away before we can use it
-      // to reopen. Both resolves are kicked off synchronously here; the
-      // `act()` below is what actually lets everything (take A's rejecting
-      // create + resolving redeem, AND take B's resolving redeem) settle.
+      // Take A: resolve, then discard immediately — no flush between the two
+      // clicks (handleUseRecording's own unrelated awaited continuation
+      // would otherwise flip `phase` to 'idle' on its own and steal the
+      // 'discard' button out from under this explicit discard).
       fireEvent.click(screen.getByText('save'))
-      fireEvent.click(screen.getByText('useRecording'))
+      fireEvent.click(screen.getByText('discard'))
+
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      // Take B: a brand new recording starts and finishes (the P1 latch —
+      // outcomeResolvedRef — was cleared by the discard above, at the same
+      // take-lifecycle boundary useRecordingGen already bumps at).
+      mockRecState = 'recording'
+      await rerenderSame()
+      mockRecState = 'recorded'
+      await rerenderSame()
+
       // 'pending' for take B — isolates it to the redemption call, proving
-      // the SECOND resolve (guard freshly reset on reopen) goes through.
+      // the SECOND resolve (a genuinely new take) goes through.
+      fireEvent.click(screen.getByText('useRecording'))
       fireEvent.click(screen.getByText('repurchase.pending.title'))
 
       await act(async () => {
@@ -281,8 +331,7 @@ describe('RecordPageView — outcome dialog redemption half (F1 decouple + F2 op
       // Take A's create rejected — the old sequential-await code let a throw
       // here skip the redemption call entirely.
       expect(mockCreatePackAction).toHaveBeenCalledTimes(1)
-      // Take A's redemption (despite the reject) + take B's redemption
-      // (guard reset on reopen, not wedged by take A's reject) — two calls.
+      // Take A's redemption (despite the reject) + take B's redemption.
       expect(mockRedeemSessionAction).toHaveBeenCalledTimes(2)
     } finally {
       process.off('unhandledRejection', onUnhandledRejection)
@@ -290,31 +339,71 @@ describe('RecordPageView — outcome dialog redemption half (F1 decouple + F2 op
     expect(unhandled).toHaveLength(0)
   })
 
-  it('take B unlocks on reopen even while take A\'s write never settles (F2: reset on OPEN, not just finally)', async () => {
-    await renderRecordedPage()
+  it('a new take (discard + re-record) clears the resolution latch — take B\'s dialog opens even though take A\'s write never settled (F2: reset on OPEN, not just finally)', async () => {
+    const { rerenderSame } = await renderRecordedPage()
     openDialogAtSuccess()
     // A write that never settles — the finally reset in onResolve can never
     // run for it. Without F2, take B's dialog would stay stuck on 保存中.
     mockCreatePackAction.mockImplementationOnce(() => new Promise(() => {}))
 
-    // Take A: one tap. Deliberately NOT flushed with any await/microtask
-    // tick below — every one of onResolve's own state changes (the guard,
-    // setOutcomeOpen(false)) is synchronous, so they're already committed by
-    // the time this fireEvent.click call returns. (Flushing ticks here would
-    // also let handleUseRecording's OWN unrelated awaited continuation flip
-    // `phase` to 'idle', which would swap the "useRecording" button out from
-    // under Take B for a reason that has nothing to do with the guard under
-    // test — so this test deliberately never gives that microtask a turn.)
+    // Take A: resolve, then discard immediately — same don't-flush-yet
+    // reasoning as above.
     fireEvent.click(screen.getByText('save'))
+    fireEvent.click(screen.getByText('discard'))
 
-    // Take B: reopen — openOutcomeDialog resets the guard on this OPEN
-    // transition regardless of take A's still-pending (in fact, forever-
-    // pending) write.
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    // Take B: a brand new recording starts and finishes.
+    mockRecState = 'recording'
+    await rerenderSame()
+    mockRecState = 'recorded'
+    await rerenderSame()
+
     fireEvent.click(screen.getByText('useRecording'))
     fireEvent.click(screen.getByText('noDeal.title'))
 
     expect(screen.getByText('save')).toBeInTheDocument()
     expect(screen.getByText('save')).not.toBeDisabled()
     expect(screen.queryByText('saving')).toBeNull()
+  })
+})
+
+// PR-0 round 2 (Greptile P1, #679): after the first 保存 tap, `phase` stays
+// 'recorded' until handleUseRecording's session-id mint await settles (it
+// only flips to 'idle' after that), so 録音を使用 stays tappable. Retapping
+// it called openOutcomeDialog(), which reset resolvingOutcomeRef
+// unconditionally on the open transition (F2 above, correct for a NEW take)
+// — reopening the dialog for the SAME take and letting a second 保存 re-fire
+// createPackAction/redeemSessionAction with identical inputs. outcomeResolvedRef
+// latches per-take to close that window; see RecordPageView.tsx's onResolve
+// handler + openOutcomeDialog.
+describe('RecordPageView — per-take outcome resolution latch (Greptile P1, #679)', () => {
+  it('re-tapping 録音を使用 while the mint promise is still in flight does NOT reopen the dialog — createPackAction/redeemSessionAction each fire exactly once', async () => {
+    await renderRecordedPage({ targetPack: REPURCHASE_PACK })
+    openRepurchaseDialogAtStatus('success')
+
+    // Take A: one save tap, then IMMEDIATELY re-tap 録音を使用 — no flush in
+    // between, so awaitRecordingSessionId's mint promise hasn't resolved and
+    // `phase` is still 'recorded' (the button is still mounted). This is the
+    // exact P1 window.
+    fireEvent.click(screen.getByText('save'))
+    fireEvent.click(screen.getByText('useRecording'))
+
+    // Blocked — outcomeResolvedRef latched in onResolve, so the second tap's
+    // openOutcomeDialog() early-returns and the dialog never reopens.
+    expect(screen.queryByText('repurchase.success.title')).toBeNull()
+    expect(screen.queryByText('save')).toBeNull()
+
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(mockCreatePackAction).toHaveBeenCalledTimes(1)
+    expect(mockRedeemSessionAction).toHaveBeenCalledTimes(1)
   })
 })

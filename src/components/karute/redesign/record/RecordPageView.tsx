@@ -257,6 +257,21 @@ export function RecordPageView({
   const resolvingOutcomeRef = useRef(false)
   const [resolvingOutcome, setResolvingOutcome] = useState(false)
 
+  // Per-take resolution latch (Greptile P1, #679): resolvingOutcomeRef only
+  // guards ONE in-flight resolve — it's intentionally reset on the dialog's
+  // OPEN transition (openOutcomeDialog, F2 above) so a hung write can't wedge
+  // the NEXT take's dialog shut. But that open-reset also let a re-tap of
+  // 録音を使用 for the SAME take reopen the dialog while onResolve's write is
+  // still in flight (handleUseRecording awaits a session-id mint before
+  // flipping `phase` back to idle, so the button stays tappable) — a second
+  // 保存 there re-fires createPackAction/redeemSessionAction with identical
+  // inputs. This ref latches ONCE the take has been resolved and blocks
+  // openOutcomeDialog from reopening for it; cleared only at the same
+  // take-lifecycle boundaries useRecordingGen already bumps at (a new take
+  // starting or the current one being discarded). Invariant: ONE resolution
+  // per take.
+  const outcomeResolvedRef = useRef(false)
+
   // Re-entry + staleness guards for the use-recording flow (it awaits the
   // session-id mint, so it's no longer atomic): first tap wins, and a discard
   // bumps the generation so an in-flight use drops its now-discarded take.
@@ -369,6 +384,8 @@ export function RecordPageView({
       setShowNoBookingPrompt(true)
       return
     }
+    // A new take begins here — clear the previous take's resolution latch.
+    outcomeResolvedRef.current = false
     startRecording({
       noiseSuppression,
       // nextAppointment is guaranteed here (early-return above when it's null).
@@ -392,6 +409,8 @@ export function RecordPageView({
   }
   function handleStartAnyway() {
     setShowNoBookingPrompt(false)
+    // A new take begins here — clear the previous take's resolution latch.
+    outcomeResolvedRef.current = false
     // Reached only via the no-booking prompt → nextAppointment is null, so there
     // is no customer to bind (walk-in); the save will require picking one.
     startRecording({ noiseSuppression, target: null })
@@ -400,6 +419,9 @@ export function RecordPageView({
     // Invalidate any in-flight handleUseRecording: its post-await body must
     // not hand a take the staff just discarded to the pipeline.
     useRecordingGen.current++
+    // The discarded take is done — its resolution latch (if any) must not
+    // carry over and wedge the NEXT take's dialog shut.
+    outcomeResolvedRef.current = false
     discardRecording()
     setPhase('idle')
   }
@@ -706,6 +728,10 @@ export function RecordPageView({
   // only fires when that write eventually settles; a request that never
   // settles left the guard stuck true forever under the old code).
   function openOutcomeDialog() {
+    // This take already resolved once — never reopen for it (see
+    // outcomeResolvedRef above). Real re-opens (a new take) clear the latch
+    // at handleStartRecording/handleStartAnyway/handleDiscard, not here.
+    if (outcomeResolvedRef.current) return
     resolvingOutcomeRef.current = false
     setResolvingOutcome(false)
     setOutcomeOpen(true)
@@ -733,6 +759,10 @@ export function RecordPageView({
           variant="default"
           size="md"
           className="flex-1"
+          // Belt: visual only, state-driven (resolvingOutcome only spans the
+          // pack/redeem write, not the whole post-resolve window) — the real
+          // guard is outcomeResolvedRef inside openOutcomeDialog.
+          disabled={resolvingOutcome}
           onClick={() =>
             // Tickets off: straight save — no burn, no 成約/回数券 dialog.
             !ticketsEnabled
@@ -966,6 +996,10 @@ export function RecordPageView({
           // First tap wins — see the guard declaration above.
           if (resolvingOutcomeRef.current) return
           resolvingOutcomeRef.current = true
+          // ONE resolution per take (Greptile P1, #679) — latch immediately,
+          // before any async work, so a re-tap of 録音を使用 during the
+          // upcoming await window can't reopen this dialog for the same take.
+          outcomeResolvedRef.current = true
           setResolvingOutcome(true)
           setOutcomeOpen(false)
           // 成約/購入した with the inline picker filled → the pack is created
