@@ -219,24 +219,6 @@ export async function createQuickCustomer(
 }
 
 // ---------------------------------------------------------------------------
-// listAssignableStaff — staff options for the 指名スタッフ picker in
-// CustomerForm. Returns the tenant roster as {id, name}. Dynamic import keeps
-// the staff/auth module off the rest of this server-action bundle (mirrors the
-// pattern used by grantCustomerConsent below).
-// ---------------------------------------------------------------------------
-
-export async function listAssignableStaff(): Promise<{ id: string; name: string }[]> {
-  try {
-    const { getStaffList } = await import('@/lib/staff')
-    const staff = await getStaffList()
-    return staff.map((s) => ({ id: s.id, name: s.full_name ?? 'Unknown' }))
-  } catch (err) {
-    console.error('[listAssignableStaff] failed:', err)
-    return []
-  }
-}
-
-// ---------------------------------------------------------------------------
 // updateCustomer
 // ---------------------------------------------------------------------------
 

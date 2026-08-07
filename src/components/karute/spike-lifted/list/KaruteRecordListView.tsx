@@ -64,7 +64,12 @@ interface Props {
    *  the customer lookup map; we pass it down. Shape matches the
    *  shared CustomerOption type used by the recording flow's
    *  CustomerCombobox / QuickCreateCustomer pair. */
-  customerOptions?: Array<{ id: string; name: string }>
+  customerOptions?: Array<{
+    id: string
+    name: string
+    phone?: string | null
+    furigana?: string | null
+  }>
 }
 
 const PAGE_SIZE = 12

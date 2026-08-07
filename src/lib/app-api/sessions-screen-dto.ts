@@ -49,8 +49,16 @@ export const SessionsScreenDTO = z.object({
   ),
   /** The caller's staff id when they are on the roster (Me filter). */
   currentStaffId: z.string().nullable(),
-  /** New カルテ dialog combobox source (id + name). */
-  customerOptions: z.array(z.object({ id: z.string(), name: z.string() })),
+  /** New カルテ dialog combobox source — id + name + phone/furigana for
+   *  in-dialog phone/furigana search. */
+  customerOptions: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      phone: z.string().nullable(),
+      furigana: z.string().nullable(),
+    }),
+  ),
 })
 
 export type SessionsScreenDTOType = z.infer<typeof SessionsScreenDTO>

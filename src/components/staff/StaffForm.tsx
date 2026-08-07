@@ -210,7 +210,7 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-md">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-1.5 text-base font-semibold">
             <Pencil className="size-4 text-muted-foreground" aria-hidden />

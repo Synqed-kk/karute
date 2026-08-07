@@ -14,6 +14,10 @@ import { z } from 'zod'
 const CustomerSchema = z.object({
   id: z.string(),
   name: z.string(),
+  /** Combobox phone/furigana search (zod strips unknown keys — without these
+   *  the route's values never reach the client). */
+  phone: z.string().nullable(),
+  furigana: z.string().nullable(),
   isExistingCustomer: z.boolean(),
   created_at: z.string().nullable(),
   visitCount: z.number(),

@@ -15,6 +15,8 @@ interface CustomersListHeaderProps {
    * is fully owned by the calling page.
    */
   heading?: string
+  /** Tenant staff roster — threaded through to CustomerSheet's 指名スタッフ picker. */
+  assignableStaff?: { id: string; name: string }[]
 }
 
 /**
@@ -40,7 +42,7 @@ interface CustomersListHeaderProps {
  * MobileHeader bell is `md:hidden`, so exactly one bell is visible at
  * any width.
  */
-export function CustomersListHeader({ total, showing, heading }: CustomersListHeaderProps) {
+export function CustomersListHeader({ total, showing, heading, assignableStaff }: CustomersListHeaderProps) {
   const t = useTranslations('customers.list')
   // Fragment (not a wrapping div) so the sticky bar and the info row
   // become DIRECT children of CustomersListView's outer flex-col.
@@ -80,7 +82,7 @@ export function CustomersListHeader({ total, showing, heading }: CustomersListHe
         <p className="text-xs tabular-nums text-muted-foreground">
           {t('statusLine', { total, showing })}
         </p>
-        <CustomerSheet />
+        <CustomerSheet assignableStaff={assignableStaff} />
       </div>
     </>
   )

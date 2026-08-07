@@ -65,6 +65,14 @@ interface CustomersListViewProps {
    */
   staffList: StaffFilterEntry[]
   /**
+   * 指名スタッフ roster for CustomerSheet's "+ 新規顧客" dialog. Passed
+   * EXPLICITLY by each mount (web page / thin screen) as the FULL tenant
+   * roster — never derived from `staffList`, which the web page store-clamps
+   * for the 担当 filter pills. 指名 can point at any staff in the tenant,
+   * matching the profile-edit dialog's behavior.
+   */
+  assignableStaff: { id: string; name: string }[]
+  /**
    * When `true`, every customer card renders an AI-status chip row
    * underneath the contact line (体調予測 / 推奨 / 要約 / 録音, all
    * 対応予定). Used by the カルテ tab to frame the same customer
@@ -93,6 +101,7 @@ export function CustomersListView({
   query,
   selfStaffId,
   staffList,
+  assignableStaff,
   bookingDataAvailable = true,
   burnByCustomer = null,
   burnUnpricedIds = [],
@@ -301,6 +310,7 @@ export function CustomersListView({
         total={totalRegistered}
         showing={filteredRows.length}
         heading={heading}
+        assignableStaff={assignableStaff}
       />
 
       {/* Order mirrors the design spike: staff scope first (who am I

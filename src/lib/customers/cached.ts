@@ -6,6 +6,9 @@ import { paginateDedupe } from '@/lib/customers/paginate'
 export interface CachedCustomerOption {
   id: string
   name: string
+  /** For the booking dialog's phone-digit search (CustomerCombobox). */
+  phone: string | null
+  furigana: string | null
   /** QuickReserve "returning customer" flag. Drives the agenda's 新規 badge:
    *  a known existing customer is NEVER 新規, even if we have no karute/past
    *  appointment for them yet (QR-migrated regulars). */
@@ -71,6 +74,8 @@ const customerListByBusiness = unstable_cache(
       return {
         id: c.id,
         name: c.name,
+        phone: c.phone ?? null,
+        furigana: c.furigana ?? null,
         isExistingCustomer: qr.is_existing_customer ?? false,
         created_at: c.created_at,
         visitCount: qr.visit_count ?? 0,
@@ -79,7 +84,7 @@ const customerListByBusiness = unstable_cache(
       }
     })
   },
-  ['cached-customer-list-v4'],
+  ['cached-customer-list-v5'],
   { revalidate: 60, tags: ['customers'] },
 )
 

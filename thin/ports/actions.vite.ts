@@ -603,7 +603,6 @@ export default proxy
 // -- customers
 export const createCustomer = notWired('createCustomer')
 export const createQuickCustomer = notWired('createQuickCustomer')
-export const listAssignableStaff = notWired('listAssignableStaff')
 export const updateCustomer = facadeUpdateCustomer
 export const deleteCustomer = notWired('deleteCustomer')
 export const listCustomerPhotos = notWired('listCustomerPhotos')
