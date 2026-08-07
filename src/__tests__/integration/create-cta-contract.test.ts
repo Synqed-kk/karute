@@ -63,6 +63,9 @@ const rowWithStatus = (src: string, rowClass: string) => {
 const expectIconPlusLabel = (src: string, icon: string, labelExpr: string) => {
   expect(src).toContain(`<${icon} className="size-3.5 min-[380px]:hidden" aria-hidden />`)
   expect(src).toContain(`<span className="${RESPONSIVE_LABEL}">{${labelExpr}}</span>`)
+  // aria-label VALUE pinned, not just presence: below 380px it IS the
+  // accessible name (round-4 finding 8/7 — wrong key/empty slipped by).
+  expect(src).toContain(`aria-label={${labelExpr}}`)
 }
 
 describe('create-CTA unification (案A 8/6 + responsive 8/7)', () => {
