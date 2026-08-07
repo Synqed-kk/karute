@@ -77,7 +77,10 @@ export async function createPackActionWithClient(
   // revenue is never zeroed. ALWAYS derived — no caller override (a facade
   // caller could otherwise send a discounted totalPrice and pocket the
   // difference; input.totalPrice is ignored, never read). One rule covers
-  // every present + future caller.
+  // every present + future caller. Belt-and-braces (F6, PR-0 fix round):
+  // createPackWithClient (src/lib/packs/store.ts) derives the SAME formula
+  // itself now too, so a caller-supplied totalPrice can't reach the DB write
+  // even from a future caller that skips this action entirely.
   const totalPrice = input.unitPrice * input.packSize
   const result = await createPackWithClient(synqed, {
     ...(input as CreatePackInput),
@@ -93,7 +96,20 @@ export async function createPackAction(
   input: CreatePackActionInput,
 ): Promise<{ ok: boolean; error?: string }> {
   const { getSynqedClient } = await import('@/lib/synqed/client')
-  const [synqed, staffId] = await Promise.all([getSynqedClient(), getCurrentUserStaffId().catch(() => null)])
+  // getSynqedClient() unguarded here would THROW the whole server action on a
+  // transient session/DB failure — RecordPageView's onResolve now runs this
+  // and redeemSessionAction as two INDEPENDENT writes (F1, PR-0 fix round);
+  // an unguarded throw here would still surface as a rejected promise, and
+  // must degrade to the SAME { ok: false } contract every other guarded
+  // action in this file uses, not an uncaught rejection.
+  const [synqed, staffId] = await Promise.all([
+    getSynqedClient().catch((err) => {
+      console.warn('[packs] synqed client init failed:', err)
+      return null
+    }),
+    getCurrentUserStaffId().catch(() => null),
+  ])
+  if (!synqed) return { ok: false, error: 'write failed' }
   const result = await createPackActionWithClient(synqed, staffId, input)
   if (result.ok) revalidateProfile()
   return result
@@ -157,7 +173,20 @@ export async function redeemSessionAction(
   input: RedeemSessionActionInput,
 ): Promise<{ ok: boolean; redemptionId?: string; error?: string }> {
   const { getSynqedClient } = await import('@/lib/synqed/client')
-  const [synqed, staffId] = await Promise.all([getSynqedClient(), getCurrentUserStaffId().catch(() => null)])
+  // getSynqedClient() unguarded here would THROW the whole server action on a
+  // transient session/DB failure — RecordPageView's onResolve now runs this
+  // and createPackAction as two INDEPENDENT writes (F1, PR-0 fix round); an
+  // unguarded throw here would still surface as a rejected promise, and must
+  // degrade to the SAME { ok: false } contract every other guarded action in
+  // this file uses, not an uncaught rejection.
+  const [synqed, staffId] = await Promise.all([
+    getSynqedClient().catch((err) => {
+      console.warn('[packs] synqed client init failed:', err)
+      return null
+    }),
+    getCurrentUserStaffId().catch(() => null),
+  ])
+  if (!synqed) return { ok: false, error: 'write failed' }
   const result = await redeemSessionActionWithClient(synqed, staffId, input)
   if (result.ok) revalidateProfile()
   return result

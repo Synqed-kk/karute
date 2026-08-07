@@ -112,7 +112,10 @@ jest.mock('@/lib/global-pipeline', () => ({
 }))
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { RecordPageView } from '@/components/karute/redesign/record/RecordPageView'
+import {
+  RecordPageView,
+  type RecordPageViewProps,
+} from '@/components/karute/redesign/record/RecordPageView'
 
 afterEach(() => {
   cleanup()
@@ -132,7 +135,16 @@ const NEXT_APPOINTMENT = {
 
 const PRESETS = [{ size: 10, unitPrice: 9900 }]
 
-async function renderRecordedPage() {
+// F5 (PR-0 fix round): pack.remaining=2 puts resolveOutcomeMode into
+// 'repurchase' (REPURCHASE_PROMPT_REMAINING=2), which — unlike a bare
+// mid-pack remaining>2 pack, which resolves to 'auto' and skips the dialog
+// entirely via the separately-guarded handleAutoFlow (untouched by this fix
+// round, per the ledger) — still opens PostSessionResolutionDialog and
+// exercises the SAME onResolve handler F1 decoupled. That's the code path
+// this suite's "redemption half had zero double-tap coverage" gap is about.
+const REPURCHASE_PACK = { id: 'p1', remaining: 2, size: 10 }
+
+async function renderRecordedPage(overrides: Partial<RecordPageViewProps> = {}) {
   const result = render(
     <RecordPageView
       customers={[]}
@@ -147,6 +159,7 @@ async function renderRecordedPage() {
       packPresets={PRESETS}
       staffCanCustomizePacks
       ticketsEnabled
+      {...overrides}
     />,
   )
   // The AI-brief Suspense boundary (StreamingBriefCard, use(aiBriefPromise))
@@ -168,6 +181,14 @@ async function renderRecordedPage() {
 function openDialogAtSuccess() {
   fireEvent.click(screen.getByText('useRecording'))
   fireEvent.click(screen.getByText('success.title'))
+}
+
+/** Same drive, but for the 'repurchase' mode dialog (REPURCHASE_PACK) — the
+ *  repurchase copy keys are `repurchase.<key>.title` instead of `<key>.title`
+ *  (see PostSessionResolutionDialog's KEY/mode mapping). */
+function openRepurchaseDialogAtStatus(key: 'success' | 'noDeal' | 'pending') {
+  fireEvent.click(screen.getByText('useRecording'))
+  fireEvent.click(screen.getByText(`repurchase.${key}.title`))
 }
 
 describe('RecordPageView — outcome dialog 保存 single-flight guard', () => {
@@ -200,4 +221,100 @@ describe('RecordPageView — outcome dialog 保存 single-flight guard', () => {
   // fix (staff aren't blocked waiting on the pack write) — so the dialog is
   // already unmounted by the time `saving` would render. What IS observable
   // and load-bearing here is the re-entry guard itself, proven above.
+})
+
+// F1/F2/F5 (PR-0 fix round): the redemption half of onResolve had ZERO
+// double-tap coverage before this round (every test above uses
+// targetPack=null, so `redeemPack && targetPack && boundCustomerId` was
+// always false and mockRedeemSessionAction never fired). These three close
+// that gap and pin the decoupling (F1) + open-transition reset (F2).
+describe('RecordPageView — outcome dialog redemption half (F1 decouple + F2 open-reset)', () => {
+  it('two 保存 taps landing in the same tick fire redeemSessionAction exactly once', async () => {
+    await renderRecordedPage({ targetPack: REPURCHASE_PACK })
+    // 'pending' — no newPack panel involved, isolates the redemption call.
+    openRepurchaseDialogAtStatus('pending')
+    const saveBtn = screen.getByText('save')
+
+    await act(async () => {
+      fireEvent.click(saveBtn)
+      fireEvent.click(saveBtn)
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(mockRedeemSessionAction).toHaveBeenCalledTimes(1)
+    expect(mockCreatePackAction).not.toHaveBeenCalled()
+  })
+
+  it('a rejecting createPackAction does not skip redemption — redemption still fires, the guard resets, and nothing goes unhandled', async () => {
+    const unhandled: unknown[] = []
+    const onUnhandledRejection = (reason: unknown) => unhandled.push(reason)
+    process.on('unhandledRejection', onUnhandledRejection)
+    try {
+      await renderRecordedPage({ targetPack: REPURCHASE_PACK })
+      // 'success' — opens the newPack panel too (prefilled valid from
+      // PRESETS[0]), so BOTH halves of onResolve fire on one tap.
+      openRepurchaseDialogAtStatus('success')
+      mockCreatePackAction.mockRejectedValueOnce(new Error('boom'))
+
+      // Take A save, then IMMEDIATELY reopen for take B — same
+      // don't-flush-yet reasoning as the take-B test below: handleUseRecording
+      // flips `phase` to 'idle' on its own unrelated awaited continuation,
+      // which would swap the "useRecording" button away before we can use it
+      // to reopen. Both resolves are kicked off synchronously here; the
+      // `act()` below is what actually lets everything (take A's rejecting
+      // create + resolving redeem, AND take B's resolving redeem) settle.
+      fireEvent.click(screen.getByText('save'))
+      fireEvent.click(screen.getByText('useRecording'))
+      // 'pending' for take B — isolates it to the redemption call, proving
+      // the SECOND resolve (guard freshly reset on reopen) goes through.
+      fireEvent.click(screen.getByText('repurchase.pending.title'))
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('save'))
+        await Promise.resolve()
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      // Take A's create rejected — the old sequential-await code let a throw
+      // here skip the redemption call entirely.
+      expect(mockCreatePackAction).toHaveBeenCalledTimes(1)
+      // Take A's redemption (despite the reject) + take B's redemption
+      // (guard reset on reopen, not wedged by take A's reject) — two calls.
+      expect(mockRedeemSessionAction).toHaveBeenCalledTimes(2)
+    } finally {
+      process.off('unhandledRejection', onUnhandledRejection)
+    }
+    expect(unhandled).toHaveLength(0)
+  })
+
+  it('take B unlocks on reopen even while take A\'s write never settles (F2: reset on OPEN, not just finally)', async () => {
+    await renderRecordedPage()
+    openDialogAtSuccess()
+    // A write that never settles — the finally reset in onResolve can never
+    // run for it. Without F2, take B's dialog would stay stuck on 保存中.
+    mockCreatePackAction.mockImplementationOnce(() => new Promise(() => {}))
+
+    // Take A: one tap. Deliberately NOT flushed with any await/microtask
+    // tick below — every one of onResolve's own state changes (the guard,
+    // setOutcomeOpen(false)) is synchronous, so they're already committed by
+    // the time this fireEvent.click call returns. (Flushing ticks here would
+    // also let handleUseRecording's OWN unrelated awaited continuation flip
+    // `phase` to 'idle', which would swap the "useRecording" button out from
+    // under Take B for a reason that has nothing to do with the guard under
+    // test — so this test deliberately never gives that microtask a turn.)
+    fireEvent.click(screen.getByText('save'))
+
+    // Take B: reopen — openOutcomeDialog resets the guard on this OPEN
+    // transition regardless of take A's still-pending (in fact, forever-
+    // pending) write.
+    fireEvent.click(screen.getByText('useRecording'))
+    fireEvent.click(screen.getByText('noDeal.title'))
+
+    expect(screen.getByText('save')).toBeInTheDocument()
+    expect(screen.getByText('save')).not.toBeDisabled()
+    expect(screen.queryByText('saving')).toBeNull()
+  })
 })

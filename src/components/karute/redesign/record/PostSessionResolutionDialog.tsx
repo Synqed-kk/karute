@@ -149,8 +149,9 @@ export function PostSessionResolutionDialog({
           <button
             type="button"
             onClick={onCancel}
+            disabled={saving}
             aria-label={t('cancel')}
-            className="-mr-1 -mt-1 shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted"
+            className="-mr-1 -mt-1 shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted disabled:opacity-50"
           >
             <X size={18} />
           </button>

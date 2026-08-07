@@ -244,10 +244,16 @@ export function RecordPageView({
   // Single-flight guard for the outcome dialog's 保存: a double-tap must never
   // create two pack rows or fire two redemptions (live prod bug — the DB's
   // partial unique index on pack_redemptions(appointment_id) can't block the
-  // walk-in NULL case, and pack creation has no dedupe of its own). Ref for
-  // the synchronous re-entry check (state reads stale mid-tick, same reason
-  // usingRecording below is a ref); state feeds the dialog's `saving` prop so
-  // 保存 visibly disables too.
+  // walk-in NULL case, and pack creation has no dedupe of its own). The REF is
+  // the real guard — the synchronous re-entry check (state reads stale
+  // mid-tick, same reason usingRecording below is a ref). The state feeds the
+  // dialog's `saving` prop as belt-and-braces for a future edit that changes
+  // the close timing — TODAY it is NOT visibly observable at this call site:
+  // onResolve closes the dialog (setOutcomeOpen(false)) in the same batch it
+  // sets both, so the dialog never actually renders with saving=true here.
+  // Reset on the dialog's OPEN transition too (openOutcomeDialog below), not
+  // just in onResolve's finally — a hung take's write must not pre-lock the
+  // NEXT take's dialog as 保存中 (F2, PR-0 fix round).
   const resolvingOutcomeRef = useRef(false)
   const [resolvingOutcome, setResolvingOutcome] = useState(false)
 
@@ -695,6 +701,16 @@ export function RecordPageView({
   // collapse to a single column so the record button isn't dwarfed by a half-empty grid.
   const layoutMode: 'single' | 'split' = targetAppointment ? 'split' : 'single'
 
+  // F2: every OPEN starts clean — a hung take's in-flight write must not
+  // pre-lock the NEXT take's dialog as 保存中 (the finally reset in onResolve
+  // only fires when that write eventually settles; a request that never
+  // settles left the guard stuck true forever under the old code).
+  function openOutcomeDialog() {
+    resolvingOutcomeRef.current = false
+    setResolvingOutcome(false)
+    setOutcomeOpen(true)
+  }
+
   const recorderControls = phase === 'recorded' ? (
     <section className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-7 shadow-sm">
       <div className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">
@@ -723,7 +739,7 @@ export function RecordPageView({
               ? handleUseRecording(undefined, true)
               : outcomeMode === 'auto'
                 ? handleAutoFlow()
-                : setOutcomeOpen(true)
+                : openOutcomeDialog()
           }
         >
           {t('useRecording')}
@@ -957,41 +973,57 @@ export function RecordPageView({
           // needs an input moment, not a profile errand).
           void (async () => {
             try {
-              if (newPack && boundCustomerId) {
-                const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000)
-                  .toISOString()
-                  .slice(0, 10)
-                const res = await createPackAction({
-                  customerId: boundCustomerId,
-                  kind: 'pack',
-                  packSize: newPack.size,
-                  unitPrice: newPack.unitPrice,
-                  purchasedAt: jstToday,
-                })
-                if (res.ok) {
-                  toast.success(
-                    tPacks('packCreated', {
-                      size: newPack.size,
-                      price: newPack.unitPrice.toLocaleString('ja-JP'),
-                    }),
-                  )
-                } else {
-                  toast.error(tPacks('packCreateFailed'))
-                }
-              }
-              // Redemption records the VISIT (which already happened) — awaited
-              // here only so the single-flight guard above covers it too;
-              // still independent of whether the transcription/save later
-              // succeeds. Failure → toast; the profile pack card is the fallback.
-              if (redeemPack && targetPack && boundCustomerId) {
-                const res = await redeemSessionAction({
-                  packId: targetPack.id,
-                  customerId: boundCustomerId,
-                  appointmentId: boundAppointmentId ?? null,
-                })
-                if (res.ok) toast.success(tPacks('redeemDone'))
-                else toast.error(tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
-              }
+              // F1 (PR-0 fix round): pack-create and redemption are TWO
+              // INDEPENDENT writes, each with its own toast + catch — a
+              // THROWN createPackAction (its getSynqedClient init failure is
+              // now guarded, but this must hold even if a future edit
+              // weakens that) must never skip the redemption, and vice
+              // versa. The old sequential `await` coupled them: a throw from
+              // the first silently skipped the second entirely.
+              const packPromise =
+                newPack && boundCustomerId
+                  ? (async () => {
+                      const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000)
+                        .toISOString()
+                        .slice(0, 10)
+                      const res = await createPackAction({
+                        customerId: boundCustomerId,
+                        kind: 'pack',
+                        packSize: newPack.size,
+                        unitPrice: newPack.unitPrice,
+                        purchasedAt: jstToday,
+                      })
+                      if (res.ok) {
+                        toast.success(
+                          tPacks('packCreated', {
+                            size: newPack.size,
+                            price: newPack.unitPrice.toLocaleString('ja-JP'),
+                          }),
+                        )
+                      } else {
+                        toast.error(tPacks('packCreateFailed'))
+                      }
+                    })().catch(() => toast.error(tPacks('packCreateFailed')))
+                  : Promise.resolve()
+              // Redemption records the VISIT (which already happened) —
+              // awaited here only so the single-flight guard above covers it
+              // too; still independent of the pack-create above and of
+              // whether the transcription/save later succeeds. Failure →
+              // toast; the profile pack card is the fallback.
+              const redeemPromise =
+                redeemPack && targetPack && boundCustomerId
+                  ? redeemSessionAction({
+                      packId: targetPack.id,
+                      customerId: boundCustomerId,
+                      appointmentId: boundAppointmentId ?? null,
+                    })
+                      .then((res) => {
+                        if (res.ok) toast.success(tPacks('redeemDone'))
+                        else toast.error(tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
+                      })
+                      .catch(() => toast.error(tPacks('redeemFailed')))
+                  : Promise.resolve()
+              await Promise.allSettled([packPromise, redeemPromise])
             } finally {
               resolvingOutcomeRef.current = false
               setResolvingOutcome(false)
