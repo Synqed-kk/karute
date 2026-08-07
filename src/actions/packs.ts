@@ -38,6 +38,9 @@ interface CreatePackActionInput {
   kind: PackKind
   packSize: number
   unitPrice: number
+  /** ignored — server always derives totalPrice = unitPrice × packSize (see
+   *  below). Kept in the shape only so the facade's baked-shell-compat field
+   *  still type-checks through untouched. */
   totalPrice?: number | null
   purchasedAt?: string | null
   notes?: string | null
@@ -71,8 +74,11 @@ export async function createPackActionWithClient(
       ? nextPurchaseRound(await listCustomerPacksWithClient(synqed, input.customerId))
       : 0
   // SERVER-derived 合計金額: unit × size (the app prices per-session), so pack
-  // revenue is never zeroed. One rule covers every present + future caller.
-  const totalPrice = input.totalPrice ?? input.unitPrice * input.packSize
+  // revenue is never zeroed. ALWAYS derived — no caller override (a facade
+  // caller could otherwise send a discounted totalPrice and pocket the
+  // difference; input.totalPrice is ignored, never read). One rule covers
+  // every present + future caller.
+  const totalPrice = input.unitPrice * input.packSize
   const result = await createPackWithClient(synqed, {
     ...(input as CreatePackInput),
     totalPrice,

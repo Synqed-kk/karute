@@ -241,6 +241,16 @@ export function RecordPageView({
   // the background while they move on. It rides the pipeline context to save.
   const [outcomeOpen, setOutcomeOpen] = useState(false)
 
+  // Single-flight guard for the outcome dialog's 保存: a double-tap must never
+  // create two pack rows or fire two redemptions (live prod bug — the DB's
+  // partial unique index on pack_redemptions(appointment_id) can't block the
+  // walk-in NULL case, and pack creation has no dedupe of its own). Ref for
+  // the synchronous re-entry check (state reads stale mid-tick, same reason
+  // usingRecording below is a ref); state feeds the dialog's `saving` prop so
+  // 保存 visibly disables too.
+  const resolvingOutcomeRef = useRef(false)
+  const [resolvingOutcome, setResolvingOutcome] = useState(false)
+
   // Re-entry + staleness guards for the use-recording flow (it awaits the
   // session-id mint, so it's no longer atomic): first tap wins, and a discard
   // bumps the generation so an in-flight use drops its now-discarded take.
@@ -929,6 +939,7 @@ export function RecordPageView({
         open={outcomeOpen}
         customerName={boundCustomerName ?? ''}
         isFirstVisit={brief?.isFirstTimeVisit ?? false}
+        saving={resolvingOutcome}
         mode={outcomeMode === 'repurchase' ? 'repurchase' : 'conversion'}
         pack={targetPack}
         packPresets={packPresets}
@@ -936,46 +947,56 @@ export function RecordPageView({
         previousPack={previousPack}
         onCancel={() => setOutcomeOpen(false)}
         onResolve={(outcome, redeemPack, newPack: NewPackInput | null) => {
+          // First tap wins — see the guard declaration above.
+          if (resolvingOutcomeRef.current) return
+          resolvingOutcomeRef.current = true
+          setResolvingOutcome(true)
           setOutcomeOpen(false)
           // 成約/購入した with the inline picker filled → the pack is created
           // HERE, at the moment of sale (conservation law: the count-from-N
           // needs an input moment, not a profile errand).
-          if (newPack && boundCustomerId) {
-            const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000)
-              .toISOString()
-              .slice(0, 10)
-            void createPackAction({
-              customerId: boundCustomerId,
-              kind: 'pack',
-              packSize: newPack.size,
-              unitPrice: newPack.unitPrice,
-              purchasedAt: jstToday,
-            }).then((res) => {
-              if (res.ok) {
-                toast.success(
-                  tPacks('packCreated', {
-                    size: newPack.size,
-                    price: newPack.unitPrice.toLocaleString('ja-JP'),
-                  }),
-                )
-              } else {
-                toast.error(tPacks('packCreateFailed'))
+          void (async () => {
+            try {
+              if (newPack && boundCustomerId) {
+                const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000)
+                  .toISOString()
+                  .slice(0, 10)
+                const res = await createPackAction({
+                  customerId: boundCustomerId,
+                  kind: 'pack',
+                  packSize: newPack.size,
+                  unitPrice: newPack.unitPrice,
+                  purchasedAt: jstToday,
+                })
+                if (res.ok) {
+                  toast.success(
+                    tPacks('packCreated', {
+                      size: newPack.size,
+                      price: newPack.unitPrice.toLocaleString('ja-JP'),
+                    }),
+                  )
+                } else {
+                  toast.error(tPacks('packCreateFailed'))
+                }
               }
-            })
-          }
-          // Redemption records the VISIT (which already happened), so it fires
-          // immediately — independent of whether the transcription/save later
-          // succeeds. Failure → toast; the profile pack card is the fallback.
-          if (redeemPack && targetPack && boundCustomerId) {
-            void redeemSessionAction({
-              packId: targetPack.id,
-              customerId: boundCustomerId,
-              appointmentId: boundAppointmentId ?? null,
-            }).then((res) => {
-              if (res.ok) toast.success(tPacks('redeemDone'))
-              else toast.error(tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
-            })
-          }
+              // Redemption records the VISIT (which already happened) — awaited
+              // here only so the single-flight guard above covers it too;
+              // still independent of whether the transcription/save later
+              // succeeds. Failure → toast; the profile pack card is the fallback.
+              if (redeemPack && targetPack && boundCustomerId) {
+                const res = await redeemSessionAction({
+                  packId: targetPack.id,
+                  customerId: boundCustomerId,
+                  appointmentId: boundAppointmentId ?? null,
+                })
+                if (res.ok) toast.success(tPacks('redeemDone'))
+                else toast.error(tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
+              }
+            } finally {
+              resolvingOutcomeRef.current = false
+              setResolvingOutcome(false)
+            }
+          })()
           // 購入した → close the loop: the NEW pack must be registered, or the
           // alert system keeps treating them as nearly-out. One tap to the
           // profile's 登録 dialog.
