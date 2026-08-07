@@ -15,6 +15,7 @@ import { KARUTE_PROMPT_VERSION, cleanNameToken } from '@/lib/karute/prompt-fragm
 import type { SuggestedMessage } from '@/components/karute/redesign/detail/AISuggestedMessageCard'
 import { audit } from '@/lib/audit'
 import { auditWeb } from '@/lib/audit-web'
+import { JST_TZ, hmInJst, ymdInJst } from '@/lib/date/jst'
 
 const OutreachSchema = z.object({
   body: z
@@ -40,7 +41,20 @@ interface OutreachParams {
   customerName: string
   summary: string | null
   locale: string
+  /** This karute's own linked appointment (D7) — excluded from the
+   *  next-booking line's candidates so an early-in-visit save can't surface
+   *  "next" = the visit happening right now. Optional/undefined degrades to
+   *  "no exclusion" (older call sites that haven't threaded it through). */
+  appointmentId?: string | null
+  /** This karute's own store (D7) — the next-booking lookup prefers this
+   *  store, falling back business-wide only when nothing is found there. */
+  storeId?: string | null
 }
+
+/** The SDK surface `appendNextBookingLine` needs — a booking lookup + the
+ *  (rare) cross-store name resolution. Narrower than the facade's org-settings
+ *  client; both compose fine since Pick types are structurally additive. */
+type BookingLookupClient = Pick<SynqedClient, 'appointments' | 'stores'>
 
 /** 生成-row emitters (Liam ruling 2026-07-29: the ai.suggested_message row
  *  means "the LLM actually ran", never "the card was viewed"). Private
@@ -79,6 +93,124 @@ function auditSuggestedMessageGeneratedFacade(
   })
 }
 
+/** 「8月21日(金)」 shape — same Intl.DateTimeFormat pattern jst.ts's
+ *  formatLongDateJst uses (weekday+month+day, JST-pinned), just without the
+ *  year. Deliberately NOT the `.getDay()`-on-shifted-instant idiom at
+ *  screen-rows.ts:187-188 (has a latent UTC-runtime off-by-one) — Intl's
+ *  timeZone option does the JST conversion, no manual date math. */
+function formatBookingDateJst(d: Date, locale: string): string {
+  return new Intl.DateTimeFormat(locale === 'ja' ? 'ja-JP' : 'en-US', {
+    timeZone: JST_TZ,
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  }).format(d)
+}
+
+/** ja: hmInJst's existing 24h "14:00". en: 12h via Intl (never a manual
+ *  24→12 conversion). */
+function formatBookingTimeJst(d: Date, locale: string): string {
+  if (locale === 'ja') return hmInJst(d)
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: JST_TZ,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(d)
+}
+
+/** The next SCHEDULED booking for `customerId`, excluding this karute's own
+ *  appointment — server-side filtered + sorted (startsAt asc, P2-verified),
+ *  so `.appointments[0]` after exclusion is already the earliest remaining.
+ *  Prefers `ownStoreId`; falls back business-wide only when that store has
+ *  nothing. Never throws — the caller's try/catch is the single error
+ *  boundary, this just does the two-step lookup. */
+async function findNextBooking(
+  client: BookingLookupClient,
+  customerId: string,
+  ownAppointmentId: string | null,
+  ownStoreId: string | null,
+) {
+  const from = new Date().toISOString()
+  const fetchCandidates = async (storeId?: string) => {
+    const list = await client.appointments.list({
+      customer_id: customerId,
+      from,
+      status: 'SCHEDULED',
+      page_size: 5,
+      ...(storeId ? { store_id: storeId } : {}),
+    })
+    return list.appointments.filter((a) => a.id !== ownAppointmentId)
+  }
+  let candidates = ownStoreId ? await fetchCandidates(ownStoreId) : []
+  if (candidates.length === 0) candidates = await fetchCandidates()
+  return candidates[0] ?? null
+}
+
+/** Deterministic next-booking line (D6-D9) — the SINGLE choke point both
+ *  entry paths (getSuggestedFollowUp / getSuggestedFollowUpWithClient) route
+ *  through, called AFTER the cache read/write boundary so the cached draft
+ *  body stays booking-date-free and the line is computed fresh every open (a
+ *  booking made after the draft was cached still shows up). Best-effort like
+ *  every other read in this file: `client: null` (web path with no client in
+ *  scope yet) triggers a lazy getSynqedClient() acquisition; any failure
+ *  anywhere in the lookup returns `body` UNCHANGED, never throws.
+ *
+ *  Dynamic import (not a static top-of-file one) mirrors this file's
+ *  existing feature-gate import — keeps @synqed-kk/client's runtime code out
+ *  of test import-chains that never exercise this branch. */
+async function appendNextBookingLine(
+  body: string,
+  client: BookingLookupClient | null,
+  opts: {
+    customerId: string | null
+    locale: string
+    appointmentId: string | null
+    storeId: string | null
+  },
+): Promise<string> {
+  if (!opts.customerId) return body
+  try {
+    const synqed =
+      client ?? (await (await import('@/lib/synqed/client')).getSynqedClient())
+    const next = await findNextBooking(synqed, opts.customerId, opts.appointmentId, opts.storeId)
+    if (!next) return body
+
+    const startsAt = new Date(next.starts_at)
+    const sameDay = ymdInJst(startsAt) === ymdInJst(new Date())
+    const time = formatBookingTimeJst(startsAt, opts.locale)
+
+    // Cross-store naming (D7): only when the booking landed at a store
+    // DIFFERENT from this session's own (own-store-first lookup above means
+    // this is almost always the business-wide fallback branch) — a
+    // same-store result never names itself.
+    let storeName: string | null = null
+    if (opts.storeId && next.store_id && next.store_id !== opts.storeId) {
+      storeName = await synqed.stores
+        .get(next.store_id)
+        .then((s) => s.name)
+        .catch(() => null)
+    }
+
+    const ja = opts.locale === 'ja'
+    if (ja) {
+      const at = storeName ? `${storeName}にて` : ''
+      const line = sameDay
+        ? `本日この後${at}${time}のご予約をお受けしております。お待ちしております。`
+        : `次回は${at}${formatBookingDateJst(startsAt, 'ja')}${time}のご予約をお受けしております。お待ちしております。`
+      return `${body}\n\n${line}`
+    }
+    const date = formatBookingDateJst(startsAt, 'en')
+    const at = storeName ? ` at ${storeName}` : ''
+    const line = sameDay
+      ? `We also have you booked for later today at ${time}${at}. We look forward to seeing you then.`
+      : `We have your next appointment on ${date} at ${time}${at}. We look forward to seeing you then.`
+    return `${body}\n\n${line}`
+  } catch {
+    return body
+  }
+}
+
 /** Web (cookie) entry — cookie org-settings + cookie feature gate. */
 export async function getSuggestedFollowUp(
   params: OutreachParams,
@@ -100,6 +232,20 @@ export async function getSuggestedFollowUp(
     // blocks) — nothing audits here.
     console.error('[getSuggestedFollowUp] failed:', err)
     return null
+  }
+  // D6: explicit null-guard BEFORE touching .body — never rely on the
+  // try/catch above to paper over a null result. No client in scope on the
+  // web path — appendNextBookingLine acquires its own (best-effort).
+  if (result) {
+    result = {
+      ...result,
+      body: await appendNextBookingLine(result.body, null, {
+        customerId: params.customerId,
+        locale: params.locale,
+        appointmentId: params.appointmentId ?? null,
+        storeId: params.storeId ?? null,
+      }),
+    }
   }
   // Per-VIEW row, web twin of the facade's karute.ai.suggestedMessage hook row
   // (both view-kind since the 2026-07-29 honesty split — Liam ruling): fires
@@ -126,14 +272,15 @@ export async function getSuggestedFollowUp(
  *  row via the facade helper above — this function itself stays emit-free
  *  (Core/WithClient split convention). */
 export async function getSuggestedFollowUpWithClient(
-  synqed: Pick<SynqedClient, 'orgSettings'>,
+  synqed: Pick<SynqedClient, 'orgSettings' | 'appointments' | 'stores'>,
   businessId: string,
   actorId: string,
   requestId: string,
   params: OutreachParams,
 ): Promise<SuggestedMessage | null> {
+  let result: SuggestedMessage | null
   try {
-    return await computeSuggestedFollowUp(
+    result = await computeSuggestedFollowUp(
       params,
       () => orgSettingsWithClient(synqed).catch(() => null),
       async () => {
@@ -145,6 +292,18 @@ export async function getSuggestedFollowUpWithClient(
   } catch (err) {
     console.error('[getSuggestedFollowUpWithClient] failed:', err)
     return null
+  }
+  // D6: explicit null-guard before touching .body (L3#6) — the facade already
+  // has its client resolved, so it's passed straight through (no acquisition).
+  if (!result) return null
+  return {
+    ...result,
+    body: await appendNextBookingLine(result.body, synqed, {
+      customerId: params.customerId,
+      locale: params.locale,
+      appointmentId: params.appointmentId ?? null,
+      storeId: params.storeId ?? null,
+    }),
   }
 }
 
@@ -170,7 +329,13 @@ async function computeSuggestedFollowUp(
   const tok = resolvePersonaTokens(persona, locale)
 
   const cacheInput = {
-    v: KARUTE_PROMPT_VERSION,
+    // Outreach-only suffix (D9): KARUTE_PROMPT_VERSION is shared with the
+    // ai-passport これまで box's cache key — bumping THAT constant blanks
+    // every customer's passport business-wide (2026-07-15 incident, pinned
+    // by prompt-v34-salience.test.ts:87). This suffix busts ONLY outreach
+    // drafts (forcing a lazy regen under the tightened no-booking-close rule
+    // below) without touching the passport cache or any other consumer.
+    v: `${KARUTE_PROMPT_VERSION}:outreach-2`,
     k: karuteId,
     // Full summary — the cache layer hashes the whole input, so a regenerated
     // summary always misses the old draft (a 2000-char slice could collide).
@@ -189,7 +354,7 @@ async function computeSuggestedFollowUp(
 
 【ルール】
 - 根拠：本日のカルテ要約に書かれている内容だけを使う。割引・特典・価格・予約日時など、要約に無いことは一切書かない（作った事実は信頼を壊す）。
-- 構成：(1) 本日の来店へのお礼 → (2) 本日の内容に軽く触れる（1点だけ、要約から） → (3) ${persona.clinicalPosture !== 'service' ? 'セルフケアの宿題があればやさしく一言' : '宿題やおすすめしたケアがあればやさしく一言'} → (4) ${persona.clinicalPosture !== 'service' ? '体調の変化' : '気になる変化'}があればいつでもご連絡くださいと締める。
+- 構成：(1) 本日の来店へのお礼 → (2) 本日の内容に軽く触れる（1点だけ、要約から） → (3) ${persona.clinicalPosture !== 'service' ? 'セルフケアの宿題があればやさしく一言' : '宿題やおすすめしたケアがあればやさしく一言'} → (4) ${persona.clinicalPosture !== 'service' ? '体調の変化' : '気になる変化'}があればいつでもご連絡くださいと締める（来店・予約・またのご来店など、次回に関する言及は一切書かない — システムが別途ご案内します）。
 - トーン：丁寧で温かい接客の日本語。絵文字は使わない。マークダウン・箇条書きは使わない（そのまま送れる普通の文章）。
 - 長さ：120〜220文字程度。LINEで読みやすい短さ。
 - 医療的な断定はしない：${clinicalGuardrail(persona.clinicalPosture, 'ja')}
@@ -200,7 +365,7 @@ ${defensivePreamble('ja')}`
 
 Rules:
 - Grounded ONLY in today's karute summary. Never invent discounts, offers, prices, or booking times not present in it.
-- Structure: (1) thank them for today's visit → (2) touch on ONE thing from the session → (3) gently mention any homework or recommended care → (4) close with "reach out anytime if anything changes."
+- Structure: (1) thank them for today's visit → (2) touch on ONE thing from the session → (3) gently mention any homework or recommended care → (4) close with "reach out anytime if anything changes" — never mention a next visit, booking, or "see you again" (a separate message handles that).
 - Tone: warm, polite service language. No emoji, no markdown, no bullet points — plain sendable text.
 - Length: 2-4 short sentences.
 - No medical claims: ${clinicalGuardrail(persona.clinicalPosture, locale)}

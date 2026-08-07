@@ -147,6 +147,8 @@ export default async function KaruteDetailPage({
             customerName={built.header.customerName}
             summary={karute.summary ?? null}
             locale={locale}
+            appointmentId={karute.appointment_id ?? null}
+            storeId={karute.store_id ?? null}
           />
         </Suspense>
       }
