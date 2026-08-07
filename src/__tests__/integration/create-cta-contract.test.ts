@@ -26,8 +26,11 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
 const SHARED_IMPORT = "import { Button } from '@/components/ui/button'"
 const RESPONSIVE_LABEL = 'hidden min-[380px]:inline'
 
-/** All <Button ...> opening tags in a source string. */
-const buttonTags = (src: string) => src.match(/<Button\b[^>]*>/g) ?? []
+/** All <Button ...> opening tags in a source string. The alternation
+ *  steps over `=>` arrows inside prop values, so the capture runs to the
+ *  tag's REAL closing bracket — a plain [^>]* stops at the arrow's `>`
+ *  and everything after onClick escapes every check (final-lens P1 8/7). */
+const buttonTags = (src: string) => src.match(/<Button\b(?:=>|[^>])*>/g) ?? []
 
 /** A CTA Button may carry ONLY type/onClick/aria-label — anything else
  *  (className, size, variant, bare booleans like disabled, ...) changes
