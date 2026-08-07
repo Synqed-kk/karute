@@ -25,6 +25,17 @@ const OutreachSchema = z.object({
     ),
 })
 
+/** FC4: a generated body naming a concrete date/time is legitimate when it's
+ *  grounded in today's summary (rule 1 allows that) — but this regex can't
+ *  tell "grounded" from "invented" apart, so it isn't used to reject the
+ *  draft. It only gates the 365-day cache write: a match skips setCachedAI
+ *  so a possibly-invented date/time can't get cache-locked for a year (the
+ *  draft is still returned and shown — staff review is the real gate).
+ *  Covers: JA month/day (8月21日), HH:MM time, JA 時/半/分 clock phrasing,
+ *  EN month-abbreviation + day (Aug 21). */
+const DATE_TIME_TOKEN_RE =
+  /[0-9０-９]{1,2}\s*月\s*[0-9０-９]{1,2}\s*日|[0-9]{1,2}:[0-9]{2}|[0-9０-９]{1,2}\s*時(?:半|[0-9０-９]{1,2}分)?|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+[0-9]{1,2}\b/i
+
 /**
  * AI推奨メッセージ — drafts the post-session follow-up shown on the karute
  * detail card. The card already carries the human loop (edit / approve-send via
@@ -43,12 +54,13 @@ interface OutreachParams {
   locale: string
   /** This karute's own linked appointment (D7) — excluded from the
    *  next-booking line's candidates so an early-in-visit save can't surface
-   *  "next" = the visit happening right now. Optional/undefined degrades to
-   *  "no exclusion" (older call sites that haven't threaded it through). */
-  appointmentId?: string | null
-  /** This karute's own store (D7) — the next-booking lookup prefers this
-   *  store, falling back business-wide only when nothing is found there. */
-  storeId?: string | null
+   *  "next" = the visit happening right now. Required (not optional) so a
+   *  new call site can't silently drop the exclusion. */
+  appointmentId: string | null
+  /** This karute's own store (D7) — NOT used to scope the next-booking
+   *  lookup (that's business-wide, see findNextBooking). Only consulted
+   *  afterwards to decide whether the line NAMES the destination store. */
+  storeId: string | null
 }
 
 /** The SDK surface `appendNextBookingLine` needs — a booking lookup + the
@@ -119,32 +131,30 @@ function formatBookingTimeJst(d: Date, locale: string): string {
   }).format(d)
 }
 
-/** The next SCHEDULED booking for `customerId`, excluding this karute's own
- *  appointment — server-side filtered + sorted (startsAt asc, P2-verified),
- *  so `.appointments[0]` after exclusion is already the earliest remaining.
- *  Prefers `ownStoreId`; falls back business-wide only when that store has
- *  nothing. Never throws — the caller's try/catch is the single error
- *  boundary, this just does the two-step lookup. */
+/** The single next SCHEDULED booking for `customerId`, excluding this
+ *  karute's own appointment — ONE business-wide query (never store-scoped;
+ *  storeId plays no part in the lookup, only in whether the caller later
+ *  NAMES the store), earliest starts_at overall. Sorted client-side (FC7):
+ *  the server's sort order is an unverifiable external contract, so this
+ *  never assumes `.appointments[0]` is already earliest. Never throws — the
+ *  caller's try/catch is the single error boundary. */
 async function findNextBooking(
   client: BookingLookupClient,
   customerId: string,
   ownAppointmentId: string | null,
-  ownStoreId: string | null,
 ) {
-  const from = new Date().toISOString()
-  const fetchCandidates = async (storeId?: string) => {
-    const list = await client.appointments.list({
-      customer_id: customerId,
-      from,
-      status: 'SCHEDULED',
-      page_size: 5,
-      ...(storeId ? { store_id: storeId } : {}),
-    })
-    return list.appointments.filter((a) => a.id !== ownAppointmentId)
-  }
-  let candidates = ownStoreId ? await fetchCandidates(ownStoreId) : []
-  if (candidates.length === 0) candidates = await fetchCandidates()
-  return candidates[0] ?? null
+  const list = await client.appointments.list({
+    customer_id: customerId,
+    from: new Date().toISOString(),
+    status: 'SCHEDULED',
+    page_size: 5,
+  })
+  return (
+    list.appointments
+      .filter((a) => a.id !== ownAppointmentId)
+      .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime())[0] ??
+    null
+  )
 }
 
 /** Deterministic next-booking line (D6-D9) — the SINGLE choke point both
@@ -173,7 +183,7 @@ async function appendNextBookingLine(
   try {
     const synqed =
       client ?? (await (await import('@/lib/synqed/client')).getSynqedClient())
-    const next = await findNextBooking(synqed, opts.customerId, opts.appointmentId, opts.storeId)
+    const next = await findNextBooking(synqed, opts.customerId, opts.appointmentId)
     if (!next) return body
 
     const startsAt = new Date(next.starts_at)
@@ -181,15 +191,22 @@ async function appendNextBookingLine(
     const time = formatBookingTimeJst(startsAt, opts.locale)
 
     // Cross-store naming (D7): only when the booking landed at a store
-    // DIFFERENT from this session's own (own-store-first lookup above means
-    // this is almost always the business-wide fallback branch) — a
-    // same-store result never names itself.
+    // DIFFERENT from this session's own — a same-store result never names
+    // itself. FC2: an unresolved cross-store name must not render
+    // location-blind (reads as same-store when it isn't) — so a failed or
+    // empty resolution drops the WHOLE line, not just the name.
     let storeName: string | null = null
     if (opts.storeId && next.store_id && next.store_id !== opts.storeId) {
-      storeName = await synqed.stores
-        .get(next.store_id)
-        .then((s) => s.name)
-        .catch(() => null)
+      try {
+        storeName = await synqed.stores.get(next.store_id).then((s) => s.name)
+      } catch (err) {
+        console.error('[appendNextBookingLine] cross-store name resolution failed:', err)
+        return body
+      }
+      if (!storeName) {
+        console.error('[appendNextBookingLine] cross-store name resolution returned no name')
+        return body
+      }
     }
 
     const ja = opts.locale === 'ja'
@@ -206,7 +223,8 @@ async function appendNextBookingLine(
       ? `We also have you booked for later today at ${time}${at}. We look forward to seeing you then.`
       : `We have your next appointment on ${date} at ${time}${at}. We look forward to seeing you then.`
     return `${body}\n\n${line}`
-  } catch {
+  } catch (err) {
+    console.error('[appendNextBookingLine] failed:', err)
     return body
   }
 }
@@ -242,8 +260,8 @@ export async function getSuggestedFollowUp(
       body: await appendNextBookingLine(result.body, null, {
         customerId: params.customerId,
         locale: params.locale,
-        appointmentId: params.appointmentId ?? null,
-        storeId: params.storeId ?? null,
+        appointmentId: params.appointmentId,
+        storeId: params.storeId,
       }),
     }
   }
@@ -301,8 +319,8 @@ export async function getSuggestedFollowUpWithClient(
     body: await appendNextBookingLine(result.body, synqed, {
       customerId: params.customerId,
       locale: params.locale,
-      appointmentId: params.appointmentId ?? null,
-      storeId: params.storeId ?? null,
+      appointmentId: params.appointmentId,
+      storeId: params.storeId,
     }),
   }
 }
@@ -393,11 +411,20 @@ ${defensivePreamble(locale)}`
   // like every audit emit (the helper never throws for web; facade audit()
   // is fire-and-forget) — a logging failure must not cost the draft.
   await onGenerated().catch(() => {})
-  // Liam ruling 2026-07-29: a generated draft is FACTS-KEYED, not time-keyed —
-  // it must never quietly regenerate while the karute is unchanged. The key
-  // already hashes the full summary (any edit/regen = new key = fresh draft),
-  // so retention is the only expiry left: 365d = effectively "keep until the
-  // facts change" within core ai_cache's expires_at contract.
-  await setCachedAI('karute_followup', cacheInput, { body }, 365).catch(() => {})
+  // FC4: a concrete date/time token in the body MIGHT be grounded in the
+  // summary (legitimate, rule 1 allows it) or might be the LLM improvising a
+  // "see you again" date despite the prompt's rule 4 — the regex can't tell
+  // those apart, so it doesn't touch the draft itself. It only skips the
+  // cache write below, so a possibly-invented date/time can't get locked in
+  // for 365 days; the draft is still returned/shown either way (staff
+  // review before send is the real gate).
+  if (!DATE_TIME_TOKEN_RE.test(body)) {
+    // Liam ruling 2026-07-29: a generated draft is FACTS-KEYED, not time-keyed —
+    // it must never quietly regenerate while the karute is unchanged. The key
+    // already hashes the full summary (any edit/regen = new key = fresh draft),
+    // so retention is the only expiry left: 365d = effectively "keep until the
+    // facts change" within core ai_cache's expires_at contract.
+    await setCachedAI('karute_followup', cacheInput, { body }, 365).catch(() => {})
+  }
   return { channel: 'LINE', body }
 }

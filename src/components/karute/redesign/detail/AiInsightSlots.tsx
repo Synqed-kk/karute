@@ -46,8 +46,8 @@ export async function AISuggestedMessageSlot({
   summary: string | null
   locale: string
   /** This karute's own linked appointment/store (D7) — threaded through to
-   *  the next-booking line so it excludes its own visit and prefers the
-   *  session's store. */
+   *  the next-booking line so it excludes its own visit and names the
+   *  destination store when the picked booking is at a different one. */
   appointmentId?: string | null
   storeId?: string | null
 }) {

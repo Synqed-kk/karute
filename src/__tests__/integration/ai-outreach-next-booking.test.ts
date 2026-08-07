@@ -94,8 +94,8 @@ type Params = {
   customerName: string
   summary: string | null
   locale: string
-  appointmentId?: string | null
-  storeId?: string | null
+  appointmentId: string | null
+  storeId: string | null
 }
 
 const BASE_PARAMS: Params = {
@@ -159,17 +159,72 @@ describe('next-booking line — via getSuggestedFollowUpWithClient (facade, clie
   })
 
   it('multi-store: booking at a DIFFERENT store than today\'s session names the store', async () => {
-    appointmentsList.mockImplementation(async (opts: { store_id?: string }) => {
-      // own-store-first search finds nothing at store-own; the business-wide
-      // fallback finds one at store-ginza.
-      if (opts.store_id === 'store-own') return listResult([])
-      return listResult([appt({ store_id: 'store-ginza' })])
-    })
+    appointmentsList.mockResolvedValue(listResult([appt({ store_id: 'store-ginza' })]))
     storesGet.mockResolvedValue({ id: 'store-ginza', name: '銀座店' })
     const draft = await call()
     expect(draft?.body).toBe(
       `${DRAFT_BODY}\n\n次回は銀座店にて8月21日(金)14:00のご予約をお受けしております。お待ちしております。`,
     )
+    // FC1: ONE business-wide call — never store-scoped.
+    expect(appointmentsList).toHaveBeenCalledTimes(1)
+    expect(appointmentsList.mock.calls[0][0]).not.toHaveProperty('store_id')
+  })
+
+  it('FC1: an earlier cross-store booking wins over a later own-store booking — the old own-store-first lookup would return the later own-store one instead', async () => {
+    appointmentsList.mockResolvedValue(
+      listResult([
+        // Later, but at the session's own store — the old two-step lookup
+        // would find this FIRST (store-scoped query) and stop there.
+        appt({ id: 'appt-late-own', store_id: 'store-own', starts_at: '2026-08-25T05:00:00.000Z' }),
+        // Earlier, at a different store — the actually-correct "next" booking.
+        appt({ id: 'appt-early-other', store_id: 'store-ginza', starts_at: '2026-08-21T05:00:00.000Z' }),
+      ]),
+    )
+    storesGet.mockResolvedValue({ id: 'store-ginza', name: '銀座店' })
+    const draft = await call()
+    expect(draft?.body).toBe(
+      `${DRAFT_BODY}\n\n次回は銀座店にて8月21日(金)14:00のご予約をお受けしております。お待ちしております。`,
+    )
+    expect(draft?.body).not.toContain('8月25日')
+    expect(appointmentsList).toHaveBeenCalledTimes(1)
+  })
+
+  it('FC7: unsorted API response — earliest booking is still chosen regardless of array order', async () => {
+    appointmentsList.mockResolvedValue(
+      listResult([
+        appt({ id: 'appt-later', starts_at: '2026-08-25T05:00:00.000Z', store_id: 'store-own' }),
+        appt({ id: 'appt-earlier', starts_at: '2026-08-21T05:00:00.000Z', store_id: 'store-own' }),
+      ]),
+    )
+    const draft = await call()
+    expect(draft?.body).toContain('8月21日(金)14:00')
+    expect(draft?.body).not.toContain('8月25日')
+  })
+
+  it('FC2: cross-store booking whose store name lookup rejects → body unchanged, never location-blind', async () => {
+    appointmentsList.mockResolvedValue(listResult([appt({ store_id: 'store-ginza' })]))
+    storesGet.mockRejectedValue(new Error('store lookup failed'))
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const draft = await call()
+      expect(draft?.body).toBe(DRAFT_BODY)
+      expect(consoleErrorSpy).toHaveBeenCalled()
+    } finally {
+      consoleErrorSpy.mockRestore()
+    }
+  })
+
+  it('FC2: cross-store booking whose store lookup resolves with no name → body unchanged', async () => {
+    appointmentsList.mockResolvedValue(listResult([appt({ store_id: 'store-ginza' })]))
+    storesGet.mockResolvedValue({ id: 'store-ginza', name: '' })
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const draft = await call()
+      expect(draft?.body).toBe(DRAFT_BODY)
+      expect(consoleErrorSpy).toHaveBeenCalled()
+    } finally {
+      consoleErrorSpy.mockRestore()
+    }
   })
 
   it('same store as today: no store name in the line', async () => {
@@ -222,6 +277,42 @@ describe('next-booking line — via getSuggestedFollowUp (web, acquires its own 
     appointmentsList.mockResolvedValue(listResult([]))
     const draft = await getSuggestedFollowUp(BASE_PARAMS)
     expect(draft?.body).toBe(DRAFT_BODY)
+  })
+})
+
+// FC4: a generated draft body containing a concrete date/time token skips
+// the 365-day cache write (the guard can't tell "grounded in the summary"
+// from "invented" apart, so it protects the CACHE, not the draft itself —
+// the draft is still returned either way, see the assertions below).
+describe('FC4 — cache-lock guard on date/time-token bodies', () => {
+  const { setCachedAI } = jest.requireMock('@/lib/ai-cache') as { setCachedAI: jest.Mock }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    appointmentsList.mockResolvedValue(listResult([]))
+  })
+
+  it('JA date token (8月21日) in the generated body → setCachedAI NOT called, draft still returned', async () => {
+    ;(openai.chat.completions.parse as jest.Mock).mockResolvedValue({
+      choices: [{ message: { parsed: { body: '本日はありがとうございました。8月21日にまたお待ちしております。' } } }],
+    })
+    const draft = await getSuggestedFollowUpWithClient(fakeClient, 'biz-1', 'staff-1', 'req-1', BASE_PARAMS)
+    expect(draft?.body).toContain('8月21日')
+    expect(setCachedAI).not.toHaveBeenCalled()
+  })
+
+  it('clock-time token (14:00) in the generated body → setCachedAI NOT called', async () => {
+    ;(openai.chat.completions.parse as jest.Mock).mockResolvedValue({
+      choices: [{ message: { parsed: { body: '14:00にお待ちしております。' } } }],
+    })
+    await getSuggestedFollowUpWithClient(fakeClient, 'biz-1', 'staff-1', 'req-1', BASE_PARAMS)
+    expect(setCachedAI).not.toHaveBeenCalled()
+  })
+
+  it('clean body (no date/time tokens) → setCachedAI called normally', async () => {
+    mockDraft()
+    await getSuggestedFollowUpWithClient(fakeClient, 'biz-1', 'staff-1', 'req-1', BASE_PARAMS)
+    expect(setCachedAI).toHaveBeenCalledTimes(1)
   })
 })
 
