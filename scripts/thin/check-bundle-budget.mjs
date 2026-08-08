@@ -59,7 +59,14 @@ const DIST = 'thin/dist/assets'
 // bloat — same class as every prior raise; the purchase-marker scan below
 // stays the real gate. (A lazy-chunk split was tried first and REVERTED: the
 // gate correctly counts total thin JS, so splitting only added overhead.)
-const BUDGET_BYTES = 1_733_000
+// Raised 2026-08-08 at the tab-bar tap PR (#682) — the bottom bar activates on
+// touchend instead of a click iOS swallows under the root-scroller shell
+// (src/lib/tap-activation.ts, #648), measured at 1692.6 KB raw against the
+// prior 1692.4 KB ceiling (over by 0.2 KB / 187 bytes). Genuine fix volume —
+// a per-element gesture util wired to 8 controls, no new dependency — same
+// class as every prior raise; the purchase-marker scan below stays the real
+// gate.
+const BUDGET_BYTES = 1_735_000
 
 let dir
 try {

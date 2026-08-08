@@ -31,7 +31,14 @@ const MOVE_TOLERANCE_PX = 10
 /** Held longer than this is a press-and-think, not a tap. */
 const MAX_TAP_MS = 500
 
-type TapState = { x: number; y: number; t: number; swallowClick: boolean }
+type TapState = {
+  x: number
+  y: number
+  t: number
+  /** Sticky: set the moment the finger EVER leaves the slop, never unset. */
+  moved: boolean
+  swallowClick: boolean
+}
 
 // Keyed by ELEMENT, not by render closure: CenterRecordButton re-renders every
 // second while recording, so per-render state would drop any gesture spanning
@@ -74,8 +81,27 @@ export function tapActivation(
         x: t.clientX,
         y: t.clientY,
         t: Date.now(),
+        moved: false,
         swallowClick: false,
       })
+    },
+    // Sticky cancel. Classifying on the ENDPOINT alone called a drag that
+    // wandered past the slop and came back a tap — an unintended navigate /
+    // toggle / recording-stop on what the user meant as a scroll. Once the
+    // finger leaves the slop the gesture is a drag forever, however it lands.
+    // Passive: never preventDefault here, so a horizontal scroller or a
+    // `data-gesture-inert` subtree could not be affected even if this util
+    // ever escaped the bar.
+    onTouchMove: (e: TouchEvent<Element>) => {
+      const s = taps.get(e.currentTarget)
+      if (!s || s.moved) return
+      const t = e.touches[0]
+      if (!t) return
+      const dx = t.clientX - s.x
+      const dy = t.clientY - s.y
+      if (dx * dx + dy * dy > MOVE_TOLERANCE_PX * MOVE_TOLERANCE_PX) {
+        s.moved = true
+      }
     },
     onTouchEnd: (e: TouchEvent<Element>) => {
       const s = taps.get(e.currentTarget)
@@ -89,7 +115,16 @@ export function tapActivation(
       }
       const dx = end.clientX - s.x
       const dy = end.clientY - s.y
+      // Endpoint distance is kept ALONGSIDE the sticky flag, not replaced by
+      // it: touchmove can be coalesced or dropped under load, so a displaced
+      // release with no surviving move event must still fail.
+      //
+      // A rejected gesture drops its state entirely — no activation AND no
+      // swallow flag. If iOS then synthesizes a click for it, the plain
+      // onClick path handles it exactly as the pre-fix code did: this can
+      // degrade to today's behavior, never below it.
       if (
+        s.moved ||
         dx * dx + dy * dy > MOVE_TOLERANCE_PX * MOVE_TOLERANCE_PX ||
         Date.now() - s.t > MAX_TAP_MS
       ) {

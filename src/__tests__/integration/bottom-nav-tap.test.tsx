@@ -78,10 +78,15 @@ beforeEach(() => {
 })
 afterEach(() => jest.restoreAllMocks())
 
-/** A finger down, then up `ms` later `dy` pixels away. No click — the
- *  momentum case, where iOS never synthesises one. */
-function tapNoClick(el: Element, { ms = 80, dy = 0 } = {}) {
+/** A finger down, then up `ms` later `dy` pixels away, optionally travelling
+ *  through `via` offsets on the way. No click — the momentum case, where iOS
+ *  never synthesises one. */
+function tapNoClick(el: Element, { ms = 80, dy = 0, via = [] as number[] } = {}) {
   fireEvent.touchStart(el, { touches: touch(), changedTouches: touch() })
+  for (const y of via) {
+    const at = touch({ clientY: AT.clientY + y })
+    fireEvent.touchMove(el, { touches: at, changedTouches: at })
+  }
   now += ms
   const end = touch({ clientY: AT.clientY + dy })
   fireEvent.touchEnd(el, { touches: [], changedTouches: end })
@@ -114,6 +119,32 @@ describe('bottom bar tap activation (#648 root-scroller momentum)', () => {
     tapNoClick(tab, { dy: 24 })
     expect(push).not.toHaveBeenCalled()
     fireEvent.click(tab)
+    expect(push).toHaveBeenCalledTimes(1)
+    expect(push).toHaveBeenCalledWith('/customers')
+  })
+
+  // Greptile r1 P1: classifying on the ENDPOINT alone let a drag that wandered
+  // out and came back read as a tap. The cancel is sticky.
+  it('a drag that wanders past the slop and RETURNS is still not a tap', () => {
+    render(<BottomNav nextCustomer={null} locale="ja" />)
+    const tab = customersTab()
+    // Out 40px, back to 2px from the origin, released 1px away, all inside
+    // the 500ms window — endpoint-only classification called this a tap.
+    tapNoClick(tab, { ms: 200, dy: 1, via: [40, 2] })
+    expect(push).not.toHaveBeenCalled()
+    // A cancelled gesture takes no swallow flag: if iOS synthesizes a click
+    // anyway it falls through to the plain onClick path — exactly the pre-fix
+    // behavior. (`defaultPrevented` proves nothing on an <a>: both Link ports
+    // preventDefault on their NORMAL path too. The navigation landing is the
+    // observable, and it is zero when the flag wrongly swallows.)
+    fireEvent.click(tab)
+    expect(push).toHaveBeenCalledTimes(1)
+    expect(push).toHaveBeenCalledWith('/customers')
+  })
+
+  it('small jitter inside the slop throughout is still a tap', () => {
+    render(<BottomNav nextCustomer={null} locale="ja" />)
+    tapNoClick(customersTab(), { via: [4, -3, 2] })
     expect(push).toHaveBeenCalledTimes(1)
     expect(push).toHaveBeenCalledWith('/customers')
   })
