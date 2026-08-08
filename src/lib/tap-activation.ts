@@ -63,9 +63,13 @@ export function tapActivation(
       // ponytail: a fresh touchstart also clears a swallowClick left set by a
       // tap whose click iOS never delivered. Ceiling: on a rapid same-element
       // double-tap, tap #1's late click can land AFTER this reset and slip
-      // through unswallowed — harmless here (every bar activation is
-      // idempotent or same-destination). Upgrade path if that ever stops
-      // holding: age the flag by timestamp instead of clearing it.
+      // through unswallowed — harmless for tab/menu-item pushes
+      // (same-destination) and the dismiss controls (idempotent close), with
+      // ONE exception: the メニュー toggle, where the slipped click reads as a
+      // phantom extra toggle. Needs a same-element re-tap racing a delayed
+      // click, so it's rarer than the momentum-swallow this file fixes.
+      // Upgrade path if it's ever observed: age the flag by timestamp
+      // instead of clearing it.
       taps.set(e.currentTarget, {
         x: t.clientX,
         y: t.clientY,
