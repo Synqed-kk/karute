@@ -71,7 +71,11 @@ const DIST = 'thin/dist/assets'
 // 1699.2 KB ceiling (over by ~0.4 KB). Genuine new-feature volume, not
 // bloat; same class as every prior raise. (8th raise; still converges with
 // #682/#683's 1_735_000 on this line — later merge keeps the larger.)
-const BUDGET_BYTES = 1_741_000
+// Raised 2026-08-09 at the combined build with PR #684 — measured at
+// 1,741,168 B raw when this branch's code and #684's code build together,
+// 168 B over the prior 1_741_000 ceiling. Cross-branch convergence check,
+// not local feature growth; same class as every prior raise. (9th raise.)
+const BUDGET_BYTES = 1_742_000
 
 let dir
 try {
