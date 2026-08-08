@@ -535,12 +535,20 @@ function FullscreenViewer({
             aria-hidden="true"
             className="absolute inset-x-0 bottom-2 flex items-center justify-center gap-1.5"
           >
-            {list.map((p, i) => (
-              <span
-                key={p.id}
-                className={`size-1.5 rounded-full ${i === index ? 'bg-muted-foreground' : 'bg-muted-foreground/40'}`}
-              />
-            ))}
+            {list.length <= 9 ? (
+              list.map((p, i) => (
+                <span
+                  key={p.id}
+                  className={`size-1.5 rounded-full ${i === index ? 'bg-muted-foreground' : 'bg-muted-foreground/40'}`}
+                />
+              ))
+            ) : (
+              // Dots don't scale to a customer's full gallery (hundreds of
+              // photos) — a plain position counter replaces the strip past 9.
+              <span className="rounded-full bg-background/80 px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground">
+                {index + 1} / {list.length}
+              </span>
+            )}
           </div>
         </>
       )}

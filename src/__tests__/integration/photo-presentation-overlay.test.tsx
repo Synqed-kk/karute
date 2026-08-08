@@ -66,6 +66,16 @@ const manyPhotos: CustomerPhoto[] = [
 ]
 const manyCaptions = manyPhotos.map((p) => p.caption as string)
 
+// 12 photos, all one category — a customer with a real gallery can have
+// hundreds; this is enough to push the fullscreen viewer past the dots'
+// 9-photo cutoff into the counter fallback.
+const lotsOfPhotos: CustomerPhoto[] = Array.from({ length: 12 }, (_, i) => ({
+  id: `lot-${i + 1}`,
+  signedUrl: `https://example.com/lot-${i + 1}.jpg`,
+  category: 'progress',
+  caption: null,
+}))
+
 describe('PhotoPresentationOverlay', () => {
   it('opens fullscreen with only photo content — no captions, no chrome, no url-less photos', () => {
     render(<PhotoPresentationOverlay photos={photos} onClose={jest.fn()} />)
@@ -122,6 +132,26 @@ describe('PhotoPresentationOverlay', () => {
     expect(dots[0]?.className).not.toMatch(cls('bg-primary'))
     expect(dots[0]?.className).not.toMatch(cls('bg-foreground'))
     expect(dots[1]?.className).toMatch(cls('bg-muted-foreground/40'))
+  })
+
+  it('fullscreen with 12+ photos: shows a position counter instead of dots (dots strip does not scale to a full gallery)', () => {
+    render(<PhotoPresentationOverlay photos={lotsOfPhotos} onClose={jest.fn()} />)
+    fireEvent.click(screen.getByLabelText('経過 1'))
+
+    expect(screen.getByText('1 / 12')).toBeInTheDocument()
+    // Same aria-hidden nav-twin row as the dots test above, but past the
+    // 9-photo cutoff it must render zero dot spans.
+    const dotsRow = document.querySelector('[aria-hidden="true"].bottom-2')
+    expect(dotsRow?.querySelectorAll('.size-1\\.5')).toHaveLength(0)
+
+    fireEvent.click(screen.getByLabelText('次の写真'))
+    fireEvent.click(screen.getByLabelText('次の写真'))
+    expect(screen.getByText('3 / 12')).toBeInTheDocument()
+
+    // Neutral only — never the saturated accent (one-way accent law).
+    const counter = screen.getByText('3 / 12')
+    expect(counter.className).not.toMatch(/(^|\s)bg-primary(\s|$)/)
+    expect(counter.className).not.toMatch(/(^|\s)text-primary(\s|$)/)
   })
 
   describe('hold-to-close ✕', () => {
