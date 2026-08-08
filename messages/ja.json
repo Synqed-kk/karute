@@ -642,6 +642,19 @@
     "consent": {
       "onFile": "同意確認済"
     },
+    "sessionPhotos": {
+      "title": "セッション写真",
+      "take": "写真を撮る",
+      "count": "{n}枚",
+      "uploadError": "アップロードに失敗しました。写真をタップして再試行してください。",
+      "retry": "タップして再試行",
+      "presentError": "写真の読み込みに失敗しました。もう一度お試しください。",
+      "discardPhotosTitle": "セッション写真の扱いを選択",
+      "discardPhotosDescription": "この録音にはアップロード済みの写真があります。録音を破棄すると同時に写真も削除しますか？",
+      "discardPhotosDelete": "写真も削除",
+      "discardPhotosKeep": "顧客ページに残す",
+      "discardDeleteFailed": "写真の削除に失敗しました（{n}枚）"
+    },
     "recent": {
       "title": "最近の録音",
       "showAll": "すべて表示",

@@ -25,8 +25,10 @@ import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 import {
   getCustomerConsent,
   grantCustomerConsent,
+  deleteCustomerPhoto,
 } from '@/actions/customers'
 import { isConsentCurrent } from '@/lib/consent'
+import { sessionPhotoStore } from '@/lib/karute/session-photos'
 
 import { RecordPageHeader } from './RecordPageHeader'
 import { PipelineErrorCard } from './PipelineErrorCard'
@@ -44,6 +46,7 @@ import {
 import type { PreSessionBriefResult } from '@/lib/karute/ai-brief'
 import { SourceModeChips } from './SourceModeChips'
 import { RecordButtonCard } from './RecordButtonCard'
+import { SessionPhotoCard } from './SessionPhotoCard'
 import { ConsentPill } from './ConsentPill'
 import { RecordingConsentDialog } from './RecordingConsentDialog'
 import {
@@ -241,6 +244,10 @@ export function RecordPageView({
   // the background while they move on. It rides the pipeline context to save.
   const [outcomeOpen, setOutcomeOpen] = useState(false)
 
+  // D3: discard-with-photos confirmation (see handleDiscard below).
+  const [showDiscardPhotosDialog, setShowDiscardPhotosDialog] = useState(false)
+  const [discardingPhotos, setDiscardingPhotos] = useState(false)
+
   // Re-entry + staleness guards for the use-recording flow (it awaits the
   // session-id mint, so it's no longer atomic): first tap wins, and a discard
   // bumps the generation so an in-flight use drops its now-discarded take.
@@ -380,12 +387,52 @@ export function RecordPageView({
     // is no customer to bind (walk-in); the save will require picking one.
     startRecording({ noiseSuppression, target: null })
   }
-  function handleDiscard() {
+  // D3 (Liam canon): discarding a recording that has session photos ASKS
+  // EACH TIME — never silently drops or silently keeps them. target?.customerId
+  // (not boundCustomerId) matches SessionPhotoCard's own mount/render filter
+  // exactly, so this can never act on a stale/different customer's photos.
+  function sessionDonePhotos() {
+    const cid = target?.customerId
+    if (!cid) return []
+    return sessionPhotoStore.photos.filter(
+      (p) => p.customerId === cid && p.status === 'done',
+    )
+  }
+
+  function proceedDiscard() {
     // Invalidate any in-flight handleUseRecording: its post-await body must
     // not hand a take the staff just discarded to the pipeline.
     useRecordingGen.current++
     discardRecording()
     setPhase('idle')
+  }
+
+  function handleDiscard() {
+    if (sessionDonePhotos().length > 0) {
+      setShowDiscardPhotosDialog(true)
+      return
+    }
+    proceedDiscard()
+  }
+
+  async function handleDiscardDeletePhotos() {
+    const donePhotos = sessionDonePhotos()
+    setShowDiscardPhotosDialog(false)
+    setDiscardingPhotos(true)
+    // Best-effort: collect failures, one toast if any fail — deleteCustomerPhoto
+    // never throws (catches internally), so Promise.all is safe here.
+    const results = await Promise.all(
+      donePhotos.map((p) => deleteCustomerPhoto(p.customerId, p.serverId as string)),
+    )
+    setDiscardingPhotos(false)
+    const failed = results.filter((r) => !r.success).length
+    if (failed > 0) toast.error(t('sessionPhotos.discardDeleteFailed', { n: failed }))
+    proceedDiscard()
+  }
+
+  function handleDiscardKeepPhotos() {
+    setShowDiscardPhotosDialog(false)
+    proceedDiscard()
   }
   async function handleUseRecording(outcome?: SessionOutcome, outcomeSkipped = false) {
     if (!result) return
@@ -737,6 +784,21 @@ export function RecordPageView({
   const recorderColumn = (
     <div className="flex flex-col gap-3.5">
       {recorderControls}
+      {/* Session photos — mounted only for a session BOUND to a customer.
+          Deliberately target-only, never the boundCustomerId fallback: under
+          an anonymous record-anyway take, nextAppointment can resolve to a
+          DIFFERENT customer than the one in the chair, and photos would
+          upload to them (blind-round P1 8/2, same class as the save-binding
+          fix on fix/record-live-target-binding). */}
+      {target?.customerId && (live || phase === 'recorded') && (
+        <SessionPhotoCard
+          customerId={target.customerId}
+          // D2: consent FOLDS into the recording-consent line — no per-photo
+          // prompt. Read fresh on every render so a mid-session grant applies
+          // to photos taken after (the card freezes it per-photo at capture).
+          takenWithConsent={Boolean(consentDate)}
+        />
+      )}
       <div className="flex justify-center">
         <ConsentPill consentDate={consentDate} />
       </div>
@@ -1038,6 +1100,51 @@ export function RecordPageView({
                 onClick={handleStartAnyway}
               >
                 {t('recordAnyway')}
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* D3 — discard-with-photos confirmation. Only reachable from
+          handleDiscard (the explicit 破棄 button); the save path
+          (handleUseRecording) never shows this. */}
+      {showDiscardPhotosDialog && (
+        <>
+          <div
+            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+            onClick={() => !discardingPhotos && setShowDiscardPhotosDialog(false)}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('sessionPhotos.discardPhotosTitle')}
+            className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 space-y-4 rounded-xl border border-border bg-card p-6 shadow-xl"
+          >
+            <h3 className="text-base font-semibold text-foreground">
+              {t('sessionPhotos.discardPhotosTitle')}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              {t('sessionPhotos.discardPhotosDescription')}
+            </p>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                size="md"
+                className="flex-1"
+                onClick={handleDiscardKeepPhotos}
+                disabled={discardingPhotos}
+              >
+                {t('sessionPhotos.discardPhotosKeep')}
+              </Button>
+              <Button
+                variant="default"
+                size="md"
+                className="flex-1"
+                onClick={handleDiscardDeletePhotos}
+                disabled={discardingPhotos}
+              >
+                {t('sessionPhotos.discardPhotosDelete')}
               </Button>
             </div>
           </div>
