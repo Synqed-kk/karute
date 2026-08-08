@@ -2525,6 +2525,8 @@
       "empty": "No presets yet — add one to get started.",
       "allowStaffCustom": "Allow staff custom input",
       "allowStaffCustomHint": "When off, staff can only choose from presets (owner-only setting).",
+      "autoBurnTitle": "Automatic ticket use",
+      "autoBurnHint": "When on, a completed booking uses one ticket automatically at 6am the next morning. Cancelled bookings never use a ticket. When off, tickets are only used by staff action, exactly as today.",
       "save": "Save",
       "saving": "Saving…",
       "saved": "Saved",

@@ -72,6 +72,7 @@ export function PacksSection({ orgSettings }: PacksSectionProps) {
   const [enabled, setEnabled] = useState(
     orgSettings?.ticket_packs_enabled ?? true,
   )
+  const [autoBurn, setAutoBurn] = useState(orgSettings?.pack_burn_mode === 'auto')
   const [saving, setSaving] = useState(false)
 
   const setField = (i: number, field: keyof PackPreset, value: number) =>
@@ -90,6 +91,7 @@ export function PacksSection({ orgSettings }: PacksSectionProps) {
               pack_presets: clean,
               staff_can_customize_packs: staffCustom,
               ticket_packs_enabled: true,
+              pack_burn_mode: autoBurn ? 'auto' : 'manual',
             }
           : { ticket_packs_enabled: false },
       )
@@ -212,6 +214,26 @@ export function PacksSection({ orgSettings }: PacksSectionProps) {
                 checked={staffCustom}
                 onClick={() => setStaffCustom((v) => !v)}
                 label={t('allowStaffCustom')}
+              />
+            </div>
+          </section>
+
+          {/* 自動消化 (packet 11). Owner-only like the rest of this section —
+              upsertOrgSettings gates on settings.manage. */}
+          <section className="rounded-2xl border border-border bg-card p-4 md:p-5">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">
+                  {t('autoBurnTitle')}
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  {t('autoBurnHint')}
+                </p>
+              </div>
+              <Toggle
+                checked={autoBurn}
+                onClick={() => setAutoBurn((v) => !v)}
+                label={t('autoBurnTitle')}
               />
             </div>
           </section>
