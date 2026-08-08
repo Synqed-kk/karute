@@ -538,7 +538,7 @@ function FullscreenViewer({
             {list.map((p, i) => (
               <span
                 key={p.id}
-                className={`size-1.5 rounded-full ${i === index ? 'bg-primary' : 'bg-muted-foreground/40'}`}
+                className={`size-1.5 rounded-full ${i === index ? 'bg-muted-foreground' : 'bg-muted-foreground/40'}`}
               />
             ))}
           </div>

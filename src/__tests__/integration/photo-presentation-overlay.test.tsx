@@ -106,6 +106,24 @@ describe('PhotoPresentationOverlay', () => {
     expect(screen.getByLabelText('アフター 2')).toBeInTheDocument()
   })
 
+  it('fullscreen pagination dots: active dot is muted neutral, inactive stays fainter muted — never the saturated accent (one-way accent law, decorative/non-pressable)', () => {
+    // Whole-class matcher: 'bg-primary' must not silently pass via a longer
+    // token like 'bg-primary/8' (see accent-tier-contract.test.tsx).
+    const cls = (name: string) => new RegExp(`(^|\\s)${name.replace('/', '\\/')}(\\s|$)`)
+    render(<PhotoPresentationOverlay photos={photos} onClose={jest.fn()} />)
+    fireEvent.click(screen.getByLabelText('ビフォー 1'))
+
+    // Dots row is aria-hidden (chevrons/swipe are the accessible nav) —
+    // query by its container class, not role.
+    const dotsRow = document.querySelector('[aria-hidden="true"].bottom-2')
+    const dots = Array.from(dotsRow?.children ?? []) as HTMLElement[]
+    expect(dots).toHaveLength(2)
+    expect(dots[0]?.className).toMatch(cls('bg-muted-foreground'))
+    expect(dots[0]?.className).not.toMatch(cls('bg-primary'))
+    expect(dots[0]?.className).not.toMatch(cls('bg-foreground'))
+    expect(dots[1]?.className).toMatch(cls('bg-muted-foreground/40'))
+  })
+
   describe('hold-to-close ✕', () => {
     beforeEach(() => jest.useFakeTimers())
     afterEach(() => {
