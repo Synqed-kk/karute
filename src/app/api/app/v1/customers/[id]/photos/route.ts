@@ -75,10 +75,22 @@ export const POST = facadeHandler<Params>('customer.photo.upload', async (ctx) =
 
   const category = form.get('category')
   const caption = form.get('caption')
+  const recordingSessionId = form.get('recording_session_id')
+  const capturedByStaffId = form.get('captured_by_staff_id')
+  const takenWithConsent = form.get('taken_with_consent')
   try {
     const photo = await uploadCustomerPhotoWithClient(synqed, id, file, {
       category: typeof category === 'string' ? category : undefined,
       caption: typeof caption === 'string' ? caption : undefined,
+      recording_session_id:
+        typeof recordingSessionId === 'string' ? recordingSessionId : undefined,
+      captured_by_staff_id:
+        typeof capturedByStaffId === 'string' ? capturedByStaffId : undefined,
+      // Never default to true — absent means "unknown", not "consented".
+      taken_with_consent:
+        typeof takenWithConsent === 'string'
+          ? takenWithConsent === 'true'
+          : undefined,
     })
     return ok(ctx, { photo }, 201)
   } catch (err) {

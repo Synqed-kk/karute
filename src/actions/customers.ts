@@ -406,7 +406,13 @@ export async function uploadCustomerPhotoWithClient(
   synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
   customerId: string,
   file: File,
-  options: { category?: string; caption?: string } = {},
+  options: {
+    category?: string
+    caption?: string
+    recording_session_id?: string
+    captured_by_staff_id?: string
+    taken_with_consent?: boolean
+  } = {},
 ) {
   try {
     return await synqed.customers.uploadPhoto(customerId, file, options)
@@ -439,12 +445,24 @@ export async function uploadCustomerPhoto(
 
   const category = formData.get('category')
   const caption = formData.get('caption')
+  const recordingSessionId = formData.get('recording_session_id')
+  const capturedByStaffId = formData.get('captured_by_staff_id')
+  const takenWithConsent = formData.get('taken_with_consent')
 
   try {
     const synqed = await getSynqedClient()
     const photo = await uploadCustomerPhotoWithClient(synqed, customerId, file, {
       category: typeof category === 'string' ? category : undefined,
       caption: typeof caption === 'string' ? caption : undefined,
+      recording_session_id:
+        typeof recordingSessionId === 'string' ? recordingSessionId : undefined,
+      captured_by_staff_id:
+        typeof capturedByStaffId === 'string' ? capturedByStaffId : undefined,
+      // Never default to true — absent means "unknown", not "consented".
+      taken_with_consent:
+        typeof takenWithConsent === 'string'
+          ? takenWithConsent === 'true'
+          : undefined,
     })
     revalidatePath(`/customers/${customerId}`)
     return { photo }

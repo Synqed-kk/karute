@@ -151,9 +151,10 @@ describe('POST consent/revoke', () => {
 })
 
 // ── photos (trust boundary) ──────────────────────────────────────────────────
-function photoReq(file: File | null, headers = auth) {
+function photoReq(file: File | null, headers = auth, fields: Record<string, string> = {}) {
   const fd = new FormData()
   if (file) fd.append('file', file)
+  for (const [k, v] of Object.entries(fields)) fd.append(k, v)
   return new Request('https://s/x', { method: 'POST', headers, body: fd })
 }
 // Real container bytes — the route now sniffs magic numbers (declared MIME is
@@ -191,6 +192,50 @@ describe('POST photos', () => {
     const res = await photoUpload(photoReq(new File(['%PDF-1.4 not an image'], 'a.png', { type: 'image/png' })), route({ id: 'cust-1' }))
     expect(res.status).toBe(400)
     expect(uploadPhoto).not.toHaveBeenCalled()
+  })
+  // packet 2026-08-09 PR 9a §③ — the 3 session-linkage fields (camera-row
+  // PR 9b stamps them; this packet only wires the forwarding).
+  it('forwards recording_session_id / captured_by_staff_id / taken_with_consent=true', async () => {
+    const png = new File([PNG_BYTES], 'a.png', { type: 'image/png' })
+    const res = await photoUpload(
+      photoReq(png, auth, {
+        recording_session_id: 'sess-1',
+        captured_by_staff_id: 'staff-9',
+        taken_with_consent: 'true',
+      }),
+      route({ id: 'cust-1' }),
+    )
+    expect(res.status).toBe(201)
+    // expect.any(File): the File crosses a Request→FormData round-trip in the
+    // route handler, which reconstructs it with a freshly-stamped
+    // lastModified — exact object/deep equality on it is not guaranteed.
+    expect(uploadPhoto).toHaveBeenCalledWith(
+      'cust-1',
+      expect.any(File),
+      expect.objectContaining({
+        recording_session_id: 'sess-1',
+        captured_by_staff_id: 'staff-9',
+        taken_with_consent: true,
+      }),
+    )
+  })
+  it('taken_with_consent="false" → forwarded as boolean false, not dropped', async () => {
+    const png = new File([PNG_BYTES], 'a.png', { type: 'image/png' })
+    await photoUpload(photoReq(png, auth, { taken_with_consent: 'false' }), route({ id: 'cust-1' }))
+    expect(uploadPhoto).toHaveBeenCalledWith(
+      'cust-1',
+      expect.any(File),
+      expect.objectContaining({ taken_with_consent: false }),
+    )
+  })
+  it('linkage fields absent → all three stay undefined (never default consent to true)', async () => {
+    const png = new File([PNG_BYTES], 'a.png', { type: 'image/png' })
+    await photoUpload(photoReq(png), route({ id: 'cust-1' }))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const options = (uploadPhoto as jest.Mock).mock.calls[0][2] as any
+    expect(options.recording_session_id).toBeUndefined()
+    expect(options.captured_by_staff_id).toBeUndefined()
+    expect(options.taken_with_consent).toBeUndefined()
   })
 })
 

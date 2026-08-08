@@ -4,10 +4,16 @@ import { PhotoRecordsCard } from './PhotoRecordsCard'
 // Async server component used inside a Suspense boundary on the karute detail
 // page. The photos fetch hits synqed-core + object storage, so deferring it lets
 // the page shell paint before the HTTP roundtrip resolves.
+//
+// Scoping: the customer-level fetch returns ALL of the customer's photos (the
+// customer page's aggregate view); a karute page must show ONLY the photos
+// taken in ITS recording session, so we filter app-side on recording_session_id.
 export async function PhotoRecordsServer({
   customerId,
+  recordingSessionId,
 }: {
   customerId: string
+  recordingSessionId: string | null
 }) {
   const result = await listCustomerPhotos(customerId).catch(() => ({
     photos: [] as Array<{
@@ -15,9 +21,19 @@ export async function PhotoRecordsServer({
       signed_url: string | null
       category: string
       caption: string | null
+      recording_session_id: string | null
     }>,
   }))
-  const photos = (result.photos ?? []).map((p) => ({
+  // ponytail: a karute with no recording_session_id (legacy record, or the
+  // link hasn't been stamped yet — camera-row PR 9b does that) must show ZERO
+  // photos here, never the customer's whole unscoped gallery — that aggregate
+  // view stays on the customer page only.
+  const scoped = (result.photos ?? []).filter(
+    (p) =>
+      recordingSessionId !== null &&
+      p.recording_session_id === recordingSessionId,
+  )
+  const photos = scoped.map((p) => ({
     id: p.id,
     signedUrl: p.signed_url,
     category: p.category,

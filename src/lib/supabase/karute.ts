@@ -26,6 +26,7 @@ export interface KaruteWithRelations {
   customer_id: string | null
   client_id: string | null
   staff_profile_id: string | null
+  recording_session_id: string | null
   profiles: { id: string; full_name: string } | null
   customers: { id: string; name: string } | null
   entries: Array<{
@@ -72,6 +73,7 @@ export function mapSynqedKaruteRecord(
     business_id?: string | null
     customer_id?: string | null
     staff_id?: string | null
+    recording_session_id?: string | null
     entries?: Array<{
       id: string
       category: string
@@ -100,6 +102,7 @@ export function mapSynqedKaruteRecord(
     customer_id: rec.business_id ?? null,
     client_id: rec.customer_id ?? null,
     staff_profile_id: rec.staff_id ?? null,
+    recording_session_id: rec.recording_session_id ?? null,
     // staff name unresolved here (synqed staff_id ≠ profile id); header renders '—'.
     profiles: null,
     customers: rec.customer_id
