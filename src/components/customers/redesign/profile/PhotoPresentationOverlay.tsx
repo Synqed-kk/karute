@@ -564,7 +564,10 @@ function CompareStage({
           type="button"
           onClick={onEnterSide}
           aria-label={t('compareSideBySide')}
-          className="relative mx-auto block aspect-square w-full max-w-md overflow-hidden rounded-xl bg-muted"
+          // 3:4 like the side-by-side panes it toggles with — a square canvas
+          // crops the top of portrait salon shots (hair!) and jumps geometry
+          // on every toggle.
+          className="relative mx-auto block aspect-[3/4] w-full max-w-md overflow-hidden rounded-xl bg-muted"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={a.signedUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
