@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslations } from 'next-intl'
 import { Eye } from 'lucide-react'
 import { toast } from 'sonner'
@@ -42,6 +42,19 @@ export function SessionPhotoCard({
   // weakens. Render-body filter — getSnapshot must stay reference-stable.
   const photos = allPhotos.filter((p) => p.customerId === customerId)
 
+  // Customer-facing toast leak (PR 9b §6): while the presentation overlay is
+  // open, a recording-status toast (sonner z-index 999999999) would outstack
+  // the overlay's z-[120] shell and appear on the screen a customer is
+  // watching. The cleanup runs on BOTH close (presenting flips false) and
+  // unmount (React always runs it), so the class can never get stuck on.
+  useEffect(() => {
+    if (!presenting) return
+    document.body.classList.add('customer-presentation-open')
+    return () => {
+      document.body.classList.remove('customer-presentation-open')
+    }
+  }, [presenting])
+
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (file) sessionPhotoStore.addPhoto(file, category, customerId, { takenWithConsent })
@@ -54,7 +67,12 @@ export function SessionPhotoCard({
   // cross-session. PhotoPresentationOverlay's own full-screen modal shell
   // already covers DiscreetRecordingIndicator (z-[120] opaque popup over its
   // z-[100] dot) — no extra interlock plumbing needed at this mount.
+  const presentingRef = useRef(false)
   async function handlePresent() {
+    // Ref guard (synchronous, unlike the presentPending state re-render): a
+    // double-tap before the disabled prop commits must not fire two fetches.
+    if (presentingRef.current) return
+    presentingRef.current = true
     setPresentPending(true)
     try {
       const result = await listCustomerPhotos(customerId)
@@ -70,6 +88,7 @@ export function SessionPhotoCard({
     } catch {
       toast.error(t('presentError'))
     } finally {
+      presentingRef.current = false
       setPresentPending(false)
     }
   }
@@ -103,7 +122,8 @@ export function SessionPhotoCard({
         </button>
         {/* capture="environment" opens the rear camera directly — a plain
             file input falls back to the pick-only gallery on phones
-            (proven broken 8/2, see device-proof/). */}
+            (field-verified 2026-08-02: proven broken without this
+            attribute). */}
         <input
           ref={inputRef}
           type="file"

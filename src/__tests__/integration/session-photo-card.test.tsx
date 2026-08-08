@@ -63,6 +63,7 @@ jest.mock('@/components/customers/redesign/profile/PhotoPresentationOverlay', ()
 import { SessionPhotoCard } from '@/components/karute/redesign/record/SessionPhotoCard'
 import { sessionPhotoStore } from '@/lib/karute/session-photos'
 import { globalRecorder } from '@/lib/global-recorder'
+import { startRecordingSession } from '@/actions/recordings'
 
 beforeAll(() => {
   // jsdom doesn't implement object URLs.
@@ -180,7 +181,12 @@ describe('SessionPhotoCard', () => {
     )
   })
 
-  it('warns when the session ends with a failed-upload photo (honest loss)', async () => {
+  // §9 (blind round): the honest-loss toast moved OUT of the store into
+  // RecordPageView (i18n'd, computed before discardRecording()/save handoff
+  // — see record-discard-photos-dialog.test.tsx for the new coverage). This
+  // pins the negative: clear() itself must never toast again, or the
+  // customer would see it twice once RecordPageView's own toast is wired.
+  it('does NOT toast on clear (moved to RecordPageView, i18n\'d — §9)', async () => {
     mockUploadCustomerPhoto.mockResolvedValueOnce({ error: 'boom' })
     const { container } = render(
       <SessionPhotoCard customerId="cust-1" takenWithConsent={false} />,
@@ -188,12 +194,12 @@ describe('SessionPhotoCard', () => {
     fireEvent.change(fileInput(container), { target: { files: [makeFile()] } })
     await screen.findByRole('button', { name: 'retry' })
 
-    // Isolate from any toast the shared singleton fired during test cleanup.
     mockToastWarning.mockClear()
     globalRecorder.discard()
 
-    await waitFor(() => expect(mockToastWarning).toHaveBeenCalledTimes(1))
-    expect(String(mockToastWarning.mock.calls[0][0])).toContain('保存されていません')
+    // Give a (no-longer-existing) toast a beat to fire if it somehow still did.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mockToastWarning).not.toHaveBeenCalled()
   })
 
   it('clears the strip when the global recorder goes idle', async () => {
@@ -209,6 +215,100 @@ describe('SessionPhotoCard', () => {
     globalRecorder.discard()
 
     await waitFor(() => expect(container.querySelectorAll('img')).toHaveLength(0))
+  })
+
+  // §16 (blind round) — the render-body filter (blind-round P3 defense)
+  // must actually exclude a foreign customer's photo, not just the ones this
+  // card ever added itself. Seeded directly (bypassing addPhoto, which would
+  // try to upload) — a plausible shape if the invariant "store holds only
+  // one session's photos" ever weakens.
+  it("excludes another customer's photo from render (cross-customer filter)", () => {
+    sessionPhotoStore.photos = [
+      {
+        id: 'foreign-1',
+        objectUrl: 'blob:foreign',
+        status: 'done',
+        file: makeFile(),
+        category: 'before',
+        customerId: 'cust-OTHER',
+        serverId: 'server-foreign',
+        takenWithConsent: false,
+      },
+    ]
+    const { container } = render(
+      <SessionPhotoCard customerId="cust-1" takenWithConsent={false} />,
+    )
+    expect(container.querySelectorAll('img')).toHaveLength(0)
+    expect(screen.getByText('count:{"n":0}')).toBeInTheDocument()
+  })
+
+  // §18 tidy — the earlier serverId pin only covered the first-try path;
+  // this proves the store also updates it on a retry's eventual success.
+  it('captures serverId after a retry succeeds (not just first-try)', async () => {
+    mockUploadCustomerPhoto.mockResolvedValueOnce({ error: 'boom' })
+    const { container } = render(
+      <SessionPhotoCard customerId="cust-1" takenWithConsent={false} />,
+    )
+    fireEvent.change(fileInput(container), { target: { files: [makeFile()] } })
+    const retryButton = await screen.findByRole('button', { name: 'retry' })
+
+    mockUploadCustomerPhoto.mockResolvedValueOnce({ photo: { id: 'p-retry-server' } })
+    fireEvent.click(retryButton)
+
+    await waitFor(() =>
+      expect(container.querySelector('.bg-emerald-500')).toBeInTheDocument(),
+    )
+    expect(sessionPhotoStore.photos[0].serverId).toBe('p-retry-server')
+  })
+})
+
+// §14 (blind round) — mint-race coverage: the fast paths (mint already
+// resolved / mint never started) were already pinned above; this exercises
+// awaitRecordingSessionId's actual Promise.race branch — a mint that's still
+// IN FLIGHT when the upload starts, settling (either way) while the upload
+// awaits it. globalRecorder.start() sets up the real recordingSessionPromise
+// synchronously (before its own getUserMedia await), so calling it — even
+// though getUserMedia itself will fail in jsdom — is enough to seed a
+// genuinely pending mint; @/actions/recordings is already mocked above.
+describe('SessionPhotoCard — linkage stamping mint race (§14)', () => {
+  function startWithPendingMint() {
+    let resolveMint: (v: { id: string } | null) => void = () => {}
+    ;(startRecordingSession as jest.Mock).mockImplementationOnce(
+      () => new Promise((res) => { resolveMint = res }),
+    )
+    void globalRecorder.start({
+      target: { customerId: 'cust-1', customerName: 'x', karuteNumber: null, appointmentId: null },
+    })
+    return (result: { id: string } | null) => resolveMint(result)
+  }
+
+  it('mint PENDING at upload time, then resolves → stamps recording_session_id', async () => {
+    const resolveMint = startWithPendingMint()
+    mockUploadCustomerPhoto.mockResolvedValue({ photo: { id: 'p1' } })
+    const { container } = render(
+      <SessionPhotoCard customerId="cust-1" takenWithConsent={false} />,
+    )
+    fireEvent.change(fileInput(container), { target: { files: [makeFile()] } })
+    // Settle the mint WHILE the upload's awaitRecordingSessionId is racing it.
+    resolveMint({ id: 'sess-race-won' })
+
+    await waitFor(() => expect(mockUploadCustomerPhoto).toHaveBeenCalledTimes(1))
+    const fd = mockUploadCustomerPhoto.mock.calls[0][1] as FormData
+    expect(fd.get('recording_session_id')).toBe('sess-race-won')
+  })
+
+  it('mint PENDING at upload time, then resolves null → recording_session_id omitted', async () => {
+    const resolveMint = startWithPendingMint()
+    mockUploadCustomerPhoto.mockResolvedValue({ photo: { id: 'p1' } })
+    const { container } = render(
+      <SessionPhotoCard customerId="cust-1" takenWithConsent={false} />,
+    )
+    fireEvent.change(fileInput(container), { target: { files: [makeFile()] } })
+    resolveMint(null)
+
+    await waitFor(() => expect(mockUploadCustomerPhoto).toHaveBeenCalledTimes(1))
+    const fd = mockUploadCustomerPhoto.mock.calls[0][1] as FormData
+    expect(fd.get('recording_session_id')).toBeNull()
   })
 })
 

@@ -1,8 +1,6 @@
 'use client'
 
-import { toast } from 'sonner'
-
-import { uploadCustomerPhoto } from '@/actions/customers'
+import { uploadCustomerPhoto, deleteCustomerPhoto } from '@/actions/customers'
 import { globalRecorder } from '@/lib/global-recorder'
 
 export type SessionPhotoStatus = 'uploading' | 'done' | 'error'
@@ -36,6 +34,13 @@ type Listener = () => void
 class SessionPhotoStore {
   photos: SessionPhoto[] = []
   private listeners = new Set<Listener>()
+  /** Photo id -> customerId, for D3's 写真も削除 choice catching an
+   *  'uploading' photo whose upload hasn't resolved yet (§7). discard's
+   *  clear() WIPES `photos` before that upload can settle, so this map is
+   *  separate and survives the wipe — setStatus checks it on every settle
+   *  and fires the delete itself once the photo actually lands (or drops
+   *  the mark on 'error', where there is nothing server-side to delete). */
+  private pendingDelete = new Map<string, string>()
 
   constructor() {
     // Both discard() and the save handoff (RecordPageView's handleUseRecording
@@ -87,9 +92,23 @@ class SessionPhotoStore {
     void this.upload(photo)
   }
 
+  /** D3 §7: mark an in-flight 'uploading' photo for delete-after-settle —
+   *  called by the discard dialog's 写真も削除 choice for any photo that
+   *  hasn't resolved yet. customerId is captured NOW because `photos` (and
+   *  this photo's entry in it) may be gone by the time the upload settles. */
+  markDeleteAfterSettle(id: string, customerId: string) {
+    this.pendingDelete.set(id, customerId)
+  }
+
   private setStatus(id: string, status: SessionPhotoStatus, serverId: string | null = null) {
     this.photos = this.photos.map((p) => (p.id === id ? { ...p, status, serverId } : p))
     this.notify()
+    const pendingCustomerId = this.pendingDelete.get(id)
+    if (pendingCustomerId !== undefined) {
+      this.pendingDelete.delete(id)
+      // 'error': the upload never landed server-side — nothing to delete.
+      if (status === 'done' && serverId) void deleteCustomerPhoto(pendingCustomerId, serverId)
+    }
   }
 
   private async upload(photo: SessionPhoto) {
@@ -123,21 +142,17 @@ class SessionPhotoStore {
   }
 
   private clear() {
-    // Honest-loss disclosure (blind-round P1): a failed-upload photo exists
-    // ONLY in this strip — dropping it at session end without a word is
-    // silent data loss. Real keep-or-retry semantics arrive with the PR3
-    // discard dialog (Liam D3); until then, say it out loud.
-    // ponytail: ja-only copy — this toast fires from a non-React singleton;
-    // PR3's dialog replaces it with proper i18n.
-    // 'error' only: an 'uploading' photo's request is already in flight and
-    // normally lands server-side after the strip clears — warning about it
-    // would cry wolf. 'error' is a known non-write.
-    const dropped = this.photos.filter((p) => p.status === 'error').length
-    if (dropped > 0) {
-      toast.warning(
-        `アップロードに失敗した写真${dropped}枚は保存されていません`,
-      )
-    }
+    // Honest-loss disclosure (blind-round P1): a failed-upload ('error')
+    // photo exists ONLY in this strip — dropping it here without a word
+    // would be silent data loss. The toast itself now lives in
+    // RecordPageView (i18n'd, PR 9b §9) — it computes the error count and
+    // fires BEFORE calling discardRecording()/the save handoff, i.e. before
+    // this clear() ever runs, so the count is never read from an
+    // already-wiped array.
+    // Logout (wipeSessionVault → globalRecorder.discard) also routes through
+    // here and deliberately bypasses the D3 dialog — a modal blocking sign-out
+    // would be wrong, so the silent default is to KEEP the photos on the
+    // customer record (matches 顧客ページに残す, the safe direction).
     this.photos.forEach((p) => URL.revokeObjectURL(p.objectUrl))
     this.photos = []
     this.notify()

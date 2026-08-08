@@ -184,6 +184,10 @@ async function facadeListCustomerPhotos(
   // try/catch — a failure THROWS, never returns an {error} shape. Match it
   // exactly: SessionPhotoCard's handlePresent relies on the throw to route
   // into its own catch (toast + stay closed).
+  // Distinguish an unparseable 2xx body (transport succeeded, the JSON
+  // didn't) from a real non-2xx failure — "Request failed (200)" would be a
+  // lie for the former.
+  if (res.ok) throw new Error('Response body was not valid JSON')
   throw new Error(body?.error?.message ?? `Request failed (${res.status})`)
 }
 

@@ -34,6 +34,16 @@
   (customer.ai_prediction_view / customer.brief_view) instead of flooding the
   default feed and inflating 変更. Paired with the strengthening above (real
   生成 emit + detail.customer_id on both rows) · Liam (2026-07-29 ruling)
+- 2026-08-09 · SDK_WRITE_ALLOWLIST:src/app/api/app/v1/customers/[id]/photos/[photoId]/route.ts::customers.deletePhoto · new
+  facade DELETE route (packet PR 9b device-wiring delta — customer.photo.delete
+  is a LIVE FACADE_AUDIT_MAP mutation row, facade auto-emit). Same
+  WithClient/Core-less shape as the existing customers.uploadPhoto allowlist
+  entry above it: the route handler calls synqed.customers.deletePhoto
+  directly and never calls audit() itself — only the facade's generic hook
+  (logFacadeAudit, excluded from AUDITED_CORES) does. Not a new silent
+  write in practice (the facade auto-emit covers it), but the raw SDK call
+  site itself is legitimately new and CP3 requires its own registration ·
+  Liam (device-wiring delta ruling, 2026-08-09)
 - 2026-07-27 · facade-audit-totality.test.ts CP8-forerunner pin · the hardcoded
   live-row disposition snapshot (describe 'CP8 forerunner — hardcoded live-row
   disposition pin') is deleted by the proof-suite PR. It WORKED (hardcoded

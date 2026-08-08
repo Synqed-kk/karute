@@ -52,6 +52,7 @@ export const AUDIT_ACTIONS = [
   'customer.passport_update',
   'customer.photo_add',
   'customer.photo_delete',
+  'customer.photos_view',
   'customer.view',
   'karute.entries_regenerate', // pending: Wave W
   'karute.entry_edit',

@@ -388,18 +388,35 @@ export function RecordPageView({
     startRecording({ noiseSuppression, target: null })
   }
   // D3 (Liam canon): discarding a recording that has session photos ASKS
-  // EACH TIME — never silently drops or silently keeps them. target?.customerId
-  // (not boundCustomerId) matches SessionPhotoCard's own mount/render filter
+  // EACH TIME — never silently drops or silently keeps them. Fires for ANY
+  // 'uploading' OR 'done' photo (§7 fix round: an in-flight upload is just
+  // as real as a landed one — silently losing track of it would be the same
+  // class of bug the dialog exists to prevent). target?.customerId (not
+  // boundCustomerId) matches SessionPhotoCard's own mount/render filter
   // exactly, so this can never act on a stale/different customer's photos.
-  function sessionDonePhotos() {
+  function sessionPhotosForDiscardDialog() {
     const cid = target?.customerId
     if (!cid) return []
     return sessionPhotoStore.photos.filter(
-      (p) => p.customerId === cid && p.status === 'done',
+      (p) => p.customerId === cid && (p.status === 'uploading' || p.status === 'done'),
     )
   }
 
+  // §9: the honest-loss toast for photos that failed to upload — computed
+  // and fired HERE (before discardRecording()/the save handoff triggers the
+  // store's clear(), which wipes `photos`), never inside the store itself
+  // (i18n needs React's t()).
+  function toastDroppedErrorPhotos() {
+    const cid = target?.customerId
+    if (!cid) return
+    const dropped = sessionPhotoStore.photos.filter(
+      (p) => p.customerId === cid && p.status === 'error',
+    ).length
+    if (dropped > 0) toast.warning(t('sessionPhotos.uploadsDropped', { n: dropped }))
+  }
+
   function proceedDiscard() {
+    toastDroppedErrorPhotos()
     // Invalidate any in-flight handleUseRecording: its post-await body must
     // not hand a take the staff just discarded to the pipeline.
     useRecordingGen.current++
@@ -408,15 +425,28 @@ export function RecordPageView({
   }
 
   function handleDiscard() {
-    if (sessionDonePhotos().length > 0) {
+    if (sessionPhotosForDiscardDialog().length > 0) {
       setShowDiscardPhotosDialog(true)
       return
     }
     proceedDiscard()
   }
 
+  function handleDiscardCancel() {
+    // Full abort — the recording stays exactly as it was, nothing proceeds.
+    setShowDiscardPhotosDialog(false)
+  }
+
   async function handleDiscardDeletePhotos() {
-    const donePhotos = sessionDonePhotos()
+    const photos = sessionPhotosForDiscardDialog()
+    const donePhotos = photos.filter((p) => p.status === 'done')
+    // §7: an 'uploading' photo hasn't landed server-side yet — mark it for
+    // delete-after-settle (the store fires the delete itself the moment
+    // that upload resolves to 'done'; nothing to do on 'error'). Marked
+    // BEFORE proceedDiscard, whose discardRecording() wipes the strip.
+    for (const p of photos) {
+      if (p.status === 'uploading') sessionPhotoStore.markDeleteAfterSettle(p.id, p.customerId)
+    }
     setShowDiscardPhotosDialog(false)
     setDiscardingPhotos(true)
     // Best-effort: collect failures, one toast if any fail — deleteCustomerPhoto
@@ -477,6 +507,13 @@ export function RecordPageView({
         recordingSessionId,
         takeId: globalRecorder.takeId,
       })
+      // §9: same honest-loss toast as the discard path — computed/fired
+      // BEFORE discardRecording() below wipes the strip via the store's
+      // clear(). The save handoff never shows the D3 dialog (structurally
+      // separate from handleDiscard — this function never references
+      // showDiscardPhotosDialog/sessionPhotosForDiscardDialog); a photo
+      // that failed to upload is still lost here exactly as on discard.
+      toastDroppedErrorPhotos()
       // The pipeline now owns the audio; clear the recorder + return to idle so
       // the page isn't stuck on the "review your take" screen. keepTake: the
       // PERSISTED audio must outlive this handoff — it's deleted only when the
@@ -794,9 +831,13 @@ export function RecordPageView({
         <SessionPhotoCard
           customerId={target.customerId}
           // D2: consent FOLDS into the recording-consent line — no per-photo
-          // prompt. Read fresh on every render so a mid-session grant applies
-          // to photos taken after (the card freezes it per-photo at capture).
-          takenWithConsent={Boolean(consentDate)}
+          // prompt. Reads the LIVE consent state (consentGranted, refreshed
+          // by refreshConsent below) — NOT the SSR consentDate prop, which is
+          // fetched once at page load and never updates: a mid-session grant
+          // via handleGrantConsent would otherwise still stamp false for
+          // every photo taken after. The card itself freezes this value
+          // per-photo at capture time (retries reuse the frozen value).
+          takenWithConsent={consentGranted}
         />
       )}
       <div className="flex justify-center">
@@ -1108,12 +1149,15 @@ export function RecordPageView({
 
       {/* D3 — discard-with-photos confirmation. Only reachable from
           handleDiscard (the explicit 破棄 button); the save path
-          (handleUseRecording) never shows this. */}
+          (handleUseRecording) never shows this. Button pairing follows
+          CustomerMemoryCard's delete-confirm convention (spike-lifted/
+          memory/CustomerMemoryCard.tsx): the irreversible action is
+          destructive, never the accent/default fill. */}
       {showDiscardPhotosDialog && (
         <>
           <div
             className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
-            onClick={() => !discardingPhotos && setShowDiscardPhotosDialog(false)}
+            onClick={() => !discardingPhotos && handleDiscardCancel()}
           />
           <div
             role="dialog"
@@ -1125,8 +1169,19 @@ export function RecordPageView({
               {t('sessionPhotos.discardPhotosTitle')}
             </h3>
             <p className="text-sm text-muted-foreground">
-              {t('sessionPhotos.discardPhotosDescription')}
+              {t('sessionPhotos.discardPhotosDescription', {
+                n: sessionPhotosForDiscardDialog().length,
+              })}
             </p>
+            <Button
+              variant="outline"
+              size="md"
+              className="w-full"
+              onClick={handleDiscardCancel}
+              disabled={discardingPhotos}
+            >
+              {tc('cancel')}
+            </Button>
             <div className="flex gap-3">
               <Button
                 variant="outline"
@@ -1138,7 +1193,7 @@ export function RecordPageView({
                 {t('sessionPhotos.discardPhotosKeep')}
               </Button>
               <Button
-                variant="default"
+                variant="destructive"
                 size="md"
                 className="flex-1"
                 onClick={handleDiscardDeletePhotos}

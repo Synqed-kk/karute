@@ -9,7 +9,7 @@
  * Module walls mirror thin-record-screen-brief-cache.test.tsx (the
  * documented mock set for mounting RecordPageView under jsdom).
  */
-import { render, screen } from '@testing-library/react'
+import { render } from '@testing-library/react'
 
 let mockRecState: 'idle' | 'recording' | 'paused' | 'recorded' = 'idle'
 let mockTarget: {

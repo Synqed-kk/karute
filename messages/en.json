@@ -650,10 +650,11 @@
       "retry": "Tap to retry",
       "presentError": "Couldn't load the photos. Please try again.",
       "discardPhotosTitle": "What should happen to the session photos?",
-      "discardPhotosDescription": "This recording has uploaded photos. Delete them too when you discard the recording?",
+      "discardPhotosDescription": "This recording has {n} photo(s) (including uploads still in progress). Delete them too when you discard the recording?",
       "discardPhotosDelete": "Delete photos too",
       "discardPhotosKeep": "Keep on customer page",
-      "discardDeleteFailed": "Failed to delete {n} photo(s)"
+      "discardDeleteFailed": "Failed to delete {n} photo(s)",
+      "uploadsDropped": "{n} photo(s) that failed to upload were not saved"
     },
     "recent": {
       "title": "Recent recordings",
@@ -2170,6 +2171,7 @@
           "passport_update": "Corrected customer info",
           "photo_add": "Added customer photo",
           "photo_delete": "Deleted customer photo",
+          "photos_view": "Viewed customer photos",
           "brief_view": "Viewed pre-session brief",
           "ai_prediction_view": "Viewed AI body prediction",
           "create": "Created customer",

@@ -111,6 +111,12 @@ const jsonReq = (body: unknown, headers: Record<string, string> = auth) =>
 
 beforeEach(() => {
   jest.clearAllMocks()
+  // mockReset (not just clearAllMocks' clear) — a mockResolvedValueOnce queued
+  // by a test whose CORRECT code path never reaches listPhotos (e.g. the
+  // cross-tenant DELETE test, where tenancy proof throws first) would
+  // otherwise sit queued and leak into whichever LATER test calls listPhotos
+  // first, silently swapping its intended mock value.
+  listPhotos.mockReset().mockResolvedValue({ photos: [] })
   capabilities.current = new Set(['customers.view'])
   staffRoster.current = [{ id: 'auth-user-1', full_name: '田中' }]
   revoked.current = false
@@ -304,14 +310,30 @@ describe('GET photos', () => {
 
 // ── photos DELETE /[photoId] (packet PR 9b device-wiring delta) ─────────────
 describe('DELETE photos/[photoId]', () => {
-  it('happy path: deletes the photo', async () => {
+  it('happy path: deletes the photo (ownership proven — photoId is in this customer\'s list)', async () => {
+    listPhotos.mockResolvedValueOnce({ photos: [{ id: 'photo-1' }] })
     const res = await photoDelete(deleteReq(), photoRoute({ id: 'cust-1', photoId: 'photo-1' }))
     expect(res.status).toBe(200)
     expect(deletePhoto).toHaveBeenCalledWith('cust-1', 'photo-1')
   })
 
   it('cross-tenant customer id → 404, no delete', async () => {
+    // Isolates the TENANCY check specifically: listPhotos is stubbed to
+    // contain the requested photoId, so if tenancy proof were ever skipped
+    // the ownership proof right after it would PASS — the 404 here can only
+    // come from proveCustomerInBusiness (mutation red-run anchor).
+    listPhotos.mockResolvedValueOnce({ photos: [{ id: 'photo-1' }] })
     const res = await photoDelete(deleteReq(), photoRoute({ id: 'cust-x', photoId: 'photo-1' }))
+    expect(res.status).toBe(404)
+    expect(deletePhoto).not.toHaveBeenCalled()
+  })
+
+  // §12 (blind round): ownership proof — provePhotoForCustomer. A photoId
+  // that belongs to a DIFFERENT customer (or doesn't exist) must 404 BEFORE
+  // any delete call, exactly like provePackForCustomer's pattern.
+  it("another customer's photoId → 404, deletePhoto NEVER called", async () => {
+    listPhotos.mockResolvedValueOnce({ photos: [{ id: 'someone-elses-photo' }] })
+    const res = await photoDelete(deleteReq(), photoRoute({ id: 'cust-1', photoId: 'photo-1' }))
     expect(res.status).toBe(404)
     expect(deletePhoto).not.toHaveBeenCalled()
   })

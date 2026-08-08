@@ -54,6 +54,23 @@ export async function provePackForCustomer(
   }
 }
 
+/** Prove a photo belongs to this customer (whose tenancy is proven separately) →
+ *  a clean 404 on a cross-tenant or wrong-customer photoId BEFORE any delete.
+ *  Same shape as provePackForCustomer above: listPhotos IS the ownership
+ *  read (the business-scoped client only lists THIS business's photos for
+ *  the customer, so a photoId absent from that list is not reachable here) —
+ *  core has no separate photo-ownership endpoint to prove against instead. */
+export async function provePhotoForCustomer(
+  synqed: Pick<Awaited<ReturnType<typeof newSynqedClient>>, 'customers'>,
+  customerId: string,
+  photoId: string,
+): Promise<void> {
+  const { photos } = await synqed.customers.listPhotos(customerId)
+  if (!photos.some((p) => p.id === photoId)) {
+    throw new AppApiError('not_found', 'photo not found for this customer')
+  }
+}
+
 /** Require an Idempotency-Key on an effectful POST (contract §8). Presence is
  *  enforced here so a client can't omit it; de-duplication itself is a
  *  backend/store concern (Anthony) not yet built, so the current guarantee is

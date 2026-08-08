@@ -552,11 +552,12 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // treatment exactly (mutation, same category/targetType) — a photo removal
   // is audit-worthy the same way its addition is.
   'customer.photo.delete': { kind: 'mutation', category: 'customer', action: 'customer.photo_delete', targetType: 'customer' },
-  // The aggregate photo LIST read — 'skip', design-parity with the web action
-  // it mirrors (listCustomerPhotos, src/actions/customers.ts) which has no
-  // audit() call at all; a facade row here would log something web itself
-  // never logs (same parity rule as the customer.pack.* skip rows above).
-  'customer.photos.list': { kind: 'skip', category: 'customer', action: '' },
+  // Blind-round correction (2026-08-09): one-customer-scoped reads log as
+  // 'view' (canon) — mirrors karute.entryEdits.list's shape/action naming
+  // exactly. Supersedes the original design-parity 'skip' call (the web
+  // action listCustomerPhotos still has no auditWeb call of its own, but
+  // that parity gap doesn't override the scoped-read canon).
+  'customer.photos.list': { kind: 'view', category: 'customer', action: 'customer.photos_view', targetType: 'customer' },
 
   // karute.regenerate (§3.1: "mutation → karute.entries_regenerate /
   // karute.summary_regenerate", canon Wave 2, batch rules canon §4.2): the

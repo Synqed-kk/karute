@@ -1,14 +1,15 @@
 // Facade: delete a customer photo (packet PR 9b device-wiring delta,
-// 2026-08-09). Tenancy proof on the CUSTOMER (core has no separate
-// photo-ownership read to prove against first; deletePhoto itself is scoped
-// by customer_id server-side). Calls the SAME core the web action uses
+// 2026-08-09; ownership-proof hardening same day, blind round). Tenancy
+// proof on the CUSTOMER, then OWNERSHIP proof that photoId actually belongs
+// to them (provePhotoForCustomer — listPhotos IS the ownership read, same
+// shape as provePackForCustomer). Calls the SAME core the web action uses
 // (synqed.customers.deletePhoto) — single source of truth.
 
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { proveCustomerInBusiness } from '@/lib/app-api/customer-facade'
+import { proveCustomerInBusiness, provePhotoForCustomer } from '@/lib/app-api/customer-facade'
 
 export const runtime = 'nodejs'
 
@@ -22,6 +23,9 @@ export const DELETE = facadeHandler<Params>('customer.photo.delete', async (ctx:
   const synqed = newSynqedClient(ctx.identity.businessId)
   // Tenancy proof BEFORE the delete — cross-tenant/missing customer id 404s here.
   await proveCustomerInBusiness(synqed, id)
+  // Ownership proof — a photoId that isn't THIS customer's 404s here too,
+  // before any delete call reaches core.
+  await provePhotoForCustomer(synqed, id, photoId)
 
   try {
     await synqed.customers.deletePhoto(id, photoId)
