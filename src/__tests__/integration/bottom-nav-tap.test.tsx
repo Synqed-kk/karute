@@ -63,9 +63,15 @@ import { BottomNav } from '@/components/layout/bottom-nav'
 
 // Movement/duration thresholds mirror src/lib/tap-activation.ts.
 const AT = { clientX: 100, clientY: 700 }
+/** The tracked finger. identifier 1 (not 0) so an off-by-index bug can't pass
+ *  by accident. */
+const ID = 1
 function touch(over: Partial<typeof AT> = {}) {
-  return [{ ...AT, ...over }]
+  return [{ identifier: ID, ...AT, ...over }]
 }
+/** A second finger elsewhere on screen — a thumb on the frame, a palm. It
+ *  rides in the SAME global touches list the handlers read. */
+const OTHER = { identifier: 2, clientX: 20, clientY: 60 }
 
 let now = 1_000_000
 beforeEach(() => {
@@ -145,6 +151,46 @@ describe('bottom bar tap activation (#648 root-scroller momentum)', () => {
   it('small jitter inside the slop throughout is still a tap', () => {
     render(<BottomNav nextCustomer={null} locale="ja" />)
     tapNoClick(customersTab(), { via: [4, -3, 2] })
+    expect(push).toHaveBeenCalledTimes(1)
+    expect(push).toHaveBeenCalledWith('/customers')
+  })
+
+  // Delta-verify P2: every TouchList on the event is GLOBAL. A second finger
+  // anywhere on screen rides in it, so reading index 0 read the WRONG finger.
+  // Each of these puts OTHER at index 0 deliberately.
+  it('a second finger elsewhere does not cancel a stationary tap', () => {
+    render(<BottomNav nextCustomer={null} locale="ja" />)
+    const tab = customersTab()
+    fireEvent.touchStart(tab, { touches: touch(), changedTouches: touch() })
+    // Thumb lands on the frame; our finger has not moved a pixel.
+    fireEvent.touchMove(tab, {
+      touches: [OTHER, ...touch()],
+      changedTouches: [OTHER],
+    })
+    now += 80
+    fireEvent.touchEnd(tab, { touches: [], changedTouches: touch() })
+    expect(push).toHaveBeenCalledTimes(1)
+    expect(push).toHaveBeenCalledWith('/customers')
+  })
+
+  it('the TRACKED finger moving past the slop still cancels, second finger present', () => {
+    render(<BottomNav nextCustomer={null} locale="ja" />)
+    const tab = customersTab()
+    fireEvent.touchStart(tab, { touches: touch(), changedTouches: touch() })
+    const moved = touch({ clientY: AT.clientY + 40 })
+    fireEvent.touchMove(tab, { touches: [OTHER, ...moved], changedTouches: moved })
+    now += 80
+    fireEvent.touchEnd(tab, { touches: [], changedTouches: touch({ clientY: AT.clientY + 1 }) })
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it('a simultaneous two-finger lift classifies on the tracked finger, not changedTouches[0]', () => {
+    render(<BottomNav nextCustomer={null} locale="ja" />)
+    const tab = customersTab()
+    fireEvent.touchStart(tab, { touches: touch(), changedTouches: touch() })
+    now += 80
+    // Both fingers leave in one event, ours second in the list.
+    fireEvent.touchEnd(tab, { touches: [], changedTouches: [OTHER, ...touch()] })
     expect(push).toHaveBeenCalledTimes(1)
     expect(push).toHaveBeenCalledWith('/customers')
   })

@@ -32,12 +32,36 @@ const MOVE_TOLERANCE_PX = 10
 const MAX_TAP_MS = 500
 
 type TapState = {
+  /** Touch.identifier of the finger this gesture is tracking. */
+  id: number
   x: number
   y: number
   t: number
   /** Sticky: set the moment the finger EVER leaves the slop, never unset. */
   moved: boolean
   swallowClick: boolean
+}
+
+/** Just the fields the classification reads. Structural on purpose: React's
+ *  TouchList type and lib.dom's are not assignable to each other, and the
+ *  loop below needs neither's extras. (React's TouchList does carry an
+ *  `identifiedTouch` method — do NOT use it: it was dropped from the spec and
+ *  Safari, the one engine that matters here, has never shipped it.) */
+type TouchLike = { identifier: number; clientX: number; clientY: number }
+
+/** The tracked finger inside a TouchList, or null if it isn't in there.
+ *  Every list on a touch event is GLOBAL — a thumb resting on the frame or a
+ *  palm elsewhere on screen is in `touches` too, and `[0]` is then somebody
+ *  else's finger. Reading index 0 made a stationary tap look like a huge drag
+ *  and spuriously cancelled it, which is the "footer doesn't respond" report
+ *  all over again for two-handed use. Match by identifier, never by position.
+ *  Manual loop rather than Array.from().find(): no allocation on a handler
+ *  that fires at touch-sample rate, and fewer bytes in the shell bundle. */
+function trackedTouch(list: ArrayLike<TouchLike>, id: number): TouchLike | null {
+  for (let i = 0; i < list.length; i++) {
+    if (list[i].identifier === id) return list[i]
+  }
+  return null
 }
 
 // Keyed by ELEMENT, not by render closure: CenterRecordButton re-renders every
@@ -78,6 +102,7 @@ export function tapActivation(
       // Upgrade path if it's ever observed: age the flag by timestamp
       // instead of clearing it.
       taps.set(e.currentTarget, {
+        id: t.identifier,
         x: t.clientX,
         y: t.clientY,
         t: Date.now(),
@@ -95,7 +120,8 @@ export function tapActivation(
     onTouchMove: (e: TouchEvent<Element>) => {
       const s = taps.get(e.currentTarget)
       if (!s || s.moved) return
-      const t = e.touches[0]
+      // Absent → this move is some OTHER finger's; ours hasn't budged.
+      const t = trackedTouch(e.touches, s.id)
       if (!t) return
       const dx = t.clientX - s.x
       const dy = t.clientY - s.y
@@ -108,8 +134,17 @@ export function tapActivation(
       // No matching touchstart on this element → a phantom end (the finger
       // started elsewhere, or a second finger lifted). Not ours.
       if (!s) return
-      const end = e.changedTouches[0]
-      if (!end || e.touches.length !== 0) {
+      // changedTouches is global too: a simultaneous two-finger lift puts both
+      // in the list and `[0]` can be the finger we never tracked. Ours absent
+      // → this end isn't about our finger; leave the state alone so its own
+      // touchend can still classify it.
+      const end = trackedTouch(e.changedTouches, s.id)
+      if (!end) return
+      // ponytail: a finger still resting elsewhere at release bails here.
+      // Adjudicated: a clean tap means every finger is up. Upgrade path if a
+      // resting thumb ever costs real taps: drop the guard and rely on the
+      // per-identifier tracking above, which already isolates our finger.
+      if (e.touches.length !== 0) {
         taps.delete(e.currentTarget)
         return
       }
