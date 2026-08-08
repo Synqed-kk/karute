@@ -309,7 +309,9 @@ export async function writeOrgSettingsBlobWithClient(
       // cron's own gap warning so the log tells the same story on both sides.
       const prior = existingSettings.auto_burn_last_processed
       if (typeof prior === 'string' && prior < ymdInJst(new Date(Date.now() - 86_400_000))) {
-        console.warn('[auto-burn] flip-on seed leapfrogs stale marker', { prior, seeded: ymdInJst() })
+        // Fires for any >1-day gap — OFF-period days (nothing owed) and
+        // stalled-while-ON days alike; the log can't tell them apart.
+        console.warn('[auto-burn]', JSON.stringify({ warn: 'flip-on seed leapfrogs stale marker', prior, seeded: ymdInJst() }))
       }
       rest.auto_burn_last_processed = ymdInJst()
     }

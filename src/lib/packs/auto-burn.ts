@@ -231,11 +231,14 @@ export async function autoBurnRecentDays(
   // first run (or the first run after the owner flips 自動消化 on) must never
   // retro-charge the days before that decision.
   const pending = force ? dates : marker ? dates.filter((d) => d > marker) : [today]
-  // An empty pending on a healthy marker is normal (nothing to settle yet) —
-  // but it reads identically to "flip day, marker seeded to today". Name it,
-  // so a quiet business is distinguishable from a just-flipped one in the log.
+  // marker === today has exactly one producer: the flip-on seed in
+  // org-settings.ts (the cron itself never writes today). Name it, so the
+  // flip day is distinguishable from a quiet settled day in the log.
   if (pending.length === 0 && marker === today) {
-    console.log('[auto-burn] marker at today (flip day or already settled) — nothing pending', { businessId })
+    console.log(
+      '[auto-burn]',
+      JSON.stringify({ businessId, note: 'marker seeded to today by a flip-on — nothing pending until tomorrow' }),
+    )
   }
 
   const summaries: AutoBurnSummary[] = []
