@@ -727,9 +727,16 @@
       "compareOverlay": "Overlay",
       "compareOpacity": "Opacity",
       "presentButton": "Show customer",
-      "presentClose": "Close",
+      "presentCloseHold": "Close (press and hold)",
       "presentFilterAll": "All",
-      "presentBackToGrid": "Back to grid"
+      "presentBackToGrid": "Back to grid",
+      "presentCompareButton": "Compare",
+      "presentSelectHint": "Select 2 to 4 photos",
+      "presentSelectCancel": "Cancel",
+      "presentCompareCta": "Compare {n} photos",
+      "presentBack": "Back",
+      "presentPrevPhoto": "Previous photo",
+      "presentNextPhoto": "Next photo"
     },
     "comingSoon": "Coming soon",
     "privacy": {

@@ -59,7 +59,13 @@ const DIST = 'thin/dist/assets'
 // bloat — same class as every prior raise; the purchase-marker scan below
 // stays the real gate. (A lazy-chunk split was tried first and REVERTED: the
 // gate correctly counts total thin JS, so splitting only added overhead.)
-const BUDGET_BYTES = 1_733_000
+// Raised 2026-08-08 at the presentation-compare redesign — customer-safe
+// compare (selection/side-by-side/opacity-overlay/2×2 grid) + multi-photo
+// fullscreen browsing (chevrons/dots/swipe) + hold-to-close ✕ ship inside
+// PhotoPresentationOverlay, measured at 1739.4 KB raw against the prior
+// 1692.4 KB ceiling (over by 47.0 KB). (7th raise — presentation compare;
+// converges with #682/#683)
+const BUDGET_BYTES = 1_740_000
 
 let dir
 try {
