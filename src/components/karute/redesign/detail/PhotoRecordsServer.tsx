@@ -1,4 +1,5 @@
 import { listCustomerPhotos } from '@/actions/customers'
+import { scopeKarutePhotos } from '@/lib/karute/scoped-photos'
 import { PhotoRecordsCard } from './PhotoRecordsCard'
 
 // Async server component used inside a Suspense boundary on the karute detail
@@ -7,7 +8,8 @@ import { PhotoRecordsCard } from './PhotoRecordsCard'
 //
 // Scoping: the customer-level fetch returns ALL of the customer's photos (the
 // customer page's aggregate view); a karute page must show ONLY the photos
-// taken in ITS recording session, so we filter app-side on recording_session_id.
+// taken in ITS recording session — scopeKarutePhotos is the single source of
+// truth for that rule (shared with the device screen facade).
 export async function PhotoRecordsServer({
   customerId,
   recordingSessionId,
@@ -24,15 +26,7 @@ export async function PhotoRecordsServer({
       recording_session_id: string | null
     }>,
   }))
-  // ponytail: a karute with no recording_session_id (legacy record, or the
-  // link hasn't been stamped yet — camera-row PR 9b does that) must show ZERO
-  // photos here, never the customer's whole unscoped gallery — that aggregate
-  // view stays on the customer page only.
-  const scoped = (result.photos ?? []).filter(
-    (p) =>
-      recordingSessionId !== null &&
-      p.recording_session_id === recordingSessionId,
-  )
+  const scoped = scopeKarutePhotos(result.photos ?? [], recordingSessionId)
   const photos = scoped.map((p) => ({
     id: p.id,
     signedUrl: p.signed_url,

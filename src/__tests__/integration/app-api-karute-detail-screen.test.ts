@@ -32,10 +32,15 @@ jest.mock('@/lib/auth/require-permission', () => ({
 }))
 
 // Raw synqed karute record. staff_id drives the recording-privacy ACL.
+// recording_session_id: 'sess-1' on both the karute and the default photo
+// fixture — packet PR 9a §③, the karute-scoped photo display. Matching by
+// default keeps the pre-existing fixtures representing the common
+// post-9b-camera-row case (session stamped, photo folds into the DTO); the
+// mismatched/null cases get their own dedicated tests below.
 const KAR = {
   current: {
     id: 'kar-1', created_at: '2026-06-01T03:00:00Z', ai_summary: '・肩こり改善傾向', transcript: 'RAW TRANSCRIPT TEXT',
-    business_id: 'business-1', customer_id: 'cust-1', staff_id: 'other-staff',
+    business_id: 'business-1', customer_id: 'cust-1', staff_id: 'other-staff', recording_session_id: 'sess-1',
     entries: [{ id: 'e1', category: 'SYMPTOM', content: '肩こり', original_quote: null, confidence: 0.9, is_manual: false, created_at: '2026-06-01T03:05:00Z' }],
   } as Record<string, unknown>,
 }
@@ -45,7 +50,7 @@ const karuteGet = jest.fn(async (id: string) => {
   return KAR.current
 })
 const getConsent = jest.fn(async () => ({ consent: { policy_version: 'v0' } }))
-const listPhotos = jest.fn(async () => ({ photos: [{ id: 'p1', signed_url: 'https://x/p1', category: 'before', caption: null }] }))
+const listPhotos = jest.fn(async () => ({ photos: [{ id: 'p1', signed_url: 'https://x/p1', category: 'before', caption: null, recording_session_id: 'sess-1' as string | null }] }))
 const outcomeGet = jest.fn(async () => null)
 const fakeClient = {
   karuteRecords: { get: (id: string) => karuteGet(id) },
@@ -83,9 +88,9 @@ beforeEach(() => {
   jest.clearAllMocks()
   capabilities.current = new Set(['customers.view'])
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
-  KAR.current = { id: 'kar-1', created_at: '2026-06-01T03:00:00Z', ai_summary: '・肩こり改善傾向', transcript: 'RAW TRANSCRIPT TEXT', business_id: 'business-1', customer_id: 'cust-1', staff_id: 'other-staff', entries: [{ id: 'e1', category: 'SYMPTOM', content: '肩こり', original_quote: null, confidence: 0.9, is_manual: false, created_at: '2026-06-01T03:05:00Z' }] }
+  KAR.current = { id: 'kar-1', created_at: '2026-06-01T03:00:00Z', ai_summary: '・肩こり改善傾向', transcript: 'RAW TRANSCRIPT TEXT', business_id: 'business-1', customer_id: 'cust-1', staff_id: 'other-staff', recording_session_id: 'sess-1', entries: [{ id: 'e1', category: 'SYMPTOM', content: '肩こり', original_quote: null, confidence: 0.9, is_manual: false, created_at: '2026-06-01T03:05:00Z' }] }
   getConsent.mockResolvedValue({ consent: { policy_version: 'v0' } })
-  listPhotos.mockResolvedValue({ photos: [{ id: 'p1', signed_url: 'https://x/p1', category: 'before', caption: null }] })
+  listPhotos.mockResolvedValue({ photos: [{ id: 'p1', signed_url: 'https://x/p1', category: 'before', caption: null, recording_session_id: 'sess-1' }] })
   outcomeGet.mockResolvedValue(null)
 })
 
@@ -169,6 +174,31 @@ describe('GET /api/app/v1/screens/karute/[id] (packet 07 §Build 2)', () => {
 
   it('photos read failure stays PAGE-PARITY graceful → still 200 (empty photo card)', async () => {
     listPhotos.mockRejectedValueOnce(new Error('storage down'))
+    const res = await GET(req({ headers: auth }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect((await res.json()).photos).toEqual([])
+  })
+
+  // packet 2026-08-09 PR 9a §③ follow-up — the DEVICE screen leaked the
+  // customer's whole photo gallery onto every karute; scopeKarutePhotos now
+  // gates it here too (shared with the web page's PhotoRecordsServer).
+  it('a mismatched-session photo does NOT reach the DTO', async () => {
+    listPhotos.mockResolvedValueOnce({ photos: [{ id: 'p-other', signed_url: 'https://x/other', category: 'after', caption: null, recording_session_id: 'sess-OTHER' }] })
+    const res = await GET(req({ headers: auth }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect((await res.json()).photos).toEqual([])
+  })
+
+  it('a matching-session photo DOES reach the DTO', async () => {
+    listPhotos.mockResolvedValueOnce({ photos: [{ id: 'p1', signed_url: 'https://x/p1', category: 'before', caption: null, recording_session_id: 'sess-1' }] })
+    const res = await GET(req({ headers: auth }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect((await res.json()).photos).toEqual([{ id: 'p1', signedUrl: 'https://x/p1', category: 'before', caption: null }])
+  })
+
+  it('karute with no recording_session_id → zero photos even when unstamped photos exist (null rule)', async () => {
+    KAR.current = { ...KAR.current, recording_session_id: null }
+    listPhotos.mockResolvedValueOnce({ photos: [{ id: 'p1', signed_url: 'https://x/p1', category: 'before', caption: null, recording_session_id: null }] })
     const res = await GET(req({ headers: auth }), routeFor('kar-1'))
     expect(res.status).toBe(200)
     expect((await res.json()).photos).toEqual([])
