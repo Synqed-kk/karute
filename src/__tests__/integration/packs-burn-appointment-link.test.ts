@@ -109,6 +109,20 @@ describe('addRedemption below-zero mapping (CHANGE 2)', () => {
     expect(res).toEqual({ ok: false, error: 'below_zero' })
   })
 
+  // Blind-round F6 (2026-08-08): the partial unique index is a SECOND
+  // discriminator — the burn is already recorded, so the auto-burn cron counts
+  // it as an idempotent skip instead of crying error every time the net works.
+  it('maps the appointment unique-index violation to already_redeemed, in every relay format', async () => {
+    for (const message of [
+      'duplicate key value violates unique constraint "pack_redemptions_active_appointment_unique" (23505)',
+      'Unique constraint failed on the fields: (`appointment_id`) [P2002]',
+    ]) {
+      packs.addRedemption.mockRejectedValueOnce(new Error(message))
+      const res = await addRedemption({ packId: 'p1', customerId: 'c1', redeemedOn: '2026-07-05' })
+      expect(res).toEqual({ ok: false, error: 'already_redeemed' })
+    }
+  })
+
   it('leaves other failures as their raw internal message (not below_zero)', async () => {
     packs.addRedemption.mockRejectedValue(new Error('some other core error'))
 

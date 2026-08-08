@@ -81,6 +81,11 @@ export interface OrgSettings {
    *  ticket per completed booking the next morning (src/lib/packs/auto-burn.ts).
    *  Cancellations are ticket-neutral in BOTH modes. */
   pack_burn_mode: 'auto' | 'manual'
+  /** 自動消化 high-water mark: the newest JST date (yyyy-mm-dd) the cron has
+   *  cleanly processed for this business. Written by the cron itself, never by
+   *  the settings UI. Absent = never processed, which the cron reads as "take
+   *  only the newest day", so turning 自動消化 on can't retro-charge. */
+  auto_burn_last_processed?: string
   /** Master switch for 回数券. Off → every pack surface hides (profile card,
    *  dashboard reconcile/alerts, recording burn + outcome dialog) and pack
    *  fetches are skipped. Historical rows stay untouched — switching back on
@@ -161,6 +166,10 @@ function normalizeOrgSettings(
     // Money default: anything that isn't literally 'auto' reads as 'manual', so
     // a garbled/absent blob value can never turn automatic charging ON.
     pack_burn_mode: s.pack_burn_mode === 'auto' ? 'auto' : 'manual',
+    // Anything non-string reads as absent — a garbled marker must degrade to
+    // "never processed" (burn only the newest day), never to a bad comparison.
+    auto_burn_last_processed:
+      typeof s.auto_burn_last_processed === 'string' ? s.auto_burn_last_processed : undefined,
     ticket_packs_enabled:
       s.ticket_packs_enabled === undefined
         ? true

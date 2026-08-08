@@ -1,6 +1,6 @@
-import type { SynqedClient } from '@synqed-kk/client'
+import type { Appointment, SynqedClient } from '@synqed-kk/client'
 import { isTerminalStatus } from '@/lib/appointments/status'
-import { orgSettingsWithClient } from '@/actions/org-settings'
+import { orgSettingsWithClient, writeOrgSettingsBlobWithClient } from '@/actions/org-settings'
 import { addRedemptionWithClient, listCustomerPacksWithClient } from '@/lib/packs/store'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { ymdInJst } from '@/lib/date/jst'
@@ -14,9 +14,18 @@ import { audit } from '@/lib/audit'
 // covers CANCELLED **and** NO_SHOW, which is what makes cancel-neutrality
 // (PRs #438-#440) structural here rather than a rule someone has to remember.
 //
-// The grace window IS the schedule: the cron runs 06:00 JST over YESTERDAY, so
-// core's 15-min crawl has had all night to land a late cancellation and a
-// cancel can never lose the race against a burn.
+// THE GRACE WINDOW, stated honestly (blind-round F1, ledger pre-autoburn-blind-
+// round-ledger-2026-08-08.md — the previous "all night" comment here was FALSE):
+// core's QR crawl only runs 08:00–22:00 JST (sync.service isWithinBusinessHours,
+// prod-seeded 8/22 Asia/Tokyo), so nothing lands overnight at all. The cron
+// therefore runs 08:30 JST (vercel.json `30 23 * * *`), AFTER the first morning
+// tick — that tick, not the night, is what gives a late cancellation its chance
+// to arrive before the burn.
+//   RESIDUAL, documented not fixed here: the crawl's window starts at TODAY, so
+//   a post-close cancellation of a SAME-EVENING booking never reaches Karute at
+//   all. Closing it needs core to crawl −1 day (Anthony ask, same ledger). Until
+//   it lands, the 08:30 schedule plus the cancel-path warning
+//   (cancelAppointmentCore, appointments/mutations.ts) bound the exposure.
 //
 // Money rules, same discipline as the no-show burn (appointments/mutations.ts):
 //   • fail CLOSED — an errored read SKIPS the burn and is REPORTED, never
@@ -25,9 +34,20 @@ import { audit } from '@/lib/audit'
 //   • one customer-day burns ONE ticket EVER (guard 2 — NEW here: staff manual
 //     burns don't always carry an appointment_id, so without it manual+auto
 //     double-charge the same visit);
-//   • reruns are idempotent, so a partially-failed run reruns safely.
+//   • reruns are idempotent, so a partially-failed run reruns safely;
+//   • a day is processed ONCE (the marker below) — an undo followed by a rerun
+//     must not re-charge, and a soft-removed redemption is invisible to both
+//     guards AND to the DB's partial unique index.
 
 type AutoBurnClient = Pick<SynqedClient, 'appointments' | 'packs' | 'orgSettings'>
+
+/** How many JST days back a run may reach. Only days the marker hasn't
+ *  cleared are actually processed, so this is the CATCH-UP depth for missed /
+ *  failed runs, not a nightly re-scan. */
+const LOOKBACK_DAYS = 3
+
+/** One core page. `total` decides when to stop, never this number. */
+const PAGE_SIZE = 500
 
 export interface AutoBurnSummary {
   businessId: string
@@ -67,17 +87,97 @@ const empty = (
   errors: 0,
 })
 
-/** JST business date one day before `date` — the burn-history read window,
- *  matching the no-show guard's "a day before the anchor" rule. */
-function dayBefore(date: string): string {
-  return ymdInJst(new Date(new Date(`${date}T00:00:00+09:00`).getTime() - 86_400_000))
+/** Burn-history read floor for a whole day's candidates: a day before the
+ *  EARLIEST anchor any of them has, where one booking's anchor is
+ *  min(starts_at, created_at) — burnWindowSince's rule (mutations.ts), applied
+ *  once so a single wide read serves every per-candidate check. starts_at is
+ *  mutable (a reschedule moves it), created_at is not, so anchoring to
+ *  whichever is earlier can only WIDEN the window; guard 1 matches exactly on
+ *  appointment_id and guard 2 on an exact JST date, so wider catches MORE true
+ *  burns and can never invent one. An unparseable row falls back to the day
+ *  itself rather than poisoning the floor with NaN. */
+function historySince(
+  candidates: Array<{ starts_at: string; created_at?: string }>,
+  date: string,
+): string {
+  const anchors = candidates
+    .flatMap((a) => [Date.parse(a.starts_at), Date.parse(a.created_at ?? '')])
+    .filter(Number.isFinite)
+  const floor = anchors.length ? Math.min(...anchors) : Date.parse(`${date}T00:00:00+09:00`)
+  return ymdInJst(new Date(floor - 86_400_000))
+}
+
+/** The lookback window: the last `n` JST business dates ENDING YESTERDAY,
+ *  oldest first (a burn must never race a day that is still happening). */
+function recentJstDates(n: number): string[] {
+  const now = Date.now()
+  return Array.from({ length: n }, (_, i) => ymdInJst(new Date(now - (n - i) * 86_400_000)))
+}
+
+/**
+ * The cron's per-business entry point: every JST day in the lookback window
+ * that the marker hasn't cleared yet, oldest first, then the marker moves.
+ *
+ * The marker (`auto_burn_last_processed`, a date in the org-settings JSON blob
+ * — the same zero-migration path pack_burn_mode itself takes) is what makes an
+ * UNDO stick: a soft-removed redemption is invisible to both guards and to the
+ * DB's partial unique index, so a second run over the same day would silently
+ * re-charge it. `force` (the cron route's ?force=1, still CRON_SECRET-gated) is
+ * the deliberate backfill lever that overrides it.
+ */
+export async function autoBurnRecentDays(
+  synqed: AutoBurnClient,
+  businessId: string,
+  force = false,
+): Promise<AutoBurnSummary[]> {
+  const dates = recentJstDates(LOOKBACK_DAYS)
+  const marker = await orgSettingsWithClient(synqed)
+    .then((s) => s?.auto_burn_last_processed)
+    .catch(() => undefined)
+  // NO marker = this business has never been processed: take ONLY the newest
+  // day. A first run (or the first run after the owner flips 自動消化 on) must
+  // never retro-charge the days before that decision.
+  const pending = force ? dates : marker ? dates.filter((d) => d > marker) : dates.slice(-1)
+
+  const summaries: AutoBurnSummary[] = []
+  let high = marker
+  let stalled = false
+  for (const date of pending) {
+    const s = await autoBurnForBusiness(synqed, businessId, date)
+    summaries.push(s)
+    // High-water mark: only a day we could read END TO END counts as done. A
+    // day that hit an unreadable settings row / appointment list / burn history
+    // stays pending so tomorrow retries it — and no LATER day may carry the
+    // mark past it.
+    if (s.mode === 'unavailable' || s.errors > 0 || s.skippedUnknown > 0) stalled = true
+    else if (!stalled) high = date
+  }
+  if (high && (!marker || high > marker)) await writeBurnMarker(synqed, businessId, high)
+  return summaries
+}
+
+/** Move the marker. Fail-SAFE, unlike every read above: the burns have already
+ *  landed, so a failed marker write is logged and swallowed — throwing here
+ *  would report a run that actually succeeded as a failure. The cost of the
+ *  miss is one repeated (guard-protected) day, never a lost burn. */
+async function writeBurnMarker(
+  synqed: AutoBurnClient,
+  businessId: string,
+  date: string,
+): Promise<void> {
+  const res = await writeOrgSettingsBlobWithClient(synqed, {
+    auto_burn_last_processed: date,
+  }).catch((err) => ({ error: err instanceof Error ? err.message : 'unknown' }))
+  if ('error' in res) {
+    console.warn('[auto-burn] marker write failed', JSON.stringify({ businessId, date }), res.error)
+  }
 }
 
 /**
  * Burn one ticket per completed booking on `date` (JST) for ONE business.
- * No-ops entirely unless `pack_burn_mode === 'auto'`. Never throws: every
- * failure lands in the summary so the cron response and the weekly sheet-sync
- * lane can both read what actually happened.
+ * No-ops entirely unless 回数券 are enabled AND `pack_burn_mode === 'auto'`.
+ * Never throws: every failure lands in the summary so the cron response and the
+ * weekly sheet-sync lane can both read what actually happened.
  */
 export async function autoBurnForBusiness(
   synqed: AutoBurnClient,
@@ -88,17 +188,35 @@ export async function autoBurnForBusiness(
   // cannot read is a business we must not charge.
   const settings = await orgSettingsWithClient(synqed).catch(() => undefined)
   if (settings === undefined) return empty(businessId, date, 'unavailable')
+  // The 回数券 master switch outranks the burn mode (blind-round F3): settings
+  // writes MERGE, so pack_burn_mode:'auto' survives in the blob after an owner
+  // turns 回数券 off — without this gate the cron would keep charging against a
+  // feature whose every surface is hidden.
+  if (settings?.ticket_packs_enabled === false) return empty(businessId, date, 'manual')
   if (settings?.pack_burn_mode !== 'auto') return empty(businessId, date, 'manual')
 
   const s = empty(businessId, date, 'auto')
 
-  let appointments
+  // Paginate to exhaustion (blind-round F7): one page-of-500 silently dropped
+  // every booking past the 500th on a busy day — a truncated read reads as
+  // "nothing to burn", the quietest possible money bug.
+  const appointments: Appointment[] = []
   try {
-    ;({ appointments } = await synqed.appointments.list({
-      from: new Date(`${date}T00:00:00+09:00`).toISOString(),
-      to: new Date(`${date}T23:59:59.999+09:00`).toISOString(),
-      page_size: 500,
-    }))
+    // ponytail: hard page cap. 40 × 500 is ~20k bookings in ONE day — a core
+    // that still reports more is broken, and a money cron must stop rather
+    // than spin. Raise it the day a tenant legitimately gets near it.
+    for (let page = 1; page <= 40; page += 1) {
+      const res = await synqed.appointments.list({
+        from: new Date(`${date}T00:00:00+09:00`).toISOString(),
+        to: new Date(`${date}T23:59:59.999+09:00`).toISOString(),
+        page,
+        page_size: PAGE_SIZE,
+      })
+      appointments.push(...res.appointments)
+      // An empty page also stops the loop: a wrong/absent `total` must not
+      // spin a money cron forever.
+      if (res.appointments.length === 0 || appointments.length >= res.total) break
+    }
   } catch {
     s.errors += 1
     return s
@@ -113,7 +231,7 @@ export async function autoBurnForBusiness(
   // ONE history read serves both guards. Tri-state: an errored read fails
   // CLOSED for the WHOLE day — we cannot prove any of these safe.
   const history = await synqed.packs
-    .listRecentRedemptions(dayBefore(date))
+    .listRecentRedemptions(historySince(candidates, date))
     .then((rows) => rows.map((r) => ({ appointment_id: r.appointment_id, customer_id: r.customer_id, redeemed_on: r.redeemed_on.slice(0, 10) })))
     .catch(() => 'unknown' as const)
   if (history === 'unknown') {
@@ -164,6 +282,11 @@ export async function autoBurnForBusiness(
       history.push({ appointment_id: appt.id, customer_id: appt.customer_id, redeemed_on: on })
     } else if (burn.error === 'below_zero') {
       s.belowZero += 1
+    } else if (burn.error === 'already_burned') {
+      // The DB's partial unique index refused a SECOND live redemption for
+      // this appointment — guard 1's outcome reached a hair late (a stale
+      // history read, a concurrent write). Idempotent, not a failure.
+      s.skippedAlreadyBurned += 1
     } else {
       s.errors += 1
     }
@@ -183,7 +306,7 @@ export async function burnOneAutoRedemption(
   synqed: Pick<SynqedClient, 'packs'>,
   businessId: string,
   b: { appointmentId: string; customerId: string; packId: string; on: string },
-): Promise<{ ok: true } | { error: 'below_zero' | 'burn_failed' }> {
+): Promise<{ ok: true } | { error: 'below_zero' | 'already_burned' | 'burn_failed' }> {
   const burn = await addRedemptionWithClient(synqed, {
     packId: b.packId,
     customerId: b.customerId,
@@ -195,7 +318,13 @@ export async function burnOneAutoRedemption(
     // Unlike a no-show: a completed visit IS a visit.
     countsAsVisit: true,
   })
-  if (!burn.ok) return { error: burn.error === 'below_zero' ? 'below_zero' : 'burn_failed' }
+  if (!burn.ok) {
+    if (burn.error === 'below_zero') return { error: 'below_zero' }
+    // The appointment-scoped unique index (blind-round F6): a duplicate is the
+    // guard working, so it must not be reported as a generic error.
+    if (burn.error === 'already_redeemed') return { error: 'already_burned' }
+    return { error: 'burn_failed' }
+  }
 
   // A ticket moved with no staff touching anything — 'notice', actor 'system',
   // so an auto burn is as disputable after the fact as a staff one.

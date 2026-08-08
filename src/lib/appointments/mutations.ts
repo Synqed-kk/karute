@@ -300,12 +300,26 @@ export async function cancelAppointmentCore(
       // outcome (cancel recorded, ticket not consumed) reaches the staff.
       burnError = await executeGuardedBurn(synqed, appt, appointmentId, burnTarget)
     }
+    // 自動消化 parity (packet 11 fix round, blind-round F4) — the SAME rider the
+    // no-show path got at L1#6, and the settings copy is why it matters: it
+    // promises a cancel never consumes a ticket, so a plain cancel of a booking
+    // the cron already burned looked like a clean success while a ticket was
+    // gone. WARN-ONLY: nothing is unburned here (undo is a separate, explicit
+    // pack action). Only a definite `true` speaks — an unreadable history
+    // changes nothing on this path (it creates no charge either way), so it
+    // must not invent a warning.
+    if (!burnPack) {
+      const prior = await appointmentAlreadyBurned(synqed, appt, appointmentId)
+      if (prior === true) burnError = 'already_burned'
+    }
 
     // Compliance surface (Fable audit finding, 2026-07-27): burn_pack alone is
     // the staff's CHOICE, not the outcome — burn_error completes it. false+null
     // = no attempt; true+null = ticket consumed; true+<code> = chosen but NOT
-    // consumed. Without it a failed/already-done burn would log burn_pack:true
-    // and imply a ticket was consumed when it wasn't.
+    // consumed; false+already_burned = no attempt AND a ticket was already
+    // spent on this booking (the auto-burn case above — same shape the
+    // booking.no_show row uses). Without it a failed/already-done burn would
+    // log burn_pack:true and imply a ticket was consumed when it wasn't.
     audit({
       category: 'booking',
       action: 'booking.cancel',

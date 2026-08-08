@@ -378,6 +378,41 @@ describe('cancelAppointment — burn on same-day-contact', () => {
   })
 })
 
+// Blind-round F4 (2026-08-08) — the cancel twin of the no-show rider at L1#6.
+// With 自動消化 on, the cron may already have burned this booking; a plain
+// cancel showed a clean success while a ticket was gone, and the settings copy
+// promises a cancel never consumes one.
+describe('cancelAppointment — 自動消化 correction (blind-round F4)', () => {
+  it('tells the staff a ticket was ALREADY spent on a plain (no-burn) cancel', async () => {
+    liveBooking()
+    listRecentRedemptions.mockResolvedValueOnce([
+      { customer_id: 'cust-1', appointment_id: 'appt-1', redeemed_on: '2026-07-06' },
+    ])
+    const lines = await auditLines(async () => {
+      const res = await cancelAppointment('appt-1')
+      expect(res).toEqual({ success: true, burnError: 'already_burned' })
+    })
+    // WARN-ONLY: the cancel lands, nothing is unburned (undo is its own action).
+    expect(apptUpdate).toHaveBeenCalledWith('appt-1', expect.objectContaining({ status: 'CANCELLED' }))
+    expect(addRedemption).not.toHaveBeenCalled()
+    // …and the audit row stops saying burn_error:null while a ticket is spent.
+    expect(lines[0].detail).toMatchObject({ burn_pack: false, burn_error: 'already_burned' })
+  })
+
+  it('stays silent when no prior burn exists — no invented warning', async () => {
+    liveBooking()
+    const res = await cancelAppointment('appt-1')
+    expect(res).toEqual({ success: true })
+  })
+
+  it('an unreadable history invents nothing on the no-burn path (no charge either way)', async () => {
+    liveBooking()
+    listRecentRedemptions.mockRejectedValueOnce(new Error('core down'))
+    const res = await cancelAppointment('appt-1')
+    expect(res).toEqual({ success: true })
+  })
+})
+
 describe('restoreAppointment (undo)', () => {
   it('requires bookings.manage and sends exactly status + acting_staff_id when staff resolves', async () => {
     const res = await restoreAppointment('appt-1')

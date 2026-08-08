@@ -13,7 +13,7 @@
     },
     {
       "path": "/api/packs/auto-burn",
-      "schedule": "0 21 * * *"
+      "schedule": "30 23 * * *"
     }
   ]
 }

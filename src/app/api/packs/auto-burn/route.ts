@@ -1,10 +1,17 @@
 import { NextResponse } from 'next/server'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { autoBurnForBusiness, type AutoBurnSummary } from '@/lib/packs/auto-burn'
-import { ymdInJst } from '@/lib/date/jst'
+import { autoBurnRecentDays, type AutoBurnSummary } from '@/lib/packs/auto-burn'
 
-// 自動消化 cron (packet 11). Runs 06:00 JST (vercel.json `0 21 * * *` UTC) over
-// YESTERDAY's bookings — the schedule IS the grace window (see auto-burn.ts).
+// 自動消化 cron (packet 11). Runs 08:30 JST (vercel.json `30 23 * * *` UTC) —
+// AFTER the QR crawl's first morning tick, which is the real grace window: the
+// crawl is dark 22:00–08:00 JST, so the old 06:00 run had had NO chance to see
+// a late cancellation (blind-round F1; the full contract and the residual
+// same-evening gap are documented in auto-burn.ts).
+//
+// Each business processes every JST day in the lookback window its marker
+// hasn't cleared, so a missed or failed run catches up on the next tick.
+// `?force=1` reprocesses the whole window (the deliberate backfill lever) — not
+// a second auth surface: the CRON_SECRET check below still gates it.
 //
 // This endpoint SPENDS CUSTOMER MONEY, so the auth is the /api/cleanup shape
 // verbatim and fails CLOSED: no CRON_SECRET configured → 401, never "run
@@ -14,7 +21,10 @@ import { ymdInJst } from '@/lib/date/jst'
 // getBusinessId().
 // ponytail: env allowlist; core-side dispatch (like the sync cron) when
 // multi-tenant matters.
-export const maxDuration = 60
+// 300 is in-plan (/api/jobs/process and /api/sync/run already run at 300): the
+// loop is serial across businesses × days, and a timeout loses the summary AND
+// the after()-scheduled audit rows for work that already happened.
+export const maxDuration = 300
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET
@@ -27,20 +37,24 @@ export async function GET(request: Request) {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
-  const date = ymdInJst(new Date(Date.now() - 86_400_000))
+  const force = new URL(request.url).searchParams.get('force') === '1'
 
   const results: Array<AutoBurnSummary | { businessId: string; error: string }> = []
   for (const businessId of businessIds) {
+    let done: Array<AutoBurnSummary | { businessId: string; error: string }>
     try {
-      results.push(await autoBurnForBusiness(newSynqedClient(businessId), businessId, date))
+      done = await autoBurnRecentDays(newSynqedClient(businessId), businessId, force)
     } catch (err) {
       // One tenant's failure must not skip the rest — and must still be seen.
-      results.push({ businessId, error: err instanceof Error ? err.message : 'unknown' })
+      done = [{ businessId, error: err instanceof Error ? err.message : 'unknown' }]
     }
+    results.push(...done)
+    // Logged INSIDE the loop (blind-round F10): a timeout on business N must
+    // still leave businesses 1..N-1 readable in the Vercel log. The weekly
+    // sheet-sync lane reads these lines to keep the two systems from confusing
+    // staff about who burned what.
+    console.log('[auto-burn]', JSON.stringify({ businessId, results: done }))
   }
 
-  // The weekly sheet-sync lane reads this line to keep the two systems from
-  // confusing staff about who burned what.
-  console.log('[auto-burn]', JSON.stringify({ date, results }))
-  return NextResponse.json({ date, results })
+  return NextResponse.json({ results })
 }

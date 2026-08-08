@@ -218,6 +218,9 @@ export async function addRedemptionWithClient(
     if (isBelowZeroGuardError(err)) {
       return { ok: false, error: 'below_zero' }
     }
+    if (isDuplicateRedemptionError(err)) {
+      return { ok: false, error: 'already_redeemed' }
+    }
     return { ok: false, error: err instanceof Error ? err.message : 'unknown' }
   }
 }
@@ -234,6 +237,22 @@ function isBelowZeroGuardError(err: unknown): boolean {
     message.includes('over-redeemed') ||
     message.includes('trg_pack_below_zero') ||
     message.includes('23514')
+  )
+}
+
+/** pack_redemptions_active_appointment_unique (the partial unique index) —
+ *  a SECOND live redemption for one appointment. Same relayed-message wall as
+ *  isBelowZeroGuardError above: Postgres raises 23505 and Prisma wraps it as
+ *  P2002, and only the text survives the HTTP boundary. A separate
+ *  discriminator because this is the guard SUCCEEDING (the burn is already
+ *  recorded), not a failure — the auto-burn cron counts it as an idempotent
+ *  skip rather than an error. */
+function isDuplicateRedemptionError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  return (
+    message.includes('23505') ||
+    message.includes('P2002') ||
+    message.includes('pack_redemptions_active_appointment_unique')
   )
 }
 
