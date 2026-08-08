@@ -65,7 +65,7 @@ const DIST = 'thin/dist/assets'
 // by 0.1 KB). Genuine guard-logic volume, not bloat — same class as every
 // prior raise; the purchase-marker scan below stays the real gate.
 // Merge convention: on a same-line conflict with sibling PRs (#682/#683 =
-// 1_735_000, #685 = 1_741_000) the resolver keeps the LARGEST value.
+// 1_735_000, #685 = 1_742_000) the resolver keeps the LARGEST value.
 const BUDGET_BYTES = 1_734_000
 
 let dir
