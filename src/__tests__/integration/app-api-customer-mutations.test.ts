@@ -40,7 +40,9 @@ jest.mock('@/lib/auth/require-permission', () => ({
 // Business-scoped synqed client — customer writes go through here.
 const revokeConsent = jest.fn(async () => undefined)
 const uploadPhoto = jest.fn(async () => ({ id: 'photo-1' }))
-const fakeClient = { customers: { revokeConsent, uploadPhoto } }
+const listPhotos = jest.fn(async () => ({ photos: [] as unknown[] }))
+const deletePhoto = jest.fn(async () => undefined)
+const fakeClient = { customers: { revokeConsent, uploadPhoto, listPhotos, deletePhoto } }
 // Relearn transcript read — spied so the owner-gate tests can distinguish
 // "gate refused before any read" from "read ran, nothing to relearn".
 jest.mock('@/lib/karute/synqed-records', () => ({
@@ -83,7 +85,8 @@ const orgSettingsRead = jest.fn(async (): Promise<{ business_type: string } | nu
 jest.mock('@/actions/org-settings', () => ({ orgSettingsWithClient: () => orgSettingsRead() }))
 
 import { POST as consentRevoke, OPTIONS as consentOptions } from '@/app/api/app/v1/customers/[id]/consent/revoke/route'
-import { POST as photoUpload, OPTIONS as photoOptions } from '@/app/api/app/v1/customers/[id]/photos/route'
+import { GET as photoList, POST as photoUpload, OPTIONS as photoOptions } from '@/app/api/app/v1/customers/[id]/photos/route'
+import { DELETE as photoDelete, OPTIONS as photoDeleteOptions } from '@/app/api/app/v1/customers/[id]/photos/[photoId]/route'
 import { POST as memoryAdd, OPTIONS as memoryOptions } from '@/app/api/app/v1/customers/[id]/memory/route'
 import { PATCH as memoryPatch, DELETE as memoryDelete, OPTIONS as itemOptions } from '@/app/api/app/v1/customers/[id]/memory/[itemId]/route'
 import { POST as passportUpsert, OPTIONS as passportOptions } from '@/app/api/app/v1/customers/[id]/passport/route'
@@ -160,6 +163,11 @@ function photoReq(file: File | null, headers = auth, fields: Record<string, stri
 // Real container bytes — the route now sniffs magic numbers (declared MIME is
 // caller-controlled). 16 bytes of PNG signature + IHDR intro is enough.
 const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 73, 72, 68, 82])
+const getReq = () => new Request('https://s/x', { method: 'GET', headers: auth })
+const deleteReq = () => new Request('https://s/x', { method: 'DELETE', headers: auth })
+const photoRoute = (p: { id: string; photoId: string }): { params: Promise<{ id: string; photoId: string }> } => ({
+  params: Promise.resolve(p),
+})
 
 describe('POST photos', () => {
   it('happy path: uploads a valid image', async () => {
@@ -265,6 +273,47 @@ describe('POST photos', () => {
     }
     expect(options.recording_session_id).toBeUndefined()
     expect(options.taken_with_consent).toBeUndefined()
+  })
+})
+
+// ── photos GET (aggregate, packet PR 9b device-wiring delta) ────────────────
+describe('GET photos', () => {
+  it('the customer AGGREGATE reaches the response unfiltered — a mixed-session list, all rows pass through', async () => {
+    // Structure rule (Liam 8/9): this route is the presentation/compare feed —
+    // it must NEVER apply scopeKarutePhotos. Mixed session ids + a null-session
+    // photo, all three must survive untouched (same pin shape as 9a §F).
+    listPhotos.mockResolvedValueOnce({
+      photos: [
+        { id: 'p1', signed_url: 'https://x/p1', category: 'before', caption: null, recording_session_id: 'sess-1' },
+        { id: 'p2', signed_url: 'https://x/p2', category: 'after', caption: null, recording_session_id: 'sess-2' },
+        { id: 'p3', signed_url: 'https://x/p3', category: 'reference', caption: null, recording_session_id: null },
+      ],
+    })
+    const res = await photoList(getReq(), route({ id: 'cust-1' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.photos.map((p: { id: string }) => p.id)).toEqual(['p1', 'p2', 'p3'])
+  })
+
+  it('cross-tenant customer id → 404, no read', async () => {
+    const res = await photoList(getReq(), route({ id: 'cust-x' }))
+    expect(res.status).toBe(404)
+    expect(listPhotos).not.toHaveBeenCalled()
+  })
+})
+
+// ── photos DELETE /[photoId] (packet PR 9b device-wiring delta) ─────────────
+describe('DELETE photos/[photoId]', () => {
+  it('happy path: deletes the photo', async () => {
+    const res = await photoDelete(deleteReq(), photoRoute({ id: 'cust-1', photoId: 'photo-1' }))
+    expect(res.status).toBe(200)
+    expect(deletePhoto).toHaveBeenCalledWith('cust-1', 'photo-1')
+  })
+
+  it('cross-tenant customer id → 404, no delete', async () => {
+    const res = await photoDelete(deleteReq(), photoRoute({ id: 'cust-x', photoId: 'photo-1' }))
+    expect(res.status).toBe(404)
+    expect(deletePhoto).not.toHaveBeenCalled()
   })
 })
 
@@ -435,6 +484,7 @@ describe('OPTIONS preflight — shell-origin CORS, no auth', () => {
   const handlers: Array<[string, (req: Request, r: any) => Promise<Response>]> = [
     ['consent/revoke', consentOptions],
     ['photos', photoOptions],
+    ['photos/[photoId]', photoDeleteOptions],
     ['memory', memoryOptions],
     ['memory/[itemId]', itemOptions],
     ['passport', passportOptions],

@@ -51,6 +51,7 @@ export const AUDIT_ACTIONS = [
   'customer.pack_undo',
   'customer.passport_update',
   'customer.photo_add',
+  'customer.photo_delete',
   'customer.view',
   'karute.entries_regenerate', // pending: Wave W
   'karute.entry_edit',
@@ -274,8 +275,25 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'customers.deletePhoto',
     symbols: ['deleteCustomerPhoto'],
     justification:
-      'No FacadeEndpointKey covers photo deletion and the web action deleteCustomerPhoto has no auditWeb call — genuinely untracked today, not pendingWave (no wave has claimed it).',
+      // PR 9b device-wiring delta (2026-08-09) correction: customer.photo.delete
+      // now IS a FacadeEndpointKey (see the entry below) — the ORIGINAL claim
+      // here ("no FacadeEndpointKey covers photo deletion") no longer holds.
+      // What is still true and unchanged: THIS call site is the WEB action's
+      // own direct SDK call (deleteCustomerPhoto, src/actions/customers.ts),
+      // which has no auditWeb() call — same parity-gap class as
+      // customer.photo.upload's twin sentence below (the web upload action
+      // has no auditWeb call either). Not pendingWave — no wave has claimed
+      // web-side photo-action auditing.
+      'customer.photo.delete is a LIVE FACADE_AUDIT_MAP row as of PR 9b (facade auto-emit) covering the DEVICE/facade path. The web action deleteCustomerPhoto (this call site) has no auditWeb call — parity gap, not built here.',
     dated: '2026-07-27',
+  },
+  {
+    file: 'src/app/api/app/v1/customers/[id]/photos/[photoId]/route.ts',
+    call: 'customers.deletePhoto',
+    symbols: ['DELETE'],
+    justification:
+      "customer.photo.delete is a LIVE FACADE_AUDIT_MAP row (facade auto-emit) — same WithClient/Core-less shape as customer.photo.upload's entry above: the route handler itself never calls audit() directly, only the facade's generic hook (logFacadeAudit, excluded from AUDITED_CORES) does.",
+    dated: '2026-08-09',
   },
   {
     file: 'src/actions/customers.ts',

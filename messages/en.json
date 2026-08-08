@@ -2169,6 +2169,7 @@
           "pack_undo": "Undid pack redemption",
           "passport_update": "Corrected customer info",
           "photo_add": "Added customer photo",
+          "photo_delete": "Deleted customer photo",
           "brief_view": "Viewed pre-session brief",
           "ai_prediction_view": "Viewed AI body prediction",
           "create": "Created customer",

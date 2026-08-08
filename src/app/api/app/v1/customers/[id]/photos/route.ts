@@ -46,6 +46,25 @@ async function looksLikeImage(file: File): Promise<boolean> {
   return false
 }
 
+// GET — the customer's FULL photo list, no scoping. This is the aggregate
+// feed: presentation/compare surfaces (お客様に見せる, before/after compare)
+// consume this. Recording-session scoping (scopeKarutePhotos) is
+// karute-screen only (structure rule, Liam 8/9) — never applied here.
+export const GET = facadeHandler<Params>('customer.photos.list', async (ctx) => {
+  ensureCapability(ctx.identity.capabilities, 'customers.view')
+  const id = await customerId(ctx)
+  const synqed = newSynqedClient(ctx.identity.businessId)
+  await proveCustomerInBusiness(synqed, id)
+
+  try {
+    const { photos } = await synqed.customers.listPhotos(id)
+    return ok(ctx, { photos })
+  } catch (err) {
+    console.error('[customer.photos.list] upstream cause:', err)
+    throw new AppApiError('upstream_unavailable', 'photo list failed')
+  }
+})
+
 export const POST = facadeHandler<Params>('customer.photo.upload', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'customers.view')
   const id = await customerId(ctx)

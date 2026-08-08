@@ -220,7 +220,9 @@ export type FacadeEndpointKey =
   | 'customer.pack.redeem'
   | 'customer.pack.undoRedemption'
   | 'customer.passport.upsert'
+  | 'customer.photo.delete'
   | 'customer.photo.upload'
+  | 'customer.photos.list'
   | 'customer.read'
   | 'customer.update'
   | 'customers.list'
@@ -546,6 +548,15 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // Photos are the customer (§3.1).
   'customer.passport.upsert': { kind: 'mutation', category: 'customer', action: 'customer.passport_update', targetType: 'customer' },
   'customer.photo.upload': { kind: 'mutation', category: 'customer', action: 'customer.photo_add', targetType: 'customer' },
+  // PR 9b device-wiring delta (2026-08-09): DELETE mirrors the upload row's
+  // treatment exactly (mutation, same category/targetType) — a photo removal
+  // is audit-worthy the same way its addition is.
+  'customer.photo.delete': { kind: 'mutation', category: 'customer', action: 'customer.photo_delete', targetType: 'customer' },
+  // The aggregate photo LIST read — 'skip', design-parity with the web action
+  // it mirrors (listCustomerPhotos, src/actions/customers.ts) which has no
+  // audit() call at all; a facade row here would log something web itself
+  // never logs (same parity rule as the customer.pack.* skip rows above).
+  'customer.photos.list': { kind: 'skip', category: 'customer', action: '' },
 
   // karute.regenerate (§3.1: "mutation → karute.entries_regenerate /
   // karute.summary_regenerate", canon Wave 2, batch rules canon §4.2): the

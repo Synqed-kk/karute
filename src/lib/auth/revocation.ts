@@ -43,6 +43,7 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // a key that is not in this set.
   'customer.consent.revoke',
   'customer.photo.upload',
+  'customer.photo.delete',
   'customer.memory.add',
   'customer.memory.update',
   'customer.memory.delete',

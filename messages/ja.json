@@ -2169,6 +2169,7 @@
           "pack_undo": "回数券消化を取り消し",
           "passport_update": "基本情報を修正",
           "photo_add": "写真を追加",
+          "photo_delete": "写真を削除",
           "brief_view": "事前ブリーフを閲覧",
           "ai_prediction_view": "AI体調予測を閲覧",
           "create": "顧客を登録",
