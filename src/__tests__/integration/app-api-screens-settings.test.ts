@@ -68,6 +68,7 @@ const fullOrgSettings = () => ({
   voice_enrollments: {},
   staff_can_customize_packs: true,
   ticket_packs_enabled: true,
+  pack_burn_mode: 'manual' as const,
   coaching_enabled: false,
 })
 

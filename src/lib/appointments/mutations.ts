@@ -157,6 +157,22 @@ function burnWindowSince(appt: { starts_at: string; created_at: string }): strin
   return ymdInJst(new Date(anchor - 86_400_000))
 }
 
+/** Tri-state "does this booking already hold a live redemption?" — the ONE
+ *  burn-history probe, read by the guarded burn, the pre-delete check, and the
+ *  NO_SHOW correction below. An errored read is 'unknown' and EVERY caller
+ *  fails closed on it; the match is exact on appointment_id, so the window
+ *  (burnWindowSince) may only be too WIDE, never too narrow. */
+async function appointmentAlreadyBurned(
+  synqed: MutationClient,
+  appt: { starts_at: string; created_at: string },
+  appointmentId: string,
+): Promise<boolean | 'unknown'> {
+  return synqed.packs
+    .listRecentRedemptions(burnWindowSince(appt))
+    .then((rows) => rows.some((r) => r.appointment_id === appointmentId))
+    .catch(() => 'unknown' as const)
+}
+
 /**
  * The ONE guarded ticket burn — shared by the no-show and the
  * same-day-cancel paths so the money rules can never diverge:
@@ -186,11 +202,7 @@ async function executeGuardedBurn(
   // Ceiling (out of accident scope, council item): a booking BACKDATED before
   // its own creation date and then cycled could still evade this check —
   // adversarial-staff territory, not a bug in the normal reschedule flow.
-  const since = burnWindowSince(appt)
-  const alreadyBurned: boolean | 'unknown' = await synqed.packs
-    .listRecentRedemptions(since)
-    .then((rows) => rows.some((r) => r.appointment_id === appointmentId))
-    .catch(() => 'unknown' as const)
+  const alreadyBurned = await appointmentAlreadyBurned(synqed, appt, appointmentId)
   if (alreadyBurned === 'unknown') return 'burn_failed'
   if (alreadyBurned) return 'already_burned'
   const burn = await addRedemptionWithClient(synqed, {
@@ -428,7 +440,25 @@ export async function markNoShowAppointmentCore(
       patch as unknown as Parameters<typeof synqed.appointments.update>[1],
     )
 
-    const burnError = target ? await executeGuardedBurn(synqed, appt, appointmentId, target) : null
+    let burnError = target ? await executeGuardedBurn(synqed, appt, appointmentId, target) : null
+    // 自動消化 correction (packet 11 rider, L1#6). With auto mode on, a booking
+    // the cron already burned can still be corrected to NO_SHOW afterwards. The
+    // burn path is already safe (guard 1 → 'already_burned', never a second
+    // charge); the NO-burn path was SILENT — staff chose "don't charge" and were
+    // never told a ticket had already gone. Surface it. Only a definite `true`
+    // speaks: an unreadable history changes nothing here (this path creates no
+    // charge either way), so it must not invent a warning.
+    // KNOWN GAP — the redemption's counts_as_visit stays true. Flipping it means
+    // soft-remove + recreate, which needs the redemption's ID, and core exposes
+    // NO read that returns one (listRecentRedemptions / listRedemptions select
+    // no id; PacksClient has no getRedemption — same wall documented at
+    // audit-policy.ts's customer.pack.undoRedemption entry). Fixing it is a core
+    // ask, not an app change. Nothing reads counts_as_visit today, so the stale
+    // flag is inert until a lifecycle/dormancy consumer lands.
+    if (!target) {
+      const prior = await appointmentAlreadyBurned(synqed, appt, appointmentId)
+      if (prior === true) burnError = 'already_burned'
+    }
 
     // burn_pack/burn_error contract — see cancelAppointmentCore.
     audit({
@@ -568,10 +598,7 @@ export async function deleteAppointmentCore(
     // mutated yet, so both refusals below carry no audit row. (A deliberate
     // relax of this — e.g. an explicit "delete anyway" override — is a
     // council decision, not made here.)
-    const burned: boolean | 'unknown' = await synqed.packs
-      .listRecentRedemptions(burnWindowSince(appt))
-      .then((rows) => rows.some((r) => r.appointment_id === appointmentId))
-      .catch(() => 'unknown' as const)
+    const burned = await appointmentAlreadyBurned(synqed, appt, appointmentId)
     if (burned === 'unknown') {
       return { error: "Could not verify this booking's ticket history — try again." }
     }

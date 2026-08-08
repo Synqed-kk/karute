@@ -75,6 +75,12 @@ export interface OrgSettings {
   voice_enrollments: Record<string, VoiceEnrollment>
   /** Off → staff may only pick from presets (no free price/size input). */
   staff_can_customize_packs: boolean
+  /** How a ticket gets consumed. 'manual' (default, and what an absent key
+   *  means) = today's behavior: only a staff check-off / recording auto-flow /
+   *  no-show choice burns. 'auto' = the 自動消化 cron additionally burns one
+   *  ticket per completed booking the next morning (src/lib/packs/auto-burn.ts).
+   *  Cancellations are ticket-neutral in BOTH modes. */
+  pack_burn_mode: 'auto' | 'manual'
   /** Master switch for 回数券. Off → every pack surface hides (profile card,
    *  dashboard reconcile/alerts, recording burn + outcome dialog) and pack
    *  fetches are skipped. Historical rows stay untouched — switching back on
@@ -152,6 +158,9 @@ function normalizeOrgSettings(
       s.staff_can_customize_packs === undefined
         ? true
         : Boolean(s.staff_can_customize_packs),
+    // Money default: anything that isn't literally 'auto' reads as 'manual', so
+    // a garbled/absent blob value can never turn automatic charging ON.
+    pack_burn_mode: s.pack_burn_mode === 'auto' ? 'auto' : 'manual',
     ticket_packs_enabled:
       s.ticket_packs_enabled === undefined
         ? true

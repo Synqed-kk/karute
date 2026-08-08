@@ -735,4 +735,17 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
     justification: 'CRON_SECRET/worker-key-gated pipeline tick; recording pipeline audits at its own choke points.',
     dated: '2026-07-27',
   },
+  // 自動消化 (packet 11). CRON_SECRET-gated like its siblings, but NOT a skip:
+  // this one SPENDS CUSTOMER MONEY with no staff in the loop, so every burn
+  // emits its own customer.pack_redeem row (actorType 'system', severity
+  // 'notice', detail carrying appointment_id + pack_id + redemption_id) —
+  // without it an auto burn would be the only ticket movement in the product
+  // with no disputable trail.
+  'packs/auto-burn': {
+    kind: 'mutation',
+    justification:
+      "coveredBy burnOneAutoRedemption's customer.pack_redeem emit, one row per ticket actually burned (verified at source). The batch driver autoBurnForBusiness is deliberately NOT the citation — it returns without emitting whenever there is nothing to burn, which is a correct outcome, not an unaudited write.",
+    dated: '2026-08-08',
+    coveredBy: 'src/lib/packs/auto-burn.ts#burnOneAutoRedemption',
+  },
 }
