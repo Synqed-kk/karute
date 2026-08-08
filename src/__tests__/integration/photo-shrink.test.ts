@@ -76,6 +76,34 @@ describe('shrinkPhotoForUpload', () => {
     expect(bitmap.close).toHaveBeenCalledTimes(1)
   })
 
+  it('walks ALL six rungs down to the 800px/q0.35 floor when nothing fits, and returns the smallest', async () => {
+    const big = fileOfSize('IMG_0004.jpg', PHOTO_UPLOAD_TARGET_BYTES + 1_000)
+    const bitmap = mockBitmap()
+    ;(globalThis as unknown as { createImageBitmap: jest.Mock }).createImageBitmap = jest
+      .fn()
+      .mockResolvedValue(bitmap)
+
+    // Every rung oversized; the 5th is the smallest — pins that the ladder
+    // exhausts all rungs and the smallest (not the last) blob wins.
+    const sizes = [2_000_000, 1_800_000, 1_600_000, 1_400_000, 1_000_000, 1_100_000]
+    const blobs = sizes.map(
+      (s) => new Blob([new Uint8Array(s)], { type: 'image/jpeg' }),
+    )
+    const toBlob = jest.fn()
+    blobs.forEach((b) => toBlob.mockImplementationOnce((cb: BlobCallback) => cb(b)))
+    jest.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(toBlob)
+    jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage: jest.fn(),
+    } as unknown as CanvasRenderingContext2D)
+
+    const result = await shrinkPhotoForUpload(big)
+
+    expect(toBlob).toHaveBeenCalledTimes(6)
+    expect(toBlob.mock.calls.map((c) => c[2])).toEqual([0.85, 0.7, 0.6, 0.5, 0.4, 0.35])
+    expect(result.size).toBe(1_000_000)
+    expect(result.name).toBe('IMG_0004.jpg')
+  })
+
   it('returns the original file when createImageBitmap rejects (e.g. HEIC decode failure)', async () => {
     const big = fileOfSize('IMG_0002.HEIC', PHOTO_UPLOAD_TARGET_BYTES + 1_000)
     ;(globalThis as unknown as { createImageBitmap: jest.Mock }).createImageBitmap = jest

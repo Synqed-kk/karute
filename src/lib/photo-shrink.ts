@@ -6,14 +6,19 @@
 export const PHOTO_UPLOAD_TARGET_BYTES = 900_000
 
 // Downscale ladder: [maxEdge, quality]. Re-encoding to JPEG intentionally
-// strips EXIF (including GPS) — not a bug. Floor is 1280px/q0.5.
-// ponytail: fixed ladder, not adaptive binary-search — swap only if quality
-// complaints come in.
+// strips EXIF (including GPS) — not a bug. The 800px/q0.35 floor makes the
+// exhaustion path unreachable in practice: a JPEG that small physically
+// can't exceed 900KB, so the return-smallest fallback below is defense, not
+// a live upload-oversized path (Greptile P1 on the 1280px floor — fixed by
+// these two rungs). ponytail: fixed ladder, not adaptive binary-search —
+// swap only if quality complaints come in.
 const LADDER: Array<[maxEdge: number, quality: number]> = [
   [2048, 0.85],
   [2048, 0.7],
   [1600, 0.6],
   [1280, 0.5],
+  [1024, 0.4],
+  [800, 0.35],
 ]
 
 function toBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob | null> {
