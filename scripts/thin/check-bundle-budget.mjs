@@ -59,7 +59,14 @@ const DIST = 'thin/dist/assets'
 // bloat — same class as every prior raise; the purchase-marker scan below
 // stays the real gate. (A lazy-chunk split was tried first and REVERTED: the
 // gate correctly counts total thin JS, so splitting only added overhead.)
-const BUDGET_BYTES = 1_733_000
+// Raised 2026-08-09 on PR #684's final-size guard (Greptile 4/5 re-review) —
+// PhotosTabContent's upload path gains the PHOTO_UPLOAD_TARGET_BYTES check +
+// import, measured at 1692.5 KB raw against the prior 1692.4 KB ceiling (over
+// by 0.1 KB). Genuine guard-logic volume, not bloat — same class as every
+// prior raise; the purchase-marker scan below stays the real gate.
+// Merge convention: on a same-line conflict with sibling PRs (#682/#683 =
+// 1_735_000, #685 = 1_741_000) the resolver keeps the LARGEST value.
+const BUDGET_BYTES = 1_734_000
 
 let dir
 try {

@@ -5,13 +5,23 @@
 // probe-proven 2026-08-08). 50KB margin.
 export const PHOTO_UPLOAD_TARGET_BYTES = 900_000
 
+// Probe-proven server 503 floor (2026-08-08) — the actual point past which
+// core rejects the request body. TARGET above is only the shrink ladder's
+// safety margin goal; REJECT is what the caller guard must key off so the
+// legitimate 900–950KB pass-through window still reaches the server.
+export const PHOTO_UPLOAD_REJECT_BYTES = 950_000
+
 // Downscale ladder: [maxEdge, quality]. Re-encoding to JPEG intentionally
 // strips EXIF (including GPS) — not a bug. The 800px/q0.35 floor makes the
 // exhaustion path unreachable in practice: a JPEG that small physically
 // can't exceed 900KB, so the return-smallest fallback below is defense, not
 // a live upload-oversized path (Greptile P1 on the 1280px floor — fixed by
-// these two rungs). ponytail: fixed ladder, not adaptive binary-search —
-// swap only if quality complaints come in.
+// these two rungs). The caller (PhotosTabContent) guards at the REJECT
+// floor before upload, so only bodies the server would certainly 503 are
+// blocked — ladder exhaustion or the undecodable pass-through below still
+// reach the server exactly as before in the 900–950KB window.
+// ponytail: fixed ladder, not adaptive binary-search — swap only if quality
+// complaints come in.
 const LADDER: Array<[maxEdge: number, quality: number]> = [
   [2048, 0.85],
   [2048, 0.7],
