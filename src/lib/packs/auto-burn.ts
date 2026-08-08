@@ -231,6 +231,12 @@ export async function autoBurnRecentDays(
   // first run (or the first run after the owner flips 自動消化 on) must never
   // retro-charge the days before that decision.
   const pending = force ? dates : marker ? dates.filter((d) => d > marker) : [today]
+  // An empty pending on a healthy marker is normal (nothing to settle yet) —
+  // but it reads identically to "flip day, marker seeded to today". Name it,
+  // so a quiet business is distinguishable from a just-flipped one in the log.
+  if (pending.length === 0 && marker === today) {
+    console.log('[auto-burn] marker at today (flip day or already settled) — nothing pending', { businessId })
+  }
 
   const summaries: AutoBurnSummary[] = []
   let high = marker

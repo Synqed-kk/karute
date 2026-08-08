@@ -303,6 +303,14 @@ export async function writeOrgSettingsBlobWithClient(
       (patch.pack_burn_mode ?? s.pack_burn_mode) === 'auto' &&
       (patch.ticket_packs_enabled ?? s.ticket_packs_enabled) !== false
     if (!effectiveAuto(existingSettings, {}) && effectiveAuto(existingSettings, rest)) {
+      // The seed leapfrogs whatever marker was there — if the cron had a
+      // genuine backlog (stall/outage), those days are deliberately ceded to
+      // flip-forward (never retro-charge), but never silently: mirror the
+      // cron's own gap warning so the log tells the same story on both sides.
+      const prior = existingSettings.auto_burn_last_processed
+      if (typeof prior === 'string' && prior < ymdInJst(new Date(Date.now() - 86_400_000))) {
+        console.warn('[auto-burn] flip-on seed leapfrogs stale marker', { prior, seeded: ymdInJst() })
+      }
       rest.auto_burn_last_processed = ymdInJst()
     }
 
