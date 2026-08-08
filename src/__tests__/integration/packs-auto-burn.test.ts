@@ -32,7 +32,9 @@ jest.mock('@/lib/packs/store', () => ({
 }))
 
 import { autoBurnForBusiness, autoBurnRecentDays } from '@/lib/packs/auto-burn'
+import { orgSettingsWithClient, writeOrgSettingsBlobWithClient } from '@/actions/org-settings'
 import { ymdInJst } from '@/lib/date/jst'
+import { auditLines } from './helpers/audit-lines'
 
 const DATE = '2026-07-06'
 // 12:00 JST on DATE — comfortably inside the day window either side of midnight.
@@ -57,9 +59,9 @@ type Appt = {
   ends_at: string
   /** Only used where the fallback is under test — core normally sends ends_at. */
   duration_minutes?: number | null
-  // The burn-history window anchors on min(starts_at, created_at) — equal by
-  // default so every existing expectation is unchanged; the widening test
-  // below sets them apart on purpose.
+  // Kept on the fixture because core sends it; the burn-history window no
+  // longer reads it (round 2 G4 bounded the floor at date−1), and the window
+  // tests below set it far back on purpose to prove exactly that.
   created_at: string
 }
 const appt = (over: Partial<Appt> = {}): Appt => ({
@@ -147,7 +149,9 @@ describe('自動消化 — the mode gate', () => {
       settingsRow({ pack_burn_mode: 'auto', ticket_packs_enabled: false }),
     )
     const s = await run()
-    expect(s.mode).toBe('manual')
+    // Round 2 G9: its OWN mode word. 'packs_disabled' and 'manual' are two
+    // different owner decisions and a money report must not spell them the same.
+    expect(s.mode).toBe('packs_disabled')
     expect(apptList).not.toHaveBeenCalled()
     expect(addRedemption).not.toHaveBeenCalled()
   })
@@ -360,29 +364,13 @@ describe('自動消化 — pagination', () => {
   })
 })
 
-// Blind-round F6: the history floor was date−1, narrower than the burn guard's
-// own min(starts_at, created_at)−1 rule (mutations.ts burnWindowSince) — a
-// booking made long before its slot could reach the DB index instead of the
-// in-app guard.
+// Round 2 G4 (partially reverting F6a): the floor is BOUNDED at date−1 again.
+// The wide floor let one far-in-advance booking drag an unbounded, unpaginated
+// core read 16× a day — a chronic timeout there is silent under-burn, a bigger
+// money hole than the reschedule case it covered. That case is now covered by
+// the DB's appointment-scoped unique index (F6b's 23505 classification).
 describe('自動消化 — the burn-history window', () => {
-  it('reaches back to CREATION, so a long-booked visit still finds its own earlier burn', async () => {
-    apptList.mockImplementation(async () =>
-      page([appt({ created_at: '2026-06-01T00:00:00.000Z' })]),
-    )
-    // The mock IS the proof: the old redemption only surfaces for a window that
-    // actually reaches back to creation. A floor of DATE−1 ('2026-07-05') gets
-    // [] — the narrow window would have missed it and burned a second ticket.
-    listRecentRedemptions.mockImplementation(async (since) =>
-      since <= '2026-06-01'
-        ? [{ customer_id: 'cust-1', appointment_id: 'appt-1', redeemed_on: '2026-06-01' }]
-        : [],
-    )
-    const s = await run()
-    expect(addRedemption).not.toHaveBeenCalled()
-    expect(s.skippedAlreadyBurned).toBe(1)
-  })
-
-  it('ONE wide read serves the whole day — the floor is the earliest anchor of ANY candidate', async () => {
+  it('is BOUNDED at date−1 — one read, one day, no matter how far ahead a booking was made', async () => {
     apptList.mockImplementation(async () =>
       page([
         appt({ id: 'appt-2', customer_id: 'cust-2' }),
@@ -391,7 +379,19 @@ describe('自動消化 — the burn-history window', () => {
     )
     await run()
     expect(listRecentRedemptions).toHaveBeenCalledTimes(1)
-    expect(listRecentRedemptions).toHaveBeenCalledWith('2026-05-31')
+    expect(listRecentRedemptions).toHaveBeenCalledWith('2026-07-05')
+  })
+
+  it('the long-booked visit already burned under an earlier date lands on the DB backstop, NOT on errors', async () => {
+    apptList.mockImplementation(async () =>
+      page([appt({ created_at: '2026-06-01T00:00:00.000Z' })]),
+    )
+    // Its burn sits outside the bounded window, so guard 1's read misses it…
+    listRecentRedemptions.mockImplementation(async () => [])
+    // …and the appointment-scoped partial unique index is what refuses.
+    addRedemption.mockImplementation(async () => ({ ok: false, error: 'already_redeemed' }))
+    const s = await run()
+    expect(s).toMatchObject({ candidates: 1, skippedAlreadyBurned: 1, burned: 0, errors: 0 })
   })
 })
 
@@ -630,5 +630,349 @@ describe('自動消化 — an intraday rerun is idempotent', () => {
     expect(addRedemption).toHaveBeenCalledTimes(1)
     // Neither pass settled the day — that stays the 08:30 pass's job.
     expect(orgSettingsUpsert).not.toHaveBeenCalled()
+  })
+})
+
+// ── ROUND 2 (blind round on 072fadf0) ────────────────────────────────────────
+
+// G1 (P1). The marker read used to .catch(() => undefined), so "core is down"
+// and "this business has never been processed" were the SAME value. That fails
+// OPEN: the run processes today only, fabricates a yesterday seed, and
+// OVERWRITES a real marker that still had catch-up days behind it — those days
+// are then gone forever, with nothing in the report to say so.
+describe('自動消化 — an UNREADABLE marker is not an absent marker', () => {
+  const NOW = Date.parse('2026-07-07T02:00:00.000Z') // 11:00 JST on 07-07
+
+  beforeEach(() => {
+    jest.spyOn(Date, 'now').mockReturnValue(NOW)
+  })
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it('processes NOTHING, writes NOTHING, and says marker-unreadable', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    orgSettingsGet.mockRejectedValue(new Error('core down'))
+    const out = await autoBurnRecentDays(client(), 'biz-1')
+    expect(out).toEqual([expect.objectContaining({ mode: 'unavailable', date: '2026-07-07' })])
+    expect(apptList).not.toHaveBeenCalled()
+    expect(addRedemption).not.toHaveBeenCalled()
+    expect(orgSettingsUpsert).not.toHaveBeenCalled()
+    expect(warn.mock.calls.flat().join(' ')).toContain('marker UNREADABLE')
+  })
+
+  it('…and the next healthy run resumes the FULL catch-up from the real marker', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {})
+    orgSettingsGet.mockRejectedValue(new Error('core down'))
+    expect((await autoBurnRecentDays(client(), 'biz-1'))[0].mode).toBe('unavailable')
+
+    orgSettingsGet.mockImplementation(async () =>
+      settingsRow({ pack_burn_mode: 'auto', auto_burn_last_processed: '2026-07-04' }),
+    )
+    const out = await autoBurnRecentDays(client(), 'biz-1')
+    expect(out.map((s) => s.date)).toEqual(['2026-07-05', '2026-07-06', '2026-07-07'])
+    expect(orgSettingsUpsert).toHaveBeenCalledWith({
+      settings: expect.objectContaining({ auto_burn_last_processed: '2026-07-06' }),
+    })
+  })
+})
+
+// G2 (P1). "Never throws" was a contract this function could not keep: a
+// malformed starts_at with a readable ends_at clears the grace cutoff, reaches
+// the loop, and ymdInJst throws on it (Intl rejects an Invalid Date). One bad
+// row took the whole business down — and the marker froze on that date, so it
+// stayed down, run after run.
+describe('自動消化 — one malformed row never wedges the business', () => {
+  const BAD = appt({ id: 'appt-bad', customer_id: 'cust-bad', starts_at: 'nonsense' })
+
+  it('the bad candidate lands in errors and its siblings still burn', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {})
+    apptList.mockImplementation(async () => page([BAD, appt()]))
+    const s = await run()
+    expect(addRedemption).toHaveBeenCalledTimes(1)
+    expect(addRedemption).toHaveBeenCalledWith(expect.objectContaining({ appointmentId: 'appt-1' }))
+    expect(s).toMatchObject({ candidates: 2, burned: 1, errors: 1 })
+  })
+
+  it('the run RESOLVES — errors>0 stalls the marker, so the next pass retries the day', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {})
+    jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-07-07T02:00:00.000Z'))
+    orgSettingsGet.mockImplementation(async () =>
+      settingsRow({ pack_burn_mode: 'auto', auto_burn_last_processed: '2026-07-05' }),
+    )
+    apptList.mockImplementation(async (o) =>
+      ymdInJst(new Date((o as { from: string }).from)) === DATE ? page([BAD]) : page([]),
+    )
+    const out = await autoBurnRecentDays(client(), 'biz-1')
+    expect(out.map((s) => s.date)).toEqual([DATE, '2026-07-07'])
+    expect(out[0].errors).toBe(1)
+    expect(orgSettingsUpsert).not.toHaveBeenCalled()
+    jest.restoreAllMocks()
+  })
+})
+
+// G3 (P2) + G6 (P2). Two silent marker states: an outage longer than the
+// LOOKBACK window (the mark JUMPS the days it can no longer reach) and a
+// garbled/future marker (`pending` empty FOREVER — fail-closed, but reading
+// exactly like a quiet day).
+describe('自動消化 — the marker states that used to be silent', () => {
+  const NOW = Date.parse('2026-07-07T02:00:00.000Z')
+  let warn: jest.SpyInstance
+
+  beforeEach(() => {
+    jest.spyOn(Date, 'now').mockReturnValue(NOW)
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+  const said = () => warn.mock.calls.flat().join(' ')
+
+  it('a marker older than the window REPORTS the days it is jumping over', async () => {
+    orgSettingsGet.mockImplementation(async () =>
+      settingsRow({ pack_burn_mode: 'auto', auto_burn_last_processed: '2026-07-01' }),
+    )
+    const out = await autoBurnRecentDays(client(), 'biz-1')
+    expect(out.map((s) => s.date)).toEqual(['2026-07-04', '2026-07-05', '2026-07-06', '2026-07-07'])
+    expect(said()).toContain('catch-up GAP')
+  })
+
+  it('a contiguous marker reports NO gap', async () => {
+    orgSettingsGet.mockImplementation(async () =>
+      settingsRow({ pack_burn_mode: 'auto', auto_burn_last_processed: '2026-07-03' }),
+    )
+    await autoBurnRecentDays(client(), 'biz-1')
+    expect(said()).not.toContain('catch-up GAP')
+  })
+
+  // The FORMAT check is its own layer, upstream in normalizeOrgSettings, so it
+  // has to be pinned upstream too: end to end the future-clamp below happens to
+  // catch the same values, which would leave the regex untested.
+  it('a GARBLED marker never leaves the normalizer — absent for EVERY reader, not just the cron', async () => {
+    orgSettingsGet.mockImplementation(async () =>
+      settingsRow({ pack_burn_mode: 'auto', auto_burn_last_processed: '2026/07/06' }),
+    )
+    const s = await orgSettingsWithClient(client())
+    expect(s?.auto_burn_last_processed).toBeUndefined()
+  })
+
+  it('a GARBLED marker reads as absent — today only, reseeded, never an empty pending list', async () => {
+    orgSettingsGet.mockImplementation(async () =>
+      settingsRow({ pack_burn_mode: 'auto', auto_burn_last_processed: 'corrupt' }),
+    )
+    const out = await autoBurnRecentDays(client(), 'biz-1')
+    // The bug: 'corrupt' sorts above every date, so `pending` was [] forever.
+    expect(out.map((s) => s.date)).toEqual(['2026-07-07'])
+    expect(out[0].burned).toBe(1)
+    expect(orgSettingsUpsert).toHaveBeenCalledWith({
+      settings: expect.objectContaining({ auto_burn_last_processed: '2026-07-06' }),
+    })
+  })
+
+  it('a FUTURE marker is treated as unset, loudly, and the day is reseeded sanely', async () => {
+    orgSettingsGet.mockImplementation(async () =>
+      settingsRow({ pack_burn_mode: 'auto', auto_burn_last_processed: '2027-01-01' }),
+    )
+    const out = await autoBurnRecentDays(client(), 'biz-1')
+    expect(out.map((s) => s.date)).toEqual(['2026-07-07'])
+    expect(said()).toContain('marker is in the FUTURE')
+    expect(orgSettingsUpsert).toHaveBeenCalledWith({
+      settings: expect.objectContaining({ auto_burn_last_processed: '2026-07-06' }),
+    })
+  })
+})
+
+// G7 (P2). The stall rule has three disjuncts and only one of them was tested.
+// A day that stalls must hold the marker back WITHOUT stopping the later days
+// from burning.
+describe('自動消化 — every stall disjunct holds the marker back', () => {
+  const NOW = Date.parse('2026-07-07T02:00:00.000Z')
+
+  beforeEach(() => {
+    jest.spyOn(Date, 'now').mockReturnValue(NOW)
+    orgSettingsGet.mockImplementation(async () =>
+      settingsRow({ pack_burn_mode: 'auto', auto_burn_last_processed: '2026-07-04' }),
+    )
+  })
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it("an UNAVAILABLE day (settings unreadable mid-window) stalls it — later days still burn", async () => {
+    // Call 1 is the marker read; call 2 is 07-05's own settings read.
+    let n = 0
+    orgSettingsGet.mockImplementation(async () => {
+      n += 1
+      if (n === 2) throw new Error('core down')
+      return settingsRow({ pack_burn_mode: 'auto', auto_burn_last_processed: '2026-07-04' })
+    })
+    const out = await autoBurnRecentDays(client(), 'biz-1')
+    expect(out.map((s) => s.mode)).toEqual(['unavailable', 'auto', 'auto'])
+    expect(out[1].burned).toBe(1)
+    expect(orgSettingsUpsert).not.toHaveBeenCalled()
+  })
+
+  it('an ERRORED day stalls it — later days still burn', async () => {
+    apptList.mockRejectedValueOnce(new Error('core down'))
+    const out = await autoBurnRecentDays(client(), 'biz-1')
+    expect(out.map((s) => s.errors)).toEqual([1, 0, 0])
+    expect(out[1].burned).toBe(1)
+    expect(orgSettingsUpsert).not.toHaveBeenCalled()
+  })
+})
+
+// G7 (P2), second half: the audit row itself was completely untested. A ticket
+// that moves with no staff touching anything has to be as disputable after the
+// fact as a staff burn.
+describe('自動消化 — the audit row', () => {
+  it('emits ONE customer.pack_redeem, actor system, carrying the correlation ids', async () => {
+    const lines = await auditLines(async () => {
+      expect((await run()).burned).toBe(1)
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      category: 'customer',
+      action: 'customer.pack_redeem',
+      actor_id: null,
+      actor_type: 'system',
+      business_id: 'biz-1',
+      target_type: 'customer',
+      target_id: 'cust-1',
+      severity: 'notice',
+      source: 'system',
+      detail: {
+        appointment_id: 'appt-1',
+        pack_id: 'pack-1',
+        redemption_id: 'redemption-1',
+        redeemed_on: DATE,
+        source: 'auto',
+      },
+    })
+  })
+
+  it('emits NOTHING when the guards skip the burn', async () => {
+    listRecentRedemptions.mockImplementation(async () => [
+      { customer_id: 'cust-1', appointment_id: 'appt-1', redeemed_on: DATE },
+    ])
+    const lines = await auditLines(async () => {
+      expect((await run()).skippedAlreadyBurned).toBe(1)
+    })
+    expect(lines).toHaveLength(0)
+  })
+})
+
+// G9 (P3). A business that is not in auto mode has nothing to settle, so it
+// must not collect a marker every night — and the day it flips on must still
+// read as a genuine first run.
+describe('自動消化 — a non-auto business earns no marker', () => {
+  beforeEach(() => {
+    jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-07-07T02:00:00.000Z'))
+  })
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it("mode 'manual' writes no marker at all", async () => {
+    orgSettingsGet.mockImplementation(async () => settingsRow({ pack_burn_mode: 'manual' }))
+    const out = await autoBurnRecentDays(client(), 'biz-1')
+    expect(out.map((s) => s.mode)).toEqual(['manual'])
+    expect(orgSettingsUpsert).not.toHaveBeenCalled()
+  })
+
+  it('packs disabled writes no marker either', async () => {
+    orgSettingsGet.mockImplementation(async () =>
+      settingsRow({ pack_burn_mode: 'auto', ticket_packs_enabled: false }),
+    )
+    const out = await autoBurnRecentDays(client(), 'biz-1')
+    expect(out.map((s) => s.mode)).toEqual(['packs_disabled'])
+    expect(orgSettingsUpsert).not.toHaveBeenCalled()
+  })
+})
+
+// G11 (P3). The 40-page cap is the money cron's "stop rather than spin" rule
+// for a core that keeps reporting more than it sends.
+describe('自動消化 — the pagination cap terminates', () => {
+  it('stops at 40 pages when `total` never gets covered', async () => {
+    apptList.mockImplementation(async (o) => {
+      const n = (o as { page: number }).page
+      return page([appt({ id: `appt-${n}` })], 999_999)
+    })
+    const s = await run()
+    expect(apptList).toHaveBeenCalledTimes(40)
+    // One customer across all 40 → guard 2 still holds inside the same run.
+    expect(s).toMatchObject({ candidates: 40, burned: 1, skippedSameDay: 39 })
+  })
+})
+
+// G5 (P2). 自動消化 OFF→ON is a FORWARD-GOING decision, and the settings write
+// is the one place the transition is visible. Without the seed the first sweep
+// after a mid-day flip retro-charges every booking that already ended today —
+// the opposite of what the hint copy promises.
+describe('自動消化 — flipping the switch ON seeds the marker', () => {
+  const writeClient = () =>
+    ({ orgSettings: { get: orgSettingsGet, upsert: orgSettingsUpsert } }) as unknown as Parameters<
+      typeof writeOrgSettingsBlobWithClient
+    >[0]
+
+  it('OFF→ON settles TODAY, so burning starts with tomorrow, not this morning', async () => {
+    orgSettingsGet.mockImplementation(async () => settingsRow({ pack_burn_mode: 'manual' }))
+    await expect(
+      writeOrgSettingsBlobWithClient(writeClient(), { pack_burn_mode: 'auto' }),
+    ).resolves.toEqual({ success: true })
+    expect(orgSettingsUpsert).toHaveBeenCalledWith({
+      settings: { pack_burn_mode: 'auto', auto_burn_last_processed: ymdInJst() },
+    })
+  })
+
+  // Both switches gate the cron, so both gate the seed: 回数券 coming back on
+  // after a break must not let the catch-up window reach into the days it was
+  // off (the mode stays 'auto' in the merged blob the whole time).
+  it('回数券 OFF→ON seeds too, even though the mode never moved', async () => {
+    orgSettingsGet.mockImplementation(async () =>
+      settingsRow({ pack_burn_mode: 'auto', ticket_packs_enabled: false }),
+    )
+    await writeOrgSettingsBlobWithClient(writeClient(), {
+      ticket_packs_enabled: true,
+      pack_burn_mode: 'auto',
+    })
+    expect(orgSettingsUpsert).toHaveBeenCalledWith({
+      settings: expect.objectContaining({ auto_burn_last_processed: ymdInJst() }),
+    })
+  })
+
+  it('turning 回数券 OFF seeds nothing — it is not a transition ON', async () => {
+    orgSettingsGet.mockImplementation(async () => settingsRow({ pack_burn_mode: 'auto' }))
+    await writeOrgSettingsBlobWithClient(writeClient(), { ticket_packs_enabled: false })
+    expect(orgSettingsUpsert).toHaveBeenCalledWith({
+      settings: { pack_burn_mode: 'auto', ticket_packs_enabled: false },
+    })
+  })
+
+  it("the cron's OWN marker write passes through untouched", async () => {
+    orgSettingsGet.mockImplementation(async () => settingsRow({ pack_burn_mode: 'auto' }))
+    await writeOrgSettingsBlobWithClient(writeClient(), {
+      auto_burn_last_processed: '2026-07-06',
+    })
+    expect(orgSettingsUpsert).toHaveBeenCalledWith({
+      settings: { pack_burn_mode: 'auto', auto_burn_last_processed: '2026-07-06' },
+    })
+  })
+
+  it('an ALREADY-auto save leaves the marker alone — a re-save must not stall a catch-up', async () => {
+    orgSettingsGet.mockImplementation(async () =>
+      settingsRow({ pack_burn_mode: 'auto', auto_burn_last_processed: '2026-07-04' }),
+    )
+    await writeOrgSettingsBlobWithClient(writeClient(), { pack_burn_mode: 'auto' })
+    expect(orgSettingsUpsert).toHaveBeenCalledWith({
+      settings: { pack_burn_mode: 'auto', auto_burn_last_processed: '2026-07-04' },
+    })
+  })
+
+  it('an UNRELATED settings save never touches the marker', async () => {
+    orgSettingsGet.mockImplementation(async () => settingsRow({ pack_burn_mode: 'manual' }))
+    await writeOrgSettingsBlobWithClient(writeClient(), { staff_can_customize_packs: false })
+    expect(orgSettingsUpsert).toHaveBeenCalledWith({
+      settings: { pack_burn_mode: 'manual', staff_can_customize_packs: false },
+    })
   })
 })

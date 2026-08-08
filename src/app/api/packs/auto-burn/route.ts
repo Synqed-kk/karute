@@ -13,7 +13,14 @@ import { autoBurnRecentDays, type AutoBurnSummary } from '@/lib/packs/auto-burn'
 //
 // Each business processes every JST day in the scan window its marker hasn't
 // cleared — always including today — so a missed or failed run catches up on
-// the next tick, and overlapping ticks are idempotent through guards 1+2.
+// the next tick. Overlapping ticks are idempotent through GUARD 1 (the
+// appointment match) plus the DB's appointment-scoped partial unique index,
+// which is the only one of the two guards with a database backstop. Guard 2
+// (one customer-day, one ticket) is in-app ONLY: two passes racing inside one
+// customer-day would need a duplicate platform delivery or an operator ?force=1
+// mid-pass to beat it, and a SCHEDULED overlap is structurally impossible
+// (maxDuration 300 < every inter-tick gap). Accepted residual, round 2 —
+// closing it is a core-side unique index (parked Anthony ask).
 // `?force=1` reprocesses the whole window (the deliberate backfill lever) — not
 // a second auth surface: the CRON_SECRET check below still gates it.
 //
@@ -42,6 +49,12 @@ export async function GET(request: Request) {
     .map((s) => s.trim())
     .filter(Boolean)
   const force = new URL(request.url).searchParams.get('force') === '1'
+  // An unset/empty allowlist answers 200 [] — correct (nothing is configured to
+  // burn) but indistinguishable in the log from a night where nothing was
+  // burnable (round 2 G9). Say which one it is.
+  if (businessIds.length === 0) {
+    console.warn('[auto-burn] AUTO_BURN_BUSINESS_IDS is empty — no business is enrolled')
+  }
 
   const results: Array<AutoBurnSummary | { businessId: string; error: string }> = []
   for (const businessId of businessIds) {

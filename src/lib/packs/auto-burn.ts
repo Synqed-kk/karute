@@ -25,10 +25,16 @@ import { audit } from '@/lib/audit'
 //     it is what closes a late-evening session (ends 22:30 → its grace expires
 //     after the 23:00 tick) and what finally advances the day marker.
 // Why 2h: core's QR crawl ticks every 15 min inside 08:00–22:00 JST
-// (sync.service isWithinBusinessHours, prod-seeded 8/22 Asia/Tokyo), so a
-// last-minute cancellation gets ~8 passes to land before the money moves —
-// which is the grace the old overnight comment only claimed to have (blind-round
+// (sync.service isWithinBusinessHours, prod-seeded 8/22 Asia/Tokyo) — the room
+// a last-minute cancellation has to land before the money moves (blind-round
 // F1, ledger pre-autoburn-blind-round-ledger-2026-08-08.md).
+//   THE REAL BOUND, which is NOT flat (round 2 G10): a midday session gets the
+//   full ~8 crawl passes inside its grace; a session ending 21:00 gets 3
+//   (21:15 / 21:30 / 21:45 — the crawl's last tick of the day); a late-evening
+//   session gets 2 the next morning (08:00 / 08:15, ahead of the 08:30 settle
+//   pass) because the crawl sleeps 22:00–08:00. The later the session, the
+//   thinner the cover — which is why the cancel-path warning below, not the
+//   schedule, is what catches an evening correction.
 //   RESIDUAL, documented not fixed here: a correction entered MORE than the
 //   grace after the session ended can post-date a burn — the crawl's window
 //   also starts at TODAY, so a post-close cancel of a same-evening booking
@@ -75,8 +81,13 @@ export interface AutoBurnSummary {
   businessId: string
   /** JST business date processed (yyyy-mm-dd). */
   date: string
-  /** 'manual' / absent setting / unreadable settings → nothing was touched. */
-  mode: 'auto' | 'manual' | 'unavailable'
+  /** What this business's settings said. 'manual' = the burn mode is off;
+   *  'packs_disabled' = 回数券 itself is off, which OUTRANKS a stale
+   *  pack_burn_mode:'auto' left in the merged blob (they were conflated as
+   *  'manual' until round 2 G9 — the same word for two different owner
+   *  decisions); 'unavailable' = we could not read the settings at all.
+   *  Only 'auto' touches anything. */
+  mode: 'auto' | 'manual' | 'packs_disabled' | 'unavailable'
   /** Completed bookings whose grace has expired — the ones this pass may burn. */
   candidates: number
   burned: number
@@ -115,30 +126,29 @@ const empty = (
   errors: 0,
 })
 
-/** Burn-history read floor for a whole day's candidates: a day before the
- *  EARLIEST anchor any of them has, where one booking's anchor is
- *  min(starts_at, created_at) — burnWindowSince's rule (mutations.ts), applied
- *  once so a single wide read serves every per-candidate check. starts_at is
- *  mutable (a reschedule moves it), created_at is not, so anchoring to
- *  whichever is earlier can only WIDEN the window; guard 1 matches exactly on
- *  appointment_id and guard 2 on an exact JST date, so wider catches MORE true
- *  burns and can never invent one. An unparseable row falls back to the day
- *  itself rather than poisoning the floor with NaN. */
-function historySince(
-  candidates: Array<{ starts_at: string; created_at?: string }>,
-  date: string,
-): string {
-  const anchors = candidates
-    .flatMap((a) => [Date.parse(a.starts_at), Date.parse(a.created_at ?? '')])
-    .filter(Number.isFinite)
-  const floor = anchors.length ? Math.min(...anchors) : Date.parse(`${date}T00:00:00+09:00`)
-  return ymdInJst(new Date(floor - 86_400_000))
+/** Burn-history read floor for a whole day's candidates: the JST day before
+ *  `date`. Deliberately NARROW (round 2 G4, partially reverting F6a): anchoring
+ *  to the earliest created_at across the day's candidates let ONE booking made
+ *  far in advance drag an unbounded, unpaginated core read 16× a day, and a
+ *  chronic timeout there is silent under-burn — a bigger money hole than the
+ *  case the wide floor covered. That case (a long-booked visit already burned
+ *  under an earlier date, so guard 1's read misses it) is covered by the DB
+ *  BACKSTOP instead: the appointment-scoped partial unique index refuses the
+ *  second write, addRedemption returns 'already_redeemed', and that classifies
+ *  as skippedAlreadyBurned (F6b) — idempotent, not an error. */
+function historySince(date: string): string {
+  return ymdInJst(new Date(Date.parse(`${date}T00:00:00+09:00`) - 86_400_000))
 }
 
 /** When the session ENDED, in ms. `ends_at` is core's own field on every
  *  booking (the reservation screens render it, adapters/reservation.ts);
- *  duration_minutes covers a row whose end never got written. Both unreadable
- *  → NaN, which FAILS the cutoff below — a booking we cannot time never burns. */
+ *  duration_minutes covers a row whose end never got written.
+ *  HONEST BOUND (round 2 G10 — the old "both unreadable → NaN" claim was
+ *  false): only an unparseable `starts_at` yields NaN and fails the cutoff
+ *  below. A row with no readable end AND no duration falls back to starts_at +
+ *  0 — treated as having ended when it started, so its grace runs from the
+ *  START. That is EARLIER than the true end, never later, so the exposure is a
+ *  burn up to one session-length early, not a burn that never happens. */
 function sessionEndMs(a: Pick<Appointment, 'starts_at' | 'ends_at' | 'duration_minutes'>): number {
   const end = Date.parse(a.ends_at)
   if (Number.isFinite(end)) return end
@@ -171,25 +181,59 @@ export async function autoBurnRecentDays(
   businessId: string,
   force = false,
 ): Promise<AutoBurnSummary[]> {
-  const dates = recentJstDates(LOOKBACK_DAYS)
+  // One day WIDER than the window, so the gap check below has the day the
+  // marker must reach for the window to be continuous.
+  const scan = recentJstDates(LOOKBACK_DAYS + 1)
+  const dates = scan.slice(1)
   const today = dates[dates.length - 1]
   const yesterday = dates[dates.length - 2]
-  const marker = await orgSettingsWithClient(synqed)
+  // An unreadable settings row is NOT an absent marker (round 2 G1). Reading it
+  // as absent fails OPEN: the run would process today only, seed a marker it
+  // never earned, and OVERWRITE a real marker that still had catch-up days
+  // behind it — losing them permanently, silently. Unreadable = touch nothing,
+  // write nothing, say so; the next healthy run resumes the full catch-up from
+  // the real marker.
+  const stored = await orgSettingsWithClient(synqed)
     .then((s) => s?.auto_burn_last_processed)
-    .catch(() => undefined)
+    .catch(() => 'unreadable' as const)
+  if (stored === 'unreadable') {
+    console.warn(
+      '[auto-burn] marker UNREADABLE — business skipped entirely, nothing burned, marker untouched',
+      JSON.stringify({ businessId }),
+    )
+    return [empty(businessId, today, 'unavailable')]
+  }
+  // A marker in the FUTURE is corruption — the cron is its only writer. It used
+  // to make `pending` empty FOREVER: fail-closed, but indistinguishable from a
+  // quiet day (round 2 G6). Read it as unset instead — today only, no
+  // retro-charge, reseeded on the way out — and be loud about it. The FORMAT
+  // check (yyyy-mm-dd) lives upstream in normalizeOrgSettings, where a garbled
+  // value already reads as absent.
+  const marker = stored && stored <= today ? stored : undefined
+  if (stored && !marker) {
+    console.warn(
+      '[auto-burn] marker is in the FUTURE — treated as unset',
+      JSON.stringify({ businessId, marker: stored, today }),
+    )
+  }
+  // An outage longer than the window (Vercel cron delivery is best-effort)
+  // leaves days between the marker and the oldest day we can still reach. They
+  // are never processed and the mark below JUMPS OVER them. Nothing here can
+  // recover them — `?force=1` and a wider LOOKBACK can — but they must not
+  // vanish silently (round 2 G3).
+  if (marker && marker < scan[0]) {
+    console.warn(
+      '[auto-burn] catch-up GAP — days between the marker and the window are skipped',
+      JSON.stringify({ businessId, marker, windowStarts: dates[0] }),
+    )
+  }
   // NO marker = this business has never been processed: take ONLY today. A
   // first run (or the first run after the owner flips 自動消化 on) must never
   // retro-charge the days before that decision.
   const pending = force ? dates : marker ? dates.filter((d) => d > marker) : [today]
-  // ...and that first run SEEDS the marker to yesterday. Today can never settle
-  // itself (below), so without the seed "today only" would re-pick today on
-  // every pass forever and every session whose grace expires after the last
-  // intraday tick would be lost. Seeding claims nothing about yesterday's burns
-  // — it records the no-retro-charge decision that `pending` just made.
-  const seed = !force && !marker ? yesterday : undefined
 
   const summaries: AutoBurnSummary[] = []
-  let high = marker ?? seed
+  let high = marker
   let stalled = false
   for (const date of pending) {
     const s = await autoBurnForBusiness(synqed, businessId, date)
@@ -197,14 +241,24 @@ export async function autoBurnRecentDays(
     // High-water mark: only a day we could read END TO END counts as done. A
     // day that hit an unreadable settings row / appointment list / burn history
     // stays pending so tomorrow retries it — and no LATER day may carry the
-    // mark past it.
-    if (s.mode === 'unavailable' || s.errors > 0 || s.skippedUnknown > 0) stalled = true
+    // mark past it. The MODE comes first (round 2 G9): 'manual' /
+    // 'packs_disabled' / 'unavailable' all mean this run settled nothing for
+    // this business, so it earns no mark — and no seed below either.
+    if (s.mode !== 'auto' || s.errors > 0 || s.skippedUnknown > 0) stalled = true
     // Only a day that is OVER may be marked settled: today's sessions are still
     // ending, so an INTRADAY pass never advances the marker (its idempotency is
-    // guards 1+2, never the marker). The 08:30 settle pass — or any pass on a
-    // later JST day — is what finally closes the day and makes an undo stick.
+    // guard 1 + the DB index, never the marker). The 08:30 settle pass — or any
+    // pass on a later JST day — is what closes the day and makes an undo stick.
     else if (!stalled && date < today) high = date
   }
+  // A first run SEEDS the marker to yesterday. Today can never settle itself
+  // (above), so without the seed "today only" would re-pick today on every pass
+  // forever and every session whose grace expires after the last intraday tick
+  // would be lost. Seeding claims nothing about yesterday's burns — it records
+  // the no-retro-charge decision `pending` just made. Only for a business that
+  // is actually in auto mode (G9): a manual one must stay markerless, so the
+  // day it flips on it is still a genuine first run.
+  if (!marker && !force && summaries.some((s) => s.mode === 'auto')) high = yesterday
   if (high && (!marker || high > marker)) await writeBurnMarker(synqed, businessId, high)
   return summaries
 }
@@ -245,7 +299,9 @@ export async function autoBurnForBusiness(
   // writes MERGE, so pack_burn_mode:'auto' survives in the blob after an owner
   // turns 回数券 off — without this gate the cron would keep charging against a
   // feature whose every surface is hidden.
-  if (settings?.ticket_packs_enabled === false) return empty(businessId, date, 'manual')
+  if (settings?.ticket_packs_enabled === false) {
+    return empty(businessId, date, 'packs_disabled')
+  }
   if (settings?.pack_burn_mode !== 'auto') return empty(businessId, date, 'manual')
 
   const s = empty(businessId, date, 'auto')
@@ -296,7 +352,7 @@ export async function autoBurnForBusiness(
   // ONE history read serves both guards. Tri-state: an errored read fails
   // CLOSED for the WHOLE day — we cannot prove any of these safe.
   const history = await synqed.packs
-    .listRecentRedemptions(historySince(candidates, date))
+    .listRecentRedemptions(historySince(date))
     .then((rows) => rows.map((r) => ({ appointment_id: r.appointment_id, customer_id: r.customer_id, redeemed_on: r.redeemed_on.slice(0, 10) })))
     .catch(() => 'unknown' as const)
   if (history === 'unknown') {
@@ -305,55 +361,71 @@ export async function autoBurnForBusiness(
   }
 
   for (const appt of candidates) {
-    const on = ymdInJst(new Date(appt.starts_at))
-    if (history.some((r) => r.appointment_id === appt.id)) {
-      s.skippedAlreadyBurned += 1
-      continue
-    }
-    // Guard 2 also closes the same-run window: two bookings for one customer on
-    // one day must still burn ONE ticket, so burns made in this loop are pushed
-    // back into `history` below before the next iteration reads it.
-    if (history.some((r) => r.customer_id === appt.customer_id && r.redeemed_on === on)) {
-      s.skippedSameDay += 1
-      continue
-    }
+    // Per-candidate containment (round 2 G2). "Never throws" was a contract
+    // this function could not keep: ymdInJst on a malformed starts_at throws
+    // (Intl rejects an Invalid Date), and with a readable ends_at such a row
+    // reaches this loop. One bad row then took the WHOLE business down — the
+    // marker froze on that date and every later day stayed unreachable, run
+    // after run. The row lands in `errors` (which already stalls the marker so
+    // the day is retried) and the siblings still burn.
+    try {
+      const on = ymdInJst(new Date(appt.starts_at))
+      if (history.some((r) => r.appointment_id === appt.id)) {
+        s.skippedAlreadyBurned += 1
+        continue
+      }
+      // Guard 2 also closes the same-run window: two bookings for one customer
+      // on one day must still burn ONE ticket, so burns made in this loop are
+      // pushed back into `history` below before the next iteration reads it.
+      if (history.some((r) => r.customer_id === appt.customer_id && r.redeemed_on === on)) {
+        s.skippedSameDay += 1
+        continue
+      }
 
-    const packs = await listCustomerPacksWithClient(synqed, appt.customer_id).catch(
-      () => 'unknown' as const,
-    )
-    if (packs === 'unknown') {
-      // Distinct from skippedNoPack on purpose: "we could not read" and "this
-      // customer has nothing to burn" are different facts on a money report.
-      s.skippedUnknown += 1
-      continue
-    }
-    // サブスク/単発 and exhausted packs are excluded by pickRedemptionTarget
-    // (kind==='pack' && status==='active' && remaining>0) — a no-op, never an
-    // error, never a negative balance.
-    const target = pickRedemptionTarget(packs)
-    if (!target) {
-      s.skippedNoPack += 1
-      continue
-    }
+      const packs = await listCustomerPacksWithClient(synqed, appt.customer_id).catch(
+        () => 'unknown' as const,
+      )
+      if (packs === 'unknown') {
+        // Distinct from skippedNoPack on purpose: "we could not read" and "this
+        // customer has nothing to burn" are different facts on a money report.
+        s.skippedUnknown += 1
+        continue
+      }
+      // サブスク/単発 and exhausted packs are excluded by pickRedemptionTarget
+      // (kind==='pack' && status==='active' && remaining>0) — a no-op, never an
+      // error, never a negative balance.
+      const target = pickRedemptionTarget(packs)
+      if (!target) {
+        s.skippedNoPack += 1
+        continue
+      }
 
-    const burn = await burnOneAutoRedemption(synqed, businessId, {
-      appointmentId: appt.id,
-      customerId: appt.customer_id,
-      packId: target.id,
-      on,
-    })
-    if ('ok' in burn) {
-      s.burned += 1
-      history.push({ appointment_id: appt.id, customer_id: appt.customer_id, redeemed_on: on })
-    } else if (burn.error === 'below_zero') {
-      s.belowZero += 1
-    } else if (burn.error === 'already_burned') {
-      // The DB's partial unique index refused a SECOND live redemption for
-      // this appointment — guard 1's outcome reached a hair late (a stale
-      // history read, a concurrent write). Idempotent, not a failure.
-      s.skippedAlreadyBurned += 1
-    } else {
+      const burn = await burnOneAutoRedemption(synqed, businessId, {
+        appointmentId: appt.id,
+        customerId: appt.customer_id,
+        packId: target.id,
+        on,
+      })
+      if ('ok' in burn) {
+        s.burned += 1
+        history.push({ appointment_id: appt.id, customer_id: appt.customer_id, redeemed_on: on })
+      } else if (burn.error === 'below_zero') {
+        s.belowZero += 1
+      } else if (burn.error === 'already_burned') {
+        // The DB's partial unique index refused a SECOND live redemption for
+        // this appointment — guard 1's outcome reached a hair late (a stale
+        // history read, a concurrent write). Idempotent, not a failure.
+        s.skippedAlreadyBurned += 1
+      } else {
+        s.errors += 1
+      }
+    } catch (err) {
       s.errors += 1
+      console.warn(
+        '[auto-burn] candidate skipped',
+        JSON.stringify({ businessId, date, appointmentId: appt.id }),
+        err instanceof Error ? err.message : 'unknown',
+      )
     }
   }
 

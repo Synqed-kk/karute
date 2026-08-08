@@ -130,3 +130,27 @@ describe('GET /api/packs/auto-burn auth', () => {
     })
   })
 })
+
+// Round 2 G9: an unset allowlist answers 200 [] — correct, but in the Vercel
+// log it is indistinguishable from a night where nothing happened to be
+// burnable. The cron has to say which one it is.
+describe('GET /api/packs/auto-burn — an empty allowlist is not silence', () => {
+  it('says so in the log, and still burns nothing', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    delete process.env.AUTO_BURN_BUSINESS_IDS
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: 'GET',
+          headers: { authorization: 'Bearer test-cron-secret' },
+        })
+        expect(res.status).toBe(200)
+        expect(await res.json()).toEqual({ results: [] })
+        expect(autoBurnRecentDays).not.toHaveBeenCalled()
+        expect(warn.mock.calls.flat().join(' ')).toContain('AUTO_BURN_BUSINESS_IDS is empty')
+      },
+    })
+    warn.mockRestore()
+  })
+})

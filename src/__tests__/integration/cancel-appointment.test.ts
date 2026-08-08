@@ -411,6 +411,37 @@ describe('cancelAppointment — 自動消化 correction (blind-round F4)', () =>
     const res = await cancelAppointment('appt-1')
     expect(res).toEqual({ success: true })
   })
+
+  // Round 2 G8: the warning is gated on the ATTEMPT (`!(burnPack && burnTarget)`),
+  // not on the staff's checkbox. burn_error:null under burn_pack:true reads as
+  // "ticket consumed" per the audit contract, so any path that reaches the audit
+  // row having burned nothing must run the probe. The two tests below pin what
+  // makes that unreachable TODAY — and are what would fail if it stopped being.
+  it('a burn-CHOSEN cancel that resolves NO target never reaches the audit at all', async () => {
+    liveBooking()
+    listCustomerPacks.mockResolvedValueOnce([])
+    const lines = await auditLines(async () => {
+      const res = await cancelAppointment('appt-1', {
+        reason: 'cancel-same-day-contact',
+        burnPack: true,
+      })
+      expect(res).toEqual({ error: expect.any(String), code: 'no_burnable_pack' })
+    })
+    // No status change, no audit row, no burn_error to get wrong.
+    expect(apptUpdate).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('a cancel that DID burn reads the history exactly once — the guarded burn owns the probe', async () => {
+    liveBooking()
+    listCustomerPacks.mockResolvedValueOnce([BURNABLE_PACK])
+    const res = await cancelAppointment('appt-1', {
+      reason: 'cancel-same-day-contact',
+      burnPack: true,
+    })
+    expect(res).toEqual({ success: true })
+    expect(listRecentRedemptions).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('restoreAppointment (undo)', () => {

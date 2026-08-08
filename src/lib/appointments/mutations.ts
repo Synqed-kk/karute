@@ -308,7 +308,12 @@ export async function cancelAppointmentCore(
     // pack action). Only a definite `true` speaks — an unreadable history
     // changes nothing on this path (it creates no charge either way), so it
     // must not invent a warning.
-    if (!burnPack) {
+    // Gated on the ATTEMPT, not the staff's checkbox (round 2 G8): burn_error
+    // null under burn_pack:true reads as "ticket consumed" per the contract
+    // below, so any path that reaches the audit having burned nothing must run
+    // this probe. Today the no-burnable-pack early return above dominates that
+    // case; the gate is what keeps it dominated if it ever stops.
+    if (!(burnPack && burnTarget)) {
       const prior = await appointmentAlreadyBurned(synqed, appt, appointmentId)
       if (prior === true) burnError = 'already_burned'
     }
