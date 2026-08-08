@@ -7,6 +7,8 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { requireCapability } from '@/lib/auth/require-permission'
 import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 import { auditWeb } from '@/lib/audit-web'
+import { getCurrentUserStaffId } from '@/lib/staff'
+import { parsePhotoUploadFields } from '@/lib/karute/photo-upload-fields'
 
 // ---------------------------------------------------------------------------
 // Backend error → user-facing message
@@ -445,24 +447,19 @@ export async function uploadCustomerPhoto(
 
   const category = formData.get('category')
   const caption = formData.get('caption')
-  const recordingSessionId = formData.get('recording_session_id')
-  const capturedByStaffId = formData.get('captured_by_staff_id')
-  const takenWithConsent = formData.get('taken_with_consent')
+  const { recording_session_id, taken_with_consent } = parsePhotoUploadFields(formData)
 
   try {
     const synqed = await getSynqedClient()
+    // captured_by_staff_id is SERVER-RESOLVED — never trust client input for
+    // attribution (mirrors the facade route's resolveSelfStaffId pattern).
+    const captured_by_staff_id = (await getCurrentUserStaffId()) ?? undefined
     const photo = await uploadCustomerPhotoWithClient(synqed, customerId, file, {
       category: typeof category === 'string' ? category : undefined,
       caption: typeof caption === 'string' ? caption : undefined,
-      recording_session_id:
-        typeof recordingSessionId === 'string' ? recordingSessionId : undefined,
-      captured_by_staff_id:
-        typeof capturedByStaffId === 'string' ? capturedByStaffId : undefined,
-      // Never default to true — absent means "unknown", not "consented".
-      taken_with_consent:
-        typeof takenWithConsent === 'string'
-          ? takenWithConsent === 'true'
-          : undefined,
+      recording_session_id,
+      captured_by_staff_id,
+      taken_with_consent,
     })
     revalidatePath(`/customers/${customerId}`)
     return { photo }

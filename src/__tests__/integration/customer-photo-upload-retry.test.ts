@@ -26,6 +26,10 @@ jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: jest.fn(),
 }))
 jest.mock('@/lib/audit-web', () => ({ auditWeb: jest.fn() }))
+// captured_by_staff_id is SERVER-RESOLVED (packet 2026-08-09 PR 9a §B) — the
+// web action calls this instead of reading the form; default resolves to a
+// staffer, overridden per-test to prove the null path.
+jest.mock('@/lib/staff', () => ({ getCurrentUserStaffId: jest.fn(async () => 'staff-self-1') }))
 // customers.ts pulls this in at module scope for other actions.
 jest.mock('next-intl/server', () => ({
   getTranslations: jest.fn(async () => (k: string) => k),
@@ -33,6 +37,7 @@ jest.mock('next-intl/server', () => ({
 
 import { uploadCustomerPhotoWithClient, uploadCustomerPhoto } from '@/actions/customers'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { getCurrentUserStaffId } from '@/lib/staff'
 
 const file = new File(['x'], 'photo.jpg', { type: 'image/jpeg' })
 
@@ -94,9 +99,11 @@ describe('uploadCustomerPhotoWithClient retry', () => {
   })
 })
 
-// packet 2026-08-09 PR 9a §③ — the web action reads the 3 session-linkage
-// fields off the same FormData category/caption arrive on today, and forwards
-// them (consent coerced from the 'true'/'false' string, never defaulted).
+// packet 2026-08-09 PR 9a §③/§B/§C — the web action reads recording_session_id
+// / taken_with_consent off the shared parsePhotoUploadFields helper (consent
+// coerced from 'true'/'false', never defaulted; '' treated as absent);
+// captured_by_staff_id is SERVER-RESOLVED via getCurrentUserStaffId — NEVER
+// read from client input (camera-row PR 9b stamps it).
 describe('uploadCustomerPhoto — session-linkage forwarding', () => {
   function formDataWith(fields: Record<string, string>) {
     const fd = new FormData()
@@ -105,26 +112,48 @@ describe('uploadCustomerPhoto — session-linkage forwarding', () => {
     return fd
   }
 
-  it('forwards recording_session_id / captured_by_staff_id / taken_with_consent=true', async () => {
+  beforeEach(() => {
+    ;(getCurrentUserStaffId as jest.Mock).mockResolvedValue('staff-self-1')
+  })
+
+  it('forwards recording_session_id / taken_with_consent=true; captured_by_staff_id is server-resolved', async () => {
     const uploadPhoto = jest.fn().mockResolvedValue({ id: 'photo-1' })
     ;(getSynqedClient as jest.Mock).mockResolvedValue({ customers: { uploadPhoto } })
     await uploadCustomerPhoto(
       'cust-1',
-      formDataWith({
-        recording_session_id: 'sess-1',
-        captured_by_staff_id: 'staff-9',
-        taken_with_consent: 'true',
-      }),
+      formDataWith({ recording_session_id: 'sess-1', taken_with_consent: 'true' }),
     )
     expect(uploadPhoto).toHaveBeenCalledWith(
       'cust-1',
       file,
       expect.objectContaining({
         recording_session_id: 'sess-1',
-        captured_by_staff_id: 'staff-9',
+        captured_by_staff_id: 'staff-self-1',
         taken_with_consent: true,
       }),
     )
+  })
+
+  // Anti-spoof pin: a smuggled captured_by_staff_id in the form must be
+  // ignored — the action never reads that field, only getCurrentUserStaffId.
+  it('captured_by_staff_id from the form is IGNORED — server resolution wins (anti-spoof)', async () => {
+    const uploadPhoto = jest.fn().mockResolvedValue({ id: 'photo-1' })
+    ;(getSynqedClient as jest.Mock).mockResolvedValue({ customers: { uploadPhoto } })
+    await uploadCustomerPhoto('cust-1', formDataWith({ captured_by_staff_id: 'intruder' }))
+    expect(uploadPhoto).toHaveBeenCalledWith(
+      'cust-1',
+      file,
+      expect.objectContaining({ captured_by_staff_id: 'staff-self-1' }),
+    )
+  })
+
+  it('unresolvable staff id (getCurrentUserStaffId → null) → captured_by_staff_id undefined, upload still succeeds', async () => {
+    ;(getCurrentUserStaffId as jest.Mock).mockResolvedValue(null)
+    const uploadPhoto = jest.fn().mockResolvedValue({ id: 'photo-1' })
+    ;(getSynqedClient as jest.Mock).mockResolvedValue({ customers: { uploadPhoto } })
+    await uploadCustomerPhoto('cust-1', formDataWith({}))
+    const options = uploadPhoto.mock.calls[0][2]
+    expect(options.captured_by_staff_id).toBeUndefined()
   })
 
   it('taken_with_consent="false" → forwarded as boolean false, not dropped', async () => {
@@ -138,13 +167,20 @@ describe('uploadCustomerPhoto — session-linkage forwarding', () => {
     )
   })
 
-  it('linkage fields absent → all three stay undefined (never default consent to true)', async () => {
+  it('recording_session_id="" is treated as absent → undefined, not forwarded as ""', async () => {
+    const uploadPhoto = jest.fn().mockResolvedValue({ id: 'photo-1' })
+    ;(getSynqedClient as jest.Mock).mockResolvedValue({ customers: { uploadPhoto } })
+    await uploadCustomerPhoto('cust-1', formDataWith({ recording_session_id: '' }))
+    const options = uploadPhoto.mock.calls[0][2]
+    expect(options.recording_session_id).toBeUndefined()
+  })
+
+  it('linkage fields absent → recording_session_id/taken_with_consent stay undefined (never default consent to true)', async () => {
     const uploadPhoto = jest.fn().mockResolvedValue({ id: 'photo-1' })
     ;(getSynqedClient as jest.Mock).mockResolvedValue({ customers: { uploadPhoto } })
     await uploadCustomerPhoto('cust-1', formDataWith({}))
     const options = uploadPhoto.mock.calls[0][2]
     expect(options.recording_session_id).toBeUndefined()
-    expect(options.captured_by_staff_id).toBeUndefined()
     expect(options.taken_with_consent).toBeUndefined()
   })
 })

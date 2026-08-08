@@ -102,7 +102,8 @@ export function mapSynqedKaruteRecord(
     customer_id: rec.business_id ?? null,
     client_id: rec.customer_id ?? null,
     staff_profile_id: rec.staff_id ?? null,
-    recording_session_id: rec.recording_session_id ?? null,
+    // '' is not a session — normalize empty string the same as absent/null.
+    recording_session_id: rec.recording_session_id || null,
     // staff name unresolved here (synqed staff_id ≠ profile id); header renders '—'.
     profiles: null,
     customers: rec.customer_id

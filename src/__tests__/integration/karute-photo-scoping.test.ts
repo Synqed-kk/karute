@@ -19,8 +19,15 @@ jest.mock('@/actions/customers', () => ({
 // function, so the hook itself never runs). Stub it so the import resolves.
 jest.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }))
 
+import type { ReactElement } from 'react'
 import { mapSynqedKaruteRecord } from '@/lib/supabase/karute'
 import { PhotoRecordsServer } from '@/components/karute/redesign/detail/PhotoRecordsServer'
+import type { PhotoRecord } from '@/components/karute/redesign/detail/PhotoRecordsCard'
+
+// PhotoRecordsServer returns <PhotoRecordsCard photos={...} /> — typing the
+// awaited result as its element shape (instead of `any`) lets these tests
+// read .props.photos without a lint-triggering disable comment.
+type PhotoRecordsCardElement = ReactElement<{ photos: PhotoRecord[] }>
 
 describe('mapSynqedKaruteRecord — recording_session_id', () => {
   it('threads recording_session_id through from the synqed record', () => {
@@ -39,6 +46,16 @@ describe('mapSynqedKaruteRecord — recording_session_id', () => {
   it('absent recording_session_id maps to null', () => {
     const rec = mapSynqedKaruteRecord(
       { id: 'k1', created_at: '2026-08-09T00:00:00Z', ai_summary: 'x' },
+      null,
+    )
+    expect(rec.recording_session_id).toBeNull()
+  })
+
+  // packet 2026-08-09 PR 9a §C — '' is not a session; normalize it like
+  // absent so a mis-stamped empty-string field doesn't fake a real link.
+  it("empty-string recording_session_id ('') maps to null, not ''", () => {
+    const rec = mapSynqedKaruteRecord(
+      { id: 'k1', created_at: '2026-08-09T00:00:00Z', ai_summary: 'x', recording_session_id: '' },
       null,
     )
     expect(rec.recording_session_id).toBeNull()
@@ -62,23 +79,21 @@ describe('PhotoRecordsServer — recording-session scoping', () => {
     mockListCustomerPhotos.mockResolvedValue({
       photos: [photo('p1', 'sess-1'), photo('p2', 'sess-2')],
     })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const el = (await PhotoRecordsServer({
       customerId: 'c1',
       recordingSessionId: 'sess-1',
-    })) as any
-    expect(el.props.photos.map((p: { id: string }) => p.id)).toEqual(['p1'])
+    })) as PhotoRecordsCardElement
+    expect(el.props.photos.map((p) => p.id)).toEqual(['p1'])
   })
 
   it('recordingSessionId=null → zero photos, even when unstamped photos exist', async () => {
     mockListCustomerPhotos.mockResolvedValue({
       photos: [photo('p1', null), photo('p2', 'sess-2')],
     })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const el = (await PhotoRecordsServer({
       customerId: 'c1',
       recordingSessionId: null,
-    })) as any
+    })) as PhotoRecordsCardElement
     expect(el.props.photos).toEqual([])
   })
 
@@ -86,11 +101,10 @@ describe('PhotoRecordsServer — recording-session scoping', () => {
     mockListCustomerPhotos.mockResolvedValue({
       photos: [photo('p1', 'sess-other')],
     })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const el = (await PhotoRecordsServer({
       customerId: 'c1',
       recordingSessionId: 'sess-1',
-    })) as any
+    })) as PhotoRecordsCardElement
     expect(el.props.photos).toEqual([])
   })
 })

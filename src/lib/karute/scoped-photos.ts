@@ -4,6 +4,11 @@
 // customer screen, untouched). Single source of truth for both the web page
 // (PhotoRecordsServer) and the device screen facade
 // (app/api/app/v1/screens/karute/[id]/route.ts).
+//
+// COMPARE-TRAP: compare/presentation surfaces (before/after slider, the
+// "show to customer" full-screen mode) are deliberately CROSS-session — they
+// must fetch the customer's aggregate photo list directly, never consume
+// this helper's scoped output.
 
 /** Filters a customer's photo list down to one karute's recording session.
  *  ponytail: a karute with no recording_session_id (legacy record, or the
