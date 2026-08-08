@@ -14,18 +14,33 @@ import { audit } from '@/lib/audit'
 // covers CANCELLED **and** NO_SHOW, which is what makes cancel-neutrality
 // (PRs #438-#440) structural here rather than a rule someone has to remember.
 //
-// THE GRACE WINDOW, stated honestly (blind-round F1, ledger pre-autoburn-blind-
-// round-ledger-2026-08-08.md — the previous "all night" comment here was FALSE):
-// core's QR crawl only runs 08:00–22:00 JST (sync.service isWithinBusinessHours,
-// prod-seeded 8/22 Asia/Tokyo), so nothing lands overnight at all. The cron
-// therefore runs 08:30 JST (vercel.json `30 23 * * *`), AFTER the first morning
-// tick — that tick, not the night, is what gives a late cancellation its chance
-// to arrive before the burn.
-//   RESIDUAL, documented not fixed here: the crawl's window starts at TODAY, so
-//   a post-close cancellation of a SAME-EVENING booking never reaches Karute at
-//   all. Closing it needs core to crawl −1 day (Anthony ask, same ledger). Until
-//   it lands, the 08:30 schedule plus the cancel-path warning
-//   (cancelAppointmentCore, appointments/mutations.ts) bound the exposure.
+// THE TIMING CONTRACT (Liam's ruling 2026-08-08 — the burn FOLLOWS the session,
+// it no longer waits for a nightly batch):
+//   • a ticket burns ~2h after the booking ENDS, same day, if the booking is
+//     not cancelled/no-show by then (GRACE_MS + the cutoff in
+//     autoBurnForBusiness);
+//   • the sweep runs HOURLY 09:00–23:00 JST (vercel.json `0 0-14 * * *`) so a
+//     session that ends at 13:00 burns around 15:00, not tomorrow;
+//   • 08:30 JST (`30 23 * * *`) stays as the SETTLE-UP pass, not the only pass:
+//     it is what closes a late-evening session (ends 22:30 → its grace expires
+//     after the 23:00 tick) and what finally advances the day marker.
+// Why 2h: core's QR crawl ticks every 15 min inside 08:00–22:00 JST
+// (sync.service isWithinBusinessHours, prod-seeded 8/22 Asia/Tokyo), so a
+// last-minute cancellation gets ~8 passes to land before the money moves —
+// which is the grace the old overnight comment only claimed to have (blind-round
+// F1, ledger pre-autoburn-blind-round-ledger-2026-08-08.md).
+//   RESIDUAL, documented not fixed here: a correction entered MORE than the
+//   grace after the session ended can post-date a burn — the crawl's window
+//   also starts at TODAY, so a post-close cancel of a same-evening booking
+//   never reaches Karute at all. Closing both needs core to crawl 24/7 with a
+//   −1 day lookback (Anthony asks, same ledger). Until they land, the cancel-
+//   path warning (cancelAppointmentCore, appointments/mutations.ts) plus the
+//   staff undo bound the exposure.
+//   SECOND RESIDUAL of the hourly sweep, same ledger: an undo made DURING the
+//   day is invisible to both guards and to the DB index (core soft-deletes the
+//   row and exposes no removed-redemption read), so the next hourly pass can
+//   re-charge it. Once the day is settled the marker below makes an undo stick,
+//   exactly as before.
 //
 // Money rules, same discipline as the no-show burn (appointments/mutations.ts):
 //   • fail CLOSED — an errored read SKIPS the burn and is REPORTED, never
@@ -34,17 +49,24 @@ import { audit } from '@/lib/audit'
 //   • one customer-day burns ONE ticket EVER (guard 2 — NEW here: staff manual
 //     burns don't always carry an appointment_id, so without it manual+auto
 //     double-charge the same visit);
-//   • reruns are idempotent, so a partially-failed run reruns safely;
-//   • a day is processed ONCE (the marker below) — an undo followed by a rerun
-//     must not re-charge, and a soft-removed redemption is invisible to both
-//     guards AND to the DB's partial unique index.
+//   • reruns are idempotent, so a partially-failed run reruns safely — and the
+//     hourly sweep IS a rerun: overlapping passes are covered by guard 1 plus
+//     the DB's appointment-scoped unique index, never by the schedule;
+//   • a SETTLED day is processed ONCE (the marker below) — an undo followed by
+//     a rerun must not re-charge, and a soft-removed redemption is invisible to
+//     both guards AND to the DB's partial unique index.
 
 type AutoBurnClient = Pick<SynqedClient, 'appointments' | 'packs' | 'orgSettings'>
 
-/** How many JST days back a run may reach. Only days the marker hasn't
+/** How many JST days BEFORE today a run may reach. Only days the marker hasn't
  *  cleared are actually processed, so this is the CATCH-UP depth for missed /
- *  failed runs, not a nightly re-scan. */
+ *  failed runs; today is always in the window on top of it. */
 const LOOKBACK_DAYS = 3
+
+/** How long after a session ENDS a ticket may burn (Liam 2026-08-08). Not a
+ *  tuning knob to shave: it is the room a last-minute cancellation has to reach
+ *  Karute through core's 15-minute crawl before the money moves. */
+const GRACE_MS = 2 * 60 * 60 * 1000
 
 /** One core page. `total` decides when to stop, never this number. */
 const PAGE_SIZE = 500
@@ -55,8 +77,13 @@ export interface AutoBurnSummary {
   date: string
   /** 'manual' / absent setting / unreadable settings → nothing was touched. */
   mode: 'auto' | 'manual' | 'unavailable'
+  /** Completed bookings whose grace has expired — the ones this pass may burn. */
   candidates: number
   burned: number
+  /** Completed, but still inside the 2h grace after the session ended. NOT a
+   *  problem: a later pass burns them. Reported so an intraday run reads as
+   *  "3 waiting" instead of the silence F7 taught us to distrust. */
+  skippedTooSoon: number
   /** Guard 1 — this appointment already has a redemption. */
   skippedAlreadyBurned: number
   /** Guard 2 — this customer already has a redemption on this date. */
@@ -79,6 +106,7 @@ const empty = (
   mode,
   candidates: 0,
   burned: 0,
+  skippedTooSoon: 0,
   skippedAlreadyBurned: 0,
   skippedSameDay: 0,
   skippedNoPack: 0,
@@ -107,23 +135,36 @@ function historySince(
   return ymdInJst(new Date(floor - 86_400_000))
 }
 
-/** The lookback window: the last `n` JST business dates ENDING YESTERDAY,
- *  oldest first (a burn must never race a day that is still happening). */
+/** When the session ENDED, in ms. `ends_at` is core's own field on every
+ *  booking (the reservation screens render it, adapters/reservation.ts);
+ *  duration_minutes covers a row whose end never got written. Both unreadable
+ *  → NaN, which FAILS the cutoff below — a booking we cannot time never burns. */
+function sessionEndMs(a: Pick<Appointment, 'starts_at' | 'ends_at' | 'duration_minutes'>): number {
+  const end = Date.parse(a.ends_at)
+  if (Number.isFinite(end)) return end
+  return Date.parse(a.starts_at) + (a.duration_minutes ?? 0) * 60_000
+}
+
+/** The scan window: the last `n` JST dates before today, plus TODAY, oldest
+ *  first. Today is in scope because a burn now follows its own session by
+ *  GRACE_MS instead of waiting for the day to be over; the earlier days are
+ *  pure catch-up and their sessions all ended long ago. */
 function recentJstDates(n: number): string[] {
   const now = Date.now()
-  return Array.from({ length: n }, (_, i) => ymdInJst(new Date(now - (n - i) * 86_400_000)))
+  return Array.from({ length: n + 1 }, (_, i) => ymdInJst(new Date(now - (n - i) * 86_400_000)))
 }
 
 /**
- * The cron's per-business entry point: every JST day in the lookback window
- * that the marker hasn't cleared yet, oldest first, then the marker moves.
+ * The cron's per-business entry point: every JST day in the scan window the
+ * marker hasn't cleared yet — always including TODAY — oldest first.
  *
  * The marker (`auto_burn_last_processed`, a date in the org-settings JSON blob
- * — the same zero-migration path pack_burn_mode itself takes) is what makes an
- * UNDO stick: a soft-removed redemption is invisible to both guards and to the
- * DB's partial unique index, so a second run over the same day would silently
- * re-charge it. `force` (the cron route's ?force=1, still CRON_SECRET-gated) is
- * the deliberate backfill lever that overrides it.
+ * — the same zero-migration path pack_burn_mode itself takes) means "this JST
+ * day is SETTLED". It is what makes an UNDO stick: a soft-removed redemption is
+ * invisible to both guards and to the DB's partial unique index, so a second
+ * run over a settled day would silently re-charge it. `force` (the cron route's
+ * ?force=1, still CRON_SECRET-gated) is the deliberate backfill lever that
+ * overrides it.
  */
 export async function autoBurnRecentDays(
   synqed: AutoBurnClient,
@@ -131,16 +172,24 @@ export async function autoBurnRecentDays(
   force = false,
 ): Promise<AutoBurnSummary[]> {
   const dates = recentJstDates(LOOKBACK_DAYS)
+  const today = dates[dates.length - 1]
+  const yesterday = dates[dates.length - 2]
   const marker = await orgSettingsWithClient(synqed)
     .then((s) => s?.auto_burn_last_processed)
     .catch(() => undefined)
-  // NO marker = this business has never been processed: take ONLY the newest
-  // day. A first run (or the first run after the owner flips 自動消化 on) must
-  // never retro-charge the days before that decision.
-  const pending = force ? dates : marker ? dates.filter((d) => d > marker) : dates.slice(-1)
+  // NO marker = this business has never been processed: take ONLY today. A
+  // first run (or the first run after the owner flips 自動消化 on) must never
+  // retro-charge the days before that decision.
+  const pending = force ? dates : marker ? dates.filter((d) => d > marker) : [today]
+  // ...and that first run SEEDS the marker to yesterday. Today can never settle
+  // itself (below), so without the seed "today only" would re-pick today on
+  // every pass forever and every session whose grace expires after the last
+  // intraday tick would be lost. Seeding claims nothing about yesterday's burns
+  // — it records the no-retro-charge decision that `pending` just made.
+  const seed = !force && !marker ? yesterday : undefined
 
   const summaries: AutoBurnSummary[] = []
-  let high = marker
+  let high = marker ?? seed
   let stalled = false
   for (const date of pending) {
     const s = await autoBurnForBusiness(synqed, businessId, date)
@@ -150,7 +199,11 @@ export async function autoBurnRecentDays(
     // stays pending so tomorrow retries it — and no LATER day may carry the
     // mark past it.
     if (s.mode === 'unavailable' || s.errors > 0 || s.skippedUnknown > 0) stalled = true
-    else if (!stalled) high = date
+    // Only a day that is OVER may be marked settled: today's sessions are still
+    // ending, so an INTRADAY pass never advances the marker (its idempotency is
+    // guards 1+2, never the marker). The 08:30 settle pass — or any pass on a
+    // later JST day — is what finally closes the day and makes an undo stick.
+    else if (!stalled && date < today) high = date
   }
   if (high && (!marker || high > marker)) await writeBurnMarker(synqed, businessId, high)
   return summaries
@@ -224,7 +277,19 @@ export async function autoBurnForBusiness(
 
   // CANCELLED and NO_SHOW never reach the burn — cancel-neutrality is enforced
   // by construction, not by a downstream check that could be edited away.
-  const candidates = appointments.filter((a) => !isTerminalStatus(a.status) && a.customer_id)
+  const completed = appointments.filter((a) => !isTerminalStatus(a.status) && a.customer_id)
+  // THE GRACE (Liam 2026-08-08): a session that ended less than GRACE_MS ago is
+  // not burnable YET — the crawl still has passes left to deliver a late
+  // cancellation, and a cancellation that lands inside the grace turns the
+  // booking terminal, so it never reaches this line again. The next hourly pass
+  // picks the leftovers up; on a past day every session cleared this cutoff
+  // long ago, so it only ever bites on today. Deliberately NOT a stall signal
+  // for the marker: waiting is normal, and a booking whose end is unreadable or
+  // absurd would otherwise wedge the marker on that day forever. Fail-closed —
+  // it stays unburned and stays visible in the summary.
+  const cutoff = Date.now() - GRACE_MS
+  const candidates = completed.filter((a) => sessionEndMs(a) <= cutoff)
+  s.skippedTooSoon = completed.length - candidates.length
   s.candidates = candidates.length
   if (candidates.length === 0) return s
 

@@ -2,14 +2,18 @@ import { NextResponse } from 'next/server'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { autoBurnRecentDays, type AutoBurnSummary } from '@/lib/packs/auto-burn'
 
-// 自動消化 cron (packet 11). Runs 08:30 JST (vercel.json `30 23 * * *` UTC) —
-// AFTER the QR crawl's first morning tick, which is the real grace window: the
-// crawl is dark 22:00–08:00 JST, so the old 06:00 run had had NO chance to see
-// a late cancellation (blind-round F1; the full contract and the residual
-// same-evening gap are documented in auto-burn.ts).
+// 自動消化 cron (packet 11). TWO schedules, one path (vercel.json, UTC):
+// `0 0-14 * * *` = hourly 09:00–23:00 JST, the sweep that burns a ticket ~2h
+// after its session ends; `30 23 * * *` = 08:30 JST, the settle-up pass that
+// closes a late-evening session and advances the day marker. Liam's ruling
+// 2026-08-08 — the burn follows the session, same day, instead of waiting for a
+// nightly batch; the grace is what a last-minute cancellation needs to reach
+// Karute through core's 15-minute crawl. Full contract and the residuals
+// (a correction entered after the grace, a same-day undo) live in auto-burn.ts.
 //
-// Each business processes every JST day in the lookback window its marker
-// hasn't cleared, so a missed or failed run catches up on the next tick.
+// Each business processes every JST day in the scan window its marker hasn't
+// cleared — always including today — so a missed or failed run catches up on
+// the next tick, and overlapping ticks are idempotent through guards 1+2.
 // `?force=1` reprocesses the whole window (the deliberate backfill lever) — not
 // a second auth surface: the CRON_SECRET check below still gates it.
 //

@@ -32,10 +32,13 @@ jest.mock('@/lib/packs/store', () => ({
 }))
 
 import { autoBurnForBusiness, autoBurnRecentDays } from '@/lib/packs/auto-burn'
+import { ymdInJst } from '@/lib/date/jst'
 
 const DATE = '2026-07-06'
 // 12:00 JST on DATE — comfortably inside the day window either side of midnight.
 const STARTS_AT = '2026-07-06T03:00:00.000Z'
+// 13:00 JST — the session's END, which is what the 2h grace is measured from.
+const ENDS_AT = '2026-07-06T04:00:00.000Z'
 
 const BURNABLE_PACK = {
   id: 'pack-1',
@@ -50,6 +53,10 @@ type Appt = {
   customer_id: string
   status: string
   starts_at: string
+  /** The grace is measured from the END of the session, not its start. */
+  ends_at: string
+  /** Only used where the fallback is under test — core normally sends ends_at. */
+  duration_minutes?: number | null
   // The burn-history window anchors on min(starts_at, created_at) — equal by
   // default so every existing expectation is unchanged; the widening test
   // below sets them apart on purpose.
@@ -60,6 +67,7 @@ const appt = (over: Partial<Appt> = {}): Appt => ({
   customer_id: 'cust-1',
   status: 'SCHEDULED',
   starts_at: STARTS_AT,
+  ends_at: ENDS_AT,
   created_at: STARTS_AT,
   ...over,
 })
@@ -388,10 +396,10 @@ describe('自動消化 — the burn-history window', () => {
 })
 
 // Blind-round F2 + F5. The window catches a missed/failed run up; the marker
-// stops a second pass over a day whose burns a staffer has since UNDONE (a
-// soft-removed redemption is invisible to both guards AND to the DB index).
-describe('自動消化 — the lookback window + the per-business marker', () => {
-  // 11:00 JST on 2026-07-07 → the window is 07-04, 07-05, 07-06 (yesterday).
+// stops a second pass over a SETTLED day whose burns a staffer has since UNDONE
+// (a soft-removed redemption is invisible to both guards AND to the DB index).
+describe('自動消化 — the scan window + the per-business marker', () => {
+  // 11:00 JST on 2026-07-07 → the window is 07-04, 07-05, 07-06 and TODAY 07-07.
   const NOW = Date.parse('2026-07-07T02:00:00.000Z')
   const marked = (date?: string) =>
     orgSettingsGet.mockImplementation(async () =>
@@ -409,43 +417,51 @@ describe('自動消化 — the lookback window + the per-business marker', () =>
     jest.restoreAllMocks()
   })
 
-  it('with NO marker the first run takes ONLY the newest day — turning 自動消化 on never retro-charges', async () => {
+  it('with NO marker the first run takes ONLY today, and SEEDS the marker to yesterday', async () => {
     const out = await autoBurnRecentDays(client(), 'biz-1')
-    expect(dates(out)).toEqual(['2026-07-06'])
+    expect(dates(out)).toEqual(['2026-07-07'])
+    // The seed is what keeps the next day's settle pass able to reach today —
+    // without it "today only" repeats forever and every evening booking whose
+    // grace expires after the last intraday tick is lost. It is NOT a claim
+    // that 07-06 burned: 07-06 was never in `pending`, which is the
+    // no-retro-charge rule.
     expect(orgSettingsUpsert).toHaveBeenCalledWith({
       settings: { pack_burn_mode: 'auto', auto_burn_last_processed: '2026-07-06' },
     })
   })
 
-  it('a missed run catches up: every day after the marker, OLDEST first', async () => {
+  it('a missed run catches up: every day after the marker, OLDEST first, today last', async () => {
     marked('2026-07-04')
     const out = await autoBurnRecentDays(client(), 'biz-1')
-    expect(dates(out)).toEqual(['2026-07-05', '2026-07-06'])
+    expect(dates(out)).toEqual(['2026-07-05', '2026-07-06', '2026-07-07'])
+    // 07-06 is the newest SETTLED day — today cannot mark itself done.
     expect(orgSettingsUpsert).toHaveBeenCalledWith({
       settings: { pack_burn_mode: 'auto', auto_burn_last_processed: '2026-07-06' },
     })
   })
 
-  it('a day the marker already cleared is NEVER reprocessed — an undone burn stays undone', async () => {
+  it('a SETTLED day the marker already cleared is NEVER reprocessed — an undone burn stays undone', async () => {
     marked('2026-07-06')
     const out = await autoBurnRecentDays(client(), 'biz-1')
-    expect(out).toEqual([])
-    expect(apptList).not.toHaveBeenCalled()
-    expect(addRedemption).not.toHaveBeenCalled()
+    // Only today is left; 07-04..07-06 are settled and stay untouched.
+    expect(dates(out)).toEqual(['2026-07-07'])
+    expect(apptList).toHaveBeenCalledWith(
+      expect.objectContaining({ from: '2026-07-06T15:00:00.000Z' }),
+    )
     expect(orgSettingsUpsert).not.toHaveBeenCalled()
   })
 
   it('?force=1 reprocesses the whole window — the deliberate backfill lever', async () => {
     marked('2026-07-06')
     const out = await autoBurnRecentDays(client(), 'biz-1', true)
-    expect(dates(out)).toEqual(['2026-07-04', '2026-07-05', '2026-07-06'])
+    expect(dates(out)).toEqual(['2026-07-04', '2026-07-05', '2026-07-06', '2026-07-07'])
   })
 
   it('a day we could NOT read stalls the marker — tomorrow retries it, later days still burn', async () => {
     marked('2026-07-04')
     listRecentRedemptions.mockRejectedValueOnce(new Error('core down'))
     const out = await autoBurnRecentDays(client(), 'biz-1')
-    expect(out.map((s) => s.skippedUnknown)).toEqual([1, 0])
+    expect(out.map((s) => s.skippedUnknown)).toEqual([1, 0, 0])
     expect(out[1].burned).toBe(1)
     expect(orgSettingsUpsert).not.toHaveBeenCalled()
   })
@@ -456,5 +472,163 @@ describe('自動消化 — the lookback window + the per-business marker', () =>
     const out = await autoBurnRecentDays(client(), 'biz-1')
     expect(out[0].burned).toBe(1)
     expect(warn).toHaveBeenCalled()
+  })
+})
+
+// Liam's ruling 2026-08-08: a ticket burns ~2h AFTER the session ends, same
+// day. The grace is not a delay for its own sake — it is the room a last-minute
+// cancellation has to reach Karute through core's 15-minute crawl (~8 passes)
+// before the money moves.
+describe('自動消化 — the 2-hour grace after the session ENDS', () => {
+  // 15:00 JST on DATE → the burn cutoff is 13:00 JST (2026-07-06T04:00Z).
+  const NOW = Date.parse('2026-07-06T06:00:00.000Z')
+  const endedAt = (iso: string) =>
+    apptList.mockImplementation(async () => page([appt({ ends_at: iso })]))
+
+  beforeEach(() => {
+    jest.spyOn(Date, 'now').mockReturnValue(NOW)
+  })
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it('a session that ended 2h01m ago BURNS', async () => {
+    endedAt('2026-07-06T03:59:00.000Z')
+    const s = await run()
+    expect(addRedemption).toHaveBeenCalledTimes(1)
+    expect(s).toMatchObject({ candidates: 1, burned: 1, skippedTooSoon: 0 })
+  })
+
+  it('a session that ended 1h59m ago is NOT burned — it is waiting, not skipped', async () => {
+    endedAt('2026-07-06T04:01:00.000Z')
+    const s = await run()
+    expect(addRedemption).not.toHaveBeenCalled()
+    // Reported, not silent: an intraday run over a busy salon must not read
+    // like "nothing to burn" (the F7 lesson).
+    expect(s).toMatchObject({ candidates: 0, burned: 0, skippedTooSoon: 1 })
+  })
+
+  it('…and the NEXT hourly pass burns it — the grace delays a burn, never drops it', async () => {
+    endedAt('2026-07-06T04:01:00.000Z')
+    expect((await run()).burned).toBe(0)
+    jest.spyOn(Date, 'now').mockReturnValue(NOW + 3_600_000) // one hourly tick later
+    expect((await run()).burned).toBe(1)
+    expect(addRedemption).toHaveBeenCalledTimes(1)
+  })
+
+  it('a booking CANCELLED during the grace never burns at all', async () => {
+    apptList.mockImplementation(async () =>
+      page([appt({ status: 'CANCELLED', ends_at: '2026-07-06T03:00:00.000Z' })]),
+    )
+    const s = await run()
+    expect(addRedemption).not.toHaveBeenCalled()
+    // Terminal is checked BEFORE the cutoff: not burnable and not waiting.
+    expect(s).toMatchObject({ candidates: 0, burned: 0, skippedTooSoon: 0 })
+  })
+
+  it('falls back to starts_at + duration_minutes when core sent no end', async () => {
+    // Start 12:00 JST. +61 min ends at 13:01 — one minute short of the cutoff.
+    apptList.mockImplementation(async () => page([appt({ ends_at: '', duration_minutes: 61 })]))
+    expect((await run()).skippedTooSoon).toBe(1)
+    apptList.mockImplementation(async () => page([appt({ ends_at: '', duration_minutes: 59 })]))
+    expect((await run()).burned).toBe(1)
+  })
+
+  it('a booking whose times are BOTH unreadable never burns — fail closed', async () => {
+    apptList.mockImplementation(async () => page([appt({ starts_at: 'nonsense', ends_at: '' })]))
+    const s = await run()
+    expect(addRedemption).not.toHaveBeenCalled()
+    expect(s).toMatchObject({ candidates: 0, burned: 0 })
+  })
+})
+
+// The case Liam's ruling names explicitly: a session ending 22:30 JST is still
+// inside its grace when the LAST intraday tick (23:00 JST) runs, so the 08:30
+// settle pass the next morning is what burns it — and what settles the day.
+describe('自動消化 — the hourly sweep and the morning settle pass', () => {
+  const LATE = appt({
+    starts_at: '2026-07-06T12:30:00.000Z', // 21:30 JST
+    ends_at: '2026-07-06T13:30:00.000Z', // 22:30 JST
+    created_at: '2026-07-06T12:30:00.000Z',
+  })
+  const TICK_2300_JST = Date.parse('2026-07-06T14:00:00.000Z')
+  const SETTLE_0830_JST = Date.parse('2026-07-06T23:30:00.000Z') // 08:30 JST on 07-07
+
+  beforeEach(() => {
+    orgSettingsGet.mockImplementation(async () =>
+      settingsRow({ pack_burn_mode: 'auto', auto_burn_last_processed: '2026-07-05' }),
+    )
+    // Date-aware, so a two-day pass cannot double-count one booking.
+    apptList.mockImplementation(async (o) =>
+      page(ymdInJst(new Date((o as { from: string }).from)) === DATE ? [LATE] : []),
+    )
+  })
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it('the 23:00 JST tick leaves a 22:30 session alone, and never settles today', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(TICK_2300_JST)
+    const out = await autoBurnRecentDays(client(), 'biz-1')
+    expect(out.map((s) => s.date)).toEqual([DATE])
+    expect(addRedemption).not.toHaveBeenCalled()
+    expect(out[0]).toMatchObject({ burned: 0, skippedTooSoon: 1 })
+    expect(orgSettingsUpsert).not.toHaveBeenCalled()
+  })
+
+  it('the next morning 08:30 pass burns it AND advances the marker to that day', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(SETTLE_0830_JST)
+    const out = await autoBurnRecentDays(client(), 'biz-1')
+    expect(out.map((s) => s.date)).toEqual([DATE, '2026-07-07'])
+    expect(addRedemption).toHaveBeenCalledTimes(1)
+    expect(addRedemption).toHaveBeenCalledWith(
+      expect.objectContaining({ appointmentId: 'appt-1', redeemedOn: DATE }),
+    )
+    expect(orgSettingsUpsert).toHaveBeenCalledWith({
+      settings: expect.objectContaining({ auto_burn_last_processed: DATE }),
+    })
+  })
+})
+
+// The marker deliberately stands still all day, so guards 1+2 — not the
+// schedule — are what stop the next hourly tick charging the same visit twice.
+describe('自動消化 — an intraday rerun is idempotent', () => {
+  const TICK_1600_JST = Date.parse('2026-07-06T07:00:00.000Z')
+
+  beforeEach(() => {
+    jest.spyOn(Date, 'now').mockReturnValue(TICK_1600_JST)
+    orgSettingsGet.mockImplementation(async () =>
+      settingsRow({ pack_burn_mode: 'auto', auto_burn_last_processed: '2026-07-05' }),
+    )
+    // The two mocks stop lying to each other: what pass 1 burns is what pass 2
+    // reads back. Without that, "idempotent" would only be the mock's opinion.
+    const ledger: Array<{
+      customer_id: string
+      appointment_id: string | null
+      redeemed_on: string
+    }> = []
+    addRedemption.mockImplementation(async (input) => {
+      const i = input as { customerId: string; appointmentId: string; redeemedOn: string }
+      ledger.push({
+        customer_id: i.customerId,
+        appointment_id: i.appointmentId,
+        redeemed_on: i.redeemedOn,
+      })
+      return { ok: true, id: `redemption-${ledger.length}` }
+    })
+    listRecentRedemptions.mockImplementation(async () => ledger)
+  })
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it('two consecutive passes over today burn exactly ONE ticket', async () => {
+    const first = await autoBurnRecentDays(client(), 'biz-1')
+    const second = await autoBurnRecentDays(client(), 'biz-1')
+    expect(first[0]).toMatchObject({ date: DATE, burned: 1 })
+    expect(second[0]).toMatchObject({ date: DATE, burned: 0, skippedAlreadyBurned: 1 })
+    expect(addRedemption).toHaveBeenCalledTimes(1)
+    // Neither pass settled the day — that stays the 08:30 pass's job.
+    expect(orgSettingsUpsert).not.toHaveBeenCalled()
   })
 })
