@@ -153,6 +153,37 @@ describe('bottom bar tap activation (#648 root-scroller momentum)', () => {
     expect(push).toHaveBeenCalledWith('/settings')
   })
 
+  // Dismiss controls: same fixed/root-scroller context, same swallowed click.
+  // "Menu won't close" is the same bug wearing a different hat.
+  //
+  // Both dismisses are idempotent, so "did the late click re-fire?" cannot be
+  // observed through state — a second setMenuOpen(false) looks identical.
+  // The close button is checked directly instead: fireEvent returns false when
+  // the event was defaultPrevented, which IS the swallow. The scrim unmounts
+  // with the menu, so no late click can reach it at all — touchend is the only
+  // half there is to pin.
+  it('scrim: one tap dismisses the menu (touchend, no click needed)', () => {
+    render(<BottomNav nextCustomer={null} locale="ja" />)
+    const toggle = menuButton()
+    tapNoClick(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    tapNoClick(document.querySelector('.fixed.inset-0')!)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('sheet close button: one tap dismisses, and the late click is swallowed', () => {
+    render(<BottomNav nextCustomer={null} locale="ja" />)
+    const toggle = menuButton()
+    tapNoClick(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    const close = screen.getByRole('button', { name: 'Close menu' })
+    tapNoClick(close)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    // false = defaultPrevented = the swallow fired.
+    expect(fireEvent.click(close)).toBe(false)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  })
+
   it('stop-recording: one tap stops exactly once', () => {
     recorderState = 'recording'
     mockPathname = '/sessions'

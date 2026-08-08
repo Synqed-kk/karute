@@ -78,11 +78,13 @@ interface BottomNavProps {
 export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps = {}) {
   const t = useTranslations('sidebar')
   const pathname = usePathname()
-  // Every interactive cell in the bar activates on TOUCHEND, not on click —
+  // Every interactive cell in the bar — tabs, mic, メニュー toggle, and the
+  // sheet's own scrim + close button — activates on TOUCHEND, not on click:
   // under the root-scroller shell (#648) iOS eats the click of a tap that
-  // arrests scroll momentum, so the touch path drives navigation itself.
-  // See src/lib/tap-activation.ts for the full constraint. The mouse/desktop
-  // path is unchanged.
+  // arrests scroll momentum, so the touch path drives navigation itself. The
+  // dismiss controls sit in the same fixed context and were failing the same
+  // way ("the menu won't close"). See src/lib/tap-activation.ts for the full
+  // constraint. The mouse/desktop path is unchanged.
   const router = useRouter()
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -152,7 +154,7 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
       {menuOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
-          onClick={() => setMenuOpen(false)}
+          {...tapActivation(() => setMenuOpen(false))}
         />
       )}
       <div
@@ -164,7 +166,7 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
           <span className="text-xs font-medium text-muted-foreground">{label('menu')}</span>
           <button
             type="button"
-            onClick={() => setMenuOpen(false)}
+            {...tapActivation(() => setMenuOpen(false))}
             className="rounded-full p-1.5 text-muted-foreground hover:bg-muted"
             aria-label="Close menu"
           >
@@ -347,6 +349,16 @@ function liveHint(
 // subscription only re-renders the FAB cell, not the entire
 // BottomNav (which would re-run the per-route active checks on
 // every recording tick).
+//
+// ponytail — known ceiling on the tap activation below: the three states
+// render DIFFERENT elements, so a recording→idle flip mid-gesture detaches
+// the node the finger started on. iOS keeps delivering that touch to the
+// detached element, whose React handlers are gone, so that one in-flight tap
+// is lost. Platform limit, not something a listener here can rescue (the
+// gesture's own start state died with the node); the next tap is clean
+// because tapActivation keys its state by element. Upgrade path if it ever
+// bites: keep ONE button element across all three states and swap only its
+// contents.
 function CenterRecordButton({
   menuOpen,
   setMenuOpen,

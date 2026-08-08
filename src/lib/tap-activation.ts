@@ -60,6 +60,12 @@ export function tapActivation(
         return
       }
       const t = e.touches[0]
+      // ponytail: a fresh touchstart also clears a swallowClick left set by a
+      // tap whose click iOS never delivered. Ceiling: on a rapid same-element
+      // double-tap, tap #1's late click can land AFTER this reset and slip
+      // through unswallowed — harmless here (every bar activation is
+      // idempotent or same-destination). Upgrade path if that ever stops
+      // holding: age the flag by timestamp instead of clearing it.
       taps.set(e.currentTarget, {
         x: t.clientX,
         y: t.clientY,
