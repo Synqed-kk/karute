@@ -6,6 +6,7 @@ import { Camera, Columns2, Eye, Image as ImageIcon, Loader2 } from 'lucide-react
 import { useTranslations } from 'next-intl'
 
 import { uploadCustomerPhoto } from '@/actions/customers'
+import { shrinkPhotoForUpload } from '@/lib/photo-shrink'
 import { PhotoCompareView } from './PhotoCompareView'
 import { PhotoPresentationOverlay } from './PhotoPresentationOverlay'
 
@@ -60,8 +61,9 @@ export function PhotosTabContent({ customerId, photos }: PhotosTabContentProps) 
     setError(null)
     try {
       for (const file of Array.from(files)) {
+        const upload = await shrinkPhotoForUpload(file)
         const fd = new FormData()
-        fd.append('file', file)
+        fd.append('file', upload)
         fd.append('category', category)
         const result = await uploadCustomerPhoto(customerId, fd)
         if (result && 'error' in result) throw new Error(result.error)
