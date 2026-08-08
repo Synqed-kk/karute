@@ -572,7 +572,7 @@
     "consentStartFlow": "Start consent flow",
     "consentDialogTitle": "Obtain recording consent",
     "consentDialogInstructions": "Read the script below to the customer. Tap \"Customer agreed\" only after they verbally confirm.",
-    "consentScript": "{customerName}, with your permission we'll record today's session so I can focus on you and have an accurate record afterward. The audio is used only to generate your karute and improve our service. Is that OK?",
+    "consentScript": "{customerName}, with your permission we'll record today's session and take progress photos, so I can focus on you and have an accurate record afterward. The audio and photos are used only to generate your karute and improve our service. Is that OK?",
     "consentConfirmButton": "Customer agreed",
     "longRecordingWarning": "Long session — consider stopping and starting a new recording",
     "subtitle": "Record a session — AI will auto-generate the karute for you.",
