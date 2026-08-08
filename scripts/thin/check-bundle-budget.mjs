@@ -59,7 +59,12 @@ const DIST = 'thin/dist/assets'
 // bloat — same class as every prior raise; the purchase-marker scan below
 // stays the real gate. (A lazy-chunk split was tried first and REVERTED: the
 // gate correctly counts total thin JS, so splitting only added overhead.)
-const BUDGET_BYTES = 1_733_000
+// Raised 2026-08-08 at the auto-burn PR (#683) — the 自動消化 settings toggle
+// + explainer strings reach the thin settings screen, measured 1692.7 KB
+// against the prior 1692.4 KB ceiling (over by 0.3 KB). Genuine new-feature
+// volume; ceiling converged with the concurrent #682 raise (same number,
+// tap-activation bytes) so the two branches cannot conflict on this line.
+const BUDGET_BYTES = 1_735_000
 
 let dir
 try {
