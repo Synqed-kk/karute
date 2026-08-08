@@ -113,29 +113,47 @@ describe('PhotoPresentationOverlay', () => {
       jest.useRealTimers()
     })
 
-    it('does not close before the 1200ms hold completes, closes exactly at 1200ms', () => {
+    // 600ms per Liam's 8/8 field-test ruling (was 1200 — felt broken on-device).
+    it('does not close before the 600ms hold completes, closes exactly at 600ms', () => {
       const onClose = jest.fn()
       render(<PhotoPresentationOverlay photos={photos} onClose={onClose} />)
       const closeBtn = screen.getByLabelText('閉じる（長押し）')
 
       fireEvent.pointerDown(closeBtn)
-      jest.advanceTimersByTime(1199)
+      jest.advanceTimersByTime(599)
       expect(onClose).not.toHaveBeenCalled()
 
       jest.advanceTimersByTime(1)
       expect(onClose).toHaveBeenCalledTimes(1)
     })
 
-    it('releasing before 1200ms cancels the hold — no close', () => {
+    it('releasing before 600ms cancels the hold — no close', () => {
       const onClose = jest.fn()
       render(<PhotoPresentationOverlay photos={photos} onClose={onClose} />)
       const closeBtn = screen.getByLabelText('閉じる（長押し）')
 
       fireEvent.pointerDown(closeBtn)
-      jest.advanceTimersByTime(600)
+      jest.advanceTimersByTime(300)
       fireEvent.pointerUp(closeBtn)
       jest.advanceTimersByTime(1200)
       expect(onClose).not.toHaveBeenCalled()
+    })
+
+    it('holding shows the big centered progress ring; releasing hides it', () => {
+      render(<PhotoPresentationOverlay photos={photos} onClose={jest.fn()} />)
+      const closeBtn = screen.getByLabelText('閉じる（長押し）')
+      // Always mounted (so the stroke transition can animate), visibility
+      // toggled via opacity — the finger hides the button's own ring on
+      // touch, this centered twin is the progress the user actually sees.
+      const ring = () => screen.getByTestId('hold-progress-ring')
+      expect(ring().className).toContain('opacity-0')
+      expect(ring().className).toContain('pointer-events-none')
+
+      fireEvent.pointerDown(closeBtn)
+      expect(ring().className).toContain('opacity-100')
+
+      fireEvent.pointerUp(closeBtn)
+      expect(ring().className).toContain('opacity-0')
     })
 
     it('keyboard Enter on the ✕ closes immediately — no hold required', () => {

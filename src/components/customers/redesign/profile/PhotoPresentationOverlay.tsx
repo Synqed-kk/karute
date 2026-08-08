@@ -55,7 +55,11 @@ type Stage = 'grid' | 'select' | 'compare'
 type CompareSubview = 'side' | 'overlay'
 type FullscreenState = { source: 'grid' | 'compare'; index: number }
 
-const HOLD_MS = 1200
+// 600ms (Liam field-test ruling 8/8): 1200ms felt broken on-device, and the
+// button's own ring is hidden under the pressing finger — the big centered
+// ring below is the visible progress. Still 2× a deliberate tap, so an idle
+// customer thumb won't trip it.
+const HOLD_MS = 600
 const RING_R = 15
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_R
 
@@ -354,6 +358,12 @@ function FilterChip({
 // accessibility escape hatch (a customer holding the phone has no
 // keyboard) and closes immediately, matching Escape's instant close via
 // the Dialog's own onOpenChange.
+// The button keeps its own small ring (visible for mouse users), but on
+// touch the pressing finger covers it — so a big viewport-centered twin
+// ring renders while holding. It's always mounted (opacity-toggled) so the
+// stroke transition animates from empty on every press; pointer-events-none
+// keeps it from stealing the pointer mid-hold (which would fire
+// pointerleave and cancel the hold it's reporting on).
 function HoldToCloseButton({ onClose, label }: { onClose: () => void; label: string }) {
   const [holding, setHolding] = useState(false)
   const [shaking, setShaking] = useState(false)
@@ -372,51 +382,85 @@ function HoldToCloseButton({ onClose, label }: { onClose: () => void; label: str
   }
 
   return (
-    <button
-      type="button"
-      onPointerDown={(e) => {
-        setShaking(false)
-        setHolding(true)
-        press.onPointerDown(e)
-      }}
-      onPointerMove={press.onPointerMove}
-      onPointerUp={() => {
-        release()
-        press.onPointerUp()
-      }}
-      onPointerLeave={() => {
-        release()
-        press.onPointerLeave()
-      }}
-      onPointerCancel={() => {
-        release()
-        press.onPointerCancel()
-      }}
-      onKeyDown={handleKeyDown}
-      onAnimationEnd={() => setShaking(false)}
-      aria-label={label}
-      className={`relative inline-flex size-9 select-none items-center justify-center rounded-full text-foreground/70 transition-colors hover:bg-muted [-webkit-touch-callout:none] ${
-        shaking ? 'motion-safe:animate-[hold-cancel-shake_0.3s_ease-in-out]' : ''
-      }`}
-    >
-      <svg viewBox="0 0 36 36" aria-hidden="true" className="pointer-events-none absolute inset-0 -rotate-90">
-        <circle
-          cx="18"
-          cy="18"
-          r={RING_R}
-          fill="none"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeDasharray={RING_CIRCUMFERENCE}
-          className="stroke-current text-primary"
-          style={{
-            strokeDashoffset: holding ? 0 : RING_CIRCUMFERENCE,
-            transition: holding ? `stroke-dashoffset ${HOLD_MS}ms linear` : 'none',
-          }}
-        />
-      </svg>
-      <X size={18} />
-    </button>
+    <>
+      <div
+        aria-hidden="true"
+        data-testid="hold-progress-ring"
+        className={`pointer-events-none fixed inset-0 z-10 flex items-center justify-center transition-opacity ${
+          holding ? 'opacity-100' : 'opacity-0'
+        }`}
+      >
+        <svg viewBox="0 0 36 36" className="size-24 -rotate-90">
+          <circle
+            cx="18"
+            cy="18"
+            r={RING_R}
+            fill="none"
+            strokeWidth="2.5"
+            className="stroke-current text-border"
+          />
+          <circle
+            cx="18"
+            cy="18"
+            r={RING_R}
+            fill="none"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeDasharray={RING_CIRCUMFERENCE}
+            className="stroke-current text-primary"
+            style={{
+              strokeDashoffset: holding ? 0 : RING_CIRCUMFERENCE,
+              transition: holding ? `stroke-dashoffset ${HOLD_MS}ms linear` : 'none',
+            }}
+          />
+        </svg>
+      </div>
+      <button
+        type="button"
+        onPointerDown={(e) => {
+          setShaking(false)
+          setHolding(true)
+          press.onPointerDown(e)
+        }}
+        onPointerMove={press.onPointerMove}
+        onPointerUp={() => {
+          release()
+          press.onPointerUp()
+        }}
+        onPointerLeave={() => {
+          release()
+          press.onPointerLeave()
+        }}
+        onPointerCancel={() => {
+          release()
+          press.onPointerCancel()
+        }}
+        onKeyDown={handleKeyDown}
+        onAnimationEnd={() => setShaking(false)}
+        aria-label={label}
+        className={`relative inline-flex size-9 select-none items-center justify-center rounded-full text-foreground/70 transition-colors hover:bg-muted [-webkit-touch-callout:none] ${
+          shaking ? 'motion-safe:animate-[hold-cancel-shake_0.3s_ease-in-out]' : ''
+        }`}
+      >
+        <svg viewBox="0 0 36 36" aria-hidden="true" className="pointer-events-none absolute inset-0 -rotate-90">
+          <circle
+            cx="18"
+            cy="18"
+            r={RING_R}
+            fill="none"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeDasharray={RING_CIRCUMFERENCE}
+            className="stroke-current text-primary"
+            style={{
+              strokeDashoffset: holding ? 0 : RING_CIRCUMFERENCE,
+              transition: holding ? `stroke-dashoffset ${HOLD_MS}ms linear` : 'none',
+            }}
+          />
+        </svg>
+        <X size={18} />
+      </button>
+    </>
   )
 }
 

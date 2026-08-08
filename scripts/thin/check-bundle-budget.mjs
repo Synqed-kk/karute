@@ -65,7 +65,13 @@ const DIST = 'thin/dist/assets'
 // PhotoPresentationOverlay, measured at 1739.4 KB raw against the prior
 // 1692.4 KB ceiling (over by 47.0 KB). (7th raise — presentation compare;
 // converges with #682/#683)
-const BUDGET_BYTES = 1_740_000
+// Raised 2026-08-09 at the hold-✕ rework (same PR #685) — Liam's field-test
+// ruling: 600ms hold + a big viewport-centered progress ring (the finger
+// hides the button's own ring), measured at 1699.2 KB raw against the prior
+// 1699.2 KB ceiling (over by ~0.4 KB). Genuine new-feature volume, not
+// bloat; same class as every prior raise. (8th raise; still converges with
+// #682/#683's 1_735_000 on this line — later merge keeps the larger.)
+const BUDGET_BYTES = 1_741_000
 
 let dir
 try {
