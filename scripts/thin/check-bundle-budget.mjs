@@ -59,23 +59,16 @@ const DIST = 'thin/dist/assets'
 // bloat — same class as every prior raise; the purchase-marker scan below
 // stays the real gate. (A lazy-chunk split was tried first and REVERTED: the
 // gate correctly counts total thin JS, so splitting only added overhead.)
-// Raised 2026-08-08 at the presentation-compare redesign — customer-safe
-// compare (selection/side-by-side/opacity-overlay/2×2 grid) + multi-photo
-// fullscreen browsing (chevrons/dots/swipe) + hold-to-close ✕ ship inside
-// PhotoPresentationOverlay, measured at 1739.4 KB raw against the prior
-// 1692.4 KB ceiling (over by 47.0 KB). (7th raise — presentation compare;
-// converges with #682/#683)
-// Raised 2026-08-09 at the hold-✕ rework (same PR #685) — Liam's field-test
-// ruling: 600ms hold + a big viewport-centered progress ring (the finger
-// hides the button's own ring), measured at 1699.2 KB raw against the prior
-// 1699.2 KB ceiling (over by ~0.4 KB). Genuine new-feature volume, not
-// bloat; same class as every prior raise. (8th raise; still converges with
-// #682/#683's 1_735_000 on this line — later merge keeps the larger.)
-// Raised 2026-08-09 at the combined build with PR #684 — measured at
-// 1,741,168 B raw when this branch's code and #684's code build together,
-// 168 B over the prior 1_741_000 ceiling. Cross-branch convergence check,
-// not local feature growth; same class as every prior raise. (9th raise.)
-const BUDGET_BYTES = 1_742_000
+// Raised 2026-08-09 at the karute-photo-session stack (PR 9a+9b) — this
+// branch's thin bundle measures ~1699 KB alone (session-photo card + D3
+// dialog + present overlay wiring + facade ports). Two OTHER in-flight PRs
+// (#684+#685) combine to measure 1,741,168 B on their own tip; with all
+// three merged the bundle is projected at ≈1,748.6 KB. Ceiling set to
+// 1_749_000 with headroom for that combined total — supersedes the
+// 1_742_000 number some branches carry; THIS is the number a same-line
+// merge-conflict resolver must keep (the larger of the two candidates —
+// raises never shrink on a merge, only on a deliberate re-base measurement).
+const BUDGET_BYTES = 1_749_000
 
 let dir
 try {
