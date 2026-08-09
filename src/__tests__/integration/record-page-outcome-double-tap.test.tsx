@@ -101,7 +101,7 @@ jest.mock('@/hooks/use-global-recorder', () => ({
     startedAt: null,
     overrun: false,
     autoStopped: false,
-    target: null,
+    target: { customerId: 'cust-1', customerName: '廣瀬浩子', karuteNumber: null, appointmentId: null },
     takeId: null,
     startRecording: jest.fn(),
     stopRecording: jest.fn(),

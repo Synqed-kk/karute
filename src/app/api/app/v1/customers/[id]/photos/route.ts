@@ -11,7 +11,8 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { uploadCustomerPhotoWithClient } from '@/actions/customers'
-import { proveCustomerInBusiness } from '@/lib/app-api/customer-facade'
+import { proveCustomerInBusiness, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
+import { parsePhotoUploadFields } from '@/lib/karute/photo-upload-fields'
 
 export const runtime = 'nodejs'
 
@@ -75,10 +76,19 @@ export const POST = facadeHandler<Params>('customer.photo.upload', async (ctx) =
 
   const category = form.get('category')
   const caption = form.get('caption')
+  const { recording_session_id, taken_with_consent } = parsePhotoUploadFields(form)
   try {
+    // captured_by_staff_id is SERVER-RESOLVED — never trust client input for
+    // attribution (the #452 selfStaffId pattern; same helper the
+    // consent/revoke sibling route resolves through).
+    const captured_by_staff_id =
+      (await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)) ?? undefined
     const photo = await uploadCustomerPhotoWithClient(synqed, id, file, {
       category: typeof category === 'string' ? category : undefined,
       caption: typeof caption === 'string' ? caption : undefined,
+      recording_session_id,
+      captured_by_staff_id,
+      taken_with_consent,
     })
     return ok(ctx, { photo }, 201)
   } catch (err) {
