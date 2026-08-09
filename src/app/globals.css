@@ -360,6 +360,15 @@ html.dark[data-theme="karute"] {
     display: none;
   }
 
+  /* Customer-facing toast leak (PR 9b §6): sonner's toaster stacks at
+   * z-index 999999999, which outstacks PhotoPresentationOverlay's z-[120]
+   * modal shell — a recording-status toast (e.g. the overrun/auto-stop
+   * nudges) must NEVER appear on the screen a customer is watching.
+   * SessionPhotoCard toggles this class on <body> for exactly as long as
+   * the presentation overlay is open. */
+  .customer-presentation-open [data-sonner-toaster] {
+    display: none;
+  }
 }
 
 /* PhotoPresentationOverlay hold-to-close: a brief shake when a hold is

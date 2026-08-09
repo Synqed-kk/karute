@@ -162,6 +162,55 @@ async function facadeUploadCustomerPhoto(
   return { error: body?.error?.message ?? `Upload failed (${res.status})` }
 }
 
+// Local redeclaration (same "redeclare only what's needed" convention as
+// EntryEditHistoryRow below) — the SDK's raw CustomerPhoto DTO fields
+// SessionPhotoCard's handlePresent actually reads.
+type CustomerPhotoRow = {
+  id: string
+  signed_url: string | null
+  category: string
+  caption: string | null
+}
+
+async function facadeListCustomerPhotos(
+  customerId: string,
+): Promise<{ photos: CustomerPhotoRow[] }> {
+  const res = await getDataPort().apiFetch(`/api/app/v1/customers/${enc(customerId)}/photos`)
+  const body = (await res.json().catch(() => null)) as
+    | { photos?: CustomerPhotoRow[]; error?: { message?: string } }
+    | null
+  if (res.ok && body) return { photos: body.photos ?? [] }
+  // Web action (listCustomerPhotos, src/actions/customers.ts) has no
+  // try/catch — a failure THROWS, never returns an {error} shape. Match it
+  // exactly: SessionPhotoCard's handlePresent relies on the throw to route
+  // into its own catch (toast + stay closed).
+  // Distinguish an unparseable 2xx body (transport succeeded, the JSON
+  // didn't) from a real non-2xx failure — "Request failed (200)" would be a
+  // lie for the former.
+  if (res.ok) throw new Error('Response body was not valid JSON')
+  throw new Error(body?.error?.message ?? `Request failed (${res.status})`)
+}
+
+async function facadeDeleteCustomerPhoto(
+  customerId: string,
+  photoId: string,
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const res = await getDataPort().apiFetch(
+      `/api/app/v1/customers/${enc(customerId)}/photos/${enc(photoId)}`,
+      { method: 'DELETE' },
+    )
+    if (res.ok) return { success: true }
+    const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
+    return { success: false, error: body?.error?.message ?? `Delete failed (${res.status})` }
+  } catch (err) {
+    // Web action (deleteCustomerPhoto) never throws — matches its
+    // try/catch-everything contract exactly (RecordPageView's discard-delete
+    // loop Promise.all()s these with no per-call catch).
+    return { success: false, error: err instanceof Error ? err.message : 'Network request failed' }
+  }
+}
+
 async function facadeRevokeCustomerConsent(
   customerId: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -609,9 +658,9 @@ export const createCustomer = notWired('createCustomer')
 export const createQuickCustomer = notWired('createQuickCustomer')
 export const updateCustomer = facadeUpdateCustomer
 export const deleteCustomer = notWired('deleteCustomer')
-export const listCustomerPhotos = notWired('listCustomerPhotos')
+export const listCustomerPhotos = facadeListCustomerPhotos
 export const uploadCustomerPhoto = facadeUploadCustomerPhoto
-export const deleteCustomerPhoto = notWired('deleteCustomerPhoto')
+export const deleteCustomerPhoto = facadeDeleteCustomerPhoto
 export const getCustomerConsent = facadeGetCustomerConsent
 export const grantCustomerConsent = facadeGrantCustomerConsent
 export const revokeCustomerConsent = facadeRevokeCustomerConsent

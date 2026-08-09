@@ -114,6 +114,7 @@ export const RecordScreenDTO = z.object({
   previousPack: z.object({ size: z.number(), unitPrice: z.number() }).nullable(),
   packPresets: z.array(PackPresetSchema),
   staffCanCustomizePacks: z.boolean(),
+  staffCanDeletePhotos: z.boolean(),
   ticketsEnabled: z.boolean(),
   noiseSuppression: z.boolean(),
   currentStaffName: z.string().nullable(),

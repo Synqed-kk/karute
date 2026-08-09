@@ -473,7 +473,22 @@ export async function deleteCustomerPhoto(
   photoId: string,
 ) {
   try {
+    // records.delete — owner / manager / senior only. Mirrors scheduleCustomerDeletion /
+    // deleteKaruteRecord (Liam ruling 8/9: photo delete = same destructive tier).
+    await requireCapability('records.delete')
     const synqed = await getSynqedClient()
+    // Parity with the facade DELETE route: tenancy proof on the customer, then
+    // ownership proof that photoId is actually theirs — both BEFORE the core
+    // delete. They throw AppApiError, which the catch below turns into this
+    // action's own { success: false, error } contract.
+    // Imported lazily (same pattern as grantCustomerConsent's staff import):
+    // a static import drags customer-facade's whole graph into every module
+    // that touches this file, which breaks unrelated suites' module walls.
+    const { proveCustomerInBusiness, provePhotoForCustomer } = await import(
+      '@/lib/app-api/customer-facade'
+    )
+    await proveCustomerInBusiness(synqed, customerId)
+    await provePhotoForCustomer(synqed, customerId, photoId)
     await synqed.customers.deletePhoto(customerId, photoId)
     revalidatePath(`/customers/${customerId}`)
     return { success: true as const }
