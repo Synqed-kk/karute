@@ -19,7 +19,7 @@ import { SaveKaruteSchema } from '@/lib/app-api/record-schemas'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { createOrUpdateKaruteRecord } from '@/actions/karute'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
-import { setKaruteOutcomeWithClient } from '@/lib/karute/outcome'
+import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import type { SynqedClient, Appointment } from '@synqed-kk/client'
 
@@ -144,14 +144,27 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
 
   // Best-effort outcome (the coaching label) — never gate the save on it.
   if (input.outcome) {
-    await setKaruteOutcomeWithClient(synqed, {
+    const outcomeResult = await setKaruteOutcomeWithClient(synqed, {
       karuteRecordId: id,
       customerId: input.customerId,
       status: input.outcome.status,
       reason: input.outcome.reason ?? null,
       isFirstVisit: input.outcome.isFirstVisit,
       decidedBy: staffId,
+      // Post-persist: the karute is already durable above.
+      onUnverifiable: 'write',
     })
+    // The karute is ALREADY PERSISTED above, so a label problem must never
+    // turn into a failure response for a save that durably succeeded. Same
+    // shape as the worker: keep the record, drop the label, warn. Pre-validating
+    // instead would be worse — a transient fail-closed guard read would 400 a
+    // legitimate save. Every OTHER outcome-write error stays ignored exactly as
+    // it was before this PR (best-effort, never gates the save).
+    if (outcomeResult.error === REVISIT_NOT_ELIGIBLE) {
+      console.warn('[karute.save] revisit rejected server-side; record kept, label dropped', {
+        karuteRecordId: id,
+      })
+    }
   }
 
   // Best-effort memory ingest — identity-threaded gate (businessId); fresh saves

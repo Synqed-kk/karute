@@ -51,7 +51,10 @@ const karuteGet = jest.fn(async (id: string) => {
 })
 const getConsent = jest.fn(async () => ({ consent: { policy_version: 'v0' } }))
 const listPhotos = jest.fn(async () => ({ photos: [{ id: 'p1', signed_url: 'https://x/p1', category: 'before', caption: null, recording_session_id: 'sess-1' as string | null }] }))
-const outcomeGet = jest.fn(async () => null)
+// Return type spelled out (not inferred from the null default) so the #689
+// version-gate tests below can resolve a real outcome row through this mock.
+type OutcomeRow = { outcome: string; reason: string | null; is_first_visit: boolean; decided_at: string | null; auto_decided: boolean }
+const outcomeGet = jest.fn(async (): Promise<OutcomeRow | null> => null)
 const fakeClient = {
   karuteRecords: { get: (id: string) => karuteGet(id) },
   customers: { getConsent, listPhotos },
@@ -209,6 +212,72 @@ describe('GET /api/app/v1/screens/karute/[id] (packet 07 §Build 2)', () => {
     const res = await GET(req({ headers: auth }), routeFor('kar-1'))
     expect(res.status).toBe(200)
     expect((await res.json()).outcome).toBeNull()
+  })
+
+  // #689 P1 — the merge→shell-update window. Shells baked before 4.7/code-13
+  // parse the outcome with a strict enum that has no 'revisit'; serving one
+  // bricks their whole detail screen, so the route withholds it from any
+  // client that does not send the revisit-aware bundle's app-version marker.
+  const REVISIT = { outcome: 'revisit', reason: null, is_first_visit: false, decided_at: '2026-08-10T01:00:00Z', auto_decided: false }
+
+  it('revisit outcome + NO app-version (old baked shell) → outcome null, rest of the screen intact', async () => {
+    outcomeGet.mockResolvedValue(REVISIT)
+    const res = await GET(req({ headers: auth }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(dto.outcome).toBeNull()
+    expect(dto.karuteId).toBe('kar-1')
+    expect(dto.entries.length).toBe(1)
+  })
+
+  it('revisit outcome + app-version present (revisit-aware bundle) → the full outcome is served', async () => {
+    outcomeGet.mockResolvedValue(REVISIT)
+    const res = await GET(req({ headers: { ...auth, 'app-version': 'thin-2026-08-10' } }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect((await res.json()).outcome).toMatchObject({ outcome: 'revisit', is_first_visit: false, auto_decided: false })
+  })
+
+  it('a NON-revisit outcome passes through untouched with no app-version', async () => {
+    outcomeGet.mockResolvedValue({ ...REVISIT, outcome: 'success' })
+    const res = await GET(req({ headers: auth }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect((await res.json()).outcome).toMatchObject({ outcome: 'success' })
+  })
+
+  // #689 P1b — the gate is an ALLOWLIST of the frozen baked enum, not a
+  // 'revisit' denylist: a value invented after those shells were baked breaks
+  // them exactly the same way, so it must mask too.
+  it('an unknown future outcome value + NO app-version → masked (allowlist)', async () => {
+    outcomeGet.mockResolvedValue({ ...REVISIT, outcome: 'foo' })
+    const res = await GET(req({ headers: auth }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect((await res.json()).outcome).toBeNull()
+  })
+
+  it('an unknown future outcome value + app-version present → served', async () => {
+    outcomeGet.mockResolvedValue({ ...REVISIT, outcome: 'foo' })
+    const res = await GET(req({ headers: { ...auth, 'app-version': 'thin-2026-08-10' } }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect((await res.json()).outcome).toMatchObject({ outcome: 'foo' })
+  })
+
+  // The gate-removal metric: this key going quiet is how we learn the fielded
+  // population has taken the 4.7/code-13 bake.
+  it('a masked read emits outcome_masked on karute.view; an unmasked one does not', async () => {
+    outcomeGet.mockResolvedValue(REVISIT)
+    const masked = await auditLines(async () => {
+      expect((await GET(req({ headers: auth }), routeFor('kar-1'))).status).toBe(200)
+    })
+    expect(masked.filter((l) => l.action === 'karute.view')[0].detail).toMatchObject({
+      outcome_masked: true,
+      customer_id: 'cust-1',
+    })
+
+    const served = await auditLines(async () => {
+      const res = await GET(req({ headers: { ...auth, 'app-version': 'thin-2026-08-10' } }), routeFor('kar-1'))
+      expect(res.status).toBe(200)
+    })
+    expect(served.filter((l) => l.action === 'karute.view')[0].detail).not.toHaveProperty('outcome_masked')
   })
 
   it('locale=en accepted; unknown locale falls back to ja', async () => {

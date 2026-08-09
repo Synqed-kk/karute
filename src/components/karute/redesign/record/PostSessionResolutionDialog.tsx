@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { Check, Clock, X } from 'lucide-react'
+import { Check, Clock, RotateCw, X } from 'lucide-react'
 import {
   DECLINE_REASONS,
   type DeclineReason,
@@ -21,6 +21,12 @@ interface PostSessionResolutionDialogProps {
   open: boolean
   customerName: string
   isFirstVisit: boolean
+  /** Server-derived returning-customer signal for THIS session's customer —
+   *  gates the 4th 「既存のお客様」 card. Deliberately separate from
+   *  `isFirstVisit` (which defaults `false` at its call site and is written to
+   *  the outcome row): `null`/absent = UNKNOWN, and unknown must never show the
+   *  card speculatively (plan L2#4). Only `true` opens it. */
+  isReturningCustomer?: boolean | null
   saving?: boolean
   /** The customer's active 回数券 (counted pack with sessions left) — shows the
    *  pre-checked 「回数券を消化」 row so redemption happens at the one moment
@@ -46,10 +52,7 @@ interface PostSessionResolutionDialogProps {
   onCancel: () => void
 }
 
-const TONE: Record<
-  'success' | 'no_deal' | 'pending',
-  { ring: string; bg: string; icon: string }
-> = {
+const TONE: Record<Outcome, { ring: string; bg: string; icon: string }> = {
   success: {
     ring: 'ring-green-500/40 bg-green-50/60 dark:bg-green-500/10',
     bg: 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300',
@@ -65,12 +68,20 @@ const TONE: Record<
     bg: 'bg-muted text-muted-foreground',
     icon: 'text-muted-foreground',
   },
+  // Amber wash (Liam-approved mock 8/10) — a regular visit is neither a win
+  // (green) nor a loss (red). Semantic tone, not the interactive accent.
+  revisit: {
+    ring: 'ring-amber-300 bg-amber-50 dark:bg-amber-500/10',
+    bg: 'bg-amber-200 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
+    icon: 'text-amber-700 dark:text-amber-300',
+  },
 }
 
 export function PostSessionResolutionDialog({
   open,
   customerName,
   isFirstVisit,
+  isReturningCustomer = null,
   saving = false,
   pack = null,
   mode = 'conversion',
@@ -119,12 +130,25 @@ export function PostSessionResolutionDialog({
     success: <Check size={16} />,
     no_deal: <X size={16} />,
     pending: <Clock size={16} />,
+    revisit: <RotateCw size={16} />,
   }
-  const KEY: Record<Outcome, 'success' | 'noDeal' | 'pending'> = {
+  const KEY: Record<Outcome, 'success' | 'noDeal' | 'pending' | 'revisit'> = {
     success: 'success',
     no_deal: 'noDeal',
     pending: 'pending',
+    revisit: 'revisit',
   }
+  // Card order per the approved mock: 成約 → 既存のお客様 → 不成約 → 後で決める.
+  // repurchase mode keeps its own 3-option set — the customer is mid-pack by
+  // definition there, so a "regular visit" answer would be meaningless.
+  const options: Outcome[] =
+    mode === 'conversion' && isReturningCustomer === true
+      ? ['success', 'revisit', 'no_deal', 'pending']
+      : ['success', 'no_deal', 'pending']
+  // A pick can only ever be one the dialog is currently OFFERING. Today the
+  // open-reset makes this unreachable; it stops a future options change from
+  // silently saving a status whose card is no longer on screen.
+  const effectiveStatus = status && options.includes(status) ? status : null
 
   return (
     <div
@@ -166,8 +190,8 @@ export function PostSessionResolutionDialog({
         )}
 
         <div className="mt-4 space-y-2.5">
-          {(['success', 'no_deal', 'pending'] as Outcome[]).map((s) => {
-            const selected = status === s
+          {options.map((s) => {
+            const selected = effectiveStatus === s
             const tone = TONE[s]
             return (
               <button
@@ -194,6 +218,14 @@ export function PostSessionResolutionDialog({
                       ? t(`repurchase.${KEY[s]}.desc`)
                       : t(`${KEY[s]}.desc`)}
                   </span>
+                  {/* Guard against lazy mislabeling: revisit has no reason
+                   *  chips to slow staff down, so the card itself carries the
+                   *  「断られたら不成約」 rule (plan D5 / L2#3). */}
+                  {s === 'revisit' && (
+                    <span className="mt-0.5 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+                      {t('revisit.guard')}
+                    </span>
+                  )}
                 </span>
               </button>
             )
@@ -263,7 +295,7 @@ export function PostSessionResolutionDialog({
         )}
 
         {(() => {
-          if (status !== 'success') return null
+          if (effectiveStatus !== 'success') return null
           const sizeOptions = [...new Set([
             ...(previousPack ? [previousPack.size] : []),
             ...packPresets.map((p) => p.size),
@@ -393,7 +425,7 @@ export function PostSessionResolutionDialog({
           )
         })()}
 
-        {status === 'no_deal' && (
+        {effectiveStatus === 'no_deal' && (
           <div className="mt-4">
             <p className="mb-2 text-xs font-medium text-muted-foreground">
               {t('reasonLabel')}
@@ -425,25 +457,25 @@ export function PostSessionResolutionDialog({
           <button
             type="button"
             disabled={
-              status === null ||
+              effectiveStatus === null ||
               saving ||
               // 成約 with the pack panel open requires a valid size+price (or
               // an explicit あとで登録) — never a silent half-registered sale.
-              (status === 'success' &&
+              (effectiveStatus === 'success' &&
                 !later &&
                 (staffCanCustomize || packPresets.length > 0) &&
                 !(npSize > 0 && npPrice > 0))
             }
             onClick={() =>
-              status &&
+              effectiveStatus &&
               onResolve(
                 {
-                  status,
-                  reason: status === 'no_deal' ? reason : null,
+                  status: effectiveStatus,
+                  reason: effectiveStatus === 'no_deal' ? reason : null,
                   isFirstVisit,
                 },
                 !!pack && pack.remaining > 0 && redeem,
-                status === 'success' && !later && npSize > 0 && npPrice > 0
+                effectiveStatus === 'success' && !later && npSize > 0 && npPrice > 0
                   ? { size: npSize, unitPrice: npPrice }
                   : null,
               )

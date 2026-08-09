@@ -130,7 +130,7 @@ export const SaveKaruteSchema = z
     entriesMode: z.enum(['replace', 'fill-if-empty']).default('replace'),
     outcome: z
       .object({
-        status: z.enum(['success', 'no_deal', 'pending']),
+        status: z.enum(['success', 'no_deal', 'pending', 'revisit']),
         reason: z
           .enum(['budget', 'considering', 'mismatch', 'follow_up', 'other'])
           .nullish(),
@@ -156,7 +156,7 @@ export const RecordingJobEnqueueSchema = z
     durationSeconds: z.number().optional(),
     outcome: z
       .object({
-        status: z.enum(['success', 'no_deal', 'pending']),
+        status: z.enum(['success', 'no_deal', 'pending', 'revisit']),
         reason: z
           .enum(['budget', 'considering', 'mismatch', 'follow_up', 'other'])
           .nullish(),

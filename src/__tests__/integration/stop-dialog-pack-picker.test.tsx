@@ -129,3 +129,66 @@ describe('保存 — saving prop (fix/post-session-money-guards single-flight gu
     expect(screen.getByText('保存')).not.toBeDisabled()
   })
 })
+
+// PR-A — 既存のお客様（通常ご来店）. The gate is `mode==='conversion' &&
+// isReturningCustomer===true`; anything else (first visit, UNKNOWN, repurchase)
+// must not render the card at all.
+const REVISIT = '既存のお客様（通常ご来店）'
+
+describe('revisit card — gate', () => {
+  it('conversion mode + returning customer → the card renders, 2nd in the list', () => {
+    mount({ isFirstVisit: false, isReturningCustomer: true })
+    expect(screen.getByText(REVISIT)).toBeInTheDocument()
+    // Approved mock order: 成約 → 既存のお客様 → 不成約 → 後で決める.
+    const before = (a: string, b: string) =>
+      !!(
+        screen.getByText(a).compareDocumentPosition(screen.getByText(b)) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+      )
+    expect(before('成約しました', REVISIT)).toBe(true)
+    expect(before(REVISIT, '今回は不成約でした')).toBe(true)
+    expect(before('今回は不成約でした', '後で決める')).toBe(true)
+  })
+
+  it('carries the mislabeling guard line', () => {
+    mount({ isFirstVisit: false, isReturningCustomer: true })
+    expect(
+      screen.getByText(
+        '回数券やメニューのご案内をして断られた場合は「不成約」を選択してください。',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('first visit → hidden', () => {
+    mount({ isFirstVisit: true, isReturningCustomer: false })
+    expect(screen.queryByText(REVISIT)).toBeNull()
+  })
+
+  it('UNKNOWN returning signal → hidden (never speculative)', () => {
+    mount({ isFirstVisit: false, isReturningCustomer: null })
+    expect(screen.queryByText(REVISIT)).toBeNull()
+    mount({ isFirstVisit: false }) // prop absent entirely
+    expect(screen.queryByText(REVISIT)).toBeNull()
+  })
+
+  it('repurchase mode never renders it, even for a returning customer', () => {
+    mount({ mode: 'repurchase', isFirstVisit: false, isReturningCustomer: true })
+    expect(screen.queryByText(REVISIT)).toBeNull()
+    expect(screen.getByText('購入した')).toBeInTheDocument()
+  })
+})
+
+describe('revisit card — save', () => {
+  it("saves status 'revisit' with no reason and no pack write", () => {
+    const calls = mount({ isFirstVisit: false, isReturningCustomer: true })
+    fireEvent.click(screen.getByText(REVISIT))
+    // The 新しい回数券 panel stays gated to 成約 exactly as before.
+    expect(screen.queryByText('🎫 新しい回数券')).toBeNull()
+    expect(screen.queryByText('理由（任意）')).toBeNull()
+    fireEvent.click(screen.getByText('保存'))
+    expect(calls).toHaveLength(1)
+    expect(calls[0].outcome.status).toBe('revisit')
+    expect(calls[0].outcome.reason).toBeNull()
+    expect(calls[0].newPack).toBeNull()
+  })
+})

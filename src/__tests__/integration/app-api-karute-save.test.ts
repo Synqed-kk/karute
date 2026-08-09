@@ -50,16 +50,25 @@ const existingBySession = { current: null as null | { id: string; transcript: st
 const getByRecordingSession = jest.fn(async () => { if (existingBySession.current) return existingBySession.current; throw Object.assign(new Error('none'), { status: 404 }) })
 const create = jest.fn(async () => ({ id: 'kar-new' }))
 const update = jest.fn(async () => ({ id: 'kar-existing' }))
-const outcomeUpsert = jest.fn(async () => ({}))
+const outcomeUpsert = jest.fn(async (_row: { outcome: string }) => ({}))
+const outcomeGet = jest.fn(async (): Promise<{ outcome: string } | null> => null)
 const removeRedemption = jest.fn(async () => ({ ok: true }))
+// Reads the 'revisit' eligibility guard makes. Defaults = a brand-new prospect
+// with no history anywhere, so a test must opt IN to being a returning customer.
+const listPacks = jest.fn(async (): Promise<Array<{ status: string; kind: string }>> => [])
+const listKaruteRecords = jest.fn(
+  async (): Promise<{ karute_records: Array<{ id: string; recording_session_id: string | null }> }> => ({
+    karute_records: [],
+  }),
+)
 const fakeClient = {
   customers: { get: customersGet, getConsent },
-  karuteRecords: { getByRecordingSession, create, update },
+  karuteRecords: { getByRecordingSession, create, update, list: listKaruteRecords },
   appointments: {
     get: jest.fn(async () => ({ staff_id: 'appt-staff', store_id: null, title: null as string | null })),
   },
-  karuteOutcomes: { upsert: outcomeUpsert },
-  packs: { removeRedemption },
+  karuteOutcomes: { upsert: outcomeUpsert, get: outcomeGet },
+  packs: { removeRedemption, listPacks },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
@@ -91,6 +100,9 @@ beforeEach(() => {
   consentRow.current = { policy_version: RECORDING_CONSENT_POLICY_VERSION }
   consentThrows.current = false
   existingBySession.current = null
+  outcomeGet.mockResolvedValue(null)
+  listPacks.mockResolvedValue([])
+  listKaruteRecords.mockResolvedValue({ karute_records: [] })
 })
 
 describe('POST /api/app/v1/karute (save)', () => {
@@ -319,5 +331,61 @@ describe('POST /api/app/v1/packs/redemptions/[id]/undo', () => {
     getUser.fn.mockResolvedValueOnce({ data: { user: null }, error: { message: 'revoked' } })
     const res = await undoPOST(new Request('https://s/x', { method: 'POST', headers: { ...auth, ...idem } }), undoRoute())
     expect(res.status).toBe(401)
+  })
+})
+
+// The karute is persisted BEFORE the outcome label is written, so a label
+// problem must never surface as a failure response for a save that durably
+// succeeded (Greptile #689 r2). The worker has the same shape.
+describe('POST /api/app/v1/karute — an ineligible revisit never fails a persisted save', () => {
+  const withRevisit = { ...validSave, outcome: { status: 'revisit', isFirstVisit: false } }
+  let warn: jest.SpyInstance
+
+  beforeEach(() => {
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+  afterEach(() => warn.mockRestore())
+
+  it('ineligible revisit → SUCCESS, karute persisted, NO outcome row, warn logged', async () => {
+    const res = await savePOST(post({ ...auth, ...idem }, withRevisit), noRoute)
+    expect(res.status).toBe(200)
+    expect((await res.json()).id).toBe('kar-new')
+    expect(create).toHaveBeenCalled()
+    expect(outcomeUpsert).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('revisit rejected server-side'),
+      expect.objectContaining({ karuteRecordId: 'kar-new' }),
+    )
+  })
+
+  it('UNVERIFIABLE eligibility → the label IS written (fail-open) with a loud warn', async () => {
+    // Post-persist fail-open: the karute is already durable, an attacker cannot
+    // induce core read failures on demand, and the dialog's gate is itself
+    // server-derived — so silently losing an HONEST label is the worse harm.
+    // NOT customersGet — the route itself reads the customer earlier, so
+    // failing that is a different (502) path. This mocks exactly the two
+    // guard-only reads: one healthy read with no true signal + two failures
+    // is precisely the 'unknown' shape.
+    listPacks.mockRejectedValue(new Error('core down'))
+    listKaruteRecords.mockRejectedValue(new Error('core down'))
+    const res = await savePOST(post({ ...auth, ...idem }, withRevisit), noRoute)
+    expect(res.status).toBe(200)
+    expect(outcomeUpsert).toHaveBeenCalledTimes(1)
+    expect(outcomeUpsert.mock.calls[0][0]).toMatchObject({ outcome: 'revisit' })
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('eligibility unverifiable after retry'),
+      expect.objectContaining({ karuteRecordId: 'kar-new' }),
+    )
+  })
+
+  it('ELIGIBLE revisit → success AND the outcome row is written (regression)', async () => {
+    listKaruteRecords.mockResolvedValue({
+      karute_records: [{ id: 'kar-old', recording_session_id: 'sess-earlier' }],
+    })
+    const res = await savePOST(post({ ...auth, ...idem }, withRevisit), noRoute)
+    expect(res.status).toBe(200)
+    expect(outcomeUpsert).toHaveBeenCalledTimes(1)
+    expect(outcomeUpsert.mock.calls[0][0]).toMatchObject({ outcome: 'revisit' })
+    expect(warn).not.toHaveBeenCalled()
   })
 })

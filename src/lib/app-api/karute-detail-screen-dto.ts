@@ -52,9 +52,16 @@ const HeaderSchema = z.object({
 
 // KaruteOutcomeRow (src/lib/karute/outcome.ts) — raw shape; the thin view maps it
 // to the OutcomeCard's props exactly as the web page does.
+//
+// `outcome` is z.string(), NOT the write side's 4-value enum — same
+// degrade-not-fail reason as summaryRaw/author below. A baked shell parses
+// with whatever enum it shipped with, so a server adding a 5th value (as
+// 'revisit' just was) would hard-fail the ENTIRE detail screen on every older
+// shell that meets one. The card renders a neutral fallback chip for a value
+// it doesn't know. Write schemas stay strict — only the read shape degrades.
 const OutcomeSchema = z
   .object({
-    outcome: z.enum(['success', 'no_deal', 'pending']),
+    outcome: z.string(),
     reason: z
       .enum(['budget', 'considering', 'mismatch', 'follow_up', 'other'])
       .nullable(),
