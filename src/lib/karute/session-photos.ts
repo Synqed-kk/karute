@@ -40,7 +40,7 @@ class SessionPhotoStore {
    *  separate and survives the wipe — setStatus checks it on every settle
    *  and fires the delete itself once the photo actually lands (or drops
    *  the mark on 'error', where there is nothing server-side to delete). */
-  private pendingDelete = new Map<string, string>()
+  private pendingDelete = new Map<string, { customerId: string; onFail?: () => void }>()
 
   constructor() {
     // Both discard() and the save handoff (RecordPageView's handleUseRecording
@@ -95,19 +95,29 @@ class SessionPhotoStore {
   /** D3 §7: mark an in-flight 'uploading' photo for delete-after-settle —
    *  called by the discard dialog's 写真も削除 choice for any photo that
    *  hasn't resolved yet. customerId is captured NOW because `photos` (and
-   *  this photo's entry in it) may be gone by the time the upload settles. */
-  markDeleteAfterSettle(id: string, customerId: string) {
-    this.pendingDelete.set(id, customerId)
+   *  this photo's entry in it) may be gone by the time the upload settles.
+   *  onFail fires when that settled delete FAILS — the caller owns the message
+   *  (i18n lives in React), so the closure carries its own t(). */
+  markDeleteAfterSettle(id: string, customerId: string, onFail?: () => void) {
+    this.pendingDelete.set(id, { customerId, onFail })
   }
 
   private setStatus(id: string, status: SessionPhotoStatus, serverId: string | null = null) {
     this.photos = this.photos.map((p) => (p.id === id ? { ...p, status, serverId } : p))
     this.notify()
-    const pendingCustomerId = this.pendingDelete.get(id)
-    if (pendingCustomerId !== undefined) {
+    const pending = this.pendingDelete.get(id)
+    if (pending !== undefined) {
       this.pendingDelete.delete(id)
       // 'error': the upload never landed server-side — nothing to delete.
-      if (status === 'done' && serverId) void deleteCustomerPhoto(pendingCustomerId, serverId)
+      if (status === 'done' && serverId) {
+        // deleteCustomerPhoto never throws (it catches internally and resolves
+        // { success: false }) — so the failure is only visible HERE. Report it
+        // through onFail, the same toast the done-photos loop fires; swallowing
+        // it left the staff believing a discarded photo was deleted.
+        void deleteCustomerPhoto(pending.customerId, serverId).then((r) => {
+          if (!r.success) pending.onFail?.()
+        })
+      }
     }
   }
 

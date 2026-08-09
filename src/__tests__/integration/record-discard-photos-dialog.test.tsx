@@ -276,6 +276,34 @@ describe('RecordPageView discard — D3 discard-with-photos dialog', () => {
     )
   })
 
+  // The settle-path delete can FAIL exactly like its done-photos twin —
+  // deleteCustomerPhoto never throws, it resolves { success: false }, so
+  // without the onFail callback the failure was invisible (blind round).
+  // Mutation anchor: dropping the onFail wiring turns this red.
+  it('a settle-path delete FAILURE raises the same toast as the done-photos path', async () => {
+    let resolveUpload: (v: { photo: { id: string } }) => void = () => {}
+    mockUploadCustomerPhoto.mockImplementationOnce(
+      () => new Promise((res) => { resolveUpload = res }),
+    )
+    mockDeleteCustomerPhoto.mockResolvedValue({ success: false, error: 'boom' })
+    sessionPhotoStore.addPhoto(new File(['x'], 'a.jpg'), 'before', 'cust-A', {
+      takenWithConsent: true,
+    })
+
+    render(<RecordPageView {...baseProps} />)
+    fireEvent.click(screen.getByText('discard'))
+    fireEvent.click(screen.getByText('sessionPhotos.discardPhotosDelete'))
+    await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
+    // No done photos in this session — the ONLY possible toast is the
+    // settle-path one, so nothing else can satisfy the assertion below.
+    expect(mockToastError).not.toHaveBeenCalled()
+
+    resolveUpload({ photo: { id: 'settled-server-id' } })
+    await waitFor(() =>
+      expect(mockToastError).toHaveBeenCalledWith('sessionPhotos.discardDeleteFailed:{"n":1}'),
+    )
+  })
+
   it('顧客ページに残す deletes nothing, still discards', async () => {
     sessionPhotoStore.photos = [donePhoto()]
     render(<RecordPageView {...baseProps} />)
@@ -334,6 +362,14 @@ describe('RecordPageView discard — D3 discard-with-photos dialog', () => {
     expect(
       screen.getByText('sessionPhotos.discardPhotosKeepOnlyDescription:{"n":1}'),
     ).toBeInTheDocument()
+    // R13: with the destructive button gone, 残す IS the dialog's commit
+    // action — the solid-accent `default` variant, never a second outline
+    // twin of キャンセル (two identical buttons, one aborting and one
+    // discarding the take, is the bug this pins).
+    const keepBtn = screen.getByText('sessionPhotos.discardPhotosKeep').closest('[variant]')
+    const cancelBtn = screen.getByText('cancel').closest('[variant]')
+    expect(keepBtn).toHaveAttribute('variant', 'default')
+    expect(cancelBtn).toHaveAttribute('variant', 'outline')
     fireEvent.click(screen.getByText('sessionPhotos.discardPhotosKeep'))
     await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
     expect(mockDeleteCustomerPhoto).not.toHaveBeenCalled()

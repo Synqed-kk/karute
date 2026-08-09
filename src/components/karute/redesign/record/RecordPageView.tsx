@@ -449,8 +449,15 @@ export function RecordPageView({
     // delete-after-settle (the store fires the delete itself the moment
     // that upload resolves to 'done'; nothing to do on 'error'). Marked
     // BEFORE proceedDiscard, whose discardRecording() wipes the strip.
+    // The onFail closure carries t() so a settle-path delete failure gets the
+    // SAME toast as its done-photos twin below (n:1 — one photo per mark).
+    // Firing after navigation is fine: sonner's toaster is app-global.
     for (const p of photos) {
-      if (p.status === 'uploading') sessionPhotoStore.markDeleteAfterSettle(p.id, p.customerId)
+      if (p.status === 'uploading') {
+        sessionPhotoStore.markDeleteAfterSettle(p.id, p.customerId, () =>
+          toast.error(t('sessionPhotos.discardDeleteFailed', { n: 1 })),
+        )
+      }
     }
     setShowDiscardPhotosDialog(false)
     setDiscardingPhotos(true)
@@ -1191,8 +1198,14 @@ export function RecordPageView({
               {tc('cancel')}
             </Button>
             <div className="flex gap-3">
+              {/* Keep-only state (no records.delete): 残す is the dialog's
+                  COMMIT action and must not read as a twin of キャンセル —
+                  R13 gives the commit action the solid accent fill, which
+                  Button's `default` variant is (--color-accent, retinted to
+                  blue-600 by globals.css). With the destructive button
+                  present, 残す stays outline exactly as before. */}
               <Button
-                variant="outline"
+                variant={staffCanDeletePhotos ? 'outline' : 'default'}
                 size="md"
                 className="flex-1"
                 onClick={handleDiscardKeepPhotos}

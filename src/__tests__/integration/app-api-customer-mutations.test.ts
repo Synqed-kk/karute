@@ -270,6 +270,19 @@ describe('POST photos', () => {
     const options = (uploadPhoto as jest.Mock).mock.calls[0][2] as { recording_session_id?: string }
     expect(options.recording_session_id).toBeUndefined()
   })
+  // Tier pin: upload is gated customers.view (NOT the destructive tier the
+  // sibling DELETE moved to). Same shape as the DELETE denial test — the gate
+  // is the FIRST thing in the handler, so the tenancy read never runs either.
+  it('missing capability → 403, no tenancy read, no upload', async () => {
+    capabilities.current = new Set()
+    const { getCustomerWithClient } = jest.requireMock('@/lib/customers/queries') as {
+      getCustomerWithClient: jest.Mock
+    }
+    const res = await photoUpload(photoReq(new File([PNG_BYTES], 'a.png', { type: 'image/png' })), route({ id: 'cust-1' }))
+    expect(res.status).toBe(403)
+    expect(getCustomerWithClient).not.toHaveBeenCalled()
+    expect(uploadPhoto).not.toHaveBeenCalled()
+  })
   it('linkage fields absent → recording_session_id/taken_with_consent stay undefined (never default consent to true)', async () => {
     const png = new File([PNG_BYTES], 'a.png', { type: 'image/png' })
     await photoUpload(photoReq(png), route({ id: 'cust-1' }))
@@ -304,6 +317,19 @@ describe('GET photos', () => {
   it('cross-tenant customer id → 404, no read', async () => {
     const res = await photoList(getReq(), route({ id: 'cust-x' }))
     expect(res.status).toBe(404)
+    expect(listPhotos).not.toHaveBeenCalled()
+  })
+
+  // Tier pin: the aggregate feed is gated customers.view — nothing pinned it
+  // before, so a silent regate would have gone unnoticed.
+  it('missing capability → 403, no tenancy read, no read', async () => {
+    capabilities.current = new Set()
+    const { getCustomerWithClient } = jest.requireMock('@/lib/customers/queries') as {
+      getCustomerWithClient: jest.Mock
+    }
+    const res = await photoList(getReq(), route({ id: 'cust-1' }))
+    expect(res.status).toBe(403)
+    expect(getCustomerWithClient).not.toHaveBeenCalled()
     expect(listPhotos).not.toHaveBeenCalled()
   })
 })

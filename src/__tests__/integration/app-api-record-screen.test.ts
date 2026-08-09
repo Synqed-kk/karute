@@ -134,6 +134,23 @@ describe('GET /api/app/v1/screens/record', () => {
     expect(body.consentDate).toBeNull()
   })
 
+  // staffCanDeletePhotos is derived from the caller's OWN Bearer-resolved
+  // capability set (Liam ruling 8/9 — photo delete is the records.delete
+  // tier), never a client flag. The device reads this to decide whether the
+  // discard dialog shows 写真も削除 at all, so the wire value is the contract.
+  it('records.delete in the set → staffCanDeletePhotos true', async () => {
+    capabilities.current = new Set(['customers.view', 'stores.viewAll', 'records.delete'])
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+    expect((await res.json()).staffCanDeletePhotos).toBe(true)
+  })
+
+  it('no records.delete → staffCanDeletePhotos false', async () => {
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+    expect((await res.json()).staffCanDeletePhotos).toBe(false)
+  })
+
   it('OPTIONS → 204 preflight (shell-origin CORS, no auth)', async () => {
     const res = await OPTIONS(new Request('https://s/api/app/v1/screens/record', { method: 'OPTIONS', headers: { origin: 'capacitor://localhost' } }), route)
     expect(res.status).toBe(204)
