@@ -203,6 +203,9 @@ export const GET = facadeHandler('screens.record', async (ctx) => {
       previousPack: screen.previousPack,
       packPresets: screen.packPresets,
       staffCanCustomizePacks: screen.staffCanCustomizePacks,
+      // Capability-derived (not an org setting) — the same Bearer-resolved set
+      // the photo DELETE route gates on.
+      staffCanDeletePhotos: ctx.identity.capabilities.has('records.delete'),
       ticketsEnabled: screen.ticketsEnabled,
       noiseSuppression: screen.noiseSuppression,
       currentStaffName: screen.currentStaffName,

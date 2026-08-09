@@ -73,14 +73,13 @@ export interface CreatePackInput {
   createdBy?: string | null
 }
 
-export async function createPack(
-  input: CreatePackInput,
-): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
-  return createPackWithClient(await getSynqedClient(), input)
-}
-
-/** Business-scoped create — the facade path (Bearer client), single-sourced with
- *  the cookie createPack above. */
+/** Business-scoped create (facade Bearer path) — also the cookie web action's
+ *  single call target (createPackAction imports this directly; the bare
+ *  cookie-client wrapper this file used to export was dead — nothing called
+ *  it). SINGLE SOURCE for 合計金額: derived HERE from unit_price × pack_size,
+ *  never trusting a caller-supplied totalPrice (F6, PR-0 fix round) — a
+ *  future direct caller of this function, bypassing createPackActionWithClient's
+ *  own derivation, still can't smuggle a mismatched total through. */
 export async function createPackWithClient(
   synqed: Pick<SynqedClient, 'packs'>,
   input: CreatePackInput,
@@ -91,7 +90,7 @@ export async function createPackWithClient(
       kind: input.kind,
       pack_size: input.packSize,
       unit_price: input.unitPrice,
-      total_price: input.totalPrice ?? null,
+      total_price: input.unitPrice * input.packSize,
       purchase_round: input.purchaseRound ?? 0,
       purchased_at: input.purchasedAt ?? null,
       source: input.source ?? 'manual',
@@ -218,6 +217,9 @@ export async function addRedemptionWithClient(
     if (isBelowZeroGuardError(err)) {
       return { ok: false, error: 'below_zero' }
     }
+    if (isDuplicateRedemptionError(err)) {
+      return { ok: false, error: 'already_redeemed' }
+    }
     return { ok: false, error: err instanceof Error ? err.message : 'unknown' }
   }
 }
@@ -234,6 +236,22 @@ function isBelowZeroGuardError(err: unknown): boolean {
     message.includes('over-redeemed') ||
     message.includes('trg_pack_below_zero') ||
     message.includes('23514')
+  )
+}
+
+/** pack_redemptions_active_appointment_unique (the partial unique index) —
+ *  a SECOND live redemption for one appointment. Same relayed-message wall as
+ *  isBelowZeroGuardError above: Postgres raises 23505 and Prisma wraps it as
+ *  P2002, and only the text survives the HTTP boundary. A separate
+ *  discriminator because this is the guard SUCCEEDING (the burn is already
+ *  recorded), not a failure — the auto-burn cron counts it as an idempotent
+ *  skip rather than an error. */
+function isDuplicateRedemptionError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  return (
+    message.includes('23505') ||
+    message.includes('P2002') ||
+    message.includes('pack_redemptions_active_appointment_unique')
   )
 }
 

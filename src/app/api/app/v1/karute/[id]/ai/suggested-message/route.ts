@@ -60,6 +60,8 @@ export const GET = facadeHandler<Params>('karute.ai.suggestedMessage', async (ct
       customerName,
       summary,
       locale: readLocale(ctx),
+      appointmentId: (record.appointment_id as string | null) ?? null,
+      storeId: (record.store_id as string | null) ?? null,
     },
   )
   return ok(ctx, { draft })

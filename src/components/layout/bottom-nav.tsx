@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import type { NextCustomerInfo } from '@/lib/appointments/next-customer'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
+import { tapActivation } from '@/lib/tap-activation'
 
 type Route = { href: string; label: string; icon: React.ComponentType<{ className?: string }> }
 
@@ -77,6 +78,14 @@ interface BottomNavProps {
 export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps = {}) {
   const t = useTranslations('sidebar')
   const pathname = usePathname()
+  // Every interactive cell in the bar — tabs, mic, メニュー toggle, and the
+  // sheet's own scrim + close button — activates on TOUCHEND, not on click:
+  // under the root-scroller shell (#648) iOS eats the click of a tap that
+  // arrests scroll momentum, so the touch path drives navigation itself. The
+  // dismiss controls sit in the same fixed context and were failing the same
+  // way ("the menu won't close"). See src/lib/tap-activation.ts for the full
+  // constraint. The mouse/desktop path is unchanged.
+  const router = useRouter()
   const [menuOpen, setMenuOpen] = useState(false)
 
   // Center mic button label = customer name + honorific (「様」 in JA,
@@ -104,11 +113,18 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
   function renderNavItem(route: Route) {
     const Icon = route.icon
     const active = isActive(route.href)
+    const href = route.href as Parameters<typeof Link>[0]['href']
     return (
       <Link
         key={route.href}
-        href={route.href as Parameters<typeof Link>[0]['href']}
-        onClick={() => setMenuOpen(false)}
+        href={href}
+        {...tapActivation(
+          () => {
+            setMenuOpen(false)
+            router.push(route.href)
+          },
+          () => setMenuOpen(false),
+        )}
         className={`relative flex flex-1 flex-col items-center justify-center gap-1 py-2 transition-colors ${
           active
             ? 'font-semibold text-primary'
@@ -138,7 +154,7 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
       {menuOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
-          onClick={() => setMenuOpen(false)}
+          {...tapActivation(() => setMenuOpen(false))}
         />
       )}
       <div
@@ -150,7 +166,7 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
           <span className="text-xs font-medium text-muted-foreground">{label('menu')}</span>
           <button
             type="button"
-            onClick={() => setMenuOpen(false)}
+            {...tapActivation(() => setMenuOpen(false))}
             className="rounded-full p-1.5 text-muted-foreground hover:bg-muted"
             aria-label="Close menu"
           >
@@ -161,11 +177,18 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
           {MENU.map((route) => {
             const Icon = route.icon
             const active = isActive(route.href)
+            const href = route.href as Parameters<typeof Link>[0]['href']
             return (
               <Link
                 key={route.href}
-                href={route.href as Parameters<typeof Link>[0]['href']}
-                onClick={() => setMenuOpen(false)}
+                href={href}
+                {...tapActivation(
+                  () => {
+                    setMenuOpen(false)
+                    router.push(route.href)
+                  },
+                  () => setMenuOpen(false),
+                )}
                 className={`flex items-center gap-3 rounded-lg px-3 py-3 transition-colors ${
                   active
                     ? 'bg-primary/8 text-primary'
@@ -236,7 +259,7 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
           {/* Menu trigger */}
           <button
             type="button"
-            onClick={() => setMenuOpen((v) => !v)}
+            {...tapActivation(() => setMenuOpen((v) => !v))}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             className={`flex flex-1 flex-col items-center justify-center gap-1 py-2 transition-colors ${
@@ -326,6 +349,16 @@ function liveHint(
 // subscription only re-renders the FAB cell, not the entire
 // BottomNav (which would re-run the per-route active checks on
 // every recording tick).
+//
+// ponytail — known ceiling on the tap activation below: the three states
+// render DIFFERENT elements, so a recording→idle flip mid-gesture detaches
+// the node the finger started on. iOS keeps delivering that touch to the
+// detached element, whose React handlers are gone, so that one in-flight tap
+// is lost. Platform limit, not something a listener here can rescue (the
+// gesture's own start state died with the node); the next tap is clean
+// because tapActivation keys its state by element. Upgrade path if it ever
+// bites: keep ONE button element across all three states and swap only its
+// contents.
 function CenterRecordButton({
   menuOpen,
   setMenuOpen,
@@ -344,7 +377,7 @@ function CenterRecordButton({
   locale: string
 }) {
   const router = useRouter()
-  const { state, startedAt, stopRecording } = useGlobalRecorder()
+  const { state, startedAt, stopRecording, target } = useGlobalRecorder()
   // Live, ticking countdown for the idle sub-label (「あと5分」→「残り5分」→
   // 「まもなく終了」). Only surfaces in the idle branch below.
   const centerHint = useLiveHint(nextCustomer, locale)
@@ -377,10 +410,10 @@ function CenterRecordButton({
       <div className="flex flex-1 flex-col items-center justify-start pt-1">
         <button
           type="button"
-          onClick={() => {
+          {...tapActivation(() => {
             closeMenuIfOpen()
             stopRecording()
-          }}
+          })}
           aria-label="録音を停止"
           className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/30 ring-4 ring-background transition-transform active:scale-95"
         >
@@ -404,10 +437,19 @@ function CenterRecordButton({
       <div className="flex flex-1 flex-col items-center justify-start pt-1">
         <button
           type="button"
-          onClick={() => {
+          {...tapActivation(() => {
             closeMenuIfOpen()
-            router.push('/sessions')
-          }}
+            // Carry the LIVE-bound customer through — a bare '/sessions' push
+            // let /sessions re-resolve to the next scheduled booking, so a
+            // customer picked via a customer-page mic button got overwritten
+            // by whoever's up next after a navigate-away-and-back (field bug
+            // 8/2: リエム代表's session showed 富山彩夏's briefing mid-recording).
+            router.push(
+              target
+                ? `/sessions?customerId=${encodeURIComponent(target.customerId)}`
+                : '/sessions',
+            )
+          })}
           aria-label="録音画面に戻る"
           className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 ring-4 ring-background transition-transform active:scale-95"
         >
@@ -421,12 +463,26 @@ function CenterRecordButton({
     )
   }
 
-  // Idle → original Link behavior (navigate to /sessions).
+  // Idle → original Link behavior (navigate to /sessions). `target` is still
+  // bound in the stopped-but-unsaved review state (cleared only on discard) —
+  // carry it so re-entry loads the reviewed customer's page, not the next
+  // scheduled booking (same field bug 8/2, review-state variant).
   return (
     <div className="flex flex-1 flex-col items-center justify-start pt-1">
       <Link
-        href={'/sessions' as Parameters<typeof Link>[0]['href']}
-        onClick={closeMenuIfOpen}
+        href={
+          (target
+            ? `/sessions?customerId=${encodeURIComponent(target.customerId)}`
+            : '/sessions') as Parameters<typeof Link>[0]['href']
+        }
+        {...tapActivation(() => {
+          closeMenuIfOpen()
+          router.push(
+            target
+              ? `/sessions?customerId=${encodeURIComponent(target.customerId)}`
+              : '/sessions',
+          )
+        }, closeMenuIfOpen)}
         className="-mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-black/30 ring-4 ring-background transition-transform hover:scale-105 hover:bg-red-500/90"
         aria-label={ariaLabelIdle}
         aria-current={isOnSessionsPage ? 'page' : undefined}

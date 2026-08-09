@@ -390,7 +390,7 @@
       "title": "Photo records",
       "subtitle": "Customer progress photos & references",
       "showToCustomer": "Show to customer",
-      "empty": "No photos yet — upload from the customer profile."
+      "empty": "No photos linked to this karute yet — all photos are on the customer profile."
     },
     "bodyPrediction": {
       "title": "AI BODY PREDICTION",
@@ -572,7 +572,7 @@
     "consentStartFlow": "Start consent flow",
     "consentDialogTitle": "Obtain recording consent",
     "consentDialogInstructions": "Read the script below to the customer. Tap \"Customer agreed\" only after they verbally confirm.",
-    "consentScript": "{customerName}, with your permission we'll record today's session so I can focus on you and have an accurate record afterward. The audio is used only to generate your karute and improve our service. Is that OK?",
+    "consentScript": "{customerName}, with your permission we'll record today's session and take progress photos, so I can focus on you and have an accurate record afterward. The audio and photos are used only to generate your karute and improve our service. Is that OK?",
     "consentConfirmButton": "Customer agreed",
     "longRecordingWarning": "Long session — consider stopping and starting a new recording",
     "subtitle": "Record a session — AI will auto-generate the karute for you.",
@@ -641,6 +641,21 @@
     },
     "consent": {
       "onFile": "Consent on file"
+    },
+    "sessionPhotos": {
+      "title": "Session photos",
+      "take": "Take photo",
+      "count": "{n} photos",
+      "uploadError": "Upload failed. Tap the photo to retry.",
+      "retry": "Tap to retry",
+      "presentError": "Couldn't load the photos. Please try again.",
+      "discardPhotosTitle": "What should happen to the session photos?",
+      "discardPhotosDescription": "This recording has {n} photo(s) (including uploads still in progress). Delete them too when you discard the recording?",
+      "discardPhotosKeepOnlyDescription": "This recording has {n} photo(s) (including uploads still in progress). Discarding the recording keeps them on the customer page.",
+      "discardPhotosDelete": "Delete photos too",
+      "discardPhotosKeep": "Keep on customer page",
+      "discardDeleteFailed": "Failed to delete {n} photo(s)",
+      "uploadsDropped": "{n} photo(s) that failed to upload were not saved"
     },
     "recent": {
       "title": "Recent recordings",
@@ -718,6 +733,7 @@
       "addPhoto": "Add photo",
       "uploading": "Uploading…",
       "uploadError": "Upload failed. Please try again.",
+      "photoTooLarge": "This photo is too large to upload.",
       "categoryLabel": "Category",
       "compareButton": "Compare",
       "compareExit": "Exit compare",
@@ -727,9 +743,16 @@
       "compareOverlay": "Overlay",
       "compareOpacity": "Opacity",
       "presentButton": "Show customer",
-      "presentClose": "Close",
+      "presentCloseHold": "Close (press and hold)",
       "presentFilterAll": "All",
-      "presentBackToGrid": "Back to grid"
+      "presentBackToGrid": "Back to grid",
+      "presentCompareButton": "Compare",
+      "presentSelectHint": "Select 2 to 4 photos",
+      "presentSelectCancel": "Cancel",
+      "presentCompareCta": "Compare {n} photos",
+      "presentBack": "Back",
+      "presentPrevPhoto": "Previous photo",
+      "presentNextPhoto": "Next photo"
     },
     "comingSoon": "Coming soon",
     "privacy": {
@@ -2156,6 +2179,8 @@
           "pack_undo": "Undid pack redemption",
           "passport_update": "Corrected customer info",
           "photo_add": "Added customer photo",
+          "photo_delete": "Deleted customer photo",
+          "photos_view": "Viewed customer photos",
           "brief_view": "Viewed pre-session brief",
           "ai_prediction_view": "Viewed AI body prediction",
           "create": "Created customer",
@@ -2525,6 +2550,8 @@
       "empty": "No presets yet — add one to get started.",
       "allowStaffCustom": "Allow staff custom input",
       "allowStaffCustomHint": "When off, staff can only choose from presets (owner-only setting).",
+      "autoBurnTitle": "Automatic ticket use",
+      "autoBurnHint": "When on, a completed booking uses one ticket automatically about 2 hours after it ends. Late-evening bookings are handled the next morning. Bookings on the day you turn this on are not charged retroactively — it starts with the next day's bookings. Cancelled bookings never use a ticket. When off, tickets are only used by staff action, exactly as today.",
       "save": "Save",
       "saving": "Saving…",
       "saved": "Saved",

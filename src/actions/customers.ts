@@ -7,6 +7,8 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { requireCapability } from '@/lib/auth/require-permission'
 import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 import { auditWeb } from '@/lib/audit-web'
+import { getCurrentUserStaffId } from '@/lib/staff'
+import { parsePhotoUploadFields } from '@/lib/karute/photo-upload-fields'
 
 // ---------------------------------------------------------------------------
 // Backend error → user-facing message
@@ -406,7 +408,13 @@ export async function uploadCustomerPhotoWithClient(
   synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
   customerId: string,
   file: File,
-  options: { category?: string; caption?: string } = {},
+  options: {
+    category?: string
+    caption?: string
+    recording_session_id?: string
+    captured_by_staff_id?: string
+    taken_with_consent?: boolean
+  } = {},
 ) {
   try {
     return await synqed.customers.uploadPhoto(customerId, file, options)
@@ -439,12 +447,19 @@ export async function uploadCustomerPhoto(
 
   const category = formData.get('category')
   const caption = formData.get('caption')
+  const { recording_session_id, taken_with_consent } = parsePhotoUploadFields(formData)
 
   try {
     const synqed = await getSynqedClient()
+    // captured_by_staff_id is SERVER-RESOLVED — never trust client input for
+    // attribution (mirrors the facade route's resolveSelfStaffId pattern).
+    const captured_by_staff_id = (await getCurrentUserStaffId()) ?? undefined
     const photo = await uploadCustomerPhotoWithClient(synqed, customerId, file, {
       category: typeof category === 'string' ? category : undefined,
       caption: typeof caption === 'string' ? caption : undefined,
+      recording_session_id,
+      captured_by_staff_id,
+      taken_with_consent,
     })
     revalidatePath(`/customers/${customerId}`)
     return { photo }
@@ -458,7 +473,22 @@ export async function deleteCustomerPhoto(
   photoId: string,
 ) {
   try {
+    // records.delete — owner / manager / senior only. Mirrors scheduleCustomerDeletion /
+    // deleteKaruteRecord (Liam ruling 8/9: photo delete = same destructive tier).
+    await requireCapability('records.delete')
     const synqed = await getSynqedClient()
+    // Parity with the facade DELETE route: tenancy proof on the customer, then
+    // ownership proof that photoId is actually theirs — both BEFORE the core
+    // delete. They throw AppApiError, which the catch below turns into this
+    // action's own { success: false, error } contract.
+    // Imported lazily (same pattern as grantCustomerConsent's staff import):
+    // a static import drags customer-facade's whole graph into every module
+    // that touches this file, which breaks unrelated suites' module walls.
+    const { proveCustomerInBusiness, provePhotoForCustomer } = await import(
+      '@/lib/app-api/customer-facade'
+    )
+    await proveCustomerInBusiness(synqed, customerId)
+    await provePhotoForCustomer(synqed, customerId, photoId)
     await synqed.customers.deletePhoto(customerId, photoId)
     revalidatePath(`/customers/${customerId}`)
     return { success: true as const }

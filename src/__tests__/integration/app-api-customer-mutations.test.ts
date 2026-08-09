@@ -40,7 +40,9 @@ jest.mock('@/lib/auth/require-permission', () => ({
 // Business-scoped synqed client — customer writes go through here.
 const revokeConsent = jest.fn(async () => undefined)
 const uploadPhoto = jest.fn(async () => ({ id: 'photo-1' }))
-const fakeClient = { customers: { revokeConsent, uploadPhoto } }
+const listPhotos = jest.fn(async () => ({ photos: [] as unknown[] }))
+const deletePhoto = jest.fn(async () => undefined)
+const fakeClient = { customers: { revokeConsent, uploadPhoto, listPhotos, deletePhoto } }
 // Relearn transcript read — spied so the owner-gate tests can distinguish
 // "gate refused before any read" from "read ran, nothing to relearn".
 jest.mock('@/lib/karute/synqed-records', () => ({
@@ -83,7 +85,8 @@ const orgSettingsRead = jest.fn(async (): Promise<{ business_type: string } | nu
 jest.mock('@/actions/org-settings', () => ({ orgSettingsWithClient: () => orgSettingsRead() }))
 
 import { POST as consentRevoke, OPTIONS as consentOptions } from '@/app/api/app/v1/customers/[id]/consent/revoke/route'
-import { POST as photoUpload, OPTIONS as photoOptions } from '@/app/api/app/v1/customers/[id]/photos/route'
+import { GET as photoList, POST as photoUpload, OPTIONS as photoOptions } from '@/app/api/app/v1/customers/[id]/photos/route'
+import { DELETE as photoDelete, OPTIONS as photoDeleteOptions } from '@/app/api/app/v1/customers/[id]/photos/[photoId]/route'
 import { POST as memoryAdd, OPTIONS as memoryOptions } from '@/app/api/app/v1/customers/[id]/memory/route'
 import { PATCH as memoryPatch, DELETE as memoryDelete, OPTIONS as itemOptions } from '@/app/api/app/v1/customers/[id]/memory/[itemId]/route'
 import { POST as passportUpsert, OPTIONS as passportOptions } from '@/app/api/app/v1/customers/[id]/passport/route'
@@ -108,6 +111,12 @@ const jsonReq = (body: unknown, headers: Record<string, string> = auth) =>
 
 beforeEach(() => {
   jest.clearAllMocks()
+  // mockReset (not just clearAllMocks' clear) — a mockResolvedValueOnce queued
+  // by a test whose CORRECT code path never reaches listPhotos (e.g. the
+  // cross-tenant DELETE test, where tenancy proof throws first) would
+  // otherwise sit queued and leak into whichever LATER test calls listPhotos
+  // first, silently swapping its intended mock value.
+  listPhotos.mockReset().mockResolvedValue({ photos: [] })
   capabilities.current = new Set(['customers.view'])
   staffRoster.current = [{ id: 'auth-user-1', full_name: '田中' }]
   revoked.current = false
@@ -151,14 +160,20 @@ describe('POST consent/revoke', () => {
 })
 
 // ── photos (trust boundary) ──────────────────────────────────────────────────
-function photoReq(file: File | null, headers = auth) {
+function photoReq(file: File | null, headers = auth, fields: Record<string, string> = {}) {
   const fd = new FormData()
   if (file) fd.append('file', file)
+  for (const [k, v] of Object.entries(fields)) fd.append(k, v)
   return new Request('https://s/x', { method: 'POST', headers, body: fd })
 }
 // Real container bytes — the route now sniffs magic numbers (declared MIME is
 // caller-controlled). 16 bytes of PNG signature + IHDR intro is enough.
 const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 73, 72, 68, 82])
+const getReq = () => new Request('https://s/x', { method: 'GET', headers: auth })
+const deleteReq = () => new Request('https://s/x', { method: 'DELETE', headers: auth })
+const photoRoute = (p: { id: string; photoId: string }): { params: Promise<{ id: string; photoId: string }> } => ({
+  params: Promise.resolve(p),
+})
 
 describe('POST photos', () => {
   it('happy path: uploads a valid image', async () => {
@@ -191,6 +206,185 @@ describe('POST photos', () => {
     const res = await photoUpload(photoReq(new File(['%PDF-1.4 not an image'], 'a.png', { type: 'image/png' })), route({ id: 'cust-1' }))
     expect(res.status).toBe(400)
     expect(uploadPhoto).not.toHaveBeenCalled()
+  })
+  // packet 2026-08-09 PR 9a §③/§B — recording_session_id + taken_with_consent
+  // forward from the form; captured_by_staff_id is SERVER-RESOLVED via
+  // resolveSelfStaffId (this suite's Bearer sub is 'auth-user-1', on
+  // staffRoster.current by default) — NEVER read from client input.
+  it('forwards recording_session_id / taken_with_consent=true; captured_by_staff_id is server-resolved', async () => {
+    const png = new File([PNG_BYTES], 'a.png', { type: 'image/png' })
+    const res = await photoUpload(
+      photoReq(png, auth, {
+        recording_session_id: 'sess-1',
+        taken_with_consent: 'true',
+      }),
+      route({ id: 'cust-1' }),
+    )
+    expect(res.status).toBe(201)
+    // expect.any(File): the File crosses a Request→FormData round-trip in the
+    // route handler, which reconstructs it with a freshly-stamped
+    // lastModified — exact object/deep equality on it is not guaranteed.
+    expect(uploadPhoto).toHaveBeenCalledWith(
+      'cust-1',
+      expect.any(File),
+      expect.objectContaining({
+        recording_session_id: 'sess-1',
+        captured_by_staff_id: 'auth-user-1',
+        taken_with_consent: true,
+      }),
+    )
+  })
+  // Anti-spoof pin: a client can't smuggle someone else's staff id through
+  // the form — the route ignores it and uses only the server-resolved identity.
+  it('captured_by_staff_id from the form is IGNORED — server resolution wins (anti-spoof)', async () => {
+    const png = new File([PNG_BYTES], 'a.png', { type: 'image/png' })
+    await photoUpload(photoReq(png, auth, { captured_by_staff_id: 'intruder' }), route({ id: 'cust-1' }))
+    expect(uploadPhoto).toHaveBeenCalledWith(
+      'cust-1',
+      expect.any(File),
+      expect.objectContaining({ captured_by_staff_id: 'auth-user-1' }),
+    )
+  })
+  it('unresolvable staff id (caller not on the roster) → captured_by_staff_id undefined, upload still succeeds', async () => {
+    staffRoster.current = []
+    const png = new File([PNG_BYTES], 'a.png', { type: 'image/png' })
+    const res = await photoUpload(photoReq(png), route({ id: 'cust-1' }))
+    expect(res.status).toBe(201)
+    const options = (uploadPhoto as jest.Mock).mock.calls[0][2] as { captured_by_staff_id?: string }
+    expect(options.captured_by_staff_id).toBeUndefined()
+  })
+  it('taken_with_consent="false" → forwarded as boolean false, not dropped', async () => {
+    const png = new File([PNG_BYTES], 'a.png', { type: 'image/png' })
+    await photoUpload(photoReq(png, auth, { taken_with_consent: 'false' }), route({ id: 'cust-1' }))
+    expect(uploadPhoto).toHaveBeenCalledWith(
+      'cust-1',
+      expect.any(File),
+      expect.objectContaining({ taken_with_consent: false }),
+    )
+  })
+  // packet §C — '' is not a session; the shared parsePhotoUploadFields helper
+  // normalizes it to undefined so it never fakes a real recording_session_id.
+  it('recording_session_id="" is treated as absent → undefined, not forwarded as ""', async () => {
+    const png = new File([PNG_BYTES], 'a.png', { type: 'image/png' })
+    await photoUpload(photoReq(png, auth, { recording_session_id: '' }), route({ id: 'cust-1' }))
+    const options = (uploadPhoto as jest.Mock).mock.calls[0][2] as { recording_session_id?: string }
+    expect(options.recording_session_id).toBeUndefined()
+  })
+  // Tier pin: upload is gated customers.view (NOT the destructive tier the
+  // sibling DELETE moved to). Same shape as the DELETE denial test — the gate
+  // is the FIRST thing in the handler, so the tenancy read never runs either.
+  it('missing capability → 403, no tenancy read, no upload', async () => {
+    capabilities.current = new Set()
+    const { getCustomerWithClient } = jest.requireMock('@/lib/customers/queries') as {
+      getCustomerWithClient: jest.Mock
+    }
+    const res = await photoUpload(photoReq(new File([PNG_BYTES], 'a.png', { type: 'image/png' })), route({ id: 'cust-1' }))
+    expect(res.status).toBe(403)
+    expect(getCustomerWithClient).not.toHaveBeenCalled()
+    expect(uploadPhoto).not.toHaveBeenCalled()
+  })
+  it('linkage fields absent → recording_session_id/taken_with_consent stay undefined (never default consent to true)', async () => {
+    const png = new File([PNG_BYTES], 'a.png', { type: 'image/png' })
+    await photoUpload(photoReq(png), route({ id: 'cust-1' }))
+    const options = (uploadPhoto as jest.Mock).mock.calls[0][2] as {
+      recording_session_id?: string
+      taken_with_consent?: boolean
+    }
+    expect(options.recording_session_id).toBeUndefined()
+    expect(options.taken_with_consent).toBeUndefined()
+  })
+})
+
+// ── photos GET (aggregate, packet PR 9b device-wiring delta) ────────────────
+describe('GET photos', () => {
+  it('the customer AGGREGATE reaches the response unfiltered — a mixed-session list, all rows pass through', async () => {
+    // Structure rule (Liam 8/9): this route is the presentation/compare feed —
+    // it must NEVER apply scopeKarutePhotos. Mixed session ids + a null-session
+    // photo, all three must survive untouched (same pin shape as 9a §F).
+    listPhotos.mockResolvedValueOnce({
+      photos: [
+        { id: 'p1', signed_url: 'https://x/p1', category: 'before', caption: null, recording_session_id: 'sess-1' },
+        { id: 'p2', signed_url: 'https://x/p2', category: 'after', caption: null, recording_session_id: 'sess-2' },
+        { id: 'p3', signed_url: 'https://x/p3', category: 'reference', caption: null, recording_session_id: null },
+      ],
+    })
+    const res = await photoList(getReq(), route({ id: 'cust-1' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.photos.map((p: { id: string }) => p.id)).toEqual(['p1', 'p2', 'p3'])
+  })
+
+  it('cross-tenant customer id → 404, no read', async () => {
+    const res = await photoList(getReq(), route({ id: 'cust-x' }))
+    expect(res.status).toBe(404)
+    expect(listPhotos).not.toHaveBeenCalled()
+  })
+
+  // Tier pin: the aggregate feed is gated customers.view — nothing pinned it
+  // before, so a silent regate would have gone unnoticed.
+  it('missing capability → 403, no tenancy read, no read', async () => {
+    capabilities.current = new Set()
+    const { getCustomerWithClient } = jest.requireMock('@/lib/customers/queries') as {
+      getCustomerWithClient: jest.Mock
+    }
+    const res = await photoList(getReq(), route({ id: 'cust-1' }))
+    expect(res.status).toBe(403)
+    expect(getCustomerWithClient).not.toHaveBeenCalled()
+    expect(listPhotos).not.toHaveBeenCalled()
+  })
+})
+
+// ── photos DELETE /[photoId] (packet PR 9b device-wiring delta) ─────────────
+describe('DELETE photos/[photoId]', () => {
+  // Liam ruling 8/9: photo delete sits in the DESTRUCTIVE tier (records.delete,
+  // owner/manager/senior), not customers.view. The harness default is
+  // customers.view alone, so every non-denial case here grants it explicitly.
+  beforeEach(() => {
+    capabilities.current = new Set(['customers.view', 'records.delete'])
+  })
+
+  it('customers.view alone → 403, no tenancy read, no delete (records.delete is the tier)', async () => {
+    capabilities.current = new Set(['customers.view'])
+    // Ownership stub primed: if the gate ever ran AFTER the proofs this would
+    // still 403, so also assert the tenancy read never happened — the gate is
+    // the FIRST thing in the handler.
+    const { getCustomerWithClient } = jest.requireMock('@/lib/customers/queries') as {
+      getCustomerWithClient: jest.Mock
+    }
+    listPhotos.mockResolvedValueOnce({ photos: [{ id: 'photo-1' }] })
+    const res = await photoDelete(deleteReq(), photoRoute({ id: 'cust-1', photoId: 'photo-1' }))
+    expect(res.status).toBe(403)
+    expect(getCustomerWithClient).not.toHaveBeenCalled()
+    expect(listPhotos).not.toHaveBeenCalled()
+    expect(deletePhoto).not.toHaveBeenCalled()
+  })
+
+  it('happy path: deletes the photo (ownership proven — photoId is in this customer\'s list)', async () => {
+    listPhotos.mockResolvedValueOnce({ photos: [{ id: 'photo-1' }] })
+    const res = await photoDelete(deleteReq(), photoRoute({ id: 'cust-1', photoId: 'photo-1' }))
+    expect(res.status).toBe(200)
+    expect(deletePhoto).toHaveBeenCalledWith('cust-1', 'photo-1')
+  })
+
+  it('cross-tenant customer id → 404, no delete', async () => {
+    // Isolates the TENANCY check specifically: listPhotos is stubbed to
+    // contain the requested photoId, so if tenancy proof were ever skipped
+    // the ownership proof right after it would PASS — the 404 here can only
+    // come from proveCustomerInBusiness (mutation red-run anchor).
+    listPhotos.mockResolvedValueOnce({ photos: [{ id: 'photo-1' }] })
+    const res = await photoDelete(deleteReq(), photoRoute({ id: 'cust-x', photoId: 'photo-1' }))
+    expect(res.status).toBe(404)
+    expect(deletePhoto).not.toHaveBeenCalled()
+  })
+
+  // §12 (blind round): ownership proof — provePhotoForCustomer. A photoId
+  // that belongs to a DIFFERENT customer (or doesn't exist) must 404 BEFORE
+  // any delete call, exactly like provePackForCustomer's pattern.
+  it("another customer's photoId → 404, deletePhoto NEVER called", async () => {
+    listPhotos.mockResolvedValueOnce({ photos: [{ id: 'someone-elses-photo' }] })
+    const res = await photoDelete(deleteReq(), photoRoute({ id: 'cust-1', photoId: 'photo-1' }))
+    expect(res.status).toBe(404)
+    expect(deletePhoto).not.toHaveBeenCalled()
   })
 })
 
@@ -361,6 +555,7 @@ describe('OPTIONS preflight — shell-origin CORS, no auth', () => {
   const handlers: Array<[string, (req: Request, r: any) => Promise<Response>]> = [
     ['consent/revoke', consentOptions],
     ['photos', photoOptions],
+    ['photos/[photoId]', photoDeleteOptions],
     ['memory', memoryOptions],
     ['memory/[itemId]', itemOptions],
     ['passport', passportOptions],

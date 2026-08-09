@@ -111,3 +111,21 @@ describe('新しい回数券 picker', () => {
     expect(calls[0].newPack).toBeNull()
   })
 })
+
+describe('保存 — saving prop (fix/post-session-money-guards single-flight guard)', () => {
+  it('saving=true disables 保存/キャンセル and shows the saving label — no onResolve call reaches the caller', () => {
+    const calls = mount({ saving: true })
+    fireEvent.click(screen.getByText('成約しました'))
+    const saveBtn = screen.getByText('保存中...')
+    expect(saveBtn).toBeDisabled()
+    expect(screen.getByText('キャンセル')).toBeDisabled()
+    fireEvent.click(saveBtn)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('saving=false (default) keeps 保存 enabled and labeled 保存', () => {
+    mount()
+    fireEvent.click(screen.getByText('成約しました'))
+    expect(screen.getByText('保存')).not.toBeDisabled()
+  })
+})

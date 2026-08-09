@@ -390,7 +390,7 @@
       "title": "写真記録",
       "subtitle": "施術前後・参考写真",
       "showToCustomer": "お客様に表示",
-      "empty": "写真はまだありません。顧客プロフィールからアップロードできます。"
+      "empty": "このカルテに紐づく写真はまだありません。すべての写真は顧客プロフィールで確認できます。"
     },
     "bodyPrediction": {
       "title": "AI身体予測",
@@ -572,7 +572,7 @@
     "consentStartFlow": "同意取得フローを開始",
     "consentDialogTitle": "録音の同意を取得",
     "consentDialogInstructions": "以下の内容をお客様にお読みください。口頭で同意を得た場合のみ「同意を取得しました」をタップしてください。",
-    "consentScript": "{customerName}様、本日の施術内容を正確に記録し、カルテ作成と品質向上に役立てるため、施術中の会話を録音させていただいてもよろしいでしょうか？録音データはカルテ作成とサービス改善のみに使用されます。",
+    "consentScript": "{customerName}様、本日の施術内容を正確に記録し、カルテ作成と品質向上に役立てるため、施術中の会話の録音と経過写真の撮影・保存をさせていただいてもよろしいでしょうか？録音データと写真はカルテ作成とサービス改善のみに使用されます。",
     "consentConfirmButton": "同意を取得しました",
     "longRecordingWarning": "長時間録音 — 一度停止して新しい録音を開始することをご検討ください",
     "subtitle": "セッションを録音 — AIがカルテを自動生成します。",
@@ -641,6 +641,21 @@
     },
     "consent": {
       "onFile": "同意確認済"
+    },
+    "sessionPhotos": {
+      "title": "セッション写真",
+      "take": "写真を撮る",
+      "count": "{n}枚",
+      "uploadError": "アップロードに失敗しました。写真をタップして再試行してください。",
+      "retry": "タップして再試行",
+      "presentError": "写真の読み込みに失敗しました。もう一度お試しください。",
+      "discardPhotosTitle": "セッション写真の扱いを選択",
+      "discardPhotosDescription": "この録音には{n}枚の写真があります（アップロード中を含む）。録音を破棄すると同時に写真も削除しますか？",
+      "discardPhotosKeepOnlyDescription": "この録音には{n}枚の写真があります（アップロード中を含む）。録音を破棄しても写真は顧客ページに残ります。",
+      "discardPhotosDelete": "写真も削除",
+      "discardPhotosKeep": "顧客ページに残す",
+      "discardDeleteFailed": "写真の削除に失敗しました（{n}枚）",
+      "uploadsDropped": "アップロードに失敗した写真{n}枚は保存されていません"
     },
     "recent": {
       "title": "最近の録音",
@@ -718,6 +733,7 @@
       "addPhoto": "写真を追加",
       "uploading": "アップロード中…",
       "uploadError": "アップロードに失敗しました。もう一度お試しください。",
+      "photoTooLarge": "写真のサイズが大きすぎるためアップロードできません。",
       "categoryLabel": "カテゴリ",
       "compareButton": "比較",
       "compareExit": "比較を終了",
@@ -727,9 +743,16 @@
       "compareOverlay": "重ねて表示",
       "compareOpacity": "不透明度",
       "presentButton": "お客様に見せる",
-      "presentClose": "閉じる",
+      "presentCloseHold": "閉じる（長押し）",
       "presentFilterAll": "すべて",
-      "presentBackToGrid": "グリッドに戻る"
+      "presentBackToGrid": "グリッドに戻る",
+      "presentCompareButton": "比較",
+      "presentSelectHint": "2〜4枚を選んでください",
+      "presentSelectCancel": "キャンセル",
+      "presentCompareCta": "{n}枚を比較する",
+      "presentBack": "戻る",
+      "presentPrevPhoto": "前の写真",
+      "presentNextPhoto": "次の写真"
     },
     "comingSoon": "対応予定",
     "privacy": {
@@ -2156,6 +2179,8 @@
           "pack_undo": "回数券消化を取り消し",
           "passport_update": "基本情報を修正",
           "photo_add": "写真を追加",
+          "photo_delete": "写真を削除",
+          "photos_view": "写真一覧を閲覧",
           "brief_view": "事前ブリーフを閲覧",
           "ai_prediction_view": "AI体調予測を閲覧",
           "create": "顧客を登録",
@@ -2525,6 +2550,8 @@
       "empty": "プリセットがまだありません。「プリセットを追加」から登録してください。",
       "allowStaffCustom": "スタッフの自由入力を許可",
       "allowStaffCustomHint": "オフにすると、スタッフはプリセット以外の回数・価格を入力できません（オーナーのみ変更可）。",
+      "autoBurnTitle": "回数券の自動消化",
+      "autoBurnHint": "オンにすると、来店済みの予約の回数券を、予約終了のおよそ2時間後に自動で1回消化します。夜遅い予約は翌朝の処理で消化します。オンにした日の予約はさかのぼって消化されず、翌日の予約から対象になります。キャンセルの予約は消化しません。オフのときは、これまでどおりスタッフの操作でのみ消化されます。",
       "save": "保存する",
       "saving": "保存中…",
       "saved": "保存しました",

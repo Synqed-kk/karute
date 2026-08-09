@@ -7,6 +7,8 @@ import { getCustomer } from '@/lib/customers/queries'
 import { getCustomerConsent } from '@/actions/customers'
 import { listCustomerPacks, getCustomerLifecycleChecked } from '@/lib/packs/store'
 import { getOrgSettings } from '@/actions/org-settings'
+import { getMyCapabilities } from '@/lib/auth/require-permission'
+import type { Capability } from '@/lib/auth/permissions'
 import { getAppointmentsByDate, getAppointmentById } from '@/actions/appointments'
 import { getCustomerKaruteRecords } from '@/actions/karute'
 import { getAiPreSessionBrief, type PreSessionBriefResult } from '@/lib/karute/ai-brief'
@@ -35,8 +37,8 @@ export default async function SessionsPage({
 
   // Wave 1 — every read that needs nothing but the request itself, fired
   // together (staff id, staff list, status translations, customer list, today's
-  // bookings, org settings).
-  const [activeStaffId, staffList, tStatus, customers, todayAppts, orgSettings] =
+  // bookings, org settings, the caller's capabilities).
+  const [activeStaffId, staffList, tStatus, customers, todayAppts, orgSettings, caps] =
     await Promise.all([
       getCurrentUserStaffId(),
       getStaffList(),
@@ -44,6 +46,9 @@ export default async function SessionsPage({
       getCachedCustomerList(),
       getAppointmentsByDate(todayStr),
       getOrgSettings(),
+      // Fail-closed UI: a capability read that hiccups hides the destructive
+      // photo affordance. The server gate is the enforcement either way.
+      getMyCapabilities().catch(() => new Set<Capability>()),
     ])
 
   // The assembly (target resolution + waves 2 + derivations) lives in the shared
@@ -107,6 +112,7 @@ export default async function SessionsPage({
       targetPack={screen.targetPack}
       packPresets={screen.packPresets}
       staffCanCustomizePacks={screen.staffCanCustomizePacks}
+      staffCanDeletePhotos={caps.has('records.delete')}
       previousPack={screen.previousPack}
       ticketsEnabled={screen.ticketsEnabled}
       noiseSuppression={screen.noiseSuppression}

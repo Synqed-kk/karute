@@ -4,7 +4,10 @@
 export type PackKind = 'pack' | 'subscription' | 'single'
 // 'backfill' is pack_redemptions-only (the 未処理来店 reconcile fix writes it;
 // the ticket_packs check constraint deliberately does NOT accept it).
-export type PackSource = 'manual' | 'import' | 'qr' | 'pos' | 'backfill'
+// 'auto' = the 自動消化 cron (packet 11). Core stores `source` verbatim
+// (packs.service.ts addRedemption: `source: input.source ?? 'manual'`), so
+// widening this union needs no core or schema change.
+export type PackSource = 'manual' | 'import' | 'qr' | 'pos' | 'backfill' | 'auto'
 export type PackStatus = 'active' | 'exhausted' | 'cancelled'
 export type LifecycleStatus = 'active' | 'graduated' | 'lost'
 

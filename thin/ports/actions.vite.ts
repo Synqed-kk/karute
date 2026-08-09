@@ -162,6 +162,55 @@ async function facadeUploadCustomerPhoto(
   return { error: body?.error?.message ?? `Upload failed (${res.status})` }
 }
 
+// Local redeclaration (same "redeclare only what's needed" convention as
+// EntryEditHistoryRow below) — the SDK's raw CustomerPhoto DTO fields
+// SessionPhotoCard's handlePresent actually reads.
+type CustomerPhotoRow = {
+  id: string
+  signed_url: string | null
+  category: string
+  caption: string | null
+}
+
+async function facadeListCustomerPhotos(
+  customerId: string,
+): Promise<{ photos: CustomerPhotoRow[] }> {
+  const res = await getDataPort().apiFetch(`/api/app/v1/customers/${enc(customerId)}/photos`)
+  const body = (await res.json().catch(() => null)) as
+    | { photos?: CustomerPhotoRow[]; error?: { message?: string } }
+    | null
+  if (res.ok && body) return { photos: body.photos ?? [] }
+  // Web action (listCustomerPhotos, src/actions/customers.ts) has no
+  // try/catch — a failure THROWS, never returns an {error} shape. Match it
+  // exactly: SessionPhotoCard's handlePresent relies on the throw to route
+  // into its own catch (toast + stay closed).
+  // Distinguish an unparseable 2xx body (transport succeeded, the JSON
+  // didn't) from a real non-2xx failure — "Request failed (200)" would be a
+  // lie for the former.
+  if (res.ok) throw new Error('Response body was not valid JSON')
+  throw new Error(body?.error?.message ?? `Request failed (${res.status})`)
+}
+
+async function facadeDeleteCustomerPhoto(
+  customerId: string,
+  photoId: string,
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const res = await getDataPort().apiFetch(
+      `/api/app/v1/customers/${enc(customerId)}/photos/${enc(photoId)}`,
+      { method: 'DELETE' },
+    )
+    if (res.ok) return { success: true }
+    const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
+    return { success: false, error: body?.error?.message ?? `Delete failed (${res.status})` }
+  } catch (err) {
+    // Web action (deleteCustomerPhoto) never throws — matches its
+    // try/catch-everything contract exactly (RecordPageView's discard-delete
+    // loop Promise.all()s these with no per-call catch).
+    return { success: false, error: err instanceof Error ? err.message : 'Network request failed' }
+  }
+}
+
 async function facadeRevokeCustomerConsent(
   customerId: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -176,8 +225,13 @@ async function facadeRevokeCustomerConsent(
 
 // -- packs (packet 06 §Build 5) ----------------------------------------------
 // create + redeem are effectful → send an Idempotency-Key (at-least-once). The
-// facade re-derives 購入回数 / 合計金額 / burn pairing server-side, so the port
-// forwards the client's fields verbatim and never derives money or pairing.
+// facade re-derives 購入回数 / 合計金額 / burn pairing server-side, so this port
+// never derives money or pairing itself. totalPrice specifically is DROPPED
+// here, not forwarded (F7, PR-0 fix round) — the facade route ignores it
+// (CreatePackSchema accepts it only for old baked-shell compat; the value
+// never reaches createPackActionWithClient's derivation), so sending it from
+// this port would be a dead, misleading field. Every OTHER create/redeem
+// field still rides through verbatim.
 const idemPost = (body?: unknown): RequestInit => ({
   method: 'POST',
   headers: {
@@ -192,7 +246,6 @@ async function facadeCreatePack(input: {
   kind: string
   packSize: number
   unitPrice: number
-  totalPrice?: number | null
   purchasedAt?: string | null
   notes?: string | null
 }): Promise<{ ok: boolean; error?: string }> {
@@ -605,9 +658,9 @@ export const createCustomer = notWired('createCustomer')
 export const createQuickCustomer = notWired('createQuickCustomer')
 export const updateCustomer = facadeUpdateCustomer
 export const deleteCustomer = notWired('deleteCustomer')
-export const listCustomerPhotos = notWired('listCustomerPhotos')
+export const listCustomerPhotos = facadeListCustomerPhotos
 export const uploadCustomerPhoto = facadeUploadCustomerPhoto
-export const deleteCustomerPhoto = notWired('deleteCustomerPhoto')
+export const deleteCustomerPhoto = facadeDeleteCustomerPhoto
 export const getCustomerConsent = facadeGetCustomerConsent
 export const grantCustomerConsent = facadeGrantCustomerConsent
 export const revokeCustomerConsent = facadeRevokeCustomerConsent

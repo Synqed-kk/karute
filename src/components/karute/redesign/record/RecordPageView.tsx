@@ -25,8 +25,10 @@ import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 import {
   getCustomerConsent,
   grantCustomerConsent,
+  deleteCustomerPhoto,
 } from '@/actions/customers'
 import { isConsentCurrent } from '@/lib/consent'
+import { sessionPhotoStore } from '@/lib/karute/session-photos'
 
 import { RecordPageHeader } from './RecordPageHeader'
 import { PipelineErrorCard } from './PipelineErrorCard'
@@ -44,6 +46,7 @@ import {
 import type { PreSessionBriefResult } from '@/lib/karute/ai-brief'
 import { SourceModeChips } from './SourceModeChips'
 import { RecordButtonCard } from './RecordButtonCard'
+import { SessionPhotoCard } from './SessionPhotoCard'
 import { ConsentPill } from './ConsentPill'
 import { RecordingConsentDialog } from './RecordingConsentDialog'
 import {
@@ -128,6 +131,10 @@ export interface RecordPageViewProps {
   /** Owner presets + permission for the 新しい回数券 panel (設定 → 回数券). */
   packPresets?: PackPreset[]
   staffCanCustomizePacks?: boolean
+  /** records.delete (owner/manager/senior) — without it the D3 discard dialog
+   *  drops the 写真も削除 affordance and offers keep-only. Server-enforced
+   *  either way (deleteCustomerPhoto / the facade DELETE both gate on it). */
+  staffCanDeletePhotos?: boolean
   /** The customer's most recent pack (any status) — the picker prefill. */
   previousPack?: { size: number; unitPrice: number } | null
   /** Org 録音設定 noise-suppression toggle (default on) — applied to the mic. */
@@ -140,6 +147,50 @@ export interface RecordPageViewProps {
    *  economics) — it saves the record exactly like the mid-pack auto path,
    *  minus the redemption. */
   ticketsEnabled?: boolean
+}
+
+/**
+ * What the save binds the take to. Exported for tests.
+ *
+ * The take may bind ONLY to what it was actually recorded against — the
+ * bound `target`, or the timetable-store ids for the 予約-launched flow.
+ * NEVER to `nextAppointment`: the schedule can drift to a different customer
+ * between start and save (blind-round P1 8/2 — an anonymous record-anyway
+ * take silently attached to the next booking, and a bound walk-in captured
+ * the schedule's appointment id). An anonymous take returns nothing here —
+ * per handleStartAnyway's contract, the save then requires picking a
+ * customer downstream, exactly like the no-schedule case always has.
+ */
+export function resolveSaveBinding(
+  target: { customerId: string; appointmentId: string | null } | null,
+  recordingAppointmentId: string | null,
+  recordingCustomerId: string | null,
+): { appointmentId: string | undefined; customerId: string | undefined } {
+  return {
+    appointmentId: (target?.appointmentId ?? recordingAppointmentId) || undefined,
+    customerId:
+      target?.customerId ??
+      (recordingAppointmentId ? (recordingCustomerId ?? undefined) : undefined),
+  }
+}
+
+/**
+ * Which stop flow the 録音を使用 tap runs. Exported for tests.
+ *
+ * Ticket economics (auto-burn / 成約・回数券 dialog) may fire ONLY when the
+ * schedule data they price against belongs to the session's own customer:
+ * under a schedule mismatch (incl. an anonymous take) the pack/outcome data
+ * on screen is another customer's — burning or creating against it is the
+ * money-side of the same misattribution bug (delta-verify catch 8/2). Those
+ * sessions save directly; 成約/回数券 completes later via the profile flows.
+ */
+export function resolveStopFlow(opts: {
+  ticketsEnabled: boolean
+  canRunOutcome: boolean
+  outcomeMode: 'auto' | 'conversion' | 'repurchase'
+}): 'save-direct' | 'auto-redeem' | 'dialog' {
+  if (!opts.ticketsEnabled || !opts.canRunOutcome) return 'save-direct'
+  return opts.outcomeMode === 'auto' ? 'auto-redeem' : 'dialog'
 }
 
 export function RecordPageView({
@@ -157,6 +208,7 @@ export function RecordPageView({
   targetPack = null,
   packPresets = [],
   staffCanCustomizePacks = true,
+  staffCanDeletePhotos = true,
   previousPack = null,
   noiseSuppression = true,
   currentStaffName = null,
@@ -195,8 +247,29 @@ export function RecordPageView({
   // bound customer while recording and the next booking when idle — and can
   // NEVER drift to a different customer on navigation the way nextAppointment does.
   const boundCustomerId = target?.customerId ?? nextAppointment?.customerId
-  const boundAppointmentId = (target?.appointmentId ?? nextAppointment?.id) || undefined
   const boundCustomerName = (live && target ? target.customerName : nextAppointment?.customerName) ?? null
+  // Belt & suspenders (field bug 8/2): any entry path that leaves the recorder
+  // in flight for one customer while `nextAppointment` resolved to another
+  // (deep link, back-nav, stale tab) must never paint that OTHER customer's
+  // schedule-derived sections under the session. Covers BOTH a bound target of
+  // a different customer AND an anonymous record-anyway take (target null —
+  // blind-round P1: the page must not masquerade the schedule's customer as
+  // the one being recorded). Keyed on recState, not `live`: pipeline-active
+  // with an idle recorder is the normal post-handoff state and stays unguarded.
+  const scheduleMismatch = Boolean(
+    recState !== 'idle' &&
+      nextAppointment &&
+      (!target || target.customerId !== nextAppointment.customerId),
+  )
+  // Single source of binding for EVERYTHING the stop flow writes — the karute
+  // save AND the pack money mutations (delta-verify catch 8/2: the latter
+  // still rode boundCustomerId's nextAppointment fall-through).
+  const saveBinding = resolveSaveBinding(
+    target,
+    recordingAppointmentId ?? null,
+    recordingCustomerId ?? null,
+  )
+  const canRunOutcome = !scheduleMismatch && Boolean(saveBinding.customerId)
 
   // Runaway-recording safety nets (see global-recorder): nudge the staff when a
   // recording runs unusually long, and tell them when the hard cap auto-saved it.
@@ -240,6 +313,51 @@ export function RecordPageView({
   // before transcription — so they decide once, up front, then the AI runs in
   // the background while they move on. It rides the pipeline context to save.
   const [outcomeOpen, setOutcomeOpen] = useState(false)
+
+  // D3: discard-with-photos confirmation (see handleDiscard below).
+  const [showDiscardPhotosDialog, setShowDiscardPhotosDialog] = useState(false)
+  const [discardingPhotos, setDiscardingPhotos] = useState(false)
+
+  // Single-flight guard for the outcome dialog's 保存: a double-tap must never
+  // create two pack rows or fire two redemptions (live prod bug — the DB's
+  // partial unique index on pack_redemptions(appointment_id) can't block the
+  // walk-in NULL case, and pack creation has no dedupe of its own). The REF is
+  // the real guard — the synchronous re-entry check (state reads stale
+  // mid-tick, same reason usingRecording below is a ref). The state feeds the
+  // dialog's `saving` prop as belt-and-braces for a future edit that changes
+  // the close timing — TODAY it is NOT visibly observable at this call site:
+  // onResolve closes the dialog (setOutcomeOpen(false)) in the same batch it
+  // sets both, so the dialog never actually renders with saving=true here.
+  // Reset on the dialog's OPEN transition too (openOutcomeDialog below), not
+  // just in onResolve's finally — a hung take's write must not pre-lock the
+  // NEXT take's dialog as 保存中 (F2, PR-0 fix round).
+  const resolvingOutcomeRef = useRef(false)
+  const [resolvingOutcome, setResolvingOutcome] = useState(false)
+
+  // Per-take resolution latch (Greptile P1, #679): resolvingOutcomeRef only
+  // guards ONE in-flight resolve — it's intentionally reset on the dialog's
+  // OPEN transition (openOutcomeDialog, F2 above) so a hung write can't wedge
+  // the NEXT take's dialog shut. But that open-reset also let a re-tap of
+  // 録音を使用 for the SAME take reopen the dialog while onResolve's write is
+  // still in flight (handleUseRecording awaits a session-id mint before
+  // flipping `phase` back to idle, so the button stays tappable) — a second
+  // 保存 there re-fires createPackAction/redeemSessionAction with identical
+  // inputs. This ref latches ONCE the take has been resolved and blocks
+  // openOutcomeDialog from reopening for it; cleared only at the same
+  // take-lifecycle boundaries useRecordingGen already bumps at (a new take
+  // starting or the current one being discarded). Invariant: ONE resolution
+  // per take.
+  //
+  // Accepted residual (fresh-eyes round, PR-0 round 2): this is a component
+  // ref, not persisted state — a full page unmount+remount inside the
+  // ≤1500ms session-mint window (awaitRecordingSessionId's default timeout,
+  // global-recorder.ts) re-arms a fresh ref for an already-resolved take.
+  // Judged unreachable in practice: a real navigation round-trip doesn't
+  // complete inside that window. resolvingOutcomeRef has the same pre-
+  // existing exposure. Upgrade path if it ever matters: carry a
+  // resolvedTakeId on the globalRecorder singleton (survives remount)
+  // instead of a boolean ref on the component.
+  const outcomeResolvedRef = useRef(false)
 
   // Re-entry + staleness guards for the use-recording flow (it awaits the
   // session-id mint, so it's no longer atomic): first tap wins, and a discard
@@ -353,6 +471,15 @@ export function RecordPageView({
       setShowNoBookingPrompt(true)
       return
     }
+    // A new take begins here — clear the previous take's resolution latch.
+    outcomeResolvedRef.current = false
+    // A hung write must not dead-lock the NEXT take's save button: the finally
+    // below may never run (unsettled promise), and the belt keys off this state.
+    // Same boundary F2 already resets the latch at. A stale finally later
+    // clearing a newer take's belt is cosmetic — the ref latch in
+    // openOutcomeDialog stays the real guard.
+    resolvingOutcomeRef.current = false
+    setResolvingOutcome(false)
     startRecording({
       noiseSuppression,
       // nextAppointment is guaranteed here (early-return above when it's null).
@@ -376,16 +503,104 @@ export function RecordPageView({
   }
   function handleStartAnyway() {
     setShowNoBookingPrompt(false)
+    // A new take begins here — clear the previous take's resolution latch.
+    outcomeResolvedRef.current = false
+    // belt reset — see handleStartRecording
+    resolvingOutcomeRef.current = false
+    setResolvingOutcome(false)
     // Reached only via the no-booking prompt → nextAppointment is null, so there
     // is no customer to bind (walk-in); the save will require picking one.
     startRecording({ noiseSuppression, target: null })
   }
-  function handleDiscard() {
+  // D3 (Liam canon): discarding a recording that has session photos ASKS
+  // EACH TIME — never silently drops or silently keeps them. Fires for ANY
+  // 'uploading' OR 'done' photo (§7 fix round: an in-flight upload is just
+  // as real as a landed one — silently losing track of it would be the same
+  // class of bug the dialog exists to prevent). target?.customerId (not
+  // boundCustomerId) matches SessionPhotoCard's own mount/render filter
+  // exactly, so this can never act on a stale/different customer's photos.
+  function sessionPhotosForDiscardDialog() {
+    const cid = target?.customerId
+    if (!cid) return []
+    return sessionPhotoStore.photos.filter(
+      (p) => p.customerId === cid && (p.status === 'uploading' || p.status === 'done'),
+    )
+  }
+
+  // §9: the honest-loss toast for photos that failed to upload — computed
+  // and fired HERE (before discardRecording()/the save handoff triggers the
+  // store's clear(), which wipes `photos`), never inside the store itself
+  // (i18n needs React's t()).
+  function toastDroppedErrorPhotos() {
+    const cid = target?.customerId
+    if (!cid) return
+    const dropped = sessionPhotoStore.photos.filter(
+      (p) => p.customerId === cid && p.status === 'error',
+    ).length
+    if (dropped > 0) toast.warning(t('sessionPhotos.uploadsDropped', { n: dropped }))
+  }
+
+  function proceedDiscard() {
+    toastDroppedErrorPhotos()
     // Invalidate any in-flight handleUseRecording: its post-await body must
     // not hand a take the staff just discarded to the pipeline.
     useRecordingGen.current++
+    // The discarded take is done — its resolution latch (if any) must not
+    // carry over and wedge the NEXT take's dialog shut.
+    outcomeResolvedRef.current = false
+    // belt reset — see handleStartRecording
+    resolvingOutcomeRef.current = false
+    setResolvingOutcome(false)
     discardRecording()
     setPhase('idle')
+  }
+
+  function handleDiscard() {
+    if (sessionPhotosForDiscardDialog().length > 0) {
+      setShowDiscardPhotosDialog(true)
+      return
+    }
+    proceedDiscard()
+  }
+
+  function handleDiscardCancel() {
+    // Full abort — the recording stays exactly as it was, nothing proceeds.
+    setShowDiscardPhotosDialog(false)
+  }
+
+  async function handleDiscardDeletePhotos() {
+    const photos = sessionPhotosForDiscardDialog()
+    const donePhotos = photos.filter((p) => p.status === 'done')
+    // §7: an 'uploading' photo hasn't landed server-side yet — mark it for
+    // delete-after-settle (the store fires the delete itself the moment
+    // that upload resolves to 'done'; nothing to do on 'error'). Marked
+    // BEFORE proceedDiscard, whose discardRecording() wipes the strip.
+    // The onFail closure carries t() so a settle-path delete failure gets the
+    // SAME toast as its done-photos twin below (n:1 — one photo per mark).
+    // Firing after navigation is fine: sonner's toaster is app-global.
+    for (const p of photos) {
+      if (p.status === 'uploading') {
+        sessionPhotoStore.markDeleteAfterSettle(p.id, p.customerId, () =>
+          toast.error(t('sessionPhotos.discardDeleteFailed', { n: 1 })),
+        )
+      }
+    }
+    setShowDiscardPhotosDialog(false)
+    setDiscardingPhotos(true)
+    // Best-effort: collect failures, one toast if any fail — deleteCustomerPhoto
+    // never throws (catches internally), so Promise.all is safe here.
+    const results = await Promise.all(
+      donePhotos.map((p) => deleteCustomerPhoto(p.customerId, p.serverId as string)),
+    )
+    setDiscardingPhotos(false)
+    const failed = results.filter((r) => !r.success).length
+    if (failed > 0) toast.error(t('sessionPhotos.discardDeleteFailed', { n: failed }))
+    proceedDiscard()
+  }
+
+  function handleDiscardKeepPhotos() {
+    setShowDiscardPhotosDialog(false)
+    proceedDiscard()
   }
   async function handleUseRecording(outcome?: SessionOutcome, outcomeSkipped = false) {
     if (!result) return
@@ -405,11 +620,8 @@ export function RecordPageView({
       // re-prompting at the end.
       // `|| undefined`: a walk-in target (customer recorded with no booking)
       // carries id='' — coerce it so the save writes appointment_id null, not ''.
-      const effectiveAppointmentId =
-        (target?.appointmentId ?? recordingAppointmentId ?? nextAppointment?.id) || undefined
-      const effectiveCustomerId = target?.customerId ?? (recordingAppointmentId
-        ? (recordingCustomerId ?? undefined)
-        : nextAppointment?.customerId)
+      const { appointmentId: effectiveAppointmentId, customerId: effectiveCustomerId } =
+        saveBinding
       // Recording-session id was minted at start() (in parallel with getUserMedia)
       // — by now (recording has run its full length) it has almost always
       // resolved; this short await only covers the rare case it hasn't yet.
@@ -430,6 +642,13 @@ export function RecordPageView({
         recordingSessionId,
         takeId: globalRecorder.takeId,
       })
+      // §9: same honest-loss toast as the discard path — computed/fired
+      // BEFORE discardRecording() below wipes the strip via the store's
+      // clear(). The save handoff never shows the D3 dialog (structurally
+      // separate from handleDiscard — this function never references
+      // showDiscardPhotosDialog/sessionPhotosForDiscardDialog); a photo
+      // that failed to upload is still lost here exactly as on discard.
+      toastDroppedErrorPhotos()
       // The pipeline now owns the audio; clear the recorder + return to idle so
       // the page isn't stuck on the "review your take" screen. keepTake: the
       // PERSISTED audio must outlive this handoff — it's deleted only when the
@@ -517,6 +736,7 @@ export function RecordPageView({
   // Slim heads-up: the picked customer is booked under another staff. The
   // record still saves under the signed-in user (currentStaffName).
   const otherStaffBanner =
+    !scheduleMismatch &&
     nextAppointment?.bookedUnderOtherStaff &&
     nextAppointment.staffName &&
     currentStaffName ? (
@@ -537,13 +757,15 @@ export function RecordPageView({
     // pack session (redeemSessionAction has no server-side idempotency), so
     // a double-tap must not fire it twice for one take.
     if (usingRecording.current) return
-    if (targetPack && boundCustomerId) {
+    // saveBinding, never bound*: the burn must hit the session's own customer
+    // (delta-verify catch 8/2 — boundCustomerId falls through to the schedule).
+    if (targetPack && saveBinding.customerId) {
       const from = targetPack.remaining
       void redeemSessionAction({
         packId: targetPack.id,
-        customerId: boundCustomerId,
-        // '' for walk-in targets → null (no booking to link)
-        appointmentId: boundAppointmentId ?? null,
+        customerId: saveBinding.customerId,
+        // undefined for walk-in targets → null (no booking to link)
+        appointmentId: saveBinding.appointmentId ?? null,
       }).then((res) => {
         if (res.ok) {
           toast.success(
@@ -654,7 +876,12 @@ export function RecordPageView({
   // appointment window — keeps this client component pure for
   // React Compiler). 新規 (isFirstTimeVisit) flows from the brief.
   const targetAppointment: RecordTargetAppointment | null =
-    live && target
+    recState !== 'idle' && !target
+      ? // Anonymous record-anyway take in flight: the card must show its
+        // unbound state — falling through to nextAppointment would claim the
+        // schedule's customer as the one being recorded (blind-round P1 8/2).
+        null
+      : live && target
       ? // While a recording/pipeline is live, the card MUST show the customer
         // the audio is BOUND to — never re-derive from nextAppointment, which
         // can have drifted to today's first booking under the singleton.
@@ -685,6 +912,20 @@ export function RecordPageView({
   // collapse to a single column so the record button isn't dwarfed by a half-empty grid.
   const layoutMode: 'single' | 'split' = targetAppointment ? 'split' : 'single'
 
+  // F2: every OPEN starts clean — a hung take's in-flight write must not
+  // pre-lock the NEXT take's dialog as 保存中 (the finally reset in onResolve
+  // only fires when that write eventually settles; a request that never
+  // settles left the guard stuck true forever under the old code).
+  function openOutcomeDialog() {
+    // This take already resolved once — never reopen for it (see
+    // outcomeResolvedRef above). Real re-opens (a new take) clear the latch
+    // at handleStartRecording/handleStartAnyway/handleDiscard, not here.
+    if (outcomeResolvedRef.current) return
+    resolvingOutcomeRef.current = false
+    setResolvingOutcome(false)
+    setOutcomeOpen(true)
+  }
+
   const recorderControls = phase === 'recorded' ? (
     <section className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-7 shadow-sm">
       <div className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">
@@ -707,14 +948,19 @@ export function RecordPageView({
           variant="default"
           size="md"
           className="flex-1"
-          onClick={() =>
-            // Tickets off: straight save — no burn, no 成約/回数券 dialog.
-            !ticketsEnabled
-              ? handleUseRecording(undefined, true)
-              : outcomeMode === 'auto'
-                ? handleAutoFlow()
-                : setOutcomeOpen(true)
-          }
+          // Belt: visual only, state-driven (resolvingOutcome only spans the
+          // pack/redeem write, not the whole post-resolve window) — the real
+          // guard is outcomeResolvedRef inside openOutcomeDialog.
+          disabled={resolvingOutcome}
+          onClick={() => {
+            // Tickets off OR the pack data on screen isn't this session's
+            // customer (mismatch/anonymous): straight save — no burn, no
+            // 成約/回数券 dialog (resolveStopFlow's contract).
+            const flow = resolveStopFlow({ ticketsEnabled, canRunOutcome, outcomeMode })
+            if (flow === 'save-direct') handleUseRecording(undefined, true)
+            else if (flow === 'auto-redeem') handleAutoFlow()
+            else openOutcomeDialog()
+          }}
         >
           {t('useRecording')}
         </Button>
@@ -737,9 +983,33 @@ export function RecordPageView({
   const recorderColumn = (
     <div className="flex flex-col gap-3.5">
       {recorderControls}
-      <div className="flex justify-center">
-        <ConsentPill consentDate={consentDate} />
-      </div>
+      {/* Session photos — mounted only for a session BOUND to a customer.
+          Deliberately target-only, never the boundCustomerId fallback: under
+          an anonymous record-anyway take, nextAppointment can resolve to a
+          DIFFERENT customer than the one in the chair, and photos would
+          upload to them (blind-round P1 8/2, same class as the save-binding
+          fix on fix/record-live-target-binding). */}
+      {target?.customerId && (live || phase === 'recorded') && (
+        <SessionPhotoCard
+          customerId={target.customerId}
+          // D2: consent FOLDS into the recording-consent line — no per-photo
+          // prompt. Reads the LIVE consent state (consentGranted, refreshed
+          // by refreshConsent below) — NOT the SSR consentDate prop, which is
+          // fetched once at page load and never updates: a mid-session grant
+          // via handleGrantConsent would otherwise still stamp false for
+          // every photo taken after. The card itself freezes this value
+          // per-photo at capture time (retries reuse the frozen value).
+          takenWithConsent={consentGranted}
+        />
+      )}
+      {/* consentDate is nextAppointment-derived — under a schedule mismatch it
+          would show the OTHER customer's consent as if it covered this session
+          (blind-round catch, same class as the briefing leak). */}
+      {!scheduleMismatch && (
+        <div className="flex justify-center">
+          <ConsentPill consentDate={consentDate} />
+        </div>
+      )}
       {phase === 'idle' && nextAppointment && consent && !consent.granted && (
         <ConsentCheckCard
           consented={false}
@@ -863,23 +1133,27 @@ export function RecordPageView({
               onSwitchBooking={live ? undefined : handleSwitchBooking}
             />
             {otherStaffBanner}
-            <RepurchaseCueBanner pack={targetPack} />
-            {visitRhythm && (
+            {!scheduleMismatch && <RepurchaseCueBanner pack={targetPack} />}
+            {!scheduleMismatch && visitRhythm && (
               <div className="overflow-hidden rounded-2xl border border-border">
                 <VisitRhythmPanel rhythm={visitRhythm} segment={visitSegment} />
               </div>
             )}
-            <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
-            <Suspense
-              key={nextAppointment?.customerId ?? 'none'}
-              fallback={<BriefLoadingCard />}
-            >
-              <StreamingBriefCard
-                aiBriefPromise={aiBriefPromise}
-                fallbackBrief={brief}
-                customerName={nextAppointment?.customerName ?? null}
-              />
-            </Suspense>
+            {!scheduleMismatch && (
+              <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
+            )}
+            {!scheduleMismatch && (
+              <Suspense
+                key={nextAppointment?.customerId ?? 'none'}
+                fallback={<BriefLoadingCard />}
+              >
+                <StreamingBriefCard
+                  aiBriefPromise={aiBriefPromise}
+                  fallbackBrief={brief}
+                  customerName={nextAppointment?.customerName ?? null}
+                />
+              </Suspense>
+            )}
           </div>
           <div className="self-start">{recorderColumn}</div>
         </div>
@@ -891,30 +1165,36 @@ export function RecordPageView({
             onSwitchBooking={live ? undefined : handleSwitchBooking}
           />
           {otherStaffBanner}
-          <RepurchaseCueBanner pack={targetPack} />
-          {visitRhythm && (
+          {!scheduleMismatch && <RepurchaseCueBanner pack={targetPack} />}
+          {!scheduleMismatch && visitRhythm && (
             <div className="overflow-hidden rounded-2xl border border-border">
               <VisitRhythmPanel rhythm={visitRhythm} segment={visitSegment} />
             </div>
           )}
-          <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
-          <Suspense
-            key={nextAppointment?.customerId ?? 'none'}
-            fallback={<BriefLoadingCard />}
-          >
-            <StreamingBriefCard
-              aiBriefPromise={aiBriefPromise}
-              fallbackBrief={brief}
-              customerName={nextAppointment?.customerName ?? null}
-            />
-          </Suspense>
+          {!scheduleMismatch && (
+            <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
+          )}
+          {!scheduleMismatch && (
+            <Suspense
+              key={nextAppointment?.customerId ?? 'none'}
+              fallback={<BriefLoadingCard />}
+            >
+              <StreamingBriefCard
+                aiBriefPromise={aiBriefPromise}
+                fallbackBrief={brief}
+                customerName={nextAppointment?.customerName ?? null}
+              />
+            </Suspense>
+          )}
           <div className="mx-auto w-full max-w-md">{recorderColumn}</div>
         </div>
       )}
 
       <LiveTranscriptCard connected={false} lines={[]} />
 
-      <RecentRecordingsCard recordings={recentRecordings} />
+      {/* recentRecordings is keyed on nextAppointment's customer (names,
+          services, karute numbers) — same mismatch guard as the briefing. */}
+      {!scheduleMismatch && <RecentRecordingsCard recordings={recentRecordings} />}
 
       {/* Mic source + disclosure mode: set-once config, demoted to a quiet strip
           at the very bottom so the record button stays the focus (Liam, 2026-06). */}
@@ -929,6 +1209,7 @@ export function RecordPageView({
         open={outcomeOpen}
         customerName={boundCustomerName ?? ''}
         isFirstVisit={brief?.isFirstTimeVisit ?? false}
+        saving={resolvingOutcome}
         mode={outcomeMode === 'repurchase' ? 'repurchase' : 'conversion'}
         pack={targetPack}
         packPresets={packPresets}
@@ -936,55 +1217,90 @@ export function RecordPageView({
         previousPack={previousPack}
         onCancel={() => setOutcomeOpen(false)}
         onResolve={(outcome, redeemPack, newPack: NewPackInput | null) => {
+          // First tap wins — see the guard declaration above.
+          if (resolvingOutcomeRef.current) return
+          resolvingOutcomeRef.current = true
+          // ONE resolution per take (Greptile P1, #679) — latch immediately,
+          // before any async work, so a re-tap of 録音を使用 during the
+          // upcoming await window can't reopen this dialog for the same take.
+          outcomeResolvedRef.current = true
+          setResolvingOutcome(true)
           setOutcomeOpen(false)
           // 成約/購入した with the inline picker filled → the pack is created
           // HERE, at the moment of sale (conservation law: the count-from-N
           // needs an input moment, not a profile errand).
-          if (newPack && boundCustomerId) {
-            const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000)
-              .toISOString()
-              .slice(0, 10)
-            void createPackAction({
-              customerId: boundCustomerId,
-              kind: 'pack',
-              packSize: newPack.size,
-              unitPrice: newPack.unitPrice,
-              purchasedAt: jstToday,
-            }).then((res) => {
-              if (res.ok) {
-                toast.success(
-                  tPacks('packCreated', {
-                    size: newPack.size,
-                    price: newPack.unitPrice.toLocaleString('ja-JP'),
-                  }),
-                )
-              } else {
-                toast.error(tPacks('packCreateFailed'))
-              }
-            })
-          }
-          // Redemption records the VISIT (which already happened), so it fires
-          // immediately — independent of whether the transcription/save later
-          // succeeds. Failure → toast; the profile pack card is the fallback.
-          if (redeemPack && targetPack && boundCustomerId) {
-            void redeemSessionAction({
-              packId: targetPack.id,
-              customerId: boundCustomerId,
-              appointmentId: boundAppointmentId ?? null,
-            }).then((res) => {
-              if (res.ok) toast.success(tPacks('redeemDone'))
-              else toast.error(tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
-            })
-          }
+          void (async () => {
+            try {
+              // F1 (PR-0 fix round): pack-create and redemption are TWO
+              // INDEPENDENT writes, each with its own toast + catch — a
+              // THROWN createPackAction (its getSynqedClient init failure is
+              // now guarded, but this must hold even if a future edit
+              // weakens that) must never skip the redemption, and vice
+              // versa. The old sequential `await` coupled them: a throw from
+              // the first silently skipped the second entirely.
+              // saveBinding, never bound* (#670's law) — carried through the F1 restructure.
+              // Hoisted capture: property narrowing dies at the async-IIFE
+              // boundary; a const carries it through (saveBinding is stable
+              // for the life of this handler).
+              const packCustomerId = saveBinding.customerId
+              const packPromise =
+                newPack && packCustomerId
+                  ? (async () => {
+                      const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000)
+                        .toISOString()
+                        .slice(0, 10)
+                      const res = await createPackAction({
+                        customerId: packCustomerId,
+                        kind: 'pack',
+                        packSize: newPack.size,
+                        unitPrice: newPack.unitPrice,
+                        purchasedAt: jstToday,
+                      })
+                      if (res.ok) {
+                        toast.success(
+                          tPacks('packCreated', {
+                            size: newPack.size,
+                            price: newPack.unitPrice.toLocaleString('ja-JP'),
+                          }),
+                        )
+                      } else {
+                        toast.error(tPacks('packCreateFailed'))
+                      }
+                    })().catch(() => toast.error(tPacks('packCreateFailed')))
+                  : Promise.resolve()
+              // Redemption records the VISIT (which already happened) —
+              // awaited here only so the single-flight guard above covers it
+              // too; still independent of the pack-create above and of
+              // whether the transcription/save later succeeds. Failure →
+              // toast; the profile pack card is the fallback.
+              const redeemPromise =
+                redeemPack && targetPack && saveBinding.customerId
+                  ? redeemSessionAction({
+                      packId: targetPack.id,
+                      customerId: saveBinding.customerId,
+                      appointmentId: saveBinding.appointmentId ?? null,
+                    })
+                      .then((res) => {
+                        if (res.ok) toast.success(tPacks('redeemDone'))
+                        else toast.error(tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
+                      })
+                      .catch(() => toast.error(tPacks('redeemFailed')))
+                  : Promise.resolve()
+              await Promise.allSettled([packPromise, redeemPromise])
+            } finally {
+              resolvingOutcomeRef.current = false
+              setResolvingOutcome(false)
+            }
+          })()
           // 購入した → close the loop: the NEW pack must be registered, or the
           // alert system keeps treating them as nearly-out. One tap to the
           // profile's 登録 dialog.
           if (
             outcome.status === 'success' &&
             !newPack &&
-            boundCustomerId
+            saveBinding.customerId
           ) {
-            const customerId = boundCustomerId
+            const customerId = saveBinding.customerId
             toast.success(t('registerNewPackPrompt'), {
               duration: 10_000,
               action: {
@@ -1039,6 +1355,76 @@ export function RecordPageView({
               >
                 {t('recordAnyway')}
               </Button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* D3 — discard-with-photos confirmation. Only reachable from
+          handleDiscard (the explicit 破棄 button); the save path
+          (handleUseRecording) never shows this. Button pairing follows
+          CustomerMemoryCard's delete-confirm convention (spike-lifted/
+          memory/CustomerMemoryCard.tsx): the irreversible action is
+          destructive, never the accent/default fill. */}
+      {showDiscardPhotosDialog && (
+        <>
+          <div
+            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+            onClick={() => !discardingPhotos && handleDiscardCancel()}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('sessionPhotos.discardPhotosTitle')}
+            className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 space-y-4 rounded-xl border border-border bg-card p-6 shadow-xl"
+          >
+            <h3 className="text-base font-semibold text-foreground">
+              {t('sessionPhotos.discardPhotosTitle')}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              {t(
+                staffCanDeletePhotos
+                  ? 'sessionPhotos.discardPhotosDescription'
+                  : 'sessionPhotos.discardPhotosKeepOnlyDescription',
+                { n: sessionPhotosForDiscardDialog().length },
+              )}
+            </p>
+            <Button
+              variant="outline"
+              size="md"
+              className="w-full"
+              onClick={handleDiscardCancel}
+              disabled={discardingPhotos}
+            >
+              {tc('cancel')}
+            </Button>
+            <div className="flex gap-3">
+              {/* Keep-only state (no records.delete): 残す is the dialog's
+                  COMMIT action and must not read as a twin of キャンセル —
+                  R13 gives the commit action the solid accent fill, which
+                  Button's `default` variant is (--color-accent, retinted to
+                  blue-600 by globals.css). With the destructive button
+                  present, 残す stays outline exactly as before. */}
+              <Button
+                variant={staffCanDeletePhotos ? 'outline' : 'default'}
+                size="md"
+                className="flex-1"
+                onClick={handleDiscardKeepPhotos}
+                disabled={discardingPhotos}
+              >
+                {t('sessionPhotos.discardPhotosKeep')}
+              </Button>
+              {staffCanDeletePhotos && (
+                <Button
+                  variant="destructive"
+                  size="md"
+                  className="flex-1"
+                  onClick={handleDiscardDeletePhotos}
+                  disabled={discardingPhotos}
+                >
+                  {t('sessionPhotos.discardPhotosDelete')}
+                </Button>
+              )}
             </div>
           </div>
         </>
