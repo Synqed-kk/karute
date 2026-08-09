@@ -18,7 +18,9 @@ interface OutcomeCardProps {
   customerId: string | null
   customerName: string
   current: {
-    outcome: Outcome
+    /** Plain string, not `Outcome` — see KaruteOutcomeRow. A value this build
+     *  doesn't know falls back to the neutral chip below. */
+    outcome: string
     reason: DeclineReason | null
     autoDecided: boolean
     isFirstVisit: boolean
@@ -46,6 +48,12 @@ const CHIP: Record<
     icon: <RotateCw size={12} strokeWidth={2.5} />,
   },
 }
+
+/** A row written by a newer server can carry an outcome this build has no CHIP
+ *  for — render it neutrally rather than throwing on CHIP[unknown].cls. */
+const UNKNOWN_CHIP = { cls: 'border-border bg-muted text-muted-foreground', icon: null }
+const chipFor = (status: string) =>
+  (CHIP as Partial<Record<string, (typeof CHIP)[Outcome]>>)[status] ?? UNKNOWN_CHIP
 
 export function OutcomeCard({
   karuteRecordId,
@@ -81,10 +89,10 @@ export function OutcomeCard({
         <div className="flex flex-wrap items-center gap-2">
           {status ? (
             <span
-              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${CHIP[status].cls}`}
+              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${chipFor(status).cls}`}
             >
-              {CHIP[status].icon}
-              {t(`chip.${status}`)}
+              {chipFor(status).icon}
+              {status in CHIP ? t(`chip.${status}`) : status}
             </span>
           ) : (
             <span className="inline-flex items-center rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
@@ -117,6 +125,11 @@ export function OutcomeCard({
         open={open}
         customerName={customerName}
         isFirstVisit={current?.isFirstVisit ?? false}
+        // One-way door otherwise: a saved revisit row could never be
+        // re-selected in 編集. The row itself IS the returning-customer proof —
+        // no other status implies it, so everything else stays UNKNOWN (mode
+        // threading is still blocked on core's decision_context).
+        isReturningCustomer={current?.outcome === 'revisit' ? true : null}
         saving={pending}
         onCancel={() => setOpen(false)}
         onResolve={handleResolve}

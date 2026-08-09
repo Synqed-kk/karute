@@ -145,6 +145,10 @@ export function PostSessionResolutionDialog({
     mode === 'conversion' && isReturningCustomer === true
       ? ['success', 'revisit', 'no_deal', 'pending']
       : ['success', 'no_deal', 'pending']
+  // A pick can only ever be one the dialog is currently OFFERING. Today the
+  // open-reset makes this unreachable; it stops a future options change from
+  // silently saving a status whose card is no longer on screen.
+  const effectiveStatus = status && options.includes(status) ? status : null
 
   return (
     <div
@@ -187,7 +191,7 @@ export function PostSessionResolutionDialog({
 
         <div className="mt-4 space-y-2.5">
           {options.map((s) => {
-            const selected = status === s
+            const selected = effectiveStatus === s
             const tone = TONE[s]
             return (
               <button
@@ -291,7 +295,7 @@ export function PostSessionResolutionDialog({
         )}
 
         {(() => {
-          if (status !== 'success') return null
+          if (effectiveStatus !== 'success') return null
           const sizeOptions = [...new Set([
             ...(previousPack ? [previousPack.size] : []),
             ...packPresets.map((p) => p.size),
@@ -421,7 +425,7 @@ export function PostSessionResolutionDialog({
           )
         })()}
 
-        {status === 'no_deal' && (
+        {effectiveStatus === 'no_deal' && (
           <div className="mt-4">
             <p className="mb-2 text-xs font-medium text-muted-foreground">
               {t('reasonLabel')}
@@ -453,25 +457,25 @@ export function PostSessionResolutionDialog({
           <button
             type="button"
             disabled={
-              status === null ||
+              effectiveStatus === null ||
               saving ||
               // 成約 with the pack panel open requires a valid size+price (or
               // an explicit あとで登録) — never a silent half-registered sale.
-              (status === 'success' &&
+              (effectiveStatus === 'success' &&
                 !later &&
                 (staffCanCustomize || packPresets.length > 0) &&
                 !(npSize > 0 && npPrice > 0))
             }
             onClick={() =>
-              status &&
+              effectiveStatus &&
               onResolve(
                 {
-                  status,
-                  reason: status === 'no_deal' ? reason : null,
+                  status: effectiveStatus,
+                  reason: effectiveStatus === 'no_deal' ? reason : null,
                   isFirstVisit,
                 },
                 !!pack && pack.remaining > 0 && redeem,
-                status === 'success' && !later && npSize > 0 && npPrice > 0
+                effectiveStatus === 'success' && !later && npSize > 0 && npPrice > 0
                   ? { size: npSize, unitPrice: npPrice }
                   : null,
               )

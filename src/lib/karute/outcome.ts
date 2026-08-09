@@ -72,7 +72,12 @@ export async function setKaruteOutcome(
 }
 
 export interface KaruteOutcomeRow {
-  outcome: Outcome
+  /** READ shape — a plain string, not the write side's `Outcome` union. The
+   *  core column is permissive text, so a row written by a NEWER server can
+   *  carry a value this build has never heard of; the card renders a neutral
+   *  fallback for it instead of the read path lying with an `as Outcome` cast
+   *  (and a baked shell hard-failing the whole screen). Writes stay strict. */
+  outcome: string
   reason: DeclineReason | null
   is_first_visit: boolean
   decided_at: string | null
@@ -91,7 +96,7 @@ export async function getKaruteOutcomeWithClient(
     const o = await synqed.karuteOutcomes.get(karuteRecordId)
     if (!o) return null
     return {
-      outcome: o.outcome as Outcome,
+      outcome: o.outcome,
       reason: o.reason as DeclineReason | null,
       is_first_visit: o.is_first_visit,
       decided_at: o.decided_at,
