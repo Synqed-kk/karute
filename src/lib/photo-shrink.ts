@@ -16,10 +16,10 @@ export const PHOTO_UPLOAD_REJECT_BYTES = 950_000
 // exhaustion path unreachable in practice: a JPEG that small physically
 // can't exceed 900KB, so the return-smallest fallback below is defense, not
 // a live upload-oversized path (Greptile P1 on the 1280px floor — fixed by
-// these two rungs). The caller (PhotosTabContent) guards at the REJECT
-// floor before upload, so only bodies the server would certainly 503 are
-// blocked — ladder exhaustion or the undecodable pass-through below still
-// reach the server exactly as before in the 900–950KB window.
+// these two rungs). The callers (PhotosTabContent, session-photos) guard at
+// the REJECT floor before upload, so only bodies the server would certainly
+// 503 are blocked — ladder exhaustion or the undecodable pass-through below
+// still reach the server exactly as before in the 900–950KB window.
 // ponytail: fixed ladder, not adaptive binary-search — swap only if quality
 // complaints come in.
 const LADDER: Array<[maxEdge: number, quality: number]> = [

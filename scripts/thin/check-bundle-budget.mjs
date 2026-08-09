@@ -61,10 +61,11 @@ const DIST = 'thin/dist/assets'
 // gate correctly counts total thin JS, so splitting only added overhead.)
 // Raised 2026-08-09 (11th) at the full merge-queue convergence — the complete
 // stack (#670, #686, #679/#680/#682 resolutions, #681, #683–#685, this branch)
-// measures 1,753,673 B ground-truth (sim build; the earlier ≈1748.6 KB figure
-// projected the photo stack only — the six non-photo PRs' bytes were outside
-// it). Next-round-thousand (1_754_000) would leave 327 B headroom — the 8/8
-// razor-fail (1692.4 > 1692.4) says never do that; ~1.3 KB is the floor.
+// measures 1,753,807 B ground-truth (fresh deterministic build of the final
+// tip, confirmed reproducible across two clean builds; the earlier ≈1748.6 KB
+// figure projected the photo stack only — the six non-photo PRs' bytes were
+// outside it). Next-round-thousand (1_754_000) would leave 193 B headroom —
+// the 8/8 razor-fail (1692.4 > 1692.4) says never do that; ~1.3 KB is the floor.
 // Same-line conflict resolver keeps THIS number (largest wins; raises never
 // shrink on a merge, only on a deliberate re-base measurement).
 const BUDGET_BYTES = 1_755_000

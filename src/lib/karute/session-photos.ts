@@ -2,6 +2,7 @@
 
 import { uploadCustomerPhoto, deleteCustomerPhoto } from '@/actions/customers'
 import { globalRecorder } from '@/lib/global-recorder'
+import { shrinkPhotoForUpload, PHOTO_UPLOAD_REJECT_BYTES } from '@/lib/photo-shrink'
 
 export type SessionPhotoStatus = 'uploading' | 'done' | 'error'
 
@@ -134,8 +135,14 @@ class SessionPhotoStore {
       // above), so the recorder singleton can only ever reflect THIS photo's
       // own session while this call is in flight.
       const recordingSessionId = await globalRecorder.awaitRecordingSessionId()
+      const upload = await shrinkPhotoForUpload(photo.file)
+      // Certain-503 floor only — the 900–950KB maybe-window still reaches the server,
+      // which stays authoritative (same contract as PhotosTabContent's guard).
+      if (upload.size >= PHOTO_UPLOAD_REJECT_BYTES) {
+        throw new Error('photo-too-large')
+      }
       const fd = new FormData()
-      fd.append('file', photo.file)
+      fd.append('file', upload)
       fd.append('category', photo.category)
       // '' is not a session (9a's parse rule) — only append when non-empty.
       if (recordingSessionId) fd.append('recording_session_id', recordingSessionId)

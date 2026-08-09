@@ -41,6 +41,15 @@ jest.mock('@/actions/customers', () => ({
   listCustomerPhotos: (customerId: string) => mockListCustomerPhotos(customerId),
 }))
 
+// Identity passthrough by default so every OTHER test in this file (which
+// doesn't care about shrinking) keeps sending the exact original File —
+// only the dedicated shrink-wiring test below overrides the return value.
+const mockShrinkPhotoForUpload = jest.fn((file: File) => Promise.resolve(file))
+jest.mock('@/lib/photo-shrink', () => ({
+  shrinkPhotoForUpload: (file: File) => mockShrinkPhotoForUpload(file),
+  PHOTO_UPLOAD_REJECT_BYTES: 950_000,
+}))
+
 const mockToastWarning = jest.fn()
 const mockToastError = jest.fn()
 jest.mock('sonner', () => ({
@@ -114,6 +123,27 @@ describe('SessionPhotoCard', () => {
     )
     expect(container.querySelector('.bg-emerald-500')).toBeInTheDocument()
     expect(mockUploadCustomerPhoto).toHaveBeenCalledWith('cust-1', expect.any(FormData))
+  })
+
+  it('shrinks the captured photo BEFORE upload and sends the shrunk file (shrink-wiring pin)', async () => {
+    const original = makeFile('raw.jpg')
+    const shrunk = new File(['shrunk'], 'raw.jpg', { type: 'image/jpeg' })
+    mockShrinkPhotoForUpload.mockResolvedValueOnce(shrunk)
+    mockUploadCustomerPhoto.mockResolvedValue({ photo: { id: 'p-shrink' } })
+
+    const { container } = render(
+      <SessionPhotoCard customerId="cust-1" takenWithConsent={false} />,
+    )
+    fireEvent.change(fileInput(container), { target: { files: [original] } })
+
+    await waitFor(() => expect(mockUploadCustomerPhoto).toHaveBeenCalledTimes(1))
+
+    expect(mockShrinkPhotoForUpload).toHaveBeenCalledWith(original)
+    expect(mockShrinkPhotoForUpload.mock.invocationCallOrder[0]).toBeLessThan(
+      mockUploadCustomerPhoto.mock.invocationCallOrder[0],
+    )
+    const fd = mockUploadCustomerPhoto.mock.calls[0][1] as FormData
+    expect(Object.is(fd.get('file'), shrunk)).toBe(true)
   })
 
   it('retry re-invokes the upload with the same file after an error', async () => {
