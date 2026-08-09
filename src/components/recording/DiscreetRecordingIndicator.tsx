@@ -54,7 +54,7 @@ const AUTO_CLOSE_MS = 10_000
 export function DiscreetRecordingIndicator() {
   const t = useTranslations('discreetIndicator')
   const router = useRouter()
-  const { state, startedAt, stopRecording } = useGlobalRecorder()
+  const { state, startedAt, stopRecording, target } = useGlobalRecorder()
   const [open, setOpen] = useState(false)
   const [elapsed, setElapsed] = useState(() =>
     startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0,
@@ -186,7 +186,14 @@ export function DiscreetRecordingIndicator() {
               type="button"
               onClick={() => {
                 setOpen(false)
-                router.push('/sessions')
+                // Same carry as the bottom-nav center button (field bug 8/2):
+                // a bare /sessions loads the NEXT SCHEDULED booking's page
+                // under the live recording. String href — thin-shell shim.
+                router.push(
+                  target
+                    ? `/sessions?customerId=${encodeURIComponent(target.customerId)}`
+                    : '/sessions',
+                )
               }}
               className="inline-flex h-9 flex-1 items-center justify-center rounded-md border border-border bg-background text-[13px] font-medium text-foreground transition-colors hover:bg-muted"
             >
