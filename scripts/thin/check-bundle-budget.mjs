@@ -59,14 +59,16 @@ const DIST = 'thin/dist/assets'
 // bloat — same class as every prior raise; the purchase-marker scan below
 // stays the real gate. (A lazy-chunk split was tried first and REVERTED: the
 // gate correctly counts total thin JS, so splitting only added overhead.)
-// Raised 2026-08-09 on PR #684's final-size guard (Greptile 4/5 re-review) —
-// PhotosTabContent's upload path gains the PHOTO_UPLOAD_TARGET_BYTES check +
-// import, measured at 1692.5 KB raw against the prior 1692.4 KB ceiling (over
-// by 0.1 KB). Genuine guard-logic volume, not bloat — same class as every
-// prior raise; the purchase-marker scan below stays the real gate.
-// Merge convention: on a same-line conflict with sibling PRs (#682/#683 =
-// 1_735_000, #685 = 1_742_000) the resolver keeps the LARGEST value.
-const BUDGET_BYTES = 1_734_000
+// Raised 2026-08-09 at the karute-photo-session stack (PR 9a+9b) — this
+// branch's thin bundle measures ~1699 KB alone (session-photo card + D3
+// dialog + present overlay wiring + facade ports). Two OTHER in-flight PRs
+// (#684+#685) combine to measure 1,741,168 B on their own tip; with all
+// three merged the bundle is projected at ≈1,748.6 KB. Ceiling set to
+// 1_749_000 with headroom for that combined total — supersedes the
+// 1_742_000 number some branches carry; THIS is the number a same-line
+// merge-conflict resolver must keep (the larger of the two candidates —
+// raises never shrink on a merge, only on a deliberate re-base measurement).
+const BUDGET_BYTES = 1_749_000
 
 let dir
 try {
