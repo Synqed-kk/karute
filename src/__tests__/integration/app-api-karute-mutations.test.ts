@@ -49,10 +49,26 @@ const custGet = jest.fn(async () => ({ name: '山田 花子' }))
 const upsertOutcome = jest.fn()
 const consume = jest.fn()
 const recordUsage = jest.fn()
+// Reads the 'revisit' eligibility guard makes. Defaults = a brand-new prospect
+// with no stored outcome and no history, so a test must opt IN to eligibility.
+const getOutcome = jest.fn(async (): Promise<{ outcome: string } | null> => null)
+const listPacks = jest.fn(async (): Promise<Array<{ status: string; kind: string }>> => [])
+const listKaruteRecords = jest.fn(
+  async (): Promise<{ karute_records: Array<{ id: string; recording_session_id: string | null }> }> => ({
+    karute_records: [],
+  }),
+)
 const fakeClient = {
-  karuteRecords: { get: (id: string) => recGet(id), addEntry, deleteEntry, update },
+  karuteRecords: {
+    get: (id: string) => recGet(id),
+    addEntry,
+    deleteEntry,
+    update,
+    list: listKaruteRecords,
+  },
   customers: { get: custGet },
-  karuteOutcomes: { upsert: (arg: unknown) => upsertOutcome(arg) },
+  packs: { listPacks },
+  karuteOutcomes: { upsert: (arg: unknown) => upsertOutcome(arg), get: getOutcome },
   aiRateLimit: { consume: (r: string) => consume(r), recordUsage: (...a: unknown[]) => recordUsage(...a) },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
@@ -312,4 +328,32 @@ describe('OPTIONS preflight — shell origin, no auth', () => {
       expect(recGet).not.toHaveBeenCalled()
     },
   )
+})
+
+// The PUT edit path persists NOTHING before the label write — it IS the label
+// write — so a rejection there is honest and stays a 400. Pinned so the facade
+// SAVE route's keep-the-record fix can never leak into this route.
+describe('POST /karute/[id]/outcome — an ineligible revisit is still a 400 here', () => {
+  beforeEach(() => {
+    getOutcome.mockResolvedValue(null)
+    listPacks.mockResolvedValue([])
+    listKaruteRecords.mockResolvedValue({ karute_records: [] })
+  })
+
+  it('first-visit prospect → 400, nothing written', async () => {
+    const res = await outcome(jsonReq({ status: 'revisit' }), routeFor('kar-1'))
+    expect(res.status).toBe(400)
+    expect(upsertOutcome).not.toHaveBeenCalled()
+  })
+
+  it('returning customer → 200 and the row is written', async () => {
+    listKaruteRecords.mockResolvedValue({
+      karute_records: [{ id: 'kar-old', recording_session_id: 'sess-earlier' }],
+    })
+    const res = await outcome(jsonReq({ status: 'revisit' }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect(upsertOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ karute_record_id: 'kar-1', outcome: 'revisit' }),
+    )
+  })
 })

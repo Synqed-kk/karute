@@ -152,11 +152,16 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
       isFirstVisit: input.outcome.isFirstVisit,
       decidedBy: staffId,
     })
-    // The ONE outcome-write failure that is the caller's fault, so the ONE
-    // worth a 4xx. Every other failure stays best-effort — the recording is
-    // saved by this point and must never be lost to a label write.
+    // The karute is ALREADY PERSISTED above, so a label problem must never
+    // turn into a failure response for a save that durably succeeded. Same
+    // shape as the worker: keep the record, drop the label, warn. Pre-validating
+    // instead would be worse — a transient fail-closed guard read would 400 a
+    // legitimate save. Every OTHER outcome-write error stays ignored exactly as
+    // it was before this PR (best-effort, never gates the save).
     if (outcomeResult.error === REVISIT_NOT_ELIGIBLE) {
-      throw new AppApiError('validation', 'revisit requires a returning customer')
+      console.warn('[karute.save] revisit rejected server-side; record kept, label dropped', {
+        karuteRecordId: id,
+      })
     }
   }
 
