@@ -66,9 +66,17 @@ const DIST = 'thin/dist/assets'
 // figure projected the photo stack only — the six non-photo PRs' bytes were
 // outside it). Next-round-thousand (1_754_000) would leave 193 B headroom —
 // the 8/8 razor-fail (1692.4 > 1692.4) says never do that; ~1.3 KB is the floor.
+// Raised 2026-08-10 (12th) at the revisit-outcome PR (PR-A) — the 結果 dialog
+// gains the 4th 「既存のお客様（通常ご来店）」 card (amber tone entry, RotateCw
+// icon, gate + guard sub-copy) and its ja/en strings, measured at 1,755,190 B
+// ground-truth (deterministic: identical across two clean builds from an
+// emptied thin/dist) against the prior 1_755_000 ceiling — over by 190 B.
+// Genuine new-feature volume, not bloat; the purchase-marker scan below stays
+// the real gate. Ceiling set 1,290 B above the measurement: deliberately NOT a
+// round thousand (the 8/8 razor-fail was a 193 B margin; ~1 KB is the floor).
 // Same-line conflict resolver keeps THIS number (largest wins; raises never
 // shrink on a merge, only on a deliberate re-base measurement).
-const BUDGET_BYTES = 1_755_000
+const BUDGET_BYTES = 1_756_480
 
 let dir
 try {

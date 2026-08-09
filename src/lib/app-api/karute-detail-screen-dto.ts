@@ -54,7 +54,7 @@ const HeaderSchema = z.object({
 // to the OutcomeCard's props exactly as the web page does.
 const OutcomeSchema = z
   .object({
-    outcome: z.enum(['success', 'no_deal', 'pending']),
+    outcome: z.enum(['success', 'no_deal', 'pending', 'revisit']),
     reason: z
       .enum(['budget', 'considering', 'mismatch', 'follow_up', 'other'])
       .nullable(),

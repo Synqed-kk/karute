@@ -485,6 +485,7 @@
         "success": "Converted",
         "no_deal": "No deal",
         "pending": "Provisional",
+        "revisit": "Regular visit",
         "none": "Not set"
       },
       "subtitle": "Record whether this session converted, together with saving the recording.",
@@ -500,6 +501,11 @@
       "pending": {
         "title": "Decide later",
         "desc": "Held as a provisional karute. Auto-moves to no-deal after 14 days if undecided."
+      },
+      "revisit": {
+        "title": "Existing customer (regular visit)",
+        "desc": "A pack session or an ordinary return visit. Not counted in the close rate.",
+        "guard": "If you offered a pack or a menu item and they declined, choose \"No deal this time\" instead."
       },
       "reasonLabel": "Reason (optional)",
       "reason": {

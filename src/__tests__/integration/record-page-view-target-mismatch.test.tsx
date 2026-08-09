@@ -109,6 +109,7 @@ jest.mock('@/lib/karute/take-store', () => ({
 
 import {
   RecordPageView,
+  resolveReturningForOutcome,
   resolveSaveBinding,
   resolveStopFlow,
   type RecordPageNextAppointment,
@@ -359,5 +360,21 @@ describe('resolveStopFlow — ticket economics only run against the session\'s o
     expect(
       resolveStopFlow({ ticketsEnabled: true, canRunOutcome: true, outcomeMode: 'repurchase' }),
     ).toBe('dialog')
+  })
+})
+
+describe('resolveReturningForOutcome — the 既存のお客様 gate signal (L2#4)', () => {
+  it('returning customer → true (the only value that opens the card)', () => {
+    expect(resolveReturningForOutcome({ isFirstTimeVisit: false })).toBe(true)
+  })
+
+  it('first-time visit → false', () => {
+    expect(resolveReturningForOutcome({ isFirstTimeVisit: true })).toBe(false)
+  })
+
+  it('no brief / field absent → null (UNKNOWN, never speculative)', () => {
+    expect(resolveReturningForOutcome(null)).toBeNull()
+    expect(resolveReturningForOutcome(undefined)).toBeNull()
+    expect(resolveReturningForOutcome({})).toBeNull()
   })
 })

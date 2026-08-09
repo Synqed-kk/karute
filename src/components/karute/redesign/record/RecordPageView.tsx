@@ -175,6 +175,23 @@ export function resolveSaveBinding(
 }
 
 /**
+ * The 既存のお客様 gate signal, read off the server-built brief. Exported for tests.
+ *
+ * `brief.isFirstTimeVisit` is buildRecordScreen's own isReturningCustomer()
+ * verdict over the FULL signal set (QuickReserve flag, visit count, karute
+ * count, 回数券) — for the booked target AND the no-appointment walk-in, both
+ * of which populate nextAppointment. This must NOT reuse the `?? false` the
+ * `isFirstVisit` prop applies: a null brief (no resolved target) or a cached/
+ * facade brief predating the optional field means UNKNOWN, and an unknown
+ * customer must never be offered 「通常ご来店」 speculatively (plan L2#4).
+ */
+export function resolveReturningForOutcome(
+  brief: { isFirstTimeVisit?: boolean } | null | undefined,
+): boolean | null {
+  return brief?.isFirstTimeVisit == null ? null : !brief.isFirstTimeVisit
+}
+
+/**
  * Which stop flow the 録音を使用 tap runs. Exported for tests.
  *
  * Ticket economics (auto-burn / 成約・回数券 dialog) may fire ONLY when the
@@ -1209,6 +1226,7 @@ export function RecordPageView({
         open={outcomeOpen}
         customerName={boundCustomerName ?? ''}
         isFirstVisit={brief?.isFirstTimeVisit ?? false}
+        isReturningCustomer={resolveReturningForOutcome(brief)}
         saving={resolvingOutcome}
         mode={outcomeMode === 'repurchase' ? 'repurchase' : 'conversion'}
         pack={targetPack}

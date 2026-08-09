@@ -22,7 +22,7 @@ type Params = { id: string }
 // customerId (or any extra key) is rejected; the path id is authoritative.
 const OutcomeSchema = z
   .object({
-    status: z.enum(['success', 'no_deal', 'pending']),
+    status: z.enum(['success', 'no_deal', 'pending', 'revisit']),
     reason: z
       .enum(['budget', 'considering', 'mismatch', 'follow_up', 'other'])
       .nullable()

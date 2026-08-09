@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useTranslations } from 'next-intl'
 import { useRouter } from 'next/navigation'
-import { Check, Clock, Pencil, X } from 'lucide-react'
+import { Check, Clock, Pencil, RotateCw, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { PostSessionResolutionDialog } from '../record/PostSessionResolutionDialog'
 import { updateKaruteOutcome } from '@/actions/karute-outcome'
@@ -40,6 +40,10 @@ const CHIP: Record<
   pending: {
     cls: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300',
     icon: <Clock size={12} strokeWidth={2.5} />,
+  },
+  revisit: {
+    cls: 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-500/20 dark:bg-slate-500/10 dark:text-slate-300',
+    icon: <RotateCw size={12} strokeWidth={2.5} />,
   },
 }
 
