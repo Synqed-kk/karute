@@ -225,8 +225,13 @@ async function facadeRevokeCustomerConsent(
 
 // -- packs (packet 06 §Build 5) ----------------------------------------------
 // create + redeem are effectful → send an Idempotency-Key (at-least-once). The
-// facade re-derives 購入回数 / 合計金額 / burn pairing server-side, so the port
-// forwards the client's fields verbatim and never derives money or pairing.
+// facade re-derives 購入回数 / 合計金額 / burn pairing server-side, so this port
+// never derives money or pairing itself. totalPrice specifically is DROPPED
+// here, not forwarded (F7, PR-0 fix round) — the facade route ignores it
+// (CreatePackSchema accepts it only for old baked-shell compat; the value
+// never reaches createPackActionWithClient's derivation), so sending it from
+// this port would be a dead, misleading field. Every OTHER create/redeem
+// field still rides through verbatim.
 const idemPost = (body?: unknown): RequestInit => ({
   method: 'POST',
   headers: {
@@ -241,7 +246,6 @@ async function facadeCreatePack(input: {
   kind: string
   packSize: number
   unitPrice: number
-  totalPrice?: number | null
   purchasedAt?: string | null
   notes?: string | null
 }): Promise<{ ok: boolean; error?: string }> {

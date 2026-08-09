@@ -378,6 +378,72 @@ describe('cancelAppointment — burn on same-day-contact', () => {
   })
 })
 
+// Blind-round F4 (2026-08-08) — the cancel twin of the no-show rider at L1#6.
+// With 自動消化 on, the cron may already have burned this booking; a plain
+// cancel showed a clean success while a ticket was gone, and the settings copy
+// promises a cancel never consumes one.
+describe('cancelAppointment — 自動消化 correction (blind-round F4)', () => {
+  it('tells the staff a ticket was ALREADY spent on a plain (no-burn) cancel', async () => {
+    liveBooking()
+    listRecentRedemptions.mockResolvedValueOnce([
+      { customer_id: 'cust-1', appointment_id: 'appt-1', redeemed_on: '2026-07-06' },
+    ])
+    const lines = await auditLines(async () => {
+      const res = await cancelAppointment('appt-1')
+      expect(res).toEqual({ success: true, burnError: 'already_burned' })
+    })
+    // WARN-ONLY: the cancel lands, nothing is unburned (undo is its own action).
+    expect(apptUpdate).toHaveBeenCalledWith('appt-1', expect.objectContaining({ status: 'CANCELLED' }))
+    expect(addRedemption).not.toHaveBeenCalled()
+    // …and the audit row stops saying burn_error:null while a ticket is spent.
+    expect(lines[0].detail).toMatchObject({ burn_pack: false, burn_error: 'already_burned' })
+  })
+
+  it('stays silent when no prior burn exists — no invented warning', async () => {
+    liveBooking()
+    const res = await cancelAppointment('appt-1')
+    expect(res).toEqual({ success: true })
+  })
+
+  it('an unreadable history invents nothing on the no-burn path (no charge either way)', async () => {
+    liveBooking()
+    listRecentRedemptions.mockRejectedValueOnce(new Error('core down'))
+    const res = await cancelAppointment('appt-1')
+    expect(res).toEqual({ success: true })
+  })
+
+  // Round 2 G8: the warning is gated on the ATTEMPT (`!(burnPack && burnTarget)`),
+  // not on the staff's checkbox. burn_error:null under burn_pack:true reads as
+  // "ticket consumed" per the audit contract, so any path that reaches the audit
+  // row having burned nothing must run the probe. The two tests below pin what
+  // makes that unreachable TODAY — and are what would fail if it stopped being.
+  it('a burn-CHOSEN cancel that resolves NO target never reaches the audit at all', async () => {
+    liveBooking()
+    listCustomerPacks.mockResolvedValueOnce([])
+    const lines = await auditLines(async () => {
+      const res = await cancelAppointment('appt-1', {
+        reason: 'cancel-same-day-contact',
+        burnPack: true,
+      })
+      expect(res).toEqual({ error: expect.any(String), code: 'no_burnable_pack' })
+    })
+    // No status change, no audit row, no burn_error to get wrong.
+    expect(apptUpdate).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('a cancel that DID burn reads the history exactly once — the guarded burn owns the probe', async () => {
+    liveBooking()
+    listCustomerPacks.mockResolvedValueOnce([BURNABLE_PACK])
+    const res = await cancelAppointment('appt-1', {
+      reason: 'cancel-same-day-contact',
+      burnPack: true,
+    })
+    expect(res).toEqual({ success: true })
+    expect(listRecentRedemptions).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('restoreAppointment (undo)', () => {
   it('requires bookings.manage and sends exactly status + acting_staff_id when staff resolves', async () => {
     const res = await restoreAppointment('appt-1')

@@ -27,6 +27,11 @@ const CreatePackSchema = z
     kind: z.enum(['pack', 'subscription', 'single']),
     packSize: z.number().int().positive(),
     unitPrice: z.number().nonnegative(),
+    // ponytail: accepted for baked-shell compat, value ignored — server
+    // derives totalPrice = unitPrice × packSize (createPackActionWithClient).
+    // A client-sent value here could otherwise override the derived total
+    // (the exact bug this comment documents the fix for) — do not wire it
+    // through to the action.
     totalPrice: z.number().nullable().optional(),
     // purchaseRound deliberately absent: server-derived, .strict() rejects it
     // (Greptile P1 — a caller forcing round 1 would re-trigger 初回 pricing).

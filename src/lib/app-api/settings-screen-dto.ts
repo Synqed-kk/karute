@@ -126,6 +126,7 @@ export const OrgSettingsSchema = z.object({
   voice_enrollments: z.record(z.string(), VoiceEnrollmentSchema),
   staff_can_customize_packs: z.boolean(),
   ticket_packs_enabled: z.boolean(),
+  pack_burn_mode: z.enum(['auto', 'manual']),
   coaching_enabled: z.boolean().optional(),
 })
 

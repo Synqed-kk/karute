@@ -59,16 +59,15 @@ const DIST = 'thin/dist/assets'
 // bloat — same class as every prior raise; the purchase-marker scan below
 // stays the real gate. (A lazy-chunk split was tried first and REVERTED: the
 // gate correctly counts total thin JS, so splitting only added overhead.)
-// Raised 2026-08-09 at the karute-photo-session stack (PR 9a+9b) — this
-// branch's thin bundle measures ~1699 KB alone (session-photo card + D3
-// dialog + present overlay wiring + facade ports). Two OTHER in-flight PRs
-// (#684+#685) combine to measure 1,741,168 B on their own tip; with all
-// three merged the bundle is projected at ≈1,748.6 KB. Ceiling set to
-// 1_749_000 with headroom for that combined total — supersedes the
-// 1_742_000 number some branches carry; THIS is the number a same-line
-// merge-conflict resolver must keep (the larger of the two candidates —
-// raises never shrink on a merge, only on a deliberate re-base measurement).
-const BUDGET_BYTES = 1_749_000
+// Raised 2026-08-09 (11th) at the full merge-queue convergence — the complete
+// stack (#670, #686, #679/#680/#682 resolutions, #681, #683–#685, this branch)
+// measures 1,753,673 B ground-truth (sim build; the earlier ≈1748.6 KB figure
+// projected the photo stack only — the six non-photo PRs' bytes were outside
+// it). Next-round-thousand (1_754_000) would leave 327 B headroom — the 8/8
+// razor-fail (1692.4 > 1692.4) says never do that; ~1.3 KB is the floor.
+// Same-line conflict resolver keeps THIS number (largest wins; raises never
+// shrink on a merge, only on a deliberate re-base measurement).
+const BUDGET_BYTES = 1_755_000
 
 let dir
 try {

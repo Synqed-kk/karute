@@ -56,8 +56,9 @@ describe('PhotosTabContent presentation wiring', () => {
     fireEvent.click(screen.getByRole('button', { name: 'お客様に見せる' }))
     // Interlock: the compare picker is unmounted, not just covered.
     expect(screen.queryByText('写真をタップすると選び直せます')).toBeNull()
-    // The overlay is up (portal to document.body).
-    expect(screen.getByLabelText('閉じる')).toBeInTheDocument()
+    // The overlay is up (portal to document.body). The ✕ is press-and-hold
+    // now (redesign), so its aria-label carries the hint.
+    expect(screen.getByLabelText('閉じる（長押し）')).toBeInTheDocument()
     // Base UI modal marks everything outside the portal inert — the staff
     // DOM (grid captions, tab chrome) is out of the accessibility tree and
     // unreachable by focus while the customer holds the device.
@@ -70,16 +71,20 @@ describe('PhotosTabContent presentation wiring', () => {
   it('overlay survives the photos prop emptying while open', () => {
     const { rerender } = render(<PhotosTabContent customerId="c-1" photos={pair} />)
     fireEvent.click(screen.getByRole('button', { name: 'お客様に見せる' }))
-    expect(screen.getByLabelText('閉じる')).toBeInTheDocument()
+    expect(screen.getByLabelText('閉じる（長押し）')).toBeInTheDocument()
 
     rerender(<PhotosTabContent customerId="c-1" photos={[]} />)
     // Still fullscreen in the customer's hands — its own empty state (the
     // staff empty-state card may also render the same copy behind it, so
     // assert presence via getAllByText, and the overlay via its X).
-    expect(screen.getByLabelText('閉じる')).toBeInTheDocument()
+    expect(screen.getByLabelText('閉じる（長押し）')).toBeInTheDocument()
     expect(screen.getAllByText('写真はまだありません').length).toBeGreaterThan(0)
 
-    fireEvent.click(screen.getByLabelText('閉じる'))
-    expect(screen.queryByLabelText('閉じる')).toBeNull()
+    // The ✕ is press-and-hold (redesign) — closing here via its keyboard
+    // escape hatch (Enter closes instantly, no hold) rather than re-testing
+    // the hold timing, which photo-presentation-overlay.test.tsx already
+    // covers.
+    fireEvent.keyDown(screen.getByLabelText('閉じる（長押し）'), { key: 'Enter' })
+    expect(screen.queryByLabelText('閉じる（長押し）')).toBeNull()
   })
 })

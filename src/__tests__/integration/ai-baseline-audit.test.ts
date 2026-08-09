@@ -95,8 +95,19 @@ const scopeScenario: { allowedStoreIds: string[] | null; storeId: string | null 
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: jest.fn(async () => ({ ...scopeScenario })),
 }))
+// FC6: the outreach tests below (getSuggestedFollowUp) do trigger
+// appendNextBookingLine's booking lookup (customerId is truthy), so this
+// stub needs real appointments/stores shapes — an empty object made the
+// lookup throw and get silently swallowed, passing these tests via an
+// illusory coverage gap rather than an actual "no next booking" result.
+// The lookup logic itself (sorting, cross-store naming, cache-guard) is
+// exercised for real in ai-outreach-next-booking.test.ts — this file only
+// needs the outreach path to resolve cleanly to "no booking found".
 jest.mock('@/lib/synqed/client', () => ({
-  getSynqedClient: jest.fn(async () => ({})),
+  getSynqedClient: jest.fn(async () => ({
+    appointments: { list: async () => ({ appointments: [] }) },
+    stores: { get: async () => { throw new Error('unused') } },
+  })),
 }))
 // The requireActual of karute-chat below walks into modules that import the
 // ESM @synqed-kk/client — stub it out (app-api-ai-chat.test.ts's convention)
@@ -716,12 +727,16 @@ const OUTREACH_PARAMS: {
   customerName: string
   summary: string | null
   locale: string
+  appointmentId: string | null
+  storeId: string | null
 } = {
   karuteId: 'karute-1',
   customerId: 'cust-1',
   customerName: 'Jane',
   summary: 'Client came in for a haircut.',
   locale: 'en',
+  appointmentId: null,
+  storeId: null,
 }
 
 describe('getSuggestedFollowUp (src/lib/karute/ai-outreach.ts) — view row always, 生成 row only on real generation', () => {
@@ -803,7 +818,15 @@ describe('getSuggestedFollowUpWithClient — facade 生成 row only on real gene
   // Sentinel client object: computeSuggestedFollowUp must thread THIS exact
   // client into orgSettingsWithClient (blind-round find — the wiring had no
   // assertion anywhere, so dropping/swapping the client slipped every test).
-  const SENTINEL_CLIENT = { orgSettings: {} } as never
+  // FC6: appointments/stores stubs match appendNextBookingLine's real call
+  // shapes (empty-list lookup) — same illusory-coverage reasoning as the
+  // getSynqedClient mock above; real lookup coverage lives in
+  // ai-outreach-next-booking.test.ts.
+  const SENTINEL_CLIENT = {
+    orgSettings: {},
+    appointments: { list: async () => ({ appointments: [] }) },
+    stores: { get: async () => { throw new Error('unused') } },
+  } as never
 
   const call = (params = OUTREACH_PARAMS) =>
     getSuggestedFollowUpWithClient(SENTINEL_CLIENT, 'biz-1', 'staff-uid-1', 'req-1', params)

@@ -37,14 +37,29 @@ export async function AISuggestedMessageSlot({
   customerName,
   summary,
   locale,
+  appointmentId,
+  storeId,
 }: {
   karuteId: string
   customerId: string | null
   customerName: string
   summary: string | null
   locale: string
+  /** This karute's own linked appointment/store (D7) — threaded through to
+   *  the next-booking line so it excludes its own visit and names the
+   *  destination store when the picked booking is at a different one. */
+  appointmentId?: string | null
+  storeId?: string | null
 }) {
-  const draft = await getSuggestedFollowUp({ karuteId, customerId, customerName, summary, locale })
+  const draft = await getSuggestedFollowUp({
+    karuteId,
+    customerId,
+    customerName,
+    summary,
+    locale,
+    appointmentId: appointmentId ?? null,
+    storeId: storeId ?? null,
+  })
   if (!draft) return <AIOutreachPreview />
   return (
     <AISuggestedMessageCard

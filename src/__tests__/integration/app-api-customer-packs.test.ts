@@ -88,6 +88,14 @@ describe('POST packs (create)', () => {
     expect(res.status).toBe(201)
     expect(createPackWithClient).toHaveBeenCalled()
   })
+  it('client-sent totalPrice is ignored — server-derived unitPrice × packSize wins, request NOT rejected (fix/post-session-money-guards)', async () => {
+    const res = await packCreate(
+      post(IDEM, { kind: 'pack', packSize: 10, unitPrice: 5000, totalPrice: 1 }),
+      route('cust-1'),
+    )
+    expect(res.status).toBe(201)
+    expect((createPackWithClient.mock.calls[0] as unknown[])[1]).toMatchObject({ totalPrice: 50000 })
+  })
   it('client-sent purchaseRound → 400 (server-derived, strict schema)', async () => {
     const res = await packCreate(
       post(IDEM, { kind: 'pack', packSize: 10, unitPrice: 5000, purchaseRound: 1 }),

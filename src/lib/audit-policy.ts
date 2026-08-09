@@ -137,6 +137,10 @@ export const AUDITED_CORES: {
   // real writer is provably covered, not left off as "not required."
   { file: 'src/lib/auth/pin-throttle.ts', symbols: ['auditLockout'] },
   { file: 'src/lib/jobs/process-recording.ts', symbols: ['processJob'] },
+  // 自動消化 (packet 11) — the ONE auto-burn writer. The batch driver
+  // autoBurnForBusiness is deliberately not listed: it performs no write of its
+  // own and returns unemitted whenever there is nothing to burn.
+  { file: 'src/lib/packs/auto-burn.ts', symbols: ['burnOneAutoRedemption'] },
   {
     file: 'src/actions/customers.ts',
     symbols: [
