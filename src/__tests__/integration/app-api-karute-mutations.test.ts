@@ -49,10 +49,26 @@ const custGet = jest.fn(async () => ({ name: '山田 花子' }))
 const upsertOutcome = jest.fn()
 const consume = jest.fn()
 const recordUsage = jest.fn()
+// Reads the 'revisit' eligibility guard makes. Defaults = a brand-new prospect
+// with no stored outcome and no history, so a test must opt IN to eligibility.
+const getOutcome = jest.fn(async (): Promise<{ outcome: string } | null> => null)
+const listPacks = jest.fn(async (): Promise<Array<{ status: string; kind: string }>> => [])
+const listKaruteRecords = jest.fn(
+  async (): Promise<{ karute_records: Array<{ id: string; recording_session_id: string | null }> }> => ({
+    karute_records: [],
+  }),
+)
 const fakeClient = {
-  karuteRecords: { get: (id: string) => recGet(id), addEntry, deleteEntry, update },
+  karuteRecords: {
+    get: (id: string) => recGet(id),
+    addEntry,
+    deleteEntry,
+    update,
+    list: listKaruteRecords,
+  },
   customers: { get: custGet },
-  karuteOutcomes: { upsert: (arg: unknown) => upsertOutcome(arg) },
+  packs: { listPacks },
+  karuteOutcomes: { upsert: (arg: unknown) => upsertOutcome(arg), get: getOutcome },
   aiRateLimit: { consume: (r: string) => consume(r), recordUsage: (...a: unknown[]) => recordUsage(...a) },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
@@ -312,4 +328,107 @@ describe('OPTIONS preflight — shell origin, no auth', () => {
       expect(recGet).not.toHaveBeenCalled()
     },
   )
+})
+
+// The PUT edit path persists NOTHING before the label write — it IS the label
+// write — so a rejection there is honest and stays a 400. Pinned so the facade
+// SAVE route's keep-the-record fix can never leak into this route.
+describe('POST /karute/[id]/outcome — an ineligible revisit is still a 400 here', () => {
+  beforeEach(() => {
+    getOutcome.mockResolvedValue(null)
+    listPacks.mockResolvedValue([])
+    listKaruteRecords.mockResolvedValue({ karute_records: [] })
+    // Restored explicitly: clearAllMocks wipes calls, not implementations, so a
+    // rejection set by one test would otherwise leak into the next.
+    custGet.mockResolvedValue({ name: '山田 花子' })
+  })
+
+  it('first-visit prospect → 400, nothing written', async () => {
+    const res = await outcome(jsonReq({ status: 'revisit' }), routeFor('kar-1'))
+    expect(res.status).toBe(400)
+    expect(upsertOutcome).not.toHaveBeenCalled()
+  })
+
+  it('UNKNOWN → a RETRYABLE upstream error, never a validation 400', async () => {
+    // This route persists nothing, so an infra blip must fail honestly rather
+    // than blame the client with a 4xx.
+    getOutcome.mockRejectedValue(new Error('core down'))
+    listPacks.mockRejectedValue(new Error('core down'))
+    listKaruteRecords.mockRejectedValue(new Error('core down'))
+    custGet.mockRejectedValue(new Error('core down'))
+    const res = await outcome(jsonReq({ status: 'revisit' }), routeFor('kar-1'))
+    expect(res.status).not.toBe(400)
+    expect((await res.json()).error.code).toBe('upstream_unavailable')
+    expect(upsertOutcome).not.toHaveBeenCalled()
+  })
+
+  it('returning customer → 200 and the row is written', async () => {
+    listKaruteRecords.mockResolvedValue({
+      karute_records: [{ id: 'kar-old', recording_session_id: 'sess-earlier' }],
+    })
+    const res = await outcome(jsonReq({ status: 'revisit' }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect(upsertOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ karute_record_id: 'kar-1', outcome: 'revisit' }),
+    )
+  })
+})
+
+// #689 P1b — the read gate's symmetric half. The screens route hides a stored
+// 'revisit' from header-absent (pre-4.7/code-13) shells, which renders 未記録
+// with a live 記録 button; without this gate that button silently overwrites
+// the revisit label.
+describe('POST /karute/[id]/outcome — an old shell cannot overwrite a masked revisit', () => {
+  const newShell = { ...auth, 'app-version': 'thin-2026-08-10' }
+  beforeEach(() => {
+    // Implementations survive clearAllMocks, so rejections set by the suite
+    // above would otherwise leak in (same reason as that describe's reset).
+    getOutcome.mockResolvedValue(null)
+    listPacks.mockResolvedValue([])
+    listKaruteRecords.mockResolvedValue({ karute_records: [] })
+    custGet.mockResolvedValue({ name: '山田 花子' })
+  })
+
+  it('stored revisit + NO app-version → Japanese validation 400, NOTHING written', async () => {
+    getOutcome.mockResolvedValue({ outcome: 'revisit' })
+    const res = await outcome(jsonReq({ status: 'success' }), routeFor('kar-1'))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error.message).toContain('アプリを更新')
+    expect(upsertOutcome).not.toHaveBeenCalled()
+  })
+
+  it('stored revisit + app-version present → the new-shell edit still writes', async () => {
+    getOutcome.mockResolvedValue({ outcome: 'revisit' })
+    const res = await outcome(jsonReq({ status: 'success' }, newShell), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect(upsertOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ karute_record_id: 'kar-1', outcome: 'success' }),
+    )
+  })
+
+  it('stored UNKNOWN future value + NO app-version → same rejection (allowlist, symmetric with the read gate)', async () => {
+    getOutcome.mockResolvedValue({ outcome: 'foo' })
+    const res = await outcome(jsonReq({ status: 'success' }), routeFor('kar-1'))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error.message).toContain('アプリを更新')
+    expect(upsertOutcome).not.toHaveBeenCalled()
+  })
+
+  it('stored NON-revisit + NO app-version → old shells keep editing normally', async () => {
+    getOutcome.mockResolvedValue({ outcome: 'success' })
+    const res = await outcome(jsonReq({ status: 'no_deal' }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect(upsertOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ karute_record_id: 'kar-1', outcome: 'no_deal' }),
+    )
+  })
+
+  it('stored-outcome read FAILS + NO app-version → fail-open, the write proceeds', async () => {
+    getOutcome.mockRejectedValue(new Error('core down'))
+    const res = await outcome(jsonReq({ status: 'success' }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect(upsertOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ karute_record_id: 'kar-1', outcome: 'success' }),
+    )
+  })
 })

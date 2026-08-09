@@ -2,7 +2,11 @@
 // Client-safe (no server-only imports) so the dialog + SaveKaruteInput can use
 // them. The server action lives in ./outcome.ts.
 
-export type Outcome = 'success' | 'no_deal' | 'pending' // 成約 / 不成約 / 後で決める
+// 成約 / 不成約 / 後で決める / 既存のお客様（通常ご来店）.
+// 'revisit' is a returning customer's ordinary visit — NOT a sales outcome, so
+// it never carries a `reason` and is excluded from the closing-rate formula
+// (success ÷ (success + no_deal)).
+export type Outcome = 'success' | 'no_deal' | 'pending' | 'revisit'
 
 export type DeclineReason =
   | 'budget' // 予算

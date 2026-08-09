@@ -160,6 +160,11 @@ export interface FocusRecommendation {
  *  is the "decide later" backlog — chronically deferring a close is itself a coaching
  *  signal (and quietly rots the training data until it's resolved). */
 export interface OutcomesSummary {
+  // NO revisit slot, deliberately: 'revisit' (既存のお客様・通常ご来店) is not a
+  // sales conversation, so it is excluded from BOTH sides of the closing-rate
+  // formula (success ÷ (success + no_deal)) and from this coaching summary. A
+  // revisit row is still written to karute_outcomes — it is filtered here, not
+  // dropped at the source. No revisitCount field until a consumer needs one.
   noDealTotal: number
   declineReasons: Array<{ reason: string; count: number }>
   /** 後で決める / 'pending' outcomes not yet resolved. */

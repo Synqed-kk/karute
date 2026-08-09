@@ -8,6 +8,12 @@ import {
 } from '@/lib/auth/mobile/session-store'
 import { clearThinActiveStore, getThinActiveStore } from '../chrome/store-pref'
 
+// PRESENCE marker + this bundle's api-level date — NOT the native build number.
+// The SAME bundle bakes into both shells and serves web, so it cannot know
+// 4.7 vs code 13; the server gates on the header being THERE (a value only a
+// revisit-aware bundle can send), and this string is observability color only.
+const THIN_APP_VERSION = 'thin-2026-08-10'
+
 export async function facadeApiFetch(
   toUrl: (path: string) => string,
   path: string,
@@ -41,6 +47,22 @@ export async function facadeApiFetch(
       // captured so the heal below can prove the response still belongs to
       // the session that attached the lens.
       lensOwner = getCurrentSession()?.user?.id ?? null
+    }
+    // Client identity for the facade's shape gates (#689: the revisit read).
+    // App-relative ONLY — same no-foreign-origin hygiene as the Bearer above;
+    // caller-set values win, same idiom. CORS already allowlists both
+    // (cors.ts ALLOWED_HEADERS) — the shell WebView origin is foreign, so a
+    // non-safelisted header would otherwise never leave the browser.
+    if (!headers.has('app-version')) {
+      headers.set('app-version', THIN_APP_VERSION)
+    }
+    if (!headers.has('platform')) {
+      // SYNC read of the shell-injected global (no plugin import — the hot
+      // path never awaits); 'web' when absent, i.e. a plain browser.
+      const platform =
+        (globalThis as unknown as { Capacitor?: { getPlatform?: () => string } })
+          .Capacitor?.getPlatform?.() ?? 'web'
+      headers.set('platform', platform)
     }
   }
   const res = await fetch(toUrl(path), { ...init, headers })

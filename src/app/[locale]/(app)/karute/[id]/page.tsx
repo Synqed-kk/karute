@@ -6,10 +6,7 @@ import { notFound } from 'next/navigation'
 import { getKaruteRecord } from '@/lib/supabase/karute'
 import { getKaruteOutcome } from '@/lib/karute/outcome'
 import { KaruteDetailView } from '@/components/karute/redesign/detail/KaruteDetailView'
-import {
-  PhotoRecordsServer,
-  PhotoRecordsSkeleton,
-} from '@/components/karute/redesign/detail/PhotoRecordsServer'
+import { PhotoRecordsServer } from '@/components/karute/redesign/detail/PhotoRecordsServer'
 import {
   getCustomerContact,
   getCachedCustomerConsent,
@@ -122,9 +119,12 @@ export default async function KaruteDetailPage({
       consentOnFile={built.consentOnFile}
       transcriptDurationLabel={built.transcriptDurationLabel}
       transcriptRestricted={built.transcriptRestricted}
+      // fallback=null, not a skeleton: the card is now only-when-photos, so a
+      // photo-shaped placeholder would flash a box that then vanishes on every
+      // karute with no linked photos (Liam 8/10, mock frame C).
       photosSlot={
         customerId ? (
-          <Suspense fallback={<PhotoRecordsSkeleton />}>
+          <Suspense fallback={null}>
             <PhotoRecordsServer
               customerId={customerId}
               recordingSessionId={karute.recording_session_id}

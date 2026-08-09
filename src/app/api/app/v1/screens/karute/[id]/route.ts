@@ -25,7 +25,7 @@ import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { listAllCustomers } from '@/lib/customers/list-all'
 import { getCustomerWithClient } from '@/lib/customers/queries'
-import { getKaruteOutcomeWithClient } from '@/lib/karute/outcome'
+import { getKaruteOutcomeWithClient, OLD_SHELL_OUTCOMES } from '@/lib/karute/outcome'
 import { mapSynqedKaruteRecord } from '@/lib/supabase/karute'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
 import { scopeKarutePhotos } from '@/lib/karute/scoped-photos'
@@ -108,10 +108,32 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       : null
     const karute = mapSynqedKaruteRecord(raw, customerName)
 
+    // Merge→shell-update window gate (#689 P1). Fielded shells (iOS ≤4.6,
+    // Android ≤code 12) parse this screen with a BAKED strict outcome enum
+    // that predates 'revisit' — one such row hard-fails their ENTIRE detail
+    // screen (ScreenBoundary error card, retry never recovers) until the phone
+    // takes the 4.7/code-13 bake. Only a revisit-aware bundle sends
+    // 'app-version' (facade-fetch), so absent/empty = an old shell; falsy, not
+    // a version compare — iOS sends dotted, Android integer, and the new DTO
+    // (karute-detail-screen-dto.ts) already widened the read field to
+    // z.string(), making this the LAST bake-coupled enum change, so a compare
+    // would be dead code with no future user. The WHOLE object goes null
+    // (renders 未記録): the old baked OutcomeSchema's INNER field is the
+    // strict enum, so nulling only that field still fails — and the object is
+    // .nullable() on old AND new DTOs.
+    // ALLOWLIST, not a 'revisit' denylist (P1b): OLD_SHELL_OUTCOMES is the
+    // FROZEN enum those fielded bundles baked — their schemas can never change,
+    // so any value outside it (a future 5th just as much as 'revisit') bricks
+    // them identically. Same cost, no follow-up needed when the enum grows.
+    // Values inside the set pass through untouched for every client.
+    const outcomeMasked =
+      !!outcome && !OLD_SHELL_OUTCOMES.includes(outcome.outcome) && !ctx.meta.appVersion
+    const outcomeForClient = outcomeMasked ? null : outcome
+
     const built = buildKaruteDetailScreen({
       karute,
       allCustomers,
-      outcome,
+      outcome: outcomeForClient,
       viewerStaffId,
       canViewAllRecordings,
       contact: customer ? { phone: customer.phone, email: customer.email } : null,
@@ -137,7 +159,14 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
     // customer_id is the viewer's name join (packet 30 §4 karute-row idiom).
     // The emit itself stays logFacadeAudit's (see the karute.read row comment
     // in audit.ts); this route only enriches it.
-    ctx.auditDetail = { transcript_shown: dto.transcript !== null, customer_id: customerId }
+    // outcome_masked rides the same emit ONLY when the gate fired: it is the
+    // gate-removal metric — the one signal that old shells are still reading
+    // masked rows. Additive-only auditDetail contract, so an extra key is legal.
+    ctx.auditDetail = {
+      transcript_shown: dto.transcript !== null,
+      customer_id: customerId,
+      ...(outcomeMasked ? { outcome_masked: true } : {}),
+    }
     return ok(ctx, dto)
   } catch (err) {
     if (err instanceof AppApiError) throw err

@@ -109,6 +109,7 @@ jest.mock('@/lib/karute/take-store', () => ({
 
 import {
   RecordPageView,
+  resolveReturningForOutcome,
   resolveSaveBinding,
   resolveStopFlow,
   type RecordPageNextAppointment,
@@ -359,5 +360,66 @@ describe('resolveStopFlow — ticket economics only run against the session\'s o
     expect(
       resolveStopFlow({ ticketsEnabled: true, canRunOutcome: true, outcomeMode: 'repurchase' }),
     ).toBe('dialog')
+  })
+})
+
+describe('resolveReturningForOutcome — the 既存のお客様 gate signal (L2#4)', () => {
+  it('returning customer → true (the only value that opens the card)', () => {
+    expect(resolveReturningForOutcome({ isFirstTimeVisit: false })).toBe(true)
+  })
+
+  it('first-time visit → false', () => {
+    expect(resolveReturningForOutcome({ isFirstTimeVisit: true })).toBe(false)
+  })
+
+  it('no brief / field absent → null (UNKNOWN, never speculative)', () => {
+    expect(resolveReturningForOutcome(null)).toBeNull()
+    expect(resolveReturningForOutcome(undefined)).toBeNull()
+    expect(resolveReturningForOutcome({})).toBeNull()
+  })
+})
+
+// Light wiring pin (no new harness — reuses this suite's RecordPageView mount):
+// the dialog call site must feed resolveReturningForOutcome(brief), NOT the
+// `?? false` isFirstVisit prop. next-intl is key-echoed here, so the 4th card
+// surfaces as its translation key.
+describe('RecordPageView → dialog wiring — the revisit gate reads the brief', () => {
+  const openDialogWith = (brief: (typeof baseProps)['brief'] | null) => {
+    mockRecState = 'recorded'
+    mockResult = { blob: new Blob(['x']), mimeType: 'audio/webm', durationMs: 5000 }
+    mockTarget = {
+      customerId: 'cust-A',
+      customerName: 'リエム代表',
+      karuteNumber: null,
+      appointmentId: 'apt-A',
+    }
+    render(
+      <RecordPageView
+        {...baseProps}
+        brief={brief}
+        // No pack → resolveOutcomeMode 'conversion', so the dialog (not the
+        // auto-burn) is the stop flow.
+        targetPack={null}
+        nextAppointment={nextAppointmentFor('cust-A', 'リエム代表')}
+      />,
+    )
+    fireEvent.click(screen.getByText('useRecording'))
+  }
+
+  it('returning customer brief → the 4th card is offered', () => {
+    openDialogWith({ ...baseProps.brief, isFirstTimeVisit: false })
+    expect(screen.getByText('revisit.title')).toBeInTheDocument()
+  })
+
+  it('first-visit brief → not offered', () => {
+    openDialogWith({ ...baseProps.brief, isFirstTimeVisit: true })
+    expect(screen.queryByText('revisit.title')).toBeNull()
+  })
+
+  it('NO brief (UNKNOWN) → not offered, even though isFirstVisit falls back to false', () => {
+    openDialogWith(null)
+    // The `?? false` isFirstVisit prop reads this same null brief as
+    // "returning" — the gate must NOT, which is the whole L2#4 fix.
+    expect(screen.queryByText('revisit.title')).toBeNull()
   })
 })

@@ -62,10 +62,25 @@ const getByRecordingSession = jest.fn(
 )
 const storesGet = jest.fn(async () => ({ id: 'store-1' }))
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] }))
+// Reads the 'revisit' eligibility guard makes. Defaults = a brand-new
+// prospect (no signal anywhere), so a test must opt IN to being returning.
+const customerGet = jest.fn(async () => ({
+  is_existing_customer: false,
+  visit_count: 0,
+  has_ticket_pack: false,
+}))
+const listPacks = jest.fn(async (): Promise<Array<{ status: string; kind: string }>> => [])
+type KaruteRow = { id: string; recording_session_id: string | null }
+const listKaruteRecords = jest.fn(async (): Promise<{ karute_records: KaruteRow[] }> => ({
+  karute_records: [],
+}))
 const fakeClient = {
   recordingJobs: { enqueue: jobsEnqueue, getByRecordingSession },
   stores: { get: storesGet },
   staffStores: { get: staffStoresGet },
+  customers: { get: customerGet },
+  packs: { listPacks },
+  karuteRecords: { list: listKaruteRecords },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
@@ -109,6 +124,13 @@ beforeEach(() => {
     last_error: null,
   })
   staffStoresGet.mockResolvedValue({ store_ids: [] })
+  customerGet.mockResolvedValue({
+    is_existing_customer: false,
+    visit_count: 0,
+    has_ticket_pack: false,
+  })
+  listPacks.mockResolvedValue([])
+  listKaruteRecords.mockResolvedValue({ karute_records: [] })
 })
 
 describe('POST recordings/job (enqueue)', () => {
@@ -259,5 +281,95 @@ describe('GET recordings/job/[sessionId] (status)', () => {
   it('missing Bearer → 401', async () => {
     const res = await jobGET(new Request('https://s/x'), sessionRoute())
     expect(res.status).toBe(401)
+  })
+})
+
+// Enqueue-time eligibility, NOT worker-time: processJob writes the outcome
+// only after Deepgram + OpenAI have run, so a rejection there would re-spend
+// both on every retry. Rejecting before the job row exists is free.
+describe("POST recordings/job — 'revisit' eligibility is checked BEFORE any AI spend", () => {
+  const withOutcome = (status: string) => ({
+    ...validBody,
+    outcome: { status, isFirstVisit: false },
+  })
+
+  it('returning customer → enqueued normally, outcome rides the payload', async () => {
+    customerGet.mockResolvedValue({
+      is_existing_customer: true,
+      visit_count: 6,
+      has_ticket_pack: false,
+    })
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, withOutcome('revisit')), noRoute)
+    expect(res.status).toBe(200)
+    const [call] = jobsEnqueue.mock.calls[0] as [{ payload: { outcome?: { status: string } } }]
+    expect(call.payload.outcome).toMatchObject({ status: 'revisit' })
+  })
+
+  it('first-visit prospect → 400 and NO job is queued (no AI is ever paid for)', async () => {
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, withOutcome('revisit')), noRoute)
+    expect(res.status).toBe(400)
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it('UNKNOWN → a RETRYABLE upstream error, never a 400 (nothing persisted, our fault)', async () => {
+    customerGet.mockRejectedValue(new Error('core down'))
+    listPacks.mockRejectedValue(new Error('core down'))
+    listKaruteRecords.mockRejectedValue(new Error('core down'))
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, withOutcome('revisit')), noRoute)
+    expect(res.status).not.toBe(400)
+    expect(res.status).toBeGreaterThanOrEqual(500)
+    expect((await res.json()).error.code).toBe('upstream_unavailable')
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it('a transient read failure RECOVERED by the retry → enqueued normally', async () => {
+    listKaruteRecords
+      .mockRejectedValueOnce(new Error('blip'))
+      .mockResolvedValue({ karute_records: [{ id: 'k-old', recording_session_id: 'sess-earlier' }] })
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, withOutcome('revisit')), noRoute)
+    expect(res.status).toBe(200)
+    expect(jobsEnqueue).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['success', 'no_deal', 'pending'])(
+    '%s enqueues untouched — the guard costs it zero reads',
+    async (status) => {
+      const res = await jobPOST(jreq('POST', { ...auth, ...idem }, withOutcome(status)), noRoute)
+      expect(res.status).toBe(200)
+      expect(jobsEnqueue).toHaveBeenCalledTimes(1)
+      expect(customerGet).not.toHaveBeenCalled()
+      expect(listPacks).not.toHaveBeenCalled()
+      expect(listKaruteRecords).not.toHaveBeenCalled()
+    },
+  )
+
+  it('no outcome at all → enqueues, no guard reads', async () => {
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(customerGet).not.toHaveBeenCalled()
+  })
+})
+
+// A RETAKE reuses the recording session and converges on take-1's record, so
+// take-1 must not make take-2's enqueue look like a returning customer.
+describe('POST recordings/job — a retake is not its own proof of prior history', () => {
+  const withRevisit = { ...validBody, outcome: { status: 'revisit', isFirstVisit: false } }
+
+  it("the only karute on file is take-1 of THIS recording session → 400, no enqueue", async () => {
+    listKaruteRecords.mockResolvedValue({
+      karute_records: [{ id: 'k-take1', recording_session_id: 'sess-1' }],
+    })
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, withRevisit), noRoute)
+    expect(res.status).toBe(400)
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it('a karute from a DIFFERENT session → enqueued (real prior history counts)', async () => {
+    listKaruteRecords.mockResolvedValue({
+      karute_records: [{ id: 'k-old', recording_session_id: 'sess-earlier' }],
+    })
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, withRevisit), noRoute)
+    expect(res.status).toBe(200)
+    expect(jobsEnqueue).toHaveBeenCalledTimes(1)
   })
 })

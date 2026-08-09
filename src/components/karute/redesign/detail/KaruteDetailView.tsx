@@ -40,7 +40,9 @@ export interface KaruteDetailViewProps {
    *  staff). The shared summary/entries still render. */
   transcriptRestricted?: boolean
   // photosSlot is streamed in via Suspense from the server page so the shell can
-  // paint before the photo HTTP fetch resolves.
+  // paint before the photo HTTP fetch resolves. Renders directly under 詳細記録
+  // and ONLY when the karute has linked photos (Liam 8/10, mock frame C) — the
+  // card itself returns null on an empty list, so this slot contributes no DOM.
   photosSlot: ReactNode
   memory: CustomerMemorySnapshot | null
   /** Server-streamed via Suspense (photosSlot pattern) so the page shell never
@@ -101,8 +103,6 @@ export function KaruteDetailView({
 
       <CustomerMemoryCard memory={memory} />
 
-      {photosSlot}
-
       <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <div className="flex flex-col gap-4">
           {bodyPredictionSlot}
@@ -125,6 +125,7 @@ export function KaruteDetailView({
             summaryRaw={summaryRaw}
             summaryEdited={summaryEdited}
           />
+          {photosSlot}
           {suggestedMessageSlot}
           <RecordingTranscriptCard
             transcript={transcript}

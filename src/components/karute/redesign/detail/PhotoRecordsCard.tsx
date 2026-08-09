@@ -45,7 +45,9 @@ function toneFor(category: string) {
 export function PhotoRecordsCard({ photos }: PhotoRecordsCardProps) {
   const t = useTranslations('karuteDetail')
   const [showToCustomer, setShowToCustomer] = useState(false)
-  const isEmpty = photos.length === 0
+  // No linked photos → the section does not mount at all (Liam 8/10, mock
+  // frame C). Bails AFTER the hooks so the hook order stays stable.
+  if (photos.length === 0) return null
 
   return (
     <section className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
@@ -79,41 +81,37 @@ export function PhotoRecordsCard({ photos }: PhotoRecordsCardProps) {
           </button>
         )}
       </header>
-      {isEmpty ? (
-        <p className="text-[13px] text-muted-foreground">{t('photos.empty')}</p>
-      ) : (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          {photos.map((p) => {
-            const tone = toneFor(p.category)
-            return (
-              <div
-                key={p.id}
-                className="relative aspect-square overflow-hidden rounded-xl border border-border bg-muted"
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {photos.map((p) => {
+          const tone = toneFor(p.category)
+          return (
+            <div
+              key={p.id}
+              className="relative aspect-square overflow-hidden rounded-xl border border-border bg-muted"
+            >
+              {p.signedUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={p.signedUrl}
+                  alt={p.caption ?? p.category}
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-[11px] uppercase tracking-widest text-muted-foreground">
+                  photo
+                </div>
+              )}
+              <span
+                className="absolute left-2 top-2 inline-flex h-[22px] items-center rounded-md px-2 text-[11px] font-semibold"
+                style={{ background: tone.bg, color: tone.text }}
               >
-                {p.signedUrl ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img
-                    src={p.signedUrl}
-                    alt={p.caption ?? p.category}
-                    className="h-full w-full object-cover"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-[11px] uppercase tracking-widest text-muted-foreground">
-                    photo
-                  </div>
-                )}
-                <span
-                  className="absolute left-2 top-2 inline-flex h-[22px] items-center rounded-md px-2 text-[11px] font-semibold"
-                  style={{ background: tone.bg, color: tone.text }}
-                >
-                  {p.category}
-                </span>
-              </div>
-            )
-          })}
-        </div>
-      )}
+                {p.category}
+              </span>
+            </div>
+          )
+        })}
+      </div>
     </section>
   )
 }
