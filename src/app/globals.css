@@ -362,3 +362,14 @@ html.dark[data-theme="karute"] {
 
 }
 
+/* PhotoPresentationOverlay hold-to-close: a brief shake when a hold is
+ * released early. Applied via Tailwind's motion-safe: variant, so this
+ * keyframe simply never runs under prefers-reduced-motion. */
+@keyframes hold-cancel-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-3px); }
+  40% { transform: translateX(3px); }
+  60% { transform: translateX(-2px); }
+  80% { transform: translateX(2px); }
+}
+

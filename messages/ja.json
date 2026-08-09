@@ -728,9 +728,16 @@
       "compareOverlay": "重ねて表示",
       "compareOpacity": "不透明度",
       "presentButton": "お客様に見せる",
-      "presentClose": "閉じる",
+      "presentCloseHold": "閉じる（長押し）",
       "presentFilterAll": "すべて",
-      "presentBackToGrid": "グリッドに戻る"
+      "presentBackToGrid": "グリッドに戻る",
+      "presentCompareButton": "比較",
+      "presentSelectHint": "2〜4枚を選んでください",
+      "presentSelectCancel": "キャンセル",
+      "presentCompareCta": "{n}枚を比較する",
+      "presentBack": "戻る",
+      "presentPrevPhoto": "前の写真",
+      "presentNextPhoto": "次の写真"
     },
     "comingSoon": "対応予定",
     "privacy": {
