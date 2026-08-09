@@ -62,15 +62,20 @@ export const POST = facadeHandler('recordings.job.enqueue', async (ctx) => {
   // re-spend both on every retry. Rejecting here makes the job path safe by
   // construction — the worker keeps its untouched best-effort write, and the
   // chokepoint in outcome.ts is still the backstop if one ever slips through.
-  if (
-    parsed.data.outcome?.status === 'revisit' &&
-    !(await isReturningCustomerServerSide(synqed, parsed.data.customerId, {
+  if (parsed.data.outcome?.status === 'revisit') {
+    const eligibility = await isReturningCustomerServerSide(synqed, parsed.data.customerId, {
       // A RETAKE reuses this recording session and converges on the same
       // record, so take-1's row must not make take-2 look like a regular.
       recordingSessionId: parsed.data.recordingSessionId,
-    }))
-  ) {
-    throw new AppApiError('validation', 'revisit requires a returning customer')
+    })
+    if (eligibility === 'not_returning') {
+      throw new AppApiError('validation', 'revisit requires a returning customer')
+    }
+    // Pre-persist: nothing is queued yet, so failing honestly is free. A
+    // retryable shape, never a 400 — the client did nothing wrong.
+    if (eligibility === 'unknown') {
+      throw new AppApiError('upstream_unavailable', 'could not verify revisit eligibility')
+    }
   }
 
   // Fail closed: no acting staff id ⇒ no job (the #452 posture, same as

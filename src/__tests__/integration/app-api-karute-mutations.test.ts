@@ -338,11 +338,27 @@ describe('POST /karute/[id]/outcome — an ineligible revisit is still a 400 her
     getOutcome.mockResolvedValue(null)
     listPacks.mockResolvedValue([])
     listKaruteRecords.mockResolvedValue({ karute_records: [] })
+    // Restored explicitly: clearAllMocks wipes calls, not implementations, so a
+    // rejection set by one test would otherwise leak into the next.
+    custGet.mockResolvedValue({ name: '山田 花子' })
   })
 
   it('first-visit prospect → 400, nothing written', async () => {
     const res = await outcome(jsonReq({ status: 'revisit' }), routeFor('kar-1'))
     expect(res.status).toBe(400)
+    expect(upsertOutcome).not.toHaveBeenCalled()
+  })
+
+  it('UNKNOWN → a RETRYABLE upstream error, never a validation 400', async () => {
+    // This route persists nothing, so an infra blip must fail honestly rather
+    // than blame the client with a 4xx.
+    getOutcome.mockRejectedValue(new Error('core down'))
+    listPacks.mockRejectedValue(new Error('core down'))
+    listKaruteRecords.mockRejectedValue(new Error('core down'))
+    custGet.mockRejectedValue(new Error('core down'))
+    const res = await outcome(jsonReq({ status: 'revisit' }), routeFor('kar-1'))
+    expect(res.status).not.toBe(400)
+    expect((await res.json()).error.code).toBe('upstream_unavailable')
     expect(upsertOutcome).not.toHaveBeenCalled()
   })
 

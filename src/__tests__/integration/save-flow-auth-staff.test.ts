@@ -22,6 +22,13 @@ jest.mock('next/navigation', () => ({ redirect: jest.fn() }))
 jest.mock('next-intl/server', () => ({ getLocale: async () => 'en' }))
 
 let currentStaffId: string | null = null
+// Same unmocked-outbound-I/O leak as karute-store-stamp: the save path's
+// best-effort memory ingest makes a REAL postgrest fetch to the dummy Supabase
+// URL. Nothing here asserts on memory — stub it so the suite does no network.
+jest.mock('@/lib/karute/memory-ingest', () => ({
+  ingestSessionMemory: jest.fn(async () => {}),
+  backfillMemoryFromTranscripts: jest.fn(async () => {}),
+}))
 jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: jest.fn(async () => currentStaffId),
 }))

@@ -358,6 +358,26 @@ describe('POST /api/app/v1/karute — an ineligible revisit never fails a persis
     )
   })
 
+  it('UNVERIFIABLE eligibility → the label IS written (fail-open) with a loud warn', async () => {
+    // Post-persist fail-open: the karute is already durable, an attacker cannot
+    // induce core read failures on demand, and the dialog's gate is itself
+    // server-derived — so silently losing an HONEST label is the worse harm.
+    // NOT customersGet — the route itself reads the customer earlier, so
+    // failing that is a different (502) path. This mocks exactly the two
+    // guard-only reads: one healthy read with no true signal + two failures
+    // is precisely the 'unknown' shape.
+    listPacks.mockRejectedValue(new Error('core down'))
+    listKaruteRecords.mockRejectedValue(new Error('core down'))
+    const res = await savePOST(post({ ...auth, ...idem }, withRevisit), noRoute)
+    expect(res.status).toBe(200)
+    expect(outcomeUpsert).toHaveBeenCalledTimes(1)
+    expect(outcomeUpsert.mock.calls[0][0]).toMatchObject({ outcome: 'revisit' })
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('eligibility unverifiable after retry'),
+      expect.objectContaining({ karuteRecordId: 'kar-new' }),
+    )
+  })
+
   it('ELIGIBLE revisit → success AND the outcome row is written (regression)', async () => {
     listKaruteRecords.mockResolvedValue({
       karute_records: [{ id: 'kar-old', recording_session_id: 'sess-earlier' }],

@@ -151,6 +151,8 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
       reason: input.outcome.reason ?? null,
       isFirstVisit: input.outcome.isFirstVisit,
       decidedBy: staffId,
+      // Post-persist: the karute is already durable above.
+      onUnverifiable: 'write',
     })
     // The karute is ALREADY PERSISTED above, so a label problem must never
     // turn into a failure response for a save that durably succeeded. Same

@@ -172,6 +172,8 @@ async function processJob(job: RecordingJob): Promise<string> {
       reason: payload.outcome.reason,
       isFirstVisit: payload.outcome.isFirstVisit,
       decidedBy: payload.staff_id,
+      // Post-persist: upsertKaruteRecord above already committed the record.
+      onUnverifiable: 'write',
     })
     // A rejected 'revisit' is DETERMINISTIC, not a transient fault — retrying
     // can never make it eligible, and this throw is post-AI: every requeue

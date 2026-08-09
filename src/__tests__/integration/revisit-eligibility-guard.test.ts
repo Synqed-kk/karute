@@ -14,7 +14,11 @@
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn(), unstable_cache: (fn: unknown) => fn }))
 jest.mock('@synqed-kk/client', () => ({ SynqedClient: jest.fn(), SynqedError: class extends Error {} }))
 
-import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
+import {
+  setKaruteOutcomeWithClient,
+  REVISIT_NOT_ELIGIBLE,
+  REVISIT_CHECK_UNAVAILABLE,
+} from '@/lib/karute/outcome'
 
 type CustomerRow = { is_existing_customer: boolean; visit_count: number; has_ticket_pack: boolean }
 
@@ -94,11 +98,13 @@ describe("chokepoint — 'revisit' requires a real returning customer", () => {
     expect(upsert).not.toHaveBeenCalled()
   })
 
-  it('UNKNOWN (every signal read fails) → rejected, fail-closed', async () => {
+  it('UNKNOWN (every read fails) → the UNVERIFIABLE code, not the ineligible one', async () => {
+    // A failed read is not evidence of a first-time visitor. Callers must be
+    // able to tell "we know they're new" from "we could not find out".
     customerGet.mockRejectedValue(new Error('core down'))
     listPacks.mockRejectedValue(new Error('core down'))
     listKarute.mockRejectedValue(new Error('core down'))
-    expect(await write('revisit')).toEqual({ error: REVISIT_NOT_ELIGIBLE })
+    expect(await write('revisit')).toEqual({ error: REVISIT_CHECK_UNAVAILABLE })
     expect(upsert).not.toHaveBeenCalled()
   })
 
@@ -183,6 +189,84 @@ describe('self-inclusion — a session may not be its own proof of prior history
   })
 })
 
-it('REVISIT_NOT_ELIGIBLE is the literal the worker and routes compare against', () => {
+it('the two rejection codes are the literals the worker and routes compare against', () => {
   expect(REVISIT_NOT_ELIGIBLE).toBe('revisit_not_eligible')
+  expect(REVISIT_CHECK_UNAVAILABLE).toBe('revisit_check_unavailable')
+  expect(REVISIT_NOT_ELIGIBLE).not.toBe(REVISIT_CHECK_UNAVAILABLE)
+})
+
+// Tri-state: 'unknown' is its own answer, and the retry is what makes it rare.
+describe('tri-state — a failed read is never mistaken for a negative', () => {
+  const failAll = () => {
+    customerGet.mockRejectedValue(new Error('core down'))
+    listPacks.mockRejectedValue(new Error('core down'))
+    listKarute.mockRejectedValue(new Error('core down'))
+  }
+
+  it('a TRUE signal wins even when the other reads fail — no retry spent', async () => {
+    customerGet.mockResolvedValue({ ...NEW_PROSPECT, visit_count: 9 })
+    listPacks.mockRejectedValue(new Error('core down'))
+    listKarute.mockRejectedValue(new Error('core down'))
+    expect(await write('revisit')).toEqual({})
+    expect(upsert).toHaveBeenCalledTimes(1)
+    // Answered on the first pass, so the failed reads are never re-tried.
+    expect(listPacks).toHaveBeenCalledTimes(1)
+    expect(listKarute).toHaveBeenCalledTimes(1)
+  })
+
+  it('a transient failure RECOVERED by the retry → returning', async () => {
+    listKarute
+      .mockRejectedValueOnce(new Error('blip'))
+      .mockResolvedValue({ karute_records: [{ id: 'k-0', recording_session_id: 'sess-0' }] })
+    expect(await write('revisit')).toEqual({})
+    expect(upsert).toHaveBeenCalledTimes(1)
+  })
+
+  it('the retry re-runs ONLY the reads that failed', async () => {
+    customerGet.mockResolvedValue(NEW_PROSPECT) // succeeds first time
+    listPacks.mockResolvedValue([]) // succeeds first time
+    listKarute.mockRejectedValue(new Error('core down')) // never recovers
+    await write('revisit')
+    expect(listKarute).toHaveBeenCalledTimes(2) // retried
+    expect(customerGet).toHaveBeenCalledTimes(1) // NOT retried
+    expect(listPacks).toHaveBeenCalledTimes(1) // NOT retried
+  })
+
+  it('still UNKNOWN after the retry → unverifiable, nothing written', async () => {
+    failAll()
+    expect(await write('revisit')).toEqual({ error: REVISIT_CHECK_UNAVAILABLE })
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it("a post-persist caller (onUnverifiable:'write') WRITES the label and warns loudly", async () => {
+    failAll()
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const res = await setKaruteOutcomeWithClient(client(), {
+      karuteRecordId: 'k-1',
+      customerId: 'cust-1',
+      status: 'revisit',
+      decidedBy: 'staff-1',
+      onUnverifiable: 'write',
+    })
+    expect(res).toEqual({})
+    expect(upsert).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('eligibility unverifiable after retry'),
+      expect.objectContaining({ karuteRecordId: 'k-1', customerId: 'cust-1' }),
+    )
+    warn.mockRestore()
+  })
+
+  it("onUnverifiable:'write' does NOT rescue a genuine not_returning verdict", async () => {
+    // All reads healthy, answer is simply no — fail-open is for infra faults only.
+    const res = await setKaruteOutcomeWithClient(client(), {
+      karuteRecordId: 'k-1',
+      customerId: 'cust-1',
+      status: 'revisit',
+      decidedBy: 'staff-1',
+      onUnverifiable: 'write',
+    })
+    expect(res).toEqual({ error: REVISIT_NOT_ELIGIBLE })
+    expect(upsert).not.toHaveBeenCalled()
+  })
 })

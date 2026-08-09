@@ -12,7 +12,11 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
-import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
+import {
+  setKaruteOutcomeWithClient,
+  REVISIT_NOT_ELIGIBLE,
+  REVISIT_CHECK_UNAVAILABLE,
+} from '@/lib/karute/outcome'
 
 export const runtime = 'nodejs'
 
@@ -70,6 +74,11 @@ export const POST = facadeHandler<Params>('karute.outcome.set', async (ctx) => {
   // allows it when this record's stored outcome is already revisit).
   if (result.error === REVISIT_NOT_ELIGIBLE) {
     throw new AppApiError('validation', 'revisit requires a returning customer')
+  }
+  // Pre-persist (this route IS the label write): an unverifiable check is OUR
+  // fault, so it gets a retryable shape — never a 400 blaming the client.
+  if (result.error === REVISIT_CHECK_UNAVAILABLE) {
+    throw new AppApiError('upstream_unavailable', 'could not verify revisit eligibility')
   }
   if (result.error) throw new AppApiError('upstream_unavailable', 'outcome write failed')
   // Wave W3: customer_id rides the hook's karute.outcome_set emit for the

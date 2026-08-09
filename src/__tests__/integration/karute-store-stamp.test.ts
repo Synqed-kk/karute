@@ -24,6 +24,16 @@ jest.mock('next/cache', () => ({
   updateTag: jest.fn(),
 }))
 jest.mock('next/navigation', () => ({ redirect: jest.fn() }))
+// The save path's best-effort memory ingest reaches getCustomerMemory, which
+// makes a REAL postgrest fetch to the dummy Supabase URL — unmocked outbound
+// I/O in a unit suite. It fails fast on a dev box (swallowed, tests pass) but
+// its timing is environment-dependent, and on a 2-core CI runner it blew this
+// suite's assertions past the default timeout (run 31320631423). Nothing here
+// asserts on memory, so stub it: no network, no flake.
+jest.mock('@/lib/karute/memory-ingest', () => ({
+  ingestSessionMemory: jest.fn(async () => {}),
+  backfillMemoryFromTranscripts: jest.fn(async () => {}),
+}))
 jest.mock('next-intl/server', () => ({ getLocale: async () => 'en' }))
 
 jest.mock('@/lib/staff', () => ({

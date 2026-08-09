@@ -311,13 +311,24 @@ describe("POST recordings/job — 'revisit' eligibility is checked BEFORE any AI
     expect(jobsEnqueue).not.toHaveBeenCalled()
   })
 
-  it('UNKNOWN (signal reads fail) → 400, fail-closed', async () => {
+  it('UNKNOWN → a RETRYABLE upstream error, never a 400 (nothing persisted, our fault)', async () => {
     customerGet.mockRejectedValue(new Error('core down'))
     listPacks.mockRejectedValue(new Error('core down'))
     listKaruteRecords.mockRejectedValue(new Error('core down'))
     const res = await jobPOST(jreq('POST', { ...auth, ...idem }, withOutcome('revisit')), noRoute)
-    expect(res.status).toBe(400)
+    expect(res.status).not.toBe(400)
+    expect(res.status).toBeGreaterThanOrEqual(500)
+    expect((await res.json()).error.code).toBe('upstream_unavailable')
     expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it('a transient read failure RECOVERED by the retry → enqueued normally', async () => {
+    listKaruteRecords
+      .mockRejectedValueOnce(new Error('blip'))
+      .mockResolvedValue({ karute_records: [{ id: 'k-old', recording_session_id: 'sess-earlier' }] })
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, withOutcome('revisit')), noRoute)
+    expect(res.status).toBe(200)
+    expect(jobsEnqueue).toHaveBeenCalledTimes(1)
   })
 
   it.each(['success', 'no_deal', 'pending'])(

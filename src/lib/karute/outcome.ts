@@ -1,12 +1,24 @@
 import 'server-only'
 import { getSynqedClient } from '@/lib/synqed/client'
 import type { Outcome, DeclineReason } from './outcome-types'
-import { isReturningCustomerServerSide, type RevisitGuardClient } from './revisit-guard'
+import {
+  isReturningCustomerServerSide,
+  type RevisitEligibility,
+  type RevisitGuardClient,
+} from './revisit-guard'
 
-/** Returned (never thrown) when a 'revisit' write is rejected as ineligible.
- *  Request boundaries map this to a 400; best-effort save paths ignore the
- *  return exactly as they ignore every other outcome-write failure. */
+/** Returned (never thrown) when a 'revisit' write is rejected as DETERMINISTICALLY
+ *  ineligible — every eligibility read succeeded and the customer is genuinely
+ *  new. Pre-persist boundaries map this to a 400; post-persist paths drop the
+ *  label and warn. Retrying can never change it. */
 export const REVISIT_NOT_ELIGIBLE = 'revisit_not_eligible'
+
+/** Returned when eligibility could not be VERIFIED (a read failed and the retry
+ *  didn't recover) — an infra fault, not a client error. Pre-persist boundaries
+ *  map this to a retryable upstream error, never a validation 400. Post-persist
+ *  callers never see it: they pass onUnverifiable:'write'. Distinct literal so
+ *  callers branch on the cause, not on a shared "something went wrong". */
+export const REVISIT_CHECK_UNAVAILABLE = 'revisit_check_unavailable'
 
 /** The chokepoint's client surface: the upsert itself plus what the revisit
  *  eligibility derivation reads. Every caller already passes a full client. */
@@ -23,6 +35,14 @@ interface SetOutcomeParams {
   reason?: DeclineReason | null
   isFirstVisit?: boolean
   decidedBy?: string | null
+  /** What to do when eligibility is UNKNOWN (a read failed, retry didn't
+   *  recover) — never about a genuine 'not_returning', which always drops.
+   *  'write'  = post-persist caller: the karute already exists, so a silently
+   *             lost label is the worse harm. Deliberate fail-open on infra
+   *             failure only, with a loud warn (see revisit-guard).
+   *  'reject' = pre-persist caller (default): nothing is written yet, so
+   *             failing honestly costs nothing. */
+  onUnverifiable?: 'write' | 'reject'
 }
 
 /**
@@ -48,8 +68,16 @@ export async function setKaruteOutcomeWithClient(
   // which must never throw post-AI (a retry re-runs Deepgram/OpenAI). Returning
   // instead of throwing keeps the best-effort contract intact: an ineligible
   // revisit writes nothing and never blocks the save.
-  if (params.status === 'revisit' && !(await revisitAllowed(synqed, params))) {
-    return { error: REVISIT_NOT_ELIGIBLE }
+  if (params.status === 'revisit') {
+    const eligibility = await revisitAllowed(synqed, params)
+    if (eligibility === 'not_returning') return { error: REVISIT_NOT_ELIGIBLE }
+    if (eligibility === 'unknown') {
+      if (params.onUnverifiable !== 'write') return { error: REVISIT_CHECK_UNAVAILABLE }
+      console.warn(
+        '[revisit] eligibility unverifiable after retry; label written on client gate',
+        { karuteRecordId: params.karuteRecordId, customerId: params.customerId },
+      )
+    }
   }
   try {
     const now = new Date().toISOString()
@@ -86,9 +114,9 @@ export async function setKaruteOutcome(
 async function revisitAllowed(
   synqed: OutcomeWriteClient,
   params: SetOutcomeParams,
-): Promise<boolean> {
+): Promise<RevisitEligibility> {
   const existing = await getKaruteOutcomeWithClient(synqed, params.karuteRecordId)
-  if (existing?.outcome === 'revisit') return true
+  if (existing?.outcome === 'revisit') return 'returning'
   // Exclude THIS session's own record: it already exists by the time any
   // outcome write runs, so counting it would let a save prove prior history
   // with the record it just created.

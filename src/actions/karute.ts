@@ -342,6 +342,9 @@ export async function saveKaruteRecord(
         reason: input.outcome.reason,
         isFirstVisit: input.outcome.isFirstVisit,
         decidedBy: staffId,
+        // Post-persist, same as the facade twin: the record is created above,
+        // so an unverifiable check must not silently cost an honest label.
+        onUnverifiable: 'write',
       })
     }
 
@@ -461,6 +464,9 @@ export async function saveKaruteRecordInline(
         reason: input.outcome.reason,
         isFirstVisit: input.outcome.isFirstVisit,
         decidedBy: staffId,
+        // Post-persist, same as the facade twin: the record is created above,
+        // so an unverifiable check must not silently cost an honest label.
+        onUnverifiable: 'write',
       })
     }
 
