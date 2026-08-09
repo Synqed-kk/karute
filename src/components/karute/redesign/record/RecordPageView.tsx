@@ -131,6 +131,10 @@ export interface RecordPageViewProps {
   /** Owner presets + permission for the 新しい回数券 panel (設定 → 回数券). */
   packPresets?: PackPreset[]
   staffCanCustomizePacks?: boolean
+  /** records.delete (owner/manager/senior) — without it the D3 discard dialog
+   *  drops the 写真も削除 affordance and offers keep-only. Server-enforced
+   *  either way (deleteCustomerPhoto / the facade DELETE both gate on it). */
+  staffCanDeletePhotos?: boolean
   /** The customer's most recent pack (any status) — the picker prefill. */
   previousPack?: { size: number; unitPrice: number } | null
   /** Org 録音設定 noise-suppression toggle (default on) — applied to the mic. */
@@ -160,6 +164,7 @@ export function RecordPageView({
   targetPack = null,
   packPresets = [],
   staffCanCustomizePacks = true,
+  staffCanDeletePhotos = true,
   previousPack = null,
   noiseSuppression = true,
   currentStaffName = null,
@@ -1169,9 +1174,12 @@ export function RecordPageView({
               {t('sessionPhotos.discardPhotosTitle')}
             </h3>
             <p className="text-sm text-muted-foreground">
-              {t('sessionPhotos.discardPhotosDescription', {
-                n: sessionPhotosForDiscardDialog().length,
-              })}
+              {t(
+                staffCanDeletePhotos
+                  ? 'sessionPhotos.discardPhotosDescription'
+                  : 'sessionPhotos.discardPhotosKeepOnlyDescription',
+                { n: sessionPhotosForDiscardDialog().length },
+              )}
             </p>
             <Button
               variant="outline"
@@ -1192,15 +1200,17 @@ export function RecordPageView({
               >
                 {t('sessionPhotos.discardPhotosKeep')}
               </Button>
-              <Button
-                variant="destructive"
-                size="md"
-                className="flex-1"
-                onClick={handleDiscardDeletePhotos}
-                disabled={discardingPhotos}
-              >
-                {t('sessionPhotos.discardPhotosDelete')}
-              </Button>
+              {staffCanDeletePhotos && (
+                <Button
+                  variant="destructive"
+                  size="md"
+                  className="flex-1"
+                  onClick={handleDiscardDeletePhotos}
+                  disabled={discardingPhotos}
+                >
+                  {t('sessionPhotos.discardPhotosDelete')}
+                </Button>
+              )}
             </div>
           </div>
         </>

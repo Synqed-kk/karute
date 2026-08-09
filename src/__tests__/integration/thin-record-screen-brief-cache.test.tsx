@@ -140,6 +140,7 @@ function recordDto(customerId: string, appointmentId: string) {
     previousPack: null,
     packPresets: [],
     staffCanCustomizePacks: true,
+    staffCanDeletePhotos: true,
     ticketsEnabled: true,
     noiseSuppression: true,
     currentStaffName: null,

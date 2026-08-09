@@ -322,6 +322,33 @@ describe('RecordPageView discard — D3 discard-with-photos dialog', () => {
     expect(cancelBtns.length).toBeGreaterThan(0)
   })
 
+  // Liam ruling 8/9: photo delete is the records.delete tier. Staff without it
+  // never see the destructive affordance — the dialog becomes keep-only (the
+  // stock description asks "delete them too?", the wrong question here).
+  it('staffCanDeletePhotos=false → no 写真も削除 button, keep-only description, keep still works', async () => {
+    sessionPhotoStore.photos = [donePhoto()]
+    render(<RecordPageView {...baseProps} staffCanDeletePhotos={false} />)
+    fireEvent.click(screen.getByText('discard'))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.queryByText('sessionPhotos.discardPhotosDelete')).toBeNull()
+    expect(
+      screen.getByText('sessionPhotos.discardPhotosKeepOnlyDescription:{"n":1}'),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByText('sessionPhotos.discardPhotosKeep'))
+    await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
+    expect(mockDeleteCustomerPhoto).not.toHaveBeenCalled()
+  })
+
+  it('staffCanDeletePhotos=false → キャンセル still aborts entirely', () => {
+    sessionPhotoStore.photos = [donePhoto()]
+    render(<RecordPageView {...baseProps} staffCanDeletePhotos={false} />)
+    fireEvent.click(screen.getByText('discard'))
+    fireEvent.click(screen.getByText('cancel'))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(mockDiscardRecording).not.toHaveBeenCalled()
+    expect(mockDeleteCustomerPhoto).not.toHaveBeenCalled()
+  })
+
   // §9: the honest-loss toast for 'error' photos now lives here, i18n'd —
   // fires on the explicit-discard path even when there's no D3 dialog
   // (an error-only session skips the dialog but must not skip the toast).

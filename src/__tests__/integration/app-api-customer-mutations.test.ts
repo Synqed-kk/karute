@@ -310,6 +310,29 @@ describe('GET photos', () => {
 
 // ── photos DELETE /[photoId] (packet PR 9b device-wiring delta) ─────────────
 describe('DELETE photos/[photoId]', () => {
+  // Liam ruling 8/9: photo delete sits in the DESTRUCTIVE tier (records.delete,
+  // owner/manager/senior), not customers.view. The harness default is
+  // customers.view alone, so every non-denial case here grants it explicitly.
+  beforeEach(() => {
+    capabilities.current = new Set(['customers.view', 'records.delete'])
+  })
+
+  it('customers.view alone → 403, no tenancy read, no delete (records.delete is the tier)', async () => {
+    capabilities.current = new Set(['customers.view'])
+    // Ownership stub primed: if the gate ever ran AFTER the proofs this would
+    // still 403, so also assert the tenancy read never happened — the gate is
+    // the FIRST thing in the handler.
+    const { getCustomerWithClient } = jest.requireMock('@/lib/customers/queries') as {
+      getCustomerWithClient: jest.Mock
+    }
+    listPhotos.mockResolvedValueOnce({ photos: [{ id: 'photo-1' }] })
+    const res = await photoDelete(deleteReq(), photoRoute({ id: 'cust-1', photoId: 'photo-1' }))
+    expect(res.status).toBe(403)
+    expect(getCustomerWithClient).not.toHaveBeenCalled()
+    expect(listPhotos).not.toHaveBeenCalled()
+    expect(deletePhoto).not.toHaveBeenCalled()
+  })
+
   it('happy path: deletes the photo (ownership proven — photoId is in this customer\'s list)', async () => {
     listPhotos.mockResolvedValueOnce({ photos: [{ id: 'photo-1' }] })
     const res = await photoDelete(deleteReq(), photoRoute({ id: 'cust-1', photoId: 'photo-1' }))

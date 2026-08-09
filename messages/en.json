@@ -651,6 +651,7 @@
       "presentError": "Couldn't load the photos. Please try again.",
       "discardPhotosTitle": "What should happen to the session photos?",
       "discardPhotosDescription": "This recording has {n} photo(s) (including uploads still in progress). Delete them too when you discard the recording?",
+      "discardPhotosKeepOnlyDescription": "This recording has {n} photo(s) (including uploads still in progress). Discarding the recording keeps them on the customer page.",
       "discardPhotosDelete": "Delete photos too",
       "discardPhotosKeep": "Keep on customer page",
       "discardDeleteFailed": "Failed to delete {n} photo(s)",

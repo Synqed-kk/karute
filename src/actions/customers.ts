@@ -473,6 +473,9 @@ export async function deleteCustomerPhoto(
   photoId: string,
 ) {
   try {
+    // records.delete — owner / manager / senior only. Mirrors scheduleCustomerDeletion /
+    // deleteKaruteRecord (Liam ruling 8/9: photo delete = same destructive tier).
+    await requireCapability('records.delete')
     const synqed = await getSynqedClient()
     await synqed.customers.deletePhoto(customerId, photoId)
     revalidatePath(`/customers/${customerId}`)

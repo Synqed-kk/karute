@@ -18,6 +18,8 @@
  *                     regenerateKaruteEntries,
  *                     updateKaruteSummary   (owner/manager/senior/practitioner)
  *   records.delete  → deleteKaruteRecord    (owner/manager/senior)
+ *                     deleteCustomerPhoto   (Liam ruling 8/9 — photo delete is
+ *                                            the same destructive tier)
  *                     + cross-staff assign on createManualKaruteRecord
  *   bookings.manage → createAppointment, updateAppointment, deleteAppointment
  *                     (every preset except empty custom)
@@ -129,6 +131,9 @@ jest.mock('@/lib/synqed/client', () => {
     getConsent: jest.fn(async () => ({
       consent: { policy_version: RECORDING_CONSENT_POLICY_VERSION, granted_at: '2026-07-01T00:00:00Z' },
     })),
+    // records.delete gate on deleteCustomerPhoto — spied so denial can assert
+    // the core was never reached.
+    deletePhoto: jest.fn(async () => undefined),
   }
   const client = { karuteRecords, appointments, staffStores, stores, customers, packs }
   return { getSynqedClient: jest.fn(async () => client) }
@@ -149,6 +154,7 @@ import {
   updateAppointment,
   deleteAppointment,
 } from '@/actions/appointments'
+import { deleteCustomerPhoto } from '@/actions/customers'
 
 // Pull the spies back out of the mocked modules (defined inside their
 // factories above) for readable, typed access in the test bodies.
@@ -163,10 +169,12 @@ let karuteRecords: {
   get: jest.Mock; update: jest.Mock; list: jest.Mock
 }
 let appointments: { create: jest.Mock; update: jest.Mock; delete: jest.Mock; get: jest.Mock }
+let customers: { getConsent: jest.Mock; deletePhoto: jest.Mock }
 beforeAll(async () => {
   const client = await getSynqedClient()
   karuteRecords = client.karuteRecords as unknown as typeof karuteRecords
   appointments = client.appointments as unknown as typeof appointments
+  customers = client.customers as unknown as typeof customers
 })
 
 const DENIAL = 'You do not have permission to perform this action.'
@@ -251,6 +259,20 @@ describe('RBAC — records.delete', () => {
     const result = await deleteKaruteRecord('k-1')
     expect(result).toEqual({ success: true })
     expect(karuteRecords.delete).toHaveBeenCalledWith('k-1')
+  })
+
+  it('deleteCustomerPhoto requires records.delete; denial returns { success: false } and never deletes', async () => {
+    deny('records.delete')
+    const result = await deleteCustomerPhoto('cust-1', 'photo-1')
+    expect(requireCapability).toHaveBeenCalledWith('records.delete')
+    expect(result).toEqual({ success: false, error: DENIAL })
+    expect(customers.deletePhoto).not.toHaveBeenCalled()
+  })
+
+  it('deleteCustomerPhoto with records.delete deletes', async () => {
+    const result = await deleteCustomerPhoto('cust-1', 'photo-1')
+    expect(result).toEqual({ success: true })
+    expect(customers.deletePhoto).toHaveBeenCalledWith('cust-1', 'photo-1')
   })
 })
 

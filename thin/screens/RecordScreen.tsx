@@ -54,6 +54,7 @@ function RecordScreenInner({ dto }: { dto: RecordScreenDTOType }) {
       targetPack={dto.targetPack}
       packPresets={dto.packPresets}
       staffCanCustomizePacks={dto.staffCanCustomizePacks}
+      staffCanDeletePhotos={dto.staffCanDeletePhotos}
       previousPack={dto.previousPack}
       ticketsEnabled={dto.ticketsEnabled}
       noiseSuppression={dto.noiseSuppression}

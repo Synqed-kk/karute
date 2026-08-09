@@ -4,6 +4,9 @@
 // to them (provePhotoForCustomer — listPhotos IS the ownership read, same
 // shape as provePackForCustomer). Calls the SAME core the web action uses
 // (synqed.customers.deletePhoto) — single source of truth.
+// Capability tier: records.delete (Liam ruling 8/9 — photo delete is the
+// destructive tier, owner/manager/senior; supersedes the earlier
+// customers.view sibling-parity gating). The photos GET stays customers.view.
 
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
@@ -16,7 +19,7 @@ export const runtime = 'nodejs'
 type Params = { id: string; photoId: string }
 
 export const DELETE = facadeHandler<Params>('customer.photo.delete', async (ctx: FacadeContext<Params>) => {
-  ensureCapability(ctx.identity.capabilities, 'customers.view')
+  ensureCapability(ctx.identity.capabilities, 'records.delete')
   const { id, photoId } = await ctx.route.params
   if (!id || !photoId) throw new AppApiError('validation', 'customer id and photo id are required')
 
