@@ -26,6 +26,14 @@ export interface KaruteWithRelations {
   customer_id: string | null
   client_id: string | null
   staff_profile_id: string | null
+  /** This session's store (synqed-core store_id) — the next-booking line's
+   *  store-scoped lookup + cross-store naming (D7). Optional: legacy/cached
+   *  shapes that predate this field simply omit it. */
+  store_id?: string | null
+  /** The appointment this karute is linked to, if any — excluded from the
+   *  next-booking line's candidates so an early-in-visit save can't surface
+   *  "next" = the visit happening right now. */
+  appointment_id?: string | null
   recording_session_id: string | null
   profiles: { id: string; full_name: string } | null
   customers: { id: string; name: string } | null
@@ -73,6 +81,8 @@ export function mapSynqedKaruteRecord(
     business_id?: string | null
     customer_id?: string | null
     staff_id?: string | null
+    store_id?: string | null
+    appointment_id?: string | null
     recording_session_id?: string | null
     entries?: Array<{
       id: string
@@ -102,6 +112,8 @@ export function mapSynqedKaruteRecord(
     customer_id: rec.business_id ?? null,
     client_id: rec.customer_id ?? null,
     staff_profile_id: rec.staff_id ?? null,
+    store_id: rec.store_id ?? null,
+    appointment_id: rec.appointment_id ?? null,
     // '' is not a session — normalize empty string the same as absent/null.
     recording_session_id: rec.recording_session_id || null,
     // staff name unresolved here (synqed staff_id ≠ profile id); header renders '—'.
