@@ -306,6 +306,47 @@ export function RecordPageView({
   // the background while they move on. It rides the pipeline context to save.
   const [outcomeOpen, setOutcomeOpen] = useState(false)
 
+  // Single-flight guard for the outcome dialog's 保存: a double-tap must never
+  // create two pack rows or fire two redemptions (live prod bug — the DB's
+  // partial unique index on pack_redemptions(appointment_id) can't block the
+  // walk-in NULL case, and pack creation has no dedupe of its own). The REF is
+  // the real guard — the synchronous re-entry check (state reads stale
+  // mid-tick, same reason usingRecording below is a ref). The state feeds the
+  // dialog's `saving` prop as belt-and-braces for a future edit that changes
+  // the close timing — TODAY it is NOT visibly observable at this call site:
+  // onResolve closes the dialog (setOutcomeOpen(false)) in the same batch it
+  // sets both, so the dialog never actually renders with saving=true here.
+  // Reset on the dialog's OPEN transition too (openOutcomeDialog below), not
+  // just in onResolve's finally — a hung take's write must not pre-lock the
+  // NEXT take's dialog as 保存中 (F2, PR-0 fix round).
+  const resolvingOutcomeRef = useRef(false)
+  const [resolvingOutcome, setResolvingOutcome] = useState(false)
+
+  // Per-take resolution latch (Greptile P1, #679): resolvingOutcomeRef only
+  // guards ONE in-flight resolve — it's intentionally reset on the dialog's
+  // OPEN transition (openOutcomeDialog, F2 above) so a hung write can't wedge
+  // the NEXT take's dialog shut. But that open-reset also let a re-tap of
+  // 録音を使用 for the SAME take reopen the dialog while onResolve's write is
+  // still in flight (handleUseRecording awaits a session-id mint before
+  // flipping `phase` back to idle, so the button stays tappable) — a second
+  // 保存 there re-fires createPackAction/redeemSessionAction with identical
+  // inputs. This ref latches ONCE the take has been resolved and blocks
+  // openOutcomeDialog from reopening for it; cleared only at the same
+  // take-lifecycle boundaries useRecordingGen already bumps at (a new take
+  // starting or the current one being discarded). Invariant: ONE resolution
+  // per take.
+  //
+  // Accepted residual (fresh-eyes round, PR-0 round 2): this is a component
+  // ref, not persisted state — a full page unmount+remount inside the
+  // ≤1500ms session-mint window (awaitRecordingSessionId's default timeout,
+  // global-recorder.ts) re-arms a fresh ref for an already-resolved take.
+  // Judged unreachable in practice: a real navigation round-trip doesn't
+  // complete inside that window. resolvingOutcomeRef has the same pre-
+  // existing exposure. Upgrade path if it ever matters: carry a
+  // resolvedTakeId on the globalRecorder singleton (survives remount)
+  // instead of a boolean ref on the component.
+  const outcomeResolvedRef = useRef(false)
+
   // Re-entry + staleness guards for the use-recording flow (it awaits the
   // session-id mint, so it's no longer atomic): first tap wins, and a discard
   // bumps the generation so an in-flight use drops its now-discarded take.
@@ -418,6 +459,15 @@ export function RecordPageView({
       setShowNoBookingPrompt(true)
       return
     }
+    // A new take begins here — clear the previous take's resolution latch.
+    outcomeResolvedRef.current = false
+    // A hung write must not dead-lock the NEXT take's save button: the finally
+    // below may never run (unsettled promise), and the belt keys off this state.
+    // Same boundary F2 already resets the latch at. A stale finally later
+    // clearing a newer take's belt is cosmetic — the ref latch in
+    // openOutcomeDialog stays the real guard.
+    resolvingOutcomeRef.current = false
+    setResolvingOutcome(false)
     startRecording({
       noiseSuppression,
       // nextAppointment is guaranteed here (early-return above when it's null).
@@ -441,6 +491,11 @@ export function RecordPageView({
   }
   function handleStartAnyway() {
     setShowNoBookingPrompt(false)
+    // A new take begins here — clear the previous take's resolution latch.
+    outcomeResolvedRef.current = false
+    // belt reset — see handleStartRecording
+    resolvingOutcomeRef.current = false
+    setResolvingOutcome(false)
     // Reached only via the no-booking prompt → nextAppointment is null, so there
     // is no customer to bind (walk-in); the save will require picking one.
     startRecording({ noiseSuppression, target: null })
@@ -449,6 +504,12 @@ export function RecordPageView({
     // Invalidate any in-flight handleUseRecording: its post-await body must
     // not hand a take the staff just discarded to the pipeline.
     useRecordingGen.current++
+    // The discarded take is done — its resolution latch (if any) must not
+    // carry over and wedge the NEXT take's dialog shut.
+    outcomeResolvedRef.current = false
+    // belt reset — see handleStartRecording
+    resolvingOutcomeRef.current = false
+    setResolvingOutcome(false)
     discardRecording()
     setPhase('idle')
   }
@@ -755,6 +816,20 @@ export function RecordPageView({
   // collapse to a single column so the record button isn't dwarfed by a half-empty grid.
   const layoutMode: 'single' | 'split' = targetAppointment ? 'split' : 'single'
 
+  // F2: every OPEN starts clean — a hung take's in-flight write must not
+  // pre-lock the NEXT take's dialog as 保存中 (the finally reset in onResolve
+  // only fires when that write eventually settles; a request that never
+  // settles left the guard stuck true forever under the old code).
+  function openOutcomeDialog() {
+    // This take already resolved once — never reopen for it (see
+    // outcomeResolvedRef above). Real re-opens (a new take) clear the latch
+    // at handleStartRecording/handleStartAnyway/handleDiscard, not here.
+    if (outcomeResolvedRef.current) return
+    resolvingOutcomeRef.current = false
+    setResolvingOutcome(false)
+    setOutcomeOpen(true)
+  }
+
   const recorderControls = phase === 'recorded' ? (
     <section className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-7 shadow-sm">
       <div className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">
@@ -777,6 +852,10 @@ export function RecordPageView({
           variant="default"
           size="md"
           className="flex-1"
+          // Belt: visual only, state-driven (resolvingOutcome only spans the
+          // pack/redeem write, not the whole post-resolve window) — the real
+          // guard is outcomeResolvedRef inside openOutcomeDialog.
+          disabled={resolvingOutcome}
           onClick={() => {
             // Tickets off OR the pack data on screen isn't this session's
             // customer (mismatch/anonymous): straight save — no burn, no
@@ -784,7 +863,7 @@ export function RecordPageView({
             const flow = resolveStopFlow({ ticketsEnabled, canRunOutcome, outcomeMode })
             if (flow === 'save-direct') handleUseRecording(undefined, true)
             else if (flow === 'auto-redeem') handleAutoFlow()
-            else setOutcomeOpen(true)
+            else openOutcomeDialog()
           }}
         >
           {t('useRecording')}
@@ -1015,6 +1094,7 @@ export function RecordPageView({
         open={outcomeOpen}
         customerName={boundCustomerName ?? ''}
         isFirstVisit={brief?.isFirstTimeVisit ?? false}
+        saving={resolvingOutcome}
         mode={outcomeMode === 'repurchase' ? 'repurchase' : 'conversion'}
         pack={targetPack}
         packPresets={packPresets}
@@ -1022,46 +1102,81 @@ export function RecordPageView({
         previousPack={previousPack}
         onCancel={() => setOutcomeOpen(false)}
         onResolve={(outcome, redeemPack, newPack: NewPackInput | null) => {
+          // First tap wins — see the guard declaration above.
+          if (resolvingOutcomeRef.current) return
+          resolvingOutcomeRef.current = true
+          // ONE resolution per take (Greptile P1, #679) — latch immediately,
+          // before any async work, so a re-tap of 録音を使用 during the
+          // upcoming await window can't reopen this dialog for the same take.
+          outcomeResolvedRef.current = true
+          setResolvingOutcome(true)
           setOutcomeOpen(false)
           // 成約/購入した with the inline picker filled → the pack is created
           // HERE, at the moment of sale (conservation law: the count-from-N
           // needs an input moment, not a profile errand).
-          if (newPack && saveBinding.customerId) {
-            const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000)
-              .toISOString()
-              .slice(0, 10)
-            void createPackAction({
-              customerId: saveBinding.customerId,
-              kind: 'pack',
-              packSize: newPack.size,
-              unitPrice: newPack.unitPrice,
-              purchasedAt: jstToday,
-            }).then((res) => {
-              if (res.ok) {
-                toast.success(
-                  tPacks('packCreated', {
-                    size: newPack.size,
-                    price: newPack.unitPrice.toLocaleString('ja-JP'),
-                  }),
-                )
-              } else {
-                toast.error(tPacks('packCreateFailed'))
-              }
-            })
-          }
-          // Redemption records the VISIT (which already happened), so it fires
-          // immediately — independent of whether the transcription/save later
-          // succeeds. Failure → toast; the profile pack card is the fallback.
-          if (redeemPack && targetPack && saveBinding.customerId) {
-            void redeemSessionAction({
-              packId: targetPack.id,
-              customerId: saveBinding.customerId,
-              appointmentId: saveBinding.appointmentId ?? null,
-            }).then((res) => {
-              if (res.ok) toast.success(tPacks('redeemDone'))
-              else toast.error(tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
-            })
-          }
+          void (async () => {
+            try {
+              // F1 (PR-0 fix round): pack-create and redemption are TWO
+              // INDEPENDENT writes, each with its own toast + catch — a
+              // THROWN createPackAction (its getSynqedClient init failure is
+              // now guarded, but this must hold even if a future edit
+              // weakens that) must never skip the redemption, and vice
+              // versa. The old sequential `await` coupled them: a throw from
+              // the first silently skipped the second entirely.
+              // saveBinding, never bound* (#670's law) — carried through the F1 restructure.
+              // Hoisted capture: property narrowing dies at the async-IIFE
+              // boundary; a const carries it through (saveBinding is stable
+              // for the life of this handler).
+              const packCustomerId = saveBinding.customerId
+              const packPromise =
+                newPack && packCustomerId
+                  ? (async () => {
+                      const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000)
+                        .toISOString()
+                        .slice(0, 10)
+                      const res = await createPackAction({
+                        customerId: packCustomerId,
+                        kind: 'pack',
+                        packSize: newPack.size,
+                        unitPrice: newPack.unitPrice,
+                        purchasedAt: jstToday,
+                      })
+                      if (res.ok) {
+                        toast.success(
+                          tPacks('packCreated', {
+                            size: newPack.size,
+                            price: newPack.unitPrice.toLocaleString('ja-JP'),
+                          }),
+                        )
+                      } else {
+                        toast.error(tPacks('packCreateFailed'))
+                      }
+                    })().catch(() => toast.error(tPacks('packCreateFailed')))
+                  : Promise.resolve()
+              // Redemption records the VISIT (which already happened) —
+              // awaited here only so the single-flight guard above covers it
+              // too; still independent of the pack-create above and of
+              // whether the transcription/save later succeeds. Failure →
+              // toast; the profile pack card is the fallback.
+              const redeemPromise =
+                redeemPack && targetPack && saveBinding.customerId
+                  ? redeemSessionAction({
+                      packId: targetPack.id,
+                      customerId: saveBinding.customerId,
+                      appointmentId: saveBinding.appointmentId ?? null,
+                    })
+                      .then((res) => {
+                        if (res.ok) toast.success(tPacks('redeemDone'))
+                        else toast.error(tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
+                      })
+                      .catch(() => toast.error(tPacks('redeemFailed')))
+                  : Promise.resolve()
+              await Promise.allSettled([packPromise, redeemPromise])
+            } finally {
+              resolvingOutcomeRef.current = false
+              setResolvingOutcome(false)
+            }
+          })()
           // 購入した → close the loop: the NEW pack must be registered, or the
           // alert system keeps treating them as nearly-out. One tap to the
           // profile's 登録 dialog.

@@ -73,14 +73,13 @@ export interface CreatePackInput {
   createdBy?: string | null
 }
 
-export async function createPack(
-  input: CreatePackInput,
-): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
-  return createPackWithClient(await getSynqedClient(), input)
-}
-
-/** Business-scoped create — the facade path (Bearer client), single-sourced with
- *  the cookie createPack above. */
+/** Business-scoped create (facade Bearer path) — also the cookie web action's
+ *  single call target (createPackAction imports this directly; the bare
+ *  cookie-client wrapper this file used to export was dead — nothing called
+ *  it). SINGLE SOURCE for 合計金額: derived HERE from unit_price × pack_size,
+ *  never trusting a caller-supplied totalPrice (F6, PR-0 fix round) — a
+ *  future direct caller of this function, bypassing createPackActionWithClient's
+ *  own derivation, still can't smuggle a mismatched total through. */
 export async function createPackWithClient(
   synqed: Pick<SynqedClient, 'packs'>,
   input: CreatePackInput,
@@ -91,7 +90,7 @@ export async function createPackWithClient(
       kind: input.kind,
       pack_size: input.packSize,
       unit_price: input.unitPrice,
-      total_price: input.totalPrice ?? null,
+      total_price: input.unitPrice * input.packSize,
       purchase_round: input.purchaseRound ?? 0,
       purchased_at: input.purchasedAt ?? null,
       source: input.source ?? 'manual',

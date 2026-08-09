@@ -1,11 +1,11 @@
 /**
- * createPackAction total_price defaulting (fix/pack-total-price).
- *
- * Neither purchase form sends totalPrice, which saved every pack with
- * total_price null — zero recorded pack revenue. The action now derives
- * 合計金額 = unitPrice × packSize server-side when the caller omits it, and
- * passes an explicit totalPrice (e.g. a hand-negotiated discount total)
- * through untouched. The store layer is mocked so we assert exactly what the
+ * createPackAction total_price defaulting (fix/pack-total-price), hardened
+ * further by fix/post-session-money-guards (PR-0): 合計金額 = unitPrice ×
+ * packSize is now ALWAYS server-derived, unconditionally — a caller-supplied
+ * totalPrice is ignored, not merely defaulted-when-omitted. The facade route
+ * (`customers/[id]/packs/route.ts`) still accepts a `totalPrice` key in the
+ * request body for old baked-shell compat, but its value never reaches this
+ * action's output. The store layer is mocked so we assert exactly what the
  * action forwards to createPack. Spies are `mock`-prefixed so the hoisted
  * jest.mock factory may reference them (babel-plugin-jest-hoist rule).
  */
@@ -72,17 +72,20 @@ describe('createPackAction — total_price defaulting', () => {
     )
   })
 
-  it('passes an explicit totalPrice through untouched (discounted pack)', async () => {
-    await createPackAction({
+  it('ignores a client-supplied totalPrice — server-derived unitPrice × packSize always wins', async () => {
+    // Facade money-guard (PR-0): a caller (e.g. a compromised or buggy
+    // client) sending totalPrice must never override the derived total.
+    const res = await createPackAction({
       customerId: 'cust-1',
       kind: 'pack',
       packSize: 10,
       unitPrice: 9900,
-      totalPrice: 88000,
+      totalPrice: 1,
     })
+    expect(res.ok).toBe(true)
     expect(mockCreatePack).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ totalPrice: 88000 }),
+      expect.objectContaining({ totalPrice: 99000 }),
     )
   })
 
