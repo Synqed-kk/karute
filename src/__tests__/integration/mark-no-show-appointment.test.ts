@@ -154,6 +154,43 @@ describe('markNoShowAppointment — no-burn path', () => {
   })
 })
 
+describe('markNoShowAppointment — 自動消化 correction (packet 11 rider L1#6)', () => {
+  // With auto mode on, the cron may already have burned a ticket for this
+  // booking (counts_as_visit:true) before staff correct it to NO_SHOW.
+  it('tells the staff a ticket was ALREADY spent when they chose not to burn', async () => {
+    listRecentRedemptions.mockResolvedValueOnce([
+      { customer_id: 'cust-1', appointment_id: 'appt-1', redeemed_on: '2026-07-06' },
+    ])
+    const res = await markNoShowAppointment('appt-1', { burnPack: false })
+    // The correction still lands — only the ticket story is completed.
+    expect(apptUpdate).toHaveBeenCalledWith('appt-1', expect.objectContaining({ status: 'NO_SHOW' }))
+    expect(addRedemption).not.toHaveBeenCalled()
+    expect(res).toEqual({ success: true, burnError: 'already_burned' })
+  })
+
+  it('stays silent when no prior burn exists — no invented warning', async () => {
+    const res = await markNoShowAppointment('appt-1', { burnPack: false })
+    expect(res).toEqual({ success: true })
+  })
+
+  it('an unreadable history invents nothing on the no-burn path (no charge either way)', async () => {
+    listRecentRedemptions.mockRejectedValueOnce(new Error('core down'))
+    const res = await markNoShowAppointment('appt-1', { burnPack: false })
+    expect(addRedemption).not.toHaveBeenCalled()
+    expect(res).toEqual({ success: true })
+  })
+
+  it('never double-charges when the staff DO choose to burn a already-auto-burned booking', async () => {
+    listCustomerPacks.mockResolvedValueOnce([BURNABLE_PACK])
+    listRecentRedemptions.mockResolvedValueOnce([
+      { customer_id: 'cust-1', appointment_id: 'appt-1', redeemed_on: '2026-07-06' },
+    ])
+    const res = await markNoShowAppointment('appt-1', { burnPack: true })
+    expect(addRedemption).not.toHaveBeenCalled()
+    expect(res).toEqual({ success: true, burnError: 'already_burned' })
+  })
+})
+
 describe('markNoShowAppointment — burn path', () => {
   it('burns the FIFO-picked pack with counts_as_visit:false and this appointment_id', async () => {
     listCustomerPacks.mockResolvedValueOnce([BURNABLE_PACK])

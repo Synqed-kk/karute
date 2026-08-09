@@ -10,6 +10,14 @@
     {
       "path": "/api/jobs/process",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/packs/auto-burn",
+      "schedule": "30 23 * * *"
+    },
+    {
+      "path": "/api/packs/auto-burn",
+      "schedule": "0 0-14 * * *"
     }
   ]
 }

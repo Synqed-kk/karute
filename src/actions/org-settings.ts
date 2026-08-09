@@ -7,6 +7,7 @@ import { revalidatePath, updateTag, unstable_cache } from 'next/cache'
 import type { SynqedClient } from '@synqed-kk/client'
 import { getSynqedClient, newSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId } from '@/lib/staff'
+import { ymdInJst } from '@/lib/date/jst'
 import {
   type OperatingHours,
   normalizeOperatingHours,
@@ -75,6 +76,17 @@ export interface OrgSettings {
   voice_enrollments: Record<string, VoiceEnrollment>
   /** Off → staff may only pick from presets (no free price/size input). */
   staff_can_customize_packs: boolean
+  /** How a ticket gets consumed. 'manual' (default, and what an absent key
+   *  means) = today's behavior: only a staff check-off / recording auto-flow /
+   *  no-show choice burns. 'auto' = the 自動消化 cron additionally burns one
+   *  ticket per completed booking the next morning (src/lib/packs/auto-burn.ts).
+   *  Cancellations are ticket-neutral in BOTH modes. */
+  pack_burn_mode: 'auto' | 'manual'
+  /** 自動消化 high-water mark: the newest JST date (yyyy-mm-dd) the cron has
+   *  cleanly processed for this business. Written by the cron itself, never by
+   *  the settings UI. Absent = never processed, which the cron reads as "take
+   *  only the newest day", so turning 自動消化 on can't retro-charge. */
+  auto_burn_last_processed?: string
   /** Master switch for 回数券. Off → every pack surface hides (profile card,
    *  dashboard reconcile/alerts, recording burn + outcome dialog) and pack
    *  fetches are skipped. Historical rows stay untouched — switching back on
@@ -152,6 +164,19 @@ function normalizeOrgSettings(
       s.staff_can_customize_packs === undefined
         ? true
         : Boolean(s.staff_can_customize_packs),
+    // Money default: anything that isn't literally 'auto' reads as 'manual', so
+    // a garbled/absent blob value can never turn automatic charging ON.
+    pack_burn_mode: s.pack_burn_mode === 'auto' ? 'auto' : 'manual',
+    // Anything that isn't a yyyy-mm-dd date reads as absent — a garbled marker
+    // must degrade to "never processed" (burn only the newest day), never to a
+    // bad comparison. The cron compares marker to dates as STRINGS, so a
+    // garbled one ('corrupt') sorts above every real date and made the pending
+    // list empty forever: nothing burned, no error, no signal (round 2 G6).
+    auto_burn_last_processed:
+      typeof s.auto_burn_last_processed === 'string' &&
+      /^\d{4}-\d{2}-\d{2}$/.test(s.auto_burn_last_processed)
+        ? s.auto_burn_last_processed
+        : undefined,
     ticket_packs_enabled:
       s.ticket_packs_enabled === undefined
         ? true
@@ -261,6 +286,35 @@ export async function writeOrgSettingsBlobWithClient(
     // salon_name maps to the top-level `name` column; everything else lives in
     // the settings JSON
     const { salon_name, id: _id, ...rest } = nextSettings as OrgSettings & { id?: string }
+
+    // 自動消化 turning ON is a FORWARD-GOING decision (round 2 G5). This is the
+    // one place the transition is visible — the merge above is what holds the
+    // previous value — and without the seed the first sweep after a flip
+    // retro-charges every booking that already ended, which is exactly what the
+    // settings copy promises it won't do. Seeding the cron's marker to TODAY
+    // settles today, so the first burn is tomorrow's.
+    // The transition is BOTH switches together, because both gate the cron: the
+    // mode is 'auto' AND 回数券 is on. Turning 回数券 back on after a break
+    // would otherwise let the cron's catch-up window reach into the days it was
+    // off. ONLY on the transition — a re-save must not move the marker, which
+    // would stall a genuine catch-up, and the cron's own marker write (which
+    // sends no mode) must pass through untouched.
+    const effectiveAuto = (s: Record<string, unknown>, patch: Partial<OrgSettings>) =>
+      (patch.pack_burn_mode ?? s.pack_burn_mode) === 'auto' &&
+      (patch.ticket_packs_enabled ?? s.ticket_packs_enabled) !== false
+    if (!effectiveAuto(existingSettings, {}) && effectiveAuto(existingSettings, rest)) {
+      // The seed leapfrogs whatever marker was there — if the cron had a
+      // genuine backlog (stall/outage), those days are deliberately ceded to
+      // flip-forward (never retro-charge), but never silently: mirror the
+      // cron's own gap warning so the log tells the same story on both sides.
+      const prior = existingSettings.auto_burn_last_processed
+      if (typeof prior === 'string' && prior < ymdInJst(new Date(Date.now() - 86_400_000))) {
+        // Fires for any >1-day gap — OFF-period days (nothing owed) and
+        // stalled-while-ON days alike; the log can't tell them apart.
+        console.warn('[auto-burn]', JSON.stringify({ warn: 'flip-on seed leapfrogs stale marker', prior, seeded: ymdInJst() }))
+      }
+      rest.auto_burn_last_processed = ymdInJst()
+    }
 
     await synqed.orgSettings.upsert({
       ...(salon_name !== undefined ? { name: salon_name } : {}),
