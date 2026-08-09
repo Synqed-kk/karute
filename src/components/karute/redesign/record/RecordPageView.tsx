@@ -142,6 +142,50 @@ export interface RecordPageViewProps {
   ticketsEnabled?: boolean
 }
 
+/**
+ * What the save binds the take to. Exported for tests.
+ *
+ * The take may bind ONLY to what it was actually recorded against — the
+ * bound `target`, or the timetable-store ids for the 予約-launched flow.
+ * NEVER to `nextAppointment`: the schedule can drift to a different customer
+ * between start and save (blind-round P1 8/2 — an anonymous record-anyway
+ * take silently attached to the next booking, and a bound walk-in captured
+ * the schedule's appointment id). An anonymous take returns nothing here —
+ * per handleStartAnyway's contract, the save then requires picking a
+ * customer downstream, exactly like the no-schedule case always has.
+ */
+export function resolveSaveBinding(
+  target: { customerId: string; appointmentId: string | null } | null,
+  recordingAppointmentId: string | null,
+  recordingCustomerId: string | null,
+): { appointmentId: string | undefined; customerId: string | undefined } {
+  return {
+    appointmentId: (target?.appointmentId ?? recordingAppointmentId) || undefined,
+    customerId:
+      target?.customerId ??
+      (recordingAppointmentId ? (recordingCustomerId ?? undefined) : undefined),
+  }
+}
+
+/**
+ * Which stop flow the 録音を使用 tap runs. Exported for tests.
+ *
+ * Ticket economics (auto-burn / 成約・回数券 dialog) may fire ONLY when the
+ * schedule data they price against belongs to the session's own customer:
+ * under a schedule mismatch (incl. an anonymous take) the pack/outcome data
+ * on screen is another customer's — burning or creating against it is the
+ * money-side of the same misattribution bug (delta-verify catch 8/2). Those
+ * sessions save directly; 成約/回数券 completes later via the profile flows.
+ */
+export function resolveStopFlow(opts: {
+  ticketsEnabled: boolean
+  canRunOutcome: boolean
+  outcomeMode: 'auto' | 'conversion' | 'repurchase'
+}): 'save-direct' | 'auto-redeem' | 'dialog' {
+  if (!opts.ticketsEnabled || !opts.canRunOutcome) return 'save-direct'
+  return opts.outcomeMode === 'auto' ? 'auto-redeem' : 'dialog'
+}
+
 export function RecordPageView({
   customers,
   locale,
@@ -195,8 +239,29 @@ export function RecordPageView({
   // bound customer while recording and the next booking when idle — and can
   // NEVER drift to a different customer on navigation the way nextAppointment does.
   const boundCustomerId = target?.customerId ?? nextAppointment?.customerId
-  const boundAppointmentId = (target?.appointmentId ?? nextAppointment?.id) || undefined
   const boundCustomerName = (live && target ? target.customerName : nextAppointment?.customerName) ?? null
+  // Belt & suspenders (field bug 8/2): any entry path that leaves the recorder
+  // in flight for one customer while `nextAppointment` resolved to another
+  // (deep link, back-nav, stale tab) must never paint that OTHER customer's
+  // schedule-derived sections under the session. Covers BOTH a bound target of
+  // a different customer AND an anonymous record-anyway take (target null —
+  // blind-round P1: the page must not masquerade the schedule's customer as
+  // the one being recorded). Keyed on recState, not `live`: pipeline-active
+  // with an idle recorder is the normal post-handoff state and stays unguarded.
+  const scheduleMismatch = Boolean(
+    recState !== 'idle' &&
+      nextAppointment &&
+      (!target || target.customerId !== nextAppointment.customerId),
+  )
+  // Single source of binding for EVERYTHING the stop flow writes — the karute
+  // save AND the pack money mutations (delta-verify catch 8/2: the latter
+  // still rode boundCustomerId's nextAppointment fall-through).
+  const saveBinding = resolveSaveBinding(
+    target,
+    recordingAppointmentId ?? null,
+    recordingCustomerId ?? null,
+  )
+  const canRunOutcome = !scheduleMismatch && Boolean(saveBinding.customerId)
 
   // Runaway-recording safety nets (see global-recorder): nudge the staff when a
   // recording runs unusually long, and tell them when the hard cap auto-saved it.
@@ -405,11 +470,8 @@ export function RecordPageView({
       // re-prompting at the end.
       // `|| undefined`: a walk-in target (customer recorded with no booking)
       // carries id='' — coerce it so the save writes appointment_id null, not ''.
-      const effectiveAppointmentId =
-        (target?.appointmentId ?? recordingAppointmentId ?? nextAppointment?.id) || undefined
-      const effectiveCustomerId = target?.customerId ?? (recordingAppointmentId
-        ? (recordingCustomerId ?? undefined)
-        : nextAppointment?.customerId)
+      const { appointmentId: effectiveAppointmentId, customerId: effectiveCustomerId } =
+        saveBinding
       // Recording-session id was minted at start() (in parallel with getUserMedia)
       // — by now (recording has run its full length) it has almost always
       // resolved; this short await only covers the rare case it hasn't yet.
@@ -517,6 +579,7 @@ export function RecordPageView({
   // Slim heads-up: the picked customer is booked under another staff. The
   // record still saves under the signed-in user (currentStaffName).
   const otherStaffBanner =
+    !scheduleMismatch &&
     nextAppointment?.bookedUnderOtherStaff &&
     nextAppointment.staffName &&
     currentStaffName ? (
@@ -537,13 +600,15 @@ export function RecordPageView({
     // pack session (redeemSessionAction has no server-side idempotency), so
     // a double-tap must not fire it twice for one take.
     if (usingRecording.current) return
-    if (targetPack && boundCustomerId) {
+    // saveBinding, never bound*: the burn must hit the session's own customer
+    // (delta-verify catch 8/2 — boundCustomerId falls through to the schedule).
+    if (targetPack && saveBinding.customerId) {
       const from = targetPack.remaining
       void redeemSessionAction({
         packId: targetPack.id,
-        customerId: boundCustomerId,
-        // '' for walk-in targets → null (no booking to link)
-        appointmentId: boundAppointmentId ?? null,
+        customerId: saveBinding.customerId,
+        // undefined for walk-in targets → null (no booking to link)
+        appointmentId: saveBinding.appointmentId ?? null,
       }).then((res) => {
         if (res.ok) {
           toast.success(
@@ -654,7 +719,12 @@ export function RecordPageView({
   // appointment window — keeps this client component pure for
   // React Compiler). 新規 (isFirstTimeVisit) flows from the brief.
   const targetAppointment: RecordTargetAppointment | null =
-    live && target
+    recState !== 'idle' && !target
+      ? // Anonymous record-anyway take in flight: the card must show its
+        // unbound state — falling through to nextAppointment would claim the
+        // schedule's customer as the one being recorded (blind-round P1 8/2).
+        null
+      : live && target
       ? // While a recording/pipeline is live, the card MUST show the customer
         // the audio is BOUND to — never re-derive from nextAppointment, which
         // can have drifted to today's first booking under the singleton.
@@ -707,14 +777,15 @@ export function RecordPageView({
           variant="default"
           size="md"
           className="flex-1"
-          onClick={() =>
-            // Tickets off: straight save — no burn, no 成約/回数券 dialog.
-            !ticketsEnabled
-              ? handleUseRecording(undefined, true)
-              : outcomeMode === 'auto'
-                ? handleAutoFlow()
-                : setOutcomeOpen(true)
-          }
+          onClick={() => {
+            // Tickets off OR the pack data on screen isn't this session's
+            // customer (mismatch/anonymous): straight save — no burn, no
+            // 成約/回数券 dialog (resolveStopFlow's contract).
+            const flow = resolveStopFlow({ ticketsEnabled, canRunOutcome, outcomeMode })
+            if (flow === 'save-direct') handleUseRecording(undefined, true)
+            else if (flow === 'auto-redeem') handleAutoFlow()
+            else setOutcomeOpen(true)
+          }}
         >
           {t('useRecording')}
         </Button>
@@ -737,9 +808,14 @@ export function RecordPageView({
   const recorderColumn = (
     <div className="flex flex-col gap-3.5">
       {recorderControls}
-      <div className="flex justify-center">
-        <ConsentPill consentDate={consentDate} />
-      </div>
+      {/* consentDate is nextAppointment-derived — under a schedule mismatch it
+          would show the OTHER customer's consent as if it covered this session
+          (blind-round catch, same class as the briefing leak). */}
+      {!scheduleMismatch && (
+        <div className="flex justify-center">
+          <ConsentPill consentDate={consentDate} />
+        </div>
+      )}
       {phase === 'idle' && nextAppointment && consent && !consent.granted && (
         <ConsentCheckCard
           consented={false}
@@ -863,23 +939,27 @@ export function RecordPageView({
               onSwitchBooking={live ? undefined : handleSwitchBooking}
             />
             {otherStaffBanner}
-            <RepurchaseCueBanner pack={targetPack} />
-            {visitRhythm && (
+            {!scheduleMismatch && <RepurchaseCueBanner pack={targetPack} />}
+            {!scheduleMismatch && visitRhythm && (
               <div className="overflow-hidden rounded-2xl border border-border">
                 <VisitRhythmPanel rhythm={visitRhythm} segment={visitSegment} />
               </div>
             )}
-            <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
-            <Suspense
-              key={nextAppointment?.customerId ?? 'none'}
-              fallback={<BriefLoadingCard />}
-            >
-              <StreamingBriefCard
-                aiBriefPromise={aiBriefPromise}
-                fallbackBrief={brief}
-                customerName={nextAppointment?.customerName ?? null}
-              />
-            </Suspense>
+            {!scheduleMismatch && (
+              <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
+            )}
+            {!scheduleMismatch && (
+              <Suspense
+                key={nextAppointment?.customerId ?? 'none'}
+                fallback={<BriefLoadingCard />}
+              >
+                <StreamingBriefCard
+                  aiBriefPromise={aiBriefPromise}
+                  fallbackBrief={brief}
+                  customerName={nextAppointment?.customerName ?? null}
+                />
+              </Suspense>
+            )}
           </div>
           <div className="self-start">{recorderColumn}</div>
         </div>
@@ -891,30 +971,36 @@ export function RecordPageView({
             onSwitchBooking={live ? undefined : handleSwitchBooking}
           />
           {otherStaffBanner}
-          <RepurchaseCueBanner pack={targetPack} />
-          {visitRhythm && (
+          {!scheduleMismatch && <RepurchaseCueBanner pack={targetPack} />}
+          {!scheduleMismatch && visitRhythm && (
             <div className="overflow-hidden rounded-2xl border border-border">
               <VisitRhythmPanel rhythm={visitRhythm} segment={visitSegment} />
             </div>
           )}
-          <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
-          <Suspense
-            key={nextAppointment?.customerId ?? 'none'}
-            fallback={<BriefLoadingCard />}
-          >
-            <StreamingBriefCard
-              aiBriefPromise={aiBriefPromise}
-              fallbackBrief={brief}
-              customerName={nextAppointment?.customerName ?? null}
-            />
-          </Suspense>
+          {!scheduleMismatch && (
+            <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
+          )}
+          {!scheduleMismatch && (
+            <Suspense
+              key={nextAppointment?.customerId ?? 'none'}
+              fallback={<BriefLoadingCard />}
+            >
+              <StreamingBriefCard
+                aiBriefPromise={aiBriefPromise}
+                fallbackBrief={brief}
+                customerName={nextAppointment?.customerName ?? null}
+              />
+            </Suspense>
+          )}
           <div className="mx-auto w-full max-w-md">{recorderColumn}</div>
         </div>
       )}
 
       <LiveTranscriptCard connected={false} lines={[]} />
 
-      <RecentRecordingsCard recordings={recentRecordings} />
+      {/* recentRecordings is keyed on nextAppointment's customer (names,
+          services, karute numbers) — same mismatch guard as the briefing. */}
+      {!scheduleMismatch && <RecentRecordingsCard recordings={recentRecordings} />}
 
       {/* Mic source + disclosure mode: set-once config, demoted to a quiet strip
           at the very bottom so the record button stays the focus (Liam, 2026-06). */}
@@ -940,12 +1026,12 @@ export function RecordPageView({
           // 成約/購入した with the inline picker filled → the pack is created
           // HERE, at the moment of sale (conservation law: the count-from-N
           // needs an input moment, not a profile errand).
-          if (newPack && boundCustomerId) {
+          if (newPack && saveBinding.customerId) {
             const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000)
               .toISOString()
               .slice(0, 10)
             void createPackAction({
-              customerId: boundCustomerId,
+              customerId: saveBinding.customerId,
               kind: 'pack',
               packSize: newPack.size,
               unitPrice: newPack.unitPrice,
@@ -966,11 +1052,11 @@ export function RecordPageView({
           // Redemption records the VISIT (which already happened), so it fires
           // immediately — independent of whether the transcription/save later
           // succeeds. Failure → toast; the profile pack card is the fallback.
-          if (redeemPack && targetPack && boundCustomerId) {
+          if (redeemPack && targetPack && saveBinding.customerId) {
             void redeemSessionAction({
               packId: targetPack.id,
-              customerId: boundCustomerId,
-              appointmentId: boundAppointmentId ?? null,
+              customerId: saveBinding.customerId,
+              appointmentId: saveBinding.appointmentId ?? null,
             }).then((res) => {
               if (res.ok) toast.success(tPacks('redeemDone'))
               else toast.error(tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
@@ -982,9 +1068,9 @@ export function RecordPageView({
           if (
             outcome.status === 'success' &&
             !newPack &&
-            boundCustomerId
+            saveBinding.customerId
           ) {
-            const customerId = boundCustomerId
+            const customerId = saveBinding.customerId
             toast.success(t('registerNewPackPrompt'), {
               duration: 10_000,
               action: {

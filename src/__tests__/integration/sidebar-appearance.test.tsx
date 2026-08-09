@@ -8,11 +8,23 @@
 import { render, screen } from '@testing-library/react'
 
 let mockStyle: 'light' | 'dark' = 'light'
+let mockTarget: { customerId: string } | null = null
 
 jest.mock('@/i18n/navigation', () => ({
   usePathname: () => '/dashboard',
   useRouter: () => ({ push: jest.fn(), refresh: jest.fn() }),
-  Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
+  // href passes through so the live-target carry tests can assert it.
+  Link: ({ children, href }: { children: React.ReactNode; href?: unknown }) => (
+    <a href={typeof href === 'string' ? href : undefined}>{children}</a>
+  ),
+}))
+jest.mock('@/hooks/use-global-recorder', () => ({
+  useGlobalRecorder: () => ({
+    state: mockTarget ? 'recording' : 'idle',
+    startedAt: null,
+    stopRecording: jest.fn(),
+    target: mockTarget,
+  }),
 }))
 jest.mock('next-intl', () => ({ useTranslations: () => (k: string) => k }))
 jest.mock('@/lib/supabase/client', () => ({
@@ -32,6 +44,7 @@ import { Sidebar } from '@/components/layout/sidebar'
 
 afterEach(() => {
   mockStyle = 'light'
+  mockTarget = null
 })
 
 describe('Sidebar appearance', () => {
@@ -57,5 +70,19 @@ describe('Sidebar appearance', () => {
     expect(screen.getByText('dashboard')).toBeInTheDocument()
     expect(screen.getByText('customers')).toBeInTheDocument()
     expect(screen.getByText('settings')).toBeInTheDocument()
+  })
+
+  it('録音 link carries the bound customer while a session is live (field bug 8/2)', () => {
+    mockTarget = { customerId: 'cust-A' }
+    const { container } = render(<Sidebar />)
+    expect(
+      container.querySelector('a[href="/sessions?customerId=cust-A"]'),
+    ).not.toBeNull()
+    expect(container.querySelector('a[href="/sessions"]')).toBeNull()
+  })
+
+  it('録音 link is bare /sessions when idle', () => {
+    const { container } = render(<Sidebar />)
+    expect(container.querySelector('a[href="/sessions"]')).not.toBeNull()
   })
 })
