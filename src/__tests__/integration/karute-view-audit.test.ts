@@ -41,7 +41,6 @@ jest.mock('@/components/karute/redesign/detail/KaruteDetailView', () => ({
 }))
 jest.mock('@/components/karute/redesign/detail/PhotoRecordsServer', () => ({
   PhotoRecordsServer: () => null,
-  PhotoRecordsSkeleton: () => null,
 }))
 jest.mock('@/components/karute/redesign/detail/AiInsightSlots', () => ({
   AIBodyPredictionSlot: () => null,

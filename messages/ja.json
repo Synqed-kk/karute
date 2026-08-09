@@ -389,8 +389,7 @@
     "photos": {
       "title": "写真記録",
       "subtitle": "施術前後・参考写真",
-      "showToCustomer": "お客様に表示",
-      "empty": "このカルテに紐づく写真はまだありません。すべての写真は顧客プロフィールで確認できます。"
+      "showToCustomer": "お客様に表示"
     },
     "bodyPrediction": {
       "title": "AI身体予測",

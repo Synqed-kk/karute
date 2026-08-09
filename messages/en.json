@@ -389,8 +389,7 @@
     "photos": {
       "title": "Photo records",
       "subtitle": "Customer progress photos & references",
-      "showToCustomer": "Show to customer",
-      "empty": "No photos linked to this karute yet — all photos are on the customer profile."
+      "showToCustomer": "Show to customer"
     },
     "bodyPrediction": {
       "title": "AI BODY PREDICTION",
