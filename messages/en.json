@@ -390,7 +390,7 @@
       "title": "Photo records",
       "subtitle": "Customer progress photos & references",
       "showToCustomer": "Show to customer",
-      "empty": "No photos yet — upload from the customer profile."
+      "empty": "No photos linked to this karute yet — all photos are on the customer profile."
     },
     "bodyPrediction": {
       "title": "AI BODY PREDICTION",

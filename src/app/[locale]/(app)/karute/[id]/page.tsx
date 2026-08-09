@@ -125,7 +125,10 @@ export default async function KaruteDetailPage({
       photosSlot={
         customerId ? (
           <Suspense fallback={<PhotoRecordsSkeleton />}>
-            <PhotoRecordsServer customerId={customerId} />
+            <PhotoRecordsServer
+              customerId={customerId}
+              recordingSessionId={karute.recording_session_id}
+            />
           </Suspense>
         ) : null
       }

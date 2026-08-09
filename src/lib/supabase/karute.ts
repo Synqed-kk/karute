@@ -34,6 +34,7 @@ export interface KaruteWithRelations {
    *  next-booking line's candidates so an early-in-visit save can't surface
    *  "next" = the visit happening right now. */
   appointment_id?: string | null
+  recording_session_id: string | null
   profiles: { id: string; full_name: string } | null
   customers: { id: string; name: string } | null
   entries: Array<{
@@ -82,6 +83,7 @@ export function mapSynqedKaruteRecord(
     staff_id?: string | null
     store_id?: string | null
     appointment_id?: string | null
+    recording_session_id?: string | null
     entries?: Array<{
       id: string
       category: string
@@ -112,6 +114,8 @@ export function mapSynqedKaruteRecord(
     staff_profile_id: rec.staff_id ?? null,
     store_id: rec.store_id ?? null,
     appointment_id: rec.appointment_id ?? null,
+    // '' is not a session — normalize empty string the same as absent/null.
+    recording_session_id: rec.recording_session_id || null,
     // staff name unresolved here (synqed staff_id ≠ profile id); header renders '—'.
     profiles: null,
     customers: rec.customer_id
