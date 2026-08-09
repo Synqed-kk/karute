@@ -84,6 +84,25 @@ export function PhotoPresentationOverlay({
   const [opacity, setOpacity] = useState(0.5)
   const [fullscreen, setFullscreen] = useState<FullscreenState | null>(null)
 
+  // Customer-facing toast leak (PR 9b §6, moved here 2026-08-09 — the guard
+  // used to live in SessionPhotoCard, one of this overlay's callers, and
+  // shipped unguarded on PhotosTabContent's mount): sonner's toaster stacks
+  // at z-index 999999999, which outstacks this overlay's z-[120] shell — a
+  // staff-facing toast (recording-status nudges, upload errors, etc.) must
+  // NEVER paint over a screen a customer is holding. This overlay is the
+  // ONLY customer-facing surface in the app (see the privacy contract
+  // above), so the guard belongs on ITS OWN mount lifecycle, not
+  // duplicated into every caller — every mount, present and future, is
+  // covered by construction. Cleanup runs on both a real close (this
+  // component unmounts on close, per the callers' `{open && <...>}`
+  // pattern) and on unmount directly, so the class can never get stuck on.
+  useEffect(() => {
+    document.body.classList.add('customer-presentation-open')
+    return () => {
+      document.body.classList.remove('customer-presentation-open')
+    }
+  }, [])
+
   useEffect(() => {
     window.history.pushState({ karutePhotoPresentation: true }, '')
     const onPop = () => {

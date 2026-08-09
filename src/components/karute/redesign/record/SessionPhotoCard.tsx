@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslations } from 'next-intl'
 import { Eye } from 'lucide-react'
 import { toast } from 'sonner'
@@ -41,19 +41,6 @@ export function SessionPhotoCard({
   // card must never render another customer's strip even if that invariant
   // weakens. Render-body filter — getSnapshot must stay reference-stable.
   const photos = allPhotos.filter((p) => p.customerId === customerId)
-
-  // Customer-facing toast leak (PR 9b §6): while the presentation overlay is
-  // open, a recording-status toast (sonner z-index 999999999) would outstack
-  // the overlay's z-[120] shell and appear on the screen a customer is
-  // watching. The cleanup runs on BOTH close (presenting flips false) and
-  // unmount (React always runs it), so the class can never get stuck on.
-  useEffect(() => {
-    if (!presenting) return
-    document.body.classList.add('customer-presentation-open')
-    return () => {
-      document.body.classList.remove('customer-presentation-open')
-    }
-  }, [presenting])
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
