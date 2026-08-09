@@ -332,3 +332,44 @@ describe('facadeApiFetch stranded-pin self-heal', () => {
     expect(resyncChromeAfterHeal).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * The client marker (#689 P1). The facade version-gates shape changes a BAKED
+ * shell cannot parse (the revisit outcome) on the PRESENCE of 'app-version' —
+ * so a bundle that stops sending it silently downgrades every screen it serves
+ * back to old-shell shapes. Same app-relative-only hygiene as the Bearer.
+ */
+describe('facadeApiFetch client marker headers', () => {
+  type CapGlobal = { Capacitor?: { getPlatform?: () => string } }
+
+  afterEach(() => {
+    delete (globalThis as CapGlobal).Capacitor
+  })
+
+  it('an app-relative fetch carries app-version + platform', async () => {
+    const fetchSpy = jest.fn<Promise<Response>, unknown[]>().mockResolvedValue(ok)
+    global.fetch = fetchSpy as unknown as typeof fetch
+    await facadeApiFetch(toUrl, '/api/app/v1/screens/karute/kar-1')
+    const sent = headersOf(fetchSpy.mock.calls[0])
+    expect(sent.get('app-version')).toBeTruthy()
+    // No Capacitor global (plain browser) → 'web', never absent.
+    expect(sent.get('platform')).toBe('web')
+  })
+
+  it('the platform header reports the shell when Capacitor injected its global', async () => {
+    ;(globalThis as CapGlobal).Capacitor = { getPlatform: () => 'ios' }
+    const fetchSpy = jest.fn<Promise<Response>, unknown[]>().mockResolvedValue(ok)
+    global.fetch = fetchSpy as unknown as typeof fetch
+    await facadeApiFetch(toUrl, '/api/app/v1/screens/karute/kar-1')
+    expect(headersOf(fetchSpy.mock.calls[0]).get('platform')).toBe('ios')
+  })
+
+  it('an absolute-URL fetch carries NEITHER — no client identity to a foreign origin', async () => {
+    const fetchSpy = jest.fn<Promise<Response>, unknown[]>().mockResolvedValue(ok)
+    global.fetch = fetchSpy as unknown as typeof fetch
+    await facadeApiFetch(toUrl, 'https://foreign.test/x')
+    const sent = headersOf(fetchSpy.mock.calls[0])
+    expect(sent.get('app-version')).toBeNull()
+    expect(sent.get('platform')).toBeNull()
+  })
+})

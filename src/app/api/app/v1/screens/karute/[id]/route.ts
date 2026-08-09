@@ -108,10 +108,27 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       : null
     const karute = mapSynqedKaruteRecord(raw, customerName)
 
+    // Merge→shell-update window gate (#689 P1). Fielded shells (iOS ≤4.6,
+    // Android ≤code 12) parse this screen with a BAKED strict outcome enum
+    // that predates 'revisit' — one such row hard-fails their ENTIRE detail
+    // screen (ScreenBoundary error card, retry never recovers) until the phone
+    // takes the 4.7/code-13 bake. Only a revisit-aware bundle sends
+    // 'app-version' (facade-fetch), so absent/empty = an old shell; falsy, not
+    // a version compare — iOS sends dotted, Android integer, and the new DTO
+    // (karute-detail-screen-dto.ts) already widened the read field to
+    // z.string(), making this the LAST bake-coupled enum change, so a compare
+    // would be dead code with no future user. The WHOLE object goes null
+    // (renders 未記録): the old baked OutcomeSchema's INNER field is the
+    // strict enum, so nulling only that field still fails — and the object is
+    // .nullable() on old AND new DTOs. Non-revisit outcomes pass through
+    // untouched for every client.
+    const outcomeForClient =
+      outcome?.outcome === 'revisit' && !ctx.meta.appVersion ? null : outcome
+
     const built = buildKaruteDetailScreen({
       karute,
       allCustomers,
-      outcome,
+      outcome: outcomeForClient,
       viewerStaffId,
       canViewAllRecordings,
       contact: customer ? { phone: customer.phone, email: customer.email } : null,
