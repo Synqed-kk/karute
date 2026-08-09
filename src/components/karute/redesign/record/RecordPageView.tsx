@@ -461,6 +461,13 @@ export function RecordPageView({
     }
     // A new take begins here — clear the previous take's resolution latch.
     outcomeResolvedRef.current = false
+    // A hung write must not dead-lock the NEXT take's save button: the finally
+    // below may never run (unsettled promise), and the belt keys off this state.
+    // Same boundary F2 already resets the latch at. A stale finally later
+    // clearing a newer take's belt is cosmetic — the ref latch in
+    // openOutcomeDialog stays the real guard.
+    resolvingOutcomeRef.current = false
+    setResolvingOutcome(false)
     startRecording({
       noiseSuppression,
       // nextAppointment is guaranteed here (early-return above when it's null).
@@ -486,6 +493,9 @@ export function RecordPageView({
     setShowNoBookingPrompt(false)
     // A new take begins here — clear the previous take's resolution latch.
     outcomeResolvedRef.current = false
+    // belt reset — see handleStartRecording
+    resolvingOutcomeRef.current = false
+    setResolvingOutcome(false)
     // Reached only via the no-booking prompt → nextAppointment is null, so there
     // is no customer to bind (walk-in); the save will require picking one.
     startRecording({ noiseSuppression, target: null })
@@ -497,6 +507,9 @@ export function RecordPageView({
     // The discarded take is done — its resolution latch (if any) must not
     // carry over and wedge the NEXT take's dialog shut.
     outcomeResolvedRef.current = false
+    // belt reset — see handleStartRecording
+    resolvingOutcomeRef.current = false
+    setResolvingOutcome(false)
     discardRecording()
     setPhase('idle')
   }

@@ -68,7 +68,16 @@ jest.mock('@synqed-kk/ui', () => {
   const { createElement } = require('react') as typeof import('react')
   const passthrough = ({ children, ...rest }: Record<string, unknown> = {}) =>
     createElement('div', rest, children as React.ReactNode)
-  return new Proxy({}, { get: () => passthrough })
+  // Button renders a REAL <button> so `disabled` is honored natively —
+  // fireEvent.click on a disabled <button> is a no-op in the DOM, matching
+  // production. The old div passthrough ignored `disabled` entirely, which
+  // was the false-green root cause (adversarial-lens P1, #679 re-tip round).
+  const button = ({ children, ...rest }: Record<string, unknown> = {}) =>
+    createElement('button', rest, children as React.ReactNode)
+  return new Proxy(
+    {},
+    { get: (_target, prop) => (prop === 'Button' ? button : passthrough) },
+  )
 })
 jest.mock('@/lib/karute/take-store', () => ({
   appendTakeSegment: jest.fn(),
