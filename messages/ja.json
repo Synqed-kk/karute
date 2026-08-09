@@ -718,6 +718,7 @@
       "addPhoto": "写真を追加",
       "uploading": "アップロード中…",
       "uploadError": "アップロードに失敗しました。もう一度お試しください。",
+      "photoTooLarge": "写真のサイズが大きすぎるためアップロードできません。",
       "categoryLabel": "カテゴリ",
       "compareButton": "比較",
       "compareExit": "比較を終了",

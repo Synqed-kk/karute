@@ -718,6 +718,7 @@
       "addPhoto": "Add photo",
       "uploading": "Uploading…",
       "uploadError": "Upload failed. Please try again.",
+      "photoTooLarge": "This photo is too large to upload.",
       "categoryLabel": "Category",
       "compareButton": "Compare",
       "compareExit": "Exit compare",

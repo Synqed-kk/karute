@@ -6,6 +6,7 @@ import { Camera, Columns2, Eye, Image as ImageIcon, Loader2 } from 'lucide-react
 import { useTranslations } from 'next-intl'
 
 import { uploadCustomerPhoto } from '@/actions/customers'
+import { PHOTO_UPLOAD_REJECT_BYTES, shrinkPhotoForUpload } from '@/lib/photo-shrink'
 import { PhotoCompareView } from './PhotoCompareView'
 import { PhotoPresentationOverlay } from './PhotoPresentationOverlay'
 
@@ -60,8 +61,17 @@ export function PhotosTabContent({ customerId, photos }: PhotosTabContentProps) 
     setError(null)
     try {
       for (const file of Array.from(files)) {
+        const upload = await shrinkPhotoForUpload(file)
+        // Final guard: blocks only what the server would certainly 503
+        // (the probe-proven ~950KB floor). Files between the shrink
+        // ladder's target and this floor ride through pre-guard — a
+        // near-floor body can still 503 server-side, which shows the
+        // generic copy below (pre-existing shape, not new).
+        if (upload.size >= PHOTO_UPLOAD_REJECT_BYTES) {
+          throw new Error('photo-too-large')
+        }
         const fd = new FormData()
-        fd.append('file', file)
+        fd.append('file', upload)
         fd.append('category', category)
         const result = await uploadCustomerPhoto(customerId, fd)
         if (result && 'error' in result) throw new Error(result.error)
@@ -69,8 +79,8 @@ export function PhotosTabContent({ customerId, photos }: PhotosTabContentProps) 
       // Photos are server-loaded (listCustomerPhotos on the page); refresh
       // re-renders the grid with the new signed URLs.
       router.refresh()
-    } catch {
-      setError(t('uploadError'))
+    } catch (err) {
+      setError(err instanceof Error && err.message === 'photo-too-large' ? t('photoTooLarge') : t('uploadError'))
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
