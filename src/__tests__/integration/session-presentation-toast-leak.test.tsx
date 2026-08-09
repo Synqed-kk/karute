@@ -1,19 +1,26 @@
 /**
  * @jest-environment jsdom
  *
- * SessionPhotoCard — customer-facing toast leak fix (packet 2026-08-09 PR 9b
- * blind-round §6). While PhotoPresentationOverlay is open, `document.body`
- * carries the `customer-presentation-open` class — globals.css hides
- * sonner's toaster under it (sonner's z-index 999999999 would otherwise
- * outstack the overlay's z-[120] shell, leaking a recording-status toast
- * onto the screen a customer is watching). The class comes off on BOTH
- * close and unmount, so it can never get stuck on.
+ * Customer-facing toast-guard (PR 9b §6, moved 2026-08-09 — the blind photo
+ * lens found the guard living in SessionPhotoCard only, so
+ * PhotosTabContent's mount of the SAME PhotoPresentationOverlay shipped
+ * unguarded: a staff toast could paint over the customer's screen from that
+ * caller). The guard now lives on PhotoPresentationOverlay's OWN mount
+ * lifecycle, so this file renders the REAL overlay (no stub) from BOTH
+ * callers — record-screen SessionPhotoCard and customer-page
+ * PhotosTabContent — proving the guard is structural, not caller-owned:
+ * `document.body` carries the `customer-presentation-open` class exactly as
+ * long as the overlay is mounted; globals.css hides sonner's toaster under
+ * it (sonner's z-index 999999999 would otherwise outstack the overlay's
+ * z-[120] shell). The class comes off on BOTH close and unmount, so it can
+ * never get stuck on.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 
 jest.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }))
+jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh: jest.fn() }) }))
 jest.mock('@/actions/recordings', () => ({ startRecordingSession: jest.fn(async () => null) }))
 const mockListCustomerPhotos = jest.fn(async (_id: string) => ({ photos: [] as unknown[] }))
 jest.mock('@/actions/customers', () => ({
@@ -23,15 +30,12 @@ jest.mock('@/actions/customers', () => ({
 jest.mock('sonner', () => ({
   toast: { warning: jest.fn(), success: jest.fn(), error: jest.fn(), info: jest.fn() },
 }))
-const mockPhotoPresentationOverlay = jest.fn()
-jest.mock('@/components/customers/redesign/profile/PhotoPresentationOverlay', () => ({
-  PhotoPresentationOverlay: (props: { photos: unknown[]; onClose: () => void }) => {
-    mockPhotoPresentationOverlay(props)
-    return null
-  },
-}))
 
 import { SessionPhotoCard } from '@/components/karute/redesign/record/SessionPhotoCard'
+import {
+  PhotosTabContent,
+  type CustomerPhoto,
+} from '@/components/customers/redesign/profile/PhotosTabContent'
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -39,34 +43,70 @@ beforeEach(() => {
   document.body.classList.remove('customer-presentation-open')
 })
 
-describe('customer-presentation-open body class (§6)', () => {
+// The real overlay's ✕ is press-and-hold in the UI, but Enter closes
+// instantly — its documented keyboard escape hatch (the hold timing itself
+// is covered by photo-presentation-overlay.test.tsx; this file only cares
+// that a close, however triggered, removes the body class).
+function closeViaKeyboard() {
+  fireEvent.keyDown(screen.getByLabelText('presentCloseHold'), { key: 'Enter' })
+}
+
+describe('customer-presentation-open body class (§6) — record-screen caller (SessionPhotoCard)', () => {
   it('opening the presentation overlay adds the class to <body>', async () => {
     render(<SessionPhotoCard customerId="cust-1" takenWithConsent={false} />)
     expect(document.body.classList.contains('customer-presentation-open')).toBe(false)
 
     fireEvent.click(screen.getByText('presentButton'))
-    await waitFor(() => expect(mockPhotoPresentationOverlay).toHaveBeenCalled())
+    await screen.findByLabelText('presentCloseHold')
     expect(document.body.classList.contains('customer-presentation-open')).toBe(true)
   })
 
   it('closing the overlay removes the class', async () => {
     render(<SessionPhotoCard customerId="cust-1" takenWithConsent={false} />)
     fireEvent.click(screen.getByText('presentButton'))
-    await waitFor(() => expect(mockPhotoPresentationOverlay).toHaveBeenCalled())
+    await screen.findByLabelText('presentCloseHold')
     expect(document.body.classList.contains('customer-presentation-open')).toBe(true)
 
-    const { onClose } = mockPhotoPresentationOverlay.mock.calls[0][0] as { onClose: () => void }
-    act(() => onClose())
+    closeViaKeyboard()
     expect(document.body.classList.contains('customer-presentation-open')).toBe(false)
   })
 
   it('unmounting while open removes the class (never stuck on)', async () => {
-    const { unmount } = render(<SessionPhotoCard customerId="cust-1" takenWithConsent={false} />)
+    const { unmount } = render(
+      <SessionPhotoCard customerId="cust-1" takenWithConsent={false} />,
+    )
     fireEvent.click(screen.getByText('presentButton'))
-    await waitFor(() => expect(mockPhotoPresentationOverlay).toHaveBeenCalled())
+    await screen.findByLabelText('presentCloseHold')
     expect(document.body.classList.contains('customer-presentation-open')).toBe(true)
 
     unmount()
+    expect(document.body.classList.contains('customer-presentation-open')).toBe(false)
+  })
+})
+
+describe('customer-presentation-open body class (§6) — customer-page caller (PhotosTabContent)', () => {
+  // The lens's probe shape: open お客様に見せる from the customer page, not
+  // the record screen — this is the mount that shipped unguarded.
+  const photos: CustomerPhoto[] = [
+    { id: 'p1', signedUrl: 'https://example.com/p1.jpg', category: 'before', caption: null },
+  ]
+
+  it('opening the presentation overlay adds the class to <body>', async () => {
+    render(<PhotosTabContent customerId="cust-2" photos={photos} />)
+    expect(document.body.classList.contains('customer-presentation-open')).toBe(false)
+
+    fireEvent.click(screen.getByText('presentButton'))
+    await screen.findByLabelText('presentCloseHold')
+    expect(document.body.classList.contains('customer-presentation-open')).toBe(true)
+  })
+
+  it('closing the overlay removes the class', async () => {
+    render(<PhotosTabContent customerId="cust-2" photos={photos} />)
+    fireEvent.click(screen.getByText('presentButton'))
+    await screen.findByLabelText('presentCloseHold')
+    expect(document.body.classList.contains('customer-presentation-open')).toBe(true)
+
+    closeViaKeyboard()
     expect(document.body.classList.contains('customer-presentation-open')).toBe(false)
   })
 })
