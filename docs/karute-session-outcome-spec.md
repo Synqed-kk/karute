@@ -37,11 +37,11 @@ interface KaruteOutcome {
 ```
 record stops → staff saves → PostSessionResolution dialog:
   成約        → outcome=success                       → active karute (visible in list)
-  不成約 +理由 → outcome=no_deal, reason               → kept as training data, HIDDEN from customer list
+  不成約 +理由 → outcome=no_deal, reason               → kept as training data, hidden from customer list ONLY when is_first_visit=true AND decision_context='conversion' (see 2026-08 amendment)
   後で決める   → outcome=pending                        → 仮カルテ
-pending, 14 days, undecided  → cron: outcome=no_deal, auto_decided=true, decided_at=now()
+pending, 14 days, undecided  → cron: outcome=no_deal, auto_decided=true, decided_at=now() — flips ONLY decision_context='conversion' pendings, never repurchase pendings, never 'revisit'
 ```
-- **no_deal** karutes are excluded from the customer list + counts by default, but the session (transcript, AI patterns) is retained for coaching.
+- **no_deal** karutes are excluded from the customer list + counts ONLY for first-visit conversion declines (`is_first_visit=true AND decision_context='conversion'`) — a regular who declined a re-up must NEVER be hidden. The session (transcript, AI patterns) is retained for coaching either way.
 - **first-visit** title differs: `初回セッションの結果 — <name>様` vs `結果 — <name>様`.
 - Disclaimer (verbatim from spike): 「ご記録いただいた成約・不成約は、AIがトップパフォーマーの会話パターンを学習するためにも活用されます。お客様の個別情報は他のスタッフには共有されません。」
 
@@ -50,9 +50,14 @@ pending, 14 days, undecided  → cron: outcome=no_deal, auto_decided=true, decid
 2. **Contract** `src/lib/karute/outcome.ts`: the types + `setKaruteOutcome()` server action (writes the table) + `getKaruteOutcome()`.
 3. **UI** `PostSessionResolutionDialog` (matches the spike) wired into the save flow after recording stops.
 4. **Status chip** `ConversionStatusChip`: 仮カルテ (amber) / 不成約 (red) / 成約 (green) on karute list + detail.
-5. **List filter**: hide `no_deal` from the customer list by default.
-6. **Cron** `/api/cron/auto-decide-outcomes` (add to `vercel.json` crons): the 14-day flip.
+5. **List filter**: hide `no_deal` from the customer list — predicate is `outcome='no_deal' AND is_first_visit=true AND decision_context='conversion'`, never bare `no_deal` (see 2026-08 amendment; blocked on the `decision_context` column). Unknown/stale first-visit signal → do NOT hide (conservative default).
+6. **Cron** `/api/cron/auto-decide-outcomes` (add to `vercel.json` crons): the 14-day flip — `pending`→`no_deal` for `decision_context='conversion'` rows only; never touches `revisit` or repurchase pendings.
 7. i18n (ja↔en).
+
+### 2026-08 amendment (post-session-flow lane, Liam-approved 2026-08-07)
+- A 4th outcome value **`revisit`** (existing customer, ordinary visit) is approved: written as a normal `karute_outcomes` row, **excluded from the closing-rate formula** (`success ÷ (success + no_deal)`; revisit + pending outside both sides), never hidden from the customer list, never auto-flipped by the cron. The core column is permissive text — `'revisit'` is writable day 1.
+- A `decision_context` column (`'conversion' | 'repurchase'`, nullable) is requested from core (SPEC-1) — both the hiding predicate (item 5) and the cron scope (item 6) REQUIRE it; building either against bare `no_deal` would hide/flip regulars who declined a re-up.
+- Authoritative design + sequencing: `karute-post-session-flow/PLAN-post-session-flow-2026-08-07.md` (lane folder, outside the repo) — this doc carries the constraints so a repo-only reader can't build the unqualified version.
 
 ## Phase 2 (Anthony — the durable home)
 Add to synqed-core `KaruteRecord`: `conversion_status (PENDING|SUCCESS|NO_DEAL)`, `decline_reason`, `decided_by`, `decided_at`, `auto_decided`; accept them in `UpdateKaruteRecordInput`; bump `@synqed-kk/client`. Move the 14-day cron into synqed-core (or keep it karute-side hitting the new fields). Karute then: switch `setKaruteOutcome` to `synqed.karuteRecords.update`, backfill from `karute_outcomes`, drop the table.

@@ -28,6 +28,7 @@ import { getCustomerWithClient } from '@/lib/customers/queries'
 import { getKaruteOutcomeWithClient } from '@/lib/karute/outcome'
 import { mapSynqedKaruteRecord } from '@/lib/supabase/karute'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
+import { scopeKarutePhotos } from '@/lib/karute/scoped-photos'
 
 // Node runtime: the synqed SDK + node:crypto verifier are server-only.
 export const runtime = 'nodejs'
@@ -77,7 +78,16 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
             synqed.customers
               .listPhotos(customerId)
               .then((r) => r.photos ?? [])
-              .catch(() => [] as Array<{ id: string; signed_url: string | null; category: string; caption: string | null }>),
+              .catch(
+                () =>
+                  [] as Array<{
+                    id: string
+                    signed_url: string | null
+                    category: string
+                    caption: string | null
+                    recording_session_id: string | null
+                  }>,
+              ),
           ])
         : Promise.resolve(null),
     ])
@@ -110,7 +120,10 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       locale,
     })
 
-    const photos = photoRows.map((p) => ({
+    // Karute-scoped display (packet PR 9a): the screens facade must not leak
+    // the customer's whole photo gallery onto a single karute — same rule as
+    // the web page (PhotoRecordsServer), shared via scopeKarutePhotos.
+    const photos = scopeKarutePhotos(photoRows, karute.recording_session_id).map((p) => ({
       id: p.id,
       signedUrl: p.signed_url,
       category: p.category,

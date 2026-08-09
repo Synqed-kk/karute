@@ -21,6 +21,7 @@ import { createClient } from '@/lib/supabase/client'
 import { wipeSessionVault } from '@/lib/karute/logout-wipe'
 import { useSession } from '@/providers/session-provider'
 import { useSidebarStyle } from '@/lib/sidebar-style/hooks'
+import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 
 function MicIcon() {
   return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>
@@ -131,7 +132,18 @@ export function Sidebar() {
   const pathname = usePathname()
   const t = useTranslations('sidebar')
   const sidebarStyle = useSidebarStyle()
+  // Desktop analog of the bottom-nav center button (field bug 8/2): while a
+  // session is bound, the 録音 link must carry its customer — a bare
+  // /sessions re-resolves to the next scheduled booking. String href only
+  // (thin-shell shim).
+  const { target: recTarget } = useGlobalRecorder()
   const activeId = NAV_ROUTES.find((r) => pathname.startsWith(r.href))?.id
+
+  function hrefFor(route: NavRoute): string {
+    return route.id === 'recording' && recTarget
+      ? `/sessions?customerId=${encodeURIComponent(recTarget.customerId)}`
+      : route.href
+  }
 
   function getLabel(key: SidebarLabelKey): string {
     try {
@@ -170,7 +182,7 @@ export function Sidebar() {
           return (
             <Link
               key={route.id}
-              href={route.href as Parameters<typeof Link>[0]['href']}
+              href={hrefFor(route) as Parameters<typeof Link>[0]['href']}
               prefetch={route.prefetch}
               className="relative flex items-center"
               aria-current={isActive ? 'page' : undefined}
