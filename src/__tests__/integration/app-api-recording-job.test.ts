@@ -70,7 +70,8 @@ const customerGet = jest.fn(async () => ({
   has_ticket_pack: false,
 }))
 const listPacks = jest.fn(async (): Promise<Array<{ status: string; kind: string }>> => [])
-const listKaruteRecords = jest.fn(async (): Promise<{ karute_records: unknown[] }> => ({
+type KaruteRow = { id: string; recording_session_id: string | null }
+const listKaruteRecords = jest.fn(async (): Promise<{ karute_records: KaruteRow[] }> => ({
   karute_records: [],
 }))
 const fakeClient = {
@@ -335,5 +336,29 @@ describe("POST recordings/job — 'revisit' eligibility is checked BEFORE any AI
     const res = await jobPOST(jreq('POST', { ...auth, ...idem }, validBody), noRoute)
     expect(res.status).toBe(200)
     expect(customerGet).not.toHaveBeenCalled()
+  })
+})
+
+// A RETAKE reuses the recording session and converges on take-1's record, so
+// take-1 must not make take-2's enqueue look like a returning customer.
+describe('POST recordings/job — a retake is not its own proof of prior history', () => {
+  const withRevisit = { ...validBody, outcome: { status: 'revisit', isFirstVisit: false } }
+
+  it("the only karute on file is take-1 of THIS recording session → 400, no enqueue", async () => {
+    listKaruteRecords.mockResolvedValue({
+      karute_records: [{ id: 'k-take1', recording_session_id: 'sess-1' }],
+    })
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, withRevisit), noRoute)
+    expect(res.status).toBe(400)
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it('a karute from a DIFFERENT session → enqueued (real prior history counts)', async () => {
+    listKaruteRecords.mockResolvedValue({
+      karute_records: [{ id: 'k-old', recording_session_id: 'sess-earlier' }],
+    })
+    const res = await jobPOST(jreq('POST', { ...auth, ...idem }, withRevisit), noRoute)
+    expect(res.status).toBe(200)
+    expect(jobsEnqueue).toHaveBeenCalledTimes(1)
   })
 })

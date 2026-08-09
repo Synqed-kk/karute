@@ -29,21 +29,50 @@ import { isReturningCustomer } from '@/lib/customers/status-signals'
  */
 export type RevisitGuardClient = Pick<SynqedClient, 'customers' | 'packs' | 'karuteRecords'>
 
+/**
+ * WHICH karute record belongs to the session being decided — it must not count
+ * as its own proof of prior history (delta-verify, 2026-08-10).
+ *
+ * Every outcome write happens AFTER that session's record exists: the facade
+ * save creates it, then writes the outcome; processJob upserts, then writes the
+ * outcome; an enqueued retake converges on take-1's record by recording session.
+ * So an unfiltered `karuteRecords.list(...).length` counts the very record this
+ * save just produced, and a first-visit prospect proves they're a regular using
+ * a record they created one line earlier — the guard passes vacuously on exactly
+ * the boundary it exists to defend.
+ *
+ * No default and no optional field: each boundary must SAY what it excludes, so
+ * a new caller cannot inherit a silent do-nothing.
+ */
+export type RevisitExclusion =
+  /** Chokepoint — the record is already written, so exclude it by exact id. */
+  | { karuteRecordId: string }
+  /** Enqueue — no record id exists yet, but a retake reuses the recording
+   *  session, and core links the record to it (KaruteRecord.recording_session_id,
+   *  live on the list rows the detail screen already reads). */
+  | { recordingSessionId: string }
+
 export async function isReturningCustomerServerSide(
   synqed: RevisitGuardClient,
   customerId: string,
+  exclude: RevisitExclusion,
 ): Promise<boolean> {
-  const [customer, hasActivePack, karuteCount] = await Promise.all([
+  const isOwnSession = (row: { id: string; recording_session_id?: string | null }) =>
+    'karuteRecordId' in exclude
+      ? row.id === exclude.karuteRecordId
+      : row.recording_session_id === exclude.recordingSessionId
+  const [customer, hasActivePack, otherKaruteCount] = await Promise.all([
     synqed.customers.get(customerId).catch(() => null),
     synqed.packs
       .listPacks(customerId)
       .then((packs) => packs.some((p) => p.status === 'active' && p.kind === 'pack'))
       .catch(() => false),
-    // page_size 1 — this only ever feeds a `> 0` test, so never pull the
-    // screen's ten rows just to read `.length`.
+    // page_size 3, not 1: this feeds a `> 0` test, but the session's OWN record
+    // is in the list and gets filtered out, so one row of headroom is not
+    // enough to see a genuine prior record behind it.
     synqed.karuteRecords
-      .list({ customer_id: customerId, page_size: 1 })
-      .then((r) => r.karute_records?.length ?? 0)
+      .list({ customer_id: customerId, page_size: 3 })
+      .then((r) => (r.karute_records ?? []).filter((row) => !isOwnSession(row)).length)
       .catch(() => 0),
   ])
 
@@ -52,7 +81,8 @@ export async function isReturningCustomerServerSide(
     lastVisitIso: null,
     isExistingCustomer: customer?.is_existing_customer,
     visitCount: customer?.visit_count,
-    karuteCount,
+    // OTHER sessions only — never this one (see RevisitExclusion).
+    karuteCount: otherKaruteCount,
     // Both halves, exactly as the screen does it: has_ticket_pack is the QR
     // cache field (stale/absent for an in-app purchase), the live list is the
     // authority for a pack bought minutes ago at the 結果 dialog.

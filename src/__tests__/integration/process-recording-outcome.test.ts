@@ -17,6 +17,10 @@ const setKaruteOutcomeWithClient = jest.fn(async () => ({}) as { error?: string 
 jest.mock('@/lib/karute/outcome', () => ({
   setKaruteOutcomeWithClient: (...a: unknown[]) =>
     (setKaruteOutcomeWithClient as (...a: unknown[]) => unknown)(...a),
+  // The real literal, not a stub: the worker compares against this to decide
+  // throw vs skip, so mocking it away would silently make that branch dead.
+  // (The guard suite asserts the exported constant's own value.)
+  REVISIT_NOT_ELIGIBLE: 'revisit_not_eligible',
 }))
 
 const audit = jest.fn()
@@ -286,6 +290,25 @@ describe('process-recording worker — outcome write (packet 22 B4)', () => {
 
     expect(complete).not.toHaveBeenCalled()
     expect(fail).toHaveBeenCalledWith('job-1', expect.stringContaining('outcome write failed'))
+  })
+
+  it("a REJECTED 'revisit' does NOT fail the job — a retry would re-spend Deepgram + OpenAI", async () => {
+    // The rejection is deterministic: no number of retries makes the customer
+    // returning. This throw sits AFTER both AI calls, so failing here would
+    // re-run them on every requeue until max_attempts. Keep the record, drop
+    // the label — enqueue already 400s this case up front.
+    setKaruteOutcomeWithClient.mockResolvedValueOnce({ error: 'revisit_not_eligible' })
+    claim
+      .mockResolvedValueOnce({
+        ...baseJob,
+        payload: { ...baseJob.payload, outcome: { status: 'revisit' } },
+      })
+      .mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(fail).not.toHaveBeenCalled()
+    expect(complete).toHaveBeenCalledTimes(1)
   })
 })
 

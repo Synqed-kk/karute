@@ -24,7 +24,7 @@ import { runKaruteSummary } from '@/lib/ai/karute-summarize'
 import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { audit } from '@/lib/audit'
-import { setKaruteOutcomeWithClient } from '@/lib/karute/outcome'
+import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
@@ -173,7 +173,19 @@ async function processJob(job: RecordingJob): Promise<string> {
       isFirstVisit: payload.outcome.isFirstVisit,
       decidedBy: payload.staff_id,
     })
-    if (outcomeResult.error) throw new Error(`outcome write failed: ${outcomeResult.error}`)
+    // A rejected 'revisit' is DETERMINISTIC, not a transient fault — retrying
+    // can never make it eligible, and this throw is post-AI: every requeue
+    // re-runs Deepgram + OpenAI until max_attempts. Enqueue already 400s this
+    // case, so reaching here means the two checks disagreed; keep the record,
+    // drop the label. Real write failures still throw (core's requeue converges
+    // on the same idempotent record).
+    if (outcomeResult.error === REVISIT_NOT_ELIGIBLE) {
+      console.warn('[job] revisit rejected server-side; record kept, label dropped', {
+        karuteRecordId: record,
+      })
+    } else if (outcomeResult.error) {
+      throw new Error(`outcome write failed: ${outcomeResult.error}`)
+    }
   }
 
   // Audit: the save is a completed action (server-side actor = the recorder).

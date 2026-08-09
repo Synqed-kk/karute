@@ -64,7 +64,11 @@ export const POST = facadeHandler('recordings.job.enqueue', async (ctx) => {
   // chokepoint in outcome.ts is still the backstop if one ever slips through.
   if (
     parsed.data.outcome?.status === 'revisit' &&
-    !(await isReturningCustomerServerSide(synqed, parsed.data.customerId))
+    !(await isReturningCustomerServerSide(synqed, parsed.data.customerId, {
+      // A RETAKE reuses this recording session and converges on the same
+      // record, so take-1's row must not make take-2 look like a regular.
+      recordingSessionId: parsed.data.recordingSessionId,
+    }))
   ) {
     throw new AppApiError('validation', 'revisit requires a returning customer')
   }

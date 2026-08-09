@@ -28,7 +28,12 @@ const upsert = jest.fn(async (_row: { outcome: string }) => ({}))
 const outcomeGet = jest.fn(async (): Promise<{ outcome: string } | null> => null)
 const customerGet = jest.fn(async (): Promise<CustomerRow> => NEW_PROSPECT)
 const listPacks = jest.fn(async (): Promise<Array<{ status: string; kind: string }>> => [])
-const listKarute = jest.fn(async (): Promise<{ karute_records: unknown[] }> => ({ karute_records: [] }))
+type KaruteRow = { id: string; recording_session_id: string | null }
+const listKarute = jest.fn(
+  async (_opts: { page_size?: number }): Promise<{ karute_records: KaruteRow[] }> => ({
+    karute_records: [],
+  }),
+)
 
 const client = () =>
   ({
@@ -66,7 +71,9 @@ describe("chokepoint — 'revisit' requires a real returning customer", () => {
       ['a LIVE active pack (cache still cold)', () =>
         listPacks.mockResolvedValue([{ status: 'active', kind: 'pack' }])],
       ['prior karute on file', () =>
-        listKarute.mockResolvedValue({ karute_records: [{ id: 'k-0' }] })],
+        listKarute.mockResolvedValue({
+          karute_records: [{ id: 'k-0', recording_session_id: 'sess-0' }],
+        })],
     ]
     for (const [label, arrange] of signals) {
       jest.clearAllMocks()
@@ -136,4 +143,46 @@ describe('the other three statuses are untouched by the guard', () => {
       expect(listKarute).not.toHaveBeenCalled()
     },
   )
+})
+
+// The hole delta-verify found: every outcome write runs AFTER this session's
+// karute record exists, so an unfiltered count is the save proving its own
+// prior history. These are the two tests that were missing while 16 others
+// stayed green over a vacuous guard.
+describe('self-inclusion — a session may not be its own proof of prior history', () => {
+  it('the ONLY karute on file is THIS save\'s own record → rejected', async () => {
+    listKarute.mockResolvedValue({
+      karute_records: [{ id: 'k-1', recording_session_id: 'sess-1' }],
+    })
+    expect(await write('revisit')).toEqual({ error: REVISIT_NOT_ELIGIBLE })
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it('one karute with a DIFFERENT id → allowed (real prior history still counts)', async () => {
+    listKarute.mockResolvedValue({
+      karute_records: [{ id: 'k-0', recording_session_id: 'sess-0' }],
+    })
+    expect(await write('revisit')).toEqual({})
+    expect(upsert).toHaveBeenCalledTimes(1)
+  })
+
+  it("this save's record sitting ON TOP of real history → allowed", async () => {
+    listKarute.mockResolvedValue({
+      karute_records: [
+        { id: 'k-1', recording_session_id: 'sess-1' },
+        { id: 'k-0', recording_session_id: 'sess-0' },
+      ],
+    })
+    expect(await write('revisit')).toEqual({})
+    expect(upsert).toHaveBeenCalledTimes(1)
+  })
+
+  it('asks for more than one row — a page_size of 1 could only ever return our own', async () => {
+    await write('revisit')
+    expect(listKarute.mock.calls[0][0].page_size).toBeGreaterThan(1)
+  })
+})
+
+it('REVISIT_NOT_ELIGIBLE is the literal the worker and routes compare against', () => {
+  expect(REVISIT_NOT_ELIGIBLE).toBe('revisit_not_eligible')
 })

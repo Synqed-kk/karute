@@ -89,7 +89,12 @@ async function revisitAllowed(
 ): Promise<boolean> {
   const existing = await getKaruteOutcomeWithClient(synqed, params.karuteRecordId)
   if (existing?.outcome === 'revisit') return true
-  return isReturningCustomerServerSide(synqed, params.customerId)
+  // Exclude THIS session's own record: it already exists by the time any
+  // outcome write runs, so counting it would let a save prove prior history
+  // with the record it just created.
+  return isReturningCustomerServerSide(synqed, params.customerId, {
+    karuteRecordId: params.karuteRecordId,
+  })
 }
 
 export interface KaruteOutcomeRow {
