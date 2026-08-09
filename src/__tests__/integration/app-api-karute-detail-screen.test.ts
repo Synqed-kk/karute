@@ -244,6 +244,42 @@ describe('GET /api/app/v1/screens/karute/[id] (packet 07 §Build 2)', () => {
     expect((await res.json()).outcome).toMatchObject({ outcome: 'success' })
   })
 
+  // #689 P1b — the gate is an ALLOWLIST of the frozen baked enum, not a
+  // 'revisit' denylist: a value invented after those shells were baked breaks
+  // them exactly the same way, so it must mask too.
+  it('an unknown future outcome value + NO app-version → masked (allowlist)', async () => {
+    outcomeGet.mockResolvedValue({ ...REVISIT, outcome: 'foo' })
+    const res = await GET(req({ headers: auth }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect((await res.json()).outcome).toBeNull()
+  })
+
+  it('an unknown future outcome value + app-version present → served', async () => {
+    outcomeGet.mockResolvedValue({ ...REVISIT, outcome: 'foo' })
+    const res = await GET(req({ headers: { ...auth, 'app-version': 'thin-2026-08-10' } }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect((await res.json()).outcome).toMatchObject({ outcome: 'foo' })
+  })
+
+  // The gate-removal metric: this key going quiet is how we learn the fielded
+  // population has taken the 4.7/code-13 bake.
+  it('a masked read emits outcome_masked on karute.view; an unmasked one does not', async () => {
+    outcomeGet.mockResolvedValue(REVISIT)
+    const masked = await auditLines(async () => {
+      expect((await GET(req({ headers: auth }), routeFor('kar-1'))).status).toBe(200)
+    })
+    expect(masked.filter((l) => l.action === 'karute.view')[0].detail).toMatchObject({
+      outcome_masked: true,
+      customer_id: 'cust-1',
+    })
+
+    const served = await auditLines(async () => {
+      const res = await GET(req({ headers: { ...auth, 'app-version': 'thin-2026-08-10' } }), routeFor('kar-1'))
+      expect(res.status).toBe(200)
+    })
+    expect(served.filter((l) => l.action === 'karute.view')[0].detail).not.toHaveProperty('outcome_masked')
+  })
+
   it('locale=en accepted; unknown locale falls back to ja', async () => {
     const en = await GET(new Request('https://s/x?locale=en', { headers: auth }), routeFor('kar-1'))
     expect(en.status).toBe(200)

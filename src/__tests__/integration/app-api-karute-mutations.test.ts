@@ -373,3 +373,62 @@ describe('POST /karute/[id]/outcome — an ineligible revisit is still a 400 her
     )
   })
 })
+
+// #689 P1b — the read gate's symmetric half. The screens route hides a stored
+// 'revisit' from header-absent (pre-4.7/code-13) shells, which renders 未記録
+// with a live 記録 button; without this gate that button silently overwrites
+// the revisit label.
+describe('POST /karute/[id]/outcome — an old shell cannot overwrite a masked revisit', () => {
+  const newShell = { ...auth, 'app-version': 'thin-2026-08-10' }
+  beforeEach(() => {
+    // Implementations survive clearAllMocks, so rejections set by the suite
+    // above would otherwise leak in (same reason as that describe's reset).
+    getOutcome.mockResolvedValue(null)
+    listPacks.mockResolvedValue([])
+    listKaruteRecords.mockResolvedValue({ karute_records: [] })
+    custGet.mockResolvedValue({ name: '山田 花子' })
+  })
+
+  it('stored revisit + NO app-version → Japanese validation 400, NOTHING written', async () => {
+    getOutcome.mockResolvedValue({ outcome: 'revisit' })
+    const res = await outcome(jsonReq({ status: 'success' }), routeFor('kar-1'))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error.message).toContain('アプリを更新')
+    expect(upsertOutcome).not.toHaveBeenCalled()
+  })
+
+  it('stored revisit + app-version present → the new-shell edit still writes', async () => {
+    getOutcome.mockResolvedValue({ outcome: 'revisit' })
+    const res = await outcome(jsonReq({ status: 'success' }, newShell), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect(upsertOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ karute_record_id: 'kar-1', outcome: 'success' }),
+    )
+  })
+
+  it('stored UNKNOWN future value + NO app-version → same rejection (allowlist, symmetric with the read gate)', async () => {
+    getOutcome.mockResolvedValue({ outcome: 'foo' })
+    const res = await outcome(jsonReq({ status: 'success' }), routeFor('kar-1'))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error.message).toContain('アプリを更新')
+    expect(upsertOutcome).not.toHaveBeenCalled()
+  })
+
+  it('stored NON-revisit + NO app-version → old shells keep editing normally', async () => {
+    getOutcome.mockResolvedValue({ outcome: 'success' })
+    const res = await outcome(jsonReq({ status: 'no_deal' }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect(upsertOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ karute_record_id: 'kar-1', outcome: 'no_deal' }),
+    )
+  })
+
+  it('stored-outcome read FAILS + NO app-version → fail-open, the write proceeds', async () => {
+    getOutcome.mockRejectedValue(new Error('core down'))
+    const res = await outcome(jsonReq({ status: 'success' }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect(upsertOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ karute_record_id: 'kar-1', outcome: 'success' }),
+    )
+  })
+})

@@ -20,6 +20,13 @@ export const REVISIT_NOT_ELIGIBLE = 'revisit_not_eligible'
  *  callers branch on the cause, not on a shared "something went wrong". */
 export const REVISIT_CHECK_UNAVAILABLE = 'revisit_check_unavailable'
 
+/** The outcome enum baked into every fielded shell ≤4.6/code-12 — FROZEN by
+ *  definition (those bundles ship as-is until the phone takes the 4.7/code-13
+ *  bake). Both facade halves gate on it: the screens read serves anything
+ *  outside this set as null to header-absent clients, and the outcome write
+ *  refuses to overwrite such a value from one. Same list, one source. */
+export const OLD_SHELL_OUTCOMES = ['success', 'no_deal', 'pending']
+
 /** The chokepoint's client surface: the upsert itself plus what the revisit
  *  eligibility derivation reads. Every caller already passes a full client. */
 export type OutcomeWriteClient = Pick<

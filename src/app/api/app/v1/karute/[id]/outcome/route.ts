@@ -14,6 +14,8 @@ import { readKaruteRaw } from '@/lib/app-api/karute-facade'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import {
   setKaruteOutcomeWithClient,
+  getKaruteOutcomeWithClient,
+  OLD_SHELL_OUTCOMES,
   REVISIT_NOT_ELIGIBLE,
   REVISIT_CHECK_UNAVAILABLE,
 } from '@/lib/karute/outcome'
@@ -58,6 +60,39 @@ export const POST = facadeHandler<Params>('karute.outcome.set', async (ctx) => {
   const parsed = OutcomeSchema.safeParse(body)
   if (!parsed.success) {
     throw new AppApiError('validation', parsed.error.issues.map((e) => e.message).join(', '))
+  }
+
+  // The read gate's symmetric half (#689 P1b, 2026-08-10). The screens route
+  // serves header-absent (pre-4.7/code-13) shells `outcome: null` for a stored
+  // 'revisit', so their detail screen shows 未記録 with a LIVE 記録 button —
+  // tapping it lands here and would silently upsert over the revisit label,
+  // destroying the closing-rate signal the feature exists to produce. The
+  // eligibility chokepoint only guards writes OF 'revisit', never writes OVER
+  // one, so the gate belongs here. SAME allowlist as the read gate
+  // (OLD_SHELL_OUTCOMES, single-sourced in lib/karute/outcome): any stored
+  // value those bundles never baked is masked on read, so it is equally
+  // overwritable-by-accident — 'revisit' is just today's only one. Uniform
+  // whatever status arrives: old shells cannot send a non-baked value at all,
+  // so a carve-out buys nothing. Header-PRESENT clients are untouched — a
+  // revisit-aware shell may legitimately edit any outcome, and the chokepoint
+  // already covers it.
+  // FAIL-OPEN, stated honestly: getKaruteOutcomeWithClient is null-on-failure
+  // by contract, so a read blip reads as "nothing stored" and the write goes
+  // through. The window that leaves is bounded (blip × old shell × stored
+  // revisit × a staffer writing right then); blocking every old-shell outcome
+  // write on a blip is the worse trade in a lane whose rule is that a save is
+  // never blocked by its label.
+  // REMOVAL: delete once every fielded shell is ≥4.7/code-13 — confirm by the
+  // screens route's `outcome_masked` audit emissions going quiet (first
+  // meaningful check ~30 days after the 4.7/code-13 bake rolls out).
+  if (!ctx.meta.appVersion) {
+    const stored = await getKaruteOutcomeWithClient(synqed, id)
+    if (!!stored && !OLD_SHELL_OUTCOMES.includes(stored.outcome)) {
+      throw new AppApiError(
+        'validation',
+        'この記録には新しいバージョンで保存された結果があります。アプリを更新してから編集してください。',
+      )
+    }
   }
 
   // decided_by parity — the resolved self staff id (nullable, not fail-closed).
