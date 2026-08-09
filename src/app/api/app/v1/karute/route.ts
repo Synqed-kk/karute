@@ -19,7 +19,7 @@ import { SaveKaruteSchema } from '@/lib/app-api/record-schemas'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { createOrUpdateKaruteRecord } from '@/actions/karute'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
-import { setKaruteOutcomeWithClient } from '@/lib/karute/outcome'
+import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import type { SynqedClient, Appointment } from '@synqed-kk/client'
 
@@ -144,7 +144,7 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
 
   // Best-effort outcome (the coaching label) — never gate the save on it.
   if (input.outcome) {
-    await setKaruteOutcomeWithClient(synqed, {
+    const outcomeResult = await setKaruteOutcomeWithClient(synqed, {
       karuteRecordId: id,
       customerId: input.customerId,
       status: input.outcome.status,
@@ -152,6 +152,12 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
       isFirstVisit: input.outcome.isFirstVisit,
       decidedBy: staffId,
     })
+    // The ONE outcome-write failure that is the caller's fault, so the ONE
+    // worth a 4xx. Every other failure stays best-effort — the recording is
+    // saved by this point and must never be lost to a label write.
+    if (outcomeResult.error === REVISIT_NOT_ELIGIBLE) {
+      throw new AppApiError('validation', 'revisit requires a returning customer')
+    }
   }
 
   // Best-effort memory ingest — identity-threaded gate (businessId); fresh saves

@@ -503,10 +503,10 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/karute/outcome.ts',
     call: 'karuteOutcomes.upsert',
-    symbols: ['setKaruteOutcomeWithClient', 'setKaruteOutcome'],
+    symbols: ['setKaruteOutcomeWithClient'],
     justification:
-      "karute.outcome_set is a LIVE FACADE_AUDIT_MAP row as of Wave W3, fired ONLY by the dedicated after-the-fact route (facade auto-emit); the web after-the-fact wrapper updateKaruteOutcome (src/actions/karute-outcome.ts) emits its own auditWeb (AUDITED_CORES). Both symbols here stay audit-free: a save-EMBEDDED outcome write (web saveKaruteRecord/saveKaruteRecordInline via setKaruteOutcome, the facade karute save route, processJob) is part of the save, covered by that path's karute.save row on BOTH surfaces — deliberately row-less, not a gap.",
-    dated: '2026-07-28',
+      "karute.outcome_set is a LIVE FACADE_AUDIT_MAP row as of Wave W3, fired ONLY by the dedicated after-the-fact route (facade auto-emit); the web after-the-fact wrapper updateKaruteOutcome (src/actions/karute-outcome.ts) emits its own auditWeb (AUDITED_CORES). This symbol stays audit-free: a save-EMBEDDED outcome write (web saveKaruteRecord/saveKaruteRecordInline, the facade karute save route, processJob) is part of the save, covered by that path's karute.save row on BOTH surfaces — deliberately row-less, not a gap. NARROWED 2026-08-10: setKaruteOutcome no longer performs the upsert itself — it delegates to setKaruteOutcomeWithClient so the revisit-eligibility chokepoint cannot be enforced on one surface and missed on the other — so it no longer needs an SDK-write exemption. One write site, one entry.",
+    dated: '2026-08-10',
   },
   {
     file: 'src/lib/packs/store.ts',

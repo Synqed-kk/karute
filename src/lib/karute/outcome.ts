@@ -1,6 +1,20 @@
 import 'server-only'
 import { getSynqedClient } from '@/lib/synqed/client'
 import type { Outcome, DeclineReason } from './outcome-types'
+import { isReturningCustomerServerSide, type RevisitGuardClient } from './revisit-guard'
+
+/** Returned (never thrown) when a 'revisit' write is rejected as ineligible.
+ *  Request boundaries map this to a 400; best-effort save paths ignore the
+ *  return exactly as they ignore every other outcome-write failure. */
+export const REVISIT_NOT_ELIGIBLE = 'revisit_not_eligible'
+
+/** The chokepoint's client surface: the upsert itself plus what the revisit
+ *  eligibility derivation reads. Every caller already passes a full client. */
+export type OutcomeWriteClient = Pick<
+  Awaited<ReturnType<typeof getSynqedClient>>,
+  'karuteOutcomes'
+> &
+  RevisitGuardClient
 
 interface SetOutcomeParams {
   karuteRecordId: string
@@ -24,10 +38,19 @@ interface SetOutcomeParams {
 /** setKaruteOutcome on an EXPLICIT business-scoped client — the facade Bearer
  *  path (packet 07 §Build 3). Same best-effort upsert contract (never throws). */
 export async function setKaruteOutcomeWithClient(
-  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'karuteOutcomes'>,
+  synqed: OutcomeWriteClient,
   params: SetOutcomeParams,
 ): Promise<{ error?: string }> {
   const decided = params.status !== 'pending'
+  // THE chokepoint. Every outcome write on both surfaces lands here (web save
+  // ×2, web edit, facade save, facade edit, processJob), so the eligibility
+  // rule lives here once instead of at six call sites — including processJob,
+  // which must never throw post-AI (a retry re-runs Deepgram/OpenAI). Returning
+  // instead of throwing keeps the best-effort contract intact: an ineligible
+  // revisit writes nothing and never blocks the save.
+  if (params.status === 'revisit' && !(await revisitAllowed(synqed, params))) {
+    return { error: REVISIT_NOT_ELIGIBLE }
+  }
   try {
     const now = new Date().toISOString()
     await synqed.karuteOutcomes.upsert({
@@ -50,25 +73,23 @@ export async function setKaruteOutcomeWithClient(
 export async function setKaruteOutcome(
   params: SetOutcomeParams,
 ): Promise<{ error?: string }> {
-  const decided = params.status !== 'pending'
-  try {
-    const synqed = await getSynqedClient()
-    const now = new Date().toISOString()
-    await synqed.karuteOutcomes.upsert({
-      karute_record_id: params.karuteRecordId,
-      customer_id: params.customerId,
-      outcome: params.status,
-      reason: params.status === 'no_deal' ? (params.reason ?? null) : null,
-      is_first_visit: params.isFirstVisit ?? false,
-      decided_by: decided ? (params.decidedBy ?? null) : null,
-      decided_at: decided ? now : null,
-      auto_decided: false,
-    })
-    return {}
-  } catch (err) {
-    console.error('[outcome] setKaruteOutcome failed:', err)
-    return { error: err instanceof Error ? err.message : 'outcome write failed' }
-  }
+  // Cookie-path twin: same body, own client. Delegating (rather than the
+  // second copy this used to be) means the eligibility guard above cannot be
+  // enforced on one surface and missed on the other.
+  return setKaruteOutcomeWithClient(await getSynqedClient(), params)
+}
+
+/** 'revisit' is legal when the customer really is returning, OR when the row
+ *  being edited is ALREADY revisit — the stored row is its own proof, the same
+ *  rationale that lets 編集 re-offer the card. Checked first: it costs one read
+ *  and short-circuits the three the derivation needs. */
+async function revisitAllowed(
+  synqed: OutcomeWriteClient,
+  params: SetOutcomeParams,
+): Promise<boolean> {
+  const existing = await getKaruteOutcomeWithClient(synqed, params.karuteRecordId)
+  if (existing?.outcome === 'revisit') return true
+  return isReturningCustomerServerSide(synqed, params.customerId)
 }
 
 export interface KaruteOutcomeRow {

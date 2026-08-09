@@ -12,7 +12,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
-import { setKaruteOutcomeWithClient } from '@/lib/karute/outcome'
+import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
 
 export const runtime = 'nodejs'
 
@@ -66,6 +66,11 @@ export const POST = facadeHandler<Params>('karute.outcome.set', async (ctx) => {
     isFirstVisit: parsed.data.isFirstVisit,
     decidedBy: staffId,
   })
+  // Ineligible 'revisit' is a bad request, not an upstream fault (the chokepoint
+  // allows it when this record's stored outcome is already revisit).
+  if (result.error === REVISIT_NOT_ELIGIBLE) {
+    throw new AppApiError('validation', 'revisit requires a returning customer')
+  }
   if (result.error) throw new AppApiError('upstream_unavailable', 'outcome write failed')
   // Wave W3: customer_id rides the hook's karute.outcome_set emit for the
   // viewer's name join (Wave V karute-target canon — additive color only).

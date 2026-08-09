@@ -23,6 +23,7 @@ import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/custome
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { RecordingJobEnqueueSchema } from '@/lib/app-api/record-schemas'
+import { isReturningCustomerServerSide } from '@/lib/karute/revisit-guard'
 import type { RecordingJobPayload } from '@/lib/jobs/process-recording'
 
 export const runtime = 'nodejs'
@@ -55,6 +56,18 @@ export const POST = facadeHandler('recordings.job.enqueue', async (ctx) => {
   }
 
   const synqed = newSynqedClient(ctx.identity.businessId)
+
+  // Revisit eligibility at ENQUEUE, not in the worker: processJob writes the
+  // outcome only after Deepgram + OpenAI have run, and a throw there would
+  // re-spend both on every retry. Rejecting here makes the job path safe by
+  // construction — the worker keeps its untouched best-effort write, and the
+  // chokepoint in outcome.ts is still the backstop if one ever slips through.
+  if (
+    parsed.data.outcome?.status === 'revisit' &&
+    !(await isReturningCustomerServerSide(synqed, parsed.data.customerId))
+  ) {
+    throw new AppApiError('validation', 'revisit requires a returning customer')
+  }
 
   // Fail closed: no acting staff id ⇒ no job (the #452 posture, same as
   // customer.consent.grant). The worker cannot attribute a record with no
