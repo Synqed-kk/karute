@@ -9,9 +9,14 @@ import { cn } from '@/lib/utils'
 // Presenter mode gated on NEXT_PUBLIC_FEATURE_PRESENTER_MODE.
 // ANTHONY: needs a full-screen photo viewer component that staff
 // turns the phone to show the customer. The toggle below is the
-// affordance shape; the onClick should open that viewer with the
-// current photo set. Keep the state at the card level for now so
-// the spec is obvious when the feature flips on.
+// affordance shape; the onClick should open that viewer fed by the
+// customer's AGGREGATE photo list (listCustomerPhotos), never this
+// card's `photos` prop — that prop is karute-session-SCOPED (see
+// scopeKarutePhotos / the COMPARE-TRAP note at
+// src/lib/karute/scoped-photos.ts:8-11). Presentation/compare surfaces
+// are deliberately cross-session; wiring this toggle to the scoped list
+// would invert that invariant. Keep the state at the card level for now
+// so the spec is obvious when the feature flips on.
 const FEATURE_PRESENTER_MODE =
   process.env.NEXT_PUBLIC_FEATURE_PRESENTER_MODE === 'true'
 
