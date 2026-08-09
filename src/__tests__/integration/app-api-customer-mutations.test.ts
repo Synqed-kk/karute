@@ -151,9 +151,10 @@ describe('POST consent/revoke', () => {
 })
 
 // ── photos (trust boundary) ──────────────────────────────────────────────────
-function photoReq(file: File | null, headers = auth) {
+function photoReq(file: File | null, headers = auth, fields: Record<string, string> = {}) {
   const fd = new FormData()
   if (file) fd.append('file', file)
+  for (const [k, v] of Object.entries(fields)) fd.append(k, v)
   return new Request('https://s/x', { method: 'POST', headers, body: fd })
 }
 // Real container bytes — the route now sniffs magic numbers (declared MIME is
@@ -191,6 +192,79 @@ describe('POST photos', () => {
     const res = await photoUpload(photoReq(new File(['%PDF-1.4 not an image'], 'a.png', { type: 'image/png' })), route({ id: 'cust-1' }))
     expect(res.status).toBe(400)
     expect(uploadPhoto).not.toHaveBeenCalled()
+  })
+  // packet 2026-08-09 PR 9a §③/§B — recording_session_id + taken_with_consent
+  // forward from the form; captured_by_staff_id is SERVER-RESOLVED via
+  // resolveSelfStaffId (this suite's Bearer sub is 'auth-user-1', on
+  // staffRoster.current by default) — NEVER read from client input.
+  it('forwards recording_session_id / taken_with_consent=true; captured_by_staff_id is server-resolved', async () => {
+    const png = new File([PNG_BYTES], 'a.png', { type: 'image/png' })
+    const res = await photoUpload(
+      photoReq(png, auth, {
+        recording_session_id: 'sess-1',
+        taken_with_consent: 'true',
+      }),
+      route({ id: 'cust-1' }),
+    )
+    expect(res.status).toBe(201)
+    // expect.any(File): the File crosses a Request→FormData round-trip in the
+    // route handler, which reconstructs it with a freshly-stamped
+    // lastModified — exact object/deep equality on it is not guaranteed.
+    expect(uploadPhoto).toHaveBeenCalledWith(
+      'cust-1',
+      expect.any(File),
+      expect.objectContaining({
+        recording_session_id: 'sess-1',
+        captured_by_staff_id: 'auth-user-1',
+        taken_with_consent: true,
+      }),
+    )
+  })
+  // Anti-spoof pin: a client can't smuggle someone else's staff id through
+  // the form — the route ignores it and uses only the server-resolved identity.
+  it('captured_by_staff_id from the form is IGNORED — server resolution wins (anti-spoof)', async () => {
+    const png = new File([PNG_BYTES], 'a.png', { type: 'image/png' })
+    await photoUpload(photoReq(png, auth, { captured_by_staff_id: 'intruder' }), route({ id: 'cust-1' }))
+    expect(uploadPhoto).toHaveBeenCalledWith(
+      'cust-1',
+      expect.any(File),
+      expect.objectContaining({ captured_by_staff_id: 'auth-user-1' }),
+    )
+  })
+  it('unresolvable staff id (caller not on the roster) → captured_by_staff_id undefined, upload still succeeds', async () => {
+    staffRoster.current = []
+    const png = new File([PNG_BYTES], 'a.png', { type: 'image/png' })
+    const res = await photoUpload(photoReq(png), route({ id: 'cust-1' }))
+    expect(res.status).toBe(201)
+    const options = (uploadPhoto as jest.Mock).mock.calls[0][2] as { captured_by_staff_id?: string }
+    expect(options.captured_by_staff_id).toBeUndefined()
+  })
+  it('taken_with_consent="false" → forwarded as boolean false, not dropped', async () => {
+    const png = new File([PNG_BYTES], 'a.png', { type: 'image/png' })
+    await photoUpload(photoReq(png, auth, { taken_with_consent: 'false' }), route({ id: 'cust-1' }))
+    expect(uploadPhoto).toHaveBeenCalledWith(
+      'cust-1',
+      expect.any(File),
+      expect.objectContaining({ taken_with_consent: false }),
+    )
+  })
+  // packet §C — '' is not a session; the shared parsePhotoUploadFields helper
+  // normalizes it to undefined so it never fakes a real recording_session_id.
+  it('recording_session_id="" is treated as absent → undefined, not forwarded as ""', async () => {
+    const png = new File([PNG_BYTES], 'a.png', { type: 'image/png' })
+    await photoUpload(photoReq(png, auth, { recording_session_id: '' }), route({ id: 'cust-1' }))
+    const options = (uploadPhoto as jest.Mock).mock.calls[0][2] as { recording_session_id?: string }
+    expect(options.recording_session_id).toBeUndefined()
+  })
+  it('linkage fields absent → recording_session_id/taken_with_consent stay undefined (never default consent to true)', async () => {
+    const png = new File([PNG_BYTES], 'a.png', { type: 'image/png' })
+    await photoUpload(photoReq(png), route({ id: 'cust-1' }))
+    const options = (uploadPhoto as jest.Mock).mock.calls[0][2] as {
+      recording_session_id?: string
+      taken_with_consent?: boolean
+    }
+    expect(options.recording_session_id).toBeUndefined()
+    expect(options.taken_with_consent).toBeUndefined()
   })
 })
 
