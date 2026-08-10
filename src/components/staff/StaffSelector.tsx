@@ -63,19 +63,21 @@ export function StaffSelector({
   const listboxId = useId()
   const labelId = useId()
 
-  // Same close behavior as the StoreSwitcher: outside tap or Escape.
+  // Same close behavior as the StoreSwitcher: outside tap or Escape — and the
+  // same pointerdown, for the same reason (mousedown is a compatibility event
+  // the bottom bar's touchend preventDefault suppresses; see StoreSwitcher).
   useEffect(() => {
     if (!open) return
-    const onDown = (e: MouseEvent) => {
+    const onDown = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false)
     }
-    document.addEventListener('mousedown', onDown)
+    document.addEventListener('pointerdown', onDown)
     document.addEventListener('keydown', onKey)
     return () => {
-      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('pointerdown', onDown)
       document.removeEventListener('keydown', onKey)
     }
   }, [open])

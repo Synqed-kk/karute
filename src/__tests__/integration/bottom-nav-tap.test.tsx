@@ -211,7 +211,12 @@ describe('bottom bar tap activation (#648 root-scroller momentum)', () => {
     expect(push).toHaveBeenCalledWith('/customers')
   })
 
-  it('menu toggle: one tap = exactly one toggle (no open-then-close flash)', () => {
+  // A late click on the TOGGLE ITSELF is swallowed by the per-element flag.
+  // That is not the Chromium ghost-close measured on 8/10 — there the compat
+  // click is hit-tested at dispatch time and lands on the SCRIM, an element
+  // this flag can never see. That case is pinned in
+  // tap-activation-compat-click.test.tsx, at the touchend that prevents it.
+  it('menu toggle: a late click on the same button does not toggle it back shut', () => {
     render(<BottomNav nextCustomer={null} locale="ja" />)
     const btn = menuButton()
     expect(btn).toHaveAttribute('aria-expanded', 'false')
