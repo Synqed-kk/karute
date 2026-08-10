@@ -59,7 +59,7 @@ describe('StaffSelector (担当トリガー)', () => {
     )
     fireEvent.click(screen.getByText('担当'))
     expect(screen.getByRole('listbox')).toBeInTheDocument()
-    fireEvent.mouseDown(screen.getByTestId('outside'))
+    fireEvent.pointerDown(screen.getByTestId('outside'))
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
   })
   it('全スタッフ row selects all', () => {

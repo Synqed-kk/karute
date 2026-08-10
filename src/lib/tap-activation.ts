@@ -19,9 +19,15 @@
 // never stop twice).
 //
 // Scope is deliberately narrow: applied PER ELEMENT by the bottom bar, no
-// document-level listeners, and never preventDefault on touchend — so this
-// can't reach a horizontal scroller or a `data-gesture-inert` subtree, and
-// thin/gestures.ts's <main>-only swipe machinery is untouched.
+// document-level listeners, and the ONLY preventDefault on the touch path is
+// in touchend's accepted-tap branch — by then the finger is off the glass and
+// the gesture is already classified a clean tap, so a horizontal scroller, a
+// `data-gesture-inert` subtree, and thin/gestures.ts's <main>-only swipe
+// machinery are all unreachable from it. Its one job is suppressing the
+// compatibility click: Chromium hit-tests that click at DISPATCH time, ~20ms
+// after touchend, so it lands on whatever `activate()` mounted under the
+// finger in the meantime — not on the element that was tapped. WebKit targets
+// the touchstart-time element instead, which is why only Chromium sees it.
 
 import type { MouseEvent, TouchEvent } from 'react'
 
@@ -166,13 +172,30 @@ export function tapActivation(
         taps.delete(e.currentTarget)
         return
       }
+      // Suppress the compatibility click at source. Under Chromium the
+      // full-viewport scrim `activate()` is about to mount receives that click
+      // and closes the sheet the same tap just opened (メニュー, measured on
+      // device 2026-08-10: open at +8ms, closed at +22ms) — the per-element
+      // swallow flag below cannot reach it, because the click never touches
+      // this element.
+      //
+      // Ceiling: touchend is cancelable here — React attaches it actively,
+      // passivizing only touchstart/touchmove/wheel — UNLESS the engine has
+      // already consumed the sequence for scrolling, which is exactly the
+      // momentum tap #648 exists for. There the guard no-ops and the ghost
+      // click can return; the swallowClick backstop below covers what it can
+      // of that case (whatever lands on this same element).
+      if (e.cancelable) e.preventDefault()
+      // Backstop, kept for engines that deliver the click regardless.
       s.swallowClick = true
       activate()
     },
     onClick: (e: MouseEvent<Element>) => {
       const s = taps.get(e.currentTarget)
       if (s?.swallowClick) {
-        // touchend already activated — this is iOS's late synthetic click.
+        // touchend already activated, and its preventDefault should have
+        // suppressed this click — so getting here means the engine delivered
+        // one anyway (iOS synthesizes some outside the compatibility path).
         // preventDefault also stops the <a>'s own navigation: both Link ports
         // (next/link and thin/ports/nav.vite) bail on defaultPrevented, so a
         // tab never navigates twice and a stop never stops twice.

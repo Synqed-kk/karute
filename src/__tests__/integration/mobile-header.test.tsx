@@ -4,7 +4,7 @@
  * Render coverage for MobileHeader (PR #86/#103, replay/11): title mapping,
  * back-arrow on sub-routes, and the recording-aware bell hiding + unread badge.
  */
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 
 let mockPathname = '/ja'
 let mockUnread = 0
@@ -116,6 +116,19 @@ describe('StoreSwitcher branch label (7/26 pill regression)', () => {
     render(<StoreSwitcher stores={[daikanyama, ginza, belle]} activeStoreId="s4" />)
     expect(screen.getByText('La Belle 渋谷')).toBeInTheDocument()
     expect(screen.queryByText('Belle 渋谷')).not.toBeInTheDocument()
+  })
+
+  // The outside-close listener is pointerdown, not mousedown: mousedown is a
+  // compatibility event, and the bottom bar preventDefaults its touchend
+  // (src/lib/tap-activation.ts), which suppresses the whole compat sequence —
+  // an outside tap landing on a bar cell would never close this. Reverting the
+  // listener to mousedown must fail this test.
+  it('an outside pointerdown closes the dropdown', () => {
+    render(<StoreSwitcher stores={[daikanyama, ginza]} activeStoreId="s1" />)
+    fireEvent.click(document.querySelector('button[aria-haspopup="listbox"]')!)
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
   })
 })
 
