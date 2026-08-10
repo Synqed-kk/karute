@@ -105,11 +105,13 @@ export function DiscreetRecordingIndicator() {
     }
   }, [open])
 
-  // Close on outside click. pointerdown, not mousedown, for the same reason
-  // CustomerCombobox uses it: mousedown is a COMPATIBILITY event, so any
-  // element that preventDefaults its touchend suppresses it — tapping a bottom
-  // bar cell (src/lib/tap-activation.ts does exactly that) would otherwise
-  // leave this popover stuck open. Pointer events fire regardless.
+  // Close on outside click. pointerdown, not mousedown: mousedown is a
+  // COMPATIBILITY event, so any element that preventDefaults its touchend
+  // suppresses it — tapping a bottom bar cell (src/lib/tap-activation.ts does
+  // exactly that) would otherwise leave this popover up until the 10s
+  // auto-close above swept it. Pointer events fire regardless.
+  // CustomerCombobox is the sibling precedent for pointerdown, arrived at for
+  // its own reason (iOS keyboard-dismiss taps do not reliably fire mousedown).
   // ponytail: a scroll-start now dismisses it too. Standard popover behavior
   // (Radix dismisses on pointerdown as well) and deliberate.
   useEffect(() => {

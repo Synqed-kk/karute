@@ -62,4 +62,18 @@ describe('DiscreetRecordingIndicator — 開く carries the live target', () => 
     openPopoverAndTapOpen()
     expect(push).toHaveBeenCalledWith('/sessions')
   })
+
+  // The outside-close listener is pointerdown, not mousedown: mousedown is a
+  // compatibility event, and the bottom bar preventDefaults its touchend
+  // (src/lib/tap-activation.ts), which suppresses the whole compat sequence —
+  // an outside tap landing on a bar cell would leave this popover up until the
+  // 10s auto-close. Reverting the listener to mousedown must fail this test.
+  it('an outside pointerdown closes the popover', () => {
+    mockRecState = 'recording'
+    render(<DiscreetRecordingIndicator />)
+    fireEvent.click(screen.getByLabelText('dotAria'))
+    expect(screen.getByText('openPage')).toBeInTheDocument()
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByText('openPage')).not.toBeInTheDocument()
+  })
 })

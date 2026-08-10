@@ -37,14 +37,25 @@ export function StoreSwitcher({ stores, activeStoreId, variant = 'mobile' }: Sto
 
   // pointerdown, not mousedown: mousedown is a COMPATIBILITY event an element
   // can suppress by preventDefaulting its touchend (the bottom bar does —
-  // src/lib/tap-activation.ts), which would leave this dropdown stuck open on
-  // an outside tap. Pointer events fire regardless. Same choice, same reason,
-  // as CustomerCombobox.
+  // src/lib/tap-activation.ts), which would leave this dropdown open on an
+  // outside tap. Pointer events fire regardless. CustomerCombobox is the
+  // sibling precedent for pointerdown here, though it arrived for its own
+  // reason (iOS keyboard-dismiss taps do not reliably produce a mousedown).
   // ponytail: a scroll-start now dismisses it too — standard popover behavior
   // (Radix dismisses on pointerdown as well), deliberate.
+  //
+  // `pending` is a real dep, not noise: without it the listener closes over
+  // the value it had when `open` last changed (always false, since the
+  // dropdown opens before any switch starts) and the guard below would never
+  // fire.
   useEffect(() => {
     if (!open) return
     const onDown = (e: PointerEvent) => {
+      // A switch in flight owns the dropdown. choose() deliberately keeps it
+      // open on failure to surface the error instead of silently snapping the
+      // pill back; dismissing on a scroll-start would unmount that error
+      // before anyone read it.
+      if (pending) return
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
     const onKey = (e: KeyboardEvent) => {
@@ -56,7 +67,7 @@ export function StoreSwitcher({ stores, activeStoreId, variant = 'mobile' }: Sto
       document.removeEventListener('pointerdown', onDown)
       document.removeEventListener('keydown', onKey)
     }
-  }, [open])
+  }, [open, pending])
 
   // The switcher only matters with 2+ stores — single-store salons get nothing.
   if (stores.length < 2) return null
