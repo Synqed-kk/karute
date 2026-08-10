@@ -177,8 +177,14 @@ export function tapActivation(
       // and closes the sheet the same tap just opened (メニュー, measured on
       // device 2026-08-10: open at +8ms, closed at +22ms) — the per-element
       // swallow flag below cannot reach it, because the click never touches
-      // this element. touchend is cancelable here (React does not attach it
-      // passively).
+      // this element.
+      //
+      // Ceiling: touchend is cancelable here — React attaches it actively,
+      // passivizing only touchstart/touchmove/wheel — UNLESS the engine has
+      // already consumed the sequence for scrolling, which is exactly the
+      // momentum tap #648 exists for. There the guard no-ops and the ghost
+      // click can return; the swallowClick backstop below covers what it can
+      // of that case (whatever lands on this same element).
       if (e.cancelable) e.preventDefault()
       // Backstop, kept for engines that deliver the click regardless.
       s.swallowClick = true

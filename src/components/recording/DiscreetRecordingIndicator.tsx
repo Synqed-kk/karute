@@ -79,7 +79,7 @@ export function DiscreetRecordingIndicator() {
 
   // When recording stops, explicitly close the popover BEFORE
   // unmount. Without this, the component unmounts with `open=true`
-  // mid-cycle — the mousedown / setTimeout cleanups still run, but
+  // mid-cycle — the pointerdown / setTimeout cleanups still run, but
   // React's effect-order during unmount has occasionally left
   // pointer-capture state lingering on the dot button, which in
   // Chrome can block page-level scroll until a hard reload.
@@ -105,17 +105,23 @@ export function DiscreetRecordingIndicator() {
     }
   }, [open])
 
-  // Close on outside click.
+  // Close on outside click. pointerdown, not mousedown, for the same reason
+  // CustomerCombobox uses it: mousedown is a COMPATIBILITY event, so any
+  // element that preventDefaults its touchend suppresses it — tapping a bottom
+  // bar cell (src/lib/tap-activation.ts does exactly that) would otherwise
+  // leave this popover stuck open. Pointer events fire regardless.
+  // ponytail: a scroll-start now dismisses it too. Standard popover behavior
+  // (Radix dismisses on pointerdown as well) and deliberate.
   useEffect(() => {
     if (!open) return
     if (typeof window === 'undefined') return
-    const onDocClick = (e: MouseEvent) => {
+    const onDocClick = (e: PointerEvent) => {
       const target = e.target as HTMLElement | null
       if (target && target.closest('[data-discreet-reveal]')) return
       setOpen(false)
     }
-    window.addEventListener('mousedown', onDocClick)
-    return () => window.removeEventListener('mousedown', onDocClick)
+    window.addEventListener('pointerdown', onDocClick)
+    return () => window.removeEventListener('pointerdown', onDocClick)
   }, [open])
 
   if (!isActive) return null

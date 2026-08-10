@@ -35,18 +35,25 @@ export function StoreSwitcher({ stores, activeStoreId, variant = 'mobile' }: Sto
   const [pending, startTransition] = useTransition()
   const ref = useRef<HTMLDivElement>(null)
 
+  // pointerdown, not mousedown: mousedown is a COMPATIBILITY event an element
+  // can suppress by preventDefaulting its touchend (the bottom bar does —
+  // src/lib/tap-activation.ts), which would leave this dropdown stuck open on
+  // an outside tap. Pointer events fire regardless. Same choice, same reason,
+  // as CustomerCombobox.
+  // ponytail: a scroll-start now dismisses it too — standard popover behavior
+  // (Radix dismisses on pointerdown as well), deliberate.
   useEffect(() => {
     if (!open) return
-    const onDown = (e: MouseEvent) => {
+    const onDown = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false)
     }
-    document.addEventListener('mousedown', onDown)
+    document.addEventListener('pointerdown', onDown)
     document.addEventListener('keydown', onKey)
     return () => {
-      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('pointerdown', onDown)
       document.removeEventListener('keydown', onKey)
     }
   }, [open])
