@@ -67,6 +67,18 @@ describe('proxy — session guard', () => {
     expect(res.headers.get('location')).toBeNull()
   })
 
+  it('lets an unauthenticated request to reset-password pass', async () => {
+    asUnauth()
+    const res = await proxy(reqFor('/ja/reset-password'))
+    expect(res.headers.get('location')).toBeNull()
+  })
+
+  it('lets an unauthenticated request to reset-password/confirm pass', async () => {
+    asUnauth()
+    const res = await proxy(reqFor('/ja/reset-password/confirm?code=abc'))
+    expect(res.headers.get('location')).toBeNull()
+  })
+
   it('lets an authenticated request to an app route pass', async () => {
     asAuthed()
     const res = await proxy(reqFor('/ja/dashboard'))
