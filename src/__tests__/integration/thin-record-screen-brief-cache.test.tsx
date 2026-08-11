@@ -181,6 +181,10 @@ describe('RecordScreen — no-shimmer revisit (perf packet 33, THE discriminatin
 
     const first = render(<RecordScreen />)
     await screen.findByText('AI-BRIEF-REVISIT')
+    // RecordScreen's OWN mount-fetch URL builder (thin/screens/RecordScreen.tsx
+    // — distinct from screen-prefetch.ts, covered separately) carries the
+    // runtime locale, not a re-hardcoded literal (FOLLOW-UP §2 Ruling A).
+    expect(apiFetch.mock.calls[0][0]).toBe(RECORD_SCREEN_PATH)
     first.unmount()
 
     // Revisit: remount the SAME target. Both the screen DTO (dtoCache,

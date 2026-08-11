@@ -93,15 +93,15 @@ export function LoginScreen() {
     setLoading(true)
     setError(null)
     const formData = new FormData(e.currentTarget)
-    // Web's own /ja/reset-password/confirm route is the ONLY finish target —
-    // capacitor://localhost has no URL-based auth callback (packet-01).
-    // facadeUrl is the same VITE_FACADE_URL prod origin the shell already
-    // trusts (thin/env.ts); 'ja' is a literal because this bundle ships
-    // messages/ja.json only — same literal thin/main.tsx already uses for
-    // <AppRoot locale="ja">, there being no other locale to select.
+    // Web's own /<locale>/reset-password/confirm route is the ONLY finish
+    // target — capacitor://localhost has no URL-based auth callback
+    // (packet-01). facadeUrl is the same VITE_FACADE_URL prod origin the
+    // shell already trusts (thin/env.ts); locale reads the runtime shell
+    // locale (thin/locale.ts) — both /ja/ and /en/ confirm routes are
+    // prod-proven live (#692 probe evidence, FOLLOW-UP §2 Ruling A).
     const { error } = await getMobileAuth().auth.resetPasswordForEmail(
       formData.get('email') as string,
-      { redirectTo: `${getThinEnv().facadeUrl}/ja/reset-password/confirm` },
+      { redirectTo: `${getThinEnv().facadeUrl}/${getThinLocale()}/reset-password/confirm` },
     )
     if (seq !== reqSeq.current) return
     if (error) {

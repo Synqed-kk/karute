@@ -14,6 +14,7 @@
 // pipeline's upload+transcribe legs run through the recording port (Decision 2).
 
 import { useSearchParams } from '../ports/nav.vite'
+import { getThinLocale } from '../locale'
 import { RecordPageView } from '@/components/karute/redesign/record/RecordPageView'
 import type { RecordTargetBooking } from '@/components/karute/redesign/record/RecordingTargetCard'
 import { RecordScreenDTO, type RecordScreenDTOType } from '@/lib/app-api/record-screen-dto'
@@ -73,7 +74,7 @@ export function RecordScreen() {
   const customerId = search.get('customerId')
   if (appointmentId) qs.push(`appointmentId=${enc(appointmentId)}`)
   if (customerId) qs.push(`customerId=${enc(customerId)}`)
-  qs.push('locale=ja')
+  qs.push(`locale=${getThinLocale()}`)
   const { state, retry } = useScreenDto(`/api/app/v1/screens/record?${qs.join('&')}`, parse)
   return (
     <ScreenStates state={state} retry={retry}>

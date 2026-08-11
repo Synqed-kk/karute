@@ -11,6 +11,7 @@ import {
 } from '@/lib/welcome/business-types'
 import { AskAiScreenDTO, type AskAiScreenDTOType } from '@/lib/app-api/ask-ai-dto'
 import type { DataScopeItem } from '@/components/ai/redesign/AIPageHeader'
+import { getThinLocale } from '../locale'
 import { ScreenStates, useScreenDto } from './ScreenBoundary'
 
 const parse = (raw: unknown): AskAiScreenDTOType => AskAiScreenDTO.parse(raw)
@@ -26,11 +27,12 @@ export function AskAiScreen() {
         // Page parity (app/[locale]/(app)/ask-ai/page.tsx): '' and null both
         // mean "no business type" → generic profile, default prompts.
         const businessType = dto.businessType
-        // thin is ja-only (locale="ja" below) — pass it through so the AI
-        // profile label + prompt cards resolve their Ja twins instead of
+        // Runtime shell locale (thin/locale.ts) — pass it through so the AI
+        // profile label + prompt cards resolve their locale twins instead of
         // silently defaulting to the functions' English default.
-        const profile = businessType ? getBusinessProfile(businessType, 'ja') : null
-        const prompts = getConsultationQuestions(businessType ?? null, 'ja').slice(0, 3)
+        const locale = getThinLocale()
+        const profile = businessType ? getBusinessProfile(businessType, locale) : null
+        const prompts = getConsultationQuestions(businessType ?? null, locale).slice(0, 3)
         const scope: DataScopeItem[] = [
           { label: t('scopeKarute'), count: dto.scope.karute },
           { label: t('scopeCustomers'), count: dto.scope.customers },
@@ -46,7 +48,7 @@ export function AskAiScreen() {
             // server-side); the thin screen ships without them until the facade
             // exposes one — empty renders the header without signal chips.
             signals={[]}
-            locale="ja"
+            locale={locale}
           />
         )
       }}

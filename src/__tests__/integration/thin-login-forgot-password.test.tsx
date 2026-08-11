@@ -14,6 +14,11 @@ import { setSessionState } from '@/lib/auth/mobile/session-store'
 // wrapper) is mocked below, not the underlying library. Used by the
 // flow-type pin test at the bottom of this file.
 import { createMobileAuth } from '@/lib/auth/mobile/client-session'
+// REAL (unmocked): the redirectTo pin below reads the SAME singleton
+// LoginScreen itself calls (FOLLOW-UP §2 Ruling A) — a locale-dynamic
+// assertion, not a re-hardcoded literal that could silently drift out of
+// sync with the source.
+import { getThinLocale } from '../../../thin/locale'
 
 // Same real-ja.json feed as thin-splash-gate.test.tsx — keeps copy assertions
 // honest against the actual bundled strings instead of raw keys.
@@ -100,7 +105,7 @@ describe('LoginScreen — forgot-password sub-view', () => {
     })
 
     expect(resetPasswordForEmail).toHaveBeenCalledWith('staff@example.com', {
-      redirectTo: 'https://karute.synqed.jp/ja/reset-password/confirm',
+      redirectTo: `https://karute.synqed.jp/${getThinLocale()}/reset-password/confirm`,
     })
     expect(screen.getByText('メールを送信しました')).toBeInTheDocument() // resetSentTitle
   })
