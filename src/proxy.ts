@@ -7,7 +7,7 @@ const intlMiddleware = createMiddleware(routing)
 
 // Path segments that stay public (no auth required). Everything else under a
 // locale is an (app) route and requires a session.
-const PUBLIC_SEGMENTS = ['login', 'signup', 'join', 'auth']
+const PUBLIC_SEGMENTS = ['login', 'signup', 'join', 'auth', 'reset-password']
 
 export async function proxy(request: NextRequest) {
   // Run next-intl middleware first (handles locale redirects, prefix routing)
