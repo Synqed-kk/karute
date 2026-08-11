@@ -43,6 +43,13 @@ jest.mock('@/lib/supabase/client', () => {
   }
 })
 
+// LoginPage now renders <LocaleToggle/> (2026-08-11 packet) — it reaches
+// real next-intl/navigation (createNavigation) via @/i18n/navigation, which
+// jest can't parse raw ESM. Not what this suite is testing (translated
+// errors + the confirm banner); stub it out same as
+// accent-tier-contract.test.tsx does for the landing page.
+jest.mock('@/components/layout/locale-toggle', () => ({ LocaleToggle: () => null }))
+
 import { LoginForm } from '@/components/login-form'
 import LoginPage from '@/app/[locale]/login/page'
 import * as clientMod from '@/lib/supabase/client'

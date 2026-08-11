@@ -56,7 +56,7 @@ export const PAGE_PICKS = {
   dataImport: ['dataImport'],
   welcome: ['welcome'],
   landing: ['landing', 'localeToggle'],
-  authPages: ['auth'],
+  authPages: ['auth', 'localeToggle'],
   join: ['invite'],
 } as const
 

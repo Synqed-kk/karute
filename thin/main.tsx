@@ -24,6 +24,7 @@ import { stripLocalePrefix } from './ports/nav.vite'
 import { setRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { setDataPort } from '@/lib/ports/data-port'
 import { mark, reportMarks, MARKS } from './probe/marks'
+import { getThinLocale, type ThinLocale } from './locale'
 
 // Recording pipeline runs the facade upload + /api/app/v1/ai legs in the shell
 // (packet 08 Decision 2). Set before render so any capture started on first
@@ -103,9 +104,24 @@ function main(): void {
     history.replaceState({}, '', '/customers')
   }
 
+  // getThinLocale() (module-load-frozen) decides which messages render. 'ja'
+  // renders with the static top-level import — same synchronous control flow
+  // as before this locale support existed, zero added latency. 'en' awaits
+  // its lazy chunk first (thin/locale.ts boot-freezes the choice, so this
+  // dynamic import only ever fires on an EN-selected boot, never on the ja
+  // path — the ja bundle's first paint is untouched).
+  const locale = getThinLocale()
+  if (locale === 'en') {
+    import('../messages/en.json').then((mod) => renderApp('en', mod.default))
+  } else {
+    renderApp('ja', messages)
+  }
+}
+
+function renderApp(locale: ThinLocale, appMessages: Record<string, unknown>): void {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      <AppRoot dataPort={viteDataPort} locale="ja" messages={messages}>
+      <AppRoot dataPort={viteDataPort} locale={locale} messages={appMessages}>
         <ThinShell nav={<ThinChromeNav />}>
           <AuthGate>
             <ThinChromeContent>

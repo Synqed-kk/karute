@@ -17,6 +17,7 @@ import {
   subscribeSessionState,
 } from '@/lib/auth/mobile/session-store'
 import { useChromeDto } from './chrome-store'
+import { getThinLocale } from '../locale'
 
 /** Nav for the ThinShell slot. Same mounted-app gate as the AuthGate:
  *  signed-in or an offline resume with a known session; hidden on the login
@@ -28,7 +29,9 @@ export function ThinChromeNav() {
     state.status === 'signed-in' ||
     (state.status === 'recovering' && hasKnownSession())
   if (!mounted) return null
-  return <BottomNav nextCustomer={chrome?.nextCustomer ?? null} locale="ja" />
+  return (
+    <BottomNav nextCustomer={chrome?.nextCustomer ?? null} locale={getThinLocale()} />
+  )
 }
 
 /** Header + web-layout content frame around the authed screens (rendered as
