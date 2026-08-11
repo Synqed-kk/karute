@@ -40,3 +40,26 @@ export function setThinLocale(next: ThinLocale): void {
   }
   window.location.reload()
 }
+
+// En-chunk lazy-import failure recovery (main.tsx's dynamic en.json import
+// catch, 2026-08-11 packet §3 fix B): a failed en chunk load must not leave
+// the boot-frozen singleton at 'en' while the caller renders ja messages in
+// place — that's a session-wide mixed state (fetches/aria/nav think EN, text
+// renders JA), sticky across every later boot too. Reset the persisted value
+// to 'ja' and reload: one clean ja boot, loop-safe (the ja path has no
+// dynamic import to fail again).
+//
+// Returns whether the write succeeded, WITHOUT reloading on failure — if the
+// write itself throws, reloading would just re-read the still-'en' persisted
+// value and hit this same failure again. The caller falls back to an
+// in-place ja render instead (accepted mixed corner; storage-broken is rare
+// and benign — see the packet's adjudicated no-fix list).
+export function resetThinLocaleOnEnChunkFailure(): boolean {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, 'ja')
+  } catch {
+    return false
+  }
+  window.location.reload()
+  return true
+}

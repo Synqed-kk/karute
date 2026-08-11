@@ -24,7 +24,7 @@ import { stripLocalePrefix } from './ports/nav.vite'
 import { setRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { setDataPort } from '@/lib/ports/data-port'
 import { mark, reportMarks, MARKS } from './probe/marks'
-import { getThinLocale, type ThinLocale } from './locale'
+import { getThinLocale, resetThinLocaleOnEnChunkFailure, type ThinLocale } from './locale'
 
 // Recording pipeline runs the facade upload + /api/app/v1/ai legs in the shell
 // (packet 08 Decision 2). Set before render so any capture started on first
@@ -113,10 +113,17 @@ function main(): void {
   const locale = getThinLocale()
   if (locale === 'en') {
     // A failed lazy-chunk load (offline first boot, stale cached shell) must
-    // not leave a blank screen — fall back to the already-loaded ja messages.
+    // not leave a blank screen NOR a mixed session (locale singleton stuck
+    // at 'en' while these ja messages render — fetches/aria/nav would still
+    // think EN). resetThinLocaleOnEnChunkFailure resets + reloads for one
+    // clean ja boot; only when the storage write itself throws does it skip
+    // the reload (which would just repeat the failure) and fall back to this
+    // in-place ja render instead (thin/locale.ts, packet §3 fix B).
     import('../messages/en.json')
       .then((mod) => renderApp('en', mod.default))
-      .catch(() => renderApp('ja', messages))
+      .catch(() => {
+        if (!resetThinLocaleOnEnChunkFailure()) renderApp('ja', messages)
+      })
   } else {
     renderApp('ja', messages)
   }

@@ -67,11 +67,11 @@ function SuggestedMessageSlot({
 }
 
 export function KaruteDetailScreen({ id }: { id: string }) {
+  const locale = getThinLocale()
   const { state, retry } = useScreenDto(
-    `/api/app/v1/screens/karute/${enc(id)}`,
+    `/api/app/v1/screens/karute/${enc(id)}?locale=${locale}`,
     parse,
   )
-  const locale = getThinLocale()
   return (
     <ScreenStates state={state} retry={retry}>
       {(dto) => (

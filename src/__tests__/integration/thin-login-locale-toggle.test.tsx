@@ -11,7 +11,7 @@
  * picks the right key/label per current locale and calls setThinLocale with
  * the OTHER one on tap.
  */
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { setSessionState } from '@/lib/auth/mobile/session-store'
 
 jest.mock('next-intl', () => ({
@@ -103,5 +103,28 @@ describe('LoginScreen — EN/JP locale toggle', () => {
     const cls = screen.getByRole('button', { name: '英語に切り替え' }).className
     expect(cls).toMatch(/text-muted-foreground/)
     expect(cls).not.toMatch(/bg-(foreground|black|primary)\b/)
+  })
+
+  it('renders on the forgot sub-view too, not just signin (2026-08-11 packet §3 fix C — hoisted above the view switch)', () => {
+    getThinLocaleMock.mockReturnValue('ja')
+    render(<LoginScreen />)
+    fireEvent.click(screen.getByText('パスワードをお忘れですか？'))
+    expect(screen.getByText('パスワード再設定')).toBeInTheDocument() // resetTitle — confirms the forgot view
+    expect(screen.getByRole('button', { name: '英語に切り替え' })).toHaveTextContent('JP')
+  })
+
+  it('renders on the sent sub-view too (fix C)', async () => {
+    getThinLocaleMock.mockReturnValue('ja')
+    resetPasswordForEmail.mockResolvedValue({ data: {}, error: null })
+    render(<LoginScreen />)
+    fireEvent.click(screen.getByText('パスワードをお忘れですか？'))
+    fireEvent.change(screen.getByLabelText('メールアドレス'), {
+      target: { value: 'staff@example.com' },
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('再設定リンクを送信'))
+    })
+    expect(screen.getByText('メールを送信しました')).toBeInTheDocument() // resetSentTitle — confirms the sent view
+    expect(screen.getByRole('button', { name: '英語に切り替え' })).toHaveTextContent('JP')
   })
 })

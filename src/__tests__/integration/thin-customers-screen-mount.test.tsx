@@ -109,7 +109,7 @@ describe('CustomersScreen — wired mount (packet 26)', () => {
 
   it('threads dto.burnByCustomer through CustomersListView to the 今月消化 strip stat', async () => {
     const apiFetch = jest.fn(async (path: string) => {
-      if (path === '/api/app/v1/screens/customers') return jsonResponse(dto)
+      if (path === '/api/app/v1/screens/customers?locale=ja') return jsonResponse(dto)
       throw new Error(`unexpected apiFetch(${path})`)
     })
     setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
@@ -122,7 +122,7 @@ describe('CustomersScreen — wired mount (packet 26)', () => {
 
   it('hides 今月消化 when an unpriced customer is IN VIEW (honesty-gate parity, packet 26 fix)', async () => {
     const apiFetch = jest.fn(async (path: string) => {
-      if (path === '/api/app/v1/screens/customers') return jsonResponse(dtoWithUnpriced)
+      if (path === '/api/app/v1/screens/customers?locale=ja') return jsonResponse(dtoWithUnpriced)
       throw new Error(`unexpected apiFetch(${path})`)
     })
     setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])

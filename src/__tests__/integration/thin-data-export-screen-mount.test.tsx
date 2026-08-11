@@ -50,6 +50,17 @@ jest.mock('next-intl', () => {
   }
 })
 
+// Locale seam coverage (2026-08-11 packet §3, item D.3): DataExportScreen
+// passes getThinLocale() straight into DataExportView's `locale` prop, which
+// ExportColumnsPicker reads DIRECTLY (isJa = locale === 'ja'; own static
+// label table, NOT the next-intl mock above) — mutable-var mock, defaults
+// 'ja' so every existing test in this file is unaffected.
+let mockLocale: 'ja' | 'en' = 'ja'
+jest.mock('../../../thin/locale', () => ({
+  getThinLocale: () => mockLocale,
+  setThinLocale: jest.fn(),
+}))
+
 import { DataExportScreen } from '../../../thin/screens/DataExportScreen'
 
 const dto = {
@@ -70,6 +81,26 @@ describe('DataExportScreen — wired mount (design-parity packet 23)', () => {
   // same-path-keeps-dto contract (see ScreenBoundary.tsx).
   beforeEach(() => {
     dtoCache.clear()
+    mockLocale = 'ja'
+  })
+
+  it('en-seeded: the columns picker renders EN column/group labels, not the Ja ones (seam family: DataExport prop)', async () => {
+    mockLocale = 'en'
+    const apiFetch = jest.fn(async (path: string) => {
+      if (path === '/api/app/v1/screens/data-export') return jsonResponse(dto)
+      throw new Error(`unexpected apiFetch(${path})`)
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<DataExportScreen />)
+
+    // ExportColumnsPicker's `isJa = locale === 'ja'` reads the locale PROP
+    // directly (src/lib/export/scopes.ts's label/labelJa pair), independent
+    // of the next-intl mock above which stays ja regardless.
+    expect(await screen.findByText('Customer ID')).toBeTruthy()
+    expect(screen.getByText('Identifiers')).toBeTruthy()
+    expect(screen.queryByText('顧客ID')).toBeNull()
+    expect(screen.queryByText('識別子')).toBeNull()
   })
 
   it('renders the REAL DataExportView with a rendered dataExport string, and the DTO totals', async () => {

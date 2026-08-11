@@ -234,6 +234,35 @@ describe('store clamp (#441 leak class) — REAL resolveStoreForRequest', () => 
   })
 })
 
+describe('locale clamp (2026-08-11 packet §3 fix A3) — the route no longer hardcodes ja', () => {
+  it('?locale=en threads through readLocale() into the REAL buildCustomersListScreen row builder — an en-formatted joinDate, not the ja default', async () => {
+    const res = await GET(req({ headers: auth }, '?locale=en'), route)
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    const row1 = dto.rows.find((r: { id: string }) => r.id === 'cust-1')
+    // cust-1's created_at is 2026-01-01T00:00:00Z. list-enrich.ts's
+    // formatJoinDate branches en-US (short month) vs ja-JP (long month, the
+    // 年/月/日 glyphs) purely off this locale value — a behavior pin, not an
+    // implementation echo: no en output could ever contain those glyphs.
+    expect(row1.joinDate).not.toMatch(/年|月|日/)
+    expect(row1.joinDate).toContain('2026')
+  })
+
+  it('no ?locale param still defaults to ja (unchanged default behavior)', async () => {
+    const res = await GET(req({ headers: auth }), route)
+    const dto = await res.json()
+    const row1 = dto.rows.find((r: { id: string }) => r.id === 'cust-1')
+    expect(row1.joinDate).toMatch(/年.*月.*日/)
+  })
+
+  it('an invalid locale value clamps to ja, same as every sibling screens route', async () => {
+    const res = await GET(req({ headers: auth }, '?locale=fr'), route)
+    const dto = await res.json()
+    const row1 = dto.rows.find((r: { id: string }) => r.id === 'cust-1')
+    expect(row1.joinDate).toMatch(/年.*月.*日/)
+  })
+})
+
 describe('authn / validation / failure contract', () => {
   it('missing Bearer with a cookie present → 401, no reads', async () => {
     const res = await GET(req({ headers: { cookie: 'sb-access-token=evil' } }), route)

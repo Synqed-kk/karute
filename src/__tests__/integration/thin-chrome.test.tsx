@@ -50,6 +50,17 @@ jest.mock('next/navigation', () =>
   jest.requireActual('../../../thin/ports/nav.vite'),
 )
 
+// Locale seam coverage (2026-08-11 packet §3, item D.3): ThinChromeNav reads
+// getThinLocale() and passes it straight through to BottomNav's `locale`
+// prop — mock the module (mutable var, defaults 'ja' so every EXISTING test
+// below is unaffected) so ONE new test can flip it and prove the real prop
+// wiring, not just that the mock ran.
+let mockLocale: 'ja' | 'en' = 'ja'
+jest.mock('../../../thin/locale', () => ({
+  getThinLocale: () => mockLocale,
+  setThinLocale: jest.fn(),
+}))
+
 // Server-bound web modules the chrome drags in — stubbed at the same seams
 // the thin bundle re-wires (actions port / take-store).
 jest.mock('@/actions/stores', () => ({ setActiveStore: jest.fn() }))
@@ -165,6 +176,7 @@ beforeEach(() => {
   setDataPort({ apiFetch } as any)
   window.localStorage.clear()
   history.replaceState({}, '', '/customers')
+  mockLocale = 'ja'
 })
 
 afterEach(() => {
@@ -195,6 +207,17 @@ describe('ThinChromeNav (the real web BottomNav in the shell slot)', () => {
     for (const label of ['ダッシュボード', 'コーチング', 'AI相談', '設定']) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0)
     }
+  })
+
+  it('en-seeded: the center mic label drops the JA honorific — locale prop reaches the REAL BottomNav (seam family: Chrome/BottomNav prop)', async () => {
+    mockLocale = 'en'
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    render(<ThinChromeNav />)
+    // bottom-nav.tsx: `honorific = locale === 'ja' ? '様' : ''` — an exact
+    // match on the bare name proves the prop, not just that SOME text
+    // rendered (a loose substring match would pass even with 様 still glued on).
+    await waitFor(() => expect(screen.getByText('田中')).toBeTruthy())
+    expect(screen.queryByText('田中様')).toBeNull()
   })
 
   it("a chrome fetch resolving AFTER sign-out never writes the previous user's data", async () => {

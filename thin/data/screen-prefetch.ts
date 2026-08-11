@@ -61,7 +61,7 @@ const TARGETS: Target[] = [
     parse: (raw) => AppointmentsScreenDTO.parse(raw),
   },
   {
-    path: '/api/app/v1/screens/customers',
+    path: `/api/app/v1/screens/customers?locale=${getThinLocale()}`,
     parse: (raw) => CustomersScreenDTO.parse(raw),
   },
   {
@@ -69,7 +69,7 @@ const TARGETS: Target[] = [
     parse: (raw) => SessionsScreenDTO.parse(raw),
   },
   {
-    path: '/api/app/v1/screens/dashboard',
+    path: `/api/app/v1/screens/dashboard?locale=${getThinLocale()}`,
     parse: (raw) => DashboardScreenDTO.parse(raw),
   },
 ]

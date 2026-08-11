@@ -85,3 +85,37 @@ describe('setThinLocale — persist + reload, boot-frozen', () => {
     }
   })
 })
+
+describe('resetThinLocaleOnEnChunkFailure — main.tsx en-chunk lazy-import failure recovery (2026-08-11 packet §3 fix B)', () => {
+  it('write succeeds: resets the storage key to ja and reloads exactly once, returns true', async () => {
+    const { resetThinLocaleOnEnChunkFailure } = await loadLocaleModule()
+    const { reloadSpy, restore } = mockReload()
+    try {
+      window.localStorage.setItem('thin.locale', 'en')
+      const ok = resetThinLocaleOnEnChunkFailure()
+      expect(ok).toBe(true)
+      expect(window.localStorage.getItem('thin.locale')).toBe('ja')
+      expect(reloadSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      restore()
+    }
+  })
+
+  it('storage write throws: returns false WITHOUT reloading — a reload would just repeat the same failure (the nested-catch branch)', async () => {
+    const { resetThinLocaleOnEnChunkFailure } = await loadLocaleModule()
+    const { reloadSpy, restore } = mockReload()
+    const setItem = jest
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(() => {
+        throw new Error('storage unavailable')
+      })
+    try {
+      const ok = resetThinLocaleOnEnChunkFailure()
+      expect(ok).toBe(false)
+      expect(reloadSpy).not.toHaveBeenCalled()
+    } finally {
+      setItem.mockRestore()
+      restore()
+    }
+  })
+})

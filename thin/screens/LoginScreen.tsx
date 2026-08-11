@@ -116,9 +116,33 @@ export function LoginScreen() {
     }
   }
 
-  if (view === 'forgot') {
-    return (
-      <div className="flex min-h-dvh items-center justify-center bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+  // min-h-dvh, not min-h-full: the thin shell mounts this outside any
+  // height-chained parent, so min-h-full collapses to content height and the
+  // form top-aligns under the status bar (8/1 field bug). Safe-area padding
+  // keeps the centering honest between the notch and the home bar.
+  //
+  // The toggle is hoisted ABOVE the view switch (§3 fix C) rather than
+  // duplicated into each of the three view branches below: an English
+  // speaker recovering their account via 'forgot'/'sent' needs the switch
+  // exactly as much as on 'signin', and one instance keeps its
+  // position/behavior a single source of truth across all three.
+  return (
+    <div className="relative flex min-h-dvh items-center justify-center bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+      {/* EN/JP switch (2026-08-11 packet): boot-frozen locale, so a tap
+          persists + reloads rather than re-rendering in place — same
+          contract as thin/locale.ts. Styling mirrors the web
+          locale-toggle.tsx button (muted-foreground, no black fill — R13). */}
+      <button
+        type="button"
+        onClick={() => setThinLocale(getThinLocale() === 'en' ? 'ja' : 'en')}
+        aria-label={
+          getThinLocale() === 'en' ? tLocale('switchToJapanese') : tLocale('switchToEnglish')
+        }
+        className="absolute right-4 top-[calc(env(safe-area-inset-top)+1rem)] min-h-[44px] rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition hover:text-foreground"
+      >
+        {getThinLocale() === 'en' ? 'EN' : 'JP'}
+      </button>
+      {view === 'forgot' ? (
         <div className="w-full max-w-sm space-y-6 p-8">
           <div>
             <h1 className="text-2xl font-semibold">{t('resetTitle')}</h1>
@@ -163,13 +187,7 @@ export function LoginScreen() {
             </button>
           </p>
         </div>
-      </div>
-    )
-  }
-
-  if (view === 'sent') {
-    return (
-      <div className="flex min-h-dvh items-center justify-center bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+      ) : view === 'sent' ? (
         <div className="w-full max-w-sm space-y-6 p-8">
           <div className="rounded-md border border-border bg-muted/40 px-4 py-3">
             <p className="text-sm font-medium text-foreground">{t('resetSentTitle')}</p>
@@ -192,88 +210,66 @@ export function LoginScreen() {
             </button>
           </p>
         </div>
-      </div>
-    )
-  }
-
-  // min-h-dvh, not min-h-full: the thin shell mounts this outside any
-  // height-chained parent, so min-h-full collapses to content height and the
-  // form top-aligns under the status bar (8/1 field bug). Safe-area padding
-  // keeps the centering honest between the notch and the home bar.
-  return (
-    <div className="relative flex min-h-dvh items-center justify-center bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
-      {/* EN/JP switch (2026-08-11 packet): boot-frozen locale, so a tap
-          persists + reloads rather than re-rendering in place — same
-          contract as thin/locale.ts. Styling mirrors the web
-          locale-toggle.tsx button (muted-foreground, no black fill — R13). */}
-      <button
-        type="button"
-        onClick={() => setThinLocale(getThinLocale() === 'en' ? 'ja' : 'en')}
-        aria-label={
-          getThinLocale() === 'en' ? tLocale('switchToJapanese') : tLocale('switchToEnglish')
-        }
-        className="absolute right-4 top-[calc(env(safe-area-inset-top)+1rem)] min-h-[44px] rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition hover:text-foreground"
-      >
-        {getThinLocale() === 'en' ? 'EN' : 'JP'}
-      </button>
-      <div className="w-full max-w-sm space-y-6 p-8">
-        <div>
-          <h1 className="text-2xl font-semibold">{tCommon('appName')}</h1>
-          <p className="mt-2 text-sm text-muted-foreground">{t('subtitle')}</p>
+      ) : (
+        <div className="w-full max-w-sm space-y-6 p-8">
+          <div>
+            <h1 className="text-2xl font-semibold">{tCommon('appName')}</h1>
+            <p className="mt-2 text-sm text-muted-foreground">{t('subtitle')}</p>
+          </div>
+          <form onSubmit={handleSubmit} className="w-full space-y-4">
+            <div>
+              <label htmlFor="email" className="mb-1 block text-sm font-medium">
+                {t('email')}
+              </label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                required
+                autoComplete="email"
+                ref={emailInputRef}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <div>
+              <label htmlFor="password" className="mb-1 block text-sm font-medium">
+                {t('password')}
+              </label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                required
+                autoComplete="current-password"
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            {error && (
+              <p role="alert" className="text-sm text-red-400">
+                {error}
+              </p>
+            )}
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? t('submitting') : t('submit')}
+            </Button>
+          </form>
+          <p className="text-sm text-center text-muted-foreground">
+            <button
+              type="button"
+              onClick={() => {
+                setForgotEmailSeed(emailInputRef.current?.value ?? '')
+                reqSeq.current++
+                setLoading(false)
+                setError(null)
+                setView('forgot')
+              }}
+              className={quietLinkCls}
+            >
+              {t('forgotPassword')}
+            </button>
+          </p>
         </div>
-        <form onSubmit={handleSubmit} className="w-full space-y-4">
-          <div>
-            <label htmlFor="email" className="mb-1 block text-sm font-medium">
-              {t('email')}
-            </label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              required
-              autoComplete="email"
-              ref={emailInputRef}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-          </div>
-          <div>
-            <label htmlFor="password" className="mb-1 block text-sm font-medium">
-              {t('password')}
-            </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              required
-              autoComplete="current-password"
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-          </div>
-          {error && (
-            <p role="alert" className="text-sm text-red-400">
-              {error}
-            </p>
-          )}
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? t('submitting') : t('submit')}
-          </Button>
-        </form>
-        <p className="text-sm text-center text-muted-foreground">
-          <button
-            type="button"
-            onClick={() => {
-              setForgotEmailSeed(emailInputRef.current?.value ?? '')
-              reqSeq.current++
-              setLoading(false)
-              setError(null)
-              setView('forgot')
-            }}
-            className={quietLinkCls}
-          >
-            {t('forgotPassword')}
-          </button>
-        </p>
-      </div>
+      )}
     </div>
   )
 }

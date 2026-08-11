@@ -13,12 +13,16 @@ import {
   CustomersScreenDTO,
   type CustomersScreenDTOType,
 } from '@/lib/app-api/customers-screen-dto'
+import { getThinLocale } from '../locale'
 import { ScreenStates, useScreenDto } from './ScreenBoundary'
 
 const parse = (raw: unknown): CustomersScreenDTOType => CustomersScreenDTO.parse(raw)
 
 export function CustomersScreen() {
-  const { state, retry } = useScreenDto('/api/app/v1/screens/customers', parse)
+  const { state, retry } = useScreenDto(
+    `/api/app/v1/screens/customers?locale=${getThinLocale()}`,
+    parse,
+  )
   return (
     <ScreenStates state={state} retry={retry}>
       {(dto) => (

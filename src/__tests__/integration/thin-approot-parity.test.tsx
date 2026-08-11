@@ -74,6 +74,15 @@ describe('AppRoot provider contract', () => {
     expect(viewport?.getAttribute('content')).toContain('viewport-fit=cover')
   })
 
+  it('html.lang follows the locale prop — an en-selected app gets lang="en", not the ja default (2026-08-11 packet §3 fix A4)', () => {
+    render(
+      <AppRoot dataPort={sameOriginDataPort} locale="en" messages={{}}>
+        <div />
+      </AppRoot>,
+    )
+    expect(document.documentElement.lang).toBe('en')
+  })
+
   it('mounts the theme provider (next-themes class) and toaster (notifications) while signed in', () => {
     // The toaster is session-gated (F2, packet 12 fix batch) — see the
     // SessionGatedToaster describe block below for the gate itself.
