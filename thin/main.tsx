@@ -112,7 +112,11 @@ function main(): void {
   // path — the ja bundle's first paint is untouched).
   const locale = getThinLocale()
   if (locale === 'en') {
-    import('../messages/en.json').then((mod) => renderApp('en', mod.default))
+    // A failed lazy-chunk load (offline first boot, stale cached shell) must
+    // not leave a blank screen — fall back to the already-loaded ja messages.
+    import('../messages/en.json')
+      .then((mod) => renderApp('en', mod.default))
+      .catch(() => renderApp('ja', messages))
   } else {
     renderApp('ja', messages)
   }
