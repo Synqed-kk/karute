@@ -76,9 +76,12 @@ const DIST = 'thin/dist/assets'
 // scan below stays the real gate. Ceiling set 1,150 B above the measurement:
 // deliberately NOT a round thousand (the 8/8 razor-fail was a 193 B margin;
 // ~1 KB is the floor).
+// Raised 2026-08-11 (13th) — thin forgot-password sub-view (login-screen
+// request half; web confirm page finishes) — genuine new-feature volume, not
+// bloat; measured 1,757,951.
 // Same-line conflict resolver keeps THIS number (largest wins; raises never
 // shrink on a merge, only on a deliberate re-base measurement).
-const BUDGET_BYTES = 1_756_480
+const BUDGET_BYTES = 1_759_000
 
 let dir
 try {
