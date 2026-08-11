@@ -119,9 +119,11 @@ so a launch can never get stranded on the splash.
 ## Version bump rule — ⚖ UNIFIED VERSION LAW (Liam 2026-08-11, supersedes everything older in this section)
 
 - **ONE shared plain-integer release counter for BOTH platforms:** Android
-  `versionCode` == iOS `CFBundleVersion`, always. Counters merged at **15**
-  (8/11). Next release = 16 on both. Integers only — never decimals, never
-  timestamps, never reuse (codes 7/10/14 and iOS 1.2(4.8) are burned — dead).
+  `versionCode` == iOS `CFBundleVersion`, always. **First matched release =
+  16** (8/11 shipped the last mismatch: iPhone 1.1(4.8) · Android 15).
+  Integers only — never decimals, never timestamps, never reuse (codes
+  7/10/14, iOS 1.2(4.8), and the never-uploaded iOS "1.1(15)" archive are
+  burned/provenance — dead).
 - **`versionName` (and iOS marketing version) identical on both platforms**
   — "1.1" until Liam explicitly declares a joint milestone bump. Never bump
   it per release, never on one platform alone.
