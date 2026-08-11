@@ -225,6 +225,9 @@ describe('shell auth client — flow-type pin (blind lens P3)', () => {
       onSessionState: () => {},
       purgeLocalCaches: async () => {},
     })
-    expect(mobileAuth.auth.flowType).toBe('implicit')
+    // flowType is `protected` on GoTrueClient (TS2445) — this test only
+    // needs its runtime value, so a structural cast reads it without
+    // touching lint's no-explicit-any.
+    expect((mobileAuth.auth as unknown as { flowType: string }).flowType).toBe('implicit')
   })
 })

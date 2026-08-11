@@ -58,6 +58,14 @@ export function LoginScreen() {
       email: formData.get('email') as string,
       password: formData.get('password') as string,
     })
+    // ACCEPTED race (delta-verify, fix round): navigate away mid-sign-in and
+    // have it succeed anyway → both this seq guard AND thin/auth/session.ts's
+    // identity-guarded SIGNED_IN listener drop the write (store is
+    // 'signed-out', not 'recovering'/same-uid, when the stale event lands) —
+    // the login is intentionally discarded from the UI's point of view.
+    // Harmless: auth-js already persisted the session + started autorefresh
+    // regardless of our listeners, so it's self-healing — resubmit works, and
+    // a relaunch re-seeds signed-in from storage (thin/auth/session.ts boot).
     if (seq !== reqSeq.current) return
     if (error) {
       setError(t(authErrorKey(error)))
