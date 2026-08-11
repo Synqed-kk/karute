@@ -42,8 +42,14 @@ export function LoginScreen() {
   // uncontrolled — no behavior change to the working form above.
   const emailInputRef = useRef<HTMLInputElement>(null)
   const [forgotEmailSeed, setForgotEmailSeed] = useState('')
+  // Request-generation counter (fix round, blind lens P1/P2): a stale async
+  // result must never write state — any navigation or newer submit
+  // invalidates it. Every nav handler bumps it; every submit captures its own
+  // value up front and re-checks after its await, before touching state.
+  const reqSeq = useRef(0)
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    const seq = ++reqSeq.current
     e.preventDefault()
     setLoading(true)
     setError(null)
@@ -52,6 +58,7 @@ export function LoginScreen() {
       email: formData.get('email') as string,
       password: formData.get('password') as string,
     })
+    if (seq !== reqSeq.current) return
     if (error) {
       setError(t(authErrorKey(error)))
       setLoading(false)
@@ -71,6 +78,7 @@ export function LoginScreen() {
   }
 
   async function handleForgotSubmit(e: FormEvent<HTMLFormElement>) {
+    const seq = ++reqSeq.current
     e.preventDefault()
     setLoading(true)
     setError(null)
@@ -85,6 +93,7 @@ export function LoginScreen() {
       formData.get('email') as string,
       { redirectTo: `${getThinEnv().facadeUrl}/ja/reset-password/confirm` },
     )
+    if (seq !== reqSeq.current) return
     if (error) {
       // Rate limit / network only — mirrors reset-password-form.tsx: Supabase
       // never reveals whether the account exists, so this is the sole error
@@ -133,6 +142,8 @@ export function LoginScreen() {
             <button
               type="button"
               onClick={() => {
+                reqSeq.current++
+                setLoading(false)
                 setError(null)
                 setView('signin')
               }}
@@ -160,6 +171,8 @@ export function LoginScreen() {
             <button
               type="button"
               onClick={() => {
+                reqSeq.current++
+                setLoading(false)
                 setError(null)
                 setView('signin')
               }}
@@ -226,6 +239,8 @@ export function LoginScreen() {
             type="button"
             onClick={() => {
               setForgotEmailSeed(emailInputRef.current?.value ?? '')
+              reqSeq.current++
+              setLoading(false)
               setError(null)
               setView('forgot')
             }}
