@@ -32,7 +32,7 @@
 
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
-import { join, dirname, basename } from 'node:path'
+import { join, dirname, resolve } from 'node:path'
 
 const DIST = 'thin/dist/assets'
 const MANIFEST = 'thin/dist/.vite/manifest.json'
@@ -96,15 +96,19 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // bloat; measured 1,757,951.
 // Raised 2026-08-11 (14th) at Ruling B — the en.json lazy locale chunk lands
 // (boot-frozen EN/JP toggle on the app login screen), +115,977 B and the
-// first non-ja content the thin bundle has ever shipped, measured
-// 1,874,658 B ground-truth at ad219c50 against the prior 1_759_000 ceiling
-// (over by 115,658 B). Genuine translation-chunk volume, not bloat — same
-// class as every prior raise; the purchase-marker scan below (refined the
-// same PR to exempt translation-only chunks from the prose markers) stays
-// the real gate.
+// first non-ja content the thin bundle has ever shipped. Measured
+// 1,874,562 B ground-truth at the final tip 2557844b (fresh deterministic
+// build, confirmed reproducible across two clean builds) against the prior
+// 1_759_000 ceiling (over by 115,562 B) — corrects the in-flight
+// 1,874,658 B / ad219c50 reading this comment cited before the tip settled.
+// Genuine translation-chunk volume, not bloat — same class as every prior
+// raise; the purchase-marker scan below (refined the same PR to exempt
+// translation-only chunks from the prose markers) stays the real gate.
+// Ceiling set 1,438 B above the measurement, back on the ~1.3 KB headroom
+// convention (the 8/8 razor-fail was a 193 B margin; ~1.3 KB is the floor).
 // Same-line conflict resolver keeps THIS number (largest wins; raises never
 // shrink on a merge, only on a deliberate re-base measurement).
-const BUDGET_BYTES = 1_875_000
+const BUDGET_BYTES = 1_876_000
 
 let dir
 try {
@@ -157,8 +161,15 @@ for (const entry of Object.values(manifest)) {
   srcs.push(entry.src)
   fileToSrcs.set(entry.file, srcs)
 }
+// Anchored to the repo-root messages/ catalog specifically (not any directory
+// literally named "messages"): manifest `src` values are relative to Vite's
+// root (thin/), so resolve against that before comparing — a third-party
+// package's own messages/ folder resolves elsewhere and correctly fails this.
+const REPO_MESSAGES_DIR = resolve('messages')
 const isMessagesSrc = (src) =>
-  typeof src === 'string' && src.endsWith('.json') && basename(dirname(src)) === 'messages'
+  typeof src === 'string' &&
+  src.endsWith('.json') &&
+  dirname(resolve('thin', src)) === REPO_MESSAGES_DIR
 function isMessageOnlyChunk(file) {
   const srcs = fileToSrcs.get(`assets/${file}`)
   return !!srcs && srcs.length > 0 && srcs.every(isMessagesSrc)
@@ -186,7 +197,7 @@ const FORBIDDEN_ALL_CHUNKS = [
   'settings.subscription.cancel', // CancelConfirmDialog namespace
   'settings.subscription.paymentUpdate', // PaymentUpdateDialog namespace
   'settings.stores.addStoreSubscription', // AddStoreSubscriptionDialog namespace
-  'max-h-[85vh] overflow-y-auto sm:max-w-5xl', // PlanComparisonDialog className
+  'sm:max-w-5xl', // PlanComparisonDialog className (verified unique to that file in src/ + thin/)
   // @synqed-kk/ui vendor copies (identifier = displayName literal, survives
   // minification; plus one copy literal each in case a package build drops it)
   'SubscriptionSummaryCard',
