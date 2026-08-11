@@ -116,16 +116,24 @@ Cold launch now holds the splash screen until the WebView's first real paint
 (see the Fix B2 comments in `MainActivity.java`), with a 6s ceiling failsafe
 so a launch can never get stranded on the splash.
 
-## Version bump rule
+## Version bump rule — ⚖ UNIFIED VERSION LAW (Liam 2026-08-11, supersedes everything older in this section)
 
-Every native-side change (fix, feature, dependency change) bumps
-`android/app/build.gradle`:
-- `versionCode` +1 (integer, monotonic, gates Play Store upload)
-- `versionName` human string, kept in parity with the iOS train
-  (`ios/App/App.xcodeproj/project.pbxproj` `CURRENT_PROJECT_VERSION`/marketing
-  version — check what iOS is on before picking the next Android versionName).
+- **ONE shared plain-integer release counter for BOTH platforms:** Android
+  `versionCode` == iOS `CFBundleVersion`, always. Counters merged at **15**
+  (8/11). Next release = 16 on both. Integers only — never decimals, never
+  timestamps, never reuse (codes 7/10/14 and iOS 1.2(4.8) are burned — dead).
+- **`versionName` (and iOS marketing version) identical on both platforms**
+  — "1.1" until Liam explicitly declares a joint milestone bump. Never bump
+  it per release, never on one platform alone.
+- **Every release bakes BOTH platforms with the same number** — even
+  platform-specific fixes ship both sides (the other side rebakes the same
+  bundle). The two stores must never show different latest numbers.
+- Canon: memory `project_karute_personal_device.md` §3. One bake packet
+  covers both platforms with one number; a packet stamping different
+  numbers is malformed — refuse it.
 
-This fix: `versionCode 1 → 2`, `versionName "1.0" → "1.1"`.
+(Historical: the first fix on this branch was `versionCode 1 → 2`,
+`versionName "1.0" → "1.1"`.)
 
 ## Known note (not a blocker)
 
