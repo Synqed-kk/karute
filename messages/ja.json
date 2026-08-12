@@ -2218,6 +2218,7 @@
           "avatar_update": "プロフィール画像を更新"
         },
         "settings": {
+          "menu_create": "メニューを追加",
           "permissions_change": "権限を変更",
           "staff_stores_change": "所属店舗を変更",
           "store_create": "店舗を追加",
@@ -3101,6 +3102,7 @@
     "cap_staff_invite": "スタッフを招待",
     "cap_staff_manage": "スタッフの管理・削除",
     "cap_settings_manage": "店舗設定",
+    "cap_menus_manage": "メニュー管理",
     "cap_audit_view": "監査ログ",
     "cap_sync_view": "予約同期",
     "cap_data_export": "データの書き出し・取り込み",

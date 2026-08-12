@@ -53,6 +53,7 @@ const LITERAL_ONLY_CATEGORY = {
   'privacy.audit_log.view': 'privacy',
   'privacy.customer_export': 'privacy',
   'settings.sync_config_update': 'settings',
+  'settings.menu_create': 'settings',
 }
 
 function fail(msg) {

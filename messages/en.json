@@ -2218,6 +2218,7 @@
           "avatar_update": "Profile photo updated"
         },
         "settings": {
+          "menu_create": "Added a menu",
           "permissions_change": "Changed permissions",
           "staff_stores_change": "Changed store assignment",
           "store_create": "Store added",
@@ -3101,6 +3102,7 @@
     "cap_staff_invite": "Invite staff",
     "cap_staff_manage": "Manage & remove staff",
     "cap_settings_manage": "Salon settings",
+    "cap_menus_manage": "Manage menus",
     "cap_audit_view": "Audit log",
     "cap_sync_view": "Booking sync",
     "cap_data_export": "Export / import data",
