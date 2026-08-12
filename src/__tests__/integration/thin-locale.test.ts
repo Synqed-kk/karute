@@ -119,3 +119,52 @@ describe('resetThinLocaleOnEnChunkFailure — main.tsx en-chunk lazy-import fail
     }
   })
 })
+
+describe('withEnChunkTimeout — stalled en-chunk boot recovery (Greptile #694 P1)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('a load that never settles rejects once EN_CHUNK_TIMEOUT_MS elapses', async () => {
+    const { withEnChunkTimeout, EN_CHUNK_TIMEOUT_MS } = await loadLocaleModule()
+    const neverSettles = new Promise<string>(() => {})
+    const race = withEnChunkTimeout(neverSettles)
+    const assertion = expect(race).rejects.toThrow('en chunk load stalled')
+    await jest.advanceTimersByTimeAsync(EN_CHUNK_TIMEOUT_MS)
+    await assertion
+  })
+
+  it('a load that resolves before the timeout resolves with its value', async () => {
+    const { withEnChunkTimeout } = await loadLocaleModule()
+    const race = withEnChunkTimeout(Promise.resolve('en-messages'))
+    await expect(race).resolves.toBe('en-messages')
+  })
+
+  it('a late resolution after the race already settled causes no unhandled rejection', async () => {
+    const { withEnChunkTimeout, EN_CHUNK_TIMEOUT_MS } = await loadLocaleModule()
+    let resolveLoad!: (value: string) => void
+    const load = new Promise<string>((resolve) => {
+      resolveLoad = resolve
+    })
+    const race = withEnChunkTimeout(load)
+    const assertion = expect(race).rejects.toThrow('en chunk load stalled')
+    await jest.advanceTimersByTimeAsync(EN_CHUNK_TIMEOUT_MS)
+    await assertion
+    // The race already settled (timeout won). Resolving the original load
+    // now must not surface as an unhandled rejection anywhere — Promise.race
+    // already attached its own handler to `load`, so this is just a value
+    // nobody reads.
+    resolveLoad('too-late')
+    await Promise.resolve()
+  })
+
+  it('a load that rejects before the timeout rejects with the original error — rejection path unchanged', async () => {
+    const { withEnChunkTimeout } = await loadLocaleModule()
+    const race = withEnChunkTimeout(Promise.reject(new Error('chunk 404')))
+    await expect(race).rejects.toThrow('chunk 404')
+  })
+})

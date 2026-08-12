@@ -63,3 +63,23 @@ export function resetThinLocaleOnEnChunkFailure(): boolean {
   window.location.reload()
   return true
 }
+
+// Stalled en-chunk load (Greptile #694 P1): a lazy import that never settles
+// leaves main.tsx's renderApp unreached — blank root once the +8s native
+// splash failsafe releases. Race the import against this timeout so a stall
+// routes into the SAME recovery as a rejection (reset-to-ja + reload,
+// loop-safe — the ja path has no dynamic import to fail again). 6s < the 8s
+// failsafe: the reload lands while the splash still covers it. A late
+// resolution after the race settles is harmless: Promise.race already
+// attached its handler, so no unhandled rejection, and the reload discards
+// the page anyway.
+export const EN_CHUNK_TIMEOUT_MS = 6_000
+
+export function withEnChunkTimeout<T>(load: Promise<T>, timeoutMs: number = EN_CHUNK_TIMEOUT_MS): Promise<T> {
+  return Promise.race([
+    load,
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('en chunk load stalled')), timeoutMs)
+    }),
+  ])
+}
