@@ -70,6 +70,27 @@ it('dedupes on appointmentId across calls, and requests the exact RecordScreen s
   )
 })
 
+it('en-seeded boot (isolated module registry, thin-screen-prefetch-locale.test.tsx pattern): requests locale=en, not a ja echo (armor fix — the pin above evaluates ja on BOTH sides by default)', async () => {
+  window.localStorage.setItem('thin.locale', 'en')
+  try {
+    let warmBriefsForTodayEn!: typeof warmBriefsForToday
+    let setDataPortEn!: typeof setDataPort
+    await jest.isolateModulesAsync(async () => {
+      warmBriefsForTodayEn = (await import('../../../thin/data/brief-warm')).warmBriefsForToday
+      setDataPortEn = (await import('@/lib/ports/data-port')).setDataPort
+    })
+    const apiFetch = jest.fn().mockResolvedValue({ ok: true })
+    setDataPortEn({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+    warmBriefsForTodayEn([target('c1', 'a1')])
+    jest.advanceTimersByTime(20_000)
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/app/v1/customers/c1/ai/pre-session-brief?locale=en&appointmentId=a1',
+    )
+  } finally {
+    window.localStorage.removeItem('thin.locale')
+  }
+})
+
 it('two calls for the same booking before its timer fires schedule exactly ONE timer, so one real failure never double-burns the attempt ceiling', async () => {
   // A booking gets `warmed` synchronously at schedule time, but the
   // brief-cache entry only exists once the timer FIRES — in that window

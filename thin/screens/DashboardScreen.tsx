@@ -16,6 +16,7 @@ import {
   DashboardScreenDTO,
   type DashboardScreenDTOType,
 } from '@/lib/app-api/dashboard-screen-dto'
+import { getThinLocale } from '../locale'
 import { ScreenStates, useScreenDto } from './ScreenBoundary'
 
 const parse = (raw: unknown): DashboardScreenDTOType => DashboardScreenDTO.parse(raw)
@@ -50,7 +51,10 @@ export function DashboardScreenInner({ dto }: { dto: DashboardScreenDTOType }) {
 }
 
 export function DashboardScreen() {
-  const { state, retry } = useScreenDto('/api/app/v1/screens/dashboard', parse)
+  const { state, retry } = useScreenDto(
+    `/api/app/v1/screens/dashboard?locale=${getThinLocale()}`,
+    parse,
+  )
   return (
     <ScreenStates state={state} retry={retry}>
       {(dto) => <DashboardScreenInner dto={dto} />}

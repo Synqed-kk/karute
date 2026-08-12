@@ -26,6 +26,7 @@ import {
   KaruteDetailScreenDTO,
   type KaruteDetailScreenDTOType,
 } from '@/lib/app-api/karute-detail-screen-dto'
+import { getThinLocale } from '../locale'
 import { ScreenStates, useScreenDto } from './ScreenBoundary'
 
 const parse = (raw: unknown): KaruteDetailScreenDTOType =>
@@ -66,8 +67,9 @@ function SuggestedMessageSlot({
 }
 
 export function KaruteDetailScreen({ id }: { id: string }) {
+  const locale = getThinLocale()
   const { state, retry } = useScreenDto(
-    `/api/app/v1/screens/karute/${enc(id)}`,
+    `/api/app/v1/screens/karute/${enc(id)}?locale=${locale}`,
     parse,
   )
   return (
@@ -80,7 +82,7 @@ export function KaruteDetailScreen({ id }: { id: string }) {
             // Only the display role is read (KaruteCoachingPanel's owner gate).
             activeStaff: { id: '', name: '', displayRole: dto.viewerRole },
             activeStaffId: null,
-            locale: 'ja',
+            locale,
             orgName: null,
           }}
         >
@@ -101,13 +103,13 @@ export function KaruteDetailScreen({ id }: { id: string }) {
             transcriptRestricted={dto.transcriptRestricted}
             memory={null}
             photosSlot={<PhotoRecordsCard photos={dto.photos} />}
-            bodyPredictionSlot={<BodyPredictionSlot customerId={dto.customerId} locale="ja" />}
+            bodyPredictionSlot={<BodyPredictionSlot customerId={dto.customerId} locale={locale} />}
             suggestedMessageSlot={
               <SuggestedMessageSlot
                 karuteId={dto.karuteId}
                 customerId={dto.customerId}
                 customerName={dto.header.customerName}
-                locale="ja"
+                locale={locale}
               />
             }
           />

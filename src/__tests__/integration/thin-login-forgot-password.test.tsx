@@ -15,6 +15,23 @@ import { setSessionState } from '@/lib/auth/mobile/session-store'
 // flow-type pin test at the bottom of this file.
 import { createMobileAuth } from '@/lib/auth/mobile/client-session'
 
+// thin/locale mocked (mutable var, defaults 'ja' so every EXISTING test
+// below — including the redirectTo pin, which reads getThinLocale() the
+// SAME way LoginScreen itself does — is unaffected): 2026-08-11 packet §3
+// D.1 armor fix needs an en-seeded variant of that pin, and an
+// isolateModulesAsync fresh-registry reload of a REACT COMPONENT (tried
+// first) duplicates React itself — the freshly-loaded LoginScreen's hooks
+// then dispatch against a DIFFERENT react instance than
+// @testing-library/react's renderer holds ("Cannot read properties of null
+// (reading 'useState')"). Flipping this mock is the safe way to change what
+// getThinLocale() returns without reloading the component tree.
+let mockLocale: 'ja' | 'en' = 'ja'
+jest.mock('../../../thin/locale', () => ({
+  getThinLocale: () => mockLocale,
+  setThinLocale: jest.fn(),
+}))
+import { getThinLocale } from '../../../thin/locale'
+
 // Same real-ja.json feed as thin-splash-gate.test.tsx — keeps copy assertions
 // honest against the actual bundled strings instead of raw keys.
 jest.mock('next-intl', () => ({
@@ -50,6 +67,7 @@ const { LoginScreen } = require('../../../thin/screens/LoginScreen') as
 beforeEach(() => {
   resetPasswordForEmail.mockReset()
   signInWithPassword.mockReset()
+  mockLocale = 'ja'
 })
 
 /** Controlled unresolved promise — lets a test hold an auth call pending,
@@ -100,9 +118,25 @@ describe('LoginScreen — forgot-password sub-view', () => {
     })
 
     expect(resetPasswordForEmail).toHaveBeenCalledWith('staff@example.com', {
-      redirectTo: 'https://karute.synqed.jp/ja/reset-password/confirm',
+      redirectTo: `https://karute.synqed.jp/${getThinLocale()}/reset-password/confirm`,
     })
     expect(screen.getByText('メールを送信しました')).toBeInTheDocument() // resetSentTitle
+  })
+
+  it('en-seeded boot: redirectTo carries /en/, not a ja echo (armor fix — the pin above evaluates ja on BOTH sides by default, so it would still pass a hardcoded ja literal in LoginScreen.tsx)', async () => {
+    resetPasswordForEmail.mockResolvedValue({ data: {}, error: null })
+    mockLocale = 'en'
+    render(<LoginScreen />)
+    fireEvent.click(screen.getByText('パスワードをお忘れですか？'))
+    fireEvent.change(screen.getByLabelText('メールアドレス'), {
+      target: { value: 'staff@example.com' },
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('再設定リンクを送信'))
+    })
+    expect(resetPasswordForEmail).toHaveBeenCalledWith('staff@example.com', {
+      redirectTo: 'https://karute.synqed.jp/en/reset-password/confirm',
+    })
   })
 
   it('prefills the forgot email from whatever was typed in the sign-in email field', async () => {

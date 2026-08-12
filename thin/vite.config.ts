@@ -189,6 +189,11 @@ export default defineConfig({
   build: {
     outDir: path.resolve(__dirname, 'dist'),
     emptyOutDir: true,
+    // Ruling B (2026-08-11): check-bundle-budget.mjs proves which output
+    // chunks derive solely from messages/*.json (translation data, exempt
+    // from the prose-copy markers) off this manifest — never a filename
+    // guess. Emitted to dist/.vite/manifest.json (Vite 5+ default location).
+    manifest: true,
     // Split the vendor runtime into its own cached chunk. Per-ROUTE lazy chunks
     // land with the router (screen-conversion volume); this proves splitting is
     // wired and keeps the React/vendor payload out of the app chunk.

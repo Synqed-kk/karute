@@ -1,6 +1,7 @@
 import { getTranslations, getMessages } from 'next-intl/server'
 import { NextIntlClientProvider } from 'next-intl'
 import { LoginForm } from '@/components/login-form'
+import { LocaleToggle } from '@/components/layout/locale-toggle'
 import { PAGE_PICKS, pickMessages } from '@/i18n/client-messages'
 
 export default async function LoginPage({
@@ -17,7 +18,10 @@ export default async function LoginPage({
     <NextIntlClientProvider
       messages={pickMessages(await getMessages(), PAGE_PICKS.authPages)}
     >
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="relative min-h-screen flex items-center justify-center bg-background">
+        <div className="absolute right-4 top-4">
+          <LocaleToggle />
+        </div>
         <div className="w-full max-w-sm p-8 space-y-6">
           <div>
             <img src="/karute_logo.png" alt="Karute" className="h-12 object-contain dark:invert" />

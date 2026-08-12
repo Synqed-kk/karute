@@ -41,6 +41,17 @@ jest.mock('next-intl', () => {
 // which jest can't parse — map it to the REAL thin nav port instead.
 jest.mock('@/i18n/navigation', () => jest.requireActual('../../../thin/ports/nav.vite'))
 
+// Locale seam coverage (2026-08-11 packet §3, item D.3): AskAiScreen reads
+// getThinLocale() and passes it straight into getBusinessProfile/
+// getConsultationQuestions (the args under test below) AND AIAssistantView's
+// own locale prop. Mutable-var mock, defaults 'ja' so the suite's existing
+// ja-sweep test above is unaffected.
+let mockLocale: 'ja' | 'en' = 'ja'
+jest.mock('../../../thin/locale', () => ({
+  getThinLocale: () => mockLocale,
+  setThinLocale: jest.fn(),
+}))
+
 import { AskAiScreen } from '../../../thin/screens/AskAiScreen'
 
 const dto = {
@@ -54,7 +65,10 @@ function jsonResponse(body: unknown): Response {
 }
 
 describe('AskAiScreen — wired mount (ja sweep)', () => {
-  beforeEach(() => dtoCache.clear())
+  beforeEach(() => {
+    dtoCache.clear()
+    mockLocale = 'ja'
+  })
 
   it('prompt cards render titleJa, and scope chips render the Ja i18n keys — not English', async () => {
     const apiFetch = jest.fn(async (path: string) => {
@@ -83,5 +97,21 @@ describe('AskAiScreen — wired mount (ja sweep)', () => {
     expect(screen.queryByText('Customers')).toBeNull()
     expect(screen.queryByText('Bookings')).toBeNull()
     expect(screen.queryByText('Recordings')).toBeNull()
+  })
+
+  it('en-seeded: prompt cards render the EN title, not titleJa (seam family: AskAi args)', async () => {
+    mockLocale = 'en'
+    const apiFetch = jest.fn(async (path: string) => {
+      if (path === '/api/app/v1/screens/ask-ai') return jsonResponse(dto)
+      throw new Error(`unexpected apiFetch(${path})`)
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<AskAiScreen />)
+
+    // getConsultationQuestions(businessType, getThinLocale()) — beauty_chiropractic's
+    // first prompt card's EN title (business-types.ts), never the ja pairing.
+    expect(await screen.findByText('Bridal-goal customers')).toBeTruthy()
+    expect(screen.queryByText('ブライダル目標のお客様')).toBeNull()
   })
 })

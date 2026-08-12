@@ -84,6 +84,22 @@ jest.mock('@/lib/karute/take-store', () => ({
   loadTakeBlob: jest.fn(),
 }))
 
+// thin/locale mocked (mutable var, defaults 'ja' — every OTHER test in this
+// file uses a hardcoded 'ja' literal directly, never getThinLocale() itself,
+// so this is a no-op for them): 2026-08-11 packet §3 D.1 armor fix needs an
+// en-seeded mount-fetch-URL variant. An isolateModulesAsync fresh-registry
+// reload of RecordScreen (a REACT COMPONENT, tried first) duplicates React
+// itself — the freshly-loaded component's hooks then dispatch against a
+// DIFFERENT react instance than @testing-library/react's renderer holds
+// ("Cannot read properties of null (reading 'useState')"). Flipping this
+// mock is the safe way to change what getThinLocale() returns without
+// reloading the component tree.
+let mockLocale: 'ja' | 'en' = 'ja'
+jest.mock('../../../thin/locale', () => ({
+  getThinLocale: () => mockLocale,
+  setThinLocale: jest.fn(),
+}))
+
 import { Suspense, use } from 'react'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
@@ -154,6 +170,7 @@ function setApiFetch(apiFetch: jest.Mock): void {
 
 beforeEach(() => {
   dtoCache.clear()
+  mockLocale = 'ja'
 })
 
 afterEach(() => {
@@ -164,6 +181,20 @@ afterEach(() => {
   // signed-out subscribers — full isolation between tests.
   setSessionState({ status: 'signed-out' })
   setSessionState({ status: 'recovering' })
+})
+
+describe('RecordScreen — mount-fetch URL carries the runtime locale, not a re-hardcoded ja (armor fix, 2026-08-11 packet §3 D.1 — RECORD_SCREEN_PATH above evaluates ja on BOTH sides by default, so it would still pass a hardcoded ja literal in RecordScreen.tsx)', () => {
+  it('en-seeded: the mount fetch requests locale=en', async () => {
+    mockLocale = 'en'
+    // Held forever (same idiom as thin-screen-prefetch.test.tsx's T5
+    // cross-pin block) — only the first call's URL argument is under test.
+    const apiFetch = jest.fn<Promise<Response>, unknown[]>(() => new Promise<Response>(() => {}))
+    setApiFetch(apiFetch)
+
+    render(<RecordScreen />)
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+    expect(apiFetch.mock.calls[0][0]).toBe('/api/app/v1/screens/record?locale=en')
+  })
 })
 
 describe('RecordScreen — no-shimmer revisit (perf packet 33, THE discriminating test)', () => {
@@ -181,6 +212,10 @@ describe('RecordScreen — no-shimmer revisit (perf packet 33, THE discriminatin
 
     const first = render(<RecordScreen />)
     await screen.findByText('AI-BRIEF-REVISIT')
+    // RecordScreen's OWN mount-fetch URL builder (thin/screens/RecordScreen.tsx
+    // — distinct from screen-prefetch.ts, covered separately) carries the
+    // runtime locale, not a re-hardcoded literal (FOLLOW-UP §2 Ruling A).
+    expect(apiFetch.mock.calls[0][0]).toBe(RECORD_SCREEN_PATH)
     first.unmount()
 
     // Revisit: remount the SAME target. Both the screen DTO (dtoCache,

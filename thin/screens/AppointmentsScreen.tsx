@@ -18,6 +18,7 @@ import {
 import { ymdInJst } from '@/lib/date/jst'
 import { warmBriefsForToday } from '../data/brief-warm'
 import { warmRecordForBookings } from '../data/screen-prefetch'
+import { getThinLocale } from '../locale'
 import { useSearchParams } from '../ports/nav.vite'
 import { ScreenStates, useScreenDto } from './ScreenBoundary'
 
@@ -86,7 +87,7 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
       activeStaffId={dto.activeStaffId}
       authProfileId={dto.authProfileId}
       customers={dto.customers}
-      locale="ja"
+      locale={getThinLocale()}
       // Unread by the view (businessHours/ticket gating are server-derived
       // into the DTO) — deliberately not carried over the facade.
       orgSettings={null}
@@ -115,7 +116,7 @@ export function AppointmentsScreen() {
     const v = search.get(key)
     if (v) qs.set(key, v)
   }
-  qs.set('locale', 'ja')
+  qs.set('locale', getThinLocale())
   const path = `/api/app/v1/screens/appointments?${qs.toString()}`
   const { state, retry, fetching } = useScreenDto(path, parse)
   // Dim ONLY a cross-path fetch — date/view/filter nav where the rendered
