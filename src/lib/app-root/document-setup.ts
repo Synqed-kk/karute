@@ -11,9 +11,14 @@ export const DATA_THEME = 'karute'
 /** `viewport-fit=cover` is what activates env(safe-area-inset-*) in a bare WKWebView. */
 export const VIEWPORT = 'width=device-width, initial-scale=1, viewport-fit=cover'
 
-export function applyDocumentSetup(doc: Document): void {
+// lang defaults to LANG (web-layout parity, source-parity test below) but
+// follows the caller's rendered locale when given one — AppRoot (thin-only;
+// the sole caller) passes its own `locale` prop so a screen reader applies
+// English pronunciation to an English-selected app instead of always Japanese
+// (2026-08-11 packet §3 fix, blind-round finding).
+export function applyDocumentSetup(doc: Document, lang: string = LANG): void {
   const html = doc.documentElement
-  html.lang = LANG
+  html.lang = lang
   html.dataset.theme = DATA_THEME
   html.classList.add('font-sans', 'antialiased')
 

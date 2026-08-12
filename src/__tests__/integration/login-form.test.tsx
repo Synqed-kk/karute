@@ -43,6 +43,18 @@ jest.mock('@/lib/supabase/client', () => {
   }
 })
 
+// LoginPage now renders <LocaleToggle/> (2026-08-11 packet) — it reaches
+// real next-intl/navigation (createNavigation) via @/i18n/navigation, which
+// jest can't parse raw ESM. Not what this suite is testing (translated
+// errors + the confirm banner); stub it out same as
+// accent-tier-contract.test.tsx does for the landing page. An IDENTIFIABLE
+// stub (not `() => null`, packet §3 D.4 armor fix): the old null stub let
+// this suite pass even if LoginPage stopped rendering LocaleToggle at all —
+// the assertion below closes that gap.
+jest.mock('@/components/layout/locale-toggle', () => ({
+  LocaleToggle: () => <div data-testid="locale-toggle" />,
+}))
+
 import { LoginForm } from '@/components/login-form'
 import LoginPage from '@/app/[locale]/login/page'
 import * as clientMod from '@/lib/supabase/client'
@@ -97,5 +109,14 @@ describe('LoginPage — confirm-error banner', () => {
     expect(
       screen.queryByText('確認リンクが無効または期限切れです。もう一度サインアップしてください。'),
     ).toBeNull()
+  })
+
+  it('renders LocaleToggle on the page (packet §3 D.4 armor fix — the null stub above would pass even if this were deleted)', async () => {
+    const ui = await LoginPage({
+      params: Promise.resolve({ locale: 'ja' }),
+      searchParams: Promise.resolve({}),
+    })
+    render(ui)
+    expect(screen.getByTestId('locale-toggle')).toBeInTheDocument()
   })
 })

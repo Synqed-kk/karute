@@ -110,8 +110,8 @@ export function AppRoot({
   children,
 }: AppRootProps) {
   useEffect(() => {
-    applyDocumentSetup(document)
-  }, [])
+    applyDocumentSetup(document, locale)
+  }, [locale])
 
   return (
     <ErrorBoundary onError={onError}>

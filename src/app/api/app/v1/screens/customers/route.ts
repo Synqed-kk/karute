@@ -32,15 +32,19 @@ import { monthlyBurnByCustomer } from '@/lib/packs/burn'
 // Node runtime: the synqed SDK + node:crypto verifier are server-only.
 export const runtime = 'nodejs'
 
-// The thin shell is single-locale (ja) in v1 — same ruling as the nav port.
-// A locale param can ride in when the shell grows a second locale.
-const LOCALE = 'ja'
+// Same clamped shape as the sibling screen routes (dashboard/karute/record/
+// appointments) — the shell grew its second locale (2026-08-11 packet).
+function readLocale(ctx: { req: Request }): 'ja' | 'en' {
+  const raw = new URL(ctx.req.url).searchParams.get('locale')
+  return raw === 'en' ? 'en' : 'ja'
+}
 
 /** Strict query-string contract: one optional free-text search term. */
 const QuerySchema = z.string().max(200)
 
 export const GET = facadeHandler('customers.list', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'customers.view')
+  const locale = readLocale(ctx)
 
   const parsedQuery = QuerySchema.safeParse(
     new URL(ctx.req.url).searchParams.get('query') ?? '',
@@ -62,7 +66,7 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
   })
   const enforceStore = clamp.allowedStoreIds != null
 
-  const lvT = await getTranslations({ locale: LOCALE, namespace: 'customers.list.lastVisit' })
+  const lvT = await getTranslations({ locale, namespace: 'customers.list.lastVisit' })
   const lastVisitStrings: LastVisitStrings = {
     noVisits: lvT('noVisits'),
     yearsAgo: (n) => lvT('yearsAgo', { n }),
@@ -127,7 +131,7 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
     screen = buildCustomersListScreen({
       list,
       staffList,
-      locale: LOCALE,
+      locale,
       lastVisitStrings,
       enrichment,
       packUsage,

@@ -14,6 +14,7 @@
 
 import { getSessionState, subscribeSessionState } from '@/lib/auth/mobile/session-store'
 import { briefUrl, cacheHas, fetchBrief, fetchedAtByUrl, revalidateBrief } from './brief-cache'
+import { getThinLocale } from '../locale'
 
 const FIRST_DELAY_MS = 3_000
 const STAGGER_MS = 4_000
@@ -63,7 +64,7 @@ export function warmBriefsForToday(bookings: BriefWarmTarget[]): void {
     const ceilingReached = (attempts.get(appointmentId) ?? 0) >= MAX_ATTEMPTS
     if (
       warmed.has(appointmentId) &&
-      (cacheHas(briefUrl(customerId, appointmentId, 'ja')) || ceilingReached)
+      (cacheHas(briefUrl(customerId, appointmentId, getThinLocale())) || ceilingReached)
     )
       continue
     scheduled.add(appointmentId)
@@ -99,7 +100,7 @@ export function warmBriefsForToday(bookings: BriefWarmTarget[]): void {
       // stamp — true for real content AND for the server's honest
       // 200 {brief:null} (no point re-burning attempts on a customer the
       // server says has no brief; the old contract wastefully retried those).
-      const url = briefUrl(customerId, appointmentId, 'ja')
+      const url = briefUrl(customerId, appointmentId, getThinLocale())
       // Already cached FRESH (the mount's own fetch, or a prior warm, won
       // the race) — success, zero network. Without this, a retry attempt
       // on a fresh entry would re-fetch content nobody asked to refresh.

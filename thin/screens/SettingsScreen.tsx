@@ -21,6 +21,7 @@ import { SettingsScreenDTO, type SettingsScreenDTOType } from '@/lib/app-api/set
 import { getDataPort } from '@/lib/ports/data-port'
 import { emitRefresh, useSearchParams } from '../ports/nav.vite'
 import { ScreenStates, useScreenDto } from './ScreenBoundary'
+import { getThinLocale } from '../locale'
 
 const parse = (raw: unknown): SettingsScreenDTOType => SettingsScreenDTO.parse(raw)
 
@@ -73,7 +74,7 @@ export function SettingsScreenInner({ dto }: { dto: SettingsScreenDTOType }) {
         orgSettings={dto.orgSettings}
         staffList={dto.staffList}
         activeStaffId={dto.activeStaffId}
-        locale="ja"
+        locale={getThinLocale()}
         isOwner={dto.isOwner}
         canViewAllStores={dto.canViewAllStores}
         canManageStaff={dto.canManageStaff}

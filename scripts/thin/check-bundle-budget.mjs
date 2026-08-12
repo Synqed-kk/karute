@@ -15,12 +15,27 @@
 //    identifiers minify away in prod, so each excluded file is ALSO tracked by a
 //    distinctive string literal (translation key/namespace) that survives
 //    minification. Any hit fails the gate.
+//    Refined 2026-08-11 (Ruling B): the thin bundle now ships a real lazy
+//    translation chunk (messages/en.json, boot-frozen locale). A few of the
+//    tracked literals are ENGLISH PROSE COPY, not code identifiers or i18n
+//    key namespaces — they can legitimately appear inside a translation blob
+//    in any language ("Your last charge failed" is real billing copy that
+//    belongs in en.json once translated, same as ja.json already carries the
+//    Japanese equivalent). Scanning a translation-only chunk for prose would
+//    fail the gate on the translation doing its job, not a leak. So the prose
+//    markers are scoped OFF chunks whose build-manifest provenance is
+//    exclusively messages/*.json; every identifier and dotted i18n-namespace
+//    marker (code, never translation-JSON content) still scans EVERY chunk —
+//    those catch the actual purchase-surface leak this gate exists for.
+//    Provenance comes from the vite build manifest (thin/vite.config.ts sets
+//    build.manifest: true), never a filename guess.
 
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
-import { join } from 'node:path'
+import { join, dirname, resolve } from 'node:path'
 
 const DIST = 'thin/dist/assets'
+const MANIFEST = 'thin/dist/.vite/manifest.json'
 // 1.5 MB set-and-forget (Liam 7/19, after the auth integration landed at
 // 1269.0 vs the 1_300_000 ceiling — 0.5 KB margin). Deliberately roomy: this
 // number is only a bloat tripwire; the §1.5 purchase-marker scan below and the
@@ -79,9 +94,21 @@ const DIST = 'thin/dist/assets'
 // Raised 2026-08-11 (13th) — thin forgot-password sub-view (login-screen
 // request half; web confirm page finishes) — genuine new-feature volume, not
 // bloat; measured 1,757,951.
+// Raised 2026-08-11 (14th) at Ruling B — the en.json lazy locale chunk lands
+// (boot-frozen EN/JP toggle on the app login screen), +115,977 B and the
+// first non-ja content the thin bundle has ever shipped. Measured
+// 1,874,562 B ground-truth at the final tip 2557844b (fresh deterministic
+// build, confirmed reproducible across two clean builds) against the prior
+// 1_759_000 ceiling (over by 115,562 B) — corrects the in-flight
+// 1,874,658 B / ad219c50 reading this comment cited before the tip settled.
+// Genuine translation-chunk volume, not bloat — same class as every prior
+// raise; the purchase-marker scan below (refined the same PR to exempt
+// translation-only chunks from the prose markers) stays the real gate.
+// Ceiling set 1,438 B above the measurement, back on the ~1.3 KB headroom
+// convention (the 8/8 razor-fail was a 193 B margin; ~1.3 KB is the floor).
 // Same-line conflict resolver keeps THIS number (largest wins; raises never
 // shrink on a merge, only on a deliberate re-base measurement).
-const BUDGET_BYTES = 1_759_000
+const BUDGET_BYTES = 1_876_000
 
 let dir
 try {
@@ -111,6 +138,43 @@ if (overBudget) {
   console.log(`✓ within budget (${kb(BUDGET_BYTES)})`)
 }
 
+// ── Chunk provenance (Ruling B) ──
+// Which output files are composed SOLELY of messages/*.json source modules,
+// per the vite build manifest — never a filename guess. A dynamically
+// imported JSON module with no imports of its own (messages/en.json today)
+// always becomes its own isolated chunk, so every manifest entry mapping to
+// that output file has a messages/*.json `src`. If anything else is ever
+// folded into that chunk, this drops to false and the file goes back to full
+// scanning — the exemption only ever narrows, never widens, by accident.
+if (!existsSync(MANIFEST)) {
+  console.error(
+    `✗ no build manifest at ${MANIFEST} — chunk provenance can't be proven. ` +
+      'thin/vite.config.ts must build with `manifest: true` (no filename-pattern guessing here).',
+  )
+  process.exit(1)
+}
+const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'))
+const fileToSrcs = new Map()
+for (const entry of Object.values(manifest)) {
+  if (!entry.file) continue
+  const srcs = fileToSrcs.get(entry.file) ?? []
+  srcs.push(entry.src)
+  fileToSrcs.set(entry.file, srcs)
+}
+// Anchored to the repo-root messages/ catalog specifically (not any directory
+// literally named "messages"): manifest `src` values are relative to Vite's
+// root (thin/), so resolve against that before comparing — a third-party
+// package's own messages/ folder resolves elsewhere and correctly fails this.
+const REPO_MESSAGES_DIR = resolve('messages')
+const isMessagesSrc = (src) =>
+  typeof src === 'string' &&
+  src.endsWith('.json') &&
+  dirname(resolve('thin', src)) === REPO_MESSAGES_DIR
+function isMessageOnlyChunk(file) {
+  const srcs = fileToSrcs.get(`assets/${file}`)
+  return !!srcs && srcs.length > 0 && srcs.every(isMessagesSrc)
+}
+
 // ── Purchase-exclusion proof (payments canon §1.5) ──
 // Identifiers (pre-minification insurance) + one surviving string literal per
 // excluded file. Keep in sync with PURCHASE_FILES in thin/vite.config.ts.
@@ -119,7 +183,9 @@ if (overBudget) {
 // namespaces never appear in the nested JSON, only in component code — each one
 // below is verified unique to its excluded file (StoresSection shares
 // 'settings.stores.plan', so PlanComparisonDialog uses its unique className).
-const FORBIDDEN = [
+// These scan EVERY chunk, translation chunks included — none of them are
+// prose, so none can legitimately appear as a messages/*.json value.
+const FORBIDDEN_ALL_CHUNKS = [
   // identifiers
   'PlanComparisonGrid',
   'CancelConfirmDialog',
@@ -131,18 +197,27 @@ const FORBIDDEN = [
   'settings.subscription.cancel', // CancelConfirmDialog namespace
   'settings.subscription.paymentUpdate', // PaymentUpdateDialog namespace
   'settings.stores.addStoreSubscription', // AddStoreSubscriptionDialog namespace
-  'max-h-[85vh] overflow-y-auto sm:max-w-5xl', // PlanComparisonDialog className
+  'sm:max-w-5xl', // PlanComparisonDialog className (verified unique to that file in src/ + thin/)
   // @synqed-kk/ui vendor copies (identifier = displayName literal, survives
   // minification; plus one copy literal each in case a package build drops it)
   'SubscriptionSummaryCard',
+]
+// Prose copy strings (Ruling B): real English sentences a translation JSON
+// can legitimately carry once localized. Skipped on chunks whose sole
+// manifest provenance is messages/*.json; scanned everywhere else.
+const FORBIDDEN_PROSE = [
   "Your last charge failed", // subscription-summary-card DEFAULT_COPY
   'Downgrade to Free', // plan-comparison-grid DEFAULT_COPY (Greptile 4/5 backstop)
 ]
+const TOTAL_MARKERS = FORBIDDEN_ALL_CHUNKS.length + FORBIDDEN_PROSE.length // 13, unchanged by Ruling B
 const textFiles = dir.filter((f) => f.endsWith('.js') || f.endsWith('.css'))
 const hits = []
 for (const f of textFiles) {
   const text = readFileSync(join(DIST, f), 'utf8')
-  for (const needle of FORBIDDEN) {
+  const markers = isMessageOnlyChunk(f)
+    ? FORBIDDEN_ALL_CHUNKS
+    : [...FORBIDDEN_ALL_CHUNKS, ...FORBIDDEN_PROSE]
+  for (const needle of markers) {
     if (text.includes(needle)) hits.push(`${f}: contains "${needle}"`)
   }
 }
@@ -151,5 +226,5 @@ if (hits.length > 0) {
   for (const h of hits) console.error('  ' + h)
   process.exit(1)
 }
-console.log(`✓ purchase exclusion: 0/${FORBIDDEN.length} forbidden markers across ${textFiles.length} asset(s)`)
+console.log(`✓ purchase exclusion: 0/${TOTAL_MARKERS} forbidden markers across ${textFiles.length} asset(s)`)
 if (overBudget) process.exit(1)

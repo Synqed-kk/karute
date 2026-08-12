@@ -204,9 +204,9 @@ import { DashboardScreen } from '../../../thin/screens/DashboardScreen'
 
 const RECORD_PATH = '/api/app/v1/screens/record?locale=ja'
 const APPOINTMENTS_PATH = '/api/app/v1/screens/appointments?locale=ja'
-const CUSTOMERS_PATH = '/api/app/v1/screens/customers'
+const CUSTOMERS_PATH = '/api/app/v1/screens/customers?locale=ja'
 const SESSIONS_PATH = '/api/app/v1/screens/sessions'
-const DASHBOARD_PATH = '/api/app/v1/screens/dashboard'
+const DASHBOARD_PATH = '/api/app/v1/screens/dashboard?locale=ja'
 
 // Minimal valid fixtures (every required schema field present) — reused
 // across tests that just need a successful parse, not specific content.
@@ -367,9 +367,9 @@ describe('screen-prefetch — byte-pin (test 2)', () => {
     expect(PREFETCH_PATHS).toEqual([
       '/api/app/v1/screens/record?locale=ja',
       '/api/app/v1/screens/appointments?locale=ja',
-      '/api/app/v1/screens/customers',
+      '/api/app/v1/screens/customers?locale=ja',
       '/api/app/v1/screens/sessions',
-      '/api/app/v1/screens/dashboard',
+      '/api/app/v1/screens/dashboard?locale=ja',
     ])
   })
 })

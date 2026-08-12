@@ -34,6 +34,7 @@ import { DashboardScreenDTO } from '@/lib/app-api/dashboard-screen-dto'
 import { getSessionState, subscribeSessionState } from '@/lib/auth/mobile/session-store'
 import { subscribeRefresh, subscribeRevalidate } from '../ports/nav.vite'
 import { cacheDto, dtoCache, dtoSessionEpoch } from '../screens/ScreenBoundary'
+import { getThinLocale } from '../locale'
 
 // Compressed vs brief-warm.ts's 3s/4s (Liam field feedback: staff tap
 // 予約→録音 faster than that 3s/4s cadence covers). Approved tradeoff: the
@@ -52,15 +53,15 @@ type Target = { path: string; parse: (raw: unknown) => unknown }
 // soonest. Paths are byte-pinned in tests against each screen's own literal.
 const TARGETS: Target[] = [
   {
-    path: '/api/app/v1/screens/record?locale=ja',
+    path: `/api/app/v1/screens/record?locale=${getThinLocale()}`,
     parse: (raw) => RecordScreenDTO.parse(raw),
   },
   {
-    path: '/api/app/v1/screens/appointments?locale=ja',
+    path: `/api/app/v1/screens/appointments?locale=${getThinLocale()}`,
     parse: (raw) => AppointmentsScreenDTO.parse(raw),
   },
   {
-    path: '/api/app/v1/screens/customers',
+    path: `/api/app/v1/screens/customers?locale=${getThinLocale()}`,
     parse: (raw) => CustomersScreenDTO.parse(raw),
   },
   {
@@ -68,7 +69,7 @@ const TARGETS: Target[] = [
     parse: (raw) => SessionsScreenDTO.parse(raw),
   },
   {
-    path: '/api/app/v1/screens/dashboard',
+    path: `/api/app/v1/screens/dashboard?locale=${getThinLocale()}`,
     parse: (raw) => DashboardScreenDTO.parse(raw),
   },
 ]
@@ -257,7 +258,7 @@ function schedule(): void {
 // each only if present — the booking-tap flow never sends customerId, so
 // warming it here would populate a key the real tap never requests.
 export function recordWarmPath(appointmentId: string): string {
-  return `/api/app/v1/screens/record?appointmentId=${encodeURIComponent(appointmentId)}&locale=ja`
+  return `/api/app/v1/screens/record?appointmentId=${encodeURIComponent(appointmentId)}&locale=${getThinLocale()}`
 }
 
 const RECORD_WARM_CAP = 2
