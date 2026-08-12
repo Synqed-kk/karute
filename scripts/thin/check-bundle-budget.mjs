@@ -108,7 +108,20 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // convention (the 8/8 razor-fail was a 193 B margin; ~1.3 KB is the floor).
 // Same-line conflict resolver keeps THIS number (largest wins; raises never
 // shrink on a merge, only on a deliberate re-base measurement).
-const BUDGET_BYTES = 1_876_000
+// Raised 2026-08-12 (15th) — provisional margin for the menu-catalog lane's
+// PR-0 (03_PLAN.md §8), fork A (menu editing lives on SYNQED Business /
+// computer only; the phone Karute app keeps the booking picker, no editor).
+// +14,336 B (14 KB), sized ABOVE the richer stores i18n comparable
+// (7,355 B ja+en, measured) because the menus settings tab carries more
+// copy — 8 fields, helpers, two confirms, empty + web-only states — plus
+// the booking picker's keys and code. The string comparables are already
+// ja+en totals, never doubled. Provisional, not a measured overage (no PR
+// in the lane has landed yet): the script's own rule is that the ceiling
+// sits above a measurement and raises never shrink, so oversizing here is
+// free (unused slack is harmless) while undersizing costs a second
+// classifier-blocked-file round-trip. Each PR's own budget checkpoint
+// (PR-1..PR-4b) is the measured truth under this ceiling.
+const BUDGET_BYTES = 1_890_336
 
 let dir
 try {
