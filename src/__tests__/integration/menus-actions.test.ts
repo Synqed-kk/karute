@@ -1,9 +1,8 @@
 /**
- * Menu catalog server actions (PR-1a create-side plumbing, no UI): the
- * menus.manage gate on listMenus + createMenu, the audit row the write emits,
+ * Menu catalog server actions (PR-1a create side + PR-1b update side, no UI):
+ * the menus.manage gate on all five actions, the audit row each write emits,
  * and the pure band validator PR-3's dialog will share. The taxonomy/totality/
- * parity suites cover the registry + label side. (Update / retire / reactivate
- * and their tests land with PR-1b.)
+ * parity suites cover the registry + label side.
  */
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }))
 jest.mock('@/lib/auth/require-permission', () => ({ can: jest.fn(async () => true) }))
@@ -11,14 +10,14 @@ jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'biz-1'),
   getCurrentUserStaffId: jest.fn(async () => 'user-1'),
 }))
-const mockMenus = { list: jest.fn(), create: jest.fn() }
+const mockMenus = { list: jest.fn(), get: jest.fn(), create: jest.fn(), update: jest.fn() }
 const mockStores = { get: jest.fn() }
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({ menus: mockMenus, stores: mockStores })),
 }))
 jest.mock('@/lib/audit', () => ({ audit: jest.fn() }))
 
-import { listMenus, createMenu } from '@/actions/menus'
+import { listMenus, createMenu, updateMenu, retireMenu, reactivateMenu } from '@/actions/menus'
 import { menuBandError } from '@/lib/validations/menu'
 import { can as canImport } from '@/lib/auth/require-permission'
 import { audit as auditImport } from '@/lib/audit'
@@ -53,7 +52,9 @@ beforeEach(() => {
   jest.clearAllMocks()
   can.mockImplementation(async () => true)
   mockMenus.list.mockResolvedValue({ menus: [MENU] })
+  mockMenus.get.mockResolvedValue(MENU)
   mockMenus.create.mockResolvedValue(MENU)
+  mockMenus.update.mockResolvedValue(MENU)
   mockStores.get.mockResolvedValue({ id: STORE_ID })
 })
 
@@ -61,12 +62,16 @@ describe('menus.manage gate', () => {
   const calls: [string, () => Promise<unknown>][] = [
     ['listMenus', () => listMenus()],
     ['createMenu', () => createMenu(FORM)],
+    ['updateMenu', () => updateMenu('menu-1', FORM)],
+    ['retireMenu', () => retireMenu('menu-1')],
+    ['reactivateMenu', () => reactivateMenu('menu-1')],
   ]
 
   it.each(calls)('%s returns { error } and touches nothing when the capability is missing', async (_n, run) => {
     can.mockImplementation(async () => false)
     expect(await run()).toEqual({ error: expect.stringContaining('permission') })
     expect(mockMenus.create).not.toHaveBeenCalled()
+    expect(mockMenus.update).not.toHaveBeenCalled()
     expect(audit).not.toHaveBeenCalled()
   })
 
@@ -146,6 +151,80 @@ describe('writes', () => {
     expect(await listMenus()).toEqual({ menus: [MENU] })
     expect(mockMenus.list).toHaveBeenCalledWith()
     expect(audit).not.toHaveBeenCalled()
+  })
+
+  it('updateMenu audits CHANGED fields only — free text as a bare flag, never a value', async () => {
+    mockMenus.get.mockResolvedValue({ ...MENU, name: '旧カット', category: 'カラー', price_list_amount: 4000 })
+    mockMenus.update.mockResolvedValue({ ...MENU, price_list_amount: 5000 })
+
+    expect(await updateMenu('menu-1', FORM)).toEqual({ ok: true })
+    const event = audit.mock.calls[0][0]
+    expect(event.action).toBe('settings.menu_update')
+    expect(event.targetType).toBe('menu')
+    expect(event.targetId).toBe('menu-1')
+    // Exact: the unchanged duration_minutes is ABSENT, and name/category carry
+    // no value keys at all (audit.ts PII rule — a menu name is staff free text).
+    expect(event.detail).toEqual({
+      price_list_amount_old: 4000,
+      price_list_amount_new: 5000,
+      name_changed: true,
+      category_changed: true,
+    })
+    expect(event.detail.name_old).toBeUndefined()
+    expect(event.detail.category_old).toBeUndefined()
+    expect(JSON.stringify(event)).not.toContain('カット')
+    expect(JSON.stringify(event)).not.toContain('カラー')
+  })
+
+  it('updateMenu sends the exact core payload (nulls explicit, ¥0 floor preserved)', async () => {
+    await updateMenu('menu-1', {
+      name: 'カット',
+      category: '',
+      duration_minutes: 60,
+      price_list_amount: 5000,
+      price_min_amount: 0,
+      store_id: STORE_ID,
+      online_visible: false,
+      display_order: 10,
+    })
+    expect(mockMenus.update).toHaveBeenCalledWith('menu-1', {
+      name: 'カット',
+      category: null,
+      duration_minutes: 60,
+      price_list_amount: 5000,
+      price_min_amount: 0,
+      store_id: STORE_ID,
+      online_visible: false,
+      display_order: 10,
+    })
+  })
+
+  it('updateMenu tenant-validates a MOVED store_id and refuses one core will not return', async () => {
+    mockStores.get.mockRejectedValue(new Error('not found'))
+    expect(await updateMenu('menu-1', { ...FORM, store_id: STORE_ID })).toEqual({
+      error: expect.stringContaining('not found'),
+    })
+    expect(mockMenus.update).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
+  })
+
+  it('updateMenu skips the store check for an all-store menu and for an unchanged store', async () => {
+    expect(await updateMenu('menu-1', FORM)).toEqual({ ok: true }) // store_id null
+    mockMenus.get.mockResolvedValue({ ...MENU, store_id: STORE_ID })
+    expect(await updateMenu('menu-1', { ...FORM, store_id: STORE_ID })).toEqual({ ok: true })
+    expect(mockStores.get).not.toHaveBeenCalled()
+  })
+
+  it('retireMenu flips active:false and audits settings.menu_retire', async () => {
+    expect(await retireMenu('menu-1')).toEqual({ ok: true })
+    expect(mockMenus.update).toHaveBeenCalledWith('menu-1', { active: false })
+    expect(audit.mock.calls[0][0].action).toBe('settings.menu_retire')
+  })
+
+  it('reactivateMenu flips active:true and audits settings.menu_reactivate', async () => {
+    expect(await reactivateMenu('menu-1')).toEqual({ ok: true })
+    expect(mockMenus.update).toHaveBeenCalledWith('menu-1', { active: true })
+    expect(audit.mock.calls[0][0].action).toBe('settings.menu_reactivate')
   })
 
   it('a core failure returns { error } and audits nothing', async () => {

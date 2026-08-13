@@ -1376,3 +1376,6 @@ export const listCustomerKaruteForRegen = notWired('listCustomerKaruteForRegen')
 // -- menu catalog (PR-1a) — web-only under fork A
 export const listMenus = notWired('listMenus')
 export const createMenu = notWired('createMenu')
+export const updateMenu = notWired('updateMenu')
+export const retireMenu = notWired('retireMenu')
+export const reactivateMenu = notWired('reactivateMenu')

@@ -46,6 +46,29 @@ function toPayload(data: MenuFormInput) {
   }
 }
 
+// Old/new pairs are for non-free-text scalars ONLY. name and category are
+// staff free text that can embed a customer's name, so a change to either
+// surfaces as a bare *_changed flag and the VALUE never reaches the log drain
+// (audit.ts's PII rule, same reason createMenu carries no detail at all).
+const TRACKED = ['duration_minutes', 'price_list_amount', 'price_min_amount',
+  'store_id', 'online_visible', 'display_order'] as const
+const FREE_TEXT = ['name', 'category'] as const
+
+/** Changed fields ONLY — unchanged fields are absent, so a menu edit's row
+ *  shows what actually moved. */
+function changedDetail(before: Menu, after: Menu): Record<string, string | number | boolean | null> {
+  const detail: Record<string, string | number | boolean | null> = {}
+  for (const key of TRACKED) {
+    if (before[key] === after[key]) continue
+    detail[`${key}_old`] = before[key]
+    detail[`${key}_new`] = after[key]
+  }
+  for (const key of FREE_TEXT) {
+    if (before[key] !== after[key]) detail[`${key}_changed`] = true
+  }
+  return detail
+}
+
 /** The whole catalog, retired rows included — the settings surface needs them
  *  for the 停止中 disclosure. */
 export async function listMenus(): Promise<{ menus: Menu[] } | { error: string }> {
@@ -91,5 +114,90 @@ export async function createMenu(input: MenuFormInput): Promise<{ id: string } |
     return { id: menu.id }
   } catch (e) {
     return { error: `Could not create menu: ${reason(e)}` }
+  }
+}
+
+export async function updateMenu(
+  id: string,
+  input: MenuFormInput,
+): Promise<{ ok: true } | { error: string }> {
+  if (!(await can('menus.manage'))) return { error: DENIED }
+  const parsed = menuSchema.safeParse(input)
+  if (!parsed.success) return { error: parsed.error.issues.map((i) => i.message).join(', ') }
+  const band = menuBandError(parsed.data)
+  if (band) return { error: band }
+  try {
+    const { synqed, businessId, actorId } = await menuContext()
+    const before = await synqed.menus.get(id)
+    // Tenant-validate only a MOVED store, same as createMenu: an unchanged
+    // store_id already passed this check on the row's own write, and null is
+    // the all-store menu (nothing to resolve).
+    const storeId = parsed.data.store_id ?? null
+    if (storeId && storeId !== before.store_id) await synqed.stores.get(storeId)
+    const after = await synqed.menus.update(id, toPayload(parsed.data))
+    audit({
+      category: 'settings',
+      action: 'settings.menu_update',
+      actorId,
+      actorType: 'staff',
+      businessId,
+      targetType: 'menu',
+      targetId: id,
+      detail: changedDetail(before, after),
+      requestId: crypto.randomUUID(),
+      source: 'web',
+    })
+    revalidatePath('/settings')
+    return { ok: true }
+  } catch (e) {
+    return { error: `Could not update menu: ${reason(e)}` }
+  }
+}
+
+/** 停止 — core has no delete endpoint; retiring IS active:false. */
+export async function retireMenu(id: string): Promise<{ ok: true } | { error: string }> {
+  if (!(await can('menus.manage'))) return { error: DENIED }
+  try {
+    const { synqed, businessId, actorId } = await menuContext()
+    await synqed.menus.update(id, { active: false })
+    audit({
+      category: 'settings',
+      action: 'settings.menu_retire',
+      actorId,
+      actorType: 'staff',
+      businessId,
+      targetType: 'menu',
+      targetId: id,
+      requestId: crypto.randomUUID(),
+      source: 'web',
+    })
+    revalidatePath('/settings')
+    return { ok: true }
+  } catch (e) {
+    return { error: `Could not retire menu: ${reason(e)}` }
+  }
+}
+
+/** 再開 — the exact inverse of retireMenu. */
+export async function reactivateMenu(id: string): Promise<{ ok: true } | { error: string }> {
+  if (!(await can('menus.manage'))) return { error: DENIED }
+  try {
+    const { synqed, businessId, actorId } = await menuContext()
+    await synqed.menus.update(id, { active: true })
+    audit({
+      category: 'settings',
+      action: 'settings.menu_reactivate',
+      actorId,
+      actorType: 'staff',
+      businessId,
+      targetType: 'menu',
+      targetId: id,
+      requestId: crypto.randomUUID(),
+      source: 'web',
+    })
+    revalidatePath('/settings')
+    return { ok: true }
+  } catch (e) {
+    return { error: `Could not reactivate menu: ${reason(e)}` }
   }
 }
