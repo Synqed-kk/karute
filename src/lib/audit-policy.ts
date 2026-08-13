@@ -68,6 +68,7 @@ export const AUDIT_ACTIONS = [
   'privacy.voice_enroll',
   'privacy.voice_revoke',
   'recording.transcribe',
+  'settings.menu_create',
   'settings.permissions_change',
   'settings.staff_stores_change',
   'settings.store_create',
@@ -165,6 +166,9 @@ export const AUDITED_CORES: {
   { file: 'src/actions/voice.ts', symbols: ['enrollVoiceActionCore', 'revokeVoiceActionCore'] },
   { file: 'src/actions/stores.ts', symbols: ['createStoreCore', 'updateStoreCore', 'setStaffStoresCore'] },
   { file: 'src/actions/audit-log.ts', symbols: ['listAuditLogWithClient'] },
+  // Menu catalog (PR-1a, create side). listMenus is a read — deliberately not
+  // listed; the update/retire/reactivate writers land with PR-1b.
+  { file: 'src/actions/menus.ts', symbols: ['createMenu'] },
   {
     file: 'src/actions/staff.ts',
     symbols: ['createStaffCore', 'updateStaffCore', 'deleteStaffCore', 'uploadStaffAvatarCore'],

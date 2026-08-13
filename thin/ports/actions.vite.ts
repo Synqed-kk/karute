@@ -1373,3 +1373,6 @@ export const updateKaruteDetailSummary =
 // -- entry edit history (edit-layer W2 history-sheet packet)
 export const listEntryEditHistory = facadeListEntryEditHistory
 export const listCustomerKaruteForRegen = notWired('listCustomerKaruteForRegen')
+// -- menu catalog (PR-1a) — web-only under fork A
+export const listMenus = notWired('listMenus')
+export const createMenu = notWired('createMenu')

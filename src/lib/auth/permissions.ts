@@ -17,6 +17,9 @@ export const CAPABILITIES = [
   'staff.invite',      // add / invite staff
   'staff.manage',      // remove / demote / change a member's role
   'settings.manage',   // operating hours, services, multi-store, org settings
+  'menus.manage',      // service-menu catalog (設定→メニュー) — owner/manager/
+                       // senior by default (Liam ruling 8/12: SV/senior edits
+                       // menus)
   'audit.view',        // audit log
   'sync.view',         // 予約同期 status card (read-only) — owner-only by
                        // default, deliberate per-staff toggle, same posture
@@ -76,7 +79,7 @@ export const ROLE_PRESETS: Record<PermissionRole, Capability[]> = {
   ),
   // Lead practitioner / SV (supervisor): does the work + sees whole-salon
   // analytics + exports + cross-store visibility; no settings/staff/billing.
-  senior: ['records.write', 'records.delete', 'data.export', 'analytics.viewAll', 'stores.viewAll', 'customers.view', 'bookings.manage'],
+  senior: ['records.write', 'records.delete', 'data.export', 'analytics.viewAll', 'stores.viewAll', 'customers.view', 'bookings.manage', 'menus.manage'],
   // Practitioner: the core service provider.
   practitioner: ['records.write', 'customers.view', 'bookings.manage'],
   // Front desk: books + views, no records, nothing destructive.

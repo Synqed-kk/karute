@@ -48,7 +48,7 @@ export interface AuditEvent {
    *  AuditEventInput.store_id). Wave-M threading only; no back-filling
    *  lookups (contract §7 / PR-M5 piece ②). */
   storeId?: string
-  targetType?: 'customer' | 'karute' | 'staff' | 'recording' | 'business' | 'store'
+  targetType?: 'customer' | 'karute' | 'staff' | 'recording' | 'business' | 'store' | 'menu'
   targetId?: string
   /** Default 'info'. 'notice' = privileged/consequential, 'warning' = security. */
   severity?: AuditSeverity
