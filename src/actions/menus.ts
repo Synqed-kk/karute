@@ -7,7 +7,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { can } from '@/lib/auth/require-permission'
 import { audit } from '@/lib/audit'
-import { menuSchema, menuBandError, type MenuFormInput } from '@/lib/validations/menu'
+import { menuSchema, menuIdSchema, menuBandError, type MenuFormInput } from '@/lib/validations/menu'
 
 // Service-menu catalog actions (設定→メニュー). Gated with can() — not
 // requireCapability() — because these return the house { error } shape and the
@@ -58,13 +58,17 @@ const FREE_TEXT = ['name', 'category'] as const
  *  shows what actually moved. */
 function changedDetail(before: Menu, after: Menu): Record<string, string | number | boolean | null> {
   const detail: Record<string, string | number | boolean | null> = {}
+  // ?? null throughout: a field core omits arrives as undefined. On the COMPARE
+  // it would report an absent-vs-cleared no-op as a change; on the EMIT it would
+  // ride out as undefined, get dropped by the audit layer's JSON.stringify, and
+  // leave a half pair (_new with no _old) — so both sides normalize.
   for (const key of TRACKED) {
-    if (before[key] === after[key]) continue
-    detail[`${key}_old`] = before[key]
-    detail[`${key}_new`] = after[key]
+    if ((before[key] ?? null) === (after[key] ?? null)) continue
+    detail[`${key}_old`] = before[key] ?? null
+    detail[`${key}_new`] = after[key] ?? null
   }
   for (const key of FREE_TEXT) {
-    if (before[key] !== after[key]) detail[`${key}_changed`] = true
+    if ((before[key] ?? null) !== (after[key] ?? null)) detail[`${key}_changed`] = true
   }
   return detail
 }
@@ -122,19 +126,21 @@ export async function updateMenu(
   input: MenuFormInput,
 ): Promise<{ ok: true } | { error: string }> {
   if (!(await can('menus.manage'))) return { error: DENIED }
+  const parsedId = menuIdSchema.safeParse(id)
+  if (!parsedId.success) return { error: parsedId.error.issues.map((i) => i.message).join(', ') }
   const parsed = menuSchema.safeParse(input)
   if (!parsed.success) return { error: parsed.error.issues.map((i) => i.message).join(', ') }
   const band = menuBandError(parsed.data)
   if (band) return { error: band }
   try {
     const { synqed, businessId, actorId } = await menuContext()
-    const before = await synqed.menus.get(id)
-    // Tenant-validate only a MOVED store, same as createMenu: an unchanged
-    // store_id already passed this check on the row's own write, and null is
-    // the all-store menu (nothing to resolve).
-    const storeId = parsed.data.store_id ?? null
-    if (storeId && storeId !== before.store_id) await synqed.stores.get(storeId)
-    const after = await synqed.menus.update(id, toPayload(parsed.data))
+    const before = await synqed.menus.get(parsedId.data)
+    // Tenant-validate the store before writing — deliberately the SAME rule as
+    // createMenu: every non-null store_id is checked, moved or not, so the two
+    // writers can never disagree about which stores this tenant may point at.
+    // null is the all-store menu (nothing to resolve).
+    if (parsed.data.store_id) await synqed.stores.get(parsed.data.store_id)
+    const after = await synqed.menus.update(parsedId.data, toPayload(parsed.data))
     audit({
       category: 'settings',
       action: 'settings.menu_update',
@@ -142,7 +148,7 @@ export async function updateMenu(
       actorType: 'staff',
       businessId,
       targetType: 'menu',
-      targetId: id,
+      targetId: parsedId.data,
       detail: changedDetail(before, after),
       requestId: crypto.randomUUID(),
       source: 'web',
@@ -157,9 +163,11 @@ export async function updateMenu(
 /** 停止 — core has no delete endpoint; retiring IS active:false. */
 export async function retireMenu(id: string): Promise<{ ok: true } | { error: string }> {
   if (!(await can('menus.manage'))) return { error: DENIED }
+  const parsedId = menuIdSchema.safeParse(id)
+  if (!parsedId.success) return { error: parsedId.error.issues.map((i) => i.message).join(', ') }
   try {
     const { synqed, businessId, actorId } = await menuContext()
-    await synqed.menus.update(id, { active: false })
+    await synqed.menus.update(parsedId.data, { active: false })
     audit({
       category: 'settings',
       action: 'settings.menu_retire',
@@ -167,7 +175,7 @@ export async function retireMenu(id: string): Promise<{ ok: true } | { error: st
       actorType: 'staff',
       businessId,
       targetType: 'menu',
-      targetId: id,
+      targetId: parsedId.data,
       requestId: crypto.randomUUID(),
       source: 'web',
     })
@@ -181,9 +189,11 @@ export async function retireMenu(id: string): Promise<{ ok: true } | { error: st
 /** 再開 — the exact inverse of retireMenu. */
 export async function reactivateMenu(id: string): Promise<{ ok: true } | { error: string }> {
   if (!(await can('menus.manage'))) return { error: DENIED }
+  const parsedId = menuIdSchema.safeParse(id)
+  if (!parsedId.success) return { error: parsedId.error.issues.map((i) => i.message).join(', ') }
   try {
     const { synqed, businessId, actorId } = await menuContext()
-    await synqed.menus.update(id, { active: true })
+    await synqed.menus.update(parsedId.data, { active: true })
     audit({
       category: 'settings',
       action: 'settings.menu_reactivate',
@@ -191,7 +201,7 @@ export async function reactivateMenu(id: string): Promise<{ ok: true } | { error
       actorType: 'staff',
       businessId,
       targetType: 'menu',
-      targetId: id,
+      targetId: parsedId.data,
       requestId: crypto.randomUUID(),
       source: 'web',
     })
