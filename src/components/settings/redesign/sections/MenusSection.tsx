@@ -26,21 +26,30 @@ function priceLabel(menu: Menu): string {
     : `${yen(menu.price_min_amount)}–${yen(menu.price_list_amount)}`
 }
 
+/** Sentinel key for the blank-category bucket. A real category is trimmed and
+ *  non-empty by construction below, so '' can never collide with one — unlike
+ *  the TRANSLATED 未分類 label, which a staff member can legitimately type as
+ *  a real category name (duplicate React key, two groups indistinguishable in
+ *  intent). Translated at render time instead. */
+const UNCATEGORIZED = ''
+
 /** Category buckets in first-appearance order (Map preserves insertion =
  *  core's order). The blank-category bucket is moved to the END and rendered
- *  under 未分類 — the sole client-side reordering in this list. */
-function groupByCategory(menus: Menu[], uncategorizedLabel: string): [string, Menu[]][] {
+ *  under 未分類 — the sole client-side reordering in this list. A genuine
+ *  未分類 category keeps its core position: two same-labeled headers is
+ *  core-data truth, not something this list should hide. */
+function groupByCategory(menus: Menu[]): [string, Menu[]][] {
   const groups = new Map<string, Menu[]>()
   for (const menu of menus) {
-    const key = menu.category?.trim() || ''
+    const key = menu.category?.trim() || UNCATEGORIZED
     const bucket = groups.get(key)
     if (bucket) bucket.push(menu)
     else groups.set(key, [menu])
   }
-  const blank = groups.get('')
-  groups.delete('')
+  const blank = groups.get(UNCATEGORIZED)
+  groups.delete(UNCATEGORIZED)
   const ordered: [string, Menu[]][] = [...groups]
-  if (blank) ordered.push([uncategorizedLabel, blank])
+  if (blank) ordered.push([UNCATEGORIZED, blank])
   return ordered
 }
 
@@ -66,7 +75,7 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
 
   const active = menus?.filter((m) => m.active) ?? []
   const retired = menus?.filter((m) => !m.active) ?? []
-  const groups = groupByCategory(active, t('uncategorized'))
+  const groups = groupByCategory(active)
 
   function storeChip(menu: Menu): string | null {
     if (!menu.store_id) return null
@@ -122,7 +131,7 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
               {groups.map(([category, rows]) => (
                 <div key={category}>
                   <div className="bg-muted/30 px-4 py-1.5 text-[11px] font-medium text-muted-foreground">
-                    {category}
+                    {category === UNCATEGORIZED ? t('uncategorized') : category}
                   </div>
                   <div className="divide-y divide-black/5 dark:divide-white/5">
                     {rows.map((menu) => row(menu, false))}

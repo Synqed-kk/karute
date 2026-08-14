@@ -97,6 +97,9 @@ const dto: SettingsScreenDTOType = {
   canInviteStaff: true,
   canViewAudit: true,
   canViewSync: true,
+  // false keeps this fixture's rendered tab set unchanged — the メニュー tab
+  // has its own pin in thin-settings-sync-webonly-mount.test.tsx.
+  canManageMenus: false,
   syncStatus: null,
   initialTab: 'audit',
   auditTargetId: null,

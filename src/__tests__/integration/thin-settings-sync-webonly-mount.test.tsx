@@ -73,8 +73,10 @@ jest.mock('@/components/settings/redesign/sections/StaffSection', () => ({
 jest.mock('@/components/settings/redesign/sections/SyncSection', () => ({
   SyncSection: () => <div data-testid="section-sync" />,
 }))
+// Testid, not null (SyncSection's idiom): the メニュー negative assertion below
+// only detects the real section leaking through if the mock renders something.
 jest.mock('@/components/settings/redesign/sections/MenusSection', () => ({
-  MenusSection: () => null,
+  MenusSection: () => <div data-testid="section-menus" />,
 }))
 jest.mock('@/components/settings/redesign/sections/PacksSection', () => ({
   PacksSection: () => null,
@@ -99,6 +101,9 @@ const dto: SettingsScreenDTOType = {
   // Owner in this fixture (isOwner: true) → the tab itself must stay visible
   // regardless of the syncStatus card/fallback variant each test below picks.
   canViewSync: true,
+  // Grants the メニュー tab so the wired web-only pin below can reach it; the
+  // ungranted case overrides this to false in its own render.
+  canManageMenus: true,
   // Web-only pin below asserts the FALLBACK panel — null keeps that path
   // exercised regardless of what packet 31's own card tests cover.
   syncStatus: null,
@@ -142,14 +147,37 @@ describe('thin settings wiring — 同期 tab web-only carve-out (packet 20 §S5
   })
 })
 
-// メニュー web-only copy (menu-catalog PR-2). SettingsScreenInner can't reach
-// this tab yet — the settings DTO carries no menus.manage flag, so the phone
-// hides メニュー entirely this slice (thin/screens/SettingsScreen.tsx passes
-// canManageMenus={false}). The shell is therefore rendered directly with the
-// same REAL-ja resolution above: what's under test is that WebOnlyTabPanel's
-// TWO-literal-hook shape picks the MENUS namespace, and that the 同期 pin
-// above stays green — a single shared namespace would show 予約同期 copy on
-// the メニュー tab (§7 fifth trap).
+// メニュー web-only carve-out through the REAL thin wiring (menu-catalog PR-2
+// seat-audit A1) — the phone's メニュー tab is part of Liam's signed mock ③,
+// so it must be reachable from the DTO flag, not hidden. Same shape as the
+// 同期 pin above: tap the tab, read the real ja copy.
+describe('thin settings wiring — メニュー tab web-only carve-out (seat audit A1)', () => {
+  it('tapping メニュー renders the real ja menus web-only copy through the wired constants, never MenusSection, 準備中, or the 同期 copy', () => {
+    render(<SettingsScreenInner dto={dto} />)
+
+    // Dual-tree render (mobile drill-in + desktop tab strip), same as 予約同期.
+    fireEvent.click(screen.getAllByText('メニュー')[0])
+
+    expect(
+      screen.getAllByText('メニューの設定はWeb版からご利用ください').length,
+    ).toBeGreaterThan(0)
+    expect(screen.queryByText('予約同期の設定はWeb版からご利用ください')).toBeNull()
+    expect(screen.queryByTestId('section-menus')).toBeNull()
+    expect(screen.queryByText('この画面は準備中です')).toBeNull()
+  })
+
+  it('without menus.manage the メニュー tab is absent entirely (capability gate, no signpost to a catalog they cannot manage)', () => {
+    render(<SettingsScreenInner dto={{ ...dto, canManageMenus: false }} />)
+
+    expect(screen.queryByText('メニュー')).toBeNull()
+    expect(screen.queryByText('メニューの設定はWeb版からご利用ください')).toBeNull()
+  })
+})
+
+// The same panel driven DIRECTLY (shell, not the thin screen): what's under
+// test here is that WebOnlyTabPanel's TWO-literal-hook shape picks the MENUS
+// namespace and that the 同期 pin stays green — a single shared namespace
+// would show 予約同期 copy on the メニュー tab (§7 fifth trap).
 describe('settings web-only panel — メニュー copy (menu-catalog PR-2)', () => {
   const shellProps = {
     orgSettings: null,

@@ -196,6 +196,13 @@ export const SettingsScreenDTO = z.object({
   // below: this flag controls whether the tab renders at all; syncStatus
   // controls which CONTENT it shows once visible.
   canViewSync: z.boolean(),
+  // The BARE menus.manage capability — gates the メニュー TAB itself
+  // (menu-catalog PR-2 fix round). Deliberately NOT the owner-|| shape above:
+  // owner/manager/senior all hold menus.manage through their CAPABILITIES
+  // preset, so a fallback would only ever widen the gate past what
+  // listMenus/the write actions themselves enforce. Mirrors the web page's
+  // own derivation (settings/page.tsx: caps.has('menus.manage')).
+  canManageMenus: z.boolean(),
   // Owner OR an explicit sync.view grant (packet 31) — null for everyone
   // else, same least-privilege gate shape as canViewAudit's grant. Distinct
   // from a boolean flag: the shell keys off syncStatus's presence itself

@@ -83,13 +83,12 @@ export function SettingsScreenInner({ dto }: { dto: SettingsScreenDTOType }) {
         canInviteStaff={dto.canInviteStaff}
         canViewAudit={dto.canViewAudit}
         canViewSync={dto.canViewSync}
-        // The settings DTO carries no menus.manage flag, so the メニュー tab
-        // stays hidden on the phone this slice — honest for fork A (the
-        // catalog is edited on the computer; the phone gets the booking
-        // picker in PR-4b). The WEB_ONLY_TAB_IDS entry above is what keeps
-        // MenusSection out of this bundle either way. Flip to the DTO flag
-        // the day the phone should show the "manage on web" signpost.
-        canManageMenus={false}
+        canManageMenus={dto.canManageMenus}
+        // Always [] on thin — the WEB_ONLY_TAB_IDS intercept above renders
+        // the "manage on web" signpost BEFORE the section, and MenusSection
+        // is cut from this bundle at the Rollup boundary regardless. Shipping
+        // the catalog rows here would be dead payload (plan §8, fork A: the
+        // catalog is edited on the computer).
         initialMenus={[]}
         syncStatus={dto.syncStatus}
         onRunNow={runSyncNow}

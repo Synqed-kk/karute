@@ -139,6 +139,40 @@ describe('MenusSection — grouping (core order, 未分類 last)', () => {
     expect(group.textContent).toContain('着付け')
     expect(group.textContent).not.toContain('カット')
   })
+
+  // Seat audit A2: 未分類 is plausible staff free text, so a REAL category can
+  // carry the same label as the blank bucket. Keying the bucket by the
+  // TRANSLATED label collided with it — duplicate React key, two groups
+  // indistinguishable in intent. The bucket keys off a sentinel instead.
+  it('a REAL category named 未分類 keeps its core position, the blank bucket still renders last, keys stay unique', () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const colliding: Menu[] = [
+      menu({ id: '7f4a1e8b-c05d-4926-8a31-b6e7420cd913', name: 'シャンプー', category: '未分類' }),
+      menu({ id: '8a5b2f9c-d16e-4037-9b42-c7f8531de024', name: 'カット', category: 'カット' }),
+      menu({ id: '9b6c3a0d-e27f-4148-ac53-d8091642ef35', name: '着付け', category: null }),
+    ]
+
+    const { container } = render(<MenusSection menus={colliding} stores={[store]} />)
+
+    // Two same-labeled headers is core-data truth, not a bug — what must hold
+    // is WHICH rows sit under each and that the blank one stays last.
+    const headers = screen.getAllByText('未分類')
+    expect(headers.length).toBe(2)
+    expect(headers[0].parentElement!.textContent).toContain('シャンプー')
+    expect(headers[0].parentElement!.textContent).not.toContain('着付け')
+    expect(headers[1].parentElement!.textContent).toContain('着付け')
+    expect(headers[1].parentElement!.textContent).not.toContain('シャンプー')
+
+    // Core order preserved: the real 未分類 appears first, カット next, the
+    // blank bucket last.
+    const text = container.textContent ?? ''
+    expect(text.indexOf('シャンプー')).toBeLessThan(text.indexOf('カット'))
+    expect(text.indexOf('カット')).toBeLessThan(text.indexOf('着付け'))
+
+    // A duplicate React key surfaces here and nowhere else.
+    expect(consoleError).not.toHaveBeenCalled()
+    consoleError.mockRestore()
+  })
 })
 
 describe('MenusSection — price honesty (band vs fixed)', () => {
