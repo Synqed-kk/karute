@@ -8,7 +8,7 @@
 // The three 8/15 additions live in this file too: pristine-save disable
 // (the source-level suppression of empty-detail menu_update audit rows),
 // double-submit disable, and the ②b store-widening confirm.
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 jest.mock('next-intl', () => {
   const ja = jest.requireActual('../../../messages/ja.json')
@@ -117,14 +117,24 @@ const CATALOG = [CUT, RETOUCH, TREATMENT, SPA]
 
 type Mode = null | { kind: 'create' } | { kind: 'edit'; menu: Menu }
 
+// ONE stable onClose across rerenders — the dismissal-race test counts it.
+const onClose = jest.fn()
+
 function open(mode: Exclude<Mode, null>, stores = STORES) {
   const view = render(
-    <MenuFormDialog mode={mode} catalog={CATALOG} stores={stores} onClose={jest.fn()} />,
+    <MenuFormDialog mode={mode} catalog={CATALOG} stores={stores} onClose={onClose} />,
   )
   return (next: Mode) =>
     view.rerender(
-      <MenuFormDialog mode={next} catalog={CATALOG} stores={stores} onClose={jest.fn()} />,
+      <MenuFormDialog mode={next} catalog={CATALOG} stores={stores} onClose={onClose} />,
     )
+}
+
+/** A write the test resolves by hand — the only way to observe in-flight state. */
+function hangingUpdate() {
+  let finish: (r: { ok: true }) => void = () => {}
+  updateMenu.mockReturnValueOnce(new Promise((res) => { finish = res }))
+  return async () => act(async () => { finish({ ok: true }) })
 }
 
 const field = (label: RegExp) => screen.getByLabelText(label) as HTMLInputElement
@@ -146,6 +156,22 @@ describe('MenuFormDialog — create', () => {
     expect(saveButton().disabled).toBe(true)
     type(/通常価格/, '4400')
     expect(saveButton().disabled).toBe(false)
+  })
+
+  // Each required field gated INDEPENDENTLY — the progressive test above would
+  // still pass if only two of the three checks survived.
+  it('a blank メニュー名 alone keeps 保存 inert', () => {
+    open({ kind: 'create' })
+    type(/所要時間/, '45')
+    type(/通常価格/, '4400')
+    expect(saveButton().disabled).toBe(true)
+  })
+
+  it('a blank 所要時間 alone keeps 保存 inert', () => {
+    open({ kind: 'create' })
+    type(/メニュー名/, 'ヘッドスパ')
+    type(/通常価格/, '4400')
+    expect(saveButton().disabled).toBe(true)
   })
 
   it('sends the EXACT payload, 表示順 defaulting to the chosen category max + 10', async () => {
@@ -269,8 +295,7 @@ describe('MenuFormDialog — edit', () => {
   })
 
   it('double-submit: 保存 goes inert while the write is in flight', async () => {
-    let finish: (r: { ok: true }) => void = () => {}
-    updateMenu.mockReturnValueOnce(new Promise((res) => { finish = res }))
+    const settle = hangingUpdate()
     open({ kind: 'edit', menu: RETOUCH })
     type(/所要時間/, '100')
     fireEvent.click(saveButton())
@@ -279,8 +304,55 @@ describe('MenuFormDialog — edit', () => {
     fireEvent.click(saveButton())
     expect(updateMenu).toHaveBeenCalledTimes(1)
 
-    finish({ ok: true })
-    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('保存しました'))
+    await settle()
+    expect(toastSuccess).toHaveBeenCalledWith('保存しました')
+  })
+
+  it('キャンセル is inert too while the write is in flight — no escape through the back door', async () => {
+    const settle = hangingUpdate()
+    open({ kind: 'edit', menu: RETOUCH })
+    type(/所要時間/, '100')
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(saveButton().disabled).toBe(true))
+    expect((screen.getByRole('button', { name: 'キャンセル' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+    await settle()
+  })
+
+  it('オンライン表示 rides the payload — the flag is wired, not hardcoded true', async () => {
+    open({ kind: 'edit', menu: RETOUCH })
+    openDetails()
+    fireEvent.click(screen.getByRole('switch', { name: 'オンライン表示' }))
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(updateMenu).toHaveBeenCalledTimes(1))
+    expect(updateMenu).toHaveBeenCalledWith(
+      RETOUCH.id,
+      expect.objectContaining({ online_visible: false }),
+    )
+  })
+
+  // ESC, an outside click and the X are NOT gated while a write is in flight,
+  // so a dismissed body can resolve after its instance is gone. The write
+  // itself already landed server-side; what must never happen is its stale
+  // closure toasting 保存しました and force-closing whatever dialog replaced it.
+  it('a dismissed save cannot toast or close the dialog that replaced it', async () => {
+    const settle = hangingUpdate()
+    const setMode = open({ kind: 'edit', menu: RETOUCH })
+    type(/通常価格/, '9900')
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(saveButton().disabled).toBe(true))
+
+    setMode(null)
+    setMode({ kind: 'edit', menu: TREATMENT })
+    await settle()
+
+    expect(updateMenu).toHaveBeenCalledTimes(1)
+    expect(toastSuccess).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(field(/メニュー名/).value).toBe('トリートメント')
   })
 })
 
@@ -309,6 +381,22 @@ describe('MenuFormDialog — ②b store-widening confirm', () => {
 
     await waitFor(() => expect(updateMenu).toHaveBeenCalledTimes(1))
     expect(updateMenu).toHaveBeenCalledWith(SPA.id, expect.objectContaining({ store_id: null }))
+  })
+
+  it('its confirm button goes inert while the write it started is in flight', async () => {
+    const settle = hangingUpdate()
+    const confirmButton = () =>
+      screen.getByRole('button', { name: '全店舗に変更する' }) as HTMLButtonElement
+    widen()
+    fireEvent.click(confirmButton())
+
+    // The confirm STAYS UP for the write, so the pending state sits on the
+    // button that was pressed — and a second press can't double-write.
+    await waitFor(() => expect(confirmButton().disabled).toBe(true))
+    fireEvent.click(confirmButton())
+    expect(updateMenu).toHaveBeenCalledTimes(1)
+
+    await settle()
   })
 
   it('cancelling returns to the open dialog with values intact and nothing written', async () => {

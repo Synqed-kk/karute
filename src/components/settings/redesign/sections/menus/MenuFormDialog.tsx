@@ -8,7 +8,7 @@
 // menuSchema/menuBandError this file imports, so the client checks below are
 // live feedback, never the gate.
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { ChevronRight } from 'lucide-react'
@@ -116,6 +116,19 @@ function MenuFormBody({
   const [pending, setPending] = useState(false)
   const [widenOpen, setWidenOpen] = useState(false)
 
+  // Only the footer buttons are gated while a write is in flight — ESC, an
+  // outside click and the X still dismiss. The write lands server-side either
+  // way (and revalidatePath refreshes the data), but this instance's closure
+  // must not toast 保存しました or force-close whatever dialog is open by the
+  // time it resolves.
+  const alive = useRef(true)
+  useEffect(
+    () => () => {
+      alive.current = false
+    },
+    [],
+  )
+
   // Distinct categories in encounter order (Set preserves insertion) — the
   // suggestion chips. Core has no category entity: this IS the vocabulary.
   const categories = [
@@ -178,7 +191,12 @@ function MenuFormBody({
     }
     setPending(true)
     const res = menu ? await updateMenu(menu.id, input) : await createMenu(input)
+    if (!alive.current) return
     setPending(false)
+    // The ②b confirm stays up for the whole write (its own buttons inert), so
+    // the pending state sits on the button that was pressed; it closes either
+    // way once the answer is in.
+    setWidenOpen(false)
     // Failure keeps the dialog open with every value intact (§3) — the staff
     // member fixes one field and presses 保存 again.
     if ('error' in res) {
@@ -219,14 +237,15 @@ function MenuFormBody({
                   key={c}
                   type="button"
                   onClick={() => setCategory(c)}
-                  className="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] text-foreground/80 transition-colors hover:bg-muted"
+                  className="rounded-full border border-border bg-background px-2.5 py-[3px] text-[11px] text-foreground transition-colors hover:bg-muted"
                 >
                   {c}
                 </button>
               ))}
             </div>
           )}
-          <Field label={t('duration')} required className="max-w-[180px]">
+          {/* Mock widths: 160px on the 393 frame, 200px at 1280. */}
+          <Field label={t('duration')} required className="max-w-[160px] sm:max-w-[200px]">
             <div className="relative">
               <Input
                 value={duration}
@@ -330,7 +349,7 @@ function MenuFormBody({
                   />
                 </button>
               </div>
-              <Field label={t('order')} className="max-w-[140px]">
+              <Field label={t('order')} className="max-w-[120px]">
                 <Input
                   value={order}
                   inputMode="numeric"
@@ -355,7 +374,16 @@ function MenuFormBody({
         <Button variant="outline" onClick={onClose} disabled={pending}>
           {t('cancel')}
         </Button>
-        <Button onClick={() => void save()} disabled={!canSave}>
+        {/* An inert 保存 is GRAY, never a faded accent — the signed mock states
+         *  the rule for this exact state (settings-mocks.html:51-52,
+         *  #e5e7eb / #9ca3af = gray-200 / gray-400 to the byte). opacity-100
+         *  defeats the shared Button's disabled fade; the shared component
+         *  itself stays untouched. */}
+        <Button
+          onClick={() => void save()}
+          disabled={!canSave}
+          className="disabled:bg-gray-200 disabled:text-gray-400 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/40"
+        >
           {t('save')}
         </Button>
       </DialogFooter>
@@ -367,10 +395,7 @@ function MenuFormBody({
         confirmLabel={t('widenConfirm')}
         pending={pending}
         onCancel={() => setWidenOpen(false)}
-        onConfirm={() => {
-          setWidenOpen(false)
-          void save(true)
-        }}
+        onConfirm={() => void save(true)}
       />
     </DialogContent>
   )
