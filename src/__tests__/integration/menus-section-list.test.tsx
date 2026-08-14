@@ -43,8 +43,11 @@ const store: StoreRow = {
 }
 
 /** Realistic salon catalog in CORE's returned order (categories first appear
- *  カット → カラー → トリートメント; the blank-category 着付け must render
- *  under 未分類 LAST). No impossible states: every floor ≤ its ceiling. */
+ *  カット → カラー → 【blank】 → トリートメント). The blank-category rows sit
+ *  DELIBERATELY mid-list, not last: if they came last, "core order untouched"
+ *  and "blank bucket moved last" would render identically and the 未分類-last
+ *  assertions would pass without the reorder ever running.
+ *  No impossible states: every floor ≤ its ceiling. */
 function menu(over: Partial<Menu> & Pick<Menu, 'id' | 'name'>): Menu {
   return {
     business_id: BUSINESS,
@@ -77,6 +80,16 @@ const CATALOG: Menu[] = [
     price_list_amount: 1100,
     nomination_allowed: false,
   }),
+  // ¥0 floor: free alongside another service, ¥1,100 on its own. A REAL band,
+  // and the one price a falsy check would silently collapse to the ceiling.
+  menu({
+    id: '71e40a8f-c50b-4d29-8f7a-93c467b2adfc',
+    name: '眉カット',
+    category: 'カット',
+    duration_minutes: 15,
+    price_list_amount: 1100,
+    price_min_amount: 0,
+  }),
   menu({
     id: '2c9f5e3a-70b6-4d84-a153-4e8f12cd96a7',
     name: 'リタッチカラー',
@@ -84,6 +97,23 @@ const CATALOG: Menu[] = [
     duration_minutes: 90,
     price_list_amount: 8800,
     price_min_amount: 6600,
+  }),
+  menu({
+    id: '5fc28b6d-a3e9-40b7-9486-71a245f029da',
+    name: '着付け',
+    category: null,
+    price_list_amount: 6600,
+    online_visible: false,
+  }),
+  // Whitespace-only category — what a free-text category input produces when
+  // staff type spaces and save (PR-3). Belongs in the blank bucket, not in a
+  // group of its own headed by invisible characters.
+  menu({
+    id: '82f51b90-d61c-4e3a-9a8b-a4d578c3bedf',
+    name: 'ヘアセット',
+    category: '  ',
+    duration_minutes: 40,
+    price_list_amount: 3850,
   }),
   menu({
     id: '3da06f4b-81c7-4e95-b264-5f9023de07b8',
@@ -94,7 +124,7 @@ const CATALOG: Menu[] = [
     price_min_amount: 3300,
   }),
   menu({
-    id: '4eb17a5c-92d8-4fa6-c375-609134ef18c9',
+    id: '4eb17a5c-92d8-4fa6-8375-609134ef18c9',
     name: 'ヘッドスパ',
     category: 'トリートメント',
     duration_minutes: 45,
@@ -102,16 +132,9 @@ const CATALOG: Menu[] = [
     store_id: EKIMAE,
   }),
   menu({
-    id: '5fc28b6d-a3e9-40b7-d486-71a245f029da',
-    name: '着付け',
-    category: null,
-    price_list_amount: 6600,
-    online_visible: false,
-  }),
-  menu({
-    id: '60d39c7e-b4fa-41c8-e597-82b356a13aeb',
+    id: '60d39c7e-b4fa-41c8-a597-82b356a13aeb',
     name: '縮毛矯正',
-    category: 'カラー',
+    category: 'ストレート',
     duration_minutes: 150,
     price_list_amount: 16500,
     active: false,
@@ -140,38 +163,56 @@ describe('MenusSection — grouping (core order, 未分類 last)', () => {
     expect(group.textContent).not.toContain('カット')
   })
 
+  it('a whitespace-only category joins 未分類 instead of heading its own group', () => {
+    render(<MenusSection menus={CATALOG} stores={[store]} />)
+    expect(screen.getByText('未分類').parentElement!.textContent).toContain('ヘアセット')
+  })
+
   // Seat audit A2: 未分類 is plausible staff free text, so a REAL category can
   // carry the same label as the blank bucket. Keying the bucket by the
   // TRANSLATED label collided with it — duplicate React key, two groups
   // indistinguishable in intent. The bucket keys off a sentinel instead.
   it('a REAL category named 未分類 keeps its core position, the blank bucket still renders last, keys stay unique', () => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
-    const colliding: Menu[] = [
-      menu({ id: '7f4a1e8b-c05d-4926-8a31-b6e7420cd913', name: 'シャンプー', category: '未分類' }),
-      menu({ id: '8a5b2f9c-d16e-4037-9b42-c7f8531de024', name: 'カット', category: 'カット' }),
-      menu({ id: '9b6c3a0d-e27f-4148-ac53-d8091642ef35', name: '着付け', category: null }),
-    ]
+    try {
+      // 着付け sits mid-list, ahead of カット, so the blank bucket only ends up
+      // last if the reorder actually runs.
+      const colliding: Menu[] = [
+        menu({
+          id: '7f4a1e8b-c05d-4926-8a31-b6e7420cd913',
+          name: 'シャンプー',
+          category: '未分類',
+        }),
+        menu({ id: '9b6c3a0d-e27f-4148-ac53-d8091642ef35', name: '着付け', category: null }),
+        menu({ id: '8a5b2f9c-d16e-4037-9b42-c7f8531de024', name: 'カット', category: 'カット' }),
+      ]
 
-    const { container } = render(<MenusSection menus={colliding} stores={[store]} />)
+      const { container } = render(<MenusSection menus={colliding} stores={[store]} />)
 
-    // Two same-labeled headers is core-data truth, not a bug — what must hold
-    // is WHICH rows sit under each and that the blank one stays last.
-    const headers = screen.getAllByText('未分類')
-    expect(headers.length).toBe(2)
-    expect(headers[0].parentElement!.textContent).toContain('シャンプー')
-    expect(headers[0].parentElement!.textContent).not.toContain('着付け')
-    expect(headers[1].parentElement!.textContent).toContain('着付け')
-    expect(headers[1].parentElement!.textContent).not.toContain('シャンプー')
+      // Two same-labeled headers is core-data truth, not a bug — what must hold
+      // is WHICH rows sit under each and that the blank one stays last.
+      const headers = screen.getAllByText('未分類')
+      expect(headers.length).toBe(2)
+      expect(headers[0].parentElement!.textContent).toContain('シャンプー')
+      expect(headers[0].parentElement!.textContent).not.toContain('着付け')
+      expect(headers[1].parentElement!.textContent).toContain('着付け')
+      expect(headers[1].parentElement!.textContent).not.toContain('シャンプー')
 
-    // Core order preserved: the real 未分類 appears first, カット next, the
-    // blank bucket last.
-    const text = container.textContent ?? ''
-    expect(text.indexOf('シャンプー')).toBeLessThan(text.indexOf('カット'))
-    expect(text.indexOf('カット')).toBeLessThan(text.indexOf('着付け'))
+      // Core order preserved: the real 未分類 appears first, カット next, the
+      // blank bucket last.
+      const text = container.textContent ?? ''
+      expect(text.indexOf('シャンプー')).toBeLessThan(text.indexOf('カット'))
+      expect(text.indexOf('カット')).toBeLessThan(text.indexOf('着付け'))
 
-    // A duplicate React key surfaces here and nowhere else.
-    expect(consoleError).not.toHaveBeenCalled()
-    consoleError.mockRestore()
+      // Belt only, NOT the guard: React dedups duplicate-key warnings per key
+      // signature, so in a full-file run an earlier render can have already
+      // spent the warning and this spy stays silent on a real regression. The
+      // WHICH-rows-under-WHICH-header assertions above are what actually
+      // catches the A2 collision (a shared bucket renders both rows together).
+      expect(consoleError).not.toHaveBeenCalled()
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 })
 
@@ -183,6 +224,11 @@ describe('MenusSection — price honesty (band vs fixed)', () => {
     // カット is fixed at ¥5,500 — never rendered as a band.
     expect(screen.getByText('¥5,500')).toBeTruthy()
     expect(screen.queryByText('¥5,500–¥5,500')).toBeNull()
+  })
+
+  it('a ¥0 floor renders as a band, not collapsed to the single ceiling price', () => {
+    render(<MenusSection menus={ACTIVE_ONLY} stores={[store]} />)
+    expect(screen.getByText('¥0–¥1,100')).toBeTruthy()
   })
 
   it('renders each row duration from the menu, not a default', () => {
@@ -214,7 +260,7 @@ describe('MenusSection — chips carry information only', () => {
 })
 
 describe('MenusSection — 停止中 disclosure', () => {
-  it('collapsed by default with the retired COUNT; expanding reveals the grayed row + 停止中 chip', () => {
+  it('collapsed by default with the retired COUNT; expanding reveals the row + 停止中 chip', () => {
     render(<MenusSection menus={CATALOG} stores={[store]} />)
     expect(screen.queryByText('縮毛矯正')).toBeNull()
 
@@ -229,6 +275,19 @@ describe('MenusSection — 停止中 disclosure', () => {
     render(<MenusSection menus={ACTIVE_ONLY} stores={[store]} />)
     expect(screen.queryByText('停止中のメニュー（0）')).toBeNull()
     expect(screen.queryByText(/停止中のメニュー/)).toBeNull()
+  })
+
+  // The end state of a catalog being closed down: everything retired, nothing
+  // active. The list card must not render as an empty shell, and this is a
+  // catalog WITH menus — never the 「まだありません」 empty state.
+  it('every menu retired → disclosure only, no empty active card, no empty state', () => {
+    const retiredOnly = CATALOG.filter((m) => !m.active)
+    const { container } = render(<MenusSection menus={retiredOnly} stores={[store]} />)
+    expect(screen.getByText('停止中のメニュー（1）')).toBeTruthy()
+    expect(screen.queryByText('メニューがまだありません')).toBeNull()
+    // Collapsed disclosure renders no panel, so the ONLY card that could exist
+    // here is the active list's — and with zero active rows it must not.
+    expect(container.querySelector('.rounded-xl.bg-card')).toBeNull()
   })
 })
 
