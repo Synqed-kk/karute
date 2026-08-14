@@ -36,6 +36,9 @@ jest.mock('@/components/settings/redesign/sections/SyncSection', () => ({
 jest.mock('@/components/settings/redesign/sections/PacksSection', () => ({
   PacksSection: () => null,
 }))
+jest.mock('@/components/settings/redesign/sections/MenusSection', () => ({
+  MenusSection: () => null,
+}))
 jest.mock('@/components/settings/redesign/sections/AuditLogSection', () => ({
   AuditLogSection: () => null,
 }))
@@ -81,9 +84,11 @@ describe('SettingsShell — staff prop threading (T3)', () => {
         canInviteStaff
         canViewAudit
         canViewSync
+        canManageMenus
         initialTab={'staff' as SettingsTabId}
         initialStores={[storeRow]}
         initialActiveStoreId={null}
+        initialMenus={[]}
         initialEntitlement={null}
         featureStaffInvites={true}
         featureMultiStore={false}
@@ -111,9 +116,11 @@ describe('SettingsShell — staff prop threading (T3)', () => {
         canInviteStaff
         canViewAudit
         canViewSync
+        canManageMenus
         initialTab={'staff' as SettingsTabId}
         initialStores={[]}
         initialActiveStoreId={null}
+        initialMenus={[]}
         initialEntitlement={null}
       />,
     )

@@ -34,7 +34,9 @@ const PENDING_TAB_IDS: readonly SettingsTabId[] = []
 // is La-Estro-specific and structurally unreachable from the Bearer-only
 // thin shell (see packet 20 for the full ruling). Distinct from
 // PENDING_TAB_IDS: this isn't "not built yet", it's "never coming to app".
-const WEB_ONLY_TAB_IDS: readonly SettingsTabId[] = ['sync']
+// メニュー joins it at the menu-catalog lane PR-2: the catalog is edited on
+// the computer (plan §8, fork A) and MenusSection is cut from this bundle.
+const WEB_ONLY_TAB_IDS: readonly SettingsTabId[] = ['sync', 'menus']
 
 /** 今すぐ同期 (packet 32). Any 2xx (a real run OR the facade's friendly
  *  not-configured message) reads as "the request landed" — the card's own
@@ -81,6 +83,13 @@ export function SettingsScreenInner({ dto }: { dto: SettingsScreenDTOType }) {
         canInviteStaff={dto.canInviteStaff}
         canViewAudit={dto.canViewAudit}
         canViewSync={dto.canViewSync}
+        canManageMenus={dto.canManageMenus}
+        // Always [] on thin — the WEB_ONLY_TAB_IDS intercept above renders
+        // the "manage on web" signpost BEFORE the section, and MenusSection
+        // is cut from this bundle at the Rollup boundary regardless. Shipping
+        // the catalog rows here would be dead payload (plan §8, fork A: the
+        // catalog is edited on the computer).
+        initialMenus={[]}
         syncStatus={dto.syncStatus}
         onRunNow={runSyncNow}
         initialTab={dto.initialTab}

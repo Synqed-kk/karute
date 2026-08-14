@@ -102,6 +102,8 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
     const canInviteStaff = ctx.identity.capabilities.has('staff.invite')
     const canViewAudit = isOwner || ctx.identity.capabilities.has('audit.view')
     const canViewSync = isOwner || ctx.identity.capabilities.has('sync.view')
+    // Bare capability, no owner fallback — web parity (settings/page.tsx:76).
+    const canManageMenus = ctx.identity.capabilities.has('menus.manage')
 
     // 予約同期 status card (packet 31) — SOFT-FAIL: a throw or missing config
     // must never 502 the whole settings screen (this is a read-only extra,
@@ -164,6 +166,7 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
         canInviteStaff,
         canViewAudit,
         canViewSync,
+        canManageMenus,
         syncStatus,
         initialTab,
         auditTargetId,
