@@ -338,6 +338,39 @@ describe('MenuFormDialog — edit', () => {
   // so a dismissed body can resolve after its instance is gone. The write
   // itself already landed server-side; what must never happen is its stale
   // closure toasting 保存しました and force-closing whatever dialog replaced it.
+  // Same rule, the OTHER stale shape: dismissed and left closed, so the body
+  // is still mounted behind the exit animation (the last-mode mirror) and only
+  // its `active` flag went false. No open dialog → no dialog UI effects.
+  it('a dismissed save that is never reopened stays silent on success', async () => {
+    const settle = hangingUpdate()
+    const setMode = open({ kind: 'edit', menu: RETOUCH })
+    type(/通常価格/, '9900')
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(saveButton().disabled).toBe(true))
+
+    setMode(null)
+    await settle()
+
+    expect(updateMenu).toHaveBeenCalledTimes(1)
+    expect(toastSuccess).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('…and stays silent on failure — a closed dialog has no values left to preserve', async () => {
+    let finish: (r: { error: string }) => void = () => {}
+    updateMenu.mockReturnValueOnce(new Promise((res) => { finish = res }))
+    const setMode = open({ kind: 'edit', menu: RETOUCH })
+    type(/通常価格/, '9900')
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(saveButton().disabled).toBe(true))
+
+    setMode(null)
+    await act(async () => { finish({ error: 'Could not update menu: offline' }) })
+
+    expect(updateMenu).toHaveBeenCalledTimes(1)
+    expect(toastError).not.toHaveBeenCalled()
+  })
+
   it('a dismissed save cannot toast or close the dialog that replaced it', async () => {
     const settle = hangingUpdate()
     const setMode = open({ kind: 'edit', menu: RETOUCH })

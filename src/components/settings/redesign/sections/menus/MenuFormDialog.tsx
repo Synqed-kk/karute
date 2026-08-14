@@ -79,6 +79,7 @@ export function MenuFormDialog({ mode, catalog, stores, onClose }: MenuFormDialo
         <MenuFormBody
           key={`${openSeq}-${displayMode.kind === 'edit' ? `edit-${displayMode.menu.id}` : 'create'}`}
           menu={displayMode.kind === 'edit' ? displayMode.menu : null}
+          active={mode !== null}
           catalog={catalog}
           stores={stores}
           onClose={onClose}
@@ -90,11 +91,15 @@ export function MenuFormDialog({ mode, catalog, stores, onClose }: MenuFormDialo
 
 function MenuFormBody({
   menu,
+  active,
   catalog,
   stores,
   onClose,
 }: {
   menu: Menu | null
+  /** This body is the OPEN dialog — false once its mode closed but the mirror
+   *  kept it mounted for the exit animation. */
+  active: boolean
   catalog: Menu[]
   stores: StoreRow[]
   onClose: () => void
@@ -118,9 +123,11 @@ function MenuFormBody({
 
   // Only the footer buttons are gated while a write is in flight — ESC, an
   // outside click and the X still dismiss. The write lands server-side either
-  // way (and revalidatePath refreshes the data), but this instance's closure
-  // must not toast 保存しました or force-close whatever dialog is open by the
-  // time it resolves.
+  // way (and revalidatePath refreshes the data); what must never happen is a
+  // dismissed form's closure driving dialog UI. TWO stale shapes, so two
+  // guards: dismissed-then-reopened UNMOUNTS this body (alive), while
+  // dismissed-and-left-closed leaves it mounted behind the exit animation and
+  // only `active` goes false. No open dialog → no dialog UI effects.
   const alive = useRef(true)
   useEffect(
     () => () => {
@@ -128,6 +135,15 @@ function MenuFormBody({
     },
     [],
   )
+  // Mirrored in an EFFECT, not assigned during render: the repo's
+  // react-hooks/refs rule rejects touching ref.current in the render pass. It
+  // commits before any awaited write can resolve, so the guard always reads
+  // the current answer. (Its own effect — sharing one with `alive` above would
+  // run that cleanup on every `active` change and kill a live body.)
+  const activeRef = useRef(active)
+  useEffect(() => {
+    activeRef.current = active
+  }, [active])
 
   // Distinct categories in encounter order (Set preserves insertion) — the
   // suggestion chips. Core has no category entity: this IS the vocabulary.
@@ -191,7 +207,7 @@ function MenuFormBody({
     }
     setPending(true)
     const res = menu ? await updateMenu(menu.id, input) : await createMenu(input)
-    if (!alive.current) return
+    if (!alive.current || !activeRef.current) return
     setPending(false)
     // The ②b confirm stays up for the whole write (its own buttons inert), so
     // the pending state sits on the button that was pressed; it closes either
