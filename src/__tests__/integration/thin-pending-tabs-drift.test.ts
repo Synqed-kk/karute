@@ -28,6 +28,9 @@ import { join } from 'node:path'
 // packet 20 §S5, still bundle-excluded).
 const SECTION_FILE_BY_TAB: Record<string, string> = {
   sync: 'SyncSection.tsx',
+  // menu-catalog lane PR-2: web-only for fork A (editing lives on the
+  // computer, plan §8) — same three-way pairing as sync.
+  menus: 'MenusSection.tsx',
 }
 
 function tabIdsFromConst(src: string, constName: string): string[] {

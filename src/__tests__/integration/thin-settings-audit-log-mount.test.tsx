@@ -56,6 +56,9 @@ jest.mock('@/components/settings/redesign/sections/StaffSection', () => ({
 jest.mock('@/components/settings/redesign/sections/SyncSection', () => ({
   SyncSection: () => null,
 }))
+jest.mock('@/components/settings/redesign/sections/MenusSection', () => ({
+  MenusSection: () => null,
+}))
 jest.mock('@/components/settings/redesign/sections/PacksSection', () => ({
   PacksSection: () => null,
 }))

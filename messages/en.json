@@ -2566,6 +2566,21 @@
       "saved": "Saved",
       "saveFailed": "Could not save"
     },
+    "menusDescription": "Service menus and pricing",
+    "menus": {
+      "label": "Menus",
+      "webOnly": "Menus are managed from the web version's settings",
+      "description": "Manage your service menus and prices. Changes apply to future bookings.",
+      "duration": "{n} min",
+      "empty": "No menus yet",
+      "loadError": "Couldn't load menus",
+      "uncategorized": "Uncategorized",
+      "storeScoped": "Store-specific",
+      "onlineHidden": "Hidden online",
+      "nominationNo": "No nomination",
+      "retiredGroup": "Stopped menus ({n})",
+      "retiredChip": "Stopped"
+    },
     "staffCountWithLimit": "{n}/{limit} staff",
     "staffLimitHint": "Your plan's staff limit is reached. Upgrade to add more",
     "staffLimitInviteHint": "New staff can't be invited on your current plan (re-invites to existing staff still work)"

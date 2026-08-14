@@ -16,8 +16,13 @@
 //
 // Remove a name here (and its vite.config.ts entry) the same PR its tab
 // leaves pendingTabIds/webOnlyTabIds and goes live.
+//
+// MenusSection (menu-catalog lane PR-2): permanently web-only for fork A —
+// menu editing lives on the computer (plan §8); the phone gets the booking
+// picker in PR-4b, never this section.
 
 const Excluded = (): null => null
 
 export default Excluded
 export const SyncSection = Excluded
+export const MenusSection = Excluded

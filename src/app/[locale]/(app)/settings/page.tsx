@@ -4,6 +4,7 @@ import { PAGE_PICKS, pickMessages } from '@/i18n/client-messages'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { listStores, getActiveStoreId } from '@/actions/stores'
+import { listMenus } from '@/actions/menus'
 import { getEntitlement } from '@/actions/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import type { Capability } from '@/lib/auth/permissions'
@@ -28,6 +29,7 @@ export default async function SettingsPage({
     initialActiveStoreId,
     caps,
     entitlement,
+    menusResult,
   ] = await Promise.all([
     getStaffList(),
     getCurrentUserStaffId(),
@@ -43,6 +45,10 @@ export default async function SettingsPage({
     // Same treatment for the entitlement — the plan row + add-store gate paint
     // with the page instead of popping in after a client fetch.
     getEntitlement().catch(() => null),
+    // Same degrade-never-500 posture for the service-menu catalog. The
+    // { error } shape is what listMenus already returns on a denied read, so
+    // a thrown failure folds into the same branch below.
+    listMenus().catch(() => ({ error: 'unavailable' as const })),
   ])
 
   const isOwner = staffList.some(
@@ -64,6 +70,12 @@ export default async function SettingsPage({
   // all, so every non-owner staff could open it and hit a 403 from the
   // now-gated sync routes).
   const canViewSync = isOwner || caps.has('sync.view')
+  // メニュー: the bare capability (like stores.viewAll above, not the
+  // owner-plus-grant idiom) — owner/manager/senior all hold menus.manage
+  // through their preset, and listMenus enforces the same capability.
+  const canManageMenus = caps.has('menus.manage')
+  // null = the read FAILED (or was denied); [] would claim an empty catalog.
+  const initialMenus = 'menus' in menusResult ? menusResult.menus : null
 
   // Deep-link support (?tab=audit&target=<customerId> from the privacy tab's
   // アクセス履歴 row). Unknown tab values — and audit links followed by staff
@@ -90,10 +102,12 @@ export default async function SettingsPage({
         canInviteStaff={canInviteStaff}
         canViewAudit={canViewAudit}
         canViewSync={canViewSync}
+        canManageMenus={canManageMenus}
         initialTab={initialTab}
         auditTargetId={auditTargetId}
         initialStores={canViewAllStores ? stores : []}
         initialActiveStoreId={initialActiveStoreId}
+        initialMenus={canManageMenus ? initialMenus : []}
         initialEntitlement={entitlement}
       />
     </SettingsPageChrome>

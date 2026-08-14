@@ -73,6 +73,9 @@ jest.mock('@/components/settings/redesign/sections/StaffSection', () => ({
 jest.mock('@/components/settings/redesign/sections/SyncSection', () => ({
   SyncSection: () => <div data-testid="section-sync" />,
 }))
+jest.mock('@/components/settings/redesign/sections/MenusSection', () => ({
+  MenusSection: () => null,
+}))
 jest.mock('@/components/settings/redesign/sections/PacksSection', () => ({
   PacksSection: () => null,
 }))
@@ -81,6 +84,7 @@ jest.mock('@/components/settings/redesign/sections/AuditLogSection', () => ({
 }))
 
 import { SettingsScreenInner } from '../../../thin/screens/SettingsScreen'
+import { SettingsShell } from '@/components/settings/redesign/SettingsShell'
 import type { SettingsScreenDTOType } from '@/lib/app-api/settings-screen-dto'
 
 const dto: SettingsScreenDTOType = {
@@ -135,6 +139,52 @@ describe('thin settings wiring — 同期 tab web-only carve-out (packet 20 §S5
     ).toBeGreaterThan(0)
     expect(screen.queryByTestId('section-sync')).toBeNull()
     expect(screen.queryByText('この画面は準備中です')).toBeNull()
+  })
+})
+
+// メニュー web-only copy (menu-catalog PR-2). SettingsScreenInner can't reach
+// this tab yet — the settings DTO carries no menus.manage flag, so the phone
+// hides メニュー entirely this slice (thin/screens/SettingsScreen.tsx passes
+// canManageMenus={false}). The shell is therefore rendered directly with the
+// same REAL-ja resolution above: what's under test is that WebOnlyTabPanel's
+// TWO-literal-hook shape picks the MENUS namespace, and that the 同期 pin
+// above stays green — a single shared namespace would show 予約同期 copy on
+// the メニュー tab (§7 fifth trap).
+describe('settings web-only panel — メニュー copy (menu-catalog PR-2)', () => {
+  const shellProps = {
+    orgSettings: null,
+    staffList: [],
+    activeStaffId: null,
+    locale: 'ja',
+    isOwner: true,
+    canViewAllStores: true,
+    canManageStaff: true,
+    canInviteStaff: true,
+    canViewAudit: true,
+    canViewSync: true,
+    canManageMenus: true,
+    initialStores: [],
+    initialActiveStoreId: null,
+    initialMenus: [],
+    initialEntitlement: null,
+  }
+
+  it('the メニュー tab renders the real ja menus web-only copy, never the 同期 copy', () => {
+    render(<SettingsShell {...shellProps} webOnlyTabIds={['sync', 'menus']} initialTab="menus" />)
+
+    expect(
+      screen.getAllByText('メニューの設定はWeb版からご利用ください').length,
+    ).toBeGreaterThan(0)
+    expect(screen.queryByText('予約同期の設定はWeb版からご利用ください')).toBeNull()
+  })
+
+  it('the 同期 tab still renders the sync copy from the same panel', () => {
+    render(<SettingsShell {...shellProps} webOnlyTabIds={['sync', 'menus']} initialTab="sync" />)
+
+    expect(
+      screen.getAllByText('予約同期の設定はWeb版からご利用ください').length,
+    ).toBeGreaterThan(0)
+    expect(screen.queryByText('メニューの設定はWeb版からご利用ください')).toBeNull()
   })
 })
 

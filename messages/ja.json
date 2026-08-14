@@ -2566,6 +2566,21 @@
       "saved": "保存しました",
       "saveFailed": "保存できませんでした"
     },
+    "menusDescription": "施術メニューと価格の管理",
+    "menus": {
+      "label": "メニュー",
+      "webOnly": "メニューの設定はWeb版からご利用ください",
+      "description": "施術メニューと価格を管理します。変更は今後の予約から適用されます。",
+      "duration": "{n}分",
+      "empty": "メニューがまだありません",
+      "loadError": "メニューを読み込めませんでした",
+      "uncategorized": "未分類",
+      "storeScoped": "店舗限定",
+      "onlineHidden": "オンライン非表示",
+      "nominationNo": "指名不可",
+      "retiredGroup": "停止中のメニュー（{n}）",
+      "retiredChip": "停止中"
+    },
     "staffCountWithLimit": "{n}/{limit}名のスタッフ",
     "staffLimitHint": "プランのスタッフ上限に達しています。追加にはアップグレードが必要です",
     "staffLimitInviteHint": "プランの上限のため新しいスタッフは招待できません（既存スタッフへの再招待は可能）"

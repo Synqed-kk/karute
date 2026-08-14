@@ -34,7 +34,9 @@ const PENDING_TAB_IDS: readonly SettingsTabId[] = []
 // is La-Estro-specific and structurally unreachable from the Bearer-only
 // thin shell (see packet 20 for the full ruling). Distinct from
 // PENDING_TAB_IDS: this isn't "not built yet", it's "never coming to app".
-const WEB_ONLY_TAB_IDS: readonly SettingsTabId[] = ['sync']
+// メニュー joins it at the menu-catalog lane PR-2: the catalog is edited on
+// the computer (plan §8, fork A) and MenusSection is cut from this bundle.
+const WEB_ONLY_TAB_IDS: readonly SettingsTabId[] = ['sync', 'menus']
 
 /** 今すぐ同期 (packet 32). Any 2xx (a real run OR the facade's friendly
  *  not-configured message) reads as "the request landed" — the card's own
@@ -81,6 +83,14 @@ export function SettingsScreenInner({ dto }: { dto: SettingsScreenDTOType }) {
         canInviteStaff={dto.canInviteStaff}
         canViewAudit={dto.canViewAudit}
         canViewSync={dto.canViewSync}
+        // The settings DTO carries no menus.manage flag, so the メニュー tab
+        // stays hidden on the phone this slice — honest for fork A (the
+        // catalog is edited on the computer; the phone gets the booking
+        // picker in PR-4b). The WEB_ONLY_TAB_IDS entry above is what keeps
+        // MenusSection out of this bundle either way. Flip to the DTO flag
+        // the day the phone should show the "manage on web" signpost.
+        canManageMenus={false}
+        initialMenus={[]}
         syncStatus={dto.syncStatus}
         onRunNow={runSyncNow}
         initialTab={dto.initialTab}

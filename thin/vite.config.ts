@@ -83,6 +83,7 @@ const PURCHASE_FILES = new Set(
 const PENDING_SECTION_FILES = new Set(
   [
     'src/components/settings/redesign/sections/SyncSection.tsx',
+    'src/components/settings/redesign/sections/MenusSection.tsx',
   ].map((p) => path.resolve(root, p)),
 )
 
