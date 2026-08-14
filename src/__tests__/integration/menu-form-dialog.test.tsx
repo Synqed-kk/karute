@@ -22,8 +22,6 @@ jest.mock('next-intl', () => {
     },
   }
 })
-const refresh = jest.fn()
-jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh, push: jest.fn() }) }))
 const toastError = jest.fn()
 const toastSuccess = jest.fn()
 jest.mock('sonner', () => ({ toast: { error: (m: string) => toastError(m), success: (m: string) => toastSuccess(m) } }))
@@ -117,10 +115,16 @@ const SPA = menu({
 })
 const CATALOG = [CUT, RETOUCH, TREATMENT, SPA]
 
-function open(mode: { kind: 'create' } | { kind: 'edit'; menu: Menu }) {
-  return render(
-    <MenuFormDialog mode={mode} catalog={CATALOG} stores={STORES} onClose={jest.fn()} />,
+type Mode = null | { kind: 'create' } | { kind: 'edit'; menu: Menu }
+
+function open(mode: Exclude<Mode, null>, stores = STORES) {
+  const view = render(
+    <MenuFormDialog mode={mode} catalog={CATALOG} stores={stores} onClose={jest.fn()} />,
   )
+  return (next: Mode) =>
+    view.rerender(
+      <MenuFormDialog mode={next} catalog={CATALOG} stores={stores} onClose={jest.fn()} />,
+    )
 }
 
 const field = (label: RegExp) => screen.getByLabelText(label) as HTMLInputElement
@@ -164,7 +168,7 @@ describe('MenuFormDialog — create', () => {
       display_order: 60,
     })
     expect(updateMenu).not.toHaveBeenCalled()
-    await waitFor(() => expect(refresh).toHaveBeenCalled())
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('保存しました'))
   })
 
   it('a suggestion chip fills the free-text category and re-aims the 表示順 default', async () => {
@@ -245,7 +249,23 @@ describe('MenuFormDialog — edit', () => {
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('Could not update menu: offline'))
     expect(field(/メニュー名/).value).toBe('リタッチカラー（ロング）')
     expect(saveButton().disabled).toBe(false)
-    expect(refresh).not.toHaveBeenCalled()
+    expect(toastSuccess).not.toHaveBeenCalled()
+  })
+
+  // Cancel means DISCARD. The body stays mounted after close (the last-mode
+  // mirror keeps the closing animation honest), so without an open counter in
+  // its key the abandoned draft comes back on reopen — 保存 enabled, pristine
+  // rule dead.
+  it('a cancelled edit is discarded — reopening the same menu shows the STORED row', () => {
+    const setMode = open({ kind: 'edit', menu: RETOUCH })
+    type(/メニュー名/, 'リタッチカラー（下書き）')
+    expect(saveButton().disabled).toBe(false)
+
+    setMode(null)
+    setMode({ kind: 'edit', menu: RETOUCH })
+
+    expect(field(/メニュー名/).value).toBe('リタッチカラー')
+    expect(saveButton().disabled).toBe(true)
   })
 
   it('double-submit: 保存 goes inert while the write is in flight', async () => {
@@ -322,6 +342,29 @@ describe('MenuFormDialog — ②b store-widening confirm', () => {
     expect(updateMenu).toHaveBeenCalledWith(
       TREATMENT.id,
       expect.objectContaining({ store_id: EKIMAE }),
+    )
+    expect(screen.queryByText(/全店舗に変更しますか/)).toBeNull()
+  })
+})
+
+describe('MenuFormDialog — degraded store read (menus.manage without stores.viewAll)', () => {
+  it('an empty stores prop hides 店舗 entirely and saves the stored scope back unchanged', async () => {
+    open({ kind: 'edit', menu: SPA }, [])
+    openDetails()
+
+    // No store names to read → no blind scope editing, and no 「現在は店舗限定
+    // のみのメニューです」 confirm sentence.
+    expect(screen.queryByRole('group', { name: '店舗' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '全店舗' })).toBeNull()
+    expect(screen.getByRole('switch', { name: 'オンライン表示' })).toBeTruthy()
+
+    type(/通常価格/, '4950')
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(updateMenu).toHaveBeenCalledTimes(1))
+    expect(updateMenu).toHaveBeenCalledWith(
+      SPA.id,
+      expect.objectContaining({ store_id: EKIMAE, price_list_amount: 4950 }),
     )
     expect(screen.queryByText(/全店舗に変更しますか/)).toBeNull()
   })

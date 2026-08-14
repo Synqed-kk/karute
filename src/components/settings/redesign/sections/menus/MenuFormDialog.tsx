@@ -9,7 +9,6 @@
 // live feedback, never the gate.
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { ChevronRight } from 'lucide-react'
@@ -62,13 +61,23 @@ export function MenuFormDialog({ mode, catalog, stores, onClose }: MenuFormDialo
   // copy — StoreFormDialog.tsx:58-66's pattern, same reason.
   const [lastMode, setLastMode] = useState<NonNullable<MenuFormMode> | null>(null)
   if (mode !== null && mode !== lastMode) setLastMode(mode)
+  // That mirror keeps the body MOUNTED after close, so the key has to carry an
+  // open counter too: without it, reopening the same menu resurrects the
+  // abandoned draft of a cancelled edit — with 保存 already enabled, because
+  // the pristine baseline is the stored row. Cancel means discard.
+  const [open, setOpen] = useState(false)
+  const [openSeq, setOpenSeq] = useState(0)
+  if ((mode !== null) !== open) {
+    setOpen(mode !== null)
+    if (mode !== null) setOpenSeq((n) => n + 1)
+  }
   const displayMode = mode ?? lastMode
 
   return (
     <Dialog open={mode !== null} onOpenChange={(o) => !o && onClose()}>
       {displayMode !== null && (
         <MenuFormBody
-          key={displayMode.kind === 'edit' ? `edit-${displayMode.menu.id}` : 'create'}
+          key={`${openSeq}-${displayMode.kind === 'edit' ? `edit-${displayMode.menu.id}` : 'create'}`}
           menu={displayMode.kind === 'edit' ? displayMode.menu : null}
           catalog={catalog}
           stores={stores}
@@ -92,7 +101,6 @@ function MenuFormBody({
 }) {
   const t = useTranslations('settings.menus.form')
   const tMenus = useTranslations('settings.menus')
-  const router = useRouter()
 
   const [name, setName] = useState(menu?.name ?? '')
   const [category, setCategory] = useState(menu?.category ?? '')
@@ -177,9 +185,10 @@ function MenuFormBody({
       toast.error(res.error)
       return
     }
+    // No client refresh: every menu action revalidatePath('/settings')s, so the
+    // route re-renders off the action's own response (src/actions/menus.ts).
     toast.success(t('saved'))
     onClose()
-    router.refresh()
   }
 
   const scopedStoreName =
@@ -223,7 +232,7 @@ function MenuFormBody({
                 value={duration}
                 inputMode="numeric"
                 onChange={(e) => setDuration(e.target.value)}
-                className="pr-8 text-right"
+                className="pr-8"
               />
               <Affix className="right-2.5">{t('minuteSuffix')}</Affix>
             </div>
@@ -261,29 +270,37 @@ function MenuFormBody({
               {/* Single-select store scope — the audit-log filter-pill IA
                *  (mock ⑤). 全店舗 is store_id null; core has no multi-store
                *  subset, so this is one pill or the other. A plain group, not
-               *  a <label>: a label may only name one control. */}
-              <div role="group" aria-label={t('store')}>
-                <span className="mb-1 block text-xs font-medium text-foreground">
-                  {t('store')}
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {[{ id: null as string | null, name: t('allStores') }, ...stores].map((s) => (
-                    <button
-                      key={s.id ?? 'all'}
-                      type="button"
-                      aria-pressed={storeId === s.id}
-                      onClick={() => setStoreId(s.id)}
-                      className={`rounded-full border px-2.5 py-1 text-[12px] transition-colors ${
-                        storeId === s.id
-                          ? 'border-primary bg-primary/8 text-primary'
-                          : 'border-border text-foreground/80 hover:bg-muted'
-                      }`}
-                    >
-                      {s.name}
-                    </button>
-                  ))}
+               *  a <label>: a label may only name one control.
+               *
+               *  HIDDEN on an empty stores prop (a custom role holding
+               *  menus.manage without stores.viewAll): with no store names to
+               *  read, changing scope would be blind, and the widen confirm
+               *  would read 現在は店舗限定のみのメニューです. storeId keeps its
+               *  stored value, so the row saves back unchanged. */}
+              {stores.length > 0 && (
+                <div role="group" aria-label={t('store')}>
+                  <span className="mb-1 block text-xs font-medium text-foreground">
+                    {t('store')}
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[{ id: null as string | null, name: t('allStores') }, ...stores].map((s) => (
+                      <button
+                        key={s.id ?? 'all'}
+                        type="button"
+                        aria-pressed={storeId === s.id}
+                        onClick={() => setStoreId(s.id)}
+                        className={`rounded-full border px-2.5 py-1 text-[12px] transition-colors ${
+                          storeId === s.id
+                            ? 'border-primary bg-primary/8 text-primary'
+                            : 'border-border text-foreground/80 hover:bg-muted'
+                        }`}
+                      >
+                        {s.name}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <span className="block text-xs font-medium text-foreground">
@@ -386,7 +403,7 @@ function Money({ value, onChange }: { value: string; onChange: (v: string) => vo
         value={value}
         inputMode="numeric"
         onChange={(e) => onChange(e.target.value)}
-        className="pl-6 text-right"
+        className="pl-6"
       />
     </div>
   )
