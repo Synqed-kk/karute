@@ -2219,6 +2219,9 @@
         },
         "settings": {
           "menu_create": "Added a menu",
+          "menu_reactivate": "Reactivated a menu",
+          "menu_retire": "Retired a menu",
+          "menu_update": "Edited a menu",
           "permissions_change": "Changed permissions",
           "staff_stores_change": "Changed store assignment",
           "store_create": "Store added",

@@ -54,6 +54,9 @@ const LITERAL_ONLY_CATEGORY = {
   'privacy.customer_export': 'privacy',
   'settings.sync_config_update': 'settings',
   'settings.menu_create': 'settings',
+  'settings.menu_update': 'settings',
+  'settings.menu_retire': 'settings',
+  'settings.menu_reactivate': 'settings',
 }
 
 function fail(msg) {

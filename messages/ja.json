@@ -2219,6 +2219,9 @@
         },
         "settings": {
           "menu_create": "メニューを追加",
+          "menu_reactivate": "メニューを再開",
+          "menu_retire": "メニューを停止",
+          "menu_update": "メニューを編集",
           "permissions_change": "権限を変更",
           "staff_stores_change": "所属店舗を変更",
           "store_create": "店舗を追加",

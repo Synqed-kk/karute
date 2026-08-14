@@ -18,6 +18,11 @@ export const menuSchema = z.object({
 })
 export type MenuFormInput = z.infer<typeof menuSchema>
 
+/** The row id the update/retire/reactivate actions take. Lives here, not in
+ *  src/actions/menus.ts: that file is 'use server' and can only export async
+ *  functions — and PR-3's dialog reuses the same rule. */
+export const menuIdSchema = z.string().uuid('Invalid menu id.')
+
 /** PURE band check, mirroring core's own rule — no server imports, so the
  *  PR-3 dialog can call it for live feedback on the same rule the action
  *  enforces. Returns the first violation's message, or null when the band is
