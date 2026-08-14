@@ -13,6 +13,8 @@ import LandingPage from '@/app/[locale]/page'
 import { ProcessingModal } from '@/components/review/ProcessingModal'
 import { ImportStepper } from '@/components/data-import/ImportStepper'
 import { PageHeader } from '@/components/export/redesign/sections/PageHeader'
+import { MenuFormDialog } from '@/components/settings/redesign/sections/menus/MenuFormDialog'
+import type { Menu } from '@synqed-kk/client'
 
 jest.mock('next-intl/server', () => ({
   getTranslations: async () => (key: string) => key,
@@ -39,6 +41,9 @@ jest.mock('@/i18n/client-messages', () => ({
 }))
 jest.mock('@/components/layout/theme-toggle', () => ({ ThemeToggle: () => null }))
 jest.mock('@/components/layout/locale-toggle', () => ({ LocaleToggle: () => null }))
+// Menus editor deps — the dialog never writes here, this suite only reads classes.
+jest.mock('@/actions/menus', () => ({ createMenu: jest.fn(), updateMenu: jest.fn() }))
+jest.mock('sonner', () => ({ toast: { error: jest.fn(), success: jest.fn() } }))
 
 // Whole-class matcher: 'bg-primary' must not silently pass via
 // 'bg-primary/8' or 'hover:bg-primary-hover'.
@@ -99,5 +104,52 @@ describe('ProcessingModal step spinner (status indicator)', () => {
   it('retry commit button keeps solid accent', () => {
     render(<ProcessingModal currentStep="transcribing" error="x" onRetry={() => {}} />)
     expect(screen.getByText('retry').className).toMatch(cls('bg-primary'))
+  })
+})
+
+// menu-catalog PR-3. The signed mock names the treatment for THIS state
+// (p4-mocks/settings-mocks.html:51-52 — "pristine-save (PR-3): inert gray —
+// never an accent wash, never a dark fill", #e5e7eb / #9ca3af). The shared
+// Button renders disabled as the accent at 50% opacity, and no automated gate
+// sees disabled states (check-dark-interactive greps fills, not :disabled), so
+// the adjudicated treatment is pinned here.
+describe('menus editor — pristine 保存 (inert gray)', () => {
+  const menu: Menu = {
+    id: '2c9f5e3a-70b6-4d84-a153-4e8f12cd96a7',
+    business_id: '6f1d0b26-3f5e-4a1e-9c62-8b0a4f21d7c3',
+    store_id: null,
+    name: 'リタッチカラー',
+    description: null,
+    category: 'カラー',
+    category_display_order: 0,
+    display_order: 30,
+    duration_minutes: 90,
+    price_list_amount: 8800,
+    price_min_amount: 6600,
+    currency: 'JPY',
+    tax_included: true,
+    nomination_allowed: true,
+    online_visible: true,
+    active: true,
+    created_at: '2026-08-01T00:00:00.000Z',
+    updated_at: '2026-08-01T00:00:00.000Z',
+  }
+
+  it('a pristine 保存 is gray at full opacity, never a faded accent fill', () => {
+    render(
+      <MenuFormDialog
+        mode={{ kind: 'edit', menu }}
+        catalog={[menu]}
+        stores={[]}
+        onClose={() => {}}
+      />,
+    )
+
+    // Untouched EDIT form → the button is genuinely in the pinned state.
+    const save = screen.getByRole('button', { name: 'save' }) as HTMLButtonElement
+    expect(save.disabled).toBe(true)
+    expect(save.className).toMatch(cls('disabled:bg-gray-200'))
+    expect(save.className).toMatch(cls('disabled:text-gray-400'))
+    expect(save.className).toMatch(cls('disabled:opacity-100'))
   })
 })
