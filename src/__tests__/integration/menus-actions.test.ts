@@ -4,7 +4,7 @@
  * and the pure band validator PR-3's dialog will share. The taxonomy/totality/
  * parity suites cover the registry + label side.
  */
-jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }))
+jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn() }))
 jest.mock('@/lib/auth/require-permission', () => ({ can: jest.fn(async () => true) }))
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'biz-1'),
@@ -17,7 +17,7 @@ jest.mock('@/lib/synqed/client', () => ({
 }))
 jest.mock('@/lib/audit', () => ({ audit: jest.fn() }))
 
-import { revalidatePath as revalidatePathImport } from 'next/cache'
+import { revalidatePath as revalidatePathImport, updateTag as updateTagImport } from 'next/cache'
 
 import { listMenus, createMenu, updateMenu, retireMenu, reactivateMenu } from '@/actions/menus'
 import { menuBandError } from '@/lib/validations/menu'
@@ -27,6 +27,7 @@ import { audit as auditImport } from '@/lib/audit'
 const can = canImport as jest.Mock
 const audit = auditImport as jest.Mock
 const revalidatePath = revalidatePathImport as jest.Mock
+const updateTag = updateTagImport as jest.Mock
 
 // The actions validate the id as a uuid before any core call, so the fixture
 // row carries a real one.
@@ -364,6 +365,46 @@ describe('writes', () => {
   it.each(writers)('%s revalidates /settings on success', async (_n, _a, run) => {
     expect(await run()).not.toHaveProperty('error')
     expect(revalidatePath).toHaveBeenCalledWith('/settings')
+  })
+
+  // PR-4a: the 予約 picker reads a 60s cache tagged 'menus', so every catalog
+  // write must invalidate it — and ONLY when core actually took the write, or
+  // a refused edit would blow a valid cache for every tenant.
+  const allWriters: [string, () => Promise<unknown>][] = [
+    ['createMenu', () => createMenu(FORM)],
+    ['updateMenu', () => updateMenu(MENU_ID, FORM)],
+    ['retireMenu', () => retireMenu(MENU_ID)],
+    ['reactivateMenu', () => reactivateMenu(MENU_ID)],
+  ]
+
+  it.each(allWriters)("%s invalidates the 'menus' tag on success", async (_n, run) => {
+    expect(await run()).not.toHaveProperty('error')
+    expect(updateTag).toHaveBeenCalledWith('menus')
+  })
+
+  it.each(allWriters)('%s invalidates nothing when the capability is missing', async (_n, run) => {
+    can.mockImplementation(async () => false)
+    expect(await run()).toHaveProperty('error')
+    expect(updateTag).not.toHaveBeenCalled()
+  })
+
+  it.each(allWriters)('%s invalidates nothing when the core write fails', async (_n, run) => {
+    mockMenus.create.mockRejectedValue(new Error('core down'))
+    mockMenus.update.mockRejectedValue(new Error('core down'))
+    expect(await run()).toHaveProperty('error')
+    expect(updateTag).not.toHaveBeenCalled()
+  })
+
+  const invalidWriters: [string, () => Promise<unknown>][] = [
+    ['createMenu', () => createMenu({ ...FORM, price_min_amount: 6000 })],
+    ['updateMenu', () => updateMenu('menu-1', FORM)],
+    ['retireMenu', () => retireMenu('menu-1')],
+    ['reactivateMenu', () => reactivateMenu('menu-1')],
+  ]
+
+  it.each(invalidWriters)('%s invalidates nothing when validation rejects', async (_n, run) => {
+    expect(await run()).toHaveProperty('error')
+    expect(updateTag).not.toHaveBeenCalled()
   })
 
   it('a partial form PATCHes the cleared nullables as null and omits the untouched optionals', async () => {
