@@ -93,6 +93,14 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
   /** '' = 全店舗. A store id filters to that store's menus PLUS the all-store
    *  ones, because an all-store menu is bookable there too. */
   const [storeFilter, setStoreFilter] = useState('')
+  /** A selection whose store is no longer in the prop filters as 全店舗. The
+   *  state is NOT reset — the USE of the id is what goes stale — so deriving
+   *  self-heals on the same render the prop changes: no effect, no second pass,
+   *  and nothing left hidden behind a select the below-2 rule may just have
+   *  taken away. Every READ of the filter below is this one; raw `storeFilter`
+   *  belongs to the select's onChange alone. */
+  const effectiveFilter =
+    storeFilter !== '' && !stores.some((s) => s.id === storeFilter) ? '' : storeFilter
 
   const allActive = menus?.filter((m) => m.active) ?? []
   const allRetired = menus?.filter((m) => !m.active) ?? []
@@ -100,7 +108,7 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
   // business that has never registered a menu.
   const catalogEmpty = allActive.length === 0 && allRetired.length === 0
   const inFilter = (m: Menu) =>
-    storeFilter === '' || m.store_id === storeFilter || m.store_id === null
+    effectiveFilter === '' || m.store_id === effectiveFilter || m.store_id === null
   const active = allActive.filter(inFilter)
   const retired = allRetired.filter(inFilter)
   const groups = groupByCategory(active)
@@ -225,7 +233,7 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
         // AuditLogSection.tsx:764-767.
         <div className="relative w-[160px]">
           <select
-            value={storeFilter}
+            value={effectiveFilter}
             onChange={(e) => setStoreFilter(e.target.value)}
             aria-label={t('form.store')}
             className="w-full appearance-none rounded-lg border border-border bg-background py-2 pl-3 pr-8 text-[13px] focus:outline-none focus:ring-1 focus:ring-ring"
@@ -263,7 +271,7 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
            *  Only ever under a filter — with 全店舗 selected an all-retired
            *  catalog stays disclosure-only (PR-2's settled ruling), and an
            *  unfiltered empty catalog is `catalogEmpty` above. */}
-          {storeFilter !== '' && active.length === 0 && (
+          {effectiveFilter !== '' && active.length === 0 && (
             <p className="py-6 text-center text-[13px] text-muted-foreground">{t('filterEmpty')}</p>
           )}
 

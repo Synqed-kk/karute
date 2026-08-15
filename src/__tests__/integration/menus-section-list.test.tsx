@@ -596,6 +596,45 @@ describe('MenusSection — store filter', () => {
     expect(screen.getByLabelText(/表示順/).getAttribute('placeholder')).toBe('80')
   })
 
+  // A selection can OUTLIVE its store: the stores prop refreshes without the
+  // selected id (the store closed, or the viewer's scope narrowed) while that
+  // id still sits in state. Nothing is reset — the USE of the id is what went
+  // stale — so the filter derives back to 全店舗 on the same render the prop
+  // changes, and no menu is left hidden behind a control that may be gone.
+  it('the selected store vanishing BELOW 2 stores un-hides everything, with no select left to undo it', () => {
+    const { rerender } = render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+    fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
+    expect(screen.queryByText('本店ヘッドスパ')).toBeNull()
+
+    rerender(<MenusSection menus={FILTER_CATALOG} stores={[honten]} />)
+
+    // The below-2 rule has just taken the select away, so a surviving 駅前店
+    // filter would hide 本店's menus with nothing on screen to reach it.
+    expect(screen.queryByRole('combobox', { name: '店舗' })).toBeNull()
+    expect(screen.getByText('本店ヘッドスパ')).toBeTruthy()
+    expect(screen.getByText('全店カット')).toBeTruthy()
+    expect(screen.getByText('駅前トリートメント')).toBeTruthy()
+    expect(screen.getByText('停止中のメニュー（2）')).toBeTruthy()
+    expect(screen.queryByText('この店舗で利用できるメニューはありません')).toBeNull()
+  })
+
+  // The same staleness with the select still on screen: it must READ 全店舗,
+  // not sit on a store that is no longer one of its options.
+  it('the selected store vanishing while 2 stores REMAIN falls back to 全店舗 in the select and the list', () => {
+    const sakae: StoreRow = { ...store, id: 'd3f81a52-7c04-4b96-8e17-59ab206cf4d3', name: '栄店' }
+    const { rerender } = render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+    fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
+    expect(screen.queryByText('本店ヘッドスパ')).toBeNull()
+
+    rerender(<MenusSection menus={FILTER_CATALOG} stores={[honten, sakae]} />)
+
+    expect((filterSelect() as HTMLSelectElement).value).toBe('')
+    expect(screen.getByText('本店ヘッドスパ')).toBeTruthy()
+    expect(screen.getByText('全店カット')).toBeTruthy()
+    expect(screen.getByText('駅前トリートメント')).toBeTruthy()
+    expect(screen.getByText('停止中のメニュー（2）')).toBeTruthy()
+  })
+
   // SCOPE GUARD (settled PR-2 ruling): the line belongs to the FILTER. With
   // 全店舗 selected, an all-retired catalog stays disclosure-only — the same
   // ruling the single-store 「every menu retired」 pin above holds.
