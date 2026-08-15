@@ -129,7 +129,15 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
    *  silent no-op (no warning, nothing to guard). The completion toast firing
    *  after the unmount is DELIBERATE, not a leak — it reports a write that
    *  genuinely landed server-side, and swallowing it would hide a real outcome
-   *  from the person who started it. */
+   *  from the person who started it.
+   *
+   *  The unconditional close and toast below are safe for the REPLACED-target
+   *  case too, because the rows gate that case out of existence: 再開 is
+   *  disabled while this runs (row(), below), so a confirm dismissed mid-write
+   *  cannot be replaced by another menu's. Every reachable sequence therefore
+   *  ends with either the confirm that started this write still open (closed
+   *  here, correctly) or no confirm at all (nothing to close) — never a
+   *  different menu's dialog slammed shut under someone's cursor. */
   async function reactivate(menu: Menu) {
     setReactivatePending(true)
     const res = await reactivateMenu(menu.id)
@@ -182,9 +190,23 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
           </span>
           {/* 再開 sits after the price (mock ② :426). Outline, not the solid
            *  accent: reviving a stopped menu is a quiet correction, and the
-           *  card's own commit action is the header CTA. */}
+           *  card's own commit action is the header CTA.
+           *
+           *  Gated on the pending write, and THAT is the whole single-flight
+           *  story — no in-flight ref needed. The confirm's X/ESC/backdrop stay
+           *  live mid-write by the dismissal law, so an ungated row would let a
+           *  staff member dismiss and open a SECOND menu's confirm, which the
+           *  first write's completion would then slam shut while toasting
+           *  再開しました beside the wrong name. With every row inert, no new
+           *  target can be set mid-flight, so the only confirm open when a
+           *  write resolves is the one that started it. */}
           {isRetired && (
-            <Button variant="outline" size="sm" onClick={() => setReactivateTarget(menu)}>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={reactivatePending}
+              onClick={() => setReactivateTarget(menu)}
+            >
               {t('reactivate')}
             </Button>
           )}

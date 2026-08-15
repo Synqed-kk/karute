@@ -343,8 +343,13 @@ function MenuFormBody({
                *  HIDDEN on an empty stores prop (a custom role holding
                *  menus.manage without stores.viewAll): with no store names to
                *  read, changing scope would be blind, and the widen confirm
-               *  would read 現在は店舗限定のみのメニューです. storeId keeps its
-               *  stored value, so the row saves back unchanged. */}
+               *  would read 現在は店舗限定のみのメニューです.
+               *
+               *  EDIT is unaffected — storeId keeps its stored value, so the
+               *  row saves back unchanged. CREATE is NOT: storeId starts null
+               *  = 全店舗, so hiding the pills would hide a real all-stores
+               *  write. It is DISCLOSED instead of blocked (the capability was
+               *  granted deliberately) by the note at the bottom of the body. */}
               {stores.length > 0 && (
                 <div role="group" aria-label={t('store')}>
                   <span className="mb-1 block text-xs font-medium text-foreground">
@@ -415,6 +420,15 @@ function MenuFormBody({
         {menu && (
           <p className="rounded-lg bg-blue-50 px-3 py-2 text-[12px] leading-relaxed text-blue-800 dark:bg-blue-500/10 dark:text-blue-200">
             {t('changeScope')}
+          </p>
+        )}
+        {/* CREATE with no visible stores: the 店舗 pills above are hidden, so
+         *  the all-stores default would otherwise be published silently. Same
+         *  slot and same infowash as the EDIT line — and OUTSIDE 詳細 on
+         *  purpose: a scope nobody chose is not something to go looking for. */}
+        {!menu && stores.length === 0 && (
+          <p className="rounded-lg bg-blue-50 px-3 py-2 text-[12px] leading-relaxed text-blue-800 dark:bg-blue-500/10 dark:text-blue-200">
+            {t('createAllStoresNote')}
           </p>
         )}
       </div>

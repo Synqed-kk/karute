@@ -396,6 +396,37 @@ describe('MenusSection — create entry point (PR-3b)', () => {
     expect(createButtons().length).toBe(0)
     expect(screen.queryByRole('combobox', { name: '店舗' })).toBeNull()
   })
+
+  // Degraded scope (menus.manage WITHOUT stores.viewAll — a supported custom
+  // role): the 店舗 pills are hidden because there are no store names to read.
+  // In EDIT that is harmless (storeId saves back unchanged), but in CREATE
+  // storeId starts null = 全店舗, so the write publishes a menu bookable
+  // everywhere. Disclose it, don't block it — the capability was granted. The
+  // line is visible WITHOUT expanding 詳細, because the scope it discloses is
+  // not something the staff member chose to go looking for.
+  const NOTE = 'このメニューは、すべての店舗の予約で選べるようになります。'
+
+  it('CREATE with no visible stores discloses that the menu will be all-stores', () => {
+    render(<MenusSection menus={CATALOG} stores={[]} />)
+    fireEvent.click(createButtons()[0])
+
+    expect(screen.getByText(NOTE)).toBeTruthy()
+  })
+
+  it('CREATE with stores visible does NOT show the note — the pills already show scope', () => {
+    render(<MenusSection menus={CATALOG} stores={[store]} />)
+    fireEvent.click(createButtons()[0])
+
+    expect(screen.queryByText(NOTE)).toBeNull()
+  })
+
+  it('EDIT with no visible stores does NOT show the note — an edit saves scope back unchanged', () => {
+    render(<MenusSection menus={CATALOG} stores={[]} />)
+    // 前髪カット, not カット — the latter also names its category header.
+    fireEvent.click(screen.getByText('前髪カット'))
+
+    expect(screen.queryByText(NOTE)).toBeNull()
+  })
 })
 
 describe('MenusSection — pressable ACTIVE rows, inert RETIRED rows', () => {
@@ -483,6 +514,39 @@ describe('MenusSection — 再開 (reactivate)', () => {
     expect(reactivateMenu).toHaveBeenCalledTimes(1)
 
     await settle()
+  })
+
+  // Single-flight, enforced at the ROWS. The confirm's X/ESC/backdrop stay live
+  // during a pending write BY DESIGN (the dismissal law) — so without a row
+  // gate a staff member could dismiss mid-write and open a SECOND menu's
+  // confirm: it would render already-inert on the shared pending flag, then the
+  // FIRST write's completion would slam it shut and toast 再開しました beside the
+  // wrong menu's name. Gating the rows is the whole fix — with them inert no
+  // new target can be set mid-flight, so the only confirm open when a write
+  // resolves is the one that started it.
+  it('every 再開 row goes inert mid-write, so a dismissed confirm cannot be replaced', async () => {
+    const settle = hangingReactivate()
+    render(<MenusSection menus={FILTER_CATALOG} stores={[store]} />)
+    fireEvent.click(screen.getByText('停止中のメニュー（2）'))
+    const rowButtons = () => screen.getAllByRole('button', { name: '再開' }) as HTMLButtonElement[]
+    expect(rowButtons()).toHaveLength(2)
+
+    fireEvent.click(rowButtons()[0])
+    fireEvent.click(screen.getByRole('button', { name: '再開する' }))
+    await waitFor(() => expect(reactivateMenu).toHaveBeenCalledTimes(1))
+
+    // Dismissing mid-write is legal — the X is not gated on pending.
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    // …and now there is nothing left that could start a second write.
+    await waitFor(() => expect(rowButtons().every((b) => b.disabled)).toBe(true))
+
+    await settle()
+
+    // The write is in: the rows are live again and a fresh confirm opens on the
+    // row that was pressed, not the one that was pending.
+    await waitFor(() => expect(rowButtons().every((b) => !b.disabled)).toBe(true))
+    fireEvent.click(rowButtons()[1])
+    expect(screen.getByText('「本店縮毛矯正」を再開しますか？')).toBeTruthy()
   })
 
   it('a failed 再開 toasts the error and never claims success', async () => {

@@ -2605,6 +2605,7 @@
         "order": "Display order",
         "orderHelp": "Shown lowest first. A number below another category's first menu moves the whole category up.",
         "changeScope": "Price and duration changes apply to future bookings. Existing bookings don't change.",
+        "createAllStoresNote": "This menu will become available for bookings at every store.",
         "cancel": "Cancel",
         "save": "Save",
         "saved": "Saved",
