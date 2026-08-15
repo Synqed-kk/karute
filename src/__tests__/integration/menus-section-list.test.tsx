@@ -568,6 +568,22 @@ describe('MenusSection — store filter', () => {
     expect(screen.queryByText('メニューがまだありません')).toBeNull()
   })
 
+  // The NEGATIVE half of the two pins above — the line belongs to an empty
+  // ACTIVE list, not to the mere presence of a filter. Without this pin the
+  // condition can lose its `active.length === 0` half and stay green: every
+  // other filter pin either expects the line (empty list) or never looks for
+  // it, so a mutant that shows 「利用できるメニューはありません」 directly above
+  // the store's own menu rows survives the whole suite.
+  it('a filter leaving ACTIVE menus shows NO filter-empty line above them', () => {
+    render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+
+    fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
+
+    expect(screen.queryByText('この店舗で利用できるメニューはありません')).toBeNull()
+    expect(screen.getByText('駅前トリートメント')).toBeTruthy()
+    expect(screen.getByText('全店カット')).toBeTruthy()
+  })
+
   // The editor gets the UNFILTERED catalog: the store filter narrows the LIST,
   // never the category vocabulary or the 表示順 default. パーマ lives only on
   // 本店, so under the 駅前店 filter no パーマ row is on screen — and the chip
