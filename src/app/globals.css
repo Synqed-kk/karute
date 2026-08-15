@@ -246,6 +246,34 @@ html.dark[data-theme="karute"] {
 }
 
 @layer base {
+  /* iOS/WKWebView paints date & time inputs through its native control theme,
+     which forces `box-sizing: content-box` on them AFTER the cascade — it beats
+     Tailwind preflight's `*{box-sizing:border-box}` AND an explicit author
+     declaration (sim-measured on iOS 26: an inline `box-sizing:border-box`
+     still computes content-box). `w-full` then sizes the CONTENT box, so the
+     border box lands padding+border wider than its column — with the shared
+     Input's px-2.5 + 1px border that is exactly 22px, which is 新規カルテの作成's
+     セッション日 field sliding under 所要時間 on build 1.1(16). The same theme
+     pass also injects a min-width (102px date / 168px datetime-local) that
+     overrides `min-w-0`, so a narrow column can't recover either. Dropping the
+     native appearance opts the control out of that pass: box-sizing falls back
+     to border-box and min-width to the author value. Nothing else moves — the
+     value text, the 40px height, the border and the native picker are all
+     identical on the sim, and Blink is untouched (it already computes
+     border-box). No desktop engine reproduces the bug, which is why the
+     1280/768/440/393 sweeps never caught it — it is iOS-theme-only.
+     Guard: src/__tests__/integration/date-input-ios-contract.test.ts */
+  input[type="date"],
+  input[type="datetime-local"],
+  input[type="month"],
+  input[type="time"],
+  input[type="week"] {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+}
+
+@layer base {
   /* Radix sheets/dialogs (BookingActionSheet in @synqed-kk/ui) auto-focus
      their first action button on open; WKWebView then paints its blue focus
      ring around カルテを見る even though the user never keyboard-navigated.
