@@ -36,6 +36,7 @@ import { CancelBookingSheet } from '@/components/appointments/CancelBookingSheet
 import type { OrgSettings } from '@/actions/org-settings'
 import type { AppointmentRow } from '@/actions/appointments'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
+import type { CachedMenuOption } from '@/lib/menus/cached'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
 import type { ReservationStaff } from '@/components/reservation/StaffRow'
 import type { BusinessHours } from '@/components/reservation/TimeAxis'
@@ -66,6 +67,9 @@ interface AppointmentsViewProps {
    *  param by the server. The ReservationStaffFilter widget mutates the URL
    *  to change scope; this prop is just for highlighting the active pill. */
   staffFilter: string
+  /** Active menu catalog for the booking dialog's picker. Degraded-allowed:
+   *  absent/[] just means the dialog keeps its free-text service field. */
+  menus?: CachedMenuOption[]
 }
 
 // formatLongDate / formatCompactDate / formatYmd all delegate to the JST
@@ -444,6 +448,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         onOpenChange={setDialogOpen}
         customers={props.customers}
         staff={props.staff.map((s) => ({ id: s.id, name: s.name }))}
+        menus={props.menus}
         initialDate={ymdInJst(selectedDate)}
         initialStaffId={props.activeStaffId}
         onCreated={() => startTransition(() => router.refresh())}

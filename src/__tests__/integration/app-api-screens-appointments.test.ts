@@ -6,7 +6,9 @@
 // the viewer's rows · ?view=week projects weekData from the range read ·
 // a failed pack-usage read degrades to pill-less rows (page parity) · a
 // failed day-appointments read is a 502, NEVER a silently-empty agenda (the
-// deliberate delta from the web action's legacy catch→[]).
+// deliberate delta from the web action's legacy catch→[]) · the picker's
+// active-menu union rides the DTO verbatim and degrades to [] on a failed
+// read (PR-4a).
 import { createHmac } from 'node:crypto'
 
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
@@ -71,6 +73,39 @@ jest.mock('@/lib/customers/cached', () => ({
       karute_number: null,
     },
   ]),
+}))
+
+// Booking-picker menu union (PR-4a) — one all-store row, one store-scoped row
+// carrying its resolved chip label.
+const MENU_ROWS = [
+  {
+    id: 'menu-1',
+    name: 'カット',
+    category: 'カット',
+    category_display_order: 0,
+    display_order: 0,
+    duration_minutes: 60,
+    price_list_amount: 5000,
+    price_min_amount: null,
+    store_id: null,
+    storeName: null,
+  },
+  {
+    id: 'menu-2',
+    name: 'カラー',
+    category: 'カラー',
+    category_display_order: 1,
+    display_order: 0,
+    duration_minutes: 90,
+    price_list_amount: 12000,
+    price_min_amount: 9000,
+    store_id: 'store-A',
+    storeName: 'La Estro 代官山',
+  },
+]
+const getCachedMenuOptionsFor = jest.fn(async (..._a: unknown[]) => MENU_ROWS)
+jest.mock('@/lib/menus/cached', () => ({
+  getCachedMenuOptionsFor: (...a: unknown[]) => getCachedMenuOptionsFor(...a),
 }))
 
 jest.mock('@/actions/org-settings', () => ({
@@ -226,6 +261,7 @@ beforeEach(() => {
   staffStoresGet.mockResolvedValue({ store_ids: [] })
   listAppointments.mockResolvedValue({ appointments: dayRows })
   storeStaffIdSetForBusiness.mockResolvedValue(null)
+  getCachedMenuOptionsFor.mockResolvedValue(MENU_ROWS)
 })
 
 describe('GET /api/app/v1/screens/appointments', () => {
@@ -333,6 +369,31 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(res.status).toBe(200)
     const dto = await dtoOf(res)
     expect(dto.reservationViews.find((r) => r.id === 'appt-1')!.pack).toBeNull()
+  })
+
+  it('the picker menu union rides the DTO verbatim, read for THIS business', async () => {
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    // Exact, not a length check: a dropped thread or a dead read shows up as
+    // [] here (the real-read-path pin at route level).
+    expect(dto.menus).toEqual(MENU_ROWS)
+    expect(getCachedMenuOptionsFor).toHaveBeenCalledWith('business-1')
+  })
+
+  it('a failed menus read degrades to menus: [] with the screen intact, not a 502', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    getCachedMenuOptionsFor.mockRejectedValueOnce(new Error('core down'))
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(dto.menus).toEqual([])
+    expect(dto.reservationViews).toHaveLength(2)
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+    expect(errorSpy.mock.calls[0][0]).toEqual(
+      expect.stringContaining('[screens/appointments] menus read degraded'),
+    )
+    errorSpy.mockRestore()
   })
 
   it('a failed day-appointments read → 502, never a silently-empty agenda', async () => {

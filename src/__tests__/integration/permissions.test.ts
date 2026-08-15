@@ -78,6 +78,18 @@ describe('RBAC permission model', () => {
     expect(new Set(ROLE_PRESETS.frontdesk).has('stores.viewAll')).toBe(false)
   })
 
+  it('menu catalog (menus.manage): owner/manager/SV yes, regular staff no (Liam 8/12)', () => {
+    expect(new Set(ROLE_PRESETS.owner).has('menus.manage')).toBe(true)
+    expect(new Set(ROLE_PRESETS.manager).has('menus.manage')).toBe(true)
+    expect(new Set(ROLE_PRESETS.senior).has('menus.manage')).toBe(true)
+    for (const role of ['practitioner', 'frontdesk', 'custom'] as const) {
+      expect(new Set(ROLE_PRESETS[role]).has('menus.manage')).toBe(false)
+    }
+    // override ?? preset: a senior customized before this capability existed
+    // does NOT inherit it — their stored list is the whole truth (PR-1a §5).
+    expect(effectiveCapabilities('senior', ['records.write']).has('menus.manage')).toBe(false)
+  })
+
   it('an explicit override replaces the preset (the toggle mechanism)', () => {
     const caps = effectiveCapabilities('frontdesk', ['billing.manage'])
     expect(can(caps, 'billing.manage')).toBe(true) // granted explicitly

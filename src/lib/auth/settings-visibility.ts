@@ -18,6 +18,12 @@ export interface SettingsCaps {
   /** owner OR an explicit per-staff sync.view grant — same posture as
    *  canViewAudit (Liam ruling 7/24, packet 31; PR-M2 fix round). */
   canViewSync: boolean
+  /** the menus.manage capability (PR-1a #696). Unlike audit/sync this is NOT
+   *  an owner-plus-grant flag: owner (ALL), manager (ALL minus billing/
+   *  business/recordings.viewAll/audit.view/sync.view) and senior (explicit
+   *  member) all hold menus.manage through their CAPABILITIES preset, so the
+   *  capability alone is the whole rule (verified in lib/auth/permissions.ts). */
+  canManageMenus: boolean
 }
 
 /**
@@ -28,6 +34,9 @@ export interface SettingsCaps {
  *   - The 予約同期 (sync) tab follows the sync.view grant, same rule as audit —
  *     without it every non-owner staff could open the tab and hit a 403 from
  *     the now-gated sync routes (PR-M2 fix round).
+ *   - The メニュー (menus) tab requires menus.manage — the same capability
+ *     listMenus itself enforces, so a viewer without it would only ever get a
+ *     denied read.
  *   - The 店舗 (stores) tab requires stores.viewAll: a branch-restricted staff
  *     can't switch stores (the switch is server-clamped) and the section
  *     otherwise leaks the other branch + its customer counts.
@@ -40,6 +49,7 @@ export function visibleSettingsTabs<T extends { id: string; ownerOnly?: boolean 
     if (tab.id === 'stores' && !caps.canViewAllStores) return false
     if (tab.id === 'audit' && !caps.canViewAudit) return false
     if (tab.id === 'sync' && !caps.canViewSync) return false
+    if (tab.id === 'menus' && !caps.canManageMenus) return false
     return !tab.ownerOnly || caps.isOwner
   })
 }

@@ -1283,6 +1283,7 @@ export const createAppointment = async (input: {
   tzOffsetMinutes?: number
   title?: string
   notes?: string
+  menuId?: string
 }): Promise<{ id: string } | { error: string }> => {
   // try/catch: the dialog's handleSave awaits without one — a transport
   // reject would strand `saving` true and dead the save button (see
@@ -1373,3 +1374,9 @@ export const updateKaruteDetailSummary =
 // -- entry edit history (edit-layer W2 history-sheet packet)
 export const listEntryEditHistory = facadeListEntryEditHistory
 export const listCustomerKaruteForRegen = notWired('listCustomerKaruteForRegen')
+// -- menu catalog (PR-1a) — web-only under fork A
+export const listMenus = notWired('listMenus')
+export const createMenu = notWired('createMenu')
+export const updateMenu = notWired('updateMenu')
+export const retireMenu = notWired('retireMenu')
+export const reactivateMenu = notWired('reactivateMenu')

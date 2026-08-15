@@ -125,6 +125,7 @@ export async function createAppointmentCore(
       title: input.title ?? null,
       notes: input.notes ?? null,
       store_id: storeId ?? undefined,
+      menu_id: input.menuId ?? undefined,
     })
     audit({
       category: 'booking',

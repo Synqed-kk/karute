@@ -39,6 +39,9 @@ jest.mock('@/components/settings/redesign/sections/SyncSection', () => ({
 jest.mock('@/components/settings/redesign/sections/PacksSection', () => ({
   PacksSection: () => <div data-testid="section-packs" />,
 }))
+jest.mock('@/components/settings/redesign/sections/MenusSection', () => ({
+  MenusSection: () => <div data-testid="section-menus" />,
+}))
 jest.mock('@/components/settings/redesign/sections/AuditLogSection', () => ({
   AuditLogSection: () => <div data-testid="section-audit" />,
 }))
@@ -58,6 +61,8 @@ const baseProps = {
   canInviteStaff: true,
   canViewAudit: true,
   canViewSync: true,
+  canManageMenus: true,
+  initialMenus: [],
   initialStores: [] as StoreRow[],
   initialActiveStoreId: null,
   initialEntitlement: null,

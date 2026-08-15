@@ -9,6 +9,7 @@ import { getOrgSettings } from '@/actions/org-settings'
 import { getAppointmentsInRange } from '@/actions/appointments'
 import { getCachedDayAgenda } from '@/lib/appointments/day-agenda-cached'
 import { getCachedCustomerList } from '@/lib/customers/cached'
+import { getCachedMenuOptions } from '@/lib/menus/cached'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
 import { listAllPackUsage } from '@/lib/packs/store'
 import { getBusinessId } from '@/lib/staff'
@@ -79,6 +80,7 @@ export default async function AppointmentsPage({
     weekRangeAppts,
     monthRangeAppts,
     storeScope,
+    menuOptions,
   ] = await Promise.all([
     t.phase('auth.getUser', () => supabase.auth.getUser()),
     t.phase('staffList', () => getStaffList()),
@@ -109,6 +111,18 @@ export default async function AppointmentsPage({
         : Promise.resolve(null),
     ),
     t.phase('storeScope', () => resolveStoreScope()),
+    // 60s cached active-menu union for the booking picker. Degraded the same
+    // way the facade route degrades it — a menus outage must not 500 the
+    // agenda; the dialog keeps today's free-text service field. Degraded is
+    // allowed, silent is not: once PR-4b ships, a dead read is
+    // pixel-identical to "this shop has no menus" — the log line below is the
+    // only thing separating an outage from an empty catalog.
+    t.phase('menus', () =>
+      getCachedMenuOptions().catch((err) => {
+        console.error('[appointments] menus read degraded:', err)
+        return []
+      }),
+    ),
   ])
 
   const authProfileId = user?.id ?? null
@@ -185,6 +199,7 @@ export default async function AppointmentsPage({
         reservationStaff={screen.reservationStaff}
         businessHours={screen.businessHours}
         staffFilter={staffFilter}
+        menus={menuOptions}
       />
     </>
   )

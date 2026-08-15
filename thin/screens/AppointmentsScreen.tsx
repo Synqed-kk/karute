@@ -103,6 +103,7 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
       reservationStaff={dto.reservationStaff}
       businessHours={dto.businessHours}
       staffFilter={dto.staffFilter}
+      menus={dto.menus}
     />
   )
 }

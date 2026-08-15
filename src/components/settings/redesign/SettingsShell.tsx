@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Building2,
   ChevronRight,
+  ClipboardList,
   GraduationCap,
   Mic,
   Palette,
@@ -17,6 +18,7 @@ import {
   type LucideIcon,
   Ticket,
 } from 'lucide-react'
+import type { Menu } from '@synqed-kk/client'
 import type { OrgSettings } from '@/actions/org-settings'
 import type { StoreRow } from '@/actions/stores'
 import type { Entitlement } from '@/lib/entitlements'
@@ -33,6 +35,7 @@ import { StaffSection } from './sections/StaffSection'
 import { SyncSection } from './sections/SyncSection'
 import { SyncStatusCard } from './sections/SyncStatusCard'
 import { PacksSection } from './sections/PacksSection'
+import { MenusSection } from './sections/MenusSection'
 import { AuditLogSection } from './sections/AuditLogSection'
 
 export type SettingsTabId =
@@ -45,6 +48,7 @@ export type SettingsTabId =
   | 'staff'
   | 'sync'
   | 'packs'
+  | 'menus'
   | 'audit'
 
 interface TabDef {
@@ -131,6 +135,19 @@ const TABS: TabDef[] = [
     icon: Ticket,
     ownerOnly: true,
   },
+  {
+    // labelKey is `menus.label` (not `menus`) because `settings.menus` is an
+    // object holding the section's nested copy. Same i18n-collision pattern
+    // as theme/coaching/packs/auditLog above.
+    //
+    // Not ownerOnly: gated on canManageMenus (the menus.manage capability,
+    // which owner/manager/senior hold by preset) in settings-visibility —
+    // audit-tab precedent.
+    id: 'menus',
+    labelKey: 'menus.label',
+    descriptionKey: 'menusDescription',
+    icon: ClipboardList,
+  },
   // No standalone subscription / 契約 tab — the plan & paywall live inside
   // 店舗 (StoresSection → PlanComparisonDialog), per Liam's IA, gated
   // per-account off the real entitlement. The old tab rendered the
@@ -164,6 +181,10 @@ interface SettingsShellProps {
   /** owner OR explicit sync.view grant — gates the 予約同期 tab (PR-M2 fix
    *  round). Same idiom as canViewAudit. */
   canViewSync: boolean
+  /** the menus.manage capability — gates the メニュー tab. Owner/manager/senior
+   *  hold it by preset (permissions.ts), so this is a bare capability read,
+   *  not the `isOwner ||` grant idiom audit/sync use. */
+  canManageMenus: boolean
   /** Deep-link tab (?tab=…): opens drilled-in on mobile, selected on desktop. */
   initialTab?: SettingsTabId | null
   /** Customer id for the 監査ログ dispute view (?tab=audit&target=…). */
@@ -172,6 +193,10 @@ interface SettingsShellProps {
    *  list renders complete on first paint instead of fetching on mount. */
   initialStores: StoreRow[]
   initialActiveStoreId: string | null
+  /** Service-menu catalog fetched on the server, passed straight to
+   *  MenusSection (same idiom as initialStores). null = the fetch FAILED —
+   *  the section shows a load error, never the empty state. */
+  initialMenus: Menu[] | null
   /** Entitlement fetched on the server — plan row + add-store gate paint with
    *  the page. Null on fetch failure → StoresSection falls back to its client
    *  fetch. */
@@ -223,10 +248,12 @@ export function SettingsShell({
   canInviteStaff,
   canViewAudit,
   canViewSync,
+  canManageMenus,
   initialTab,
   auditTargetId,
   initialStores,
   initialActiveStoreId,
+  initialMenus,
   initialEntitlement,
   pendingTabIds,
   webOnlyTabIds,
@@ -244,7 +271,7 @@ export function SettingsShell({
   // 店舗 hidden from branch-restricted staff; staff roster clamped to self for
   // non-managers. Pure, unit-tested rules (see lib/auth/settings-visibility) —
   // this is UI exposure reduction; server actions enforce the real boundary.
-  const visibleTabs = visibleSettingsTabs(TABS, { isOwner, canViewAllStores, canViewAudit, canViewSync })
+  const visibleTabs = visibleSettingsTabs(TABS, { isOwner, canViewAllStores, canViewAudit, canViewSync, canManageMenus })
   const visibleStaff = visibleStaffRoster(staffList, activeStaffId, canManageStaff)
 
   const desktopActiveTab = activeTab ?? visibleTabs[0]?.id ?? null
@@ -260,7 +287,8 @@ export function SettingsShell({
     if (id === 'sync' && syncStatus) return <SyncStatusCard status={syncStatus} onRunNow={onRunNow} />
     // Web-only intercept (design-parity packet 20 §S5) — BEFORE pendingTabIds,
     // so a tab in both takes the web-only panel over the generic pending one.
-    if (id && webOnlyTabIds?.includes(id)) return <WebOnlyTabPanel />
+    if (id && webOnlyTabIds?.includes(id))
+      return <WebOnlyTabPanel tab={id === 'menus' ? 'menus' : 'sync'} />
     // Pending-tab intercept (design-parity packet 12 §S1) — BEFORE the real
     // switch, so a pending tab never reaches (and never needs) its section's
     // own defense-in-depth capability check below.
@@ -314,6 +342,12 @@ export function SettingsShell({
         return canViewSync ? <SyncSection /> : null
       case 'packs':
         return isOwner ? <PacksSection orgSettings={orgSettings} /> : null
+      case 'menus':
+        // Defense in depth alongside the tab filter (listMenus enforces
+        // menus.manage regardless — this only stops a stray render).
+        return canManageMenus ? (
+          <MenusSection menus={initialMenus} stores={initialStores} />
+        ) : null
       case 'audit':
         // Defense in depth alongside the tab filter (server action enforces
         // audit.view regardless — this only stops a stray render).
@@ -570,11 +604,21 @@ function PendingTabPanel() {
 // tab stays web-only by design (see packet 20), so it goes through i18n
 // rather than the hardcoded ja PendingTabPanel uses.
 // ponytail: webOnlyTabIds is thin-only in practice, same as pendingTabIds.
-function WebOnlyTabPanel() {
-  const t = useTranslations('settings.sync')
+//
+// TWO literal namespace hooks, both called unconditionally (rules of hooks),
+// the copy chosen by the `tab` prop. Deliberate shape, doubly constrained:
+// a variable/computed namespace breaks the i18n closure scan
+// (i18n-client-messages-closure.test.ts), and passing the resolved MESSAGE in
+// as a prop would break the identity-echo pin that asserts this panel renders
+// t('webOnly') from its own namespace.
+function WebOnlyTabPanel({ tab }: { tab: 'sync' | 'menus' }) {
+  const tSync = useTranslations('settings.sync')
+  const tMenus = useTranslations('settings.menus')
   return (
     <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 px-6 text-center">
-      <p className="text-sm font-medium text-foreground">{t('webOnly')}</p>
+      <p className="text-sm font-medium text-foreground">
+        {tab === 'menus' ? tMenus('webOnly') : tSync('webOnly')}
+      </p>
     </div>
   )
 }

@@ -195,6 +195,7 @@ describe('GET /api/app/v1/screens/settings', () => {
     expect(dto.canManageStaff).toBe(false)
     expect(dto.canInviteStaff).toBe(false)
     expect(dto.canViewAudit).toBe(false)
+    expect(dto.canManageMenus).toBe(false)
     // Roster-gated: auth-user-1 IS present in the default roster (beforeEach).
     expect(dto.activeStaffId).toBe('auth-user-1')
     expect(dto.staffList).toHaveLength(2)
@@ -280,6 +281,22 @@ describe('GET /api/app/v1/screens/settings', () => {
     expect(dto.canManageStaff).toBe(true)
     expect(dto.canInviteStaff).toBe(true)
     expect(dto.canViewAudit).toBe(true)
+  })
+
+  it('canManageMenus is the BARE menus.manage grant — true with it, and NOT owner-widened without it (web page.tsx parity)', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'menus.manage']))
+    expect((await dtoOf(await GET(req(), route))).canManageMenus).toBe(true)
+
+    // Owner roster, no grant: unlike canViewAudit/canViewSync there is no
+    // owner fallback — every role that should manage menus already holds the
+    // capability through its preset.
+    mockCapabilities.mockResolvedValue(new Set(['customers.view']))
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'owner', has_pin: true, created_at: '2026-01-01' },
+    ])
+    const dto = await dtoOf(await GET(req(), route))
+    expect(dto.isOwner).toBe(true)
+    expect(dto.canManageMenus).toBe(false)
   })
 
   it('canViewAudit is true for an owner even without the explicit audit.view grant', async () => {

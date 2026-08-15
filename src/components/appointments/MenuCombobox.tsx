@@ -1,0 +1,290 @@
+'use client'
+
+import { Fragment, useEffect, useId, useRef, useState } from 'react'
+import { useTranslations } from 'next-intl'
+import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
+import type { CachedMenuOption } from '@/lib/menus/cached'
+
+type MenuComboboxProps = {
+  /** Pre-sorted active-menu union (category band → display order → name). */
+  menus: CachedMenuOption[]
+  value: string
+  linkedMenuId: string | null
+  /** A manual edit — the dialog drops the link on it (R8). */
+  onTextChange: (text: string) => void
+  onPick: (menu: CachedMenuOption) => void
+  placeholder?: string
+  /** Lets the chip's × hand focus back to the field. */
+  inputRef?: React.RefObject<HTMLInputElement | null>
+}
+
+export function formatYen(amount: number): string {
+  return `¥${amount.toLocaleString('ja-JP')}`
+}
+
+/** Band menus (price_min_amount set) show the range; the chip that books
+ *  always shows the list price. */
+export function formatMenuPrice(
+  menu: Pick<CachedMenuOption, 'price_list_amount' | 'price_min_amount'>,
+): string {
+  const list = formatYen(menu.price_list_amount)
+  return menu.price_min_amount == null
+    ? list
+    : `${formatYen(menu.price_min_amount)}–${list}`
+}
+
+/**
+ * Menu picker for the 予約 dialog's メニュー field.
+ *
+ * Deliberately NOT CustomerCombobox: that one snaps unmatched text back to the
+ * selected customer, this one keeps free text as a first-class answer (a shop
+ * books things that aren't in its catalog). A tap opens the whole grouped
+ * catalog — a menu list is short and browsing it is the point, where dumping
+ * every customer never was. Focus alone never opens it (Liam 8/15): arriving
+ * in the field is not a request to see the list.
+ *
+ * The popover opens UPWARD: メニュー is the dialog's LAST field, so a downward
+ * list would cover 保存 and turn a save tap into a silent menu swap.
+ */
+export function MenuCombobox({
+  menus,
+  value,
+  linkedMenuId,
+  onTextChange,
+  onPick,
+  placeholder,
+  inputRef,
+}: MenuComboboxProps) {
+  const t = useTranslations('reservation')
+  const listId = useId()
+  const containerRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLUListElement>(null)
+  const [open, setOpen] = useState(false)
+  // Opening shows the FULL catalog and only typing narrows it, so the filter
+  // is its own state — not the field's text, which survives every close.
+  const [filter, setFilter] = useState('')
+  const [activeIndex, setActiveIndex] = useState(-1)
+
+  const query = filter.trim().toLowerCase()
+  const options = query
+    ? menus.filter((m) => m.name.toLowerCase().includes(query))
+    : menus
+
+  // Back to the top whenever the filter narrows the list — the first category
+  // has to be the first thing on screen. (A fresh open needs no help: the <ul>
+  // unmounts on close, so it rebuilds at 0.) The same pass caps the height so the
+  // upward list's TOP edge lands under the dialog title: a top edge slicing
+  // through the description text mid-line reads as a rendering fault
+  // (Liam-ordered 8/15). The CSS max-h below is only the no-JS backstop.
+  useEffect(() => {
+    const list = listRef.current
+    if (!open || !list) return
+    list.scrollTop = 0
+    const fieldTop = containerRef.current?.getBoundingClientRect().top ?? 0
+    const titleBottom = containerRef.current
+      ?.closest('[role="dialog"]')
+      ?.querySelector('h2')
+      ?.getBoundingClientRect().bottom
+    const available =
+      titleBottom != null && titleBottom >= 0
+        ? // mb-1 plus breathing room, so the edge reads as deliberate.
+          fieldTop - titleBottom - 16
+        : // Title scrolled out or absent: climb to the viewport top, never past.
+          Math.min(fieldTop - 12, window.innerHeight)
+    // The 160 floor outranks the cap, and being inline it outranks the 45dvh
+    // class too: below ~176px of room the list would otherwise shrink to a
+    // sliver, and an unusably short catalog is worse than a top edge riding
+    // over the title. Accepted trade, landscape-with-keyboard edge only.
+    list.style.maxHeight = `${Math.max(160, available)}px`
+  }, [open, filter])
+
+  useEffect(() => {
+    if (!open || activeIndex < 0) return
+    listRef.current
+      ?.querySelector<HTMLElement>('[data-active="true"]')
+      // jsdom has no scrollIntoView.
+      ?.scrollIntoView?.({ block: 'nearest' })
+  }, [open, activeIndex])
+
+  // pointerdown (not mousedown) so an iOS tap outside closes the list too.
+  // Closing never touches the text — free input is never snapped back.
+  useEffect(() => {
+    if (!open) return
+    function handlePointerDown(event: PointerEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [open])
+
+  function openList() {
+    setFilter('')
+    setActiveIndex(-1)
+    setOpen(true)
+  }
+
+  function pick(menu: CachedMenuOption) {
+    onPick(menu)
+    setFilter('')
+    setActiveIndex(-1)
+    setOpen(false)
+  }
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    // A key delivered mid-conversion belongs to the IME, not to this list.
+    // Escape cancels a 変換 (consuming it here would close the list, so the
+    // staff's follow-up Escape reaches the dialog and discards the booking),
+    // Enter commits the conversion, and the arrows walk the candidate window.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return
+    if (event.key === 'Escape') {
+      if (!open) return
+      event.preventDefault()
+      // The dialog around this field closes on Escape too. Dismissing the
+      // list must not also throw away a half-entered booking, so this Escape
+      // is consumed here; the next one (list closed) reaches the dialog.
+      event.stopPropagation()
+      setOpen(false)
+      return
+    }
+    if (event.key === 'Enter') {
+      const menu = open ? options[activeIndex] : undefined
+      if (!menu) return
+      event.preventDefault()
+      pick(menu)
+      return
+    }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+    event.preventDefault()
+    if (!open) {
+      openList()
+      return
+    }
+    if (options.length === 0) return
+    const step = event.key === 'ArrowDown' ? 1 : -1
+    setActiveIndex((i) =>
+      i < 0
+        ? step === 1
+          ? 0
+          : options.length - 1
+        : (i + step + options.length) % options.length,
+    )
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative w-full"
+      onBlur={(e) => {
+        if (containerRef.current?.contains(e.relatedTarget)) return
+        setOpen(false)
+      }}
+    >
+      <Input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => {
+          onTextChange(e.target.value)
+          setFilter(e.target.value)
+          setActiveIndex(-1)
+          setOpen(true)
+        }}
+        // THE opener, like any other iOS control: a tap on the field. Focus is
+        // deliberately not one — the dialog's autofocus, a Tab into the field
+        // and the chip ×'s refocus would all raise an upward list over the
+        // 所要時間 row nobody asked to hide. Typing and ArrowDown open it too.
+        // Also the reopen after an Escape that never blurred the field.
+        onClick={() => !open && openList()}
+        onKeyDown={handleKeyDown}
+        placeholder={placeholder}
+        autoComplete="off"
+        role="combobox"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-autocomplete="list"
+        // Both IDREFs point into the <ul>, which only exists while open.
+        aria-controls={open ? listId : undefined}
+        aria-activedescendant={
+          open && activeIndex >= 0 ? `${listId}-opt-${activeIndex}` : undefined
+        }
+      />
+
+      {open && (
+        <div
+          className="absolute bottom-full right-0 left-0 z-50 mb-1 origin-bottom rounded-lg border border-border bg-popover shadow-lg animate-in fade-in zoom-in-95 duration-100 motion-reduce:animate-none"
+          // A tap that lands on a category header, the no-results line or the
+          // popover's own padding must not blur the field: focusout closes the
+          // list, and the reopen throws away the filter AND the scroll
+          // position. Option rows preventDefault for themselves before picking.
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          {/* 45dvh backstop only — the effect above is the real governor. The
+           *  dvh half still matters: the Android keyboard shrinks dvh, so the
+           *  first paint takes the room actually left instead of clipping. */}
+          <ul
+            ref={listRef}
+            id={listId}
+            role="listbox"
+            aria-label={t('newBookingDialog.menuListLabel')}
+            className="max-h-[min(24rem,45dvh)] overflow-y-auto py-1"
+          >
+            {options.length === 0 ? (
+              <li role="presentation" className="px-3 py-2 text-sm text-muted-foreground">
+                {t('newBookingDialog.menuNoResults')}
+              </li>
+            ) : (
+              options.map((menu, i) => (
+                <Fragment key={menu.id}>
+                  {(i === 0 || options[i - 1].category !== menu.category) && (
+                    <li
+                      role="presentation"
+                      className="px-3 pt-1.5 pb-1 text-xs text-muted-foreground"
+                    >
+                      {menu.category ?? t('newBookingDialog.menuUncategorized')}
+                    </li>
+                  )}
+                  <li
+                    id={`${listId}-opt-${i}`}
+                    role="option"
+                    aria-selected={menu.id === linkedMenuId}
+                    data-active={i === activeIndex || undefined}
+                    onMouseDown={(e) => {
+                      // Prevent input blur before the pick registers
+                      e.preventDefault()
+                      pick(menu)
+                    }}
+                    onMouseEnter={() => setActiveIndex(i)}
+                    className={cn(
+                      // No hover: classes — onMouseEnter sets activeIndex,
+                      // so the pointer gets the same wash the keyboard does.
+                      'flex cursor-pointer flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-2 text-sm',
+                      i === activeIndex
+                        ? 'bg-primary/8 text-primary'
+                        : // The linked menu gets aria-selected's sighted twin
+                          // (CustomerCombobox precedent), so reopening the list
+                          // shows which row the booking is on.
+                          menu.id === linkedMenuId && 'bg-muted',
+                    )}
+                  >
+                    <span>
+                      <span className="font-medium">{menu.name}</span>
+                      <span className="text-muted-foreground">
+                        {` · ${t('card.duration', { n: menu.duration_minutes })} · ${formatMenuPrice(menu)}`}
+                      </span>
+                    </span>
+                    {menu.storeName && (
+                      <span className="rounded-full bg-muted px-1.5 py-px text-[11px] text-muted-foreground">
+                        {menu.storeName}
+                      </span>
+                    )}
+                  </li>
+                </Fragment>
+              ))
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
