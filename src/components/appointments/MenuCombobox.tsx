@@ -200,7 +200,7 @@ export function MenuCombobox({
         aria-autocomplete="list"
         aria-controls={listId}
         aria-activedescendant={
-          activeIndex >= 0 ? `${listId}-opt-${activeIndex}` : undefined
+          open && activeIndex >= 0 ? `${listId}-opt-${activeIndex}` : undefined
         }
       />
 

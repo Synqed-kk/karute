@@ -378,6 +378,24 @@ describe('MenuCombobox — keyboard operability', () => {
     expect(listOptions()).toHaveLength(CATALOG.length)
   })
 
+  it('Escape clears aria-activedescendant, and a reopen stays clear until arrowed again', () => {
+    // A stale activedescendant would point assistive tech at an id from the
+    // unmounted list (Greptile #702).
+    const input = serviceInput()
+    openList()
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(input).toHaveAttribute('aria-activedescendant')
+
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(input).not.toHaveAttribute('aria-activedescendant')
+
+    fireEvent.click(input)
+    expect(input).not.toHaveAttribute('aria-activedescendant')
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(input).toHaveAttribute('aria-activedescendant')
+  })
+
   it('Enter after an Escape never picks the row the staff just backed out of', () => {
     const input = serviceInput()
     openList()
