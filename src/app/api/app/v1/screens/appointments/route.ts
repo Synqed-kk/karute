@@ -11,6 +11,8 @@
 // action's legacy catch→[] shows empty; for the binary, "no bookings" when
 // the read failed is the dangerous lie, so the facade fails loudly). Pack
 // usage keeps the page's graceful catch — the 残N/M pills just don't render.
+// The menu union degrades the same way: a failed read yields [] and the
+// booking picker simply doesn't render, never a 502 on the whole agenda.
 
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
@@ -20,6 +22,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { getCachedCustomerListFor } from '@/lib/customers/cached'
+import { getCachedMenuOptionsFor } from '@/lib/menus/cached'
 import { orgSettingsWithClient } from '@/actions/org-settings'
 import { enrichCustomers, type CustomerEnrichment } from '@/lib/customers/list-enrich'
 import { listAllPackUsageWithClient, type CustomerPackUsage } from '@/lib/packs/store'
@@ -72,11 +75,15 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
     const weekRange = view === 'week' ? computeWeekRange(selectedDate) : null
     const monthRange = view === 'month' ? computeMonthRange(selectedDate) : null
 
-    // Wave 1 — roster, cached customer list, org settings.
-    const [staffList, customers, orgSettings] = await Promise.all([
+    // Wave 1 — roster, cached customer list, org settings, menu union.
+    const [staffList, customers, orgSettings, menus] = await Promise.all([
       staffListByBusinessOrThrow(businessId),
       getCachedCustomerListFor(businessId),
       orgSettingsWithClient(synqed),
+      // Degraded-allowed, same shape as the pack-usage read below: a failed
+      // menus read must NEVER 502 the agenda — the picker just doesn't render
+      // (§6), and the dialog keeps today's free-text service field.
+      getCachedMenuOptionsFor(businessId).catch(() => []),
     ])
     const nameById = new Map(customers.map((c) => [c.id, c.name]))
 
@@ -166,6 +173,8 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
           phone: c.phone ?? null,
           furigana: c.furigana ?? null,
         })),
+        // CachedMenuOption is already DTO-shaped — passed through verbatim.
+        menus,
         reservationViews: screen.reservationViews,
         reservationStaff: screen.reservationStaff,
         businessHours: screen.businessHours,

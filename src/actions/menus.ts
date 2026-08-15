@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
 import type { Menu } from '@synqed-kk/client'
 
 import { getSynqedClient } from '@/lib/synqed/client'
@@ -17,8 +17,12 @@ const DENIED = 'You do not have permission to manage menus.'
 
 const reason = (e: unknown) => (e instanceof Error ? e.message : 'unknown error')
 
-// Menu writes revalidate '/settings' ONLY — no menus cache tag exists yet;
-// PR-4a builds the cached picker reader and owns its tag invalidation.
+// Menu writes revalidate '/settings' (the catalog surface) AND the 'menus'
+// tag — the 予約 picker's 60s cached reader (src/lib/menus/cached.ts) would
+// otherwise keep serving the pre-edit catalog for up to a minute. Invalidation
+// fires only after the core write succeeds, so a refused write never blows the
+// cache. updateTag is Server-Action-only; every writer here is 'use server'
+// and no facade route imports this module (facade-core-updatetag-ban).
 
 async function menuContext() {
   const [synqed, businessId, actorId] = await Promise.all([
@@ -114,6 +118,7 @@ export async function createMenu(input: MenuFormInput): Promise<{ id: string } |
       requestId: crypto.randomUUID(),
       source: 'web',
     })
+    updateTag('menus')
     revalidatePath('/settings')
     return { id: menu.id }
   } catch (e) {
@@ -153,6 +158,7 @@ export async function updateMenu(
       requestId: crypto.randomUUID(),
       source: 'web',
     })
+    updateTag('menus')
     revalidatePath('/settings')
     return { ok: true }
   } catch (e) {
@@ -179,6 +185,7 @@ export async function retireMenu(id: string): Promise<{ ok: true } | { error: st
       requestId: crypto.randomUUID(),
       source: 'web',
     })
+    updateTag('menus')
     revalidatePath('/settings')
     return { ok: true }
   } catch (e) {
@@ -205,6 +212,7 @@ export async function reactivateMenu(id: string): Promise<{ ok: true } | { error
       requestId: crypto.randomUUID(),
       source: 'web',
     })
+    updateTag('menus')
     revalidatePath('/settings')
     return { ok: true }
   } catch (e) {

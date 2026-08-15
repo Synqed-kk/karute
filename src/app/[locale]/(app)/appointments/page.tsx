@@ -9,6 +9,7 @@ import { getOrgSettings } from '@/actions/org-settings'
 import { getAppointmentsInRange } from '@/actions/appointments'
 import { getCachedDayAgenda } from '@/lib/appointments/day-agenda-cached'
 import { getCachedCustomerList } from '@/lib/customers/cached'
+import { getCachedMenuOptions } from '@/lib/menus/cached'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
 import { listAllPackUsage } from '@/lib/packs/store'
 import { getBusinessId } from '@/lib/staff'
@@ -79,6 +80,7 @@ export default async function AppointmentsPage({
     weekRangeAppts,
     monthRangeAppts,
     storeScope,
+    menuOptions,
   ] = await Promise.all([
     t.phase('auth.getUser', () => supabase.auth.getUser()),
     t.phase('staffList', () => getStaffList()),
@@ -109,7 +111,16 @@ export default async function AppointmentsPage({
         : Promise.resolve(null),
     ),
     t.phase('storeScope', () => resolveStoreScope()),
+    // 60s cached active-menu union for the booking picker. Degraded the same
+    // way the facade route degrades it — a menus outage must not 500 the
+    // agenda; the dialog keeps today's free-text service field.
+    t.phase('menus', () => getCachedMenuOptions().catch(() => [])),
   ])
+
+  // PR-4b threads this into AppointmentsView/NewBookingDialog. Fetched here in
+  // 4a so the page assembly and the shared 60s cache are exercised server-side
+  // first, on the same wave as every other picker source (plan §9 4a/4b split).
+  void menuOptions
 
   const authProfileId = user?.id ?? null
   const storeStaffIds = await t.phase('storeStaffIds', () =>

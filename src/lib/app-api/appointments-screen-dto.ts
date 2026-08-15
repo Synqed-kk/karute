@@ -94,6 +94,32 @@ export const AppointmentsScreenDTO = z.object({
       furigana: z.string().nullable(),
     }),
   ),
+  /** Active-menu union for the booking picker (PR-4b) — store metadata rides
+   *  along for the store chips. Degraded-allowed: [] when the read fails
+   *  (picker absent = today's free-text dialog).
+   *
+   *  .default([]) — the thin bundle parses this SAME schema client-side from a
+   *  baked copy, so a required key would make the field a breaking change
+   *  across every server/bundle skew (a bundle baked with it against a rolled-
+   *  back server would blank the whole 予約 screen over an absent picker). The
+   *  default matches the degrade the route already applies, and the output type
+   *  stays a plain array — consumers never see undefined. */
+  menus: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        category: z.string().nullable(),
+        category_display_order: z.number(),
+        display_order: z.number(),
+        duration_minutes: z.number(),
+        price_list_amount: z.number(),
+        price_min_amount: z.number().nullable(),
+        store_id: z.string().nullable(),
+        storeName: z.string().nullable(),
+      }),
+    )
+    .default([]),
   reservationViews: z.array(ReservationViewDTO),
   reservationStaff: z.array(
     z.object({
