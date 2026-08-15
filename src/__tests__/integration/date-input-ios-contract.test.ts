@@ -76,16 +76,24 @@ describe('date/time inputs opt out of the iOS native control theme', () => {
     expect(reThemed.map((r) => r.sel)).toEqual([])
   })
 
-  /* Spelling normalization above plus this check close the bypass: the
-   * shared rule's selector is an attribute selector on `input`, specificity
-   * (0,1,1) — a bare `input` selector is (0,0,1) and a class selector is
-   * (0,1,0), both LOWER than (0,1,1), so no plain later rule can win the
-   * cascade regardless of source order. The only ways a later globals.css
-   * rule could still re-theme the control are (a) writing the same
-   * attribute selector with different quoting — closed by normalizing
-   * `[type=X]`/`[type='X']` to `[type="X"]` before every check above — or
-   * (b) `!important`, which ignores specificity entirely. This is the
-   * `!important` half. */
+  /* The guard rule lives in the `base` cascade layer; Tailwind utilities
+   * live in the `utilities` layer, which wins over base REGARDLESS of
+   * selector specificity (see the sibling pointer:coarse block at
+   * src/app/globals.css:236-238, which documents exactly this and is why
+   * IT needs !important). So the real bypass vectors for a later re-theme
+   * are: (a) another globals.css rule in the SAME layer with different
+   * selector quoting — closed by the normalization above; (b) `!important`
+   * in globals.css, which ignores layer order too — closed by this test;
+   * (c) a utilities-layer class (e.g. `appearance-auto`) or an inline style
+   * on a date input in component code — OUTSIDE this test's reach (it scans
+   * globals.css only); a repo grep shows zero such usages today. We
+   * deliberately do NOT add !important to the guard rule itself: nothing in
+   * `base` fights it, and !important would be the over-fix.
+   *
+   * (Secondary note: within a single layer, specificity still governs — the
+   * shared rule's selector is (0,1,1) vs. a bare `input` at (0,0,1) or a
+   * class at (0,1,0), both lower. That fact is why spelling variants are
+   * the only same-layer bypass; it just isn't why utilities can't win.) */
   it('no input rule re-themes with !important', () => {
     const importantOverrides = rules.filter(
       (r) =>
