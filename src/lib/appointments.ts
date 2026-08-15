@@ -12,6 +12,9 @@ export interface AppointmentInput {
   tzOffsetMinutes?: number
   title?: string
   notes?: string
+  /** Catalog menu the booking is linked to (camelCase here, menu_id at the
+   *  SDK seam). Core validates ownership and snapshots the price. */
+  menuId?: string | null
 }
 
 export async function validateAppointmentTime(input: AppointmentInput, operatingHours: unknown): Promise<string | null> {

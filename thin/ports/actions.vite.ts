@@ -1283,6 +1283,7 @@ export const createAppointment = async (input: {
   tzOffsetMinutes?: number
   title?: string
   notes?: string
+  menuId?: string
 }): Promise<{ id: string } | { error: string }> => {
   // try/catch: the dialog's handleSave awaits without one — a transport
   // reject would strand `saving` true and dead the save button (see

@@ -197,6 +197,41 @@ describe('Booking creation flow', () => {
     expect(appointments.create).not.toHaveBeenCalled()
   })
 
+  // The load-bearing seam (menu-catalog plan §6 edit point 5): the SDK literal
+  // in createAppointmentCore is the ONLY site that reaches core with the link.
+  // A port/schema-shape test stays green while this line is missing, so assert
+  // the payload itself — camelCase menuId in, snake_case menu_id out.
+  it('carries a linked menuId to the SDK as menu_id', async () => {
+    appointments.create.mockResolvedValue({ id: 'appt-3' })
+
+    await createAppointment({
+      staffProfileId: 'staff-1',
+      clientId: 'cust-9',
+      startTime: new Date('2026-05-20T11:00:00').toISOString(),
+      durationMinutes: 90,
+      title: 'リタッチカラー',
+      menuId: '2c9f5e3a-70b6-4d84-a153-4e8f12cd96a7',
+    })
+
+    expect(appointments.create).toHaveBeenCalledWith(
+      expect.objectContaining({ menu_id: '2c9f5e3a-70b6-4d84-a153-4e8f12cd96a7' }),
+    )
+  })
+
+  it('sends no menu_id for a free-text booking', async () => {
+    appointments.create.mockResolvedValue({ id: 'appt-4' })
+
+    await createAppointment({
+      staffProfileId: 'staff-1',
+      clientId: 'cust-9',
+      startTime: new Date('2026-05-20T11:00:00').toISOString(),
+      durationMinutes: 60,
+      title: '着付け',
+    })
+
+    expect(appointments.create.mock.calls[0][0].menu_id).toBeUndefined()
+  })
+
   it('omits title when not supplied (service field optional in dialog)', async () => {
     appointments.create.mockResolvedValue({ id: 'appt-2' })
 
