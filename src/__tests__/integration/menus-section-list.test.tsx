@@ -494,6 +494,9 @@ describe('MenusSection — 再開 (reactivate)', () => {
       expect(toastError).toHaveBeenCalledWith('Could not reactivate menu: offline'),
     )
     expect(toastSuccess).not.toHaveBeenCalled()
+    // The confirm closes on failure too — the answer is in, and a failure is
+    // reported by the toast, never by a dialog left stuck over the list.
+    await waitFor(() => expect(screen.queryByText('「縮毛矯正」を再開しますか？')).toBeNull())
   })
 })
 
@@ -544,5 +547,64 @@ describe('MenusSection — store filter', () => {
     expect(screen.queryByText('メニューがまだありません')).toBeNull()
     expect(createButtons().length).toBe(1)
     expect(screen.queryByText(/停止中のメニュー/)).toBeNull()
+  })
+
+  // Zero BOOKABLE menus for the selected store, with 停止中 rows surviving the
+  // filter. Without the line the store reads as 「no services here」 — the
+  // collapsed disclosure is the only thing on screen. The copy stays honest
+  // because a 停止中 menu cannot be booked, so 「利用できるメニューはありません」
+  // is true whatever the retired count is; the disclosure renders below it.
+  it('a filter leaving 0 ACTIVE but some retired shows the line AND keeps the disclosure', () => {
+    // Every ACTIVE row is 本店's, so 駅前店 keeps only the retired 駅前 row.
+    const hontenActives = FILTER_CATALOG.filter((m) => !m.active || m.store_id === HONTEN)
+    render(<MenusSection menus={hontenActives} stores={TWO_STORES} />)
+
+    fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
+
+    expect(screen.getByText('この店舗で利用できるメニューはありません')).toBeTruthy()
+    expect(screen.getByText('停止中のメニュー（1）')).toBeTruthy()
+    fireEvent.click(screen.getByText('停止中のメニュー（1）'))
+    expect(screen.getByText('駅前デジタルパーマ')).toBeTruthy()
+    expect(screen.queryByText('メニューがまだありません')).toBeNull()
+  })
+
+  // The editor gets the UNFILTERED catalog: the store filter narrows the LIST,
+  // never the category vocabulary or the 表示順 default. パーマ lives only on
+  // 本店, so under the 駅前店 filter no パーマ row is on screen — and the chip
+  // must still be offered, or a filtered staff member silently forks a
+  // duplicate category and a colliding 表示順.
+  it('the editor derives categories and 表示順 from the FULL catalog while a filter is active', () => {
+    const withHontenCategory = [
+      ...FILTER_CATALOG,
+      menu({
+        id: 'a1c8d4f2-90be-4c37-8f65-2d3b7e01a94c',
+        name: '本店パーマ',
+        category: 'パーマ',
+        store_id: HONTEN,
+        display_order: 70,
+      }),
+    ]
+    render(<MenusSection menus={withHontenCategory} stores={TWO_STORES} />)
+    fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
+    expect(screen.queryByText('本店パーマ')).toBeNull()
+
+    fireEvent.click(createButtons()[0])
+
+    fireEvent.click(screen.getByRole('button', { name: 'パーマ' }))
+    fireEvent.click(screen.getByText('詳細（店舗・オンライン表示・表示順）'))
+    // 70 + 10 — the next slot in a category the filtered list cannot see.
+    expect(screen.getByLabelText(/表示順/).getAttribute('placeholder')).toBe('80')
+  })
+
+  // SCOPE GUARD (settled PR-2 ruling): the line belongs to the FILTER. With
+  // 全店舗 selected, an all-retired catalog stays disclosure-only — the same
+  // ruling the single-store 「every menu retired」 pin above holds.
+  it('NO filter + an all-retired catalog stays disclosure-only — no filter line', () => {
+    const retiredOnly = FILTER_CATALOG.filter((m) => !m.active)
+    render(<MenusSection menus={retiredOnly} stores={TWO_STORES} />)
+
+    expect((filterSelect() as HTMLSelectElement).value).toBe('')
+    expect(screen.queryByText('この店舗で利用できるメニューはありません')).toBeNull()
+    expect(screen.getByText('停止中のメニュー（2）')).toBeTruthy()
   })
 })

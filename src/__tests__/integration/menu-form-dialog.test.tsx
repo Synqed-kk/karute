@@ -597,6 +597,53 @@ describe('MenuFormDialog — メニューを停止 (retire)', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 
+  /** A 停止 the test resolves by hand — hangingUpdate's mirror. */
+  function hangingRetire() {
+    let finish: (r: { ok: true }) => void = () => {}
+    retireMenu.mockReturnValueOnce(new Promise((res) => { finish = res }))
+    return async () => act(async () => { finish({ ok: true }) })
+  }
+
+  // The save gate's two stale shapes, on the retire write. ESC / an outside
+  // click / the X are not gated while 停止 is in flight, so a dismissed body
+  // can resolve after its dialog is gone: shape one — dismissed and left
+  // closed, so this body stays mounted behind the exit animation and only
+  // `active` goes false.
+  it('a dismissed 停止 that is never reopened stays silent', async () => {
+    const settle = hangingRetire()
+    const setMode = open({ kind: 'edit', menu: RETOUCH })
+    fireEvent.click(retireAction())
+    fireEvent.click(confirmButton())
+    await waitFor(() => expect(confirmButton().disabled).toBe(true))
+
+    setMode(null)
+    await settle()
+
+    expect(retireMenu).toHaveBeenCalledTimes(1)
+    expect(toastSuccess).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  // Shape two: a row→row swap never passes null, so `active` stays true and
+  // only the key's menu id unmounts this body. If alive stopped being
+  // consulted, the dead 停止 would toast over the row that replaced it — and
+  // close an editor the staff member never asked to close.
+  it('a pending 停止 survives a row→row swap without touching the new row', async () => {
+    const settle = hangingRetire()
+    const setMode = open({ kind: 'edit', menu: RETOUCH })
+    fireEvent.click(retireAction())
+    fireEvent.click(confirmButton())
+    await waitFor(() => expect(confirmButton().disabled).toBe(true))
+
+    setMode({ kind: 'edit', menu: TREATMENT })
+    await settle()
+
+    expect(retireMenu).toHaveBeenCalledTimes(1)
+    expect(toastSuccess).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(field(/メニュー名/).value).toBe('トリートメント')
+  })
+
   // Same lane law as the save gate above: StrictMode's throwaway mount must not
   // leave `alive` false, or every dev-mode 停止 would hang after its await.
   it('retires still complete under StrictMode double-mounting', async () => {

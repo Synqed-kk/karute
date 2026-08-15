@@ -12,7 +12,7 @@
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { Menu } from '@synqed-kk/client'
 
 import { Button } from '@/components/ui/button'
@@ -214,24 +214,34 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
       </div>
 
       {showFilter && (
-        // Plain native select (mock :247-252) — the settings native-select
-        // idiom (StoreFormDialog.tsx:136) at the mock's 160px, minus
-        // appearance-none so the platform keeps drawing the chevron the mock
-        // shows (the full-width selects that drop it are labelled fields; a
-        // bare filter box would read as a text input).
-        <select
-          value={storeFilter}
-          onChange={(e) => setStoreFilter(e.target.value)}
-          aria-label={t('form.store')}
-          className="w-[160px] rounded-lg border border-border bg-background px-3 py-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-ring"
-        >
-          <option value="">{t('form.allStores')}</option>
-          {stores.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
+        // Native select (mock :247-252) — the settings native-select idiom
+        // (StoreFormDialog.tsx:136) at the mock's 160px. appearance-none is the
+        // law for every select in settings, and the mock's own chevron is
+        // CUSTOM-drawn (settings-mocks.html:79-84 = appearance:none plus a
+        // background-image arrow), never the platform's: WebKit hands a native
+        // select its own capsule chrome and throws the border/bg/radius away,
+        // and with no color-scheme signal that capsule can render light inside
+        // a dark panel. Replacement arrow = the house recipe,
+        // AuditLogSection.tsx:764-767.
+        <div className="relative w-[160px]">
+          <select
+            value={storeFilter}
+            onChange={(e) => setStoreFilter(e.target.value)}
+            aria-label={t('form.store')}
+            className="w-full appearance-none rounded-lg border border-border bg-background py-2 pl-3 pr-8 text-[13px] focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <option value="">{t('form.allStores')}</option>
+            {stores.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <ChevronDown
+            className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+        </div>
       )}
 
       {menus === null ? (
@@ -243,11 +253,20 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
             {t('addMenu')}
           </Button>
         </div>
-      ) : active.length === 0 && retired.length === 0 ? (
-        // The FILTER emptied a real catalog — never the 「まだありません」 state.
-        <p className="py-6 text-center text-[13px] text-muted-foreground">{t('filterEmpty')}</p>
       ) : (
         <>
+          {/* The FILTER left this store nothing BOOKABLE — never the
+           *  「まだありません」 state. Said whenever the filtered ACTIVE list is
+           *  empty, retired rows or not: a 停止中 menu cannot be booked, so the
+           *  line is true either way, and without it a store whose only
+           *  survivors are stopped shows nothing but a collapsed disclosure.
+           *  Only ever under a filter — with 全店舗 selected an all-retired
+           *  catalog stays disclosure-only (PR-2's settled ruling), and an
+           *  unfiltered empty catalog is `catalogEmpty` above. */}
+          {storeFilter !== '' && active.length === 0 && (
+            <p className="py-6 text-center text-[13px] text-muted-foreground">{t('filterEmpty')}</p>
+          )}
+
           {active.length > 0 && (
             <div className="overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-black/5 dark:ring-white/5">
               {groups.map(([category, rows]) => (
