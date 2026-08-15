@@ -93,20 +93,18 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
   /** '' = 全店舗. A store id filters to that store's menus PLUS the all-store
    *  ones, because an all-store menu is bookable there too. */
   const [storeFilter, setStoreFilter] = useState('')
-  /** The filter is honored ONLY while the select that could clear it can exist
-   *  (the same ≥2-stores threshold as `showFilter` below) AND the selected
-   *  store is still a real one; either failing → 全店舗. Both halves are needed
-   *  because the two props are asymmetric by design (:78-79): the stores prop
-   *  can shrink to one while the menus prop still carries the OTHER store's
-   *  scoped rows, so a surviving selection with no select left on screen would
-   *  hide them forever. The state is NOT reset — the USE of the id is what goes
-   *  stale — so deriving self-heals on the same render the prop changes: no
-   *  effect, no second pass. Every READ of the filter below is this one; raw
-   *  `storeFilter` belongs to the select's onChange alone. */
-  const effectiveFilter =
-    storeFilter !== '' && stores.length >= 2 && stores.some((s) => s.id === storeFilter)
-      ? storeFilter
-      : ''
+  // An invalid selection DIES instead of hibernating: the moment the select
+  // couldn't exist (<2 stores, the same threshold as `showFilter` below) or the
+  // store is gone, the STATE resets to 全店舗 — so a store that later returns
+  // does not silently re-narrow the list (a filter nobody can see, or just
+  // re-chose, must never come back on its own). Both halves are needed because
+  // the two props are asymmetric by design (:78-79): stores can shrink to one
+  // while menus still carries the OTHER store's scoped rows. Same render-phase
+  // adjustment idiom as lastReactivate above — React re-renders synchronously
+  // before commit, so no frame ever shows the stale filtering and every read
+  // below can stay on raw `storeFilter`.
+  if (storeFilter !== '' && !(stores.length >= 2 && stores.some((s) => s.id === storeFilter)))
+    setStoreFilter('')
 
   const allActive = menus?.filter((m) => m.active) ?? []
   const allRetired = menus?.filter((m) => !m.active) ?? []
@@ -114,7 +112,7 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
   // business that has never registered a menu.
   const catalogEmpty = allActive.length === 0 && allRetired.length === 0
   const inFilter = (m: Menu) =>
-    effectiveFilter === '' || m.store_id === effectiveFilter || m.store_id === null
+    storeFilter === '' || m.store_id === storeFilter || m.store_id === null
   const active = allActive.filter(inFilter)
   const retired = allRetired.filter(inFilter)
   const groups = groupByCategory(active)
@@ -244,7 +242,7 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
         // AuditLogSection.tsx:764-767.
         <div className="relative w-[160px]">
           <select
-            value={effectiveFilter}
+            value={storeFilter}
             onChange={(e) => setStoreFilter(e.target.value)}
             aria-label={t('form.store')}
             className="w-full appearance-none rounded-lg border border-border bg-background py-2 pl-3 pr-8 text-[13px] focus:outline-none focus:ring-1 focus:ring-ring"
@@ -282,7 +280,7 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
            *  Only ever under a filter — with 全店舗 selected an all-retired
            *  catalog stays disclosure-only (PR-2's settled ruling), and an
            *  unfiltered empty catalog is `catalogEmpty` above. */}
-          {effectiveFilter !== '' && active.length === 0 && (
+          {storeFilter !== '' && active.length === 0 && (
             <p className="py-6 text-center text-[13px] text-muted-foreground">{t('filterEmpty')}</p>
           )}
 

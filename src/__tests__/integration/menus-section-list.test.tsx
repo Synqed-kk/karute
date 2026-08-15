@@ -672,6 +672,29 @@ describe('MenusSection — store filter', () => {
     expect(screen.queryByText('この店舗で利用できるメニューはありません')).toBeNull()
   })
 
+  // An invalid selection DIES, it does not hibernate. Deriving alone left the
+  // dead id sitting in state, so the moment the store came BACK (a refresh, a
+  // re-widened scope) the list silently re-narrowed to a filter the staff
+  // member never re-chose and the select had stopped showing.
+  it('a store that returns does NOT snap the filter back on', () => {
+    const { rerender } = render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+    fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
+    expect(screen.queryByText('本店ヘッドスパ')).toBeNull()
+
+    // 駅前店 leaves — the filter falls to 全店舗 and everything is back.
+    rerender(<MenusSection menus={FILTER_CATALOG} stores={[honten]} />)
+    expect(screen.getByText('本店ヘッドスパ')).toBeTruthy()
+
+    // …and now it RETURNS. The selection is gone for good.
+    rerender(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+
+    expect((filterSelect() as HTMLSelectElement).value).toBe('')
+    expect(screen.getByText('本店ヘッドスパ')).toBeTruthy()
+    expect(screen.getByText('全店カット')).toBeTruthy()
+    expect(screen.getByText('駅前トリートメント')).toBeTruthy()
+    expect(screen.getByText('停止中のメニュー（2）')).toBeTruthy()
+  })
+
   // SCOPE GUARD (settled PR-2 ruling): the line belongs to the FILTER. With
   // 全店舗 selected, an all-retired catalog stays disclosure-only — the same
   // ruling the single-store 「every menu retired」 pin above holds.
