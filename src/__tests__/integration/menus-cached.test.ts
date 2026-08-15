@@ -19,8 +19,20 @@ jest.mock('@synqed-kk/client', () => ({
 }))
 const SynqedClient = jest.requireMock('@synqed-kk/client').SynqedClient as jest.Mock
 
+// Capture the cache wiring (key + options) alongside the identity passthrough
+// — sibling pattern, appointments-day-agenda-cached.test.ts. `var`, not
+// let/const — the hoisted jest.mock factory runs during the static import
+// below, before a let/const would initialize (TDZ).
+/* eslint-disable no-var */
+var cacheKeys: unknown
+var cacheOpts: unknown
+/* eslint-enable no-var */
 jest.mock('next/cache', () => ({
-  unstable_cache: (fn: (...args: unknown[]) => unknown) => fn,
+  unstable_cache: (fn: (...args: unknown[]) => unknown, keys: unknown, opts: unknown) => {
+    cacheKeys = keys
+    cacheOpts = opts
+    return fn
+  },
 }))
 
 const getBusinessId = jest.fn(async () => 'biz-1')
@@ -126,6 +138,15 @@ describe('getCachedMenuOptionsFor', () => {
       expect(mockMenus.list).not.toHaveBeenCalled()
     },
   )
+
+  it('pins the invalidation envelope: 60s TTL + the menus tag', () => {
+    // The tag string must equal the literal the four writers pass to
+    // updateTag (menus-actions.test.ts pins that side) — exact-string
+    // matching is Next's contract; a typo on either side silently downgrades
+    // invalidation to TTL-only.
+    expect(cacheOpts).toEqual({ revalidate: 60, tags: ['menus'] })
+    expect(cacheKeys).toEqual(['cached-menu-options-v1'])
+  })
 })
 
 describe('getCachedMenuOptions (cookie wrapper)', () => {
