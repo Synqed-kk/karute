@@ -71,8 +71,9 @@ export function MenuCombobox({
     ? menus.filter((m) => m.name.toLowerCase().includes(query))
     : menus
 
-  // Never inherit the previous open's scroll position — the first category
-  // has to be the first thing on screen. The same pass caps the height so the
+  // Back to the top whenever the filter narrows the list — the first category
+  // has to be the first thing on screen. (A fresh open needs no help: the <ul>
+  // unmounts on close, so it rebuilds at 0.) The same pass caps the height so the
   // upward list's TOP edge lands under the dialog title: a top edge slicing
   // through the description text mid-line reads as a rendering fault
   // (Liam-ordered 8/15). The CSS max-h below is only the no-JS backstop.
@@ -91,6 +92,10 @@ export function MenuCombobox({
           fieldTop - titleBottom - 16
         : // Title scrolled out or absent: climb to the viewport top, never past.
           Math.min(fieldTop - 12, window.innerHeight)
+    // The 160 floor outranks the cap, and being inline it outranks the 45dvh
+    // class too: below ~176px of room the list would otherwise shrink to a
+    // sliver, and an unusably short catalog is worse than a top edge riding
+    // over the title. Accepted trade, landscape-with-keyboard edge only.
     list.style.maxHeight = `${Math.max(160, available)}px`
   }, [open, filter])
 
@@ -198,7 +203,8 @@ export function MenuCombobox({
         aria-expanded={open}
         aria-haspopup="listbox"
         aria-autocomplete="list"
-        aria-controls={listId}
+        // Both IDREFs point into the <ul>, which only exists while open.
+        aria-controls={open ? listId : undefined}
         aria-activedescendant={
           open && activeIndex >= 0 ? `${listId}-opt-${activeIndex}` : undefined
         }

@@ -408,19 +408,18 @@ export function NewBookingDialog({
                 <button
                   type="button"
                   aria-label={t('newBookingDialog.menuUnlink')}
-                  onClick={(e) => {
-                    // Take focus explicitly. Chrome does it on mousedown, and
-                    // the resulting focusout is what CLOSES a list that was
-                    // already open; desktop Safari/Firefox never focus a
-                    // clicked <button>, so without this the field keeps focus
-                    // and the upward list stays parked over the very pill the
-                    // × just raised. Same chain on every engine, and focus
-                    // never leaves the dialog on the way.
-                    e.currentTarget.focus()
+                  onClick={() => {
+                    // An open catalog is already shut by the time this runs.
+                    // The × sits OUTSIDE MenuCombobox's container, so a tap
+                    // hits its document-level pointerdown listener, which
+                    // beats click on every engine that ships Pointer Events;
+                    // a keyboard activation blurred the field on the way in,
+                    // and the container's onBlur closed it there. So the two
+                    // jobs left here are dropping the link and handing focus
+                    // back to the field the staff was editing — which does not
+                    // reopen the list, because it opens on a tap and never on
+                    // bare focus.
                     dropMenuLink()
-                    // Focus goes back to the field the staff was editing; the
-                    // catalog stays shut on its own, because the list opens on
-                    // a tap and never on bare focus.
                     serviceInputRef.current?.focus()
                   }}
                   className="inline-flex size-6 items-center justify-center rounded-full text-primary hover:bg-primary/12"

@@ -329,7 +329,7 @@ describe('MenuCombobox — list rendering', () => {
     }
   })
 
-  it('resets the list scroll on every open', () => {
+  it('scrolls back to the top when the filter narrows the list', () => {
     const proto = Element.prototype
     const original = Object.getOwnPropertyDescriptor(proto, 'scrollTop')!
     const set = jest.fn()
@@ -337,6 +337,10 @@ describe('MenuCombobox — list rendering', () => {
     Object.defineProperty(proto, 'scrollTop', { ...original, set })
     try {
       openList()
+      // A fresh open is free — the <ul> unmounts on close and rebuilds at 0.
+      // Narrowing an ALREADY-scrolled open list is what the reset is for.
+      set.mockClear()
+      fireEvent.change(serviceInput(), { target: { value: 'カ' } })
       expect(set).toHaveBeenCalledWith(0)
     } finally {
       Object.defineProperty(proto, 'scrollTop', original)
@@ -378,18 +382,25 @@ describe('MenuCombobox — keyboard operability', () => {
     expect(listOptions()).toHaveLength(CATALOG.length)
   })
 
-  it('Escape clears aria-activedescendant, and a reopen stays clear until arrowed again', () => {
-    // A stale activedescendant would point assistive tech at an id from the
-    // unmounted list (Greptile #702).
+  it('closing drops both ARIA IDREFs; a reopen restores aria-controls but not the highlight', () => {
+    // Both point into the <ul>, which unmounts on close: a stale
+    // activedescendant sends assistive tech to a removed id (Greptile #702),
+    // and a stale aria-controls advertises a listbox that is no longer there.
     const input = serviceInput()
     openList()
+    expect(input).toHaveAttribute(
+      'aria-controls',
+      screen.getByRole('listbox').id,
+    )
     fireEvent.keyDown(input, { key: 'ArrowDown' })
     expect(input).toHaveAttribute('aria-activedescendant')
 
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(input).not.toHaveAttribute('aria-activedescendant')
+    expect(input).not.toHaveAttribute('aria-controls')
 
     fireEvent.click(input)
+    expect(input).toHaveAttribute('aria-controls')
     expect(input).not.toHaveAttribute('aria-activedescendant')
 
     fireEvent.keyDown(input, { key: 'ArrowDown' })
@@ -600,14 +611,13 @@ describe('R8 duration model', () => {
     expect(listOptions()).toHaveLength(CATALOG.length)
   })
 
-  it('the chip × closes a list that was already OPEN, on engines that do not focus the ×', () => {
-    // The test above enters with the list already CLOSED, so it passes even
-    // where the × never takes focus. Desktop Safari and Firefox do not focus a
-    // clicked <button>: the field then never blurs, nothing closes the list,
-    // and it stays parked over the 所要時間 row and the 時間を確認 pill for the
-    // pill's whole life. jsdom moves no focus on click either, so this test IS
-    // that engine.
-    // A real tap: the field takes focus AND the click opens the list.
+  it('tapping the × with the catalog OPEN closes it, drops the link and refocuses the field', () => {
+    // The test above enters with the list already CLOSED. Entering OPEN is the
+    // harder case: the list is upward, so leaving it up parks it over the
+    // 所要時間 row and the 時間を確認 pill for the pill's whole life. The closer
+    // is MenuCombobox's document-level pointerdown listener — the × lives
+    // outside its container — so the tap is simulated as a real one, pointerdown
+    // before click, and not as the bare click jsdom would let pass.
     act(() => serviceInput().focus())
     openList()
     expect(screen.getByRole('listbox')).toBeInTheDocument()
@@ -618,7 +628,9 @@ describe('R8 duration model', () => {
     expect(screen.getByRole('listbox')).toBeInTheDocument()
     expect(document.activeElement).toBe(serviceInput())
 
-    fireEvent.click(screen.getByRole('button', { name: 'メニュー連携を解除' }))
+    const unlink = screen.getByRole('button', { name: 'メニュー連携を解除' })
+    fireEvent.pointerDown(unlink)
+    fireEvent.click(unlink)
     expect(screen.queryByRole('listbox')).toBeNull()
     expect(chip('¥8,800')).toBeNull()
     expect(document.activeElement).toBe(serviceInput())
