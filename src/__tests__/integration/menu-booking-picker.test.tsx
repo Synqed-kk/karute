@@ -115,6 +115,8 @@ const KITSUKE = menu({
 })
 const CATALOG = [CUT, BANGS, RETOUCH, FULLCOLOR, SPA, KITSUKE]
 
+const ZERO_RECT = { top: 0, right: 0, bottom: 0, left: 0, width: 0, height: 0, x: 0, y: 0 }
+
 const CUSTOMER = { id: 'cust-1', name: '佐藤 花子' }
 const STAFF = [{ id: 'staff-1', name: '田中 美咲' }]
 
@@ -283,6 +285,36 @@ describe('MenuCombobox — list rendering', () => {
     const emptyDown = createEvent.mouseDown(empty)
     fireEvent(empty, emptyDown)
     expect(emptyDown.defaultPrevented).toBe(true)
+  })
+
+  it('caps the upward list so its top edge lands under the dialog title', () => {
+    const title = document.querySelector('h2')!
+    const field = serviceInput().parentElement!
+    // jsdom has no layout — every rect reads 0, so the two the measurement
+    // depends on are fed in and the rest keep the real (zero) implementation.
+    const stubs = new Map<Element, Partial<DOMRect>>([
+      [title, { bottom: 100 }],
+      [field, { top: 416 }],
+    ])
+    const spy = jest
+      .spyOn(Element.prototype, 'getBoundingClientRect')
+      .mockImplementation(function (this: Element) {
+        const stub = stubs.get(this)
+        return { ...ZERO_RECT, ...stub } as DOMRect
+      })
+    try {
+      openList()
+      // 416 (field top) − 100 (title bottom) − 16 (mb-1 + breathing room).
+      expect(screen.getByRole('listbox').style.maxHeight).toBe('300px')
+
+      // Re-measured as the list resizes under a filter — and with the title
+      // scrolled out of the dialog the cap falls back to the viewport top.
+      stubs.set(title, { bottom: -40 })
+      fireEvent.change(serviceInput(), { target: { value: 'カット' } })
+      expect(screen.getByRole('listbox').style.maxHeight).toBe('404px')
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('resets the list scroll on every open', () => {

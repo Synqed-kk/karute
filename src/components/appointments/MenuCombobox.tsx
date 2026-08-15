@@ -78,9 +78,26 @@ export function MenuCombobox({
     : menus
 
   // Never inherit the previous open's scroll position — the first category
-  // has to be the first thing on screen.
+  // has to be the first thing on screen. The same pass caps the height so the
+  // upward list's TOP edge lands under the dialog title: a top edge slicing
+  // through the description text mid-line reads as a rendering fault
+  // (Liam-ordered 8/15). The CSS max-h below is only the no-JS backstop.
   useEffect(() => {
-    if (open && listRef.current) listRef.current.scrollTop = 0
+    const list = listRef.current
+    if (!open || !list) return
+    list.scrollTop = 0
+    const fieldTop = containerRef.current?.getBoundingClientRect().top ?? 0
+    const titleBottom = containerRef.current
+      ?.closest('[role="dialog"]')
+      ?.querySelector('h2')
+      ?.getBoundingClientRect().bottom
+    const available =
+      titleBottom != null && titleBottom >= 0
+        ? // mb-1 plus breathing room, so the edge reads as deliberate.
+          fieldTop - titleBottom - 16
+        : // Title scrolled out or absent: climb to the viewport top, never past.
+          Math.min(fieldTop - 12, window.innerHeight)
+    list.style.maxHeight = `${Math.max(160, available)}px`
   }, [open, filter])
 
   useEffect(() => {
@@ -198,21 +215,22 @@ export function MenuCombobox({
 
       {open && (
         <div
-          className="absolute bottom-full right-0 left-0 z-50 mb-1 rounded-lg border border-border bg-popover shadow-md"
+          className="absolute bottom-full right-0 left-0 z-50 mb-1 origin-bottom rounded-lg border border-border bg-popover shadow-lg animate-in fade-in zoom-in-95 duration-100 motion-reduce:animate-none"
           // A tap that lands on a category header, the no-results line or the
           // popover's own padding must not blur the field: focusout closes the
           // list, and the reopen throws away the filter AND the scroll
           // position. Option rows preventDefault for themselves before picking.
           onMouseDown={(e) => e.preventDefault()}
         >
-          {/* 35dvh cap: the Android keyboard shrinks dvh, so the list takes
-           *  the room actually left instead of clipping (CustomerCombobox). */}
+          {/* 45dvh backstop only — the effect above is the real governor. The
+           *  dvh half still matters: the Android keyboard shrinks dvh, so the
+           *  first paint takes the room actually left instead of clipping. */}
           <ul
             ref={listRef}
             id={listId}
             role="listbox"
             aria-label={t('newBookingDialog.menuListLabel')}
-            className="max-h-[min(15rem,35dvh)] overflow-y-auto py-1"
+            className="max-h-[min(24rem,45dvh)] overflow-y-auto py-1"
           >
             {options.length === 0 ? (
               <li role="presentation" className="px-3 py-2 text-sm text-muted-foreground">
