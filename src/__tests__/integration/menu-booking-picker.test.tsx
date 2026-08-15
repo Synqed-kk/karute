@@ -548,6 +548,28 @@ describe('R8 duration model', () => {
     expect(screen.getByRole('listbox')).toBeInTheDocument()
   })
 
+  it('the chip × closes a list that was already OPEN, on engines that do not focus the ×', () => {
+    // The test above enters with the list already CLOSED, so it passes even
+    // where the × never takes focus. Desktop Safari and Firefox do not focus a
+    // clicked <button>: the field then never blurs, nothing closes the list,
+    // and it stays parked over the 所要時間 row and the 時間を確認 pill for the
+    // pill's whole life. jsdom moves no focus on click either, so this test IS
+    // that engine.
+    act(() => serviceInput().focus())
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    fireEvent.mouseDown(optionRow('リタッチカラー'))
+    expect(screen.queryByRole('listbox')).toBeNull()
+    // Reopen without re-focusing — the field never lost focus to begin with.
+    fireEvent.click(serviceInput())
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    expect(document.activeElement).toBe(serviceInput())
+
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー連携を解除' }))
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(chip('¥8,800')).toBeNull()
+    expect(document.activeElement).toBe(serviceInput())
+  })
+
   it('a revert that moves nothing neither nudges nor announces', () => {
     // カット's standard IS the 60分 default, so unlinking restores exactly what
     // is already on screen. Crying wolf here makes the real alarm above

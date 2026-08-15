@@ -411,7 +411,15 @@ export function NewBookingDialog({
                 <button
                   type="button"
                   aria-label={t('newBookingDialog.menuUnlink')}
-                  onClick={() => {
+                  onClick={(e) => {
+                    // Take focus explicitly. Chrome does it on mousedown, and
+                    // the resulting focusout is what CLOSES a list that was
+                    // already open; desktop Safari/Firefox never focus a
+                    // clicked <button>, so without this the field keeps focus
+                    // and the upward list stays parked over the very pill the
+                    // × just raised. Same chain on every engine, and focus
+                    // never leaves the dialog on the way.
+                    e.currentTarget.focus()
                     dropMenuLink()
                     // Focus returns to the field, but the catalog stays shut:
                     // it opens upward, so reopening here would cover the
