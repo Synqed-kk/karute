@@ -23,9 +23,21 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 
 /** Comment bodies would satisfy every check below — strip them first. */
-const css = readFileSync(join(process.cwd(), 'src/app/globals.css'), 'utf8').replace(
+const rawCss = readFileSync(join(process.cwd(), 'src/app/globals.css'), 'utf8').replace(
   /\/\*[\s\S]*?\*\//g,
   ''
+)
+
+/** Normalize attribute-selector spelling: `[type='X']` and `[type=X]` both
+ *  select the same element as `[type="X"]` — fold them to one spelling so
+ *  every check below (rule-find, per-type coverage, re-theme detection) sees
+ *  all three identically. Match double/single/bare explicitly (in that
+ *  order) so an already-double-quoted value isn't re-captured as bare and
+ *  double-wrapped; unquoted values can't contain `]`, whitespace, or a
+ *  quote char, so `[^\]\s'"]+` is safe. */
+const css = rawCss.replace(
+  /\[type=(?:"([^"]*)"|'([^']*)'|([^\]\s'"]+))\]/g,
+  (_, dbl, single, bare) => `[type="${dbl ?? single ?? bare}"]`
 )
 
 /** Innermost `selector { declarations }` pairs. `[^{}]` can't cross a brace,
@@ -62,5 +74,26 @@ describe('date/time inputs opt out of the iOS native control theme', () => {
         [...r.body.matchAll(/appearance:\s*([\w-]+)/g)].some((m) => m[1] !== 'none')
     )
     expect(reThemed.map((r) => r.sel)).toEqual([])
+  })
+
+  /* Spelling normalization above plus this check close the bypass: the
+   * shared rule's selector is an attribute selector on `input`, specificity
+   * (0,1,1) — a bare `input` selector is (0,0,1) and a class selector is
+   * (0,1,0), both LOWER than (0,1,1), so no plain later rule can win the
+   * cascade regardless of source order. The only ways a later globals.css
+   * rule could still re-theme the control are (a) writing the same
+   * attribute selector with different quoting — closed by normalizing
+   * `[type=X]`/`[type='X']` to `[type="X"]` before every check above — or
+   * (b) `!important`, which ignores specificity entirely. This is the
+   * `!important` half. */
+  it('no input rule re-themes with !important', () => {
+    const importantOverrides = rules.filter(
+      (r) =>
+        /input/i.test(r.sel) &&
+        [...r.body.matchAll(/appearance:\s*([\w-]+)\s*!important/gi)].some(
+          (m) => m[1] !== 'none'
+        )
+    )
+    expect(importantOverrides.map((r) => r.sel)).toEqual([])
   })
 })
