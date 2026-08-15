@@ -129,17 +129,24 @@ function MenuFormBody({
   // dismissed-and-left-closed leaves it mounted behind the exit animation and
   // only `active` goes false. No open dialog → no dialog UI effects.
   const alive = useRef(true)
-  useEffect(
-    () => () => {
+  // Setup RE-ARMS the flag. StrictMode (on by default in dev) mounts, unmounts
+  // and remounts every component: a cleanup-only effect would run that cleanup
+  // once and leave alive false forever, so every dev-mode save would return
+  // early after its await — no toast, no close, 保存 stuck inert. Production
+  // never double-invokes, which is exactly why no gate would have caught it.
+  useEffect(() => {
+    alive.current = true
+    return () => {
       alive.current = false
-    },
-    [],
-  )
+    }
+  }, [])
   // Mirrored in an EFFECT, not assigned during render: the repo's
-  // react-hooks/refs rule rejects touching ref.current in the render pass. It
-  // commits before any awaited write can resolve, so the guard always reads
-  // the current answer. (Its own effect — sharing one with `alive` above would
-  // run that cleanup on every `active` change and kill a live body.)
+  // react-hooks/refs rule rejects touching ref.current in the render pass. A
+  // passive effect flushes in a scheduled task, so it lands almost always
+  // before a real network write resolves; the residual window is accepted —
+  // closing it would take the render-phase assignment the lint rule forbids.
+  // (Its own effect — sharing one with `alive` above would run that cleanup on
+  // every `active` change and kill a live body.)
   const activeRef = useRef(active)
   useEffect(() => {
     activeRef.current = active

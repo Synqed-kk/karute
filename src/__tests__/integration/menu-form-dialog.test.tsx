@@ -8,6 +8,7 @@
 // The three 8/15 additions live in this file too: pristine-save disable
 // (the source-level suppression of empty-detail menu_update audit rows),
 // double-submit disable, and the ②b store-widening confirm.
+import { StrictMode } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 jest.mock('next-intl', () => {
@@ -369,6 +370,50 @@ describe('MenuFormDialog — edit', () => {
 
     expect(updateMenu).toHaveBeenCalledTimes(1)
     expect(toastError).not.toHaveBeenCalled()
+  })
+
+  // The OTHER guard half, proven on its own: swapping straight from one row to
+  // another never passes null, so `active` stays true throughout and only the
+  // key's menu id unmounts the old body. If alive stopped being consulted, the
+  // dead body's closure would toast and close over the row that replaced it.
+  it('a pending save survives a row→row swap without touching the new row', async () => {
+    const settle = hangingUpdate()
+    const setMode = open({ kind: 'edit', menu: RETOUCH })
+    type(/通常価格/, '9900')
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(saveButton().disabled).toBe(true))
+
+    // One rerender, straight to another menu — never null in between.
+    setMode({ kind: 'edit', menu: TREATMENT })
+    await settle()
+
+    expect(updateMenu).toHaveBeenCalledTimes(1)
+    expect(toastSuccess).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(field(/メニュー名/).value).toBe('トリートメント')
+  })
+
+  // StrictMode double-invokes every mount in dev. A cleanup-only alive effect
+  // would run its cleanup on the throwaway mount and never re-arm, freezing
+  // EVERY dev-mode save after its await. Production never double-invokes, so
+  // this is the only gate that can see it.
+  it('saves still complete under StrictMode double-mounting', async () => {
+    render(
+      <StrictMode>
+        <MenuFormDialog
+          mode={{ kind: 'edit', menu: RETOUCH }}
+          catalog={CATALOG}
+          stores={STORES}
+          onClose={onClose}
+        />
+      </StrictMode>,
+    )
+    type(/通常価格/, '9900')
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(updateMenu).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('保存しました'))
+    expect(onClose).toHaveBeenCalled()
   })
 
   it('a dismissed save cannot toast or close the dialog that replaced it', async () => {
