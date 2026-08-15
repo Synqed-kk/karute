@@ -24,7 +24,7 @@ import {
   Dialog,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { createMenu, updateMenu } from '@/actions/menus'
+import { createMenu, retireMenu, updateMenu } from '@/actions/menus'
 import { menuSchema, menuBandError, type MenuFormInput } from '@/lib/validations/menu'
 import type { StoreRow } from '@/actions/stores'
 import { MenuConfirmDialog } from './MenuConfirmDialog'
@@ -120,6 +120,10 @@ function MenuFormBody({
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [pending, setPending] = useState(false)
   const [widenOpen, setWidenOpen] = useState(false)
+  // Mutually exclusive with widenOpen BY CONSTRUCTION — widen only fires from
+  // inside save(), retire only from the footer button that save() never
+  // reaches. No coordination code.
+  const [retireOpen, setRetireOpen] = useState(false)
 
   // Only the footer buttons are gated while a write is in flight — ESC, an
   // outside click and the X still dismiss. The write lands server-side either
@@ -229,6 +233,28 @@ function MenuFormBody({
     // No client refresh: every menu action revalidatePath('/settings')s, so the
     // route re-renders off the action's own response (src/actions/menus.ts).
     toast.success(t('saved'))
+    onClose()
+  }
+
+  /** 停止 — save()'s guard idiom to the letter (same two stale shapes, same
+   *  reasons): a dismissed body must never toast or force-close the dialog
+   *  that replaced it. Retiring is reversible (再開 in the list), so the
+   *  confirm's commit button stays the accent, never destructive red. */
+  async function retire() {
+    if (!menu) return
+    setPending(true)
+    const res = await retireMenu(menu.id)
+    if (!alive.current || !activeRef.current) return
+    setPending(false)
+    // The confirm holds through the write (its own buttons inert) and closes
+    // either way once the answer is in — a failure leaves the editor open with
+    // every value intact, exactly like a failed 保存.
+    setRetireOpen(false)
+    if ('error' in res) {
+      toast.error(res.error)
+      return
+    }
+    toast.success(t('retired'))
     onClose()
   }
 
@@ -393,22 +419,35 @@ function MenuFormBody({
         )}
       </div>
 
-      <DialogFooter className="sm:justify-end">
-        <Button variant="outline" onClick={onClose} disabled={pending}>
-          {t('cancel')}
-        </Button>
-        {/* An inert 保存 is GRAY, never a faded accent — the signed mock states
-         *  the rule for this exact state (settings-mocks.html:51-52,
-         *  #e5e7eb / #9ca3af = gray-200 / gray-400 to the byte). opacity-100
-         *  defeats the shared Button's disabled fade; the shared component
-         *  itself stays untouched. */}
-        <Button
-          onClick={() => void save()}
-          disabled={!canSave}
-          className="disabled:bg-gray-200 disabled:text-gray-400 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/40"
-        >
-          {t('save')}
-        </Button>
+      {/* CREATE keeps the plain right-aligned pair — justify-between with a
+       *  single child would push it to the left edge. */}
+      <DialogFooter className={menu ? 'sm:justify-between' : 'sm:justify-end'}>
+        {/* EDIT only (mock ① :379): a menu that does not exist yet cannot be
+         *  stopped. Quiet ghost, not destructive red — 停止 is reversible from
+         *  the list, and the one-way accent law lets a pressable be quieter
+         *  than the accent. */}
+        {menu && (
+          <Button variant="ghost" onClick={() => setRetireOpen(true)} disabled={pending}>
+            {t('retireAction')}
+          </Button>
+        )}
+        <div className="flex flex-col-reverse gap-2 sm:flex-row">
+          <Button variant="outline" onClick={onClose} disabled={pending}>
+            {t('cancel')}
+          </Button>
+          {/* An inert 保存 is GRAY, never a faded accent — the signed mock states
+           *  the rule for this exact state (settings-mocks.html:51-52,
+           *  #e5e7eb / #9ca3af = gray-200 / gray-400 to the byte). opacity-100
+           *  defeats the shared Button's disabled fade; the shared component
+           *  itself stays untouched. */}
+          <Button
+            onClick={() => void save()}
+            disabled={!canSave}
+            className="disabled:bg-gray-200 disabled:text-gray-400 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/40"
+          >
+            {t('save')}
+          </Button>
+        </div>
       </DialogFooter>
 
       <MenuConfirmDialog
@@ -420,6 +459,18 @@ function MenuFormBody({
         onCancel={() => setWidenOpen(false)}
         onConfirm={() => void save(true)}
       />
+
+      {menu && (
+        <MenuConfirmDialog
+          open={retireOpen}
+          title={t('retireTitle', { name: menu.name })}
+          body={t('retireBody')}
+          confirmLabel={t('retireConfirm')}
+          pending={pending}
+          onCancel={() => setRetireOpen(false)}
+          onConfirm={() => void retire()}
+        />
+      )}
     </DialogContent>
   )
 }

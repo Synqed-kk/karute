@@ -29,9 +29,11 @@ jest.mock('sonner', () => ({ toast: { error: (m: string) => toastError(m), succe
 
 const createMenu = jest.fn(async () => ({ id: 'created' }) as { id: string } | { error: string })
 const updateMenu = jest.fn(async () => ({ ok: true }) as { ok: true } | { error: string })
+const retireMenu = jest.fn(async () => ({ ok: true }) as { ok: true } | { error: string })
 jest.mock('@/actions/menus', () => ({
   createMenu: (...args: unknown[]) => createMenu(...(args as [])),
   updateMenu: (...args: unknown[]) => updateMenu(...(args as [])),
+  retireMenu: (...args: unknown[]) => retireMenu(...(args as [])),
 }))
 
 import { MenuFormDialog } from '@/components/settings/redesign/sections/menus/MenuFormDialog'
@@ -510,6 +512,110 @@ describe('MenuFormDialog — ②b store-widening confirm', () => {
       expect.objectContaining({ store_id: EKIMAE }),
     )
     expect(screen.queryByText(/全店舗に変更しますか/)).toBeNull()
+  })
+})
+
+describe('MenuFormDialog — メニューを停止 (retire)', () => {
+  const retireAction = () => screen.getByRole('button', { name: 'メニューを停止…' })
+  const confirmButton = () => screen.getByRole('button', { name: '停止する' }) as HTMLButtonElement
+  const openConfirm = (m: Menu = RETOUCH) => {
+    open({ kind: 'edit', menu: m })
+    fireEvent.click(retireAction())
+  }
+
+  it('the footer action exists in EDIT and is ABSENT in CREATE — a menu that does not exist cannot be stopped', () => {
+    open({ kind: 'edit', menu: RETOUCH })
+    expect(retireAction()).toBeTruthy()
+
+    open({ kind: 'create' })
+    expect(screen.queryByRole('button', { name: 'メニューを停止…' })).toBeNull()
+  })
+
+  it('renders the mock ② copy and holds the write back', () => {
+    openConfirm()
+    expect(screen.getByText('「リタッチカラー」を停止しますか？')).toBeTruthy()
+    expect(
+      screen.getByText(
+        '予約履歴・カルテは変わりません。新しい予約の選択肢から消えます。後で再開できます。',
+      ),
+    ).toBeTruthy()
+    expect(retireMenu).not.toHaveBeenCalled()
+    expect(updateMenu).not.toHaveBeenCalled()
+  })
+
+  it('accepting retires THAT row and closes the whole editor', async () => {
+    openConfirm()
+    fireEvent.click(confirmButton())
+
+    await waitFor(() => expect(retireMenu).toHaveBeenCalledTimes(1))
+    expect(retireMenu).toHaveBeenCalledWith(RETOUCH.id)
+    // 停止 is its own write — it must never ride along as an update.
+    expect(updateMenu).not.toHaveBeenCalled()
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('停止しました'))
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('a pristine editor can still be stopped — 停止 is not gated on 保存', () => {
+    open({ kind: 'edit', menu: RETOUCH })
+    expect(saveButton().disabled).toBe(true)
+    expect((retireAction() as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('a failed 停止 keeps the editor open with every value intact', async () => {
+    retireMenu.mockResolvedValueOnce({ error: 'Could not retire menu: offline' })
+    open({ kind: 'edit', menu: RETOUCH })
+    type(/メニュー名/, 'リタッチカラー（ロング）')
+    fireEvent.click(retireAction())
+    fireEvent.click(confirmButton())
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Could not retire menu: offline'))
+    expect(field(/メニュー名/).value).toBe('リタッチカラー（ロング）')
+    expect(toastSuccess).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('its confirm button goes inert while the write it started is in flight', async () => {
+    let finish: (r: { ok: true }) => void = () => {}
+    retireMenu.mockReturnValueOnce(new Promise((res) => { finish = res }))
+    openConfirm()
+    fireEvent.click(confirmButton())
+
+    await waitFor(() => expect(confirmButton().disabled).toBe(true))
+    fireEvent.click(confirmButton())
+    expect(retireMenu).toHaveBeenCalledTimes(1)
+
+    await act(async () => { finish({ ok: true }) })
+  })
+
+  it('cancelling the confirm returns to the open editor with nothing written', async () => {
+    openConfirm()
+    fireEvent.click(screen.getAllByRole('button', { name: 'キャンセル' })[0])
+
+    await waitFor(() => expect(screen.queryByText('「リタッチカラー」を停止しますか？')).toBeNull())
+    expect(retireMenu).not.toHaveBeenCalled()
+    expect(field(/メニュー名/).value).toBe('リタッチカラー')
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  // Same lane law as the save gate above: StrictMode's throwaway mount must not
+  // leave `alive` false, or every dev-mode 停止 would hang after its await.
+  it('retires still complete under StrictMode double-mounting', async () => {
+    render(
+      <StrictMode>
+        <MenuFormDialog
+          mode={{ kind: 'edit', menu: RETOUCH }}
+          catalog={CATALOG}
+          stores={STORES}
+          onClose={onClose}
+        />
+      </StrictMode>,
+    )
+    fireEvent.click(retireAction())
+    fireEvent.click(confirmButton())
+
+    await waitFor(() => expect(retireMenu).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('停止しました'))
+    expect(onClose).toHaveBeenCalled()
   })
 })
 

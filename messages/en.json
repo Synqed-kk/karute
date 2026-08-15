@@ -2580,6 +2580,9 @@
       "nominationNo": "No nomination",
       "retiredGroup": "Stopped menus ({n})",
       "retiredChip": "Stopped",
+      "addMenu": "+ Add menu",
+      "filterEmpty": "No menus are available at this store",
+      "reactivate": "Resume",
       "form": {
         "createTitle": "Add menu",
         "createSubtitle": "Once a menu is saved it can be picked when booking.",
@@ -2607,7 +2610,16 @@
         "saved": "Saved",
         "widenTitle": "Make \"{name}\" available at all stores?",
         "widenBody": "It's currently a {store} menu only. Once saved, it can be booked at every store. Booking history and records don't change.",
-        "widenConfirm": "Change to all stores"
+        "widenConfirm": "Change to all stores",
+        "retireAction": "Stop this menu…",
+        "retireTitle": "Stop \"{name}\"?",
+        "retireBody": "Booking history and records don't change. It disappears from the choices for new bookings. You can resume it later.",
+        "retireConfirm": "Stop",
+        "retired": "Stopped",
+        "reactivateTitle": "Resume \"{name}\"?",
+        "reactivateBody": "It returns to the choices for new bookings. Booking history and records don't change.",
+        "reactivateConfirm": "Resume",
+        "reactivated": "Resumed"
       }
     },
     "staffCountWithLimit": "{n}/{limit} staff",

@@ -2580,6 +2580,9 @@
       "nominationNo": "指名不可",
       "retiredGroup": "停止中のメニュー（{n}）",
       "retiredChip": "停止中",
+      "addMenu": "＋ メニューを追加",
+      "filterEmpty": "この店舗で利用できるメニューはありません",
+      "reactivate": "再開",
       "form": {
         "createTitle": "メニューを追加",
         "createSubtitle": "メニューを登録すると、予約作成時に選べるようになります。",
@@ -2607,7 +2610,16 @@
         "saved": "保存しました",
         "widenTitle": "「{name}」を全店舗に変更しますか？",
         "widenBody": "現在は{store}のみのメニューです。保存すると、すべての店舗の予約で選べるようになります。予約履歴・カルテは変わりません。",
-        "widenConfirm": "全店舗に変更する"
+        "widenConfirm": "全店舗に変更する",
+        "retireAction": "メニューを停止…",
+        "retireTitle": "「{name}」を停止しますか？",
+        "retireBody": "予約履歴・カルテは変わりません。新しい予約の選択肢から消えます。後で再開できます。",
+        "retireConfirm": "停止する",
+        "retired": "停止しました",
+        "reactivateTitle": "「{name}」を再開しますか？",
+        "reactivateBody": "新しい予約の選択肢に戻ります。予約履歴・カルテは変わりません。",
+        "reactivateConfirm": "再開する",
+        "reactivated": "再開しました"
       }
     },
     "staffCountWithLimit": "{n}/{limit}名のスタッフ",
