@@ -42,6 +42,33 @@ describe('thin actions port — appointments transport contract', () => {
     expect(result).toEqual({ error: 'Load failed' })
   })
 
+  // The port posts `input` verbatim, so menuId only reaches the facade if the
+  // dialog's field survives the hop untouched.
+  it('createAppointment posts menuId through verbatim', async () => {
+    let sent: { path: string; body: unknown } | null = null
+    const apiFetch = jest.fn(async (path: string, init: RequestInit) => {
+      sent = { path, body: JSON.parse(init.body as string) }
+      return new Response(JSON.stringify({ id: 'appt-1' }))
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await createAppointment({
+      staffProfileId: 's1',
+      clientId: 'c1',
+      startTime: new Date().toISOString(),
+      durationMinutes: 90,
+      menuId: '2c9f5e3a-70b6-4d84-a153-4e8f12cd96a7',
+    })
+
+    expect(sent).toEqual({
+      path: '/api/app/v1/appointments',
+      body: expect.objectContaining({
+        durationMinutes: 90,
+        menuId: '2c9f5e3a-70b6-4d84-a153-4e8f12cd96a7',
+      }),
+    })
+  })
+
   it('cancel / no-show / restore map transport rejects to { error }', async () => {
     await expect(cancelAppointment('a1', {})).resolves.toEqual({ error: 'Load failed' })
     await expect(markNoShowAppointment('a1', { burnPack: false })).resolves.toEqual({

@@ -158,6 +158,7 @@ const CREATE_BODY = {
   durationMinutes: 60,
   tzOffsetMinutes: -540,
 }
+const MENU_ID = '2c9f5e3a-70b6-4d84-a153-4e8f12cd96a7'
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -243,6 +244,24 @@ describe('POST /api/app/v1/appointments (create)', () => {
     expect(res.status).toBe(200)
     expect((await res.json()).error).toMatch(/operating hours/)
     expect(resolveSynqedStaffIdForBusiness).not.toHaveBeenCalled()
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
+  it('a linked menuId passes .strict() and reaches core as menu_id', async () => {
+    const res = await createPOST(
+      post(CREATE_URL, { ...CREATE_BODY, menuId: MENU_ID }),
+      noParams,
+    )
+    expect(res.status).toBe(201)
+    expect(apptCreate).toHaveBeenCalledWith(expect.objectContaining({ menu_id: MENU_ID }))
+  })
+
+  it('a non-uuid menuId → 400, no write', async () => {
+    const res = await createPOST(
+      post(CREATE_URL, { ...CREATE_BODY, menuId: 'cut' }),
+      noParams,
+    )
+    expect(res.status).toBe(400)
     expect(apptCreate).not.toHaveBeenCalled()
   })
 

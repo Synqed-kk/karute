@@ -125,11 +125,6 @@ export default async function AppointmentsPage({
     ),
   ])
 
-  // PR-4b threads this into AppointmentsView/NewBookingDialog. Fetched here in
-  // 4a so the page assembly and the shared 60s cache are exercised server-side
-  // first, on the same wave as every other picker source (plan §9 4a/4b split).
-  void menuOptions
-
   const authProfileId = user?.id ?? null
   const storeStaffIds = await t.phase('storeStaffIds', () =>
     storeStaffIdSet(staffList, storeScope.storeId),
@@ -204,6 +199,7 @@ export default async function AppointmentsPage({
         reservationStaff={screen.reservationStaff}
         businessHours={screen.businessHours}
         staffFilter={staffFilter}
+        menus={menuOptions}
       />
     </>
   )

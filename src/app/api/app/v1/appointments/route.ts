@@ -36,6 +36,7 @@ const CreateAppointmentSchema = z
     tzOffsetMinutes: z.number().optional(),
     title: z.string().optional(),
     notes: z.string().optional(),
+    menuId: z.string().uuid().optional(),
   })
   .strict()
 

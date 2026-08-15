@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
+import { X } from 'lucide-react'
 import { useRouter } from '@/i18n/navigation'
 import {
   Dialog,
@@ -17,8 +18,10 @@ import { Button } from '@/components/ui/button'
 import { CustomerCombobox } from '@/components/karute/CustomerCombobox'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 import { QuickCreateCustomer } from '@/components/karute/QuickCreateCustomer'
+import { MenuCombobox, formatYen } from '@/components/appointments/MenuCombobox'
 import { createAppointment } from '@/actions/appointments'
 import { hmInJst, jstWallTimeToDate, ymdInJst } from '@/lib/date/jst'
+import type { CachedMenuOption } from '@/lib/menus/cached'
 
 interface NewBookingDialogProps {
   open: boolean
@@ -33,10 +36,14 @@ interface NewBookingDialogProps {
   initialStaffId?: string | null
   /** Pre-selected customer when opening from a customer profile. */
   initialClientId?: string | null
+  /** Active menu catalog for the picker. Absent/empty = today's plain
+   *  free-text service field (a shop with no catalog gets no picker chrome). */
+  menus?: CachedMenuOption[]
   onCreated?: () => void
 }
 
 const DURATION_OPTIONS = ['30', '45', '60', '75', '90']
+const DEFAULT_DURATION = '60'
 
 type CustomerFlowState = 'combobox' | 'quick-create'
 
@@ -63,6 +70,7 @@ export function NewBookingDialog({
   initialTime,
   initialStaffId,
   initialClientId,
+  menus,
   onCreated,
 }: NewBookingDialogProps) {
   const t = useTranslations('reservation')
@@ -70,7 +78,7 @@ export function NewBookingDialog({
   const [clientId, setClientId] = useState<string | null>(initialClientId ?? null)
   const [date, setDate] = useState(initialDate ?? todayYmdJst())
   const [time, setTime] = useState(initialTime ?? defaultTimeJst())
-  const [duration, setDuration] = useState('60')
+  const [duration, setDuration] = useState(DEFAULT_DURATION)
   const [staffId, setStaffId] = useState<string>(
     initialStaffId ?? staff[0]?.id ?? '',
   )
@@ -83,6 +91,19 @@ export function NewBookingDialog({
   // Seeds QuickCreateCustomer's name input with whatever the staff had already
   // typed into the combobox before tapping "+ 新規顧客".
   const [quickCreateSeed, setQuickCreateSeed] = useState('')
+  // Local mirror of `menus`, same reason as customerList above: a mid-entry
+  // refresh handing down fresh prop identities must not blank an armed link.
+  const [menuList, setMenuList] = useState<CachedMenuOption[]>(menus ?? [])
+  const [linkedMenu, setLinkedMenu] = useState<CachedMenuOption | null>(null)
+  // R8: only a real user change on the select counts as touched — a touched
+  // duration then survives every pick, re-pick and unlink.
+  const [durationTouched, setDurationTouched] = useState(false)
+  const [prePickDuration, setPrePickDuration] = useState<string | null>(null)
+  const [showDurationReminder, setShowDurationReminder] = useState(false)
+  // seq remounts the live region's text node so an identical repeat still
+  // announces.
+  const [announcement, setAnnouncement] = useState({ text: '', seq: 0 })
+  const serviceInputRef = useRef<HTMLInputElement>(null)
 
   // Re-seed defaults ONLY on the closed→open transition. Quick-create's
   // revalidateTag refresh hands this component fresh prop identities while
@@ -104,7 +125,73 @@ export function NewBookingDialog({
     setCustomerList(customers)
     setCustomerFlow('combobox')
     setQuickCreateSeed('')
-  }, [open, initialClientId, initialDate, initialTime, initialStaffId, staff, customers])
+    // Duration resets too (R8 rule 1): without it booking 2 inherits booking
+    // 1's length, which nothing on screen explains.
+    setDuration(DEFAULT_DURATION)
+    setMenuList(menus ?? [])
+    setLinkedMenu(null)
+    setDurationTouched(false)
+    setPrePickDuration(null)
+    setShowDurationReminder(false)
+    setAnnouncement({ text: '', seq: 0 })
+  }, [open, initialClientId, initialDate, initialTime, initialStaffId, staff, customers, menus])
+
+  // Transient nudge — the revert already happened, this only says so.
+  useEffect(() => {
+    if (!showDurationReminder) return
+    const timer = setTimeout(() => setShowDurationReminder(false), 4000)
+    return () => clearTimeout(timer)
+  }, [showDurationReminder])
+
+  // No path may blank the select: base steps ∪ the current value ∪ the linked
+  // menu's standard, so a 120分 menu is always reachable and a 120分 booking
+  // never loses its own value when the link drops.
+  const durationOptions = useMemo(() => {
+    const minutes = new Set(DURATION_OPTIONS.map(Number))
+    const current = parseInt(duration, 10)
+    if (Number.isFinite(current)) minutes.add(current)
+    if (linkedMenu) minutes.add(linkedMenu.duration_minutes)
+    return [...minutes].sort((a, b) => a - b).map(String)
+  }, [duration, linkedMenu])
+
+  function announceDuration(minutes: number) {
+    setAnnouncement((prev) => ({
+      text: t('newBookingDialog.menuDurationAnnounce', { n: minutes }),
+      seq: prev.seq + 1,
+    }))
+  }
+
+  function handlePickMenu(menu: CachedMenuOption) {
+    // Only the FIRST link records the pre-link duration — a re-pick must still
+    // revert to what the staff had before the picker touched anything.
+    if (!linkedMenu) setPrePickDuration(duration)
+    setLinkedMenu(menu)
+    setService(menu.name)
+    setShowDurationReminder(false)
+    if (durationTouched) return
+    setDuration(String(menu.duration_minutes))
+    announceDuration(menu.duration_minutes)
+  }
+
+  /** Manual text edit or the chip's × — the text always stays, only the link
+   *  goes. An untouched duration goes back to its pre-link value. */
+  function dropMenuLink() {
+    if (!linkedMenu) return
+    setLinkedMenu(null)
+    if (durationTouched) return
+    if (prePickDuration !== null) setDuration(prePickDuration)
+    setPrePickDuration(null)
+    setShowDurationReminder(true)
+  }
+
+  function handleApplyMenuStandard() {
+    if (!linkedMenu) return
+    setDuration(String(linkedMenu.duration_minutes))
+    // Re-arms: the staff handed the decision back to the menu.
+    setDurationTouched(false)
+    setShowDurationReminder(false)
+    announceDuration(linkedMenu.duration_minutes)
+  }
 
   const canSubmit =
     !!clientId && !!date && !!time && !!staffId && customerFlow === 'combobox' && !saving
@@ -146,6 +233,9 @@ export function NewBookingDialog({
       // interpreted as JST (which is what the form labels say).
       tzOffsetMinutes: -540,
       title: service.trim() || undefined,
+      // Free text books without one; core validates ownership and snapshots
+      // the price itself.
+      menuId: linkedMenu?.id,
     })
     setSaving(false)
 
@@ -209,19 +299,52 @@ export function NewBookingDialog({
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <Field label={t('newBookingDialog.duration')}>
-              <select
-                value={duration}
-                onChange={(e) => setDuration(e.target.value)}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            <div>
+              <Field
+                label={t('newBookingDialog.duration')}
+                accessory={
+                  // Fixed height reserves the pill's row so showing it never
+                  // jogs the select below.
+                  <span className="ml-2 inline-flex h-[18px] items-center align-middle">
+                    {showDurationReminder && (
+                      <span className="animate-in fade-in rounded-full bg-amber-50 px-2 text-[11px] leading-[18px] font-medium text-amber-700 motion-reduce:animate-none">
+                        {t('newBookingDialog.menuDurationReminder')}
+                      </span>
+                    )}
+                  </span>
+                }
               >
-                {DURATION_OPTIONS.map((v) => (
-                  <option key={v} value={v}>
-                    {t('card.duration', { n: parseInt(v, 10) })}
-                  </option>
-                ))}
-              </select>
-            </Field>
+                <select
+                  value={duration}
+                  onChange={(e) => {
+                    if (e.target.value === duration) return
+                    setDuration(e.target.value)
+                    setDurationTouched(true)
+                    setShowDurationReminder(false)
+                  }}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                  {durationOptions.map((v) => (
+                    <option key={v} value={v}>
+                      {t('card.duration', { n: parseInt(v, 10) })}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              {/* Outside the Field so this button never doubles as a click on
+                  the label's select. */}
+              {linkedMenu && (
+                <button
+                  type="button"
+                  onClick={handleApplyMenuStandard}
+                  className="mt-1 text-xs text-primary hover:underline"
+                >
+                  {t('newBookingDialog.menuStandard', {
+                    n: linkedMenu.duration_minutes,
+                  })}
+                </button>
+              )}
+            </div>
             <Field label={t('newBookingDialog.staff')}>
               <select
                 value={staffId}
@@ -237,13 +360,52 @@ export function NewBookingDialog({
             </Field>
           </div>
 
-          <Field label={t('newBookingDialog.service')}>
-            <Input
-              value={service}
-              onChange={(e) => setService(e.target.value)}
-              placeholder={t('newBookingDialog.servicePlaceholder')}
-            />
-          </Field>
+          <div>
+            <Field label={t('newBookingDialog.service')}>
+              {menuList.length === 0 ? (
+                <Input
+                  value={service}
+                  onChange={(e) => setService(e.target.value)}
+                  placeholder={t('newBookingDialog.servicePlaceholder')}
+                />
+              ) : (
+                <MenuCombobox
+                  menus={menuList}
+                  value={service}
+                  linkedMenuId={linkedMenu?.id ?? null}
+                  onTextChange={(text) => {
+                    setService(text)
+                    dropMenuLink()
+                  }}
+                  onPick={handlePickMenu}
+                  placeholder={t('newBookingDialog.servicePlaceholder')}
+                  inputRef={serviceInputRef}
+                />
+              )}
+            </Field>
+            {linkedMenu && (
+              <span className="mt-1.5 inline-flex items-center gap-0.5 rounded-full bg-primary/8 py-0.5 pr-0.5 pl-2.5 text-xs text-primary">
+                {t('newBookingDialog.menuLinked', {
+                  price: formatYen(linkedMenu.price_list_amount),
+                })}
+                <button
+                  type="button"
+                  aria-label={t('newBookingDialog.menuUnlink')}
+                  onClick={() => {
+                    dropMenuLink()
+                    serviceInputRef.current?.focus()
+                  }}
+                  className="inline-flex size-6 items-center justify-center rounded-full text-primary hover:bg-primary/12"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div aria-live="polite" className="sr-only">
+          <span key={announcement.seq}>{announcement.text}</span>
         </div>
 
         <DialogFooter>
@@ -262,10 +424,13 @@ export function NewBookingDialog({
 function Field({
   label,
   required,
+  accessory,
   children,
 }: {
   label: string
   required?: boolean
+  /** Inline slot after the label text (the 時間を確認 pill). */
+  accessory?: React.ReactNode
   children: React.ReactNode
 }) {
   return (
@@ -273,6 +438,7 @@ function Field({
       <span className="mb-1 block text-xs font-medium text-muted-foreground">
         {label}
         {required && <span className="ml-0.5 text-red-500">*</span>}
+        {accessory}
       </span>
       {children}
     </label>
