@@ -112,6 +112,10 @@ export function MenuCombobox({
     if (event.key === 'Escape') {
       if (!open) return
       event.preventDefault()
+      // The dialog around this field closes on Escape too. Dismissing the
+      // list must not also throw away a half-entered booking, so this Escape
+      // is consumed here; the next one (list closed) reaches the dialog.
+      event.stopPropagation()
       setOpen(false)
       return
     }
@@ -212,7 +216,9 @@ export function MenuCombobox({
                     }}
                     onMouseEnter={() => setActiveIndex(i)}
                     className={cn(
-                      'flex cursor-pointer flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-2 text-sm hover:bg-primary/8 hover:text-primary',
+                      // No hover: classes — onMouseEnter sets activeIndex,
+                      // so the pointer gets the same wash the keyboard does.
+                      'flex cursor-pointer flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-2 text-sm',
                       i === activeIndex && 'bg-primary/8 text-primary',
                     )}
                   >

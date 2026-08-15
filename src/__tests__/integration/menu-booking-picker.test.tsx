@@ -66,7 +66,6 @@ const BANGS = menu({
   id: '1b8e4d29-6fa5-4c73-9e42-3d7e01bc85f6',
   name: '前髪カット',
   category: 'カット',
-  category_display_order: 1,
   display_order: 1,
   duration_minutes: 30,
   price_list_amount: 1100,
@@ -280,6 +279,36 @@ describe('MenuCombobox — keyboard operability', () => {
     fireEvent.click(serviceInput())
     // Reopening drops the filter — the whole catalog is browsable again.
     expect(listOptions()).toHaveLength(CATALOG.length)
+  })
+
+  // The dialog is a @base-ui/react Dialog and closes on Escape itself, so the
+  // list-closing Escape must not reach it: dismissing a dropdown may never
+  // throw away a half-entered booking. Needs its own mount — the shared
+  // harness pins `open` with a no-op onOpenChange, which can see nothing.
+  it('Escape closing the list never asks the dialog to close', () => {
+    cleanup()
+    const onOpenChange = jest.fn()
+    render(
+      <NewBookingDialog
+        open
+        onOpenChange={onOpenChange}
+        customers={[CUSTOMER]}
+        staff={STAFF}
+        menus={CATALOG}
+        initialClientId={CUSTOMER.id}
+      />,
+    )
+    openList()
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+
+    fireEvent.keyDown(serviceInput(), { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(onOpenChange).not.toHaveBeenCalled()
+
+    // Only the FIRST one is consumed — Escape on a closed list still closes
+    // the dialog, which is what the staff means by then.
+    fireEvent.keyDown(serviceInput(), { key: 'Escape' })
+    expect(onOpenChange).toHaveBeenCalledWith(false, expect.anything())
   })
 })
 
