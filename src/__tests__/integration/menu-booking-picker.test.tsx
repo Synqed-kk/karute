@@ -161,8 +161,9 @@ const optionRow = (name: string) =>
 const groupHeaders = () =>
   screen.getByRole('listbox').querySelectorAll('[role="presentation"]')
 
+/** A tap on the field — the way the staff opens the catalog (Liam 8/15). */
 function openList() {
-  fireEvent.focus(serviceInput())
+  fireEvent.click(serviceInput())
 }
 function pick(name: string) {
   openList()
@@ -181,7 +182,7 @@ beforeEach(() => {
 })
 
 describe('MenuCombobox — list rendering', () => {
-  it('opens on focus with the full grouped catalog; 未分類 heads the null-category run', () => {
+  it('opens on a tap with the full grouped catalog; 未分類 heads the null-category run', () => {
     openList()
     expect(listOptions()).toHaveLength(CATALOG.length)
     // One header per category RUN (カット/カラー/トリートメント/未分類), not per row.
@@ -190,6 +191,17 @@ describe('MenuCombobox — list rendering', () => {
     // The listbox's accessible name is the only new key with no visible
     // string, so a wrong-but-present translation would otherwise ship.
     expect(screen.getByRole('listbox')).toHaveAttribute('aria-label', 'メニュー候補')
+  })
+
+  it('focus alone never opens the list — a tap does', () => {
+    // Dialog autofocus, a Tab into the field and the chip ×'s refocus all
+    // arrive as bare focus. The list opens UPWARD over the 所要時間 row, so
+    // opening on arrival hides a row nobody asked to hide (Liam 8/15).
+    fireEvent.focus(serviceInput())
+    expect(screen.queryByRole('listbox')).toBeNull()
+
+    fireEvent.click(serviceInput())
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
   })
 
   it('renders duration + price on each row; a band menu shows the range', () => {
@@ -565,19 +577,9 @@ describe('R8 duration model', () => {
     expect(document.activeElement).toBe(serviceInput())
     expect(reminder()).toBeInTheDocument()
 
-    // Nothing is left armed: every deliberate open still works.
-    fireEvent.focus(serviceInput())
-    expect(listOptions()).toHaveLength(CATALOG.length)
-
-    fireEvent.keyDown(serviceInput(), { key: 'Escape' })
-    expect(screen.queryByRole('listbox')).toBeNull()
+    // The refocused field is still a live picker — a deliberate open works.
     fireEvent.keyDown(serviceInput(), { key: 'ArrowDown' })
-    expect(screen.getByRole('listbox')).toBeInTheDocument()
-
-    fireEvent.pointerDown(document.body)
-    expect(screen.queryByRole('listbox')).toBeNull()
-    fireEvent.click(serviceInput())
-    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    expect(listOptions()).toHaveLength(CATALOG.length)
   })
 
   it('the chip × closes a list that was already OPEN, on engines that do not focus the ×', () => {
@@ -587,7 +589,9 @@ describe('R8 duration model', () => {
     // and it stays parked over the 所要時間 row and the 時間を確認 pill for the
     // pill's whole life. jsdom moves no focus on click either, so this test IS
     // that engine.
+    // A real tap: the field takes focus AND the click opens the list.
     act(() => serviceInput().focus())
+    openList()
     expect(screen.getByRole('listbox')).toBeInTheDocument()
     fireEvent.mouseDown(optionRow('リタッチカラー'))
     expect(screen.queryByRole('listbox')).toBeNull()
@@ -747,6 +751,9 @@ describe('dialog lifecycle', () => {
 
     expect(serviceInput()).toHaveAttribute('role', 'combobox')
     expect(serviceInput().value).toBe('リタ')
+    // Typing left the list open on its filter; dismiss it and tap again —
+    // the catalog behind it is still the last-good one, not the empty prop.
+    fireEvent.keyDown(serviceInput(), { key: 'Escape' })
     openList()
     expect(listOptions()).toHaveLength(CATALOG.length)
   })
@@ -755,7 +762,7 @@ describe('dialog lifecycle', () => {
     mount([])
     const input = serviceInput()
     expect(input).not.toHaveAttribute('role', 'combobox')
-    fireEvent.focus(input)
+    fireEvent.click(input)
     expect(screen.queryByRole('listbox')).toBeNull()
     fireEvent.change(input, { target: { value: '着付け' } })
     expect(input.value).toBe('着付け')

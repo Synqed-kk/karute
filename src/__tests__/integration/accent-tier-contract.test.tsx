@@ -188,7 +188,7 @@ describe('予約 menu picker — accent tier', () => {
       />,
     )
     const input = screen.getByPlaceholderText('newBookingDialog.servicePlaceholder')
-    fireEvent.focus(input)
+    fireEvent.click(input)
     fireEvent.mouseDown(within(screen.getByRole('listbox')).getAllByRole('option')[0])
 
     // 1. The × — a pressable, so accent text is exactly right.

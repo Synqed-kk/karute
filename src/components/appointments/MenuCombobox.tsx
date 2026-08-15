@@ -17,12 +17,6 @@ type MenuComboboxProps = {
   placeholder?: string
   /** Lets the chip's × hand focus back to the field. */
   inputRef?: React.RefObject<HTMLInputElement | null>
-  /** Set true immediately before a programmatic focus() to hand focus back
-   *  WITHOUT opening the catalog. The chip's × needs this: the list opens
-   *  UPWARD over the 所要時間 row, so auto-reopening would bury the very
-   *  revert warning the × just raised. Consumed on read (and the setter
-   *  clears it too), so it can never leak into the staff's own next focus. */
-  suppressFocusOpenRef?: React.RefObject<boolean>
 }
 
 export function formatYen(amount: number): string {
@@ -45,9 +39,10 @@ export function formatMenuPrice(
  *
  * Deliberately NOT CustomerCombobox: that one snaps unmatched text back to the
  * selected customer, this one keeps free text as a first-class answer (a shop
- * books things that aren't in its catalog). It also opens on FOCUS with the
- * whole grouped catalog — a menu list is short and browsing it is the point,
- * where dumping every customer never was.
+ * books things that aren't in its catalog). A tap opens the whole grouped
+ * catalog — a menu list is short and browsing it is the point, where dumping
+ * every customer never was. Focus alone never opens it (Liam 8/15): arriving
+ * in the field is not a request to see the list.
  *
  * The popover opens UPWARD: メニュー is the dialog's LAST field, so a downward
  * list would cover 保存 and turn a save tap into a silent menu swap.
@@ -60,7 +55,6 @@ export function MenuCombobox({
   onPick,
   placeholder,
   inputRef,
-  suppressFocusOpenRef,
 }: MenuComboboxProps) {
   const t = useTranslations('reservation')
   const listId = useId()
@@ -191,14 +185,11 @@ export function MenuCombobox({
           setActiveIndex(-1)
           setOpen(true)
         }}
-        onFocus={() => {
-          if (suppressFocusOpenRef?.current) {
-            suppressFocusOpenRef.current = false
-            return
-          }
-          openList()
-        }}
-        // Reopen after an Escape that never blurred the field.
+        // THE opener, like any other iOS control: a tap on the field. Focus is
+        // deliberately not one — the dialog's autofocus, a Tab into the field
+        // and the chip ×'s refocus would all raise an upward list over the
+        // 所要時間 row nobody asked to hide. Typing and ArrowDown open it too.
+        // Also the reopen after an Escape that never blurred the field.
         onClick={() => !open && openList()}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}

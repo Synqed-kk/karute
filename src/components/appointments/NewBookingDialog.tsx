@@ -107,8 +107,6 @@ export function NewBookingDialog({
   // announces.
   const [announcement, setAnnouncement] = useState({ text: '', seq: 0 })
   const serviceInputRef = useRef<HTMLInputElement>(null)
-  // Armed for exactly one focus event — see MenuCombobox's suppressFocusOpenRef.
-  const suppressFocusOpenRef = useRef(false)
 
   // Re-seed defaults ONLY on the closed→open transition. Quick-create's
   // revalidateTag refresh hands this component fresh prop identities while
@@ -399,7 +397,6 @@ export function NewBookingDialog({
                   onPick={handlePickMenu}
                   placeholder={t('newBookingDialog.servicePlaceholder')}
                   inputRef={serviceInputRef}
-                  suppressFocusOpenRef={suppressFocusOpenRef}
                 />
               )}
             </Field>
@@ -421,15 +418,10 @@ export function NewBookingDialog({
                     // never leaves the dialog on the way.
                     e.currentTarget.focus()
                     dropMenuLink()
-                    // Focus returns to the field, but the catalog stays shut:
-                    // it opens upward, so reopening here would cover the
-                    // 所要時間 row and the 時間を確認 pill for the pill's whole
-                    // life. focus() dispatches synchronously, so clearing the
-                    // flag right after leaves nothing armed for the staff's
-                    // own next focus. Click / ArrowDown / typing still open.
-                    suppressFocusOpenRef.current = true
+                    // Focus goes back to the field the staff was editing; the
+                    // catalog stays shut on its own, because the list opens on
+                    // a tap and never on bare focus.
                     serviceInputRef.current?.focus()
-                    suppressFocusOpenRef.current = false
                   }}
                   className="inline-flex size-6 items-center justify-center rounded-full text-primary hover:bg-primary/12"
                 >
