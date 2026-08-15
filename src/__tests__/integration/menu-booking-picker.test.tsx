@@ -8,7 +8,15 @@
 // The seam assertion (menuId reaching the action) rides a StrictMode render —
 // lane law after the PR-3a double-invoke incident.
 import { StrictMode } from 'react'
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import {
+  act,
+  cleanup,
+  createEvent,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react'
 
 jest.mock('next-intl', () => {
   const ja = jest.requireActual('../../../messages/ja.json')
@@ -177,6 +185,9 @@ describe('MenuCombobox — list rendering', () => {
     // One header per category RUN (カット/カラー/トリートメント/未分類), not per row.
     expect(groupHeaders()).toHaveLength(4)
     expect(groupHeaders()[3]).toHaveTextContent('未分類')
+    // The listbox's accessible name is the only new key with no visible
+    // string, so a wrong-but-present translation would otherwise ship.
+    expect(screen.getByRole('listbox')).toHaveAttribute('aria-label', 'メニュー候補')
   })
 
   it('renders duration + price on each row; a band menu shows the range', () => {
@@ -232,6 +243,48 @@ describe('MenuCombobox — list rendering', () => {
     expect(serviceInput().value).toBe('')
   })
 
+  it('hovering a row is the pointer’s only feedback, so it must set the active row', () => {
+    openList()
+    // React synthesises onMouseEnter from mouseover.
+    fireEvent.mouseOver(optionRow('ヘッドスパ'))
+    expect(optionRow('ヘッドスパ')).toHaveClass('bg-primary/8', 'text-primary')
+    expect(serviceInput()).toHaveAttribute(
+      'aria-activedescendant',
+      optionRow('ヘッドスパ').id,
+    )
+  })
+
+  it('marks the linked row for sighted AND assistive users when the list reopens', () => {
+    pick('リタッチカラー')
+    openList()
+    expect(optionRow('リタッチカラー')).toHaveAttribute('aria-selected', 'true')
+    expect(optionRow('カット')).toHaveAttribute('aria-selected', 'false')
+    // Linked but not keyboard-active → the neutral marker, never the accent.
+    expect(optionRow('リタッチカラー')).toHaveClass('bg-muted')
+    expect(optionRow('リタッチカラー')).not.toHaveClass('bg-primary/8')
+
+    // The R13 selected-state wash is what tells the staff where Enter lands.
+    fireEvent.keyDown(serviceInput(), { key: 'ArrowDown' })
+    expect(optionRow('カット')).toHaveClass('bg-primary/8', 'text-primary')
+  })
+
+  it('a tap on a category header or the no-results line never closes the list', () => {
+    openList()
+    // jsdom does not implement mousedown's focus side-effect, so the only
+    // observable half is the preventDefault that stops the blur → focusout →
+    // close → filter/scroll reset chain in a real browser.
+    const header = groupHeaders()[0]
+    const headerDown = createEvent.mouseDown(header)
+    fireEvent(header, headerDown)
+    expect(headerDown.defaultPrevented).toBe(true)
+
+    fireEvent.change(serviceInput(), { target: { value: 'まつげパーマ' } })
+    const empty = screen.getByText('該当するメニューはありません（自由入力できます）')
+    const emptyDown = createEvent.mouseDown(empty)
+    fireEvent(empty, emptyDown)
+    expect(emptyDown.defaultPrevented).toBe(true)
+  })
+
   it('resets the list scroll on every open', () => {
     const proto = Element.prototype
     const original = Object.getOwnPropertyDescriptor(proto, 'scrollTop')!
@@ -279,6 +332,63 @@ describe('MenuCombobox — keyboard operability', () => {
     fireEvent.click(serviceInput())
     // Reopening drops the filter — the whole catalog is browsable again.
     expect(listOptions()).toHaveLength(CATALOG.length)
+  })
+
+  it('Enter after an Escape never picks the row the staff just backed out of', () => {
+    const input = serviceInput()
+    openList()
+    fireEvent.keyDown(input, { key: 'ArrowDown' }) // active = カット
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).toBeNull()
+
+    // Escape deliberately leaves activeIndex alone, so the closed-list guard
+    // is the only thing between "dismiss, then type my own wording, then
+    // Enter to commit" and a silent re-link to the dismissed menu.
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(serviceInput().value).toBe('')
+    expect(chip('¥5,500')).toBeNull()
+    expect(durationSelect().value).toBe('60')
+  })
+
+  it('typing after arrowing clears the highlight instead of stranding it', () => {
+    const input = serviceInput()
+    openList()
+    fireEvent.keyDown(input, { key: 'ArrowUp' }) // last row, index 5
+    expect(input).toHaveAttribute('aria-activedescendant')
+
+    // The list collapses to 2 rows; a surviving index 5 would point
+    // aria-activedescendant at an id that no longer exists and make Enter
+    // resolve undefined — the key that just worked goes dead, silently.
+    fireEvent.change(input, { target: { value: 'カット' } })
+    expect(listOptions()).toHaveLength(2)
+    expect(input).not.toHaveAttribute('aria-activedescendant')
+
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(serviceInput().value).toBe('カット')
+    expect(chip('¥5,500')).toBeNull()
+  })
+
+  // Japanese input: Escape cancels a 変換 and Enter commits it, both delivered
+  // to the field as ordinary keydowns. Consuming them here would close the list
+  // on the conversion-cancel (so the staff's follow-up Escape reaches the
+  // dialog and discards the booking) and pick a menu on the commit.
+  it.each([
+    ['isComposing', { isComposing: true }],
+    ['keyCode 229', { keyCode: 229 }],
+  ])('keys delivered during an IME conversion are ignored (%s)', (_label, ime) => {
+    const input = serviceInput()
+    openList()
+
+    fireEvent.keyDown(input, { key: 'ArrowDown', ...ime })
+    expect(input).not.toHaveAttribute('aria-activedescendant')
+
+    fireEvent.keyDown(input, { key: 'Escape', ...ime })
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+
+    fireEvent.keyDown(input, { key: 'Enter', ...ime })
+    expect(serviceInput().value).toBe('')
+    expect(chip('¥5,500')).toBeNull()
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
   })
 
   // The dialog is a @base-ui/react Dialog and closes on Escape itself, so the
@@ -368,6 +478,16 @@ describe('R8 duration model', () => {
     expect(reminder()).toBeNull()
   })
 
+  it('a same-value re-select of 所要時間 never arms touched', () => {
+    // Real browsers do not fire change when the same <option> is re-picked,
+    // but assistive tooling and any future controlled-select refactor can.
+    // Once touched is armed by mistake the next pick stops prefilling and a
+    // 120分 colour books into a 60分 slot with nothing on screen to explain it.
+    setDuration('60')
+    pick('フルカラー')
+    expect(durationSelect().value).toBe('120')
+  })
+
   it('revert-on-clear: an untouched duration goes back to its PRE-LINK value', () => {
     // 75 is neither the 60 default nor the 90 standard, so the revert target
     // is unambiguous. The hint tap re-arms touched, which is what makes a
@@ -377,11 +497,18 @@ describe('R8 duration model', () => {
     fireEvent.click(hint()!)
     expect(durationSelect().value).toBe('90')
 
+    // Only the FIRST link records the pre-link value: re-picking must not
+    // re-baseline it to a duration the picker itself put there, or abandoning
+    // the catalog restores 90 to a booking nobody chose 90 minutes for.
+    pick('ヘッドスパ')
+    expect(durationSelect().value).toBe('45')
+
     fireEvent.change(serviceInput(), { target: { value: 'リタッチカラーだけ' } })
     expect(durationSelect().value).toBe('75')
-    expect(chip('¥8,800')).toBeNull()
+    expect(chip('¥4,400')).toBeNull()
     expect(serviceInput().value).toBe('リタッチカラーだけ')
     expect(reminder()).toBeInTheDocument()
+    expect(screen.getByText('所要時間を75分に戻しました')).toBeInTheDocument()
   })
 
   it('the chip × reverts the same way, keeps the text and refocuses the field', () => {
@@ -390,7 +517,72 @@ describe('R8 duration model', () => {
     expect(durationSelect().value).toBe('60')
     expect(serviceInput().value).toBe('リタッチカラー')
     expect(reminder()).toBeInTheDocument()
+    // The revert is the one duration change nobody asked for, so it announces
+    // too — the pill alone reaches only sighted staff.
+    expect(screen.getByText('所要時間を60分に戻しました')).toBeInTheDocument()
     expect(document.activeElement).toBe(serviceInput())
+  })
+
+  it('the chip × hands focus back WITHOUT reopening the catalog over the pill', () => {
+    pick('リタッチカラー')
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー連携を解除' }))
+    // The list opens UPWARD, so a reopen here would cover the 所要時間 select
+    // and the 時間を確認 pill for the pill's whole 4-second life — the revert
+    // safeguard would be invisible on its own primary trigger.
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(document.activeElement).toBe(serviceInput())
+    expect(reminder()).toBeInTheDocument()
+
+    // Nothing is left armed: every deliberate open still works.
+    fireEvent.focus(serviceInput())
+    expect(listOptions()).toHaveLength(CATALOG.length)
+
+    fireEvent.keyDown(serviceInput(), { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    fireEvent.keyDown(serviceInput(), { key: 'ArrowDown' })
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('listbox')).toBeNull()
+    fireEvent.click(serviceInput())
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+  })
+
+  it('a revert that moves nothing neither nudges nor announces', () => {
+    // カット's standard IS the 60分 default, so unlinking restores exactly what
+    // is already on screen. Crying wolf here makes the real alarm above
+    // cheaper to ignore.
+    pick('カット')
+    expect(durationSelect().value).toBe('60')
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー連携を解除' }))
+    expect(durationSelect().value).toBe('60')
+    expect(reminder()).toBeNull()
+    expect(screen.queryByText(/戻しました/)).toBeNull()
+  })
+
+  it('an identical repeat announcement still announces (the live region remounts)', () => {
+    const liveText = () =>
+      document.querySelector('[aria-live="polite"] span') as HTMLElement
+    pick('リタッチカラー')
+    const first = liveText()
+    expect(first).toHaveTextContent('所要時間をメニュー標準の90分に設定しました')
+
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー連携を解除' }))
+    pick('リタッチカラー')
+    const second = liveText()
+    expect(second).toHaveTextContent('所要時間をメニュー標準の90分に設定しました')
+    // Same text: only a fresh text node makes aria-live speak a second time.
+    expect(second).not.toBe(first)
+  })
+
+  it('the pill sits in a fixed-height row and carries its dark-mode pair', () => {
+    pick('リタッチカラー')
+    fireEvent.click(screen.getByRole('button', { name: 'メニュー連携を解除' }))
+    // Without the reserved height the select jogs down ~18px at the exact
+    // moment the staff is reaching for it.
+    expect(reminder()!.parentElement).toHaveClass('h-[18px]')
+    // Every other amber warning wash in the app pairs light with dark.
+    expect(reminder()).toHaveClass('dark:bg-amber-500/10', 'dark:text-amber-300')
   })
 
   it('the hint applies the standard and re-arms touched', () => {
@@ -488,6 +680,21 @@ describe('dialog lifecycle', () => {
     setMenus([CUT])
     expect(chip('¥8,800')).toBeInTheDocument()
     expect(hint()).toHaveTextContent('メニュー標準: 90分')
+  })
+
+  it('a DEGRADED refresh (empty catalog) keeps the picker on the last-good list', () => {
+    // What the menuList mirror actually buys: the 60s cached read can fail
+    // mid-entry and hand down []. Consuming the prop directly would swap the
+    // field to the plain <Input> and yank the combobox out from under a
+    // cursor that is mid-word.
+    const { setMenus } = mount()
+    fireEvent.change(serviceInput(), { target: { value: 'リタ' } })
+    setMenus([])
+
+    expect(serviceInput()).toHaveAttribute('role', 'combobox')
+    expect(serviceInput().value).toBe('リタ')
+    openList()
+    expect(listOptions()).toHaveLength(CATALOG.length)
   })
 
   it('zero menus → the plain free-text field, no picker chrome', () => {

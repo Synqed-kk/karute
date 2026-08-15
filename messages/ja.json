@@ -298,6 +298,7 @@
       "menuStandard": "メニュー標準: {n}分",
       "menuDurationReminder": "時間を確認",
       "menuDurationAnnounce": "所要時間をメニュー標準の{n}分に設定しました",
+      "menuDurationRevertAnnounce": "所要時間を{n}分に戻しました",
       "toasts": {
         "customerMissing": "お客様を選択してください",
         "invalidDuration": "所要時間が無効です",

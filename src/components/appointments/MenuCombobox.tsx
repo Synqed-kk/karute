@@ -17,6 +17,12 @@ type MenuComboboxProps = {
   placeholder?: string
   /** Lets the chip's × hand focus back to the field. */
   inputRef?: React.RefObject<HTMLInputElement | null>
+  /** Set true immediately before a programmatic focus() to hand focus back
+   *  WITHOUT opening the catalog. The chip's × needs this: the list opens
+   *  UPWARD over the 所要時間 row, so auto-reopening would bury the very
+   *  revert warning the × just raised. Consumed on read (and the setter
+   *  clears it too), so it can never leak into the staff's own next focus. */
+  suppressFocusOpenRef?: React.RefObject<boolean>
 }
 
 export function formatYen(amount: number): string {
@@ -54,6 +60,7 @@ export function MenuCombobox({
   onPick,
   placeholder,
   inputRef,
+  suppressFocusOpenRef,
 }: MenuComboboxProps) {
   const t = useTranslations('reservation')
   const listId = useId()
@@ -109,6 +116,11 @@ export function MenuCombobox({
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    // A key delivered mid-conversion belongs to the IME, not to this list.
+    // Escape cancels a 変換 (consuming it here would close the list, so the
+    // staff's follow-up Escape reaches the dialog and discards the booking),
+    // Enter commits the conversion, and the arrows walk the candidate window.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return
     if (event.key === 'Escape') {
       if (!open) return
       event.preventDefault()
@@ -162,7 +174,13 @@ export function MenuCombobox({
           setActiveIndex(-1)
           setOpen(true)
         }}
-        onFocus={openList}
+        onFocus={() => {
+          if (suppressFocusOpenRef?.current) {
+            suppressFocusOpenRef.current = false
+            return
+          }
+          openList()
+        }}
         // Reopen after an Escape that never blurred the field.
         onClick={() => !open && openList()}
         onKeyDown={handleKeyDown}
@@ -179,7 +197,14 @@ export function MenuCombobox({
       />
 
       {open && (
-        <div className="absolute bottom-full right-0 left-0 z-50 mb-1 rounded-lg border border-border bg-popover shadow-md">
+        <div
+          className="absolute bottom-full right-0 left-0 z-50 mb-1 rounded-lg border border-border bg-popover shadow-md"
+          // A tap that lands on a category header, the no-results line or the
+          // popover's own padding must not blur the field: focusout closes the
+          // list, and the reopen throws away the filter AND the scroll
+          // position. Option rows preventDefault for themselves before picking.
+          onMouseDown={(e) => e.preventDefault()}
+        >
           {/* 35dvh cap: the Android keyboard shrinks dvh, so the list takes
            *  the room actually left instead of clipping (CustomerCombobox). */}
           <ul
@@ -219,7 +244,12 @@ export function MenuCombobox({
                       // No hover: classes — onMouseEnter sets activeIndex,
                       // so the pointer gets the same wash the keyboard does.
                       'flex cursor-pointer flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-2 text-sm',
-                      i === activeIndex && 'bg-primary/8 text-primary',
+                      i === activeIndex
+                        ? 'bg-primary/8 text-primary'
+                        : // The linked menu gets aria-selected's sighted twin
+                          // (CustomerCombobox precedent), so reopening the list
+                          // shows which row the booking is on.
+                          menu.id === linkedMenuId && 'bg-muted',
                     )}
                   >
                     <span>

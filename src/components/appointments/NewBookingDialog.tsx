@@ -91,8 +91,11 @@ export function NewBookingDialog({
   // Seeds QuickCreateCustomer's name input with whatever the staff had already
   // typed into the combobox before tapping "+ 新規顧客".
   const [quickCreateSeed, setQuickCreateSeed] = useState('')
-  // Local mirror of `menus`, same reason as customerList above: a mid-entry
-  // refresh handing down fresh prop identities must not blank an armed link.
+  // Local mirror of `menus`, seeded once per open: the 60s cached read can
+  // degrade mid-entry and hand down an EMPTY catalog. Consuming the prop
+  // directly would then swap the field to the plain <Input> and yank the
+  // combobox out from under a cursor that is mid-word. (An armed link is
+  // safe either way — linkedMenu is its own state.)
   const [menuList, setMenuList] = useState<CachedMenuOption[]>(menus ?? [])
   const [linkedMenu, setLinkedMenu] = useState<CachedMenuOption | null>(null)
   // R8: only a real user change on the select counts as touched — a touched
@@ -104,6 +107,8 @@ export function NewBookingDialog({
   // announces.
   const [announcement, setAnnouncement] = useState({ text: '', seq: 0 })
   const serviceInputRef = useRef<HTMLInputElement>(null)
+  // Armed for exactly one focus event — see MenuCombobox's suppressFocusOpenRef.
+  const suppressFocusOpenRef = useRef(false)
 
   // Re-seed defaults ONLY on the closed→open transition. Quick-create's
   // revalidateTag refresh hands this component fresh prop identities while
@@ -154,11 +159,15 @@ export function NewBookingDialog({
     return [...minutes].sort((a, b) => a - b).map(String)
   }, [duration, linkedMenu])
 
-  function announceDuration(minutes: number) {
+  function announce(text: string) {
     setAnnouncement((prev) => ({
-      text: t('newBookingDialog.menuDurationAnnounce', { n: minutes }),
+      text,
       seq: prev.seq + 1,
     }))
+  }
+
+  function announceDuration(minutes: number) {
+    announce(t('newBookingDialog.menuDurationAnnounce', { n: minutes }))
   }
 
   function handlePickMenu(menu: CachedMenuOption) {
@@ -174,14 +183,24 @@ export function NewBookingDialog({
   }
 
   /** Manual text edit or the chip's × — the text always stays, only the link
-   *  goes. An untouched duration goes back to its pre-link value. */
+   *  goes. An untouched duration goes back to its pre-link value.
+   *  The nudge and its announcement fire ONLY when that revert actually moved
+   *  the number: a 60→60 "revert" raising the amber alarm would teach the
+   *  staff to ignore it on the day it means a wrong-length booking. */
   function dropMenuLink() {
     if (!linkedMenu) return
     setLinkedMenu(null)
     if (durationTouched) return
-    if (prePickDuration !== null) setDuration(prePickDuration)
+    const reverted = prePickDuration
     setPrePickDuration(null)
+    if (reverted === null || reverted === duration) return
+    setDuration(reverted)
     setShowDurationReminder(true)
+    announce(
+      t('newBookingDialog.menuDurationRevertAnnounce', {
+        n: parseInt(reverted, 10),
+      }),
+    )
   }
 
   function handleApplyMenuStandard() {
@@ -307,7 +326,7 @@ export function NewBookingDialog({
                   // jogs the select below.
                   <span className="ml-2 inline-flex h-[18px] items-center align-middle">
                     {showDurationReminder && (
-                      <span className="animate-in fade-in rounded-full bg-amber-50 px-2 text-[11px] leading-[18px] font-medium text-amber-700 motion-reduce:animate-none">
+                      <span className="animate-in fade-in rounded-full bg-amber-50 px-2 text-[11px] leading-[18px] font-medium text-amber-700 motion-reduce:animate-none dark:bg-amber-500/10 dark:text-amber-300">
                         {t('newBookingDialog.menuDurationReminder')}
                       </span>
                     )}
@@ -380,6 +399,7 @@ export function NewBookingDialog({
                   onPick={handlePickMenu}
                   placeholder={t('newBookingDialog.servicePlaceholder')}
                   inputRef={serviceInputRef}
+                  suppressFocusOpenRef={suppressFocusOpenRef}
                 />
               )}
             </Field>
@@ -393,7 +413,15 @@ export function NewBookingDialog({
                   aria-label={t('newBookingDialog.menuUnlink')}
                   onClick={() => {
                     dropMenuLink()
+                    // Focus returns to the field, but the catalog stays shut:
+                    // it opens upward, so reopening here would cover the
+                    // 所要時間 row and the 時間を確認 pill for the pill's whole
+                    // life. focus() dispatches synchronously, so clearing the
+                    // flag right after leaves nothing armed for the staff's
+                    // own next focus. Click / ArrowDown / typing still open.
+                    suppressFocusOpenRef.current = true
                     serviceInputRef.current?.focus()
+                    suppressFocusOpenRef.current = false
                   }}
                   className="inline-flex size-6 items-center justify-center rounded-full text-primary hover:bg-primary/12"
                 >
