@@ -93,14 +93,20 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
   /** '' = 全店舗. A store id filters to that store's menus PLUS the all-store
    *  ones, because an all-store menu is bookable there too. */
   const [storeFilter, setStoreFilter] = useState('')
-  /** A selection whose store is no longer in the prop filters as 全店舗. The
-   *  state is NOT reset — the USE of the id is what goes stale — so deriving
-   *  self-heals on the same render the prop changes: no effect, no second pass,
-   *  and nothing left hidden behind a select the below-2 rule may just have
-   *  taken away. Every READ of the filter below is this one; raw `storeFilter`
-   *  belongs to the select's onChange alone. */
+  /** The filter is honored ONLY while the select that could clear it can exist
+   *  (the same ≥2-stores threshold as `showFilter` below) AND the selected
+   *  store is still a real one; either failing → 全店舗. Both halves are needed
+   *  because the two props are asymmetric by design (:78-79): the stores prop
+   *  can shrink to one while the menus prop still carries the OTHER store's
+   *  scoped rows, so a surviving selection with no select left on screen would
+   *  hide them forever. The state is NOT reset — the USE of the id is what goes
+   *  stale — so deriving self-heals on the same render the prop changes: no
+   *  effect, no second pass. Every READ of the filter below is this one; raw
+   *  `storeFilter` belongs to the select's onChange alone. */
   const effectiveFilter =
-    storeFilter !== '' && !stores.some((s) => s.id === storeFilter) ? '' : storeFilter
+    storeFilter !== '' && stores.length >= 2 && stores.some((s) => s.id === storeFilter)
+      ? storeFilter
+      : ''
 
   const allActive = menus?.filter((m) => m.active) ?? []
   const allRetired = menus?.filter((m) => !m.active) ?? []
@@ -117,10 +123,15 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
   const showFilter = menus !== null && !catalogEmpty && stores.length >= 2
   const showCreate = menus !== null && !catalogEmpty
 
-  /** 再開. No alive-ref machinery at section level (unlike the dialog): the
-   *  section outlives the await on every real path — it is the tab body, not a
-   *  dismissible surface — and a setState after an unmount is a React-18
-   *  no-op, not a warning. */
+  /** 再開. The section CAN die mid-write: SettingsShell renders sections with a
+   *  plain renderSection(activeTab) call (SettingsShell.tsx:395,420), so a tab
+   *  switch — or backing out of the mobile drill — unmounts this component
+   *  while the await is in flight. No alive-ref machinery all the same: the
+   *  paired setStates land on an unmounted component, which React 18 makes a
+   *  silent no-op (no warning, nothing to guard). The completion toast firing
+   *  after the unmount is DELIBERATE, not a leak — it reports a write that
+   *  genuinely landed server-side, and swallowing it would hide a real outcome
+   *  from the person who started it. */
   async function reactivate(menu: Menu) {
     setReactivatePending(true)
     const res = await reactivateMenu(menu.id)

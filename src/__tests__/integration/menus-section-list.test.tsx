@@ -635,6 +635,27 @@ describe('MenusSection — store filter', () => {
     expect(screen.getByText('停止中のメニュー（2）')).toBeTruthy()
   })
 
+  // The MIRROR case: the selected store is the SURVIVOR. The id is still real,
+  // so a stores-membership test alone keeps honoring it — but the below-2 rule
+  // has taken the select away, and the menus prop still carries the OTHER
+  // store's rows (the two props are asymmetric by design). Without the
+  // stores-axis threshold in the derivation those rows are hidden forever with
+  // no control left to clear the filter.
+  it('the filter dies with its select even when the SELECTED store is the survivor', () => {
+    const { rerender } = render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+    fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
+    expect(screen.queryByText('本店ヘッドスパ')).toBeNull()
+
+    rerender(<MenusSection menus={FILTER_CATALOG} stores={[store]} />)
+
+    expect(screen.queryByRole('combobox', { name: '店舗' })).toBeNull()
+    expect(screen.getByText('本店ヘッドスパ')).toBeTruthy()
+    expect(screen.getByText('全店カット')).toBeTruthy()
+    expect(screen.getByText('駅前トリートメント')).toBeTruthy()
+    expect(screen.getByText('停止中のメニュー（2）')).toBeTruthy()
+    expect(screen.queryByText('この店舗で利用できるメニューはありません')).toBeNull()
+  })
+
   // SCOPE GUARD (settled PR-2 ruling): the line belongs to the FILTER. With
   // 全店舗 selected, an all-retired catalog stays disclosure-only — the same
   // ruling the single-store 「every menu retired」 pin above holds.
