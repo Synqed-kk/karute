@@ -1,10 +1,12 @@
 /** @jest-environment jsdom */
-// MenusSection read-only catalog (menu-catalog plan §3, PR-2). RENDERED-STRING
-// assertions against the REAL messages/ja.json — the file-level i18n parity
-// test can't see a call-site key typo or a blank-text path, and this list is
-// where price honesty (band vs fixed) and load-failure honesty (an error must
-// never read as 「メニューがまだありません」) actually reach the owner's eyes.
-import { fireEvent, render, screen } from '@testing-library/react'
+// MenusSection catalog + list wiring (menu-catalog plan §3, PR-2/PR-3b).
+// RENDERED-STRING assertions against the REAL messages/ja.json — the
+// file-level i18n parity test can't see a call-site key typo or a blank-text
+// path, and this list is where price honesty (band vs fixed) and load-failure
+// honesty (an error must never read as 「メニューがまだありません」) actually
+// reach the owner's eyes. PR-3b adds the entry points (create CTA, pressable
+// active rows), the 再開 leg and the store filter.
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 jest.mock('next-intl', () => {
   const messages = jest.requireActual('../../../messages/ja.json')
@@ -23,12 +25,29 @@ jest.mock('next-intl', () => {
   }
 })
 
+const toastError = jest.fn()
+const toastSuccess = jest.fn()
+jest.mock('sonner', () => ({
+  toast: { error: (m: string) => toastError(m), success: (m: string) => toastSuccess(m) },
+}))
+
+// The section now imports the write actions (and pulls the editor's in with
+// it) — server-only modules that must never load in jsdom.
+const reactivateMenu = jest.fn(async () => ({ ok: true }) as { ok: true } | { error: string })
+jest.mock('@/actions/menus', () => ({
+  createMenu: jest.fn(),
+  updateMenu: jest.fn(),
+  retireMenu: jest.fn(),
+  reactivateMenu: (...args: unknown[]) => reactivateMenu(...(args as [])),
+}))
+
 import { MenusSection } from '@/components/settings/redesign/sections/MenusSection'
 import type { Menu } from '@synqed-kk/client'
 import type { StoreRow } from '@/actions/stores'
 
 const BUSINESS = '6f1d0b26-3f5e-4a1e-9c62-8b0a4f21d7c3'
 const EKIMAE = 'c4a9f0d7-2b83-4e51-9f6a-1d7c53e08b42'
+const HONTEN = 'b2f70c19-4d6a-4f38-8e51-0c9b62a4f5d1'
 
 const store: StoreRow = {
   id: EKIMAE,
@@ -41,6 +60,9 @@ const store: StoreRow = {
   customerCount: 120,
   businessType: null,
 }
+// The second store — the store filter only exists for a business that has one.
+const honten: StoreRow = { ...store, id: HONTEN, name: '本店（メイン）', isPrimary: true }
+const TWO_STORES = [honten, store]
 
 /** Realistic salon catalog in CORE's returned order (categories first appear
  *  カット → カラー → 【blank】 → トリートメント). The blank-category rows sit
@@ -142,6 +164,47 @@ const CATALOG: Menu[] = [
 ]
 
 const ACTIVE_ONLY = CATALOG.filter((m) => m.active)
+const RETIRED = CATALOG.find((m) => !m.active)!
+
+/** Store-filter fixtures: every scope × both states, so the union rule
+ *  (this store OR 全店舗) is provable on the ACTIVE list and the RETIRED one
+ *  independently. */
+const FILTER_CATALOG: Menu[] = [
+  menu({ id: 'e9b60089-2676-440d-b26d-ac3d6b99e442', name: '全店カット', category: 'カット' }),
+  menu({
+    id: '5887c106-e88a-46d2-bfe2-84d94301d60f',
+    name: '駅前トリートメント',
+    category: 'トリートメント',
+    store_id: EKIMAE,
+  }),
+  menu({
+    id: '17ec70f3-b20b-483e-b163-52224f89e688',
+    name: '本店ヘッドスパ',
+    category: 'トリートメント',
+    store_id: HONTEN,
+  }),
+  menu({
+    id: '688cdb66-52a4-4cd4-becc-d18d01b34054',
+    name: '駅前デジタルパーマ',
+    duration_minutes: 120,
+    price_list_amount: 13200,
+    store_id: EKIMAE,
+    active: false,
+  }),
+  menu({
+    id: '940ac155-6eda-4825-8db6-efd26728fa20',
+    name: '本店縮毛矯正',
+    duration_minutes: 150,
+    price_list_amount: 16500,
+    store_id: HONTEN,
+    active: false,
+  }),
+]
+
+const filterSelect = () => screen.getByRole('combobox', { name: '店舗' })
+const createButtons = () => screen.queryAllByRole('button', { name: '＋ メニューを追加' })
+
+beforeEach(() => jest.clearAllMocks())
 
 describe('MenusSection — grouping (core order, 未分類 last)', () => {
   it('renders category headers in first-appearance order with 未分類 LAST', () => {
@@ -292,15 +355,419 @@ describe('MenusSection — 停止中 disclosure', () => {
 })
 
 describe('MenusSection — empty vs load failure (data honesty)', () => {
-  it('[] renders the text-only empty state (no create CTA in PR-2)', () => {
+  // PR-3b: the empty state keeps its text-only copy and GAINS the create CTA
+  // (mock :618). While the catalog is empty that CTA owns create outright —
+  // the header button is suppressed, so there is exactly ONE way to start.
+  it('[] renders the text-only copy plus a single create CTA, with no header button beside it', () => {
     render(<MenusSection menus={[]} stores={[store]} />)
     expect(screen.getByText('メニューがまだありません')).toBeTruthy()
-    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.getAllByRole('button', { name: '＋ メニューを追加' }).length).toBe(1)
+    // No list chrome to press either — no rows, no disclosure, no filter.
+    expect(screen.getAllByRole('button').length).toBe(1)
+    expect(screen.queryByRole('combobox')).toBeNull()
   })
 
   it('null (fetch failed) renders the load error and NEVER the empty state', () => {
     render(<MenusSection menus={null} stores={[store]} />)
     expect(screen.getByText('メニューを読み込めませんでした')).toBeTruthy()
     expect(screen.queryByText('メニューがまだありません')).toBeNull()
+  })
+})
+
+describe('MenusSection — create entry point (PR-3b)', () => {
+  it('a non-empty catalog carries the header button and opens the editor in CREATE mode', () => {
+    render(<MenusSection menus={CATALOG} stores={[store]} />)
+    expect(createButtons().length).toBe(1)
+
+    fireEvent.click(createButtons()[0])
+
+    expect(screen.getByText('メニューを追加')).toBeTruthy()
+    expect((screen.getByLabelText(/メニュー名/) as HTMLInputElement).value).toBe('')
+  })
+
+  it('a retired-only catalog is NOT empty — the header button stays', () => {
+    render(<MenusSection menus={[RETIRED]} stores={[store]} />)
+    expect(createButtons().length).toBe(1)
+    expect(screen.queryByText('メニューがまだありません')).toBeNull()
+  })
+
+  it('a failed read offers no way to write — an error state must not invite a create', () => {
+    render(<MenusSection menus={null} stores={[store]} />)
+    expect(createButtons().length).toBe(0)
+    expect(screen.queryByRole('combobox', { name: '店舗' })).toBeNull()
+  })
+
+  // Degraded scope (menus.manage WITHOUT stores.viewAll — a supported custom
+  // role): the 店舗 pills are hidden because there are no store names to read.
+  // In EDIT that is harmless (storeId saves back unchanged), but in CREATE
+  // storeId starts null = 全店舗, so the write publishes a menu bookable
+  // everywhere. Disclose it, don't block it — the capability was granted. The
+  // line is visible WITHOUT expanding 詳細, because the scope it discloses is
+  // not something the staff member chose to go looking for.
+  const NOTE = 'このメニューは、すべての店舗の予約で選べるようになります。'
+
+  it('CREATE with no visible stores discloses that the menu will be all-stores', () => {
+    render(<MenusSection menus={CATALOG} stores={[]} />)
+    fireEvent.click(createButtons()[0])
+
+    expect(screen.getByText(NOTE)).toBeTruthy()
+  })
+
+  it('CREATE with stores visible does NOT show the note — the pills already show scope', () => {
+    render(<MenusSection menus={CATALOG} stores={[store]} />)
+    fireEvent.click(createButtons()[0])
+
+    expect(screen.queryByText(NOTE)).toBeNull()
+  })
+
+  it('EDIT with no visible stores does NOT show the note — an edit saves scope back unchanged', () => {
+    render(<MenusSection menus={CATALOG} stores={[]} />)
+    // 前髪カット, not カット — the latter also names its category header.
+    fireEvent.click(screen.getByText('前髪カット'))
+
+    expect(screen.queryByText(NOTE)).toBeNull()
+  })
+})
+
+describe('MenusSection — pressable ACTIVE rows, inert RETIRED rows', () => {
+  it('clicking an active row opens the editor PREFILLED with that row', () => {
+    render(<MenusSection menus={CATALOG} stores={[store]} />)
+    fireEvent.click(screen.getByText('リタッチカラー'))
+
+    expect(screen.getByText('メニューを編集')).toBeTruthy()
+    expect((screen.getByLabelText(/メニュー名/) as HTMLInputElement).value).toBe('リタッチカラー')
+    expect((screen.getByLabelText(/通常価格/) as HTMLInputElement).value).toBe('8800')
+  })
+
+  // Deliberate: a retired row's ONE action is 再開. Making the row pressable
+  // would nest that button inside another and open an editor whose footer
+  // offers メニューを停止… on an already-stopped menu.
+  it('a retired row is not pressable and never opens the editor — 再開 is its only control', () => {
+    render(<MenusSection menus={CATALOG} stores={[store]} />)
+    fireEvent.click(screen.getByText('停止中のメニュー（1）'))
+
+    expect(screen.getByText('縮毛矯正').closest('button')).toBeNull()
+    expect(screen.getByRole('button', { name: '再開' })).toBeTruthy()
+
+    fireEvent.click(screen.getByText('縮毛矯正'))
+    expect(screen.queryByText('メニューを編集')).toBeNull()
+  })
+})
+
+describe('MenusSection — 再開 (reactivate)', () => {
+  /** A write the test resolves by hand — the only way to observe in-flight state. */
+  function hangingReactivate() {
+    let finish: (r: { ok: true }) => void = () => {}
+    reactivateMenu.mockReturnValueOnce(
+      new Promise<{ ok: true }>((res) => {
+        finish = res
+      }),
+    )
+    return async () => act(async () => { finish({ ok: true }) })
+  }
+
+  const openConfirm = () => {
+    render(<MenusSection menus={CATALOG} stores={[store]} />)
+    fireEvent.click(screen.getByText('停止中のメニュー（1）'))
+    fireEvent.click(screen.getByRole('button', { name: '再開' }))
+  }
+  const confirmButton = () => screen.getByRole('button', { name: '再開する' }) as HTMLButtonElement
+
+  it('renders the mock ② copy and holds the write back', () => {
+    openConfirm()
+    expect(screen.getByText('「縮毛矯正」を再開しますか？')).toBeTruthy()
+    expect(
+      screen.getByText('新しい予約の選択肢に戻ります。予約履歴・カルテは変わりません。'),
+    ).toBeTruthy()
+    expect(reactivateMenu).not.toHaveBeenCalled()
+  })
+
+  it('accepting calls reactivateMenu with THAT row id, toasts, and closes the confirm', async () => {
+    openConfirm()
+    fireEvent.click(confirmButton())
+
+    await waitFor(() => expect(reactivateMenu).toHaveBeenCalledTimes(1))
+    expect(reactivateMenu).toHaveBeenCalledWith(RETIRED.id)
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('再開しました'))
+    await waitFor(() => expect(screen.queryByText('「縮毛矯正」を再開しますか？')).toBeNull())
+  })
+
+  it('cancelling closes the confirm and writes nothing', async () => {
+    openConfirm()
+    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }))
+
+    await waitFor(() => expect(screen.queryByText('「縮毛矯正」を再開しますか？')).toBeNull())
+    expect(reactivateMenu).not.toHaveBeenCalled()
+    expect(toastSuccess).not.toHaveBeenCalled()
+  })
+
+  it('both confirm buttons go inert while the write is in flight — no double-write', async () => {
+    const settle = hangingReactivate()
+    openConfirm()
+    fireEvent.click(confirmButton())
+
+    await waitFor(() => expect(confirmButton().disabled).toBe(true))
+    expect((screen.getByRole('button', { name: 'キャンセル' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+    fireEvent.click(confirmButton())
+    expect(reactivateMenu).toHaveBeenCalledTimes(1)
+
+    await settle()
+  })
+
+  // Single-flight, enforced at the ROWS. The confirm's X/ESC/backdrop stay live
+  // during a pending write BY DESIGN (the dismissal law) — so without a row
+  // gate a staff member could dismiss mid-write and open a SECOND menu's
+  // confirm: it would render already-inert on the shared pending flag, then the
+  // FIRST write's completion would slam it shut and toast 再開しました beside the
+  // wrong menu's name. Gating the rows is the whole fix — with them inert no
+  // new target can be set mid-flight, so the only confirm open when a write
+  // resolves is the one that started it.
+  it('every 再開 row goes inert mid-write, so a dismissed confirm cannot be replaced', async () => {
+    const settle = hangingReactivate()
+    render(<MenusSection menus={FILTER_CATALOG} stores={[store]} />)
+    fireEvent.click(screen.getByText('停止中のメニュー（2）'))
+    const rowButtons = () => screen.getAllByRole('button', { name: '再開' }) as HTMLButtonElement[]
+    expect(rowButtons()).toHaveLength(2)
+
+    fireEvent.click(rowButtons()[0])
+    fireEvent.click(screen.getByRole('button', { name: '再開する' }))
+    await waitFor(() => expect(reactivateMenu).toHaveBeenCalledTimes(1))
+
+    // Dismissing mid-write is legal — the X is not gated on pending.
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    // …and now there is nothing left that could start a second write.
+    await waitFor(() => expect(rowButtons().every((b) => b.disabled)).toBe(true))
+
+    await settle()
+
+    // The write is in: the rows are live again and a fresh confirm opens on the
+    // row that was pressed, not the one that was pending.
+    await waitFor(() => expect(rowButtons().every((b) => !b.disabled)).toBe(true))
+    fireEvent.click(rowButtons()[1])
+    expect(screen.getByText('「本店縮毛矯正」を再開しますか？')).toBeTruthy()
+  })
+
+  it('a failed 再開 toasts the error and never claims success', async () => {
+    reactivateMenu.mockResolvedValueOnce({ error: 'Could not reactivate menu: offline' })
+    openConfirm()
+    fireEvent.click(confirmButton())
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith('Could not reactivate menu: offline'),
+    )
+    expect(toastSuccess).not.toHaveBeenCalled()
+    // The confirm closes on failure too — the answer is in, and a failure is
+    // reported by the toast, never by a dialog left stuck over the list.
+    await waitFor(() => expect(screen.queryByText('「縮毛矯正」を再開しますか？')).toBeNull())
+  })
+})
+
+describe('MenusSection — store filter', () => {
+  it('one store → no filter at all (a control with one real answer is dead chrome)', () => {
+    render(<MenusSection menus={FILTER_CATALOG} stores={[store]} />)
+    expect(screen.queryByRole('combobox', { name: '店舗' })).toBeNull()
+  })
+
+  it('an empty catalog gets no filter either — nothing to narrow', () => {
+    render(<MenusSection menus={[]} stores={TWO_STORES} />)
+    expect(screen.queryByRole('combobox', { name: '店舗' })).toBeNull()
+  })
+
+  it('two stores → 全店舗 plus one option per store, defaulting to 全店舗', () => {
+    render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+    expect((filterSelect() as HTMLSelectElement).value).toBe('')
+    expect(
+      [...(filterSelect() as HTMLSelectElement).options].map((o) => o.textContent),
+    ).toEqual(['全店舗', '本店（メイン）', '駅前店'])
+  })
+
+  // The UNION rule, on both lists at once: 駅前店 keeps its own menus AND the
+  // all-store ones (an all-store menu is bookable there), and drops 本店's.
+  it('a store selection filters ACTIVE and RETIRED alike, and the retired COUNT follows', () => {
+    render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+    expect(screen.getByText('停止中のメニュー（2）')).toBeTruthy()
+
+    fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
+
+    expect(screen.getByText('全店カット')).toBeTruthy()
+    expect(screen.getByText('駅前トリートメント')).toBeTruthy()
+    expect(screen.queryByText('本店ヘッドスパ')).toBeNull()
+
+    expect(screen.getByText('停止中のメニュー（1）')).toBeTruthy()
+    fireEvent.click(screen.getByText('停止中のメニュー（1）'))
+    expect(screen.getByText('駅前デジタルパーマ')).toBeTruthy()
+    expect(screen.queryByText('本店縮毛矯正')).toBeNull()
+  })
+
+  it('a filter that empties BOTH lists says so — never the 「まだありません」 empty state, and the header button stays', () => {
+    const hontenOnly = FILTER_CATALOG.filter((m) => m.store_id === HONTEN)
+    render(<MenusSection menus={hontenOnly} stores={TWO_STORES} />)
+
+    fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
+
+    expect(screen.getByText('この店舗で利用できるメニューはありません')).toBeTruthy()
+    expect(screen.queryByText('メニューがまだありません')).toBeNull()
+    expect(createButtons().length).toBe(1)
+    expect(screen.queryByText(/停止中のメニュー/)).toBeNull()
+  })
+
+  // Zero BOOKABLE menus for the selected store, with 停止中 rows surviving the
+  // filter. Without the line the store reads as 「no services here」 — the
+  // collapsed disclosure is the only thing on screen. The copy stays honest
+  // because a 停止中 menu cannot be booked, so 「利用できるメニューはありません」
+  // is true whatever the retired count is; the disclosure renders below it.
+  it('a filter leaving 0 ACTIVE but some retired shows the line AND keeps the disclosure', () => {
+    // Every ACTIVE row is 本店's, so 駅前店 keeps only the retired 駅前 row.
+    const hontenActives = FILTER_CATALOG.filter((m) => !m.active || m.store_id === HONTEN)
+    render(<MenusSection menus={hontenActives} stores={TWO_STORES} />)
+
+    fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
+
+    expect(screen.getByText('この店舗で利用できるメニューはありません')).toBeTruthy()
+    expect(screen.getByText('停止中のメニュー（1）')).toBeTruthy()
+    fireEvent.click(screen.getByText('停止中のメニュー（1）'))
+    expect(screen.getByText('駅前デジタルパーマ')).toBeTruthy()
+    expect(screen.queryByText('メニューがまだありません')).toBeNull()
+  })
+
+  // The NEGATIVE half of the two pins above — the line belongs to an empty
+  // ACTIVE list, not to the mere presence of a filter. Without this pin the
+  // condition can lose its `active.length === 0` half and stay green: every
+  // other filter pin either expects the line (empty list) or never looks for
+  // it, so a mutant that shows 「利用できるメニューはありません」 directly above
+  // the store's own menu rows survives the whole suite.
+  it('a filter leaving ACTIVE menus shows NO filter-empty line above them', () => {
+    render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+
+    fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
+
+    expect(screen.queryByText('この店舗で利用できるメニューはありません')).toBeNull()
+    expect(screen.getByText('駅前トリートメント')).toBeTruthy()
+    expect(screen.getByText('全店カット')).toBeTruthy()
+  })
+
+  // The editor gets the UNFILTERED catalog: the store filter narrows the LIST,
+  // never the category vocabulary or the 表示順 default. パーマ lives only on
+  // 本店, so under the 駅前店 filter no パーマ row is on screen — and the chip
+  // must still be offered, or a filtered staff member silently forks a
+  // duplicate category and a colliding 表示順.
+  it('the editor derives categories and 表示順 from the FULL catalog while a filter is active', () => {
+    const withHontenCategory = [
+      ...FILTER_CATALOG,
+      menu({
+        id: 'a1c8d4f2-90be-4c37-8f65-2d3b7e01a94c',
+        name: '本店パーマ',
+        category: 'パーマ',
+        store_id: HONTEN,
+        display_order: 70,
+      }),
+    ]
+    render(<MenusSection menus={withHontenCategory} stores={TWO_STORES} />)
+    fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
+    expect(screen.queryByText('本店パーマ')).toBeNull()
+
+    fireEvent.click(createButtons()[0])
+
+    fireEvent.click(screen.getByRole('button', { name: 'パーマ' }))
+    fireEvent.click(screen.getByText('詳細（店舗・オンライン表示・表示順）'))
+    // 70 + 10 — the next slot in a category the filtered list cannot see.
+    expect(screen.getByLabelText(/表示順/).getAttribute('placeholder')).toBe('80')
+  })
+
+  // A selection can OUTLIVE its store: the stores prop refreshes without the
+  // selected id (the store closed, or the viewer's scope narrowed) while that
+  // id still sits in state. Nothing is reset — the USE of the id is what went
+  // stale — so the filter derives back to 全店舗 on the same render the prop
+  // changes, and no menu is left hidden behind a control that may be gone.
+  it('the selected store vanishing BELOW 2 stores un-hides everything, with no select left to undo it', () => {
+    const { rerender } = render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+    fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
+    expect(screen.queryByText('本店ヘッドスパ')).toBeNull()
+
+    rerender(<MenusSection menus={FILTER_CATALOG} stores={[honten]} />)
+
+    // The below-2 rule has just taken the select away, so a surviving 駅前店
+    // filter would hide 本店's menus with nothing on screen to reach it.
+    expect(screen.queryByRole('combobox', { name: '店舗' })).toBeNull()
+    expect(screen.getByText('本店ヘッドスパ')).toBeTruthy()
+    expect(screen.getByText('全店カット')).toBeTruthy()
+    expect(screen.getByText('駅前トリートメント')).toBeTruthy()
+    expect(screen.getByText('停止中のメニュー（2）')).toBeTruthy()
+    expect(screen.queryByText('この店舗で利用できるメニューはありません')).toBeNull()
+  })
+
+  // The same staleness with the select still on screen: it must READ 全店舗,
+  // not sit on a store that is no longer one of its options.
+  it('the selected store vanishing while 2 stores REMAIN falls back to 全店舗 in the select and the list', () => {
+    const sakae: StoreRow = { ...store, id: 'd3f81a52-7c04-4b96-8e17-59ab206cf4d3', name: '栄店' }
+    const { rerender } = render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+    fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
+    expect(screen.queryByText('本店ヘッドスパ')).toBeNull()
+
+    rerender(<MenusSection menus={FILTER_CATALOG} stores={[honten, sakae]} />)
+
+    expect((filterSelect() as HTMLSelectElement).value).toBe('')
+    expect(screen.getByText('本店ヘッドスパ')).toBeTruthy()
+    expect(screen.getByText('全店カット')).toBeTruthy()
+    expect(screen.getByText('駅前トリートメント')).toBeTruthy()
+    expect(screen.getByText('停止中のメニュー（2）')).toBeTruthy()
+  })
+
+  // The MIRROR case: the selected store is the SURVIVOR. The id is still real,
+  // so a stores-membership test alone keeps honoring it — but the below-2 rule
+  // has taken the select away, and the menus prop still carries the OTHER
+  // store's rows (the two props are asymmetric by design). Without the
+  // stores-axis threshold in the derivation those rows are hidden forever with
+  // no control left to clear the filter.
+  it('the filter dies with its select even when the SELECTED store is the survivor', () => {
+    const { rerender } = render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+    fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
+    expect(screen.queryByText('本店ヘッドスパ')).toBeNull()
+
+    rerender(<MenusSection menus={FILTER_CATALOG} stores={[store]} />)
+
+    expect(screen.queryByRole('combobox', { name: '店舗' })).toBeNull()
+    expect(screen.getByText('本店ヘッドスパ')).toBeTruthy()
+    expect(screen.getByText('全店カット')).toBeTruthy()
+    expect(screen.getByText('駅前トリートメント')).toBeTruthy()
+    expect(screen.getByText('停止中のメニュー（2）')).toBeTruthy()
+    expect(screen.queryByText('この店舗で利用できるメニューはありません')).toBeNull()
+  })
+
+  // An invalid selection DIES, it does not hibernate. Deriving alone left the
+  // dead id sitting in state, so the moment the store came BACK (a refresh, a
+  // re-widened scope) the list silently re-narrowed to a filter the staff
+  // member never re-chose and the select had stopped showing.
+  it('a store that returns does NOT snap the filter back on', () => {
+    const { rerender } = render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+    fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
+    expect(screen.queryByText('本店ヘッドスパ')).toBeNull()
+
+    // 駅前店 leaves — the filter falls to 全店舗 and everything is back.
+    rerender(<MenusSection menus={FILTER_CATALOG} stores={[honten]} />)
+    expect(screen.getByText('本店ヘッドスパ')).toBeTruthy()
+
+    // …and now it RETURNS. The selection is gone for good.
+    rerender(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+
+    expect((filterSelect() as HTMLSelectElement).value).toBe('')
+    expect(screen.getByText('本店ヘッドスパ')).toBeTruthy()
+    expect(screen.getByText('全店カット')).toBeTruthy()
+    expect(screen.getByText('駅前トリートメント')).toBeTruthy()
+    expect(screen.getByText('停止中のメニュー（2）')).toBeTruthy()
+  })
+
+  // SCOPE GUARD (settled PR-2 ruling): the line belongs to the FILTER. With
+  // 全店舗 selected, an all-retired catalog stays disclosure-only — the same
+  // ruling the single-store 「every menu retired」 pin above holds.
+  it('NO filter + an all-retired catalog stays disclosure-only — no filter line', () => {
+    const retiredOnly = FILTER_CATALOG.filter((m) => !m.active)
+    render(<MenusSection menus={retiredOnly} stores={TWO_STORES} />)
+
+    expect((filterSelect() as HTMLSelectElement).value).toBe('')
+    expect(screen.queryByText('この店舗で利用できるメニューはありません')).toBeNull()
+    expect(screen.getByText('停止中のメニュー（2）')).toBeTruthy()
   })
 })
