@@ -19,8 +19,10 @@ const reason = (e: unknown) => (e instanceof Error ? e.message : 'unknown error'
 
 // Menu writes revalidate '/settings' (the catalog surface) AND the 'menus'
 // tag — the 予約 picker's 60s cached reader (src/lib/menus/cached.ts) would
-// otherwise keep serving the pre-edit catalog for up to a minute. Invalidation
-// fires only after the core write succeeds, so a refused write never blows the
+// otherwise keep serving the pre-edit catalog for up to a minute (same tab
+// immediately; other tabs/devices ride the ~25s QuietRefresh envelope —
+// updateTag drops the data cache, not the router cache). Invalidation fires
+// only after the core write succeeds, so a refused write never blows the
 // cache. updateTag is Server-Action-only; every writer here is 'use server'
 // and no facade route imports this module (facade-core-updatetag-ban).
 

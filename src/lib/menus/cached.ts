@@ -14,7 +14,9 @@ import { getBusinessId } from '@/lib/staff'
 //
 // 60s staleness is the documented contract (§4): a catalog edit repaints the
 // picker within a minute, and the four menu writers in src/actions/menus.ts
-// call updateTag('menus') so a real edit repaints immediately.
+// call updateTag('menus') so a real edit repaints immediately (same tab
+// immediately; other tabs/devices ride the ~25s QuietRefresh envelope —
+// updateTag drops the data cache, not the router cache).
 // KNOWN LAG: storeName rides a stores.list() that carries NO 'menus' tag, so a
 // store RENAME can show the old chip label for up to 60s — accepted, same
 // staleness class as the menu rows themselves.

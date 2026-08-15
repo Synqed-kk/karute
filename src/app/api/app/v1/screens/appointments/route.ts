@@ -82,8 +82,14 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
       orgSettingsWithClient(synqed),
       // Degraded-allowed, same shape as the pack-usage read below: a failed
       // menus read must NEVER 502 the agenda — the picker just doesn't render
-      // (§6), and the dialog keeps today's free-text service field.
-      getCachedMenuOptionsFor(businessId).catch(() => []),
+      // (§6), and the dialog keeps today's free-text service field. Degraded
+      // is allowed, silent is not: once PR-4b ships, a dead read is
+      // pixel-identical to "this shop has no menus" — the log line below is
+      // the only thing separating an outage from an empty catalog.
+      getCachedMenuOptionsFor(businessId).catch((err) => {
+        console.error('[screens/appointments] menus read degraded:', err)
+        return []
+      }),
     ])
     const nameById = new Map(customers.map((c) => [c.id, c.name]))
 

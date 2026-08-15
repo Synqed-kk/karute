@@ -113,8 +113,16 @@ export default async function AppointmentsPage({
     t.phase('storeScope', () => resolveStoreScope()),
     // 60s cached active-menu union for the booking picker. Degraded the same
     // way the facade route degrades it — a menus outage must not 500 the
-    // agenda; the dialog keeps today's free-text service field.
-    t.phase('menus', () => getCachedMenuOptions().catch(() => [])),
+    // agenda; the dialog keeps today's free-text service field. Degraded is
+    // allowed, silent is not: once PR-4b ships, a dead read is
+    // pixel-identical to "this shop has no menus" — the log line below is the
+    // only thing separating an outage from an empty catalog.
+    t.phase('menus', () =>
+      getCachedMenuOptions().catch((err) => {
+        console.error('[appointments] menus read degraded:', err)
+        return []
+      }),
+    ),
   ])
 
   // PR-4b threads this into AppointmentsView/NewBookingDialog. Fetched here in

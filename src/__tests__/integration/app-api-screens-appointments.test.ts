@@ -382,12 +382,18 @@ describe('GET /api/app/v1/screens/appointments', () => {
   })
 
   it('a failed menus read degrades to menus: [] with the screen intact, not a 502', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
     getCachedMenuOptionsFor.mockRejectedValueOnce(new Error('core down'))
     const res = await GET(req(), route)
     expect(res.status).toBe(200)
     const dto = await dtoOf(res)
     expect(dto.menus).toEqual([])
     expect(dto.reservationViews).toHaveLength(2)
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+    expect(errorSpy.mock.calls[0][0]).toEqual(
+      expect.stringContaining('[screens/appointments] menus read degraded'),
+    )
+    errorSpy.mockRestore()
   })
 
   it('a failed day-appointments read → 502, never a silently-empty agenda', async () => {
