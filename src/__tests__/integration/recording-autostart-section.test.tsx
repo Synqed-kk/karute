@@ -108,6 +108,20 @@ describe('RecordingSection — 自動録音 per-store switches', () => {
     expect(screen.queryByRole('switch', { name: '青山店' })).not.toBeInTheDocument()
   })
 
+  it('every store inactive renders the explainer, no switches, and no description (V-2)', () => {
+    const allInactive = STORES.map((s) => ({ ...s, active: false }))
+    render(<RecordingSection orgSettings={settings([])} stores={allInactive} />)
+    expect(screen.getByText('autostartTitle')).toBeInTheDocument()
+    expect(screen.getByText('autostartNoStoresAccess')).toBeInTheDocument()
+    expect(
+      screen.queryByText('autostartDescription:autostartVisitFallback'),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('autostartLockCaveat')).not.toBeInTheDocument()
+    expect(screen.queryByText('autostartBatteryNote')).not.toBeInTheDocument()
+    expect(screen.queryByRole('switch', { name: '本店' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('switch', { name: '青山店' })).not.toBeInTheDocument()
+  })
+
   it('a flip calls the action with (storeId, enabled) and re-renders from the SERVER list', async () => {
     ;(setRecordingAutostart as jest.Mock).mockResolvedValue({
       ok: true,

@@ -101,6 +101,13 @@ export function RecordingSection({
   )
   const [autostartPendingId, setAutostartPendingId] = useState<string | null>(null)
 
+  // V-2: description/explainer and the switch list must agree on which
+  // stores count — a business whose stores are all inactive was getting the
+  // has-stores copy (description + §8.5 caveat + battery note) above zero
+  // switches, because the branch used `stores.length` while the list used
+  // `stores.filter(active)`. One filtered list, used by both.
+  const activeStores = stores?.filter((s) => s.active) ?? []
+
   const save = useCallback(
     async (partial: Partial<OrgSettings>, quiet = false) => {
       const result = await upsertOrgSettings(partial)
@@ -188,7 +195,7 @@ export function RecordingSection({
         <div className="border-t border-border/30 pt-6 space-y-4">
           <div>
             <p className="text-sm font-medium">{t('autostartTitle')}</p>
-            {stores.length > 0 ? (
+            {activeStores.length > 0 ? (
               <>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {t('autostartDescription', { serviceNoun: serviceNoun || t('autostartVisitFallback') })}
@@ -211,26 +218,26 @@ export function RecordingSection({
                 </p>
               </>
             ) : (
-              // Fix round F-E: settings.manage can reach this tab with no
-              // visible stores (stores.viewAll withheld) — the server still
-              // permits the write, validated against the WHOLE business's
-              // store list, so silence here reads as a bug, not a boundary.
+              // Fix round F-E (+ V-2): zero ACTIVE stores — either
+              // settings.manage reached this tab with no visible stores
+              // (stores.viewAll withheld, server still permits the write
+              // validated against the WHOLE business's store list) or every
+              // store this viewer can see is inactive. Same explainer for
+              // both: silence here reads as a bug, not a boundary.
               <p className="text-xs text-muted-foreground mt-0.5">
                 {t('autostartNoStoresAccess')}
               </p>
             )}
           </div>
-          {stores
-            .filter((s) => s.active)
-            .map((s) => (
-              <Toggle
-                key={s.id}
-                label={s.name}
-                value={autostartIds.includes(s.id)}
-                disabled={autostartPendingId !== null}
-                onChange={(v) => flipAutostart(s.id, v)}
-              />
-            ))}
+          {activeStores.map((s) => (
+            <Toggle
+              key={s.id}
+              label={s.name}
+              value={autostartIds.includes(s.id)}
+              disabled={autostartPendingId !== null}
+              onChange={(v) => flipAutostart(s.id, v)}
+            />
+          ))}
         </div>
       )}
 
