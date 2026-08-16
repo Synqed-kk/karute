@@ -30,6 +30,11 @@
 
 import { z } from 'zod'
 import { auditDurable } from '@/lib/audit'
+// Phase A discard vocabulary (spec §3.2). `abandoned` is the SYSTEM-only code
+// — the dialog never offers it (A2's concern); it arrives from the three
+// system paths A3b wires (recovery dismissal, TTL sweep, logout). The list
+// lives in a client-safe module so the A2 dialog and this schema cannot drift.
+import { DISCARD_CATEGORIES } from './discard-reasons'
 import type { newSynqedClient } from '@/lib/synqed/client'
 
 // Same F8 hygiene as the sibling recording schemas (record-schemas.ts): every
@@ -44,18 +49,6 @@ const MAX_ID_CHARS = 200
  *  client reports only the DURATION — the flag is derived here, so a receipt
  *  can never carry a floor claim that disagrees with its own duration. */
 const BELOW_FLOOR_SEC = 10
-
-/** Phase A discard vocabulary (spec §3.2). `abandoned` is the SYSTEM-only
- *  code — the dialog never offers it (A2's concern); it arrives from the
- *  three system paths A3b wires (recovery dismissal, TTL sweep, logout). */
-const DISCARD_CATEGORIES = [
-  'mistap',
-  'quality',
-  'duplicate',
-  'wrong_target',
-  'not_session',
-  'abandoned',
-] as const
 
 const DiscardRecordingSchema = z
   .object({

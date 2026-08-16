@@ -704,7 +704,20 @@
     "recoverAction": "Restore",
     "recoverDiscard": "Discard",
     "recoverTakeTitle": "Recording was interrupted. Process what was captured?",
-    "recoverTakeAction": "Process"
+    "recoverTakeAction": "Process",
+    "discardReason": {
+      "title": "Reason for discarding",
+      "category": {
+        "mistap": "Mis-tap / test",
+        "quality": "Poor audio quality",
+        "duplicate": "Duplicate take",
+        "wrong_target": "Wrong customer or staff",
+        "not_session": "Not a session"
+      },
+      "disclosure": "A discard record (time, staff, reason) will be kept.",
+      "help": "If a customer asks you to stop, stop the recording and handle it as you do today, then pick the reason that applies.",
+      "confirm": "Discard"
+    }
   },
   "customers": {
     "title": "Customers",

@@ -704,7 +704,20 @@
     "recoverAction": "復元する",
     "recoverDiscard": "破棄",
     "recoverTakeTitle": "録音が中断されました。記録できた分を処理しますか？",
-    "recoverTakeAction": "処理する"
+    "recoverTakeAction": "処理する",
+    "discardReason": {
+      "title": "録音を破棄する理由",
+      "category": {
+        "mistap": "誤操作・テスト録音",
+        "quality": "録音品質が悪い（雑音・音切れ）",
+        "duplicate": "重複した録音",
+        "wrong_target": "別のお客様・別の担当者の録音",
+        "not_session": "施術に関係のない会話"
+      },
+      "disclosure": "破棄の記録（日時・担当者・理由）が残ります。",
+      "help": "お客様からのお申し出があった場合は、録音を停止し通常どおり対応のうえ、該当する理由を選択してください。",
+      "confirm": "破棄する"
+    }
   },
   "customers": {
     "title": "顧客",
