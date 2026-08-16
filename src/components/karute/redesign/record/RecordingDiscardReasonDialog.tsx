@@ -39,6 +39,12 @@ interface RecordingDiscardReasonDialogProps {
    *  pre-selected so an accidental tap costs ONE tap to clear. The receipt is
    *  still written and the reason is still stated — nothing is hidden. */
   belowFloor: boolean
+  /** In-flight guard (mirrors RecordingConsentDialog's shape): A3 wires this
+   *  dialog to the async discard route, and a double tap on confirm before
+   *  that await settles would write two discard receipts (BA-1 residual).
+   *  Disables confirm and cancel while a submit is in flight. Optional and
+   *  defaults to false so today's (still-synchronous) A2 caller is unaffected. */
+  submitting?: boolean
   onConfirm: (category: StaffDiscardCategory) => void
   onCancel: () => void
 }
@@ -55,11 +61,15 @@ export function RecordingDiscardReasonDialog({
 
 function DiscardReasonPanel({
   belowFloor,
+  submitting = false,
   onConfirm,
   onCancel,
 }: Omit<RecordingDiscardReasonDialogProps, 'open'>) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
+  // Read once at mount by design — one open cycle = one take. A3 must
+  // remount per take (a new open cycle), never mutate `belowFloor` on an
+  // already-mounted instance.
   const [selected, setSelected] = useState<StaffDiscardCategory | null>(
     belowFloor ? 'mistap' : null,
   )
@@ -83,7 +93,7 @@ function DiscardReasonPanel({
         role="dialog"
         aria-modal="true"
         aria-label={t('discardReason.title')}
-        className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 space-y-3 rounded-xl border border-border bg-card p-6 shadow-xl outline-none"
+        className="fixed left-1/2 top-1/2 z-50 max-h-[88vh] w-full max-w-sm -translate-x-1/2 -translate-y-1/2 space-y-3 overflow-y-auto rounded-xl border border-border bg-card p-6 shadow-xl outline-none"
       >
         <h3 className="text-base font-semibold text-foreground">
           {t('discardReason.title')}
@@ -119,7 +129,13 @@ function DiscardReasonPanel({
           {t('discardReason.help')}
         </p>
         <div className="flex gap-3">
-          <Button variant="outline" size="md" className="flex-1" onClick={onCancel}>
+          <Button
+            variant="outline"
+            size="md"
+            className="flex-1"
+            onClick={onCancel}
+            disabled={submitting}
+          >
             {tc('cancel')}
           </Button>
           {/* Irreversible, so it stays solid red — never the accent fill.
@@ -129,7 +145,7 @@ function DiscardReasonPanel({
           <Button
             size="md"
             className="flex-1 bg-red-600 text-white hover:bg-red-700"
-            disabled={selected === null}
+            disabled={submitting || selected === null}
             onClick={() => selected && onConfirm(selected)}
           >
             {t('discardReason.confirm')}

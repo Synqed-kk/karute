@@ -714,8 +714,8 @@
         "wrong_target": "Wrong customer or staff",
         "not_session": "Not a session"
       },
-      "disclosure": "A discard record (time, staff, reason) will be kept.",
-      "help": "If a customer asks you to stop, stop the recording and handle it as you do today, then pick the reason that applies.",
+      "disclosure": "A discard record (date/time, staff, reason) will be kept.",
+      "help": "If a customer asks you to stop or delete the recording, stop and handle it as you do today, then pick the closest reason.",
       "confirm": "Discard"
     }
   },

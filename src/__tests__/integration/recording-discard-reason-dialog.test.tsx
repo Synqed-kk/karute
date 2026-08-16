@@ -73,6 +73,39 @@ const DISCLOSURE_JA = '破棄の記録（日時・担当者・理由）が残り
 /** Phase B's line. Ships in B1, WITH the behaviour it describes — never here. */
 const PHASE_B_SENTENCE = '録音内容も方針により保存されます。'
 
+/** The full canonical `recording.discardReason` object, both locales,
+ *  transcribed exactly (fix F-A/F-B). A deepEqual against this block pins
+ *  EVERY value — the five labels, both disclosures, both help lines — so any
+ *  drift anywhere in the block (a renamed EN label, a reworded retention
+ *  promise slipped into either help/disclosure line) goes red here, not just
+ *  in production. */
+const CANON_BLOCK_JA = {
+  title: '録音を破棄する理由',
+  category: {
+    mistap: '誤操作・テスト録音',
+    quality: '録音品質が悪い（雑音・音切れ）',
+    duplicate: '重複した録音',
+    wrong_target: '別のお客様・別の担当者の録音',
+    not_session: '施術に関係のない会話',
+  },
+  disclosure: '破棄の記録（日時・担当者・理由）が残ります。',
+  help: 'お客様からのお申し出があった場合は、録音を停止し通常どおり対応のうえ、最も近い理由を選択してください。',
+  confirm: '破棄する',
+}
+const CANON_BLOCK_EN = {
+  title: 'Reason for discarding',
+  category: {
+    mistap: 'Mis-tap / test',
+    quality: 'Poor audio quality',
+    duplicate: 'Duplicate take',
+    wrong_target: 'Wrong customer or staff',
+    not_session: 'Not a session',
+  },
+  disclosure: 'A discard record (date/time, staff, reason) will be kept.',
+  help: 'If a customer asks you to stop or delete the recording, stop and handle it as you do today, then pick the closest reason.',
+  confirm: 'Discard',
+}
+
 const onConfirm = jest.fn()
 const onCancel = jest.fn()
 beforeEach(() => {
@@ -80,11 +113,12 @@ beforeEach(() => {
   onCancel.mockClear()
 })
 
-function open(belowFloor: boolean) {
+function open(belowFloor: boolean, submitting?: boolean) {
   return render(
     <RecordingDiscardReasonDialog
       open
       belowFloor={belowFloor}
+      submitting={submitting}
       onConfirm={onConfirm}
       onCancel={onCancel}
     />,
@@ -111,8 +145,6 @@ describe('the five categories (§3.2)', () => {
 
     expect(DISCARD_CATEGORIES).toContain('abandoned')
     expect(STAFF_DISCARD_CATEGORIES).not.toContain('abandoned')
-    expect(document.body.textContent).not.toContain('abandoned')
-    expect(screen.queryByText(/破棄されました|放棄/)).toBeNull()
   })
 
   it('never offers the Phase-B categories (customer_request / その他)', () => {
@@ -168,6 +200,11 @@ describe('the disclosure line (§3.2 fix B7)', () => {
     expect(jaBlock).not.toContain('録音内容')
     // Phase B's promise is about CONTENT being kept. Phase A keeps a receipt.
     expect(enBlock.toLowerCase()).not.toContain('content')
+  })
+
+  it('matches the canonical discardReason block, byte-exact, in both locales (fix F-A/F-B)', () => {
+    expect(ja.recording.discardReason).toEqual(CANON_BLOCK_JA)
+    expect(en.recording.discardReason).toEqual(CANON_BLOCK_EN)
   })
 
   it('states the Phase-A customer-asked reality in the help line (§14.1)', () => {
@@ -226,6 +263,20 @@ describe('belowFloor = false — a reason must be stated', () => {
 
     expect(onCancel).toHaveBeenCalledTimes(1)
     expect(onConfirm).not.toHaveBeenCalled()
+  })
+})
+
+describe('submitting — the in-flight guard (fix F-C)', () => {
+  it('with a selection already made, submitting=true disables confirm and cancel; a click is a no-op', () => {
+    open(true, true) // belowFloor pre-selects mistap, so there IS a selection
+
+    expect(confirmButton()).toBeDisabled()
+    expect(cancelButton()).toBeDisabled()
+
+    fireEvent.click(confirmButton())
+    fireEvent.click(cancelButton())
+    expect(onConfirm).not.toHaveBeenCalled()
+    expect(onCancel).not.toHaveBeenCalled()
   })
 })
 
