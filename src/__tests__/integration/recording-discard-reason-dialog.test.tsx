@@ -287,7 +287,51 @@ describe('submitting — the in-flight guard (fix F-C)', () => {
   })
 })
 
-// ── 4. Closed means gone ──────────────────────────────────────────────────
+// ── 4. Keyboard containment (Greptile r1) ──────────────────────────────────
+// Hand-rolled panel, so no focus-trap library gives this for free: Escape
+// must cancel (guarded by `submitting`, same as the other three exits) and
+// Tab/Shift+Tab must stay inside the panel rather than escaping to the page.
+
+const dialog = () => screen.getByRole('dialog')
+
+describe('keyboard containment (Greptile r1)', () => {
+  it('Escape cancels the dialog', () => {
+    open(false)
+
+    fireEvent.keyDown(dialog(), { key: 'Escape' })
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('Escape is a no-op while submitting', () => {
+    open(false, true)
+
+    fireEvent.keyDown(dialog(), { key: 'Escape' })
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+
+  it('Tab wraps from the last focusable control back to the first', () => {
+    open(true) // belowFloor pre-selects mistap, so confirm is enabled and last in tab order
+
+    confirmButton().focus()
+    expect(confirmButton()).toHaveFocus()
+
+    fireEvent.keyDown(dialog(), { key: 'Tab' })
+    expect(screen.getAllByRole('radio')[0]).toHaveFocus()
+  })
+
+  it('Shift+Tab wraps from the first focusable control to the last', () => {
+    open(true)
+
+    const first = screen.getAllByRole('radio')[0]
+    first.focus()
+    expect(first).toHaveFocus()
+
+    fireEvent.keyDown(dialog(), { key: 'Tab', shiftKey: true })
+    expect(confirmButton()).toHaveFocus()
+  })
+})
+
+// ── 5. Closed means gone ──────────────────────────────────────────────────
 
 describe('open = false', () => {
   it('renders nothing', () => {

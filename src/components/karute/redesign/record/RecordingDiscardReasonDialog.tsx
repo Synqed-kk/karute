@@ -81,6 +81,39 @@ function DiscardReasonPanel({
     panelRef.current?.focus()
   }, [])
 
+  // Keyboard containment (Greptile r1): Escape cancels, guarded by
+  // `submitting` same as the other three exits (backdrop/Cancel/Confirm).
+  // Tab/Shift+Tab wrap within the panel — the DOM already puts every
+  // focusable button in tab order inside it, so the only work is catching
+  // the two wrap edges (last→first, first→last) rather than letting focus
+  // escape to the page. No focus-trap library.
+  function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Escape') {
+      if (!submitting) onCancel()
+      return
+    }
+    if (event.key !== 'Tab') return
+    const focusable = Array.from(
+      panelRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [],
+    )
+    // submitting=true still leaves the category radios enabled, but if a
+    // future state ever disables every button, keep focus on the panel
+    // rather than letting it fall out to the page.
+    if (focusable.length === 0) {
+      event.preventDefault()
+      return
+    }
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
   return (
     <>
       <div
@@ -94,6 +127,7 @@ function DiscardReasonPanel({
         aria-modal="true"
         aria-label={t('discardReason.title')}
         className="fixed left-1/2 top-1/2 z-50 max-h-[88vh] w-full max-w-sm -translate-x-1/2 -translate-y-1/2 space-y-3 overflow-y-auto rounded-xl border border-border bg-card p-6 shadow-xl outline-none"
+        onKeyDown={handleKeyDown}
       >
         <h3 className="text-base font-semibold text-foreground">
           {t('discardReason.title')}
