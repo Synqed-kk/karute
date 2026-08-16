@@ -153,4 +153,15 @@ describe('PATCH /api/app/v1/org-settings', () => {
     )
     expect(writeOrgSettingsBlobWithClient).toHaveBeenCalledWith(fakeClient, { salon_name: 'New name' })
   })
+
+  it('recording_autostart_store_ids never reaches the writer — it has its own audited write path (auditor pin, fix round F-B)', async () => {
+    await PATCH(
+      patchReq({
+        salon_name: 'New name',
+        recording_autostart_store_ids: ['store-9'],
+      }),
+      route,
+    )
+    expect(writeOrgSettingsBlobWithClient).toHaveBeenCalledWith(fakeClient, { salon_name: 'New name' })
+  })
 })

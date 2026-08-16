@@ -108,7 +108,16 @@ export async function setRecordingAutostartWithClient(
  *  otherwise demand an AUDITED_CORES entry, and registering one opens an
  *  SDK-write allowlist-exemption span over the whole symbol (the A1 doctrine
  *  — see FACADE_AUDIT_MAP['orgSettings.recordingAutostart']'s coveredBy note).
- *  The emission walker reads the call-through shape directly. */
+ *  The emission walker reads the call-through shape directly.
+ *
+ *  Fire-and-forget `audit()`, not A1's `auditDurable()` — deliberately (fix
+ *  round F-F′). A1's discard receipt awaits durably because it is the ONLY
+ *  trace of a destroyed recording: lose that write and the evidence the row
+ *  existed is gone forever. This key is the opposite shape: the toggle's
+ *  state is itself durable, readable evidence — `recording_autostart_store_ids`
+ *  on the settings blob, re-readable at any time — so this row CORROBORATES
+ *  an already-persisted fact rather than being the sole record of one.
+ *  Matches §10.3, deliberately, not by omission. */
 function emitAutostartReceipt(
   actor: RecordingAutostartActor,
   storeId: string,

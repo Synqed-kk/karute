@@ -40,10 +40,13 @@ const DISCLOSURE_MODES: { value: RecordingDisclosureMode; labelKey: string }[] =
 
 interface RecordingSectionProps {
   orgSettings: OrgSettings | null
-  /** Server-fetched store list — 自動録音 renders one switch per store.
-   *  Optional/empty → the 自動録音 block does not render at all: copy that
-   *  promises a per-store switch with no switch under it is worse than
-   *  nothing. */
+  /** Server-fetched store list — 自動録音 renders one switch per ACTIVE
+   *  store. Optional (prop entirely omitted) → the block does not render at
+   *  all. Present but empty (fix round F-E: reachable when the viewer holds
+   *  settings.manage without stores.viewAll — the server still permits the
+   *  write, validated against the WHOLE business's stores) → the block still
+   *  renders its header with a one-line explainer instead of vanishing
+   *  silently, which read as a bug rather than a permission boundary. */
   stores?: StoreRow[]
   /** Business-type visit noun (施術 / 診療 / レッスン …), resolved server-side
    *  — see SettingsShell's prop note. Absent → the neutral fallback below,
@@ -178,42 +181,56 @@ export function RecordingSection({
         </div>
       </div>
 
-      {/* 自動録音 — one switch per store, one home, no sub-options and no
-       *  schedule (spec §8.8, simplicity law). Sits next to 自動停止 because
-       *  both answer "when does recording start/stop on its own". */}
-      {stores && stores.length > 0 && (
+      {/* 自動録音 — one switch per ACTIVE store, one home, no sub-options and
+       *  no schedule (spec §8.8, simplicity law). Sits next to 自動停止
+       *  because both answer "when does recording start/stop on its own". */}
+      {stores && (
         <div className="border-t border-border/30 pt-6 space-y-4">
           <div>
             <p className="text-sm font-medium">{t('autostartTitle')}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {t('autostartDescription', { serviceNoun: serviceNoun || t('autostartVisitFallback') })}
-            </p>
-            {/* Spec §8.5, verbatim: there is no wake-lock, no background-audio
-             *  entitlement and no foreground service anywhere in the app, so a
-             *  locked phone SUSPENDS capture. Auto-start must never imply
-             *  continuous background recording — the honest sentence ships in
-             *  the settings screen itself, not in a doc. */}
-            {/* text-foreground, not muted: as the third grey footnote in a
-             *  stack this sentence is present but unread, and it is the one
-             *  line here whose whole job is to stop a false belief about
-             *  background recording. Neutral, never accent — the one-way
-             *  accent law reserves saturated blue for pressables. */}
-            <p className="text-xs text-foreground mt-2">
-              {t('autostartLockCaveat')}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {t('autostartBatteryNote')}
-            </p>
+            {stores.length > 0 ? (
+              <>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {t('autostartDescription', { serviceNoun: serviceNoun || t('autostartVisitFallback') })}
+                </p>
+                {/* Spec §8.5, verbatim: there is no wake-lock, no background-audio
+                 *  entitlement and no foreground service anywhere in the app, so a
+                 *  locked phone SUSPENDS capture. Auto-start must never imply
+                 *  continuous background recording — the honest sentence ships in
+                 *  the settings screen itself, not in a doc. */}
+                {/* text-foreground, not muted: as the third grey footnote in a
+                 *  stack this sentence is present but unread, and it is the one
+                 *  line here whose whole job is to stop a false belief about
+                 *  background recording. Neutral, never accent — the one-way
+                 *  accent law reserves saturated blue for pressables. */}
+                <p className="text-xs text-foreground mt-2">
+                  {t('autostartLockCaveat')}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('autostartBatteryNote')}
+                </p>
+              </>
+            ) : (
+              // Fix round F-E: settings.manage can reach this tab with no
+              // visible stores (stores.viewAll withheld) — the server still
+              // permits the write, validated against the WHOLE business's
+              // store list, so silence here reads as a bug, not a boundary.
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {t('autostartNoStoresAccess')}
+              </p>
+            )}
           </div>
-          {stores.map((s) => (
-            <Toggle
-              key={s.id}
-              label={s.name}
-              value={autostartIds.includes(s.id)}
-              disabled={autostartPendingId !== null}
-              onChange={(v) => flipAutostart(s.id, v)}
-            />
-          ))}
+          {stores
+            .filter((s) => s.active)
+            .map((s) => (
+              <Toggle
+                key={s.id}
+                label={s.name}
+                value={autostartIds.includes(s.id)}
+                disabled={autostartPendingId !== null}
+                onChange={(v) => flipAutostart(s.id, v)}
+              />
+            ))}
         </div>
       )}
 
@@ -370,7 +387,10 @@ function Toggle({
   disabled?: boolean
 }) {
   return (
-    <div className="flex items-center justify-between">
+    // opacity-60 on the whole row while disabled — matches AISection's local
+    // Toggle convention (fix round F-K): the label dims along with the
+    // control, not just the button.
+    <div className={`flex items-center justify-between ${disabled ? 'opacity-60' : ''}`}>
       <div className="flex-1 min-w-0 pr-4">
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium">{label}</p>
@@ -394,7 +414,7 @@ function Toggle({
         aria-label={label}
         disabled={disabled}
         onClick={() => onChange(!value)}
-        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
           value ? 'bg-primary' : 'bg-muted'
         }`}
       >

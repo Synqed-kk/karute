@@ -1,12 +1,14 @@
 /** @jest-environment jsdom */
 // 自動録音 block in RecordingSection (recording-integrity PR A4, spec §8.1
-// discipline c / §8.5 / §8.8). Pins: ONE switch per store, checked from the
-// server-truth id list · a flip calls the action with (storeId, enabled) ·
-// every switch is disabled while a write is in flight (two taps would race two
-// read-modify-writes on the same lock-free blob) · the resulting list comes
-// back from the SERVER, never from an optimistic local flip · a failed flip
-// leaves the switch where it was and toasts, never a false 保存しました · the
-// §8.5 lock caveat renders · with no stores the block does not render at all.
+// discipline c / §8.5 / §8.8; fix round F-E/F-H). Pins: ONE switch per
+// ACTIVE store, checked from the server-truth id list · a flip calls the
+// action with (storeId, enabled) · every switch is disabled while a write is
+// in flight (two taps would race two read-modify-writes on the same
+// lock-free blob) · the resulting list comes back from the SERVER, never
+// from an optimistic local flip · a failed flip leaves the switch where it
+// was and toasts, never a false 保存しました · the §8.5 lock caveat renders ·
+// stores=[] (permission-gated) renders the header + explainer, not nothing ·
+// inactive stores get no switch.
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 jest.mock('next-intl', () => ({
@@ -81,9 +83,29 @@ describe('RecordingSection — 自動録音 per-store switches', () => {
     ).toBeInTheDocument()
   })
 
-  it('no stores → the block does not render (no promise without a control)', () => {
+  it('stores=[] (settings.manage without stores.viewAll) renders the header + explainer, not nothing (fix round F-E)', () => {
     render(<RecordingSection orgSettings={settings([])} stores={[]} />)
+    expect(screen.getByText('autostartTitle')).toBeInTheDocument()
+    expect(screen.getByText('autostartNoStoresAccess')).toBeInTheDocument()
+    // The description/caveat/battery lines and every switch belong to the
+    // has-stores render only.
     expect(screen.queryByText('autostartLockCaveat')).not.toBeInTheDocument()
+    expect(screen.queryByText('autostartBatteryNote')).not.toBeInTheDocument()
+    expect(screen.queryByRole('switch', { name: '本店' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('switch', { name: '青山店' })).not.toBeInTheDocument()
+  })
+
+  it('stores prop entirely omitted → the block does not render at all', () => {
+    render(<RecordingSection orgSettings={settings([])} />)
+    expect(screen.queryByText('autostartTitle')).not.toBeInTheDocument()
+    expect(screen.queryByText('autostartNoStoresAccess')).not.toBeInTheDocument()
+  })
+
+  it('an inactive store gets no switch (fix round F-H)', () => {
+    const inactive = { ...STORES[1], active: false }
+    render(<RecordingSection orgSettings={settings([])} stores={[STORES[0], inactive]} />)
+    expect(screen.getByRole('switch', { name: '本店' })).toBeInTheDocument()
+    expect(screen.queryByRole('switch', { name: '青山店' })).not.toBeInTheDocument()
   })
 
   it('a flip calls the action with (storeId, enabled) and re-renders from the SERVER list', async () => {

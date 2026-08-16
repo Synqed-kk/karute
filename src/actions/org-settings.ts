@@ -384,8 +384,27 @@ export async function writeOrgSettingsBlobWithClient(
  *     staff-owned data, so it must NOT require settings.manage.
  * Splitting the write from the gate is what lets one blob field (voice_enrollments)
  * carry a different authz rule than the rest without a settings.manage back door.
+ *
+ * 自動録音 is NOT writable through this door either (spec §8.1, fix round F-A).
+ * The strip lives HERE, not one level up in upsertOrgSettings: this function
+ * is itself an exported, undecorated 'use server' function in the same module
+ * — a sibling door, not a symbol only upsertOrgSettings can reach. Without the
+ * strip here, the moment anything else imports writeOrgSettingsBlob directly
+ * (Next mints it its own action id the first time a client component pulls it
+ * in), any signed-in staffer — no settings.manage required — could set
+ * recording_autostart_store_ids for an arbitrary, even foreign, store with no
+ * audit row: exactly the silent flip §8.1's one audit exception exists to
+ * prevent. NOT stripped one level deeper, in writeOrgSettingsBlobWithClient:
+ * that is the choke point setRecordingAutostartWithClient
+ * (src/lib/settings/recording-autostart.ts) calls directly, and it must keep
+ * writing the key. The only door that reaches writeOrgSettingsBlobWithClient
+ * WITH this key is setRecordingAutostartWithClient. Facade twin:
+ * OrgSettingsPatchDTO omits the key, same guard, same reason as
+ * voice_enrollments.
  */
 export async function writeOrgSettingsBlob(settings: Partial<OrgSettings>) {
+  const { recording_autostart_store_ids: _autostart, ...rest } = settings
+
   // Client init stays INSIDE the { error } contract, exactly as before the
   // WithClient extraction: a session blip / DB hiccup in getSynqedClient()
   // must resolve to { error }, never reject the server action — the settings
@@ -396,7 +415,7 @@ export async function writeOrgSettingsBlob(settings: Partial<OrgSettings>) {
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
-  const result = await writeOrgSettingsBlobWithClient(synqed, settings)
+  const result = await writeOrgSettingsBlobWithClient(synqed, rest)
   if ('success' in result) {
     revalidatePath('/settings')
     updateTag('org-settings')
@@ -408,7 +427,8 @@ export async function writeOrgSettingsBlob(settings: Partial<OrgSettings>) {
  * Owner/manager settings write (packet 03, gap 1). Previously this action had NO
  * capability gate, so any signed-in staff could rewrite org settings. It now
  * requires `settings.manage` — the same capability the settings UI is presented
- * under — before delegating to the ungated blob writer.
+ * under — before delegating to the ungated blob writer, which itself strips
+ * 自動録音 before the merge (spec §8.1) — see writeOrgSettingsBlob's doc comment.
  */
 export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
   const { getMyCapabilities, ensureCapability } = await import('@/lib/auth/require-permission')
@@ -417,14 +437,5 @@ export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
   } catch {
     return { error: 'You do not have permission to change settings.' }
   }
-  // 自動録音 is NOT writable through the generic settings door (spec §8.1).
-  // This action is a client-invokable server action taking an unvalidated
-  // Partial<OrgSettings>, so without the strip any settings.manage holder
-  // could flip auto-start for an arbitrary — even foreign — store id with no
-  // audit row: exactly the silent flip §8.1's one audit exception exists to
-  // prevent. setRecordingAutostart is the only door. (Facade twin: the key is
-  // omitted from OrgSettingsPatchDTO, same guard, same reason as
-  // voice_enrollments.)
-  const { recording_autostart_store_ids: _autostart, ...rest } = settings
-  return writeOrgSettingsBlob(rest)
+  return writeOrgSettingsBlob(settings)
 }
