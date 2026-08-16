@@ -2269,6 +2269,7 @@
           "suggested_message_view": "AI提案メッセージを閲覧"
         },
         "recording": {
+          "discard": "録音を破棄",
           "transcribe": "録音を文字起こし"
         }
       },

@@ -57,6 +57,10 @@ const LITERAL_ONLY_CATEGORY = {
   'settings.menu_update': 'settings',
   'settings.menu_retire': 'settings',
   'settings.menu_reactivate': 'settings',
+  // Choke emit: src/lib/recording/discard.ts#discardRecordingWithClient
+  // (facade key recordings.discard is a skip row — same doctrine as
+  // karute.save/karute.entry_edit above). Recording-integrity PR A1.
+  'recording.discard': 'recording',
 }
 
 function fail(msg) {

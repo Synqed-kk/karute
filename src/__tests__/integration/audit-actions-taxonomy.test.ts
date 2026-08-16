@@ -48,6 +48,13 @@ function decisionActions(): string[] {
 // AUTHORING site and is excluded from the scan/ban entirely.
 const NON_LITERAL_BAN_EXEMPT_FILES = new Set(['src/lib/app-api/handler.ts'])
 
+// Taxonomy AUTHORING sites — the emit primitives a literal `action:` string is
+// written against. auditDurable joined with recording-integrity A1 (the
+// awaited/durable variant of audit()): without it, an action emitted ONLY
+// durably reads as an AUDIT_ACTIONS orphan and the set-equality both-ways
+// check would be silently one-sided.
+const EMIT_FN_NAMES = new Set(['audit', 'auditWeb', 'auditDurable'])
+
 /** String-literal members of a parameter's type annotation, when it's a
  *  union of string literals (round-2 amendment E: the ONE authorized
  *  exception to the non-literal-action ban — src/actions/customers.ts's
@@ -119,7 +126,7 @@ function scanLiteralActions(sourceText: string, filePath: string, exemptFromBan:
     if (
       ts.isCallExpression(node) &&
       ts.isIdentifier(node.expression) &&
-      (node.expression.text === 'audit' || node.expression.text === 'auditWeb')
+      EMIT_FN_NAMES.has(node.expression.text)
     ) {
       const value = actionPropertyValue(node)
       if (value) {

@@ -31,7 +31,12 @@ import ts from 'typescript'
 import { deriveWriteMethods, type WritePair } from './sdk-write-methods'
 import { staticAccessName, calleeObject } from './ast-access'
 
-const EMIT_NAMES = new Set(['audit', 'auditWeb', 'logFacadeAudit'])
+// 'auditDurable' (recording-integrity A1) is the third emit primitive — the
+// awaited/durable variant of audit() for rows that ARE the deliverable. Every
+// scanner in this suite that recognizes an emit must know all three names, or
+// a durable writer is invisible to the proof net (CP2/CP4/CP5/CP7 each carry
+// the same widened set).
+const EMIT_NAMES = new Set(['audit', 'auditWeb', 'auditDurable', 'logFacadeAudit'])
 const SUPABASE_WRITE_VERBS = new Set(['insert', 'update', 'upsert', 'delete'])
 
 type FnLike = ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression | ts.MethodDeclaration

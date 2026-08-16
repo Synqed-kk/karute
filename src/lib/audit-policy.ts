@@ -67,6 +67,7 @@ export const AUDIT_ACTIONS = [
   'privacy.customer_export',
   'privacy.voice_enroll',
   'privacy.voice_revoke',
+  'recording.discard',
   'recording.transcribe',
   'settings.menu_create',
   'settings.menu_reactivate',
