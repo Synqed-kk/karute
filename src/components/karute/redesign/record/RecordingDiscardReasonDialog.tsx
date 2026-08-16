@@ -85,7 +85,7 @@ function DiscardReasonPanel({
     <>
       <div
         className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
-        onClick={onCancel}
+        onClick={() => !submitting && onCancel()}
       />
       <div
         ref={panelRef}

@@ -277,6 +277,13 @@ describe('submitting — the in-flight guard (fix F-C)', () => {
     fireEvent.click(cancelButton())
     expect(onConfirm).not.toHaveBeenCalled()
     expect(onCancel).not.toHaveBeenCalled()
+
+    // The backdrop scrim carries the same guard (delta-verify Finding 1) —
+    // a tap outside the panel while submitting must also be a no-op.
+    const backdrop = document.querySelector('.fixed.inset-0.bg-black\\/50')
+    expect(backdrop).not.toBeNull()
+    fireEvent.click(backdrop as Element)
+    expect(onCancel).not.toHaveBeenCalled()
   })
 })
 
