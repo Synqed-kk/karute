@@ -30,6 +30,10 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // permissions
   'permissions.update',
   'orgSettings.update',
+  // 自動録音 per-store toggle (recording-integrity A4) — a POST that writes a
+  // durable, staff-attributed audit row AND changes recording behavior, so a
+  // just-terminated staffer must not be able to flip it on the local fast-path.
+  'orgSettings.recordingAutostart',
   // export
   'export',
   // facade resource WRITES — as a rule every facade mutation re-checks

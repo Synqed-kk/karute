@@ -9,6 +9,8 @@ import {
   type AudioSource,
   type RecordingDisclosureMode,
 } from '@/actions/org-settings'
+import { setRecordingAutostart } from '@/actions/recording-autostart'
+import type { StoreRow } from '@/actions/stores'
 
 const AUDIO_QUALITY = [
   { value: 'low', label: 'Low' },
@@ -38,9 +40,22 @@ const DISCLOSURE_MODES: { value: RecordingDisclosureMode; labelKey: string }[] =
 
 interface RecordingSectionProps {
   orgSettings: OrgSettings | null
+  /** Server-fetched store list — 自動録音 renders one switch per store.
+   *  Optional/empty → the 自動録音 block does not render at all: copy that
+   *  promises a per-store switch with no switch under it is worse than
+   *  nothing. */
+  stores?: StoreRow[]
+  /** Business-type visit noun (施術 / 診療 / レッスン …), resolved server-side
+   *  — see SettingsShell's prop note. Absent → the neutral fallback below,
+   *  never a hard-coded 施術 (spec §8.8 fix C9). */
+  serviceNoun?: string
 }
 
-export function RecordingSection({ orgSettings }: RecordingSectionProps) {
+export function RecordingSection({
+  orgSettings,
+  stores,
+  serviceNoun,
+}: RecordingSectionProps) {
   const t = useTranslations('settings')
   const [audioQuality, setAudioQuality] = useState(
     orgSettings?.audio_quality ?? 'standard',
@@ -73,11 +88,41 @@ export function RecordingSection({ orgSettings }: RecordingSectionProps) {
     orgSettings?.recording_consent_template ?? '',
   )
 
+  // 自動録音 (spec §8.1). The ids are SERVER truth: the action computes the new
+  // list from its own fresh read, so this state is only ever replaced by what
+  // came back — never flipped optimistically. A failed flip therefore leaves
+  // the switch exactly where it was, which is the honest render (§8.1
+  // discipline c: a clobbered toggle is visible immediately, not believed).
+  const [autostartIds, setAutostartIds] = useState<string[]>(
+    orgSettings?.recording_autostart_store_ids ?? [],
+  )
+  const [autostartPendingId, setAutostartPendingId] = useState<string | null>(null)
+
   const save = useCallback(
     async (partial: Partial<OrgSettings>, quiet = false) => {
       const result = await upsertOrgSettings(partial)
       if ('error' in result) toast.error(result.error)
       else if (!quiet) toast.success(t('settingsSaved'))
+    },
+    [t],
+  )
+
+  const flipAutostart = useCallback(
+    async (storeId: string, enabled: boolean) => {
+      setAutostartPendingId(storeId)
+      try {
+        const result = await setRecordingAutostart(storeId, enabled)
+        if (result.ok) {
+          setAutostartIds(result.storeIds)
+          toast.success(t('settingsSaved'))
+        } else {
+          toast.error(
+            t(result.error === 'forbidden' ? 'autostartForbidden' : 'autostartSaveFailed'),
+          )
+        }
+      } finally {
+        setAutostartPendingId(null)
+      }
     },
     [t],
   )
@@ -132,6 +177,45 @@ export function RecordingSection({ orgSettings }: RecordingSectionProps) {
           </select>
         </div>
       </div>
+
+      {/* 自動録音 — one switch per store, one home, no sub-options and no
+       *  schedule (spec §8.8, simplicity law). Sits next to 自動停止 because
+       *  both answer "when does recording start/stop on its own". */}
+      {stores && stores.length > 0 && (
+        <div className="border-t border-border/30 pt-6 space-y-4">
+          <div>
+            <p className="text-sm font-medium">{t('autostartTitle')}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {t('autostartDescription', { serviceNoun: serviceNoun || t('autostartVisitFallback') })}
+            </p>
+            {/* Spec §8.5, verbatim: there is no wake-lock, no background-audio
+             *  entitlement and no foreground service anywhere in the app, so a
+             *  locked phone SUSPENDS capture. Auto-start must never imply
+             *  continuous background recording — the honest sentence ships in
+             *  the settings screen itself, not in a doc. */}
+            {/* text-foreground, not muted: as the third grey footnote in a
+             *  stack this sentence is present but unread, and it is the one
+             *  line here whose whole job is to stop a false belief about
+             *  background recording. Neutral, never accent — the one-way
+             *  accent law reserves saturated blue for pressables. */}
+            <p className="text-xs text-foreground mt-2">
+              {t('autostartLockCaveat')}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('autostartBatteryNote')}
+            </p>
+          </div>
+          {stores.map((s) => (
+            <Toggle
+              key={s.id}
+              label={s.name}
+              value={autostartIds.includes(s.id)}
+              disabled={autostartPendingId !== null}
+              onChange={(v) => flipAutostart(s.id, v)}
+            />
+          ))}
+        </div>
+      )}
 
       <div className="border-t border-border/30 pt-6">
         <label className="text-sm font-medium mb-1.5 block">
@@ -272,12 +356,18 @@ function Toggle({
   value,
   onChange,
   comingSoon,
+  disabled,
 }: {
   label: string
-  description: string
+  /** Omitted on the per-store 自動録音 rows — the store name is the whole row
+   *  (spec §8.8: no sub-options, nothing to explain per store). */
+  description?: string
   value: boolean
   onChange: (v: boolean) => void
   comingSoon?: string
+  /** In-flight lock — the write is a server round-trip and a second tap
+   *  before it lands would race two read-modify-writes on the same blob. */
+  disabled?: boolean
 }) {
   return (
     <div className="flex items-center justify-between">
@@ -290,12 +380,21 @@ function Toggle({
             </span>
           )}
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+        {description && (
+          <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+        )}
       </div>
+      {/* role="switch" + aria-checked (PacksSection's precedent): without them
+       *  a screen reader reads every toggle in this section as a nameless
+       *  button with no state. */}
       <button
         type="button"
+        role="switch"
+        aria-checked={value}
+        aria-label={label}
+        disabled={disabled}
         onClick={() => onChange(!value)}
-        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
           value ? 'bg-primary' : 'bg-muted'
         }`}
       >

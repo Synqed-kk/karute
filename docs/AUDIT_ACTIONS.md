@@ -59,6 +59,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `settings.menu_retire` | settings | live | `settings.auditLog.actions.settings.menu_retire` |
 | `settings.menu_update` | settings | live | `settings.auditLog.actions.settings.menu_update` |
 | `settings.permissions_change` | settings | live | `settings.auditLog.actions.settings.permissions_change` |
+| `settings.recording_autostart_toggle` | settings | live | `settings.auditLog.actions.settings.recording_autostart_toggle` |
 | `settings.staff_stores_change` | settings | live | `settings.auditLog.actions.settings.staff_stores_change` |
 | `settings.store_create` | settings | live | `settings.auditLog.actions.settings.store_create` |
 | `settings.store_update` | settings | live | `settings.auditLog.actions.settings.store_update` |

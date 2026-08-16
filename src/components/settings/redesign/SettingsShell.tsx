@@ -235,6 +235,12 @@ interface SettingsShellProps {
    *  always read false). */
   featureStaffInvites?: boolean
   featureMultiStore?: boolean
+  /** The business type's own visit noun (施術 / 診療 / レッスン …), resolved
+   *  SERVER-side by both callers (spec §8.8 fix C9). OPTIONAL: a caller that
+   *  omits it gets RecordingSection's neutral fallback, so no existing render
+   *  path changes — the persona module is ~260 KB and must never be imported
+   *  from a client component. */
+  serviceNoun?: string
 }
 
 export function SettingsShell({
@@ -261,6 +267,7 @@ export function SettingsShell({
   onRunNow,
   featureStaffInvites,
   featureMultiStore,
+  serviceNoun,
 }: SettingsShellProps) {
   const t = useTranslations('settings')
   // null = mobile list view (no section drilled into).
@@ -315,7 +322,16 @@ export function SettingsShell({
       case 'coaching':
         return <CoachingSection />
       case 'recording':
-        return <RecordingSection orgSettings={orgSettings} />
+        return (
+          <RecordingSection
+            orgSettings={orgSettings}
+            // Same server-fetched list StoresSection gets — 自動録音 renders
+            // one switch per store (spec §8.1/§8.8). A branch-restricted
+            // staffer gets [] here exactly as they do for the 店舗 tab.
+            stores={initialStores}
+            serviceNoun={serviceNoun}
+          />
+        )
       case 'staff':
         return (
           <StaffSection

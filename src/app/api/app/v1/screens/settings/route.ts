@@ -43,6 +43,7 @@ import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { orgSettingsWithClient } from '@/actions/org-settings'
 import { listStoresWithClient } from '@/actions/stores'
 import { loadEntitlementWithClient } from '@/lib/entitlements'
+import { getBusinessAiPersona, resolvePersonaTokens } from '@/lib/karute/business-ai-tokens'
 
 export const runtime = 'nodejs'
 
@@ -51,6 +52,11 @@ export const runtime = 'nodejs'
 function readRequestedTab(ctx: FacadeContext): 'audit' | null {
   const raw = new URL(ctx.req.url).searchParams.get('tab')
   return raw === 'audit' ? 'audit' : null
+}
+
+/** Same shape as every other screens route's locale read (screens/record). */
+function readLocale(ctx: FacadeContext): 'ja' | 'en' {
+  return new URL(ctx.req.url).searchParams.get('locale') === 'en' ? 'en' : 'ja'
 }
 
 export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) => {
@@ -184,6 +190,11 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
         // env var directly and silently go dark in the native bundle.
         featureStaffInvites: process.env.NEXT_PUBLIC_FEATURE_STAFF_INVITES === 'true',
         featureMultiStore: process.env.NEXT_PUBLIC_FEATURE_MULTI_STORE === 'true',
+        // Resolved here, never in the component — see the DTO field's note.
+        serviceNoun: resolvePersonaTokens(
+          getBusinessAiPersona(orgSettings?.business_type),
+          readLocale(ctx),
+        ).serviceNoun,
       }),
     )
   } catch (err) {

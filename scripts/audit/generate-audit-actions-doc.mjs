@@ -61,6 +61,10 @@ const LITERAL_ONLY_CATEGORY = {
   // (facade key recordings.discard is a skip row — same doctrine as
   // karute.save/karute.entry_edit above). Recording-integrity PR A1.
   'recording.discard': 'recording',
+  // Choke emit: src/lib/settings/recording-autostart.ts#setRecordingAutostartWithClient
+  // (facade key orgSettings.recordingAutostart is a skip row — same doctrine).
+  // The ONE audited settings-blob key, spec §8.1 fix C1. Recording-integrity PR A4.
+  'settings.recording_autostart_toggle': 'settings',
 }
 
 function fail(msg) {

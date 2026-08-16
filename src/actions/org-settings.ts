@@ -98,6 +98,44 @@ export interface OrgSettings {
    *  until Anthony adds the column (schema TODO in CoachingSection.tsx); reads as
    *  false pre-migration, so coaching stays dark until deliberately turned on. */
   coaching_enabled?: boolean
+  /** 自動録音 — the ids of the stores where auto-start is ON (recording-
+   *  integrity spec §8.1, PR A4). Ruled default is OFF everywhere, which is
+   *  what an absent key / empty array means; A7 reads MEMBERSHIP of the
+   *  appointment's store at arm time.
+   *
+   *  Why an id LIST on a per-ORG blob rather than a boolean per store: ruling
+   *  ③ set per-store semantics, but this blob is keyed by businessId only
+   *  (orgSettingsByBusiness below — no store_id exists anywhere in this file),
+   *  so the store dimension has to live INSIDE the value. Spec §8.1's ⚠ 8/17
+   *  correction block rules this shape; real per-store settings rows stay the
+   *  honest close (§13.11, core-side).
+   *
+   *  WRITE PATH IS NOT THIS FILE: only setRecordingAutostartWithClient
+   *  (src/lib/settings/recording-autostart.ts) may set it — it validates store
+   *  membership and writes the §10.3 audit row. upsertOrgSettings strips the
+   *  key and OrgSettingsPatchDTO omits it, so the generic settings write can
+   *  never flip auto-start silently (§8.1's one deliberate audit exception is
+   *  worthless if a second unaudited door exists). */
+  recording_autostart_store_ids?: string[]
+}
+
+/** F8 hygiene for the 自動録音 store-id list: keep only real, plausibly-sized
+ *  string ids, de-duplicated, bounded. Every rejection direction is toward OFF
+ *  — a junk entry can only ever REMOVE a store from auto-start, never add one.
+ *  Caps are sanity bounds, not policy (a business with 200 stores is far past
+ *  anything this app has seen); they stop a corrupted blob from being carried
+ *  forward unbounded on every subsequent write. */
+const MAX_AUTOSTART_STORE_IDS = 200
+const MAX_STORE_ID_LEN = 200
+function sanitizeStoreIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  for (const v of raw) {
+    if (typeof v !== 'string' || v.length === 0 || v.length > MAX_STORE_ID_LEN) continue
+    seen.add(v)
+    if (seen.size >= MAX_AUTOSTART_STORE_IDS) break
+  }
+  return [...seen]
 }
 
 // businessId is the cache key — Next includes function args in the key automatically.
@@ -186,6 +224,12 @@ function normalizeOrgSettings(
     // never take effect even once the column + UI exist. (audit finding)
     coaching_enabled:
       s.coaching_enabled === undefined ? false : Boolean(s.coaching_enabled),
+    // 自動録音 (spec §8.1) — explicit `undefined → []`, the ruled default-OFF.
+    // Same audit finding as coaching_enabled above: without the mapping the
+    // arm gate would read undefined forever and the toggle could never take
+    // effect once A7 exists. Sanitized rather than trusted: a garbled blob
+    // must degrade toward OFF (fewer stores), never toward "record more".
+    recording_autostart_store_ids: sanitizeStoreIds(s.recording_autostart_store_ids),
     voice_enrollments:
       s.voice_enrollments && typeof s.voice_enrollments === 'object'
         ? (s.voice_enrollments as Record<string, VoiceEnrollment>)
@@ -373,5 +417,14 @@ export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
   } catch {
     return { error: 'You do not have permission to change settings.' }
   }
-  return writeOrgSettingsBlob(settings)
+  // 自動録音 is NOT writable through the generic settings door (spec §8.1).
+  // This action is a client-invokable server action taking an unvalidated
+  // Partial<OrgSettings>, so without the strip any settings.manage holder
+  // could flip auto-start for an arbitrary — even foreign — store id with no
+  // audit row: exactly the silent flip §8.1's one audit exception exists to
+  // prevent. setRecordingAutostart is the only door. (Facade twin: the key is
+  // omitted from OrgSettingsPatchDTO, same guard, same reason as
+  // voice_enrollments.)
+  const { recording_autostart_store_ids: _autostart, ...rest } = settings
+  return writeOrgSettingsBlob(rest)
 }

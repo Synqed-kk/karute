@@ -128,6 +128,7 @@ export const OrgSettingsSchema = z.object({
   ticket_packs_enabled: z.boolean(),
   pack_burn_mode: z.enum(['auto', 'manual']),
   coaching_enabled: z.boolean().optional(),
+  recording_autostart_store_ids: z.array(z.string()).optional(),
 })
 
 /** PATCH /api/app/v1/org-settings body — every field optional (a merge
@@ -146,10 +147,21 @@ export const OrgSettingsSchema = z.object({
  *  in the staff tab's voice service, S4); accepting it here would hand every
  *  settings.manage holder a write path over other staff's enrollment records
  *  through this NEW endpoint. zod strips it silently (same as any unknown
- *  key), pinned by the route test. */
+ *  key), pinned by the route test.
+ *
+ *  `recording_autostart_store_ids` is dropped for the same CLASS of reason
+ *  (recording-integrity A4): it has its own write path with its own rules —
+ *  POST /api/app/v1/org-settings/recording-autostart, which validates store
+ *  membership, computes the list server-side from a fresh read, and writes the
+ *  settings.recording_autostart_toggle audit row (spec §8.1's one deliberate
+ *  exception to the settings-blob parity rule). Accepting it here would hand
+ *  every settings.manage holder an UNAUDITED, unvalidated door onto the switch
+ *  that makes phones record on their own — which is precisely what §8.1 exists
+ *  to prevent. Web's twin guard: upsertOrgSettings strips the key. */
 export const OrgSettingsPatchDTO = OrgSettingsSchema.omit({
   id: true,
   voice_enrollments: true,
+  recording_autostart_store_ids: true,
 }).partial()
 
 /** Mirrors the read-only fields off SyncConfig (QuickReserve) the
@@ -228,6 +240,14 @@ export const SettingsScreenDTO = z.object({
   // web (which never passes these props) is byte-for-byte unchanged.
   featureStaffInvites: z.boolean(),
   featureMultiStore: z.boolean(),
+  // The business type's own visit noun (施術 / 診療 / レッスン …), resolved
+  // SERVER-side from src/lib/karute/business-ai-tokens.ts — spec §8.8 fix C9:
+  // lane copy that names the visit threads the existing vertical token instead
+  // of hard-coding 施術 at a dental front desk. Resolved here rather than in
+  // the component on purpose: the persona module is ~260 KB of source and is
+  // not in the thin bundle; importing it from a client component would cost
+  // more than the entire remaining bundle headroom to ship one noun.
+  serviceNoun: z.string(),
 })
 
 export type SettingsScreenDTOType = z.infer<typeof SettingsScreenDTO>
