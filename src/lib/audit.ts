@@ -75,9 +75,28 @@ export interface AuditEvent {
  *      has no businessId (core writes are tenant-scoped; the console line
  *      still records it — e.g. pre-auth PIN lockouts). */
 export function audit(e: AuditEvent): void {
-  // Severity maps to console level so log drains keep their level semantics
-  // (a 'warning' event — lockouts, deletions-scheduled — lands on the warn
-  // channel exactly like the bespoke lines it replaces).
+  emitConsoleLine(e)
+
+  if (e.businessId) {
+    // Start NOW (zero added latency), then extend the function's lifetime
+    // until the write settles. forwardToCore never rejects, so the fallback
+    // void can't become an unhandled rejection.
+    const durable = forwardToCore(e, e.businessId)
+    try {
+      after(durable)
+    } catch {
+      // No request scope to attach to — best-effort, as before.
+      void durable
+    }
+  }
+}
+
+/** THE console line — sink 1, shared by audit() and auditDurable() so the
+ *  drain sees byte-identical rows whichever emitter wrote them. Severity maps
+ *  to console level so log drains keep their level semantics (a 'warning'
+ *  event — lockouts, deletions-scheduled — lands on the warn channel exactly
+ *  like the bespoke lines it replaces). */
+function emitConsoleLine(e: AuditEvent): void {
   const emit = (e.severity ?? 'info') === 'warning' ? console.warn : console.log
   emit(
     JSON.stringify({
@@ -98,19 +117,24 @@ export function audit(e: AuditEvent): void {
       source: e.source,
     }),
   )
+}
 
-  if (e.businessId) {
-    // Start NOW (zero added latency), then extend the function's lifetime
-    // until the write settles. forwardToCore never rejects, so the fallback
-    // void can't become an unhandled rejection.
-    const durable = forwardToCore(e, e.businessId)
-    try {
-      after(durable)
-    } catch {
-      // No request scope to attach to — best-effort, as before.
-      void durable
-    }
-  }
+/** RECEIPT-GRADE emit — the one case where the audit row IS the product, not
+ *  a trace of it (the disclosed recording discard, spec §3.6): the caller may
+ *  only report success once the durable row has actually landed, so this
+ *  AWAITS the core write and hands back the outcome instead of handing it to
+ *  after(). Same console line, same payload mapping, same never-throws
+ *  contract as audit() — the ONLY differences are the await and the return.
+ *
+ *  `audit()` stays the default everywhere else: an ordinary trace must never
+ *  add latency to (or fail) the mutation it records.
+ *
+ *  No businessId → { ok: false }: core writes are tenant-scoped, so there is
+ *  no durable row to promise. The console line still recorded the event. */
+export async function auditDurable(e: AuditEvent): Promise<{ ok: boolean; rowId?: string }> {
+  emitConsoleLine(e)
+  if (!e.businessId) return { ok: false }
+  return forwardToCore(e, e.businessId)
 }
 
 // App severities are richer than core's column enum — map, don't drop:
@@ -151,15 +175,19 @@ export function _resetCoreForwardDropCount(): void {
 
 /** The durable sink. Builds a business-scoped core client directly (the audit
  *  emitter can run outside a request's auth scope — cron, throttle callbacks —
- *  so it must not depend on getSynqedClient's session lookup). Never throws. */
-async function forwardToCore(e: AuditEvent, businessId: string): Promise<void> {
+ *  so it must not depend on getSynqedClient's session lookup). Never throws.
+ *  Returns whether the row LANDED (and its core id when core hands one back) —
+ *  audit() ignores the outcome exactly as before; auditDurable() is the caller
+ *  that needs it. Both swallow paths (missing env, any throw) report ok:false:
+ *  a receipt must never be claimed for a row that isn't there. */
+async function forwardToCore(e: AuditEvent, businessId: string): Promise<{ ok: boolean; rowId?: string }> {
   try {
     const baseUrl = process.env.SYNQED_CORE_URL
     const apiKey = process.env.SYNQED_CORE_API_KEY
-    if (!baseUrl || !apiKey) return
+    if (!baseUrl || !apiKey) return { ok: false }
     const { SynqedClient } = await import('@synqed-kk/client')
     const synqed = new SynqedClient({ baseUrl, apiKey, businessId })
-    await synqed.audit.log({
+    const row = await synqed.audit.log({
       actor_id: e.actorId,
       actor_type: e.actorType,
       category: e.category,
@@ -171,11 +199,16 @@ async function forwardToCore(e: AuditEvent, businessId: string): Promise<void> {
       break_glass: e.breakGlass ?? false,
       severity: CORE_SEVERITY[e.severity ?? 'info'],
     })
+    // Core returns the created row (SDK AuditClient.log → AuditEvent); a
+    // partial test mock may not, so the id stays optional.
+    const rowId = (row as { id?: unknown } | undefined)?.id
+    return { ok: true, rowId: typeof rowId === 'string' ? rowId : undefined }
   } catch (err) {
     // Never let auditing break (or slow) the calling path — the console line
     // above already recorded the event for the drain.
     coreForwardDropCount += 1
     console.warn(JSON.stringify({ evt: 'audit_sink_error', action: e.action, err: String(err) }))
+    return { ok: false }
   }
 }
 
@@ -242,6 +275,7 @@ export type FacadeEndpointKey =
   | 'orgSettings.update'
   | 'permissions.get'
   | 'permissions.update'
+  | 'recordings.discard'
   | 'recordings.job.enqueue'
   | 'recordings.job.status'
   | 'recordings.session.mint'
@@ -578,6 +612,19 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // createOrUpdateKaruteRecord says "process-recording.ts does NOT call this
   // function" — verified, FIX ROUND 1 #17) — the enqueue step routes
   // EXCLUSIVELY into that worker, never into the interactive save.
+  // recordings.discard (PR A1, recording-integrity spec §3.6/§10): the ONE
+  // recording.discard row is written by the shared choke point
+  // discardRecordingWithClient (src/lib/recording/discard.ts), which BOTH the
+  // web action and this facade route call — same choke-point doctrine as
+  // karute.save above. A live row here would double-log every facade discard,
+  // and worse, the hook's emit is fire-and-forget audit() while this receipt
+  // must be AWAITED and durable (auditDurable) — the two are not
+  // interchangeable. Deny-default doc rule readers: do not promote this row.
+  // The writer is proven by CP2 off THIS citation — deliberately NOT by an
+  // AUDITED_CORES entry: registering it would open an allowlist-exemption span
+  // over the whole symbol, silently amnestying any SDK write a future edit
+  // drops inside it. Every gate is green without one; do not add it back.
+  'recordings.discard': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/discard.ts#discardRecordingWithClient' },
   'recordings.job.enqueue': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/jobs/process-recording.ts#processJob' },
   // recordings.session.mint / recordings.uploadUrl: BOTH stage audio/ids for
   // EITHER downstream pipeline (verified at source: thin's

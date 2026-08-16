@@ -2269,6 +2269,7 @@
           "suggested_message_view": "Viewed AI suggested message"
         },
         "recording": {
+          "discard": "Discarded recording",
           "transcribe": "Transcribed recording"
         }
       },

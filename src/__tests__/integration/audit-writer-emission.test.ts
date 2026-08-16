@@ -48,8 +48,15 @@ function unwrapFnLike(expr: ts.Expression | undefined): ts.Node | null {
   return null
 }
 
+// The emit primitives an exported symbol can call (audit.ts / audit-web.ts).
+// auditDurable joined with recording-integrity A1 — the awaited/durable
+// variant; a durable writer must be as visible to registry-reality as a
+// fire-and-forget one.
+const EMIT_FN_NAMES = new Set(['audit', 'auditWeb', 'auditDurable'])
+
 /** Does an exported function-like node's subtree (including nested closures
- *  — the emitSave idiom) contain a REAL CallExpression to audit(/auditWeb(?
+ *  — the emitSave idiom) contain a REAL CallExpression to audit(/auditWeb(/
+ *  auditDurable(?
  *  AST-verified: a comment mentioning "auditWeb() call" in prose (the
  *  org-settings/route.ts false positive) can never match, since comments
  *  aren't AST nodes. */
@@ -57,7 +64,7 @@ function containsRealEmitCall(fnNode: ts.Node): boolean {
   let found = false
   function visit(n: ts.Node): void {
     if (found) return
-    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && (n.expression.text === 'audit' || n.expression.text === 'auditWeb')) {
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && EMIT_FN_NAMES.has(n.expression.text)) {
       found = true
       return
     }

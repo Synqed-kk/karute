@@ -73,6 +73,10 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   'customer.consent.grant',
   'recordings.session.mint',
   'recordings.uploadUrl',
+  // The discard receipt (recording-integrity A1) — a POST that writes a
+  // durable, staff-attributed audit row, so a just-terminated staffer must not
+  // be able to file one on the local fast-path.
+  'recordings.discard',
   // recording-flow AI compute (packet 08 Decision 1/2 — LLM/transcription on
   // customer voice). All are POSTs (no durable write, hence no Idempotency-Key —
   // the recorded compute-POST exemption), so the coverage assertion requires

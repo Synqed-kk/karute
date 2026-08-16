@@ -56,7 +56,12 @@ interface CallSite {
  *  truncate the match early. */
 function callSites(src: string): CallSite[] {
   const sites: CallSite[] = []
-  const re = /\b(?:auditWeb|audit)\(\s*\{/g
+  // auditDurable joined with recording-integrity A1 — a durable emit needs its
+  // requestId threaded exactly like a fire-and-forget one. The trailing `\(` is
+  // what keeps the alternatives from half-matching each other (`audit` cannot
+  // match inside `auditDurable(`, since `D` is not `(`); the order is for
+  // readability, not correctness.
+  const re = /\b(?:auditDurable|auditWeb|audit)\(\s*\{/g
   for (let m = re.exec(src); m; m = re.exec(src)) {
     const braceStart = src.indexOf('{', m.index)
     let depth = 0
