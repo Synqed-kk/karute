@@ -228,11 +228,14 @@ describe('inertness — PR A changes no roster behavior', () => {
     })
   }
 
-  it('flagged and unflagged builds produce the SAME picker + lane rosters', () => {
+  // The PICKER roster is the half that must never move — the 担当 view filter
+  // reads it and has to keep offering everyone (Liam ruling Ⓒ). The day-LANE
+  // half is the one PR B deliberately changes; its rules live in
+  // management-flag-lanes.test.ts.
+  it('flagged and unflagged builds produce the same picker roster', () => {
     const off = build(false)
     const on = build(true)
     expect(on.staff.map((s) => s.id)).toEqual(off.staff.map((s) => s.id))
-    expect(on.reservationStaff).toEqual(off.reservationStaff)
     expect(on.visibleActiveStaffId).toBe(off.visibleActiveStaffId)
   })
 

@@ -1,13 +1,14 @@
 'use client'
 
 import { useMemo } from 'react'
-import { useForm } from 'react-hook-form'
+import { useController, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { StaffCombobox, type StaffComboboxOption } from '@/components/karute/StaffCombobox'
 import { createCustomer, updateCustomer } from '@/actions/customers'
 import { formatJpPhone, formatJpPhoneProgressive } from '@/lib/format/phone'
 
@@ -70,7 +71,7 @@ interface CustomerFormProps {
    * (web page / facade DTO) — there is no client-side fetch fallback, so an
    * omitted prop just means an empty picker (plus currentStaff, if given).
    */
-  assignableStaff?: { id: string; name: string }[]
+  assignableStaff?: StaffComboboxOption[]
   onSuccess?: () => void
   onCancel?: () => void
 }
@@ -134,6 +135,7 @@ export function CustomerForm({
     handleSubmit,
     reset,
     setValue,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<CustomerFormValues>({
     resolver: zodResolver(schema),
@@ -151,6 +153,11 @@ export function CustomerForm({
       ...seededDefaults,
     },
   })
+
+  // 指名スタッフ rides a controlled field (useController — the same seam
+  // ReviewHeader/EntryCard use) because StaffCombobox is not an <input> RHF
+  // can register directly.
+  const { field: staffField } = useController({ control, name: 'assignedStaffId' })
 
   async function onSubmit(values: CustomerFormValues) {
     // Concatenate into the single `name` field the server schema expects.
@@ -311,17 +318,16 @@ export function CustomerForm({
        *  なし → null. The QR sync only seeds this on first import and never
        *  overwrites it after, so a manual pick here sticks. */}
       <Field label={t('form.preferredStaff')}>
-        <select
-          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-          {...register('assignedStaffId')}
-        >
-          <option value="">{t('form.noPreference')}</option>
-          {staffChoices.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
+        {/* Searchable, with 指名なし pinned first. 経営メンバー stay out of the
+         *  default list and appear as soon as their name is typed; whoever is
+         *  ALREADY assigned always shows (staffChoices merges them in above,
+         *  and selection resolves from that full array). */}
+        <StaffCombobox
+          staff={staffChoices}
+          selectedId={staffField.value || null}
+          onSelect={staffField.onChange}
+          noneLabel={t('form.noPreference')}
+        />
       </Field>
 
       {/* Actions */}

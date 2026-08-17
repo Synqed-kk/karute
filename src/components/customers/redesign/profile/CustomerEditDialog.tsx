@@ -6,6 +6,7 @@
 // updateCustomer on submit) — this dialog just provides the
 // trigger surface + modal chrome.
 
+import type { StaffComboboxOption } from '@/components/karute/StaffCombobox'
 import { useState } from 'react'
 import { Pencil } from 'lucide-react'
 import { toast } from 'sonner'
@@ -25,7 +26,7 @@ interface Props {
   customer: CustomerProfileData
   /** Optional pre-loaded staff roster (thin app threads it from the screen
    *  DTO); omitted on web → CustomerForm self-fetches. */
-  assignableStaff?: { id: string; name: string }[]
+  assignableStaff?: StaffComboboxOption[]
 }
 
 export function CustomerEditDialog({ customer, assignableStaff }: Props) {

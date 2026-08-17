@@ -35,7 +35,11 @@ export function CustomersScreen() {
           staffList={dto.staffList}
           // The facade's staffList is business-wide (staffListByBusinessOrThrow,
           // no store clamp) — the correct 指名スタッフ roster as-is.
-          assignableStaff={dto.staffList.map((s) => ({ id: s.id, name: s.name }))}
+          assignableStaff={dto.staffList.map((s) => ({
+            id: s.id,
+            name: s.name,
+            isManagement: s.isManagement,
+          }))}
           burnByCustomer={dto.burnByCustomer}
           burnUnpricedIds={dto.burnUnpricedIds}
         />

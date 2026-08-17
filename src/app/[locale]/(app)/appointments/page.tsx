@@ -197,6 +197,7 @@ export default async function AppointmentsPage({
         monthStartIso={screen.monthStartIso}
         reservationViews={screen.reservationViews}
         reservationStaff={screen.reservationStaff}
+        colorRosterIds={screen.colorRosterIds}
         businessHours={screen.businessHours}
         staffFilter={staffFilter}
         menus={menuOptions}

@@ -40,6 +40,10 @@ import {
   CustomerCombobox,
   type CustomerOption,
 } from '@/components/karute/CustomerCombobox'
+import {
+  StaffCombobox,
+  type StaffComboboxOption as StaffOption,
+} from '@/components/karute/StaffCombobox'
 import { QuickCreateCustomer } from '@/components/karute/QuickCreateCustomer'
 
 import { createManualKaruteRecord } from '@/actions/karute'
@@ -47,10 +51,6 @@ import { createManualKaruteRecord } from '@/actions/karute'
 const DURATION_OPTIONS = [30, 45, 60, 90] as const
 type Duration = (typeof DURATION_OPTIONS)[number]
 
-interface StaffOption {
-  id: string
-  name: string
-}
 
 interface NewKaruteDialogProps {
   open: boolean
@@ -245,19 +245,17 @@ export function NewKaruteDialog({
             >
               {t('staffLabel')}
             </label>
-            <select
+            {/* Searchable: 経営メンバー are out of the default list but stay
+             *  selectable by typing. defaultStaffId is the viewer's own id, so
+             *  a management member always sees themselves. */}
+            <StaffCombobox
               id="new-karute-staff"
-              value={staffId}
-              onChange={(e) => setStaffId(e.target.value)}
+              staff={staffList}
+              selectedId={staffId || null}
+              onSelect={setStaffId}
+              selfId={defaultStaffId ?? null}
               disabled={pending}
-              className="h-10 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {staffList.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+            />
           </div>
 
           {/* Service — ACTIVE. */}
