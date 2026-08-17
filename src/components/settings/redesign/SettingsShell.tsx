@@ -192,6 +192,12 @@ interface SettingsShellProps {
   /** Stores fetched on the server, passed straight to StoresSection so its
    *  list renders complete on first paint instead of fetching on mount. */
   initialStores: StoreRow[]
+  /** The stores the ACTOR may write menus for — their assignment when they
+   *  lack stores.viewAll, every store otherwise. Separate from initialStores
+   *  on purpose: 店舗/自動録音/スタッフ still show a branch-restricted staff
+   *  nothing, while メニュー must name the stores they genuinely may edit
+   *  (src/actions/menus.ts holds the matching server clamp). */
+  menuStores: StoreRow[]
   initialActiveStoreId: string | null
   /** Service-menu catalog fetched on the server, passed straight to
    *  MenusSection (same idiom as initialStores). null = the fetch FAILED —
@@ -258,6 +264,7 @@ export function SettingsShell({
   initialTab,
   auditTargetId,
   initialStores,
+  menuStores,
   initialActiveStoreId,
   initialMenus,
   initialEntitlement,
@@ -362,7 +369,11 @@ export function SettingsShell({
         // Defense in depth alongside the tab filter (listMenus enforces
         // menus.manage regardless — this only stops a stray render).
         return canManageMenus ? (
-          <MenusSection menus={initialMenus} stores={initialStores} />
+          <MenusSection
+            menus={initialMenus}
+            stores={menuStores}
+            canViewAllStores={canViewAllStores}
+          />
         ) : null
       case 'audit':
         // Defense in depth alongside the tab filter (server action enforces

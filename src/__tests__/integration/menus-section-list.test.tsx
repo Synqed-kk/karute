@@ -208,7 +208,7 @@ beforeEach(() => jest.clearAllMocks())
 
 describe('MenusSection — grouping (core order, 未分類 last)', () => {
   it('renders category headers in first-appearance order with 未分類 LAST', () => {
-    const { container } = render(<MenusSection menus={CATALOG} stores={[store]} />)
+    const { container } = render(<MenusSection menus={CATALOG} stores={[store]} canViewAllStores />)
     // Each group header precedes its own rows, so the first occurrence of a
     // category string in the rendered text IS its header position.
     const text = container.textContent ?? ''
@@ -220,14 +220,14 @@ describe('MenusSection — grouping (core order, 未分類 last)', () => {
   })
 
   it('places the blank-category menu under 未分類, not under a real category', () => {
-    render(<MenusSection menus={CATALOG} stores={[store]} />)
+    render(<MenusSection menus={CATALOG} stores={[store]} canViewAllStores />)
     const group = screen.getByText('未分類').parentElement!
     expect(group.textContent).toContain('着付け')
     expect(group.textContent).not.toContain('カット')
   })
 
   it('a whitespace-only category joins 未分類 instead of heading its own group', () => {
-    render(<MenusSection menus={CATALOG} stores={[store]} />)
+    render(<MenusSection menus={CATALOG} stores={[store]} canViewAllStores />)
     expect(screen.getByText('未分類').parentElement!.textContent).toContain('ヘアセット')
   })
 
@@ -250,7 +250,7 @@ describe('MenusSection — grouping (core order, 未分類 last)', () => {
         menu({ id: '8a5b2f9c-d16e-4037-9b42-c7f8531de024', name: 'カット', category: 'カット' }),
       ]
 
-      const { container } = render(<MenusSection menus={colliding} stores={[store]} />)
+      const { container } = render(<MenusSection menus={colliding} stores={[store]} canViewAllStores />)
 
       // Two same-labeled headers is core-data truth, not a bug — what must hold
       // is WHICH rows sit under each and that the blank one stays last.
@@ -281,7 +281,7 @@ describe('MenusSection — grouping (core order, 未分類 last)', () => {
 
 describe('MenusSection — price honesty (band vs fixed)', () => {
   it('a menu with a floor renders the band; a menu without one renders the single price', () => {
-    render(<MenusSection menus={ACTIVE_ONLY} stores={[store]} />)
+    render(<MenusSection menus={ACTIVE_ONLY} stores={[store]} canViewAllStores />)
     expect(screen.getByText('¥3,300–¥5,500')).toBeTruthy()
     expect(screen.getByText('¥6,600–¥8,800')).toBeTruthy()
     // カット is fixed at ¥5,500 — never rendered as a band.
@@ -290,12 +290,12 @@ describe('MenusSection — price honesty (band vs fixed)', () => {
   })
 
   it('a ¥0 floor renders as a band, not collapsed to the single ceiling price', () => {
-    render(<MenusSection menus={ACTIVE_ONLY} stores={[store]} />)
+    render(<MenusSection menus={ACTIVE_ONLY} stores={[store]} canViewAllStores />)
     expect(screen.getByText('¥0–¥1,100')).toBeTruthy()
   })
 
   it('renders each row duration from the menu, not a default', () => {
-    render(<MenusSection menus={ACTIVE_ONLY} stores={[store]} />)
+    render(<MenusSection menus={ACTIVE_ONLY} stores={[store]} canViewAllStores />)
     expect(screen.getAllByText('60分').length).toBe(2) // カット + 着付け
     expect(screen.getByText('30分')).toBeTruthy()
     expect(screen.getByText('90分')).toBeTruthy()
@@ -304,19 +304,19 @@ describe('MenusSection — price honesty (band vs fixed)', () => {
 
 describe('MenusSection — chips carry information only', () => {
   it('store-scoped rows chip the STORE NAME; all-store rows chip nothing', () => {
-    render(<MenusSection menus={ACTIVE_ONLY} stores={[store]} />)
+    render(<MenusSection menus={ACTIVE_ONLY} stores={[store]} canViewAllStores />)
     expect(screen.getByText('駅前店')).toBeTruthy()
     expect(screen.queryByText('店舗限定')).toBeNull()
   })
 
   it('an unresolvable store (viewer without stores.viewAll) falls back to the generic label', () => {
-    render(<MenusSection menus={ACTIVE_ONLY} stores={[]} />)
+    render(<MenusSection menus={ACTIVE_ONLY} stores={[]} canViewAllStores />)
     expect(screen.getByText('店舗限定')).toBeTruthy()
     expect(screen.queryByText('駅前店')).toBeNull()
   })
 
   it('non-default flags chip; defaults stay silent', () => {
-    render(<MenusSection menus={ACTIVE_ONLY} stores={[store]} />)
+    render(<MenusSection menus={ACTIVE_ONLY} stores={[store]} canViewAllStores />)
     expect(screen.getAllByText('オンライン非表示').length).toBe(1)
     expect(screen.getAllByText('指名不可').length).toBe(1)
   })
@@ -324,7 +324,7 @@ describe('MenusSection — chips carry information only', () => {
 
 describe('MenusSection — 停止中 disclosure', () => {
   it('collapsed by default with the retired COUNT; expanding reveals the row + 停止中 chip', () => {
-    render(<MenusSection menus={CATALOG} stores={[store]} />)
+    render(<MenusSection menus={CATALOG} stores={[store]} canViewAllStores />)
     expect(screen.queryByText('縮毛矯正')).toBeNull()
 
     fireEvent.click(screen.getByText('停止中のメニュー（1）'))
@@ -335,7 +335,7 @@ describe('MenusSection — 停止中 disclosure', () => {
   })
 
   it('zero retired menus → no disclosure row at all', () => {
-    render(<MenusSection menus={ACTIVE_ONLY} stores={[store]} />)
+    render(<MenusSection menus={ACTIVE_ONLY} stores={[store]} canViewAllStores />)
     expect(screen.queryByText('停止中のメニュー（0）')).toBeNull()
     expect(screen.queryByText(/停止中のメニュー/)).toBeNull()
   })
@@ -345,7 +345,7 @@ describe('MenusSection — 停止中 disclosure', () => {
   // catalog WITH menus — never the 「まだありません」 empty state.
   it('every menu retired → disclosure only, no empty active card, no empty state', () => {
     const retiredOnly = CATALOG.filter((m) => !m.active)
-    const { container } = render(<MenusSection menus={retiredOnly} stores={[store]} />)
+    const { container } = render(<MenusSection menus={retiredOnly} stores={[store]} canViewAllStores />)
     expect(screen.getByText('停止中のメニュー（1）')).toBeTruthy()
     expect(screen.queryByText('メニューがまだありません')).toBeNull()
     // Collapsed disclosure renders no panel, so the ONLY card that could exist
@@ -359,7 +359,7 @@ describe('MenusSection — empty vs load failure (data honesty)', () => {
   // (mock :618). While the catalog is empty that CTA owns create outright —
   // the header button is suppressed, so there is exactly ONE way to start.
   it('[] renders the text-only copy plus a single create CTA, with no header button beside it', () => {
-    render(<MenusSection menus={[]} stores={[store]} />)
+    render(<MenusSection menus={[]} stores={[store]} canViewAllStores />)
     expect(screen.getByText('メニューがまだありません')).toBeTruthy()
     expect(screen.getAllByRole('button', { name: '＋ メニューを追加' }).length).toBe(1)
     // No list chrome to press either — no rows, no disclosure, no filter.
@@ -368,7 +368,7 @@ describe('MenusSection — empty vs load failure (data honesty)', () => {
   })
 
   it('null (fetch failed) renders the load error and NEVER the empty state', () => {
-    render(<MenusSection menus={null} stores={[store]} />)
+    render(<MenusSection menus={null} stores={[store]} canViewAllStores />)
     expect(screen.getByText('メニューを読み込めませんでした')).toBeTruthy()
     expect(screen.queryByText('メニューがまだありません')).toBeNull()
   })
@@ -376,7 +376,7 @@ describe('MenusSection — empty vs load failure (data honesty)', () => {
 
 describe('MenusSection — create entry point (PR-3b)', () => {
   it('a non-empty catalog carries the header button and opens the editor in CREATE mode', () => {
-    render(<MenusSection menus={CATALOG} stores={[store]} />)
+    render(<MenusSection menus={CATALOG} stores={[store]} canViewAllStores />)
     expect(createButtons().length).toBe(1)
 
     fireEvent.click(createButtons()[0])
@@ -386,42 +386,43 @@ describe('MenusSection — create entry point (PR-3b)', () => {
   })
 
   it('a retired-only catalog is NOT empty — the header button stays', () => {
-    render(<MenusSection menus={[RETIRED]} stores={[store]} />)
+    render(<MenusSection menus={[RETIRED]} stores={[store]} canViewAllStores />)
     expect(createButtons().length).toBe(1)
     expect(screen.queryByText('メニューがまだありません')).toBeNull()
   })
 
   it('a failed read offers no way to write — an error state must not invite a create', () => {
-    render(<MenusSection menus={null} stores={[store]} />)
+    render(<MenusSection menus={null} stores={[store]} canViewAllStores />)
     expect(createButtons().length).toBe(0)
     expect(screen.queryByRole('combobox', { name: '店舗' })).toBeNull()
   })
 
-  // Degraded scope (menus.manage WITHOUT stores.viewAll — a supported custom
-  // role): the 店舗 pills are hidden because there are no store names to read.
+  // Degraded store read (a stores.viewAll actor whose store list failed to
+  // load): the 店舗 pills are hidden because there are no store names to read.
   // In EDIT that is harmless (storeId saves back unchanged), but in CREATE
   // storeId starts null = 全店舗, so the write publishes a menu bookable
-  // everywhere. Disclose it, don't block it — the capability was granted. The
-  // line is visible WITHOUT expanding 詳細, because the scope it discloses is
-  // not something the staff member chose to go looking for.
+  // everywhere — which this actor is entitled to, so it is DISCLOSED. The line
+  // is visible WITHOUT expanding 詳細, because the scope it discloses is not
+  // something the staff member chose to go looking for. (A branch actor gets
+  // no disclosure and no all-store write at all — see the scope block below.)
   const NOTE = 'このメニューは、すべての店舗の予約で選べるようになります。'
 
   it('CREATE with no visible stores discloses that the menu will be all-stores', () => {
-    render(<MenusSection menus={CATALOG} stores={[]} />)
+    render(<MenusSection menus={CATALOG} stores={[]} canViewAllStores />)
     fireEvent.click(createButtons()[0])
 
     expect(screen.getByText(NOTE)).toBeTruthy()
   })
 
   it('CREATE with stores visible does NOT show the note — the pills already show scope', () => {
-    render(<MenusSection menus={CATALOG} stores={[store]} />)
+    render(<MenusSection menus={CATALOG} stores={[store]} canViewAllStores />)
     fireEvent.click(createButtons()[0])
 
     expect(screen.queryByText(NOTE)).toBeNull()
   })
 
   it('EDIT with no visible stores does NOT show the note — an edit saves scope back unchanged', () => {
-    render(<MenusSection menus={CATALOG} stores={[]} />)
+    render(<MenusSection menus={CATALOG} stores={[]} canViewAllStores />)
     // 前髪カット, not カット — the latter also names its category header.
     fireEvent.click(screen.getByText('前髪カット'))
 
@@ -431,7 +432,7 @@ describe('MenusSection — create entry point (PR-3b)', () => {
 
 describe('MenusSection — pressable ACTIVE rows, inert RETIRED rows', () => {
   it('clicking an active row opens the editor PREFILLED with that row', () => {
-    render(<MenusSection menus={CATALOG} stores={[store]} />)
+    render(<MenusSection menus={CATALOG} stores={[store]} canViewAllStores />)
     fireEvent.click(screen.getByText('リタッチカラー'))
 
     expect(screen.getByText('メニューを編集')).toBeTruthy()
@@ -443,7 +444,7 @@ describe('MenusSection — pressable ACTIVE rows, inert RETIRED rows', () => {
   // would nest that button inside another and open an editor whose footer
   // offers メニューを停止… on an already-stopped menu.
   it('a retired row is not pressable and never opens the editor — 再開 is its only control', () => {
-    render(<MenusSection menus={CATALOG} stores={[store]} />)
+    render(<MenusSection menus={CATALOG} stores={[store]} canViewAllStores />)
     fireEvent.click(screen.getByText('停止中のメニュー（1）'))
 
     expect(screen.getByText('縮毛矯正').closest('button')).toBeNull()
@@ -467,7 +468,7 @@ describe('MenusSection — 再開 (reactivate)', () => {
   }
 
   const openConfirm = () => {
-    render(<MenusSection menus={CATALOG} stores={[store]} />)
+    render(<MenusSection menus={CATALOG} stores={[store]} canViewAllStores />)
     fireEvent.click(screen.getByText('停止中のメニュー（1）'))
     fireEvent.click(screen.getByRole('button', { name: '再開' }))
   }
@@ -526,7 +527,7 @@ describe('MenusSection — 再開 (reactivate)', () => {
   // resolves is the one that started it.
   it('every 再開 row goes inert mid-write, so a dismissed confirm cannot be replaced', async () => {
     const settle = hangingReactivate()
-    render(<MenusSection menus={FILTER_CATALOG} stores={[store]} />)
+    render(<MenusSection menus={FILTER_CATALOG} stores={[store]} canViewAllStores />)
     fireEvent.click(screen.getByText('停止中のメニュー（2）'))
     const rowButtons = () => screen.getAllByRole('button', { name: '再開' }) as HTMLButtonElement[]
     expect(rowButtons()).toHaveLength(2)
@@ -566,17 +567,17 @@ describe('MenusSection — 再開 (reactivate)', () => {
 
 describe('MenusSection — store filter', () => {
   it('one store → no filter at all (a control with one real answer is dead chrome)', () => {
-    render(<MenusSection menus={FILTER_CATALOG} stores={[store]} />)
+    render(<MenusSection menus={FILTER_CATALOG} stores={[store]} canViewAllStores />)
     expect(screen.queryByRole('combobox', { name: '店舗' })).toBeNull()
   })
 
   it('an empty catalog gets no filter either — nothing to narrow', () => {
-    render(<MenusSection menus={[]} stores={TWO_STORES} />)
+    render(<MenusSection menus={[]} stores={TWO_STORES} canViewAllStores />)
     expect(screen.queryByRole('combobox', { name: '店舗' })).toBeNull()
   })
 
   it('two stores → 全店舗 plus one option per store, defaulting to 全店舗', () => {
-    render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+    render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} canViewAllStores />)
     expect((filterSelect() as HTMLSelectElement).value).toBe('')
     expect(
       [...(filterSelect() as HTMLSelectElement).options].map((o) => o.textContent),
@@ -586,7 +587,7 @@ describe('MenusSection — store filter', () => {
   // The UNION rule, on both lists at once: 駅前店 keeps its own menus AND the
   // all-store ones (an all-store menu is bookable there), and drops 本店's.
   it('a store selection filters ACTIVE and RETIRED alike, and the retired COUNT follows', () => {
-    render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+    render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} canViewAllStores />)
     expect(screen.getByText('停止中のメニュー（2）')).toBeTruthy()
 
     fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
@@ -603,7 +604,7 @@ describe('MenusSection — store filter', () => {
 
   it('a filter that empties BOTH lists says so — never the 「まだありません」 empty state, and the header button stays', () => {
     const hontenOnly = FILTER_CATALOG.filter((m) => m.store_id === HONTEN)
-    render(<MenusSection menus={hontenOnly} stores={TWO_STORES} />)
+    render(<MenusSection menus={hontenOnly} stores={TWO_STORES} canViewAllStores />)
 
     fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
 
@@ -621,7 +622,7 @@ describe('MenusSection — store filter', () => {
   it('a filter leaving 0 ACTIVE but some retired shows the line AND keeps the disclosure', () => {
     // Every ACTIVE row is 本店's, so 駅前店 keeps only the retired 駅前 row.
     const hontenActives = FILTER_CATALOG.filter((m) => !m.active || m.store_id === HONTEN)
-    render(<MenusSection menus={hontenActives} stores={TWO_STORES} />)
+    render(<MenusSection menus={hontenActives} stores={TWO_STORES} canViewAllStores />)
 
     fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
 
@@ -639,7 +640,7 @@ describe('MenusSection — store filter', () => {
   // it, so a mutant that shows 「利用できるメニューはありません」 directly above
   // the store's own menu rows survives the whole suite.
   it('a filter leaving ACTIVE menus shows NO filter-empty line above them', () => {
-    render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+    render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} canViewAllStores />)
 
     fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
 
@@ -664,7 +665,7 @@ describe('MenusSection — store filter', () => {
         display_order: 70,
       }),
     ]
-    render(<MenusSection menus={withHontenCategory} stores={TWO_STORES} />)
+    render(<MenusSection menus={withHontenCategory} stores={TWO_STORES} canViewAllStores />)
     fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
     expect(screen.queryByText('本店パーマ')).toBeNull()
 
@@ -682,11 +683,11 @@ describe('MenusSection — store filter', () => {
   // stale — so the filter derives back to 全店舗 on the same render the prop
   // changes, and no menu is left hidden behind a control that may be gone.
   it('the selected store vanishing BELOW 2 stores un-hides everything, with no select left to undo it', () => {
-    const { rerender } = render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+    const { rerender } = render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} canViewAllStores />)
     fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
     expect(screen.queryByText('本店ヘッドスパ')).toBeNull()
 
-    rerender(<MenusSection menus={FILTER_CATALOG} stores={[honten]} />)
+    rerender(<MenusSection menus={FILTER_CATALOG} stores={[honten]} canViewAllStores />)
 
     // The below-2 rule has just taken the select away, so a surviving 駅前店
     // filter would hide 本店's menus with nothing on screen to reach it.
@@ -702,11 +703,11 @@ describe('MenusSection — store filter', () => {
   // not sit on a store that is no longer one of its options.
   it('the selected store vanishing while 2 stores REMAIN falls back to 全店舗 in the select and the list', () => {
     const sakae: StoreRow = { ...store, id: 'd3f81a52-7c04-4b96-8e17-59ab206cf4d3', name: '栄店' }
-    const { rerender } = render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+    const { rerender } = render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} canViewAllStores />)
     fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
     expect(screen.queryByText('本店ヘッドスパ')).toBeNull()
 
-    rerender(<MenusSection menus={FILTER_CATALOG} stores={[honten, sakae]} />)
+    rerender(<MenusSection menus={FILTER_CATALOG} stores={[honten, sakae]} canViewAllStores />)
 
     expect((filterSelect() as HTMLSelectElement).value).toBe('')
     expect(screen.getByText('本店ヘッドスパ')).toBeTruthy()
@@ -722,11 +723,11 @@ describe('MenusSection — store filter', () => {
   // stores-axis threshold in the derivation those rows are hidden forever with
   // no control left to clear the filter.
   it('the filter dies with its select even when the SELECTED store is the survivor', () => {
-    const { rerender } = render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+    const { rerender } = render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} canViewAllStores />)
     fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
     expect(screen.queryByText('本店ヘッドスパ')).toBeNull()
 
-    rerender(<MenusSection menus={FILTER_CATALOG} stores={[store]} />)
+    rerender(<MenusSection menus={FILTER_CATALOG} stores={[store]} canViewAllStores />)
 
     expect(screen.queryByRole('combobox', { name: '店舗' })).toBeNull()
     expect(screen.getByText('本店ヘッドスパ')).toBeTruthy()
@@ -741,16 +742,16 @@ describe('MenusSection — store filter', () => {
   // re-widened scope) the list silently re-narrowed to a filter the staff
   // member never re-chose and the select had stopped showing.
   it('a store that returns does NOT snap the filter back on', () => {
-    const { rerender } = render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+    const { rerender } = render(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} canViewAllStores />)
     fireEvent.change(filterSelect(), { target: { value: EKIMAE } })
     expect(screen.queryByText('本店ヘッドスパ')).toBeNull()
 
     // 駅前店 leaves — the filter falls to 全店舗 and everything is back.
-    rerender(<MenusSection menus={FILTER_CATALOG} stores={[honten]} />)
+    rerender(<MenusSection menus={FILTER_CATALOG} stores={[honten]} canViewAllStores />)
     expect(screen.getByText('本店ヘッドスパ')).toBeTruthy()
 
     // …and now it RETURNS. The selection is gone for good.
-    rerender(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} />)
+    rerender(<MenusSection menus={FILTER_CATALOG} stores={TWO_STORES} canViewAllStores />)
 
     expect((filterSelect() as HTMLSelectElement).value).toBe('')
     expect(screen.getByText('本店ヘッドスパ')).toBeTruthy()
@@ -764,10 +765,59 @@ describe('MenusSection — store filter', () => {
   // ruling the single-store 「every menu retired」 pin above holds.
   it('NO filter + an all-retired catalog stays disclosure-only — no filter line', () => {
     const retiredOnly = FILTER_CATALOG.filter((m) => !m.active)
-    render(<MenusSection menus={retiredOnly} stores={TWO_STORES} />)
+    render(<MenusSection menus={retiredOnly} stores={TWO_STORES} canViewAllStores />)
 
     expect((filterSelect() as HTMLSelectElement).value).toBe('')
     expect(screen.queryByText('この店舗で利用できるメニューはありません')).toBeNull()
     expect(screen.getByText('停止中のメニュー（2）')).toBeTruthy()
+  })
+})
+
+// ⚖ Liam 2026-08-17: a branch actor (menus.manage granted WITHOUT
+// stores.viewAll) sees the whole catalog — the read is deliberately unchanged —
+// but every write affordance on a row they cannot touch is gone, because
+// src/actions/menus.ts refuses those writes. FILTER_CATALOG is the fixture:
+// 全店カット is 全店舗, 駅前トリートメント/駅前デジタルパーマ are this actor's
+// store, 本店ヘッドスパ/本店縮毛矯正 are the other branch's.
+describe('MenusSection — actor store scope (no stores.viewAll)', () => {
+  const branch = (menus = FILTER_CATALOG) =>
+    render(<MenusSection menus={menus} stores={[store]} canViewAllStores={false} />)
+  const pressable = (name: string) => screen.getByText(name).closest('button')
+
+  it('keeps every row VISIBLE — the catalog read is unchanged', () => {
+    branch()
+    for (const name of ['全店カット', '駅前トリートメント', '本店ヘッドスパ'])
+      expect(screen.getByText(name)).toBeTruthy()
+  })
+
+  it('only the actor’s own store’s active row opens the editor', () => {
+    branch()
+    expect(pressable('駅前トリートメント')).not.toBeNull()
+    expect(pressable('本店ヘッドスパ')).toBeNull()
+    // 全店舗 lands in every branch's picker, so it takes stores.viewAll too.
+    expect(pressable('全店カット')).toBeNull()
+
+    fireEvent.click(screen.getByText('本店ヘッドスパ'))
+    expect(screen.queryByText('メニューを編集')).toBeNull()
+    fireEvent.click(screen.getByText('駅前トリートメント'))
+    expect(screen.getByText('メニューを編集')).toBeTruthy()
+  })
+
+  it('再開 survives only on the actor’s own store’s retired row', () => {
+    branch()
+    fireEvent.click(screen.getByText('停止中のメニュー（2）'))
+
+    expect(screen.getByText('本店縮毛矯正')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: '再開' })).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: '再開' }))
+    expect(screen.getByText('「駅前デジタルパーマ」を再開しますか？')).toBeTruthy()
+  })
+
+  it('a stores.viewAll actor keeps every affordance — the shipped presets are untouched', () => {
+    render(<MenusSection menus={FILTER_CATALOG} stores={[store]} canViewAllStores />)
+    expect(pressable('全店カット')).not.toBeNull()
+    expect(pressable('本店ヘッドスパ')).not.toBeNull()
+    fireEvent.click(screen.getByText('停止中のメニュー（2）'))
+    expect(screen.getAllByRole('button', { name: '再開' })).toHaveLength(2)
   })
 })

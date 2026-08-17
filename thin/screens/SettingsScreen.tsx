@@ -90,6 +90,9 @@ export function SettingsScreenInner({ dto }: { dto: SettingsScreenDTOType }) {
         // the catalog rows here would be dead payload (plan §8, fork A: the
         // catalog is edited on the computer).
         initialMenus={[]}
+        // Same reason, same []: no MenusSection on thin, so the actor's
+        // menu-write store scope has nothing to feed.
+        menuStores={[]}
         syncStatus={dto.syncStatus}
         onRunNow={runSyncNow}
         initialTab={dto.initialTab}

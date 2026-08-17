@@ -195,6 +195,7 @@ describe('settings web-only panel — メニュー copy (menu-catalog PR-2)', ()
     initialStores: [],
     initialActiveStoreId: null,
     initialMenus: [],
+    menuStores: [],
     initialEntitlement: null,
   }
 

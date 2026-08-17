@@ -123,13 +123,25 @@ type Mode = null | { kind: 'create' } | { kind: 'edit'; menu: Menu }
 // ONE stable onClose across rerenders — the dismissal-race test counts it.
 const onClose = jest.fn()
 
-function open(mode: Exclude<Mode, null>, stores = STORES) {
+function open(mode: Exclude<Mode, null>, stores = STORES, canViewAllStores = true) {
   const view = render(
-    <MenuFormDialog mode={mode} catalog={CATALOG} stores={stores} onClose={onClose} />,
+    <MenuFormDialog
+      mode={mode}
+      catalog={CATALOG}
+      stores={stores}
+      onClose={onClose}
+      canViewAllStores={canViewAllStores}
+    />,
   )
   return (next: Mode) =>
     view.rerender(
-      <MenuFormDialog mode={next} catalog={CATALOG} stores={stores} onClose={onClose} />,
+      <MenuFormDialog
+        mode={next}
+        catalog={CATALOG}
+        stores={stores}
+        onClose={onClose}
+        canViewAllStores={canViewAllStores}
+      />,
     )
 }
 
@@ -407,6 +419,7 @@ describe('MenuFormDialog — edit', () => {
           catalog={CATALOG}
           stores={STORES}
           onClose={onClose}
+          canViewAllStores
         />
       </StrictMode>,
     )
@@ -654,6 +667,7 @@ describe('MenuFormDialog — メニューを停止 (retire)', () => {
           catalog={CATALOG}
           stores={STORES}
           onClose={onClose}
+          canViewAllStores
         />
       </StrictMode>,
     )
@@ -666,7 +680,7 @@ describe('MenuFormDialog — メニューを停止 (retire)', () => {
   })
 })
 
-describe('MenuFormDialog — degraded store read (menus.manage without stores.viewAll)', () => {
+describe('MenuFormDialog — degraded store read (the store list failed to load)', () => {
   it('an empty stores prop hides 店舗 entirely and saves the stored scope back unchanged', async () => {
     open({ kind: 'edit', menu: SPA }, [])
     openDetails()
@@ -686,5 +700,72 @@ describe('MenuFormDialog — degraded store read (menus.manage without stores.vi
       expect.objectContaining({ store_id: EKIMAE, price_list_amount: 4950 }),
     )
     expect(screen.queryByText(/全店舗に変更しますか/)).toBeNull()
+  })
+})
+
+// ⚖ Liam 2026-08-17: a branch actor (menus.manage granted WITHOUT
+// stores.viewAll) may only touch their own store's menus, and src/actions/
+// menus.ts refuses everything else. The form's job is to never compose a save
+// that server would reject — the old "disclose the all-stores default instead
+// of blocking it" posture is dead.
+describe('MenuFormDialog — branch actor (no stores.viewAll)', () => {
+  const OWN = [storeRow(EKIMAE, '駅前店')]
+
+  it('offers the actor’s own store but never the 全店舗 pill', () => {
+    open({ kind: 'create' }, OWN, false)
+    openDetails()
+    expect(screen.getByRole('group', { name: '店舗' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '駅前店' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '全店舗' })).toBeNull()
+  })
+
+  it('CREATE defaults to that store, so 保存 is never a refused all-store write', async () => {
+    open({ kind: 'create' }, OWN, false)
+    type(/メニュー名/, 'ヘッドスパ')
+    type(/所要時間/, '45')
+    type(/通常価格/, '4400')
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(createMenu).toHaveBeenCalledTimes(1))
+    expect(createMenu).toHaveBeenCalledWith(expect.objectContaining({ store_id: EKIMAE }))
+  })
+
+  it('EDIT of an own-store menu cannot reach the 全店舗 widen confirm', async () => {
+    open({ kind: 'edit', menu: SPA }, OWN, false)
+    openDetails()
+    expect(screen.queryByRole('button', { name: '全店舗' })).toBeNull()
+
+    type(/通常価格/, '4950')
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(updateMenu).toHaveBeenCalledTimes(1))
+    expect(updateMenu).toHaveBeenCalledWith(
+      SPA.id,
+      expect.objectContaining({ store_id: EKIMAE, price_list_amount: 4950 }),
+    )
+    expect(screen.queryByText(/全店舗に変更しますか/)).toBeNull()
+  })
+
+  // The all-stores disclosure is a viewAll sentence: to a branch actor it would
+  // promise exactly the write src/actions/menus.ts refuses.
+  it('never shows the all-stores note, even with no visible stores', () => {
+    open({ kind: 'create' }, [], false)
+    expect(
+      screen.queryByText('このメニューは、すべての店舗の予約で選べるようになります。'),
+    ).toBeNull()
+  })
+
+  it('a stores.viewAll actor keeps the 全店舗 pill and its null CREATE default', async () => {
+    open({ kind: 'create' }, OWN)
+    openDetails()
+    expect(screen.getByRole('button', { name: '全店舗' })).toBeTruthy()
+
+    type(/メニュー名/, 'ヘッドスパ')
+    type(/所要時間/, '45')
+    type(/通常価格/, '4400')
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(createMenu).toHaveBeenCalledTimes(1))
+    expect(createMenu).toHaveBeenCalledWith(expect.objectContaining({ store_id: null }))
   })
 })
