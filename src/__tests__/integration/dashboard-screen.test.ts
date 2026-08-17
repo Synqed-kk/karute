@@ -86,7 +86,7 @@ function baseDeps(over: Partial<DashboardScreenDeps> = {}): DashboardScreenDeps 
     canDismissAlerts: false,
     packUsage: new Map(),
     businessId: 'biz-1',
-    scope: { storeId: null, viewAll: true, allowedStoreIds: null },
+    scope: { storeId: null, viewAll: true, allowedStoreIds: null, degraded: false },
     t: startTiming('test'),
     ...over,
   }
@@ -257,7 +257,9 @@ describe('buildDashboardScreen', () => {
         { id: 'c-in', name: 'In Store' },
       ])
       const screen = await buildDashboardScreen(
-        twoHolderDeps({ scope: { storeId: 'store-1', viewAll: false, allowedStoreIds: ['store-1'] } }),
+        twoHolderDeps({
+          scope: { storeId: 'store-1', viewAll: false, allowedStoreIds: ['store-1'], degraded: false },
+        }),
       )
       expect(getCachedCustomerListFor).toHaveBeenCalledWith('biz-1', 'store-1')
       const inSlide = screen.heroSlides.find((s) => s.clientId === 'c-in')
@@ -269,7 +271,9 @@ describe('buildDashboardScreen', () => {
     it('fails CLOSED when the lens fetch rejects — NO pack rows at all, never the unfiltered map', async () => {
       ;(getCachedCustomerListFor as jest.Mock).mockRejectedValueOnce(new Error('core down'))
       const screen = await buildDashboardScreen(
-        twoHolderDeps({ scope: { storeId: 'store-1', viewAll: false, allowedStoreIds: ['store-1'] } }),
+        twoHolderDeps({
+          scope: { storeId: 'store-1', viewAll: false, allowedStoreIds: ['store-1'], degraded: false },
+        }),
       )
       expect(screen.heroSlides.find((s) => s.clientId === 'c-in')?.ticket).toBeNull()
       expect(screen.heroSlides.find((s) => s.clientId === 'c-out')?.ticket).toBeNull()

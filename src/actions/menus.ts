@@ -101,11 +101,13 @@ function changedDetail(before: Menu, after: Menu): Record<string, string | numbe
 async function storeScopeError(
   ...targets: (string | null | undefined)[]
 ): Promise<string | null> {
-  const { viewAll, allowedStoreIds } = await resolveStoreScope()
+  const { viewAll, allowedStoreIds, degraded } = await resolveStoreScope()
   if (viewAll) return null
   const allowed = (id: string | null | undefined) =>
     id ? !allowedStoreIds || allowedStoreIds.includes(id) : false
-  if (targets.every(allowed)) return null
+  // A degraded lookup can't tell floating from clamped, so it refuses
+  // outright (F-A, fail-closed) — same refusal as a target failing `allowed`.
+  if (!degraded && targets.every(allowed)) return null
   const t = await getTranslations('settings.menus')
   return t('storeScopeDenied')
 }

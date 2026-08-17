@@ -476,6 +476,22 @@ export async function getStaffStores(staffId: string): Promise<string[]> {
   }
 }
 
+/** Strict twin of getStaffStores for resolveStoreScope's fail-closed write
+ *  clamp (⚖ Liam 2026-08-17, menu-catalog fix round F-A): null signals the
+ *  assignment LOOKUP ITSELF failed — distinct from a genuine empty assignment
+ *  ([]), which the floating-staff convention already treats as "works
+ *  everywhere". getStaffStores (and every existing caller of it) keeps
+ *  swallowing failures to [] exactly as before; only resolveStoreScope needs
+ *  the distinction, to refuse writes it can't actually vouch for. */
+export async function getStaffStoresStrict(staffId: string): Promise<string[] | null> {
+  try {
+    const synqed = await getSynqedClient()
+    return (await synqed.staffStores.get(staffId)).store_ids
+  } catch {
+    return null
+  }
+}
+
 /** Client-threaded core of setStaffStores (facade Bearer path, design-parity
  *  packet 12 §S4a — same owner gate + audit-source contract as
  *  createStoreCore/updateStoreCore; STRICTER than staff.manage per the

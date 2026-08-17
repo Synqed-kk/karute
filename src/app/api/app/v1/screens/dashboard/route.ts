@@ -72,6 +72,9 @@ export const GET = facadeHandler('screens.dashboard', async (ctx) => {
     storeId,
     viewAll: ctx.identity.capabilities.has('stores.viewAll'),
     allowedStoreIds: clamp.allowedStoreIds,
+    // This route reads only — degraded exists for the menu-write clamp
+    // (storeScopeError), which this facade screen never calls.
+    degraded: false,
   }
 
   const t = startTiming('screens.dashboard')

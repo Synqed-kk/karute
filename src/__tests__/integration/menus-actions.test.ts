@@ -577,6 +577,33 @@ describe('actor store scope', () => {
     noWrite()
   })
 
+  // Fail-closed on a degraded assignment lookup (⚖ F-A): getStaffStores used
+  // to swallow a lookup failure to [], which read exactly like a floating
+  // staff and let a branch-restricted actor's write through unclamped. Now
+  // resolveStoreScope surfaces that as degraded:true, and storeScopeError
+  // refuses outright — even for a target that would otherwise be in scope.
+  const degradedWriters: [string, () => Promise<unknown>][] = [
+    ['createMenu', () => createMenu({ ...FORM, store_id: MINE })],
+    ['updateMenu', () => updateMenu(MENU_ID, { ...FORM, store_id: MINE })],
+    ['retireMenu', () => retireMenu(MENU_ID)],
+    ['reactivateMenu', () => reactivateMenu(MENU_ID)],
+  ]
+
+  it.each(degradedWriters)(
+    '%s refuses when the store-assignment lookup is degraded (fail-closed), zero SDK writes',
+    async (_n, run) => {
+      targetStore(MINE) // in-scope target — degraded must still win
+      resolveStoreScope.mockResolvedValue({
+        storeId: MINE,
+        viewAll: false,
+        allowedStoreIds: null,
+        degraded: true,
+      })
+      expect(await run()).toEqual(DENIED)
+      noWrite()
+    },
+  )
+
   // The byte-unchanged half: with stores.viewAll every path behaves exactly as
   // it did before the clamp, including the ones a branch actor is refused.
   const viewAllWriters: [string, () => Promise<unknown>][] = [
