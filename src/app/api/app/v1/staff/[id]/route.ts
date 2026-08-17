@@ -26,6 +26,7 @@
 // already pre-registered in REVOCATION_SENSITIVE_ENDPOINTS
 // (src/lib/auth/revocation.ts) before this packet.
 
+import { revalidateTag } from 'next/cache'
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
@@ -77,6 +78,18 @@ export const PATCH = facadeHandler<Params>('staff.update', async (ctx) => {
       id,
       parsed.data,
     )
+    // Bust the roster caches the WEB pages read from ('staff-list' tags
+    // staffListByBusiness + storeStaffIdSetForBusiness, both 86400s), so a
+    // phone-side edit — the 経営メンバー toggle above all — isn't invisible on
+    // web for a day. revalidateTag, NOT updateTag: updateTag is Server-Action-
+    // only and throws inside a Route Handler, which is the whole point of
+    // facade-core-updatetag-ban.test.ts. That is also why this lives on the
+    // route and never inside updateStaffCore, which web calls too (web's own
+    // action wrapper already fires updateTag on its side).
+    //
+    // ponytail: this route only. Every other facade write has the same stale-
+    // cache gap; that sweep is parked deliberately, not forgotten.
+    if ('ok' in result) revalidateTag('staff-list', 'max')
     return ok(ctx, result)
   } catch (err) {
     throw classifyStaffWriteError(err)

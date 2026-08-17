@@ -30,10 +30,12 @@ process.env.AUTH_SUPABASE_URL ??= 'https://test-auth.supabase.co'
 import { createHmac } from 'node:crypto'
 
 const updateTag = jest.fn()
+const revalidateTag = jest.fn()
 jest.mock('next/cache', () => ({
   unstable_cache: (fn: (...a: unknown[]) => unknown) => fn,
   revalidatePath: jest.fn(),
   updateTag: (...a: unknown[]) => updateTag(...a),
+  revalidateTag: (...a: unknown[]) => revalidateTag(...a),
 }))
 jest.mock('next-intl/server', () => ({
   getTranslations: async () => (key: string) => key,
@@ -201,5 +203,28 @@ describe('A2(iii) — facade PATCH round-trip', () => {
     // would still produce 200 { ok: true } — only the payload proves it.
     expect(updatePayloads).toHaveLength(1)
     expect(updatePayloads[0]).toMatchObject({ is_management: true })
+  })
+
+  // A1 replacement: the phone write must bust the web roster caches too, or
+  // the toggle stays invisible on web for the 86400s TTL.
+  it("busts 'staff-list' through the ROUTE-SAFE api (never updateTag)", async () => {
+    await PATCH(patchReq('p-kitano', { ...BASE, isManagement: true }), {
+      params: Promise.resolve({ id: 'p-kitano' }),
+    })
+    expect(revalidateTag).toHaveBeenCalledWith('staff-list', 'max')
+    // updateTag from a Route Handler throws in Next 16 — 48 suites mock
+    // next/cache, so only this assertion catches a regression to it.
+    expect(updateTag).not.toHaveBeenCalled()
+  })
+
+  it('a FAILED update busts nothing', async () => {
+    // synqed-only branch (no profiles row) + a throwing synqed client → 502.
+    profileRow = null
+    fakeClient.staff.update.mockRejectedValueOnce(new Error('core down'))
+    const res = await PATCH(patchReq('synqed-9', BASE), {
+      params: Promise.resolve({ id: 'synqed-9' }),
+    })
+    expect(res.status).toBe(502)
+    expect(revalidateTag).not.toHaveBeenCalled()
   })
 })

@@ -38,6 +38,8 @@ jest.mock('next/cache', () => ({
   unstable_cache: (fn: (...a: unknown[]) => unknown) => fn,
   revalidatePath: jest.fn(),
   updateTag: jest.fn(),
+  // The PATCH route busts 'staff-list' through the route-safe API.
+  revalidateTag: jest.fn(),
 }))
 
 const mockCapabilities = jest.fn(async () => new Set(['staff.invite', 'staff.manage']))
