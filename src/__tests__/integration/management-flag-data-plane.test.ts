@@ -1,0 +1,239 @@
+/**
+ * 経営メンバー data plane (PR A) — the flag reaches every surface that will
+ * consume it in PR B, and NOTHING behaves differently yet.
+ *
+ * Three contracts:
+ *   1. Roster read — profiles.is_management maps to StaffMember.isManagement,
+ *      fails OPEN (null / absent column → false), and synthesized synqed-only
+ *      rows (no profiles row) carry false.
+ *   2. DTO carry — every screen shape the pickers read from ACCEPTS the key.
+ *      zod strips unknown keys silently, so an un-declared field would ship as
+ *      a phone that never sees the flag; these parses are the guard.
+ *   3. Inertness — buildAppointmentsScreen's rosters are byte-identical
+ *      whether or not anyone is flagged. PR A must change no behavior.
+ */
+
+jest.mock('next/cache', () => ({
+  unstable_cache: jest.fn((fn: (...a: unknown[]) => unknown) => fn),
+  revalidatePath: jest.fn(),
+  updateTag: jest.fn(),
+}))
+
+type ProfileRow = Record<string, unknown>
+let profileRows: ProfileRow[] = []
+let profileError: { message: string } | null = null
+
+jest.mock('@/lib/supabase/service', () => ({
+  createServiceClient: () => {
+    const builder: Record<string, unknown> = {}
+    for (const m of ['select', 'eq', 'not', 'order']) builder[m] = () => builder
+    ;(builder as { then: unknown }).then = (resolve: (v: unknown) => unknown) =>
+      resolve({ data: profileRows, error: profileError })
+    return { from: () => builder }
+  },
+}))
+
+// Only reached when SYNQED_CORE_URL/API_KEY are set (the synthesized-row test).
+const synqedStaffList = jest.fn(async () => ({ staff: [] as unknown[] }))
+jest.mock('@synqed-kk/client', () => ({
+  SynqedClient: class {
+    staff = { list: (...a: unknown[]) => synqedStaffList(...(a as [])) }
+  },
+}))
+
+import { staffListByBusiness } from '@/lib/staff'
+import { buildAppointmentsScreen } from '@/lib/appointments/screen'
+import { AppointmentsScreenDTO } from '@/lib/app-api/appointments-screen-dto'
+import { SettingsScreenDTO } from '@/lib/app-api/settings-screen-dto'
+import { CustomersScreenDTO } from '@/lib/app-api/customers-screen-dto'
+import { SessionsScreenDTO } from '@/lib/app-api/sessions-screen-dto'
+import { CustomerProfileScreenDTO } from '@/lib/app-api/customer-profile-screen-dto'
+
+const BIZ = 'business-1'
+
+function profile(over: ProfileRow = {}): ProfileRow {
+  return {
+    id: 'profile-1',
+    full_name: '北野',
+    created_at: '2026-01-01T00:00:00.000Z',
+    display_role: 'STYLIST',
+    position: null,
+    email: 'kitano@example.jp',
+    phone: null,
+    avatar_url: null,
+    pin_hash: null,
+    customer_id: BIZ,
+    ...over,
+  }
+}
+
+beforeEach(() => {
+  jest.clearAllMocks()
+  profileRows = []
+  profileError = null
+  delete process.env.SYNQED_CORE_URL
+  delete process.env.SYNQED_CORE_API_KEY
+})
+
+describe('roster read — profiles.is_management', () => {
+  it('maps the column onto isManagement and drops the snake-case key', async () => {
+    profileRows = [profile({ is_management: true })]
+    const [row] = await staffListByBusiness(BIZ)
+    expect(row.isManagement).toBe(true)
+    expect(row).not.toHaveProperty('is_management')
+  })
+
+  it('fails OPEN: null column → false (a pre-migration row stays visible)', async () => {
+    profileRows = [profile({ is_management: null })]
+    expect((await staffListByBusiness(BIZ))[0].isManagement).toBe(false)
+  })
+
+  it('fails OPEN: absent column (pre-migration schema) → false', async () => {
+    profileRows = [profile()]
+    expect((await staffListByBusiness(BIZ))[0].isManagement).toBe(false)
+  })
+
+  it('synthesized synqed-only rows carry false — no profiles row to flag', async () => {
+    process.env.SYNQED_CORE_URL = 'https://core.test'
+    process.env.SYNQED_CORE_API_KEY = 'k'
+    profileRows = []
+    synqedStaffList.mockResolvedValueOnce({
+      staff: [
+        {
+          id: 'sq-1',
+          name: '中村 優子',
+          role: 'STYLIST',
+          email: 'yuko@example.jp',
+          avatar_url: null,
+          created_at: '2026-02-01T00:00:00.000Z',
+          is_active: true,
+          user_id: null,
+        },
+      ],
+    })
+
+    const roster = await staffListByBusiness(BIZ)
+    expect(roster).toHaveLength(1)
+    expect(roster[0]).toMatchObject({ id: 'sq-1', unlinked: true, isManagement: false })
+  })
+})
+
+describe('DTO carry — the key survives every screen parse', () => {
+  const staffMember = {
+    id: 'profile-1',
+    full_name: '北野',
+    has_pin: false,
+    created_at: '2026-01-01T00:00:00.000Z',
+    isManagement: true,
+  }
+
+  it('settings screen staffList', () => {
+    const parsed = SettingsScreenDTO.shape.staffList.parse([staffMember])
+    expect(parsed[0].isManagement).toBe(true)
+  })
+
+  it('appointments screen staff (booking picker source)', () => {
+    const parsed = AppointmentsScreenDTO.parse({
+      view: 'day',
+      selectedDateIso: '2026-08-18T00:00:00.000Z',
+      staffFilter: 'all',
+      staff: [{ id: 'p1', name: '北野', avatarInitials: 'KI', isManagement: true }],
+      activeStaffId: null,
+      authProfileId: null,
+      customers: [],
+      menus: [],
+      reservationViews: [],
+      reservationStaff: [],
+      businessHours: { start: 10, end: 19 },
+      weekData: null,
+      weekStartIso: null,
+      monthData: null,
+      monthStartIso: null,
+    })
+    expect(parsed.staff[0].isManagement).toBe(true)
+  })
+
+  it('customers screen staffList (指名スタッフ picker source)', () => {
+    const parsed = CustomersScreenDTO.parse({
+      rows: [],
+      totalRegistered: 0,
+      selfStaffId: null,
+      bookingDataAvailable: false,
+      staffList: [{ id: 'p1', name: '北野', initials: '北', isManagement: true }],
+      burnByCustomer: null,
+      burnUnpricedIds: [],
+    })
+    expect(parsed.staffList[0].isManagement).toBe(true)
+  })
+
+  it('sessions screen staffList (新規カルテ picker source)', () => {
+    const parsed = SessionsScreenDTO.parse({
+      items: [],
+      placeholders: [],
+      monthCount: 0,
+      staffList: [{ id: 'p1', name: '北野', initials: '北', isManagement: true }],
+      currentStaffId: null,
+      customerOptions: [],
+    })
+    expect(parsed.staffList[0].isManagement).toBe(true)
+  })
+
+  it('customer-profile assignableStaff', () => {
+    const shape = CustomerProfileScreenDTO.shape.assignableStaff
+    expect(shape.parse([{ id: 'p1', name: '北野', isManagement: true }])[0].isManagement).toBe(
+      true,
+    )
+  })
+})
+
+describe('inertness — PR A changes no roster behavior', () => {
+  const staffList = [
+    {
+      id: 'p1',
+      full_name: '佐藤 美咲',
+      has_pin: false,
+      created_at: '2026-01-01T00:00:00.000Z',
+    },
+    {
+      id: 'p2',
+      full_name: '北野',
+      has_pin: false,
+      created_at: '2026-01-02T00:00:00.000Z',
+    },
+  ]
+
+  function build(isManagement: boolean) {
+    return buildAppointmentsScreen({
+      locale: 'ja',
+      now: new Date('2026-08-18T06:40:00.000Z'),
+      selectedDate: new Date('2026-08-18T00:00:00+09:00'),
+      staffFilter: 'all',
+      staffList: staffList.map((s) =>
+        s.id === 'p2' ? { ...s, isManagement } : { ...s, isManagement: false },
+      ),
+      activeStaffId: 'p1',
+      storeStaffIds: null,
+      orgSettings: null,
+      customers: [],
+      dayAppointments: [],
+      weekRange: null,
+      monthRange: null,
+      weekRangeAppts: null,
+      monthRangeAppts: null,
+      enrichment: new Map(),
+      packUsage: new Map(),
+    })
+  }
+
+  it('flagged and unflagged builds produce the SAME picker + lane rosters', () => {
+    const off = build(false)
+    const on = build(true)
+    expect(on.staff.map((s) => s.id)).toEqual(off.staff.map((s) => s.id))
+    expect(on.reservationStaff).toEqual(off.reservationStaff)
+    expect(on.visibleActiveStaffId).toBe(off.visibleActiveStaffId)
+  })
+
+  it('the picker roster carries the flag (PR B hides client-side from it)', () => {
+    expect(build(true).staff.find((s) => s.id === 'p2')?.isManagement).toBe(true)
+  })
+})

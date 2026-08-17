@@ -58,6 +58,9 @@ interface StaffMember {
    *  — threaded to StaffForm so the authority section renders its honest
    *  state instead of fetching permissions that can't exist. */
   unlinked?: boolean
+  /** 経営メンバー (lib/staff.ts StaffMember.isManagement) — threaded to
+   *  StaffForm so its toggle opens on the stored value. */
+  isManagement?: boolean
   /** ANTHONY: optional fields the spike tracks but karute schema hasn't
    *  added yet. Voice indicator + consent badge render only when these
    *  exist. */
@@ -319,6 +322,7 @@ export function StaffList({
             phone: editingStaff.phone ?? '',
             avatarUrl: editingStaff.avatar_url ?? undefined,
             unlinked: editingStaff.unlinked,
+            isManagement: editingStaff.isManagement ?? false,
           }}
           businessType={businessType}
           stores={stores}

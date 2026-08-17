@@ -33,7 +33,14 @@ export interface SessionsListScreen {
   /** Total karute records this month (not filtered) — status-line only. */
   monthCount: number
   /** Staff filter pills (id + display name + initials). */
-  staffList: Array<{ id: string; name: string; initials: string }>
+  staffList: Array<{
+    id: string
+    name: string
+    initials: string
+    /** 経営メンバー — for the 新規カルテ dialog's staff picker. The filter
+     *  pills built from this same list stay complete (Liam ruling Ⓒ). */
+    isManagement?: boolean
+  }>
   /** The viewer's staff id, or null when the session has no active staff. */
   currentStaffId: string | null
   /** New カルテ dialog combobox source — id + name, plus phone/furigana so
@@ -47,7 +54,7 @@ export interface SessionsListScreen {
 }
 
 export function buildSessionsListScreen(args: {
-  staffList: Array<{ id: string; full_name: string | null }>
+  staffList: Array<{ id: string; full_name: string | null; isManagement?: boolean }>
   /**
    * #496 store clamp — staff ids assigned to the active store (or floating),
    * null = no store lens (business-wide). REQUIRED so every caller (web page,
@@ -314,6 +321,7 @@ export function buildSessionsListScreen(args: {
       id: s.id,
       name: s.full_name ?? 'Unknown',
       initials: deriveFamilyInitials(s.full_name ?? ''),
+      isManagement: s.isManagement ?? false,
     })),
     currentStaffId:
       // Same clamp as the picker: the New-カルテ dialog must not default to

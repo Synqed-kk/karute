@@ -160,9 +160,11 @@ describe('GET /api/app/v1/screens/sessions — happy path', () => {
     // Companion to the staff-failure 502 test: the degraded-200 shape
     // (staffList [] / names 'Unknown') must never be the happy path.
     expect(dto.staffList.length).toBeGreaterThan(0)
+    // isManagement rides the picker roster (経営メンバー flag); the LIST itself
+    // stays complete — the filter pills must keep offering everyone.
     expect(dto.staffList).toEqual([
-      { id: 'auth-user-1', name: '佐藤 美咲', initials: expect.any(String) },
-      { id: 'staff-2', name: '田中 太郎', initials: expect.any(String) },
+      { id: 'auth-user-1', name: '佐藤 美咲', initials: expect.any(String), isManagement: false },
+      { id: 'staff-2', name: '田中 太郎', initials: expect.any(String), isManagement: false },
     ])
     expect(newSynqedClient).toHaveBeenCalledWith('business-1')
   })

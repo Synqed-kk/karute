@@ -19,6 +19,12 @@ export interface StaffMember {
    *  is a core staff id, not an auth uid). Permissions/PIN don't exist for it
    *  yet; surfaces render the honest unlinked state instead of fetching. */
   unlinked?: boolean
+  /** 経営メンバー — a VISIBILITY flag, never a rights one: the assignment
+   *  pickers hide them from their default list (search still reveals them)
+   *  and the day view drops their lane on days they have no booking. Optional
+   *  because reads fail OPEN (`?? false` at every consumer): a stale cache
+   *  entry or a pre-migration row means visible, never hidden. */
+  isManagement?: boolean
 }
 
 export interface StaffMemberBasic {
@@ -76,7 +82,7 @@ async function staffListCore(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (service as any)
     .from('profiles')
-    .select('id, full_name, created_at, display_role, position, email, phone, avatar_url, pin_hash, customer_id')
+    .select('id, full_name, created_at, display_role, position, email, phone, avatar_url, pin_hash, customer_id, is_management')
     .eq('customer_id', businessId)
     .not('full_name', 'is', null)
     .not('full_name', 'ilike', '_system_%')
@@ -92,10 +98,18 @@ async function staffListCore(
     ({
       pin_hash,
       customer_id: _customer_id,
+      is_management,
       ...rest
-    }: { pin_hash?: string | null; customer_id?: string; [key: string]: unknown }) => ({
+    }: {
+      pin_hash?: string | null
+      customer_id?: string
+      is_management?: boolean | null
+      [key: string]: unknown
+    }) => ({
       ...rest,
       has_pin: !!pin_hash,
+      // Fail OPEN: null (pre-migration row) → false → visible.
+      isManagement: !!is_management,
     }),
   ) as StaffMember[]
 
@@ -166,6 +180,9 @@ async function synqedStaffWithoutProfile(
         has_pin: false,
         created_at: s.created_at,
         unlinked: true,
+        // No profiles row to carry the flag yet — visible, like every other
+        // roster member, until they sign up and someone flips it.
+        isManagement: false,
       })) as StaffMember[]
   } catch (err) {
     if (orThrow) throw err

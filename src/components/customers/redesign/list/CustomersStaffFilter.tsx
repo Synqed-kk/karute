@@ -34,6 +34,10 @@ export interface StaffFilterEntry {
   id: string
   name: string
   initials: string
+  /** 経営メンバー — carried for the assignment pickers fed from this same
+   *  roster. The FILTER itself never hides them (Liam ruling Ⓒ: narrowing the
+   *  view is not assigning work). */
+  isManagement?: boolean
 }
 
 interface CustomersStaffFilterProps {

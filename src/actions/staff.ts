@@ -184,6 +184,13 @@ export async function updateStaffCore(
       .update({
         full_name: data.name,
         position: data.position || null,
+        // 経営メンバー — visibility only, no rights. Written HERE (not through
+        // setStaffPermissionsCore) because this is the one seam the 保存 button
+        // runs for EVERY edit-mode row: the account owner's row rejects a
+        // permissions write outright, and it's the owner who most needs the
+        // flag. Omitted key = untouched, so a client that never sends it can't
+        // clear someone's flag.
+        ...(data.isManagement === undefined ? {} : { is_management: data.isManagement }),
       })
       .eq('id', id)
       .eq('customer_id', businessId)

@@ -54,7 +54,14 @@ export const CustomersScreenDTO = z.object({
   bookingDataAvailable: z.boolean(),
   /** Staff filter pills (id + display name + initials). */
   staffList: z.array(
-    z.object({ id: z.string(), name: z.string(), initials: z.string() }),
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      initials: z.string(),
+      /** 経営メンバー — for the 指名スタッフ picker fed from this roster; the
+       *  filter pills themselves stay complete (Liam ruling Ⓒ). */
+      isManagement: z.boolean().optional(),
+    }),
   ),
   /** Per-customer 今月消化 yen (mtd + prev-month same window), keyed by
    *  customer id. null = burn source unavailable (honesty gate). */

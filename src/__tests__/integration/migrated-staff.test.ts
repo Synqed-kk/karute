@@ -92,6 +92,7 @@ import {
   hasStaffPin,
 } from '@/actions/staff-pin'
 import { SynqedError } from '@synqed-kk/client'
+import { updateTag } from 'next/cache'
 
 describe('Migrated staff actions', () => {
   beforeEach(() => {
@@ -142,6 +143,66 @@ describe('Migrated staff actions', () => {
       email: 'ada@ex.com',
     })
     expect(supabaseChain.update).not.toHaveBeenCalled()
+  })
+
+  // 経営メンバー rides the identity save — the one seam that runs for EVERY
+  // edit-mode row (the owner's included, where a permissions write is refused
+  // outright). It MUST invalidate the roster cache, or un-flagging someone
+  // stays invisible for up to 24h (staffListByBusiness's TTL).
+  describe('updateStaff — 経営メンバー flag', () => {
+    it('writes is_management on the profile row and invalidates the staff-list cache', async () => {
+      profileLookupResult = { data: { id: 'profile-1' }, error: null }
+
+      await updateStaff('profile-1', {
+        name: 'Liam',
+        email: 'liam@karute.test',
+        position: '',
+        phone: '',
+        isManagement: true,
+      })
+
+      expect(supabaseChain.update).toHaveBeenCalledWith({
+        full_name: 'Liam',
+        position: null,
+        is_management: true,
+      })
+      expect(updateTag).toHaveBeenCalledWith('staff-list')
+    })
+
+    it('un-flagging writes false (not an omitted key)', async () => {
+      profileLookupResult = { data: { id: 'profile-1' }, error: null }
+
+      await updateStaff('profile-1', {
+        name: 'Liam',
+        email: 'liam@karute.test',
+        position: '',
+        phone: '',
+        isManagement: false,
+      })
+
+      expect(supabaseChain.update).toHaveBeenCalledWith(
+        expect.objectContaining({ is_management: false }),
+      )
+    })
+
+    it('a synqed-only (unlinked) staff has no profiles row — nothing to flag', async () => {
+      profileLookupResult = { data: null, error: null }
+      staff.update.mockResolvedValue({ id: 'synqed-staff-9' })
+
+      await updateStaff('synqed-staff-9', {
+        name: 'Ada',
+        email: 'ada@ex.com',
+        position: '',
+        phone: '',
+        isManagement: true,
+      })
+
+      expect(supabaseChain.update).not.toHaveBeenCalled()
+      expect(staff.update).toHaveBeenCalledWith('synqed-staff-9', {
+        name: 'Ada',
+        email: 'ada@ex.com',
+      })
+    })
   })
 
   it('deleteStaff surfaces server 400 messages as user errors', async () => {

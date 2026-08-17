@@ -165,7 +165,15 @@ export const CustomerProfileScreenDTO = CustomerProfileDTO.extend({
   hasNextBooking: z.boolean(),
   ticketsEnabled: z.boolean(),
   consentGrantedAtLabel: z.string().nullable(),
-  assignableStaff: z.array(z.object({ id: z.string(), name: z.string() })),
+  assignableStaff: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      /** 経営メンバー — the 指名スタッフ picker default-hides them and reveals
+       *  them on search. Optional: absent fails OPEN (visible). */
+      isManagement: z.boolean().optional(),
+    }),
+  ),
 })
 
 export type CustomerProfileScreenDTOType = z.infer<typeof CustomerProfileScreenDTO>

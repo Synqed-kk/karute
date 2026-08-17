@@ -78,7 +78,7 @@ export interface CustomerProfileScreen {
    *  CustomerForm). {id,name} shape, so both the web page and the thin edit
    *  dialog seed the picker straight from this screen build — no client-side
    *  server-action read either platform has to make. */
-  assignableStaff: { id: string; name: string }[]
+  assignableStaff: { id: string; name: string; isManagement?: boolean }[]
 }
 
 export interface BuildCustomerProfileScreenArgs {
@@ -403,6 +403,10 @@ export async function buildCustomerProfileScreen(
     ticketsEnabled,
     consentGranted,
     consentGrantedAtLabel,
-    assignableStaff: staffList.map((s) => ({ id: s.id, name: s.full_name ?? 'Unknown' })),
+    assignableStaff: staffList.map((s) => ({
+      id: s.id,
+      name: s.full_name ?? 'Unknown',
+      isManagement: s.isManagement ?? false,
+    })),
   }
 }

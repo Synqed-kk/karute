@@ -57,6 +57,8 @@ interface StaffFormProps {
      *  authority section renders its honest state instead of fetching
      *  permissions that deterministically don't exist. */
     unlinked?: boolean
+    /** 経営メンバー — current stored value for the toggle in the 権限 block. */
+    isManagement?: boolean
   }
   onClose: () => void
   /** business_type + the business's stores — threaded from the caller's own
@@ -79,6 +81,7 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
   const tc = useTranslations('common')
   const tp = useTranslations('permissions')
   const tStore = useTranslations('settings.stores')
+  const tStaff = useTranslations('staff')
 
   const {
     register,
@@ -110,6 +113,14 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
   // fetched here (per-staff, edit-target-dependent — the DTO can't carry
   // every staff member's assignment up front).
   const [storeIds, setStoreIds] = useState<string[]>([])
+
+  // 経営メンバー — visibility only (pickers + day lanes), never rights. Rides
+  // the identity save (updateStaff), the one seam that runs for EVERY row
+  // including the account owner's. `touched` gates the write: an untouched
+  // toggle sends nothing, so a caller that never threaded the current value
+  // can't clear someone's flag on an unrelated name edit.
+  const [isManagement, setIsManagement] = useState(staff?.isManagement ?? false)
+  const [managementTouched, setManagementTouched] = useState(false)
 
   // 役職 options adapt to the salon's business type (a 美容整体 shows 整体師, a
   // hair salon スタイリスト). businessType arrives as a prop now (T3) — resolved
@@ -177,7 +188,10 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
         }
         toast.success(ts('staffAdded'))
       } else if (mode === 'edit' && staff) {
-        const res = await updateStaff(staff.id, data)
+        const res = await updateStaff(
+          staff.id,
+          managementTouched ? { ...data, isManagement } : data,
+        )
         if (res?.error) {
           toast.error(res.error) // clean, translated message (never the prod digest)
           return
@@ -307,15 +321,35 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
               )}
 
               {permsState === 'unlinked' && (
-                <div className="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-                  {tp('unlinked')}
-                </div>
+                <>
+                  <div className="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                    {tp('unlinked')}
+                  </div>
+                  {/* Nothing to write to — the profiles row this flag lives on
+                   *  doesn't exist until they sign up. */}
+                  <ManagementToggle disabled label={tStaff('management')} hint={tStaff('managementUnlinkedHint')} checked={false} onChange={() => {}} />
+                </>
               )}
 
               {permsState === 'owner' && (
-                <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-300">
-                  {tp('ownerFullAccess')}
-                </div>
+                <>
+                  <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-300">
+                    {tp('ownerFullAccess')}
+                  </div>
+                  {/* The owner's ONLY editable control here (Liam ruling Ⓐ):
+                   *  the banner states their rights, this flags their
+                   *  visibility. Rides updateStaff, not the permissions
+                   *  write — that one refuses owner targets by design. */}
+                  <ManagementToggle
+                    checked={isManagement}
+                    onChange={(v) => {
+                      setIsManagement(v)
+                      setManagementTouched(true)
+                    }}
+                    label={tStaff('management')}
+                    hint={tStaff('managementHint')}
+                  />
+                </>
               )}
 
               {permsState === 'ready' && (
@@ -329,6 +363,16 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
                       <option key={r} value={r}>{tp(`role_${r}`)}</option>
                     ))}
                   </select>
+
+                  <ManagementToggle
+                    checked={isManagement}
+                    onChange={(v) => {
+                      setIsManagement(v)
+                      setManagementTouched(true)
+                    }}
+                    label={tStaff('management')}
+                    hint={tStaff('managementHint')}
+                  />
 
                   <div className="mt-1 flex max-h-52 flex-col gap-2 overflow-y-auto rounded-md border border-border/50 bg-muted/20 p-3">
                     <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -366,6 +410,45 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** 経営メンバー row — the 所属店舗 checkbox-row recipe verbatim (above), with
+ *  the hint underneath. Disabled = the unlinked branch: dimmed, no hover, no
+ *  write. */
+function ManagementToggle({
+  checked,
+  onChange,
+  label,
+  hint,
+  disabled = false,
+}: {
+  checked: boolean
+  onChange: (next: boolean) => void
+  label: string
+  hint: string
+  disabled?: boolean
+}) {
+  return (
+    <>
+      <label
+        className={
+          disabled
+            ? 'flex cursor-not-allowed items-center gap-2.5 rounded-md border border-input px-3 py-2 text-sm opacity-50'
+            : 'flex cursor-pointer items-center gap-2.5 rounded-md border border-input px-3 py-2 text-sm transition-colors hover:bg-muted'
+        }
+      >
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.checked)}
+          className="size-4 accent-blue-600"
+        />
+        <span>{label}</span>
+      </label>
+      <p className="text-xs text-muted-foreground">{hint}</p>
+    </>
   )
 }
 

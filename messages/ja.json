@@ -2819,7 +2819,10 @@
     "enterPinFor": "{name}のPINを入力",
     "added": "{date}に追加",
     "deleteConfirm": "{name}を削除しますか？元に戻せません。",
-    "failedToDelete": "スタッフの削除に失敗しました。"
+    "failedToDelete": "スタッフの削除に失敗しました。",
+    "management": "経営メンバー",
+    "managementHint": "予約表や担当スタッフの選択肢には表示されません（予約が入っている日は表示されます）",
+    "managementUnlinkedHint": "登録が完了すると設定できます"
   },
   "pin": {
     "clear": "クリア",
