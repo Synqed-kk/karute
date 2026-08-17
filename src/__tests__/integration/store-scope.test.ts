@@ -19,7 +19,7 @@ jest.mock('@/actions/stores', () => ({
   getStaffStoresStrict: jest.fn(),
 }))
 
-import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { resolveStoreScope, menuStoresForScope } from '@/lib/auth/store-scope'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getActiveStoreId, getPrimaryStoreId, getStaffStoresStrict } from '@/actions/stores'
@@ -131,5 +131,34 @@ describe('resolveStoreScope', () => {
     mockActive.mockResolvedValue('store-A')
     mockStores.mockResolvedValue([])
     expect((await resolveStoreScope()).degraded).toBe(false)
+  })
+})
+
+describe('menuStoresForScope', () => {
+  const allStores = [{ id: 'store-A' }, { id: 'store-B' }]
+
+  it('assigned branch staff (allowedStoreIds set) → filtered to only the assigned stores', () => {
+    const scope = { storeId: 'store-A', viewAll: false, allowedStoreIds: ['store-A'], degraded: false }
+    expect(menuStoresForScope(scope, false, allStores)).toEqual([{ id: 'store-A' }])
+  })
+
+  it('viewAll → every store', () => {
+    const scope = { storeId: 'store-A', viewAll: true, allowedStoreIds: null, degraded: false }
+    expect(menuStoresForScope(scope, true, allStores)).toEqual(allStores)
+  })
+
+  it('floating staff (allowedStoreIds null, degraded false) → every store, unclamped like the server', () => {
+    const scope = { storeId: 'store-A', viewAll: false, allowedStoreIds: null, degraded: false }
+    expect(menuStoresForScope(scope, false, allStores)).toEqual(allStores)
+  })
+
+  it('degraded (degraded: true) → [] — blind, fail closed like the server write clamp', () => {
+    const scope = { storeId: 'store-A', viewAll: false, allowedStoreIds: null, degraded: true }
+    expect(menuStoresForScope(scope, false, allStores)).toEqual([])
+  })
+
+  it('scope === null (resolveStoreScope threw) → today\'s behaviour: canViewAllStores gates the fallback', () => {
+    expect(menuStoresForScope(null, true, allStores)).toEqual(allStores)
+    expect(menuStoresForScope(null, false, allStores)).toEqual([])
   })
 })

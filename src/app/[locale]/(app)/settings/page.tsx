@@ -7,7 +7,7 @@ import { listStores, getActiveStoreId } from '@/actions/stores'
 import { listMenus } from '@/actions/menus'
 import { getEntitlement } from '@/actions/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
-import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { resolveStoreScope, menuStoresForScope } from '@/lib/auth/store-scope'
 import { getBusinessAiPersona, resolvePersonaTokens } from '@/lib/karute/business-ai-tokens'
 import type { Capability } from '@/lib/auth/permissions'
 import { SettingsShell, type SettingsTabId } from '@/components/settings/redesign/SettingsShell'
@@ -89,13 +89,14 @@ export default async function SettingsPage({
   // initialStores: that prop also feeds 店舗/自動録音/スタッフ, where a
   // branch-restricted staff must keep seeing nothing (the leak fixed at
   // :61-63). allowedStoreIds null = viewAll or floating staff — unclamped,
-  // exactly like the server. Scope unresolved → today's behaviour.
-  const menuStoreIds = storeScope?.allowedStoreIds ?? null
-  const menuStores = menuStoreIds
-    ? stores.filter((s) => menuStoreIds.includes(s.id))
-    : storeScope || canViewAllStores
-      ? stores
-      : []
+  // exactly like the server. Scope unresolved → today's behaviour (only the
+  // null case now — a degraded lookup is handled below).
+  // A degraded lookup (the staff_stores assignment fetch itself failed) is
+  // blind, not unclamped: the server write clamp already fails closed on it
+  // (storeScopeError, src/actions/menus.ts), so the UI must offer nothing
+  // rather than every branch's name behind a doomed edit control (Greptile
+  // P1 on #707).
+  const menuStores = menuStoresForScope(storeScope, canViewAllStores, stores)
 
   // Deep-link support (?tab=audit&target=<customerId> from the privacy tab's
   // アクセス履歴 row). Unknown tab values — and audit links followed by staff

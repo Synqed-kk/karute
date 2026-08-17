@@ -100,6 +100,39 @@ export const resolveStoreScope = cache(async (): Promise<StoreScope> => {
   return { storeId, viewAll: false, allowedStoreIds: allowed, degraded: false }
 })
 
+/**
+ * Which stores may the menu UI OFFER this actor (store pills + editable rows)?
+ * The server write clamp (storeScopeError, src/actions/menus.ts) is the real
+ * enforcement — this only decides what the UI dangles in front of the actor,
+ * so it must never show a store the clamp would refuse.
+ *
+ *   - assigned branch staff (`allowedStoreIds: [...]`) → ONLY those stores
+ *   - viewAll (`viewAll: true`)                        → every store
+ *   - floating staff (`allowedStoreIds: null`,
+ *     `degraded: false`)                                → every store — unclamped,
+ *                                                          same as the server
+ *   - degraded (`degraded: true`)                       → `[]` — BLIND. The
+ *     lookup that would tell us this actor's real stores failed; the server
+ *     clamp already fails closed on it (storeScopeError refuses the write),
+ *     so the UI must match rather than show every branch's name behind a
+ *     doomed edit control (isolation law: hide, never show-and-refuse;
+ *     Greptile P1 on #707)
+ *   - `scope === null` (resolveStoreScope itself threw)  → today's behaviour,
+ *     unchanged: every store if the actor can viewAll, else none
+ */
+export function menuStoresForScope<T extends { id: string }>(
+  scope: StoreScope | null,
+  canViewAllStores: boolean,
+  stores: T[],
+): T[] {
+  const allowed = scope?.allowedStoreIds
+  if (allowed) return stores.filter((s) => allowed.includes(s.id))
+  // Degraded lookup = fail closed, exactly like the server write clamp:
+  // offer NOTHING rather than every branch's name + a doomed edit control.
+  if (scope?.degraded) return []
+  return scope || canViewAllStores ? stores : []
+}
+
 // ─── Store-scoped staff PICKER filtering ────────────────────────────────────
 // The 担当 selectors (予約 / 顧客 / カルテ) must only offer staff who work in
 // the active store — the business-wide roster leaked every branch's staff
