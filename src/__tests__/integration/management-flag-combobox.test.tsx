@@ -115,12 +115,12 @@ describe('StaffCombobox — required vs clearable', () => {
     expect(screen.queryByRole('listbox')).toBeNull()
   })
 
-  it('clearable: 指名なし is pinned first and clears the value', () => {
+  it('clearable: 指名なし is pinned first on the default list and clears the value', () => {
     const picked: string[] = []
     render(
       <StaffCombobox
         staff={ROSTER}
-        selectedId={SATO.id}
+        selectedId={null}
         onSelect={(id) => picked.push(id)}
         noneLabel="指名なし"
       />,
@@ -132,10 +132,90 @@ describe('StaffCombobox — required vs clearable', () => {
     expect(picked).toEqual([''])
   })
 
+  // B5 consequence, pinned deliberately: the box opens pre-filled with the
+  // current 指名's name, which IS a query, so the pinned row is not on the
+  // first tap — emptying the box is what brings it back. Reachable, but one
+  // extra step; flagged at the fix-round report.
+  it('clearable with an existing 指名: 指名なし returns once the box is emptied', () => {
+    const picked: string[] = []
+    render(
+      <StaffCombobox
+        staff={ROSTER}
+        selectedId={SATO.id}
+        onSelect={(id) => picked.push(id)}
+        noneLabel="指名なし"
+      />,
+    )
+    const input = screen.getByRole('combobox')
+    fireEvent.focus(input)
+    expect(screen.queryByText('指名なし')).toBeNull()
+
+    fireEvent.change(input, { target: { value: '' } })
+    expect(rows()[0].textContent).toBe('指名なし')
+    fireEvent.mouseDown(rows()[0])
+    expect(picked).toEqual([''])
+  })
+
   it('required mode renders no 指名なし row', () => {
     render(<StaffCombobox staff={ROSTER} selectedId={SATO.id} onSelect={() => {}} />)
     open()
     expect(screen.queryByText('指名なし')).toBeNull()
+  })
+
+  // B5 — the pinned row belongs to the DEFAULT list only. Once a query is on,
+  // the list is a search result and 指名なし matched nothing.
+  it('clearable: 指名なし disappears once they start typing, returns when cleared', () => {
+    render(
+      <StaffCombobox
+        staff={ROSTER}
+        selectedId={null}
+        onSelect={() => {}}
+        noneLabel="指名なし"
+      />,
+    )
+    const input = screen.getByRole('combobox')
+    fireEvent.focus(input)
+    expect(rows()[0].textContent).toBe('指名なし')
+
+    fireEvent.change(input, { target: { value: '北' } })
+    expect(screen.queryByText('指名なし')).toBeNull()
+    expect(rows().map((r) => r.textContent)).toEqual(['北野経営'])
+
+    fireEvent.change(input, { target: { value: '' } })
+    expect(rows()[0].textContent).toBe('指名なし')
+  })
+})
+
+// B4 — every call site builds its `staff` array inline, so `selected` is a new
+// object on every parent render. An effect keyed on that object wipes whatever
+// is being typed the moment anything upstream re-renders (a sibling field, a
+// fetch settling). The dep must be the NAME.
+describe('StaffCombobox — typing survives a parent re-render', () => {
+  it('a fresh-identity staff array mid-type does not reset the query', () => {
+    const fresh = () => ROSTER.map((s) => ({ ...s }))
+    const { rerender } = render(
+      <StaffCombobox staff={fresh()} selectedId={SATO.id} onSelect={() => {}} />,
+    )
+    const input = screen.getByRole('combobox') as HTMLInputElement
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: '北' } })
+    expect(input.value).toBe('北')
+
+    // Same selection, brand-new array + row objects — the identity churn a
+    // parent re-render produces.
+    rerender(<StaffCombobox staff={fresh()} selectedId={SATO.id} onSelect={() => {}} />)
+    expect(input.value).toBe('北')
+    expect(rows().map((r) => r.textContent)).toEqual(['北野経営'])
+  })
+
+  it('a REAL selection change still re-seeds the box', () => {
+    const { rerender } = render(
+      <StaffCombobox staff={ROSTER} selectedId={SATO.id} onSelect={() => {}} />,
+    )
+    const input = screen.getByRole('combobox') as HTMLInputElement
+    expect(input.value).toBe('佐藤 美咲')
+    rerender(<StaffCombobox staff={ROSTER} selectedId={TANAKA.id} onSelect={() => {}} />)
+    expect(input.value).toBe('田中 花')
   })
 })
 

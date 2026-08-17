@@ -77,15 +77,19 @@ function build(over: {
   activeStaffId?: string | null
   storeStaffIds?: Set<string> | null
   staffList?: StaffMember[]
+  staffFilter?: string
 } = {}) {
   return buildAppointmentsScreen({
     locale: 'ja',
     now: new Date('2026-08-18T06:40:00.000Z'),
     selectedDate: new Date('2026-08-18T00:00:00+09:00'),
-    staffFilter: 'all',
+    staffFilter: over.staffFilter ?? 'all',
     staffList: over.staffList ?? ROSTER,
     activeStaffId: over.activeStaffId ?? SATO,
-    storeStaffIds: over.storeStaffIds ?? new Set([SATO, KITANO]),
+    // `null` is a MEANINGFUL value here (no store lens / fail open), so it must
+    // not fall through to the default — check for the key, not for nullish.
+    storeStaffIds:
+      over.storeStaffIds === undefined ? new Set([SATO, KITANO]) : over.storeStaffIds,
     orgSettings: null,
     customers: [],
     dayAppointments: over.dayAppointments ?? [],
@@ -229,14 +233,41 @@ describe('顧客 / カルテ rosters are never server-filtered (ruling Ⓒ)', ()
 })
 
 describe('colors do not move when the toggle flips', () => {
-  it('the palette source is the FULL business roster, lanes or no lanes', () => {
+  it('the palette source is the STORE roster — stable across a flip, no cross-store ids', () => {
     const flagged = build()
     const unflagged = build({
       staffList: ROSTER.map((s) => ({ ...s, isManagement: false })),
     })
+    // Stability: the toggle moves the LANES, never the palette, so nobody in
+    // the store gets repainted when 北野 is flagged.
     expect(flagged.colorRosterIds).toEqual(unflagged.colorRosterIds)
-    expect(flagged.colorRosterIds).toEqual([SATO, KITANO, DAIKANYAMA_STAFF])
-    // …and it is NOT the (now shorter) lane list.
+    expect(flagged.colorRosterIds).toEqual([SATO, KITANO])
+    // …and it is NOT the (now shorter) lane list, which is what would repaint.
     expect(flagged.colorRosterIds.length).toBeGreaterThan(flagged.reservationStaff.length)
+    // Isolation: this array ships to the client. Another store's staff id must
+    // not ride out on the palette (store-isolation law — hide, never reveal).
+    expect(flagged.colorRosterIds).not.toContain(DAIKANYAMA_STAFF)
+  })
+
+  it('an unclamped (single-store) tenant still gets the whole roster', () => {
+    expect(build({ storeStaffIds: null }).colorRosterIds).toEqual([
+      SATO,
+      KITANO,
+      DAIKANYAMA_STAFF,
+    ])
+  })
+})
+
+// Ⓒ says the 担当 view filter must keep OFFERING management members. Offering a
+// name that then renders an empty grid is the same dead end as not offering it.
+describe('filtering 担当 to a management member shows their lane', () => {
+  it('an idle 経営メンバー gets their (empty) lane back when explicitly filtered to', () => {
+    const screen = build({ staffFilter: KITANO })
+    expect(laneIds(screen)).toContain(KITANO)
+    expect(screen.reservationViews).toEqual([])
+  })
+
+  it('the store lens still outranks the filter — an outside id gets no lane', () => {
+    expect(laneIds(build({ staffFilter: DAIKANYAMA_STAFF }))).toEqual([SATO])
   })
 })
