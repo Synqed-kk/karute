@@ -2927,7 +2927,8 @@
     "failedToDelete": "スタッフの削除に失敗しました。",
     "management": "経営メンバー",
     "managementHint": "予約表や担当スタッフの選択肢には表示されません（予約が入っている日は表示されます）",
-    "managementUnlinkedHint": "登録が完了すると設定できます"
+    "managementUnlinkedHint": "登録が完了すると設定できます",
+    "managementBadge": "経営"
   },
   "pin": {
     "clear": "クリア",

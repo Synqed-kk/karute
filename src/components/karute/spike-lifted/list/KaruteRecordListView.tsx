@@ -449,7 +449,11 @@ export function KaruteRecordListView({
       <NewKaruteDialog
         open={newKaruteOpen}
         onOpenChange={setNewKaruteOpen}
-        staffList={staffList.map((s) => ({ id: s.id, name: s.name }))}
+        staffList={staffList.map((s) => ({
+          id: s.id,
+          name: s.name,
+          isManagement: s.isManagement,
+        }))}
         customers={customerOptions}
         defaultStaffId={currentStaffId}
       />

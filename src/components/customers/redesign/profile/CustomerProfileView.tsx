@@ -33,6 +33,7 @@
 //   - EditCustomerDialog — handled via the existing CustomerSheet on
 //     other routes; inline edit on profile is a separate task.
 
+import type { StaffComboboxOption } from '@/components/karute/StaffCombobox'
 import { useState } from 'react'
 import { ChevronLeft } from 'lucide-react'
 import { useRouter } from '@/i18n/navigation'
@@ -86,7 +87,7 @@ interface CustomerProfileViewProps {
   /** Tenant staff roster for the edit dialog's 指名スタッフ picker. Both web
    *  (page.tsx) and the thin app (profile-screen DTO) thread it from
    *  buildCustomerProfileScreen — CustomerForm has no fetch fallback. */
-  assignableStaff?: { id: string; name: string }[]
+  assignableStaff?: StaffComboboxOption[]
 }
 
 export function CustomerProfileView({

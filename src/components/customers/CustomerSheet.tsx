@@ -1,5 +1,6 @@
 'use client'
 
+import type { StaffComboboxOption } from '@/components/karute/StaffCombobox'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
@@ -18,7 +19,7 @@ import { CustomerForm } from '@/components/customers/CustomerForm'
 interface CustomerSheetProps {
   /** Tenant staff roster for the 指名スタッフ picker — threaded straight
    *  through to CustomerForm (no fetch fallback there anymore). */
-  assignableStaff?: { id: string; name: string }[]
+  assignableStaff?: StaffComboboxOption[]
 }
 
 /**

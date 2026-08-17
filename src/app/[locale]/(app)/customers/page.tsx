@@ -142,7 +142,11 @@ export default async function CustomersPage({
         selfStaffId={activeStaffId}
         bookingDataAvailable={screen.bookingDataAvailable}
         staffList={pickerStaff}
-        assignableStaff={screen.staffList.map((s) => ({ id: s.id, name: s.name }))}
+        assignableStaff={screen.staffList.map((s) => ({
+          id: s.id,
+          name: s.name,
+          isManagement: s.isManagement,
+        }))}
         burnByCustomer={burnByCustomer}
         burnUnpricedIds={burnUnpricedIds}
       />

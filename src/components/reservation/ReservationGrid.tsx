@@ -24,20 +24,26 @@ interface ReservationGridProps {
   staff: ReservationStaff[]
   reservations: ReservationView[]
   businessHours: BusinessHours
+  /** EVERY staff id in the business. assignStaffColors assigns by sorted
+   *  position, so the palette must come from the FULL roster, not from the
+   *  lanes actually drawn — otherwise hiding one member re-hues everyone after
+   *  them, and the lane avatars disagree with the card avatars (which are
+   *  colored business-wide). Omitted → today's behavior. */
+  colorRosterIds?: readonly string[]
   onSelect?: (view: ReservationView) => void
 }
 
-export function ReservationGrid({ staff, reservations, businessHours, onSelect }: ReservationGridProps) {
+export function ReservationGrid({ staff, reservations, businessHours, colorRosterIds, onSelect }: ReservationGridProps) {
   const t = useTranslations('reservation')
   const ppm = HOUR_WIDTH / 60
   const totalWidth = (businessHours.end - businessHours.start) * HOUR_WIDTH
   const laneStackHeight = staff.length * STAFF_ROW_HEIGHT
-  // Distinct color per staff over the FULL roster shown in the grid — same
-  // sorted-index assignment the adapter uses, so the column avatar and the
-  // appointment-card avatars line up on the same hue.
+  // Distinct color per staff over the FULL business roster — same sorted-index
+  // assignment the adapter uses, so the column avatar and the appointment-card
+  // avatars line up on the same hue.
   const staffColors = useMemo(
-    () => assignStaffColors(staff.map((s) => s.id)),
-    [staff],
+    () => assignStaffColors(colorRosterIds ?? staff.map((s) => s.id)),
+    [colorRosterIds, staff],
   )
 
   return (

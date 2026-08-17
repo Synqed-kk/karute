@@ -1,5 +1,6 @@
 'use client'
 
+import type { StaffComboboxOption } from '@/components/karute/StaffCombobox'
 import { useTranslations } from 'next-intl'
 import { CustomerSheet } from '@/components/customers/CustomerSheet'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
@@ -16,7 +17,7 @@ interface CustomersListHeaderProps {
    */
   heading?: string
   /** Tenant staff roster — threaded through to CustomerSheet's 指名スタッフ picker. */
-  assignableStaff?: { id: string; name: string }[]
+  assignableStaff?: StaffComboboxOption[]
 }
 
 /**

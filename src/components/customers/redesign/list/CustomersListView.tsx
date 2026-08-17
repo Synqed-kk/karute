@@ -1,5 +1,6 @@
 'use client'
 
+import type { StaffComboboxOption } from '@/components/karute/StaffCombobox'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useSearchParams } from 'next/navigation'
@@ -71,7 +72,7 @@ interface CustomersListViewProps {
    * for the 担当 filter pills. 指名 can point at any staff in the tenant,
    * matching the profile-edit dialog's behavior.
    */
-  assignableStaff: { id: string; name: string }[]
+  assignableStaff: StaffComboboxOption[]
   /**
    * When `true`, every customer card renders an AI-status chip row
    * underneath the contact line (体調予測 / 推奨 / 要約 / 録音, all

@@ -2927,7 +2927,8 @@
     "failedToDelete": "Failed to delete staff member.",
     "management": "Management member",
     "managementHint": "Hidden from staff pickers and the day view — shown on days they have a booking.",
-    "managementUnlinkedHint": "Available once they finish signing up."
+    "managementUnlinkedHint": "Available once they finish signing up.",
+    "managementBadge": "Mgmt"
   },
   "pin": {
     "clear": "Clear",

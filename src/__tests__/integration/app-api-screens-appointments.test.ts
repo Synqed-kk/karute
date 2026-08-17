@@ -446,6 +446,34 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(dto.customers).toEqual([])
   })
 
+  // PR B (df451eae), adapted onto main's mock world post-#741 rewrite — the
+  // roster seam is still staffListByBusinessOrThrow (verified: main's route
+  // at screens/appointments/route.ts:81 is unchanged).
+  it('経営メンバー: the day lane drops on an idle day, stays on a cancelled-only day, picker roster untouched', async () => {
+    const staffMock = jest.requireMock('@/lib/staff') as {
+      staffListByBusinessOrThrow: jest.Mock
+    }
+    const roster = await staffMock.staffListByBusinessOrThrow()
+    const flagged = roster.map((s: { id: string }) =>
+      s.id === 'profile-2' ? { ...s, isManagement: true } : s,
+    )
+    staffMock.staffListByBusinessOrThrow.mockResolvedValue(flagged)
+
+    // Yuko's only row today is the CANCELLED tombstone — the lane stays, so a
+    // same-day cancellation can't vanish from the grid (Liam ruling Ⓑ).
+    let dto = await dtoOf(await GET(req(), route))
+    expect(dto.reservationStaff.map((s) => s.id)).toEqual(['auth-user-1', 'profile-2'])
+
+    // Nothing on the books that day → the lane goes.
+    listAppointments.mockResolvedValue({ appointments: [] })
+    dto = await dtoOf(await GET(req(), route))
+    expect(dto.reservationStaff.map((s) => s.id)).toEqual(['auth-user-1'])
+    // …while the 担当 filter / booking-picker roster keeps everyone (ruling Ⓒ)
+    // and carries the flag for the combobox to hide client-side.
+    expect(dto.staff.map((s) => s.id)).toEqual(['auth-user-1', 'profile-2'])
+    expect(dto.staff.find((s) => s.id === 'profile-2')?.isManagement).toBe(true)
+  })
+
   it('a failed pack-usage read degrades to pill-less rows, not an error', async () => {
     listAllPackUsageWithClient.mockRejectedValueOnce(new Error('core down'))
     const res = await GET(req(), route)

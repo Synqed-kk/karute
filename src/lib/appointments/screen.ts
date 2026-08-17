@@ -98,6 +98,13 @@ export interface AppointmentsScreen {
     isManagement?: boolean
   }[]
   reservationStaff: ReservationStaff[]
+  /** EVERY staff id in the business — the palette source for the day grid.
+   *  assignStaffColors hands out colors by sorted position, so coloring over a
+   *  FILTERED list (which the grid's own roster now is) would re-hue everyone
+   *  after a hidden member. Same list the appointment CARDS are colored from
+   *  (appointmentsToReservationViews), so lane avatar and card avatar finally
+   *  agree — they didn't before, for cross-store staff (#496). */
+  colorRosterIds: string[]
   visibleActiveStaffId: string | null
   reservationViews: ReservationView[]
   businessHours: { start: number; end: number }
@@ -155,16 +162,32 @@ export function buildAppointmentsScreen(
     isManagement: s.isManagement ?? false,
   }))
 
-  const reservationStaff: ReservationStaff[] = visibleStaff.map((s) => ({
-    id: s.id,
-    name: s.full_name ?? 'Unknown',
-    // The person's own 役職 first; else the authority code mapped to Japanese
-    // (never the raw enum — the grid was leaking "STYLIST" under every name).
-    role: s.position ?? staffRoleLabel(s.display_role),
-    // TODO(phase-1.5): wire synqed-core role to derive takesBookings
-    takesBookings: true,
-    initials: (s.full_name ?? '?').trim().slice(0, 1) || '?',
-  }))
+  // 経営メンバー drop OUT of the day grid — but only on days they have nothing
+  // on. Counting ALL of today's rows, cancelled and no-show included, is
+  // deliberate (Liam ruling Ⓑ): hiding the lane would make a same-day
+  // cancellation vanish from the grid entirely, which is exactly when the
+  // salon needs to see it. The viewer always keeps their own lane.
+  //
+  // A FILTER on the already-store-scoped list, never a union back over the
+  // raw roster — a union would re-admit another branch's staff.
+  const bookedToday = new Set(dayAppointments.map((a) => a.staff_profile_id))
+  const reservationStaff: ReservationStaff[] = visibleStaff
+    .filter(
+      (s) =>
+        !(s.isManagement ?? false) ||
+        s.id === activeStaffId ||
+        bookedToday.has(s.id),
+    )
+    .map((s) => ({
+      id: s.id,
+      name: s.full_name ?? 'Unknown',
+      // The person's own 役職 first; else the authority code mapped to Japanese
+      // (never the raw enum — the grid was leaking "STYLIST" under every name).
+      role: s.position ?? staffRoleLabel(s.display_role),
+      // TODO(phase-1.5): wire synqed-core role to derive takesBookings
+      takesBookings: true,
+      initials: (s.full_name ?? '?').trim().slice(0, 1) || '?',
+    }))
 
   // QR "returning customer" flag per client (cached customer list). A known
   // existing customer is NEVER 新規 — even with no karute/past appointment yet
@@ -293,6 +316,7 @@ export function buildAppointmentsScreen(
   return {
     staff,
     reservationStaff,
+    colorRosterIds: staffList.map((s) => s.id),
     visibleActiveStaffId,
     reservationViews,
     businessHours,
