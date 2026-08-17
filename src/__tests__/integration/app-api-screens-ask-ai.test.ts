@@ -169,6 +169,29 @@ describe('store-scope parity (2026-08-17): counts thread resolveStoreForRequest'
     expect(listCustomers).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
   })
 
+  // Guard fix (2026-08-17, P-1): resolveStoreForRequest returns allowedStoreIds:
+  // null but a CONCRETE storeId for a viewAll caller who does have a store-id
+  // header (the thin shell sends one whenever a store is pinned locally,
+  // thin/ports/facade-fetch.ts). Gating on clamp.storeId alone would wrongly
+  // narrow this real case; the fix gates on allowedStoreIds instead.
+  it('viewAll caller WITH a tenant-verified store-id header still gets business-wide counts (store_id undefined on all three reads)', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'stores.viewAll']))
+    const res = await GET(req({ headers: { ...auth, 'store-id': 'store-1' } }), route)
+    expect(res.status).toBe(200)
+    expect(listKarute).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
+    expect(listCustomers).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
+    expect(listAppointments).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
+  })
+
+  it('floating staff WITH a tenant-verified store-id header still gets business-wide counts', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    const res = await GET(req({ headers: { ...auth, 'store-id': 'store-1' } }), route)
+    expect(res.status).toBe(200)
+    expect(listKarute).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
+    expect(listCustomers).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
+    expect(listAppointments).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
+  })
+
   it('in-tenant store OUTSIDE the caller assignment → 403 store_forbidden, no reads', async () => {
     staffStoresGet.mockResolvedValue({ store_ids: ['store-1'] })
     const res = await GET(req({ headers: { ...auth, 'store-id': 'store-2' } }), route)

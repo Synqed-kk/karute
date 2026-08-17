@@ -33,9 +33,11 @@ export function CustomersScreen() {
           selfStaffId={dto.selfStaffId}
           bookingDataAvailable={dto.bookingDataAvailable}
           staffList={dto.staffList}
-          // The facade's staffList is business-wide (staffListByBusinessOrThrow,
-          // no store clamp) — the correct 指名スタッフ roster as-is.
-          assignableStaff={dto.staffList.map((s) => ({ id: s.id, name: s.name }))}
+          // dto.staffList (filter pills) is scoped to the active store (fix 1,
+          // 2026-08-17). dto.assignableStaff is the SEPARATE business-wide
+          // roster the DTO ships for 指名: 指名 stays tenant-wide, pending the
+          // owner's ruling on whether it should also scope to store.
+          assignableStaff={dto.assignableStaff}
           burnByCustomer={dto.burnByCustomer}
           burnUnpricedIds={dto.burnUnpricedIds}
         />

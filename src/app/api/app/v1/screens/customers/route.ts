@@ -157,6 +157,10 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
   const dto = CustomersScreenDTO.parse({
     ...screen,
     staffList: pickerStaff,
+    // 指名スタッフ roster stays tenant-wide (P-2, 2026-08-17): screen.staffList
+    // is built from the FULL staffList (staffListByBusinessOrThrow), before
+    // the store-scope filter above narrows it into pickerStaff.
+    assignableStaff: screen.staffList.map((s) => ({ id: s.id, name: s.name })),
     selfStaffId,
     burnByCustomer,
     burnUnpricedIds,

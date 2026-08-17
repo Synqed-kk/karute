@@ -53,15 +53,18 @@ export const GET = facadeHandler('askAi.read', async (ctx) => {
 
   // Store clamp BEFORE any data read — its store_forbidden throws must reach
   // the client as 403, so it stays outside the upstream_unavailable catch
-  // below (same posture as the customers/appointments screen routes). Threads
-  // the same lens as web's resolveStoreScope().storeId into the count reads
-  // (store-scope parity packet, 2026-08-17).
+  // below (same posture as the customers/appointments screen routes).
   const clamp = await resolveStoreForRequest({
     synqed,
     authUserId: ctx.identity.authUserId,
     capabilities: ctx.identity.capabilities,
     requestedStoreId: ctx.req.headers.get('store-id'),
   })
+  // Guarded lens (canonical, both Ask-AI chat routes): filter ONLY when the
+  // caller is actually clamped (allowedStoreIds non-null). A viewAll caller
+  // with a tenant-verified store-id header still gets allowedStoreIds: null —
+  // that header must not narrow their business-wide counts.
+  const lens = clamp.allowedStoreIds !== null ? (clamp.storeId ?? undefined) : undefined
 
   let karuteRes: { total?: number; karute_records?: Array<{ transcript?: string | null }> }
   let customerList: { total?: number }
@@ -70,9 +73,9 @@ export const GET = facadeHandler('askAi.read', async (ctx) => {
   let userName: string
   try {
     ;[karuteRes, customerList, apptList, rawSettings, userName] = await Promise.all([
-      synqed.karuteRecords.list({ page_size: 200, store_id: clamp.storeId ?? undefined }),
-      synqed.customers.list({ page_size: 1, store_id: clamp.storeId ?? undefined }),
-      synqed.appointments.list({ from: nowIso, page_size: 1, store_id: clamp.storeId ?? undefined }),
+      synqed.karuteRecords.list({ page_size: 200, store_id: lens }),
+      synqed.customers.list({ page_size: 1, store_id: lens }),
+      synqed.appointments.list({ from: nowIso, page_size: 1, store_id: lens }),
       // Two fields of org settings are needed; the shared cached reader
       // (orgSettingsByBusiness) is module-private in a 'use server' file and
       // must stay unexported — an exported businessId-keyed action would be a

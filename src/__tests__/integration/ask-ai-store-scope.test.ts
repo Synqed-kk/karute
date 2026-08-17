@@ -1,11 +1,12 @@
 /**
- * Store-scope parity (packet 2026-08-17, item 3): the Ask-AI scope counts
- * (顧客/予約/カルテ) must follow the SAME active-store lens the customer/karute
- * list pages use — not a business-wide count. Web (resolveStoreScope) and the
- * facade route (resolveStoreForRequest) both thread their resolved store_id
- * into every count read; a viewer with no pinned store / viewAll with no
- * store-id header keeps today's business-wide totals (unchanged posture,
- * same as the sibling screens routes).
+ * Store-scope parity (packet 2026-08-17, item 3; guard fix 2026-08-17 P-1):
+ * the Ask-AI scope counts (顧客/予約/カルテ) filter by store ONLY when the
+ * caller is actually clamped (allowedStoreIds non-null) — the same guarded
+ * lens the Ask-AI chat routes use (src/app/api/ai/chat/route.ts:80-81). A
+ * viewAll actor keeps business-wide counts even with a concrete active store
+ * pinned (resolveStoreScope always resolves viewAll's storeId to
+ * active-or-primary, never null, so gating on storeId alone would wrongly
+ * filter them).
  */
 jest.mock('next-intl/server', () => ({
   getTranslations: jest.fn(async () => (k: string) => k),
@@ -63,9 +64,25 @@ describe('Ask-AI scope counts — store lens (web)', () => {
     expect(appointmentsList).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-A' }))
   })
 
-  it('viewAll with no pinned store: unchanged business-wide totals (store_id undefined)', async () => {
+  it('allowedStoreIds: null with no storeId at all: unchanged business-wide totals (store_id undefined)', async () => {
     resolveStoreScope.mockResolvedValue({ storeId: null, viewAll: true, allowedStoreIds: null })
     await AskAIPage({ params: Promise.resolve({ locale: 'ja' }) })
     expect(customersList).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
+  })
+
+  it('viewAll actor WITH a concrete active store still gets business-wide counts (store_id undefined on all three reads)', async () => {
+    resolveStoreScope.mockResolvedValue({ storeId: 'store-A', viewAll: true, allowedStoreIds: null })
+    await AskAIPage({ params: Promise.resolve({ locale: 'ja' }) })
+    expect(karuteList).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
+    expect(customersList).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
+    expect(appointmentsList).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
+  })
+
+  it('floating staff (empty assignment) WITH a concrete active store still gets business-wide counts', async () => {
+    resolveStoreScope.mockResolvedValue({ storeId: 'store-A', viewAll: false, allowedStoreIds: null })
+    await AskAIPage({ params: Promise.resolve({ locale: 'ja' }) })
+    expect(karuteList).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
+    expect(customersList).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
+    expect(appointmentsList).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
   })
 })

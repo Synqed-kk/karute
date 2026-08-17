@@ -81,8 +81,12 @@ export default async function SettingsPage({
   // Deep-link support (?tab=audit&target=<customerId> from the privacy tab's
   // アクセス履歴 row). Unknown tab values — and audit links followed by staff
   // without the grant — fall through to the default view, never a blank pane.
+  // The audit tab itself requires canViewAudit AND canViewAllStores (same AND
+  // the tab-visibility filter uses, settings-visibility.ts) — a store-clamped
+  // audit.view grantee isn't offered the tab at all, so deep-linking it must
+  // fall through too, not land on a blank desktop panel (parity fix, P-3).
   const initialTab: SettingsTabId | null =
-    sp.tab === 'audit' && canViewAudit ? 'audit' : null
+    sp.tab === 'audit' && canViewAudit && canViewAllStores ? 'audit' : null
   const auditTargetId = initialTab === 'audit' && sp.target ? sp.target : null
 
   return (

@@ -243,7 +243,7 @@ describe('store clamp (#441 leak class) — REAL resolveStoreForRequest', () => 
     expect(listCustomers).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-2' }))
   })
 
-  it('store-scope parity: a clamped Bearer identity\'s staffList (担当 picker) excludes other-store staff', async () => {
+  it('store-scope parity: a clamped Bearer identity\'s staffList (担当 picker) excludes other-store staff, but assignableStaff (指名) stays the FULL business-wide roster (P-2, 2026-08-17)', async () => {
     mockCapabilities.mockResolvedValue(new Set(['customers.view']))
     staffStoresGet.mockResolvedValue({ store_ids: ['store-1'] })
     storeStaffIdSetForBusiness.mockResolvedValue(new Set(['auth-user-1']))
@@ -251,6 +251,10 @@ describe('store clamp (#441 leak class) — REAL resolveStoreForRequest', () => 
     expect(res.status).toBe(200)
     const dto = await res.json()
     expect(dto.staffList.map((s: { id: string }) => s.id)).toEqual(['auth-user-1'])
+    expect(dto.assignableStaff).toEqual([
+      { id: 'auth-user-1', name: '佐藤 美咲' },
+      { id: 'staff-2', name: '田中 太郎' },
+    ])
   })
 
   it('viewAll identity keeps the full business-wide staffList (unchanged)', async () => {
@@ -336,6 +340,7 @@ describe('authn / validation / failure contract', () => {
 describe('CustomersScreenDTO — burnUnpricedIds schema round-trip (packet 26 fix)', () => {
   const base = {
     rows: [], totalRegistered: 0, selfStaffId: null, bookingDataAvailable: true, staffList: [],
+    assignableStaff: [],
   }
   it('parses the empty-array shape (burn unavailable / no unpriced customers)', () => {
     const dto = CustomersScreenDTO.parse({ ...base, burnByCustomer: null, burnUnpricedIds: [] })

@@ -308,8 +308,8 @@ describe('GET /api/app/v1/screens/settings', () => {
     expect(dto.canViewAudit).toBe(true)
   })
 
-  it('?tab=audit passes through to initialTab only WITH the canViewAudit grant', async () => {
-    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'audit.view']))
+  it('?tab=audit passes through to initialTab only WITH BOTH the canViewAudit grant AND canViewAllStores', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'audit.view', 'stores.viewAll']))
     const res = await GET(req('https://s/api/app/v1/screens/settings?tab=audit&target=cust-1'), route)
     const dto = await dtoOf(res)
     expect(dto.initialTab).toBe('audit')
@@ -319,6 +319,24 @@ describe('GET /api/app/v1/screens/settings', () => {
   it('?tab=audit is dropped to null WITHOUT the canViewAudit grant (web parity)', async () => {
     const res = await GET(req('https://s/api/app/v1/screens/settings?tab=audit&target=cust-1'), route)
     const dto = await dtoOf(res)
+    expect(dto.initialTab).toBeNull()
+    expect(dto.auditTargetId).toBeNull()
+  })
+
+  // P-3 fix (2026-08-17): the audit tab itself requires canViewAudit AND
+  // canViewAllStores (settings-visibility.ts's visibleSettingsTabs — the
+  // audit read has no store filter yet, so a store-clamped grantee must
+  // never reach it). Before this fix, initialTab gated on canViewAudit
+  // alone, so a store-clamped audit.view grantee deep-linking ?tab=audit
+  // landed on a blank desktop panel (SettingsShell's defense-in-depth check
+  // renders null for 'audit' without canViewAllStores, but the tab strip
+  // ALSO omits 'audit' from visibleTabs — no fallback to the default tab).
+  it('?tab=audit is dropped to null for a canViewAudit grantee WITHOUT canViewAllStores (store-clamped) — falls through, never a blank panel', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'audit.view']))
+    const res = await GET(req('https://s/api/app/v1/screens/settings?tab=audit&target=cust-1'), route)
+    const dto = await dtoOf(res)
+    expect(dto.canViewAudit).toBe(true)
+    expect(dto.canViewAllStores).toBe(false)
     expect(dto.initialTab).toBeNull()
     expect(dto.auditTargetId).toBeNull()
   })
