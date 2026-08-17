@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { createBrowserClient } from '@supabase/ssr'
 import { Button } from '@/components/ui/button'
+import { publicSiteOrigin } from '@/lib/platform'
 
 const inputCls =
   'w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring'
@@ -35,7 +36,7 @@ export function ResetPasswordForm({ locale }: { locale: string }) {
     const email = new FormData(e.currentTarget).get('email') as string
     const supabase = createRecoveryClient()
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/${locale}/reset-password/confirm`,
+      redirectTo: `${publicSiteOrigin()}/${locale}/reset-password/confirm`,
     })
     if (error) {
       // Rate limit / network only. "No such account" is NOT an error here —

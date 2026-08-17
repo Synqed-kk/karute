@@ -13,6 +13,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { publicSiteOrigin } from '@/lib/platform'
 import { INVITE_ROLES, type InviteRole } from '@/lib/validations/invite'
 import { createInvite, listInvites, revokeInvite, type InviteRow } from '@/actions/invites'
 
@@ -73,8 +74,7 @@ export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
       setError(res.error === 'STAFF_LIMIT_REACHED' ? t('staffLimitReached') : res.error)
       return
     }
-    const origin = typeof window !== 'undefined' ? window.location.origin : ''
-    setLink(`${origin}/${locale}/join?token=${res.token}`)
+    setLink(`${publicSiteOrigin()}/${locale}/join?token=${res.token}`)
     setEmail('')
     void refresh()
   }

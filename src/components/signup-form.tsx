@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { authErrorKey } from '@/lib/auth/error-key'
+import { publicSiteOrigin } from '@/lib/platform'
 
 export function SignupForm({ locale }: { locale: string }) {
   const t = useTranslations('auth')
@@ -37,7 +38,7 @@ export function SignupForm({ locale }: { locale: string }) {
     // Email confirmation is ON, so signUp returns a user but no session. Send
     // the confirm link to our locale callback route, carrying the salon name
     // in user metadata so the server can bootstrap after the code exchange.
-    const redirect = `${process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin}/${locale}/auth/callback`
+    const redirect = `${process.env.NEXT_PUBLIC_SITE_URL ?? publicSiteOrigin()}/${locale}/auth/callback`
     const { data, error: signupError } = await supabase.auth.signUp({
       email,
       password,
