@@ -477,3 +477,35 @@ describe('GET /api/app/v1/screens/settings — sync.view (packet 31)', () => {
     expect(dto.syncStatus).toBeNull()
   })
 })
+
+// serviceNoun skew tolerance (Greptile r1, PR #706): an older server predates
+// the field and never sends it — the whole-screen DTO must still parse
+// (RecordingSection's own `serviceNoun || t('autostartVisitFallback')` covers
+// the missing-noun display). Schema-level pin, no route/mocks needed.
+describe('SettingsScreenDTO — serviceNoun skew tolerance', () => {
+  it('a response without serviceNoun still parses', () => {
+    const skewed = {
+      orgSettings: null,
+      staffList: [],
+      activeStaffId: null,
+      isOwner: false,
+      canViewAllStores: false,
+      canManageStaff: false,
+      canInviteStaff: false,
+      canViewAudit: false,
+      canViewSync: false,
+      canManageMenus: false,
+      syncStatus: null,
+      initialTab: null,
+      auditTargetId: null,
+      initialActiveStoreId: null,
+      initialStores: [],
+      initialEntitlement: null,
+      featureStaffInvites: false,
+      featureMultiStore: false,
+      // serviceNoun deliberately omitted — the pre-A4 server shape.
+    }
+    const dto = SettingsScreenDTO.parse(skewed)
+    expect(dto.serviceNoun).toBeUndefined()
+  })
+})

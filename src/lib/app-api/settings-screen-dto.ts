@@ -247,7 +247,16 @@ export const SettingsScreenDTO = z.object({
   // the component on purpose: the persona module is ~260 KB of source and is
   // not in the thin bundle; importing it from a client component would cost
   // more than the entire remaining bundle headroom to ship one noun.
-  serviceNoun: z.string(),
+  //
+  // Optional (Greptile r1, PR #706): server/bundle skew tolerance. A newer
+  // thin bundle can validate an OLDER server's response during a
+  // rollout/rollback window — that server predates this field and never
+  // sends it. Required here would fail the WHOLE-SCREEN DTO parse over one
+  // missing noun, even though RecordingSection already degrades to a
+  // neutral fallback (`serviceNoun || t('autostartVisitFallback')`) when
+  // the value is absent. The current server always populates it — this is
+  // skew tolerance, not a relaxed contract for new code.
+  serviceNoun: z.string().optional(),
 })
 
 export type SettingsScreenDTOType = z.infer<typeof SettingsScreenDTO>
