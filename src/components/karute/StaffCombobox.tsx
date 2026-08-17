@@ -71,14 +71,28 @@ export function StaffCombobox({
   const selectedName = selected?.name ?? ''
 
   const [query, setQuery] = useState(selectedName)
+  // Has the user actually EDITED the box? The input is pre-filled with the
+  // current selection's name, so the raw text is not evidence of a search: on a
+  // pristine open it is just the value being displayed. Treating it as a query
+  // filtered the list down to the one person already chosen and hid the pinned
+  // 指名なし row — i.e. opening the picker showed you only what you already
+  // had. Dropdown behaviour matches the <select> it replaced: open = every
+  // option. Filtering and the 経営メンバー reveal begin at the first keystroke.
+  const [dirty, setDirty] = useState(false)
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  /** Back to displaying the selection: blur, outside tap, or a pick. */
+  function revert(name: string) {
+    setQuery(name)
+    setDirty(false)
+  }
 
   // Track the selection from outside (dialog re-seed, quick-create, form
   // reset). Cleared selection empties the box rather than leaving a stale name
   // over an empty value.
   useEffect(() => {
-    setQuery(selectedName)
+    revert(selectedName)
   }, [selectedName])
 
   // pointerdown (not mousedown) so an outside tap also closes this on iOS
@@ -87,17 +101,18 @@ export function StaffCombobox({
     function handleClickOutside(event: PointerEvent) {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
         setOpen(false)
-        setQuery(selectedName)
+        revert(selectedName)
       }
     }
     document.addEventListener('pointerdown', handleClickOutside)
     return () => document.removeEventListener('pointerdown', handleClickOutside)
   }, [selectedName])
 
-  const trimmedQuery = query.trim()
+  // '' until they type — see `dirty`.
+  const trimmedQuery = dirty ? query.trim() : ''
   // Typing searches the whole roster INCLUDING management members (that is the
-  // reveal); an empty box shows the everyday list plus whoever must always be
-  // there — the viewer themselves and the current selection.
+  // reveal); an untouched box shows the everyday list plus whoever must always
+  // be there — the viewer themselves and the current selection.
   const visible = trimmedQuery
     ? staff.filter((s) => s.name.toLowerCase().includes(trimmedQuery.toLowerCase()))
     : staff.filter(
@@ -106,13 +121,13 @@ export function StaffCombobox({
 
   function handleSelect(option: StaffComboboxOption) {
     onSelect(option.id)
-    setQuery(option.name)
+    revert(option.name)
     setOpen(false)
   }
 
   function handleSelectNone() {
     onSelect('')
-    setQuery('')
+    revert('')
     setOpen(false)
   }
 
@@ -124,6 +139,7 @@ export function StaffCombobox({
         value={query}
         onChange={(e) => {
           setQuery(e.target.value)
+          setDirty(true)
           setOpen(true)
         }}
         onFocus={() => setOpen(true)}
@@ -131,7 +147,7 @@ export function StaffCombobox({
           setOpen(false)
           // Revert whatever was half-typed: the value only ever changes by
           // picking a row.
-          setQuery(selectedName)
+          revert(selectedName)
         }}
         placeholder={placeholder ?? t('selectStaff')}
         disabled={disabled}
