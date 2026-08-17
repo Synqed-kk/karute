@@ -250,3 +250,56 @@ export async function storeStaffIdSetForBusiness(
     return null
   }
 }
+
+// ─── Store-scoped staff ROSTER (Liam ruling 8/17) ───────────────────────────
+// 銀座-only staff see 銀座 staff; 代官山-only see 代官山; assigned to both → both.
+// Unlike the picker filter above this narrows the roster the SERVER SHIPS (the
+// switch drawer + the 設定→スタッフ list), because a clamped client must never
+// receive the other branch's names/emails at all — hide, not filter-after-ship.
+// Same fail-open posture as the picker (the roster read itself comes from the
+// same core, so an assignment failure means the list is empty anyway).
+
+/**
+ * Bearer-safe core: the roster this viewer may SEE — the union of the staff
+ * assigned to each store the viewer is clamped to, plus the viewer themselves
+ * (a staff missing from their own drawer/settings list is broken). Unclamped
+ * viewers (stores.viewAll, or a floating staff with an empty assignment —
+ * both `allowedStoreIds: null`) keep the full roster, unchanged.
+ */
+export async function viewerStaffRosterForBusiness<
+  T extends { id: string; email?: string | null },
+>(
+  staff: readonly T[],
+  allowedStoreIds: string[] | null,
+  selfId: string | null,
+  businessId: string,
+): Promise<T[]> {
+  if (!allowedStoreIds?.length) return [...staff]
+  const sets = await Promise.all(
+    allowedStoreIds.map((storeId) =>
+      storeStaffIdSetForBusiness(staff, storeId, businessId),
+    ),
+  )
+  if (sets.some((s) => s === null)) return [...staff]
+  const visible = new Set<string>(selfId ? [selfId] : [])
+  for (const s of sets) s!.forEach((id) => visible.add(id))
+  return staff.filter((m) => visible.has(m.id))
+}
+
+/** Cookie-session twin of viewerStaffRosterForBusiness (web pages/layouts). */
+export async function viewerStaffRoster<
+  T extends { id: string; email?: string | null },
+>(staff: readonly T[], selfId: string | null): Promise<T[]> {
+  try {
+    const { allowedStoreIds } = await resolveStoreScope()
+    if (!allowedStoreIds?.length) return [...staff]
+    return await viewerStaffRosterForBusiness(
+      staff,
+      allowedStoreIds,
+      selfId,
+      await getBusinessId(),
+    )
+  } catch {
+    return [...staff]
+  }
+}

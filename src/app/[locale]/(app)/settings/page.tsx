@@ -7,7 +7,7 @@ import { listStores, getActiveStoreId } from '@/actions/stores'
 import { listMenus } from '@/actions/menus'
 import { getEntitlement } from '@/actions/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
-import { resolveStoreScope, menuStoresForScope } from '@/lib/auth/store-scope'
+import { resolveStoreScope, menuStoresForScope, viewerStaffRoster } from '@/lib/auth/store-scope'
 import { getBusinessAiPersona, resolvePersonaTokens } from '@/lib/karute/business-ai-tokens'
 import type { Capability } from '@/lib/auth/permissions'
 import { SettingsShell, type SettingsTabId } from '@/components/settings/redesign/SettingsShell'
@@ -60,6 +60,12 @@ export default async function SettingsPage({
   const isOwner = staffList.some(
     (s) => s.id === activeStaffId && s.display_role === 'owner',
   )
+
+  // スタッフ roster, store-scoped (Liam 8/17): a clamped staff.manage holder
+  // only ever receives their own store(s)' staff + themselves. Scoped HERE,
+  // not in the shell — the other branch's names/emails must not reach the
+  // client at all. visibleStaffRoster's self-only rule still runs on top.
+  const visibleRoster = await viewerStaffRoster(staffList, activeStaffId)
 
   // Capability-driven settings exposure (not role names): what a manager/SV can
   // do here is whatever the owner toggled onto them, enforced server-side by the
@@ -118,7 +124,7 @@ export default async function SettingsPage({
     <SettingsPageChrome title={t('title')}>
       <SettingsShell
         orgSettings={orgSettings}
-        staffList={staffList}
+        staffList={visibleRoster}
         activeStaffId={activeStaffId}
         locale={locale}
         isOwner={isOwner}
