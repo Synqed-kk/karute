@@ -88,12 +88,13 @@ function changedDetail(before: Menu, after: Menu): Record<string, string | numbe
  *  resolution the store-scoped reads use (lib/auth/store-scope) and the same
  *  shape as the setActiveStore clamp (stores.ts:248-259): stores.viewAll ranges
  *  freely, floating staff (empty staff_stores = works in every store, the house
- *  convention) stay unclamped, everyone else is held to their assignment. Every
- *  shipped preset (owner/manager/senior) carries stores.viewAll, so their
- *  behaviour is unchanged.
+ *  convention) stay unclamped for any REAL store id, everyone else is held to
+ *  their assignment. Every shipped preset (owner/manager/senior) carries
+ *  stores.viewAll, so their behaviour is unchanged.
  *
  *  A null store_id is the 全店舗 menu — it lands in every branch's picker, so
- *  touching one takes stores.viewAll no matter how the actor is assigned.
+ *  touching one takes stores.viewAll no matter how the actor is assigned,
+ *  floating staff included (their "unclamped" above stops at real store ids).
  *
  *  Returns the refusal message (house { error } convention, :12-15 — never a
  *  throw), or null when every target store passes. Translated only on refusal:
