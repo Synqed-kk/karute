@@ -2602,6 +2602,7 @@
       "addMenu": "+ Add menu",
       "filterEmpty": "No menus are available at this store",
       "reactivate": "Resume",
+      "storeScopeDenied": "You can only edit menus for the stores you are assigned to. An all-store menu needs all-store access.",
       "form": {
         "createTitle": "Add menu",
         "createSubtitle": "Once a menu is saved it can be picked when booking.",
