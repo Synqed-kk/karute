@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { canUseAskAi, type Capability } from '@/lib/auth/permissions'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { AIAssistantView } from '@/components/ai/redesign/AIAssistantView'
 import { getTodaySignals } from '@/lib/karute/ai-signals'
@@ -38,24 +39,28 @@ export default async function AskAIPage({
   const t = await getTranslations('askAi')
 
   // Scope counts from synqed-core (the Supabase karute_records mirror is empty
-  // post-migration — Karute + Recordings used to show 0).
+  // post-migration — Karute + Recordings used to show 0). Store-lensed: same
+  // active-store scope the customer/karute lists use (store-scope parity
+  // packet, 2026-08-17) — a store-clamped staff must not see business-wide
+  // totals; viewAll actors get their same active-store lens, not "all".
   const synqedPromise = getSynqedClient()
   const nowIso = new Date().toISOString()
+  const storeScope = await resolveStoreScope()
 
   const [orgSettings, karuteRes, customerList, apptList, signals] =
     await Promise.all([
       getOrgSettings(),
     synqedPromise.then((synqed) =>
       synqed.karuteRecords
-        .list({ page_size: 200 })
+        .list({ page_size: 200, store_id: storeScope.storeId ?? undefined })
         .catch(() => ({ total: 0, karute_records: [] as { transcript?: string | null }[] })),
     ),
     synqedPromise.then((synqed) =>
-      synqed.customers.list({ page_size: 1 }).catch(() => ({ total: 0 })),
+      synqed.customers.list({ page_size: 1, store_id: storeScope.storeId ?? undefined }).catch(() => ({ total: 0 })),
     ),
     synqedPromise.then((synqed) =>
       synqed.appointments
-        .list({ from: nowIso, page_size: 1 })
+        .list({ from: nowIso, page_size: 1, store_id: storeScope.storeId ?? undefined })
         .catch(() => ({ total: 0 })),
     ),
     // Today's ranked signal chips (PKT-101); store-scoped internally, [] on error.

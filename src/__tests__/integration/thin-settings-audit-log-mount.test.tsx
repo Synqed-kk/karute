@@ -125,4 +125,12 @@ describe('thin settings wiring — 監査ログ tab mount (packet 18 T4)', () =>
 
     expect(listAuditLog).toHaveBeenCalledTimes(2)
   })
+
+  it('store-scope parity: an audit.view grant WITHOUT stores.viewAll never mounts AuditLogSection, even with initialTab=audit — defense-in-depth render gate (audit has no store filter yet)', async () => {
+    render(<SettingsScreenInner dto={{ ...dto, canViewAllStores: false }} />)
+
+    // No waitFor to assert an absence — give any stray mount's effect a tick.
+    await new Promise((r) => setTimeout(r, 0))
+    expect(listAuditLog).not.toHaveBeenCalled()
+  })
 })

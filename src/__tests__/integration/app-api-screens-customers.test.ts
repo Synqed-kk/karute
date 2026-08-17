@@ -108,6 +108,15 @@ jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: jest.fn(() => fakeClient),
 }))
 
+// Store staff lens (parity fix, 2026-08-17) — same fail-open default as the
+// appointments route's test harness; null = no filtering, overridden per-test.
+const storeStaffIdSetForBusiness = jest.fn(
+  async (..._a: unknown[]): Promise<Set<string> | null> => null,
+)
+jest.mock('@/lib/auth/store-scope', () => ({
+  storeStaffIdSetForBusiness: (...a: unknown[]) => storeStaffIdSetForBusiness(...a),
+}))
+
 import { GET, OPTIONS } from '@/app/api/app/v1/screens/customers/route'
 import { newSynqedClient } from '@/lib/synqed/client'
 
@@ -131,6 +140,7 @@ beforeEach(() => {
   mockCapabilities.mockResolvedValue(new Set(['customers.view', 'stores.viewAll']))
   staffStoresGet.mockResolvedValue({ store_ids: [] })
   listCustomers.mockResolvedValue({ customers: CUSTOMERS, total: 2 })
+  storeStaffIdSetForBusiness.mockResolvedValue(null)
 })
 
 describe('GET /api/app/v1/screens/customers — happy path', () => {
@@ -231,6 +241,22 @@ describe('store clamp (#441 leak class) — REAL resolveStoreForRequest', () => 
     const res = await GET(req({ headers: { ...auth, 'store-id': 'store-2' } }), route)
     expect(res.status).toBe(200)
     expect(listCustomers).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-2' }))
+  })
+
+  it('store-scope parity: a clamped Bearer identity\'s staffList (担当 picker) excludes other-store staff', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view']))
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-1'] })
+    storeStaffIdSetForBusiness.mockResolvedValue(new Set(['auth-user-1']))
+    const res = await GET(req({ headers: { ...auth, 'store-id': 'store-1' } }), route)
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(dto.staffList.map((s: { id: string }) => s.id)).toEqual(['auth-user-1'])
+  })
+
+  it('viewAll identity keeps the full business-wide staffList (unchanged)', async () => {
+    const res = await GET(req({ headers: auth }), route)
+    const dto = await res.json()
+    expect(dto.staffList.map((s: { id: string }) => s.id)).toEqual(['auth-user-1', 'staff-2'])
   })
 })
 

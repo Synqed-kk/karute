@@ -36,15 +36,24 @@ jest.mock('@/lib/supabase/service', () => ({
   }),
 }))
 
-// Business-scoped synqed client: 3 count reads + org settings.
+// Business-scoped synqed client: 3 count reads + org settings + the store
+// clamp (parity fix, 2026-08-17: resolveStoreForRequest now runs BEFORE the
+// count reads, same as the customers/appointments screen routes).
 const listKarute = jest.fn(async () => ({
   total: 12,
   karute_records: [{ transcript: 'yes' }, { transcript: null }, { transcript: 'also' }],
 }))
+const listCustomers = jest.fn(async () => ({ total: 34 }))
+const listAppointments = jest.fn(async () => ({ total: 5 }))
+const storesGet = jest.fn(async (id: string) => {
+  if (id !== 'store-1' && id !== 'store-2') throw new Error('404 not this tenant')
+  return { id }
+})
+const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 const fakeClient = {
   karuteRecords: { list: listKarute },
-  customers: { list: jest.fn(async () => ({ total: 34 })) },
-  appointments: { list: jest.fn(async () => ({ total: 5 })) },
+  customers: { list: listCustomers },
+  appointments: { list: listAppointments },
   orgSettings: {
     get: jest.fn(
       async (): Promise<{ settings: { business_type?: string } }> => ({
@@ -52,6 +61,8 @@ const fakeClient = {
       }),
     ),
   },
+  stores: { get: storesGet },
+  staffStores: { get: staffStoresGet },
 }
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: jest.fn(() => fakeClient),
@@ -83,6 +94,9 @@ beforeEach(() => {
     total: 12,
     karute_records: [{ transcript: 'yes' }, { transcript: null }, { transcript: 'also' }],
   })
+  // Floating staff (unrestricted) default — matches every pre-existing test's
+  // no-header, non-viewAll posture unchanged (clamp.storeId resolves null).
+  staffStoresGet.mockResolvedValue({ store_ids: [] })
 })
 
 describe('GET /api/app/v1/screens/ask-ai', () => {
@@ -135,6 +149,31 @@ describe('GET /api/app/v1/screens/ask-ai', () => {
     const res = await GET(req({ headers: auth }), route)
     expect(res.status).toBe(502)
     expect((await res.json()).error.code).toBe('upstream_unavailable')
+  })
+})
+
+describe('store-scope parity (2026-08-17): counts thread resolveStoreForRequest', () => {
+  it('branch-restricted staff (no header): counts clamp to their assigned store', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-1'] })
+    const res = await GET(req({ headers: auth }), route)
+    expect(res.status).toBe(200)
+    expect(listKarute).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-1' }))
+    expect(listCustomers).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-1' }))
+    expect(listAppointments).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-1' }))
+  })
+
+  it('viewAll caller with no store-id header: unchanged business-wide totals', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'stores.viewAll']))
+    const res = await GET(req({ headers: auth }), route)
+    expect(res.status).toBe(200)
+    expect(listCustomers).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
+  })
+
+  it('in-tenant store OUTSIDE the caller assignment → 403 store_forbidden, no reads', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-1'] })
+    const res = await GET(req({ headers: { ...auth, 'store-id': 'store-2' } }), route)
+    expect(res.status).toBe(403)
+    expect(listCustomers).not.toHaveBeenCalled()
   })
 })
 

@@ -35,6 +35,11 @@ describe('visibleSettingsTabs', () => {
     expect(ids).not.toContain('packs')
   })
 
+  it('audit.view-granted but store-clamped (no viewAll) staff: 監査ログ stays hidden — the audit read has no store filter yet (store-scope parity)', () => {
+    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: false, canViewAudit: true, canViewSync: false, canManageMenus: false }).map((t) => t.id)
+    expect(ids).not.toContain('audit')
+  })
+
   it('sync.view-granted manager sees 予約同期 but still not owner-only tabs (PR-M2 fix round)', () => {
     const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: true, canViewAudit: false, canViewSync: true, canManageMenus: false }).map((t) => t.id)
     expect(ids).toContain('sync')
