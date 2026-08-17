@@ -2297,7 +2297,21 @@
       "summaryEditTrailTitle": "詳細記録の編集履歴（全{count}件）",
       "entryEditError": "編集内容を読み込めませんでした。",
       "entryEditDeleted": "編集履歴が見つかりません（カルテが削除された場合、履歴も一緒に削除されます）",
-      "entryEditPartial": "これより古い履歴は表示されません"
+      "entryEditPartial": "これより古い履歴は表示されません",
+      "autostartOn": "自動録音をON（{store}）",
+      "autostartOff": "自動録音をOFF（{store}）",
+      "menuUpdate": {
+        "duration": "所要時間",
+        "price": "料金",
+        "minPrice": "最低価格",
+        "store": "店舗",
+        "onlineVisible": "表示",
+        "order": "表示順",
+        "allStores": "全店舗",
+        "none": "なし",
+        "nameChanged": "名前を変更",
+        "categoryChanged": "カテゴリを変更"
+      }
     },
     "comingSoon": "近日公開",
     "loginId": "ログインID",

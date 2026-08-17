@@ -72,6 +72,10 @@ function isViewEvent(action: string): boolean {
   return action.endsWith('.view') || action.endsWith('_view')
 }
 
+// Same helper shape as MenusSection.tsx:26 — a two-line local, not a shared
+// module (one other caller, different namespace).
+const yen = (n: number) => `¥${n.toLocaleString('ja-JP')}`
+
 // karute.entry_edit rows expand in place to show what changed (Liam ruling
 // 2026-07-26, AUDIT-LOG-DESIGN.md §11) — list rows stay ids-only, content is
 // pulled live from the entry-edits trail on tap. Cache keyed by the audit
@@ -326,6 +330,77 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
         .map((c) => (t.has(`changed.${c}`) ? t(`changed.${c}`) : c))
         .join('・')
       return targetName ? `${targetName} · ${label}` : label
+    }
+    // settings.recording_autostart_toggle: ON vs OFF (detail.enabled) — the
+    // two live prod rows render byte-identical without this (stress-audit
+    // F5b). The store name is already resolved above via the event's own
+    // target (targetType 'store', emitAutostartReceipt).
+    if (
+      e.action === 'settings.recording_autostart_toggle' &&
+      typeof detail.enabled === 'boolean'
+    ) {
+      return t(detail.enabled ? 'autostartOn' : 'autostartOff', { store: targetName ?? e.target_id ?? '' })
+    }
+    // settings.menu_update: the TRACKED old/new pairs (changedDetail(),
+    // src/actions/menus.ts) rendered compactly, plus name/category as bare
+    // "changed" flags — those two are staff free text that can carry PII (a
+    // customer's name), so the VALUE never renders (audit.ts's ids/flags/
+    // counts-only rule), only that a change happened.
+    if (e.action === 'settings.menu_update') {
+      const chips: string[] = []
+      if (
+        typeof detail.duration_minutes_old === 'number' &&
+        typeof detail.duration_minutes_new === 'number'
+      ) {
+        chips.push(
+          `${t('menuUpdate.duration')} ${detail.duration_minutes_old}分 → ${detail.duration_minutes_new}分`,
+        )
+      }
+      if (
+        typeof detail.price_list_amount_old === 'number' &&
+        typeof detail.price_list_amount_new === 'number'
+      ) {
+        chips.push(
+          `${t('menuUpdate.price')} ${yen(detail.price_list_amount_old)} → ${yen(detail.price_list_amount_new)}`,
+        )
+      }
+      if ('price_min_amount_old' in detail || 'price_min_amount_new' in detail) {
+        const fmt = (v: unknown) => (typeof v === 'number' ? yen(v) : t('menuUpdate.none'))
+        chips.push(
+          `${t('menuUpdate.minPrice')} ${fmt(detail.price_min_amount_old)} → ${fmt(detail.price_min_amount_new)}`,
+        )
+      }
+      if ('store_id_old' in detail || 'store_id_new' in detail) {
+        // null = 全店舗 (all stores); a non-null id joins via targetLabels,
+        // the SAME map resolveTargetLabels() fills for store-target rows —
+        // widened server-side to also cover these detail ids.
+        const fmt = (v: unknown) =>
+          typeof v === 'string' ? (targetLabels[v] ?? v) : t('menuUpdate.allStores')
+        chips.push(`${t('menuUpdate.store')} ${fmt(detail.store_id_old)} → ${fmt(detail.store_id_new)}`)
+      }
+      if (
+        typeof detail.online_visible_old === 'boolean' &&
+        typeof detail.online_visible_new === 'boolean'
+      ) {
+        // ON/OFF are literal, not translated — same idiom as the ¥ sign in
+        // yen() above (packet spec renders them as bare Latin letters in
+        // both locales).
+        const onOffLabel = (v: boolean) => (v ? 'ON' : 'OFF')
+        chips.push(
+          `${t('menuUpdate.onlineVisible')} ${onOffLabel(detail.online_visible_old)} → ${onOffLabel(detail.online_visible_new)}`,
+        )
+      }
+      if (
+        typeof detail.display_order_old === 'number' &&
+        typeof detail.display_order_new === 'number'
+      ) {
+        chips.push(`${t('menuUpdate.order')} ${detail.display_order_old} → ${detail.display_order_new}`)
+      }
+      if (detail.name_changed === true) chips.push(t('menuUpdate.nameChanged'))
+      if (detail.category_changed === true) chips.push(t('menuUpdate.categoryChanged'))
+      const change = chips.join(' · ')
+      if (!change) return targetName
+      return targetName ? `${targetName} · ${change}` : change
     }
     return targetName
   }

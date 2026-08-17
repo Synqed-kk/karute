@@ -733,6 +733,153 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     expect(res.events).toHaveLength(2)
     expect(res.targetLabels).toEqual({ 'cus-1': '鈴木 一郎' })
   })
+
+  // stress-audit F5c (8/17, PACKET-AUDITUI-ALLOWLIST): 'menu' was a valid
+  // targetType (src/lib/audit.ts:51) never resolved — menu rows showed a
+  // bare UUID. Same unfiltered-list shape as the store branch: menus.list()
+  // returns the WHOLE catalog including retired rows (listMenus's contract).
+  it("resolves a settings.menu_update row's own target (target_type 'menu') to the menu's name", async () => {
+    const menusList = jest.fn(async () => ({
+      menus: [{ id: 'menu-1', name: 'カット', active: true }],
+    }))
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      menus: { list: menusList },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'e-menu',
+          category: 'settings',
+          action: 'settings.menu_update',
+          target_type: 'menu',
+          target_id: 'menu-1',
+          detail: { duration_minutes_old: 60, duration_minutes_new: 90 },
+        }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(menusList).toHaveBeenCalledTimes(1)
+    expect(res.targetLabels).toEqual({ 'menu-1': 'カット' })
+  })
+
+  it('a retired menu still resolves (menus.list() returns the whole catalog, retired included)', async () => {
+    const menusList = jest.fn(async () => ({
+      menus: [{ id: 'menu-retired', name: '旧メニュー', active: false }],
+    }))
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      menus: { list: menusList },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'e-menu-r',
+          category: 'settings',
+          action: 'settings.menu_retire',
+          target_type: 'menu',
+          target_id: 'menu-retired',
+          detail: null,
+        }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.targetLabels).toEqual({ 'menu-retired': '旧メニュー' })
+  })
+
+  it('an unknown/deleted menu id falls back to the raw id — same honest-state fallback as customers/staff', async () => {
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      menus: { list: jest.fn(async () => ({ menus: [] })) },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'e-menu-gone',
+          category: 'settings',
+          action: 'settings.menu_update',
+          target_type: 'menu',
+          target_id: 'menu-purged',
+          detail: {},
+        }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.targetLabels).toEqual({})
+  })
+
+  it('no menu-target rows on the page → menus.list is never queried', async () => {
+    const menusList = jest.fn(async () => ({ menus: [] }))
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: jest.fn(async () => ({ customers: [] })) },
+      menus: { list: menusList },
+    }))
+    const res = await listAuditLog({}) // default coreEvent targets a customer, no detail store ids
+    if (!res.ok) throw new Error('expected ok')
+    expect(menusList).not.toHaveBeenCalled()
+  })
+
+  // settings.menu_update's detail carries store_id_old/_new (the menu's
+  // store REASSIGNMENT, not the event's own target) — these ids need the
+  // same store-name join the eventSub() chip rendering reads from
+  // targetLabels, so they must widen the store fetch even with zero
+  // target_type:'store' rows on the page.
+  it("a menu_update row's detail store_id_old/_new resolve via the SAME stores.list() fetch, even with no store-target rows on the page", async () => {
+    const storesList = jest.fn(async () => ({
+      stores: [
+        { id: 'store-a', name: '銀座店' },
+        { id: 'store-b', name: '渋谷店' },
+      ],
+    }))
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      stores: { list: storesList },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'e-menu-store',
+          category: 'settings',
+          action: 'settings.menu_update',
+          target_type: 'menu',
+          target_id: 'menu-1',
+          detail: { store_id_old: 'store-a', store_id_new: 'store-b' },
+        }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(storesList).toHaveBeenCalledTimes(1)
+    expect(res.targetLabels).toEqual({ 'store-a': '銀座店', 'store-b': '渋谷店' })
+  })
+
+  it('no store-target rows AND no menu_update detail store ids → stores.list is never queried', async () => {
+    const storesList = jest.fn(async () => ({ stores: [] }))
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: jest.fn(async () => ({ customers: [] })) },
+      stores: { list: storesList },
+    }))
+    const res = await listAuditLog({}) // default coreEvent targets a customer
+    if (!res.ok) throw new Error('expected ok')
+    expect(storesList).not.toHaveBeenCalled()
+  })
 })
 
 describe('listAuditLogWithClient — per-invocation privacy.audit_log.view (contract §3.1, PR-M1)', () => {
