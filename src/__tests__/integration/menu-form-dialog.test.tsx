@@ -755,6 +755,22 @@ describe('MenuFormDialog — branch actor (no stores.viewAll)', () => {
     ).toBeNull()
   })
 
+  // F-B belt-and-braces: MenusSection hides the create entry when this actor
+  // has NO writable store at all, so this path is unreachable through normal
+  // UI — but the dialog's own default must never fall back to null (全店舗)
+  // regardless, since that would silently compose the one write this actor
+  // is always refused.
+  it('CREATE with NO writable store never defaults store_id to null', async () => {
+    open({ kind: 'create' }, [], false)
+    type(/メニュー名/, 'ヘッドスパ')
+    type(/所要時間/, '45')
+    type(/通常価格/, '4400')
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled())
+    expect(createMenu).not.toHaveBeenCalled()
+  })
+
   it('a stores.viewAll actor keeps the 全店舗 pill and its null CREATE default', async () => {
     open({ kind: 'create' }, OWN)
     openDetails()

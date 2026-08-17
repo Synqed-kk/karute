@@ -821,3 +821,44 @@ describe('MenusSection — actor store scope (no stores.viewAll)', () => {
     expect(screen.getAllByRole('button', { name: '再開' })).toHaveLength(2)
   })
 })
+
+// F-B: a non-viewAll actor with NO writable store (menuStores resolved to []
+// — settings/page.tsx only ever hands this actor an empty array when the
+// store-assignment/store-list fetch itself degraded, never a legitimate
+// "assigned to zero stores" state) can never compose a legal write. The old
+// behavior still offered 追加 into a form whose only possible save the
+// server refuses.
+describe('MenusSection — no writable stores (non-viewAll, F-B)', () => {
+  const NOTE = '編集できる店舗情報を取得できないため、メニューは現在閲覧のみです。'
+
+  it('hides every create entry and shows the explanatory note — the catalog read stays untouched', () => {
+    render(<MenusSection menus={CATALOG} stores={[]} canViewAllStores={false} />)
+    expect(createButtons().length).toBe(0)
+    expect(screen.getByText(NOTE)).toBeTruthy()
+    expect(screen.getByText('着付け')).toBeTruthy()
+  })
+
+  it('an empty catalog in this state shows the empty copy with NO create CTA', () => {
+    render(<MenusSection menus={[]} stores={[]} canViewAllStores={false} />)
+    expect(screen.getByText('メニューがまだありません')).toBeTruthy()
+    expect(createButtons().length).toBe(0)
+  })
+
+  it('a load failure does not also show the no-writable-stores note', () => {
+    render(<MenusSection menus={null} stores={[]} canViewAllStores={false} />)
+    expect(screen.getByText('メニューを読み込めませんでした')).toBeTruthy()
+    expect(screen.queryByText(NOTE)).toBeNull()
+  })
+
+  it('a non-viewAll actor WITH a writable store is unaffected — create stays, no note', () => {
+    render(<MenusSection menus={CATALOG} stores={[store]} canViewAllStores={false} />)
+    expect(createButtons().length).toBe(1)
+    expect(screen.queryByText(NOTE)).toBeNull()
+  })
+
+  it('viewAll with an empty stores prop is byte-identical — create stays, no note', () => {
+    render(<MenusSection menus={CATALOG} stores={[]} canViewAllStores />)
+    expect(createButtons().length).toBe(1)
+    expect(screen.queryByText(NOTE)).toBeNull()
+  })
+})

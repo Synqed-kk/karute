@@ -122,10 +122,16 @@ export function MenusSection({ menus, stores, canViewAllStores }: MenusSectionPr
   const active = allActive.filter(inFilter)
   const retired = allRetired.filter(inFilter)
   const groups = groupByCategory(active)
+  // A non-viewAll actor with NO writable store can never compose a legal
+  // write — every real store id is out of scope and 全店舗 always needs
+  // viewAll (src/actions/menus.ts) — so offering 追加 here is a guaranteed
+  // refusal (F-B). Read access is untouched: the catalog list still renders
+  // in full either way.
+  const noWritableStores = !canViewAllStores && stores.length === 0
   // One store → the select would be a control with one real answer. No dead
   // chrome for a single-store business.
   const showFilter = menus !== null && !catalogEmpty && stores.length >= 2
-  const showCreate = menus !== null && !catalogEmpty
+  const showCreate = menus !== null && !catalogEmpty && !noWritableStores
 
   /** 再開. The section CAN die mid-write: SettingsShell renders sections with a
    *  plain renderSection(activeTab) call (SettingsShell.tsx:395,420), so a tab
@@ -274,6 +280,10 @@ export function MenusSection({ menus, stores, canViewAllStores }: MenusSectionPr
         )}
       </div>
 
+      {noWritableStores && menus !== null && (
+        <p className="text-[13px] text-muted-foreground">{t('noWritableStores')}</p>
+      )}
+
       {showFilter && (
         // Native select (mock :247-252) — the settings native-select idiom
         // (StoreFormDialog.tsx:136) at the mock's 160px. appearance-none is the
@@ -310,9 +320,11 @@ export function MenusSection({ menus, stores, canViewAllStores }: MenusSectionPr
       ) : catalogEmpty ? (
         <div className="py-6 text-center">
           <p className="text-[13px] text-muted-foreground">{t('empty')}</p>
-          <Button className="mt-3" onClick={() => setFormMode({ kind: 'create' })}>
-            {t('addMenu')}
-          </Button>
+          {!noWritableStores && (
+            <Button className="mt-3" onClick={() => setFormMode({ kind: 'create' })}>
+              {t('addMenu')}
+            </Button>
+          )}
         </div>
       ) : (
         <>

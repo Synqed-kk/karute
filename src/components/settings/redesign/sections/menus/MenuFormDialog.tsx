@@ -130,8 +130,13 @@ function MenuFormBody({
   // CREATE defaults to 全店舗 (null) — except for an actor who may not write
   // one, whose default is their FIRST store: the old null default would hand
   // them a form whose 保存 the server refuses before they touched anything.
+  // '' (never null) when that actor has NO writable store at all (F-B):
+  // MenusSection hides the create entry in that exact state, so this default
+  // is belt-and-braces — it just stops a stray render from composing a null
+  // (全店舗) write the server would refuse; '' fails the store_id uuid check
+  // client-side instead.
   const [storeId, setStoreId] = useState<string | null>(
-    menu ? menu.store_id : canViewAllStores ? null : (stores[0]?.id ?? null),
+    menu ? menu.store_id : canViewAllStores ? null : (stores[0]?.id ?? ''),
   )
   const [onlineVisible, setOnlineVisible] = useState(menu?.online_visible ?? true)
   const [order, setOrder] = useState(menu ? String(menu.display_order) : '')
