@@ -22,7 +22,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { getCachedCustomerListFor } from '@/lib/customers/cached'
-import { getCachedMenuOptionsFor } from '@/lib/menus/cached'
+import { getCachedMenuOptionsFor, scopeMenuOptions } from '@/lib/menus/cached'
 import { orgSettingsWithClient } from '@/actions/org-settings'
 import { enrichCustomers, type CustomerEnrichment } from '@/lib/customers/list-enrich'
 import { listAllPackUsageWithClient, type CustomerPackUsage } from '@/lib/packs/store'
@@ -179,8 +179,13 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
           phone: c.phone ?? null,
           furigana: c.furigana ?? null,
         })),
-        // CachedMenuOption is already DTO-shaped — passed through verbatim.
-        menus,
+        // CachedMenuOption is already DTO-shaped — passed through verbatim
+        // apart from the store clamp (⚖ Liam 2026-08-17): the cached union is
+        // business-wide and actor-blind by design (it must stay so — the entry
+        // is shared across Bearer identities), so a clamped caller's isolation
+        // lands here, on the scope resolveStoreForRequest already proved. null
+        // = viewAll or floating → unfiltered.
+        menus: scopeMenuOptions(menus, clamp.allowedStoreIds),
         reservationViews: screen.reservationViews,
         reservationStaff: screen.reservationStaff,
         businessHours: screen.businessHours,

@@ -644,6 +644,54 @@ describe('actor store scope', () => {
     },
   )
 
+  /**
+   * The READ half (⚖ Liam 2026-08-17, store isolation): a branch actor must
+   * not merely be unable to EDIT another store's menus — they must not see
+   * them at all ("they don't need to even know that the Daikanyama store
+   * exists"). 全店舗 rows stay visible: they are bookable in every branch.
+   */
+  describe('listMenus', () => {
+    const ALL_STORE = { ...MENU, id: MENU_ID, store_id: null, name: '全店舗カット' }
+    const OWN = { ...MENU, id: '8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', store_id: MINE, name: '銀座トリートメント' }
+    const FOREIGN = { ...MENU, id: '9b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e', store_id: OTHER, name: '代官山カラー' }
+    const idsOf = (r: Awaited<ReturnType<typeof listMenus>>) =>
+      'menus' in r ? r.menus.map((m) => m.id) : r
+
+    beforeEach(() => mockMenus.list.mockResolvedValue({ menus: [ALL_STORE, OWN, FOREIGN] }))
+
+    it('shows a clamped actor their own store + 全店舗 — never another branch’s row', async () => {
+      branch([MINE])
+      const res = await listMenus()
+      expect(idsOf(res)).toEqual([ALL_STORE.id, OWN.id])
+      // The menu NAME is the leak (a branch's service list IS competitive
+      // information), so pin the payload, not just the count.
+      expect(JSON.stringify(res)).not.toContain('代官山カラー')
+    })
+
+    it('shows a multi-store assignment every store it covers', async () => {
+      branch([MINE, OTHER])
+      expect(idsOf(await listMenus())).toEqual([ALL_STORE.id, OWN.id, FOREIGN.id])
+    })
+
+    it('leaves floating staff (no assignment) unclamped — the house convention', async () => {
+      branch(null)
+      expect(idsOf(await listMenus())).toEqual([ALL_STORE.id, OWN.id, FOREIGN.id])
+    })
+
+    it('shows 全店舗 rows ONLY when the assignment lookup is degraded (fail-closed)', async () => {
+      // Indistinguishable from floating on allowedStoreIds alone — the whole
+      // reason the flag exists (F-A), and the same posture as the write clamp.
+      resolveStoreScope.mockResolvedValue({
+        storeId: MINE, viewAll: false, allowedStoreIds: null, degraded: true,
+      })
+      expect(idsOf(await listMenus())).toEqual([ALL_STORE.id])
+    })
+
+    it('is unchanged for a stores.viewAll actor — the whole catalog', async () => {
+      expect(idsOf(await listMenus())).toEqual([ALL_STORE.id, OWN.id, FOREIGN.id])
+    })
+  })
+
   // The byte-unchanged half: with stores.viewAll every path behaves exactly as
   // it did before the clamp, including the ones a branch actor is refused.
   const viewAllWriters: [string, () => Promise<unknown>][] = [

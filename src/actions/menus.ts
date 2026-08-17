@@ -114,13 +114,28 @@ async function storeScopeError(
 }
 
 /** The whole catalog, retired rows included — the settings surface needs them
- *  for the 停止中 disclosure. */
+ *  for the 停止中 disclosure.
+ *
+ *  Store-scoped READ (⚖ Liam 2026-08-17): a branch actor sees only their own
+ *  stores' menus plus the 全店舗 rows — another branch's catalog is off limits,
+ *  not merely uneditable. Same resolution + same fail-closed posture as the
+ *  write clamp above: a degraded assignment lookup can't vouch for ANY store,
+ *  so it shows the 全店舗 rows only. Floating staff (allowedStoreIds null)
+ *  stay unclamped, and stores.viewAll returns byte-identically to before. */
 export async function listMenus(): Promise<{ menus: Menu[] } | { error: string }> {
   if (!(await can('menus.manage'))) return { error: DENIED }
   try {
     const { synqed } = await menuContext()
     const { menus } = await synqed.menus.list()
-    return { menus }
+    const { viewAll, allowedStoreIds, degraded } = await resolveStoreScope()
+    if (viewAll) return { menus }
+    // The picker's twin of this predicate is scopeMenuOptions
+    // (src/lib/menus/cached.ts) — deliberately NOT imported here: that module
+    // value-imports the ESM-only SDK client, which this 'use server' module
+    // (and its suite) keeps out of its graph on purpose.
+    const allowed = degraded ? [] : allowedStoreIds
+    if (!allowed) return { menus }
+    return { menus: menus.filter((m) => m.store_id === null || allowed.includes(m.store_id)) }
   } catch (e) {
     return { error: `Could not load menus: ${reason(e)}` }
   }
