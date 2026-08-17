@@ -483,6 +483,7 @@ describe('actor store scope', () => {
     expect(mockMenus.update).not.toHaveBeenCalled()
     expect(audit).not.toHaveBeenCalled()
     expect(updateTag).not.toHaveBeenCalled()
+    expect(revalidatePath).not.toHaveBeenCalled()
   }
 
   describe('createMenu', () => {
@@ -539,6 +540,23 @@ describe('actor store scope', () => {
       expect(await updateMenu(MENU_ID, FORM)).toEqual(DENIED)
       noWrite()
     })
+
+    // F-D: an existing 全店舗 menu (before.store_id === null) is the OTHER
+    // direction of the widen case above — moving it INTO scope or leaving it
+    // put are both still "touching" a 全店舗 row, which always needs viewAll.
+    it('refuses moving an existing 全店舗 menu into the actor’s own store (null→real)', async () => {
+      branch([MINE])
+      targetStore(null)
+      expect(await updateMenu(MENU_ID, { ...FORM, store_id: MINE })).toEqual(DENIED)
+      noWrite()
+    })
+
+    it('refuses leaving an existing 全店舗 menu at 全店舗 without stores.viewAll (null→null)', async () => {
+      branch([MINE])
+      targetStore(null)
+      expect(await updateMenu(MENU_ID, { ...FORM, store_id: null })).toEqual(DENIED)
+      noWrite()
+    })
   })
 
   const idWriters: [string, (id: string) => Promise<unknown>][] = [
@@ -575,6 +593,28 @@ describe('actor store scope', () => {
     branch(null)
     expect(await createMenu(FORM)).toEqual(DENIED)
     noWrite()
+  })
+
+  // F-E: floating staff (unclamped, empty staff_stores) for the three writers
+  // createMenu doesn't cover — unclamped for a REAL store id, still refused
+  // on 全店舗 exactly like createMenu above.
+  it('floating staff writes updateMenu into a real-store target', async () => {
+    branch(null)
+    targetStore(OTHER)
+    expect(await updateMenu(MENU_ID, { ...FORM, store_id: OTHER })).toEqual({ ok: true })
+  })
+
+  it('floating staff still may not touch a 全店舗 menu via updateMenu', async () => {
+    branch(null)
+    targetStore(OTHER)
+    expect(await updateMenu(MENU_ID, FORM)).toEqual(DENIED)
+    noWrite()
+  })
+
+  it.each(idWriters)('%s (floating staff) writes when the target is a real store', async (_n, run) => {
+    branch(null)
+    targetStore(OTHER)
+    expect(await run(MENU_ID)).toEqual({ ok: true })
   })
 
   // Fail-closed on a degraded assignment lookup (⚖ F-A): getStaffStores used
