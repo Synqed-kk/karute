@@ -132,11 +132,12 @@ describe('StaffCombobox — required vs clearable', () => {
     expect(picked).toEqual([''])
   })
 
-  // B5 consequence, pinned deliberately: the box opens pre-filled with the
-  // current 指名's name, which IS a query, so the pinned row is not on the
-  // first tap — emptying the box is what brings it back. Reachable, but one
-  // extra step; flagged at the fix-round report.
-  it('clearable with an existing 指名: 指名なし returns once the box is emptied', () => {
+  // B5(a) — the pre-filled name is a DISPLAYED VALUE, not a query. Opening on
+  // an existing 指名 must show the whole default list, 指名なし included, the
+  // way the <select> this replaced did. (Regression guard: gating purely on the
+  // input text collapsed this to "only the person already chosen", making
+  // clearing a 指名 unreachable on the first tap.)
+  it('clearable with an existing 指名: pristine open shows the FULL list + 指名なし', () => {
     const picked: string[] = []
     render(
       <StaffCombobox
@@ -146,14 +147,20 @@ describe('StaffCombobox — required vs clearable', () => {
         noneLabel="指名なし"
       />,
     )
-    const input = screen.getByRole('combobox')
-    fireEvent.focus(input)
-    expect(screen.queryByText('指名なし')).toBeNull()
-
-    fireEvent.change(input, { target: { value: '' } })
-    expect(rows()[0].textContent).toBe('指名なし')
+    open()
+    expect(rows().map((r) => r.textContent)).toEqual([
+      '指名なし',
+      '佐藤 美咲',
+      '田中 花',
+    ])
     fireEvent.mouseDown(rows()[0])
     expect(picked).toEqual([''])
+  })
+
+  it('required mode with a selection: pristine open still lists everyone', () => {
+    render(<StaffCombobox staff={ROSTER} selectedId={SATO.id} onSelect={() => {}} />)
+    open()
+    expect(rows().map((r) => r.textContent)).toEqual(['佐藤 美咲', '田中 花'])
   })
 
   it('required mode renders no 指名なし row', () => {
@@ -162,8 +169,8 @@ describe('StaffCombobox — required vs clearable', () => {
     expect(screen.queryByText('指名なし')).toBeNull()
   })
 
-  // B5 — the pinned row belongs to the DEFAULT list only. Once a query is on,
-  // the list is a search result and 指名なし matched nothing.
+  // B5(b) — the FIRST KEYSTROKE is what turns the list into a search result.
+  // From there 指名なし is not a match, so it goes.
   it('clearable: 指名なし disappears once they start typing, returns when cleared', () => {
     render(
       <StaffCombobox
@@ -182,6 +189,28 @@ describe('StaffCombobox — required vs clearable', () => {
     expect(rows().map((r) => r.textContent)).toEqual(['北野経営'])
 
     fireEvent.change(input, { target: { value: '' } })
+    expect(rows()[0].textContent).toBe('指名なし')
+  })
+
+  it('editing an existing 指名 filters; blurring reverts to the pristine list', () => {
+    render(
+      <StaffCombobox
+        staff={ROSTER}
+        selectedId={SATO.id}
+        onSelect={() => {}}
+        noneLabel="指名なし"
+      />,
+    )
+    const input = screen.getByRole('combobox') as HTMLInputElement
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: '北' } })
+    expect(screen.queryByText('指名なし')).toBeNull()
+    expect(rows().map((r) => r.textContent)).toEqual(['北野経営'])
+
+    // Blur reverts the text AND the dirty state — reopening is pristine again.
+    fireEvent.blur(input)
+    expect(input.value).toBe('佐藤 美咲')
+    open()
     expect(rows()[0].textContent).toBe('指名なし')
   })
 })
