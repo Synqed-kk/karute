@@ -109,6 +109,15 @@ describe('POST /api/app/v1/org-settings/recording-autostart', () => {
     expect((await res.json()).error.code).toBe('validation')
   })
 
+  it('a lost receipt → 502, never a 2xx (the discard door\'s rule, stress-audit F3)', async () => {
+    for (const error of ['receipt_write_failed', 'receipt_write_failed_setting_uncertain'] as const) {
+      setRecordingAutostartWithClient.mockResolvedValueOnce({ ok: false, error })
+      const res = await POST(req({ storeId: 'store-1', enabled: true }), route)
+      expect(res.status).toBe(502)
+      expect((await res.json()).error.code).toBe('upstream_unavailable')
+    }
+  })
+
   it('happy path → 200, writer called with the business-scoped client + facade actor, {storeIds} back', async () => {
     const res = await POST(req({ storeId: 'store-1', enabled: true }), route)
     expect(res.status).toBe(200)
