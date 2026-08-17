@@ -200,11 +200,12 @@ export function RecordingSection({
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {t('autostartDescription', { serviceNoun: serviceNoun || t('autostartVisitFallback') })}
                 </p>
-                {/* Spec §8.5, verbatim: there is no wake-lock, no background-audio
-                 *  entitlement and no foreground service anywhere in the app, so a
-                 *  locked phone SUSPENDS capture. Auto-start must never imply
-                 *  continuous background recording — the honest sentence ships in
-                 *  the settings screen itself, not in a doc. */}
+                {/* Spec §8.5, ⚠ 8/17 field correction: ios/App/App/Info.plist
+                 *  declares UIBackgroundModes: [audio], so a locked phone does
+                 *  NOT suspend capture — an auto-started recording continues
+                 *  in the background. The honest sentence ships in the
+                 *  settings screen itself, not in a doc, so staff aren't
+                 *  surprised that locking the screen doesn't stop it. */}
                 {/* text-foreground, not muted: as the third grey footnote in a
                  *  stack this sentence is present but unread, and it is the one
                  *  line here whose whole job is to stop a false belief about
