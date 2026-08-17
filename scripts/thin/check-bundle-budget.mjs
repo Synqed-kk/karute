@@ -121,7 +121,29 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // free (unused slack is harmless) while undersizing costs a second
 // classifier-blocked-file round-trip. Each PR's own budget checkpoint
 // (PR-1..PR-4b) is the measured truth under this ceiling.
-const BUDGET_BYTES = 1_890_336
+// Raised 2026-08-17 — recording-integrity Phase A, lock-caveat truth fix
+// (Liam field correction: §8.5's "locking suspends capture" claim was FALSE
+// for the shipped shells — ios/App/App/Info.plist declares UIBackgroundModes:
+// [audio], so a locked phone does NOT suspend capture; settings.
+// autostartLockCaveat corrected to say so). Supersedes the same-day A4 fix
+// round 2 figure (1,891,644 B / tip e8e15453) with this round's measured
+// tip, per this script's own rule that raises never shrink and the LATEST
+// measured number on a landed PR wins.
+// MEASURED, not provisional: PR A4 (自動録音 per-store toggle) with the
+// lock-caveat copy fix applied, measures 1,891,545 B at final tip
+// 736ef10da16a28477acbacb278817d0680d5059e against the prior 1,890,336 B
+// ceiling — 1,209 B over. A4's own cost is +3,374 B over origin/main
+// b195998e (1,888,171 B) — 99 B LESS than fix round 2's 1,891,644 B
+// measurement, because the corrected caveat ("画面をロックしても録音は継続
+// します。" / "Recording continues even when the screen is locked.") is
+// shorter in both locales than the disproven string it replaced.
+// +12,288 B (12 KB) of provisional margin ABOVE that measurement, carried
+// forward unchanged from the round-2 raise, for the two Phase-A PRs that
+// still carry UI: A5b (the acknowledgement flow) and A7 (the auto-start
+// countdown + its stop/cancel copy). Sized on the same oversize-is-free rule
+// as every prior raise: unused slack is harmless, an undersized ceiling
+// costs another classifier-blocked round-trip.
+const BUDGET_BYTES = 1_903_833
 
 let dir
 try {
