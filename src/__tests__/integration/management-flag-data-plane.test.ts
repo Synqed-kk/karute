@@ -202,7 +202,10 @@ describe('inertness — PR A changes no roster behavior', () => {
     },
   ]
 
-  function build(isManagement: boolean) {
+  function build(
+    isManagement: boolean,
+    over: { activeStaffId?: string | null; storeStaffIds?: Set<string> | null } = {},
+  ) {
     return buildAppointmentsScreen({
       locale: 'ja',
       now: new Date('2026-08-18T06:40:00.000Z'),
@@ -211,8 +214,8 @@ describe('inertness — PR A changes no roster behavior', () => {
       staffList: staffList.map((s) =>
         s.id === 'p2' ? { ...s, isManagement } : { ...s, isManagement: false },
       ),
-      activeStaffId: 'p1',
-      storeStaffIds: null,
+      activeStaffId: over.activeStaffId === undefined ? 'p1' : over.activeStaffId,
+      storeStaffIds: over.storeStaffIds ?? null,
       orgSettings: null,
       customers: [],
       dayAppointments: [],
@@ -235,5 +238,26 @@ describe('inertness — PR A changes no roster behavior', () => {
 
   it('the picker roster carries the flag (PR B hides client-side from it)', () => {
     expect(build(true).staff.find((s) => s.id === 'p2')?.isManagement).toBe(true)
+  })
+
+  // The inertness pair above runs unclamped (storeStaffIds null), which is the
+  // EASY case — nothing is being removed, so nothing can be removed twice. The
+  // dangerous viewer is the one the store lens already nulled out: if the flag
+  // ever grew a second clamp on visibleActiveStaffId, it would land here first,
+  // and "self is always kept" would quietly re-admit an id the store lens had
+  // just refused. Both halves must stay byte-identical across the flip.
+  it('a store-clamped viewer is just as inert — flag on or off', () => {
+    const clamp = {
+      activeStaffId: 'p-outsider',
+      storeStaffIds: new Set(['p1', 'p2']),
+    }
+    const off = build(false, clamp)
+    const on = build(true, clamp)
+    // ids, not whole rows: the flag itself RIDES the picker roster by design
+    // (PR B reads it client-side). Membership is the half that must not move.
+    expect(on.staff.map((s) => s.id)).toEqual(off.staff.map((s) => s.id))
+    expect(on.reservationStaff).toEqual(off.reservationStaff)
+    expect(on.visibleActiveStaffId).toBeNull()
+    expect(off.visibleActiveStaffId).toBeNull()
   })
 })

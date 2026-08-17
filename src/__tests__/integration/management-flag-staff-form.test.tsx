@@ -142,6 +142,28 @@ describe('経営メンバー toggle — account owner (ruling Ⓐ)', () => {
   })
 })
 
+describe('経営メンバー toggle — permissions load FAILED (fix round A4)', () => {
+  it('still renders and still saves — the flag does not ride the permissions fetch', async () => {
+    getStaffPermissions.mockResolvedValue({ error: 'boom' })
+    renderForm({ isManagement: false })
+    expect(await screen.findByLabelText(LABEL)).toBeTruthy()
+    // The authority half is honestly reported as down…
+    expect(
+      screen.getByText(
+        '権限情報を読み込めませんでした。保存しても権限は変更されません — 開き直してもう一度お試しください。',
+      ),
+    ).toBeTruthy()
+
+    // …while the flag, which saves through updateStaff (identity), works.
+    fireEvent.click(toggle())
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(updateStaff).toHaveBeenCalled())
+    expect(updateStaff.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ isManagement: true }),
+    )
+  })
+})
+
 describe('経営メンバー toggle — unlinked staff', () => {
   it('is disabled with its own hint and writes nothing', async () => {
     renderForm({ id: 'synqed-only-1', unlinked: true })

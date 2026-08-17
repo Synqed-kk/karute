@@ -317,7 +317,23 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
               )}
 
               {permsState === 'error' && (
-                <p className="text-xs text-red-600 dark:text-red-400">{tp('loadFailed')}</p>
+                <>
+                  <p className="text-xs text-red-600 dark:text-red-400">{tp('loadFailed')}</p>
+                  {/* The flag does NOT depend on the permissions fetch — it
+                   *  rides updateStaff (identity), which still saves fine when
+                   *  the authority read is down. Without this branch the whole
+                   *  control vanished on a failed load, and the only way back
+                   *  was to hope the next open succeeded. */}
+                  <ManagementToggle
+                    checked={isManagement}
+                    onChange={(v) => {
+                      setIsManagement(v)
+                      setManagementTouched(true)
+                    }}
+                    label={tStaff('management')}
+                    hint={tStaff('managementHint')}
+                  />
+                </>
               )}
 
               {permsState === 'unlinked' && (
