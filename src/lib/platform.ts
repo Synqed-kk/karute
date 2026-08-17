@@ -23,3 +23,26 @@ export function isNativeShell(): boolean {
   }).Capacitor
   return Boolean(cap?.isNativePlatform?.())
 }
+
+// ─────────────────────────────────────────────────────────────
+// The one public web origin — for links that LEAVE this device
+// ─────────────────────────────────────────────────────────────
+// Inside the native shell `window.location.origin` is the shell's INTERNAL
+// origin (`capacitor://localhost` on an iOS local bundle; `https://localhost`
+// on Android — the same two in SHELL_ORIGINS in src/lib/app-api/cors.ts), so a
+// URL composed from it is dead on every other device. Every share/redirect URL
+// must go through publicSiteOrigin(), never window.location.origin directly.
+// (8/17 staff-lockout: invite links generated on a phone were inert.)
+//
+// Hardcoded, not env-read, because the shell bundle compiles `process.env` away
+// to `{}` (thin/vite.config.ts) — an env-driven origin would resolve undefined
+// in the exact place this fix exists for.
+//
+// Web and dev are unchanged: there is no Capacitor runtime on localhost, so dev
+// links keep the localhost origin and stay clickable.
+export const PUBLIC_SITE_ORIGIN = 'https://karute.synqed.jp'
+
+export function publicSiteOrigin(): string {
+  if (typeof window === 'undefined' || isNativeShell()) return PUBLIC_SITE_ORIGIN
+  return window.location.origin
+}
