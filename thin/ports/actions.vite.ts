@@ -549,6 +549,39 @@ async function facadeUpsertOrgSettings(
   }
 }
 
+// -- 自動録音 per-store toggle (recording-integrity A4). Its OWN endpoint, not
+// the org-settings PATCH above: the request is a DELTA (storeId, enabled) so
+// the id list is computed server-side from a fresh read, and the write carries
+// the settings.recording_autostart_toggle audit row (spec §8.1). Same
+// try/catch + forbidden-message parity as facadeUpsertOrgSettings: web's
+// action soft-returns { ok: false, error: 'forbidden' } on a failed
+// settings.manage gate, so the transport must resolve to the SAME shape rather
+// than reject.
+type SetRecordingAutostartResult =
+  | { ok: true; storeIds: string[] }
+  | { ok: false; error: 'forbidden' | 'unknown_store' | 'failed' }
+
+async function facadeSetRecordingAutostart(
+  storeId: string,
+  enabled: boolean,
+): Promise<SetRecordingAutostartResult> {
+  try {
+    const res = await getDataPort().apiFetch(
+      '/api/app/v1/org-settings/recording-autostart',
+      jsonInit('POST', { storeId, enabled }),
+    )
+    const body = (await res.json().catch(() => null)) as
+      | { storeIds?: string[]; error?: { code?: string } }
+      | null
+    if (res.ok && Array.isArray(body?.storeIds)) return { ok: true, storeIds: body.storeIds }
+    if (body?.error?.code === 'forbidden') return { ok: false, error: 'forbidden' }
+    if (body?.error?.code === 'validation') return { ok: false, error: 'unknown_store' }
+    return { ok: false, error: 'failed' }
+  } catch {
+    return { ok: false, error: 'failed' }
+  }
+}
+
 // -- welcome wizard onboarding (design-parity packet 21). Mirrors
 // completeOnboarding's validation EXACTLY (src/actions/org-settings.ts:
 // 217-221, same order, same strings) — WelcomeWizard's own step gating
@@ -1215,6 +1248,9 @@ async function facadeSetStaffPermissions(
 // named import it makes from @/actions/* to resolve, hence the one
 // remaining stub below.
 export const upsertOrgSettings = facadeUpsertOrgSettings
+// RecordingSection imports it by name from '@/actions/recording-autostart';
+// the resolveId plugin routes ALL of src/actions/** here, so Rollup needs it.
+export const setRecordingAutostart = facadeSetRecordingAutostart
 // completeOnboarding (design-parity packet 21): WelcomeWizard imports it by
 // name from '@/actions/org-settings' — Rollup fails without it now that
 // WelcomeScreen brings the wizard into the bundle's import graph.

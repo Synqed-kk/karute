@@ -98,6 +98,44 @@ export interface OrgSettings {
    *  until Anthony adds the column (schema TODO in CoachingSection.tsx); reads as
    *  false pre-migration, so coaching stays dark until deliberately turned on. */
   coaching_enabled?: boolean
+  /** 自動録音 — the ids of the stores where auto-start is ON (recording-
+   *  integrity spec §8.1, PR A4). Ruled default is OFF everywhere, which is
+   *  what an absent key / empty array means; A7 reads MEMBERSHIP of the
+   *  appointment's store at arm time.
+   *
+   *  Why an id LIST on a per-ORG blob rather than a boolean per store: ruling
+   *  ③ set per-store semantics, but this blob is keyed by businessId only
+   *  (orgSettingsByBusiness below — no store_id exists anywhere in this file),
+   *  so the store dimension has to live INSIDE the value. Spec §8.1's ⚠ 8/17
+   *  correction block rules this shape; real per-store settings rows stay the
+   *  honest close (§13.11, core-side).
+   *
+   *  WRITE PATH IS NOT THIS FILE: only setRecordingAutostartWithClient
+   *  (src/lib/settings/recording-autostart.ts) may set it — it validates store
+   *  membership and writes the §10.3 audit row. upsertOrgSettings strips the
+   *  key and OrgSettingsPatchDTO omits it, so the generic settings write can
+   *  never flip auto-start silently (§8.1's one deliberate audit exception is
+   *  worthless if a second unaudited door exists). */
+  recording_autostart_store_ids?: string[]
+}
+
+/** F8 hygiene for the 自動録音 store-id list: keep only real, plausibly-sized
+ *  string ids, de-duplicated, bounded. Every rejection direction is toward OFF
+ *  — a junk entry can only ever REMOVE a store from auto-start, never add one.
+ *  Caps are sanity bounds, not policy (a business with 200 stores is far past
+ *  anything this app has seen); they stop a corrupted blob from being carried
+ *  forward unbounded on every subsequent write. */
+const MAX_AUTOSTART_STORE_IDS = 200
+const MAX_STORE_ID_LEN = 200
+function sanitizeStoreIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  for (const v of raw) {
+    if (typeof v !== 'string' || v.length === 0 || v.length > MAX_STORE_ID_LEN) continue
+    seen.add(v)
+    if (seen.size >= MAX_AUTOSTART_STORE_IDS) break
+  }
+  return [...seen]
 }
 
 // businessId is the cache key — Next includes function args in the key automatically.
@@ -186,6 +224,12 @@ function normalizeOrgSettings(
     // never take effect even once the column + UI exist. (audit finding)
     coaching_enabled:
       s.coaching_enabled === undefined ? false : Boolean(s.coaching_enabled),
+    // 自動録音 (spec §8.1) — explicit `undefined → []`, the ruled default-OFF.
+    // Same audit finding as coaching_enabled above: without the mapping the
+    // arm gate would read undefined forever and the toggle could never take
+    // effect once A7 exists. Sanitized rather than trusted: a garbled blob
+    // must degrade toward OFF (fewer stores), never toward "record more".
+    recording_autostart_store_ids: sanitizeStoreIds(s.recording_autostart_store_ids),
     voice_enrollments:
       s.voice_enrollments && typeof s.voice_enrollments === 'object'
         ? (s.voice_enrollments as Record<string, VoiceEnrollment>)
@@ -340,8 +384,27 @@ export async function writeOrgSettingsBlobWithClient(
  *     staff-owned data, so it must NOT require settings.manage.
  * Splitting the write from the gate is what lets one blob field (voice_enrollments)
  * carry a different authz rule than the rest without a settings.manage back door.
+ *
+ * 自動録音 is NOT writable through this door either (spec §8.1, fix round F-A).
+ * The strip lives HERE, not one level up in upsertOrgSettings: this function
+ * is itself an exported, undecorated 'use server' function in the same module
+ * — a sibling door, not a symbol only upsertOrgSettings can reach. Without the
+ * strip here, the moment anything else imports writeOrgSettingsBlob directly
+ * (Next mints it its own action id the first time a client component pulls it
+ * in), any signed-in staffer — no settings.manage required — could set
+ * recording_autostart_store_ids for an arbitrary, even foreign, store with no
+ * audit row: exactly the silent flip §8.1's one audit exception exists to
+ * prevent. NOT stripped one level deeper, in writeOrgSettingsBlobWithClient:
+ * that is the choke point setRecordingAutostartWithClient
+ * (src/lib/settings/recording-autostart.ts) calls directly, and it must keep
+ * writing the key. The only door that reaches writeOrgSettingsBlobWithClient
+ * WITH this key is setRecordingAutostartWithClient. Facade twin:
+ * OrgSettingsPatchDTO omits the key, same guard, same reason as
+ * voice_enrollments.
  */
 export async function writeOrgSettingsBlob(settings: Partial<OrgSettings>) {
+  const { recording_autostart_store_ids: _autostart, ...rest } = settings
+
   // Client init stays INSIDE the { error } contract, exactly as before the
   // WithClient extraction: a session blip / DB hiccup in getSynqedClient()
   // must resolve to { error }, never reject the server action — the settings
@@ -352,7 +415,7 @@ export async function writeOrgSettingsBlob(settings: Partial<OrgSettings>) {
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
-  const result = await writeOrgSettingsBlobWithClient(synqed, settings)
+  const result = await writeOrgSettingsBlobWithClient(synqed, rest)
   if ('success' in result) {
     revalidatePath('/settings')
     updateTag('org-settings')
@@ -364,7 +427,8 @@ export async function writeOrgSettingsBlob(settings: Partial<OrgSettings>) {
  * Owner/manager settings write (packet 03, gap 1). Previously this action had NO
  * capability gate, so any signed-in staff could rewrite org settings. It now
  * requires `settings.manage` — the same capability the settings UI is presented
- * under — before delegating to the ungated blob writer.
+ * under — before delegating to the ungated blob writer, which itself strips
+ * 自動録音 before the merge (spec §8.1) — see writeOrgSettingsBlob's doc comment.
  */
 export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
   const { getMyCapabilities, ensureCapability } = await import('@/lib/auth/require-permission')

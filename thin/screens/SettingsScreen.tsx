@@ -101,6 +101,7 @@ export function SettingsScreenInner({ dto }: { dto: SettingsScreenDTOType }) {
         webOnlyTabIds={WEB_ONLY_TAB_IDS}
         featureStaffInvites={dto.featureStaffInvites}
         featureMultiStore={dto.featureMultiStore}
+        serviceNoun={dto.serviceNoun}
       />
     </div>
   )
@@ -116,6 +117,9 @@ export function SettingsScreen() {
     const v = search.get(key)
     if (v) qs.set(key, v)
   }
+  // The DTO carries ONE locale-resolved string (serviceNoun, spec §8.8) — the
+  // route has no other way to know which locale this shell is rendering.
+  qs.set('locale', getThinLocale())
   const query = qs.toString()
   const { state, retry } = useScreenDto(
     `/api/app/v1/screens/settings${query ? `?${query}` : ''}`,

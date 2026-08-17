@@ -214,6 +214,7 @@ describe('SettingsScreenInner — locale prop carries the runtime locale into Se
     initialEntitlement: null,
     featureStaffInvites: false,
     featureMultiStore: false,
+    serviceNoun: '施術',
   }
 
   it('en-seeded: SettingsShell receives locale="en", not the ja default', () => {

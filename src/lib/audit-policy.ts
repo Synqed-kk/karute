@@ -74,6 +74,7 @@ export const AUDIT_ACTIONS = [
   'settings.menu_retire',
   'settings.menu_update',
   'settings.permissions_change',
+  'settings.recording_autostart_toggle',
   'settings.staff_stores_change',
   'settings.store_create',
   'settings.store_update',

@@ -108,6 +108,7 @@ const dto: SettingsScreenDTOType = {
   initialEntitlement: null,
   featureStaffInvites: false,
   featureMultiStore: false,
+  serviceNoun: '施術',
 }
 
 describe('thin settings wiring — 監査ログ tab mount (packet 18 T4)', () => {

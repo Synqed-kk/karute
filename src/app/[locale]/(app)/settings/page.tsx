@@ -7,6 +7,7 @@ import { listStores, getActiveStoreId } from '@/actions/stores'
 import { listMenus } from '@/actions/menus'
 import { getEntitlement } from '@/actions/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
+import { getBusinessAiPersona, resolvePersonaTokens } from '@/lib/karute/business-ai-tokens'
 import type { Capability } from '@/lib/auth/permissions'
 import { SettingsShell, type SettingsTabId } from '@/components/settings/redesign/SettingsShell'
 import { SettingsPageChrome } from '@/components/settings/SettingsPageChrome'
@@ -109,6 +110,13 @@ export default async function SettingsPage({
         initialActiveStoreId={initialActiveStoreId}
         initialMenus={canManageMenus ? initialMenus : []}
         initialEntitlement={entitlement}
+        // The business type's own visit noun (spec §8.8 fix C9) — resolved
+        // server-side so the ~260 KB persona module never reaches the client;
+        // the facade twin resolves the same field into its DTO.
+        serviceNoun={
+          resolvePersonaTokens(getBusinessAiPersona(orgSettings?.business_type), locale)
+            .serviceNoun
+        }
       />
     </SettingsPageChrome>
     </NextIntlClientProvider>

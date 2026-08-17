@@ -116,6 +116,7 @@ const dto: SettingsScreenDTOType = {
   initialEntitlement: null,
   featureStaffInvites: false,
   featureMultiStore: false,
+  serviceNoun: '施術',
 }
 
 describe('thin settings wiring — page frame (Liam field report 7/24)', () => {

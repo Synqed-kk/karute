@@ -51,4 +51,14 @@ describe('upsertOrgSettings capability gate', () => {
     expect(res).toEqual({ error: 'upstream unavailable' })
     expect(orgUpsert).not.toHaveBeenCalled()
   })
+
+  it('recording_autostart_store_ids never reaches the writer — the generic settings door can never flip auto-start silently (auditor pin, fix round F-B)', async () => {
+    ;(getMyCapabilities as jest.Mock).mockResolvedValue(new Set(['settings.manage']))
+    const res = await upsertOrgSettings({
+      salon_name: 'New Name',
+      recording_autostart_store_ids: ['store-9'],
+    })
+    expect(res).toEqual({ success: true })
+    expect(orgUpsert).toHaveBeenCalledWith({ name: 'New Name', settings: {} })
+  })
 })

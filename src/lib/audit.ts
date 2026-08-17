@@ -272,6 +272,7 @@ export type FacadeEndpointKey =
   | 'karute.regenerate'
   | 'karute.save'
   | 'karute.summary.update'
+  | 'orgSettings.recordingAutostart'
   | 'orgSettings.update'
   | 'permissions.get'
   | 'permissions.update'
@@ -385,6 +386,16 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // something web itself never logs. Same parity rule as the appointment.*
   // rows above.
   'orgSettings.update': { kind: 'skip', category: 'settings', action: '' },
+  // orgSettings.recordingAutostart (PR A4, recording-integrity spec §8.1/§10.3):
+  // the OPPOSITE reason from orgSettings.update directly above — the ONE
+  // settings key whose write IS audited, by the shared choke point
+  // setRecordingAutostartWithClient that both the web action and this facade
+  // route call. A live row here would double-log every facade flip. Deny-
+  // default doc rule readers: do not promote this row. The writer is proven by
+  // CP2 off THIS citation — deliberately NOT by an AUDITED_CORES entry, which
+  // would open an allowlist-exemption span over the whole symbol (same A1
+  // doctrine as recordings.discard below).
+  'orgSettings.recordingAutostart': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/lib/settings/recording-autostart.ts#setRecordingAutostartWithClient' },
   // stores CRUD (design-parity packet 12 §B-3 S2): the OPPOSITE reason from
   // orgSettings.update above — createStoreCore/updateStoreCore (the ONE core
   // both the web action and this facade route call) already emit
