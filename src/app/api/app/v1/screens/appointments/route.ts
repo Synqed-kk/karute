@@ -183,6 +183,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
         menus,
         reservationViews: screen.reservationViews,
         reservationStaff: screen.reservationStaff,
+        colorRosterIds: screen.colorRosterIds,
         businessHours: screen.businessHours,
         weekData: screen.weekData,
         weekStartIso: screen.weekStartIso,

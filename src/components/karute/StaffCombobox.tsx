@@ -63,8 +63,14 @@ export function StaffCombobox({
   const t = useTranslations('staff')
   const tc = useTranslations('common')
   const selected = staff.find((s) => s.id === selectedId) ?? null
+  // Depend on the NAME, never the row object. Every call site builds its
+  // `staff` array inline, so `selected` is a fresh identity on every parent
+  // render — an effect keyed on the object re-runs on renders that changed
+  // nothing and overwrites whatever the user is mid-way through typing. This
+  // is the same hazard NewBookingDialog documents at :116-145.
+  const selectedName = selected?.name ?? ''
 
-  const [query, setQuery] = useState(selected?.name ?? '')
+  const [query, setQuery] = useState(selectedName)
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -72,8 +78,8 @@ export function StaffCombobox({
   // reset). Cleared selection empties the box rather than leaving a stale name
   // over an empty value.
   useEffect(() => {
-    setQuery(selected?.name ?? '')
-  }, [selected])
+    setQuery(selectedName)
+  }, [selectedName])
 
   // pointerdown (not mousedown) so an outside tap also closes this on iOS
   // Safari — same reason CustomerCombobox uses it.
@@ -81,12 +87,12 @@ export function StaffCombobox({
     function handleClickOutside(event: PointerEvent) {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
         setOpen(false)
-        setQuery(selected?.name ?? '')
+        setQuery(selectedName)
       }
     }
     document.addEventListener('pointerdown', handleClickOutside)
     return () => document.removeEventListener('pointerdown', handleClickOutside)
-  }, [selected])
+  }, [selectedName])
 
   const trimmedQuery = query.trim()
   // Typing searches the whole roster INCLUDING management members (that is the
@@ -125,7 +131,7 @@ export function StaffCombobox({
           setOpen(false)
           // Revert whatever was half-typed: the value only ever changes by
           // picking a row.
-          setQuery(selected?.name ?? '')
+          setQuery(selectedName)
         }}
         placeholder={placeholder ?? t('selectStaff')}
         disabled={disabled}
@@ -141,7 +147,11 @@ export function StaffCombobox({
           role="listbox"
           className="absolute z-50 mt-1 w-full rounded-lg border border-border bg-popover shadow-md"
         >
-          {noneLabel !== undefined && (
+          {/* Pinned only on the DEFAULT list (mock §④). Once they start
+           *  typing the list is a search result, and 指名なし is not something
+           *  the query matched — leaving it pinned above the hits reads as a
+           *  result that ignored what they typed. */}
+          {noneLabel !== undefined && !trimmedQuery && (
             <>
               <button
                 type="button"

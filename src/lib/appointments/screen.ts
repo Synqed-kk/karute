@@ -98,12 +98,21 @@ export interface AppointmentsScreen {
     isManagement?: boolean
   }[]
   reservationStaff: ReservationStaff[]
-  /** EVERY staff id in the business — the palette source for the day grid.
-   *  assignStaffColors hands out colors by sorted position, so coloring over a
-   *  FILTERED list (which the grid's own roster now is) would re-hue everyone
-   *  after a hidden member. Same list the appointment CARDS are colored from
-   *  (appointmentsToReservationViews), so lane avatar and card avatar finally
-   *  agree — they didn't before, for cross-store staff (#496). */
+  /** The palette source for the day grid: every staff id in the ACTIVE STORE
+   *  (the same store-scoped list the lanes are filtered from), NOT the business
+   *  roster. assignStaffColors hands out colors by sorted position, so feeding
+   *  it the lane list — which the management rule now shortens — would re-hue
+   *  everyone after a hidden member on the days that member is idle. Taking the
+   *  store list one level up fixes that: hues are stable across a toggle flip
+   *  because the store roster doesn't move when the flag does.
+   *
+   *  Deliberately NOT the business roster: under the store-isolation law a
+   *  branch's staff must not receive other stores' ids at all, and this array
+   *  ships to the client. The residual cost is that appointment CARDS are still
+   *  colored business-wide (appointmentsToReservationViews), so in a
+   *  multi-store tenant a lane avatar and a card avatar can pick different hues
+   *  for the same person — the pre-existing #496 mismatch, unchanged by this
+   *  PR rather than fixed by it. */
   colorRosterIds: string[]
   visibleActiveStaffId: string | null
   reservationViews: ReservationView[]
@@ -176,6 +185,11 @@ export function buildAppointmentsScreen(
       (s) =>
         !(s.isManagement ?? false) ||
         s.id === activeStaffId ||
+        // Explicitly filtering 担当 to this person is a direct request to see
+        // THEIR day — returning an empty grid instead would make the 担当
+        // filter look broken on exactly the members the view filter is
+        // required to keep offering (ruling Ⓒ).
+        s.id === staffFilter ||
         bookedToday.has(s.id),
     )
     .map((s) => ({
@@ -316,7 +330,7 @@ export function buildAppointmentsScreen(
   return {
     staff,
     reservationStaff,
-    colorRosterIds: staffList.map((s) => s.id),
+    colorRosterIds: visibleStaff.map((s) => s.id),
     visibleActiveStaffId,
     reservationViews,
     businessHours,
