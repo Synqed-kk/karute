@@ -12,6 +12,7 @@ import { businessDisplayName } from '@/lib/business-name'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { chooseStaffToLink } from '@/lib/invites/link'
 import { requireCapability } from '@/lib/auth/require-permission'
+import { staffWriteInScope } from '@/lib/auth/store-scope'
 import { audit } from '@/lib/audit'
 import { auditWeb, resolveWebActorId, resolveWebAuditContext } from '@/lib/audit-web'
 import { synqedRoleToPreset } from '@/lib/auth/permissions'
@@ -160,6 +161,27 @@ export async function createInvite(
     businessId = await requireInviteBusiness()
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Not allowed' }
+  }
+
+  // Actor store scope on a RE-INVITE only. A staffId here names an EXISTING
+  // staff card, and acceptInvite rewrites that card's user_id (chooseStaffToLink
+  // → staff.update) — so an out-of-scope re-invite hands another branch's staff
+  // record, and its history, to a login of the actor's choosing. Fresh invites
+  // (no staffId) are untouched: they add nobody to any store yet.
+  //
+  // A machine code, not a translated message: this module is in /join's
+  // import graph (acceptInvite), and the i18n closure guard
+  // (i18n-client-messages-closure.test.ts) holds that PRE-AUTH bundle down to
+  // the `invite` namespace — a getTranslations('settings') here would drag the
+  // whole settings dictionary into it. Same precedent as STAFF_LIMIT_REACHED
+  // below; InviteStaffDialog maps the code to the existing
+  // settings.staffStoreScopeDenied copy.
+  if (parsed.data.staffId) {
+    const inScope = await staffWriteInScope({
+      targetStaffId: parsed.data.staffId,
+      actorId: await resolveWebActorId(),
+    })
+    if (!inScope) return { error: 'STORE_SCOPE_DENIED' }
   }
 
   // Plan gate (P4): staff cap, shared with createStaff via staffAddAllowed —

@@ -38,6 +38,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
+import { ensureStaffWriteInScope } from '@/lib/app-api/store-clamp'
 import { createInviteCore, listInvitesWithClient, memberEmailsForBusiness } from '@/actions/invites'
 import { inviteSchema } from '@/lib/validations/invite'
 import { staffAddAllowedWithClient } from '@/lib/subscription/feature-gate'
@@ -71,6 +72,18 @@ export const POST = facadeHandler('invite.create', async (ctx) => {
 
   const businessId = ctx.identity.businessId
   const synqed = newSynqedClient(businessId)
+
+  // Re-invite only (staffId present = an EXISTING staff card, whose user_id
+  // acceptInvite rewrites): the Bearer twin of the clamp invites.ts applies on
+  // web. Fresh invites fall through to the plan gate, unchanged.
+  if (parsed.data.staffId) {
+    await ensureStaffWriteInScope({
+      synqed,
+      authUserId: ctx.identity.authUserId,
+      capabilities: ctx.identity.capabilities,
+      targetStaffId: parsed.data.staffId,
+    })
+  }
 
   if (!parsed.data.staffId) {
     const gate = await staffAddAllowedWithClient(synqed, businessId, async () => {

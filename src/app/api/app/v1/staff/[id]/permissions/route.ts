@@ -31,6 +31,8 @@ import { z } from 'zod'
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { newSynqedClient } from '@/lib/synqed/client'
+import { ensureStaffWriteInScope } from '@/lib/app-api/store-clamp'
 import { getStaffPermissionsCore, setStaffPermissionsCore } from '@/actions/permissions'
 import { PERMISSION_ROLES, CAPABILITIES } from '@/lib/auth/permissions'
 
@@ -56,6 +58,15 @@ export const PUT = facadeHandler<Params>('permissions.update', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'staff.manage')
   const { id } = await ctx.route.params
   if (!id) throw new AppApiError('validation', 'staff id is required')
+
+  // Actor store scope — the Bearer twin of the clamp permissions.ts applies on
+  // web, placed before the body parse (the #715 ordering) and before the core.
+  await ensureStaffWriteInScope({
+    synqed: newSynqedClient(ctx.identity.businessId),
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    targetStaffId: id,
+  })
 
   let body: unknown
   try {

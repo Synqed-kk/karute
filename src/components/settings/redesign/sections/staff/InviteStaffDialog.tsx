@@ -28,6 +28,10 @@ interface InviteStaffDialogProps {
 
 export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
   const t = useTranslations('invite')
+  // Only for the re-invite store-scope refusal — the same copy the staff
+  // editor shows for the same clamp. This dialog renders inside the settings
+  // pick, which already carries the namespace.
+  const tSettings = useTranslations('settings')
   const locale = useLocale()
   const [open, setOpen] = useState(false)
   const [email, setEmail] = useState('')
@@ -70,8 +74,11 @@ export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
     const res = await createInvite({ email, role, staffId: staffId || undefined })
     setLoading(false)
     if ('error' in res) {
-      // Machine code from the plan gate → honest copy (STORE_LIMIT precedent).
-      setError(res.error === 'STAFF_LIMIT_REACHED' ? t('staffLimitReached') : res.error)
+      // Machine codes from the plan gate / the re-invite store clamp → honest
+      // copy (STORE_LIMIT precedent).
+      if (res.error === 'STAFF_LIMIT_REACHED') setError(t('staffLimitReached'))
+      else if (res.error === 'STORE_SCOPE_DENIED') setError(tSettings('staffStoreScopeDenied'))
+      else setError(res.error)
       return
     }
     setLink(`${publicSiteOrigin()}/${locale}/join?token=${res.token}`)

@@ -2,9 +2,12 @@
 
 import { updateTag } from 'next/cache'
 import type { SynqedClient } from '@synqed-kk/client'
+import { getTranslations } from 'next-intl/server'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { audit } from '@/lib/audit'
-import { resolveWebAuditContext } from '@/lib/audit-web'
+import { resolveWebActorId, resolveWebAuditContext } from '@/lib/audit-web'
+import { can } from '@/lib/auth/require-permission'
+import { staffWriteInScope } from '@/lib/auth/store-scope'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import {
   checkPinThrottle,
@@ -25,6 +28,35 @@ type StaffPinWriteDeps = {
   /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta on
    *  the facade twin. */
   requestId?: string
+}
+
+/** App-side gate for a PIN write aimed at SOMEONE ELSE (web transport; the
+ *  Bearer twin lives in the pin route). Setting your OWN PIN is unchanged —
+ *  no capability, no clamp — because a practitioner owns their own switch
+ *  credential and always has.
+ *
+ *  Everything else is a staff-management act, so it needs `staff.manage` AND
+ *  the actor store clamp (the #715 twin — see storeScopeError in
+ *  src/actions/staff.ts): a clamped custom grant must not re-key another
+ *  branch's staff. synqed-core's own self-or-OWNER/ADMIN rule stays behind
+ *  this as defense-in-depth.
+ *
+ *  A null `actingStaffId` (an auth session the roster can't place) is left
+ *  alone deliberately: the cores below already refuse it outright, before the
+ *  SDK — restating it here would only change a settled refusal's shape.
+ *
+ *  Returns the user-safe message to return as `{ error }`, or null to proceed. */
+async function nonSelfPinDenial(
+  targetStaffId: string,
+  actingStaffId: string | null,
+): Promise<string | null> {
+  if (!actingStaffId || targetStaffId === actingStaffId) return null
+  if (!(await can('staff.manage'))) return (await getTranslations('common'))('noPermission')
+  const inScope = await staffWriteInScope({
+    targetStaffId,
+    actorId: await resolveWebActorId(),
+  })
+  return inScope ? null : (await getTranslations('settings'))('staffStoreScopeDenied')
 }
 
 /**
@@ -79,6 +111,9 @@ export async function setStaffPinCore(
  */
 export async function setStaffPin(staffId: string, pin: string): Promise<{ error?: string }> {
   const actingStaffId = await getCurrentUserStaffId()
+  // Non-self PIN writes: capability + store scope, BEFORE the core call.
+  const denied = await nonSelfPinDenial(staffId, actingStaffId)
+  if (denied) return { error: denied }
 
   let synqed: StaffPinClient
   try {
@@ -141,6 +176,9 @@ export async function removeStaffPinCore(
  */
 export async function removeStaffPin(staffId: string): Promise<{ error?: string }> {
   const actingStaffId = await getCurrentUserStaffId()
+  // Same non-self gate as setStaffPin — removing a PIN is the same authority.
+  const denied = await nonSelfPinDenial(staffId, actingStaffId)
+  if (denied) return { error: denied }
 
   let synqed: StaffPinClient
   try {

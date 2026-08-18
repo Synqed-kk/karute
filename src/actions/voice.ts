@@ -21,6 +21,7 @@ import { resolveWebActorId } from '@/lib/audit-web'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
+import { staffWriteInScope } from '@/lib/auth/store-scope'
 import type { Capability } from '@/lib/auth/permissions'
 import { orgSettingsWithClient, writeOrgSettingsBlobWithClient } from './org-settings'
 
@@ -142,6 +143,13 @@ export async function enrollVoiceAction(
       getMyCapabilities(),
     ])
     const actorId = await resolveWebActorId()
+    // Actor store scope BEFORE the core (#715's clamp, web transport). The
+    // SELF arm of canActOnVoice is untouched — staffWriteInScope free-passes a
+    // self target without ever reading an assignment. What it adds is the
+    // staff.manage arm: acting on ANOTHER staffer's voice now also requires
+    // that person inside the actor's own stores. Refusing HERE, not inside the
+    // core, keeps the audio upload behind the door.
+    if (!(await staffWriteInScope({ targetStaffId: staffId, actorId }))) return { ok: false }
     const result = await enrollVoiceActionCore(
       synqed,
       businessId,
@@ -227,6 +235,9 @@ export async function revokeVoiceAction(staffId: string): Promise<{ ok: boolean 
       getMyCapabilities(),
     ])
     const actorId = await resolveWebActorId()
+    // Same clamp as enrollVoiceAction, and the ordering matters MORE here:
+    // revoke DELETES the stored sample, so the refusal must precede the core.
+    if (!(await staffWriteInScope({ targetStaffId: staffId, actorId }))) return { ok: false }
     const result = await revokeVoiceActionCore(
       synqed,
       businessId,

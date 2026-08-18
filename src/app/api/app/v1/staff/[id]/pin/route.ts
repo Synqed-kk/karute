@@ -21,9 +21,11 @@
 // changes are a security-sensitive class from packet 01.
 
 import { z } from 'zod'
-import { facadeHandler, ok } from '@/lib/app-api/handler'
+import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
+import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
+import { ensureStaffWriteInScope } from '@/lib/app-api/store-clamp'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { setStaffPinCore, removeStaffPinCore } from '@/actions/staff-pin'
 
@@ -33,9 +35,38 @@ type Params = { id: string }
 
 const SetPinBody = z.object({ pin: z.string() })
 
+/** The Bearer twin of nonSelfPinDenial (src/actions/staff-pin.ts). Self stays
+ *  gate-free — that is the whole point of the "no ensureCapability floor"
+ *  note above. A PIN write aimed at SOMEONE ELSE is a staff-management act:
+ *  `staff.manage` plus the actor store clamp, before the core. A caller the
+ *  roster can't place (`actingStaffId` null) is left to the cores' own
+ *  refusal, which already fails closed before the SDK. */
+async function assertNonSelfPinAllowed(
+  ctx: FacadeContext<Params>,
+  synqed: ReturnType<typeof newSynqedClient>,
+  targetStaffId: string,
+  actingStaffId: string | null,
+): Promise<void> {
+  if (!actingStaffId || targetStaffId === actingStaffId) return
+  ensureCapability(ctx.identity.capabilities, 'staff.manage')
+  await ensureStaffWriteInScope({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    targetStaffId,
+  })
+}
+
 export const PUT = facadeHandler<Params>('staff.setPin', async (ctx) => {
   const { id } = await ctx.route.params
   if (!id) throw new AppApiError('validation', 'staff id is required')
+
+  const businessId = ctx.identity.businessId
+  const synqed = newSynqedClient(businessId)
+  const actingStaffId = await resolveSelfStaffId(businessId, ctx.identity.authUserId)
+  // Before the body parse (#715's clamp-before-body-parse ordering): a caller
+  // who may not touch this row never has their payload read.
+  await assertNonSelfPinAllowed(ctx, synqed, id, actingStaffId)
 
   let body: unknown
   try {
@@ -47,10 +78,6 @@ export const PUT = facadeHandler<Params>('staff.setPin', async (ctx) => {
   if (!parsed.success) {
     throw new AppApiError('validation', parsed.error.issues.map((i) => i.message).join(', '))
   }
-
-  const businessId = ctx.identity.businessId
-  const synqed = newSynqedClient(businessId)
-  const actingStaffId = await resolveSelfStaffId(businessId, ctx.identity.authUserId)
 
   const result = await setStaffPinCore(
     synqed,
@@ -70,6 +97,7 @@ export const DELETE = facadeHandler<Params>('staff.removePin', async (ctx) => {
   const businessId = ctx.identity.businessId
   const synqed = newSynqedClient(businessId)
   const actingStaffId = await resolveSelfStaffId(businessId, ctx.identity.authUserId)
+  await assertNonSelfPinAllowed(ctx, synqed, id, actingStaffId)
 
   const result = await removeStaffPinCore(
     synqed,

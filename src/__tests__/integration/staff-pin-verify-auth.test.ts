@@ -8,6 +8,12 @@
  * actor id.
  */
 const getCurrentUserStaffId = jest.fn<Promise<string | null>, []>()
+// setStaffPin/removeStaffPin's non-self gate imports next-intl/server (ESM)
+// for the store-scope refusal message — echo the key, same as every other
+// suite that pulls src/actions/* in.
+jest.mock('next-intl/server', () => ({
+  getTranslations: async () => (key: string) => key,
+}))
 jest.mock('@/lib/staff', () => ({ getCurrentUserStaffId: () => getCurrentUserStaffId() }))
 
 const verifyPin = jest.fn(async () => ({ valid: true, no_pin: false }))
@@ -25,6 +31,10 @@ jest.mock('@/lib/auth/pin-throttle', () => ({
 }))
 
 jest.mock('next/cache', () => ({ updateTag: jest.fn() }))
+// verifyStaffPin has no store clamp; the module's set/remove siblings do, and
+// their import chain reaches unstable_cache. Stub the clamp module rather than
+// widen the next/cache mock for a path this suite never runs.
+jest.mock('@/lib/auth/store-scope', () => ({ staffWriteInScope: jest.fn(async () => true) }))
 
 import { verifyStaffPin } from '@/actions/staff-pin'
 
