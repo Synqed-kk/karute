@@ -77,6 +77,7 @@ const dto = {
   selfStaffId: null,
   bookingDataAvailable: true,
   staffList: [],
+  assignableStaff: [],
   burnByCustomer: { c1: { mtd: 15000, prev: 10000 } },
   burnUnpricedIds: [] as string[],
 }

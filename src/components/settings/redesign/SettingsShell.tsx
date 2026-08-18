@@ -376,9 +376,11 @@ export function SettingsShell({
           />
         ) : null
       case 'audit':
-        // Defense in depth alongside the tab filter (server action enforces
-        // audit.view regardless — this only stops a stray render).
-        return canViewAudit ? (
+        // Defense in depth alongside the tab filter (same idiom as menus) —
+        // the tab filter above also requires canViewAllStores (parity packet,
+        // 2026-08-17: the audit read has no store filter yet, so a
+        // store-clamped audit.view grantee must never reach this render).
+        return canViewAudit && canViewAllStores ? (
           <AuditLogSection staffList={staffList} initialTargetId={auditTargetId} />
         ) : null
       default:

@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { canUseAskAi, type Capability } from '@/lib/auth/permissions'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { AIAssistantView } from '@/components/ai/redesign/AIAssistantView'
 import { getTodaySignals } from '@/lib/karute/ai-signals'
@@ -38,24 +39,36 @@ export default async function AskAIPage({
   const t = await getTranslations('askAi')
 
   // Scope counts from synqed-core (the Supabase karute_records mirror is empty
-  // post-migration — Karute + Recordings used to show 0).
+  // post-migration — Karute + Recordings used to show 0). Store-lensed for
+  // CLAMPED staff only (store-scope parity packet, 2026-08-17): a
+  // store-restricted staff must not see business-wide totals. viewAll/floating
+  // actors are never filtered, even with a pinned active store (guard below) —
+  // same rule as the Ask-AI chat routes.
   const synqedPromise = getSynqedClient()
   const nowIso = new Date().toISOString()
+  const storeScope = await resolveStoreScope()
+  // Guarded lens (canonical, both Ask-AI chat routes): filter ONLY when the
+  // caller is actually clamped (allowedStoreIds non-null). viewAll/floating
+  // actors always have allowedStoreIds: null even with a pinned active store
+  // (resolveStoreScope defaults their storeId to active-or-primary for the
+  // switcher UI) — that pin must not narrow their business-wide counts.
+  const lens =
+    storeScope.allowedStoreIds !== null ? (storeScope.storeId ?? undefined) : undefined
 
   const [orgSettings, karuteRes, customerList, apptList, signals] =
     await Promise.all([
       getOrgSettings(),
     synqedPromise.then((synqed) =>
       synqed.karuteRecords
-        .list({ page_size: 200 })
+        .list({ page_size: 200, store_id: lens })
         .catch(() => ({ total: 0, karute_records: [] as { transcript?: string | null }[] })),
     ),
     synqedPromise.then((synqed) =>
-      synqed.customers.list({ page_size: 1 }).catch(() => ({ total: 0 })),
+      synqed.customers.list({ page_size: 1, store_id: lens }).catch(() => ({ total: 0 })),
     ),
     synqedPromise.then((synqed) =>
       synqed.appointments
-        .list({ from: nowIso, page_size: 1 })
+        .list({ from: nowIso, page_size: 1, store_id: lens })
         .catch(() => ({ total: 0 })),
     ),
     // Today's ranked signal chips (PKT-101); store-scoped internally, [] on error.

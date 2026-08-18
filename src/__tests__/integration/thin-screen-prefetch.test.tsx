@@ -257,6 +257,7 @@ function customersDto() {
     selfStaffId: null,
     bookingDataAvailable: true,
     staffList: [],
+    assignableStaff: [],
     burnByCustomer: {},
     burnUnpricedIds: [] as string[],
   }

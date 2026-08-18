@@ -133,8 +133,13 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
       }
     }
 
+    // The audit tab requires canViewAudit AND canViewAllStores (same AND the
+    // tab-visibility filter uses, settings-visibility.ts) — a store-clamped
+    // audit.view grantee isn't offered the tab at all, so a deep-link must
+    // fall through too, not land on a blank desktop panel (parity fix, P-3).
     const requestedTab = readRequestedTab(ctx)
-    const initialTab = requestedTab === 'audit' && canViewAudit ? 'audit' : null
+    const initialTab =
+      requestedTab === 'audit' && canViewAudit && canViewAllStores ? 'audit' : null
     const auditTargetId =
       initialTab === 'audit' ? new URL(ctx.req.url).searchParams.get('target') : null
 

@@ -16,6 +16,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { CustomersScreenDTO } from '@/lib/app-api/customers-screen-dto'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { storeStaffIdSetForBusiness } from '@/lib/auth/store-scope'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { listAllCustomers } from '@/lib/customers/list-all'
@@ -77,6 +78,7 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
   }
 
   let screen: ReturnType<typeof buildCustomersListScreen>
+  let pickerStaff: ReturnType<typeof buildCustomersListScreen>['staffList']
   let selfStaffId: string | null
   let burnByCustomer: Record<string, { mtd: number; prev: number }> | null
   let burnUnpricedIds: string[]
@@ -109,18 +111,22 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
     // screen — unlike packUsage/lifecycles above, which throw into the 502
     // catch below.
     const customerIds = list.customers.map((c) => c.id)
-    const [enrichment, packUsage, lifecycles, rawSettings, burnRows] = await Promise.all([
-      enrichCustomers(ctx.identity.businessId, customerIds),
-      listAllPackUsageWithClient(synqed),
-      listAllLifecyclesWithClient(synqed),
-      // Only ticket_packs_enabled is needed; the shared cached reader lives in
-      // a 'use server' file and must stay unexported (see ask-ai route).
-      synqed.orgSettings.get(),
-      listBurnRedemptionsWithClient(synqed).catch((err) => {
-        warn('screens/customers burn', err)
-        return null
-      }),
-    ])
+    const [enrichment, packUsage, lifecycles, rawSettings, burnRows, storeStaffIds] =
+      await Promise.all([
+        enrichCustomers(ctx.identity.businessId, customerIds),
+        listAllPackUsageWithClient(synqed),
+        listAllLifecyclesWithClient(synqed),
+        // Only ticket_packs_enabled is needed; the shared cached reader lives in
+        // a 'use server' file and must stay unexported (see ask-ai route).
+        synqed.orgSettings.get(),
+        listBurnRedemptionsWithClient(synqed).catch((err) => {
+          warn('screens/customers burn', err)
+          return null
+        }),
+        // Page parity (page.tsx pickerStaff): clamp the 担当 filter pills to
+        // the active store's staff — row 担当 names still resolve business-wide.
+        storeStaffIdSetForBusiness(staffList, clamp.storeId, ctx.identity.businessId),
+      ])
     const settings = (rawSettings?.settings ?? {}) as { ticket_packs_enabled?: boolean }
     // Page parity (page.tsx): same null-coalescing split — byCustomer stays
     // null (hides the stat), unpricedCustomers degrades to [] (nothing to hide).
@@ -140,12 +146,25 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
         ? true
         : Boolean(settings.ticket_packs_enabled),
     })
+    pickerStaff = storeStaffIds
+      ? screen.staffList.filter((s) => storeStaffIds.has(s.id))
+      : screen.staffList
   } catch (err) {
     if (err instanceof AppApiError) throw err
     throw new AppApiError('upstream_unavailable', 'customers screen data unavailable')
   }
 
-  const dto = CustomersScreenDTO.parse({ ...screen, selfStaffId, burnByCustomer, burnUnpricedIds })
+  const dto = CustomersScreenDTO.parse({
+    ...screen,
+    staffList: pickerStaff,
+    // 指名スタッフ roster stays tenant-wide (P-2, 2026-08-17): screen.staffList
+    // is built from the FULL staffList (staffListByBusinessOrThrow), before
+    // the store-scope filter above narrows it into pickerStaff.
+    assignableStaff: screen.staffList.map((s) => ({ id: s.id, name: s.name })),
+    selfStaffId,
+    burnByCustomer,
+    burnUnpricedIds,
+  })
   return ok(ctx, dto)
 })
 
