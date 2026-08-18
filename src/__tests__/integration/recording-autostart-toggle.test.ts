@@ -14,7 +14,8 @@
 //   whole-blob write would clobber a concurrent admin's unrelated key) · the
 //   §10.3 audit row fires on write SUCCESS ONLY, exactly once, with exactly
 //   the ruled detail · a failed write leaves NO row (a receipt for a flip that
-//   did not happen is worse than none).
+//   did not happen is worse than none) · a LOST row rolls the flip back (the
+//   row is the only record of who/when/which way — stress-audit F3).
 //
 //   GATE — the web door refuses without `settings.manage`, before any read.
 import type { OrgSettings } from '@/actions/org-settings'
@@ -34,10 +35,13 @@ jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: jest.fn(() => ({})),
 }))
 
+// The receipt is DURABLE (stress-audit F3): the seam is auditDurable, whose
+// outcome the choke point acts on — so the spy resolves an outcome, and the
+// failure cases below drive it.
 const auditSpy = jest.fn()
 jest.mock('@/lib/audit', () => ({
   ...(jest.requireActual('@/lib/audit') as object),
-  audit: (...a: unknown[]) => auditSpy(...a),
+  auditDurable: (...a: unknown[]) => auditSpy(...a),
 }))
 
 const mockCapabilities = jest.fn(async () => new Set(['settings.manage']))
@@ -76,7 +80,11 @@ const read = (c: ReturnType<typeof fakeClient>) =>
 
 const ACTOR = { staffId: 'staff-1', businessId: 'business-1', source: 'web' as const }
 
-beforeEach(() => jest.clearAllMocks())
+beforeEach(() => {
+  jest.clearAllMocks()
+  // Default: the row lands. The failure cases below override it per-case.
+  auditSpy.mockResolvedValue({ ok: true, rowId: 'audit-1' })
+})
 
 // ── normalize ───────────────────────────────────────────────────────────────
 describe('normalizeOrgSettings — recording_autostart_store_ids (spec §8.1)', () => {
@@ -218,6 +226,37 @@ describe('setRecordingAutostartWithClient — the one audited settings write', (
     const r = await setRecordingAutostartWithClient(c.client as never, ACTOR, 'store-1', true)
     expect(r).toEqual({ ok: false, error: 'failed' })
     expect(auditSpy).not.toHaveBeenCalled()
+  })
+
+  it('a LOST receipt rolls the flip back and refuses — state never outlives its only attribution', async () => {
+    // The blob stores the id list and nothing else: no actor, no direction.
+    // If the row does not land, nothing records who flipped this — so the
+    // setting must not stand (stress-audit F3).
+    const c = fakeClient({ recording_autostart_store_ids: ['store-2'] })
+    auditSpy.mockResolvedValueOnce({ ok: false, rowId: undefined })
+
+    const r = await setRecordingAutostartWithClient(c.client as never, ACTOR, 'store-1', true)
+
+    expect(r).toEqual({ ok: false, error: 'receipt_write_failed' })
+    // The compensating write carries the PRIOR list — and only the one key.
+    const compensating = c.upsert.mock.calls[1][0].settings as Blob
+    expect(compensating.recording_autostart_store_ids).toEqual(['store-2'])
+    expect(c.state.settings.recording_autostart_store_ids).toEqual(['store-2'])
+  })
+
+  it('receipt lost AND rollback lost → uncertain, never a silent success', async () => {
+    const c = fakeClient({ recording_autostart_store_ids: ['store-2'] })
+    auditSpy.mockResolvedValueOnce({ ok: false, rowId: undefined })
+    c.upsert
+      .mockImplementationOnce(async (p: { settings: Blob }) => {
+        c.state.settings = p.settings
+        return {}
+      })
+      .mockRejectedValueOnce(new Error('core down'))
+
+    const r = await setRecordingAutostartWithClient(c.client as never, ACTOR, 'store-1', true)
+
+    expect(r).toEqual({ ok: false, error: 'receipt_write_failed_setting_uncertain' })
   })
 
   it('a failed READ leaves no row and no write', async () => {

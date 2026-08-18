@@ -34,7 +34,7 @@
 // settings row, core-side (§13.11).
 
 import type { SynqedClient } from '@synqed-kk/client'
-import { audit } from '@/lib/audit'
+import { auditDurable } from '@/lib/audit'
 import { orgSettingsWithClient, writeOrgSettingsBlobWithClient } from '@/actions/org-settings'
 
 type AutostartClient = Pick<SynqedClient, 'orgSettings' | 'stores'>
@@ -49,7 +49,19 @@ export interface RecordingAutostartActor {
 
 export type SetRecordingAutostartResult =
   | { ok: true; storeIds: string[] }
-  | { ok: false; error: 'forbidden' | 'unknown_store' | 'failed' }
+  | {
+      ok: false
+      error:
+        | 'forbidden'
+        | 'unknown_store'
+        | 'failed'
+        // The receipt did not land and the setting was rolled back — the flip
+        // did not happen, which is the honest state to report.
+        | 'receipt_write_failed'
+        // The receipt did not land AND the rollback failed: the blob may or
+        // may not carry the flip. Never a silent success.
+        | 'receipt_write_failed_setting_uncertain'
+    }
 
 /** Flip 自動録音 for ONE store. Fresh-read → compute → write the single key →
  *  receipt. Returns the resulting id list so the caller re-renders from what
@@ -98,7 +110,7 @@ export async function setRecordingAutostartWithClient(
   })
   if ('error' in result) return { ok: false, error: 'failed' }
 
-  return emitAutostartReceipt(actor, storeId, enabled, next)
+  return emitAutostartReceipt(synqed, actor, storeId, enabled, next, current)
 }
 
 /** The §10.3 row, on write success ONLY — one flip, exactly one row.
@@ -110,21 +122,23 @@ export async function setRecordingAutostartWithClient(
  *  — see FACADE_AUDIT_MAP['orgSettings.recordingAutostart']'s coveredBy note).
  *  The emission walker reads the call-through shape directly.
  *
- *  Fire-and-forget `audit()`, not A1's `auditDurable()` — deliberately (fix
- *  round F-F′). A1's discard receipt awaits durably because it is the ONLY
- *  trace of a destroyed recording: lose that write and the evidence the row
- *  existed is gone forever. This key is the opposite shape: the toggle's
- *  state is itself durable, readable evidence — `recording_autostart_store_ids`
- *  on the settings blob, re-readable at any time — so this row CORROBORATES
- *  an already-persisted fact rather than being the sole record of one.
- *  Matches §10.3, deliberately, not by omission. */
-function emitAutostartReceipt(
+ *  DURABLE + COMPENSATING, like A1's discard receipt (stress-audit F3). The
+ *  blob persists the id LIST and nothing else: no actor, no direction, no
+ *  per-key timestamp — core's OrgSettings row has no updated_by column at any
+ *  layer, and updated_at moves for the whole blob. So this row is the SOLE
+ *  record of WHO flipped WHAT, WHEN, and WHICH WAY, which is precisely what
+ *  the 規程 in this file's header commits to. A fire-and-forget receipt would
+ *  let the state outlive its only attribution — so the write is awaited, and
+ *  a lost receipt rolls the setting back to what it was. */
+async function emitAutostartReceipt(
+  synqed: AutostartClient,
   actor: RecordingAutostartActor,
   storeId: string,
   enabled: boolean,
   storeIds: string[],
-): SetRecordingAutostartResult {
-  audit({
+  prior: string[],
+): Promise<SetRecordingAutostartResult> {
+  const receipt = await auditDurable({
     category: 'settings',
     action: 'settings.recording_autostart_toggle',
     actorId: actor.staffId,
@@ -146,5 +160,14 @@ function emitAutostartReceipt(
       actor_staff_id: actor.staffId,
     },
   })
-  return { ok: true, storeIds }
+  if (receipt.ok) return { ok: true, storeIds }
+
+  // The receipt is gone; the flip must go with it. Same single-key blob write
+  // as the forward path (§8.1 discipline a), carrying the list this call read
+  // before it computed the new one.
+  const undo = await writeOrgSettingsBlobWithClient(synqed, {
+    recording_autostart_store_ids: prior,
+  })
+  if ('error' in undo) return { ok: false, error: 'receipt_write_failed_setting_uncertain' }
+  return { ok: false, error: 'receipt_write_failed' }
 }
