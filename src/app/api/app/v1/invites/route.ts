@@ -54,8 +54,10 @@ export const GET = facadeHandler('invite.list', async (ctx) => {
     await memberEmailsForBusiness(businessId),
     // Bearer twin of the lens web's listInvites passes: a RE-invite row whose
     // target card is out of this caller's stores is DROPPED, never shown and
-    // then refused (isolation law). The write clamp's own throw is read as
-    // "cannot see" — every one of its refusals is exactly that.
+    // then refused (isolation law). Any throw from the write clamp is read as
+    // "cannot see" — which covers its store refusals exactly, and lumps in the
+    // transport failures (an unreadable roster or assignment) that are not
+    // refusals at all; the conflation errs toward hiding, so it stays.
     (targetStaffId) =>
       ensureStaffWriteInScope({
         synqed,
