@@ -390,10 +390,35 @@ async function resolveTargetLabels(
       /* ids remain */
     }
   }
-  if (idsOf('store').length > 0) {
+  // settings.menu_update rows carry old/new store_id in DETAIL (not the
+  // event's own target) when a menu's store assignment changes — those ids
+  // need the same store-name resolution, so they widen the fetch trigger
+  // alongside target_type 'store' rows below; stores.list() already returns
+  // the whole business's stores unfiltered, so no extra fetch is needed once
+  // triggered.
+  const menuUpdateStoreIds = events
+    .filter((e) => e.action === 'settings.menu_update')
+    .flatMap((e) => {
+      const d = e.detail as { store_id_old?: unknown; store_id_new?: unknown } | null
+      return [d?.store_id_old, d?.store_id_new]
+    })
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  if (idsOf('store').length > 0 || menuUpdateStoreIds.length > 0) {
     try {
       const { stores } = await synqed.stores.list()
       for (const s of stores) labels[s.id] = s.name
+    } catch {
+      /* ids remain */
+    }
+  }
+  // settings.menu_update's own target (target_type 'menu') — the edited
+  // menu's name. list() returns the WHOLE catalog including retired rows
+  // (listMenus's contract, src/actions/menus.ts), same unfiltered-fetch
+  // shape as stores above, so a retired menu still resolves.
+  if (idsOf('menu').length > 0) {
+    try {
+      const { menus } = await synqed.menus.list()
+      for (const m of menus) labels[m.id] = m.name
     } catch {
       /* ids remain */
     }
