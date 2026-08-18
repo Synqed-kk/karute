@@ -168,6 +168,33 @@ describe('thin actions port — staff voice enrollment', () => {
 
     await expect(revokeVoiceAction('staff-9')).resolves.toEqual({ ok: false })
   })
+
+  // The actor store clamp is the ONE refusal web names (`reason:
+  // 'store_scope'`) so the dialog/list can say "not your branch" instead of
+  // "upload failed" — the port carries that name across from the 403 body.
+  const storeForbidden = () =>
+    new Response(JSON.stringify({ error: { code: 'store_forbidden', message: 'nope' } }), { status: 403 })
+
+  it('enrollVoiceAction: a 403 store_forbidden → { ok: false, reason: "store_scope" }', async () => {
+    setDataPort({ apiFetch: jest.fn(storeForbidden) } as unknown as Parameters<typeof setDataPort>[0])
+    await expect(enrollVoiceAction('staff-9', fakeAudioForm())).resolves.toEqual({
+      ok: false,
+      reason: 'store_scope',
+    })
+  })
+
+  it('revokeVoiceAction: a 403 store_forbidden → { ok: false, reason: "store_scope" }', async () => {
+    setDataPort({ apiFetch: jest.fn(storeForbidden) } as unknown as Parameters<typeof setDataPort>[0])
+    await expect(revokeVoiceAction('staff-9')).resolves.toEqual({ ok: false, reason: 'store_scope' })
+  })
+
+  it('a 403 of a DIFFERENT class stays an unnamed { ok: false }', async () => {
+    const apiFetch = jest.fn(
+      async () => new Response(JSON.stringify({ error: { code: 'forbidden' } }), { status: 403 }),
+    )
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+    await expect(revokeVoiceAction('staff-9')).resolves.toEqual({ ok: false })
+  })
 })
 
 describe('thin actions port — staff invites', () => {
@@ -265,5 +292,38 @@ describe('thin actions port — staff invites', () => {
     setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
 
     await expect(revokeInvite('inv-9')).resolves.toEqual({ error: 'Load failed' })
+  })
+
+  // Both invite writes are store-clamped server-side. Web returns the machine
+  // code for that refusal and InviteStaffDialog maps it to the localized
+  // settings copy — so the port hands over the CODE, not the raw English
+  // facade message, or the phone shows a different string than the browser.
+  const inviteStoreForbidden = () =>
+    new Response(JSON.stringify({ error: { code: 'store_forbidden', message: 'nope' } }), { status: 403 })
+
+  it('createInvite: a 403 store_forbidden → { error: "STORE_SCOPE_DENIED" }', async () => {
+    setDataPort({ apiFetch: jest.fn(inviteStoreForbidden) } as unknown as Parameters<typeof setDataPort>[0])
+    await expect(createInvite({ email: 'a@test.com', role: 'STYLIST' })).resolves.toEqual({
+      error: 'STORE_SCOPE_DENIED',
+    })
+  })
+
+  it('revokeInvite: a 403 store_forbidden → { error: "STORE_SCOPE_DENIED" }', async () => {
+    setDataPort({ apiFetch: jest.fn(inviteStoreForbidden) } as unknown as Parameters<typeof setDataPort>[0])
+    await expect(revokeInvite('inv-9')).resolves.toEqual({ error: 'STORE_SCOPE_DENIED' })
+  })
+
+  it('a 403 of a DIFFERENT class still passes the message through unchanged', async () => {
+    const apiFetch = jest.fn(
+      async () =>
+        new Response(JSON.stringify({ error: { code: 'forbidden', message: 'no capability' } }), {
+          status: 403,
+        }),
+    )
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+    await expect(revokeInvite('inv-9')).resolves.toEqual({ error: 'no capability' })
+    await expect(createInvite({ email: 'a@test.com', role: 'STYLIST' })).resolves.toEqual({
+      error: 'no capability',
+    })
   })
 })

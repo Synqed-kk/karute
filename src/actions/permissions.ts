@@ -1,10 +1,12 @@
 'use server'
 
 import { updateTag } from 'next/cache'
+import { getTranslations } from 'next-intl/server'
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
+import { staffWriteInScope } from '@/lib/auth/store-scope'
 import { resolveWebActorId } from '@/lib/audit-web'
 import { audit } from '@/lib/audit'
 import {
@@ -257,6 +259,14 @@ export async function setStaffPermissions(
     getCurrentUserStaffId(),
     resolveWebActorId(),
   ])
+  // Actor store scope: AFTER the staff.manage gate, BEFORE the core (#715's
+  // clamp, web transport — see storeScopeError in src/actions/staff.ts). A
+  // clamped custom grant must not re-role another branch's staff. The core's
+  // own owner-target + no-escalation-by-delta guards sit behind this,
+  // unchanged.
+  if (!(await staffWriteInScope({ targetStaffId: staffId, actorId }))) {
+    return { error: (await getTranslations('settings'))('staffStoreScopeDenied') }
+  }
   const result = await setStaffPermissionsCore(
     businessId,
     { callerCapabilities, callerStaffId, actorId, source: 'web', requestId: crypto.randomUUID() },

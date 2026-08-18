@@ -273,7 +273,14 @@ export function StaffList({
                   // chip snaps back immediately; server state follows via
                   // the revalidated settings page.
                   void revokeVoiceAction(staff.id).then((res) => {
-                    if (!res.ok) return
+                    if (!res.ok) {
+                      // The store clamp is the one refusal the staffer can act
+                      // on; every other failure stays silent as before.
+                      if (res.reason === 'store_scope') {
+                        toast.error(ts('staffStoreScopeDenied'))
+                      }
+                      return
+                    }
                     setLocalEnrollments((m) => ({ ...m, [staff.id]: null }))
                   })
                 }}

@@ -9,8 +9,17 @@
  *   - two-store actor → the union of both stores
  *   - viewAll / floating actor (allowedStoreIds null) → full roster, unchanged
  *   - self is always present, even when the assignment data disagrees
- *   - the assignment fetch failing degrades to the old full roster (fail open,
- *     same posture as the 担当 picker clamp it composes)
+ *   - the assignment fetch failing degrades to the old full roster inside the
+ *     HELPER (fail open, same posture as the 担当 picker clamp it composes)
+ *
+ * ⚖ Liam 8/18 — the two SEAMS built on that helper deliberately SPLIT when the
+ * viewer's own scope cannot be vouched for (a degraded staff_stores read, or
+ * resolveStoreScope throwing outright):
+ *   - 設定→スタッフ fails CLOSED: an empty roster, blind rather than handing
+ *     over every branch's names off a lookup we could not read
+ *   - the app-shell switch drawer keeps the helper's fail-OPEN fallback,
+ *     because profile switching on a shared device must survive a glitch
+ * The asymmetry is the ruling; both halves are pinned below.
  */
 jest.mock('next/cache', () => ({
   unstable_cache: jest.fn((fn: (...a: unknown[]) => unknown) => fn),
@@ -264,5 +273,74 @@ describe('roster seams (server → client)', () => {
       'profile-ginza',
       'profile-self',
     ])
+  })
+
+  // ⚖ Liam 8/18: the two seams DIVERGE when the viewer's own scope cannot be
+  // vouched for. Settings goes blind (fail closed, menuStoresForScope's
+  // precedent); the switch drawer keeps its full-roster fallback, because
+  // profile switching on a shared device must survive a glitch.
+  const degradedActor = () => {
+    clamped()
+    ;(getStaffStoresStrict as jest.Mock).mockResolvedValue(null) // the F-A shape
+  }
+  // The sibling glitch: resolveStoreScope itself throws, so the page's own
+  // .catch hands the gate `null` rather than a degraded scope. Same blindness
+  // required — viewerStaffRoster's internal catch would otherwise return the
+  // whole roster and the fail-closed posture would be silently one-shaped.
+  const unreadableScope = () => {
+    clamped()
+    ;(getMyCapabilities as jest.Mock).mockRejectedValue(new Error('caps read failed'))
+  }
+
+  const settingsRoster = async () => {
+    const el = await SettingsPage({
+      params: Promise.resolve({ locale: 'ja' }),
+      searchParams: Promise.resolve({}),
+    })
+    return propsWith(el, 'staffList')?.staffList as { id: string }[]
+  }
+
+  it('設定→スタッフ list goes BLIND on a degraded scope — SELF ONLY, never the full roster', async () => {
+    degradedActor()
+    // ⚖ blind means self-only, not empty: a viewer's own row is never another
+    // branch's name, and self-service PIN/voice must survive the glitch. The
+    // row ships whole (StaffList reads has_pin / voice state straight off it),
+    // so the controls that hang on it still render.
+    expect(await settingsRoster()).toEqual([
+      roster.find((s) => s.id === 'profile-self'),
+    ])
+  })
+
+  it('staff-switch drawer is UNAFFECTED by a degraded scope (keeps the fallback)', async () => {
+    degradedActor()
+    const el = await DashboardLayout({
+      children: null,
+      params: Promise.resolve({ locale: 'ja' }),
+    })
+    const data = propsWith(el, 'data')?.data as { staffList: { id: string }[] }
+    expect(ids(data.staffList)).toEqual(ids(roster))
+  })
+
+  it('設定→スタッフ list goes BLIND when resolveStoreScope THREW (scope null, not just degraded) — SELF ONLY', async () => {
+    unreadableScope()
+    expect(await settingsRoster()).toEqual([
+      roster.find((s) => s.id === 'profile-self'),
+    ])
+  })
+
+  it('a stores.viewAll viewer is NEVER blinded, degraded or not', async () => {
+    degradedActor()
+    ;(getMyCapabilities as jest.Mock).mockResolvedValue(caps('stores.viewAll'))
+    expect(ids(await settingsRoster())).toEqual(ids(roster))
+  })
+
+  it('staff-switch drawer is UNAFFECTED when resolveStoreScope THREW (keeps the fallback)', async () => {
+    unreadableScope()
+    const el = await DashboardLayout({
+      children: null,
+      params: Promise.resolve({ locale: 'ja' }),
+    })
+    const data = propsWith(el, 'data')?.data as { staffList: { id: string }[] }
+    expect(ids(data.staffList)).toEqual(ids(roster))
   })
 })

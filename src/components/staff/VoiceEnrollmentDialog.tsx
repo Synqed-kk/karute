@@ -100,11 +100,15 @@ export function VoiceEnrollmentDialog({
   onEnrolled,
 }: Props) {
   const t = useTranslations('voiceEnrollment')
+  // Only for the store-scope refusal — the same copy every other surface shows
+  // for the same clamp. This dialog renders from the settings staff list,
+  // which already carries the namespace (InviteStaffDialog's precedent).
+  const tSettings = useTranslations('settings')
   const [step, setStep] = useState<Step>('consent')
   const [consentChecked, setConsentChecked] = useState(false)
   const [recordingSeconds, setRecordingSeconds] = useState(0)
   const [isRecording, setIsRecording] = useState(false)
-  const [errorKey, setErrorKey] = useState<'micDenied' | 'uploadFailed' | null>(null)
+  const [errorKey, setErrorKey] = useState<'micDenied' | 'uploadFailed' | 'storeScope' | null>(null)
   const mediaRef = useRef<{
     rec: MediaRecorder
     stream: MediaStream
@@ -198,7 +202,8 @@ export function VoiceEnrollmentDialog({
       setStep('complete')
       onEnrolled?.(res.enrolledAt)
     } else {
-      setErrorKey('uploadFailed')
+      // A store-clamp refusal is not a broken upload — say which it was.
+      setErrorKey(res.reason === 'store_scope' ? 'storeScope' : 'uploadFailed')
       setStep('recording')
     }
   }
@@ -305,7 +310,7 @@ export function VoiceEnrollmentDialog({
               </div>
               {errorKey && (
                 <div className="text-[12px] font-medium text-red-600 dark:text-red-400">
-                  {t(errorKey)}
+                  {errorKey === 'storeScope' ? tSettings('staffStoreScopeDenied') : t(errorKey)}
                 </div>
               )}
             </div>

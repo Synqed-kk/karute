@@ -12,6 +12,7 @@ import { businessDisplayName } from '@/lib/business-name'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { chooseStaffToLink } from '@/lib/invites/link'
 import { requireCapability } from '@/lib/auth/require-permission'
+import { resolveStoreScope, staffWriteInScope } from '@/lib/auth/store-scope'
 import { audit } from '@/lib/audit'
 import { auditWeb, resolveWebActorId, resolveWebAuditContext } from '@/lib/audit-web'
 import { synqedRoleToPreset } from '@/lib/auth/permissions'
@@ -162,6 +163,31 @@ export async function createInvite(
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
 
+  // Actor store scope on a RE-INVITE only. A staffId here names an EXISTING
+  // staff card, and acceptInvite rewrites that card's user_id (chooseStaffToLink
+  // → staff.update) — so an out-of-scope re-invite hands another branch's staff
+  // record, and its history, to a login of the actor's choosing. Fresh invites
+  // (no staffId) are untouched: they add nobody to any store yet.
+  //
+  // Placed AFTER the schema parse, unlike #715's clamp-before-parse routes:
+  // there the target rides the URL, here `staffId` IS an input field, so there
+  // is no target to clamp until the input is parsed. Nothing is written first.
+  //
+  // A machine code, not a translated message: this module is in /join's
+  // import graph (acceptInvite), and the i18n closure guard
+  // (i18n-client-messages-closure.test.ts) holds that PRE-AUTH bundle down to
+  // the `invite` namespace — a getTranslations('settings') here would drag the
+  // whole settings dictionary into it. Same precedent as STAFF_LIMIT_REACHED
+  // below; InviteStaffDialog maps the code to the existing
+  // settings.staffStoreScopeDenied copy.
+  if (parsed.data.staffId) {
+    const inScope = await staffWriteInScope({
+      targetStaffId: parsed.data.staffId,
+      actorId: await resolveWebActorId(),
+    })
+    if (!inScope) return { error: 'STORE_SCOPE_DENIED' }
+  }
+
   // Plan gate (P4): staff cap, shared with createStaff via staffAddAllowed —
   // inert until billing arms. Machine code; the dialog maps it to copy.
   // Skipped for re-invites (staffId present): those ATTACH to an existing
@@ -198,10 +224,37 @@ export async function createInvite(
 export async function listInvitesWithClient(
   synqed: InviteClient,
   memberEmails?: Set<string>,
+  /** Store lens for RE-INVITE rows (isolation law: HIDE, never
+   *  show-and-refuse — a row the revoke clamp below would refuse must not be
+   *  on screen at all). Each transport passes its own clamp because the two
+   *  resolve the actor from different identities: web's cookie
+   *  staffWriteInScope, the facade's Bearer ensureStaffWriteInScope. Omitted
+   *  = unfiltered, the shape every pre-clamp caller had.
+   *
+   *  FRESH invites (no invited_staff_id) always stay: an email-only invite
+   *  has no store dimension to judge yet — it gets one when the
+   *  mandatory-store-at-creation lane lands, and this filter widens then. */
+  canSeeReinvite?: (staffId: string) => Promise<boolean>,
 ): Promise<InviteRow[]> {
   try {
     const { invites } = await synqed.invites.list()
-    const pending = invites.filter((i) => i.status === 'pending')
+    let pending = invites.filter((i) => i.status === 'pending')
+    if (canSeeReinvite) {
+      // ponytail: one clamp call per re-invite row, and on the facade each
+      // call re-resolves the ACTOR (staffStores.get) before reading the
+      // target's — so a clamped viewer pays ~2 core reads per re-invite row,
+      // plus one uncached roster read whenever their assignment comes back
+      // empty. Ceiling accepted: a pending list is a handful of rows. Hoist
+      // path when it stops being true: resolve the actor's scope ONCE outside
+      // the loop and pass allowedStoreIds down, leaving one staffStores.get
+      // per row (queued, not built).
+      const visible = await Promise.all(
+        pending.map((i) =>
+          i.invited_staff_id ? canSeeReinvite(i.invited_staff_id) : Promise.resolve(true),
+        ),
+      )
+      pending = pending.filter((_, idx) => visible[idx])
+    }
     // Second linkage signal (Greptile #626 P1): a profile can lack an email
     // value, so the email match alone can miss a connected person. If the
     // card an invite was launched from already carries a user_id, that
@@ -266,10 +319,35 @@ export async function listInvites(): Promise<InviteRow[]> {
   try {
     const businessId = await getBusinessId()
     const synqed = await getSynqedClient()
-    return await listInvitesWithClient(synqed, await memberEmailsForBusiness(businessId))
+    const actorId = await resolveWebActorId()
+    // A THROWN lens collapses the WHOLE list to [] through the catch below
+    // (fresh invites included), where the facade drops only the row it could
+    // not judge. Both fail closed; the shapes differ because web's action
+    // contract is "degrade to []" and the facade's is per-row.
+    return await listInvitesWithClient(
+      synqed,
+      await memberEmailsForBusiness(businessId),
+      (targetStaffId) => staffWriteInScope({ targetStaffId, actorId }),
+    )
   } catch {
     return []
   }
+}
+
+/** The staff card a pending invite RE-ACTIVATES, or null for a fresh
+ *  (email-only) one. Core has no invites.get, so the list IS the lookup —
+ *  the same read listInvites already makes, and cheap next to the write it
+ *  guards. An id absent from the list is null: there is nothing to clamp and
+ *  the revoke's own core error answers it. A THROWN lookup is left to the
+ *  caller to fail closed on — an invite whose target cannot be read is one
+ *  nothing can be vouched for. Exported for the facade twin (same explicit-
+ *  client seam as revokeInviteCore). */
+export async function reinviteTargetStaffIdWithClient(
+  synqed: InviteClient,
+  id: string,
+): Promise<string | null> {
+  const { invites } = await synqed.invites.list()
+  return invites.find((i) => i.id === id)?.invited_staff_id ?? null
 }
 
 /** Client-threaded core of revokeInvite (facade Bearer path, design-parity
@@ -316,6 +394,31 @@ export async function revokeInvite(id: string): Promise<{ ok: true } | { error: 
     return { error: e instanceof Error ? e.message : 'Unknown error' }
   }
   const { actorId, businessId } = await resolveWebAuditContext()
+
+  // The revoke half of createInvite's clamp — same actor, same surface, same
+  // law. A clamped staff.invite holder must not cancel another branch's
+  // pending RE-invite (its target card is that branch's staff record). Fresh
+  // invites carry no invited_staff_id, so there is nothing to scope by.
+  // Machine code for the same bundle reason as createInvite's (this module
+  // rides /join's import graph — the dialog maps it to the settings copy).
+  //
+  // Skipped entirely for a cross-store actor: the clamp free-passes viewAll,
+  // so core has no invites.get and the LIST that feeds it is pure cost there —
+  // and a failed lookup must never block a revoke that was never clampable.
+  // resolveStoreScope is request-cached, so this costs nothing extra.
+  try {
+    if (!(await resolveStoreScope()).viewAll) {
+      const targetStaffId = await reinviteTargetStaffIdWithClient(synqed, id)
+      if (targetStaffId && !(await staffWriteInScope({ targetStaffId, actorId }))) {
+        return { error: 'STORE_SCOPE_DENIED' }
+      }
+    }
+  } catch {
+    // Fail closed on an unreadable lookup — the same answer the revoke itself
+    // would give with core unreachable, and never a silent pass.
+    return { error: 'Could not revoke invite.' }
+  }
+
   const result = await revokeInviteCore(
     synqed,
     businessId,

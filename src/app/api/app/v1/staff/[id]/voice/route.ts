@@ -35,6 +35,7 @@
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { newSynqedClient } from '@/lib/synqed/client'
+import { ensureStaffWriteInScope } from '@/lib/app-api/store-clamp'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { enrollVoiceActionCore, revokeVoiceActionCore } from '@/actions/voice'
 
@@ -91,6 +92,18 @@ export const POST = facadeHandler<Params>('staff.voice.enroll', async (ctx) => {
   const id = await staffId(ctx)
   const businessId = ctx.identity.businessId
   const synqed = newSynqedClient(businessId)
+  // Actor store scope — the Bearer twin of the clamp voice.ts applies on web.
+  // Placed BEFORE the multipart read (the #715 clamp-before-body-parse
+  // ordering): a caller who may not touch this row never gets their audio
+  // read, let alone uploaded. Self is free-passed inside the clamp, so a
+  // plain staffer enrolling their OWN voice is unchanged.
+  await ensureStaffWriteInScope({
+    synqed,
+    businessId,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    targetStaffId: id,
+  })
 
   let form: FormData
   try {
@@ -124,6 +137,15 @@ export const DELETE = facadeHandler<Params>('staff.voice.revoke', async (ctx) =>
   const id = await staffId(ctx)
   const businessId = ctx.identity.businessId
   const synqed = newSynqedClient(businessId)
+  // Same clamp as POST, and the ordering matters MORE here: revoke DELETES the
+  // stored sample, so the refusal must precede the core's storage call.
+  await ensureStaffWriteInScope({
+    synqed,
+    businessId,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    targetStaffId: id,
+  })
   const selfUserId = await resolveSelfStaffId(businessId, ctx.identity.authUserId)
 
   const result = await revokeVoiceActionCore(

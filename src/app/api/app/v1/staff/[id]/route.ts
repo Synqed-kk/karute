@@ -65,6 +65,7 @@ export const PATCH = facadeHandler<Params>('staff.update', async (ctx) => {
   // reach the client as 403, not be reclassified by classifyStaffWriteError.
   await ensureStaffWriteInScope({
     synqed,
+    businessId,
     authUserId: ctx.identity.authUserId,
     capabilities: ctx.identity.capabilities,
     targetStaffId: id,
@@ -106,6 +107,7 @@ export const DELETE = facadeHandler<Params>('staff.delete', async (ctx) => {
   // rewrite a store_forbidden into a 502.
   await ensureStaffWriteInScope({
     synqed,
+    businessId,
     authUserId: ctx.identity.authUserId,
     capabilities: ctx.identity.capabilities,
     targetStaffId: id,

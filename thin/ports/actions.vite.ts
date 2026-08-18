@@ -23,6 +23,11 @@ import { FREE_TIER_LIMITS, type TierFeatures } from '@/lib/subscription/types'
 // presetCapabilities from here directly, so this type-only import adds
 // nothing new to the bundle's import graph.
 import type { Capability, PermissionRole } from '@/lib/auth/permissions'
+// Same type-only idiom, one module over: the voice ports below must return the
+// SAME refusal union the web action returns, not a re-typed literal that can
+// drift from it. Erased at compile, so the 'use server' module never enters
+// this bundle's graph (thin/chrome/Chrome.tsx does the same with StoreRow).
+import type { VoiceRefusal } from '@/actions/voice'
 
 function notWired(name: string) {
   return async (): Promise<never> => {
@@ -1042,16 +1047,30 @@ async function facadeRemoveStaffPin(staffId: string): Promise<{ error?: string }
 // body's OWN `ok` is read (unlike okCall, which only checks HTTP status —
 // the facade route always 200s even on a business-level ownership denial,
 // same RPC-style class as every other core-backed route in this file).
+//
+// The ONE exception: the actor store clamp refuses on the route itself with a
+// 403 store_forbidden, before the core ever runs. Web names that refusal
+// (`reason: 'store_scope'`) so the dialog/list can say "not your branch"
+// instead of "upload failed" — so the port names it too, from the classified
+// error body. Server behavior is unchanged; this rides the next bake.
+async function voiceStoreScopeRefusal(res: Response): Promise<boolean> {
+  if (res.status !== 403) return false
+  const body = (await res.json().catch(() => null)) as { error?: { code?: string } } | null
+  return body?.error?.code === 'store_forbidden'
+}
+
 async function facadeEnrollVoice(
   staffId: string,
   formData: FormData,
-): Promise<{ ok: boolean; enrolledAt?: string }> {
+): Promise<{ ok: boolean; enrolledAt?: string; reason?: VoiceRefusal }> {
   try {
     const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(staffId)}/voice`, {
       method: 'POST',
       body: formData,
     })
-    if (!res.ok) return { ok: false }
+    if (!res.ok) {
+      return (await voiceStoreScopeRefusal(res)) ? { ok: false, reason: 'store_scope' } : { ok: false }
+    }
     const body = (await res.json().catch(() => null)) as { ok?: boolean; enrolledAt?: string } | null
     return { ok: !!body?.ok, enrolledAt: body?.enrolledAt }
   } catch {
@@ -1059,10 +1078,12 @@ async function facadeEnrollVoice(
   }
 }
 
-async function facadeRevokeVoice(staffId: string): Promise<{ ok: boolean }> {
+async function facadeRevokeVoice(staffId: string): Promise<{ ok: boolean; reason?: VoiceRefusal }> {
   try {
     const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(staffId)}/voice`, { method: 'DELETE' })
-    if (!res.ok) return { ok: false }
+    if (!res.ok) {
+      return (await voiceStoreScopeRefusal(res)) ? { ok: false, reason: 'store_scope' } : { ok: false }
+    }
     const body = (await res.json().catch(() => null)) as { ok?: boolean } | null
     return { ok: !!body?.ok }
   } catch {
@@ -1074,13 +1095,24 @@ async function facadeRevokeVoice(staffId: string): Promise<{ ok: boolean }> {
 // degrades to [] on ANY failure (web-exact — the web action's own two catches
 // both return []). revokeInvite mirrors createStore's business-result
 // passthrough (2xx { ok: true } | { error } VERBATIM).
+/** The invite twin of voiceStoreScopeRefusal above, read off an ALREADY-parsed
+ *  body: these ports consume res.json() themselves and a Response body can
+ *  only be read once. Both invite writes are store-clamped server-side, and
+ *  web returns the machine code 'STORE_SCOPE_DENIED' for that refusal, which
+ *  InviteStaffDialog maps to the localized settings copy — so the port must
+ *  hand it the same code rather than the raw English facade message. */
+function isStoreScopeRefusal(status: number, err: unknown): boolean {
+  return status === 403 && (err as { code?: string } | null)?.code === 'store_forbidden'
+}
+
 async function facadeCreateInvite(input: InviteInput): Promise<{ token: string } | { error: string }> {
   try {
     const res = await getDataPort().apiFetch('/api/app/v1/invites', idemPost(input))
     const body = (await res.json().catch(() => null)) as
-      | { token?: string; error?: string | { message?: string } }
+      | { token?: string; error?: string | { message?: string; code?: string } }
       | null
     if (res.ok && body?.token) return { token: body.token }
+    if (isStoreScopeRefusal(res.status, body?.error)) return { error: 'STORE_SCOPE_DENIED' }
     const message = typeof body?.error === 'string' ? body.error : body?.error?.message
     return { error: message ?? `Create failed (${res.status})` }
   } catch (err) {
@@ -1103,9 +1135,10 @@ async function facadeRevokeInvite(id: string): Promise<{ ok: true } | { error: s
   try {
     const res = await getDataPort().apiFetch(`/api/app/v1/invites/${enc(id)}`, { method: 'DELETE' })
     const body = (await res.json().catch(() => null)) as
-      | { ok?: boolean; error?: string | { message?: string } }
+      | { ok?: boolean; error?: string | { message?: string; code?: string } }
       | null
     if (res.ok && body?.ok) return { ok: true }
+    if (isStoreScopeRefusal(res.status, body?.error)) return { error: 'STORE_SCOPE_DENIED' }
     const message = typeof body?.error === 'string' ? body.error : body?.error?.message
     return { error: message ?? `Revoke failed (${res.status})` }
   } catch (err) {

@@ -22,6 +22,12 @@ jest.mock('@supabase/supabase-js', () => ({
     },
   }),
 }))
+// The clamped web actions in these cores' module graph import next-intl/server
+// (ESM) for the store-scope refusal message — echo the key, same as every
+// other suite that pulls src/actions/* in.
+jest.mock('next-intl/server', () => ({
+  getTranslations: async () => (key: string) => key,
+}))
 jest.mock('@synqed-kk/client', () => ({
   SynqedClient: jest.fn(),
   SynqedError: class extends Error {},
@@ -43,7 +49,14 @@ jest.mock('@/lib/staff', () => ({
 
 const setPin = jest.fn(async () => undefined)
 const removePin = jest.fn(async () => undefined)
-const fakeClient = { staff: { setPin, removePin } }
+// Store assignments the non-self clamp reads (ensureStaffWriteInScope): keyed
+// by staff id so a test can put the CALLER and the TARGET in different
+// branches. Default = everyone floating (empty assignment = works in every
+// store), the unclamped path every pre-clamp pin in this file was written
+// against.
+let storeAssignments: Record<string, string[]> = {}
+const staffStoresGet = jest.fn(async (id: string) => ({ store_ids: storeAssignments[id] ?? [] }))
+const fakeClient = { staff: { setPin, removePin }, staffStores: { get: staffStoresGet } }
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: (businessId: string) => newSynqedClient(businessId),
@@ -80,6 +93,8 @@ beforeEach(() => {
   staffListByBusinessOrThrow.mockResolvedValue([
     { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'stylist' },
   ])
+  storeAssignments = {}
+  staffStoresGet.mockImplementation(async (id: string) => ({ store_ids: storeAssignments[id] ?? [] }))
 })
 
 describe('PUT /api/app/v1/staff/[id]/pin', () => {
@@ -91,6 +106,7 @@ describe('PUT /api/app/v1/staff/[id]/pin', () => {
   })
 
   it('actingStaffId is the roster-resolved self id, never a caller-supplied value', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage'])) // non-self now needs it
     await PUT(putReq('staff/staff-9/pin', { pin: '1234' }), params('staff-9'))
     // Third arg is always the SERVER-resolved self id (auth-user-1), even
     // though the caller never sent one — the body only ever carries `pin`.
@@ -179,5 +195,91 @@ describe('DELETE /api/app/v1/staff/[id]/pin', () => {
       expect((await res.json()).error).toBe('core down')
     })
     expect(lines).toHaveLength(0)
+  })
+})
+
+// ─── Non-self PIN gate: staff.manage + actor store scope ────────────────────
+// A practitioner setting their OWN PIN stays gate-free (the "no
+// ensureCapability floor" pin above). Re-keying SOMEONE ELSE is a staff-
+// management act: the capability, plus the same store clamp #715 put on the
+// staff CRUD writes. synqed-core's own self-or-owner/admin rule sits behind
+// this as defense-in-depth.
+describe('non-self PIN writes need staff.manage + the caller\'s stores', () => {
+  const CALLER = 'auth-user-1' // the Bearer sub this suite signs with
+  const TARGET = 'staff-9'
+
+  const writes: Array<[string, () => Promise<Response>, jest.Mock]> = [
+    ['PUT', () => PUT(putReq(`staff/${TARGET}/pin`, { pin: '1234' }), params(TARGET)), setPin],
+    ['DELETE', () => DELETE(deleteReq(`staff/${TARGET}/pin`), params(TARGET)), removePin],
+  ]
+
+  describe.each(writes)('%s', (_name, run, coreWrite) => {
+    it('no staff.manage → 403 forbidden, SDK untouched, no audit row', async () => {
+      mockCapabilities.mockResolvedValue(new Set(['customers.view']))
+      const lines = await auditLines(async () => {
+        const res = await run()
+        expect(res.status).toBe(403)
+      })
+      expect(coreWrite).not.toHaveBeenCalled()
+      expect(lines).toHaveLength(0)
+    })
+
+    it('staff.manage but out-of-scope target → 403 store_forbidden, SDK untouched, no audit row', async () => {
+      mockCapabilities.mockResolvedValue(new Set(['staff.manage']))
+      storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
+      const lines = await auditLines(async () => {
+        const res = await run()
+        expect(res.status).toBe(403)
+        expect((await res.json()).error).toMatchObject({ code: 'store_forbidden' })
+      })
+      expect(coreWrite).not.toHaveBeenCalled()
+      expect(lines).toHaveLength(0)
+    })
+
+    it('staff.manage + in-scope target (shared branch) → passes', async () => {
+      mockCapabilities.mockResolvedValue(new Set(['staff.manage']))
+      storeAssignments = { [CALLER]: ['store-a', 'store-b'], [TARGET]: ['store-b'] }
+      const res = await run()
+      expect(res.status).toBe(200)
+      expect(coreWrite).toHaveBeenCalled()
+    })
+
+    it('stores.viewAll → passes, the assignment is never consulted', async () => {
+      mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'stores.viewAll']))
+      storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
+      const res = await run()
+      expect(res.status).toBe(200)
+      expect(staffStoresGet).not.toHaveBeenCalled()
+    })
+
+    it("a failed lookup of the caller's own assignment fails closed → 403", async () => {
+      mockCapabilities.mockResolvedValue(new Set(['staff.manage']))
+      staffStoresGet.mockImplementation(async (id: string) => {
+        if (id === CALLER) throw new Error('core down')
+        return { store_ids: ['store-b'] }
+      })
+      const res = await run()
+      expect(res.status).toBe(403)
+      expect(coreWrite).not.toHaveBeenCalled()
+    })
+  })
+
+  it('SELF with NO staff.manage still works, and never consults an assignment', async () => {
+    // The today-behaviour pin: a practitioner owns their own switch credential.
+    mockCapabilities.mockResolvedValue(new Set(['customers.view']))
+    storeAssignments = { [CALLER]: ['store-a'] }
+    const res = await PUT(putReq(`staff/${CALLER}/pin`, { pin: '1234' }), params(CALLER))
+    expect(res.status).toBe(200)
+    expect(setPin).toHaveBeenCalledWith(CALLER, '1234', CALLER)
+    expect(staffStoresGet).not.toHaveBeenCalled()
+  })
+
+  it('PUT clamps BEFORE the body parse: an out-of-scope target with an INVALID body is still 403 store_forbidden', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage']))
+    storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
+    const res = await PUT(putReq(`staff/${TARGET}/pin`, { nope: 1 }), params(TARGET))
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden' })
+    expect(setPin).not.toHaveBeenCalled()
   })
 })

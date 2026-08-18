@@ -38,6 +38,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
+import { ensureStaffWriteInScope } from '@/lib/app-api/store-clamp'
 import { createInviteCore, listInvitesWithClient, memberEmailsForBusiness } from '@/actions/invites'
 import { inviteSchema } from '@/lib/validations/invite'
 import { staffAddAllowedWithClient } from '@/lib/subscription/feature-gate'
@@ -46,10 +47,28 @@ export const runtime = 'nodejs'
 
 export const GET = facadeHandler('invite.list', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'staff.invite')
-  const synqed = newSynqedClient(ctx.identity.businessId)
+  const businessId = ctx.identity.businessId
+  const synqed = newSynqedClient(businessId)
   const invites = await listInvitesWithClient(
     synqed,
-    await memberEmailsForBusiness(ctx.identity.businessId),
+    await memberEmailsForBusiness(businessId),
+    // Bearer twin of the lens web's listInvites passes: a RE-invite row whose
+    // target card is out of this caller's stores is DROPPED, never shown and
+    // then refused (isolation law). Any throw from the write clamp is read as
+    // "cannot see" — which covers its store refusals exactly, and lumps in the
+    // transport failures (an unreadable roster or assignment) that are not
+    // refusals at all; the conflation errs toward hiding, so it stays.
+    (targetStaffId) =>
+      ensureStaffWriteInScope({
+        synqed,
+        businessId,
+        authUserId: ctx.identity.authUserId,
+        capabilities: ctx.identity.capabilities,
+        targetStaffId,
+      }).then(
+        () => true,
+        () => false,
+      ),
   )
   return ok(ctx, { invites })
 })
@@ -71,6 +90,26 @@ export const POST = facadeHandler('invite.create', async (ctx) => {
 
   const businessId = ctx.identity.businessId
   const synqed = newSynqedClient(businessId)
+
+  // Re-invite only (staffId present = an EXISTING staff card, whose user_id
+  // acceptInvite rewrites): the Bearer twin of the clamp invites.ts applies on
+  // web. Fresh invites fall through to the plan gate, unchanged.
+  //
+  // AFTER the body parse, deliberately — the exception to #715's
+  // clamp-before-parse ordering, and not an oversight. There the target rides
+  // the URL, so it is known before a byte is read; here `staffId` IS a body
+  // field, so the target cannot exist until the body is parsed. The parse is
+  // schema validation on an already-authenticated request; nothing is written
+  // before the clamp answers.
+  if (parsed.data.staffId) {
+    await ensureStaffWriteInScope({
+      synqed,
+      businessId,
+      authUserId: ctx.identity.authUserId,
+      capabilities: ctx.identity.capabilities,
+      targetStaffId: parsed.data.staffId,
+    })
+  }
 
   if (!parsed.data.staffId) {
     const gate = await staffAddAllowedWithClient(synqed, businessId, async () => {

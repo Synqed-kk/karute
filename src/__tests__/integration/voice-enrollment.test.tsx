@@ -27,6 +27,8 @@ const actions = jest.requireMock('@/actions/voice') as Record<string, jest.Mock>
 import { VoiceEnrollmentDialog } from '@/components/staff/VoiceEnrollmentDialog'
 
 const ja = jest.requireActual('../../../messages/ja.json').voiceEnrollment
+// The store-clamp refusal reuses the settings copy — no key of its own.
+const jaSettings = jest.requireActual('../../../messages/ja.json').settings
 
 class FakeRecorder {
   ondataavailable: ((e: { data: Blob }) => void) | null = null
@@ -112,5 +114,21 @@ describe('voice enrollment — real wiring', () => {
     })
     expect(await screen.findByText(ja.uploadFailed)).toBeInTheDocument()
     expect(screen.queryByText(ja.completeTitle)).toBeNull()
+  })
+
+  it("a store-scope refusal says so, not 'upload failed'", async () => {
+    // The clamp refuses on the server before the audio is read — reporting it
+    // as a broken upload sent the staffer to retry forever.
+    actions.enrollVoiceAction.mockResolvedValueOnce({ ok: false, reason: 'store_scope' })
+    mount()
+    await getToRecordingStep()
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText(ja.startRecord))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText(ja.stopRecord))
+    })
+    expect(await screen.findByText(jaSettings.staffStoreScopeDenied)).toBeInTheDocument()
+    expect(screen.queryByText(ja.uploadFailed)).toBeNull()
   })
 })

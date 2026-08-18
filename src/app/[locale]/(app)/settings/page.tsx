@@ -65,7 +65,29 @@ export default async function SettingsPage({
   // only ever receives their own store(s)' staff + themselves. Scoped HERE,
   // not in the shell — the other branch's names/emails must not reach the
   // client at all. visibleStaffRoster's self-only rule still runs on top.
-  const visibleRoster = await viewerStaffRoster(staffList, activeStaffId)
+  //
+  // ⚖ Liam 8/18, TWO laws meeting. (a) settings-blind: an UNVOUCHED scope must
+  // not hand a viewer every branch's names off a lookup we could not read —
+  // the same fail-closed posture menuStoresForScope takes below. Both shapes
+  // are the same glitch: `degraded` (the staff_stores read failed inside
+  // resolveStoreScope) and `null` (resolveStoreScope itself threw — caught
+  // above); without the null arm viewerStaffRoster's own catch would quietly
+  // return the full roster. (b) self-always-visible: a viewer's OWN row is
+  // never another branch's name, and self-service PIN/voice must survive the
+  // glitch — so blind means SELF-ONLY, not empty. A stores.viewAll holder is
+  // never blinded at all: they are entitled to every row regardless.
+  //
+  // The facade twin (screens/settings/route.ts) ships `[]` rather than the
+  // self row, and that is not a divergence: its degraded state IS "the roster
+  // cannot place this auth id", so by construction there is no self row to
+  // keep. Deliberately SURFACE level either way — the app-shell switch drawer
+  // (layout.tsx) keeps its full-roster fallback, because profile switching on
+  // a shared device must survive a glitch. That asymmetry is the ruling.
+  const blinded =
+    !caps.has('stores.viewAll') && (!storeScope || storeScope.degraded)
+  const visibleRoster = blinded
+    ? staffList.filter((s) => s.id === activeStaffId)
+    : await viewerStaffRoster(staffList, activeStaffId)
 
   // Capability-driven settings exposure (not role names): what a manager/SV can
   // do here is whatever the owner toggled onto them, enforced server-side by the

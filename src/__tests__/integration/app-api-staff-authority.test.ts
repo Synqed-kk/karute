@@ -23,6 +23,12 @@ jest.mock('@supabase/supabase-js', () => ({
     },
   }),
 }))
+// The clamped web actions in these cores' module graph import next-intl/server
+// (ESM) for the store-scope refusal message — echo the key, same as every
+// other suite that pulls src/actions/* in.
+jest.mock('next-intl/server', () => ({
+  getTranslations: async () => (key: string) => key,
+}))
 jest.mock('@synqed-kk/client', () => ({
   SynqedClient: jest.fn(),
   SynqedError: class extends Error {},
@@ -64,7 +70,9 @@ jest.mock('@/lib/supabase/service', () => ({
   },
 }))
 
-const staffStoresGet = jest.fn(async () => ({ store_ids: ['store-a'] }))
+const staffStoresGet = jest.fn<Promise<{ store_ids: string[] }>, [string]>(async () => ({
+  store_ids: ['store-a'],
+}))
 const staffStoresSet = jest.fn(async () => ({}))
 const fakeClient = { staffStores: { get: staffStoresGet, set: staffStoresSet } }
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)
@@ -386,5 +394,73 @@ describe('PUT /api/app/v1/staff/[id]/stores — owner-only (requireOwner mirror)
       params('staff-9'),
     )
     expect(res.status).toBe(403)
+  })
+})
+
+// ─── Actor store-scope clamp (ensureStaffWriteInScope) ──────────────────────
+// The facade transport of the clamp src/actions/permissions.ts applies on web.
+// #709 already hides an out-of-scope roster row; this is the server door
+// behind it — a direct Bearer call must be refused too. The core's own
+// owner-target + no-escalation guards sit BEHIND this, unchanged.
+describe("permissions PUT is clamped to the caller's stores", () => {
+  const CALLER = 'auth-user-1' // the Bearer sub this suite signs with
+  const TARGET = 'staff-9'
+  const run = () =>
+    permissionsPUT(
+      putReq(`staff/${TARGET}/permissions`, { permissionRole: 'practitioner', capabilities: [] }),
+      params(TARGET),
+    )
+
+  beforeEach(() => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage']))
+    selectResults = [{ display_role: 'stylist', permission_role: 'practitioner', permissions: null }]
+  })
+
+  it('out-of-scope target → 403 store_forbidden, no profiles write, no audit row', async () => {
+    staffStoresGet.mockImplementation(async (id: string) => ({
+      store_ids: id === CALLER ? ['store-a'] : ['store-b'],
+    }))
+    const lines = await auditLines(async () => {
+      const res = await run()
+      expect(res.status).toBe(403)
+      expect((await res.json()).error).toMatchObject({ code: 'store_forbidden' })
+    })
+    expect(lines).toHaveLength(0)
+  })
+
+  it('in-scope target (shared branch) → passes unchanged', async () => {
+    staffStoresGet.mockImplementation(async (id: string) => ({
+      store_ids: id === CALLER ? ['store-a', 'store-b'] : ['store-b'],
+    }))
+    const res = await run()
+    expect(res.status).toBeLessThan(300)
+  })
+
+  it('stores.viewAll → passes, the assignment is never consulted', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'stores.viewAll']))
+    const res = await run()
+    expect(res.status).toBeLessThan(300)
+    expect(staffStoresGet).not.toHaveBeenCalled()
+  })
+
+  it("a failed lookup of the caller's own assignment fails closed → 403", async () => {
+    staffStoresGet.mockImplementation(async (id: string) => {
+      if (id === CALLER) throw new Error('core down')
+      return { store_ids: ['store-b'] }
+    })
+    const res = await run()
+    expect(res.status).toBe(403)
+  })
+
+  it('clamps BEFORE the body parse: an out-of-scope target with an INVALID body is still 403 store_forbidden', async () => {
+    staffStoresGet.mockImplementation(async (id: string) => ({
+      store_ids: id === CALLER ? ['store-a'] : ['store-b'],
+    }))
+    const res = await permissionsPUT(
+      putReq(`staff/${TARGET}/permissions`, { permissionRole: 'nope' }),
+      params(TARGET),
+    )
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden' })
   })
 })

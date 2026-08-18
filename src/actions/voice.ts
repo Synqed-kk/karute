@@ -21,10 +21,20 @@ import { resolveWebActorId } from '@/lib/audit-web'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
+import { staffWriteInScope } from '@/lib/auth/store-scope'
 import type { Capability } from '@/lib/auth/permissions'
 import { orgSettingsWithClient, writeOrgSettingsBlobWithClient } from './org-settings'
 
 const MAX_SAMPLE_BYTES = 3 * 1024 * 1024 // ~15s of opus is well under this
+
+/** Why a voice write was refused, when the reason is one a consumer can SAY
+ *  something about. Only the store clamp is discriminated: it is the one
+ *  refusal a staffer can act on ("ask someone in that branch"), and the
+ *  silent { ok: false } made it look like a broken upload. Every other
+ *  failure keeps the plain shape — widening that is its own UX pass.
+ *  Exported so the thin port's twin returns the SAME union rather than a
+ *  re-typed literal (thin/ports/actions.vite.ts). */
+export type VoiceRefusal = 'store_scope'
 
 // Explicit-client seam (design-parity packet 12 §S4a — the P-B pattern):
 // every core below takes this instead of resolving org settings from the
@@ -133,7 +143,7 @@ export async function enrollVoiceActionCore(
 export async function enrollVoiceAction(
   staffId: string,
   formData: FormData,
-): Promise<{ ok: boolean; enrolledAt?: string }> {
+): Promise<{ ok: boolean; enrolledAt?: string; reason?: VoiceRefusal }> {
   try {
     const [businessId, synqed, selfUserId, callerCapabilities] = await Promise.all([
       getBusinessId(),
@@ -142,6 +152,21 @@ export async function enrollVoiceAction(
       getMyCapabilities(),
     ])
     const actorId = await resolveWebActorId()
+    // Actor store scope BEFORE the core (#715's clamp, web transport). The
+    // SELF arm of canActOnVoice is untouched — staffWriteInScope free-passes a
+    // self target without ever reading an assignment. What it adds is the
+    // staff.manage arm: acting on ANOTHER staffer's voice now also requires
+    // that person inside the actor's own stores. Refusing HERE, not inside the
+    // core, keeps the audio upload behind the door.
+    //
+    // The refusal is NAMED: a plain { ok: false } here reads to the staffer as
+    // a failed upload, so the dialog says "not your branch" instead. #709
+    // hides OTHER-STORE roster rows, but a FLOATING target stays visible in
+    // every branch by design (the #715 floating-cell ruling refuses it) — so
+    // this refusal is genuinely reachable from a row the actor can see.
+    if (!(await staffWriteInScope({ targetStaffId: staffId, actorId }))) {
+      return { ok: false, reason: 'store_scope' }
+    }
     const result = await enrollVoiceActionCore(
       synqed,
       businessId,
@@ -218,7 +243,9 @@ export async function revokeVoiceActionCore(
 
 /** The delete button — removes the stored sample AND records the revocation
  *  (status + timestamp kept as the audit trail; the audio itself is gone). */
-export async function revokeVoiceAction(staffId: string): Promise<{ ok: boolean }> {
+export async function revokeVoiceAction(
+  staffId: string,
+): Promise<{ ok: boolean; reason?: VoiceRefusal }> {
   try {
     const [businessId, synqed, selfUserId, callerCapabilities] = await Promise.all([
       getBusinessId(),
@@ -227,6 +254,12 @@ export async function revokeVoiceAction(staffId: string): Promise<{ ok: boolean 
       getMyCapabilities(),
     ])
     const actorId = await resolveWebActorId()
+    // Same clamp as enrollVoiceAction, and the ordering matters MORE here:
+    // revoke DELETES the stored sample, so the refusal must precede the core.
+    // Named for the same reason (StaffList silently swallowed the old shape).
+    if (!(await staffWriteInScope({ targetStaffId: staffId, actorId }))) {
+      return { ok: false, reason: 'store_scope' }
+    }
     const result = await revokeVoiceActionCore(
       synqed,
       businessId,

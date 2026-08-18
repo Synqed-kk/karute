@@ -10,6 +10,13 @@ jest.mock('@/lib/staff', () => ({
   resolveUserId: jest.fn(async () => 'me'),
 }))
 jest.mock('@/lib/auth/require-permission', () => ({ getMyCapabilities: jest.fn() }))
+// The actor store clamp's own module — stubbed to a switch, so this file pins
+// the WIRING (does each action consult it, with the right pair, before any
+// side effect?) and store-scope.test.ts pins the rule. Same idiom as
+// staff-actions-store-scope.test.ts.
+jest.mock('@/lib/auth/store-scope', () => ({
+  staffWriteInScope: jest.fn(async () => true),
+}))
 // enrollVoiceAction/revokeVoiceAction now resolve a synqed client (design-
 // parity packet 12 §S4a core extraction) and delegate the org-settings
 // read/write to the WithClient twins instead of the cookie-path functions —
@@ -24,7 +31,10 @@ import { enrollVoiceAction, revokeVoiceAction } from '@/actions/voice'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { writeOrgSettingsBlobWithClient } from '@/actions/org-settings'
 import { createServiceClient } from '@/lib/supabase/service'
+import { staffWriteInScope as staffWriteInScopeImport } from '@/lib/auth/store-scope'
 import { auditLines } from './helpers/audit-lines'
+
+const staffWriteInScope = staffWriteInScopeImport as jest.Mock
 
 function audioForm() {
   const fd = new FormData()
@@ -32,7 +42,10 @@ function audioForm() {
   return fd
 }
 
-beforeEach(() => jest.clearAllMocks())
+beforeEach(() => {
+  jest.clearAllMocks()
+  staffWriteInScope.mockResolvedValue(true)
+})
 
 describe('voice enrollment ownership', () => {
   it('refuses enrolling ANOTHER staffer without staff.manage — no write, no upload', async () => {
@@ -142,5 +155,56 @@ describe('voice audit writers (wave A part 3)', () => {
       await expect(revokeVoiceAction('someone-else')).resolves.toEqual({ ok: false })
     })
     expect(refused).toHaveLength(0)
+  })
+})
+
+// ─── Actor store-scope clamp (web transport) ────────────────────────────────
+// The staff.manage arm of canActOnVoice gained the #715 clamp: acting on
+// ANOTHER staffer's voice also needs that person inside the actor's stores.
+// The SELF arm is untouched — staffWriteInScope free-passes a self target.
+describe('voice actions are clamped to the actor stores', () => {
+  const writes: Array<[string, () => Promise<{ ok: boolean }>]> = [
+    ['enrollVoiceAction', () => enrollVoiceAction('someone-else', audioForm())],
+    ['revokeVoiceAction', () => revokeVoiceAction('someone-else')],
+  ]
+
+  beforeEach(() => {
+    ;(getMyCapabilities as jest.Mock).mockResolvedValue(new Set(['staff.manage']))
+    ;(createServiceClient as jest.Mock).mockReturnValue({
+      storage: { from: () => ({ upload: jest.fn(async () => ({ error: null })), remove: jest.fn(async () => ({})) }) },
+    })
+    ;(jest.requireMock('@/actions/org-settings').orgSettingsWithClient as jest.Mock).mockResolvedValue({
+      voice_enrollments: { 'someone-else': { sample_path: 'p', status: 'saved' } },
+    })
+  })
+
+  describe.each(writes)('%s', (_name, run) => {
+    it('out of scope → a NAMED ok:false, storage + settings untouched, no audit row', async () => {
+      staffWriteInScope.mockResolvedValue(false)
+      const lines = await auditLines(async () => {
+        // The reason is load-bearing: an anonymous { ok: false } reads to the
+        // staffer as a failed upload (VoiceEnrollmentDialog) or as nothing at
+        // all (StaffList discarded it) — the clamp refusal must be sayable.
+        await expect(run()).resolves.toEqual({ ok: false, reason: 'store_scope' })
+      })
+      // The clamp precedes every side effect — on revoke that is the point:
+      // the core DELETES the stored sample, so a late clamp would delete first.
+      expect(createServiceClient).not.toHaveBeenCalled()
+      expect(writeOrgSettingsBlobWithClient).not.toHaveBeenCalled()
+      expect(lines).toHaveLength(0)
+    })
+
+    it('in scope → passes through to the core unchanged', async () => {
+      await expect(run()).resolves.toMatchObject({ ok: true })
+      expect(writeOrgSettingsBlobWithClient).toHaveBeenCalled()
+    })
+
+    it('the clamp is asked about the TARGET, with the resolved actor', async () => {
+      await run()
+      expect(staffWriteInScope).toHaveBeenCalledWith({
+        targetStaffId: 'someone-else',
+        actorId: 'me',
+      })
+    })
   })
 })

@@ -47,8 +47,16 @@ jest.mock('@/lib/staff', () => ({
   staffListByBusinessOrThrow: (...a: unknown[]) => staffListByBusinessOrThrow(...a),
 }))
 
+// Store assignments the write clamp reads (ensureStaffWriteInScope): keyed by
+// staff id so a test can put the CALLER and the TARGET in different branches.
+// Default = everyone floating (empty assignment = works in every store), the
+// unclamped path every pre-clamp pin in this file was written against.
+let storeAssignments: Record<string, string[]> = {}
+const staffStoresGet = jest.fn(async (id: string) => ({ store_ids: storeAssignments[id] ?? [] }))
 jest.mock('@/lib/synqed/client', () => ({
-  newSynqedClient: jest.fn((_businessId: string) => ({})),
+  newSynqedClient: jest.fn((_businessId: string) => ({
+    staffStores: { get: (id: string) => staffStoresGet(id) },
+  })),
 }))
 
 // enrollVoiceActionCore/revokeVoiceActionCore's own dependencies — same
@@ -108,6 +116,8 @@ beforeEach(() => {
     { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'stylist' },
   ])
   orgSettingsFixture = { voice_enrollments: {} }
+  storeAssignments = {}
+  staffStoresGet.mockImplementation(async (id: string) => ({ store_ids: storeAssignments[id] ?? [] }))
   storageUpload.mockResolvedValue({ error: null })
   storageRemove.mockResolvedValue({})
   writeOrgSettingsBlobWithClient.mockResolvedValue({ success: true })
@@ -292,5 +302,100 @@ describe('DELETE /api/app/v1/staff/[id]/voice', () => {
       await DELETE(deleteReq('someone-else'), params('someone-else'))
     })
     expect(refusedLines).toHaveLength(0)
+  })
+})
+
+// ─── Actor store-scope clamp (ensureStaffWriteInScope) ──────────────────────
+// The facade transport of the clamp src/actions/voice.ts applies on web. The
+// SELF arm of canActOnVoice is untouched; a staff.manage holder acting on
+// ANOTHER staffer now also needs that person inside their own stores.
+describe("voice writes are clamped to the caller's stores", () => {
+  const CALLER = 'auth-user-1' // the Bearer sub this suite signs with
+  const TARGET = 'someone-else'
+
+  const enrollForm = () => {
+    const fd = new FormData()
+    fd.set('audio', audioFile())
+    return fd
+  }
+  const writes: Array<[string, () => Promise<Response>]> = [
+    ['POST', () => POST(postReq(TARGET, enrollForm()), params(TARGET))],
+    ['DELETE', () => DELETE(deleteReq(TARGET), params(TARGET))],
+  ]
+
+  beforeEach(() => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage']))
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: CALLER, full_name: 'Mika Tanaka', display_role: 'manager' },
+      { id: TARGET, full_name: 'Branch Person', display_role: 'stylist' },
+    ])
+    orgSettingsFixture = { voice_enrollments: { [TARGET]: { sample_path: 'p', status: 'saved' } } }
+  })
+
+  describe.each(writes)('%s', (_name, run) => {
+    it('out-of-scope target → 403 store_forbidden, storage + org-settings untouched, no audit row', async () => {
+      storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
+      const lines = await auditLines(async () => {
+        const res = await run()
+        expect(res.status).toBe(403)
+        expect((await res.json()).error).toMatchObject({ code: 'store_forbidden' })
+      })
+      // The refusal precedes every side effect — on DELETE that is the point:
+      // revoke removes the stored sample, so a late clamp would delete first.
+      expect(createServiceClient).not.toHaveBeenCalled()
+      expect(storageUpload).not.toHaveBeenCalled()
+      expect(storageRemove).not.toHaveBeenCalled()
+      expect(writeOrgSettingsBlobWithClient).not.toHaveBeenCalled()
+      expect(lines).toHaveLength(0)
+    })
+
+    it('in-scope target (shared branch) → passes unchanged', async () => {
+      storeAssignments = { [CALLER]: ['store-a', 'store-b'], [TARGET]: ['store-b'] }
+      const res = await run()
+      expect(res.status).toBe(200)
+      expect((await res.json()).ok).toBe(true)
+      expect(writeOrgSettingsBlobWithClient).toHaveBeenCalled()
+    })
+
+    it('stores.viewAll → passes, the assignment is never consulted', async () => {
+      mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'stores.viewAll']))
+      storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
+      const res = await run()
+      expect(res.status).toBe(200)
+      expect(staffStoresGet).not.toHaveBeenCalled()
+    })
+
+    it("a failed lookup of the caller's own assignment fails closed → 403", async () => {
+      staffStoresGet.mockImplementation(async (id: string) => {
+        if (id === CALLER) throw new Error('core down')
+        return { store_ids: ['store-b'] }
+      })
+      const res = await run()
+      expect(res.status).toBe(403)
+      expect(writeOrgSettingsBlobWithClient).not.toHaveBeenCalled()
+    })
+  })
+
+  it('POST clamps BEFORE the multipart read: an out-of-scope target with an INVALID body is still 403 store_forbidden', async () => {
+    // Precedence pin (the PATCH-ordering cell's twin in app-api-staff.test.ts):
+    // a 400 here would mean the audio was read — and a 50MB multipart paid for
+    // — before the caller's right to touch this row was settled.
+    storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
+    const bad = new FormData()
+    bad.set('audio', new File([new Uint8Array([1, 2, 3])], 'nope.txt', { type: 'text/plain' }))
+    const res = await POST(postReq(TARGET, bad), params(TARGET))
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden' })
+    expect(storageUpload).not.toHaveBeenCalled()
+    expect(writeOrgSettingsBlobWithClient).not.toHaveBeenCalled()
+  })
+
+  it('self: a clamped caller still manages their OWN voice, assignment never consulted', async () => {
+    storeAssignments = { [CALLER]: ['store-a'] }
+    orgSettingsFixture = { voice_enrollments: { [CALLER]: { sample_path: 'p', status: 'saved' } } }
+    const res = await DELETE(deleteReq(CALLER), params(CALLER))
+    expect(res.status).toBe(200)
+    expect((await res.json()).ok).toBe(true)
+    expect(staffStoresGet).not.toHaveBeenCalled()
   })
 })
