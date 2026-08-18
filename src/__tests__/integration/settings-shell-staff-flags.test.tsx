@@ -89,6 +89,7 @@ describe('SettingsShell — staff prop threading (T3)', () => {
         initialStores={[storeRow]}
         initialActiveStoreId={null}
         initialMenus={[]}
+        menuStores={[]}
         initialEntitlement={null}
         featureStaffInvites={true}
         featureMultiStore={false}
@@ -121,6 +122,7 @@ describe('SettingsShell — staff prop threading (T3)', () => {
         initialStores={[]}
         initialActiveStoreId={null}
         initialMenus={[]}
+        menuStores={[]}
         initialEntitlement={null}
       />,
     )

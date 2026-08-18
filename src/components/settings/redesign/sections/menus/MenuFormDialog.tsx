@@ -36,7 +36,11 @@ interface MenuFormDialogProps {
   /** The catalog behind the list — category suggestions and the CREATE 表示順
    *  default are both derived from it (core has no category entity). */
   catalog: Menu[]
+  /** The stores this actor may write menus for — the scope pills. */
   stores: StoreRow[]
+  /** stores.viewAll: without it the 全店舗 pill is not offered, because
+   *  src/actions/menus.ts refuses an all-store write from a branch actor. */
+  canViewAllStores: boolean
   onClose: () => void
 }
 
@@ -56,7 +60,13 @@ function currentInput(menu: Menu): MenuFormInput {
   }
 }
 
-export function MenuFormDialog({ mode, catalog, stores, onClose }: MenuFormDialogProps) {
+export function MenuFormDialog({
+  mode,
+  catalog,
+  stores,
+  canViewAllStores,
+  onClose,
+}: MenuFormDialogProps) {
   // Mirror the last non-null mode so the close animation doesn't snap to blank
   // copy — StoreFormDialog.tsx:58-66's pattern, same reason.
   const [lastMode, setLastMode] = useState<NonNullable<MenuFormMode> | null>(null)
@@ -82,6 +92,7 @@ export function MenuFormDialog({ mode, catalog, stores, onClose }: MenuFormDialo
           active={mode !== null}
           catalog={catalog}
           stores={stores}
+          canViewAllStores={canViewAllStores}
           onClose={onClose}
         />
       )}
@@ -94,6 +105,7 @@ function MenuFormBody({
   active,
   catalog,
   stores,
+  canViewAllStores,
   onClose,
 }: {
   menu: Menu | null
@@ -102,6 +114,7 @@ function MenuFormBody({
   active: boolean
   catalog: Menu[]
   stores: StoreRow[]
+  canViewAllStores: boolean
   onClose: () => void
 }) {
   const t = useTranslations('settings.menus.form')
@@ -114,7 +127,17 @@ function MenuFormBody({
   const [minPrice, setMinPrice] = useState(
     menu?.price_min_amount == null ? '' : String(menu.price_min_amount),
   )
-  const [storeId, setStoreId] = useState<string | null>(menu?.store_id ?? null)
+  // CREATE defaults to 全店舗 (null) — except for an actor who may not write
+  // one, whose default is their FIRST store: the old null default would hand
+  // them a form whose 保存 the server refuses before they touched anything.
+  // '' (never null) when that actor has NO writable store at all (F-B):
+  // MenusSection hides the create entry in that exact state, so this default
+  // is belt-and-braces — it just stops a stray render from composing a null
+  // (全店舗) write the server would refuse; '' fails the store_id uuid check
+  // client-side instead.
+  const [storeId, setStoreId] = useState<string | null>(
+    menu ? menu.store_id : canViewAllStores ? null : (stores[0]?.id ?? ''),
+  )
   const [onlineVisible, setOnlineVisible] = useState(menu?.online_visible ?? true)
   const [order, setOrder] = useState(menu ? String(menu.display_order) : '')
   const [detailsOpen, setDetailsOpen] = useState(false)
@@ -340,23 +363,31 @@ function MenuFormBody({
                *  subset, so this is one pill or the other. A plain group, not
                *  a <label>: a label may only name one control.
                *
-               *  HIDDEN on an empty stores prop (a custom role holding
-               *  menus.manage without stores.viewAll): with no store names to
-               *  read, changing scope would be blind, and the widen confirm
-               *  would read 現在は店舗限定のみのメニューです.
+               *  The 全店舗 pill needs stores.viewAll (⚖ Liam 2026-08-17): an
+               *  all-store menu lands in every branch's picker, so a
+               *  branch-scoped actor is REFUSED one by src/actions/menus.ts —
+               *  the old "disclose it instead of blocking it" note is dead,
+               *  the server is the answer now. Not offering it here is only
+               *  so the form can't compose a save the server will reject; the
+               *  same reason its CREATE default is the first store above.
                *
-               *  EDIT is unaffected — storeId keeps its stored value, so the
-               *  row saves back unchanged. CREATE is NOT: storeId starts null
-               *  = 全店舗, so hiding the pills would hide a real all-stores
-               *  write. It is DISCLOSED instead of blocked (the capability was
-               *  granted deliberately) by the note at the bottom of the body. */}
+               *  Still HIDDEN whole on an empty stores prop, viewAll or not:
+               *  with no store names to read, changing scope would be blind.
+               *  For a viewAll actor that is the degraded store read, and the
+               *  note at the bottom of the body discloses the all-stores
+               *  default it leaves in place. */}
               {stores.length > 0 && (
                 <div role="group" aria-label={t('store')}>
                   <span className="mb-1 block text-xs font-medium text-foreground">
                     {t('store')}
                   </span>
                   <div className="flex flex-wrap gap-1.5">
-                    {[{ id: null as string | null, name: t('allStores') }, ...stores].map((s) => (
+                    {[
+                      ...(canViewAllStores
+                        ? [{ id: null as string | null, name: t('allStores') }]
+                        : []),
+                      ...stores,
+                    ].map((s) => (
                       <button
                         key={s.id ?? 'all'}
                         type="button"
@@ -425,8 +456,10 @@ function MenuFormBody({
         {/* CREATE with no visible stores: the 店舗 pills above are hidden, so
          *  the all-stores default would otherwise be published silently. Same
          *  slot and same infowash as the EDIT line — and OUTSIDE 詳細 on
-         *  purpose: a scope nobody chose is not something to go looking for. */}
-        {!menu && stores.length === 0 && (
+         *  purpose: a scope nobody chose is not something to go looking for.
+         *  viewAll-only: to a branch actor the sentence would be a promise the
+         *  server breaks (it refuses their all-store write outright). */}
+        {!menu && stores.length === 0 && canViewAllStores && (
           <p className="rounded-lg bg-blue-50 px-3 py-2 text-[12px] leading-relaxed text-blue-800 dark:bg-blue-500/10 dark:text-blue-200">
             {t('createAllStoresNote')}
           </p>

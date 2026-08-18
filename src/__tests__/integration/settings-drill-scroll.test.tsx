@@ -63,6 +63,7 @@ const baseProps = {
   canViewSync: true,
   canManageMenus: true,
   initialMenus: [],
+  menuStores: [],
   initialStores: [] as StoreRow[],
   initialActiveStoreId: null,
   initialEntitlement: null,

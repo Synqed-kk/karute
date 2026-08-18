@@ -14,7 +14,7 @@ import { cache } from 'react'
 import { unstable_cache } from 'next/cache'
 import { getMyCapabilities } from './require-permission'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
-import { getActiveStoreId, getPrimaryStoreId, getStaffStores } from '@/actions/stores'
+import { getActiveStoreId, getPrimaryStoreId, getStaffStoresStrict } from '@/actions/stores'
 
 export interface StoreScope {
   /** The store_id to filter store-scoped reads by. null = no store filter
@@ -27,6 +27,15 @@ export interface StoreScope {
    *  (viewAll, or a floating staff with an empty staff_stores set). A non-null
    *  array means reads + search MUST stay within it. */
   allowedStoreIds: string[] | null
+  /** True when a non-viewAll actor's staff_stores assignment LOOKUP FAILED —
+   *  never a genuine empty assignment (⚖ Liam 2026-08-17, F-A). Reads ignore
+   *  this field entirely (storeId/allowedStoreIds above are computed exactly
+   *  as they always were, failure or not); only the menu-write clamp
+   *  (storeScopeError, src/actions/menus.ts) fails closed on it, refusing a
+   *  write it can't actually vouch for. Always false under viewAll (the
+   *  assignment is never consulted) and false for a confirmed floating or
+   *  clamped staff. */
+  degraded: boolean
 }
 
 /**
@@ -63,10 +72,18 @@ export const resolveStoreScope = cache(async (): Promise<StoreScope> => {
       storeId: activeStore ?? (await getPrimaryStoreId()),
       viewAll: true,
       allowedStoreIds: null,
+      degraded: false,
     }
   }
 
-  const allowed = staffId ? await getStaffStores(staffId) : []
+  // null = the lookup ITSELF failed (getStaffStoresStrict, F-A) — kept apart
+  // from a genuine empty assignment ([]) so the write clamp can fail closed
+  // on the former while every value below stays identical to today either
+  // way (a failure folds into the same "no stores" branch a real empty
+  // assignment already took).
+  const lookup = staffId ? await getStaffStoresStrict(staffId) : []
+  const degraded = lookup === null
+  const allowed = lookup ?? []
   if (allowed.length === 0) {
     // Floating staff (assigned to no specific store) = works in every store,
     // per the staff_stores convention. Same unset-cookie default as above.
@@ -74,13 +91,47 @@ export const resolveStoreScope = cache(async (): Promise<StoreScope> => {
       storeId: activeStore ?? (await getPrimaryStoreId()),
       viewAll: false,
       allowedStoreIds: null,
+      degraded,
     }
   }
 
   const storeId =
     activeStore && allowed.includes(activeStore) ? activeStore : allowed[0]
-  return { storeId, viewAll: false, allowedStoreIds: allowed }
+  return { storeId, viewAll: false, allowedStoreIds: allowed, degraded: false }
 })
+
+/**
+ * Which stores may the menu UI OFFER this actor (store pills + editable rows)?
+ * The server write clamp (storeScopeError, src/actions/menus.ts) is the real
+ * enforcement — this only decides what the UI dangles in front of the actor,
+ * so it must never show a store the clamp would refuse.
+ *
+ *   - assigned branch staff (`allowedStoreIds: [...]`) → ONLY those stores
+ *   - viewAll (`viewAll: true`)                        → every store
+ *   - floating staff (`allowedStoreIds: null`,
+ *     `degraded: false`)                                → every store — unclamped,
+ *                                                          same as the server
+ *   - degraded (`degraded: true`)                       → `[]` — BLIND. The
+ *     lookup that would tell us this actor's real stores failed; the server
+ *     clamp already fails closed on it (storeScopeError refuses the write),
+ *     so the UI must match rather than show every branch's name behind a
+ *     doomed edit control (isolation law: hide, never show-and-refuse;
+ *     Greptile P1 on #707)
+ *   - `scope === null` (resolveStoreScope itself threw)  → today's behaviour,
+ *     unchanged: every store if the actor can viewAll, else none
+ */
+export function menuStoresForScope<T extends { id: string }>(
+  scope: StoreScope | null,
+  canViewAllStores: boolean,
+  stores: T[],
+): T[] {
+  const allowed = scope?.allowedStoreIds
+  if (allowed) return stores.filter((s) => allowed.includes(s.id))
+  // Degraded lookup = fail closed, exactly like the server write clamp:
+  // offer NOTHING rather than every branch's name + a doomed edit control.
+  if (scope?.degraded) return []
+  return scope || canViewAllStores ? stores : []
+}
 
 // ─── Store-scoped staff PICKER filtering ────────────────────────────────────
 // The 担当 selectors (予約 / 顧客 / カルテ) must only offer staff who work in

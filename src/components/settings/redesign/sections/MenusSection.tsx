@@ -74,12 +74,18 @@ interface MenusSectionProps {
    *  never render the same thing — an error must never read as
    *  「メニューがまだありません」 (plan §3 data honesty). */
   menus: Menu[] | null
-  /** Resolves a store-scoped menu's chip to the store's NAME. Empty for a
-   *  viewer without stores.viewAll → the chip falls back to a generic label. */
+  /** The stores this actor may WRITE menus for (settings/page.tsx resolves it
+   *  from their scope): the store filter's options, the editor's pills, and
+   *  the chip's NAME lookup. Another branch's menu isn't in here, so its chip
+   *  falls back to the generic 店舗限定 label — the pre-existing degrade, now
+   *  doing double duty as the no-leak path. */
   stores: StoreRow[]
+  /** stores.viewAll. Gates the 全店舗 (store_id null) menus, which land in
+   *  every branch's picker — src/actions/menus.ts refuses them without it. */
+  canViewAllStores: boolean
 }
 
-export function MenusSection({ menus, stores }: MenusSectionProps) {
+export function MenusSection({ menus, stores, canViewAllStores }: MenusSectionProps) {
   const t = useTranslations('settings.menus')
   const [retiredOpen, setRetiredOpen] = useState(false)
   const [formMode, setFormMode] = useState<MenuFormMode>(null)
@@ -116,10 +122,16 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
   const active = allActive.filter(inFilter)
   const retired = allRetired.filter(inFilter)
   const groups = groupByCategory(active)
+  // A non-viewAll actor with NO writable store can never compose a legal
+  // write — every real store id is out of scope and 全店舗 always needs
+  // viewAll (src/actions/menus.ts) — so offering 追加 here is a guaranteed
+  // refusal (F-B). Read access is untouched: the catalog list still renders
+  // in full either way.
+  const noWritableStores = !canViewAllStores && stores.length === 0
   // One store → the select would be a control with one real answer. No dead
   // chrome for a single-store business.
   const showFilter = menus !== null && !catalogEmpty && stores.length >= 2
-  const showCreate = menus !== null && !catalogEmpty
+  const showCreate = menus !== null && !catalogEmpty && !noWritableStores
 
   /** 再開. The section CAN die mid-write: SettingsShell renders sections with a
    *  plain renderSection(activeTab) call (SettingsShell.tsx:395,420), so a tab
@@ -158,8 +170,22 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
     return stores.find((s) => s.id === menu.store_id)?.name ?? t('storeScoped')
   }
 
+  /** Out-of-scope rows stay VISIBLE but lose every write affordance — the
+   *  editor and 再開 alike, because both end in a refused write (⚖ Liam
+   *  2026-08-17, enforced in src/actions/menus.ts). The catalog read is
+   *  deliberately unchanged: a branch manager still sees the whole menu list,
+   *  they just can't touch another branch's rows. */
+  function canEdit(menu: Menu): boolean {
+    // viewAll answers FIRST, exactly like the server clamp — never via the
+    // store list, or a degraded/empty stores prop would lock an owner out of
+    // their own catalog.
+    if (canViewAllStores) return true
+    return menu.store_id !== null && stores.some((s) => s.id === menu.store_id)
+  }
+
   function row(menu: Menu, isRetired: boolean) {
     const store = storeChip(menu)
+    const editable = canEdit(menu)
     const body = (
       // Spans, not divs: the ACTIVE row's root is a <button>, whose content
       // model is phrasing only (PostSessionResolutionDialog.tsx:201-210's
@@ -200,7 +226,7 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
            *  再開しました beside the wrong name. With every row inert, no new
            *  target can be set mid-flight, so the only confirm open when a
            *  write resolves is the one that started it. */}
-          {isRetired && (
+          {isRetired && editable && (
             <Button
               variant="outline"
               size="sm"
@@ -214,8 +240,10 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
       </>
     )
     // Retired rows stay DIVs — see the file-top note. The 再開 button inside
-    // one is the only thing to press there.
-    if (isRetired)
+    // one is the only thing to press there. An out-of-scope ACTIVE row takes
+    // the same inert root: with no editor to open, a pressable row would be a
+    // button that does nothing.
+    if (isRetired || !editable)
       return (
         <div key={menu.id} className={ROW}>
           {body}
@@ -251,6 +279,10 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
           </Button>
         )}
       </div>
+
+      {noWritableStores && menus !== null && (
+        <p className="text-[13px] text-muted-foreground">{t('noWritableStores')}</p>
+      )}
 
       {showFilter && (
         // Native select (mock :247-252) — the settings native-select idiom
@@ -288,9 +320,11 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
       ) : catalogEmpty ? (
         <div className="py-6 text-center">
           <p className="text-[13px] text-muted-foreground">{t('empty')}</p>
-          <Button className="mt-3" onClick={() => setFormMode({ kind: 'create' })}>
-            {t('addMenu')}
-          </Button>
+          {!noWritableStores && (
+            <Button className="mt-3" onClick={() => setFormMode({ kind: 'create' })}>
+              {t('addMenu')}
+            </Button>
+          )}
         </div>
       ) : (
         <>
@@ -356,6 +390,7 @@ export function MenusSection({ menus, stores }: MenusSectionProps) {
         mode={formMode}
         catalog={menus ?? []}
         stores={stores}
+        canViewAllStores={canViewAllStores}
         onClose={() => setFormMode(null)}
       />
       <MenuConfirmDialog

@@ -5,6 +5,9 @@
  *   - no viewAll + empty staff_stores → floating staff, no clamp
  *   - no viewAll + assigned stores → clamped to that set; the cookie picks among
  *     them, an out-of-scope / unset cookie falls back to the first assigned store
+ *   - the assignment LOOKUP failing (getStaffStoresStrict → null) sets
+ *     degraded:true but leaves storeId/viewAll/allowedStoreIds identical to a
+ *     genuine empty assignment (F-A) — only the menu-write clamp reads it
  */
 import type { Capability } from '@/lib/auth/permissions'
 
@@ -13,19 +16,19 @@ jest.mock('@/lib/staff', () => ({ getCurrentUserStaffId: jest.fn() }))
 jest.mock('@/actions/stores', () => ({
   getActiveStoreId: jest.fn(),
   getPrimaryStoreId: jest.fn(),
-  getStaffStores: jest.fn(),
+  getStaffStoresStrict: jest.fn(),
 }))
 
-import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { resolveStoreScope, menuStoresForScope } from '@/lib/auth/store-scope'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { getCurrentUserStaffId } from '@/lib/staff'
-import { getActiveStoreId, getPrimaryStoreId, getStaffStores } from '@/actions/stores'
+import { getActiveStoreId, getPrimaryStoreId, getStaffStoresStrict } from '@/actions/stores'
 
 const mockCaps = getMyCapabilities as jest.Mock
 const mockStaffId = getCurrentUserStaffId as jest.Mock
 const mockActive = getActiveStoreId as jest.Mock
 const mockPrimary = getPrimaryStoreId as jest.Mock
-const mockStores = getStaffStores as jest.Mock
+const mockStores = getStaffStoresStrict as jest.Mock
 
 const caps = (...c: Capability[]) => new Set<Capability>(c)
 
@@ -40,7 +43,7 @@ describe('resolveStoreScope', () => {
     mockActive.mockResolvedValue('store-B')
     // staff_stores must NOT be consulted for a cross-store viewer.
     const scope = await resolveStoreScope()
-    expect(scope).toEqual({ storeId: 'store-B', viewAll: true, allowedStoreIds: null })
+    expect(scope).toEqual({ storeId: 'store-B', viewAll: true, allowedStoreIds: null, degraded: false })
     expect(mockStores).not.toHaveBeenCalled()
   })
 
@@ -52,6 +55,7 @@ describe('resolveStoreScope', () => {
       storeId: 'store-primary',
       viewAll: true,
       allowedStoreIds: null,
+      degraded: false,
     })
   })
 
@@ -70,6 +74,7 @@ describe('resolveStoreScope', () => {
       storeId: 'store-A',
       viewAll: false,
       allowedStoreIds: null,
+      degraded: false,
     })
     // Cookie set → the primary lookup must not fire (it costs a core call).
     expect(mockPrimary).not.toHaveBeenCalled()
@@ -91,6 +96,7 @@ describe('resolveStoreScope', () => {
       storeId: 'store-B',
       viewAll: false,
       allowedStoreIds: ['store-A', 'store-B'],
+      degraded: false,
     })
   })
 
@@ -106,5 +112,53 @@ describe('resolveStoreScope', () => {
     mockActive.mockResolvedValue(null)
     mockStores.mockResolvedValue(['store-A'])
     expect((await resolveStoreScope()).storeId).toBe('store-A')
+  })
+
+  it('the assignment lookup FAILING (null) sets degraded:true, same storeId/viewAll/allowedStoreIds as a genuine empty assignment', async () => {
+    mockCaps.mockResolvedValue(caps('customers.view'))
+    mockActive.mockResolvedValue('store-A')
+    mockStores.mockResolvedValue(null)
+    expect(await resolveStoreScope()).toEqual({
+      storeId: 'store-A',
+      viewAll: false,
+      allowedStoreIds: null,
+      degraded: true,
+    })
+  })
+
+  it('a genuinely empty assignment (floating staff) still resolves degraded:false', async () => {
+    mockCaps.mockResolvedValue(caps('customers.view'))
+    mockActive.mockResolvedValue('store-A')
+    mockStores.mockResolvedValue([])
+    expect((await resolveStoreScope()).degraded).toBe(false)
+  })
+})
+
+describe('menuStoresForScope', () => {
+  const allStores = [{ id: 'store-A' }, { id: 'store-B' }]
+
+  it('assigned branch staff (allowedStoreIds set) → filtered to only the assigned stores', () => {
+    const scope = { storeId: 'store-A', viewAll: false, allowedStoreIds: ['store-A'], degraded: false }
+    expect(menuStoresForScope(scope, false, allStores)).toEqual([{ id: 'store-A' }])
+  })
+
+  it('viewAll → every store', () => {
+    const scope = { storeId: 'store-A', viewAll: true, allowedStoreIds: null, degraded: false }
+    expect(menuStoresForScope(scope, true, allStores)).toEqual(allStores)
+  })
+
+  it('floating staff (allowedStoreIds null, degraded false) → every store, unclamped like the server', () => {
+    const scope = { storeId: 'store-A', viewAll: false, allowedStoreIds: null, degraded: false }
+    expect(menuStoresForScope(scope, false, allStores)).toEqual(allStores)
+  })
+
+  it('degraded (degraded: true) → [] — blind, fail closed like the server write clamp', () => {
+    const scope = { storeId: 'store-A', viewAll: false, allowedStoreIds: null, degraded: true }
+    expect(menuStoresForScope(scope, false, allStores)).toEqual([])
+  })
+
+  it('scope === null (resolveStoreScope threw) → today\'s behaviour: canViewAllStores gates the fallback', () => {
+    expect(menuStoresForScope(null, true, allStores)).toEqual(allStores)
+    expect(menuStoresForScope(null, false, allStores)).toEqual([])
   })
 })

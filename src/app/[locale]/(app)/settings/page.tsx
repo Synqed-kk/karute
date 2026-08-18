@@ -7,6 +7,7 @@ import { listStores, getActiveStoreId } from '@/actions/stores'
 import { listMenus } from '@/actions/menus'
 import { getEntitlement } from '@/actions/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
+import { resolveStoreScope, menuStoresForScope } from '@/lib/auth/store-scope'
 import { getBusinessAiPersona, resolvePersonaTokens } from '@/lib/karute/business-ai-tokens'
 import type { Capability } from '@/lib/auth/permissions'
 import { SettingsShell, type SettingsTabId } from '@/components/settings/redesign/SettingsShell'
@@ -31,6 +32,7 @@ export default async function SettingsPage({
     caps,
     entitlement,
     menusResult,
+    storeScope,
   ] = await Promise.all([
     getStaffList(),
     getCurrentUserStaffId(),
@@ -50,6 +52,9 @@ export default async function SettingsPage({
     // { error } shape is what listMenus already returns on a denied read, so
     // a thrown failure folds into the same branch below.
     listMenus().catch(() => ({ error: 'unavailable' as const })),
+    // The actor's own write scope — already resolved (and React-cached) by the
+    // (app) layout, so this costs nothing. Same degrade-never-500 posture.
+    resolveStoreScope().catch(() => null),
   ])
 
   const isOwner = staffList.some(
@@ -77,6 +82,21 @@ export default async function SettingsPage({
   const canManageMenus = caps.has('menus.manage')
   // null = the read FAILED (or was denied); [] would claim an empty catalog.
   const initialMenus = 'menus' in menusResult ? menusResult.menus : null
+  // メニュー store pills + editable rows follow the ACTOR's write scope (⚖ Liam
+  // 2026-08-17). src/actions/menus.ts is the enforcement; this only stops the
+  // UI offering a store the server would refuse — and stops offering ONLY
+  // 全店舗 to a branch manager, the one scope they cannot use. Deliberately NOT
+  // initialStores: that prop also feeds 店舗/自動録音/スタッフ, where a
+  // branch-restricted staff must keep seeing nothing (the leak fixed at
+  // :61-63). allowedStoreIds null = viewAll or floating staff — unclamped,
+  // exactly like the server. Scope unresolved → today's behaviour (only the
+  // null case now — a degraded lookup is handled below).
+  // A degraded lookup (the staff_stores assignment fetch itself failed) is
+  // blind, not unclamped: the server write clamp already fails closed on it
+  // (storeScopeError, src/actions/menus.ts), so the UI must offer nothing
+  // rather than every branch's name behind a doomed edit control (Greptile
+  // P1 on #707).
+  const menuStores = menuStoresForScope(storeScope, canViewAllStores, stores)
 
   // Deep-link support (?tab=audit&target=<customerId> from the privacy tab's
   // アクセス履歴 row). Unknown tab values — and audit links followed by staff
@@ -107,6 +127,7 @@ export default async function SettingsPage({
         initialTab={initialTab}
         auditTargetId={auditTargetId}
         initialStores={canViewAllStores ? stores : []}
+        menuStores={menuStores}
         initialActiveStoreId={initialActiveStoreId}
         initialMenus={canManageMenus ? initialMenus : []}
         initialEntitlement={entitlement}

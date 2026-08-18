@@ -1,11 +1,13 @@
 'use server'
 
 import { revalidatePath, updateTag } from 'next/cache'
+import { getTranslations } from 'next-intl/server'
 import type { Menu } from '@synqed-kk/client'
 
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { can } from '@/lib/auth/require-permission'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { audit } from '@/lib/audit'
 import { menuSchema, menuIdSchema, menuBandError, type MenuFormInput } from '@/lib/validations/menu'
 
@@ -79,6 +81,38 @@ function changedDetail(before: Menu, after: Menu): Record<string, string | numbe
   return detail
 }
 
+/** Actor store-scope clamp (⚖ Liam 2026-08-17: "the store manager can only
+ *  edit or touch their own store unless they are given rights to access both
+ *  stores"). menus.manage says WHAT you may do; stores.viewAll says WHERE — so
+ *  a custom grant of menus.manage alone is held to its own branch. Same
+ *  resolution the store-scoped reads use (lib/auth/store-scope) and the same
+ *  shape as the setActiveStore clamp (stores.ts:248-259): stores.viewAll ranges
+ *  freely, floating staff (empty staff_stores = works in every store, the house
+ *  convention) stay unclamped for any REAL store id, everyone else is held to
+ *  their assignment. Every shipped preset (owner/manager/senior) carries
+ *  stores.viewAll, so their behaviour is unchanged.
+ *
+ *  A null store_id is the 全店舗 menu — it lands in every branch's picker, so
+ *  touching one takes stores.viewAll no matter how the actor is assigned,
+ *  floating staff included (their "unclamped" above stops at real store ids).
+ *
+ *  Returns the refusal message (house { error } convention, :12-15 — never a
+ *  throw), or null when every target store passes. Translated only on refusal:
+ *  the allowed path pays nothing. */
+async function storeScopeError(
+  ...targets: (string | null | undefined)[]
+): Promise<string | null> {
+  const { viewAll, allowedStoreIds, degraded } = await resolveStoreScope()
+  if (viewAll) return null
+  const allowed = (id: string | null | undefined) =>
+    id ? !allowedStoreIds || allowedStoreIds.includes(id) : false
+  // A degraded lookup can't tell floating from clamped, so it refuses
+  // outright (F-A, fail-closed) — same refusal as a target failing `allowed`.
+  if (!degraded && targets.every(allowed)) return null
+  const t = await getTranslations('settings.menus')
+  return t('storeScopeDenied')
+}
+
 /** The whole catalog, retired rows included — the settings surface needs them
  *  for the 停止中 disclosure. */
 export async function listMenus(): Promise<{ menus: Menu[] } | { error: string }> {
@@ -99,6 +133,9 @@ export async function createMenu(input: MenuFormInput): Promise<{ id: string } |
   const band = menuBandError(parsed.data)
   if (band) return { error: band }
   try {
+    // Actor scope BEFORE any core call — a refused create touches nothing.
+    const denied = await storeScopeError(parsed.data.store_id)
+    if (denied) return { error: denied }
     const { synqed, businessId, actorId } = await menuContext()
     // Tenant-validate the store before writing, same as setActiveStore
     // (stores.ts:230-246) — the client is business-scoped, so a 404 here means
@@ -142,6 +179,10 @@ export async function updateMenu(
   try {
     const { synqed, businessId, actorId } = await menuContext()
     const before = await synqed.menus.get(parsedId.data)
+    // BOTH ends of the move are in scope or the edit is refused: taking a menu
+    // OUT of another branch and dropping one INTO it are equally "touching" it.
+    const denied = await storeScopeError(before.store_id, parsed.data.store_id)
+    if (denied) return { error: denied }
     // Tenant-validate the store before writing — deliberately the SAME rule as
     // createMenu: every non-null store_id is checked, moved or not, so the two
     // writers can never disagree about which stores this tenant may point at.
@@ -175,6 +216,11 @@ export async function retireMenu(id: string): Promise<{ ok: true } | { error: st
   if (!parsedId.success) return { error: parsedId.error.issues.map((i) => i.message).join(', ') }
   try {
     const { synqed, businessId, actorId } = await menuContext()
+    // 停止 carries no store in its payload, so the TARGET's store is read first
+    // — the scope question is about the menu being touched, not the write body.
+    const { store_id } = await synqed.menus.get(parsedId.data)
+    const denied = await storeScopeError(store_id)
+    if (denied) return { error: denied }
     await synqed.menus.update(parsedId.data, { active: false })
     audit({
       category: 'settings',
@@ -202,6 +248,10 @@ export async function reactivateMenu(id: string): Promise<{ ok: true } | { error
   if (!parsedId.success) return { error: parsedId.error.issues.map((i) => i.message).join(', ') }
   try {
     const { synqed, businessId, actorId } = await menuContext()
+    // Same target-store read as retireMenu — the inverse write, the same clamp.
+    const { store_id } = await synqed.menus.get(parsedId.data)
+    const denied = await storeScopeError(store_id)
+    if (denied) return { error: denied }
     await synqed.menus.update(parsedId.data, { active: true })
     audit({
       category: 'settings',

@@ -147,6 +147,7 @@ describe('menus editor — pristine 保存 (inert gray)', () => {
         catalog={[menu]}
         stores={[]}
         onClose={() => {}}
+        canViewAllStores
       />,
     )
 

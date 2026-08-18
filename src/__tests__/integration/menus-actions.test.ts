@@ -5,7 +5,20 @@
  * parity suites cover the registry + label side.
  */
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn() }))
+// Refusal copy is i18n'd (settings.menus.storeScopeDenied) — the house mock
+// returns the KEY, so the assertions below pin the key, never the wording.
+jest.mock('next-intl/server', () => ({ getTranslations: async () => (k: string) => k }))
 jest.mock('@/lib/auth/require-permission', () => ({ can: jest.fn(async () => true) }))
+// Actor store scope. Default = stores.viewAll, which every shipped preset
+// (owner/manager/senior) holds — so every pre-existing expectation in this file
+// still describes the shipped world.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({
+    storeId: null,
+    viewAll: true,
+    allowedStoreIds: null,
+  })),
+}))
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'biz-1'),
   getCurrentUserStaffId: jest.fn(async () => 'user-1'),
@@ -22,9 +35,12 @@ import { revalidatePath as revalidatePathImport, updateTag as updateTagImport } 
 import { listMenus, createMenu, updateMenu, retireMenu, reactivateMenu } from '@/actions/menus'
 import { menuBandError } from '@/lib/validations/menu'
 import { can as canImport } from '@/lib/auth/require-permission'
+import { resolveStoreScope as resolveStoreScopeImport } from '@/lib/auth/store-scope'
+import { ROLE_PRESETS } from '@/lib/auth/permissions'
 import { audit as auditImport } from '@/lib/audit'
 
 const can = canImport as jest.Mock
+const resolveStoreScope = resolveStoreScopeImport as jest.Mock
 const audit = auditImport as jest.Mock
 const revalidatePath = revalidatePathImport as jest.Mock
 const updateTag = updateTagImport as jest.Mock
@@ -54,10 +70,14 @@ const MENU = {
 }
 const FORM = { name: 'カット', duration_minutes: 60, price_list_amount: 5000 }
 const STORE_ID = '4f1c9b2e-8d3a-4c17-9f5e-2b6a7c8d9e01'
+/** A store the branch-scoped actor is NOT assigned to. */
+const OTHER_STORE_ID = '7c2d5e91-3b0f-4a68-91d4-8e5f0a1b2c3d'
+const VIEW_ALL_SCOPE = { storeId: null, viewAll: true, allowedStoreIds: null }
 
 beforeEach(() => {
   jest.clearAllMocks()
   can.mockImplementation(async () => true)
+  resolveStoreScope.mockResolvedValue(VIEW_ALL_SCOPE)
   mockMenus.list.mockResolvedValue({ menus: [MENU] })
   mockMenus.get.mockResolvedValue(MENU)
   mockMenus.create.mockResolvedValue(MENU)
@@ -429,6 +449,227 @@ describe('writes', () => {
     expect(mockMenus.get).not.toHaveBeenCalled()
     expect(mockMenus.update).not.toHaveBeenCalled()
     expect(audit).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Actor store scope (⚖ Liam 2026-08-17: "the store manager can only edit or
+ * touch their own store unless they are given rights to access both stores").
+ * menus.manage says WHAT, stores.viewAll says WHERE — so these cases only exist
+ * for a CUSTOM grant of menus.manage without viewAll. Every shipped preset
+ * holds viewAll (pinned at the bottom of this block), which is why the
+ * viewAll-actor cases below must stay byte-identical to the pre-clamp world.
+ */
+describe('actor store scope', () => {
+  const MINE = STORE_ID
+  const OTHER = OTHER_STORE_ID
+  // The mocked getTranslations returns the KEY, so the refusal is pinned by
+  // key — the ja/en wording stays free to change without touching this file.
+  const DENIED = { error: 'storeScopeDenied' }
+
+  /** Branch-restricted actor. null = floating staff (empty staff_stores =
+   *  works in every store, the house convention stores.ts:248-259 follows). */
+  const branch = (allowed: string[] | null) =>
+    resolveStoreScope.mockResolvedValue({
+      storeId: allowed?.[0] ?? null,
+      viewAll: false,
+      allowedStoreIds: allowed,
+    })
+  /** Which store the menu being retired/reactivated/edited lives in today. */
+  const targetStore = (store_id: string | null) =>
+    mockMenus.get.mockResolvedValue({ ...MENU, store_id })
+  const noWrite = () => {
+    expect(mockMenus.create).not.toHaveBeenCalled()
+    expect(mockMenus.update).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
+    expect(updateTag).not.toHaveBeenCalled()
+    expect(revalidatePath).not.toHaveBeenCalled()
+  }
+
+  describe('createMenu', () => {
+    it('writes a menu in the actor’s own store', async () => {
+      branch([MINE])
+      expect(await createMenu({ ...FORM, store_id: MINE })).toEqual({ id: MENU_ID })
+    })
+
+    it('refuses another branch’s store before any core call', async () => {
+      branch([MINE])
+      expect(await createMenu({ ...FORM, store_id: OTHER })).toEqual(DENIED)
+      noWrite()
+      // Refused BEFORE the tenant validation — a denied create touches nothing.
+      expect(mockStores.get).not.toHaveBeenCalled()
+    })
+
+    it('refuses 全店舗 (an omitted store) without stores.viewAll', async () => {
+      branch([MINE])
+      expect(await createMenu(FORM)).toEqual(DENIED)
+      noWrite()
+    })
+
+    it('refuses an explicitly null store_id without stores.viewAll', async () => {
+      branch([MINE])
+      expect(await createMenu({ ...FORM, store_id: null })).toEqual(DENIED)
+      noWrite()
+    })
+  })
+
+  describe('updateMenu', () => {
+    it('saves an in-scope edit', async () => {
+      branch([MINE])
+      targetStore(MINE)
+      expect(await updateMenu(MENU_ID, { ...FORM, store_id: MINE })).toEqual({ ok: true })
+    })
+
+    it('refuses moving a menu OUT of the actor’s scope', async () => {
+      branch([MINE])
+      targetStore(MINE)
+      expect(await updateMenu(MENU_ID, { ...FORM, store_id: OTHER })).toEqual(DENIED)
+      noWrite()
+    })
+
+    it('refuses editing a menu that lives in another branch', async () => {
+      branch([MINE])
+      targetStore(OTHER)
+      expect(await updateMenu(MENU_ID, { ...FORM, store_id: MINE })).toEqual(DENIED)
+      noWrite()
+    })
+
+    it('refuses widening a menu to 全店舗 without stores.viewAll', async () => {
+      branch([MINE])
+      targetStore(MINE)
+      expect(await updateMenu(MENU_ID, FORM)).toEqual(DENIED)
+      noWrite()
+    })
+
+    // F-D: an existing 全店舗 menu (before.store_id === null) is the OTHER
+    // direction of the widen case above — moving it INTO scope or leaving it
+    // put are both still "touching" a 全店舗 row, which always needs viewAll.
+    it('refuses moving an existing 全店舗 menu into the actor’s own store (null→real)', async () => {
+      branch([MINE])
+      targetStore(null)
+      expect(await updateMenu(MENU_ID, { ...FORM, store_id: MINE })).toEqual(DENIED)
+      noWrite()
+    })
+
+    it('refuses leaving an existing 全店舗 menu at 全店舗 without stores.viewAll (null→null)', async () => {
+      branch([MINE])
+      targetStore(null)
+      expect(await updateMenu(MENU_ID, { ...FORM, store_id: null })).toEqual(DENIED)
+      noWrite()
+    })
+  })
+
+  const idWriters: [string, (id: string) => Promise<unknown>][] = [
+    ['retireMenu', retireMenu],
+    ['reactivateMenu', reactivateMenu],
+  ]
+
+  it.each(idWriters)('%s writes when the target is in the actor’s scope', async (_n, run) => {
+    branch([MINE])
+    targetStore(MINE)
+    expect(await run(MENU_ID)).toEqual({ ok: true })
+  })
+
+  it.each(idWriters)('%s refuses a menu in another branch', async (_n, run) => {
+    branch([MINE])
+    targetStore(OTHER)
+    expect(await run(MENU_ID)).toEqual(DENIED)
+    noWrite()
+  })
+
+  it.each(idWriters)('%s refuses a 全店舗 menu without stores.viewAll', async (_n, run) => {
+    branch([MINE])
+    targetStore(null)
+    expect(await run(MENU_ID)).toEqual(DENIED)
+    noWrite()
+  })
+
+  it('floating staff (no assignment) may write any store — the house convention', async () => {
+    branch(null)
+    expect(await createMenu({ ...FORM, store_id: OTHER })).toEqual({ id: MENU_ID })
+  })
+
+  it('floating staff still may not write a 全店舗 menu', async () => {
+    branch(null)
+    expect(await createMenu(FORM)).toEqual(DENIED)
+    noWrite()
+  })
+
+  // F-E: floating staff (unclamped, empty staff_stores) for the three writers
+  // createMenu doesn't cover — unclamped for a REAL store id, still refused
+  // on 全店舗 exactly like createMenu above.
+  it('floating staff writes updateMenu into a real-store target', async () => {
+    branch(null)
+    targetStore(OTHER)
+    expect(await updateMenu(MENU_ID, { ...FORM, store_id: OTHER })).toEqual({ ok: true })
+  })
+
+  it('floating staff still may not touch a 全店舗 menu via updateMenu', async () => {
+    branch(null)
+    targetStore(OTHER)
+    expect(await updateMenu(MENU_ID, FORM)).toEqual(DENIED)
+    noWrite()
+  })
+
+  it.each(idWriters)('%s (floating staff) writes when the target is a real store', async (_n, run) => {
+    branch(null)
+    targetStore(OTHER)
+    expect(await run(MENU_ID)).toEqual({ ok: true })
+  })
+
+  // Fail-closed on a degraded assignment lookup (⚖ F-A): getStaffStores used
+  // to swallow a lookup failure to [], which read exactly like a floating
+  // staff and let a branch-restricted actor's write through unclamped. Now
+  // resolveStoreScope surfaces that as degraded:true, and storeScopeError
+  // refuses outright — even for a target that would otherwise be in scope.
+  const degradedWriters: [string, () => Promise<unknown>][] = [
+    ['createMenu', () => createMenu({ ...FORM, store_id: MINE })],
+    ['updateMenu', () => updateMenu(MENU_ID, { ...FORM, store_id: MINE })],
+    ['retireMenu', () => retireMenu(MENU_ID)],
+    ['reactivateMenu', () => reactivateMenu(MENU_ID)],
+  ]
+
+  it.each(degradedWriters)(
+    '%s refuses when the store-assignment lookup is degraded (fail-closed), zero SDK writes',
+    async (_n, run) => {
+      targetStore(MINE) // in-scope target — degraded must still win
+      resolveStoreScope.mockResolvedValue({
+        storeId: MINE,
+        viewAll: false,
+        allowedStoreIds: null,
+        degraded: true,
+      })
+      expect(await run()).toEqual(DENIED)
+      noWrite()
+    },
+  )
+
+  // The byte-unchanged half: with stores.viewAll every path behaves exactly as
+  // it did before the clamp, including the ones a branch actor is refused.
+  const viewAllWriters: [string, () => Promise<unknown>][] = [
+    ['createMenu (全店舗)', () => createMenu(FORM)],
+    ['createMenu (another branch’s store)', () => createMenu({ ...FORM, store_id: OTHER })],
+    ['updateMenu (widening to 全店舗)', () => updateMenu(MENU_ID, FORM)],
+    ['retireMenu', () => retireMenu(MENU_ID)],
+    ['reactivateMenu', () => reactivateMenu(MENU_ID)],
+  ]
+
+  it.each(viewAllWriters)('%s is unchanged for a stores.viewAll actor', async (_n, run) => {
+    // The target lives in a branch this actor is not assigned to; viewAll is
+    // the whole answer, so the assignment is never consulted.
+    targetStore(OTHER)
+    expect(await run()).not.toHaveProperty('error')
+    expect(updateTag).toHaveBeenCalledWith('menus')
+  })
+
+  it('every shipped preset that manages menus also holds stores.viewAll', () => {
+    // The clamp can only ever bite a CUSTOM grant: if this list grows a preset
+    // without viewAll, that preset just lost its all-store menus — deliberate
+    // or not, it stops here first.
+    const roles = Object.keys(ROLE_PRESETS) as (keyof typeof ROLE_PRESETS)[]
+    const menuManagers = roles.filter((r) => ROLE_PRESETS[r].includes('menus.manage'))
+    expect(menuManagers).toEqual(['owner', 'manager', 'senior'])
+    for (const role of menuManagers) expect(ROLE_PRESETS[role]).toContain('stores.viewAll')
   })
 })
 
