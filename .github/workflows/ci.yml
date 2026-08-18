@@ -173,6 +173,14 @@ jobs:
       - name: Dark interactive fill guard (R13)
         run: node scripts/audit/check-dark-interactive.mjs
 
+      - name: Business data-access guard selftest (fixture red→green)
+        # Business territory is empty until the first screens land, so the
+        # guard's own run proves nothing yet — the fixtures are the proof.
+        run: node scripts/business/check-business-data-access.selftest.mjs
+
+      - name: Business data-access guard
+        run: node scripts/business/check-business-data-access.mjs
+
       - name: Audit weakening gate
         # Explicit refspec (contract §8 CP8 hardening): actions/checkout@v4's
         # default shallow clone has no refs/remotes/origin/main until this
