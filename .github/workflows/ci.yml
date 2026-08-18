@@ -174,8 +174,9 @@ jobs:
         run: node scripts/audit/check-dark-interactive.mjs
 
       - name: Business data-access guard selftest (fixture red→green)
-        # Business territory is empty until the first screens land, so the
-        # guard's own run proves nothing yet — the fixtures are the proof.
+        # The live run below scans real territory files, but they exercise
+        # only some of the rules — these fixtures pin all of them, in both
+        # directions (legal lock-file read green, everything else red).
         run: node scripts/business/check-business-data-access.selftest.mjs
 
       - name: Business data-access guard

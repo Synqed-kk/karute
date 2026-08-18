@@ -135,20 +135,24 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     expect(symlinks).toEqual([])
   })
 
-  // Outward direction (P1.5 foundation, ruling 3): Business territory may
-  // import shared LOW-LEVEL infra (@/lib/* utils, the workspaces registry) but
-  // NOT phone UI (src/components/**) and NOT the root messages/*.json the thin
-  // bundle owns — Business i18n lives inside territory (business-territory.json
-  // header). Territory is empty today; this pins the rule before the first file
-  // lands. Its own walk: walk() above deliberately SKIPS territory.
-  // The rule judges the RESOLVED target, never the raw specifier (Greptile P1):
-  // a Business file importing its OWN territory components/ or its own
-  // messages JSON is legal, and only a resolve tells those apart from the
-  // phone-owned originals.
-  const PHONE_TARGET: Array<[string, (p: string) => boolean]> = [
-    ['phone UI (src/components/**)', (p) => p === 'src/components' || p.startsWith('src/components/')],
-    ['root messages/ JSON', (p) => /^messages\/[^/]+\.json$/.test(p)],
-  ]
+  // Outward direction — an ALLOWLIST since the 2026-08-19 post-merge audit.
+  // The old rule denied named phone-owned targets (src/components/**, root
+  // messages/*.json) and passed everything else, so territory reached core
+  // INDIRECTLY through shared helpers — @/actions/stores, @/lib/auth/*,
+  // @/lib/staff — with all three gates green. A denylist can only forbid what
+  // someone already thought of; the play-phase rule (fixtures only until Liam's
+  // reconnect order) needs the opposite default. So: a Business file may import
+  // ONLY what is named below, and anything else is an offender by construction.
+  //
+  // This suite is the INDIRECT half of the machine; scripts/business/
+  // check-business-data-access.mjs is the direct half (it reads specifiers and
+  // call sites inside territory, and cannot see what a shared helper does).
+  // Neither is sufficient alone. Its own walk: walk() above SKIPS territory.
+  const ALLOWED_TARGETS = ['src/lib/supabase/server', 'src/lib/supabase/service']
+  // Bare packages: the render runtime only. `node:` builtins ride along because
+  // the territory's own test file reads fixtures off disk — stdlib reaches no
+  // app data, so it cannot smuggle core the way a shared @/ helper does.
+  const ALLOWED_BARE = /^(?:react|next)(?:\/|$)|^node:/
 
   /** Repo-relative target of a specifier, or null when it is a bare package. */
   function resolveSpecifier(spec: string, fromFile: string): string | null {
@@ -157,12 +161,17 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     return null
   }
 
-  /** Label of the phone-owned target this import reaches, or null if legal. */
-  function phoneTarget(spec: string, fromFile: string): string | null {
+  /** Why this import is an offender, or null when it is on the allowlist.
+   *  Judged on the RESOLVED target, never the raw specifier (Greptile P1), so
+   *  the alias and relative spellings of one file get one verdict. */
+  function outwardOffense(spec: string, fromFile: string): string | null {
     const target = resolveSpecifier(spec, fromFile)
-    if (target === null) return null
+    if (target === null) {
+      return ALLOWED_BARE.test(spec) ? null : 'bare package off the allowlist'
+    }
     if (territory.some((p) => target.startsWith(p))) return null // territory's own
-    return PHONE_TARGET.find(([, test]) => test(target))?.[0] ?? null
+    if (ALLOWED_TARGETS.includes(target)) return null
+    return `resolves outside territory to ${target}`
   }
 
   function walkTerritory(dir: string, out: string[]): string[] {
@@ -188,23 +197,32 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     if (existsSync(dir)) walkTerritory(dir, businessFiles)
   }
 
-  it('the phone-target rule judges resolved paths, not raw specifiers', () => {
-    const from = 'src/business/screens/Home.tsx'
-    // Phone-owned: the alias always resolves to root src/components/, and a
-    // relative climb out of territory lands on the phone's own messages/.
-    expect(phoneTarget('@/components/ui/button', from)).toBe('phone UI (src/components/**)')
-    expect(phoneTarget('../../components/ui/button', from)).toBe('phone UI (src/components/**)')
-    expect(phoneTarget('../../../messages/ja.json', from)).toBe('root messages/ JSON')
-    // Territory's own, and therefore legal: a route-group page importing a
-    // sibling components/ dir inside the fence, and Business i18n.
-    expect(phoneTarget('../components/Card', 'src/app/[locale]/(business)/dash/page.tsx')).toBeNull()
-    expect(phoneTarget('@/business/messages/ja.json', from)).toBeNull()
-    expect(phoneTarget('./messages/ja.json', 'src/business/i18n/index.ts')).toBeNull()
-    // Bare packages are not this rule's business.
-    expect(phoneTarget('next-intl', from)).toBeNull()
+  it('the outward rule is an allowlist judged on resolved targets', () => {
+    const from = 'src/business/lib/data.ts'
+    // On the list: territory's own (relative + alias), the render runtime, the
+    // two supabase modules in either spelling, stdlib for the fixture reads.
+    expect(outwardOffense('./fixtures', from)).toBeNull()
+    expect(outwardOffense('@/business/lib/grants', from)).toBeNull()
+    expect(outwardOffense('../components/Card', 'src/app/[locale]/(business)/dash/page.tsx')).toBeNull()
+    expect(outwardOffense('react', from)).toBeNull()
+    expect(outwardOffense('next/navigation', from)).toBeNull()
+    expect(outwardOffense('@/lib/supabase/service', from)).toBeNull()
+    expect(outwardOffense('../../lib/supabase/server', from)).toBeNull()
+    expect(outwardOffense('node:fs', 'src/__tests__/integration/business/foundation.test.ts')).toBeNull()
+    // Off it: the four indirect reaches the audit actually found…
+    expect(outwardOffense('@/actions/stores', from)).not.toBeNull()
+    expect(outwardOffense('@/lib/auth/require-permission', from)).not.toBeNull()
+    expect(outwardOffense('@/lib/staff', from)).not.toBeNull()
+    expect(outwardOffense('@/lib/workspaces/types', from)).not.toBeNull()
+    // …the old denylist's targets, now offenders by default…
+    expect(outwardOffense('@/components/ui/button', from)).not.toBeNull()
+    expect(outwardOffense('../../../messages/ja.json', 'src/business/screens/Home.tsx')).not.toBeNull()
+    // …and core, with no type-only carve-out: types come from fixtures too.
+    expect(outwardOffense('@synqed-kk/client', from)).not.toBeNull()
+    expect(outwardOffense('next-intl', from)).not.toBeNull()
   })
 
-  it('no Business file imports phone UI or root messages/', () => {
+  it('every Business import is on the allowlist', () => {
     const offenders: string[] = []
     for (const file of businessFiles) {
       const rel = file.slice(ROOT.length + 1)
@@ -212,8 +230,8 @@ describe('Business import isolation (phone-safety lock 3)', () => {
       for (const [form, re] of IMPORT_FORMS) {
         re.lastIndex = 0
         for (let m = re.exec(src); m; m = re.exec(src)) {
-          const label = phoneTarget(m[1], rel)
-          if (label) offenders.push(`${rel} (${form}, ${label}): ${m[1]}`)
+          const why = outwardOffense(m[1], rel)
+          if (why) offenders.push(`${rel} (${form}): ${m[1]} — ${why}`)
         }
       }
     }

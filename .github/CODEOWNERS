@@ -59,3 +59,7 @@
 # workflows dir is already owned; these are the pieces outside it.)
 /scripts/business/ @alee046
 /src/__tests__/integration/business-isolation.test.ts @alee046
+# The release lever itself: business_workspace_grants lives here, and one
+# INSERT opens Business for a tenant. Nothing gated a later migration adding
+# grant rows (or loosening that table's RLS) until this line.
+/supabase/migrations/ @alee046

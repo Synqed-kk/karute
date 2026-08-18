@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // In-tier regression pins for the Business data-access guard (same pattern as
-// check-business-isolation.selftest.mjs). Business territory is EMPTY today,
-// so the live guard run proves nothing on its own — these fixtures are the
-// red→green proof that the rule catches what it claims. Cases 2–5 pin Liam's
+// check-business-isolation.selftest.mjs). Territory holds real files now, but
+// they exercise only some of the rules — these fixtures are the red→green
+// proof that every rule catches what it claims. Cases 2–5 pin Liam's
 // play-phase ruling (core reach and writes banned everywhere, supabase reads
 // only in the two lock files); cases 9–12 pin the bypasses the blind review
 // round and Greptile found in the first cuts.
