@@ -4,8 +4,9 @@
  * may import anything that can reach synqed-core, even transitively.
  * Lock: the grants table ships separately and `profiles.is_management` does
  * not exist yet, so "missing table / missing column" is the LIVE state every
- * admission read must deny on; admission itself needs BOTH a grant row and the
- * 経営メンバー flag. Door: the lens is required, it drops another store's rows
+ * admission read must deny on. Admission needs a grant row AND a person leg —
+ * the grantee named by granted_by, or the 経営メンバー flag — and only ever on
+ * a non-production deployment. Door: the lens is required, it drops another store's rows
  * AND storeless bookings, a 全店舗 menu survives the clamp, and no territory
  * file names a client path.
  * Unit-level: no live DB, no network — the data reads hit in-territory fixtures.
@@ -175,7 +176,16 @@ describe('requireBusinessAdmission', () => {
       delete process.env.VERCEL_ENV
     }
   })
-  it('admits on a preview deployment (VERCEL_ENV is not production)', async () => {
+  it('denies an UNEXPECTED environment value — the gate is an allowlist', async () => {
+    env({ grant: true, grantedBy: 'u1', management: true })
+    process.env.VERCEL_ENV = 'production2'
+    try {
+      await expect(requireBusinessAdmission()).rejects.toThrow('NEXT_NOT_FOUND')
+    } finally {
+      delete process.env.VERCEL_ENV
+    }
+  })
+  it('admits on a preview deployment (VERCEL_ENV is exactly preview)', async () => {
     env({ grant: true, grantedBy: 'u1' })
     process.env.VERCEL_ENV = 'preview'
     try {
@@ -258,6 +268,7 @@ describe('the fixture data door', () => {
       'src/app/[locale]/(business)/business/customers/page.tsx': [
         './CustomerTable',
         '@/business/i18n',
+        '@/business/lib/admission',
         '@/business/lib/data',
         'next/link',
       ],
@@ -287,6 +298,22 @@ describe('顧客一覧 screen', () => {
   // booking still ahead of us?" would make every assertion below expire.
   beforeAll(() => jest.useFakeTimers().setSystemTime(new Date('2026-08-19T00:00:00Z')))
   afterAll(() => jest.useRealTimers())
+  // The page re-asserts admission itself, so the screen renders as an admitted
+  // user rather than inheriting whatever the previous describe left behind.
+  beforeEach(() => {
+    supabase.mockResolvedValue({
+      auth: { getUser: async () => ({ data: { user: { id: 'u1', email: 'o@x.jp' } }, error: null }) },
+    })
+    service.mockReturnValue(
+      serviceStub(
+        { data: null, error: null },
+        {
+          business_workspace_grants: { data: { workspace_id: 'business_admin', granted_by: 'u1' }, error: null },
+          profiles: { data: { customer_id: 'biz-1', is_management: false }, error: null },
+        },
+      ),
+    )
+  })
 
   /** The page returns an element tree; find the props the table is handed.
    *  No renderer needed (and react-dom is off the import allowlist anyway). */
@@ -309,6 +336,14 @@ describe('顧客一覧 screen', () => {
       }),
     )
 
+  it('gates itself: a denied session 404s the page, not just the layout', async () => {
+    // The layout gates too, but a screen must not depend on a parent's await
+    // for its authorization (api/business handlers would get none at all).
+    supabase.mockResolvedValue({
+      auth: { getUser: async () => ({ data: { user: null }, error: null }) },
+    })
+    await expect(render()).rejects.toThrow('NEXT_NOT_FOUND')
+  })
   it('renders every fixture customer through the wrapper', async () => {
     const rows = await render()
     expect(rows).toHaveLength(8)

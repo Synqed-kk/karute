@@ -19,11 +19,18 @@
 // until the column exists. Both legs are fail-closed: a null granted_by
 // matches nobody.
 //
-// Preview-only, machine-checked: production admits NOBODY, grant row or not.
-// `VERCEL_ENV === 'production'` is the deny condition, so an absent value
-// (local dev, jest) counts as non-production. REMOVING THIS RESTRICTION IS A
-// NAMED DOOR-PR DELIVERABLE — it is the reason real screens are safe to look
-// at while staff are live on the phone app.
+// Preview-only, machine-checked, and shaped as an ALLOWLIST: a deployment
+// admits only when VERCEL_ENV is absent (local dev, jest) or exactly
+// 'preview'. Any other value — 'production', a future environment name, a
+// typo — denies, so an unexpected value can never read as permission.
+// Residual, accepted: a preview build aliased onto a production domain still
+// reports 'preview', so the URL is not the thing being checked; the build is.
+// REMOVING THIS RESTRICTION IS A NAMED DOOR-PR DELIVERABLE — it is the reason
+// real screens are safe to look at while staff are live on the phone app.
+//
+// Revocation: deleting the grant row closes the door on the next full load.
+// An ALREADY-OPEN tab can keep a rendered segment for up to 5 minutes
+// (next.config staleTimes.dynamic = 300) before it re-renders and 404s.
 
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
@@ -34,12 +41,16 @@ export interface BusinessAdmission { userId: string; email: string | null; busin
 /** null = denied, for any reason. Kept apart from the notFound() call below so
  *  the catch-all can never swallow Next's own control-flow throw. */
 async function admit(): Promise<BusinessAdmission | null> {
+  // FIRST, before any read: production (or any unexpected environment) denies
+  // outright, so a non-preview deployment never even queries for a session.
+  const env = process.env.VERCEL_ENV
+  if (env !== undefined && env !== 'preview') return null
+
   const supabase = await createClient()
   const { data: { user }, error } = await supabase.auth.getUser()
   if (!user || error) return null
   const businessId = await businessIdForUser(user.id)
   if (!businessId) return null
-  if (process.env.VERCEL_ENV === 'production') return null
   const [grant, management] = await Promise.all([
     hasBusinessAdminGrant(businessId),
     isManagementMember(user.id),

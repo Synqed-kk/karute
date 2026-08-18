@@ -2,13 +2,16 @@
 //
 // Route: the (business) group adds no URL segment, and /[locale] +
 // /[locale]/customers are already the phone app's, so Business lives under a
-// /business/ segment. Authorization is the group layout's admission gate.
+// /business/ segment. The group layout gates too; this page re-asserts the
+// admission itself (idempotent) so the screen never depends on a parent's
+// await for its authorization.
 // Server component on purpose: reads, the appointment join and every date
 // format happen here, so the client gets plain strings and no timezone or
 // locale can drift between the two renders.
 
 import Link from 'next/link'
 import { businessStrings } from '@/business/i18n'
+import { requireBusinessAdmission } from '@/business/lib/admission'
 import { listAppointments, listCustomers, listStoreOptions, type StoreLens } from '@/business/lib/data'
 import { CustomerTable, type CustomerRow } from './CustomerTable'
 
@@ -29,6 +32,7 @@ export default async function CustomersPage({
   params: Promise<{ locale: string }>
   searchParams: Promise<{ store?: string }>
 }) {
+  await requireBusinessAdmission()
   const [{ locale }, { store }] = await Promise.all([params, searchParams])
   const storeOptions = await listStoreOptions()
   // An unknown ?store= falls back to every store rather than erroring: the
