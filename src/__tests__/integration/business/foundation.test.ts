@@ -1,18 +1,15 @@
 /**
- * Business foundation (P1.5). The grants table ships in a separate PR and
+ * Business foundation (P1.5). The LOCK is real and the DATA is fake (⚖ Liam
+ * 2026-08-19). Lock: the grants table ships in a separate PR and
  * `profiles.is_management` does not exist yet, so "missing table / missing
- * column" is the LIVE state both admission reads must deny on. On the wrapper:
- * the lens is required, it drops another store's rows AND storeless bookings
- * from the complete set, viewAll needs the capability, and the staff read
- * fails LOUD instead of falling back to the unclamped roster.
- * Unit-level: every client mocked, no live DB, no network.
+ * column" is the LIVE state both admission reads must deny on, and admission
+ * itself must deny a manager who merely holds the grantable business.manage
+ * toggle. Door: the lens is required, it drops another store's rows AND
+ * storeless bookings, a 全店舗 menu survives the clamp, viewAll needs the
+ * capability, and the door imports no client at all.
+ * Unit-level: no live DB, no network — the data reads hit in-territory fixtures.
  */
 
-jest.mock('next/cache', () => ({
-  unstable_cache: jest.fn((fn: (...a: unknown[]) => unknown) => fn),
-  revalidatePath: jest.fn(),
-  updateTag: jest.fn(),
-}))
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: jest.fn() }))
 jest.mock('@/lib/supabase/server', () => ({ createClient: jest.fn() }))
 jest.mock('next/navigation', () => ({
@@ -20,24 +17,19 @@ jest.mock('next/navigation', () => ({
     throw new Error('NEXT_NOT_FOUND')
   }),
 }))
-jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn() }))
 jest.mock('@/lib/auth/require-permission', () => ({ getMyCapabilities: jest.fn() }))
-jest.mock('@/lib/staff', () => ({
-  getBusinessId: jest.fn(async () => 'biz-1'),
-  staffListByBusinessOrThrow: jest.fn(),
-}))
+jest.mock('@/lib/staff', () => ({ getBusinessId: jest.fn(async () => 'biz-1') })) // admission's only app read
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
-import { getSynqedClient } from '@/lib/synqed/client'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
-import { getBusinessId, staffListByBusinessOrThrow } from '@/lib/staff'
+import { getBusinessId } from '@/lib/staff'
 import { hasBusinessAdminGrant, isManagementMember } from '@/business/lib/grants'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import * as data from '@/business/lib/data'
-
-const GINZA = 'store-ginza'
-const DAIKANYAMA = 'store-daikanyama'
+import { STORE_A, STORE_B } from '@/business/lib/fixtures'
 
 /** Chainable supabase stub: from(table).select().eq()…maybeSingle() → the
  *  per-table result, or `fallback` for any table not named. */
@@ -53,10 +45,8 @@ function serviceStub(fallback: unknown, byTable: Record<string, unknown> = {}) {
 
 const service = createServiceClient as jest.Mock
 const supabase = createClient as jest.Mock
-const synqed = getSynqedClient as jest.Mock
 const caps = getMyCapabilities as jest.Mock
 const businessId = getBusinessId as jest.Mock
-const roster = staffListByBusinessOrThrow as jest.Mock
 
 /** Every failure shape both admission reads must treat as "no". */
 const DENY: Array<[string, unknown]> = [
@@ -137,42 +127,34 @@ describe('requireBusinessAdmission', () => {
   })
 })
 
-describe('the wrapper is the only data door', () => {
-  // a3 = a pre-repair import with no store. The core mock IGNORES the store
-  // filter and over-returns: the wrapper's own clamp is the protection.
-  const ROWS = [
-    { id: 'a1', store_id: GINZA },
-    { id: 'a2', store_id: DAIKANYAMA },
-    { id: 'a3', store_id: null },
-  ]
-  const core = (appointments = ROWS) => {
-    const list = jest.fn(async () => ({ appointments, total: appointments.length }))
-    synqed.mockResolvedValue({ appointments: { list } })
-    return list
-  }
-
+describe('the fixture data door', () => {
   it('a single-store lens drops the other store AND storeless bookings', async () => {
-    const list = core()
-    const got = await data.listAppointments(GINZA)
-    expect(list).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA }))
-    expect(got.map((a) => a.id)).toEqual(['a1'])
+    const got = await data.listAppointments(STORE_A)
+    expect(got.length).toBeGreaterThan(0)
+    expect(got.every((a) => a.store_id === STORE_A)).toBe(true)
+    expect(got.map((a) => a.id)).not.toContain('apt-09') // storeless
   })
   it('viewAll keeps every store, storeless rows included', async () => {
-    core()
-    expect((await data.listAppointments({ viewAll: true })).map((a) => a.id)).toEqual([
-      'a1', 'a2', 'a3',
-    ])
+    const ids = (await data.listAppointments({ viewAll: true })).map((a) => a.id)
+    expect(ids).toContain('apt-09')
+    expect(ids.length).toBeGreaterThan((await data.listAppointments(STORE_A)).length)
+  })
+  it('a range narrows without breaking the clamp', async () => {
+    const got = await data.listAppointments(STORE_A, { from: '2026-08-20T00:00:00Z' })
+    expect(got.every((a) => a.store_id === STORE_A && a.starts_at >= '2026-08-20T00:00:00Z')).toBe(true)
+    expect(got.length).toBeGreaterThan(0)
   })
   it('a 全店舗 menu (no store_id) stays visible under a clamped lens', async () => {
-    const menus = [{ id: 'm1', store_id: GINZA }, { id: 'm2', store_id: DAIKANYAMA }, { id: 'm3', store_id: null }]
-    synqed.mockResolvedValue({ menus: { list: jest.fn(async () => ({ menus })) } })
-    expect((await data.listMenus(GINZA)).map((m) => m.id)).toEqual(['m1', 'm3'])
+    const ids = (await data.listMenus(STORE_A)).map((m) => m.id)
+    expect(ids).toContain('menu-06') // null store_id
+    expect(ids).not.toContain('menu-04') // STORE_B
   })
   it('refuses a viewAll lens from an actor without stores.viewAll', async () => {
     caps.mockResolvedValue(new Set(['customers.view']))
-    core()
     await expect(data.listAppointments({ viewAll: true })).rejects.toThrow('stores.viewAll')
     await expect(data.listMenus({ viewAll: true })).rejects.toThrow('stores.viewAll')
+    await expect(data.listCustomers({ viewAll: true })).rejects.toThrow('stores.viewAll')
+    await expect(data.listStaff({ viewAll: true })).rejects.toThrow('stores.viewAll')
   })
   it('every read requires the store lens as its first argument', () => {
     // Function.length counts parameters BEFORE the first defaulted one: >= 1
@@ -181,35 +163,20 @@ describe('the wrapper is the only data door', () => {
       expect(read.length).toBeGreaterThanOrEqual(1)
     }
   })
-  it('staff: a failed assignment lookup THROWS, never the unclamped roster', async () => {
-    roster.mockResolvedValue([{ id: 'p1', email: 'a@x.jp' }])
-    synqed.mockResolvedValue({
-      staff: { list: jest.fn(async () => ({ staff: [] })) },
-      staffStores: { list: jest.fn(async () => { throw new Error('core unreachable') }) },
-    })
-    await expect(data.listStaff(GINZA)).rejects.toThrow('core unreachable')
-  })
   it('staff: a clamped lens keeps this store + floating, drops other stores and unknowns', async () => {
-    roster.mockResolvedValue([
-      { id: 'p1', email: 'ginza@x.jp' }, // card linked by email → 銀座
-      { id: 'p2', email: 'other@x.jp' }, // card linked by user_id → 代官山
-      { id: 's3', email: null }, // synqed card id, no assignment rows = floating
-      { id: 'p4', email: 'kana@x.jp' }, // card has NO email → only user_id can link → 銀座
-      { id: 'p9', email: 'ghost@x.jp' }, // no staff card at all = UNKNOWN
-    ])
-    // c4 sits on PAGE 2: a first-page-only read would treat p4 as unknown.
-    const pages = [
-      [
-        { id: 'c1', user_id: null, email: 'ginza@x.jp' },
-        { id: 'c2', user_id: 'p2', email: 'other@x.jp' },
-        { id: 's3', user_id: null, email: null },
-      ],
-      [{ id: 'c4', user_id: 'p4', email: null }],
-    ]
-    synqed.mockResolvedValue({
-      staff: { list: jest.fn(async ({ page }: { page?: number }) => ({ staff: pages[(page ?? 1) - 1] ?? [], total: 4 })) },
-      staffStores: { list: jest.fn(async () => ({ assignments: { c1: [GINZA], c2: [DAIKANYAMA], c4: [GINZA] } })) },
-    })
-    expect((await data.listStaff(GINZA)).map((m) => m.id)).toEqual(['p1', 's3', 'p4'])
+    // p-01 email-linked, c-03 floating, p-04 user_id-ONLY link, p-05 both
+    // stores; p-02 is STORE_B and p-09 has no card at all.
+    expect((await data.listStaff(STORE_A)).map((m) => m.id)).toEqual(['p-01', 'c-03', 'p-04', 'p-05'])
+    expect((await data.listStaff(STORE_B)).map((m) => m.id)).toEqual(['p-02', 'c-03', 'p-05'])
+  })
+  it('the door imports NO client — play phase is structural, not a promise', () => {
+    // Tripwire until the fence guard re-gates the whole territory: the data
+    // door and its fixture module may not name any path to core or the app DB.
+    for (const file of ['data.ts', 'fixtures.ts']) {
+      const src = readFileSync(join(process.cwd(), 'src/business/lib', file), 'utf8')
+      for (const banned of ['@synqed-kk/client', 'getSynqedClient', 'createServiceClient', '@/lib/supabase']) {
+        expect(src).not.toContain(banned)
+      }
+    }
   })
 })
