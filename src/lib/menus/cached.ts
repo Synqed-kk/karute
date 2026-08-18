@@ -89,9 +89,9 @@ const menuOptionsByBusiness = unstable_cache(
 /**
  * businessId-EXPLICIT variant — reads no auth (cookies), so the facade screen
  * route can call it on a Bearer identity. Unlike the customer twin there is no
- * storeId lens and so no arity trick: the picker always needs the business's
- * full active union (§6) — an all-store menu is bookable at every store, and
- * the store chip (not a filter) is what tells the two apart.
+ * storeId lens and so no arity trick: the cache holds the business's full
+ * active union and must STAY actor-blind (one entry, every identity). The
+ * actor's store lens is applied after the read, by scopeMenuOptions below.
  */
 export function getCachedMenuOptionsFor(
   businessId: string,
@@ -104,4 +104,26 @@ export function getCachedMenuOptionsFor(
 export async function getCachedMenuOptions(): Promise<CachedMenuOption[]> {
   const businessId = await getBusinessId()
   return menuOptionsByBusiness(businessId)
+}
+
+/**
+ * Actor store-scope filter for the picker (⚖ Liam 2026-08-17, store isolation:
+ * a branch's staff must not even KNOW another branch exists). Pure and applied
+ * AFTER the cache on purpose — the cache body stays actor-blind (org-keyed and
+ * shared across identities, including the Bearer path), so the clamp can only
+ * live at the consumers.
+ *
+ * `allowedStoreIds` is each site's already-resolved scope: null = unrestricted
+ * (stores.viewAll, or floating staff — the empty-staff_stores convention), an
+ * array = held to it. A 全店舗 row (store_id null) is bookable everywhere and
+ * always survives, so an empty array = 全店舗 only (what a caller passes when it
+ * must fail closed). Dropping the row drops its storeName with it, so no
+ * foreign branch name survives the filter either.
+ */
+export function scopeMenuOptions<T extends { store_id: string | null }>(
+  options: T[],
+  allowedStoreIds: string[] | null,
+): T[] {
+  if (!allowedStoreIds) return options
+  return options.filter((m) => m.store_id === null || allowedStoreIds.includes(m.store_id))
 }

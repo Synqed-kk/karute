@@ -14,6 +14,20 @@ import { createHmac } from 'node:crypto'
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
 process.env.AUTH_SUPABASE_JWT_SECRET ??= 'test-jwt-secret-for-hmac'
 process.env.AUTH_SUPABASE_URL ??= 'https://test-auth.supabase.co'
+// cached.ts is now loaded for real (its scopeMenuOptions rides the route), and
+// it value-imports the ESM-only SDK jest can't parse. Same stub shape as
+// appointments-store-scope.test.ts; every real client here is the mock below.
+jest.mock('@synqed-kk/client', () => {
+  class SynqedError extends Error {
+    status: number
+    constructor(status: number, message: string) {
+      super(message)
+      this.name = 'SynqedError'
+      this.status = status
+    }
+  }
+  return { SynqedClient: jest.fn(), SynqedError }
+})
 jest.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     auth: {
@@ -104,7 +118,10 @@ const MENU_ROWS = [
   },
 ]
 const getCachedMenuOptionsFor = jest.fn(async (..._a: unknown[]) => MENU_ROWS)
+// Only the READ is faked — scopeMenuOptions stays REAL, so the store clamp the
+// route applies to the union is exercised end to end (⚖ Liam 2026-08-17).
 jest.mock('@/lib/menus/cached', () => ({
+  ...jest.requireActual('@/lib/menus/cached'),
   getCachedMenuOptionsFor: (...a: unknown[]) => getCachedMenuOptionsFor(...a),
 }))
 
@@ -378,6 +395,21 @@ describe('GET /api/app/v1/screens/appointments', () => {
     // Exact, not a length check: a dropped thread or a dead read shows up as
     // [] here (the real-read-path pin at route level).
     expect(dto.menus).toEqual(MENU_ROWS)
+    expect(getCachedMenuOptionsFor).toHaveBeenCalledWith('business-1')
+  })
+
+  it('a clamped caller’s picker drops the other branch’s menu AND its store name', async () => {
+    // ⚖ Liam 2026-08-17 store isolation. The union is a business-wide cache
+    // shared across identities by design, so the clamp lands on the DTO.
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-B'] })
+    const res = await GET(req({ 'store-id': 'store-B' }), route)
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    // store-A's menu is gone; the 全店舗 row (bookable everywhere) stays.
+    expect(dto.menus).toEqual([MENU_ROWS[0]])
+    // The chip label is the other half of the leak — it rides the dropped row.
+    expect(JSON.stringify(dto.menus)).not.toContain('La Estro 代官山')
+    // The cache itself stays actor-blind: keyed by business, nothing else.
     expect(getCachedMenuOptionsFor).toHaveBeenCalledWith('business-1')
   })
 

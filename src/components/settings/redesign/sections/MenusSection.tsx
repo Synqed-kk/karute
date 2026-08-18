@@ -125,8 +125,8 @@ export function MenusSection({ menus, stores, canViewAllStores }: MenusSectionPr
   // A non-viewAll actor with NO writable store can never compose a legal
   // write — every real store id is out of scope and 全店舗 always needs
   // viewAll (src/actions/menus.ts) — so offering 追加 here is a guaranteed
-  // refusal (F-B). Read access is untouched: the catalog list still renders
-  // in full either way.
+  // refusal (F-B). This gates the CTA only — whatever listMenus returned for
+  // this actor still renders in full either way.
   const noWritableStores = !canViewAllStores && stores.length === 0
   // One store → the select would be a control with one real answer. No dead
   // chrome for a single-store business.
@@ -170,11 +170,13 @@ export function MenusSection({ menus, stores, canViewAllStores }: MenusSectionPr
     return stores.find((s) => s.id === menu.store_id)?.name ?? t('storeScoped')
   }
 
-  /** Out-of-scope rows stay VISIBLE but lose every write affordance — the
-   *  editor and 再開 alike, because both end in a refused write (⚖ Liam
-   *  2026-08-17, enforced in src/actions/menus.ts). The catalog read is
-   *  deliberately unchanged: a branch manager still sees the whole menu list,
-   *  they just can't touch another branch's rows. */
+  /** Rows this actor may not write lose every write affordance — the editor
+   *  and 再開 alike, because both end in a refused write (⚖ Liam 2026-08-17,
+   *  enforced in src/actions/menus.ts). What still reaches this component is
+   *  narrower than it was: listMenus now hides another branch's menus outright
+   *  (store isolation), so the only unwritable rows a clamped actor sees are
+   *  the 全店舗 ones — every real store id in their list is theirs. This gate
+   *  stays defence in depth, unchanged. */
   function canEdit(menu: Menu): boolean {
     // viewAll answers FIRST, exactly like the server clamp — never via the
     // store list, or a degraded/empty stores prop would lock an owner out of

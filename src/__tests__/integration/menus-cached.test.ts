@@ -38,7 +38,11 @@ jest.mock('next/cache', () => ({
 const getBusinessId = jest.fn(async () => 'biz-1')
 jest.mock('@/lib/staff', () => ({ getBusinessId: () => getBusinessId() }))
 
-import { getCachedMenuOptions, getCachedMenuOptionsFor } from '@/lib/menus/cached'
+import {
+  getCachedMenuOptions,
+  getCachedMenuOptionsFor,
+  scopeMenuOptions,
+} from '@/lib/menus/cached'
 
 const row = (over: Record<string, unknown>) => ({
   business_id: 'biz-1',
@@ -161,5 +165,53 @@ describe('getCachedMenuOptions (cookie wrapper)', () => {
     expect(SynqedClient).toHaveBeenCalledWith(
       expect.objectContaining({ businessId: 'biz-cookie' }),
     )
+  })
+})
+
+/**
+ * The store-isolation filter the picker consumers apply post-cache (⚖ Liam
+ * 2026-08-17). Pure, so it is pinned here as a matrix; that BOTH consumers
+ * actually call it is pinned at each consumer (menus-picker-store-scope.test.ts
+ * for the web page, app-api-screens-appointments.test.ts for the facade).
+ */
+describe('scopeMenuOptions (pure)', () => {
+  const ALL_STORE = { id: 'm-all', store_id: null, storeName: null }
+  const OWN = { id: 'm-own', store_id: 'store-A', storeName: 'La Estro 銀座' }
+  const FOREIGN = { id: 'm-other', store_id: 'store-B', storeName: 'La Estro 代官山' }
+  const CATALOG = [ALL_STORE, OWN, FOREIGN]
+
+  it('null scope filters nothing (viewAll / floating staff)', () => {
+    expect(scopeMenuOptions(CATALOG, null)).toEqual(CATALOG)
+  })
+
+  it('keeps the actor’s stores plus every 全店舗 row', () => {
+    expect(scopeMenuOptions(CATALOG, ['store-A'])).toEqual([ALL_STORE, OWN])
+  })
+
+  it('a multi-store assignment keeps them all', () => {
+    expect(scopeMenuOptions(CATALOG, ['store-A', 'store-B'])).toEqual(CATALOG)
+  })
+
+  it('an EMPTY scope keeps the 全店舗 rows only — the fail-closed answer', () => {
+    expect(scopeMenuOptions(CATALOG, [])).toEqual([ALL_STORE])
+  })
+
+  it('an all-全店舗 catalog survives any scope', () => {
+    expect(scopeMenuOptions([ALL_STORE], ['store-A'])).toEqual([ALL_STORE])
+  })
+
+  it('an empty list stays empty', () => {
+    expect(scopeMenuOptions([], ['store-A'])).toEqual([])
+  })
+
+  it('drops the foreign row’s store NAME with it — the leak is the name too', () => {
+    const kept = scopeMenuOptions(CATALOG, ['store-A'])
+    expect(JSON.stringify(kept)).not.toContain('La Estro 代官山')
+  })
+
+  it('returns a NEW array and never mutates the cached one (it is shared)', () => {
+    const kept = scopeMenuOptions(CATALOG, ['store-A'])
+    expect(kept).not.toBe(CATALOG)
+    expect(CATALOG).toHaveLength(3)
   })
 })

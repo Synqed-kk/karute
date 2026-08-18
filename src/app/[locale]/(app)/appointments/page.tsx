@@ -9,7 +9,7 @@ import { getOrgSettings } from '@/actions/org-settings'
 import { getAppointmentsInRange } from '@/actions/appointments'
 import { getCachedDayAgenda } from '@/lib/appointments/day-agenda-cached'
 import { getCachedCustomerList } from '@/lib/customers/cached'
-import { getCachedMenuOptions } from '@/lib/menus/cached'
+import { getCachedMenuOptions, scopeMenuOptions } from '@/lib/menus/cached'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
 import { listAllPackUsage } from '@/lib/packs/store'
 import { getBusinessId } from '@/lib/staff'
@@ -125,6 +125,15 @@ export default async function AppointmentsPage({
     ),
   ])
 
+  // Store-isolate the picker (⚖ Liam 2026-08-17): the cached union is
+  // business-wide and actor-blind by design, so the clamp lands here, on the
+  // scope resolved at :113. A degraded assignment lookup vouches for no store
+  // → 全店舗 rows only, the same fail-closed posture as the write clamp.
+  const menus = scopeMenuOptions(
+    menuOptions,
+    storeScope.degraded ? [] : storeScope.allowedStoreIds,
+  )
+
   const authProfileId = user?.id ?? null
   const storeStaffIds = await t.phase('storeStaffIds', () =>
     storeStaffIdSet(staffList, storeScope.storeId),
@@ -199,7 +208,7 @@ export default async function AppointmentsPage({
         reservationStaff={screen.reservationStaff}
         businessHours={screen.businessHours}
         staffFilter={staffFilter}
-        menus={menuOptions}
+        menus={menus}
       />
     </>
   )
