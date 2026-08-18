@@ -3,9 +3,9 @@
 // on FIXTURE DATA ONLY until he gives the explicit reconnect order. This guard
 // is the machine that enforces it, across ALL Business territory:
 //
-//   1. NO core reach, anywhere — @synqed-kk/client, the app's core-client
-//      factory (lib/synqed/client), `new SynqedClient(`, `getSynqedClient(`.
-//      No file is exempt, src/business/lib/ included.
+//   1. NO DIRECT core reach, anywhere — @synqed-kk/client, the app's
+//      core-client factory (lib/synqed/client), `new SynqedClient(`,
+//      `getSynqedClient(`. No file is exempt, src/business/lib/ included.
 //   2. NO writes, anywhere — .insert( .update( .upsert( .delete( .rpc(.
 //      Zero exemptions, the lock files included: nothing in Business can edit
 //      anything, by construction.
@@ -18,9 +18,22 @@
 // and scripts/business/ is CODEOWNER-gated, so that PR gets owner review by
 // construction. That is the point.
 //
+// ⚠ WHAT THIS GUARD CANNOT SEE (2026-08-19 post-merge audit, the reason the
+// pair exists): it reads DIRECT specifiers and call sites in territory files
+// only. Territory once reached core INDIRECTLY — @/actions/stores,
+// @/lib/auth/*, @/lib/staff all call core on Business's behalf — and every
+// rule below stayed green, because none of those names is a client. The
+// INDIRECT half is closed by the import ALLOWLIST in
+// src/__tests__/integration/business-isolation.test.ts: territory may import
+// only itself, react/next, node builtins and the two supabase modules, so a
+// new helper-shaped path is an offender by default. Neither half is the
+// machine on its own; the pair is.
+//
 // Scope = the WHOLE territory (scripts/business/business-territory.json, the
 // same source of truth the diff gate and the jest import-isolation suite read).
-// Missing roots are a no-op: territory is empty today.
+// A missing root is a no-op; the roots that exist hold real files today
+// (grants/admission/data/fixtures, the i18n loader, the shell layout) and
+// every live run scans them.
 //
 // Run: node scripts/business/check-business-data-access.mjs  (wired into CI's
 // audit-gates job). No dependencies. Shape copied from
@@ -47,8 +60,9 @@
 //     (readdirSync Dirent: isDirectory() is false for a link) — the jest
 //     suite's "no symlinks in the scanned trees" assertion catches it in the
 //     same CI run, so the pair is closed without a second lstat here.
-//   - Territory is EMPTY today, so the live run is trivially green; the
-//     selftest fixtures are the real red→green proof.
+//   - The live run scans real territory files, but only the ones that exist
+//     — the selftest fixtures are what pin every rule in both directions,
+//     including the ones no current file happens to exercise.
 
 import { readdirSync, readFileSync, existsSync } from 'node:fs'
 import { join, relative, dirname, sep } from 'node:path'

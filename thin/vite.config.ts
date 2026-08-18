@@ -32,18 +32,26 @@ const ACTIONS_PORT = port('actions.vite.ts')
 // suite reads import specifiers, but rollup resolves to REAL absolute paths.
 // A symlink, alias or relative traversal that lands on Business code is caught
 // here however it was spelled, because the path — not the spelling — is judged.
-const BUSINESS_DIR = path.resolve(root, 'src/business') + path.sep
+// Both halves of the app-side territory: the library AND the route group that
+// renders it (src/app/[locale]/(business)/…). The route group was outside this
+// fence until the 2026-08-19 audit — its layout is Business code living under
+// src/app/, and nothing stopped the phone bundle resolving into it.
+const BUSINESS_DIRS = [
+  path.resolve(root, 'src/business') + path.sep,
+  path.resolve(root, 'src/app/[locale]/(business)') + path.sep,
+]
+const inBusinessDir = (file: string) => BUSINESS_DIRS.some((d) => file.startsWith(d))
 
 function isBusinessPath(id: string): boolean {
   // Drop rollup's query suffixes (?url, ?raw, ?worker) before touching the fs.
   const file = id.split('?')[0]
-  if (file.startsWith(BUSINESS_DIR)) return true
+  if (inBusinessDir(file)) return true
   // Vite's default preserveSymlinks:false already hands us real paths; the
   // realpath re-check keeps the guard honest if that default ever flips.
   // Virtual modules (\0…) and generated ids have no real path — they throw
   // here and are correctly judged non-Business.
   try {
-    return realpathSync(file).startsWith(BUSINESS_DIR)
+    return inBusinessDir(realpathSync(file))
   } catch {
     return false
   }
@@ -128,13 +136,13 @@ function boundaryPlugin(): Plugin {
       })
       if (!resolved) return null
 
-      // (e) ANY module under src/business/** → LOUD build failure. No port
-      // exists by design; see BUSINESS_DIR above.
+      // (e) ANY module inside Business territory → LOUD build failure. No port
+      // exists by design; see BUSINESS_DIRS above.
       if (isBusinessPath(resolved.id)) {
         throw new Error(
           `[thin boundary] "${source}" imported by ${importer} resolves into SYNQED Business ` +
             `(${resolved.id}). Business is open-web only — the phone bundle must never reach it. ` +
-            'If this is genuinely shared code, move it OUT of src/business/ in its own non-Business PR.',
+            'If this is genuinely shared code, move it OUT of Business territory in its own non-Business PR.',
         )
       }
 
