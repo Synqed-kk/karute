@@ -184,25 +184,40 @@ describe('the fixture data door', () => {
     expect((await data.listStaff(STORE_A)).map((m) => m.id)).toEqual(['p-01', 'c-03', 'p-04', 'p-05'])
     expect((await data.listStaff(STORE_B)).map((m) => m.id)).toEqual(['p-02', 'c-03', 'p-05'])
   })
-  it('territory names no path that can reach core — the seal is structural', () => {
-    // Tripwire until the fence guard re-gates the whole territory. The post-
-    // merge audit found the leaks were INDIRECT (listStores, resolveStoreScope,
-    // getMyCapabilities, @/lib/staff all reach synqed-core through shared
-    // helpers), so the banned list covers the doorways, not just the client.
-    const CORE_REACHING = ['@synqed-kk/client', 'getSynqedClient', '@/actions/', '@/lib/auth/']
-    const DATA_SIDE = [...CORE_REACHING, 'createServiceClient', '@/lib/supabase', 'getMyCapabilities', '@/lib/staff']
-    const cases: Array<[string, string[]]> = [
-      ['src/business/lib/data.ts', DATA_SIDE],
-      ['src/business/lib/fixtures.ts', DATA_SIDE],
-      ['src/app/[locale]/(business)/layout.tsx', DATA_SIDE],
-      // The lock legitimately holds the two supabase factories; it may still
-      // never name a core doorway.
-      ['src/business/lib/admission.ts', CORE_REACHING],
-      ['src/business/lib/grants.ts', CORE_REACHING],
+  it('the sealed files import EXACTLY their inventory — any new import goes red', () => {
+    // Stronger than a banned-literal list, which an UNLISTED helper reaching
+    // core would walk straight past (Greptile P2 on #720): this pins the
+    // COMPLETE import set per file, so any new specifier — core-reaching or
+    // innocuous — fails until it is deliberately added here. Same-file regex
+    // scan, no resolver needed; one regex per import form (never a combined
+    // alternation — the #660 spanning-wildcard lesson) and comment lines are
+    // stripped first so prose can't plant a phantom specifier.
+    const FORMS = [
+      /from\s*'([^'\n]+)'/g,
+      /from\s*"([^"\n]+)"/g,
+      /import\s*['"]([^'"\n]+)['"]/g,
+      /import\s*\(\s*['"`]([^'"`\n]+)['"`]/g,
+      /require\s*\(\s*['"`]([^'"`\n]+)['"`]/g,
     ]
-    for (const [file, banned] of cases) {
+    const INVENTORY: Record<string, string[]> = {
+      'src/business/lib/data.ts': ['./fixtures'],
+      'src/business/lib/fixtures.ts': [],
+      'src/business/i18n/index.ts': ['./ja.json'],
+      'src/app/[locale]/(business)/layout.tsx': ['@/business/i18n', '@/business/lib/admission'],
+      'src/business/lib/admission.ts': ['./grants', '@/lib/supabase/server', 'next/navigation'],
+      'src/business/lib/grants.ts': ['@/lib/supabase/service'],
+    }
+    for (const [file, expected] of Object.entries(INVENTORY)) {
       const src = readFileSync(join(process.cwd(), file), 'utf8')
-      for (const literal of banned) expect(`${file}: ${src}`).not.toContain(literal)
+        .split('\n')
+        .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+        .join('\n')
+      const found = new Set<string>()
+      for (const re of FORMS) {
+        re.lastIndex = 0
+        for (let m = re.exec(src); m; m = re.exec(src)) found.add(m[1])
+      }
+      expect({ file, imports: [...found].sort() }).toEqual({ file, imports: [...expected].sort() })
     }
   })
 })
