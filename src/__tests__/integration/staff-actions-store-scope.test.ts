@@ -115,6 +115,9 @@ describe.each(writes)('%s — actor store-scope clamp', (_name, run, coreWrite) 
 
   it('the clamp is asked about the TARGET, with the resolved actor', async () => {
     await run()
-    expect(staffWriteInScope).toHaveBeenCalledWith('staff-9', 'actor-1')
+    expect(staffWriteInScope).toHaveBeenCalledWith({
+      targetStaffId: 'staff-9',
+      actorId: 'actor-1',
+    })
   })
 })

@@ -174,58 +174,77 @@ describe('staffWriteInScope', () => {
 
   it('viewAll passes free and never consults an assignment', async () => {
     mockCaps.mockResolvedValue(caps('stores.viewAll'))
-    expect(await staffWriteInScope('staff-other', ACTOR)).toBe(true)
+    expect(await staffWriteInScope({ targetStaffId: 'staff-other', actorId: ACTOR })).toBe(true)
     expect(mockStores).not.toHaveBeenCalled()
   })
 
   it('clamped actor, out-of-scope target → refused', async () => {
     mockCaps.mockResolvedValue(caps())
     assign({ [ACTOR]: ['store-A'], 'staff-other': ['store-B'] })
-    expect(await staffWriteInScope('staff-other', ACTOR)).toBe(false)
+    expect(await staffWriteInScope({ targetStaffId: 'staff-other', actorId: ACTOR })).toBe(false)
   })
 
   it('clamped actor, target sharing a branch → passes', async () => {
     mockCaps.mockResolvedValue(caps())
     assign({ [ACTOR]: ['store-A', 'store-B'], 'staff-other': ['store-B'] })
-    expect(await staffWriteInScope('staff-other', ACTOR)).toBe(true)
+    expect(await staffWriteInScope({ targetStaffId: 'staff-other', actorId: ACTOR })).toBe(true)
   })
 
-  it('floating TARGET (no assignment = works in every store) → passes', async () => {
+  it('floating TARGET (in every branch = the 全店舗 rule) → refused', async () => {
+    // Menus parity (src/actions/menus.ts:95-98): an every-store item takes
+    // stores.viewAll, however the actor is assigned.
     mockCaps.mockResolvedValue(caps())
     assign({ [ACTOR]: ['store-A'], 'staff-other': [] })
-    expect(await staffWriteInScope('staff-other', ACTOR)).toBe(true)
+    expect(await staffWriteInScope({ targetStaffId: 'staff-other', actorId: ACTOR })).toBe(false)
   })
 
   it('floating ACTOR → passes for a real-store target, target never looked up', async () => {
     mockCaps.mockResolvedValue(caps())
     assign({ [ACTOR]: [] })
-    expect(await staffWriteInScope('staff-other', ACTOR)).toBe(true)
+    expect(await staffWriteInScope({ targetStaffId: 'staff-other', actorId: ACTOR })).toBe(true)
     expect(mockStores).toHaveBeenCalledTimes(1) // the actor's own lookup only
   })
 
   it("a failed lookup of the ACTOR's assignment (degraded) → refused, fail closed", async () => {
     mockCaps.mockResolvedValue(caps())
     assign({ [ACTOR]: null })
-    expect(await staffWriteInScope('staff-other', ACTOR)).toBe(false)
+    expect(await staffWriteInScope({ targetStaffId: 'staff-other', actorId: ACTOR })).toBe(false)
+  })
+
+  it('an actor the roster cannot place (staffId null) → refused for a real-store AND a floating target', async () => {
+    // Null staffId = the assignment could not be read at all, so it is the
+    // same failed lookup as degraded — never a genuine empty (F-A).
+    mockCaps.mockResolvedValue(caps())
+    mockStaffId.mockResolvedValue(null)
+    assign({ 'staff-other': ['store-B'], 'staff-floating': [] })
+    expect(await staffWriteInScope({ targetStaffId: 'staff-other', actorId: null })).toBe(false)
+    expect(await staffWriteInScope({ targetStaffId: 'staff-floating', actorId: null })).toBe(false)
+  })
+
+  it('viewAll never consults staffId, so a null one changes nothing', async () => {
+    mockCaps.mockResolvedValue(caps('stores.viewAll'))
+    mockStaffId.mockResolvedValue(null)
+    expect(await staffWriteInScope({ targetStaffId: 'staff-other', actorId: null })).toBe(true)
+    expect(mockStores).not.toHaveBeenCalled()
   })
 
   it("a failed lookup of the TARGET's assignment → refused, fail closed", async () => {
     mockCaps.mockResolvedValue(caps())
     assign({ [ACTOR]: ['store-A'], 'staff-other': null })
-    expect(await staffWriteInScope('staff-other', ACTOR)).toBe(false)
+    expect(await staffWriteInScope({ targetStaffId: 'staff-other', actorId: ACTOR })).toBe(false)
   })
 
   it('self-edit passes even for a clamped actor, with no target lookup', async () => {
     // The read plane guarantees self-visibility; the write plane must agree.
     mockCaps.mockResolvedValue(caps())
     assign({ [ACTOR]: ['store-A'] })
-    expect(await staffWriteInScope(ACTOR, ACTOR)).toBe(true)
+    expect(await staffWriteInScope({ targetStaffId: ACTOR, actorId: ACTOR })).toBe(true)
     expect(mockStores).toHaveBeenCalledTimes(1)
   })
 
   it('a null actor id never matches a target (no accidental self-pass)', async () => {
     mockCaps.mockResolvedValue(caps())
     assign({ [ACTOR]: ['store-A'], 'staff-other': ['store-B'] })
-    expect(await staffWriteInScope('staff-other', null)).toBe(false)
+    expect(await staffWriteInScope({ targetStaffId: 'staff-other', actorId: null })).toBe(false)
   })
 })

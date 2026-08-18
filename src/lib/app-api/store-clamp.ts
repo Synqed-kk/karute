@@ -114,6 +114,9 @@ export async function resolveStoreForRequest(args: {
  * `allowedStoreIds: null` out of resolveStoreForRequest), plus a SELF-edit.
  * A failed lookup of the CALLER's own assignment already fails closed inside
  * resolveStoreForRequest; a failed lookup of the TARGET's fails closed here.
+ * The self-pass covers DELETE as well as name/avatar: a clamped caller may
+ * still remove their own row, unchanged from main — core's last-member guard
+ * is the backstop there.
  *
  * `requestedStoreId: null` deliberately: these routes carry no `store-id`
  * header, and the clamp is called purely for its viewAll / assignment /

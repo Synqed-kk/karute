@@ -415,11 +415,17 @@ describe('staff writes are clamped to the caller\'s stores', () => {
       expect(coreWrite).toHaveBeenCalled()
     })
 
-    it('floating TARGET (no assignment = every store) → passes', async () => {
+    it('floating TARGET (in every branch = the 全店舗 rule) → 403 store_forbidden, core untouched, no audit row', async () => {
+      // Menus parity (src/actions/menus.ts:95-98): an every-store item takes
+      // stores.viewAll, however the caller is assigned.
       storeAssignments = { [CALLER]: ['store-a'] }
-      const res = await run()
-      expect(res.status).toBeLessThan(300)
-      expect(coreWrite).toHaveBeenCalled()
+      const lines = await auditLines(async () => {
+        const res = await run()
+        expect(res.status).toBe(403)
+        expect((await res.json()).error).toMatchObject({ code: 'store_forbidden' })
+      })
+      expect(coreWrite).not.toHaveBeenCalled()
+      expect(lines).toHaveLength(0)
     })
 
     it('floating CALLER (no assignment) → passes for a real-store target', async () => {
@@ -458,6 +464,16 @@ describe('staff writes are clamped to the caller\'s stores', () => {
       expect(res.status).toBe(403)
       expect(coreWrite).not.toHaveBeenCalled()
     })
+  })
+
+  it('PATCH clamps BEFORE the body parse: an out-of-scope target with an INVALID body is still 403 store_forbidden', async () => {
+    // Precedence pin — a 400 here would mean the payload was read before the
+    // caller's right to touch this row was settled (avatar-route ordering).
+    storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
+    const res = await updatePATCH(patchReq(TARGET, { name: '' }), params(TARGET))
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden' })
+    expect(staffUpdate).not.toHaveBeenCalled()
   })
 
   it('self-edit: a clamped caller may always change their OWN avatar', async () => {

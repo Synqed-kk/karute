@@ -190,15 +190,19 @@ export function canUseAskAi(caps: Set<Capability>): boolean {
  *   - `targetStores === null` → the target's assignment LOOKUP failed → refuse.
  *     Fail-closed, the same posture as the menu clamp's `degraded` (F-A): a
  *     write we can't vouch for doesn't happen.
- *   - `[]` → floating target: works in every store (the staff_stores convention
- *     the read plane already follows) → pass.
+ *   - `[]` → floating target: they appear in EVERY branch's roster, the staff
+ *     analogue of a 全店舗 menu — and src/actions/menus.ts:95-98 already ruled
+ *     that touching an every-store item takes `stores.viewAll` no matter how
+ *     the actor is assigned. Same rule here → refuse. This also closes the
+ *     unknown-id corner: if core ever answers `{ store_ids: [] }` for a staff
+ *     id that doesn't exist, a clamped actor is refused, not waved through.
  *   - else → pass iff the two assignments overlap.
  */
 export function staffStoresOverlap(
   allowedStoreIds: string[],
   targetStores: string[] | null,
 ): boolean {
-  if (targetStores === null) return false
-  if (targetStores.length === 0) return true
+  // Both refusals above: a failed lookup (null) and an every-store target ([]).
+  if (!targetStores?.length) return false
   return targetStores.some((id) => allowedStoreIds.includes(id))
 }

@@ -57,6 +57,19 @@ export const PATCH = facadeHandler<Params>('staff.update', async (ctx) => {
   const { id } = await ctx.route.params
   if (!id) throw new AppApiError('validation', 'staff id is required')
 
+  const businessId = ctx.identity.businessId
+  const synqed = newSynqedClient(businessId)
+  // Actor store scope BEFORE the body is even read — a refused edit touches
+  // nothing and never depends on the payload (the avatar route's ordering, and
+  // web's clamp-before-parse). Outside the try below: its store_forbidden must
+  // reach the client as 403, not be reclassified by classifyStaffWriteError.
+  await ensureStaffWriteInScope({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    targetStaffId: id,
+  })
+
   let body: unknown
   try {
     body = await ctx.req.json()
@@ -68,17 +81,6 @@ export const PATCH = facadeHandler<Params>('staff.update', async (ctx) => {
     throw new AppApiError('validation', parsed.error.issues.map((i) => i.message).join(', '))
   }
 
-  const businessId = ctx.identity.businessId
-  const synqed = newSynqedClient(businessId)
-  // Actor store scope BEFORE any core call — a refused edit touches nothing.
-  // Outside the try: its store_forbidden must reach the client as 403, not be
-  // reclassified by classifyStaffWriteError.
-  await ensureStaffWriteInScope({
-    synqed,
-    authUserId: ctx.identity.authUserId,
-    capabilities: ctx.identity.capabilities,
-    targetStaffId: id,
-  })
   try {
     const result = await updateStaffCore(
       synqed,

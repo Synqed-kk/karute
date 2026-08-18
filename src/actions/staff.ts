@@ -57,7 +57,11 @@ type StaffActionResult = { error: string } | void
  *  The rule itself (free passes, fail-closed cases) lives in staffWriteInScope
  *  — see its doc comment. */
 async function storeScopeError(targetId: string): Promise<string | null> {
-  if (await staffWriteInScope(targetId, await resolveWebActorId())) return null
+  const inScope = await staffWriteInScope({
+    targetStaffId: targetId,
+    actorId: await resolveWebActorId(),
+  })
+  if (inScope) return null
   const t = await getTranslations('settings')
   return t('staffStoreScopeDenied')
 }
