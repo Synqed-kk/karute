@@ -1,14 +1,25 @@
 #!/usr/bin/env node
-// Business data-access guard (P1.5 foundation, ruling 3): inside Business
-// territory, screens reach data ONLY through src/business/lib/ — the wrapper
-// that is the one-file swap point when core actor-enforcement lands. Every
-// other territory file is forbidden from opening its own door: no
-// @synqed-kk/client import, no lib/supabase import (aliased OR relative), no
-// `new SynqedClient(`, no createServiceClient()/createClient() call.
+// Business play-phase fence (Liam's ruling, 2026-08-19): SYNQED Business runs
+// on FIXTURE DATA ONLY until he gives the explicit reconnect order. This guard
+// is the machine that enforces it, across ALL Business territory:
+//
+//   1. NO core reach, anywhere — @synqed-kk/client, the app's core-client
+//      factory (lib/synqed/client), `new SynqedClient(`, `getSynqedClient(`.
+//      No file is exempt, src/business/lib/ included.
+//   2. NO writes, anywhere — .insert( .update( .upsert( .delete( .rpc(.
+//      Zero exemptions, the lock files included: nothing in Business can edit
+//      anything, by construction.
+//   3. Supabase / service-client READS are legal in EXACTLY two lock files,
+//      src/business/lib/grants.ts and src/business/lib/admission.ts, so the
+//      workspace-grant lock stays real config, not a fixture. Everywhere else
+//      in territory — data.ts included — they are forbidden.
+//
+// Reconnection is a deliberate PR on Liam's word that has to amend this file,
+// and scripts/business/ is CODEOWNER-gated, so that PR gets owner review by
+// construction. That is the point.
 //
 // Scope = the WHOLE territory (scripts/business/business-territory.json, the
-// same source of truth the diff gate and the jest import-isolation suite read)
-// — screens land under src/app/[locale]/(business)/ too, not just src/business/.
+// same source of truth the diff gate and the jest import-isolation suite read).
 // Missing roots are a no-op: territory is empty today.
 //
 // Run: node scripts/business/check-business-data-access.mjs  (wired into CI's
@@ -21,10 +32,12 @@
 //
 // Notes:
 //   - `import type` from @synqed-kk/client is flagged DELIBERATELY: types come
-//     through the wrapper too, so the swap point stays one file.
+//     through the fixture door too, so the swap point stays one file.
 //   - Ceiling (accepted): a text scan cannot see a dynamically built specifier
 //     or an aliased re-export from outside territory, and a matching string
-//     inside a string literal false-flags — ALLOW is the escape hatch.
+//     inside a string literal false-flags. The write patterns are dot-anchored
+//     names, so a Map/Set `.delete(` false-flags too — ALLOW is the escape
+//     hatch for both, and it is owner-reviewed like everything else here.
 //   - Comment state is computed with single-line string contents blanked, so a
 //     '/*' inside a quoted string cannot blind the rest of the file (Greptile
 //     P2). A MULTI-LINE template literal is the residual: its contents are not
@@ -42,7 +55,12 @@ import { join, relative, dirname, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { loadTerritory } from './check-business-isolation.mjs'
 
-const WRAPPER = 'src/business/lib' // THE data door — exempt by design
+// The ONLY files allowed a supabase read — the workspace-grant lock itself.
+const LOCK_FILES = ['src/business/lib/grants.ts', 'src/business/lib/admission.ts']
+
+// Per-rule scope: does this rule apply to this file?
+const EVERYWHERE = () => true
+const OUTSIDE_LOCK_FILES = (rel) => !LOCK_FILES.includes(rel)
 
 // One regex per import form, specifier captured. `\s*` spans newlines, so
 // `from\n  '@/lib/supabase/server'` matches; the specifier itself forbids
@@ -55,28 +73,45 @@ const IMPORT_FORMS = [
   /\brequire\s*\(\s*['"`]([^'"`\n]+)['"`]/g,
 ]
 
+// Aliased (@/lib/x/…) and relative (../../lib/x/…) reach into the same module.
+const reachesLib = (mod) => new RegExp(`^(?:@\\/|\\.\\.?\\/(?:[^\\n]*\\/)?)lib\\/${mod}(?:\\/|$)`)
+
 const FORBIDDEN_SPECIFIER = [
-  [
-    'core SDK import (@synqed-kk/client)',
-    (s) => s === '@synqed-kk/client' || s.startsWith('@synqed-kk/client/'),
-  ],
-  [
-    'supabase client import (lib/supabase/*)',
-    // Aliased (@/lib/supabase/…) and relative (../../lib/supabase/…) both.
-    (s) => /^(?:@\/|\.\.?\/(?:[^\n]*\/)?)lib\/supabase(?:\/|$)/.test(s),
-  ],
+  {
+    label: 'core SDK import (@synqed-kk/client)',
+    test: (s) => s === '@synqed-kk/client' || s.startsWith('@synqed-kk/client/'),
+    scope: EVERYWHERE,
+  },
+  {
+    label: 'core client factory import (lib/synqed/client)',
+    test: (s) => reachesLib('synqed/client').test(s),
+    scope: EVERYWHERE,
+  },
+  {
+    label: 'supabase client import (lib/supabase/*)',
+    test: (s) => reachesLib('supabase').test(s),
+    scope: OUTSIDE_LOCK_FILES,
+  },
 ]
 
 const CALL_PATTERNS = [
-  { re: /\bnew\s+SynqedClient\s*\(/g, label: 'new SynqedClient(' },
-  { re: /\bcreateServiceClient\s*\(/g, label: 'createServiceClient(' },
-  { re: /\bcreateClient\s*\(/g, label: 'createClient(' },
+  { re: /\bnew\s+SynqedClient\s*\(/g, label: 'new SynqedClient(', scope: EVERYWHERE },
+  { re: /\bgetSynqedClient\s*\(/g, label: 'getSynqedClient(', scope: EVERYWHERE },
+  { re: /\bcreateServiceClient\s*\(/g, label: 'createServiceClient(', scope: OUTSIDE_LOCK_FILES },
+  { re: /\bcreateClient\s*\(/g, label: 'createClient(', scope: OUTSIDE_LOCK_FILES },
+  // Writes: banned territory-wide, lock files included. Nothing in Business
+  // edits anything during the play phase.
+  { re: /\.insert\s*\(/g, label: 'write call .insert(', scope: EVERYWHERE },
+  { re: /\.update\s*\(/g, label: 'write call .update(', scope: EVERYWHERE },
+  { re: /\.upsert\s*\(/g, label: 'write call .upsert(', scope: EVERYWHERE },
+  { re: /\.delete\s*\(/g, label: 'write call .delete(', scope: EVERYWHERE },
+  { re: /\.rpc\s*\(/g, label: 'write call .rpc(', scope: EVERYWHERE },
 ]
 
 // Known-legal exceptions. Same contract as check-dark-interactive's ALLOW:
 // exact path + label + a `match` substring the flagged line must contain + a
 // `count` budget, so a pinned string copied onto a new line fails the whole
-// entry closed. Empty today — every raw-client call lives in the wrapper.
+// entry closed. Empty today.
 const ALLOW = []
 
 // allowJs is on (tsconfig), so .js/.mjs/.cjs/.jsx are real source here.
@@ -152,7 +187,6 @@ export function scanDataAccess(rootDir, allow = ALLOW) {
   const exemptUses = new Map()
   for (const file of files) {
     const rel = relative(rootDir, file).split(sep).join('/')
-    if (rel === WRAPPER || rel.startsWith(WRAPPER + '/')) continue
     const srcLines = readFileSync(file, 'utf8').split('\n')
     const code = stripComments(srcLines.join('\n'))
     // Territory files are small — counting newlines per match is cheap enough.
@@ -162,11 +196,12 @@ export function scanDataAccess(rootDir, allow = ALLOW) {
     for (const re of IMPORT_FORMS) {
       re.lastIndex = 0
       for (let m = re.exec(code); m; m = re.exec(code)) {
-        const hit = FORBIDDEN_SPECIFIER.find(([, test]) => test(m[1]))
-        if (hit) hits.push({ line: lineOf(m.index), label: hit[0] })
+        const rule = FORBIDDEN_SPECIFIER.find((r) => r.scope(rel) && r.test(m[1]))
+        if (rule) hits.push({ line: lineOf(m.index), label: rule.label })
       }
     }
-    for (const { re, label } of CALL_PATTERNS) {
+    for (const { re, label, scope } of CALL_PATTERNS) {
+      if (!scope(rel)) continue
       re.lastIndex = 0
       for (let m = re.exec(code); m; m = re.exec(code)) hits.push({ line: lineOf(m.index), label })
     }
@@ -206,15 +241,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const root = join(dirname(fileURLToPath(import.meta.url)), '../..')
   const findings = scanDataAccess(root)
   if (findings.length) {
-    console.error(`✗ business data-access guard: ${findings.length} violation(s)\n`)
+    console.error(`✗ business play-phase fence: ${findings.length} violation(s)\n`)
     for (const f of findings) console.error(`  ${f.rel}:${f.line}  [${f.label}]\n    ${f.text}`)
     console.error(
-      '\nBusiness screens import data ONLY from src/business/lib/ (the wrapper).' +
-        '\nNeed a new query? Add it there — that file is the swap point for core' +
-        '\nactor-enforcement. A genuinely legal exception needs an ALLOW entry' +
-        '\nwith a reason and an exact-occurrence pin + count.',
+      '\nBusiness runs on FIXTURE DATA until Liam gives the reconnect order:' +
+        '\nno core SDK or core-client reach anywhere in territory, no writes' +
+        `\nanywhere, supabase READS only in ${LOCK_FILES.join(' / ')}.` +
+        '\nReconnecting is a deliberate owner-reviewed PR that amends this guard.',
     )
     process.exit(1)
   }
-  console.log(`✓ business data-access guard: Business territory clean (wrapper: ${WRAPPER}/)`)
+  console.log('✓ business play-phase fence: territory clean (no core reach, no writes)')
 }
