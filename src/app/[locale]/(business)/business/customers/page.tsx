@@ -40,10 +40,14 @@ export default async function CustomersPage({
     listAppointments(lens),
   ])
 
-  // Next booking per customer, within the lens: earliest still-booked slot.
+  // 次回予約 per customer, within the lens: the earliest still-booked slot that
+  // has NOT started yet. One `now` for the whole render, compared as ISO
+  // instants — "already began" is an absolute fact, so no timezone enters here
+  // (JST belongs to the display strings above).
+  const now = new Date().toISOString()
   const nextByCustomer = new Map<string, string>()
   for (const a of [...appointments].sort((x, y) => x.starts_at.localeCompare(y.starts_at))) {
-    if (a.status !== 'booked' || nextByCustomer.has(a.customer_id)) continue
+    if (a.status !== 'booked' || a.starts_at <= now || nextByCustomer.has(a.customer_id)) continue
     nextByCustomer.set(a.customer_id, formatSlot(a.starts_at, a.ends_at))
   }
 

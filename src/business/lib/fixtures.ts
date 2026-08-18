@@ -39,7 +39,11 @@ export const customers: FixtureCustomer[] = [
 ]
 
 /** apt-09 is deliberately STORELESS (the pre-repair-import shape) — hidden from
- *  a clamped lens, visible under viewAll. */
+ *  a clamped lens, visible under viewAll. apt-11/apt-12 are PAST bookings: a
+ *  booking that already started is never a 次回予約.
+ *  ponytail: these dates are fixed, so the demo's "next booking" column empties
+ *  once real time passes them — re-date the block (or make it relative) when
+ *  the play phase outlives it. */
 export const appointments: FixtureAppointment[] = [
   { id: 'apt-01', store_id: STORE_A, customer_id: 'cus-01', staff_id: 'p-01', starts_at: '2026-08-19T01:00:00Z', ends_at: '2026-08-19T02:00:00Z', status: 'booked' },
   { id: 'apt-02', store_id: STORE_A, customer_id: 'cus-02', staff_id: 'p-04', starts_at: '2026-08-19T02:30:00Z', ends_at: '2026-08-19T03:30:00Z', status: 'booked' },
@@ -51,6 +55,8 @@ export const appointments: FixtureAppointment[] = [
   { id: 'apt-08', store_id: STORE_A, customer_id: 'cus-08', staff_id: 'p-01', starts_at: '2026-08-22T00:30:00Z', ends_at: '2026-08-22T01:30:00Z', status: 'booked' },
   { id: 'apt-09', store_id: null, customer_id: 'cus-07', staff_id: null, starts_at: '2026-08-19T07:00:00Z', ends_at: '2026-08-19T08:00:00Z', status: 'booked' },
   { id: 'apt-10', store_id: STORE_B, customer_id: 'cus-04', staff_id: 'p-05', starts_at: '2026-08-23T02:00:00Z', ends_at: '2026-08-23T03:00:00Z', status: 'booked' },
+  { id: 'apt-11', store_id: STORE_A, customer_id: 'cus-01', staff_id: 'p-01', starts_at: '2026-08-12T01:00:00Z', ends_at: '2026-08-12T02:00:00Z', status: 'booked' },
+  { id: 'apt-12', store_id: STORE_A, customer_id: 'cus-05', staff_id: 'p-04', starts_at: '2026-08-11T04:00:00Z', ends_at: '2026-08-11T05:00:00Z', status: 'booked' },
 ]
 
 /** menu-06 has no store_id: a 全店舗 item, visible in every store. */

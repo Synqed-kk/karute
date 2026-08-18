@@ -283,6 +283,11 @@ describe('the fixture data door', () => {
 })
 
 describe('顧客一覧 screen', () => {
+  // The fixture calendar is fixed, so the clock is too: without a pin, "is this
+  // booking still ahead of us?" would make every assertion below expire.
+  beforeAll(() => jest.useFakeTimers().setSystemTime(new Date('2026-08-19T00:00:00Z')))
+  afterAll(() => jest.useRealTimers())
+
   /** The page returns an element tree; find the props the table is handed.
    *  No renderer needed (and react-dom is off the import allowlist anyway). */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -319,6 +324,13 @@ describe('顧客一覧 screen', () => {
   })
   it('a cancelled booking is not a next booking', async () => {
     expect((await render(STORE_B))!.find((r) => r.id === 'cus-05')!.nextSlot).toBeNull()
+  })
+  it('a booking that already started is not a next booking', async () => {
+    // cus-01 holds a past booking (apt-11, 8月12日) AND a future one (apt-01):
+    // the future one wins. cus-05's only 銀座 booking is past (apt-12) → none.
+    const ginza = (await render(STORE_A))!
+    expect(ginza.find((r) => r.id === 'cus-01')!.nextSlot).toBe('8月19日 10:00–11:00')
+    expect(ginza.find((r) => r.id === 'cus-05')!.nextSlot).toBeNull()
   })
   it('formats the slot in JST regardless of the server clock', async () => {
     // 2026-08-19T01:00:00Z = 10:00 JST — never 01:00.
