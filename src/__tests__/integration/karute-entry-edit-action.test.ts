@@ -5,6 +5,11 @@
 // choke-point audit fires exactly once on success with customer_id (T1 web
 // side); content bounds are enforced server-side too, not just the facade's
 // zod (T4); the reverse category map is exact (T2).
+//
+// P3 (2026-08-19, core #69 / SDK 1.25): the receipt also carries
+// entry_edit_id — the id updateEntry RETURNED, so the audit row points at
+// core's entry_edits change row. Pinned here by exact-object detail matches
+// (a dropped thread fails), plus no-cross-wiring and degraded-response cases.
 jest.mock('next/cache', () => ({
   revalidatePath: jest.fn(),
   updateTag: jest.fn(),
@@ -25,7 +30,14 @@ jest.mock('@/lib/staff', () => ({
 const auditSpy = jest.fn()
 jest.mock('@/lib/audit', () => ({ audit: (...a: unknown[]) => auditSpy(...(a as [])) }))
 
-const updateEntry = jest.fn(async () => ({ id: 'e1' }))
+// entry_edit_id is optional on the MOCK (not on the SDK type) so the degraded
+// -core case below can resolve without it and prove the null normalization.
+const updateEntry = jest.fn(
+  async (): Promise<{ id: string; entry_edit_id?: string }> => ({
+    id: 'e1',
+    entry_edit_id: 'edit-row-1',
+  }),
+)
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({
     karuteRecords: {
@@ -95,7 +107,12 @@ describe('updateKaruteDetailEntryWithClient — CAS core', () => {
         targetType: 'karute',
         targetId: 'kar-1',
         source: 'web',
-        detail: { entry_id: 'e1', category: 'concern', customer_id: 'cust-1' },
+        detail: {
+          entry_id: 'e1',
+          category: 'concern',
+          customer_id: 'cust-1',
+          entry_edit_id: 'edit-row-1',
+        },
       }),
     )
   })
@@ -139,6 +156,48 @@ describe('updateKaruteDetailEntryWithClient — CAS core', () => {
   })
 })
 
+describe('entry_edit_id receipt threading (P3, core #69 / SDK 1.25)', () => {
+  const detailOf = (call: number) =>
+    (auditSpy.mock.calls[call][0] as { detail: Record<string, unknown> }).detail
+
+  const edit = (entryId: string) =>
+    updateKaruteDetailEntryWithClient(
+      fakeClient,
+      'kar-1',
+      entryId,
+      { content: 'body', expectedVersion: 1, actorStaffId: 'staff-1' },
+      actor,
+      'cust-1',
+    )
+
+  it('carries the id core RETURNED — a different response id changes the receipt', async () => {
+    updateEntry.mockResolvedValueOnce({ id: 'e9', entry_edit_id: 'edit-row-FROM-CORE' })
+    await edit('e9')
+    expect(detailOf(0).entry_edit_id).toBe('edit-row-FROM-CORE')
+  })
+
+  it('distinct edits get distinct receipt ids — no cross-wiring', async () => {
+    updateEntry.mockResolvedValueOnce({ id: 'e1', entry_edit_id: 'edit-row-A' })
+    await edit('e1')
+    updateEntry.mockResolvedValueOnce({ id: 'e2', entry_edit_id: 'edit-row-B' })
+    await edit('e2')
+
+    expect(auditSpy).toHaveBeenCalledTimes(2)
+    expect(detailOf(0)).toMatchObject({ entry_id: 'e1', entry_edit_id: 'edit-row-A' })
+    expect(detailOf(1)).toMatchObject({ entry_id: 'e2', entry_edit_id: 'edit-row-B' })
+  })
+
+  it('a degraded core response without the id writes null, never undefined', async () => {
+    updateEntry.mockResolvedValueOnce({ id: 'e1' })
+    await edit('e1')
+    const detail = detailOf(0)
+    expect(detail.entry_edit_id).toBeNull()
+    // the key must still be PRESENT — an absent key and a null one read
+    // differently in the 監査ログ (missing = never wired, null = core gave none).
+    expect(Object.prototype.hasOwnProperty.call(detail, 'entry_edit_id')).toBe(true)
+  })
+})
+
 describe('updateKaruteDetailEntry — web wrapper (T1 web side)', () => {
   it('collapses validationError into {error} for the sheet', async () => {
     const result = await updateKaruteDetailEntry('kar-1', 'e1', {
@@ -168,7 +227,12 @@ describe('updateKaruteDetailEntry — web wrapper (T1 web side)', () => {
         businessId: 'biz-1',
         source: 'web',
         // from the mocked authoritative get(), never from any client input
-        detail: { entry_id: 'e1', category: null, customer_id: 'cust-authoritative' },
+        detail: {
+          entry_id: 'e1',
+          category: null,
+          customer_id: 'cust-authoritative',
+          entry_edit_id: 'edit-row-1',
+        },
       }),
     )
   })

@@ -59,7 +59,15 @@ const get = jest.fn(async (id: string) => {
   if (id !== 'kar-1') throw Object.assign(new Error('not found'), { status: 404 })
   return { id: 'kar-1', customer_id: 'cust-1' }
 })
-const updateEntry = jest.fn(async () => ({ id: 'e1' }))
+// P3 (2026-08-19): core #69 / SDK 1.25 returns entry_edit_id from updateEntry;
+// the facade receipt must carry it too (same shared choke point as the web
+// path). Optional on the MOCK so the degraded case below can omit it.
+const updateEntry = jest.fn(
+  async (): Promise<{ id: string; entry_edit_id?: string }> => ({
+    id: 'e1',
+    entry_edit_id: 'edit-row-1',
+  }),
+)
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: () => ({ karuteRecords: { get: (id: string) => get(id), updateEntry } }),
 }))
@@ -108,9 +116,31 @@ describe('PATCH /karute/[id]/entries/[entryId] (edit-layer W2 PR-B)', () => {
         businessId: 'business-1',
         source: 'facade',
         targetId: 'kar-1',
-        detail: { entry_id: 'e1', category: null, customer_id: 'cust-1' },
+        detail: {
+          entry_id: 'e1',
+          category: null,
+          customer_id: 'cust-1',
+          entry_edit_id: 'edit-row-1',
+        },
       }),
     )
+  })
+
+  it('the facade receipt carries the entry_edit_id core returned (P3)', async () => {
+    updateEntry.mockResolvedValueOnce({ id: 'e1', entry_edit_id: 'edit-row-FACADE' })
+    const res = await PATCH(patchReq({ content: 'edited', expectedVersion: 4 }), routeFor('kar-1', 'e1'))
+    expect(res.status).toBe(200)
+    const { detail } = auditSpy.mock.calls[0][0] as { detail: Record<string, unknown> }
+    expect(detail.entry_edit_id).toBe('edit-row-FACADE')
+  })
+
+  it('a degraded core response without the id writes null on the facade path too (P3)', async () => {
+    updateEntry.mockResolvedValueOnce({ id: 'e1' })
+    const res = await PATCH(patchReq({ content: 'edited', expectedVersion: 4 }), routeFor('kar-1', 'e1'))
+    expect(res.status).toBe(200)
+    const { detail } = auditSpy.mock.calls[0][0] as { detail: Record<string, unknown> }
+    expect(detail.entry_edit_id).toBeNull()
+    expect(Object.prototype.hasOwnProperty.call(detail, 'entry_edit_id')).toBe(true)
   })
 
   it('a core 409 maps to HTTP 409 with the conflict code, no audit', async () => {

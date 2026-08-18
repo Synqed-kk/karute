@@ -647,7 +647,7 @@ export async function updateKaruteDetailEntryWithClient(
     }
   }
   try {
-    await synqed.karuteRecords.updateEntry(recordId, entryId, {
+    const written = await synqed.karuteRecords.updateEntry(recordId, entryId, {
       ...(input.content !== undefined ? { content: input.content } : {}),
       ...(input.category !== undefined
         ? { category: SESSION_CATEGORY_TO_ENTRY_CATEGORY[input.category] }
@@ -666,7 +666,19 @@ export async function updateKaruteDetailEntryWithClient(
       targetId: recordId,
       // customer_id rides in detail (ids only, PII rule) — same viewer
       // name-join rationale as karute.save's emitSave above.
-      detail: { entry_id: entryId, category: input.category ?? null, customer_id: customerId },
+      // entry_edit_id = core's entry_edits row for THIS edit (SDK >= 1.25,
+      // core #69) — the receipt's handle on the change row, so a 監査ログ
+      // dispute reads the before/after off core instead of guessing which
+      // edit row belongs to this emit. `?? null` normalizes the network
+      // boundary: the SDK types it required, but a degraded/older core
+      // response must write a null, never an undefined the detail type
+      // forbids.
+      detail: {
+        entry_id: entryId,
+        category: input.category ?? null,
+        customer_id: customerId,
+        entry_edit_id: written?.entry_edit_id ?? null,
+      },
       requestId: actor.requestId,
       source: actor.source,
     })

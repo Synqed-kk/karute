@@ -71,12 +71,16 @@ export interface RegenerateResult {
  *     belongs in synqed-core.
  *   - Edit-during-regen (edit-layer W2): a pencil edit that lands after the
  *     delete phase's fresh re-read but before that row's own delete call can
- *     still be deleted — deleteEntry has no CAS (Anthony ask sent 2026-07-25).
+ *     still be deleted — THIS call site passes no CAS. (Census correction
+ *     2026-08-19: the old "deleteEntry has no CAS" reading of the 2026-07-25
+ *     Anthony ask is FALSE — core delivered it, deleteEntry has accepted
+ *     meta.expected_version since SDK 1.19 and still does on 1.25.0. The gap
+ *     is app-side adoption, tracked by the feat/regen-delete-cas lane.)
  *     Mitigations: the fresh re-read narrows the window to the delete loop
  *     itself; core's delete is SOFT (deletedAt + full before-content in
  *     entry_edits), so a casualty is recoverable, never destroyed; the
  *     regen-in-flight client lock (design §3) ships with the completion-state
- *     PR. Airtight close = core-side deleteEntry expected_version.
+ *     PR. Airtight close = passing that expected_version from here.
  *   - Entries are written to AND read from synqed-core — getKaruteRecord is
  *     synqed-authoritative — so a successful regenerate always reflects the
  *     change on the detail page.
@@ -161,15 +165,19 @@ export async function regenerateKaruteEntriesWithClient(
     // 3. Remove the prior entries — re-filtered against a FRESH read taken
     //    AFTER the adds, not the pre-loop snapshot. edit-layer W2 PR-B made
     //    this reachable: a pencil edit can flip a row AI→HUMAN_EDITED while
-    //    this add phase is running, and core's deleteEntry has no CAS/
-    //    human-row refusal — deleting off the stale snapshot would silently
-    //    kill an edit that landed in the interim. Residual: the gap between
-    //    THIS read and each row's own delete below is still unguarded — the
-    //    loop is one sequential round-trip PER id, so the real window spans
-    //    the whole delete phase, not one call. A casualty is recoverable
-    //    (core soft-deletes + entry_edits keeps the before-content); the
-    //    airtight close is core-side deleteEntry CAS (Anthony ask sent
-    //    2026-07-25). Per-id resilient: one bad id never strands the rest.
+    //    this add phase is running, and the delete loop below passes no CAS
+    //    and gets no human-row refusal — deleting off the stale snapshot
+    //    would silently kill an edit that landed in the interim. Residual:
+    //    the gap between THIS read and each row's own delete below is still
+    //    unguarded — the loop is one sequential round-trip PER id, so the
+    //    real window spans the whole delete phase, not one call. A casualty
+    //    is recoverable (core soft-deletes + entry_edits keeps the
+    //    before-content); the airtight close is passing expected_version on
+    //    each delete — core has accepted it since SDK 1.19 (census
+    //    correction 2026-08-19: the old "core-side deleteEntry CAS is the
+    //    ask" note is stale, core delivered it; adoption is the
+    //    feat/regen-delete-cas lane). Per-id resilient: one bad id never
+    //    strands the rest.
     let freshAfterAdds: {
       entries?: Array<{
         id?: string | null
