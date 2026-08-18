@@ -29,6 +29,7 @@
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { ensureStaffWriteInScope } from '@/lib/app-api/store-clamp'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { SynqedError } from '@synqed-kk/client'
 import { updateStaffCore, deleteStaffCore } from '@/actions/staff'
@@ -69,6 +70,15 @@ export const PATCH = facadeHandler<Params>('staff.update', async (ctx) => {
 
   const businessId = ctx.identity.businessId
   const synqed = newSynqedClient(businessId)
+  // Actor store scope BEFORE any core call — a refused edit touches nothing.
+  // Outside the try: its store_forbidden must reach the client as 403, not be
+  // reclassified by classifyStaffWriteError.
+  await ensureStaffWriteInScope({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    targetStaffId: id,
+  })
   try {
     const result = await updateStaffCore(
       synqed,
@@ -90,6 +100,14 @@ export const DELETE = facadeHandler<Params>('staff.delete', async (ctx) => {
 
   const businessId = ctx.identity.businessId
   const synqed = newSynqedClient(businessId)
+  // Outside the try for the same reason as PATCH — the catch below would
+  // rewrite a store_forbidden into a 502.
+  await ensureStaffWriteInScope({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    targetStaffId: id,
+  })
   try {
     const result = await deleteStaffCore(
       synqed,

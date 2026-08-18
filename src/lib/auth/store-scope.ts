@@ -13,6 +13,7 @@
 import { cache } from 'react'
 import { unstable_cache } from 'next/cache'
 import { getMyCapabilities } from './require-permission'
+import { staffStoresOverlap } from './permissions'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { getActiveStoreId, getPrimaryStoreId, getStaffStoresStrict } from '@/actions/stores'
 
@@ -131,6 +132,29 @@ export function menuStoresForScope<T extends { id: string }>(
   // offer NOTHING rather than every branch's name + a doomed edit control.
   if (scope?.degraded) return []
   return scope || canViewAllStores ? stores : []
+}
+
+/**
+ * The staff WRITE clamp for the WEB transport (cookie session) — the twin of
+ * ensureStaffWriteInScope (src/lib/app-api/store-clamp.ts). True = the write
+ * may proceed; src/actions/staff.ts turns false into the house `{ error }`.
+ *
+ * Free passes: `stores.viewAll` · a SELF-edit (a staff member changing their
+ * own name or avatar is never this clamp's business, and the read plane
+ * already guarantees self-visibility) · a floating actor (empty assignment =
+ * works in every store, so the target's own assignment can't change the
+ * answer — and isn't fetched). `degraded` refuses outright (F-A: the actor's
+ * assignment lookup failed, so nothing about them can be vouched for).
+ */
+export async function staffWriteInScope(
+  targetStaffId: string,
+  actorId: string | null,
+): Promise<boolean> {
+  const { viewAll, allowedStoreIds, degraded } = await resolveStoreScope()
+  if (viewAll || targetStaffId === actorId) return true
+  if (degraded) return false
+  if (!allowedStoreIds) return true
+  return staffStoresOverlap(allowedStoreIds, await getStaffStoresStrict(targetStaffId))
 }
 
 // ─── Store-scoped staff PICKER filtering ────────────────────────────────────

@@ -2660,7 +2660,8 @@
     },
     "staffCountWithLimit": "{n}/{limit} staff",
     "staffLimitHint": "Your plan's staff limit is reached. Upgrade to add more",
-    "staffLimitInviteHint": "New staff can't be invited on your current plan (re-invites to existing staff still work)"
+    "staffLimitInviteHint": "New staff can't be invited on your current plan (re-invites to existing staff still work)",
+    "staffStoreScopeDenied": "You can only edit staff from the stores you are assigned to. Editing another store's staff needs all-store access."
   },
   "aiActions": {
     "title": "AI Recommended Actions",

@@ -19,7 +19,7 @@ jest.mock('@/actions/stores', () => ({
   getStaffStoresStrict: jest.fn(),
 }))
 
-import { resolveStoreScope, menuStoresForScope } from '@/lib/auth/store-scope'
+import { resolveStoreScope, menuStoresForScope, staffWriteInScope } from '@/lib/auth/store-scope'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getActiveStoreId, getPrimaryStoreId, getStaffStoresStrict } from '@/actions/stores'
@@ -160,5 +160,72 @@ describe('menuStoresForScope', () => {
   it('scope === null (resolveStoreScope threw) → today\'s behaviour: canViewAllStores gates the fallback', () => {
     expect(menuStoresForScope(null, true, allStores)).toEqual(allStores)
     expect(menuStoresForScope(null, false, allStores)).toEqual([])
+  })
+})
+
+// The staff WRITE clamp's rule (the web transport of it; the facade twin
+// ensureStaffWriteInScope is pinned in app-api-staff.test.ts). A clamped
+// staff.manage holder must not be able to mutate another branch's staff row by
+// direct call — the UI already hides it (#709), this is the server door.
+describe('staffWriteInScope', () => {
+  const ACTOR = 'staff-1' // getCurrentUserStaffId() in this suite's beforeEach
+  const assign = (map: Record<string, string[] | null>) =>
+    mockStores.mockImplementation(async (id: string) => (id in map ? map[id] : []))
+
+  it('viewAll passes free and never consults an assignment', async () => {
+    mockCaps.mockResolvedValue(caps('stores.viewAll'))
+    expect(await staffWriteInScope('staff-other', ACTOR)).toBe(true)
+    expect(mockStores).not.toHaveBeenCalled()
+  })
+
+  it('clamped actor, out-of-scope target → refused', async () => {
+    mockCaps.mockResolvedValue(caps())
+    assign({ [ACTOR]: ['store-A'], 'staff-other': ['store-B'] })
+    expect(await staffWriteInScope('staff-other', ACTOR)).toBe(false)
+  })
+
+  it('clamped actor, target sharing a branch → passes', async () => {
+    mockCaps.mockResolvedValue(caps())
+    assign({ [ACTOR]: ['store-A', 'store-B'], 'staff-other': ['store-B'] })
+    expect(await staffWriteInScope('staff-other', ACTOR)).toBe(true)
+  })
+
+  it('floating TARGET (no assignment = works in every store) → passes', async () => {
+    mockCaps.mockResolvedValue(caps())
+    assign({ [ACTOR]: ['store-A'], 'staff-other': [] })
+    expect(await staffWriteInScope('staff-other', ACTOR)).toBe(true)
+  })
+
+  it('floating ACTOR → passes for a real-store target, target never looked up', async () => {
+    mockCaps.mockResolvedValue(caps())
+    assign({ [ACTOR]: [] })
+    expect(await staffWriteInScope('staff-other', ACTOR)).toBe(true)
+    expect(mockStores).toHaveBeenCalledTimes(1) // the actor's own lookup only
+  })
+
+  it("a failed lookup of the ACTOR's assignment (degraded) → refused, fail closed", async () => {
+    mockCaps.mockResolvedValue(caps())
+    assign({ [ACTOR]: null })
+    expect(await staffWriteInScope('staff-other', ACTOR)).toBe(false)
+  })
+
+  it("a failed lookup of the TARGET's assignment → refused, fail closed", async () => {
+    mockCaps.mockResolvedValue(caps())
+    assign({ [ACTOR]: ['store-A'], 'staff-other': null })
+    expect(await staffWriteInScope('staff-other', ACTOR)).toBe(false)
+  })
+
+  it('self-edit passes even for a clamped actor, with no target lookup', async () => {
+    // The read plane guarantees self-visibility; the write plane must agree.
+    mockCaps.mockResolvedValue(caps())
+    assign({ [ACTOR]: ['store-A'] })
+    expect(await staffWriteInScope(ACTOR, ACTOR)).toBe(true)
+    expect(mockStores).toHaveBeenCalledTimes(1)
+  })
+
+  it('a null actor id never matches a target (no accidental self-pass)', async () => {
+    mockCaps.mockResolvedValue(caps())
+    assign({ [ACTOR]: ['store-A'], 'staff-other': ['store-B'] })
+    expect(await staffWriteInScope('staff-other', null)).toBe(false)
   })
 })

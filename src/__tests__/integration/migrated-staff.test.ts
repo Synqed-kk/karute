@@ -67,6 +67,15 @@ jest.mock('@/lib/synqed/staff-map', () => ({
   lookupSynqedStaffId: jest.fn(async (id: string) => id),
 }))
 
+// Same reason as the staff-map stub above: the staff write actions now consult
+// the store clamp, and the real store-scope module reaches unstable_cache at
+// load. These tests are about id resolution, not scope — a viewAll-equivalent
+// pass keeps them on their original path. The clamp's own coverage lives in
+// staff-actions-store-scope.test.ts.
+jest.mock('@/lib/auth/store-scope', () => ({
+  staffWriteInScope: jest.fn(async () => true),
+}))
+
 // Configurable Supabase service-client mock. updateStaff now branches on
 // whether the id is a profile-backed staff (→ Supabase profiles update) or a
 // synqed-only staff (→ synqed client). Tests set these to drive each branch.

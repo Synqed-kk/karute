@@ -8,6 +8,7 @@ import { getTranslations } from 'next-intl/server'
 import { getBusinessId } from '@/lib/staff'
 import { createServiceClient } from '@/lib/supabase/service'
 import { can, requireCapability } from '@/lib/auth/require-permission'
+import { staffWriteInScope } from '@/lib/auth/store-scope'
 import { resolveWebActorId, resolveWebAuditContext } from '@/lib/audit-web'
 import { audit } from '@/lib/audit'
 import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/staff'
@@ -40,6 +41,26 @@ type StaffWriteDeps = {
  *  callers that expect it; these user-facing actions translate the denial into
  *  a clean message. */
 type StaffActionResult = { error: string } | void
+
+/** Actor store-scope clamp for the staff WRITE actions (web transport) — the
+ *  twin of ensureStaffWriteInScope (src/lib/app-api/store-clamp.ts), built on
+ *  the same idiom as menus.ts's storeScopeError: a local async helper that
+ *  returns the house `{ error }` message (never a throw), translated ONLY on
+ *  refusal so the allowed path pays nothing.
+ *
+ *  A clamped `staff.manage` holder no longer SEES an out-of-scope roster row
+ *  (#709 hides it) — this is the server door behind that: the UI hides, the
+ *  server refuses regardless of what the UI offered. Both shipped presets that
+ *  manage staff (owner, manager) carry stores.viewAll, so the clamp can only
+ *  ever bite a CUSTOM grant.
+ *
+ *  The rule itself (free passes, fail-closed cases) lives in staffWriteInScope
+ *  — see its doc comment. */
+async function storeScopeError(targetId: string): Promise<string | null> {
+  if (await staffWriteInScope(targetId, await resolveWebActorId())) return null
+  const t = await getTranslations('settings')
+  return t('staffStoreScopeDenied')
+}
 
 // Look up an existing Supabase profile by email WITHIN this business. Returns
 // its id (which equals auth.users.id) when found, else null. Lets createStaff
@@ -221,6 +242,9 @@ export async function updateStaff(id: string, data: StaffProfileInput): Promise<
   // editing a staff record = managing staff (Greptile #159). Returned, not
   // thrown, so a frontdesk who reaches this (stale UI) sees a clean message.
   if (!(await can('staff.manage'))) return { error: t('noPermission') }
+  // Actor store scope BEFORE any core call — a refused edit touches nothing.
+  const denied = await storeScopeError(id)
+  if (denied) return { error: denied }
   const parsed = staffProfileSchema.safeParse(data)
   if (!parsed.success) {
     return { error: parsed.error.issues.map((e) => e.message).join(', ') }
@@ -344,6 +368,9 @@ export async function deleteStaffCore(
 export async function deleteStaff(id: string): Promise<StaffActionResult> {
   const t = await getTranslations('common')
   if (!(await can('staff.manage'))) return { error: t('noPermission') } // owner + manager
+  // Actor store scope BEFORE any core call — a refused delete touches nothing.
+  const denied = await storeScopeError(id)
+  if (denied) return { error: denied }
 
   try {
     const businessId = await getBusinessId()
@@ -404,6 +431,9 @@ export async function uploadStaffAvatar(
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
+  // Actor store scope BEFORE any core call — a refused upload touches nothing.
+  const denied = await storeScopeError(staffId)
+  if (denied) return { error: denied }
   const file = formData.get('file') as File | null
   if (!file) return { error: 'No file provided' }
 

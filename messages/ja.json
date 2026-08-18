@@ -2660,7 +2660,8 @@
     },
     "staffCountWithLimit": "{n}/{limit}名のスタッフ",
     "staffLimitHint": "プランのスタッフ上限に達しています。追加にはアップグレードが必要です",
-    "staffLimitInviteHint": "プランの上限のため新しいスタッフは招待できません（既存スタッフへの再招待は可能）"
+    "staffLimitInviteHint": "プランの上限のため新しいスタッフは招待できません（既存スタッフへの再招待は可能）",
+    "staffStoreScopeDenied": "担当店舗のスタッフのみ編集できます。他店舗のスタッフを編集するには、全店舗を扱える権限が必要です。"
   },
   "aiActions": {
     "title": "AIおすすめアクション",

@@ -6,7 +6,7 @@
 // fallback would silently resolve to the primary store — a wrong-store leak.
 
 import type { SynqedClient } from '@synqed-kk/client'
-import type { Capability } from '@/lib/auth/permissions'
+import { staffStoresOverlap, type Capability } from '@/lib/auth/permissions'
 import { AppApiError } from './errors'
 
 /** SynqedError's HTTP status, duck-typed: a VALUE import of the SDK class
@@ -102,6 +102,49 @@ export async function resolveStoreForRequest(args: {
     throw new AppApiError('store_forbidden', 'store-id outside your assignment', { reason: 'store_header' })
   }
   return { storeId: requestedStoreId ?? assigned[0], allowedStoreIds: assigned }
+}
+
+/**
+ * Staff WRITE store clamp for the facade twins (PATCH + DELETE /staff/[id],
+ * POST /staff/[id]/avatar) — the Bearer twin of storeScopeError in
+ * src/actions/staff.ts. Throws `store_forbidden` when the target staff works
+ * only in stores this caller isn't assigned to; returns silently otherwise.
+ *
+ * Same three free passes as web: `stores.viewAll` and a floating caller (both
+ * `allowedStoreIds: null` out of resolveStoreForRequest), plus a SELF-edit.
+ * A failed lookup of the CALLER's own assignment already fails closed inside
+ * resolveStoreForRequest; a failed lookup of the TARGET's fails closed here.
+ *
+ * `requestedStoreId: null` deliberately: these routes carry no `store-id`
+ * header, and the clamp is called purely for its viewAll / assignment /
+ * fail-closed resolution. The throw carries no `reason: 'store_header'` — this
+ * is resource ownership (the caller's pin is fine, the row isn't), the same
+ * class as the karute route's "this booking belongs to a store…".
+ */
+export async function ensureStaffWriteInScope(args: {
+  synqed: Pick<SynqedClient, 'stores' | 'staffStores'>
+  authUserId: string
+  capabilities: Set<Capability>
+  targetStaffId: string
+}): Promise<void> {
+  const { synqed, authUserId, capabilities, targetStaffId } = args
+  if (targetStaffId === authUserId) return
+  const { allowedStoreIds } = await resolveStoreForRequest({
+    synqed,
+    authUserId,
+    capabilities,
+    requestedStoreId: null,
+  })
+  if (!allowedStoreIds) return
+  const targetStores = await synqed.staffStores
+    .get(targetStaffId)
+    .then((r) => r.store_ids)
+    .catch(() => null)
+  if (staffStoresOverlap(allowedStoreIds, targetStores)) return
+  throw new AppApiError(
+    'store_forbidden',
+    'this staff member belongs to a store you are not assigned to',
+  )
 }
 
 /**
