@@ -109,12 +109,24 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
     // ships only the clamp's own store(s)' staff + self. selfRow/isOwner above
     // stay on the full roster — this narrows what LEAVES the server, nothing
     // else. Business id from the verified token, never the cookie session.
-    const visibleRoster = await viewerStaffRosterForBusiness(
-      staffList,
-      clamp.allowedStoreIds,
-      selfRow?.id ?? null,
-      businessId,
-    )
+    //
+    // ⚖ Liam 8/18: a DEGRADED viewer ships an EMPTY roster, mirroring web's
+    // settings page (the switch drawer keeps its fallback on both platforms —
+    // that asymmetry is the ruling). `degraded` on THIS transport is the
+    // roster miss: resolveStoreForRequest already fails closed with a 403 on a
+    // THROWN assignment lookup, so the only degraded shape that reaches here
+    // is an auth id the roster cannot place — core answers `{ store_ids: [] }`
+    // for it, which would otherwise read as floating and ship every branch.
+    // selfRow is already in hand, so the check costs nothing.
+    const degraded = !canViewAllStores && !selfRow
+    const visibleRoster = degraded
+      ? []
+      : await viewerStaffRosterForBusiness(
+          staffList,
+          clamp.allowedStoreIds,
+          selfRow?.id ?? null,
+          businessId,
+        )
 
     const canManageStaff = ctx.identity.capabilities.has('staff.manage')
     const canInviteStaff = ctx.identity.capabilities.has('staff.invite')

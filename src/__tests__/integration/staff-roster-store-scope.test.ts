@@ -265,4 +265,32 @@ describe('roster seams (server → client)', () => {
       'profile-self',
     ])
   })
+
+  // ⚖ Liam 8/18: the two seams DIVERGE when the viewer's own assignment lookup
+  // failed. Settings goes blind (fail closed, menuStoresForScope's precedent);
+  // the switch drawer keeps its full-roster fallback, because profile
+  // switching on a shared device must survive a glitch.
+  const degradedActor = () => {
+    clamped()
+    ;(getStaffStoresStrict as jest.Mock).mockResolvedValue(null) // the F-A shape
+  }
+
+  it('設定→スタッフ list goes BLIND on a degraded scope (empty, not the full roster)', async () => {
+    degradedActor()
+    const el = await SettingsPage({
+      params: Promise.resolve({ locale: 'ja' }),
+      searchParams: Promise.resolve({}),
+    })
+    expect(propsWith(el, 'staffList')?.staffList).toEqual([])
+  })
+
+  it('staff-switch drawer is UNAFFECTED by a degraded scope (keeps the fallback)', async () => {
+    degradedActor()
+    const el = await DashboardLayout({
+      children: null,
+      params: Promise.resolve({ locale: 'ja' }),
+    })
+    const data = propsWith(el, 'data')?.data as { staffList: { id: string }[] }
+    expect(ids(data.staffList)).toEqual(ids(roster))
+  })
 })

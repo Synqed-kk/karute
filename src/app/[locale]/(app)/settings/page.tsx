@@ -65,7 +65,18 @@ export default async function SettingsPage({
   // only ever receives their own store(s)' staff + themselves. Scoped HERE,
   // not in the shell — the other branch's names/emails must not reach the
   // client at all. visibleStaffRoster's self-only rule still runs on top.
-  const visibleRoster = await viewerStaffRoster(staffList, activeStaffId)
+  //
+  // ⚖ Liam 8/18: a DEGRADED scope (the viewer's own staff_stores lookup
+  // failed, so nothing about their branch is vouched for) ships an EMPTY
+  // roster here — the same blind posture menuStoresForScope already takes
+  // below, and for the same reason: fail closed rather than hand a viewer
+  // every branch's names on a lookup we could not read. Deliberately SURFACE
+  // level: the app-shell switch drawer (layout.tsx) keeps its full-roster
+  // fallback, because profile switching on a shared device must survive a
+  // glitch. That asymmetry is the ruling, not an oversight.
+  const visibleRoster = storeScope?.degraded
+    ? []
+    : await viewerStaffRoster(staffList, activeStaffId)
 
   // Capability-driven settings exposure (not role names): what a manager/SV can
   // do here is whatever the owner toggled onto them, enforced server-side by the

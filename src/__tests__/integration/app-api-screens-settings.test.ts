@@ -232,6 +232,30 @@ describe('GET /api/app/v1/screens/settings', () => {
     expect(dto.staffList.map((s: { id: string }) => s.id)).toEqual(['auth-user-1'])
   })
 
+  // ⚖ Liam 8/18: web's settings page goes blind on a degraded scope, and the
+  // phone DTO mirrors it. On THIS transport degraded = the roster cannot place
+  // the caller (a thrown assignment lookup already 403s inside the clamp), so
+  // core's `{ store_ids: [] }` for an unknown id can no longer read as
+  // floating and ship every branch's names.
+  it('an auth id the roster cannot place ships an EMPTY staff list, roster helper never called', async () => {
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'staff-2', full_name: 'Someone Else', display_role: 'stylist', has_pin: false, created_at: '2026-01-01' },
+    ])
+    const dto = await dtoOf(await GET(req(), route))
+    expect(dto.staffList).toEqual([])
+    expect(viewerStaffRosterForBusiness).not.toHaveBeenCalled()
+  })
+
+  it('stores.viewAll is never blinded by a roster miss (the drawer-side posture)', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'stores.viewAll']))
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'staff-2', full_name: 'Someone Else', display_role: 'stylist', has_pin: false, created_at: '2026-01-01' },
+    ])
+    const dto = await dtoOf(await GET(req(), route))
+    expect(dto.staffList.map((s: { id: string }) => s.id)).toEqual(['staff-2'])
+    expect(viewerStaffRosterForBusiness).toHaveBeenCalled()
+  })
+
   it('activeStaffId is null when the authenticated id is absent from the DTO staff roster (roster gate)', async () => {
     staffListByBusinessOrThrow.mockResolvedValue([
       { id: 'staff-2', full_name: 'Someone Else', display_role: 'stylist', has_pin: false, created_at: '2026-01-01' },
