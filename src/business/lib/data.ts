@@ -87,8 +87,14 @@ export async function listStaff(lens: StoreLens): Promise<StaffMember[]> {
   if (!storeId) return roster
 
   const synqed = await getSynqedClient()
-  const [{ staff }, { assignments }] = await Promise.all([
-    synqed.staff.list({ page_size: 200 }),
+  // Cards page to COMPLETION: a first-page-only read makes every later-page
+  // staff look unknown, and unknown is excluded — valid staff would silently
+  // vanish from the roster. staffStores.list() takes no paging params and
+  // returns the whole assignments record in one call, so it needs none.
+  const [staff, { assignments }] = await Promise.all([
+    paginateDedupe((page) =>
+      synqed.staff.list({ page, page_size: 500 }).then((r) => ({ items: r.staff, total: r.total })),
+    ),
     synqed.staffStores.list(),
   ])
   // Roster ids are profile ids for signed-up staff and synqed card ids for the

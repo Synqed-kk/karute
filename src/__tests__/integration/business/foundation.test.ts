@@ -197,13 +197,17 @@ describe('the wrapper is the only data door', () => {
       { id: 'p4', email: 'kana@x.jp' }, // card has NO email → only user_id can link → 銀座
       { id: 'p9', email: 'ghost@x.jp' }, // no staff card at all = UNKNOWN
     ])
-    synqed.mockResolvedValue({
-      staff: { list: jest.fn(async () => ({ staff: [
+    // c4 sits on PAGE 2: a first-page-only read would treat p4 as unknown.
+    const pages = [
+      [
         { id: 'c1', user_id: null, email: 'ginza@x.jp' },
         { id: 'c2', user_id: 'p2', email: 'other@x.jp' },
         { id: 's3', user_id: null, email: null },
-        { id: 'c4', user_id: 'p4', email: null },
-      ] })) },
+      ],
+      [{ id: 'c4', user_id: 'p4', email: null }],
+    ]
+    synqed.mockResolvedValue({
+      staff: { list: jest.fn(async ({ page }: { page?: number }) => ({ staff: pages[(page ?? 1) - 1] ?? [], total: 4 })) },
       staffStores: { list: jest.fn(async () => ({ assignments: { c1: [GINZA], c2: [DAIKANYAMA], c4: [GINZA] } })) },
     })
     expect((await data.listStaff(GINZA)).map((m) => m.id)).toEqual(['p1', 's3', 'p4'])
