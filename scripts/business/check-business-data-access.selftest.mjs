@@ -2,7 +2,7 @@
 // In-tier regression pins for the Business data-access guard (same pattern as
 // check-business-isolation.selftest.mjs). Business territory is EMPTY today,
 // so the live guard run proves nothing on its own — these fixtures are the
-// red→green proof that the rule catches what it claims. Cases 6–8 pin the
+// red→green proof that the rule catches what it claims. Cases 6–9 pin the
 // three bypasses a blind review round found in the first cut.
 
 import assert from 'node:assert/strict'
@@ -88,9 +88,17 @@ write('src/business/screens/Blind.tsx', '// see /* for details\nconst b = create
 const blind = scanDataAccess(root)
 assert.equal(blind.length, 1, 'violation after a // comment containing /* must still flag')
 assert.equal(blind[0].line, 2)
+clear('src/business/screens')
 
-// 9. The REAL repo is green (and absent territory roots are not an error).
+// 9. Mirror of case 8: a "/*" inside a STRING must not latch block-comment
+//    state either — that direction fails OPEN (Greptile P2).
+write('src/business/screens/Quoted.tsx', "const label = '/*'\nconst q = createServiceClient()\n")
+const quoted = scanDataAccess(root)
+assert.equal(quoted.length, 1, 'violation after a string containing /* must still flag')
+assert.equal(quoted[0].line, 2)
+
+// 10. The REAL repo is green (and absent territory roots are not an error).
 rmSync(root, { recursive: true, force: true })
 assert.deepEqual(scanDataAccess(repo), [])
 
-console.log('✓ business data-access guard selftest: 9 cases green')
+console.log('✓ business data-access guard selftest: 10 cases green')

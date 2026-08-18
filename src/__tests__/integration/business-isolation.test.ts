@@ -29,7 +29,7 @@
 // label honest. thin/vite.config.ts denies the resolved path at build time as
 // the second half of this pair.
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, posix } from 'node:path'
 
 const ROOT = process.cwd()
 const territory: string[] = JSON.parse(
@@ -141,13 +141,29 @@ describe('Business import isolation (phone-safety lock 3)', () => {
   // bundle owns — Business i18n lives inside territory (business-territory.json
   // header). Territory is empty today; this pins the rule before the first file
   // lands. Its own walk: walk() above deliberately SKIPS territory.
-  const PHONE_SPECIFIER: Array<[string, (s: string) => boolean]> = [
-    [
-      'phone UI (src/components/**)',
-      (s) => s === '@/components' || s.startsWith('@/components/') || /^\.\.?\/(?:.*\/)?components(?:\/|$)/.test(s),
-    ],
-    ['root messages/ JSON', (s) => /(?:^|\/)messages\/[^/]+\.json$/.test(s)],
+  // The rule judges the RESOLVED target, never the raw specifier (Greptile P1):
+  // a Business file importing its OWN territory components/ or its own
+  // messages JSON is legal, and only a resolve tells those apart from the
+  // phone-owned originals.
+  const PHONE_TARGET: Array<[string, (p: string) => boolean]> = [
+    ['phone UI (src/components/**)', (p) => p === 'src/components' || p.startsWith('src/components/')],
+    ['root messages/ JSON', (p) => /^messages\/[^/]+\.json$/.test(p)],
   ]
+
+  /** Repo-relative target of a specifier, or null when it is a bare package. */
+  function resolveSpecifier(spec: string, fromFile: string): string | null {
+    if (spec.startsWith('@/')) return posix.join('src', spec.slice(2))
+    if (/^\.\.?(\/|$)/.test(spec)) return posix.join(posix.dirname(fromFile), spec)
+    return null
+  }
+
+  /** Label of the phone-owned target this import reaches, or null if legal. */
+  function phoneTarget(spec: string, fromFile: string): string | null {
+    const target = resolveSpecifier(spec, fromFile)
+    if (target === null) return null
+    if (territory.some((p) => target.startsWith(p))) return null // territory's own
+    return PHONE_TARGET.find(([, test]) => test(target))?.[0] ?? null
+  }
 
   function walkTerritory(dir: string, out: string[]): string[] {
     for (const name of readdirSync(dir)) {
@@ -172,15 +188,32 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     if (existsSync(dir)) walkTerritory(dir, businessFiles)
   }
 
+  it('the phone-target rule judges resolved paths, not raw specifiers', () => {
+    const from = 'src/business/screens/Home.tsx'
+    // Phone-owned: the alias always resolves to root src/components/, and a
+    // relative climb out of territory lands on the phone's own messages/.
+    expect(phoneTarget('@/components/ui/button', from)).toBe('phone UI (src/components/**)')
+    expect(phoneTarget('../../components/ui/button', from)).toBe('phone UI (src/components/**)')
+    expect(phoneTarget('../../../messages/ja.json', from)).toBe('root messages/ JSON')
+    // Territory's own, and therefore legal: a route-group page importing a
+    // sibling components/ dir inside the fence, and Business i18n.
+    expect(phoneTarget('../components/Card', 'src/app/[locale]/(business)/dash/page.tsx')).toBeNull()
+    expect(phoneTarget('@/business/messages/ja.json', from)).toBeNull()
+    expect(phoneTarget('./messages/ja.json', 'src/business/i18n/index.ts')).toBeNull()
+    // Bare packages are not this rule's business.
+    expect(phoneTarget('next-intl', from)).toBeNull()
+  })
+
   it('no Business file imports phone UI or root messages/', () => {
     const offenders: string[] = []
     for (const file of businessFiles) {
+      const rel = file.slice(ROOT.length + 1)
       const src = stripFullLineComments(readFileSync(file, 'utf8'))
       for (const [form, re] of IMPORT_FORMS) {
         re.lastIndex = 0
         for (let m = re.exec(src); m; m = re.exec(src)) {
-          const hit = PHONE_SPECIFIER.find(([, test]) => test(m![1]))
-          if (hit) offenders.push(`${file.slice(ROOT.length + 1)} (${form}, ${hit[0]}): ${m[1]}`)
+          const label = phoneTarget(m[1], rel)
+          if (label) offenders.push(`${rel} (${form}, ${label}): ${m[1]}`)
         }
       }
     }

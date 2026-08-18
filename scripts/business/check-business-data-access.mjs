@@ -25,6 +25,11 @@
 //   - Ceiling (accepted): a text scan cannot see a dynamically built specifier
 //     or an aliased re-export from outside territory, and a matching string
 //     inside a string literal false-flags — ALLOW is the escape hatch.
+//   - Comment state is computed with single-line string contents blanked, so a
+//     '/*' inside a quoted string cannot blind the rest of the file (Greptile
+//     P2). A MULTI-LINE template literal is the residual: its contents are not
+//     blanked, so a '/*' inside one can still latch. Documented, not fixed —
+//     the false-flag direction above is the safer failure of the two.
 //   - A SYMLINKED directory inside territory is invisible to this walk
 //     (readdirSync Dirent: isDirectory() is false for a link) — the jest
 //     suite's "no symlinks in the scanned trees" assertion catches it in the
@@ -89,27 +94,46 @@ function walk(dir, out) {
   }
 }
 
-/** Comment-strip, line count preserved so match offsets still map to lines.
- *  The `//` strip runs BEFORE the block-comment check on purpose: a stray
- *  "/*" inside // prose must not blind the rest of the file. */
+/** Same-length copy of a line with single-line string CONTENTS blanked, so a
+ *  comment marker inside a quote cannot toggle comment state (Greptile P2).
+ *  Length is preserved, which keeps every index valid on the original line. */
+function blankStrings(line) {
+  return line.replace(/(['"`])(?:\\.|(?!\1)[^\\\n])*\1/g, (m) => m[0] + '.'.repeat(m.length - 2) + m[0])
+}
+
+/** Comment-strip, line count AND line length preserved so match offsets still
+ *  map to lines. Comment spans are blanked to spaces rather than removed;
+ *  strings stay intact in the returned code because specifiers live in quotes.
+ *  The `//` strip runs BEFORE the block-comment scan on purpose: a stray "/*"
+ *  inside // prose must not blind the rest of the file. */
 function stripComments(src) {
   let inBlockComment = false
   return src
     .split('\n')
     .map((line) => {
       let code = line
+      let probe = blankStrings(line) // comment state is judged on THIS
+      const blank = (from, to) => {
+        code = code.slice(0, from) + ' '.repeat(to - from) + code.slice(to)
+        probe = probe.slice(0, from) + ' '.repeat(to - from) + probe.slice(to)
+      }
       if (inBlockComment) {
-        const end = code.indexOf('*/')
-        if (end === -1) return ''
-        code = code.slice(end + 2)
+        const end = probe.indexOf('*/')
+        if (end === -1) return ' '.repeat(line.length)
+        blank(0, end + 2)
         inBlockComment = false
       }
-      code = code.replace(/(^|\s)\/\/.*$/, '$1').replace(/^\s*\*.*$/, '')
-      code = code.replace(/\{?\/\*[\s\S]*?\*\/\}?/g, '')
-      const open = code.indexOf('/*')
-      if (open !== -1) {
-        code = code.slice(0, open)
-        inBlockComment = true
+      if (/^\s*\*/.test(probe)) return ' '.repeat(line.length) // jsdoc continuation
+      const lineComment = /(^|\s)\/\/.*$/.exec(probe)
+      if (lineComment) blank(lineComment.index + lineComment[1].length, line.length)
+      for (let open = probe.indexOf('/*'); open !== -1; open = probe.indexOf('/*')) {
+        const end = probe.indexOf('*/', open + 2)
+        if (end === -1) {
+          blank(open, line.length)
+          inBlockComment = true
+          break
+        }
+        blank(open, end + 2)
       }
       return code
     })
