@@ -669,10 +669,20 @@ export async function updateKaruteDetailEntryWithClient(
       // entry_edit_id = core's entry_edits row for THIS edit (SDK >= 1.25,
       // core #69) — the receipt's handle on the change row, so a 監査ログ
       // dispute reads the before/after off core instead of guessing which
-      // edit row belongs to this emit. `?? null` normalizes the network
-      // boundary: the SDK types it required, but a degraded/older core
-      // response must write a null, never an undefined the detail type
-      // forbids.
+      // edit row belongs to this emit.
+      //
+      // `?? null` is a RUNTIME-ONLY guard, and tsc cannot police it: the SDK
+      // types entry_edit_id as required, so `written?.entry_edit_id` resolves
+      // statically to `string` and the fallback branch is statically dead —
+      // deleting it still compiles clean (proved by stress probe S4). It
+      // earns its place at the network boundary, where a degraded or
+      // pre-1.25 core can hand back a response the types swear is impossible;
+      // the detail shape takes null but not undefined, and an absent key
+      // reads as "never wired" rather than "core gave none". The only thing
+      // holding it is the degraded-response test in each of the two suites
+      // below — karute-entry-edit-action.test.ts and
+      // app-api-karute-entry-edit.test.ts. Do not drop those and trust the
+      // compiler.
       detail: {
         entry_id: entryId,
         category: input.category ?? null,

@@ -132,6 +132,37 @@ describe('updateKaruteDetailEntryWithClient — CAS core', () => {
     expect(auditSpy).not.toHaveBeenCalled()
   })
 
+  // S5b armor (council stress round, 2026-08-19): the generic-error branch had
+  // NO audit pin — every other "no audit" test either 409s or never reaches
+  // updateEntry, so a receipt emitted after the 409 check survived all gates.
+  // A failed write must leave no receipt: both error shapes are pinned, the
+  // status-bearing upstream failure and the bare network throw (no `status`).
+  it('a non-409 core failure returns {error} and writes NO receipt (S5b)', async () => {
+    updateEntry.mockRejectedValueOnce(Object.assign(new Error('upstream boom'), { status: 500 }))
+    const upstream = await updateKaruteDetailEntryWithClient(
+      fakeClient,
+      'kar-1',
+      'e1',
+      { expectedVersion: 1, actorStaffId: 'staff-1' },
+      actor,
+      null,
+    )
+    expect(upstream).toEqual({ error: 'upstream boom' })
+    expect(auditSpy).not.toHaveBeenCalled()
+
+    updateEntry.mockRejectedValueOnce(new Error('socket hang up'))
+    const network = await updateKaruteDetailEntryWithClient(
+      fakeClient,
+      'kar-1',
+      'e1',
+      { expectedVersion: 1, actorStaffId: 'staff-1' },
+      actor,
+      null,
+    )
+    expect(network).toEqual({ error: 'socket hang up' })
+    expect(auditSpy).not.toHaveBeenCalled()
+  })
+
   it('trim-empty or >4000-char content is rejected before the write, no audit (T4)', async () => {
     const empty = await updateKaruteDetailEntryWithClient(
       fakeClient,

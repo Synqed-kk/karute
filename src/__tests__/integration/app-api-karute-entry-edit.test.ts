@@ -151,6 +151,16 @@ describe('PATCH /karute/[id]/entries/[entryId] (edit-layer W2 PR-B)', () => {
     expect(auditSpy).not.toHaveBeenCalled()
   })
 
+  // S5b armor (council stress round, 2026-08-19): same gap as the action
+  // suite — the generic-error branch of the shared core had no audit pin on
+  // either path, so a receipt emitted past the 409 check survived every gate.
+  it('a non-409 core failure → 502 and writes NO receipt (S5b facade side)', async () => {
+    updateEntry.mockRejectedValueOnce(Object.assign(new Error('upstream boom'), { status: 500 }))
+    const res = await PATCH(patchReq({ content: 'edited', expectedVersion: 4 }), routeFor('kar-1', 'e1'))
+    expect(res.status).toBe(502)
+    expect(auditSpy).not.toHaveBeenCalled()
+  })
+
   it('trim-empty content → 400, not a generic 502 (T4 facade side)', async () => {
     const res = await PATCH(patchReq({ content: '   ', expectedVersion: 1 }), routeFor('kar-1', 'e1'))
     expect(res.status).toBe(400)
