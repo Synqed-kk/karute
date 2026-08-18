@@ -436,6 +436,18 @@ describe('pending re-invites: list hides, revoke refuses', () => {
     expect(invitesUpdateStatus).toHaveBeenCalledWith(REINVITE.id, 'revoked')
   })
 
+  it('revoking as a viewAll caller never pays the invite lookup — and a broken lookup cannot block them', async () => {
+    // The clamp free-passes viewAll, so the LIST that feeds it is pure cost
+    // AND a pure new failure mode for an owner. Neither may exist.
+    mockCapabilities.mockResolvedValue(new Set(['staff.invite', 'stores.viewAll']))
+    invitesList.mockRejectedValue(new Error('core down'))
+    const res = await DELETE(deleteReq(REINVITE.id), params(REINVITE.id))
+    expect(res.status).toBe(200)
+    expect(invitesList).not.toHaveBeenCalled()
+    expect(staffStoresGet).not.toHaveBeenCalled()
+    expect(invitesUpdateStatus).toHaveBeenCalledWith(REINVITE.id, 'revoked')
+  })
+
   it('revoking a FRESH invite is never clamped, even for a clamped caller', async () => {
     storeAssignments = { [CALLER]: ['store-a'] }
     const res = await DELETE(deleteReq(FRESH.id), params(FRESH.id))

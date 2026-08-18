@@ -40,15 +40,22 @@ export const DELETE = facadeHandler<Params>('invite.revoke', async (ctx) => {
   // cancelling it is a write against that branch's roster. Fresh invites have
   // no store dimension and fall through unchanged. A failed lookup throws out
   // of here (502) rather than revoking something it cannot vouch for.
-  const targetStaffId = await reinviteTargetStaffIdWithClient(synqed, id)
-  if (targetStaffId) {
-    await ensureStaffWriteInScope({
-      synqed,
-      businessId,
-      authUserId: ctx.identity.authUserId,
-      capabilities: ctx.identity.capabilities,
-      targetStaffId,
-    })
+  //
+  // Skipped entirely for a cross-store caller (web's own gate): the clamp
+  // free-passes viewAll, so core's invites LIST — the only lookup that can
+  // tell a re-invite from a fresh one — is pure cost there, and its failure
+  // must never block a revoke that was never clampable.
+  if (!ctx.identity.capabilities.has('stores.viewAll')) {
+    const targetStaffId = await reinviteTargetStaffIdWithClient(synqed, id)
+    if (targetStaffId) {
+      await ensureStaffWriteInScope({
+        synqed,
+        businessId,
+        authUserId: ctx.identity.authUserId,
+        capabilities: ctx.identity.capabilities,
+        targetStaffId,
+      })
+    }
   }
 
   const result = await revokeInviteCore(

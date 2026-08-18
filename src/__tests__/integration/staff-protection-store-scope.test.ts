@@ -43,6 +43,9 @@ jest.mock('@/lib/auth/require-permission', () => ({
 // (call shape, ordering, message) and store-scope.test.ts pins the rule.
 jest.mock('@/lib/auth/store-scope', () => ({
   staffWriteInScope: jest.fn(async () => true),
+  // revokeInvite reads ONLY .viewAll off this, to decide whether the invite
+  // lookup that feeds the clamp is worth paying for at all.
+  resolveStoreScope: jest.fn(async () => ({ viewAll: false })),
 }))
 
 let selfStaffId: string | null = 'actor-1'
@@ -92,10 +95,14 @@ jest.mock('@/lib/synqed/client', () => ({
 import { setStaffPin, removeStaffPin } from '@/actions/staff-pin'
 import { setStaffPermissions } from '@/actions/permissions'
 import { createInvite, listInvites, revokeInvite } from '@/actions/invites'
-import { staffWriteInScope as staffWriteInScopeImport } from '@/lib/auth/store-scope'
+import {
+  resolveStoreScope as resolveStoreScopeImport,
+  staffWriteInScope as staffWriteInScopeImport,
+} from '@/lib/auth/store-scope'
 import { auditLines } from './helpers/audit-lines'
 
 const staffWriteInScope = staffWriteInScopeImport as jest.Mock
+const resolveStoreScope = resolveStoreScopeImport as unknown as jest.Mock
 
 // A UUID: inviteSchema validates staffId as one, and the same id rides every
 // other seam so the shared pins below stay byte-identical across transports.
@@ -122,6 +129,7 @@ beforeEach(() => {
   profileQueries = 0
   invitesList.mockResolvedValue({ invites: [] })
   invitesUpdateStatus.mockResolvedValue({})
+  resolveStoreScope.mockResolvedValue({ viewAll: false })
 })
 
 describe.each(writes)('%s — actor store-scope clamp', (name, run, coreWrite) => {
@@ -267,5 +275,16 @@ describe('pending re-invites — list hides, revoke refuses', () => {
     const res = await revokeInvite(REINVITE.id)
     expect(res).toHaveProperty('error')
     expect(invitesUpdateStatus).not.toHaveBeenCalled()
+  })
+
+  it('revokeInvite: a viewAll actor never pays the lookup — and a broken lookup cannot block them', async () => {
+    // The clamp free-passes viewAll, so the read that feeds it is pure cost
+    // AND a pure new failure mode for an owner. Neither may exist.
+    resolveStoreScope.mockResolvedValue({ viewAll: true })
+    invitesList.mockRejectedValue(new Error('core down'))
+    await expect(revokeInvite(REINVITE.id)).resolves.toEqual({ ok: true })
+    expect(invitesList).not.toHaveBeenCalled()
+    expect(staffWriteInScope).not.toHaveBeenCalled()
+    expect(invitesUpdateStatus).toHaveBeenCalledWith(REINVITE.id, 'revoked')
   })
 })

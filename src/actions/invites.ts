@@ -12,7 +12,7 @@ import { businessDisplayName } from '@/lib/business-name'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { chooseStaffToLink } from '@/lib/invites/link'
 import { requireCapability } from '@/lib/auth/require-permission'
-import { staffWriteInScope } from '@/lib/auth/store-scope'
+import { resolveStoreScope, staffWriteInScope } from '@/lib/auth/store-scope'
 import { audit } from '@/lib/audit'
 import { auditWeb, resolveWebActorId, resolveWebAuditContext } from '@/lib/audit-web'
 import { synqedRoleToPreset } from '@/lib/auth/permissions'
@@ -391,10 +391,17 @@ export async function revokeInvite(id: string): Promise<{ ok: true } | { error: 
   // invites carry no invited_staff_id, so there is nothing to scope by.
   // Machine code for the same bundle reason as createInvite's (this module
   // rides /join's import graph — the dialog maps it to the settings copy).
+  //
+  // Skipped entirely for a cross-store actor: the clamp free-passes viewAll,
+  // so core has no invites.get and the LIST that feeds it is pure cost there —
+  // and a failed lookup must never block a revoke that was never clampable.
+  // resolveStoreScope is request-cached, so this costs nothing extra.
   try {
-    const targetStaffId = await reinviteTargetStaffIdWithClient(synqed, id)
-    if (targetStaffId && !(await staffWriteInScope({ targetStaffId, actorId }))) {
-      return { error: 'STORE_SCOPE_DENIED' }
+    if (!(await resolveStoreScope()).viewAll) {
+      const targetStaffId = await reinviteTargetStaffIdWithClient(synqed, id)
+      if (targetStaffId && !(await staffWriteInScope({ targetStaffId, actorId }))) {
+        return { error: 'STORE_SCOPE_DENIED' }
+      }
     }
   } catch {
     // Fail closed on an unreadable lookup — the same answer the revoke itself
