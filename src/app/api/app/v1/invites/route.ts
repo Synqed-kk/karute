@@ -47,10 +47,26 @@ export const runtime = 'nodejs'
 
 export const GET = facadeHandler('invite.list', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'staff.invite')
-  const synqed = newSynqedClient(ctx.identity.businessId)
+  const businessId = ctx.identity.businessId
+  const synqed = newSynqedClient(businessId)
   const invites = await listInvitesWithClient(
     synqed,
-    await memberEmailsForBusiness(ctx.identity.businessId),
+    await memberEmailsForBusiness(businessId),
+    // Bearer twin of the lens web's listInvites passes: a RE-invite row whose
+    // target card is out of this caller's stores is DROPPED, never shown and
+    // then refused (isolation law). The write clamp's own throw is read as
+    // "cannot see" — every one of its refusals is exactly that.
+    (targetStaffId) =>
+      ensureStaffWriteInScope({
+        synqed,
+        businessId,
+        authUserId: ctx.identity.authUserId,
+        capabilities: ctx.identity.capabilities,
+        targetStaffId,
+      }).then(
+        () => true,
+        () => false,
+      ),
   )
   return ok(ctx, { invites })
 })
@@ -76,9 +92,17 @@ export const POST = facadeHandler('invite.create', async (ctx) => {
   // Re-invite only (staffId present = an EXISTING staff card, whose user_id
   // acceptInvite rewrites): the Bearer twin of the clamp invites.ts applies on
   // web. Fresh invites fall through to the plan gate, unchanged.
+  //
+  // AFTER the body parse, deliberately — the exception to #715's
+  // clamp-before-parse ordering, and not an oversight. There the target rides
+  // the URL, so it is known before a byte is read; here `staffId` IS a body
+  // field, so the target cannot exist until the body is parsed. The parse is
+  // schema validation on an already-authenticated request; nothing is written
+  // before the clamp answers.
   if (parsed.data.staffId) {
     await ensureStaffWriteInScope({
       synqed,
+      businessId,
       authUserId: ctx.identity.authUserId,
       capabilities: ctx.identity.capabilities,
       targetStaffId: parsed.data.staffId,

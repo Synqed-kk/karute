@@ -50,9 +50,12 @@ jest.mock('@/lib/subscription/feature-gate', () => ({
   staffAddAllowedWithClient: jest.fn(async () => ({ allowed: true })),
 }))
 
+// Mutable so a cell can take the CALLER off the roster — the clamp's own
+// NR-actor oracle (resolveSelfStaffId) reads this list.
+const staffListByBusinessOrThrow = jest.fn(async () => [{ id: 'auth-user-1' }])
 jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => 'business-1'),
-  staffListByBusinessOrThrow: jest.fn(async () => [{ id: 'auth-user-1' }]),
+  staffListByBusinessOrThrow: () => staffListByBusinessOrThrow(),
 }))
 
 // profiles lookup used by updateStaffCore/deleteStaffCore — null = synqed-only
@@ -170,6 +173,7 @@ beforeEach(() => {
   // clearAllMocks keeps implementations — restore the default so a fail-closed
   // test's thrower doesn't leak into the next one.
   staffStoresGet.mockImplementation(async (id: string) => ({ store_ids: storeAssignments[id] ?? [] }))
+  staffListByBusinessOrThrow.mockResolvedValue([{ id: 'auth-user-1' }])
   staffCreate.mockResolvedValue({ id: 'staff-new' })
   staffUpdate.mockResolvedValue({})
   staffDelete.mockResolvedValue({})
@@ -463,6 +467,35 @@ describe('staff writes are clamped to the caller\'s stores', () => {
       const res = await run()
       expect(res.status).toBe(403)
       expect(coreWrite).not.toHaveBeenCalled()
+    })
+
+    // Parity twin of store-scope.test.ts's "an actor the roster cannot place
+    // (staffId null) → refused for a real-store AND a floating target". Core
+    // answers { store_ids: [] } for an id it holds no rows for, so without the
+    // roster oracle this caller would read as FLOATING and pass.
+    it.each([
+      ['a real-store target', { [TARGET]: ['store-b'] }],
+      ['a floating target', {}],
+    ])('an actor the roster cannot place → 403 store_forbidden for %s, core untouched, no audit row', async (_label, assignments) => {
+      staffListByBusinessOrThrow.mockResolvedValue([{ id: 'someone-else' }])
+      storeAssignments = assignments as Record<string, string[]>
+      const lines = await auditLines(async () => {
+        const res = await run()
+        expect(res.status).toBe(403)
+        expect((await res.json()).error).toMatchObject({ code: 'store_forbidden' })
+      })
+      expect(coreWrite).not.toHaveBeenCalled()
+      expect(lines).toHaveLength(0)
+    })
+
+    it('viewAll never consults the roster, so an unplaceable id changes nothing (web parity)', async () => {
+      mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'stores.viewAll']))
+      staffListByBusinessOrThrow.mockResolvedValue([{ id: 'someone-else' }])
+      storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
+      const res = await run()
+      expect(res.status).toBeLessThan(300)
+      expect(coreWrite).toHaveBeenCalled()
+      expect(staffListByBusinessOrThrow).not.toHaveBeenCalled()
     })
   })
 

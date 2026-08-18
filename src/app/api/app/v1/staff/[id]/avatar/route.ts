@@ -54,6 +54,7 @@ export const POST = facadeHandler<Params>('staff.uploadAvatar', async (ctx) => {
   // nothing (and never pays for a 50MB multipart parse).
   await ensureStaffWriteInScope({
     synqed,
+    businessId,
     authUserId: ctx.identity.authUserId,
     capabilities: ctx.identity.capabilities,
     targetStaffId: id,

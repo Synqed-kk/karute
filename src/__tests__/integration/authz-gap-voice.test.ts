@@ -179,10 +179,13 @@ describe('voice actions are clamped to the actor stores', () => {
   })
 
   describe.each(writes)('%s', (_name, run) => {
-    it('out of scope → ok:false, storage + settings untouched, no audit row', async () => {
+    it('out of scope → a NAMED ok:false, storage + settings untouched, no audit row', async () => {
       staffWriteInScope.mockResolvedValue(false)
       const lines = await auditLines(async () => {
-        await expect(run()).resolves.toEqual({ ok: false })
+        // The reason is load-bearing: an anonymous { ok: false } reads to the
+        // staffer as a failed upload (VoiceEnrollmentDialog) or as nothing at
+        // all (StaffList discarded it) — the clamp refusal must be sayable.
+        await expect(run()).resolves.toEqual({ ok: false, reason: 'store_scope' })
       })
       // The clamp precedes every side effect — on revoke that is the point:
       // the core DELETES the stored sample, so a late clamp would delete first.

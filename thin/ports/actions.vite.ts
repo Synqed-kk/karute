@@ -1042,16 +1042,30 @@ async function facadeRemoveStaffPin(staffId: string): Promise<{ error?: string }
 // body's OWN `ok` is read (unlike okCall, which only checks HTTP status —
 // the facade route always 200s even on a business-level ownership denial,
 // same RPC-style class as every other core-backed route in this file).
+//
+// The ONE exception: the actor store clamp refuses on the route itself with a
+// 403 store_forbidden, before the core ever runs. Web names that refusal
+// (`reason: 'store_scope'`) so the dialog/list can say "not your branch"
+// instead of "upload failed" — so the port names it too, from the classified
+// error body. Server behavior is unchanged; this rides the next bake.
+async function voiceStoreScopeRefusal(res: Response): Promise<boolean> {
+  if (res.status !== 403) return false
+  const body = (await res.json().catch(() => null)) as { error?: { code?: string } } | null
+  return body?.error?.code === 'store_forbidden'
+}
+
 async function facadeEnrollVoice(
   staffId: string,
   formData: FormData,
-): Promise<{ ok: boolean; enrolledAt?: string }> {
+): Promise<{ ok: boolean; enrolledAt?: string; reason?: 'store_scope' }> {
   try {
     const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(staffId)}/voice`, {
       method: 'POST',
       body: formData,
     })
-    if (!res.ok) return { ok: false }
+    if (!res.ok) {
+      return (await voiceStoreScopeRefusal(res)) ? { ok: false, reason: 'store_scope' } : { ok: false }
+    }
     const body = (await res.json().catch(() => null)) as { ok?: boolean; enrolledAt?: string } | null
     return { ok: !!body?.ok, enrolledAt: body?.enrolledAt }
   } catch {
@@ -1059,10 +1073,12 @@ async function facadeEnrollVoice(
   }
 }
 
-async function facadeRevokeVoice(staffId: string): Promise<{ ok: boolean }> {
+async function facadeRevokeVoice(staffId: string): Promise<{ ok: boolean; reason?: 'store_scope' }> {
   try {
     const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(staffId)}/voice`, { method: 'DELETE' })
-    if (!res.ok) return { ok: false }
+    if (!res.ok) {
+      return (await voiceStoreScopeRefusal(res)) ? { ok: false, reason: 'store_scope' } : { ok: false }
+    }
     const body = (await res.json().catch(() => null)) as { ok?: boolean } | null
     return { ok: !!body?.ok }
   } catch {

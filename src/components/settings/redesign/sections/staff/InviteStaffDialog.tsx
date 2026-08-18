@@ -98,7 +98,14 @@ export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
   }
 
   async function handleRevoke(id: string) {
-    await revokeInvite(id)
+    const res = await revokeInvite(id)
+    // Same machine code, same copy as the create half — a re-invite the actor
+    // may not touch must say why, not fail silently.
+    if ('error' in res) {
+      setError(res.error === 'STORE_SCOPE_DENIED' ? tSettings('staffStoreScopeDenied') : res.error)
+      return
+    }
+    setError(null)
     void refresh()
   }
 

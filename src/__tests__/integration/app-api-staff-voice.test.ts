@@ -376,6 +376,20 @@ describe("voice writes are clamped to the caller's stores", () => {
     })
   })
 
+  it('POST clamps BEFORE the multipart read: an out-of-scope target with an INVALID body is still 403 store_forbidden', async () => {
+    // Precedence pin (the PATCH-ordering cell's twin in app-api-staff.test.ts):
+    // a 400 here would mean the audio was read — and a 50MB multipart paid for
+    // — before the caller's right to touch this row was settled.
+    storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
+    const bad = new FormData()
+    bad.set('audio', new File([new Uint8Array([1, 2, 3])], 'nope.txt', { type: 'text/plain' }))
+    const res = await POST(postReq(TARGET, bad), params(TARGET))
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden' })
+    expect(storageUpload).not.toHaveBeenCalled()
+    expect(writeOrgSettingsBlobWithClient).not.toHaveBeenCalled()
+  })
+
   it('self: a clamped caller still manages their OWN voice, assignment never consulted', async () => {
     storeAssignments = { [CALLER]: ['store-a'] }
     orgSettingsFixture = { voice_enrollments: { [CALLER]: { sample_path: 'p', status: 'saved' } } }

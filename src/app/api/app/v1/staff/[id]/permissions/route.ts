@@ -63,6 +63,7 @@ export const PUT = facadeHandler<Params>('permissions.update', async (ctx) => {
   // web, placed before the body parse (the #715 ordering) and before the core.
   await ensureStaffWriteInScope({
     synqed: newSynqedClient(ctx.identity.businessId),
+    businessId: ctx.identity.businessId,
     authUserId: ctx.identity.authUserId,
     capabilities: ctx.identity.capabilities,
     targetStaffId: id,

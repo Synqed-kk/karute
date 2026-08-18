@@ -168,6 +168,33 @@ describe('thin actions port — staff voice enrollment', () => {
 
     await expect(revokeVoiceAction('staff-9')).resolves.toEqual({ ok: false })
   })
+
+  // The actor store clamp is the ONE refusal web names (`reason:
+  // 'store_scope'`) so the dialog/list can say "not your branch" instead of
+  // "upload failed" — the port carries that name across from the 403 body.
+  const storeForbidden = () =>
+    new Response(JSON.stringify({ error: { code: 'store_forbidden', message: 'nope' } }), { status: 403 })
+
+  it('enrollVoiceAction: a 403 store_forbidden → { ok: false, reason: "store_scope" }', async () => {
+    setDataPort({ apiFetch: jest.fn(storeForbidden) } as unknown as Parameters<typeof setDataPort>[0])
+    await expect(enrollVoiceAction('staff-9', fakeAudioForm())).resolves.toEqual({
+      ok: false,
+      reason: 'store_scope',
+    })
+  })
+
+  it('revokeVoiceAction: a 403 store_forbidden → { ok: false, reason: "store_scope" }', async () => {
+    setDataPort({ apiFetch: jest.fn(storeForbidden) } as unknown as Parameters<typeof setDataPort>[0])
+    await expect(revokeVoiceAction('staff-9')).resolves.toEqual({ ok: false, reason: 'store_scope' })
+  })
+
+  it('a 403 of a DIFFERENT class stays an unnamed { ok: false }', async () => {
+    const apiFetch = jest.fn(
+      async () => new Response(JSON.stringify({ error: { code: 'forbidden' } }), { status: 403 }),
+    )
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+    await expect(revokeVoiceAction('staff-9')).resolves.toEqual({ ok: false })
+  })
 })
 
 describe('thin actions port — staff invites', () => {

@@ -48,11 +48,14 @@ type StaffActionResult = { error: string } | void
  *  returns the house `{ error }` message (never a throw), translated ONLY on
  *  refusal so the allowed path pays nothing.
  *
- *  A clamped `staff.manage` holder no longer SEES an out-of-scope roster row
- *  (#709 hides it) — this is the server door behind that: the UI hides, the
- *  server refuses regardless of what the UI offered. Both shipped presets that
- *  manage staff (owner, manager) carry stores.viewAll, so the clamp can only
- *  ever bite a CUSTOM grant.
+ *  #709 hides an OTHER-STORE roster row from a clamped `staff.manage` holder,
+ *  and this is the server door behind that: the UI hides, the server refuses
+ *  regardless of what the UI offered. It does NOT follow that every refusal
+ *  here is invisible — a FLOATING target (empty assignment) shows in every
+ *  branch's roster by design, and the #715 floating-cell ruling still refuses
+ *  writes to it, so that refusal reaches a row the actor can see. Both shipped
+ *  presets that manage staff (owner, manager) carry stores.viewAll, so the
+ *  clamp can only ever bite a CUSTOM grant.
  *
  *  The rule itself (free passes, fail-closed cases) lives in staffWriteInScope
  *  — see its doc comment. */

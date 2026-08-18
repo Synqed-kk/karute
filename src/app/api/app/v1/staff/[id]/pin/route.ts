@@ -2,13 +2,17 @@
 // source: both routes call the SAME cores the web actions call
 // (setStaffPinCore / removeStaffPinCore, src/actions/staff-pin.ts).
 //
-// Gate: web's own setStaffPin/removeStaffPin have NO local gate beyond
-// "signed in" — synqed-core enforces self-or-owner/admin server-side from
-// the `actingStaffId` argument (staff-pin.ts's own doc comment). The facade
-// mirrors that exactly: NO ensureCapability call here. `actingStaffId` is
-// derived from the Bearer identity's roster row (resolveSelfStaffId — the
-// selfRow idiom every other facade route uses), NEVER read from the request
-// — a caller cannot spoof who is "acting" to borrow an owner's authority.
+// Gate, split by target: setting your OWN PIN is gate-free — no capability,
+// no clamp — because a practitioner owns their own switch credential and
+// always has. A PIN write aimed at SOMEONE ELSE is a staff-management act:
+// `staff.manage` PLUS the actor store clamp, applied app-side on both
+// transports (web nonSelfPinDenial, staff-pin.ts / facade
+// assertNonSelfPinAllowed below). synqed-core's own self-or-OWNER/ADMIN rule
+// stays behind both as defense-in-depth, never as the only door.
+// `actingStaffId` is derived from the Bearer identity's roster row
+// (resolveSelfStaffId — the selfRow idiom every other facade route uses),
+// NEVER read from the request — a caller cannot spoof who is "acting" to
+// borrow an owner's authority.
 //
 // Business-result passthrough: both cores' own { error? } result rides the
 // 2xx body VERBATIM (RPC-style, same class as stores.update/org-settings
@@ -35,12 +39,12 @@ type Params = { id: string }
 
 const SetPinBody = z.object({ pin: z.string() })
 
-/** The Bearer twin of nonSelfPinDenial (src/actions/staff-pin.ts). Self stays
- *  gate-free — that is the whole point of the "no ensureCapability floor"
- *  note above. A PIN write aimed at SOMEONE ELSE is a staff-management act:
- *  `staff.manage` plus the actor store clamp, before the core. A caller the
- *  roster can't place (`actingStaffId` null) is left to the cores' own
- *  refusal, which already fails closed before the SDK. */
+/** The Bearer twin of nonSelfPinDenial (src/actions/staff-pin.ts), and the
+ *  place the split gate in the header note is actually enforced: self returns
+ *  immediately (no capability, no clamp), everything else takes `staff.manage`
+ *  plus the actor store clamp, before the core. A caller the roster can't
+ *  place (`actingStaffId` null) is left to the cores' own refusal, which
+ *  already fails closed before the SDK. */
 async function assertNonSelfPinAllowed(
   ctx: FacadeContext<Params>,
   synqed: ReturnType<typeof newSynqedClient>,
@@ -51,6 +55,7 @@ async function assertNonSelfPinAllowed(
   ensureCapability(ctx.identity.capabilities, 'staff.manage')
   await ensureStaffWriteInScope({
     synqed,
+    businessId: ctx.identity.businessId,
     authUserId: ctx.identity.authUserId,
     capabilities: ctx.identity.capabilities,
     targetStaffId,

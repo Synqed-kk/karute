@@ -56,6 +56,10 @@ const staffRemovePin = jest.fn(async () => ({}))
 const staffUploadAvatar = jest.fn(async () => ({ avatar_url: 'https://cdn.test/a.png' }))
 const invitesCreate = jest.fn(async () => ({ id: 'inv-1' }))
 const invitesUpdateStatus = jest.fn(async () => ({}))
+// revokeInvite reads the list to learn whether the target is a RE-invite (the
+// store clamp's input) — core has no invites.get. Empty = a fresh invite, so
+// this suite's revoke stays unclamped and pins the audit row only.
+const invitesList = jest.fn(async () => ({ invites: [] as { id: string }[] }))
 const staffStoresSet = jest.fn(async () => ({}))
 const storesCreate = jest.fn(async () => ({ id: 'store-new' }))
 const storesUpdate = jest.fn(async () => ({}))
@@ -72,7 +76,7 @@ jest.mock('@/lib/synqed/client', () => ({
       removePin: staffRemovePin,
       uploadAvatar: staffUploadAvatar,
     },
-    invites: { create: invitesCreate, updateStatus: invitesUpdateStatus },
+    invites: { create: invitesCreate, updateStatus: invitesUpdateStatus, list: invitesList },
     staffStores: { set: staffStoresSet },
     stores: { create: storesCreate, update: storesUpdate },
     customers: {

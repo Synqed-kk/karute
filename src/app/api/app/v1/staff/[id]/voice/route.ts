@@ -99,6 +99,7 @@ export const POST = facadeHandler<Params>('staff.voice.enroll', async (ctx) => {
   // plain staffer enrolling their OWN voice is unchanged.
   await ensureStaffWriteInScope({
     synqed,
+    businessId,
     authUserId: ctx.identity.authUserId,
     capabilities: ctx.identity.capabilities,
     targetStaffId: id,
@@ -140,6 +141,7 @@ export const DELETE = facadeHandler<Params>('staff.voice.revoke', async (ctx) =>
   // stored sample, so the refusal must precede the core's storage call.
   await ensureStaffWriteInScope({
     synqed,
+    businessId,
     authUserId: ctx.identity.authUserId,
     capabilities: ctx.identity.capabilities,
     targetStaffId: id,

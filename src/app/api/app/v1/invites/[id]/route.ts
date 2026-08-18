@@ -20,7 +20,8 @@ import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { revokeInviteCore } from '@/actions/invites'
+import { ensureStaffWriteInScope } from '@/lib/app-api/store-clamp'
+import { reinviteTargetStaffIdWithClient, revokeInviteCore } from '@/actions/invites'
 
 export const runtime = 'nodejs'
 
@@ -33,6 +34,23 @@ export const DELETE = facadeHandler<Params>('invite.revoke', async (ctx) => {
 
   const businessId = ctx.identity.businessId
   const synqed = newSynqedClient(businessId)
+
+  // Bearer twin of the clamp invites.ts applies on web's revokeInvite: a
+  // RE-invite (invited_staff_id present) names an existing staff card, so
+  // cancelling it is a write against that branch's roster. Fresh invites have
+  // no store dimension and fall through unchanged. A failed lookup throws out
+  // of here (502) rather than revoking something it cannot vouch for.
+  const targetStaffId = await reinviteTargetStaffIdWithClient(synqed, id)
+  if (targetStaffId) {
+    await ensureStaffWriteInScope({
+      synqed,
+      businessId,
+      authUserId: ctx.identity.authUserId,
+      capabilities: ctx.identity.capabilities,
+      targetStaffId,
+    })
+  }
+
   const result = await revokeInviteCore(
     synqed,
     businessId,

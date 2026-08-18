@@ -169,6 +169,10 @@ export async function createInvite(
   // record, and its history, to a login of the actor's choosing. Fresh invites
   // (no staffId) are untouched: they add nobody to any store yet.
   //
+  // Placed AFTER the schema parse, unlike #715's clamp-before-parse routes:
+  // there the target rides the URL, here `staffId` IS an input field, so there
+  // is no target to clamp until the input is parsed. Nothing is written first.
+  //
   // A machine code, not a translated message: this module is in /join's
   // import graph (acceptInvite), and the i18n closure guard
   // (i18n-client-messages-closure.test.ts) holds that PRE-AUTH bundle down to
@@ -220,10 +224,31 @@ export async function createInvite(
 export async function listInvitesWithClient(
   synqed: InviteClient,
   memberEmails?: Set<string>,
+  /** Store lens for RE-INVITE rows (isolation law: HIDE, never
+   *  show-and-refuse — a row the revoke clamp below would refuse must not be
+   *  on screen at all). Each transport passes its own clamp because the two
+   *  resolve the actor from different identities: web's cookie
+   *  staffWriteInScope, the facade's Bearer ensureStaffWriteInScope. Omitted
+   *  = unfiltered, the shape every pre-clamp caller had.
+   *
+   *  FRESH invites (no invited_staff_id) always stay: an email-only invite
+   *  has no store dimension to judge yet — it gets one when the
+   *  mandatory-store-at-creation lane lands, and this filter widens then. */
+  canSeeReinvite?: (staffId: string) => Promise<boolean>,
 ): Promise<InviteRow[]> {
   try {
     const { invites } = await synqed.invites.list()
-    const pending = invites.filter((i) => i.status === 'pending')
+    let pending = invites.filter((i) => i.status === 'pending')
+    if (canSeeReinvite) {
+      // ponytail: one clamp call per re-invite row — a pending list is a
+      // handful of rows; batch the assignment reads if that stops being true.
+      const visible = await Promise.all(
+        pending.map((i) =>
+          i.invited_staff_id ? canSeeReinvite(i.invited_staff_id) : Promise.resolve(true),
+        ),
+      )
+      pending = pending.filter((_, idx) => visible[idx])
+    }
     // Second linkage signal (Greptile #626 P1): a profile can lack an email
     // value, so the email match alone can miss a connected person. If the
     // card an invite was launched from already carries a user_id, that
@@ -288,10 +313,31 @@ export async function listInvites(): Promise<InviteRow[]> {
   try {
     const businessId = await getBusinessId()
     const synqed = await getSynqedClient()
-    return await listInvitesWithClient(synqed, await memberEmailsForBusiness(businessId))
+    const actorId = await resolveWebActorId()
+    return await listInvitesWithClient(
+      synqed,
+      await memberEmailsForBusiness(businessId),
+      (targetStaffId) => staffWriteInScope({ targetStaffId, actorId }),
+    )
   } catch {
     return []
   }
+}
+
+/** The staff card a pending invite RE-ACTIVATES, or null for a fresh
+ *  (email-only) one. Core has no invites.get, so the list IS the lookup —
+ *  the same read listInvites already makes, and cheap next to the write it
+ *  guards. An id absent from the list is null: there is nothing to clamp and
+ *  the revoke's own core error answers it. A THROWN lookup is left to the
+ *  caller to fail closed on — an invite whose target cannot be read is one
+ *  nothing can be vouched for. Exported for the facade twin (same explicit-
+ *  client seam as revokeInviteCore). */
+export async function reinviteTargetStaffIdWithClient(
+  synqed: InviteClient,
+  id: string,
+): Promise<string | null> {
+  const { invites } = await synqed.invites.list()
+  return invites.find((i) => i.id === id)?.invited_staff_id ?? null
 }
 
 /** Client-threaded core of revokeInvite (facade Bearer path, design-parity
@@ -338,6 +384,24 @@ export async function revokeInvite(id: string): Promise<{ ok: true } | { error: 
     return { error: e instanceof Error ? e.message : 'Unknown error' }
   }
   const { actorId, businessId } = await resolveWebAuditContext()
+
+  // The revoke half of createInvite's clamp — same actor, same surface, same
+  // law. A clamped staff.invite holder must not cancel another branch's
+  // pending RE-invite (its target card is that branch's staff record). Fresh
+  // invites carry no invited_staff_id, so there is nothing to scope by.
+  // Machine code for the same bundle reason as createInvite's (this module
+  // rides /join's import graph — the dialog maps it to the settings copy).
+  try {
+    const targetStaffId = await reinviteTargetStaffIdWithClient(synqed, id)
+    if (targetStaffId && !(await staffWriteInScope({ targetStaffId, actorId }))) {
+      return { error: 'STORE_SCOPE_DENIED' }
+    }
+  } catch {
+    // Fail closed on an unreadable lookup — the same answer the revoke itself
+    // would give with core unreachable, and never a silent pass.
+    return { error: 'Could not revoke invite.' }
+  }
+
   const result = await revokeInviteCore(
     synqed,
     businessId,

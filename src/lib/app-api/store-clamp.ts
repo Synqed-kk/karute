@@ -118,6 +118,12 @@ export async function resolveStoreForRequest(args: {
  * still remove their own row, unchanged from main — core's last-member guard
  * is the backstop there.
  *
+ * The ROSTER check below is web's `degraded` refusal (staffWriteInScope, F-A)
+ * on this transport: core answers `{ store_ids: [] }` for an id it holds no
+ * rows for, so a caller the roster cannot place would read as "floating" and
+ * sail through the one free pass that asks the assignment nothing. Only the
+ * roster tells the two apart, so `businessId` rides the args to reach it.
+ *
  * `requestedStoreId: null` deliberately: these routes carry no `store-id`
  * header, and the clamp is called purely for its viewAll / assignment /
  * fail-closed resolution. The throw carries no `reason: 'store_header'` — this
@@ -126,11 +132,12 @@ export async function resolveStoreForRequest(args: {
  */
 export async function ensureStaffWriteInScope(args: {
   synqed: Pick<SynqedClient, 'stores' | 'staffStores'>
+  businessId: string
   authUserId: string
   capabilities: Set<Capability>
   targetStaffId: string
 }): Promise<void> {
-  const { synqed, authUserId, capabilities, targetStaffId } = args
+  const { synqed, businessId, authUserId, capabilities, targetStaffId } = args
   if (targetStaffId === authUserId) return
   const { allowedStoreIds } = await resolveStoreForRequest({
     synqed,
@@ -138,6 +145,28 @@ export async function ensureStaffWriteInScope(args: {
     capabilities,
     requestedStoreId: null,
   })
+  // A cross-store viewer is finished here, and must NOT be charged the roster
+  // read below — resolveStoreForRequest returned for them without consulting
+  // an assignment at all. `allowedStoreIds: null` alone cannot say which of
+  // the two unclamped shapes this is; the capability can.
+  if (capabilities.has('stores.viewAll')) return
+  // Web parity (staffWriteInScope's `degraded` arm): an auth id the roster
+  // cannot place has no assignment to read, so nothing about it is vouched
+  // for — refuse rather than inherit the floating free pass. Same oracle the
+  // pin/voice routes already use for `actingStaffId`/`selfUserId`.
+  //
+  // LAZY import, load-bearing: customer-facade's static graph reaches
+  // @/lib/customers/queries and through it the ESM-only SDK, and this module's
+  // header rule is that the SDK stays OUT of its graph (a static import here
+  // breaks every suite that loads a facade route without mocking the client).
+  // Reached only on the clamped path, after the viewAll return above.
+  const { resolveSelfStaffId } = await import('./customer-facade')
+  if (!(await resolveSelfStaffId(businessId, authUserId))) {
+    throw new AppApiError(
+      'store_forbidden',
+      'your staff record could not be resolved (fail-closed)',
+    )
+  }
   if (!allowedStoreIds) return
   const targetStores = await synqed.staffStores
     .get(targetStaffId)

@@ -79,18 +79,21 @@ jest.mock('@/lib/subscription/feature-gate', () => ({
 const setPin = jest.fn(async () => undefined)
 const removePin = jest.fn(async () => undefined)
 const invitesCreate = jest.fn(async () => ({ id: 'inv-new' }))
+const invitesList = jest.fn(async () => ({ invites: [] as Record<string, unknown>[] }))
+const invitesUpdateStatus = jest.fn(async () => ({}))
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({
     staff: { setPin, removePin },
-    invites: { create: invitesCreate },
+    invites: { create: invitesCreate, list: invitesList, updateStatus: invitesUpdateStatus },
   })),
   newSynqedClient: jest.fn(() => ({})),
 }))
 
 import { setStaffPin, removeStaffPin } from '@/actions/staff-pin'
 import { setStaffPermissions } from '@/actions/permissions'
-import { createInvite } from '@/actions/invites'
+import { createInvite, listInvites, revokeInvite } from '@/actions/invites'
 import { staffWriteInScope as staffWriteInScopeImport } from '@/lib/auth/store-scope'
+import { auditLines } from './helpers/audit-lines'
 
 const staffWriteInScope = staffWriteInScopeImport as jest.Mock
 
@@ -117,20 +120,28 @@ beforeEach(() => {
   can.mockResolvedValue(true)
   selfStaffId = ACTOR
   profileQueries = 0
+  invitesList.mockResolvedValue({ invites: [] })
+  invitesUpdateStatus.mockResolvedValue({})
 })
 
 describe.each(writes)('%s — actor store-scope clamp', (name, run, coreWrite) => {
-  it('out of scope → the store-scope refusal, core and Supabase untouched', async () => {
+  it('out of scope → the store-scope refusal, core and Supabase untouched, no audit row', async () => {
     staffWriteInScope.mockResolvedValue(false)
-    const res = (await run()) as { error?: string }
-    // invites carries a MACHINE code (its module is in /join's import graph,
-    // so it must not reach the settings namespace — see createInvite); the
-    // rest carry the translated key directly.
-    expect(res.error).toBe(
-      name.startsWith('createInvite') ? 'STORE_SCOPE_DENIED' : 'staffStoreScopeDenied',
-    )
+    // A refused write must leave NOTHING behind — including the audit trail
+    // (a refusal row would read as an attempted-and-logged act). Same
+    // assertion the facade suites make through this helper.
+    const lines = await auditLines(async () => {
+      const res = (await run()) as { error?: string }
+      // invites carries a MACHINE code (its module is in /join's import graph,
+      // so it must not reach the settings namespace — see createInvite); the
+      // rest carry the translated key directly.
+      expect(res.error).toBe(
+        name.startsWith('createInvite') ? 'STORE_SCOPE_DENIED' : 'staffStoreScopeDenied',
+      )
+    })
     if (coreWrite) expect(coreWrite).not.toHaveBeenCalled()
     expect(profileQueries).toBe(0)
+    expect(lines).toHaveLength(0)
   })
 
   it('in scope → passes through to core unchanged', async () => {
@@ -191,5 +202,70 @@ describe('createInvite — a FRESH invite is never clamped', () => {
     expect(res).toHaveProperty('token')
     expect(staffWriteInScope).not.toHaveBeenCalled()
     expect(invitesCreate).toHaveBeenCalled()
+  })
+})
+
+// The other half of the same surface (the create side is pinned above): a
+// clamped staff.invite holder could still SEE and CANCEL another branch's
+// pending re-invite. The list HIDES the row, the revoke refuses the write.
+describe('pending re-invites — list hides, revoke refuses', () => {
+  const row = (id: string, extra?: Record<string, unknown>) => ({
+    id,
+    email: `${id}@test.com`,
+    role: 'STYLIST',
+    status: 'pending',
+    created_at: '2026-01-01',
+    expires_at: '2026-01-08',
+    ...extra,
+  })
+  const FRESH = row('inv-fresh')
+  const REINVITE = row('inv-reinvite', { invited_staff_id: TARGET })
+
+  it('listInvites: an out-of-scope re-invite row is dropped, the FRESH row stays', async () => {
+    invitesList.mockResolvedValue({ invites: [FRESH, REINVITE] })
+    staffWriteInScope.mockImplementation(async ({ targetStaffId }: { targetStaffId: string }) =>
+      targetStaffId !== TARGET,
+    )
+    expect((await listInvites()).map((i) => i.id)).toEqual(['inv-fresh'])
+    // A fresh invite has no store dimension, so the clamp is asked ONLY about
+    // the re-invite's target card.
+    expect(staffWriteInScope).toHaveBeenCalledTimes(1)
+    expect(staffWriteInScope).toHaveBeenCalledWith({ targetStaffId: TARGET, actorId: ACTOR })
+  })
+
+  it('listInvites: an in-scope viewer keeps both rows', async () => {
+    invitesList.mockResolvedValue({ invites: [FRESH, REINVITE] })
+    expect((await listInvites()).map((i) => i.id)).toEqual(['inv-fresh', 'inv-reinvite'])
+  })
+
+  it('revokeInvite: out of scope → the store-scope code, core untouched, no audit row', async () => {
+    invitesList.mockResolvedValue({ invites: [REINVITE] })
+    staffWriteInScope.mockResolvedValue(false)
+    const lines = await auditLines(async () => {
+      await expect(revokeInvite(REINVITE.id)).resolves.toEqual({ error: 'STORE_SCOPE_DENIED' })
+    })
+    expect(invitesUpdateStatus).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('revokeInvite: in scope → passes through to core', async () => {
+    invitesList.mockResolvedValue({ invites: [REINVITE] })
+    await expect(revokeInvite(REINVITE.id)).resolves.toEqual({ ok: true })
+    expect(invitesUpdateStatus).toHaveBeenCalledWith(REINVITE.id, 'revoked')
+  })
+
+  it('revokeInvite: a FRESH invite is never clamped', async () => {
+    invitesList.mockResolvedValue({ invites: [FRESH] })
+    staffWriteInScope.mockResolvedValue(false)
+    await expect(revokeInvite(FRESH.id)).resolves.toEqual({ ok: true })
+    expect(staffWriteInScope).not.toHaveBeenCalled()
+    expect(invitesUpdateStatus).toHaveBeenCalledWith(FRESH.id, 'revoked')
+  })
+
+  it('revokeInvite: an unreadable invite lookup fails closed, core untouched', async () => {
+    invitesList.mockRejectedValue(new Error('core down'))
+    const res = await revokeInvite(REINVITE.id)
+    expect(res).toHaveProperty('error')
+    expect(invitesUpdateStatus).not.toHaveBeenCalled()
   })
 })

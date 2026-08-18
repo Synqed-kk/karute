@@ -379,3 +379,68 @@ describe("re-invites are clamped to the caller's stores", () => {
     expect(invitesCreate).toHaveBeenCalled()
   })
 })
+
+// ─── The other half of the same surface: LIST + REVOKE ──────────────────────
+// Creating the re-invite was clamped; seeing and cancelling one was not. The
+// list HIDES an out-of-scope re-invite row (isolation law — never show it and
+// then refuse the button) and the revoke refuses it at the server door.
+describe('pending re-invites: list hides, revoke refuses', () => {
+  const CALLER = 'auth-user-1'
+  const TARGET = 'card-9'
+  const FRESH = { id: 'inv-fresh', email: 'a@test.com', role: 'STYLIST', status: 'pending', created_at: '2026-01-01', expires_at: '2026-01-08' }
+  const REINVITE = { ...FRESH, id: 'inv-reinvite', email: 'b@test.com', invited_staff_id: TARGET }
+
+  beforeEach(() => {
+    invitesList.mockResolvedValue({ invites: [FRESH, REINVITE] })
+  })
+
+  it('clamped viewer: the out-of-scope re-invite row is DROPPED, the fresh row stays', async () => {
+    storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
+    const res = await GET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    expect((await res.json()).invites.map((i: { id: string }) => i.id)).toEqual(['inv-fresh'])
+  })
+
+  it('clamped viewer sharing the branch: both rows stay', async () => {
+    storeAssignments = { [CALLER]: ['store-a', 'store-b'], [TARGET]: ['store-b'] }
+    const res = await GET(getReq(), noParams)
+    expect((await res.json()).invites.map((i: { id: string }) => i.id)).toEqual([
+      'inv-fresh',
+      'inv-reinvite',
+    ])
+  })
+
+  it('stores.viewAll: both rows stay and no assignment is consulted', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.invite', 'stores.viewAll']))
+    storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
+    const res = await GET(getReq(), noParams)
+    expect((await res.json()).invites).toHaveLength(2)
+    expect(staffStoresGet).not.toHaveBeenCalled()
+  })
+
+  it('revoking an out-of-scope re-invite → 403 store_forbidden, core untouched, no audit row', async () => {
+    storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
+    const lines = await auditLines(async () => {
+      const res = await DELETE(deleteReq(REINVITE.id), params(REINVITE.id))
+      expect(res.status).toBe(403)
+      expect((await res.json()).error).toMatchObject({ code: 'store_forbidden' })
+    })
+    expect(invitesUpdateStatus).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('revoking an in-scope re-invite → passes unchanged', async () => {
+    storeAssignments = { [CALLER]: ['store-a', 'store-b'], [TARGET]: ['store-b'] }
+    const res = await DELETE(deleteReq(REINVITE.id), params(REINVITE.id))
+    expect(res.status).toBe(200)
+    expect(invitesUpdateStatus).toHaveBeenCalledWith(REINVITE.id, 'revoked')
+  })
+
+  it('revoking a FRESH invite is never clamped, even for a clamped caller', async () => {
+    storeAssignments = { [CALLER]: ['store-a'] }
+    const res = await DELETE(deleteReq(FRESH.id), params(FRESH.id))
+    expect(res.status).toBe(200)
+    expect(staffStoresGet).not.toHaveBeenCalled()
+    expect(invitesUpdateStatus).toHaveBeenCalledWith(FRESH.id, 'revoked')
+  })
+})
