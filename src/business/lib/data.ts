@@ -10,11 +10,11 @@
 //
 // What survives the swap unchanged, because screens are written against it:
 // every read takes the store lens as its REQUIRED first argument ('store-id'
-// = that store; { viewAll: true } = every store, and only for an actor who
-// may), the clamp semantics, and the fail-loud posture (nothing here
-// swallows an error into an empty list).
+// = that store; { viewAll: true } = every store), the clamp semantics, and the
+// fail-loud posture (nothing here swallows an error into an empty list).
+//
+// This module imports NOTHING outside territory — the seal is structural.
 
-import { getMyCapabilities } from '@/lib/auth/require-permission'
 import {
   appointments,
   customers,
@@ -33,16 +33,18 @@ export type StoreLens = string | { viewAll: true }
 const lensStoreId = (lens: StoreLens): string | undefined =>
   typeof lens === 'string' ? lens : undefined
 
-/** `{ viewAll: true }` is a CALLER CLAIM. Honor it only when the session actor
- *  actually holds the cross-store capability; otherwise throw (a screen asking
- *  for every store without the right to see it is a bug, not an empty list).
- *  This is the one live read in the file, and it reads CONFIG (capabilities),
- *  never customer data — same family as the admission lock. */
-async function assertLens(lens: StoreLens): Promise<void> {
-  if (typeof lens === 'string') return
-  if (!(await getMyCapabilities()).has('stores.viewAll')) {
-    throw new Error('business data: viewAll lens requires the stores.viewAll capability')
-  }
+/** The lens stays REQUIRED and is validated at runtime too: a screen that
+ *  forgets it (or a JS caller passing junk) must fail loudly, never fall
+ *  through to a business-wide read.
+ *  PLAY-PHASE: `{ viewAll: true }` is accepted on the caller's word. The
+ *  capability check that made it a PRIVILEGE (stores.viewAll) resolved through
+ *  a chain that reaches synqed-core, so it retired with the seal and returns
+ *  in the reconnect PR alongside the real data. Fake rows, no privilege left
+ *  to protect. */
+function assertLens(lens: StoreLens): void {
+  if (typeof lens === 'string' && lens.length > 0) return
+  if (typeof lens === 'object' && lens !== null && lens.viewAll === true) return
+  throw new Error('business data: a store lens is required')
 }
 
 /** The store clamp. `nullVisible` is the storeless-row rule, which differs by
@@ -58,7 +60,7 @@ function inLens<T extends { store_id?: string | null }>(rows: T[], lens: StoreLe
 /** Customers are business-wide — they carry no store_id, so the lens gates
  *  access but has nothing to filter on. */
 export async function listCustomers(lens: StoreLens): Promise<FixtureCustomer[]> {
-  await assertLens(lens)
+  assertLens(lens)
   return customers
 }
 
@@ -66,7 +68,7 @@ export async function listAppointments(
   lens: StoreLens,
   range: { from?: string; to?: string } = {},
 ): Promise<FixtureAppointment[]> {
-  await assertLens(lens)
+  assertLens(lens)
   const inRange = appointments.filter(
     (a) => (!range.from || a.starts_at >= range.from) && (!range.to || a.starts_at <= range.to),
   )
@@ -74,7 +76,7 @@ export async function listAppointments(
 }
 
 export async function listMenus(lens: StoreLens): Promise<FixtureMenu[]> {
-  await assertLens(lens)
+  assertLens(lens)
   return inLens(menus, lens, true)
 }
 
@@ -85,7 +87,7 @@ export async function listMenus(lens: StoreLens): Promise<FixtureMenu[]> {
  *  convention), still visible. Same filtering the real door ran; only the
  *  source of the three inputs changed. */
 export async function listStaff(lens: StoreLens): Promise<FixtureStaff[]> {
-  await assertLens(lens)
+  assertLens(lens)
   const storeId = lensStoreId(lens)
   if (!storeId) return staff
 

@@ -2,9 +2,13 @@
 // on anything short of an admitted actor — hide, never show-and-refuse); this
 // file only renders. Viewport is RENDERING, not authorization: the md: classes
 // decide painting only (sidebar.tsx precedent: `hidden … md:flex`).
+//
+// PLAY-PHASE SEAL (⚖ Liam 2026-08-19): the live current-store chip is gone.
+// resolveStoreScope() and listStores() both reach synqed-core, and territory
+// must be incapable of that. Pilot safety in the play phase is telling the
+// operator the data is not real, so the chip says 見本データ. The store-scope
+// chip returns in the reconnect PR, with the data it describes.
 
-import { resolveStoreScope } from '@/lib/auth/store-scope'
-import { listStores } from '@/actions/stores'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { businessStrings as s } from '@/business/i18n'
 
@@ -15,16 +19,6 @@ export default async function BusinessLayout({
 }) {
   const { email } = await requireBusinessAdmission()
 
-  // Pilot safety: the operator always sees which account and which store they
-  // act in. A FAILED scope read is 店舗未設定, never 全店舗 — an unknown lens
-  // must not read as "all stores".
-  const [scope, stores] = await Promise.all([
-    resolveStoreScope().catch(() => null),
-    listStores().catch(() => []),
-  ])
-  const named = stores.find((st) => st.id === scope?.storeId)?.name
-  const storeLabel = !scope ? s.storeUnknown : scope.storeId ? (named ?? s.storeUnknown) : s.allStores
-
   return (
     <div className="min-h-dvh bg-background">
       <p className="p-6 text-sm text-muted-foreground md:hidden">{s.desktopOnly}</p>
@@ -33,8 +27,8 @@ export default async function BusinessLayout({
           <span className="text-sm font-medium">{s.title}</span>
           <div className="flex items-center gap-3 text-sm">
             {email && <span className="text-muted-foreground">{s.signedInAs} {email}</span>}
-            <span className="rounded-full border border-border bg-card px-3 py-1 text-foreground">
-              {storeLabel}
+            <span className="rounded-full border border-border bg-card px-3 py-1 text-muted-foreground">
+              {s.sampleData}
             </span>
           </div>
         </header>
