@@ -36,6 +36,13 @@ const territory: string[] = JSON.parse(
   readFileSync(join(ROOT, 'scripts/business/business-territory.json'), 'utf8'),
 ).territory
 
+// Territory prefixes carry a trailing '/', so a plain startsWith misses the
+// root itself: an extensionless barrel import (`@/business` → src/business/
+// index.ts) resolves to exactly `src/business` and would read as OUTSIDE the
+// fence (Greptile P2, #721). Equality counts as inside — EXACT equality only,
+// so `src/businessX` stays the different tree that it is.
+const inTerritory = (p: string) => territory.some((t) => p === t.slice(0, -1) || p.startsWith(t))
+
 // One regex per import form, no cross-form alternation. Every specifier group
 // forbids newlines so a match can never span statements.
 const IMPORT_FORMS: Array<[string, RegExp]> = [
@@ -64,7 +71,7 @@ function walk(dir: string, out: string[]): string[] {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name)
     const rel = full.slice(ROOT.length + 1)
-    if (territory.some((p) => rel.startsWith(p))) continue // Business's own files may import Business
+    if (inTerritory(rel)) continue // Business's own files may import Business
     if (rel === 'thin/dist') continue // local build output (untracked)
     if (name === 'node_modules') continue // never our source, and a symlink farm
     const stat = lstatSync(full)
@@ -169,7 +176,7 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     if (target === null) {
       return ALLOWED_BARE.test(spec) ? null : 'bare package off the allowlist'
     }
-    if (territory.some((p) => target.startsWith(p))) return null // territory's own
+    if (inTerritory(target)) return null // territory's own, root barrel included
     if (ALLOWED_TARGETS.includes(target)) return null
     return `resolves outside territory to ${target}`
   }
@@ -203,6 +210,10 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     // two supabase modules in either spelling, stdlib for the fixture reads.
     expect(outwardOffense('./fixtures', from)).toBeNull()
     expect(outwardOffense('@/business/lib/grants', from)).toBeNull()
+    // The root barrel resolves to exactly `src/business` — inside, and the
+    // prefix-collision spelling next to it is still outside (Greptile P2).
+    expect(outwardOffense('@/business', from)).toBeNull()
+    expect(outwardOffense('@/businessX', from)).not.toBeNull()
     expect(outwardOffense('../components/Card', 'src/app/[locale]/(business)/dash/page.tsx')).toBeNull()
     expect(outwardOffense('react', from)).toBeNull()
     expect(outwardOffense('next/navigation', from)).toBeNull()
