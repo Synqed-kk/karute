@@ -31,20 +31,26 @@ export async function businessIdForUser(userId: string): Promise<string | null> 
   }
 }
 
-/** True only when this tenant holds an explicit `business_admin` grant row —
- *  the release lever: one insert opens a tenant, one delete is the kill
- *  switch. Default (no rows) = OFF everywhere. */
-export async function hasBusinessAdminGrant(businessId: string): Promise<boolean> {
+/** The tenant's `business_admin` grant, or null — the release lever: one insert
+ *  opens a tenant, one delete is the kill switch. Default (no rows) = OFF
+ *  everywhere. `grantedBy` carries the row's `granted_by` uuid so admission can
+ *  run the play-phase person-leg off the SAME single read; null there is a
+ *  legal state (a grant nobody is pinned to) and denies that leg. */
+export async function hasBusinessAdminGrant(
+  businessId: string,
+): Promise<{ granted: boolean; grantedBy: string | null }> {
+  const DENIED = { granted: false, grantedBy: null }
   try {
     const { data, error } = await createServiceClient()
       .from('business_workspace_grants')
-      .select('workspace_id')
+      .select('workspace_id, granted_by')
       .eq('business_id', businessId)
       .eq('workspace_id', BUSINESS_ADMIN)
       .maybeSingle()
-    return !error && !!data
+    if (error || !data) return DENIED
+    return { granted: true, grantedBy: (data.granted_by as string | null) ?? null }
   } catch {
-    return false
+    return DENIED
   }
 }
 

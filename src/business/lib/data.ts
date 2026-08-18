@@ -18,6 +18,7 @@
 import {
   appointments,
   customers,
+  stores,
   menus,
   staff,
   staffAssignments,
@@ -26,6 +27,7 @@ import {
   type FixtureCustomer,
   type FixtureMenu,
   type FixtureStaff,
+  type FixtureStore,
 } from './fixtures'
 
 export type StoreLens = string | { viewAll: true }
@@ -55,6 +57,15 @@ function inLens<T extends { store_id?: string | null }>(rows: T[], lens: StoreLe
   const id = lensStoreId(lens)
   if (!id) return rows
   return rows.filter((r) => (r.store_id == null ? nullVisible : r.store_id === id))
+}
+
+/** The stores a lens can BE — the one read with no lens argument, because it
+ *  enumerates the lens itself rather than reading through it.
+ *  ⚠ RECONNECT: this must return only the stores the actor may see (store
+ *  isolation law: hide, never show-and-refuse). Fixtures have no actor, so v1
+ *  returns both. */
+export async function listStoreOptions(): Promise<FixtureStore[]> {
+  return stores
 }
 
 /** Customers are business-wide — they carry no store_id, so the lens gates

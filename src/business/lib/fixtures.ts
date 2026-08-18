@@ -10,7 +10,15 @@
 export const STORE_A = 'store-test-ginza'
 export const STORE_B = 'store-test-daikanyama'
 
-export interface FixtureCustomer { id: string; name: string; furigana: string | null; phone: string | null; visit_count: number; last_visit_at: string | null }
+export interface FixtureStore { id: string; name: string }
+export const stores: FixtureStore[] = [
+  { id: STORE_A, name: 'テスト銀座店' },
+  { id: STORE_B, name: 'テスト代官山店' },
+]
+
+/** member_number / ticket_balance / verified back the canon 顧客一覧 columns
+ *  (顧客 · 回数券・残高 · 確認); a null balance renders 「—」 like the mock. */
+export interface FixtureCustomer { id: string; name: string; furigana: string | null; phone: string | null; member_number: string; visit_count: number; last_visit_at: string | null; ticket_balance: number | null; verified: boolean }
 export interface FixtureAppointment { id: string; store_id: string | null; customer_id: string; staff_id: string | null; starts_at: string; ends_at: string; status: 'booked' | 'done' | 'cancelled' }
 export interface FixtureMenu { id: string; store_id: string | null; name: string; price: number; duration_minutes: number }
 export interface FixtureStaff { id: string; full_name: string; email: string | null }
@@ -20,14 +28,14 @@ export interface FixtureStaffCard { id: string; user_id: string | null; email: s
 
 /** Customers are business-wide — real ones carry no store_id either. */
 export const customers: FixtureCustomer[] = [
-  { id: 'cus-01', name: '見本 あかり', furigana: 'ミホン アカリ', phone: '090-0000-0001', visit_count: 12, last_visit_at: '2026-08-10T02:00:00Z' },
-  { id: 'cus-02', name: '見本 いつき', furigana: 'ミホン イツキ', phone: '090-0000-0002', visit_count: 3, last_visit_at: '2026-07-28T05:30:00Z' },
-  { id: 'cus-03', name: '見本 うみ', furigana: 'ミホン ウミ', phone: null, visit_count: 1, last_visit_at: '2026-08-01T01:00:00Z' },
-  { id: 'cus-04', name: 'テスト えいた', furigana: 'テスト エイタ', phone: '090-0000-0004', visit_count: 27, last_visit_at: '2026-08-15T08:00:00Z' },
-  { id: 'cus-05', name: 'テスト おとは', furigana: 'テスト オトハ', phone: '090-0000-0005', visit_count: 0, last_visit_at: null },
-  { id: 'cus-06', name: '見本 かえる', furigana: 'ミホン カエル', phone: '090-0000-0006', visit_count: 8, last_visit_at: '2026-08-12T03:00:00Z' },
-  { id: 'cus-07', name: '見本 きり', furigana: 'ミホン キリ', phone: null, visit_count: 5, last_visit_at: '2026-06-20T06:00:00Z' },
-  { id: 'cus-08', name: 'テスト くらら', furigana: 'テスト クララ', phone: '090-0000-0008', visit_count: 41, last_visit_at: '2026-08-18T09:00:00Z' },
+  { id: 'cus-01', name: '見本 あかり', furigana: 'ミホン アカリ', phone: '090-0000-0001', member_number: 'C-3001', visit_count: 12, last_visit_at:'2026-08-10T02:00:00Z', ticket_balance: 4, verified: true },
+  { id: 'cus-02', name: '見本 いつき', furigana: 'ミホン イツキ', phone: '090-0000-0002', member_number: 'C-3002', visit_count: 3, last_visit_at:'2026-07-28T05:30:00Z', ticket_balance: null, verified: false },
+  { id: 'cus-03', name: '見本 うみ', furigana: 'ミホン ウミ', phone: null, member_number: 'C-3003', visit_count: 1, last_visit_at:'2026-08-01T01:00:00Z', ticket_balance: null, verified: false },
+  { id: 'cus-04', name: 'テスト えいた', furigana: 'テスト エイタ', phone: '090-0000-0004', member_number: 'C-3004', visit_count: 27, last_visit_at:'2026-08-15T08:00:00Z', ticket_balance: 12, verified: true },
+  { id: 'cus-05', name: 'テスト おとは', furigana: 'テスト オトハ', phone: '090-0000-0005', member_number: 'C-3005', visit_count: 0, last_visit_at:null, ticket_balance: null, verified: false },
+  { id: 'cus-06', name: '見本 かえる', furigana: 'ミホン カエル', phone: '090-0000-0006', member_number: 'C-3006', visit_count: 8, last_visit_at:'2026-08-12T03:00:00Z', ticket_balance: 2, verified: true },
+  { id: 'cus-07', name: '見本 きり', furigana: 'ミホン キリ', phone: null, member_number: 'C-3007', visit_count: 5, last_visit_at:'2026-06-20T06:00:00Z', ticket_balance: null, verified: true },
+  { id: 'cus-08', name: 'テスト くらら', furigana: 'テスト クララ', phone: '090-0000-0008', member_number: 'C-3008', visit_count: 41, last_visit_at:'2026-08-18T09:00:00Z', ticket_balance: 8, verified: true },
 ]
 
 /** apt-09 is deliberately STORELESS (the pre-repair-import shape) — hidden from
