@@ -28,7 +28,7 @@
 // mode 120000), so refusing them outright costs nothing and keeps every path
 // label honest. thin/vite.config.ts denies the resolved path at build time as
 // the second half of this pair.
-import { lstatSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
@@ -133,6 +133,58 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     // Zero tracked symlinks today (git mode 120000). A new one is either a
     // mistake or the attribution gap described in the header; both want eyes.
     expect(symlinks).toEqual([])
+  })
+
+  // Outward direction (P1.5 foundation, ruling 3): Business territory may
+  // import shared LOW-LEVEL infra (@/lib/* utils, the workspaces registry) but
+  // NOT phone UI (src/components/**) and NOT the root messages/*.json the thin
+  // bundle owns — Business i18n lives inside territory (business-territory.json
+  // header). Territory is empty today; this pins the rule before the first file
+  // lands. Its own walk: walk() above deliberately SKIPS territory.
+  const PHONE_SPECIFIER: Array<[string, (s: string) => boolean]> = [
+    [
+      'phone UI (src/components/**)',
+      (s) => s === '@/components' || s.startsWith('@/components/') || /^\.\.?\/(?:.*\/)?components(?:\/|$)/.test(s),
+    ],
+    ['root messages/ JSON', (s) => /(?:^|\/)messages\/[^/]+\.json$/.test(s)],
+  ]
+
+  function walkTerritory(dir: string, out: string[]): string[] {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name)
+      if (name === 'node_modules') continue
+      const stat = lstatSync(full)
+      if (stat.isSymbolicLink()) {
+        symlinks.push(full.slice(ROOT.length + 1))
+        continue
+      }
+      if (stat.isDirectory()) walkTerritory(full, out)
+      else if (SOURCE_EXT.test(name)) out.push(full)
+    }
+    return out
+  }
+
+  // Collected in the describe body like `files` above, so any symlink found in
+  // territory still lands in the symlinks assertion.
+  const businessFiles: string[] = []
+  for (const p of territory) {
+    const dir = join(ROOT, p)
+    if (existsSync(dir)) walkTerritory(dir, businessFiles)
+  }
+
+  it('no Business file imports phone UI or root messages/', () => {
+    const offenders: string[] = []
+    for (const file of businessFiles) {
+      const src = stripFullLineComments(readFileSync(file, 'utf8'))
+      for (const [form, re] of IMPORT_FORMS) {
+        re.lastIndex = 0
+        for (let m = re.exec(src); m; m = re.exec(src)) {
+          const hit = PHONE_SPECIFIER.find(([, test]) => test(m![1]))
+          if (hit) offenders.push(`${file.slice(ROOT.length + 1)} (${form}, ${hit[0]}): ${m[1]}`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
   })
 
   it('no file outside Business territory imports Business code', () => {
