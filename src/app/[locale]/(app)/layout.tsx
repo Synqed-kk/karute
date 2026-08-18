@@ -19,7 +19,7 @@ import { buildNotificationFeed } from '@/lib/notifications/derive'
 
 import { createClient } from '@/lib/supabase/server'
 import { listStores, getActiveStoreId } from '@/actions/stores'
-import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { resolveStoreScope, viewerStaffRoster } from '@/lib/auth/store-scope'
 import { redirect } from 'next/navigation'
 
 export default async function DashboardLayout({
@@ -77,7 +77,12 @@ export default async function DashboardLayout({
     : stores
   const switcherActiveStore = storeScope ? storeScope.storeId : activeStore
 
-  const staffItems = staffList.map((s) => ({
+  // Roster the session ships to the client (staff-switch drawer): a clamped
+  // staff sees only their own store(s)' staff + themselves; cross-store
+  // viewers and floating staff keep the full business roster (Liam 8/17).
+  const visibleRoster = await viewerStaffRoster(staffList, activeStaffId ?? user.id)
+
+  const staffItems = visibleRoster.map((s) => ({
     id: s.id,
     name: s.full_name ?? 'Unknown',
     displayRole: (s as { display_role?: string }).display_role ?? 'staff',

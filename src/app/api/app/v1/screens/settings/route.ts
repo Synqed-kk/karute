@@ -40,6 +40,7 @@ import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
+import { viewerStaffRosterForBusiness } from '@/lib/auth/store-scope'
 import { orgSettingsWithClient } from '@/actions/org-settings'
 import { listStoresWithClient } from '@/actions/stores'
 import { loadEntitlementWithClient } from '@/lib/entitlements'
@@ -104,6 +105,17 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
     const selfRow = staffList.find((s) => s.id === ctx.identity.authUserId) ?? null
     const isOwner = (selfRow?.display_role ?? '') === 'owner'
 
+    // Web twin of settings/page.tsx's viewerStaffRoster (Liam 8/17): the DTO
+    // ships only the clamp's own store(s)' staff + self. selfRow/isOwner above
+    // stay on the full roster — this narrows what LEAVES the server, nothing
+    // else. Business id from the verified token, never the cookie session.
+    const visibleRoster = await viewerStaffRosterForBusiness(
+      staffList,
+      clamp.allowedStoreIds,
+      selfRow?.id ?? null,
+      businessId,
+    )
+
     const canManageStaff = ctx.identity.capabilities.has('staff.manage')
     const canInviteStaff = ctx.identity.capabilities.has('staff.invite')
     const canViewAudit = isOwner || ctx.identity.capabilities.has('audit.view')
@@ -166,7 +178,7 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
       ctx,
       SettingsScreenDTO.parse({
         orgSettings: orgSettingsForDto,
-        staffList,
+        staffList: visibleRoster,
         // Roster-gated (web parity: getCurrentUserStaffId) — the auth id only
         // when its row is present in the staff roster this DTO ships; a
         // removed-but-still-authenticated staffer gets null, same as web.

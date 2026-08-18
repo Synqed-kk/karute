@@ -87,6 +87,17 @@ jest.mock('@/lib/auth/require-permission', () => {
   return { ...actual, capabilitiesForUser: () => mockCapabilities() }
 })
 
+// Roster clamp (Liam 8/17) — the helper's own behaviour is covered by
+// staff-roster-store-scope.test.ts; here it is a pass-through spy so this
+// suite pins the WIRING (called with the clamp's stores + self, and its
+// result is what the DTO ships).
+const viewerStaffRosterForBusiness = jest.fn(async (staff: unknown[]) => staff)
+jest.mock('@/lib/auth/store-scope', () => ({
+  ...jest.requireActual('@/lib/auth/store-scope'),
+  viewerStaffRosterForBusiness: (...a: unknown[]) =>
+    viewerStaffRosterForBusiness(...(a as [unknown[]])),
+}))
+
 const orgSettingsWithClient = jest.fn(async (..._a: unknown[]) => fullOrgSettings())
 jest.mock('@/actions/org-settings', () => ({
   orgSettingsWithClient: (...a: unknown[]) => orgSettingsWithClient(...a),
@@ -204,6 +215,21 @@ describe('GET /api/app/v1/screens/settings', () => {
     expect(dto.staffList.find((s: { id: string }) => s.id === 'staff-2')?.unlinked).toBe(true)
     expect(dto.staffList.find((s: { id: string }) => s.id === 'auth-user-1')?.unlinked).toBeUndefined()
     expect(dto.orgSettings?.salon_name).toBe('テストサロン')
+  })
+
+  it('a store-clamped identity ships the SCOPED roster (Liam 8/17), self id resolved first', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-ginza'] })
+    viewerStaffRosterForBusiness.mockImplementationOnce(async (staff) =>
+      (staff as { id: string }[]).filter((s) => s.id !== 'staff-2'),
+    )
+    const dto = await dtoOf(await GET(req(), route))
+    expect(viewerStaffRosterForBusiness).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ id: 'staff-2' })]),
+      ['store-ginza'],
+      'auth-user-1',
+      'business-1',
+    )
+    expect(dto.staffList.map((s: { id: string }) => s.id)).toEqual(['auth-user-1'])
   })
 
   it('activeStaffId is null when the authenticated id is absent from the DTO staff roster (roster gate)', async () => {
