@@ -106,8 +106,13 @@ export async function setStaffPinCore(
 
 /**
  * Set or update a staff member's 4-digit PIN. Hashing happens server-side.
- * Core gates the change by the acting (signed-in) staff: you may set your own
- * PIN, or an OWNER/ADMIN may set anyone's.
+ *
+ * The gate splits by target. SELF is unchanged and unguarded — a practitioner
+ * owns their own switch credential. A PIN aimed at SOMEONE ELSE is a
+ * staff-management act: `staff.manage` PLUS the actor store clamp, both
+ * applied app-side by nonSelfPinDenial before the core call. Core's own
+ * self-or-OWNER/ADMIN rule (keyed off the acting staff id) stays behind that
+ * as defense-in-depth, never as the only door.
  */
 export async function setStaffPin(staffId: string, pin: string): Promise<{ error?: string }> {
   const actingStaffId = await getCurrentUserStaffId()

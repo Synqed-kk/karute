@@ -488,6 +488,19 @@ describe('staff writes are clamped to the caller\'s stores', () => {
       expect(lines).toHaveLength(0)
     })
 
+    it('an ASSIGNED caller absent from the roster is judged by overlap alone — the roster oracle is never consulted', async () => {
+      // The roster check is load-bearing ONLY against the floating
+      // misclassification; a real assignment is judged by overlap, which a
+      // roster miss cannot loosen. Charging this caller an uncached full-roster
+      // read would buy nothing (and double-read on the pin/voice routes).
+      staffListByBusinessOrThrow.mockResolvedValue([{ id: 'someone-else' }])
+      storeAssignments = { [CALLER]: ['store-a', 'store-b'], [TARGET]: ['store-b'] }
+      const res = await run()
+      expect(res.status).toBeLessThan(300)
+      expect(coreWrite).toHaveBeenCalled()
+      expect(staffListByBusinessOrThrow).not.toHaveBeenCalled()
+    })
+
     it('viewAll never consults the roster, so an unplaceable id changes nothing (web parity)', async () => {
       mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'stores.viewAll']))
       staffListByBusinessOrThrow.mockResolvedValue([{ id: 'someone-else' }])

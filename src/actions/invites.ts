@@ -240,8 +240,14 @@ export async function listInvitesWithClient(
     const { invites } = await synqed.invites.list()
     let pending = invites.filter((i) => i.status === 'pending')
     if (canSeeReinvite) {
-      // ponytail: one clamp call per re-invite row — a pending list is a
-      // handful of rows; batch the assignment reads if that stops being true.
+      // ponytail: one clamp call per re-invite row, and on the facade each
+      // call re-resolves the ACTOR (staffStores.get) before reading the
+      // target's — so a clamped viewer pays ~2 core reads per re-invite row,
+      // plus one uncached roster read whenever their assignment comes back
+      // empty. Ceiling accepted: a pending list is a handful of rows. Hoist
+      // path when it stops being true: resolve the actor's scope ONCE outside
+      // the loop and pass allowedStoreIds down, leaving one staffStores.get
+      // per row (queued, not built).
       const visible = await Promise.all(
         pending.map((i) =>
           i.invited_staff_id ? canSeeReinvite(i.invited_staff_id) : Promise.resolve(true),
@@ -314,6 +320,10 @@ export async function listInvites(): Promise<InviteRow[]> {
     const businessId = await getBusinessId()
     const synqed = await getSynqedClient()
     const actorId = await resolveWebActorId()
+    // A THROWN lens collapses the WHOLE list to [] through the catch below
+    // (fresh invites included), where the facade drops only the row it could
+    // not judge. Both fail closed; the shapes differ because web's action
+    // contract is "degrade to []" and the facade's is per-row.
     return await listInvitesWithClient(
       synqed,
       await memberEmailsForBusiness(businessId),

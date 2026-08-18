@@ -292,13 +292,23 @@ describe('roster seams (server → client)', () => {
     ;(getMyCapabilities as jest.Mock).mockRejectedValue(new Error('caps read failed'))
   }
 
-  it('設定→スタッフ list goes BLIND on a degraded scope (empty, not the full roster)', async () => {
-    degradedActor()
+  const settingsRoster = async () => {
     const el = await SettingsPage({
       params: Promise.resolve({ locale: 'ja' }),
       searchParams: Promise.resolve({}),
     })
-    expect(propsWith(el, 'staffList')?.staffList).toEqual([])
+    return propsWith(el, 'staffList')?.staffList as { id: string }[]
+  }
+
+  it('設定→スタッフ list goes BLIND on a degraded scope — SELF ONLY, never the full roster', async () => {
+    degradedActor()
+    // ⚖ blind means self-only, not empty: a viewer's own row is never another
+    // branch's name, and self-service PIN/voice must survive the glitch. The
+    // row ships whole (StaffList reads has_pin / voice state straight off it),
+    // so the controls that hang on it still render.
+    expect(await settingsRoster()).toEqual([
+      roster.find((s) => s.id === 'profile-self'),
+    ])
   })
 
   it('staff-switch drawer is UNAFFECTED by a degraded scope (keeps the fallback)', async () => {
@@ -311,13 +321,17 @@ describe('roster seams (server → client)', () => {
     expect(ids(data.staffList)).toEqual(ids(roster))
   })
 
-  it('設定→スタッフ list goes BLIND when resolveStoreScope THREW (scope null, not just degraded)', async () => {
+  it('設定→スタッフ list goes BLIND when resolveStoreScope THREW (scope null, not just degraded) — SELF ONLY', async () => {
     unreadableScope()
-    const el = await SettingsPage({
-      params: Promise.resolve({ locale: 'ja' }),
-      searchParams: Promise.resolve({}),
-    })
-    expect(propsWith(el, 'staffList')?.staffList).toEqual([])
+    expect(await settingsRoster()).toEqual([
+      roster.find((s) => s.id === 'profile-self'),
+    ])
+  })
+
+  it('a stores.viewAll viewer is NEVER blinded, degraded or not', async () => {
+    degradedActor()
+    ;(getMyCapabilities as jest.Mock).mockResolvedValue(caps('stores.viewAll'))
+    expect(ids(await settingsRoster())).toEqual(ids(roster))
   })
 
   it('staff-switch drawer is UNAFFECTED when resolveStoreScope THREW (keeps the fallback)', async () => {

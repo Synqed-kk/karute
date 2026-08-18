@@ -118,17 +118,26 @@ export async function resolveStoreForRequest(args: {
  * still remove their own row, unchanged from main — core's last-member guard
  * is the backstop there.
  *
- * The ROSTER check below is web's `degraded` refusal (staffWriteInScope, F-A)
- * on this transport: core answers `{ store_ids: [] }` for an id it holds no
- * rows for, so a caller the roster cannot place would read as "floating" and
- * sail through the one free pass that asks the assignment nothing. Only the
- * roster tells the two apart, so `businessId` rides the args to reach it.
+ * The ROSTER check is web's `degraded` refusal (staffWriteInScope, F-A) on
+ * this transport, and it lives INSIDE the floating branch on purpose. Core
+ * answers `{ store_ids: [] }` for an id it holds no rows for, so the ONE free
+ * pass it can corrupt is the floating one — the pass that asks the assignment
+ * nothing. A caller with a real assignment is already judged by overlap, which
+ * a roster miss cannot loosen, so charging them an uncached full-roster read
+ * would buy nothing (and on the pin/voice routes it would be the SECOND such
+ * read in one request). `businessId` rides the args to reach that oracle.
  *
  * `requestedStoreId: null` deliberately: these routes carry no `store-id`
  * header, and the clamp is called purely for its viewAll / assignment /
  * fail-closed resolution. The throw carries no `reason: 'store_header'` — this
  * is resource ownership (the caller's pin is fine, the row isn't), the same
  * class as the karute route's "this booking belongs to a store…".
+ *
+ * One code, three meanings: `store_forbidden` carries the true out-of-scope
+ * refusal AND both fail-closed arms (the roster miss here, and the unreadable
+ * resolution inside resolveStoreForRequest). The client copy names only the
+ * first. Accepted as-is — every one of them is "you may not write this row",
+ * and splitting the code would leak which lookup failed.
  */
 export async function ensureStaffWriteInScope(args: {
   synqed: Pick<SynqedClient, 'stores' | 'staffStores'>
@@ -150,24 +159,26 @@ export async function ensureStaffWriteInScope(args: {
   // an assignment at all. `allowedStoreIds: null` alone cannot say which of
   // the two unclamped shapes this is; the capability can.
   if (capabilities.has('stores.viewAll')) return
-  // Web parity (staffWriteInScope's `degraded` arm): an auth id the roster
-  // cannot place has no assignment to read, so nothing about it is vouched
-  // for — refuse rather than inherit the floating free pass. Same oracle the
-  // pin/voice routes already use for `actingStaffId`/`selfUserId`.
-  //
-  // LAZY import, load-bearing: customer-facade's static graph reaches
-  // @/lib/customers/queries and through it the ESM-only SDK, and this module's
-  // header rule is that the SDK stays OUT of its graph (a static import here
-  // breaks every suite that loads a facade route without mocking the client).
-  // Reached only on the clamped path, after the viewAll return above.
-  const { resolveSelfStaffId } = await import('./customer-facade')
-  if (!(await resolveSelfStaffId(businessId, authUserId))) {
-    throw new AppApiError(
-      'store_forbidden',
-      'your staff record could not be resolved (fail-closed)',
-    )
+  if (!allowedStoreIds) {
+    // FLOATING — the only pass a roster miss can corrupt (see the doc above).
+    // Web parity, staffWriteInScope's `degraded` arm: an auth id the roster
+    // cannot place has no assignment to read, so nothing about it is vouched
+    // for. Same oracle the pin/voice routes use for actingStaffId/selfUserId.
+    //
+    // LAZY import, load-bearing: customer-facade's static graph reaches
+    // @/lib/customers/queries and through it the ESM-only SDK, and this
+    // module's header rule is that the SDK stays OUT of its graph (a static
+    // import here breaks every suite that loads a facade route without
+    // mocking the client).
+    const { resolveSelfStaffId } = await import('./customer-facade')
+    if (!(await resolveSelfStaffId(businessId, authUserId))) {
+      throw new AppApiError(
+        'store_forbidden',
+        'your staff record could not be resolved (fail-closed)',
+      )
+    }
+    return
   }
-  if (!allowedStoreIds) return
   const targetStores = await synqed.staffStores
     .get(targetStaffId)
     .then((r) => r.store_ids)

@@ -111,12 +111,15 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
     // else. Business id from the verified token, never the cookie session.
     //
     // ⚖ Liam 8/18: a DEGRADED viewer ships an EMPTY roster, mirroring web's
-    // settings page (the switch drawer keeps its fallback on both platforms —
-    // that asymmetry is the ruling). `degraded` on THIS transport is the
-    // roster miss: resolveStoreForRequest already fails closed with a 403 on a
-    // THROWN assignment lookup, so the only degraded shape that reaches here
-    // is an auth id the roster cannot place — core answers `{ store_ids: [] }`
-    // for it, which would otherwise read as floating and ship every branch.
+    // settings page (whose app-shell switch drawer keeps its full-roster
+    // fallback — that asymmetry is the ruling; no roster-fed drawer exists on
+    // this transport, so the split has nothing to mirror here). Web keeps the
+    // viewer's OWN row when blind; here there is none to keep by construction,
+    // because `degraded` on THIS transport IS the roster miss:
+    // resolveStoreForRequest already fails closed with a 403 on a THROWN
+    // assignment lookup, so the only degraded shape that reaches here is an
+    // auth id the roster cannot place — core answers `{ store_ids: [] }` for
+    // it, which would otherwise read as floating and ship every branch.
     // selfRow is already in hand, so the check costs nothing.
     const degraded = !canViewAllStores && !selfRow
     const visibleRoster = degraded

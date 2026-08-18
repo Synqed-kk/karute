@@ -31,8 +31,10 @@ const MAX_SAMPLE_BYTES = 3 * 1024 * 1024 // ~15s of opus is well under this
  *  something about. Only the store clamp is discriminated: it is the one
  *  refusal a staffer can act on ("ask someone in that branch"), and the
  *  silent { ok: false } made it look like a broken upload. Every other
- *  failure keeps the plain shape — widening that is its own UX pass. */
-type VoiceRefusal = 'store_scope'
+ *  failure keeps the plain shape — widening that is its own UX pass.
+ *  Exported so the thin port's twin returns the SAME union rather than a
+ *  re-typed literal (thin/ports/actions.vite.ts). */
+export type VoiceRefusal = 'store_scope'
 
 // Explicit-client seam (design-parity packet 12 §S4a — the P-B pattern):
 // every core below takes this instead of resolving org settings from the
