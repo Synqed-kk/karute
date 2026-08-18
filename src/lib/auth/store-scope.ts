@@ -13,6 +13,7 @@
 import { cache } from 'react'
 import { unstable_cache } from 'next/cache'
 import { getMyCapabilities } from './require-permission'
+import { staffStoresOverlap } from './permissions'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { getActiveStoreId, getPrimaryStoreId, getStaffStoresStrict } from '@/actions/stores'
 
@@ -28,7 +29,10 @@ export interface StoreScope {
    *  array means reads + search MUST stay within it. */
   allowedStoreIds: string[] | null
   /** True when a non-viewAll actor's staff_stores assignment LOOKUP FAILED —
-   *  never a genuine empty assignment (⚖ Liam 2026-08-17, F-A). Reads ignore
+   *  never a genuine empty assignment (⚖ Liam 2026-08-17, F-A). An auth id the
+   *  roster can't place at all (getCurrentUserStaffId → null) is the same
+   *  failed lookup: there is no assignment to read, so nothing is vouched for.
+   *  Reads ignore
    *  this field entirely (storeId/allowedStoreIds above are computed exactly
    *  as they always were, failure or not); only the menu-write clamp
    *  (storeScopeError, src/actions/menus.ts) fails closed on it, refusing a
@@ -80,8 +84,10 @@ export const resolveStoreScope = cache(async (): Promise<StoreScope> => {
   // from a genuine empty assignment ([]) so the write clamp can fail closed
   // on the former while every value below stays identical to today either
   // way (a failure folds into the same "no stores" branch a real empty
-  // assignment already took).
-  const lookup = staffId ? await getStaffStoresStrict(staffId) : []
+  // assignment already took). An unresolvable staffId is that same failure,
+  // one step earlier: the auth id was never placed in the roster, so no
+  // assignment was read — never a genuine empty.
+  const lookup = staffId ? await getStaffStoresStrict(staffId) : null
   const degraded = lookup === null
   const allowed = lookup ?? []
   if (allowed.length === 0) {
@@ -131,6 +137,34 @@ export function menuStoresForScope<T extends { id: string }>(
   // offer NOTHING rather than every branch's name + a doomed edit control.
   if (scope?.degraded) return []
   return scope || canViewAllStores ? stores : []
+}
+
+/**
+ * The staff WRITE clamp for the WEB transport (cookie session) — the twin of
+ * ensureStaffWriteInScope (src/lib/app-api/store-clamp.ts). True = the write
+ * may proceed; src/actions/staff.ts turns false into the house `{ error }`.
+ *
+ * Free passes: `stores.viewAll` · a SELF-edit (a staff member changing their
+ * own name or avatar is never this clamp's business, and the read plane
+ * already guarantees self-visibility) · a floating actor (empty assignment =
+ * works in every store, so the target's own assignment can't change the
+ * answer — and isn't fetched). `degraded` refuses outright (F-A: the actor's
+ * assignment lookup failed, so nothing about them can be vouched for).
+ *
+ * The self-pass covers DELETE as well as name/avatar: a clamped actor may
+ * still remove their own row, unchanged from main — core's last-member guard
+ * is the backstop there.
+ */
+export async function staffWriteInScope(args: {
+  targetStaffId: string
+  actorId: string | null
+}): Promise<boolean> {
+  const { targetStaffId, actorId } = args
+  const { viewAll, allowedStoreIds, degraded } = await resolveStoreScope()
+  if (viewAll || targetStaffId === actorId) return true
+  if (degraded) return false
+  if (!allowedStoreIds) return true
+  return staffStoresOverlap(allowedStoreIds, await getStaffStoresStrict(targetStaffId))
 }
 
 // ─── Store-scoped staff PICKER filtering ────────────────────────────────────

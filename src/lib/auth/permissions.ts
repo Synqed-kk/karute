@@ -174,3 +174,35 @@ export const ASK_AI_REQUIRED_CAPABILITIES: readonly [Capability, ...Capability[]
 export function canUseAskAi(caps: Set<Capability>): boolean {
   return ASK_AI_REQUIRED_CAPABILITIES.every((c) => caps.has(c))
 }
+
+/**
+ * Staff WRITE store clamp — the shared rule, both transports (web:
+ * staffWriteInScope in src/lib/auth/store-scope.ts · facade:
+ * ensureStaffWriteInScope in src/lib/app-api/store-clamp.ts). It lives HERE,
+ * in the pure module, because those two graphs must not meet: store-clamp.ts
+ * deliberately keeps the ESM-only SDK out of its imports.
+ *
+ * It answers ONE question, for an actor already known to be CLAMPED: may they
+ * mutate this staff row? The three free passes (`stores.viewAll`, a floating
+ * actor, and a SELF-edit) are settled by the callers before they get here, so
+ * `allowedStoreIds` is always a real, non-empty assignment.
+ *
+ *   - `targetStores === null` → the target's assignment LOOKUP failed → refuse.
+ *     Fail-closed, the same posture as the menu clamp's `degraded` (F-A): a
+ *     write we can't vouch for doesn't happen.
+ *   - `[]` → floating target: they appear in EVERY branch's roster, the staff
+ *     analogue of a 全店舗 menu — and src/actions/menus.ts:95-98 already ruled
+ *     that touching an every-store item takes `stores.viewAll` no matter how
+ *     the actor is assigned. Same rule here → refuse. This also closes the
+ *     unknown-id corner: if core ever answers `{ store_ids: [] }` for a staff
+ *     id that doesn't exist, a clamped actor is refused, not waved through.
+ *   - else → pass iff the two assignments overlap.
+ */
+export function staffStoresOverlap(
+  allowedStoreIds: string[],
+  targetStores: string[] | null,
+): boolean {
+  // Both refusals above: a failed lookup (null) and an every-store target ([]).
+  if (!targetStores?.length) return false
+  return targetStores.some((id) => allowedStoreIds.includes(id))
+}

@@ -96,8 +96,16 @@ const staffCreate = jest.fn(async () => ({ id: 'staff-new' }))
 const staffUpdate = jest.fn(async () => ({}))
 const staffDelete = jest.fn(async () => ({}))
 const staffUploadAvatar = jest.fn(async () => ({ avatar_url: 'https://cdn.test/a.png' }))
+// Store assignments the write clamp reads (ensureStaffWriteInScope): keyed by
+// staff id so a test can put the CALLER and the TARGET in different branches.
+// Default = everyone floating (empty assignment = works in every store), which
+// is the unclamped path every pre-clamp pin in this file was written against.
+let storeAssignments: Record<string, string[]> = {}
+const staffStoresGet = jest.fn(async (id: string) => ({ store_ids: storeAssignments[id] ?? [] }))
 const fakeClient = {
   staff: { create: staffCreate, update: staffUpdate, delete: staffDelete, uploadAvatar: staffUploadAvatar },
+  staffStores: { get: staffStoresGet },
+  stores: { get: jest.fn(async (id: string) => ({ id })) },
 }
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)
 jest.mock('@/lib/synqed/client', () => ({
@@ -108,6 +116,7 @@ import { POST as createPOST } from '@/app/api/app/v1/staff/route'
 import { PATCH as updatePATCH, DELETE as deleteDELETE } from '@/app/api/app/v1/staff/[id]/route'
 import { POST as avatarPOST } from '@/app/api/app/v1/staff/[id]/avatar/route'
 import { SynqedError } from '@synqed-kk/client'
+import { ROLE_PRESETS } from '@/lib/auth/permissions'
 import { auditLines } from './helpers/audit-lines'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
@@ -157,6 +166,10 @@ beforeEach(() => {
   profileRow = null
   profileUpdateError = null
   profileEqCalls = []
+  storeAssignments = {}
+  // clearAllMocks keeps implementations — restore the default so a fail-closed
+  // test's thrower doesn't leak into the next one.
+  staffStoresGet.mockImplementation(async (id: string) => ({ store_ids: storeAssignments[id] ?? [] }))
   staffCreate.mockResolvedValue({ id: 'staff-new' })
   staffUpdate.mockResolvedValue({})
   staffDelete.mockResolvedValue({})
@@ -365,5 +378,120 @@ describe('POST /api/app/v1/staff/[id]/avatar', () => {
       target_id: 'staff-9',
       source: 'facade',
     })
+  })
+})
+
+// ─── Actor store-scope clamp (ensureStaffWriteInScope) ──────────────────────
+// The facade transport of the same clamp src/actions/staff.ts applies on web.
+// The UI already hides an out-of-scope roster row (#709); this is the server
+// door behind it — a direct Bearer call must be refused too.
+describe('staff writes are clamped to the caller\'s stores', () => {
+  const CALLER = 'auth-user-1' // the Bearer sub this suite signs with
+  const TARGET = 'staff-9'
+
+  // Every write transport, so a clamp that lands on two of three is red.
+  const writes: Array<[string, () => Promise<Response>, jest.Mock]> = [
+    ['PATCH', () => updatePATCH(patchReq(TARGET, VALID_STAFF), params(TARGET)), staffUpdate],
+    ['DELETE', () => deleteDELETE(deleteReq(TARGET), params(TARGET)), staffDelete],
+    ['avatar POST', () => avatarPOST(avatarReq(TARGET, avatarForm()), params(TARGET)), staffUploadAvatar],
+  ]
+
+  describe.each(writes)('%s', (_name, run, coreWrite) => {
+    it('out-of-scope target → 403 store_forbidden, core untouched, no audit row', async () => {
+      storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
+      const lines = await auditLines(async () => {
+        const res = await run()
+        expect(res.status).toBe(403)
+        expect((await res.json()).error).toMatchObject({ code: 'store_forbidden' })
+      })
+      expect(coreWrite).not.toHaveBeenCalled()
+      expect(lines).toHaveLength(0)
+    })
+
+    it('in-scope target (shared branch) → passes unchanged', async () => {
+      storeAssignments = { [CALLER]: ['store-a', 'store-b'], [TARGET]: ['store-b'] }
+      const res = await run()
+      expect(res.status).toBeLessThan(300)
+      expect(coreWrite).toHaveBeenCalled()
+    })
+
+    it('floating TARGET (in every branch = the 全店舗 rule) → 403 store_forbidden, core untouched, no audit row', async () => {
+      // Menus parity (src/actions/menus.ts:95-98): an every-store item takes
+      // stores.viewAll, however the caller is assigned.
+      storeAssignments = { [CALLER]: ['store-a'] }
+      const lines = await auditLines(async () => {
+        const res = await run()
+        expect(res.status).toBe(403)
+        expect((await res.json()).error).toMatchObject({ code: 'store_forbidden' })
+      })
+      expect(coreWrite).not.toHaveBeenCalled()
+      expect(lines).toHaveLength(0)
+    })
+
+    it('floating CALLER (no assignment) → passes for a real-store target', async () => {
+      storeAssignments = { [TARGET]: ['store-b'] }
+      const res = await run()
+      expect(res.status).toBeLessThan(300)
+      expect(coreWrite).toHaveBeenCalled()
+    })
+
+    it('stores.viewAll → byte-identical, the assignment is never consulted', async () => {
+      mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'stores.viewAll']))
+      storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
+      const res = await run()
+      expect(res.status).toBeLessThan(300)
+      expect(coreWrite).toHaveBeenCalled()
+      expect(staffStoresGet).not.toHaveBeenCalled()
+    })
+
+    it("a failed lookup of the caller's own assignment fails closed → 403", async () => {
+      staffStoresGet.mockImplementation(async (id: string) => {
+        if (id === CALLER) throw new Error('core down')
+        return { store_ids: ['store-b'] }
+      })
+      const res = await run()
+      expect(res.status).toBe(403)
+      expect(coreWrite).not.toHaveBeenCalled()
+    })
+
+    it("a failed lookup of the TARGET's assignment fails closed → 403", async () => {
+      storeAssignments = { [CALLER]: ['store-a'] }
+      staffStoresGet.mockImplementation(async (id: string) => {
+        if (id === TARGET) throw new Error('core down')
+        return { store_ids: storeAssignments[id] ?? [] }
+      })
+      const res = await run()
+      expect(res.status).toBe(403)
+      expect(coreWrite).not.toHaveBeenCalled()
+    })
+  })
+
+  it('PATCH clamps BEFORE the body parse: an out-of-scope target with an INVALID body is still 403 store_forbidden', async () => {
+    // Precedence pin — a 400 here would mean the payload was read before the
+    // caller's right to touch this row was settled (avatar-route ordering).
+    storeAssignments = { [CALLER]: ['store-a'], [TARGET]: ['store-b'] }
+    const res = await updatePATCH(patchReq(TARGET, { name: '' }), params(TARGET))
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatchObject({ code: 'store_forbidden' })
+    expect(staffUpdate).not.toHaveBeenCalled()
+  })
+
+  it('self-edit: a clamped caller may always change their OWN avatar', async () => {
+    // The read plane guarantees self-visibility; the write plane must agree.
+    storeAssignments = { [CALLER]: ['store-a'] }
+    const res = await avatarPOST(avatarReq(CALLER, avatarForm()), params(CALLER))
+    expect(res.status).toBe(201)
+    expect(staffUploadAvatar).toHaveBeenCalledWith(CALLER, expect.anything())
+    expect(staffStoresGet).not.toHaveBeenCalled()
+  })
+
+  it('every shipped preset that manages staff also holds stores.viewAll', () => {
+    // The clamp can only ever bite a CUSTOM grant: if this list grows a preset
+    // without viewAll, that preset just lost the rest of the roster — it stops
+    // here first. (Mirror of the menus clamp's own preset pin.)
+    const roles = Object.keys(ROLE_PRESETS) as (keyof typeof ROLE_PRESETS)[]
+    const staffManagers = roles.filter((r) => ROLE_PRESETS[r].includes('staff.manage'))
+    expect(staffManagers).toEqual(['owner', 'manager'])
+    for (const role of staffManagers) expect(ROLE_PRESETS[role]).toContain('stores.viewAll')
   })
 })

@@ -38,6 +38,14 @@ jest.mock('@/lib/auth/require-permission', () => ({
   can: (cap: string) => can(cap),
 }))
 
+// updateStaff now consults the store clamp before the core. This suite is
+// about the ERROR contract, not scope — a viewAll-equivalent pass keeps every
+// pin below on its original path. The clamp's own coverage lives in
+// staff-actions-store-scope.test.ts.
+jest.mock('@/lib/auth/store-scope', () => ({
+  staffWriteInScope: jest.fn(async () => true),
+}))
+
 const staffCreate = jest.fn(async () => ({ id: 'new-1' }))
 const staffUpdate = jest.fn(async () => ({}))
 jest.mock('@/lib/synqed/client', () => ({

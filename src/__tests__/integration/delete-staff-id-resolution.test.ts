@@ -59,6 +59,14 @@ jest.mock('@/lib/auth/require-permission', () => ({
   can: (cap: string) => can(cap),
 }))
 
+// deleteStaff now consults the store clamp; the real store-scope module reaches
+// unstable_cache at load. These tests are about id resolution, not scope — a
+// viewAll-equivalent pass keeps them on their original path. The clamp's own
+// coverage lives in staff-actions-store-scope.test.ts.
+jest.mock('@/lib/auth/store-scope', () => ({
+  staffWriteInScope: jest.fn(async () => true),
+}))
+
 const lookupSynqedStaffId = jest.fn(
   async (_id: string): Promise<string | null> => 'synqed-resolved',
 )

@@ -9,6 +9,7 @@
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { ensureStaffWriteInScope } from '@/lib/app-api/store-clamp'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { uploadStaffAvatarCore } from '@/actions/staff'
 
@@ -49,6 +50,14 @@ export const POST = facadeHandler<Params>('staff.uploadAvatar', async (ctx) => {
   const id = await staffId(ctx)
   const businessId = ctx.identity.businessId
   const synqed = newSynqedClient(businessId)
+  // Actor store scope BEFORE the body is even read — a refused upload touches
+  // nothing (and never pays for a 50MB multipart parse).
+  await ensureStaffWriteInScope({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    targetStaffId: id,
+  })
 
   let form: FormData
   try {
