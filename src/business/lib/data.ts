@@ -35,6 +35,22 @@ import {
   type FixtureStaff,
   type FixtureStore,
 } from './fixtures'
+import {
+  absence,
+  blocks,
+  boardNow,
+  decisions,
+  operatingHours,
+  pricingRule,
+  recoverySteps,
+  register,
+  resources,
+  sellShelfDegraded,
+  sellSlots,
+  shifts,
+  staffQualifications,
+  type FixtureResource,
+} from './fixtures-today'
 
 export type StoreLens = string | { viewAll: true }
 
@@ -156,6 +172,56 @@ export async function readShellIdentity(): Promise<{
 export async function listMenus(lens: StoreLens): Promise<FixtureMenu[]> {
   assertLens(lens)
   return inLens(menus, lens, true)
+}
+
+/** The 今日の運営 nav badge (Today A6), per store AND business-wide.
+ *  No lens argument for the same reason `listStoreOptions` has none: the shell
+ *  renders above the lens (a Next layout never sees searchParams), so it is
+ *  handed one number per store and picks the one the lens is standing on. That
+ *  is what keeps the badge, the 未解決 cell and the cards on the board the SAME
+ *  count under every lens — a business-wide badge over a clamped board would
+ *  disagree with the screen under it, and leak another store's workload.
+ *  ⚠ RECONNECT: ask T-15 — core has no exception queue. */
+export async function readUnresolvedCounts(): Promise<{ byStore: Record<string, number>; all: number }> {
+  const open = decisions.filter((d) => d.state === 'open')
+  const byStore: Record<string, number> = {}
+  for (const s of stores) byStore[s.id] = open.filter((d) => d.store_id === s.id).length
+  return { byStore, all: open.length }
+}
+
+/** ベッド・設備 (Today F19–F21). Store-scoped like any other store-owned row:
+ *  a resource with no store would be a 全店舗 bed, which is not a thing.
+ *  ⚠ RECONNECT: ask T-04 — core has no resource plane at all today. */
+export async function listResources(lens: StoreLens): Promise<FixtureResource[]> {
+  assertLens(lens)
+  return inLens(resources, lens, false)
+}
+
+/** The three board planes core does not expose (asks T-01…T-08, T-15), read as
+ *  ONE call because they are one scene: a board rendered from a shift plane and
+ *  a decision plane fetched a moment apart could show a decision about a shift
+ *  that is no longer there. Rows that carry a store are clamped; rows keyed to a
+ *  staff member (shifts, qualifications) are not — the roster read is what
+ *  decides which staff the lens can see, and clamping twice would drop the
+ *  floating card that legitimately works in every store.
+ *  ⚠ RECONNECT: every field below is fixture-only. See the PR's honesty table. */
+export async function readDayPlanes(lens: StoreLens) {
+  assertLens(lens)
+  return {
+    operatingHours,
+    /** JST minutes from midnight — the moment the board is showing. */
+    boardNow,
+    shifts,
+    staffQualifications,
+    absence: inLens([absence], lens, false)[0] ?? null,
+    blocks: inLens(blocks, lens, false),
+    sellSlots: inLens(sellSlots, lens, false),
+    sellShelfDegraded,
+    decisions: inLens(decisions, lens, false),
+    register,
+    pricingRule,
+    recoverySteps: [...recoverySteps],
+  }
 }
 
 /** Roster clamped to the lens. A staff whose assignment can't be resolved at

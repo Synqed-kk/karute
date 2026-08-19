@@ -31,6 +31,21 @@ export function jstSlot(dayOffset: number, hour: number, minute = 0, now: Date =
   ).toISOString()
 }
 
+/** JST day index of an instant — how many whole JST days since the epoch.
+ *  The join key for "is this row on the day the board is showing": comparing
+ *  day indices cannot drift the way comparing formatted date strings can. */
+export function jstDayKey(iso: string | Date): number {
+  return Math.floor(((typeof iso === 'string' ? new Date(iso) : iso).getTime() + JST_OFFSET_MS) / DAY_MS)
+}
+
+/** Minutes since JST midnight — the board's own coordinate. The timeline is a
+ *  minute axis, so every lane element (booking, shift, break, cleanup) is
+ *  placed from this one number and nothing on the board parses a time string. */
+export function jstMinuteOfDay(iso: string | Date): number {
+  const t = (typeof iso === 'string' ? new Date(iso) : iso).getTime() + JST_OFFSET_MS
+  return Math.floor((t - Math.floor(t / DAY_MS) * DAY_MS) / 60_000)
+}
+
 /** Same slot, `minutes` later — the ends_at half of a booking. */
 export function jstSlotEnd(
   dayOffset: number,
