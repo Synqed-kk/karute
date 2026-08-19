@@ -49,6 +49,8 @@ import { money } from '@/business/lib/canon-logic/pricing'
 import {
   availableMinutes,
   bookingCategory,
+  buildLanes,
+  dayBookings,
   cleanupBlocks,
   effectiveShift,
   freeSlots,
@@ -57,6 +59,7 @@ import {
   place,
   suppressedByAbsence,
   utilization,
+  type BuildInput,
 } from '@/business/lib/today-board'
 import * as data from '@/business/lib/data'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
@@ -97,6 +100,50 @@ const board = async (store?: string, day?: string) =>
       searchParams: Promise.resolve({ ...(store ? { store } : {}), ...(day ? { day } : {}) }),
     }),
   )!
+
+/** The MERGED board's lanes. Since ⚖ Liam 2026-08-20 すべての店舗 left the
+ *  sidebar switcher and every screen opens on the operator's own store, no URL
+ *  reaches the cross-store view any more — so it is assembled here exactly as
+ *  the page assembles it, one field for one field, with the lens the page can
+ *  no longer be given. The depth itself is kept, not deleted: reconnect
+ *  restores the lens for a viewAll-capable actor, and until then this is what
+ *  proves the cross-store labelling still holds. */
+async function mergedLanes() {
+  const lens = { viewAll: true } as const
+  const [customers, appts, menus, staff, resources, planes, shell, storeOptions, staffStores] =
+    await Promise.all([
+      data.listCustomers(lens),
+      data.listAppointments(lens),
+      data.listMenus(lens),
+      data.listStaff(lens),
+      data.listResources(lens),
+      data.readDayPlanes(lens),
+      data.readShellIdentity(),
+      data.listStoreOptions(),
+      data.readStaffStores(lens),
+    ])
+  const input: BuildInput = {
+    appointments: appts,
+    customers,
+    menus,
+    staff,
+    resources,
+    shifts: planes.shifts,
+    qualifications: planes.staffQualifications,
+    staffListPrice: planes.staffListPrice,
+    staffStores,
+    absence: planes.absence,
+    blocks: planes.blocks,
+    sellSlots: planes.sellSlots,
+    decisions: planes.decisions,
+    hours: planes.operatingHours,
+    dayKey: jstDayKey(new Date()),
+    operatorStaffId: shell.operator.staff_id,
+    storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
+    crossStore: true,
+  }
+  return buildLanes(input, dayBookings(input))
+}
 
 const today = () => appointments().filter((a) => jstDayKey(a.starts_at) === jstDayKey(new Date()))
 const minutesOf = (iso: string) => jstMinuteOfDay(iso)
@@ -587,8 +634,7 @@ describe('今日の運営 screen', () => {
   })
 
   it('viewAll shows both stores, and labels the beds so two ベッド1 rows are telling apart', async () => {
-    const p = await board()
-    const beds = p.lanes.filter((l) => l.group === 'beds')
+    const beds = (await mergedLanes()).filter((l) => l.group === 'beds')
     expect(beds.length).toBe(resources.length)
     // Two stores each own a 「ベッド1」; under viewAll the store name on the
     // sub-label is what keeps them apart, so no two rows read identically.
@@ -598,8 +644,8 @@ describe('今日の運営 screen', () => {
   })
 
   it('a staff member with no shift today gets a lane that says so, rather than vanishing', async () => {
-    const p = await board()
-    const idle = p.lanes.find((l) => l.key === 'p-09')!
+    // p-09 holds no store card, so only the merged board can carry her lane.
+    const idle = (await mergedLanes()).find((l) => l.key === 'p-09')!
     expect(idle.sub).toBe('本日シフトなし')
     // One block across the whole day, no bookings: the lane says "you cannot
     // place anything here" on the board itself, not only in the label.

@@ -26,6 +26,7 @@
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { jstDayKey } from '@/business/lib/clock'
 import {
+  defaultStoreId,
   listAppointments,
   listCustomers,
   listMenus,
@@ -88,8 +89,12 @@ export default async function TodayPage({
   await requireBusinessAdmission()
   const [{ locale }, query] = await Promise.all([params, searchParams])
   const storeOptions = await listStoreOptions()
-  const clamped = storeOptions.some((o) => o.id === query.store)
-  const lens: StoreLens = clamped ? query.store! : { viewAll: true }
+  // A missing or unknown ?store= opens on the operator's own store, never the
+  // business-wide merge — すべての店舗 left the sidebar switcher (⚖ Liam 8/20)
+  // and defaultStoreId owns that rule for every screen.
+  const storeId = defaultStoreId(query.store, storeOptions)
+  const clamped = storeId !== null
+  const lens: StoreLens = clamped ? storeId! : { viewAll: true }
 
   // An unparseable ?day= falls back to today rather than erroring: the day is a
   // view preference, and it is clamped to the window the reads cover.
@@ -358,8 +363,8 @@ export default async function TodayPage({
 
   const props: TodayProps = {
     locale,
-    storeParam: clamped ? query.store! : null,
-    lensLabel: clamped ? (storeNames.get(query.store!) ?? 'この店舗') : 'すべての店舗',
+    storeParam: storeId,
+    lensLabel: clamped ? (storeNames.get(storeId!) ?? 'この店舗') : 'すべての店舗',
     dayOffset,
     dayLabel: fmtDayFull.format(shownAt),
     monthLabel: fmtMonth.format(shownAt),
