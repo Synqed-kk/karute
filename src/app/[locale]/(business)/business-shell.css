@@ -89,7 +89,7 @@
 .biz * { box-sizing: border-box; }
 .biz button, .biz input, .biz select, .biz textarea { font: inherit; }
 .biz button { cursor: pointer; }
-.biz button:disabled { cursor: not-allowed; opacity: .45; }
+.biz button:disabled { cursor: not-allowed; opacity: .48; }
 .biz button:focus-visible, .biz a:focus-visible, .biz input:focus-visible,
 .biz select:focus-visible, .biz textarea:focus-visible, .biz [tabindex]:focus-visible {
   outline: 3px solid var(--indigo);
