@@ -712,7 +712,7 @@ export function TodayScreen(props: TodayProps) {
           ? 'confirmed'
           : (item.state ?? '')
     if (item.kind !== 'booking') {
-      const { cls, opens } = blockChrome(item.kind)
+      const { cls, opens, locked } = blockChrome(item.kind)
       const body = (
         <>
           <strong>{item.title}</strong>
@@ -743,6 +743,9 @@ export function TodayScreen(props: TodayProps) {
           {body}
         </button>
       ) : (
+        // …and canon answers the press it refuses (fable-store-today.html :4409
+        // binds pointerdown on every .event.absence): the hatch says where the
+        // change belongs instead of going silent under the not-allowed cursor.
         <span
           className={`event ${cls}${item.micro ? ' micro' : ''}`}
           key={item.key}
@@ -750,6 +753,7 @@ export function TodayScreen(props: TodayProps) {
           role="note"
           title={item.label}
           aria-label={item.label}
+          onPointerDown={locked ? () => show(locked) : undefined}
         >
           {body}
         </span>
