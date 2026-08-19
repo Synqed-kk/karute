@@ -45,7 +45,6 @@ export interface CustomerRow {
   consent: { line: boolean; sms: boolean; email: boolean } | null
   lineLinked: boolean
   merge: 'open' | 'pending' | 'none'
-  duplicateOf: string | null
   party: Array<{ role: string; name: string; note: string }>
   thin: boolean
   externalOwner: boolean
@@ -201,7 +200,6 @@ export function CustomersScreen({
       consent: { line: false, sms: false, email: false },
       lineLinked: false,
       merge: 'none',
-      duplicateOf: null,
       party: [],
       thin: false,
       externalOwner: false,
@@ -237,7 +235,7 @@ export function CustomersScreen({
         <div className="summary-main">
           <strong>{lensLabel}の顧客 {counts.total}名</strong>
           <span>
-            検索と一覧には予約・レジの記録だけの方も含みます。件数・検索は表示できる店舗と項目から導出します。
+            検索と一覧には予約・レジの記録だけの方も含みます。件数・検索・CSVは表示できる店舗と項目から導出します。
           </span>
         </div>
         <div className="summary-stat"><span>次回予約あり</span><b>{counts.future}</b></div>
@@ -448,7 +446,6 @@ export function CustomersScreen({
                   <strong>同じ電話番号の重複候補があります</strong>
                   <span>
                     共通本人情報と店舗別の予約・回数券・残高・履歴を分けて比較します。自動統合はしません。
-                    {current.duplicateOf ? `（相手 ${current.duplicateOf}）` : ''}
                   </span>
                   <button className="btn danger" type="button" disabled title="顧客プロフィールは準備中です">
                     重複候補を確認（準備中）
@@ -589,7 +586,7 @@ export function CustomersScreen({
               </select>
             </label>
             <div className="merge-proof">
-              氏名と携帯番号は必須です。連絡同意は未確認のまま登録し、確認後に別途記録します。
+              氏名と携帯番号は必須です。連絡同意は未確認のまま登録し、確認後に別途「同意を更新」から記録します。
             </div>
           </div>
           <div className="dialog-foot">

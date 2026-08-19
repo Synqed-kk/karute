@@ -142,7 +142,6 @@ export default async function CustomersPage({
       consent: c.consent,
       lineLinked: c.line_linked,
       merge: c.merge_status,
-      duplicateOf: c.duplicate_of,
       party: c.party,
       thin: c.thin,
       externalOwner: c.external_owner,
