@@ -45,6 +45,12 @@ export function ProcessingIndicator() {
 
   useEffect(() => {
     if (state !== 'autosaving') return
+    // Closure state only says this run WAS autosaving when the commit was
+    // scheduled; the live state proves it still IS the current run. A start()
+    // landing between that commit and this passive flush (the C-1 race) must
+    // not let a dead run poison the one-shot ref with the NEW run's id — that
+    // would block the new run's own autosave forever, leaving it stuck 保存中.
+    if (globalPipeline.state !== 'autosaving') return
     const runId = globalPipeline.runId
     if (autosavedRunRef.current === runId) return
     autosavedRunRef.current = runId
@@ -55,6 +61,9 @@ export function ProcessingIndicator() {
     // ctx/result guard or the save call (the server path has no `result`;
     // runAIPipeline never ran client-side).
     if (globalPipeline.serverSavedRecordId) {
+      // Settled: the record already exists server-side, so the C-1 gate can let
+      // a supersession through without losing anything.
+      globalPipeline.autosaveSettled = true
       const id = globalPipeline.serverSavedRecordId
       if (globalPipeline.isCurrentRun(runId)) {
         toast.success(t('autoSaved'), {
@@ -125,6 +134,16 @@ export function ProcessingIndicator() {
         if (globalPipeline.isCurrentRun(runId)) toast.error(t('autosaveFailed'))
         globalPipeline.failAutosaveToReview(runId)
       } else {
+        // SETTLED (fix round 7): the record exists, so the C-1 gate can stop
+        // asking about this run. Deliberately NOT set before the await — a save
+        // in flight can still come back {error}, and this run's fallback to
+        // review is runId-guarded above, so a run superseded mid-flight and
+        // then failing would be lost in silence.
+        // runId-guarded like the toast below, NOT unconditional like the take
+        // delete beside it: the flag describes the run the pipeline is holding
+        // NOW (start()/reset() clear it), so a superseded run's late success
+        // must not stamp "secured" onto the NEW take's unsettled window.
+        if (globalPipeline.isCurrentRun(runId)) globalPipeline.autosaveSettled = true
         // The record is saved — the persisted audio has served its purpose.
         // Unconditional (not runId-guarded): the take must be deleted
         // regardless of which run is now live, same as before this fix.

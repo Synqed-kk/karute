@@ -74,12 +74,41 @@ jest.mock('@/lib/ai-pipeline', () => ({
   ),
 }))
 
+import { useLayoutEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { saveKaruteRecordInline } from '@/actions/karute'
+import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { AuthGate } from '../../../thin/AuthGate'
 
 const session = (token: string) => ({ access_token: token }) as Session
+
+const RUN_B_CTX = {
+  locale: 'ja',
+  customers: [],
+  appointmentCustomerId: 'cust-2',
+  outcome: { status: 'success' } as never,
+}
+
+/**
+ * Fix round 5 (Greptile round-3 finding (a), second-order defect). The autosave
+ * is a PASSIVE effect: React commits 'autosaving' first and flushes the effect
+ * afterwards, so a 録音を使用 tap can land in between and supersede the run —
+ * and the pending effect STILL runs, with its closure state stuck at
+ * 'autosaving'. A LAYOUT effect on that same commit is the deterministic
+ * stand-in for the tap: React runs every layout effect of a commit before any
+ * passive effect of it, so this reproduces the exact window with no timer games.
+ */
+function SupersedeOnAutosavingCommit() {
+  const { state } = useGlobalPipeline()
+  const firedRef = useRef(false)
+  useLayoutEffect(() => {
+    if (state !== 'autosaving' || firedRef.current) return
+    firedRef.current = true
+    globalPipeline.start(new Blob(['b']), RUN_B_CTX)
+  }, [state])
+  return null
+}
 
 beforeEach(() => {
   globalPipeline.reset()
@@ -142,6 +171,115 @@ describe('AuthGate mounts the recording/processing chrome (F-8)', () => {
     // F2 (packet 12 fix batch): the CURRENT run still toasts — the runId
     // guard added below must not suppress the normal case.
     expect(toast.success).toHaveBeenCalledTimes(1)
+    // Fix round 7: the in-tab settle point — the record is persisted, so the
+    // C-1 supersession gate stops asking about this run.
+    expect(globalPipeline.autosaveSettled).toBe(true)
+  })
+
+  // Fix round 7 (Greptile round-4 P1). Round 5 flipped autosaveSettled at
+  // DISPATCH, reasoning that an in-flight save can't be lost. It can: the save
+  // may answer {error}, and this run's fallback to review is runId-guarded
+  // (failAutosaveToReview no-ops on a stale id, as does the error toast), so a
+  // run superseded mid-flight and THEN failing is lost with no review screen
+  // and no word to the staff. The flag must therefore stay false for the whole
+  // in-flight window — that is the exact case the C-1 confirm has to cover.
+  it('the save is DISPATCHED but UNSETTLED while in flight — the gate still asks', async () => {
+    let resolveSave!: (v: { id: string }) => void
+    ;(saveKaruteRecordInline as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve
+        }),
+    )
+    act(() => {
+      globalPipeline.start(new Blob(['a']), {
+        locale: 'ja',
+        customers: [],
+        appointmentCustomerId: 'cust-1',
+        outcome: { status: 'success' } as never,
+      })
+    })
+    render(
+      <AuthGate>
+        <div data-testid="app" />
+      </AuthGate>,
+    )
+    await act(async () => {
+      mockDeferreds[0].resolve({ transcript: 't', entries: [], summary: 'S' })
+    })
+
+    // Dispatched — and still NOT secured. Nothing is persisted yet.
+    expect(saveKaruteRecordInline).toHaveBeenCalledTimes(1)
+    expect(globalPipeline.autosaveSettled).toBe(false)
+
+    // The record lands: only now does the gate stop asking.
+    await act(async () => {
+      resolveSave({ id: 'saved-1' })
+    })
+    expect(globalPipeline.autosaveSettled).toBe(true)
+  })
+
+  it('a FAILED save never marks the run settled (the loss the gate protects)', async () => {
+    ;(saveKaruteRecordInline as jest.Mock).mockResolvedValueOnce({
+      error: 'save failed',
+    })
+    act(() => {
+      globalPipeline.start(new Blob(['a']), {
+        locale: 'ja',
+        customers: [],
+        appointmentCustomerId: 'cust-1',
+        outcome: { status: 'success' } as never,
+      })
+    })
+    render(
+      <AuthGate>
+        <div data-testid="app" />
+      </AuthGate>,
+    )
+    await act(async () => {
+      mockDeferreds[0].resolve({ transcript: 't', entries: [], summary: 'S' })
+    })
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+    // Dispatch happened, the save failed, no record exists — "dispatched"
+    // would have read as secured here, which is precisely the wrong answer.
+    expect(globalPipeline.autosaveSettled).toBe(false)
+  })
+
+  it('a late success from a superseded run does not stamp the NEW take as settled', async () => {
+    let resolveSave!: (v: { id: string }) => void
+    ;(saveKaruteRecordInline as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve
+        }),
+    )
+    act(() => {
+      globalPipeline.start(new Blob(['a']), {
+        locale: 'ja',
+        customers: [],
+        appointmentCustomerId: 'cust-1',
+        outcome: { status: 'success' } as never,
+      })
+    })
+    render(
+      <AuthGate>
+        <div data-testid="app" />
+      </AuthGate>,
+    )
+    await act(async () => {
+      mockDeferreds[0].resolve({ transcript: 't', entries: [], summary: 'S' })
+    })
+    // Take B supersedes while A's save is still in flight; start() clears the
+    // flag for the new run.
+    act(() => {
+      globalPipeline.start(new Blob(['b']), { locale: 'ja', customers: [] })
+    })
+    // A's save lands LATE. Its record is real, but it is A's — B is still
+    // unsettled, and stamping the flag here would drop B's own confirm.
+    await act(async () => {
+      resolveSave({ id: 'saved-1' })
+    })
+    expect(globalPipeline.autosaveSettled).toBe(false)
   })
 
   it('a save resolving AFTER a newer run superseded it does NOT toast (F2 runId guard)', async () => {
@@ -242,6 +380,40 @@ describe('AuthGate mounts the recording/processing chrome (F-8)', () => {
     })
     expect(toast.error).not.toHaveBeenCalled()
     expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  it('a supersession between commit and flush leaves the NEXT run able to autosave', async () => {
+    act(() => {
+      globalPipeline.start(new Blob(['a']), {
+        locale: 'ja',
+        customers: [],
+        appointmentCustomerId: 'cust-1',
+        outcome: { status: 'success' } as never,
+      })
+    })
+    render(
+      <AuthGate>
+        <SupersedeOnAutosavingCommit />
+      </AuthGate>,
+    )
+    // Run A finishes → 'autosaving' commits → the tap stand-in supersedes it
+    // with run B before A's autosave effect ever flushes.
+    await act(async () => {
+      mockDeferreds[0].resolve({ transcript: 't', entries: [], summary: 'A' })
+    })
+    expect(saveKaruteRecordInline).not.toHaveBeenCalled()
+    expect(globalPipeline.state).toBe('processing')
+
+    // Run B now finishes legitimately. Pre-fix, A's stale flush had already
+    // stamped B's runId onto the one-shot ref before the result guard bailed,
+    // so THIS save never fired and the chip sat at 保存中 forever.
+    await act(async () => {
+      mockDeferreds[1].resolve({ transcript: 't', entries: [], summary: 'B' })
+    })
+    await waitFor(() => expect(saveKaruteRecordInline).toHaveBeenCalledTimes(1))
+    expect(
+      (saveKaruteRecordInline as jest.Mock).mock.calls[0][0],
+    ).toMatchObject({ customerId: 'cust-2', summary: 'B' })
   })
 
   it('keeps the chrome mounted through an offline-resume spell (recovering w/ known session)', () => {

@@ -38,7 +38,13 @@ import type { RecordTargetBooking } from '@/components/karute/redesign/record/Re
 import type { RecentRecording } from '@/components/karute/redesign/record/RecentRecordingsCard'
 import type { PreSessionBrief } from '@/components/karute/redesign/record/PreSessionBriefCard'
 import type { RecordPageNextAppointment } from '@/components/karute/redesign/record/RecordPageView'
+import type { RecordCustomerFact } from '@/components/karute/redesign/record/RecordCustomerPickerDialog'
 import type { CachedCustomerOption } from '@/lib/customers/cached'
+// Type-only: list-enrich pulls next/cache + SynqedClient, and this module is
+// imported by suites that mock neither. The enrichment MAP comes back from the
+// caller's loadPickerFacts loader (same shape buildAppointmentsScreen takes) —
+// this module decides WHETHER to ask for it, never how to fetch it.
+import type { CustomerEnrichment } from '@/lib/customers/list-enrich'
 
 // The consent row shape this assembly reads (granted_at → the consent pill).
 type ConsentRow = { granted_at?: string | null } | null
@@ -94,9 +100,33 @@ export interface RecordScreenResult {
   ticketsEnabled: boolean
   noiseSuppression: boolean
   currentStaffName: string | null
+  /** Per-customer display facts for the 録音 customer-picker dialog (karute #,
+   *  新規, 回数券 残n/m, 前回 date+menu, 担当). Derived from the SAME bulk reads
+   *  the 予約 agenda uses (enrichment + pack usage), so a number shown here can
+   *  never disagree with the reservation page. Empty-valued fields are omitted
+   *  rather than nulled — the array ships on every screen read. */
+  customerFacts: RecordCustomerFact[]
   /** Inputs the caller uses to fire the AI pre-session brief (web streams it,
    *  the facade has a dedicated endpoint). null when there's no target. */
   briefInputs: RecordScreenBrief | null
+}
+
+/** 前回 date for the picker rows — 「8月2日」/「Aug 2」, with the year restored
+ *  when the visit was in a prior year (formatCompactDate's honesty rule, in the
+ *  approved mock's month spelling). */
+function visitDateLabel(iso: string | null, locale: string, now: Date): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  const jstYear = (x: Date) =>
+    x.toLocaleDateString('en-US', { timeZone: 'Asia/Tokyo', year: 'numeric' })
+  const sameYear = jstYear(d) === jstYear(now)
+  return d.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
+    timeZone: 'Asia/Tokyo',
+    month: locale === 'ja' ? 'long' : 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  })
 }
 
 function hhmm(d: Date): string {
@@ -122,6 +152,20 @@ export async function buildRecordScreen(input: {
   /** reservation.status label resolver (getTranslations) — kept a plain fn so
    *  the module stays loadable by both builds + jest. */
   statusLabel: (key: 'in_session' | 'completed' | 'booked') => string
+  /** The picker rows' bulk per-customer reads: enrichment (前回 date+menu, 担当,
+   *  karute count) and 回数券 usage — the SAME cached aggregates the 顧客 list +
+   *  予約 agenda read, so a number shown in the picker can't disagree with them.
+   *
+   *  LAZY on purpose (B-6): both are whole-tenant and listAllPackUsage is
+   *  uncached, while only the NO-TARGET screen can open the picker. This is
+   *  invoked at the customerFacts site and nowhere else, so the bound screen —
+   *  the hottest one — never fires them at all. The loader must run its two
+   *  reads in PARALLEL; each is best-effort (an absent loader or a missing map
+   *  costs the rows detail, never correctness). */
+  loadPickerFacts?: () => Promise<{
+    enrichment?: ReadonlyMap<string, CustomerEnrichment>
+    packUsage?: ReadonlyMap<string, { remaining: number; size: number }>
+  }>
   deps: RecordScreenDeps
 }): Promise<RecordScreenResult> {
   const {
@@ -135,6 +179,7 @@ export async function buildRecordScreen(input: {
     todayAppts,
     orgSettings,
     statusLabel,
+    loadPickerFacts,
     deps,
   } = input
 
@@ -155,8 +200,13 @@ export async function buildRecordScreen(input: {
     a.start_time < b.start_time ? -1 : a.start_time > b.start_time ? 1 : 0,
   )
 
-  // Default-target priority — prefer the ACTIVE STAFF's bookings first
-  // (in-session > upcoming > any unlinked), else ANY salon booking.
+  // Default-target priority — the ACTIVE STAFF's OWN bookings only
+  // (in-session > upcoming > any unlinked). NEVER any salon booking: the
+  // 8/19 field report + Liam's ruling — the centre record button must not
+  // auto-bind another stylist's customer. No own booking → no implicit
+  // target at all (the screen's empty state then asks explicitly). The
+  // EXPLICIT entries (?appointmentId / ?customerId) are untouched below —
+  // deliberately opening someone's booking still binds it.
   const nowMs = now.getTime()
   const isInSession = (a: AppointmentRow) => {
     if (a.karute_record_id) return false
@@ -172,6 +222,9 @@ export async function buildRecordScreen(input: {
     return rows.find(isInSession) ?? rows.find(isUpcoming) ?? rows.find(isUnlinked)
   }
 
+  // No staff identity (a caller with no staff_profile row) → nothing to scope
+  // BY, so the PICKER's ordering keeps the day's list as-is (below). The
+  // implicit pick does NOT use it — see `unlinked`.
   const myRows = activeStaffId
     ? list.filter((a) => a.staff_profile_id === activeStaffId)
     : list
@@ -192,10 +245,15 @@ export async function buildRecordScreen(input: {
     : undefined
   // When a customer is explicitly chosen, never fall through to an unrelated
   // default booking — it's that customer's booking or a walk-in, nothing else.
+  // An implicit pick also REQUIRES a staff identity (A-2, 8/19): without one
+  // `myRows` degrades to the whole salon's day (ghost-owner bootstrap /
+  // half-joined invite are documented prod states), which would re-open the
+  // very cross-staff auto-bind this change closes. No identity → no target;
+  // the screen then asks. Explicit entries above are untouched.
   const unlinked =
     requestedRow ??
     customerRow ??
-    (requestedCustomerId ? undefined : (findFirst(myRows) ?? findFirst(list)))
+    (requestedCustomerId || !activeStaffId ? undefined : findFirst(myRows))
 
   if (unlinked) {
     const startMs = new Date(unlinked.start_time).getTime()
@@ -267,6 +325,9 @@ export async function buildRecordScreen(input: {
       start: hhmm(start),
       end: hhmm(end),
       customer: customerName,
+      // The join key the picker dialog uses to hang a row's 回数券/新規 chips off
+      // customerFacts (and to mark a searched customer as booked TODAY).
+      customerId: a.client_id,
       initials: deriveFamilyInitials(customerName),
       staffId: a.staff_profile_id,
       staffColorKey: a.staff_profile_id
@@ -285,6 +346,70 @@ export async function buildRecordScreen(input: {
           : statusLabel('booked'),
     }
   })
+
+  // Picker facts — ONE row per customer, so both dialog lists (today's bookings
+  // and the search results) read the same derived values. 新規 goes through the
+  // shared isReturningCustomer chopstick (never a local rule), the numbers come
+  // from the injected bulk maps, and every empty field is OMITTED so a customer
+  // with no history costs ~30 bytes on the wire instead of a row of nulls.
+  //
+  // Built ONLY when the screen resolves to NO target, and the bulk reads behind
+  // it are fired ONLY here (B-6): the picker's render gate is
+  // `showCustomerPicker && showNoTargetActions` (RecordPageView), and
+  // showNoTargetActions requires nextAppointment === null — so with a booking on
+  // screen the dialog cannot be mounted, and this array plus its two
+  // whole-tenant reads would be work nobody can ever read. The gate is on the
+  // STATE, not on any one entry point: whatever opens the dialog, it can only
+  // be open while the target is null (a target binding under an open dialog
+  // unmounts it — B-8). If a future edit lets the picker open in the BOUND
+  // state, move this call rather than deleting it — the dialog itself degrades
+  // to lean rows rather than breaking.
+  let customerFacts: RecordCustomerFact[] = []
+  if (!nextAppointment) {
+    // C-8: best-effort for real — the loader's contract says a missing map
+    // costs the rows detail, never correctness, but a REJECTING loader (either
+    // whole-tenant read throwing) propagated out of here and took the entire
+    // record screen down. Degrade to no facts, exactly like an absent loader.
+    let bulk: Awaited<ReturnType<NonNullable<typeof loadPickerFacts>>> | undefined
+    try {
+      bulk = await loadPickerFacts?.()
+    } catch (err) {
+      console.error('[record-screen] picker facts unavailable — rows degrade to lean:', err)
+    }
+    const enrichment = bulk?.enrichment
+    const packUsage = bulk?.packUsage
+    customerFacts = customers.map((c) => {
+      const e = enrichment?.get(c.id)
+      const usage = packUsage?.get(c.id) ?? null
+      const fact: RecordCustomerFact = { id: c.id }
+      const karuteNumber = karuteNumberByClientId.get(c.id)
+      if (karuteNumber) fact.karuteNumber = karuteNumber
+      const returning = isReturningCustomer({
+        joinDateIso: null,
+        lastVisitIso: e?.lastVisitIso ?? null,
+        isExistingCustomer: c.isExistingCustomer,
+        visitCount: c.visitCount,
+        karuteCount: e?.totalKarute,
+        pastAppointmentCount: e?.pastAppointmentCount,
+        hasTicketPack: c.hasTicketPack || usage !== null,
+      })
+      if (!returning) fact.isNew = true
+      if ((e?.totalKarute ?? 0) > 0) fact.hasKarute = true
+      if (usage && usage.size > 0) {
+        fact.pack = { remaining: usage.remaining, size: usage.size }
+      }
+      const lastVisit = visitDateLabel(e?.lastVisitIso ?? null, locale, now)
+      if (lastVisit) fact.lastVisitDate = lastVisit
+      if (e?.lastVisitService) fact.lastVisitService = e.lastVisitService
+      if (e?.bookingStaffId) {
+        const name = staffNameById.get(e.bookingStaffId)
+        if (name) fact.staffName = name
+        const colorKey = staffColors.get(e.bookingStaffId)?.key
+        if (colorKey) fact.staffColorKey = colorKey
+      }
+      return fact
+    })
+  }
 
   // Wave 2 — everything keyed off the recording TARGET's customer.
   const targetCustomerId = nextAppointment?.customerId ?? null
@@ -432,6 +557,7 @@ export async function buildRecordScreen(input: {
     ticketsEnabled,
     noiseSuppression: orgSettings?.noise_suppression !== false,
     currentStaffName: activeStaffId ? (staffNameById.get(activeStaffId) ?? null) : null,
+    customerFacts,
     briefInputs,
   }
 }

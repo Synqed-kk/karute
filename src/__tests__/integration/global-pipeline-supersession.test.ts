@@ -183,6 +183,26 @@ describe('globalPipeline B2 auto-save transition + runId guards', () => {
     expect(globalPipeline.state).toBe('review')
   })
 
+  // Fix round 5: autosaveSettled is the C-1 gate's "this run's result is
+  // already secured" input. Both places a run's result stops existing must
+  // clear it, or the NEXT take inherits the last one's clearance and its own
+  // unsettled window silently loses the confirm.
+  it('start() and reset() clear autosaveSettled', async () => {
+    globalPipeline.start(new Blob(['a']), ctxAuto)
+    mockDeferreds[0].resolve(makeResult('A'))
+    await flush()
+    expect(globalPipeline.state).toBe('autosaving')
+
+    // What ProcessingIndicator's effect does once the record is persisted.
+    globalPipeline.autosaveSettled = true
+    globalPipeline.start(new Blob(['b']), ctxAuto) // a new take supersedes
+    expect(globalPipeline.autosaveSettled).toBe(false)
+
+    globalPipeline.autosaveSettled = true
+    globalPipeline.reset()
+    expect(globalPipeline.autosaveSettled).toBe(false)
+  })
+
   it('a late auto-save reset cannot clobber a NEWER take', async () => {
     globalPipeline.start(new Blob(['a']), ctxAuto) // take A
     mockDeferreds[0].resolve(makeResult('A'))

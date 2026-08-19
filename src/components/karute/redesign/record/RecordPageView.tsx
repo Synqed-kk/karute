@@ -21,7 +21,7 @@ import { globalRecorder } from '@/lib/global-recorder'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
 import { useTimetableStore } from '@/stores/timetable-store'
-import type { CustomerOption } from '@/components/karute/CustomerCombobox'
+import { type CustomerOption } from '@/components/karute/CustomerCombobox'
 import {
   getCustomerConsent,
   grantCustomerConsent,
@@ -60,6 +60,10 @@ import {
 } from './PostSessionResolutionDialog'
 import type { PackPreset } from '@/actions/org-settings'
 import { RepurchaseCueBanner } from './RepurchaseCueBanner'
+import {
+  RecordCustomerPickerDialog,
+  type RecordCustomerFact,
+} from './RecordCustomerPickerDialog'
 import {
   createPackAction,
   redeemSessionAction,
@@ -147,6 +151,9 @@ export interface RecordPageViewProps {
    *  economics) — it saves the record exactly like the mid-pack auto path,
    *  minus the redemption. */
   ticketsEnabled?: boolean
+  /** Per-customer display facts for the お客様を選んで録音 dialog (karute #,
+   *  新規, 残n/m, 前回, 担当). Absent → the dialog renders its lean rows. */
+  customerFacts?: RecordCustomerFact[]
 }
 
 /**
@@ -230,6 +237,7 @@ export function RecordPageView({
   noiseSuppression = true,
   currentStaffName = null,
   ticketsEnabled = true,
+  customerFacts,
 }: RecordPageViewProps) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
@@ -325,11 +333,61 @@ export function RecordPageView({
     return 'idle'
   })
   const [showNoBookingPrompt, setShowNoBookingPrompt] = useState(false)
+  const [showCustomerPicker, setShowCustomerPicker] = useState(false)
   const [recordingDuration, setRecordingDuration] = useState(0)
+
+  // Idle, no take in flight, and NO booking of the signed-in staff's own today
+  // — buildRecordScreen no longer auto-picks a colleague's booking (8/19
+  // ruling), so there is nothing to record against until the staff says who.
+  // The target card carries the two explicit actions and the big record button
+  // steps aside (mock A2); the walk-in flow itself is unchanged, only its
+  // trigger moved out of the no-booking prompt.
+  // recState, NOT the composite `live` (A-1, 8/19): a pipeline still crunching
+  // the LAST take with an idle recorder is a normal working window — the staff
+  // can and must line up the next customer there. Gating on `live` dropped them
+  // back onto the legacy scaffold, whose 別の予約を選択 sheet lists the whole salon.
+  const showNoTargetActions = phase === 'idle' && recState === 'idle' && !nextAppointment
+
+  // B-8: the picker exists ONLY in that state. QuietRefresh re-renders this
+  // page with fresh server props behind the paint, so a target can bind while
+  // the dialog is open (a colleague hands over a booking, the staffer's own is
+  // created) — and showCustomerPicker, a plain flag, never noticed: the dialog
+  // floated over a bound screen and its rows navigated away from a live target.
+  // The flag follows the state back down, so the dialog also can't spring open
+  // by itself the next time the target clears. The render gate below is the
+  // enforcement; this keeps the flag from lying in between.
+  useEffect(() => {
+    if (!showNoTargetActions) setShowCustomerPicker(false)
+  }, [showNoTargetActions])
   // Outcome is chosen the MOMENT recording stops (the staff knows it live),
   // before transcription — so they decide once, up front, then the AI runs in
   // the background while they move on. It rides the pipeline context to save.
   const [outcomeOpen, setOutcomeOpen] = useState(false)
+
+  // C-1: the 録音を使用 tap is the ONE user-reachable caller of
+  // globalPipeline.start on this screen (take-recovery's banner is gated on
+  // !live), and the pipeline is single-slot — a start() while a previous run
+  // is still processing supersedes it. On the in-tab arm that DROPS the old
+  // run's result un-settled, which used to happen without a word.
+  const [showSupersedeDialog, setShowSupersedeDialog] = useState(false)
+  // Same convention B-8 established for the picker: the confirm may exist ONLY
+  // while there is a run to supersede. The render gate below is the
+  // enforcement; this keeps the flag from lying in between — a stale true
+  // would spring the dialog open, uninvited and now untrue, the moment the
+  // NEXT take's pipeline starts processing.
+  //
+  // 'autosaving' counts as a run to supersede (fix round 6), for the same
+  // reason the tap gate and the render gate span it: until the autosave
+  // dispatches there is still an unsaved result to ask about. Narrower, this
+  // effect SWALLOWS the tap it exists to protect — in the race window it is a
+  // pending passive effect of the very commit that turned 'autosaving', so the
+  // tap's setShowSupersedeDialog(true) is followed in the same hook queue by
+  // this effect's false, and the confirm never paints. review/idle/error still
+  // clear it: there the question is moot.
+  useEffect(() => {
+    if (pipeline.state !== 'processing' && pipeline.state !== 'autosaving')
+      setShowSupersedeDialog(false)
+  }, [pipeline.state])
 
   // D3: discard-with-photos confirmation (see handleDiscard below).
   const [showDiscardPhotosDialog, setShowDiscardPhotosDialog] = useState(false)
@@ -525,7 +583,9 @@ export function RecordPageView({
     // belt reset — see handleStartRecording
     resolvingOutcomeRef.current = false
     setResolvingOutcome(false)
-    // Reached only via the no-booking prompt → nextAppointment is null, so there
+    // Two entry points: the no-booking prompt's recordAnyway button, and the
+    // no-own-booking card's 選択せずに録音する action (RecordingTargetCard's
+    // onRecordWithoutCustomer). Both mean nextAppointment is null, so there
     // is no customer to bind (walk-in); the save will require picking one.
     startRecording({ noiseSuppression, target: null })
   }
@@ -943,6 +1003,65 @@ export function RecordPageView({
     setOutcomeOpen(true)
   }
 
+  // Which flow the 録音を使用 tap runs, once it's cleared to run at all.
+  function runStopFlow() {
+    // Tickets off OR the pack data on screen isn't this session's customer
+    // (mismatch/anonymous): straight save — no burn, no 成約/回数券 dialog
+    // (resolveStopFlow's contract).
+    const flow = resolveStopFlow({ ticketsEnabled, canRunOutcome, outcomeMode })
+    if (flow === 'save-direct') handleUseRecording(undefined, true)
+    else if (flow === 'auto-redeem') handleAutoFlow()
+    else openOutcomeDialog()
+  }
+
+  // C-1 (Greptile F1): the supersession gate. It sits BEFORE the fork above on
+  // purpose — handleAutoFlow burns a pack session and the outcome dialog can
+  // create one, so asking here means a キャンセル costs nothing and moves no
+  // money. An errored run stays documented as legitimate to supersede.
+  //
+  // 'autosaving' is NOT the safe state the first cut claimed (fix round 5): the
+  // save runs from a PASSIVE EFFECT in ProcessingIndicator, not from the
+  // transition itself, so a tap landing between the 'autosaving' commit and its
+  // effect flush would supersede a finished-but-unsaved run and drop the whole
+  // transcription in silence.
+  //
+  // autosaveSettled covers the WHOLE unsettled window — the pre-dispatch gap
+  // AND the in-flight save (fix round 7): an in-flight save can come back
+  // {error}, and a run superseded before that answer arrives can't fall back to
+  // review (the fallback is runId-guarded, so it no-ops for a superseded run),
+  // which is the same silent loss one step later. Once the record is persisted
+  // the flag flips and taps pass with zero friction.
+  //
+  // What the staff sees is the D-1 conservative direction — extra dialog beats
+  // silent loss. Opening the confirm is itself a React update and React flushes
+  // that commit's pending passive effects before rendering it, so by the time
+  // the dialog is on screen the save is at least in flight; a 中断して開始 then
+  // is an explicit, informed call rather than something that happened to them.
+  // Every effect keyed on pipeline.state is in that same flush, which is why
+  // the dialog-hygiene effect above has to span 'autosaving' too (fix round 6)
+  // — narrower, it clears the flag this tap just set.
+  function handleUseRecordingTap() {
+    if (pipeline.state === 'processing') {
+      // The old run survives server-side — say so, don't ask.
+      if (globalPipeline.serverOwned) toast.info(t('supersedeServerNotice'))
+      else {
+        setShowSupersedeDialog(true)
+        return
+      }
+    }
+    // Live singleton, not the render snapshot: the snapshot is one commit stale
+    // in exactly the window this closes.
+    if (
+      globalPipeline.state === 'autosaving' &&
+      !globalPipeline.autosaveSettled &&
+      !globalPipeline.serverSavedRecordId
+    ) {
+      setShowSupersedeDialog(true)
+      return
+    }
+    runStopFlow()
+  }
+
   const recorderControls = phase === 'recorded' ? (
     <section className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-7 shadow-sm">
       <div className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">
@@ -969,15 +1088,7 @@ export function RecordPageView({
           // pack/redeem write, not the whole post-resolve window) — the real
           // guard is outcomeResolvedRef inside openOutcomeDialog.
           disabled={resolvingOutcome}
-          onClick={() => {
-            // Tickets off OR the pack data on screen isn't this session's
-            // customer (mismatch/anonymous): straight save — no burn, no
-            // 成約/回数券 dialog (resolveStopFlow's contract).
-            const flow = resolveStopFlow({ ticketsEnabled, canRunOutcome, outcomeMode })
-            if (flow === 'save-direct') handleUseRecording(undefined, true)
-            else if (flow === 'auto-redeem') handleAutoFlow()
-            else openOutcomeDialog()
-          }}
+          onClick={handleUseRecordingTap}
         >
           {t('useRecording')}
         </Button>
@@ -1159,15 +1270,15 @@ export function RecordPageView({
             {!scheduleMismatch && (
               <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
             )}
-            {!scheduleMismatch && (
+            {!scheduleMismatch && nextAppointment && (
               <Suspense
-                key={nextAppointment?.customerId ?? 'none'}
+                key={nextAppointment.customerId}
                 fallback={<BriefLoadingCard />}
               >
                 <StreamingBriefCard
                   aiBriefPromise={aiBriefPromise}
                   fallbackBrief={brief}
-                  customerName={nextAppointment?.customerName ?? null}
+                  customerName={nextAppointment.customerName}
                 />
               </Suspense>
             )}
@@ -1180,6 +1291,10 @@ export function RecordPageView({
             appointment={targetAppointment}
             nearbyBookings={nearbyBookings}
             onSwitchBooking={live ? undefined : handleSwitchBooking}
+            onChooseCustomer={
+              showNoTargetActions ? () => setShowCustomerPicker(true) : undefined
+            }
+            onRecordWithoutCustomer={showNoTargetActions ? handleStartAnyway : undefined}
           />
           {otherStaffBanner}
           {!scheduleMismatch && <RepurchaseCueBanner pack={targetPack} />}
@@ -1191,19 +1306,26 @@ export function RecordPageView({
           {!scheduleMismatch && (
             <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
           )}
-          {!scheduleMismatch && (
+          {/* A-3 (8/19): no target → NO brief block. With a null customer
+              PreSessionBriefCard falls through to its own 「録音対象が…」
+              explainer, which stacked a SECOND empty-state card under the new
+              one (approved mock A2 has exactly one). The block only ever had
+              content to show for a bound customer anyway. */}
+          {!scheduleMismatch && nextAppointment && (
             <Suspense
-              key={nextAppointment?.customerId ?? 'none'}
+              key={nextAppointment.customerId}
               fallback={<BriefLoadingCard />}
             >
               <StreamingBriefCard
                 aiBriefPromise={aiBriefPromise}
                 fallbackBrief={brief}
-                customerName={nextAppointment?.customerName ?? null}
+                customerName={nextAppointment.customerName}
               />
             </Suspense>
           )}
-          <div className="mx-auto w-full max-w-md">{recorderColumn}</div>
+          {!showNoTargetActions && (
+            <div className="mx-auto w-full max-w-md">{recorderColumn}</div>
+          )}
         </div>
       )}
 
@@ -1346,6 +1468,34 @@ export function RecordPageView({
         />
       )}
 
+      {/* お客様を選んで録音 — the no-own-booking card's primary action, dialog v2
+          (Liam's 8/19 mock). Opens on today's bookings; typing switches to
+          search over every customer.
+
+          Both exits re-enter the screen through a SERVER re-resolve, never a
+          client-side binding shortcut: a booking row threads ?appointmentId=
+          (so menu/consent/packs/brief are re-read FROM that booking — a
+          colleague's still lands on otherStaffBanner, which is the deliberate
+          8/19 pick), and a searched customer keeps the pre-existing
+          ?customerId= path the 顧客 card's mic uses (bottom-nav.tsx). */}
+      {showCustomerPicker && showNoTargetActions && (
+        <RecordCustomerPickerDialog
+          customers={customers}
+          bookings={nearbyBookings}
+          facts={customerFacts}
+          cancelLabel={tc('cancel')}
+          onClose={() => setShowCustomerPicker(false)}
+          onSelectBooking={(booking) => {
+            setShowCustomerPicker(false)
+            router.replace(`/sessions?appointmentId=${encodeURIComponent(booking.id)}`)
+          }}
+          onSelectCustomer={(id) => {
+            setShowCustomerPicker(false)
+            router.replace(`/sessions?customerId=${encodeURIComponent(id)}`)
+          }}
+        />
+      )}
+
       {/* No-booking prompt */}
       {showNoBookingPrompt && (
         <>
@@ -1372,6 +1522,59 @@ export function RecordPageView({
                 onClick={handleStartAnyway}
               >
                 {t('recordAnyway')}
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* C-1 — supersession confirm. Same shape as the no-booking prompt
+          above (one sibling convention for the page's confirms): キャンセル
+          keeps the previous run alive and leaves this take on its review
+          screen, so nothing is lost either way. The render gate spans
+          'autosaving' too (fix round 5): that transition is the window the tap
+          gate now covers, so closing on it would swallow the tap it was opened
+          by — as would the dialog-hygiene effect near the state declaration,
+          widened with it (fix round 6). Both have to move together; either one
+          left narrow is the same dead button. A run that settles past both
+          states has nothing left to ask about, and the confirm still goes with
+          it. */}
+      {showSupersedeDialog &&
+        (pipeline.state === 'processing' || pipeline.state === 'autosaving') && (
+        <>
+          <div
+            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowSupersedeDialog(false)}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('supersedeTitle')}
+            className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 space-y-4 rounded-xl border border-border bg-card p-6 shadow-xl"
+          >
+            <h3 className="text-base font-semibold text-foreground">
+              {t('supersedeTitle')}
+            </h3>
+            <p className="text-sm text-muted-foreground">{t('supersedeDescription')}</p>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                size="md"
+                className="flex-1"
+                onClick={() => setShowSupersedeDialog(false)}
+              >
+                {tc('cancel')}
+              </Button>
+              <Button
+                variant="default"
+                size="md"
+                className="flex-1"
+                onClick={() => {
+                  setShowSupersedeDialog(false)
+                  runStopFlow()
+                }}
+              >
+                {t('supersedeConfirm')}
               </Button>
             </div>
           </div>

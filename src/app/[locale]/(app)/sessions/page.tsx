@@ -1,11 +1,16 @@
 import { QuietRefresh } from '@/components/perf/QuietRefresh'
 import { renderStamp } from '@/lib/perf/render-stamp'
 import { getTranslations } from 'next-intl/server'
-import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { getCurrentUserStaffId, getStaffList, getBusinessId } from '@/lib/staff'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getCustomer } from '@/lib/customers/queries'
 import { getCustomerConsent } from '@/actions/customers'
-import { listCustomerPacks, getCustomerLifecycleChecked } from '@/lib/packs/store'
+import { enrichCustomers } from '@/lib/customers/list-enrich'
+import {
+  listCustomerPacks,
+  getCustomerLifecycleChecked,
+  listAllPackUsage,
+} from '@/lib/packs/store'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import type { Capability } from '@/lib/auth/permissions'
@@ -35,6 +40,8 @@ export default async function SessionsPage({
   const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000)
   const todayStr = jstNow.toISOString().split('T')[0]
 
+  const customersPromise = getCachedCustomerList()
+
   // Wave 1 — every read that needs nothing but the request itself, fired
   // together (staff id, staff list, status translations, customer list, today's
   // bookings, org settings, the caller's capabilities).
@@ -43,7 +50,7 @@ export default async function SessionsPage({
       getCurrentUserStaffId(),
       getStaffList(),
       getTranslations('reservation.status'),
-      getCachedCustomerList(),
+      customersPromise,
       getAppointmentsByDate(todayStr),
       getOrgSettings(),
       // Fail-closed UI: a capability read that hiccups hides the destructive
@@ -66,6 +73,30 @@ export default async function SessionsPage({
     todayAppts,
     orgSettings,
     statusLabel: (key) => tStatus(key),
+    // Picker-dialog bulk reads, LAZY: buildRecordScreen calls this ONLY when the
+    // screen resolves to no recording target (the only state that can open the
+    // picker), so the bound mic screen — the hottest one — stops paying for a
+    // whole-tenant enrichment aggregate plus the UNCACHED 回数券 ledger read it
+    // then discards. When it DOES run, the two reads go in parallel and the
+    // enrichment keeps its existing internal chain (businessId + the already
+    // in-flight customer list → enrichCustomers); no read was serialized behind
+    // another that wasn't before. Both degrade to "no detail lines", never to a
+    // wrong number or a failed screen.
+    loadPickerFacts: async () => {
+      const [enrichment, packUsage] = await Promise.all([
+        Promise.all([getBusinessId(), customersPromise])
+          .then(([businessId, list]) =>
+            enrichCustomers(
+              businessId,
+              list.map((c) => c.id),
+            ),
+          )
+          .catch(() => undefined),
+        // listAllPackUsage swallows to an empty map itself.
+        listAllPackUsage(),
+      ])
+      return { enrichment, packUsage }
+    },
     deps: {
       resolveExplicitAppointment: (id) => getAppointmentById(id),
       resolveWalkInCustomer: (id) => getCustomer(id).catch(() => null),
@@ -117,6 +148,7 @@ export default async function SessionsPage({
       ticketsEnabled={screen.ticketsEnabled}
       noiseSuppression={screen.noiseSuppression}
       currentStaffName={screen.currentStaffName}
+      customerFacts={screen.customerFacts}
     />
     </>
   )

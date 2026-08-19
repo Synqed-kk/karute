@@ -143,7 +143,20 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // countdown + its stop/cancel copy). Sized on the same oversize-is-free rule
 // as every prior raise: unused slack is harmless, an undersized ceiling
 // costs another classifier-blocked round-trip.
-const BUDGET_BYTES = 1_903_833
+// Raised 2026-08-19 (16th) at the 顧客ピッカー v2 PR (#726) — 今日の予約一覧
+// から開く顧客選択ダイアログ v2 (dialog v2 + the blind-round B-1〜B-9 fixes:
+// deferred loading, a11y, today badge + the B-8 reset pin) plus this PR's
+// search-row keyboard-navigation repair, measured at 1,909,137 B ground-truth
+// at final tip 174c5b20 (deterministic: identical across two clean builds
+// from an emptied thin/dist) against the prior 1,903,833 B ceiling — over by
+// 5,304 B. Against origin/main (CI-measured at merge-base f54d05a2: 1851.0 KB
+// raw, ~8.2 KB of headroom under the prior ceiling), this PR's own
+// contribution is ~13.7 KB — genuine new-dialog + fix-round volume, not
+// bloat; the purchase-marker scan below stays the real gate. Ceiling set
+// 8,192 B above the measurement, back on the low-headroom convention (the
+// 8/8 razor-fail was a 193 B margin; ~1.3 KB is the floor) rather than the
+// two most recent entries' provisional multi-PR margins.
+const BUDGET_BYTES = 1_917_329
 
 let dir
 try {

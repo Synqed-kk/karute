@@ -13,9 +13,11 @@
 //   3. null — staff has nothing to record. Bottom-nav falls back
 //      to the spike's 「予約を選択」 empty-state copy.
 //
-// SCOPED TO THE SIGNED-IN STAFF — unlike sessions/page.tsx which
-// falls back to ANY salon booking. If staff need to record someone
-// else's booking they pick from 別の予約を選択 on the record page.
+// SCOPED TO THE SIGNED-IN STAFF — the same rule sessions/page.tsx
+// now follows (buildRecordScreen's implicit pick reads the staff's
+// OWN bookings only, 8/19 ruling; it used to fall back to ANY salon
+// booking). Recording someone else's booking stays possible but
+// DELIBERATE: open it from 予約 or the customer's card.
 //
 // DATA SOURCE: today's bookings come from synqed-core (the live
 // appointments store) via getAppointmentsByDate, which already
