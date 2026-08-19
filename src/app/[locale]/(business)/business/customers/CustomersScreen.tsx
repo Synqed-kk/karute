@@ -83,6 +83,18 @@ const MERGE_LABEL: Record<CustomerRow['merge'], string> = {
 
 const HINT = '見本データのため実行できません'
 
+/** Canon's own default: the four core columns on, the three optional ones off
+ *  (`data-columns-config` … `"off":true`, fable-store-customers.html:488). */
+const DEFAULT_COLUMNS = COLUMNS.filter((c) => !c.optional).map((c) => c.k as string)
+
+/** 表示する列 toggle, canon's rule (fable-shared.js:190-193): EVERY column can be
+ *  hidden, but unchecking the last visible one is refused — an all-hidden list is
+ *  a broken screen, so the checkbox snaps back instead. */
+export function toggleColumn(shown: readonly string[], key: string): string[] {
+  if (!shown.includes(key)) return [...shown, key]
+  return shown.length <= 1 ? [...shown] : shown.filter((k) => k !== key)
+}
+
 // Exported for the suite: "a missing value says 「—」" is the rule the canon
 // crash and the ¥0 misread both came from, so it gets asserted directly.
 const yen = (n: number) => `¥${n.toLocaleString('ja-JP')}`
@@ -109,11 +121,14 @@ export function CustomersScreen({
   const [filter, setFilter] = useState<FilterKey>('all')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<string | null>(rows[0]?.id ?? null)
-  const [optional, setOptional] = useState<string[]>([])
+  const [shown, setShown] = useState<string[]>(DEFAULT_COLUMNS)
   const [colsOpen, setColsOpen] = useState(false)
   const [openParty, setOpenParty] = useState<string | null>(null)
   const [toast, setToast] = useState('')
   const dialogRef = useRef<HTMLDialogElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const colsBtnRef = useRef<HTMLButtonElement>(null)
+  const popRef = useRef<HTMLDivElement>(null)
 
   const all = useMemo(() => [...rows, ...added], [rows, added])
 
@@ -123,10 +138,37 @@ export function CustomersScreen({
     return () => clearTimeout(t)
   }, [toast])
 
-  const columns = useMemo(
-    () => COLUMNS.filter((c) => !c.optional || optional.includes(c.k)),
-    [optional],
-  )
+  // 表示する列 popover, canon's own behavior (fable-shared.js:216-244): the first
+  // checkbox takes focus on open, Escape and a click outside both close it and
+  // hand focus back to the button.
+  useEffect(() => {
+    if (!colsOpen) return
+    popRef.current?.querySelector('input')?.focus()
+    const close = () => {
+      setColsOpen(false)
+      colsBtnRef.current?.focus()
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      close()
+    }
+    // The button is excluded so its own click stays a toggle rather than being
+    // closed here and reopened by the click handler.
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (popRef.current?.contains(target) || colsBtnRef.current?.contains(target)) return
+      close()
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('mousedown', onDown)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('mousedown', onDown)
+    }
+  }, [colsOpen])
+
+  const columns = useMemo(() => COLUMNS.filter((c) => shown.includes(c.k)), [shown])
   // Both track lists ride as custom properties; the stylesheet's 1320px media
   // query picks between them, exactly as canon's own @media does.
   const trackStyle = {
@@ -145,7 +187,9 @@ export function CustomersScreen({
         (filter === 'merge' && r.merge !== 'none')
       if (!passesFilter) return false
       if (!q) return true
-      return [r.name, r.furigana, r.no, r.phone].some((v) => v?.toLowerCase().includes(q))
+      // Canon searches 顧客番号 / 氏名 / フリガナ / 携帯番号 / メール
+      // (fable-store-customers.html:685-687, full-rights view).
+      return [r.name, r.furigana, r.no, r.phone, r.email].some((v) => v?.toLowerCase().includes(q))
     })
     if (!grouped) return matched
     // Stores in order, then the CM-9 unassigned bucket LAST — it is the
@@ -165,8 +209,15 @@ export function CustomersScreen({
     wallet: all.filter((r) => r.wallet != null && r.wallet > 0).length,
   }
 
-  function toggleOptional(k: string) {
-    setOptional((was) => (was.includes(k) ? was.filter((x) => x !== k) : [...was, k]))
+  /** Canon reopens the dialog EMPTY with the caret in 氏名
+   *  (fable-store-customers.html:846-857); a native <dialog> keeps whatever was
+   *  typed last time, so the form is reset on the way in. */
+  function openCreate() {
+    const dialog = dialogRef.current
+    if (!dialog) return
+    dialog.querySelector('form')?.reset()
+    dialog.showModal()
+    dialog.querySelector('input')?.focus()
   }
 
   function submitCreate(form: HTMLFormElement) {
@@ -225,7 +276,7 @@ export function CustomersScreen({
           <button className="btn" type="button" disabled title="受信トレイは準備中です">
             受信トレイで連絡（準備中）
           </button>
-          <button className="btn primary" type="button" onClick={() => dialogRef.current?.showModal()}>
+          <button className="btn primary" type="button" onClick={openCreate}>
             顧客を追加
           </button>
         </div>
@@ -272,25 +323,26 @@ export function CustomersScreen({
                 表示中をCSV
               </button>
               <button
-                className="btn"
+                className="btn fx-cols-btn"
                 type="button"
+                ref={colsBtnRef}
                 aria-expanded={colsOpen}
+                aria-haspopup="dialog"
                 onClick={() => setColsOpen((v) => !v)}
               >
                 表示設定
               </button>
               {colsOpen && (
-                <div className="fx-cols-pop" role="group" aria-label="表示する列">
+                <div className="fx-cols-pop" role="dialog" aria-label="表示する列" ref={popRef}>
                   <h3>表示する列</h3>
                   {COLUMNS.map((c) => (
                     <label className="fx-cols-opt" key={c.k}>
                       <input
                         type="checkbox"
-                        checked={!c.optional || optional.includes(c.k)}
-                        disabled={!c.optional}
-                        onChange={() => toggleOptional(c.k)}
+                        checked={shown.includes(c.k)}
+                        onChange={() => setShown((was) => toggleColumn(was, c.k))}
                       />
-                      {c.label}
+                      <span>{c.label}</span>
                     </label>
                   ))}
                   <p className="fx-cols-note">列の表示はこの画面の中だけの設定です。再読み込みすると既定に戻ります。</p>
@@ -303,12 +355,25 @@ export function CustomersScreen({
             <input
               className="search"
               type="search"
+              ref={searchRef}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="名前・電話・顧客番号で検索"
               aria-label="顧客を検索"
             />
-            <button className="btn" type="button" onClick={() => setSearch('')}>検索をクリア</button>
+            {/* Canon puts the caret back in the box after clearing
+                (fable-store-customers.html:887) — clearing is a step in typing
+                the next search, not the end of one. */}
+            <button
+              className="btn"
+              type="button"
+              onClick={() => {
+                setSearch('')
+                searchRef.current?.focus()
+              }}
+            >
+              検索をクリア
+            </button>
           </div>
 
           <div className="filters" role="group" aria-label="顧客一覧の絞り込み">
@@ -331,7 +396,11 @@ export function CustomersScreen({
                 <span key={c.k} className={c.k === 'confirm' ? 'badge-col' : undefined}>{c.label}</span>
               ))}
             </div>
-            <div className="customer-list">
+            {/* Canon hides the list itself when nothing matches
+                (fable-store-customers.html:760) — .customer-list carries a
+                410px floor, so leaving it mounted would push the empty state
+                down behind a blank slab. */}
+            <div className="customer-list" hidden={visible.length === 0}>
               {visible.map((r, i) => {
                 const newGroup = grouped && (i === 0 || visible[i - 1].groupKey !== r.groupKey)
                 return (
@@ -557,7 +626,15 @@ export function CustomersScreen({
         )}
       </div>
 
-      <dialog ref={dialogRef} aria-labelledby="createCustomerTitle">
+      {/* Escape is native to showModal(); a backdrop click is not, and canon
+          wires it (fable-store-customers.html:879-881). */}
+      <dialog
+        ref={dialogRef}
+        aria-labelledby="createCustomerTitle"
+        onClick={(e) => {
+          if (e.target === dialogRef.current) dialogRef.current.close()
+        }}
+      >
         <form
           method="dialog"
           onSubmit={(e) => {

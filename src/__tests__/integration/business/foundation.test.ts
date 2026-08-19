@@ -34,6 +34,7 @@ import {
   CustomersScreen,
   consentLabel,
   ticketLabel,
+  toggleColumn,
   walletLabel,
   type CustomerRow,
 } from '@/app/[locale]/(business)/business/customers/CustomersScreen'
@@ -521,6 +522,14 @@ describe('顧客一覧 screen', () => {
     expect(sora.externalOwner).toBe(true)
     expect(sora.note).not.toBeNull()
   })
+  it('表示する列: any column can be hidden, but never the last one', () => {
+    // Canon's rule (fable-shared.js:190-193). The four core columns are NOT
+    // pinned there — only "one must survive" is.
+    expect(toggleColumn(['person', 'next'], 'lastVisit')).toEqual(['person', 'next', 'lastVisit'])
+    expect(toggleColumn(['person', 'next'], 'person')).toEqual(['next'])
+    expect(toggleColumn(['person'], 'person')).toEqual(['person'])
+  })
+
   it('本人関係 lists only the parties that DEVIATE (⚖ cut #7)', async () => {
     const rows = await render()
     expect(rows.find((r) => r.id === 'cus-01')!.party).toEqual([])
