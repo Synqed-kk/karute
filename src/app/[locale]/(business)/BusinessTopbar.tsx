@@ -26,7 +26,9 @@ export function BusinessTopbar({ stores, syncLabel }: { stores: ShellStore[]; sy
 
   const segment = pathname.split('/business/')[1]?.split('/')[0] ?? ''
   const leaf = CRUMB[segment] ?? '顧客'
-  const store = stores.find((s) => s.id === search.get('store'))
+  // No ?store= opens on the operator's own store, matching the sidebar's
+  // switcher since すべての店舗 left it (⚖ Liam 2026-08-20).
+  const store = stores.find((s) => s.id === search.get('store')) ?? stores[0]
 
   return (
     <header className="topbar">

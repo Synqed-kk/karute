@@ -281,34 +281,68 @@
 .biz .business small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
 .biz .business > span:last-child { color: var(--quiet); }
 
+/* Store lens switcher (⚖ Liam 2026-08-20, store-switch-mock.html): the three
+   pills are gone and the canon store card IS the control. The wrapper carries
+   the card's old margin so the panel can anchor to it. */
+.biz .store-picker { position: relative; margin: 0 4px 20px; }
 .biz .store-context {
-  margin: 0 4px 20px;
-  padding: 11px 12px;
+  position: relative;
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 11px 30px 11px 12px;
   border: 1px solid var(--control);
   border-radius: 9px;
   background: #fafafb;
+  color: var(--ink);
+  text-align: left;
   font-size: 14px;
   font-weight: 700;
 }
 .biz .store-context > span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; font-weight: 500; }
-/* Store lens switcher — the #723 mechanism, relocated into the canon store
-   card (L-7). Selected = light accent wash; never a filled dark chip (R13). */
-.biz .store-switch { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
-.biz .store-switch a {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 0 9px;
-  border: 1px solid var(--control);
-  border-radius: 999px;
+/* Affordance = the same ⌄ glyph the .business card above already uses. */
+.biz .store-context .chev { position: absolute; right: 11px; top: 50%; transform: translateY(-58%); color: var(--quiet); font-size: 13px; line-height: 1; }
+.biz .store-context:hover { background: #f4f4f5; }
+/* Open state = the family's hover surface. Never a filled dark or accent
+   chip — a control's own open state is not a selection (R13). */
+.biz .store-context[aria-expanded="true"] { background: #f4f4f5; }
+.biz .store-context[aria-expanded="true"] .chev { transform: translateY(-42%) rotate(180deg); }
+
+/* The panel, cloned from the family popover primitive (fable-shared.css
+   .fx-cols-pop) with canon .fields-pop's anchor. */
+.biz .store-pop {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 40;
+  width: 100%;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
   background: #fff;
-  color: var(--ink-3);
-  font-size: 12px;
-  font-weight: 600;
+  box-shadow: 0 14px 38px rgba(24, 24, 27, .14);
+}
+.biz .store-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-2);
+  text-align: left;
   text-decoration: none;
 }
-.biz .store-switch a:hover { background: #f4f4f5; }
-.biz .store-switch a[aria-current="true"] { border-color: var(--select-line); background: var(--select-bg); color: var(--select-ink); }
+.biz .store-opt:hover { background: var(--row); }
+.biz .store-opt strong { display: block; font-size: 13.5px; font-weight: 700; }
+.biz .store-opt small { display: block; margin-top: 2px; color: var(--muted); font-size: 11.5px; font-weight: 500; }
+.biz .store-opt .tick { margin-left: auto; flex: 0 0 auto; color: var(--indigo); }
+.biz .store-opt .tick svg { display: block; width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+/* Current row = the light accent wash .nav a.active already uses (R13). */
+.biz .store-opt[aria-current="true"] { background: var(--select-bg); color: var(--select-ink); }
+.biz .store-opt[aria-current="true"] small { color: var(--select-ink); opacity: .8; }
 
 .biz .store-chip {
   display: grid;
@@ -348,7 +382,7 @@
 }
 /* 準備中 flags — canon's current nav v3 tokens (fable-store-today.html:1639). */
 .biz .nav .badge.flag { background: var(--control); color: var(--quiet); font-weight: 600; }
-.biz .sidebar .business, .biz .sidebar .store-context, .biz .sidebar .nav-label { display: none; }
+.biz .sidebar .business, .biz .sidebar .store-picker, .biz .sidebar .nav-label { display: none; }
 
 .biz .nav a {
   position: relative;
@@ -409,7 +443,7 @@
 .biz.sidebar-open .brand .mark { display: none; }
 .biz.sidebar-open .rail-toggle { width: 232px; margin: 0 auto 14px; }
 .biz.sidebar-open .sidebar .business { display: flex; }
-.biz.sidebar-open .sidebar .store-context { display: block; }
+.biz.sidebar-open .sidebar .store-picker { display: block; }
 .biz.sidebar-open .sidebar .nav-label { display: block; }
 .biz.sidebar-open .nav { gap: 2px; }
 .biz.sidebar-open .nav a {

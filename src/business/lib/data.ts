@@ -71,6 +71,17 @@ export async function listStoreOptions(): Promise<FixtureStore[]> {
   return stores
 }
 
+/** The store a screen opens on — THE one home for the default lens.
+ *  ⚖ Liam 2026-08-20: すべての店舗 left the sidebar switcher, so a request with
+ *  no ?store= (or an unknown one — the lens is a view preference, never an
+ *  error) opens on the operator's own store: the first option listStoreOptions
+ *  returns, which at reconnect is the first store the actor may see. Returns
+ *  null only when the actor has no store at all, which is what keeps the
+ *  {viewAll:true} branch in the screens honest rather than dead. */
+export function defaultStoreId(store: string | undefined, options: FixtureStore[]): string | null {
+  return options.find((o) => o.id === store)?.id ?? options[0]?.id ?? null
+}
+
 /** Customers are business-wide — they carry no store_id, so the lens gates
  *  access but has nothing to filter on. */
 export async function listCustomers(lens: StoreLens): Promise<FixtureCustomer[]> {

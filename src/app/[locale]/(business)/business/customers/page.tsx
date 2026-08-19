@@ -27,6 +27,7 @@
 
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import {
+  defaultStoreId,
   listAppointments,
   listCustomers,
   listMenus,
@@ -56,10 +57,12 @@ export default async function CustomersPage({
   await requireBusinessAdmission()
   const [, { store }] = await Promise.all([params, searchParams])
   const storeOptions = await listStoreOptions()
-  // An unknown ?store= falls back to every store rather than erroring: the
-  // lens is a view preference, and the wrapper is the thing that clamps.
-  const clamped = storeOptions.some((o) => o.id === store)
-  const lens: StoreLens = clamped ? store! : { viewAll: true }
+  // A missing or unknown ?store= opens on the operator's own store rather than
+  // erroring or merging every store — the lens is a view preference, and the
+  // wrapper is the thing that clamps (defaultStoreId owns that rule).
+  const storeId = defaultStoreId(store, storeOptions)
+  const clamped = storeId !== null
+  const lens: StoreLens = clamped ? storeId! : { viewAll: true }
 
   const [customers, appointments, visits, menus, staff] = await Promise.all([
     listCustomers(lens),
@@ -164,7 +167,7 @@ export default async function CustomersPage({
     }
   })
 
-  const lensLabel = clamped ? (storeName.get(store!) ?? 'この店舗') : 'すべての店舗'
+  const lensLabel = clamped ? (storeName.get(storeId!) ?? 'この店舗') : 'すべての店舗'
 
   return <CustomersScreen rows={rows} lensLabel={lensLabel} grouped={!clamped} />
 }

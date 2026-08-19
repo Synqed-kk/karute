@@ -24,7 +24,7 @@
 
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 export interface ShellStore { id: string; name: string }
 
@@ -92,11 +92,55 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
 
 const RAIL_KEY = 'synqedBizRail'
 
+/** 店舗切替 panel behavior, the family's own (fable-shared.js:216-244, the
+ *  表示する列 popover): the current row takes focus on open, Escape and a click
+ *  outside both close it and hand focus back to the card. Returns the cleanup,
+ *  so the caller's effect is a thin `return wireStorePicker(...)`.
+ *
+ *  A near-twin of CustomersScreen's `wireColumnsPopover` and deliberately NOT
+ *  shared with it: the shell must not import a screen, and territory pins every
+ *  import specifier per file (foundation.test.ts INVENTORY). Twenty lines of
+ *  canon behavior beat a cross-layer dependency.
+ *
+ *  Exported (like `wireColumnsPopover`) because the same fence keeps react-dom
+ *  and @testing-library out of territory — the handler is unit-tested on real
+ *  jsdom nodes instead of through a renderer. */
+export function wireStorePicker(pop: HTMLElement, trigger: HTMLElement, onClose: () => void): () => void {
+  const focusable =
+    pop.querySelector<HTMLElement>('[aria-current="true"]') ?? pop.querySelector<HTMLElement>('a')
+  focusable?.focus()
+  const close = () => {
+    onClose()
+    trigger.focus()
+  }
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape') return
+    e.stopPropagation()
+    close()
+  }
+  // The card is excluded so its own click stays a toggle rather than being
+  // closed here and reopened by the click handler.
+  const onDown = (e: MouseEvent) => {
+    const target = e.target as Node
+    if (pop.contains(target) || trigger.contains(target)) return
+    close()
+  }
+  document.addEventListener('keydown', onKey)
+  document.addEventListener('mousedown', onDown)
+  return () => {
+    document.removeEventListener('keydown', onKey)
+    document.removeEventListener('mousedown', onDown)
+  }
+}
+
 export function BusinessSidebar(props: SidebarProps) {
   const { locale, businessName, storeCount, operatorName, operatorMark, operatorRole, stores } = props
   const pathname = usePathname()
   const search = useSearchParams()
   const [open, setOpen] = useState(true)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const cardRef = useRef<HTMLButtonElement>(null)
+  const popRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     try {
@@ -127,8 +171,18 @@ export function BusinessSidebar(props: SidebarProps) {
     })
   }
 
+  // 店舗切替 popover — wiring lives in wireStorePicker (unit-tested directly on
+  // real DOM nodes; see its comment for why this effect is a thin caller).
+  useEffect(() => {
+    if (!pickerOpen || !popRef.current || !cardRef.current) return
+    return wireStorePicker(popRef.current, cardRef.current, () => setPickerOpen(false))
+  }, [pickerOpen])
+
+  // ⚖ Liam 2026-08-20: すべての店舗 left the switcher, so a request WITHOUT
+  // ?store= opens on the operator's own store — the first option — never the
+  // business-wide merge. The no-store fallback below is unreachable depth.
   const storeParam = search.get('store')
-  const current = stores.find((s) => s.id === storeParam) ?? null
+  const current = stores.find((s) => s.id === storeParam) ?? stores[0] ?? null
   const currentIndex = current ? stores.findIndex((s) => s.id === current.id) + 1 : 0
   const lensLabel = current ? current.name : 'すべての店舗'
 
@@ -162,20 +216,46 @@ export function BusinessSidebar(props: SidebarProps) {
         <span aria-hidden="true">⌄</span>
       </button>
 
-      <div className="store-context">
-        {lensLabel}
-        <span>{current ? `${currentIndex}店舗目 / 現在の店舗` : `${storeCount}店舗すべてを表示中`}</span>
-        {/* Store lens. On 顧客 it cannot filter the rows — customers carry no
-            store_id (CM-9) — so it changes the booking-derived columns and the
-            store labels only. That honest limit is the #723 behavior, kept. */}
-        <span className="store-switch">
-          <Link href={`${pathname}`} aria-current={current ? undefined : 'true'}>すべての店舗</Link>
-          {stores.map((s) => (
-            <Link key={s.id} href={`${pathname}?store=${s.id}`} aria-current={current?.id === s.id ? 'true' : undefined}>
-              {s.name}
-            </Link>
-          ))}
-        </span>
+      {/* Store lens. The card itself is the switcher (⚖ Liam 8/20). On 顧客 the
+          lens cannot filter the rows — customers carry no store_id (CM-9) — so
+          it changes the booking-derived columns and the store labels only. That
+          honest limit is the #723 behavior, kept. */}
+      <div className="store-picker">
+        <button
+          ref={cardRef}
+          className="store-context"
+          type="button"
+          aria-haspopup="true"
+          aria-expanded={pickerOpen}
+          onClick={() => setPickerOpen((was) => !was)}
+        >
+          {lensLabel}
+          <span>{current ? `${currentIndex}店舗目 / 現在の店舗` : `${storeCount}店舗すべてを表示中`}</span>
+          <span className="chev" aria-hidden="true">⌄</span>
+        </button>
+        {pickerOpen && (
+          <div className="store-pop" ref={popRef} aria-label="店舗を切り替え">
+            {stores.map((s, i) => (
+              <Link
+                key={s.id}
+                className="store-opt"
+                href={`${pathname}?store=${s.id}`}
+                aria-current={current?.id === s.id ? 'true' : undefined}
+                onClick={() => setPickerOpen(false)}
+              >
+                <span>
+                  <strong>{s.name}</strong>
+                  <small>{i + 1}店舗目</small>
+                </span>
+                {current?.id === s.id && (
+                  <span className="tick" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7" /></svg>
+                  </span>
+                )}
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
 
       {NAV.map((section) => (

@@ -250,6 +250,23 @@ describe('the fixture data door', () => {
     expect((await data.listStaff(STORE_A)).map((m) => m.id)).toEqual(['p-01', 'c-03', 'p-04', 'p-05'])
     expect((await data.listStaff(STORE_B)).map((m) => m.id)).toEqual(['p-02', 'c-03', 'p-05'])
   })
+  it('the default lens is the FIRST store, never the business-wide merge', async () => {
+    // ⚖ Liam 2026-08-20: すべての店舗 left the sidebar switcher, so the screens
+    // must not open merged. defaultStoreId is the one home for that rule.
+    const options = await data.listStoreOptions()
+    expect(data.defaultStoreId(undefined, options)).toBe(options[0].id)
+    expect(data.defaultStoreId('', options)).toBe(options[0].id)
+    expect(data.defaultStoreId('no-such-store', options)).toBe(options[0].id)
+    expect(options[0].id).toBe(STORE_A)
+  })
+  it('an explicit ?store= still wins over the default', async () => {
+    const options = await data.listStoreOptions()
+    expect(data.defaultStoreId(STORE_B, options)).toBe(STORE_B)
+  })
+  it('only a store-less actor falls through to viewAll — the branch stays honest, not dead', () => {
+    expect(data.defaultStoreId(undefined, [])).toBeNull()
+    expect(data.defaultStoreId(STORE_A, [])).toBeNull()
+  })
   it('the sealed files import EXACTLY their inventory — any new import goes red', () => {
     // Stronger than a banned-literal list, which an UNLISTED helper reaching
     // core would walk straight past (Greptile P2 on #720): this pins the
@@ -508,12 +525,17 @@ describe('顧客一覧 screen', () => {
     const clamped = await props(STORE_A)
     expect(clamped!.grouped).toBe(false)
     expect(clamped!.rows.every((r) => r.storeLabel === null)).toBe(true)
-    // Under viewAll the store label IS the point, and the CM-9 customer with no
-    // events anywhere is honestly labelled rather than hidden.
-    const all = await props()
-    expect(all!.grouped).toBe(true)
-    expect(all!.rows.find((r) => r.id === 'cus-10')!.storeLabel).toBe('店舗未設定')
-    expect(all!.rows.find((r) => r.id === 'cus-01')!.storeLabel).toBe('テスト銀座店')
+    expect(clamped!.lensLabel).toBe('テスト銀座店')
+  })
+  it('no ?store= opens on the operator’s own store, NOT the merged view (⚖ 8/20)', async () => {
+    // すべての店舗 left the sidebar switcher, so the bare URL must land clamped.
+    // The page's {viewAll:true} branch survives as unreachable depth for
+    // reconnect; the data layer's own viewAll behavior is covered above.
+    const bare = await props()
+    expect(bare!.grouped).toBe(false)
+    expect(bare!.lensLabel).toBe('テスト銀座店')
+    expect(bare!.rows.every((r) => r.storeLabel === null)).toBe(true)
+    expect(bare!.rows).toEqual((await props(STORE_A))!.rows)
   })
   it('an external-owner thin row states 「—」 rather than guessing money', async () => {
     const sora = (await render(STORE_A)).find((r) => r.id === 'thin-01')!
