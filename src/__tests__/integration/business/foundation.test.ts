@@ -289,6 +289,14 @@ describe('the fixture data door', () => {
       'src/business/lib/fixtures.ts': ['./clock'],
       'src/business/lib/fixtures-today.ts': ['./fixtures'],
       'src/business/lib/today-board.ts': ['./clock', './fixtures', './fixtures-today'],
+      // canon-logic — the lifted mock behaviour. These four are PURE by design
+      // (that is the whole point of lifting them out of canon's inline script),
+      // so an empty inventory is not laziness: any import at all here would
+      // mean the lift stopped being pure.
+      'src/business/lib/canon-logic/pricing.ts': [],
+      'src/business/lib/canon-logic/drag-rules.ts': [],
+      'src/business/lib/canon-logic/gap-guard.ts': [],
+      'src/business/lib/canon-logic/availability.ts': ['./pricing'],
       'src/business/i18n/index.ts': ['./ja.json'],
       'src/app/[locale]/(business)/layout.tsx': [
         './BusinessSidebar',
@@ -322,9 +330,18 @@ describe('the fixture data door', () => {
       ],
       'src/app/[locale]/(business)/business/today/TodayScreen.tsx': [
         '../../BusinessTopbar',
+        './today-interactions',
+        '@/business/lib/canon-logic/drag-rules',
+        '@/business/lib/canon-logic/pricing',
         '@/business/lib/today-board',
         'next/link',
         'react',
+      ],
+      'src/app/[locale]/(business)/business/today/today-interactions.ts': [
+        '@/business/lib/canon-logic/availability',
+        '@/business/lib/canon-logic/drag-rules',
+        '@/business/lib/canon-logic/pricing',
+        '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/today/loading.tsx': ['@/business/i18n'],
     }

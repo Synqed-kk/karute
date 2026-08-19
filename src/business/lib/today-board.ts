@@ -40,14 +40,23 @@ export interface Hours {
  *  the hour ruler and the cards are the same axis by construction — canon's own
  *  sheet drew a 15-column ruler under 11 hours of cards, and the lines and the
  *  cards did not line up. */
-export function place(start: number, end: number, hours: Hours): { x: number; w: number } {
+export function place(start: number, end: number, hours: Hours): { x: number; w: number; startMin: number; endMin: number } {
   const span = hours.close - hours.open
   const from = Math.max(start, hours.open)
   const to = Math.min(end, hours.close)
   return {
     x: ((from - hours.open) / span) * 100,
     w: (Math.max(to - from, 0) / span) * 100,
+    startMin: from,
+    endMin: Math.max(to, from),
   }
+}
+
+/** place()'s inverse for the drag layer: a percent offset back to the minute it
+ *  names. canon `minutesOf` (:3743) — rounded, because a card's percent is
+ *  three decimals and 30-minute steps must land on whole minutes. */
+export function minuteOf(x: number, hours: Hours): number {
+  return Math.round(hours.open + (x / 100) * (hours.close - hours.open))
 }
 
 /** 店舗カテゴリー (F13 / E9h). Precedence is canon's legend order read as
@@ -170,6 +179,11 @@ export interface BoardItem {
   category: BookingCategory | null
   x: number
   w: number
+  /** The same span in minutes. The board paints in percent, but the sell-layer
+   *  derivation reasons in minutes, and inverting the percent back would fold a
+   *  rounding error into every free-slot test. One value, both readings. */
+  startMin: number
+  endMin: number
   title: string
   /** 【ベッド2】 on a staff lane, 【見本 しろう】 on a resource lane, 【未定】
    *  when the booking has no resource — never a guess. */
@@ -192,6 +206,20 @@ export interface BoardLane {
   absentNote: string | null
   mine: boolean
   items: BoardItem[]
+  /** The window this lane can take work in today, after the absence has cut it
+   *  — the sell layer's own bound and the 勤務時間内 check's. Null on a lane
+   *  with no shift, and on resource lanes (a bed has no roster). */
+  window: { from: number; until: number } | null
+  /** canon's STAFF_UNTIL, as the clock string its check quotes. */
+  untilLabel: string | null
+  /** 定価 before the store's lever and the hour curve; 0 where the lane takes
+   *  no treatments (reception) or is not a staff lane. */
+  listPrice: number
+  /** Which stores this lane belongs to. `null` = every store (a floating staff
+   *  member). The sell layer will not pair a person with a bed outside their
+   *  own stores — under viewAll that would advertise a window no store can
+   *  actually run. */
+  stores: string[] | null
 }
 
 export interface BoardBooking {
@@ -227,6 +255,10 @@ export interface BuildInput {
   resources: FixtureResource[]
   shifts: FixtureShift[]
   qualifications: Record<string, string[]>
+  /** 定価 per staff member — the dynamic-pricing curve's input. */
+  staffListPrice: Record<string, number>
+  /** Which stores each staff member works in; `null` = floating. */
+  staffStores: Record<string, string[] | null>
   absence: FixtureAbsence | null
   blocks: FixtureBlock[]
   sellSlots: FixtureSellSlot[]
@@ -418,6 +450,10 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
       absentNote: absence && absence.staff_id === member.id ? `${hhmm(absence.from)}以降 勤務不可` : null,
       mine: member.id === input.operatorStaffId,
       items: items.sort((a, b) => a.x - b.x),
+      window: shift ? { from: shift.start, until: shift.end } : null,
+      untilLabel: shift ? hhmm(shift.end) : null,
+      listPrice: input.staffListPrice[member.id] ?? 0,
+      stores: input.staffStores[member.id] ?? null,
     })
   }
 
@@ -460,6 +496,10 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
       absentNote: null,
       mine: false,
       items: items.sort((a, b) => a.x - b.x),
+      window: null,
+      untilLabel: null,
+      listPrice: 0,
+      stores: [resource.store_id],
     })
   }
 

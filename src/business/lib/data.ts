@@ -40,15 +40,17 @@ import {
   absence,
   blocks,
   boardNow,
+  closedWeekday,
   decisions,
   operatingHours,
+  opsConfig,
   pricingRule,
   recoverySteps,
   register,
   resources,
-  sellShelfDegraded,
   sellSlots,
   shifts,
+  staffListPrice,
   staffQualifications,
   type FixtureResource,
 } from './fixtures-today'
@@ -225,10 +227,12 @@ export async function readDayPlanes(lens: StoreLens) {
     boardNow,
     shifts,
     staffQualifications,
+    staffListPrice,
+    closedWeekday,
+    opsConfig,
     absence: inLens([absence], lens, false)[0] ?? null,
     blocks: inLens(blocks, lens, false),
     sellSlots: inLens(sellSlots, lens, false),
-    sellShelfDegraded,
     decisions: inLens(decisions, lens, false),
     register,
     pricingRule,
@@ -246,18 +250,40 @@ export async function listStaff(lens: StoreLens): Promise<FixtureStaff[]> {
   assertLens(lens)
   const storeId = lensStoreId(lens)
   if (!storeId) return staff
+  const assigned = staffStoreMap()
+  return staff.filter((m) => {
+    const stores = assigned[m.id]
+    if (stores === undefined) return false // no card at all
+    return stores === null || stores.includes(storeId)
+  })
+}
 
-  // Roster ids are profile ids for signed-up staff and card ids for the rest —
-  // link by id, then user_id, then email (staff-map.ts's two-tier match).
+/** Which stores each roster member may work in. `null` = floating (every
+ *  store, the staff_stores convention); a MISSING key means the member has no
+ *  card and cannot be resolved to a store at all.
+ *
+ *  Exposed because the board needs it too: under viewAll a 販売可能枠 must not
+ *  pair a person with a bed in a store they do not work in — that would be the
+ *  board advertising a window the business cannot honour (⚖ 8/9). */
+export async function readStaffStores(lens: StoreLens): Promise<Record<string, string[] | null>> {
+  assertLens(lens)
+  return staffStoreMap()
+}
+
+/** Roster ids are profile ids for signed-up staff and card ids for the rest —
+ *  link by id, then user_id, then email (staff-map.ts's two-tier match). */
+function staffStoreMap(): Record<string, string[] | null> {
   const cards = new Set(staffCards.map((s) => s.id))
   const byUser = new Map(staffCards.filter((s) => s.user_id).map((s) => [s.user_id!, s.id]))
   const byEmail = new Map(staffCards.filter((s) => s.email).map((s) => [s.email!.toLowerCase(), s.id]))
-  return staff.filter((m) => {
+  const out: Record<string, string[] | null> = {}
+  for (const m of staff) {
     const card = cards.has(m.id)
       ? m.id
       : (byUser.get(m.id) ?? (m.email ? byEmail.get(m.email.toLowerCase()) : undefined))
-    if (!card) return false
+    if (!card) continue
     const stores = staffAssignments[card]
-    return !stores || stores.length === 0 || stores.includes(storeId)
-  })
+    out[m.id] = !stores || stores.length === 0 ? null : stores
+  }
+  return out
 }

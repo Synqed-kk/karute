@@ -52,6 +52,24 @@ export const shifts: FixtureShift[] = [
   // The lane renders and says so, rather than vanishing without explanation.
 ]
 
+/** 定休日 (ask T-18b — core has no closing-day model either). The weekday the
+ *  store is shut, as `Date#getDay` numbers it. The month calendar reads it, and
+ *  its legend says which day it is rather than leaving 定休 unexplained. */
+export const closedWeekday = 1
+
+/** 定価 per staff member (ask T-19 — core has no per-person price list). The
+ *  input to the dynamic-pricing curve: a slot's 公開価格 is this figure carried
+ *  through the store's 最高価格 lever and the hour curve, never a stored number
+ *  per slot. p-09 is reception and takes no treatments, so it has no 定価. */
+export const staffListPrice: Record<string, number> = {
+  'p-01': 7000,
+  'p-04': 7700,
+  'p-05': 8800,
+  'p-06': 7700,
+  'c-03': 7000,
+  'p-02': 7700,
+}
+
 /** 資格 (ask T-13). Drives the lane sub-label and the 稼働率 denominator —
  *  a receptionist with no treatment qualification is not idle capacity. */
 export const staffQualifications: Record<string, string[]> = {
@@ -146,11 +164,6 @@ export const sellSlots: FixtureSellSlot[] = [
   { id: 'slot-02', store_id: STORE_A, staff_id: 'c-03', resource_id: 'bed-01', start: 17 * 60 + 30, end: 18 * 60 + 30, price_low: 6600, price_high: 7260 },
 ]
 
-/** Canon's 「本日は販売枠が細かく分かれているため…」 note. A stored fact rather
- *  than an invented threshold: the mock's degrade rule lives in its own engine
- *  and there is nothing here to re-derive it from. */
-export const sellShelfDegraded = false
-
 /** HQ pricing frame for the Reserve dialog (ask ② `pricing.active` — reachable,
  *  app-unbuilt; the approval step in canon's 「佐藤承認」 has no model at all). */
 export const pricingRule = {
@@ -158,8 +171,28 @@ export const pricingRule = {
   hq_min: 6600,
   hq_max: 7260,
   version: 'HQ v12',
+  /** When HQ approved this rule — canon's ルール row is version / approved-at /
+   *  approver, and a row that quietly drops the timestamp cannot answer 「いつの
+   *  ルールで売っているのか」. JST minute-of-day plus how many days back. */
+  approved_days_ago: 18,
+  approved_minute: 9 * 60,
   approved_by: '見本 たろう',
   protected: { ticket: 4, vip: 2, walkin: 3 },
+}
+
+/** スキマガード / Reserve受付 dials (canon `opsConfig`). The board never
+ *  advertises a start Reserve's own rules could not take, so the customer-facing
+ *  grid lives here rather than in the board's own code. */
+export const opsConfig = {
+  bookingStepMin: 30,
+  blockStepMin: 5,
+  reserveStartGridMin: 60,
+  gapFillMinMin: 30,
+  gapFillDiscountPct: 10,
+  standardSessionMin: 60,
+  gapGuardMode: 'off' as 'off' | 'standard' | 'strict',
+  newClientSessionMin: 90,
+  leadTimeMin: 60,
 }
 
 /** レジ (ask T-08). The aggregates the money band shows that no booking row
@@ -219,7 +252,7 @@ export const decisions: FixtureDecision[] = [
     deadline: '13:45まで', deadline_tone: '', urgent: true, state: 'open',
     owner_staff_id: 'p-06',
     status: '担当変更が必要', status_tone: '',
-    detail: '見本 はなこ 勤務不可 / 見本 しろう + ベッド1が成立',
+    detail: '見本 はなこ欠勤 / 見本 しろう + ベッド1が成立',
     proof_title: '見本 しろう + ベッド1が成立',
     proofs: ['整体資格が一致', '勤務18:00まで / 休憩外', 'ベッド1と清掃30分を確保', '予約時価格を保持'],
     notification: 'unsent',
@@ -252,7 +285,7 @@ export const decisions: FixtureDecision[] = [
     deadline: '16:30まで', deadline_tone: '', urgent: true, state: 'open',
     owner_staff_id: null,
     status: '担当不在', status_tone: '',
-    detail: '見本 はなこ 勤務不可 / 安全な変更候補なし',
+    detail: '見本 はなこ欠勤 / 安全な変更候補なし',
     proof_title: '安全な担当変更候補なし',
     proofs: ['整体資格を持つ空きなし', '設備は確保できる', '価格は保持したまま移動できる', 'お客様連絡は未送信'],
     notification: 'unsent',
