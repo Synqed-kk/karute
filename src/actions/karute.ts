@@ -647,7 +647,7 @@ export async function updateKaruteDetailEntryWithClient(
     }
   }
   try {
-    await synqed.karuteRecords.updateEntry(recordId, entryId, {
+    const written = await synqed.karuteRecords.updateEntry(recordId, entryId, {
       ...(input.content !== undefined ? { content: input.content } : {}),
       ...(input.category !== undefined
         ? { category: SESSION_CATEGORY_TO_ENTRY_CATEGORY[input.category] }
@@ -666,7 +666,29 @@ export async function updateKaruteDetailEntryWithClient(
       targetId: recordId,
       // customer_id rides in detail (ids only, PII rule) — same viewer
       // name-join rationale as karute.save's emitSave above.
-      detail: { entry_id: entryId, category: input.category ?? null, customer_id: customerId },
+      // entry_edit_id = core's entry_edits row for THIS edit (SDK >= 1.25,
+      // core #69) — the receipt's handle on the change row, so a 監査ログ
+      // dispute reads the before/after off core instead of guessing which
+      // edit row belongs to this emit.
+      //
+      // `?? null` is a RUNTIME-ONLY guard, and tsc cannot police it: the SDK
+      // types entry_edit_id as required, so `written?.entry_edit_id` resolves
+      // statically to `string` and the fallback branch is statically dead —
+      // deleting it still compiles clean (proved by stress probe S4). It
+      // earns its place at the network boundary, where a degraded or
+      // pre-1.25 core can hand back a response the types swear is impossible;
+      // the detail shape takes null but not undefined, and an absent key
+      // reads as "never wired" rather than "core gave none". The only thing
+      // holding it is the degraded-response test in each of the two suites
+      // below — karute-entry-edit-action.test.ts and
+      // app-api-karute-entry-edit.test.ts. Do not drop those and trust the
+      // compiler.
+      detail: {
+        entry_id: entryId,
+        category: input.category ?? null,
+        customer_id: customerId,
+        entry_edit_id: written?.entry_edit_id ?? null,
+      },
       requestId: actor.requestId,
       source: actor.source,
     })
