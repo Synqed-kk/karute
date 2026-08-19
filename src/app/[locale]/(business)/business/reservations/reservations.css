@@ -24,10 +24,15 @@
 
 /* ⚖ BUTTON-WEIGHT RULING (PACKET-PARITY-WAVE ADDENDUM 2): the canon pages
    disagree on button weight, and parity means each screen matches ITS OWN canon
-   page. The shared sheet carries 今日の運営's values; this page's canon primaries
-   are 700, so the override lives here, scoped to this screen only. Canon itself
-   shipped per-page CSS copies — per-screen weights ARE canon behavior. */
-.biz .btn.primary { font-weight: 700; }
+   page. The shared sheet carries 今日の運営's values; this page's canon declares
+   `.btn{…font-weight:700}` — the whole family, outline buttons included, not
+   just the primaries — so the override lives here, scoped to this screen only.
+   Canon itself shipped per-page CSS copies; per-screen weights ARE canon
+   behavior. (The .btn half was caught by the mechanical computed-style diff,
+   not by eye: 表示設定 read 500 against canon's 700.)
+   `.btn.primary` is named too: the shell sets the primary weight at .btn.primary
+   specificity, which a bare .btn here would lose to. */
+.biz .btn, .biz .btn.primary { font-weight: 700; }
 
 /* Canon section I / A3: the head's CTA stays on one line and the description is
    the side that shrinks — decided by wrap permission, not by width. */
@@ -59,8 +64,21 @@
 /* 保存した表示 (M-83). Criteria, never a cached row set: pressing one sets the
    filters below and the list re-derives. Selected = the light wash, never a
    solid fill (R13). */
-.biz .saved-views { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
-.biz .saved-views > span { color: var(--quiet); font-size: 12px; font-weight: 800; letter-spacing: .04em; }
+.biz .saved-views {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 10px;
+  /* Canon's own card treatment (w2-bookings-customers.css:456) — the chip row
+     is a bordered slate panel, not chips floating on the page. Caught by the
+     mechanical diff after the first extraction under-sampled the container. */
+  padding: 9px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  background: #f8fafc;
+}
+.biz .saved-views > span { margin-right: 2px; color: #334155; font-size: 12px; font-weight: 700; }
 .biz .saved-view {
   min-height: 36px;
   padding: 0 10px;
@@ -114,7 +132,11 @@
 }
 .biz .panel-head strong { display: block; font-size: 15px; }
 .biz .panel-head span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
-.biz .result-count {
+/* Scoped INSIDE .panel-head on purpose: the head's own `span` rule is one
+   element-selector more specific than a bare `.result-count`, so the count was
+   quietly inheriting the muted description colour. Canon defends the same spot
+   with `!important`; the extra class does it without one. */
+.biz .panel-head .result-count {
   display: inline-flex;
   align-items: center;
   min-height: 29px;
