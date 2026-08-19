@@ -548,23 +548,31 @@ describe('the transplanted bands are populated from fixtures', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('the store lens', () => {
-  it('drops the other store and the storeless booking under a clamp', async () => {
+  it('drops the other store, and any storeless booking, under a clamp', async () => {
+    // ⚖ 8/20 data-truth: the demo world no longer holds a storeless row. The
+    // null-store clamp is asserted at the DOOR, where it lives and where a
+    // synthetic row can exercise it (foundation.test.ts, 'a single-store lens
+    // drops the other store AND any storeless booking'); what this test still
+    // owns is the OTHER store, which the screen must never carry.
     const clamped = decorated(await load(STORE_A)).map((r) => r.id)
     const all = decorated(await loadAll()).map((r) => r.id)
-    expect(clamped).not.toContain('apt-09') // storeless
     expect(clamped).not.toContain('apt-13') // 代官山
-    expect(all).toContain('apt-09')
     expect(all).toContain('apt-13')
+    expect(all.length).toBeGreaterThan(clamped.length)
   })
 
   it("keeps another store's NAME out of the payload under a clamp (isolation law)", async () => {
     const p = await load(STORE_A)
     expect(p.rows.every((r) => r.storeLabel === null)).toBe(true)
     expect(JSON.stringify(p.rows)).not.toContain('テスト代官山店')
-    // Under viewAll the label IS the point, and the storeless row says so.
+    // Under viewAll the label IS the point: every row names its own store, and
+    // none of them is left unlabelled. (The 「店舗未設定」 fallback is still in
+    // the page for a null store_id; ⚖ 8/20 removed the demo-world row that
+    // exercised it, because a booking no store owns is an impossible state.)
     const all = await loadAll()
-    expect(all.rows.find((r) => r.id === 'apt-09')!.storeLabel).toBe('店舗未設定')
+    expect(all.rows.every((r) => r.storeLabel != null && r.storeLabel !== '店舗未設定')).toBe(true)
     expect(all.rows.find((r) => r.id === 'apt-12')!.storeLabel).toBe('テスト銀座店')
+    expect(all.rows.find((r) => r.id === 'apt-13')!.storeLabel).toBe('テスト代官山店')
   })
 
   it('gates itself: a denied session 404s the page, not just the layout', async () => {
