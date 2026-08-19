@@ -285,7 +285,7 @@ describe('the fixture data door', () => {
     ]
     const INVENTORY: Record<string, string[]> = {
       'src/business/lib/clock.ts': [],
-      'src/business/lib/data.ts': ['./fixtures', './fixtures-today', 'react'],
+      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-today', 'react'],
       'src/business/lib/fixtures.ts': ['./clock'],
       'src/business/lib/fixtures-today.ts': ['./fixtures'],
       'src/business/lib/today-board.ts': ['./clock', './fixtures', './fixtures-today'],
@@ -300,7 +300,7 @@ describe('the fixture data door', () => {
         'react',
       ],
       'src/app/[locale]/(business)/BusinessSidebar.tsx': ['next/link', 'next/navigation', 'react'],
-      'src/app/[locale]/(business)/BusinessTopbar.tsx': ['./BusinessSidebar', 'next/navigation'],
+      'src/app/[locale]/(business)/BusinessTopbar.tsx': ['./BusinessSidebar', 'next/navigation', 'react'],
       'src/business/lib/admission.ts': ['./grants', '@/lib/supabase/server', 'next/navigation'],
       'src/business/lib/grants.ts': ['@/lib/supabase/service'],
       'src/app/[locale]/(business)/business/page.tsx': ['next/navigation'],
@@ -321,6 +321,7 @@ describe('the fixture data door', () => {
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/today/TodayScreen.tsx': [
+        '../../BusinessTopbar',
         '@/business/lib/today-board',
         'next/link',
         'react',

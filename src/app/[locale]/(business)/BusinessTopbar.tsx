@@ -10,7 +10,45 @@
 // already say, and one derivation cannot drift from one of three pages.
 
 import { usePathname, useSearchParams } from 'next/navigation'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { ShellStore } from './BusinessSidebar'
+
+/** The topbar's primary-action slot — canon's rightmost `btn primary`
+ *  (fable-store-today.html:1725, 予約を作成).
+ *
+ *  The button belongs to the SHELL and the dialog it opens belongs to the
+ *  SCREEN, so the two have to meet somewhere. They meet here: a screen
+ *  registers a label + handler while it is mounted, the topbar renders the
+ *  canon button, and a screen with no primary action leaves the slot empty.
+ *  react-dom's createPortal is the other way to do this, and react-dom is off
+ *  territory's import allowlist (business-isolation.test.ts) — widening it
+ *  would mean editing a guard that lives outside territory. Context is the
+ *  same result with the render runtime territory already has. */
+interface TopbarAction {
+  label: string
+  onClick: () => void
+}
+
+const ActionSlot = createContext<{
+  action: TopbarAction | null
+  set: (a: TopbarAction | null) => void
+}>({ action: null, set: () => {} })
+
+/** Wraps the topbar AND the screen under it, so a screen can fill the slot. */
+export function BusinessTopbarActionSlot({ children }: { children: ReactNode }) {
+  const [action, set] = useState<TopbarAction | null>(null)
+  return <ActionSlot.Provider value={{ action, set }}>{children}</ActionSlot.Provider>
+}
+
+/** Screen side. `onClick` is the effect's dependency, so pass a stable one
+ *  (useCallback) — an inline arrow would re-register on every render. */
+export function useTopbarAction(label: string, onClick: () => void) {
+  const { set } = useContext(ActionSlot)
+  useEffect(() => {
+    set({ label, onClick })
+    return () => set(null)
+  }, [set, label, onClick])
+}
 
 /** Screen segment → its canon breadcrumb leaf. Nav labels live in the sidebar;
  *  this is the crumb vocabulary, which differs on 予約一覧. */
@@ -23,6 +61,7 @@ const CRUMB: Record<string, string> = {
 export function BusinessTopbar({ stores, syncLabel }: { stores: ShellStore[]; syncLabel: string }) {
   const pathname = usePathname()
   const search = useSearchParams()
+  const { action } = useContext(ActionSlot)
 
   const segment = pathname.split('/business/')[1]?.split('/')[0] ?? ''
   const leaf = CRUMB[segment] ?? '顧客'
@@ -45,6 +84,13 @@ export function BusinessTopbar({ stores, syncLabel }: { stores: ShellStore[]; sy
         <button className="btn" type="button" disabled title="見本データのため実行できません">
           操作履歴
         </button>
+        {/* Canon order ends here: ◈サンプルデータ · Reserve同期 · 操作履歴 ·
+            予約を作成. Empty on a screen that registers nothing. */}
+        {action && (
+          <button className="btn primary" type="button" onClick={action.onClick}>
+            {action.label}
+          </button>
+        )}
       </div>
     </header>
   )
