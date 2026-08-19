@@ -3,36 +3,75 @@
 // file only renders. Viewport is RENDERING, not authorization: the md: classes
 // decide painting only (sidebar.tsx precedent: `hidden … md:flex`).
 //
-// PLAY-PHASE SEAL (⚖ Liam 2026-08-19): the live current-store chip is gone.
-// resolveStoreScope() and listStores() both reach synqed-core, and territory
-// must be incapable of that. Pilot safety in the play phase is telling the
-// operator the data is not real, so the chip says 見本データ. The store-scope
-// chip returns in the reconnect PR, with the data it describes.
+// TRANSPLANT BATCH 1 (⚖ Liam 8/19): the interim header from #723 is replaced by
+// the canon shell lifted out of fable-store-customers.html — same sidebar, same
+// topbar, same wording. Its stylesheet is imported HERE, so Next scopes it to
+// this route segment and no phone route ever loads it.
+//
+// PLAY-PHASE SEAL (⚖ Liam 2026-08-19): every value the shell shows comes from
+// src/business/lib/data.ts reading fixtures. resolveStoreScope() and
+// listStores() both reach synqed-core, and territory must be incapable of that.
+// The honesty chip (◈ サンプルデータ) is the pilot-safety surface, and it is
+// canon's own — not an interim addition.
 
+import { Suspense } from 'react'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { businessStrings as s } from '@/business/i18n'
+import { listStoreOptions, readShellIdentity } from '@/business/lib/data'
+import { BusinessSidebar } from './BusinessSidebar'
+import { BusinessTopbar } from './BusinessTopbar'
+import './business-shell.css'
+
+const fmtTime = new Intl.DateTimeFormat('ja-JP', {
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+  timeZone: 'Asia/Tokyo',
+})
 
 export default async function BusinessLayout({
   children,
+  params,
 }: {
   children: React.ReactNode
+  params: Promise<{ locale: string }>
 }) {
-  const { email } = await requireBusinessAdmission()
+  await requireBusinessAdmission()
+  const [{ locale }, storeOptions, shell] = await Promise.all([
+    params,
+    listStoreOptions(),
+    readShellIdentity(),
+  ])
+
+  // Formatted on the server so the client renders one string and no clock or
+  // timezone can drift between the two passes.
+  const syncLabel = `Reserve同期サンプル ${fmtTime.format(new Date(shell.reserveSyncedAt))}`
 
   return (
-    <div className="min-h-dvh bg-background">
+    <div className="biz sidebar-open">
       <p className="p-6 text-sm text-muted-foreground md:hidden">{s.desktopOnly}</p>
-      <div className="hidden min-h-dvh flex-col md:flex">
-        <header className="flex items-center justify-between gap-4 border-b border-border px-6 py-3">
-          <span className="text-sm font-medium">{s.title}</span>
-          <div className="flex items-center gap-3 text-sm">
-            {email && <span className="text-muted-foreground">{s.signedInAs} {email}</span>}
-            <span className="rounded-full border border-border bg-card px-3 py-1 text-muted-foreground">
-              {s.sampleData}
-            </span>
-          </div>
-        </header>
-        <main className="flex-1 px-6 py-6">{children}</main>
+      <div className="hidden md:block">
+        <div className="app">
+          {/* useSearchParams needs a boundary; the shell renders without the
+              store lens for the one frame before it resolves. */}
+          <Suspense fallback={<aside className="sidebar" aria-label="メインナビゲーション" />}>
+            <BusinessSidebar
+              locale={locale}
+              businessName={shell.business.name}
+              storeCount={shell.business.storeCount}
+              operatorName={shell.operator.name}
+              operatorMark={shell.operator.mark}
+              operatorRole={shell.operator.role}
+              stores={storeOptions}
+            />
+          </Suspense>
+          <main className="main">
+            <Suspense fallback={<header className="topbar" />}>
+              <BusinessTopbar stores={storeOptions} syncLabel={syncLabel} />
+            </Suspense>
+            {children}
+          </main>
+        </div>
       </div>
     </div>
   )
