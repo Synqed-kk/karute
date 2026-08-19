@@ -32,7 +32,7 @@
  * assertions read as translation keys. The real-ja.json call-site check lives
  * in record-no-own-booking-card.test.tsx.
  */
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 
 let mockRecState: 'idle' | 'recording' | 'paused' | 'recorded' = 'idle'
 let mockPipelineState: 'idle' | 'transcribing' | 'review' = 'idle'
@@ -206,7 +206,7 @@ describe('RecordPageView — no own booking today (8/19 ruling)', () => {
 
     // Pick 原 奏恵 (id 'c 1') from the combobox.
     fireEvent.change(screen.getByRole('combobox'), { target: { value: '原' } })
-    fireEvent.mouseDown(screen.getByText('原 奏恵'))
+    fireEvent.click(screen.getByText('原 奏恵'))
 
     expect(mockReplace).toHaveBeenCalledWith('/sessions?customerId=c%201')
   })
@@ -362,7 +362,7 @@ describe('RecordPageView — customer-picker dialog v2 (8/19 mock)', () => {
     expect(screen.getByText('target.todayBookingsCount')).toBeInTheDocument()
   })
 
-  it('B-8: a target binding under the open dialog unmounts it (QuietRefresh)', () => {
+  it('B-8: a target binding under the open dialog unmounts it (QuietRefresh)', async () => {
     const { rerender } = render(<RecordPageView {...dialogProps} />)
     fireEvent.click(screen.getByText('chooseCustomer'))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
@@ -371,24 +371,37 @@ describe('RecordPageView — customer-picker dialog v2 (8/19 mock)', () => {
     // now HAS a booking of their own. The picker may exist only in the
     // no-target state — floating over a bound target, its rows navigate away
     // from a live one.
-    rerender(
-      <RecordPageView
-        {...dialogProps}
-        nextAppointment={{
-          id: 'a-mine',
-          customerName: '原 奏恵',
-          customerId: 'c 1',
-          karuteNumber: '#00214',
-          startTime: '2026-08-19T03:00:00.000Z',
-          durationMinutes: 60,
-          title: 'カット',
-          notes: null,
-          statusKey: 'booked' as const,
-          staffName: '原',
-        }}
-      />,
-    )
+    // Await: binding a target mounts StreamingBriefCard's use(aiBriefPromise),
+    // which suspends once even on an already-resolved promise (React 19) —
+    // unawaited, that leaves a dangling act() warning.
+    await act(async () => {
+      rerender(
+        <RecordPageView
+          {...dialogProps}
+          nextAppointment={{
+            id: 'a-mine',
+            customerName: '原 奏恵',
+            customerId: 'c 1',
+            karuteNumber: '#00214',
+            startTime: '2026-08-19T03:00:00.000Z',
+            durationMinutes: 60,
+            title: 'カット',
+            notes: null,
+            statusKey: 'booked' as const,
+            staffName: '原',
+          }}
+        />,
+      )
+    })
 
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    // The target clears again (staffer's booking gets reassigned elsewhere).
+    // The picker must NOT spring back open on its own — only an explicit tap
+    // on chooseCustomer reopens it.
+    await act(async () => {
+      rerender(<RecordPageView {...dialogProps} />)
+    })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
@@ -453,7 +466,7 @@ describe('RecordPageView — customer-picker dialog v2 (8/19 mock)', () => {
     // PackPill's own label — next-intl is key-echoed in this suite.
     expect(screen.getByText('card.packLeft')).toBeInTheDocument()
 
-    fireEvent.mouseDown(screen.getByText('原 奏恵'))
+    fireEvent.click(screen.getByText('原 奏恵'))
     expect(mockReplace).toHaveBeenCalledWith('/sessions?customerId=c%201')
   })
 

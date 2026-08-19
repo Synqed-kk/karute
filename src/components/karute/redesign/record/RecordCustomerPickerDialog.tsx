@@ -471,16 +471,11 @@ function SearchRow({
 
   return (
     <li>
-      {/* onMouseDown, not onClick: a real tap fires mousedown first, and this is
-          the interaction the ?customerId= armor test drives. */}
       <button
         type="button"
         role="option"
         aria-selected={false}
-        onMouseDown={(e) => {
-          e.preventDefault()
-          onSelect(customer.id)
-        }}
+        onClick={() => onSelect(customer.id)}
         className={cn(
           'relative flex w-full flex-col gap-1 rounded-xl border border-border py-2.5 pr-3 text-left transition-colors hover:bg-muted/60',
           todayBooking ? 'pl-4' : 'pl-3.5',
