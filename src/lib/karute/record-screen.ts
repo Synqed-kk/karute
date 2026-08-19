@@ -155,8 +155,13 @@ export async function buildRecordScreen(input: {
     a.start_time < b.start_time ? -1 : a.start_time > b.start_time ? 1 : 0,
   )
 
-  // Default-target priority — prefer the ACTIVE STAFF's bookings first
-  // (in-session > upcoming > any unlinked), else ANY salon booking.
+  // Default-target priority — the ACTIVE STAFF's OWN bookings only
+  // (in-session > upcoming > any unlinked). NEVER any salon booking: the
+  // 8/19 field report + Liam's ruling — the centre record button must not
+  // auto-bind another stylist's customer. No own booking → no implicit
+  // target at all (the screen's empty state then asks explicitly). The
+  // EXPLICIT entries (?appointmentId / ?customerId) are untouched below —
+  // deliberately opening someone's booking still binds it.
   const nowMs = now.getTime()
   const isInSession = (a: AppointmentRow) => {
     if (a.karute_record_id) return false
@@ -172,6 +177,8 @@ export async function buildRecordScreen(input: {
     return rows.find(isInSession) ?? rows.find(isUpcoming) ?? rows.find(isUnlinked)
   }
 
+  // No staff identity (a caller with no staff_profile row) → nothing to scope
+  // BY, so the day's list stays the caller's own set, exactly as before.
   const myRows = activeStaffId
     ? list.filter((a) => a.staff_profile_id === activeStaffId)
     : list
@@ -193,9 +200,7 @@ export async function buildRecordScreen(input: {
   // When a customer is explicitly chosen, never fall through to an unrelated
   // default booking — it's that customer's booking or a walk-in, nothing else.
   const unlinked =
-    requestedRow ??
-    customerRow ??
-    (requestedCustomerId ? undefined : (findFirst(myRows) ?? findFirst(list)))
+    requestedRow ?? customerRow ?? (requestedCustomerId ? undefined : findFirst(myRows))
 
   if (unlinked) {
     const startMs = new Date(unlinked.start_time).getTime()

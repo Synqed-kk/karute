@@ -21,7 +21,7 @@ import { globalRecorder } from '@/lib/global-recorder'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
 import { useTimetableStore } from '@/stores/timetable-store'
-import type { CustomerOption } from '@/components/karute/CustomerCombobox'
+import { CustomerCombobox, type CustomerOption } from '@/components/karute/CustomerCombobox'
 import {
   getCustomerConsent,
   grantCustomerConsent,
@@ -325,6 +325,7 @@ export function RecordPageView({
     return 'idle'
   })
   const [showNoBookingPrompt, setShowNoBookingPrompt] = useState(false)
+  const [showCustomerPicker, setShowCustomerPicker] = useState(false)
   const [recordingDuration, setRecordingDuration] = useState(0)
   // Outcome is chosen the MOMENT recording stops (the staff knows it live),
   // before transcription — so they decide once, up front, then the AI runs in
@@ -929,6 +930,14 @@ export function RecordPageView({
   // collapse to a single column so the record button isn't dwarfed by a half-empty grid.
   const layoutMode: 'single' | 'split' = targetAppointment ? 'split' : 'single'
 
+  // Idle, nothing in flight, and NO booking of the signed-in staff's own today
+  // — buildRecordScreen no longer auto-picks a colleague's booking (8/19
+  // ruling), so there is nothing to record against until the staff says who.
+  // The target card carries the two explicit actions and the big record button
+  // steps aside (mock A2); the walk-in flow itself is unchanged, only its
+  // trigger moved out of the no-booking prompt.
+  const showNoTargetActions = phase === 'idle' && !live && !nextAppointment
+
   // F2: every OPEN starts clean — a hung take's in-flight write must not
   // pre-lock the NEXT take's dialog as 保存中 (the finally reset in onResolve
   // only fires when that write eventually settles; a request that never
@@ -1180,6 +1189,10 @@ export function RecordPageView({
             appointment={targetAppointment}
             nearbyBookings={nearbyBookings}
             onSwitchBooking={live ? undefined : handleSwitchBooking}
+            onChooseCustomer={
+              showNoTargetActions ? () => setShowCustomerPicker(true) : undefined
+            }
+            onRecordWithoutCustomer={showNoTargetActions ? handleStartAnyway : undefined}
           />
           {otherStaffBanner}
           {!scheduleMismatch && <RepurchaseCueBanner pack={targetPack} />}
@@ -1203,7 +1216,9 @@ export function RecordPageView({
               />
             </Suspense>
           )}
-          <div className="mx-auto w-full max-w-md">{recorderColumn}</div>
+          {!showNoTargetActions && (
+            <div className="mx-auto w-full max-w-md">{recorderColumn}</div>
+          )}
         </div>
       )}
 
@@ -1344,6 +1359,50 @@ export function RecordPageView({
           onCancel={() => setShowConsentDialog(false)}
           onConfirm={handleGrantConsent}
         />
+      )}
+
+      {/* お客様を選んで録音 — the no-own-booking card's primary action. Picking
+          re-enters the screen through the SAME ?customerId= path the 顧客
+          card's mic uses (bottom-nav.tsx), so the server re-resolves the
+          target and every downstream read (consent, brief, packs) belongs to
+          the chosen customer — no client-side binding shortcut. */}
+      {showCustomerPicker && (
+        <>
+          <div
+            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowCustomerPicker(false)}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('target.chooseCustomer')}
+            className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 space-y-4 rounded-xl border border-border bg-card p-6 shadow-xl"
+          >
+            <h3 className="text-base font-semibold text-foreground">
+              {t('target.chooseCustomer')}
+            </h3>
+            <CustomerCombobox
+              customers={customers}
+              selectedId={null}
+              onSelect={(id) => {
+                setShowCustomerPicker(false)
+                router.replace(`/sessions?customerId=${encodeURIComponent(id)}`)
+              }}
+              // Same no-op as the review screen's save-bar combobox: creating a
+              // customer is not this picker's job — a brand-new walk-in is
+              // exactly what 選択せずに録音する covers, and they are created at save.
+              onCreateNew={() => {}}
+            />
+            <Button
+              variant="outline"
+              size="md"
+              className="w-full"
+              onClick={() => setShowCustomerPicker(false)}
+            >
+              {tc('cancel')}
+            </Button>
+          </div>
+        </>
       )}
 
       {/* No-booking prompt */}

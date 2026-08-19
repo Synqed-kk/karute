@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { ChevronUp, Clock } from 'lucide-react'
+import { ChevronUp, Clock, Mic, Search } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { SelectBookingSheet } from './SelectBookingSheet'
@@ -51,12 +51,22 @@ interface RecordingTargetCardProps {
   appointment: RecordTargetAppointment | null
   nearbyBookings?: RecordTargetBooking[]
   onSwitchBooking?: (booking: RecordTargetBooking) => void
+  /** Idle with NO own booking today (mock A2, 8/19). Both handlers present →
+   *  the card carries the two explicit actions instead of the day picker:
+   *  another stylist's customer is never offered here (the picker lists the
+   *  whole salon's day). Absent → the legacy scaffold body, which still
+   *  renders for the OTHER null-appointment state (an anonymous
+   *  record-anyway take in flight). */
+  onChooseCustomer?: () => void
+  onRecordWithoutCustomer?: () => void
 }
 
 export function RecordingTargetCard({
   appointment,
   nearbyBookings = [],
   onSwitchBooking,
+  onChooseCustomer,
+  onRecordWithoutCustomer,
 }: RecordingTargetCardProps) {
   const t = useTranslations('recording.target')
   // 「別の予約を選択」 now opens a full bottom sheet (matches the
@@ -67,6 +77,53 @@ export function RecordingTargetCard({
   const handleSelect = (b: RecordTargetBooking) => {
     setSheetOpen(false)
     onSwitchBooking?.(b)
+  }
+
+  // No OWN booking today (mock A2) — never guess a colleague's customer.
+  // Two explicit ways forward: choose the customer, or record a walk-in and
+  // bind them at save (the pre-existing record-anyway flow).
+  if (!appointment && onChooseCustomer && onRecordWithoutCustomer) {
+    return (
+      <section className="rounded-2xl border border-dashed border-border bg-card p-5 shadow-sm md:p-6">
+        <header className="mb-4 flex items-center gap-2.5">
+          <span className="flex h-6 w-6 items-center justify-center text-sky-400">
+            <Clock size={16} />
+          </span>
+          <span className="text-sm font-semibold text-foreground">{t('title')}</span>
+        </header>
+
+        <div className="rounded-xl border border-dashed border-border/60 bg-muted/30 p-4">
+          <p className="text-[14px] font-semibold text-foreground">{t('noOwnBooking')}</p>
+          <p className="mb-3.5 mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+            {t('noOwnBookingHint')}
+          </p>
+          <div className="flex flex-col gap-2.5">
+            {/* R13: solid accent for the commit action, quiet outline for the
+             *  secondary. Plain buttons (like ChoosePickerButton below) — this
+             *  card stays free of the @synqed-kk/ui import. */}
+            <button
+              type="button"
+              onClick={onChooseCustomer}
+              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-hover"
+            >
+              <Search size={17} />
+              {t('chooseCustomer')}
+            </button>
+            <button
+              type="button"
+              onClick={onRecordWithoutCustomer}
+              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              <Mic size={17} />
+              {t('recordWithoutCustomer')}
+            </button>
+          </div>
+        </div>
+        <p className="mt-2.5 px-0.5 text-[11.5px] leading-relaxed text-muted-foreground">
+          {t('walkInFootnote')}
+        </p>
+      </section>
+    )
   }
 
   // No booking selected — render the full card chrome with the
