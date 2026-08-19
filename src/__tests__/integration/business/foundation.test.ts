@@ -289,10 +289,17 @@ describe('the fixture data door', () => {
     ]
     const INVENTORY: Record<string, string[]> = {
       'src/business/lib/clock.ts': [],
-      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-today', 'react'],
+      // Both sides' rows are REAL in the merged tree, so the entry is the union:
+      // the stack brought `react` (data.ts wraps its readers in `cache`), #727
+      // brought `./fixtures-reservations`. Verified against the file, not
+      // reconciled by taking a side — the inventory mirrors reality or it is
+      // worth nothing.
+      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-reservations', './fixtures-today', 'react'],
       'src/business/lib/fixtures.ts': ['./clock'],
       'src/business/lib/fixtures-today.ts': ['./fixtures'],
+      'src/business/lib/fixtures-reservations.ts': [],
       'src/business/lib/today-board.ts': ['./clock', './fixtures', './fixtures-today'],
+      'src/business/lib/reservations.ts': ['./fixtures', './fixtures-reservations', './fixtures-today', './today-board'],
       // canon-logic — the lifted mock behaviour. These four are PURE by design
       // (that is the whole point of lifting them out of canon's inline script),
       // so an empty inventory is not laziness: any import at all here would
@@ -359,6 +366,22 @@ describe('the fixture data door', () => {
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/today/loading.tsx': ['@/business/i18n'],
+      'src/app/[locale]/(business)/business/reservations/page.tsx': [
+        './ReservationsScreen',
+        './reservations.css',
+        '@/business/lib/admission',
+        '@/business/lib/clock',
+        '@/business/lib/data',
+        '@/business/lib/reservations',
+        '@/business/lib/today-board',
+      ],
+      'src/app/[locale]/(business)/business/reservations/ReservationsScreen.tsx': [
+        '@/business/lib/reservations',
+        '@/business/lib/today-board',
+        'next/link',
+        'react',
+      ],
+      'src/app/[locale]/(business)/business/reservations/loading.tsx': ['@/business/i18n'],
     }
     for (const [file, expected] of Object.entries(INVENTORY)) {
       const src = readFileSync(join(process.cwd(), file), 'utf8')
