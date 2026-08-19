@@ -115,9 +115,10 @@ jest.mock('@/hooks/use-global-recorder', () => ({
 }))
 
 // The live singleton, mutable per test: `state` is what a PREVIOUS take's run
-// is doing, `serverOwned` is which arm owns it. Declared inside the factory
-// (jest.mock is hoisted above every const) and picked up below via
-// requireMock.
+// is doing, `serverOwned` is which arm owns it, and `autosaveDispatched` /
+// `serverSavedRecordId` are whether that run's RESULT is secured yet (fix
+// round 5). Declared inside the factory (jest.mock is hoisted above every
+// const) and picked up below via requireMock.
 jest.mock('@/lib/global-pipeline', () => ({
   globalPipeline: {
     version: 0,
@@ -127,6 +128,8 @@ jest.mock('@/lib/global-pipeline', () => ({
     error: null,
     context: null,
     serverOwned: false,
+    autosaveDispatched: false,
+    serverSavedRecordId: null,
     subscribe: () => () => {},
     start: jest.fn(),
     retry: jest.fn(),
@@ -139,7 +142,13 @@ import { RecordPageView } from '@/components/karute/redesign/record/RecordPageVi
 
 const mockPipeline = (
   jest.requireMock('@/lib/global-pipeline') as {
-    globalPipeline: { state: string; serverOwned: boolean; start: jest.Mock }
+    globalPipeline: {
+      state: string
+      serverOwned: boolean
+      autosaveDispatched: boolean
+      serverSavedRecordId: string | null
+      start: jest.Mock
+    }
   }
 ).globalPipeline
 const mockToastInfo = (jest.requireMock('sonner') as { toast: { info: jest.Mock } }).toast.info
@@ -149,6 +158,8 @@ afterEach(() => {
   jest.clearAllMocks()
   mockPipeline.state = 'idle'
   mockPipeline.serverOwned = false
+  mockPipeline.autosaveDispatched = false
+  mockPipeline.serverSavedRecordId = null
   mockConfirmRenders.n = 0
 })
 
@@ -281,11 +292,13 @@ describe('C-1 — a second take never silently kills the first', () => {
     // Everything the confirm paints from here on must be ZERO.
     const rendersAtSettle = mockConfirmRenders.n
 
-    // The old run settles into 'autosaving' — its AI work is done and the save
-    // is already dispatched, so there is nothing left to ask about. The flag
-    // is still true for this commit; only the render gate stands between the
-    // staffer and a modal that is now a lie.
-    mockPipeline.state = 'autosaving'
+    // The old run settles into 'review' — it is off the pipeline's live path,
+    // so there is nothing left to ask about. The flag is still true for this
+    // commit; only the render gate stands between the staffer and a modal that
+    // is now a lie. ('autosaving' is deliberately NOT the settle state here
+    // since fix round 5 — an undispatched autosave is exactly what the gate
+    // asks about, so the confirm has to survive that transition.)
+    mockPipeline.state = 'review'
     await act(async () => {
       rerender(<RecordPageView {...PROPS} />)
       await Promise.resolve()
@@ -295,6 +308,50 @@ describe('C-1 — a second take never silently kills the first', () => {
     // Not "gone by the end of the commit" — never painted at all.
     expect(mockConfirmRenders.n).toBe(rendersAtSettle)
     expect(mockPipeline.start).not.toHaveBeenCalled()
+  })
+
+  // Fix round 5 (Greptile round-3 finding (a)). The autosave is dispatched by a
+  // passive effect, so 'autosaving' is not one state but two: BEFORE the flush
+  // the run holds a finished result nothing has saved, and superseding it drops
+  // the transcription in silence; AFTER it the save is in flight and the tap
+  // costs nothing. autosaveDispatched is which of the two we are in, and it is
+  // read off the LIVE singleton because the render snapshot is a commit stale
+  // in exactly this window.
+  it('autosaving BEFORE the save is dispatched: asks, and starts nothing', async () => {
+    mockPipeline.state = 'autosaving'
+    mockPipeline.autosaveDispatched = false
+    await renderRecorded()
+
+    await tapUseRecording()
+
+    expect(screen.getByText('supersedeTitle')).toBeInTheDocument()
+    expect(mockPipeline.start).not.toHaveBeenCalled()
+    expect(mockToastInfo).not.toHaveBeenCalled()
+  })
+
+  it('autosaving AFTER the save is dispatched: no dialog, straight through', async () => {
+    mockPipeline.state = 'autosaving'
+    mockPipeline.autosaveDispatched = true
+    await renderRecorded()
+
+    await tapUseRecording()
+
+    expect(screen.queryByText('supersedeTitle')).not.toBeInTheDocument()
+    expect(mockPipeline.start).toHaveBeenCalledTimes(1)
+  })
+
+  it('autosaving with the record already saved server-side: no dialog', async () => {
+    // The server-job settle branch: the karute exists under this id, so the run
+    // has nothing left to lose even with the in-tab dispatch flag false.
+    mockPipeline.state = 'autosaving'
+    mockPipeline.autosaveDispatched = false
+    mockPipeline.serverSavedRecordId = 'record-1'
+    await renderRecorded()
+
+    await tapUseRecording()
+
+    expect(screen.queryByText('supersedeTitle')).not.toBeInTheDocument()
+    expect(mockPipeline.start).toHaveBeenCalledTimes(1)
   })
 
   it('nothing in flight: no dialog, no notice, straight through', async () => {

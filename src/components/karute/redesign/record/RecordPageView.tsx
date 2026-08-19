@@ -1007,10 +1007,17 @@ export function RecordPageView({
   // C-1 (Greptile F1): the supersession gate. It sits BEFORE the fork above on
   // purpose — handleAutoFlow burns a pack session and the outcome dialog can
   // create one, so asking here means a キャンセル costs nothing and moves no
-  // money. 'processing' only: an 'autosaving' run has finished its AI work and
-  // its save is already dispatched (ProcessingIndicator), so superseding it
-  // loses nothing to warn about, and an errored run is documented as legitimate
-  // to supersede.
+  // money. An errored run stays documented as legitimate to supersede.
+  //
+  // 'autosaving' is NOT the safe state the first cut claimed (fix round 5): the
+  // save is dispatched by a PASSIVE EFFECT in ProcessingIndicator, not by the
+  // transition itself, so a tap landing between the 'autosaving' commit and its
+  // effect flush would supersede a finished-but-unsaved run and drop the whole
+  // transcription in silence. autosaveDispatched closes exactly that window.
+  // It self-resolves in the staff's favour: opening the confirm is itself a
+  // React update, and React flushes the pending passive effect before rendering
+  // it, so by the time the dialog is on screen the save has gone out and a
+  // 中断して開始 loses nothing — one extra dialog beats one lost take (D-1).
   function handleUseRecordingTap() {
     if (pipeline.state === 'processing') {
       // The old run survives server-side — say so, don't ask.
@@ -1019,6 +1026,16 @@ export function RecordPageView({
         setShowSupersedeDialog(true)
         return
       }
+    }
+    // Live singleton, not the render snapshot: the snapshot is one commit stale
+    // in exactly the window this closes.
+    if (
+      globalPipeline.state === 'autosaving' &&
+      !globalPipeline.autosaveDispatched &&
+      !globalPipeline.serverSavedRecordId
+    ) {
+      setShowSupersedeDialog(true)
+      return
     }
     runStopFlow()
   }
@@ -1492,8 +1509,13 @@ export function RecordPageView({
       {/* C-1 — supersession confirm. Same shape as the no-booking prompt
           above (one sibling convention for the page's confirms): キャンセル
           keeps the previous run alive and leaves this take on its review
-          screen, so nothing is lost either way. */}
-      {showSupersedeDialog && pipeline.state === 'processing' && (
+          screen, so nothing is lost either way. The render gate spans
+          'autosaving' too (fix round 5): that transition is the window the tap
+          gate now covers, so closing on it would swallow the tap it was opened
+          by. A run that settles past both states has nothing left to ask
+          about, and the confirm still goes with it. */}
+      {showSupersedeDialog &&
+        (pipeline.state === 'processing' || pipeline.state === 'autosaving') && (
         <>
           <div
             className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"

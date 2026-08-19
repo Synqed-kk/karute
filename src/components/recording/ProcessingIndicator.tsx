@@ -45,6 +45,12 @@ export function ProcessingIndicator() {
 
   useEffect(() => {
     if (state !== 'autosaving') return
+    // Closure state only says this run WAS autosaving when the commit was
+    // scheduled; the live state proves it still IS the current run. A start()
+    // landing between that commit and this passive flush (the C-1 race) must
+    // not let a dead run poison the one-shot ref with the NEW run's id — that
+    // would block the new run's own autosave forever, leaving it stuck 保存中.
+    if (globalPipeline.state !== 'autosaving') return
     const runId = globalPipeline.runId
     if (autosavedRunRef.current === runId) return
     autosavedRunRef.current = runId
@@ -55,6 +61,9 @@ export function ProcessingIndicator() {
     // ctx/result guard or the save call (the server path has no `result`;
     // runAIPipeline never ran client-side).
     if (globalPipeline.serverSavedRecordId) {
+      // Secured: the record already exists server-side, so the C-1 gate can let
+      // a supersession through without losing anything.
+      globalPipeline.autosaveDispatched = true
       const id = globalPipeline.serverSavedRecordId
       if (globalPipeline.isCurrentRun(runId)) {
         toast.success(t('autoSaved'), {
@@ -98,6 +107,10 @@ export function ProcessingIndicator() {
     // landed; the durable server-job is the documented v2). runId guards the
     // in-session races: a save resolving after a new recording started must not
     // clobber or hijack the new take.
+    // Secured from here: the IIFE below runs saveKaruteRecordInline
+    // synchronously up to its first await, so the result is in flight the
+    // moment this flips — which is what releases the C-1 gate.
+    globalPipeline.autosaveDispatched = true
     void (async () => {
       const res = await saveKaruteRecordInline({
         customerId,

@@ -169,6 +169,24 @@ class GlobalPipeline {
    * through the useSyncExternalStore snapshot, so flipping it needs no notify().
    */
   serverOwned = false
+  /**
+   * True once the 'autosaving' run's RESULT IS SECURED — the inline save has
+   * been dispatched (in flight or done), or the server job already wrote the
+   * record. Set by ProcessingIndicator's autosave effect at each secure point,
+   * never here.
+   *
+   * Read by RecordPageView's supersession gate (C-1, fix round 5): the autosave
+   * dispatch is a PASSIVE EFFECT, not part of the transition into 'autosaving',
+   * so there is a window where the run holds a finished result that nothing has
+   * saved yet. Superseding in that window drops the take's whole transcription
+   * in silence, which is why the gate asks with this flag false and lets the tap
+   * through with it true.
+   *
+   * Cleared synchronously by start()/reset() only — the two places a run's
+   * result stops existing. Read imperatively at tap time like serverOwned, so
+   * flipping it needs no notify().
+   */
+  autosaveDispatched = false
 
   private blob: Blob | null = null
   private listeners = new Set<Listener>()
@@ -220,6 +238,7 @@ class GlobalPipeline {
     this.result = null
     this.error = null
     this.serverSavedRecordId = null
+    this.autosaveDispatched = false
     this.notify()
     // Server path only where the world can stage a tenant-scoped key the worker
     // can prove ownership of (thin arm). Web stays in-tab — see the port's
@@ -560,6 +579,7 @@ class GlobalPipeline {
     this.blob = null
     this.serverSavedRecordId = null
     this.serverOwned = false
+    this.autosaveDispatched = false
     this.notify()
   }
 }

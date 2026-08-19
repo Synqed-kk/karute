@@ -61,6 +61,9 @@ describe('ProcessingIndicator server-path settle (packet 22 B3)', () => {
 
     await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1))
     expect(saveKaruteRecordInline).not.toHaveBeenCalled()
+    // Fix round 5: the record exists server-side, so this branch is a secure
+    // point too — the C-1 supersession gate must stop asking about this run.
+    expect(globalPipeline.autosaveDispatched).toBe(true)
 
     // The held 保存済み chip renders (same as the in-tab success path).
     expect(screen.getByText('保存済み — カルテ作成完了')).toBeTruthy()
