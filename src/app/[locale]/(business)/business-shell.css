@@ -70,6 +70,10 @@
   --red-soft: #fadfdd;
   --amber: #8a4c0f;
   --amber-soft: #fbecd9;
+  /* スキマガード. Canon declares this pair on its own root (:51-52) and the
+     placement rail, the ghost and the advice popover all read it. */
+  --guard-dark: #553c8f;
+  --guard-soft: #eee6fa;
   --yellow: #6d5716;
   --yellow-soft: #f7edcb;
   /* 勤務不可 / 清掃 / micro / no-show washes. Canon declares them on its own

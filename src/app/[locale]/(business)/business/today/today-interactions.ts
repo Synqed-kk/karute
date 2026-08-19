@@ -13,12 +13,16 @@
 
 import {
   buildSellLayer,
+  deriveGapPackingCells,
   deriveSellableCells,
+  freePockets,
+  type GapCell,
   type SellLayer,
   type SellResourceLane,
   type SellStaffLane,
 } from '@/business/lib/canon-logic/availability'
-import { priceAt } from '@/business/lib/canon-logic/pricing'
+import { createGapGuard, type GuardConfig, type GuardReason } from '@/business/lib/canon-logic/gap-guard'
+import { gapFillPrice, packedPrice, priceAt, type PriceFrame } from '@/business/lib/canon-logic/pricing'
 import { dragGeometry, dragModeFor, type DragMode, type DragOrigin } from '@/business/lib/canon-logic/drag-rules'
 import { minuteOf, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 
@@ -165,9 +169,37 @@ export function blockChrome(kind: BoardItem['kind']): { cls: 'cleanup' | 'absenc
 }
 
 /** Everything standing on a lane, as minute spans — the sell layer's occupancy
- *  and the guard checks' conflict pool are the SAME reading of the board. */
-export function laneSpans(lane: BoardLane): Array<{ start: number; end: number }> {
-  return lane.items.map((i) => ({ start: i.startMin, end: i.endMin }))
+ *  and the guard checks' conflict pool are the SAME reading of the board.
+ *  `isBreak` rides along because canon's guard walls a pocket on both sides of
+ *  a 休憩 and on no other kind of card (guardPocketsForLane :7207). */
+export function laneSpans(lane: BoardLane, exclude?: string | null): Array<{ start: number; end: number; isBreak: boolean }> {
+  return lane.items
+    .filter((i) => !(exclude != null && i.caseId === exclude))
+    .map((i) => ({ start: i.startMin, end: i.endMin, isBreak: i.kind === 'break' }))
+}
+
+/** ONE reading of the board's lanes, shared by every window layer — the normal
+ *  販売可能枠, the スキマ枠/詰め込み layers and the guard rail all price and
+ *  refuse against the same occupancy, so they can never disagree. */
+export function sellStaffLanes(lanes: BoardLane[], locked: string[]): SellStaffLane[] {
+  return lanes
+    .filter((l) => l.group === 'staff' && l.window != null && l.listPrice > 0)
+    .map((l) => ({
+      key: l.key,
+      name: l.label,
+      from: l.window!.from,
+      until: l.window!.until,
+      locked: locked.includes(l.key),
+      occupied: laneSpans(l),
+      listPrice: l.listPrice,
+      stores: l.stores,
+    }))
+}
+
+export function sellResourceLanes(lanes: BoardLane[]): SellResourceLane[] {
+  return lanes
+    .filter((l) => l.group === 'beds')
+    .map((l) => ({ key: l.key, name: l.label, occupied: laneSpans(l), storeId: l.stores?.[0] ?? '' }))
 }
 
 /** The 販売可能枠 layer for the board as it currently stands. Derived here, in
@@ -177,21 +209,8 @@ export function sellLayerFor(
   hours: Hours,
   opts: { gridMin: number; nowMinute: number | null; locked: string[]; showPrice: boolean; hi: number; hqMin: number; depth: number },
 ): SellLayer {
-  const staffLanes: SellStaffLane[] = lanes
-    .filter((l) => l.group === 'staff' && l.window != null && l.listPrice > 0)
-    .map((l) => ({
-      key: l.key,
-      name: l.label,
-      from: l.window!.from,
-      until: l.window!.until,
-      locked: opts.locked.includes(l.key),
-      occupied: laneSpans(l),
-      listPrice: l.listPrice,
-      stores: l.stores,
-    }))
-  const resourceLanes: SellResourceLane[] = lanes
-    .filter((l) => l.group === 'beds')
-    .map((l) => ({ key: l.key, name: l.label, occupied: laneSpans(l), storeId: l.stores?.[0] ?? '' }))
+  const staffLanes = sellStaffLanes(lanes, opts.locked)
+  const resourceLanes = sellResourceLanes(lanes)
   const cells = deriveSellableCells({
     staffLanes,
     resourceLanes,
@@ -202,6 +221,191 @@ export function sellLayerFor(
     priceFor: (lane, hour) => priceAt(lane.listPrice, hour, opts.hi, opts.hqMin, opts.depth),
   })
   return buildSellLayer(cells, opts.showPrice)
+}
+
+/** The スキマ枠 (orange, discounted) and 詰め込みセッション (blue, full price)
+ *  layers, derived from the same board reading as everything else. Canon's own
+ *  label carries the LENGTH beside the price on a packed cell — ¥8,650（60分）
+ *  — because a fixed-start session is not an hour of a merged band. */
+export function gapLayerFor(
+  lanes: BoardLane[],
+  opts: {
+    gridMin: number
+    sessionMin: number
+    gapFillMin: number
+    gapFillDiscountPct: number
+    nowMinute: number | null
+    locked: string[]
+    frame: PriceFrame
+    depth: number
+    guard: GuardConfig
+  },
+): { packed: GapCell[]; scraps: GapCell[] } {
+  const engine = createGapGuard(opts.guard)
+  const byKey = new Map(lanes.map((l) => [l.key, l]))
+  const listOf = (lane: SellStaffLane) => byKey.get(lane.key)?.listPrice ?? 0
+  return deriveGapPackingCells({
+    staffLanes: sellStaffLanes(lanes, opts.locked),
+    resourceLanes: sellResourceLanes(lanes),
+    gridMin: opts.gridMin,
+    sessionMin: opts.sessionMin,
+    gapFillMin: opts.gapFillMin,
+    now: opts.nowMinute,
+    fillableExactly: engine.fillableExactly,
+    fillDecomposition: engine.fillDecomposition,
+    packedPrice: (lane, s, e) => packedPrice(listOf(lane), s, e, opts.frame, opts.depth),
+    gapFillPrice: (lane, s, e) => gapFillPrice(listOf(lane), s, e, opts.frame, opts.depth, opts.gapFillDiscountPct),
+  })
+}
+
+// ── スキマガードの配置ガイド ────────────────────────────────────────────────
+
+export type RailState = 'safe' | 'degraded' | 'blocked'
+
+export interface RailCell {
+  start: number
+  state: RailState
+  /** canon `paintRailCell` (:7500): ✓HH:MM / △HH:MM / —. */
+  label: string
+  /** What this start actually does to the protected window, in canon's words. */
+  sentence: string
+  /** The engine's feasible alternatives, when it refused this start. */
+  alternatives: number[]
+  alternativeKind: 'safe' | 'least-loss' | null
+  /** canon's `ackAllowed`: standard mode lets the 操作者 place anyway. */
+  ackAllowed: boolean
+}
+
+export interface GuardRail {
+  laneKey: string
+  laneLabel: string
+  cells: RailCell[]
+}
+
+const clockOf = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+
+/** canon `reasonLine` (:7092). The engine's refusal, said out loud. */
+export function reasonLine(reason: GuardReason | undefined, protectedDur: number): string {
+  if (!reason) return '配置できません'
+  const p = reason.params as Record<string, number | string>
+  switch (reason.code) {
+    case 'R-REP': return `ここに置くと${p.label}が入らなくなります`
+    case 'R-DEAD': return `ここに置くと${p.n}分の売れない空きが残ります`
+    case 'R-SALV': return `ここに置くと${p.n}分の割引でしか売れない空きが残ります`
+    case 'R-UNAVAILABLE': return `この開始には既存${p.dur}分を配置できません`
+    case 'EXEMPT': return `端は${wallJa(String(p.wallType ?? ''), p.trigger === 'wall')}に接するため空きになりません`
+    case 'DEGRADED': {
+      const before = Number(p.capacityBefore)
+      const after = Number(p.capacityAfter)
+      if (!Number.isFinite(before) || !Number.isFinite(after)) {
+        return '配置できますが、売れる空きを完全には守れません。この区間では損が最少の開始です'
+      }
+      return `新規${protectedDur}分の空きが${before}→${after}に減ります（${Math.max(0, before - after)}枠減）。${clockOf(Number(p.t))}はこの区間で損が最少の開始です`
+    }
+    default: return '配置できません'
+  }
+}
+
+/** canon `wallJa` (:7091). */
+function wallJa(wallType: string, isWall: boolean): string {
+  if (!isWall) return 'リードタイム'
+  return wallType === 'closing' ? '閉店' : wallType === 'shiftEnd' ? 'シフト終了' : wallType === 'break' ? '休憩' : 'リードタイム'
+}
+
+export interface RailInput {
+  open: number
+  close: number
+  /** The rail's own grid — canon paints every exact 30-minute start. */
+  stepMin: number
+  /** The session the rail is asking about placing (canon's 60分配置). */
+  dur: number
+  /** The window the guard is PROTECTING, for the sentences. */
+  protectedDur: number
+  nowMinute: number | null
+  locked: string[]
+  guard: GuardConfig
+  /** A card currently in hand: it is what is being placed, so it must not also
+   *  count as an obstacle to itself (canon guardPocketsForLane :7196). */
+  excludeId?: string | null
+}
+
+/** The 60分配置 rail for every staff lane — canon `renderSlotBoxes` (:7543),
+ *  minus the DOM. Every exact 30-minute start on the board, judged by the
+ *  guard engine against the pocket it would land in. */
+export function guardRailsFor(lanes: BoardLane[], input: RailInput): GuardRail[] {
+  const engine = createGapGuard(input.guard)
+  const rails: GuardRail[] = []
+  for (const lane of lanes) {
+    if (lane.group !== 'staff' || lane.window == null || input.locked.includes(lane.key)) continue
+    const pockets = freePockets({
+      from: lane.window.from,
+      until: lane.window.until,
+      close: input.close,
+      now: input.nowMinute,
+      occupied: laneSpans(lane, input.excludeId),
+    })
+    const cells: RailCell[] = []
+    for (let start = input.open; start < input.close; start += input.stepMin) {
+      cells.push(railCell(engine, pockets, start, input))
+    }
+    rails.push({ laneKey: lane.key, laneLabel: lane.label, cells })
+  }
+  return rails
+}
+
+/** The same verdict for ONE placement — the card actually in hand, at its own
+ *  length, which is the question a drop asks and the 60-minute rail does not. */
+export function guardVerdictAt(lanes: BoardLane[], laneKey: string, start: number, input: RailInput): RailCell | null {
+  const lane = lanes.find((l) => l.key === laneKey && l.group === 'staff')
+  if (!lane || lane.window == null || input.locked.includes(lane.key)) return null
+  const pockets = freePockets({
+    from: lane.window.from,
+    until: lane.window.until,
+    close: input.close,
+    now: input.nowMinute,
+    occupied: laneSpans(lane, input.excludeId),
+  })
+  return railCell(createGapGuard(input.guard), pockets, start, input)
+}
+
+function railCell(
+  engine: ReturnType<typeof createGapGuard>,
+  pockets: ReturnType<typeof freePockets>,
+  start: number,
+  input: RailInput,
+): RailCell {
+  const blocked = (sentence: string): RailCell => ({
+    start, state: 'blocked', label: '—', sentence, alternatives: [], alternativeKind: null, ackAllowed: false,
+  })
+  const pocket = pockets.find((p) => start >= p.s && start + input.dur <= p.e)
+  if (!pocket) return blocked(`この開始には${input.dur}分の連続した空きがありません`)
+  const v = engine.evaluate(pocket, { start, dur: input.dur }, { now: input.nowMinute ?? undefined })
+  if (v.verdict === 'ok' || v.verdict === 'exempt') {
+    // canon `exactAimConsequence` (:7570): a pocket that never held a protected
+    // window cannot claim to be protecting one.
+    const sentence = v.protectedCapacityBefore === 0
+      ? `配置できます。この区間には現在、守れる新規${input.protectedDur}分の空きはありません`
+      : `新規${input.protectedDur}分の空きを守れます`
+    return { start, state: 'safe', label: `✓${clockOf(start)}`, sentence, alternatives: [], alternativeKind: null, ackAllowed: true }
+  }
+  if (v.verdict === 'degraded') {
+    const loss = Math.max(0, v.protectedCapacityBefore - v.protectedCapacityAfter)
+    return {
+      start,
+      state: 'degraded',
+      label: `△${clockOf(start)}`,
+      sentence: `新規${input.protectedDur}分の空き${v.protectedCapacityBefore}→${v.protectedCapacityAfter}（${loss}枠減・損を減らす）。${clockOf(v.leastLossStart ?? start)}はこの区間で損が最少の開始です`,
+      alternatives: v.alternatives,
+      alternativeKind: v.alternativeKind,
+      ackAllowed: true,
+    }
+  }
+  return {
+    ...blocked(reasonLine(v.reason, input.protectedDur)),
+    alternatives: v.alternatives,
+    alternativeKind: v.alternativeKind,
+    ackAllowed: v.reason?.ackAllowed === true,
+  }
 }
 
 /** One drag step: origin + pointer travel → the card's new span, on canon's

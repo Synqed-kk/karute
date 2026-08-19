@@ -31,7 +31,7 @@
 // page-local sample.
 
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   computeChecks,
   confirmCaption,
@@ -52,6 +52,7 @@ import {
   priceButtonCaption,
   money,
 } from '@/business/lib/canon-logic/pricing'
+import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane } from '@/business/lib/today-board'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
@@ -60,14 +61,19 @@ import {
   clickClosesPopover,
   dragModeAt,
   fractionIn,
+  gapLayerFor,
+  guardRailsFor,
+  guardVerdictAt,
   isOverShelf,
   laneKeyAtY,
   nextSpan,
   parkChipText,
   sellLayerFor,
   slotStartAt,
+  type GuardRail,
   type Move,
   type Moves,
+  type RailCell,
 } from './today-interactions'
 
 const HINT = '見本データのため実行できません'
@@ -118,6 +124,18 @@ export interface TodayProps {
   lanes: BoardLane[]
   /** The dials the 販売可能枠 derivation runs on — see the header. */
   sell: { gridMin: number; nowMinute: number | null }
+  /** スキマガード. `mode` is the STORE's protection policy (店舗設定); `config`
+   *  is what the engine itself reads. The 表示設定 segment beside it is a
+   *  personal display preference and cannot change either. */
+  guard: {
+    mode: 'off' | 'standard' | 'strict'
+    standardSessionMin: number
+    protectedDurationMin: number
+    protectedLabel: string
+    gapFillMinMin: number
+    gapFillDiscountPct: number
+    config: GuardConfig
+  }
   closedWeekdayLabel: string
   ops: {
     total: string
@@ -204,6 +222,39 @@ interface DragCtx {
   track: Element
   moved: boolean
   overShelf: boolean
+  /** The card and the lane the drag started on. The pointer stream no longer
+   *  arrives through the card's own JSX handlers, so the release has to carry
+   *  them rather than read them off an event target that may not be the card. */
+  item: BoardItem
+  lane: BoardLane
+  /** rAF coalescing: the newest pointer position, applied once per frame. */
+  pending: { clientX: number; clientY: number } | null
+  frame: number | null
+  detach: () => void
+}
+
+/** The drag as the BOARD sees it, one state object updated at most once per
+ *  animation frame. `homeLane` is where the card is still DRAWN — canon moves a
+ *  card only horizontally during a drag and shows the destination as a ghost
+ *  (dragMove :4509–4523) — while `targetLane` is where every derivation places
+ *  it, so the windows and the guard answer for the landing, live. */
+interface LiveDrag {
+  id: string
+  homeLane: string
+  targetLane: string
+  x: number
+  w: number
+  overShelf: boolean
+}
+
+/** The 配置の相談 canon opens on a refused placement (:7106). */
+interface GuardAdvice {
+  id: string
+  laneKey: string
+  start: number
+  x: number
+  y: number
+  cell: RailCell
 }
 
 export function TodayScreen(props: TodayProps) {
@@ -236,9 +287,9 @@ export function TodayScreen(props: TodayProps) {
   /** The staged change awaiting 確定 — canon's `pendingChange`. `origin` is
    *  where the card came from, so 元に戻す has somewhere to go. */
   const [pending, setPending] = useState<{ id: string; origin: Move } | null>(null)
-  const [draggingId, setDraggingId] = useState<string | null>(null)
-  const [dropTarget, setDropTarget] = useState<{ laneKey: string; x: number; w: number } | null>(null)
-  const [shelfOver, setShelfOver] = useState(false)
+  const [live, setLive] = useState<LiveDrag | null>(null)
+  const [chipTarget, setChipTarget] = useState<string | null>(null)
+  const [advice, setAdvice] = useState<GuardAdvice | null>(null)
   const dragRef = useRef<DragCtx | null>(null)
   const boardRef = useRef<HTMLDivElement>(null)
   const shelfRef = useRef<HTMLDivElement>(null)
@@ -290,13 +341,40 @@ export function TodayScreen(props: TodayProps) {
     return () => document.removeEventListener('click', onDoc)
   }, [pop])
 
-  const boardLanes = useMemo(
-    () => applyMoves(props.lanes, moves, parked, added, hours),
-    [props.lanes, moves, parked, added, hours],
+  /** THE BOARD, twice. `boardLanes` is the truth every derivation reads — the
+   *  dragged card is already on the lane it is heading for, which is what makes
+   *  the windows, the prices and the guard refill LIVE across lanes. `drawn` is
+   *  what the DOM renders: canon never re-parents a card mid-drag (it moves the
+   *  element horizontally and paints a ghost in the destination), and neither
+   *  can we — re-parenting destroys the element the pointer stream is bound to
+   *  and the drag dies on the first pixel of vertical travel. */
+  const liveMoves = useMemo(
+    () => (live ? { ...moves, [live.id]: { laneKey: live.targetLane, x: live.x, w: live.w } } : moves),
+    [moves, live],
   )
+  const boardLanes = useMemo(
+    () => applyMoves(props.lanes, liveMoves, parked, added, hours),
+    [props.lanes, liveMoves, parked, added, hours],
+  )
+  const drawnLanes = useMemo(
+    () =>
+      live && live.targetLane !== live.homeLane
+        ? applyMoves(props.lanes, { ...moves, [live.id]: { laneKey: live.homeLane, x: live.x, w: live.w } }, parked, added, hours)
+        : boardLanes,
+    [props.lanes, moves, live, parked, added, hours, boardLanes],
+  )
+  const dropTarget = live && !live.overShelf && live.targetLane !== live.homeLane
+    ? { laneKey: live.targetLane, x: live.x, w: live.w }
+    : chipTarget
+      ? { laneKey: chipTarget, x: 0, w: 0 }
+      : null
 
   const price = clampPriceInputs(appliedPrice.hi, appliedPrice.lo, dialogs.pricing)
   const depth = Math.round((1 - price.lo / price.hi) * 100)
+  const frame = useMemo(
+    () => ({ hi: price.hi, lo: price.lo, hqMin: dialogs.pricing.hqMin, hqMax: dialogs.pricing.hqMax }),
+    [price.hi, price.lo, dialogs.pricing.hqMin, dialogs.pricing.hqMax],
+  )
 
   const sell = useMemo(
     () =>
@@ -311,6 +389,47 @@ export function TodayScreen(props: TodayProps) {
       }),
     [boardLanes, hours, props.sell, locked, showSlotPrice, price.hi, dialogs.pricing.hqMin, depth],
   )
+
+  /** スキマ枠 + 詰め込みセッション — canon renders them from the same board pass
+   *  as the normal layer (renderPublicLayer → renderGapFillLayer :5402). */
+  const gap = useMemo(
+    () =>
+      gapLayerFor(boardLanes, {
+        gridMin: props.sell.gridMin,
+        sessionMin: props.guard.standardSessionMin,
+        gapFillMin: props.guard.gapFillMinMin,
+        gapFillDiscountPct: props.guard.gapFillDiscountPct,
+        nowMinute: props.sell.nowMinute,
+        locked,
+        frame,
+        depth,
+        guard: props.guard.config,
+      }),
+    [boardLanes, props.sell, props.guard, locked, frame, depth],
+  )
+
+  /** The 配置ガイド. `guardOn` is the STORE's protection policy; `guideMode` is
+   *  a personal display preference that can hide the painted rail and can never
+   *  weaken the rule — canon states that separation in as many words. */
+  const guardOn = props.guard.mode !== 'off'
+  const rails = useMemo<GuardRail[]>(
+    () =>
+      guardOn
+        ? guardRailsFor(boardLanes, {
+            open: hours.open,
+            close: hours.close,
+            stepMin: 30,
+            dur: props.guard.standardSessionMin,
+            protectedDur: props.guard.protectedDurationMin,
+            nowMinute: props.sell.nowMinute,
+            locked,
+            guard: props.guard.config,
+            excludeId: live?.id ?? pending?.id ?? null,
+          })
+        : [],
+    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, live?.id, pending?.id],
+  )
+  const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
 
   const openCards = props.cards.filter((c) => c.state === 'open' && !resolved.includes(c.id))
   const unresolved = openCards.length
@@ -429,6 +548,82 @@ export function TodayScreen(props: TodayProps) {
     return moves[id] ?? { laneKey: lane.key, x: item.x, w: item.w }
   }
 
+  /** THE POINTER STREAM LIVES ON THE WINDOW, not on the card.
+   *
+   *  It used to ride the card's own JSX handlers with `setPointerCapture`, and
+   *  that is what made every vertical drag die: the first move into another
+   *  lane rewrote `moves[id].laneKey`, React re-parented the card into that
+   *  lane's track, and re-parenting DESTROYS the node the capture was bound to.
+   *  Chrome fired `lostpointercapture`, the rest of the stream went to whatever
+   *  was under the cursor, `pointerup` never reached the card — so nothing was
+   *  ever staged, the card was stranded in the first lane it passed through,
+   *  and `dragRef` / `.dragging` / `.drop-target` were left set for the life of
+   *  the page. Reproduced in a real browser, 2026-08-20 (WO-2c Phase 0).
+   *
+   *  Two changes make it canon's drag again. The card no longer moves lanes
+   *  until the release (canon's `dragMove` only ever calls `evSet` on the card
+   *  it started with), and the listeners hang off `window`, so no re-render,
+   *  re-order or re-parent anywhere on the board can interrupt a drag. */
+  function beginDrag(ctx: Omit<DragCtx, 'detach' | 'pending' | 'frame'>) {
+    const onMove = (e: PointerEvent) => {
+      const c = dragRef.current
+      if (!c || e.pointerId !== c.pointerId) return
+      e.preventDefault()
+      // canon's self-heal (:4466): a move with no button down means the release
+      // was lost, and the card would otherwise stay stuck to the cursor.
+      if (e.buttons === 0) { cancelDrag(); return }
+      // One board update per animation frame. Chrome delivers pointer moves far
+      // faster than it paints, and a derive-and-paint per raw event is the jank
+      // Liam felt as "not snappy" — the newest position wins, the rest are free.
+      c.pending = { clientX: e.clientX, clientY: e.clientY }
+      if (c.frame != null) return
+      c.frame = requestAnimationFrame(() => { c.frame = null; applyDragFrame() })
+    }
+    const onUp = (e: PointerEvent) => {
+      const c = dragRef.current
+      if (!c || e.pointerId !== c.pointerId) return
+      finishDrag(e.clientX, e.clientY)
+    }
+    const onCancel = (e: PointerEvent) => {
+      const c = dragRef.current
+      if (!c || e.pointerId !== c.pointerId) return
+      cancelDrag()
+    }
+    window.addEventListener('pointermove', onMove, { passive: false })
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
+    window.addEventListener('blur', cancelDrag)
+    dragRef.current = {
+      ...ctx,
+      pending: null,
+      frame: null,
+      detach: () => {
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+        window.removeEventListener('pointercancel', onCancel)
+        window.removeEventListener('blur', cancelDrag)
+      },
+    }
+  }
+
+  function applyDragFrame() {
+    const ctx = dragRef.current
+    if (!ctx || !ctx.pending) return
+    const { clientX, clientY } = ctx.pending
+    ctx.pending = null
+    const dx = clientX - ctx.startX
+    const dy = clientY - ctx.startY
+    if (!ctx.moved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return
+    ctx.moved = true
+    const span = nextSpan(ctx.origin, ctx.track, dx, STEP)
+    if (ctx.origin.mode === 'move') {
+      ctx.overShelf = isOverShelf(shelfRef.current, clientY)
+      const laneKey = laneKeyAtY(boardRef.current, ctx.group, clientY)
+      if (laneKey) ctx.targetLane = laneKey
+    }
+    setLive({ id: ctx.id, homeLane: ctx.homeLane, targetLane: ctx.targetLane, ...span, overShelf: ctx.overShelf })
+  }
+
   function onCardPointerDown(e: React.PointerEvent<HTMLButtonElement>, item: BoardItem, lane: BoardLane) {
     if (e.button !== 0 || dragRef.current || !item.caseId) return
     if (pending && pending.id !== item.caseId) {
@@ -438,7 +633,7 @@ export function TodayScreen(props: TodayProps) {
     const track = e.currentTarget.closest('.track')
     if (!track) return
     const mode = dragModeAt(e.currentTarget, e.clientX)
-    dragRef.current = {
+    beginDrag({
       id: item.caseId,
       pointerId: e.pointerId,
       origin: dragOrigin(item.x, item.w, mode, STEP),
@@ -450,36 +645,16 @@ export function TodayScreen(props: TodayProps) {
       track,
       moved: false,
       overShelf: false,
-    }
-    try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* capture is an assist, not a requirement */ }
+      item,
+      lane,
+    })
     e.preventDefault()
   }
 
-  function onCardPointerMove(e: React.PointerEvent<HTMLButtonElement>) {
+  function finishDrag(clientX: number, clientY: number) {
     const ctx = dragRef.current
-    if (!ctx || e.pointerId !== ctx.pointerId) return
-    // canon's self-heal (:4466): a move with no button down means the release
-    // was lost, and the card would otherwise stay stuck to the cursor.
-    if (e.buttons === 0) { cancelDrag(); return }
-    const dx = e.clientX - ctx.startX
-    const dy = e.clientY - ctx.startY
-    if (!ctx.moved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return
-    ctx.moved = true
-    setDraggingId(ctx.id)
-    const span = nextSpan(ctx.origin, ctx.track, dx, STEP)
-    setMoves((was) => ({ ...was, [ctx.id]: { laneKey: ctx.targetLane, ...span } }))
-    if (ctx.origin.mode !== 'move') return
-    ctx.overShelf = isOverShelf(shelfRef.current, e.clientY)
-    setShelfOver(ctx.overShelf)
-    const laneKey = laneKeyAtY(boardRef.current, ctx.group, e.clientY)
-    if (laneKey) ctx.targetLane = laneKey
-    if (!ctx.overShelf && ctx.targetLane !== ctx.homeLane) setDropTarget({ laneKey: ctx.targetLane, ...span })
-    else setDropTarget(null)
-  }
-
-  function onCardPointerUp(e: React.PointerEvent<HTMLButtonElement>, item: BoardItem, lane: BoardLane) {
-    const ctx = dragRef.current
-    if (!ctx || e.pointerId !== ctx.pointerId) return
+    if (!ctx) return
+    const { item, lane } = ctx
     const from: Move = { laneKey: ctx.homeLane, x: ctx.origin.x, w: ctx.origin.w }
     if (!ctx.moved) {
       // A press that never travelled is a selection, not a drag.
@@ -489,30 +664,34 @@ export function TodayScreen(props: TodayProps) {
     }
     // canon (:4567): the release position is authoritative — recompute once more
     // rather than trusting the last move Chrome delivered.
-    const span = nextSpan(ctx.origin, ctx.track, e.clientX - ctx.startX, STEP)
-    if (ctx.origin.mode === 'move' && isOverShelf(shelfRef.current, e.clientY)) {
+    const span = nextSpan(ctx.origin, ctx.track, clientX - ctx.startX, STEP)
+    if (ctx.origin.mode === 'move' && isOverShelf(shelfRef.current, clientY)) {
       clearDrag()
       setMoves((was) => ({ ...was, [ctx.id]: from }))
       park(ctx.id, item, from)
       return
     }
+    let targetLane = ctx.targetLane
     if (ctx.origin.mode === 'move') {
-      const laneKey = laneKeyAtY(boardRef.current, ctx.group, e.clientY)
+      const laneKey = laneKeyAtY(boardRef.current, ctx.group, clientY)
       if (!laneKey) {
         clearDrag()
         setMoves((was) => ({ ...was, [ctx.id]: from }))
         show('予約を置く行の中で離してください')
         return
       }
-      ctx.targetLane = laneKey
+      targetLane = laneKey
+    } else {
+      targetLane = lane.key
     }
-    const laneChanged = ctx.origin.mode === 'move' && ctx.targetLane !== ctx.homeLane
+    const laneChanged = ctx.origin.mode === 'move' && targetLane !== ctx.homeLane
     clearDrag()
     if (span.x === ctx.origin.x && span.w === ctx.origin.w && !laneChanged) {
       setMoves((was) => ({ ...was, [ctx.id]: from }))
       return
     }
-    stage(ctx.id, ctx.origin.mode === 'move' ? ctx.targetLane : lane.key, span, pending?.id === ctx.id ? pending.origin : from)
+    stage(ctx.id, targetLane, span, pending?.id === ctx.id ? pending.origin : from)
+    askGuard(ctx.id, targetLane, span, clientX, clientY)
   }
 
   function cancelDrag() {
@@ -523,10 +702,41 @@ export function TodayScreen(props: TodayProps) {
   }
 
   function clearDrag() {
+    const ctx = dragRef.current
+    if (ctx) {
+      if (ctx.frame != null) cancelAnimationFrame(ctx.frame)
+      ctx.detach()
+    }
     dragRef.current = null
-    setDraggingId(null)
-    setDropTarget(null)
-    setShelfOver(false)
+    setLive(null)
+  }
+
+  // The listeners outlive a render, so an unmount mid-drag has to take them.
+  useEffect(() => () => { dragRef.current?.detach() }, [])
+
+  /** canon's refusal beat (:7106): a placement the guard refuses does not move
+   *  back on its own — the board names the engine's real reason and offers the
+   *  feasible starts as controls. The card is already staged, so 確定 is behind
+   *  the same checks it always was; this dialog is the guard's own sentence. */
+  function askGuard(id: string, laneKey: string, span: { x: number; w: number }, clientX: number, clientY: number) {
+    if (!guardOn) return
+    const start = minuteOf(span.x, hours)
+    // The card's OWN length, not the rail's 60 minutes: the rail answers "could
+    // a standard session start here", the drop asks about the booking in hand.
+    const dur = minuteOf(span.x + span.w, hours) - start
+    const cell = guardVerdictAt(boardLanes, laneKey, start, {
+      open: hours.open,
+      close: hours.close,
+      stepMin: 30,
+      dur,
+      protectedDur: props.guard.protectedDurationMin,
+      nowMinute: props.sell.nowMinute,
+      locked,
+      guard: props.guard.config,
+      excludeId: id,
+    })
+    if (!cell || cell.state === 'safe') return
+    setAdvice({ id, laneKey, start, x: clientX, y: clientY, cell })
   }
 
   /** canon `keyboardResizeBooking` (:3889). */
@@ -584,11 +794,11 @@ export function TodayScreen(props: TodayProps) {
   function onChipPointerMove(e: React.PointerEvent<HTMLElement>) {
     const ctx = chipDragRef.current
     if (!ctx) return
-    if (e.buttons === 0) { chipDragRef.current = null; setDropTarget(null); return }
+    if (e.buttons === 0) { chipDragRef.current = null; setChipTarget(null); return }
     if (!ctx.moved && Math.abs(e.clientX - ctx.startX) < 5 && Math.abs(e.clientY - ctx.startY) < 5) return
     ctx.moved = true
     ctx.laneKey = laneKeyAtY(boardRef.current, 'staff', e.clientY)
-    setDropTarget(ctx.laneKey ? { laneKey: ctx.laneKey, x: 0, w: 0 } : null)
+    setChipTarget(ctx.laneKey)
   }
 
   /** canon `placeFromShelf` (:5653): the chip lands on the same dual lattice,
@@ -596,7 +806,7 @@ export function TodayScreen(props: TodayProps) {
   function onChipPointerUp(e: React.PointerEvent<HTMLElement>) {
     const ctx = chipDragRef.current
     chipDragRef.current = null
-    setDropTarget(null)
+    setChipTarget(null)
     if (!ctx || !ctx.moved || !ctx.laneKey) return
     const chip = parkChips.find((c) => c.id === ctx.id)
     const track = boardRef.current?.querySelector(`.lane[data-lane="${ctx.laneKey}"] .track`)
@@ -639,11 +849,22 @@ export function TodayScreen(props: TodayProps) {
     if (view !== 'both' && ((view === 'staff' && lane.group !== 'staff') || (view === 'beds' && lane.group !== 'beds'))) return null
     if (collapsed.includes(lane.group)) return null
     const isLocked = locked.includes(lane.key)
-    const cells = sell.cells.filter((c) =>
-      c.group !== lane.group ? false : lane.group === 'staff' ? c.laneKey === lane.key : c.resourceKey === lane.key,
-    )
+    const onThisLane = <T extends { group: string; laneKey: string; resourceKey: string }>(c: T) =>
+      c.group !== lane.group ? false : lane.group === 'staff' ? c.laneKey === lane.key : c.resourceKey === lane.key
+    // canon `suppressOverlappingSellableCells` (:5039): one box per span. Where
+    // a スキマ枠 or a packed session owns the minutes, the normal layer's wash
+    // comes off entirely rather than compositing two washes into a third colour.
+    const gapHere = [...gap.packed, ...gap.scraps].filter(onThisLane)
+    const cells = sell.cells
+      .filter(onThisLane)
+      .filter((c) => !gapHere.some((g) => g.s < c.h + 60 && c.h < g.e))
+    const rail = railByLane.get(lane.key)
+    // canon `lane.insertAdjacentElement("afterend", rail)` (:7566): the rail is
+    // the lane's SIBLING, not its child. A `.lane` is a two-column grid, so a
+    // third child lands in the label column and the strip collapses to a sliver.
     return (
-      <div className={`lane${lane.mine ? ' mine' : ''}${isLocked ? ' locked' : ''}`} key={lane.key} data-lane={lane.key} data-group={lane.group}>
+      <Fragment key={lane.key}>
+      <div className={`lane${lane.mine ? ' mine' : ''}${isLocked ? ' locked' : ''}`} data-lane={lane.key} data-group={lane.group}>
         <div className="lane-label">
           <strong>{lane.label}</strong>
           {lane.absentNote ? (
@@ -693,10 +914,59 @@ export function TodayScreen(props: TodayProps) {
                 </span>
               )
             })}
+          {!isLocked &&
+            gapHere.map((c) => {
+              const span = place(c.s, c.e, hours)
+              const packedHere = gap.packed.includes(c)
+              return (
+                <span
+                  className={packedHere ? 'cell-packed' : 'cell-gapfill'}
+                  key={`${lane.key}-${c.group}-${packedHere ? 'p' : 's'}-${c.s}`}
+                  aria-hidden="true"
+                  style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
+                >
+                  {/* canon `renderPackedCell` (:5211): a packed box carries its
+                      LENGTH beside the price — ¥8,650（60分）— because a wide
+                      full-price box would otherwise read as a merged hour band.
+                      A スキマ枠 is one offer, so it carries the price alone. */}
+                  {c.group === 'staff' && <i>{packedHere ? `${money(c.price)}（${c.e - c.s}分）` : money(c.price)}</i>}
+                </span>
+              )
+            })}
           {dropTarget?.laneKey === lane.key && dropTarget.w > 0 && (
             <div className="drop-ghost" aria-hidden="true" style={{ '--x': `${dropTarget.x}%`, '--w': `${dropTarget.w}%` } as React.CSSProperties} />
           )}
           {lane.items.map((item) => renderItem(item, lane))}
+        </div>
+      </div>
+      {rail && renderRail(rail)}
+      </Fragment>
+    )
+  }
+
+  /** canon `renderSlotBoxes` (:7543). An 18px strip under each staff lane that
+   *  shows every exact 30-minute start and what placing a standard session
+   *  there would do to the protected 新規 window: purple ✓ keeps it, amber △
+   *  costs the least available, grey — is refused. The cells are guidance, not
+   *  controls (canon's own copy: 「表示だけの個人設定」), so each carries its
+   *  sentence as its accessible name and nothing here can move a booking. */
+  function renderRail(rail: GuardRail) {
+    return (
+      <div className="guard-placement-rail" data-lane={rail.laneKey} role="group" aria-label={`${rail.laneLabel}の60分配置ガイド`}>
+        <span className="guard-rail-label">60分配置</span>
+        <div className="guard-rail-track">
+          {rail.cells.map((c) => (
+            <span
+              className={`guard-rail-cell ${c.state === 'safe' ? 'guard-slot safe' : c.state}`}
+              key={c.start}
+              data-start={c.start}
+              data-state={c.state}
+              role="img"
+              aria-label={`${rail.laneLabel}、${hhmm(c.start)}。${c.sentence}`}
+            >
+              <i>{c.label}</i>
+            </span>
+          ))}
         </div>
       </div>
     )
@@ -762,20 +1032,23 @@ export function TodayScreen(props: TodayProps) {
     const isPending = pending?.id === item.caseId
     return (
       <button
-        className={`event ${state}${selected === item.caseId ? ' selected' : ''}${draggingId === item.caseId ? ' dragging' : ''}${isPending ? ' pending' : ''}`}
+        // NO `title` ON A DRAGGABLE CARD. The browser's own black tooltip fired
+        // in the middle of a drag and sat over the board (Liam, 2026-08-20);
+        // the sentence is not lost, it is the card's accessible name, which is
+        // where the screen reader was already reading it from. DEVIATION FROM
+        // CANON, deliberately: canon's cards do carry `title`, and canon only
+        // gets away with it because its drags never break — a tooltip cannot
+        // appear while a button is held. Ours must not depend on that.
+        className={`event ${state}${selected === item.caseId ? ' selected' : ''}${live?.id === item.caseId ? ' dragging' : ''}${isPending ? ' pending' : ''}`}
         type="button"
         key={item.key}
         data-book={item.caseId ?? undefined}
         style={style}
         data-cat={item.category ?? undefined}
-        title={item.label}
         aria-label={item.label}
         aria-keyshortcuts="Shift+ArrowLeft Shift+ArrowRight Alt+ArrowLeft Alt+ArrowRight"
         aria-describedby="boardKeyHelp"
         onPointerDown={(e) => onCardPointerDown(e, item, lane)}
-        onPointerMove={onCardPointerMove}
-        onPointerUp={(e) => onCardPointerUp(e, item, lane)}
-        onPointerCancel={cancelDrag}
         onKeyDown={(e) => onCardKeyDown(e, item, lane)}
       >
         <strong>
@@ -788,8 +1061,10 @@ export function TodayScreen(props: TodayProps) {
           <span className="tkt-core">{settledHere ? '精算済' : item.ticketCore}</span>
           {item.held && <span className="tkt-note">保持</span>}
         </small>
-        <span className="event-resize-grip left" aria-hidden="true" title="左端をドラッグして開始時刻を変更" />
-        <span className="event-resize-grip right" aria-hidden="true" title="右端をドラッグして終了時刻を変更" />
+        {/* The grips say what they do through the card's own 操作ヒント and the
+            cursor; a `title` here is the same mid-drag tooltip as above. */}
+        <span className="event-resize-grip left" aria-hidden="true" />
+        <span className="event-resize-grip right" aria-hidden="true" />
       </button>
     )
   }
@@ -1016,7 +1291,10 @@ export function TodayScreen(props: TodayProps) {
                     </div>
                     <span className="guard-guide-copy">非表示にしても、店舗のスキマガード保護ルールは変わりません。</span>
                     <div className="guard-guide-policy">
-                      <span>保護ルール: オフ</span>
+                      {/* canon `renderGapGuardPolicySummary` (:5931): the STORE's
+                          policy, read-only. The segment above is the operator's
+                          own display preference and cannot move this line. */}
+                      <span>保護ルール: {POLICY_WORD[props.guard.mode]}</span>
                       <span className="chip">店舗設定は準備中</span>
                     </div>
 
@@ -1027,6 +1305,8 @@ export function TodayScreen(props: TodayProps) {
                       <span className="needs"><i />要対応</span>
                       <span className="hold"><i />仮押さえ</span>
                       <span className="public"><i />販売可能</span>
+                      <span className="gapfill"><i />スキマ枠</span>
+                      {guardOn && <span className="guard"><i />スキマガード</span>}
                       <span className="cat-legend" aria-label="店舗設定の予約カテゴリー色">
                         <i className="cat" style={{ '--cat': '#3d7ab8' } as React.CSSProperties} />新規
                         <i className="cat" style={{ '--cat': '#8a63b8' } as React.CSSProperties} />再来
@@ -1055,6 +1335,26 @@ export function TodayScreen(props: TodayProps) {
             </div>
           </div>
 
+          {/* 守るもの — canon's #guardDemoHonesty band (:1855), verbatim. It
+              only exists while the store's protection policy is on, and the
+              guide's own 非表示 setting never removes it: the legend explains a
+              RULE that is still running, not the strip that draws it. */}
+          {guardOn && (
+            <div className="guard-band" role="note">
+              <span className="protected-key">守るもの: {props.guard.protectedLabel}{props.guard.protectedDurationMin}分</span>
+              <span className="guard-key">紫 ✓ = 空きを減らさない</span>
+              <span className="guard-key degraded-key">橙 △ = 空きが減るが置ける（損を減らす）</span>
+              <span className="guard-key blocked-key">灰 — = 置けません</span>
+              <span className="guard-band-note">
+                {guideMode === 'selected'
+                  ? '下の「60分配置」で、ドラッグ前に全開始を確認できます。'
+                  : guideMode === 'drag'
+                    ? '下の「60分配置」は、ドラッグ中だけ表示します。'
+                    : '細い配置ガイドは非表示です。ドラッグ中の判定と店舗の保護ルールは残ります。'}
+              </span>
+            </div>
+          )}
+
           <div className="board-body">
             <div className="board-main">
               <div className="timeline-scroll" tabIndex={0} aria-label={`営業時間${hhmm(hours.open)}から${hhmm(hours.close)}の予約ボード`}>
@@ -1073,7 +1373,7 @@ export function TodayScreen(props: TodayProps) {
 
                   {(['staff', 'beds'] as const).map((group) => {
                     if (view !== 'both' && view !== group) return null
-                    const groupLanes = boardLanes.filter((l) => l.group === group)
+                    const groupLanes = drawnLanes.filter((l) => l.group === group)
                     if (groupLanes.length === 0) return null
                     return (
                       <div key={group}>
@@ -1105,7 +1405,7 @@ export function TodayScreen(props: TodayProps) {
 
               {/* 仮置きエリア — the whole bar is the drop zone (canon R18). */}
               <div
-                className={`park-shelf${shelfOver ? ' over' : ''}`}
+                className={`park-shelf${live?.overShelf ? ' over' : ''}`}
                 ref={shelfRef}
                 aria-label="仮置きエリア。日付をまたいだ変更のための一時置き場"
                 title="日付をまたいで予約を変更したい場合は、一旦このエリアに置いてください。置いた予約は仮押さえになります。"
@@ -1120,7 +1420,7 @@ export function TodayScreen(props: TodayProps) {
                       onPointerDown={(e) => onChipPointerDown(e, chip.id)}
                       onPointerMove={onChipPointerMove}
                       onPointerUp={onChipPointerUp}
-                      onPointerCancel={() => { chipDragRef.current = null; setDropTarget(null) }}
+                      onPointerCancel={() => { chipDragRef.current = null; setChipTarget(null) }}
                     >
                       <strong>{chip.title}</strong>
                       <span className="pc-line1">{chip.line1}</span>
@@ -1575,10 +1875,60 @@ export function TodayScreen(props: TodayProps) {
         </div>
       </dialog>
 
+      {/* 配置の相談 — canon `openGuardPopover` (:7106). A refused placement is
+          not silently undone and not silently allowed: the board says what the
+          engine actually decided and offers the starts it would accept, as
+          buttons that perform the move. */}
+      {advice && (
+        <div
+          className="guard-pop"
+          role="dialog"
+          aria-label="配置の確認"
+          style={{ left: Math.round(Math.max(8, Math.min(advice.x, 1600))), top: Math.round(Math.max(8, advice.y)) }}
+        >
+          <div className="gp-reason">{advice.cell.sentence}</div>
+          <div className="gp-offer">
+            {advice.cell.alternatives.length === 0
+              ? 'この区間に、より損の少ない開始はありません'
+              : advice.cell.alternativeKind === 'least-loss'
+                ? '空きを完全には守れません。より損の少ない開始を選べます'
+                : '安全な開始を選んでください'}
+          </div>
+          {advice.cell.alternatives.length > 0 && (
+            <div className="gp-alternatives">
+              {advice.cell.alternatives.map((start) => (
+                <button
+                  className="gp-alt"
+                  type="button"
+                  key={start}
+                  onClick={() => {
+                    const at = moves[advice.id]
+                    if (at) setMoves((was) => ({ ...was, [advice.id]: { ...at, x: place(start, start + (minuteOf(at.x + at.w, hours) - minuteOf(at.x, hours)), hours).x } }))
+                    setAdvice(null)
+                    show(`${hhmm(start)}へ移しました（仮押さえのまま・確定は下のバーで）`)
+                  }}
+                >
+                  {hhmm(start)} に置く{advice.cell.alternativeKind === 'least-loss' ? '（損を減らす）' : ''}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="gp-actions">
+            <button className="btn" type="button" onClick={() => { revertPending(); setAdvice(null) }}>やめる</button>
+            {advice.cell.ackAllowed && (
+              <button className="btn primary" type="button" onClick={() => setAdvice(null)}>この開始に配置</button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className={`toast${toast ? ' show' : ''}`} role="status" aria-live="polite" aria-atomic="true">{toast}</div>
     </div>
   )
 }
+
+/** canon `renderGapGuardPolicySummary` (:5938). */
+const POLICY_WORD: Record<'off' | 'standard' | 'strict', string> = { off: 'オフ', standard: '標準', strict: '厳格' }
 
 const CAT_COLOR: Record<string, string> = { new: '#3d7ab8', repeat: '#8a63b8', ticket: '#2f8f8f', vip: '#3f3f46' }
 

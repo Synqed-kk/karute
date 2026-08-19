@@ -62,11 +62,24 @@ export function priceAt(listPrice: number, hour: number, hiPrice: number, hqBase
  *  sentence describes: 最高価格 inside HQ's band, 最低価格 no lower than
  *  最高価格 × 0.7. **This is where the −30% floor comes from**; the dialog's
  *  copy quotes this function rather than restating a number. */
-export function clampPriceInputs(hiRaw: number, loRaw: number, frame: Pick<PriceFrame, 'hqMin' | 'hqMax'>): { hi: number; lo: number; floor: number } {
-  let hi = Math.round((Number.isFinite(hiRaw) ? hiRaw : frame.hqMax) / 10) * 10
+export function clampPriceInputs(
+  hiRaw: number | string | null | undefined,
+  loRaw: number | string | null | undefined,
+  frame: Pick<PriceFrame, 'hqMin' | 'hqMax'> & { base?: number },
+): { hi: number; lo: number; floor: number } {
+  /** canon guards with `Number(hiPrice.value || 7130)` / `Number(loPrice.value
+   *  || 6270)` — the DOM-string idiom where FALSY MEANS "use the store's own
+   *  default". `Number.isFinite` disagrees on both ends of that (zero is a real
+   *  number; "6270" is not finite), and the two readings part company exactly
+   *  where a database can hand us a null or a 0 base: canon shows the default
+   *  最低価格 and the finite test dropped straight to the floor (ENGINE-DIFF
+   *  P-2). Canon's reading wins, and canon's two defaults are the store's own
+   *  numbers — HQ's ceiling and the store's 基準価格 — not literals. */
+  const orDefault = (raw: number | string | null | undefined, fallback: number) => Number(raw || fallback)
+  let hi = Math.round(orDefault(hiRaw, frame.hqMax) / 10) * 10
   hi = Math.min(frame.hqMax, Math.max(frame.hqMin, hi))
   const floor = Math.round((hi * 0.7) / 10) * 10
-  let lo = Math.round((Number.isFinite(loRaw) ? loRaw : floor) / 10) * 10
+  let lo = Math.round(orDefault(loRaw, frame.base ?? floor) / 10) * 10
   lo = Math.min(hi, Math.max(floor, lo))
   return { hi, lo, floor }
 }

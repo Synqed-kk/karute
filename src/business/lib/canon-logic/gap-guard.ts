@@ -141,7 +141,15 @@ export function createGapGuard(config: GuardConfig) {
   function fillDecomposition(min: number): number[] | null {
     if (min === 0) return []
     if (min < 0 || min % LATTICE_STEP_MIN !== 0 || durations.length === 0) return null
-    const desc = durations.slice().sort((a, b) => b - a)
+    /** DOCUMENTED DEVIATION FROM CANON (ENGINE-DIFF §5, proved identical on
+     *  both sides): a duration set containing a zero or negative entry makes
+     *  the largest-first greedy pick that entry forever — `remaining` never
+     *  shrinks — until the runtime dies on `RangeError: Invalid array length`.
+     *  Canon has the same defect and it is only reachable through bad
+     *  configuration (a 0-minute menu item, a negative protectedDurationMin).
+     *  This copy is the one that will run in production, so it refuses the
+     *  impossible input instead of hanging on it. */
+    const desc = durations.slice().sort((a, b) => b - a).filter((d) => d > 0)
     let remaining = min
     const picks: number[] = []
     while (remaining > 0) {

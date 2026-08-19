@@ -205,16 +205,19 @@ describe('requireBusinessAdmission', () => {
 })
 
 describe('the fixture data door', () => {
-  it('a single-store lens drops the other store AND storeless bookings', async () => {
+  it('a single-store lens drops the other store AND any storeless booking', async () => {
+    // ⚖ 8/20 data-truth: the demo world no longer contains a storeless row (a
+    // booking no store owns is an impossible state), so the rule is asserted
+    // structurally — EVERY row that survives the clamp carries this store,
+    // which a null store_id can never satisfy. Stronger than naming one id.
     const got = await data.listAppointments(STORE_A)
     expect(got.length).toBeGreaterThan(0)
     expect(got.every((a) => a.store_id === STORE_A)).toBe(true)
-    expect(got.map((a) => a.id)).not.toContain('apt-09') // storeless
   })
-  it('viewAll keeps every store, storeless rows included', async () => {
-    const ids = (await data.listAppointments({ viewAll: true })).map((a) => a.id)
-    expect(ids).toContain('apt-09')
-    expect(ids.length).toBeGreaterThan((await data.listAppointments(STORE_A)).length)
+  it('viewAll keeps every store', async () => {
+    const all = await data.listAppointments({ viewAll: true })
+    expect(all.map((a) => a.store_id)).toEqual(expect.arrayContaining([STORE_A, STORE_B]))
+    expect(all.length).toBeGreaterThan((await data.listAppointments(STORE_A)).length)
   })
   it('a range narrows without breaking the clamp', async () => {
     const got = await data.listAppointments(STORE_A, { from: '2026-08-20T00:00:00Z' })
@@ -246,9 +249,10 @@ describe('the fixture data door', () => {
   })
   it('staff: a clamped lens keeps this store + floating, drops other stores and unknowns', async () => {
     // p-01 email-linked, c-03 floating, p-04 user_id-ONLY link, p-05 both
-    // stores, p-06 the operator's own roster row; p-02 is STORE_B and p-09 has
-    // no card at all.
-    expect((await data.listStaff(STORE_A)).map((m) => m.id)).toEqual(['p-01', 'c-03', 'p-04', 'p-05', 'p-06'])
+    // stores, p-06 the operator's own roster row, p-09 the roster member with
+    // no shift today (⚖ 8/20: everyone on the roster has a card and a store);
+    // p-02 is STORE_B.
+    expect((await data.listStaff(STORE_A)).map((m) => m.id)).toEqual(['p-01', 'c-03', 'p-04', 'p-05', 'p-06', 'p-09'])
     expect((await data.listStaff(STORE_B)).map((m) => m.id)).toEqual(['p-02', 'c-03', 'p-05'])
   })
   it('the default lens is the FIRST store, never the business-wide merge', async () => {
@@ -332,6 +336,7 @@ describe('the fixture data door', () => {
         '../../BusinessTopbar',
         './today-interactions',
         '@/business/lib/canon-logic/drag-rules',
+        '@/business/lib/canon-logic/gap-guard',
         '@/business/lib/canon-logic/pricing',
         '@/business/lib/today-board',
         'next/link',
@@ -340,6 +345,7 @@ describe('the fixture data door', () => {
       'src/app/[locale]/(business)/business/today/today-interactions.ts': [
         '@/business/lib/canon-logic/availability',
         '@/business/lib/canon-logic/drag-rules',
+        '@/business/lib/canon-logic/gap-guard',
         '@/business/lib/canon-logic/pricing',
         '@/business/lib/today-board',
       ],
