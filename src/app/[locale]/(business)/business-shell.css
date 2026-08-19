@@ -21,7 +21,20 @@
 
    Canon's `html { min-width: 1180px }` becomes `.biz .app { min-width: 1180px }`
    so the below-md desktop-only notice is not forced to 1180px behind a
-   horizontal scrollbar. */
+   horizontal scrollbar.
+
+   TOKEN HOME (parity-wave item 3, decided here so nothing duplicates it): the
+   canon token block stays on `.biz` and is NOT re-seated on `:root`. Canon's
+   `--card` / `--muted` are also globals.css `:root` names with different
+   values, and App Router keeps a segment's stylesheet in the document across a
+   client-side navigation — a `:root` copy would repaint the phone app's cards
+   and muted text the moment anyone walked out of /business. Every element the
+   fidelity sweeps measure sits inside `.biz` and already resolves canon's
+   tokens; the only node that differs is <html>/<body> itself, which globals.css
+   owns and paints correctly in the running app (the standalone evidence
+   snapshot's `Times` reading is a snapshot artifact — it inlines this sheet
+   without globals.css). Per-board washes (--beige/--beige-dark) therefore live
+   in the block below, at the shared level, and no screen sheet redeclares them. */
 
 .biz {
   color-scheme: light;
@@ -59,6 +72,11 @@
   --amber-soft: #fbecd9;
   --yellow: #6d5716;
   --yellow-soft: #f7edcb;
+  /* 勤務不可 / 清掃 / micro / no-show washes. Canon declares them on its own
+     root and every page that draws a board reads them; the shell sheet owns the
+     token block, so they live HERE once and no screen sheet redeclares them. */
+  --beige: #ebe6e0;
+  --beige-dark: #66594f;
   --font: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
   background: #fff;
@@ -82,17 +100,27 @@
 .biz .app { display: grid; min-height: 100vh; min-width: 1180px; }
 
 .biz .main { min-width: 0; }
+/* ⚖ #20 = B. The topbar is the SETTINGS-family bar
+   (fable-settings-store-hours.html:75-78), not the store-page one: 62px, sticky
+   at the top of the scroll with a near-opaque backing, compact 8px vertical
+   padding, 13.5px crumb with a 700 leaf. Class names stay `.crumb` /
+   `.top-actions` (canon B calls them `.crumbs` / `.top-right`) because the
+   shell markup is the store pages' — geometry is what #20 chose, not naming. */
 .biz .topbar {
-  min-height: 66px;
-  padding: 0 28px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  min-height: 62px;
+  padding: 8px 28px;
   border-bottom: 1px solid var(--line-2);
+  background: rgba(255, 255, 255, .97);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: 16px;
 }
-.biz .crumb { color: var(--muted); font-size: 13px; }
-.biz .crumb b { color: var(--ink); }
+.biz .crumb { color: var(--muted); font-size: 13.5px; }
+.biz .crumb b { color: var(--ink); font-weight: 700; }
 .biz .top-actions { display: flex; align-items: center; gap: 10px; }
 .biz .sample-note {
   display: inline-flex;
@@ -136,14 +164,19 @@
   background: #fff;
   color: var(--ink-2);
   font-size: 14px;
-  font-weight: 600;
+  /* Canon's cascade-FINAL button values (fable-store-today.html:216-230 +
+     :1458), which is where the family's current .btn lives: base weight 500
+     with 600 kept on .primary, .text explicitly transparent, .primary:hover
+     darkening its border in step with its fill, and .danger on the later
+     #e6a09a / --red-dark pair rather than the superseded #efc6c1 / --red. */
+  font-weight: 500;
   text-decoration: none;
 }
 .biz .btn:hover { border-color: #d1d1d8; background: #fafafb; }
-.biz .btn.primary { border-color: var(--commit-bg); background: var(--commit-bg); color: var(--commit-ink); }
-.biz .btn.primary:hover { background: var(--commit-hover); }
-.biz .btn.danger { border-color: #efc6c1; color: var(--red); }
-.biz .btn.text { border-color: transparent; color: var(--indigo); }
+.biz .btn.primary { border-color: var(--commit-bg); background: var(--commit-bg); color: var(--commit-ink); font-weight: 600; }
+.biz .btn.primary:hover { border-color: var(--commit-hover); background: var(--commit-hover); }
+.biz .btn.danger { border-color: #e6a09a; color: var(--red-dark); }
+.biz .btn.text { border-color: transparent; background: transparent; color: var(--indigo); }
 .biz .btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
 
 /* ═══ 家族共通プリミティブ (fable-shared.css §1–§3) ═══
@@ -313,7 +346,8 @@
   font-size: 12px;
   font-weight: 700;
 }
-.biz .nav .badge.flag { background: var(--section); color: var(--muted); }
+/* 準備中 flags — canon's current nav v3 tokens (fable-store-today.html:1639). */
+.biz .nav .badge.flag { background: var(--control); color: var(--quiet); font-weight: 600; }
 .biz .sidebar .business, .biz .sidebar .store-context, .biz .sidebar .nav-label { display: none; }
 
 .biz .nav a {
