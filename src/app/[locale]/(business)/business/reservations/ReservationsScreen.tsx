@@ -419,9 +419,6 @@ function Screen(props: ReservationsProps) {
           </button>
         ))}
       </div>
-      <p className="saved-view-note">
-        保存した表示は絞り込みの条件だけを持ちます。結果は毎回この一覧から作り直すため、古い件数が残ることはありません。
-      </p>
 
       <form className="filters" aria-label="予約を絞り込む" onSubmit={(e) => e.preventDefault()}>
         <input

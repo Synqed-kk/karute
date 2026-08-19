@@ -66,7 +66,6 @@
 }
 .biz .saved-view:hover { background: #fafafb; }
 .biz .saved-view[aria-pressed="true"] { border-color: var(--select-line); background: var(--select-bg); color: var(--select-ink); }
-.biz .saved-view-note { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 
 .biz .filters {
   display: grid;
