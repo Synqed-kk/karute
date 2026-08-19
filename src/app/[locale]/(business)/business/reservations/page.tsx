@@ -36,9 +36,9 @@ import {
   type StoreLens,
 } from '@/business/lib/data'
 import {
-  deadlineOf,
   eligibilityOf,
   lifecycleOf,
+  qualificationTextOf,
   shiftWarningOf,
   sourceOf,
 } from '@/business/lib/reservations'
@@ -158,6 +158,11 @@ async function screen(
         // Derived from the shift plane, not stored: the accept dialog warns only
         // where the booking really does fall outside its staff member's day.
         shiftWarning: shiftWarningOf(who, shiftOf(a.staff_id), startMinute, endMinute),
+        // 担当資格 for the accept dialog's middle segment — the roster's own 資格
+        // plane, never a literal (see qualificationTextOf).
+        qualificationText: qualificationTextOf(
+          a.staff_id ? planes.staffQualifications[a.staff_id] : undefined,
+        ),
         // Derived from the absence record the board's incident band is built on.
         staffUnavailable: isToday && suppressedByAbsence({ staff_id: a.staff_id, startMinute }, planes.absence),
         settled: a.settlement === 'settled',
@@ -188,6 +193,11 @@ async function screen(
 
   const lensLabel = clamped ? (storeName.get(storeParam!) ?? 'この店舗') : 'すべての店舗'
   const spanLabel = `${fmtDay.format(now)}〜${fmtDay.format(new Date(jstSlot(WINDOW_DAYS - 1, 0, 0, now)))}`
+  // Canon's date filter names the days it filters to (「本日 8月5日」/「8月6日以降」,
+  // :405) rather than saying 「明日以降」 and leaving the reader to work out which
+  // day that is. Computed off the same clock as the window, never typed (⚖ L-6).
+  const todayLabel = fmtDay.format(now)
+  const tomorrowLabel = fmtDay.format(new Date(jstSlot(1, 0, 0, now)))
 
   return (
     <ReservationsScreen
@@ -196,6 +206,8 @@ async function screen(
       slots={slots}
       lensLabel={lensLabel}
       spanLabel={spanLabel}
+      todayLabel={todayLabel}
+      tomorrowLabel={tomorrowLabel}
       storeParam={clamped ? storeParam! : null}
       boardNow={planes.boardNow}
       closeMinute={closeMinute}

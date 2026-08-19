@@ -121,6 +121,60 @@ export const DEADLINE_WORD: Record<DecisionKind, string> = {
   open: '対応期限',
 }
 
+/** The inspector's primary action, as canon branches it (fable-store-
+ *  reservations.html:658-667). EIGHT states, tested in canon's own order —
+ *  `escalate` and `change` come off the FLAGS and outrank every lifecycle test,
+ *  and 受付リクエストを確認 needs the booking to still be queued: a 受付判断 whose
+ *  deadline has been cleared is no longer a decision this screen can take, so it
+ *  falls through to the 受信トレイ branch exactly as canon does.
+ *
+ *  Returned as a key rather than markup so the screen owns the DOM and this
+ *  owns the branching — the reason canon's comment says the old id-name version
+ *  (「R-4838/R-4831/R-4817 を名指しで分岐」) 「データが増えるたびに嘘になる導線だった」. */
+export type PrimaryAction =
+  | 'escalate'
+  | 'change'
+  | 'accept'
+  | 'settle'
+  | 'external'
+  | 'record'
+  | 'propose'
+  | 'contact'
+  | 'today'
+
+export function primaryActionOf(
+  lifecycle: Lifecycle,
+  flags: string[],
+  deadline: number | null,
+): PrimaryAction {
+  const kind = decisionKindOf(lifecycle, flags)
+  if (kind === 'escalate') return 'escalate'
+  if (kind === 'change') return 'change'
+  if (kind === 'accept' && isQueued(lifecycle, deadline)) return 'accept'
+  if (lifecycle === 'awaiting_settlement') return 'settle'
+  if (lifecycle === 'external') return 'external'
+  if (lifecycle === 'confirmed') return 'record'
+  if (lifecycle === 'pending_accept') return 'propose'
+  if (lifecycle === 'cancelled' || lifecycle === 'no_show') return 'contact'
+  return 'today'
+}
+
+/** 保存した表示 (M-83) — a saved view stores CRITERIA, never a cached row set, so
+ *  pressing one sets the four filters below and the list re-derives. Canon's own
+ *  mapping (w2-bookings-customers.js `applySavedView`, :734-745); 一致なし is its
+ *  deliberate empty-result view, because a saved view that matches nothing has
+ *  to be visibly survivable rather than a state the screen hides. */
+export type SavedView = 'all' | 'attention' | 'reserve' | 'none'
+
+export function viewFilters(view: SavedView): ReservationFilters {
+  return {
+    date: 'all',
+    status: view === 'attention' ? 'attention' : 'all',
+    source: view === 'reserve' ? 'reserve' : 'all',
+    search: view === 'none' ? '__一致なし__' : '',
+  }
+}
+
 export const QUEUE_ACTION: Record<DecisionKind, string> = {
   accept: '受付リクエストを確認',
   change: '日時・担当変更を確認',
@@ -178,6 +232,18 @@ export function shiftWarningOf(
   if (endMinute > shift.end) return `${window}・この予約は${endMinute - shift.end}分超過`
   if (startMinute < shift.start) return `${window}・この予約は${shift.start - startMinute}分早い開始`
   return null
+}
+
+/** 担当資格 — the middle segment of the accept dialog's 担当資格・設備 fact
+ *  (M-70). Canon writes the literal 「小顔対応済み」 because its own fixture staff
+ *  for that one booking holds 小顔; a literal here would affirm a qualification
+ *  the assigned staff may not have, which is the untrue-affirmative defect
+ *  class. So it is READ from the roster's 資格 plane (fixtures-today
+ *  `staffQualifications`): the dialog states which qualifications the person
+ *  actually holds, and states plainly when the roster has none on file.
+ *  A dialog whose whole job is 「確認しました」 cannot be the thing that lies. */
+export function qualificationTextOf(qualifications: string[] | undefined): string {
+  return qualifications?.length ? `${qualifications.join('・')}対応済み` : '資格の登録なし'
 }
 
 /** 空き枠候補 (M-63 / M-72, ask C-13). The candidates are the store's own

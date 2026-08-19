@@ -280,6 +280,10 @@ export async function readReservationPlanes(lens: StoreLens) {
     boardNow,
     operatingHours,
     shifts,
+    // 資格 rides along for the same reason the shifts do: the accept dialog's
+    // 担当資格・設備 fact is a claim ABOUT the assigned staff member, and a claim
+    // read a moment apart from the roster that justifies it can contradict it.
+    staffQualifications,
     absence: inLens([absence], lens, false)[0] ?? null,
     sellSlots: inLens(sellSlots, lens, false),
     register,
