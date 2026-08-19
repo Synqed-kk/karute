@@ -282,8 +282,8 @@ describe('popovers and dialogs', () => {
 describe('what a non-booking item wears, and whether it opens', () => {
   /** The JSX branch for a non-booking item, on real nodes: same element choice,
    *  same class string, same click wiring as TodayScreen's renderItem. */
-  function paint(item: BoardItem, onOpen: () => void) {
-    const { cls, opens } = blockChrome(item.kind)
+  function paint(item: BoardItem, onOpen: () => void, onToast: (m: string) => void = () => {}) {
+    const { cls, opens, locked } = blockChrome(item.kind)
     const el = document.createElement(opens ? 'button' : 'span')
     el.className = `event ${cls}${item.micro ? ' micro' : ''}`
     el.setAttribute('aria-label', item.label)
@@ -291,6 +291,7 @@ describe('what a non-booking item wears, and whether it opens', () => {
       el.addEventListener('click', () => onOpen())
     } else {
       el.setAttribute('role', 'note')
+      if (locked) el.addEventListener('pointerdown', () => onToast(locked))
     }
     document.body.appendChild(el)
     return el
@@ -336,5 +337,23 @@ describe('what a non-booking item wears, and whether it opens', () => {
     expect(card.tagName).toBe('BUTTON')
     card.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     expect(opened).toBe(1)
+  })
+
+  it('pressing any hatch says where the change belongs, instead of nothing happening', () => {
+    // canon fable-store-today.html :4409 — every .event.absence takes a
+    // pointerdown handler that raises ONE sentence. A refusal the board never
+    // explains reads as a broken drag; this is the explanation.
+    const said: string[] = []
+    for (const title of ['勤務不可', '終業', '勤務前', '本日勤務なし']) {
+      const el = paint(offShift(title, `見本 ごろう、${title}`), () => {}, (m) => said.push(m))
+      el.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    }
+    expect(said).toEqual(Array(4).fill('勤務不可はシフト管理で変更します — ボード上では動かせません'))
+
+    // A 予定ブロック is not shift-derived: it opens ブロック情報, so it has
+    // nothing to refuse and says nothing.
+    const card = paint({ ...offShift('準備', 'x'), kind: 'block' }, () => {}, (m) => said.push(m))
+    card.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    expect(said).toHaveLength(4)
   })
 })

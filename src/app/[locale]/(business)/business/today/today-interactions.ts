@@ -150,10 +150,18 @@ const clock = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${S
  *  grammar .event.absence already uses for 勤務不可") — and binds every one of
  *  them to "this is shift-derived, you can't touch it on the board" (:4409).
  *  So the paint and the un-openability are ONE decision, not two: a wash states
- *  that there is no shop floor here, a 予定ブロック card opens ブロック情報. */
-export function blockChrome(kind: BoardItem['kind']): { cls: 'cleanup' | 'absence' | 'block'; opens: boolean } {
+ *  that there is no shop floor here, a 予定ブロック card opens ブロック情報.
+ *
+ *  `locked` is the third face of that same decision: canon does not just refuse
+ *  the press, it ANSWERS it — a pointerdown on any hatch says where the change
+ *  actually belongs, so a staff member who tries to drag a 終業 hatch learns
+ *  シフト管理 instead of watching nothing happen. The sentence rides with the
+ *  decision rather than sitting in the JSX so it is provable without a
+ *  renderer: null here and the board goes silent again. */
+export function blockChrome(kind: BoardItem['kind']): { cls: 'cleanup' | 'absence' | 'block'; opens: boolean; locked: string | null } {
   const cls = kind === 'cleanup' ? 'cleanup' : kind === 'absence' ? 'absence' : 'block'
-  return { cls, opens: cls !== 'absence' }
+  const opens = cls !== 'absence'
+  return { cls, opens, locked: opens ? null : '勤務不可はシフト管理で変更します — ボード上では動かせません' }
 }
 
 /** Everything standing on a lane, as minute spans — the sell layer's occupancy
