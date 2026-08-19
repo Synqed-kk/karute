@@ -206,6 +206,12 @@
 .biz .pill.good { background: var(--green-soft); color: var(--green-dark); }
 .biz .pill.warn { background: var(--orange-soft); color: var(--orange); }
 .biz .pill.indigo { background: var(--indigo-soft); color: var(--indigo); }
+/* The red variant. It began on 顧客 (重複候補) and 予約 needs the same one for
+   取消 / 来店なし / 期限超過, so it moved up here beside its three siblings —
+   one red pill, one declaration. Canon spells this class `bad` on the
+   reservations page and `alert` on 顧客; the repo already had `alert`, and two
+   names for one pill is the second way of doing a thing that L-10 forbids. */
+.biz .pill.alert { background: var(--red-soft); color: var(--red); }
 .biz .pill.pill { display: inline-flex; }
 
 .biz .badge-col.badge-col {

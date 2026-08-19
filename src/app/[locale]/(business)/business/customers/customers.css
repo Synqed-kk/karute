@@ -135,7 +135,8 @@
 .biz .person .person-sub { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
 .biz .cell strong { display: block; font-size: 13px; }
 .biz .cell span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.4; }
-.biz .pill.alert { background: var(--red-soft); color: var(--red); }
+/* .pill.alert moved to business-shell.css — 予約 needs the same red pill, and
+   the shell owns the .pill primitive. */
 .biz .empty { min-height: 300px; display: grid; place-content: center; padding: 28px; text-align: center; }
 .biz .empty strong { font-size: 16px; }
 .biz .empty span { margin-top: 6px; color: var(--muted); font-size: 13px; }

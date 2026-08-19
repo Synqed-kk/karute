@@ -1,0 +1,359 @@
+/* 予約一覧 — LIFTED from the canon mock's own <style>
+   (codex-design-round-2026-08-03/fable-store-reservations.html:52 + sections
+   H and I) under ⚖ Liam's transplant ruling: same look, same layout, same
+   class names. The shell primitives (.btn, .pill, .badge-col, .fx-scroll,
+   tokens) live in ../../business-shell.css and are NOT restated here.
+
+   THREE DELIBERATE REWRITES, everything else is byte-faithful:
+
+   1. Every rule gains the `.biz` scope, exactly as the shell sheet does — the
+      canon page owns a whole document; this one rides a route segment inside
+      an app whose phone UI already owns :root.
+
+   2. Canon's page-local token spellings (--ink2 / --ink3 / --line2) become the
+      shell's (--ink-2 / --ink-3 / --line-2). Same values, one vocabulary.
+
+   3. Canon's `.pill.bad` becomes `.pill.alert` — the repo's existing red pill,
+      now in the shell sheet. Same paint, one declaration.
+
+   The column-width contract is canon's: ONE custom property (--fx-cols) is the
+   source for both the header row and every booking row, so the two can never
+   drift apart, and the 1320px media query swaps that one value. */
+
+.biz .page { padding: 24px 28px 42px; }
+
+/* Canon section I / A3: the head's CTA stays on one line and the description is
+   the side that shrinks — decided by wrap permission, not by width. */
+.biz .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 22px; margin-bottom: 15px; }
+.biz .page-head > div { min-width: 0; }
+.biz .page-head .btn { white-space: nowrap; flex-shrink: 0; }
+.biz .eyebrow { margin-bottom: 4px; color: var(--indigo); font-size: 12px; font-weight: 800; letter-spacing: .06em; }
+/* Canon section I / A4: the same letter-spacing as the sibling screens. */
+.biz .page h1 { margin: 0; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
+.biz .subtitle { margin: 5px 0 0; color: var(--muted); font-size: 14px; }
+
+.biz .summary {
+  display: grid;
+  grid-template-columns: 1.45fr repeat(3, minmax(128px, .6fr));
+  margin-bottom: 14px;
+  border: 1px solid var(--proof-border);
+  border-radius: 11px;
+  background: var(--proof);
+  overflow: hidden;
+}
+.biz .summary-main { padding: 13px 15px; border-left: 3px solid var(--indigo); }
+.biz .summary-main strong { display: block; font-size: 15px; }
+.biz .summary-main span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+.biz .summary-stat { display: grid; align-content: center; padding: 10px 12px; border-left: 1px solid #e5e9f7; }
+.biz .summary-stat span { color: var(--muted); font-size: 12px; }
+.biz .summary-stat b { display: block; margin-top: 2px; font-size: 20px; font-variant-numeric: tabular-nums; }
+.biz .summary-stat b.warn { color: var(--orange); }
+
+/* 保存した表示 (M-83). Criteria, never a cached row set: pressing one sets the
+   filters below and the list re-derives. Selected = the light wash, never a
+   solid fill (R13). */
+.biz .saved-views { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
+.biz .saved-views > span { color: var(--quiet); font-size: 12px; font-weight: 800; letter-spacing: .04em; }
+.biz .saved-view {
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 700;
+}
+.biz .saved-view:hover { background: #fafafb; }
+.biz .saved-view[aria-pressed="true"] { border-color: var(--select-line); background: var(--select-bg); color: var(--select-ink); }
+.biz .saved-view-note { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+
+.biz .filters {
+  display: grid;
+  grid-template-columns: minmax(230px, 1.4fr) repeat(3, minmax(150px, .6fr)) auto;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.biz .filters input, .biz .filters select {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid #d4d4da;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.biz .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 14px; align-items: start; }
+.biz .panel { border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
+.biz .panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 62px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line-2);
+  background: #fafafb;
+}
+.biz .panel-head strong { display: block; font-size: 15px; }
+.biz .panel-head span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+.biz .result-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 29px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--row);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+/* Canon section I / A4 + the 配線契約: --fx-cols is the ONE source of the five
+   column tracks, read by the header and by every row. Names and staff names are
+   identifiers with nowhere to break, so their tracks take a min-content floor
+   (measured by the browser, never a px guess); 受付元 is the column that absorbs
+   the remainder and drops an unbreakable Latin token inside itself with
+   overflow-wrap. No truncation, no ellipsis — that is this page's rule. */
+.biz #bookingPanel { --fx-cols: 84px minmax(min-content, 1.15fr) minmax(min-content, .72fr) minmax(0, 1.08fr) 152px; }
+.biz .list-head {
+  display: grid;
+  grid-template-columns: var(--fx-cols);
+  gap: 10px;
+  padding: 9px 13px;
+  border-bottom: 1px solid var(--line-2);
+  color: var(--quiet);
+  font-size: 12px;
+  font-weight: 800;
+}
+.biz .booking-list { min-height: 465px; }
+.biz .booking-row {
+  display: grid;
+  grid-template-columns: var(--fx-cols);
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-height: 82px;
+  padding: 10px 13px;
+  border: 0;
+  border-bottom: 1px solid var(--row);
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+}
+.biz .booking-row:hover { background: #fafafb; }
+.biz .booking-row.selected { background: var(--indigo-soft); box-shadow: inset 3px 0 0 var(--indigo); }
+.biz .booking-row .cell:nth-child(2) > strong, .biz .booking-row .cell:nth-child(3) > strong { white-space: nowrap; }
+.biz .booking-row .cell:nth-child(4) > strong { overflow-wrap: anywhere; }
+.biz .cell strong { display: block; font-size: 14px; }
+.biz .cell span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+
+/* 店舗ラベル — rendered only under viewAll. For a branch actor it would be a
+   constant that advertises other stores exist (isolation law). */
+.biz .w2-provenance { display: block; margin-top: 3px; color: var(--quiet); font-size: 11px; }
+
+.biz .empty { min-height: 330px; display: grid; place-content: center; padding: 28px; text-align: center; }
+.biz .empty strong { font-size: 16px; }
+.biz .empty span { margin-top: 5px; color: var(--muted); font-size: 13px; }
+
+/* 状態列 = two axes. Top = the lifecycle pill (7 fixed words, longest
+   予約元で管理); below = modifier flags, which wrap. Packing two facts into one
+   chip is what originally overflowed this column, so the guard is structural:
+   the track is wide enough for the longest flag to wrap inside it, and the flag
+   side always falls inward via overflow-wrap. No truncate, no ellipsis. */
+.biz .state-cell { display: grid; justify-items: start; gap: 4px; min-width: 0; max-width: 100%; }
+.biz .state-flags { display: flex; flex-wrap: wrap; gap: 2px 7px; min-width: 0; max-width: 100%; }
+.biz .state-flags .flag { color: var(--muted); font-size: 11.5px; line-height: 1.35; overflow-wrap: anywhere; word-break: break-word; }
+.biz .state-flags .flag.over { color: var(--orange); font-weight: 700; }
+
+/* ── inspector ─────────────────────────────────────────────────────────── */
+.biz .inspector { position: sticky; top: 80px; max-height: calc(100vh - 96px); overflow: auto; }
+.biz .inspector-head { padding: 15px; border-bottom: 1px solid var(--line-2); background: #fafafb; }
+.biz .inspector-kicker { color: var(--indigo); font-size: 12px; font-weight: 800; }
+.biz .inspector-head h2 { margin: 5px 0 3px; font-size: 21px; }
+.biz .inspector-head p { margin: 0; color: var(--muted); font-size: 13px; }
+.biz .inspector-body { padding: 14px 15px 17px; }
+.biz .status-row { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-bottom: 10px; }
+.biz .source { color: var(--muted); font-size: 12px; }
+
+/* 予約元で管理 の読み取り専用理由 — the same vocabulary as the page's other
+   quiet notes, tinted on the external-source side. */
+.biz .readonly-note {
+  margin-top: 10px;
+  padding: 10px 11px;
+  border-left: 3px solid var(--indigo);
+  background: var(--indigo-soft);
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.biz .facts { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.biz .fact { padding: 9px 10px; border-right: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2); }
+.biz .fact:nth-child(even) { border-right: 0; }
+.biz .fact:nth-last-child(-n+2) { border-bottom: 0; }
+.biz .fact span { display: block; color: var(--muted); font-size: 12px; }
+.biz .fact b { display: block; margin-top: 3px; font-size: 13px; }
+
+.biz .section-title { margin: 14px 0 7px; color: var(--ink-3); font-size: 12px; font-weight: 800; letter-spacing: .04em; }
+
+/* 本人関係 (⚖ cut #7): one line per party, detail on click, a chip only where a
+   party deviates. The exploded five-party box never renders. Same treatment the
+   顧客 screen carries, so the two read as one product. */
+.biz .party-list { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.biz .party-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--line-2);
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+  font-size: 13px;
+}
+.biz .party-row:hover { background: #fafafb; }
+.biz .party-row:last-of-type { border-bottom: 0; }
+.biz .party-row > span:first-child { min-width: 84px; color: var(--muted); font-size: 12px; }
+.biz .party-row b { font-size: 13px; }
+.biz .party-row .pill { margin-left: auto; }
+.biz .party-note { padding: 9px 10px; border-top: 1px solid var(--line-2); background: #fafafb; color: var(--muted); font-size: 12px; line-height: 1.55; }
+
+.biz .price { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--proof-border); border-radius: 9px; background: var(--proof); overflow: hidden; }
+.biz .price div { padding: 10px; border-right: 1px solid var(--proof-border); }
+.biz .price div:last-child { border-right: 0; }
+.biz .price span { display: block; color: var(--muted); font-size: 12px; }
+.biz .price b { display: block; margin-top: 3px; font-size: 16px; }
+.biz .proof { padding: 11px 12px; border-left: 3px solid var(--indigo); background: var(--proof); color: var(--ink-3); font-size: 12px; line-height: 1.55; }
+
+.biz .history { border-top: 1px solid var(--line-2); }
+.biz .history-row { display: grid; grid-template-columns: 58px 1fr; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--row); }
+.biz .history-row time { color: var(--quiet); font-size: 12px; }
+.biz .history-row strong { display: block; font-size: 13px; }
+.biz .history-row > span > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+
+.biz .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 13px; }
+.biz .actions .btn { width: 100%; }
+.biz .actions .wide { grid-column: 1 / -1; }
+
+/* Canon section I / A1: when the selected booking has fallen outside the
+   filters, the correct state is "no highlighted row" — a quiet line of body
+   text saying why, with no surface and no colour added. It is an echo of the
+   list, not an error. */
+.biz .w2-off-list { margin: 0 0 10px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+
+/* Canon section I / A2: a failed load is LOUD. A quiet blank with static
+   placeholders is a broken screen that looks like normal operation, and the
+   numbers left standing on it are the dangerous part — so the panels are
+   replaced by this strip and every figure drops to 「—」. */
+.biz .load-error {
+  margin: 0 0 14px;
+  padding: 14px 15px;
+  border: 1px solid #eec4bf;
+  border-left: 3px solid var(--red);
+  border-radius: 11px;
+  background: var(--red-soft);
+  color: var(--red-dark);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* ── 要対応 queue (canon section H) ─────────────────────────────────────── */
+.biz .queue { margin-bottom: 14px; }
+.biz .queue-card {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr) 214px;
+  gap: 14px;
+  align-items: start;
+  padding: 14px;
+  border-bottom: 1px solid var(--row);
+}
+.biz .queue-card:last-child { border-bottom: 0; }
+/* Only the case with no way out (no safe reassignment) is lifted a step, and by
+   a surface — not by shouting with a filled button. The state stays a pale
+   wash; it is the decision that moves forward. */
+.biz .queue-card.escalate { background: #fffaf6; box-shadow: inset 3px 0 0 var(--orange); }
+.biz .queue-when { display: grid; justify-items: start; gap: 4px; min-width: 0; }
+.biz .queue-when .pill.wrap { white-space: normal; }
+.biz .queue-left { font-size: 13px; font-weight: 800; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.biz .queue-left.over { color: var(--orange); }
+.biz .queue-ref { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.biz .queue-body { min-width: 0; }
+.biz .queue-body > strong { display: block; font-size: 15px; line-height: 1.45; }
+.biz .evidence { display: grid; gap: 5px; margin: 9px 0 0; padding: 9px 11px; border-left: 3px solid var(--indigo); background: var(--proof); list-style: none; }
+.biz .evidence + .evidence { margin-top: 7px; }
+.biz .evidence li { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 9px; font-size: 12px; line-height: 1.5; }
+.biz .evidence li > span { color: var(--muted); }
+.biz .evidence li > b { min-width: 0; color: var(--ink-2); font-weight: 700; overflow-wrap: anywhere; }
+.biz .evidence li > b i { display: block; margin-top: 2px; color: var(--muted); font-style: normal; font-weight: 500; }
+.biz .evidence.risk { border-left-color: var(--orange-line); background: var(--orange-soft); }
+.biz .evidence.risk li > span { color: #74441f; }
+.biz .evidence.risk li > b { color: #71380f; }
+.biz .queue-act { display: grid; gap: 7px; }
+.biz .queue-act .btn { width: 100%; }
+/* An empty queue is quiet and honest — not one unit of urgency is manufactured
+   here; every card is derived. */
+.biz .queue-empty { display: grid; place-content: center; gap: 5px; padding: 34px 20px; text-align: center; }
+.biz .queue-empty strong { font-size: 16px; }
+.biz .queue-empty span { color: var(--muted); font-size: 13px; }
+
+/* ── dialogs + toast ───────────────────────────────────────────────────── */
+.biz dialog {
+  width: min(650px, calc(100vw - 48px));
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  font-family: var(--font);
+  box-shadow: 0 20px 55px rgba(24, 24, 27, .2);
+}
+.biz dialog::backdrop { background: rgba(24, 24, 27, .46); }
+.biz .dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line-2); }
+.biz .dialog-head h2 { margin: 0; font-size: 20px; }
+.biz .dialog-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.biz .close { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.biz .dialog-body { padding: 16px; }
+.biz .dialog-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.biz .dialog-fact { padding: 11px; border: 1px solid var(--line); border-radius: 8px; }
+.biz .dialog-fact span { display: block; color: var(--muted); font-size: 12px; }
+.biz .dialog-fact b { display: block; margin-top: 3px; font-size: 14px; }
+.biz .dialog-fact.warn { grid-column: 1 / -1; border-color: #f1cba9; border-left: 3px solid var(--orange); background: var(--orange-soft); }
+.biz .dialog-fact.warn span { color: #74441f; }
+.biz .dialog-fact.warn b { color: #71380f; }
+.biz .field { display: grid; gap: 6px; margin-top: 12px; font-size: 13px; font-weight: 800; }
+.biz .field select { min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.biz .confirm { display: flex; align-items: flex-start; gap: 9px; margin-top: 13px; padding: 11px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
+.biz .confirm input { width: 21px; height: 21px; accent-color: var(--indigo); }
+.biz .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line-2); background: #fafafb; }
+
+.biz .toast {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 40;
+  max-width: 430px;
+  padding: 12px 15px;
+  border-radius: 9px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--green);
+  color: var(--ink);
+  font-size: 13px;
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition: .16s;
+}
+.biz .toast.show { opacity: 1; transform: none; }
+
+@media (max-width: 1320px) {
+  .biz .page { padding-left: 20px; padding-right: 20px; }
+  .biz .workspace { grid-template-columns: minmax(0, 1fr) 330px; gap: 10px; }
+  .biz #bookingPanel { --fx-cols: 78px minmax(min-content, 1.1fr) minmax(min-content, .68fr) minmax(0, 1.02fr) 140px; }
+  .biz .queue-card { grid-template-columns: 168px minmax(0, 1fr) 190px; gap: 11px; }
+}
