@@ -1,25 +1,6 @@
 {
-  "title": "SYNQED Business",
-  "signedInAs": "ログイン中",
-  "sampleData": "見本データ",
   "desktopOnly": "SYNQED Business はパソコンからご利用ください。",
   "customers": {
-    "title": "顧客一覧",
-    "summary": "{count}名を表示",
-    "searchPlaceholder": "名前・電話・顧客番号で検索",
-    "clearSearch": "検索をクリア",
-    "allStores": "全店舗",
-    "colPerson": "顧客",
-    "colNext": "次回予約",
-    "colTicket": "回数券・残高",
-    "colConfirm": "確認",
-    "verified": "確認済み",
-    "unverified": "未確認",
-    "none": "—",
-    "phoneMissing": "電話未登録",
-    "ticketUnit": "残{count}回",
-    "emptyTitle": "一致する顧客はいません",
-    "emptyBody": "検索語または店舗の絞り込みを変えてください。",
     "loading": "読み込み中…"
   }
 }
