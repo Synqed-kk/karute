@@ -144,6 +144,18 @@ const byX = (a: BoardItem, b: BoardItem) => a.x - b.x
 const isParked = (item: BoardItem, parked: string[]) => item.caseId != null && parked.includes(item.caseId)
 const clock = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 
+/** The chrome a NON-BOOKING item wears on the board. Canon builds 勤務不可 and
+ *  the 勤務前/終業 shift hatches out of ONE grammar — `.event.absence`, the red
+ *  hatch (fable-store-today.html renderShiftEndBounds: "reuses the SAME hatch
+ *  grammar .event.absence already uses for 勤務不可") — and binds every one of
+ *  them to "this is shift-derived, you can't touch it on the board" (:4409).
+ *  So the paint and the un-openability are ONE decision, not two: a wash states
+ *  that there is no shop floor here, a 予定ブロック card opens ブロック情報. */
+export function blockChrome(kind: BoardItem['kind']): { cls: 'cleanup' | 'absence' | 'block'; opens: boolean } {
+  const cls = kind === 'cleanup' ? 'cleanup' : kind === 'absence' ? 'absence' : 'block'
+  return { cls, opens: cls !== 'absence' }
+}
+
 /** Everything standing on a lane, as minute spans — the sell layer's occupancy
  *  and the guard checks' conflict pool are the SAME reading of the board. */
 export function laneSpans(lane: BoardLane): Array<{ start: number; end: number }> {

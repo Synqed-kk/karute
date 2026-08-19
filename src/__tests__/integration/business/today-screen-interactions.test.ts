@@ -17,6 +17,7 @@
  */
 import {
   applyMoves,
+  blockChrome,
   clickClosesPopover,
   dragModeAt,
   deltaPctIn,
@@ -275,5 +276,65 @@ describe('popovers and dialogs', () => {
     expect(dialog.open).toBe(false)
     dialog.close()
     expect(dialog.open).toBe(false)
+  })
+})
+
+describe('what a non-booking item wears, and whether it opens', () => {
+  /** The JSX branch for a non-booking item, on real nodes: same element choice,
+   *  same class string, same click wiring as TodayScreen's renderItem. */
+  function paint(item: BoardItem, onOpen: () => void) {
+    const { cls, opens } = blockChrome(item.kind)
+    const el = document.createElement(opens ? 'button' : 'span')
+    el.className = `event ${cls}${item.micro ? ' micro' : ''}`
+    el.setAttribute('aria-label', item.label)
+    if (opens) {
+      el.addEventListener('click', () => onOpen())
+    } else {
+      el.setAttribute('role', 'note')
+    }
+    document.body.appendChild(el)
+    return el
+  }
+
+  function offShift(title: string, label: string): BoardItem {
+    return {
+      key: `off-${title}`,
+      kind: 'absence', state: null, category: null, ...place(1020, HOURS.close, HOURS),
+      title, tag: '', time: '17:00〜閉店', ticketCat: null, ticketCore: null,
+      held: false, micro: false, caseId: null, label,
+    }
+  }
+
+  it('the 終業 / 勤務前 / 本日勤務なし hatches wear the 勤務不可 red, not the beige block', () => {
+    // canon fable-store-today.html :3928 — one hatch grammar for every
+    // shift-derived "no shop floor here" span, `.event.absence`.
+    for (const title of ['終業', '勤務前', '本日勤務なし']) {
+      const el = paint(offShift(title, `見本 ごろう、${title}`), () => {})
+      expect(el.className).toBe('event absence')
+      expect(el.className).not.toContain('block')
+    }
+    // A real 予定ブロック keeps the beige card, and 清掃 keeps its own hatch.
+    expect(paint({ ...offShift('準備', 'x'), kind: 'block', micro: true }, () => {}).className).toBe('event block micro')
+    expect(paint({ ...offShift('清掃', 'x'), kind: 'cleanup' }, () => {}).className).toBe('event cleanup')
+  })
+
+  it('a shift-derived hatch is a note, not a control; a 予定ブロック still opens', () => {
+    // canon renders every .absence as `<span role="note">` (:3964, :3988, and the
+    // hand-written 勤務不可 at :1878) and binds it to "変更はシフト管理で" — so on
+    // this board the wash never raises ブロック情報. The element choice also keeps
+    // the hatch off `button:disabled { opacity: .45 }`, which would wash the red
+    // out to under half strength and read as a paler red than canon's.
+    let opened = 0
+    const hatch = paint(offShift('終業', '見本 ごろう、17:00以降、終業のため予約不可'), () => { opened += 1 })
+    expect(hatch.tagName).toBe('SPAN')
+    expect(hatch.getAttribute('role')).toBe('note')
+    expect(hatch).not.toBeInstanceOf(HTMLButtonElement)
+    hatch.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(opened).toBe(0)
+
+    const card = paint({ ...offShift('準備', '見本 ごろう、準備・予約不可'), kind: 'block' }, () => { opened += 1 })
+    expect(card.tagName).toBe('BUTTON')
+    card.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(opened).toBe(1)
   })
 })

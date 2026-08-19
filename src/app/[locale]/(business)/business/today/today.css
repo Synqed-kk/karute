@@ -428,6 +428,11 @@
 .biz .event.cleanup { border-color: #d9d0c7; background: repeating-linear-gradient(135deg, #ebe6e0 0 4px, #f4f1ec 4px 8px); color: var(--beige-dark); }
 .biz .event.noshow { border-color: #d9d0c7; background: repeating-linear-gradient(135deg, #ebe6e0 0 4px, #f4f1ec 4px 8px); color: var(--beige-dark); }
 .biz .event.absence { border-color: #efc6c1; background: repeating-linear-gradient(135deg, #fadfdd 0 5px, #fff2f1 5px 10px); color: var(--red-dark); box-shadow: none; }
+/* Canon sets this one property inline, in JS, on every .absence it finds
+   (fable-store-today.html :4410) — the hatch is shift-derived, so nothing on
+   this board can grab it. Kept as its own rule so the paint above stays
+   byte-identical to canon's stylesheet line. */
+.biz .event.absence { cursor: not-allowed; }
 .biz .event.selected { outline: 2px solid var(--indigo); outline-offset: 1px; z-index: 4; }
 /* R7: category is its own channel — a left stripe and the chip's dot. */
 .biz .event[data-cat] { box-shadow: none; padding-left: 9px; }

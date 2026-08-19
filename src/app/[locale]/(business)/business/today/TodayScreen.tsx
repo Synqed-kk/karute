@@ -56,6 +56,7 @@ import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane } from '@/bu
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
   applyMoves,
+  blockChrome,
   clickClosesPopover,
   dragModeAt,
   fractionIn,
@@ -711,8 +712,22 @@ export function TodayScreen(props: TodayProps) {
           ? 'confirmed'
           : (item.state ?? '')
     if (item.kind !== 'booking') {
-      const cls = item.kind === 'cleanup' ? 'cleanup' : item.kind === 'absence' ? 'absence' : 'block'
-      return (
+      const { cls, opens } = blockChrome(item.kind)
+      const body = (
+        <>
+          <strong>{item.title}</strong>
+          {!item.micro && <small>{item.time}</small>}
+        </>
+      )
+      // A shift-derived wash is a STATEMENT, not a control — canon renders it as
+      // `<span role="note">` (fable-store-today.html renderShiftEndBounds and the
+      // hand-written 勤務不可 at :1878), never a button. That element choice is
+      // load-bearing for the PAINT as well as the semantics: a disabled button
+      // takes `button:disabled { opacity: .45 }` from the shell, which washed the
+      // red hatch out to under half strength and made it read as a different,
+      // paler red than canon's. A span carries the hatch at full strength, which
+      // is what canon shows.
+      return opens ? (
         <button
           className={`event ${cls}${item.micro ? ' micro' : ''}`}
           type="button"
@@ -720,16 +735,24 @@ export function TodayScreen(props: TodayProps) {
           style={style}
           title={item.label}
           aria-label={item.label}
-          disabled={item.kind === 'absence'}
           onClick={() => {
-            if (item.kind === 'absence') return
             setBlockInfo({ kind: item.title, who: lane.label, whoLabel: lane.group === 'staff' ? '担当' : '設備', time: item.time, note: blockNote(item.title) })
             blockRef.current?.showModal()
           }}
         >
-          <strong>{item.title}</strong>
-          {!item.micro && <small>{item.time}</small>}
+          {body}
         </button>
+      ) : (
+        <span
+          className={`event ${cls}${item.micro ? ' micro' : ''}`}
+          key={item.key}
+          style={style}
+          role="note"
+          title={item.label}
+          aria-label={item.label}
+        >
+          {body}
+        </span>
       )
     }
     const isPending = pending?.id === item.caseId

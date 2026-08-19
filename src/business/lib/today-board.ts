@@ -421,22 +421,52 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
     // them a lane whose shift ends at 17:00 looks bookable until closing, and
     // the board's whole job is to show what can and cannot be placed. The
     // absence already paints its own tail, so it is not drawn twice.
-    const offShift: Array<[string, number, number]> = shift
+    //
+    // These are `absence`, not `block`: canon builds them out of the SAME hatch
+    // grammar as 勤務不可 (fable-store-today.html renderShiftEndBounds — "reuses
+    // the SAME hatch grammar .event.absence already uses for 勤務不可"), so they
+    // read as the red "there is no shop floor here" wash, never the beige 予定
+    // ブロック card. The kind also carries canon's interaction: a shift-derived
+    // wash is a role="note" nobody can open, so it must not raise ブロック情報.
+    // Occupancy is unaffected — laneSpans() reads every item whatever its kind.
+    const offShift: Array<{ title: string; from: number; to: number; time: string; label: string }> = shift
       ? [
-          ...(shift.start > hours.open ? ([['勤務前', hours.open, shift.start]] as Array<[string, number, number]>) : []),
+          ...(shift.start > hours.open
+            ? [
+                {
+                  title: '勤務前', from: hours.open, to: shift.start,
+                  time: `開店〜${hhmm(shift.start)}`,
+                  label: `${member.full_name}、${hhmm(shift.start)}開始のため、それより前は予約不可`,
+                },
+              ]
+            : []),
           ...(shift.end < hours.close && !(absence && absence.staff_id === member.id)
-            ? ([['終業', shift.end, hours.close]] as Array<[string, number, number]>)
+            ? [
+                {
+                  title: '終業', from: shift.end, to: hours.close,
+                  time: `${hhmm(shift.end)}〜閉店`,
+                  label: `${member.full_name}、${hhmm(shift.end)}以降、終業のため予約不可`,
+                },
+              ]
             : []),
         ]
-      : [['本日勤務なし', hours.open, hours.close]]
-    for (const [title, from, to] of offShift) {
+      : [
+          // ponytail: canon's fixture is fully staffed, so it has no no-shift lane
+          // and no wording to copy. Built's own sentence stays; only the paint moves.
+          {
+            title: '本日勤務なし', from: hours.open, to: hours.close,
+            time: `${hhmm(hours.open)}〜${hhmm(hours.close)}`,
+            label: `${member.full_name}、${hhmm(hours.open)}から${hhmm(hours.close)}、本日勤務なし・予約不可`,
+          },
+        ]
+    for (const off of offShift) {
       items.push({
-        key: `${member.id}-off-${from}`,
-        kind: 'block', state: null, category: null,
-        ...place(from, to, hours),
-        title, tag: '', time: `${hhmm(from)}〜${hhmm(to)}`,
+        key: `${member.id}-off-${off.from}`,
+        kind: 'absence', state: null, category: null,
+        ...place(off.from, off.to, hours),
+        title: off.title, tag: '', time: off.time,
         ticketCat: null, ticketCore: null, held: false, micro: false, caseId: null,
-        label: `${member.full_name}、${hhmm(from)}から${hhmm(to)}、${title}・予約不可`,
+        label: off.label,
       })
     }
 
