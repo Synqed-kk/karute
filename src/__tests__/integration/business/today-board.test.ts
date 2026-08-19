@@ -604,7 +604,7 @@ describe('今日の運営 screen', () => {
     // One block across the whole day, no bookings: the lane says "you cannot
     // place anything here" on the board itself, not only in the label.
     expect(idle.items).toHaveLength(1)
-    expect(idle.items[0]).toMatchObject({ kind: 'block', title: '本日勤務なし', x: 0, w: 100 })
+    expect(idle.items[0]).toMatchObject({ kind: 'absence', title: '本日勤務なし', x: 0, w: 100 })
   })
 
   it('the hours outside a shift are painted, so a lane never looks bookable past its end', async () => {
@@ -619,6 +619,28 @@ describe('今日の運営 screen', () => {
     const absent = p.lanes.find((l) => l.key === absence.staff_id)!
     expect(absent.items.filter((i) => i.title === '終業')).toHaveLength(0)
     expect(absent.items.filter((i) => i.kind === 'absence')).toHaveLength(1)
+  })
+
+  // canon renderShiftEndBounds (fable-store-today.html :3941): the off-shift
+  // hours are the SAME red `.event.absence` hatch as 勤務不可, never the beige
+  // 予定ブロック wash — "there is no shop floor here" is one statement on this
+  // board, and `kind` is what carries it to the paint and to the click.
+  it('the off-shift hatches are the 勤務不可 red family, not a 予定ブロック card', async () => {
+    const p = await board(STORE_A)
+    const goro = p.lanes.find((l) => l.key === 'p-05')!
+    expect(goro.items.find((i) => i.title === '終業')).toMatchObject({
+      kind: 'absence',
+      time: '17:00〜閉店',
+      label: '見本 ごろう、17:00以降、終業のため予約不可',
+    })
+    const saburo = p.lanes.find((l) => l.key === 'c-03')!
+    expect(saburo.items.find((i) => i.title === '勤務前')).toMatchObject({
+      kind: 'absence',
+      time: '開店〜11:00',
+      label: 'テスト さぶろう、11:00開始のため、それより前は予約不可',
+    })
+    // 予定ブロック stays its own kind: the fix must not repaint real blocks red.
+    expect(saburo.items.filter((i) => i.kind === 'block').map((i) => i.title)).toEqual(['指名予約'])
   })
 
   it('a lane sub-label carries the qualifications and the shift end', async () => {
