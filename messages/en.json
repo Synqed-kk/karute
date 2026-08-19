@@ -618,7 +618,16 @@
       "pickerEmpty": "No bookings today. You can still start a recording without one.",
       "sheetTitle": "Pick a booking to record",
       "sheetDescription": "Today's bookings for you. Tap to switch the recording target.",
-      "durationMinutes": "{n} min"
+      "durationMinutes": "{n} min",
+      "todayBookingsCount": "Today's bookings ({n})",
+      "searchResultsCount": "Search results ({n})",
+      "searchResultsLabel": "Search results",
+      "recordedTag": "Recorded",
+      "noKarute": "No chart yet",
+      "lastVisitWithMenu": "Last: {date} ({menu})",
+      "lastVisitOnly": "Last: {date}",
+      "lastVisitNone": "Last: no visits yet",
+      "todayAt": "Today {time}"
     },
     "brief": {
       "title": "Pre-session brief",

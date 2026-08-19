@@ -38,7 +38,12 @@ import type { RecordTargetBooking } from '@/components/karute/redesign/record/Re
 import type { RecentRecording } from '@/components/karute/redesign/record/RecentRecordingsCard'
 import type { PreSessionBrief } from '@/components/karute/redesign/record/PreSessionBriefCard'
 import type { RecordPageNextAppointment } from '@/components/karute/redesign/record/RecordPageView'
+import type { RecordCustomerFact } from '@/components/karute/redesign/record/RecordCustomerPickerDialog'
 import type { CachedCustomerOption } from '@/lib/customers/cached'
+// Type-only: list-enrich pulls next/cache + SynqedClient, and this module is
+// imported by suites that mock neither. The enrichment MAP is injected by the
+// caller (same shape buildAppointmentsScreen takes), never fetched here.
+import type { CustomerEnrichment } from '@/lib/customers/list-enrich'
 
 // The consent row shape this assembly reads (granted_at → the consent pill).
 type ConsentRow = { granted_at?: string | null } | null
@@ -94,9 +99,33 @@ export interface RecordScreenResult {
   ticketsEnabled: boolean
   noiseSuppression: boolean
   currentStaffName: string | null
+  /** Per-customer display facts for the 録音 customer-picker dialog (karute #,
+   *  新規, 回数券 残n/m, 前回 date+menu, 担当). Derived from the SAME bulk reads
+   *  the 予約 agenda uses (enrichment + pack usage), so a number shown here can
+   *  never disagree with the reservation page. Empty-valued fields are omitted
+   *  rather than nulled — the array ships on every screen read. */
+  customerFacts: RecordCustomerFact[]
   /** Inputs the caller uses to fire the AI pre-session brief (web streams it,
    *  the facade has a dedicated endpoint). null when there's no target. */
   briefInputs: RecordScreenBrief | null
+}
+
+/** 前回 date for the picker rows — 「8月2日」/「Aug 2」, with the year restored
+ *  when the visit was in a prior year (formatCompactDate's honesty rule, in the
+ *  approved mock's month spelling). */
+function visitDateLabel(iso: string | null, locale: string, now: Date): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  const jstYear = (x: Date) =>
+    x.toLocaleDateString('en-US', { timeZone: 'Asia/Tokyo', year: 'numeric' })
+  const sameYear = jstYear(d) === jstYear(now)
+  return d.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
+    timeZone: 'Asia/Tokyo',
+    month: locale === 'ja' ? 'long' : 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  })
 }
 
 function hhmm(d: Date): string {
@@ -122,6 +151,12 @@ export async function buildRecordScreen(input: {
   /** reservation.status label resolver (getTranslations) — kept a plain fn so
    *  the module stays loadable by both builds + jest. */
   statusLabel: (key: 'in_session' | 'completed' | 'booked') => string
+  /** Bulk per-customer enrichment (前回 date+menu, 担当, karute count) — the SAME
+   *  cached aggregate the 顧客 list + 予約 agenda read. Optional: without it the
+   *  picker rows simply carry less (never wrong) detail. */
+  enrichment?: ReadonlyMap<string, CustomerEnrichment>
+  /** Bulk 回数券 usage — the same ledger read the 予約 agenda's 残n/m pill uses. */
+  packUsage?: ReadonlyMap<string, { remaining: number; size: number }>
   deps: RecordScreenDeps
 }): Promise<RecordScreenResult> {
   const {
@@ -135,6 +170,8 @@ export async function buildRecordScreen(input: {
     todayAppts,
     orgSettings,
     statusLabel,
+    enrichment,
+    packUsage,
     deps,
   } = input
 
@@ -280,6 +317,9 @@ export async function buildRecordScreen(input: {
       start: hhmm(start),
       end: hhmm(end),
       customer: customerName,
+      // The join key the picker dialog uses to hang a row's 回数券/新規 chips off
+      // customerFacts (and to mark a searched customer as booked TODAY).
+      customerId: a.client_id,
       initials: deriveFamilyInitials(customerName),
       staffId: a.staff_profile_id,
       staffColorKey: a.staff_profile_id
@@ -297,6 +337,50 @@ export async function buildRecordScreen(input: {
           ? statusLabel('completed')
           : statusLabel('booked'),
     }
+  })
+
+  // Picker facts — ONE row per customer, so both dialog lists (today's bookings
+  // and the search results) read the same derived values. 新規 goes through the
+  // shared isReturningCustomer chopstick (never a local rule), the numbers come
+  // from the injected bulk maps, and every empty field is OMITTED so a customer
+  // with no history costs ~30 bytes on the wire instead of a row of nulls.
+  //
+  // Built ONLY when there is no target: the dialog's single entry point is the
+  // no-own-booking card (RecordPageView's showNoTargetActions, which requires
+  // nextAppointment === null), so with a booking on screen this array is a
+  // whole-tenant payload nobody can ever read. If a future edit gives the
+  // picker a second entry point in the bound state, drop this guard — the
+  // dialog itself degrades to lean rows rather than breaking.
+  const customerFacts: RecordCustomerFact[] = nextAppointment ? [] : customers.map((c) => {
+    const e = enrichment?.get(c.id)
+    const usage = packUsage?.get(c.id) ?? null
+    const fact: RecordCustomerFact = { id: c.id }
+    const karuteNumber = karuteNumberByClientId.get(c.id)
+    if (karuteNumber) fact.karuteNumber = karuteNumber
+    const returning = isReturningCustomer({
+      joinDateIso: null,
+      lastVisitIso: e?.lastVisitIso ?? null,
+      isExistingCustomer: c.isExistingCustomer,
+      visitCount: c.visitCount,
+      karuteCount: e?.totalKarute,
+      pastAppointmentCount: e?.pastAppointmentCount,
+      hasTicketPack: c.hasTicketPack || usage !== null,
+    })
+    if (!returning) fact.isNew = true
+    if ((e?.totalKarute ?? 0) > 0) fact.hasKarute = true
+    if (usage && usage.size > 0) {
+      fact.pack = { remaining: usage.remaining, size: usage.size }
+    }
+    const lastVisit = visitDateLabel(e?.lastVisitIso ?? null, locale, now)
+    if (lastVisit) fact.lastVisitDate = lastVisit
+    if (e?.lastVisitService) fact.lastVisitService = e.lastVisitService
+    if (e?.bookingStaffId) {
+      const name = staffNameById.get(e.bookingStaffId)
+      if (name) fact.staffName = name
+      const colorKey = staffColors.get(e.bookingStaffId)?.key
+      if (colorKey) fact.staffColorKey = colorKey
+    }
+    return fact
   })
 
   // Wave 2 — everything keyed off the recording TARGET's customer.
@@ -445,6 +529,7 @@ export async function buildRecordScreen(input: {
     ticketsEnabled,
     noiseSuppression: orgSettings?.noise_suppression !== false,
     currentStaffName: activeStaffId ? (staffNameById.get(activeStaffId) ?? null) : null,
+    customerFacts,
     briefInputs,
   }
 }

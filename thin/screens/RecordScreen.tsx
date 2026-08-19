@@ -60,6 +60,7 @@ function RecordScreenInner({ dto }: { dto: RecordScreenDTOType }) {
       ticketsEnabled={dto.ticketsEnabled}
       noiseSuppression={dto.noiseSuppression}
       currentStaffName={dto.currentStaffName}
+      customerFacts={dto.customerFacts}
     />
   )
 }

@@ -65,6 +65,7 @@ jest.mock('@/lib/customers/list-all', () => ({ listAllCustomers: jest.fn(async (
 jest.mock('@/lib/customers/queries', () => ({ getCustomerWithClient: jest.fn(async (_c: unknown, id: string) => { if (id !== 'cust-1') throw new Error('404'); return CUSTOMER }) }))
 
 import { GET, OPTIONS } from '@/app/api/app/v1/screens/record/route'
+import { RecordScreenDTO } from '@/lib/app-api/record-screen-dto'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -97,6 +98,56 @@ describe('GET /api/app/v1/screens/record', () => {
     for (const r of body.recentRecordings) {
       expect(r).not.toHaveProperty('transcript')
     }
+  })
+
+  // ── picker-dialog v2 additions, both compat directions ────────────────
+  // The pair-16 phone bundle carries its OWN (pre-v2) copy of this schema.
+  // Neither direction may break at the next bake:
+  //   forward  — an old client meets the new keys. Every DTO object here is a
+  //              plain z.object (no .strict()), which STRIPS unknown keys, so
+  //              the old copy parses the new payload and simply ignores them.
+  //   backward — this schema meets a pre-v2 payload (a device-cached response
+  //              replayed by screen-prefetch). Both new fields are optional.
+  it('v2 picker fields ship, and BOTH client generations still parse', async () => {
+    // With a target bound the picker is unreachable, so the whole-tenant facts
+    // array is deliberately NOT built (buildRecordScreen's gate).
+    const bound = await (await GET(req(), route)).json()
+    expect(bound.customerFacts).toEqual([])
+    expect(bound.nearbyBookings[0].customerId).toBe('cust-1')
+
+    // No booking today → the picker IS reachable → the facts ship.
+    const saved = APPTS.current
+    APPTS.current = []
+    const body = await (await GET(req(), route)).json()
+    APPTS.current = saved
+
+    expect(body.nextAppointment).toBeNull()
+    expect(body.customerFacts[0]).toMatchObject({ id: 'cust-1' })
+
+    // FORWARD: an old client's schema is this one minus the v2 keys. Model it
+    // with an extra unknown key — non-strict objects strip, never throw.
+    const forward = RecordScreenDTO.parse({
+      ...bound,
+      unknownFutureKey: 'from a newer server',
+      nearbyBookings: bound.nearbyBookings.map((b: Record<string, unknown>) => ({
+        ...b,
+        unknownRowKey: 1,
+      })),
+    })
+    expect(forward).not.toHaveProperty('unknownFutureKey')
+    expect(forward.nearbyBookings[0]).not.toHaveProperty('unknownRowKey')
+
+    // BACKWARD: a pre-v2 payload has neither field at all.
+    const preV2 = { ...bound }
+    delete preV2.customerFacts
+    preV2.nearbyBookings = bound.nearbyBookings.map((b: Record<string, unknown>) => {
+      const row = { ...b }
+      delete row.customerId
+      return row
+    })
+    const backward = RecordScreenDTO.parse(preV2)
+    expect(backward.customerFacts).toBeUndefined()
+    expect(backward.nearbyBookings[0].customerId).toBeUndefined()
   })
 
   it('missing Bearer → 401', async () => {

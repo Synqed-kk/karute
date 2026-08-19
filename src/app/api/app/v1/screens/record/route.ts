@@ -25,7 +25,13 @@ import { orgSettingsWithClient } from '@/actions/org-settings'
 import { getAppointmentsByDateWithClient } from '@/lib/appointments/by-date'
 import { getCustomerWithClient } from '@/lib/customers/queries'
 import { getCustomerKaruteRecordsWithClient } from '@/actions/karute'
-import { listCustomerPacksWithClient, getCustomerLifecycleCheckedWithClient } from '@/lib/packs/store'
+import {
+  listCustomerPacksWithClient,
+  getCustomerLifecycleCheckedWithClient,
+  listAllPackUsageWithClient,
+  type CustomerPackUsage,
+} from '@/lib/packs/store'
+import { enrichCustomers, type CustomerEnrichment } from '@/lib/customers/list-enrich'
 import { isTerminalStatus } from '@/lib/appointments/status'
 import type { AppointmentRow } from '@/actions/appointments'
 import type { CustomerWithStaff } from '@/lib/customers/queries'
@@ -157,6 +163,19 @@ export const GET = facadeHandler('screens.record', async (ctx) => {
 
     const t = await getTranslations({ locale, namespace: 'reservation.status' })
 
+    // Picker-dialog facts (v2) — page parity: the same two bulk reads the web
+    // sessions page fires, both best-effort. A failure costs the picker rows
+    // their detail lines; it must never 502 the screen.
+    const [enrichment, packUsage] = await Promise.all([
+      enrichCustomers(
+        businessId,
+        customers.map((c) => c.id),
+      ).catch(() => new Map<string, CustomerEnrichment>()),
+      listAllPackUsageWithClient(synqed).catch(
+        () => new Map<string, CustomerPackUsage>(),
+      ),
+    ])
+
     const screen = await buildRecordScreen({
       locale,
       now,
@@ -168,6 +187,8 @@ export const GET = facadeHandler('screens.record', async (ctx) => {
       todayAppts,
       orgSettings,
       statusLabel: (key) => t(key),
+      enrichment,
+      packUsage,
       deps: {
         resolveExplicitAppointment: (id) =>
           resolveExplicitAppointmentForClient(synqed, id, nameById),
@@ -209,6 +230,7 @@ export const GET = facadeHandler('screens.record', async (ctx) => {
       ticketsEnabled: screen.ticketsEnabled,
       noiseSuppression: screen.noiseSuppression,
       currentStaffName: screen.currentStaffName,
+      customerFacts: screen.customerFacts,
       viewerRole,
     })
     return ok(ctx, dto)

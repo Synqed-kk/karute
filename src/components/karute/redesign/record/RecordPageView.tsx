@@ -21,7 +21,7 @@ import { globalRecorder } from '@/lib/global-recorder'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
 import { useTimetableStore } from '@/stores/timetable-store'
-import { CustomerCombobox, type CustomerOption } from '@/components/karute/CustomerCombobox'
+import { type CustomerOption } from '@/components/karute/CustomerCombobox'
 import {
   getCustomerConsent,
   grantCustomerConsent,
@@ -60,6 +60,10 @@ import {
 } from './PostSessionResolutionDialog'
 import type { PackPreset } from '@/actions/org-settings'
 import { RepurchaseCueBanner } from './RepurchaseCueBanner'
+import {
+  RecordCustomerPickerDialog,
+  type RecordCustomerFact,
+} from './RecordCustomerPickerDialog'
 import {
   createPackAction,
   redeemSessionAction,
@@ -147,6 +151,9 @@ export interface RecordPageViewProps {
    *  economics) — it saves the record exactly like the mid-pack auto path,
    *  minus the redemption. */
   ticketsEnabled?: boolean
+  /** Per-customer display facts for the お客様を選んで録音 dialog (karute #,
+   *  新規, 残n/m, 前回, 担当). Absent → the dialog renders its lean rows. */
+  customerFacts?: RecordCustomerFact[]
 }
 
 /**
@@ -230,6 +237,7 @@ export function RecordPageView({
   noiseSuppression = true,
   currentStaffName = null,
   ticketsEnabled = true,
+  customerFacts,
 }: RecordPageViewProps) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
@@ -1372,48 +1380,32 @@ export function RecordPageView({
         />
       )}
 
-      {/* お客様を選んで録音 — the no-own-booking card's primary action. Picking
-          re-enters the screen through the SAME ?customerId= path the 顧客
-          card's mic uses (bottom-nav.tsx), so the server re-resolves the
-          target and every downstream read (consent, brief, packs) belongs to
-          the chosen customer — no client-side binding shortcut. */}
+      {/* お客様を選んで録音 — the no-own-booking card's primary action, dialog v2
+          (Liam's 8/19 mock). Opens on today's bookings; typing switches to
+          search over every customer.
+
+          Both exits re-enter the screen through a SERVER re-resolve, never a
+          client-side binding shortcut: a booking row threads ?appointmentId=
+          (so menu/consent/packs/brief are re-read FROM that booking — a
+          colleague's still lands on otherStaffBanner, which is the deliberate
+          8/19 pick), and a searched customer keeps the pre-existing
+          ?customerId= path the 顧客 card's mic uses (bottom-nav.tsx). */}
       {showCustomerPicker && (
-        <>
-          <div
-            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
-            onClick={() => setShowCustomerPicker(false)}
-          />
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={t('target.chooseCustomer')}
-            className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 space-y-4 rounded-xl border border-border bg-card p-6 shadow-xl"
-          >
-            <h3 className="text-base font-semibold text-foreground">
-              {t('target.chooseCustomer')}
-            </h3>
-            <CustomerCombobox
-              customers={customers}
-              selectedId={null}
-              onSelect={(id) => {
-                setShowCustomerPicker(false)
-                router.replace(`/sessions?customerId=${encodeURIComponent(id)}`)
-              }}
-              // Same no-op as the review screen's save-bar combobox: creating a
-              // customer is not this picker's job — a brand-new walk-in is
-              // exactly what 選択せずに録音する covers, and they are created at save.
-              onCreateNew={() => {}}
-            />
-            <Button
-              variant="outline"
-              size="md"
-              className="w-full"
-              onClick={() => setShowCustomerPicker(false)}
-            >
-              {tc('cancel')}
-            </Button>
-          </div>
-        </>
+        <RecordCustomerPickerDialog
+          customers={customers}
+          bookings={nearbyBookings}
+          facts={customerFacts}
+          cancelLabel={tc('cancel')}
+          onClose={() => setShowCustomerPicker(false)}
+          onSelectBooking={(booking) => {
+            setShowCustomerPicker(false)
+            router.replace(`/sessions?appointmentId=${encodeURIComponent(booking.id)}`)
+          }}
+          onSelectCustomer={(id) => {
+            setShowCustomerPicker(false)
+            router.replace(`/sessions?customerId=${encodeURIComponent(id)}`)
+          }}
+        />
       )}
 
       {/* No-booking prompt */}

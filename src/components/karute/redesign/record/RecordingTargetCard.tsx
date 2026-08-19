@@ -13,6 +13,10 @@ export interface RecordTargetBooking {
   start: string
   end: string
   customer: string
+  /** The booking's customer id — the join key into RecordCustomerFact (the
+   *  picker dialog's 回数券/新規 chips) and the "booked TODAY" marker on search
+   *  rows. Optional: a pair-16 DTO predates the field. */
+  customerId?: string
   initials: string
   karute: string | null
   service: string

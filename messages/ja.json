@@ -618,7 +618,16 @@
       "pickerEmpty": "本日の予約はありません。予約がなくても録音は開始できます。",
       "sheetTitle": "録音する予約を選択",
       "sheetDescription": "本日のご自身の予約一覧です。タップで録音対象を切り替えます。",
-      "durationMinutes": "{n}分"
+      "durationMinutes": "{n}分",
+      "todayBookingsCount": "本日のご予約 ({n}件)",
+      "searchResultsCount": "検索結果 ({n}件)",
+      "searchResultsLabel": "検索結果",
+      "recordedTag": "記録済",
+      "noKarute": "カルテ未作成",
+      "lastVisitWithMenu": "前回: {date}（{menu}）",
+      "lastVisitOnly": "前回: {date}",
+      "lastVisitNone": "前回: 来店なし",
+      "todayAt": "本日 {time}"
     },
     "brief": {
       "title": "セッション前ブリーフィング",

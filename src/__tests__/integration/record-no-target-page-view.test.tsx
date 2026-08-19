@@ -14,12 +14,18 @@
  *   1. idle + null target → the two-action card, wired, recorder column gone,
  *      no salon-wide day picker, and exactly ONE empty-state card (A-3).
  *   2. anonymous take in flight → the unbound placeholder, still no picker
- *      (A-1: the picker's sheet is the whole salon's day, one tap away from
- *      the card's own 選択せずに録音する).
+ *      (A-1: the LEGACY auto-context picker — RecordingTargetCard's 別の予約を
+ *      選択 → SelectBookingSheet — must NOT surface in any null-target state;
+ *      it is one tap away from the card's own 選択せずに録音する. The
+ *      deliberately-opened お客様を選んで録音 dialog below is a DIFFERENT
+ *      surface and is exempt by Liam's 8/19 mock ruling).
  *   3. pipeline busy + recorder idle → still the card (A-1: the gate reads
  *      recState, not the composite `live` — a take still transcribing in the
  *      background is a normal window to line up the next customer).
  *   4. お客様を選んで録音 opens the customer dialog.
+ *
+ * Dialog v2 (8/19 mock) adds its own describe below: today's bookings on open,
+ * the 記録済 row that is not tappable, and BOTH navigation pins.
  *
  * Mock idiom copied from record-page-view-target-mismatch.test.tsx (same
  * transitive server-module wall); next-intl is key-echoed there too, so
@@ -226,5 +232,144 @@ describe('RecordPageView — no own booking today (8/19 ruling)', () => {
     expect(screen.getByText('noOwnBooking')).toBeInTheDocument()
     expect(screen.queryByText('choose')).not.toBeInTheDocument()
     expect(screen.queryByText('佐藤 美咲')).not.toBeInTheDocument()
+  })
+})
+
+// ── picker dialog v2 (Liam-approved mock, 8/19) ──────────────────────────
+// Today's bookings are listed the moment the dialog opens; a booking row binds
+// THROUGH the booking (?appointmentId=), a searched customer keeps the
+// pre-existing ?customerId= path, and a booking whose karute already exists is
+// a receipt, not an offer.
+const dialogProps = {
+  ...noTargetProps,
+  // Deliberately NOT in time order — the dialog sorts. Space in the tappable
+  // row's id pins the encoding the same way 'c 1' does for the customer path.
+  nearbyBookings: [
+    {
+      id: 'a done',
+      start: '15:30',
+      end: '16:30',
+      customer: '山本 結衣',
+      customerId: 'c-3',
+      initials: '山本',
+      karute: '#00099',
+      service: 'パーマ',
+      staff: '原',
+      staffId: 's-1',
+      staffColorKey: null,
+      // Its karute already exists — buildRecordScreen stamps 'done'.
+      statusKey: 'done' as const,
+      statusLabel: '完了',
+    },
+    {
+      id: 'a 2',
+      start: '10:30',
+      end: '11:30',
+      customer: '佐藤 美咲',
+      customerId: 'c-2',
+      initials: '佐藤',
+      karute: '#00058',
+      service: '新規コース',
+      staff: '鈴木',
+      staffId: 's-2',
+      staffColorKey: null,
+      statusKey: 'booked' as const,
+      statusLabel: '予約済',
+    },
+  ],
+  customerFacts: [
+    { id: 'c-2', karuteNumber: '#00058', isNew: true },
+    {
+      id: 'c 1',
+      karuteNumber: '#00214',
+      hasKarute: true,
+      pack: { remaining: 5, size: 10 },
+      lastVisitDate: '8月2日',
+      lastVisitService: 'カット＋カラー',
+      staffName: '原 奏恵',
+    },
+  ],
+}
+
+describe('RecordPageView — customer-picker dialog v2 (8/19 mock)', () => {
+  function openDialog() {
+    render(<RecordPageView {...dialogProps} />)
+    fireEvent.click(screen.getByText('chooseCustomer'))
+    return screen.getByRole('dialog')
+  }
+
+  it("opens on today's bookings, time-sorted, with the karute number on the row", () => {
+    openDialog()
+
+    expect(screen.getByText('target.todayBookingsCount')).toBeInTheDocument()
+    expect(screen.getByText('佐藤 美咲')).toBeInTheDocument()
+    expect(screen.getByText('山本 結衣')).toBeInTheDocument()
+    expect(screen.getByText('#00058')).toBeInTheDocument()
+
+    // Time ascending, regardless of the server's own-staff-first ordering.
+    const times = screen
+      .getAllByText(/^\d{2}:\d{2}$/)
+      .map((el) => el.textContent)
+    expect(times).toEqual(['10:30', '15:30'])
+  })
+
+  it('a booking whose karute exists is a 記録済 row, NOT tappable', () => {
+    openDialog()
+
+    // The row renders (staff can see the slot is handled)…
+    expect(screen.getByText('山本 結衣')).toBeInTheDocument()
+    expect(screen.getByText('target.recordedTag')).toBeInTheDocument()
+
+    // …but it is not an option, and nothing about it navigates.
+    const options = screen.getAllByRole('option')
+    expect(options).toHaveLength(1)
+    expect(options[0]).toHaveTextContent('佐藤 美咲')
+
+    fireEvent.click(screen.getByText('山本 結衣'))
+    expect(mockReplace).not.toHaveBeenCalled()
+  })
+
+  it('tapping a booking row navigates to the exact encoded ?appointmentId= URL', () => {
+    openDialog()
+
+    fireEvent.click(screen.getByText('佐藤 美咲'))
+
+    expect(mockReplace).toHaveBeenCalledWith('/sessions?appointmentId=a%202')
+    // Never the customer path: binding THROUGH the booking is what threads the
+    // booking's menu/consent/pack reads on the server re-resolve.
+    expect(mockReplace).toHaveBeenCalledTimes(1)
+    // Opening/choosing a row never starts a take on its own.
+    expect(mockStartRecording).not.toHaveBeenCalled()
+  })
+
+  it('typing swaps to enriched search results, still on the ?customerId= path', () => {
+    openDialog()
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '原' } })
+
+    // The day list is gone, the result rows carry the server-derived facts.
+    expect(screen.queryByText('target.todayBookingsCount')).not.toBeInTheDocument()
+    expect(screen.getByText('target.searchResultsCount')).toBeInTheDocument()
+    expect(screen.getByText('#00214')).toBeInTheDocument()
+    expect(screen.getByText('target.lastVisitWithMenu')).toBeInTheDocument()
+    // PackPill's own label — next-intl is key-echoed in this suite.
+    expect(screen.getByText('card.packLeft')).toBeInTheDocument()
+
+    fireEvent.mouseDown(screen.getByText('原 奏恵'))
+    expect(mockReplace).toHaveBeenCalledWith('/sessions?customerId=c%201')
+  })
+
+  it('a payload with no customerFacts still renders the rows (old-server shape)', () => {
+    render(<RecordPageView {...dialogProps} customerFacts={undefined} />)
+    fireEvent.click(screen.getByText('chooseCustomer'))
+
+    // Rows survive; only the enrichment chips are absent.
+    expect(screen.getByText('佐藤 美咲')).toBeInTheDocument()
+    expect(screen.getAllByRole('option')).toHaveLength(1)
+    expect(screen.queryByText('target.firstVisit')).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '原' } })
+    expect(screen.getByText('原 奏恵')).toBeInTheDocument()
+    expect(screen.queryByText('#00214')).not.toBeInTheDocument()
   })
 })

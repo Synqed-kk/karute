@@ -1,11 +1,16 @@
 import { QuietRefresh } from '@/components/perf/QuietRefresh'
 import { renderStamp } from '@/lib/perf/render-stamp'
 import { getTranslations } from 'next-intl/server'
-import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { getCurrentUserStaffId, getStaffList, getBusinessId } from '@/lib/staff'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getCustomer } from '@/lib/customers/queries'
 import { getCustomerConsent } from '@/actions/customers'
-import { listCustomerPacks, getCustomerLifecycleChecked } from '@/lib/packs/store'
+import { enrichCustomers } from '@/lib/customers/list-enrich'
+import {
+  listCustomerPacks,
+  getCustomerLifecycleChecked,
+  listAllPackUsage,
+} from '@/lib/packs/store'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import type { Capability } from '@/lib/auth/permissions'
@@ -35,21 +40,52 @@ export default async function SessionsPage({
   const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000)
   const todayStr = jstNow.toISOString().split('T')[0]
 
+  // Picker-dialog enrichment (前回 date+menu, 担当, karute count) — ONE cached
+  // aggregate for the whole business, the same one the 顧客 list reads. It needs
+  // businessId + the customer ids, so it CHAINS off two wave-1 promises rather
+  // than running as a stage 2 after the await: chained, it overlaps with the
+  // rest of wave 1 and costs the record screen (the mic screen — the hottest
+  // one) no extra serial hop. A failure degrades the picker's detail lines to
+  // nothing; it never touches the screen.
+  const businessIdPromise = getBusinessId()
+  const customersPromise = getCachedCustomerList()
+  const enrichmentPromise = Promise.all([businessIdPromise, customersPromise])
+    .then(([businessId, list]) =>
+      enrichCustomers(
+        businessId,
+        list.map((c) => c.id),
+      ),
+    )
+    .catch(() => undefined)
+
   // Wave 1 — every read that needs nothing but the request itself, fired
   // together (staff id, staff list, status translations, customer list, today's
   // bookings, org settings, the caller's capabilities).
-  const [activeStaffId, staffList, tStatus, customers, todayAppts, orgSettings, caps] =
-    await Promise.all([
-      getCurrentUserStaffId(),
-      getStaffList(),
-      getTranslations('reservation.status'),
-      getCachedCustomerList(),
-      getAppointmentsByDate(todayStr),
-      getOrgSettings(),
-      // Fail-closed UI: a capability read that hiccups hides the destructive
-      // photo affordance. The server gate is the enforcement either way.
-      getMyCapabilities().catch(() => new Set<Capability>()),
-    ])
+  const [
+    activeStaffId,
+    staffList,
+    tStatus,
+    customers,
+    todayAppts,
+    orgSettings,
+    caps,
+    packUsage,
+    enrichment,
+  ] = await Promise.all([
+    getCurrentUserStaffId(),
+    getStaffList(),
+    getTranslations('reservation.status'),
+    customersPromise,
+    getAppointmentsByDate(todayStr),
+    getOrgSettings(),
+    // Fail-closed UI: a capability read that hiccups hides the destructive
+    // photo affordance. The server gate is the enforcement either way.
+    getMyCapabilities().catch(() => new Set<Capability>()),
+    // 回数券 残n/m for the picker rows — the SAME 60s bulk ledger read the 予約
+    // agenda's pill uses (listAllPackUsage swallows to an empty map itself).
+    listAllPackUsage(),
+    enrichmentPromise,
+  ])
 
   // The assembly (target resolution + waves 2 + derivations) lives in the shared
   // core so the facade screen GET derives the identical view-model. The cookie
@@ -66,6 +102,8 @@ export default async function SessionsPage({
     todayAppts,
     orgSettings,
     statusLabel: (key) => tStatus(key),
+    enrichment,
+    packUsage,
     deps: {
       resolveExplicitAppointment: (id) => getAppointmentById(id),
       resolveWalkInCustomer: (id) => getCustomer(id).catch(() => null),
@@ -117,6 +155,7 @@ export default async function SessionsPage({
       ticketsEnabled={screen.ticketsEnabled}
       noiseSuppression={screen.noiseSuppression}
       currentStaffName={screen.currentStaffName}
+      customerFacts={screen.customerFacts}
     />
     </>
   )

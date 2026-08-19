@@ -33,6 +33,32 @@ function digitsOnly(s: string): string {
 }
 
 /**
+ * THE customer-search rule — name, furigana, or phone digits (separators
+ * ignored on both sides). Exported so the 録音 picker dialog searches exactly
+ * the way this combobox does; a second hand-rolled filter is how two search
+ * boxes in one app start disagreeing about what "たか" matches.
+ */
+export function filterCustomers<T extends CustomerOption>(
+  customers: T[],
+  query: string,
+  limit = MAX_RESULTS,
+): T[] {
+  const trimmed = query.trim()
+  if (!trimmed) return []
+  const q = trimmed.toLowerCase()
+  const queryDigits = digitsOnly(trimmed)
+  const isPhoneQuery = queryDigits.length >= 2 && /^\d+$/.test(queryDigits)
+  return customers
+    .filter((c) => {
+      if (c.name.toLowerCase().includes(q)) return true
+      if (c.furigana && c.furigana.toLowerCase().includes(q)) return true
+      if (isPhoneQuery && c.phone && digitsOnly(c.phone).includes(queryDigits)) return true
+      return false
+    })
+    .slice(0, limit)
+}
+
+/**
  * Searchable customer combobox with inline "+ New customer" option.
  *
  * Uses a simple input+dropdown pattern (no cmdk/radix required).
@@ -88,17 +114,7 @@ export function CustomerCombobox({
   }, [selectedCustomer])
 
   const trimmedQuery = query.trim()
-  const queryDigits = digitsOnly(trimmedQuery)
-  const isPhoneQuery = queryDigits.length >= 2 && /^\d+$/.test(queryDigits)
-  const filtered = customers
-    .filter((c) => {
-      const q = trimmedQuery.toLowerCase()
-      if (c.name.toLowerCase().includes(q)) return true
-      if (c.furigana && c.furigana.toLowerCase().includes(q)) return true
-      if (isPhoneQuery && c.phone && digitsOnly(c.phone).includes(queryDigits)) return true
-      return false
-    })
-    .slice(0, MAX_RESULTS)
+  const filtered = filterCustomers(customers, trimmedQuery)
 
   function handleSelect(customer: CustomerOption) {
     onSelect(customer.id)

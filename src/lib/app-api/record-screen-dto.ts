@@ -46,6 +46,10 @@ const NearbyBookingSchema = z.object({
   start: z.string(),
   end: z.string(),
   customer: z.string(),
+  /** Join key into customerFacts (picker dialog v2). OPTIONAL: a pair-16 client
+   *  parsing this payload strips the key it doesn't know, and this schema
+   *  parsing a pre-v2 cached payload sees it absent — both keep working. */
+  customerId: z.string().optional(),
   initials: z.string(),
   karute: z.string().nullable(),
   service: z.string(),
@@ -99,6 +103,20 @@ const VisitRhythmSchema = z
 
 const PackPresetSchema = z.object({ size: z.number(), unitPrice: z.number() })
 
+// Per-customer display facts for the 録音 picker dialog. EVERY field but `id` is
+// optional and omitted when empty — see RecordCustomerFact.
+const CustomerFactSchema = z.object({
+  id: z.string(),
+  karuteNumber: z.string().optional(),
+  isNew: z.boolean().optional(),
+  hasKarute: z.boolean().optional(),
+  pack: z.object({ remaining: z.number(), size: z.number() }).optional(),
+  lastVisitDate: z.string().optional(),
+  lastVisitService: z.string().optional(),
+  staffName: z.string().optional(),
+  staffColorKey: z.string().optional(),
+})
+
 export const RecordScreenDTO = z.object({
   locale: z.string(),
   customers: z.array(CustomerSchema),
@@ -118,6 +136,11 @@ export const RecordScreenDTO = z.object({
   ticketsEnabled: z.boolean(),
   noiseSuppression: z.boolean(),
   currentStaffName: z.string().nullable(),
+  /** Picker-dialog facts (v2). OPTIONAL for the same two-way reason as
+   *  nearbyBookings.customerId above: the pair-16 bundle's schema strips it,
+   *  and a device-cached pre-v2 payload replayed through THIS schema still
+   *  parses (the dialog then renders its lean rows). */
+  customerFacts: z.array(CustomerFactSchema).optional(),
   /** The caller's display role — seeds the thin SessionProvider so any
    *  useSession() consumer in the record subtree resolves (§Build 6 trace). */
   viewerRole: z.string(),
