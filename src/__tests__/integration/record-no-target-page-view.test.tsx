@@ -37,12 +37,13 @@ let mockTarget: {
   appointmentId: string | null
 } | null = null
 const mockStartRecording = jest.fn()
+const mockReplace = jest.fn()
 
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
 }))
 jest.mock('@/i18n/navigation', () => ({
-  useRouter: () => ({ replace: jest.fn(), push: jest.fn(), back: jest.fn() }),
+  useRouter: () => ({ replace: mockReplace, push: jest.fn(), back: jest.fn() }),
   usePathname: () => '/sessions',
   Link: ({ children }: { children: unknown }) => children,
 }))
@@ -112,7 +113,10 @@ import { RecordPageView } from '@/components/karute/redesign/record/RecordPageVi
 // server-side in record-own-customer-only.test.ts t2).
 const noTargetProps = {
   customers: [
-    { id: 'c-1', name: '原 奏恵', furigana: null, phone: null },
+    // Space in the id: encodeURIComponent turns it into %20, so a raw
+    // concatenation (no encoding) produces a different, wrong URL — pins
+    // both the query param name AND the encoding.
+    { id: 'c 1', name: '原 奏恵', furigana: null, phone: null },
     { id: 'c-2', name: '佐藤 美咲', furigana: null, phone: null },
   ],
   locale: 'ja',
@@ -183,7 +187,7 @@ describe('RecordPageView — no own booking today (8/19 ruling)', () => {
     expect(container.querySelector('[aria-busy]')).not.toBeInTheDocument()
   })
 
-  it('お客様を選んで録音 opens the customer dialog', () => {
+  it('お客様を選んで録音 opens the customer dialog, and picking navigates to the exact encoded ?customerId= URL', () => {
     render(<RecordPageView {...noTargetProps} />)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
@@ -193,6 +197,12 @@ describe('RecordPageView — no own booking today (8/19 ruling)', () => {
     expect(dialog).toHaveAttribute('aria-label', 'target.chooseCustomer')
     // No take is started by merely opening the picker.
     expect(mockStartRecording).not.toHaveBeenCalled()
+
+    // Pick 原 奏恵 (id 'c 1') from the combobox.
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '原' } })
+    fireEvent.mouseDown(screen.getByText('原 奏恵'))
+
+    expect(mockReplace).toHaveBeenCalledWith('/sessions?customerId=c%201')
   })
 
   it('anonymous take in flight: unbound placeholder, still no picker', () => {

@@ -526,7 +526,9 @@ export function RecordPageView({
     // belt reset — see handleStartRecording
     resolvingOutcomeRef.current = false
     setResolvingOutcome(false)
-    // Reached only via the no-booking prompt → nextAppointment is null, so there
+    // Two entry points: the no-booking prompt's recordAnyway button, and the
+    // no-own-booking card's 選択せずに録音する action (RecordingTargetCard's
+    // onRecordWithoutCustomer). Both mean nextAppointment is null, so there
     // is no customer to bind (walk-in); the save will require picking one.
     startRecording({ noiseSuppression, target: null })
   }
