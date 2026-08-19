@@ -178,7 +178,8 @@ export async function buildRecordScreen(input: {
   }
 
   // No staff identity (a caller with no staff_profile row) → nothing to scope
-  // BY, so the day's list stays the caller's own set, exactly as before.
+  // BY, so the PICKER's ordering keeps the day's list as-is (below). The
+  // implicit pick does NOT use it — see `unlinked`.
   const myRows = activeStaffId
     ? list.filter((a) => a.staff_profile_id === activeStaffId)
     : list
@@ -199,8 +200,15 @@ export async function buildRecordScreen(input: {
     : undefined
   // When a customer is explicitly chosen, never fall through to an unrelated
   // default booking — it's that customer's booking or a walk-in, nothing else.
+  // An implicit pick also REQUIRES a staff identity (A-2, 8/19): without one
+  // `myRows` degrades to the whole salon's day (ghost-owner bootstrap /
+  // half-joined invite are documented prod states), which would re-open the
+  // very cross-staff auto-bind this change closes. No identity → no target;
+  // the screen then asks. Explicit entries above are untouched.
   const unlinked =
-    requestedRow ?? customerRow ?? (requestedCustomerId ? undefined : findFirst(myRows))
+    requestedRow ??
+    customerRow ??
+    (requestedCustomerId || !activeStaffId ? undefined : findFirst(myRows))
 
   if (unlinked) {
     const startMs = new Date(unlinked.start_time).getTime()

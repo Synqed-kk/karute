@@ -68,10 +68,17 @@ describe('録音対象 card — no own booking today', () => {
     expect(screen.queryByText('佐藤 美咲')).not.toBeInTheDocument()
   })
 
-  it('keeps the legacy scaffold body when no handlers are passed (take in flight)', () => {
-    render(<RecordingTargetCard appointment={null} nearbyBookings={[]} />)
-    expect(screen.getByText('予約を選択してください')).toBeInTheDocument()
-    expect(screen.getByText('別の予約を選択')).toBeInTheDocument()
+  // A-1 (blind round 8/19): the other null-target state — an anonymous
+  // 選択せずに録音する take in flight. It used to fall back to the legacy
+  // scaffold, whose 別の予約を選択 sheet lists the WHOLE salon's day: one tap
+  // from the new card's own secondary action and the colleague's booking was
+  // back on screen. Unbound placeholder now, picker in NO null state.
+  it('renders the unbound placeholder with no picker when a take is in flight', () => {
+    render(<RecordingTargetCard appointment={null} nearbyBookings={[COLLEAGUE_BOOKING]} />)
+    expect(screen.getByText('予約が選択されていません')).toBeInTheDocument()
+    expect(screen.getByText(/保存するときにお客様を選べます/)).toBeInTheDocument()
+    expect(screen.queryByText('別の予約を選択')).not.toBeInTheDocument()
+    expect(screen.queryByText('佐藤 美咲')).not.toBeInTheDocument()
     expect(screen.queryByText('本日の担当予約はありません')).not.toBeInTheDocument()
   })
 })

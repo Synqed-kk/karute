@@ -95,8 +95,23 @@ describe('録音 implicit target resolution — own customers only', () => {
     })
   })
 
-  it('a caller with no staff identity keeps the day`s list as its own set', async () => {
+  // A-2 (blind round 8/19): a caller with NO staff_profile row (ghost-owner
+  // bootstrap, half-joined invite) can't be scoped to "own" bookings at all,
+  // so an implicit pick would hand them the salon's day — the same auto-bind
+  // by another door. No identity → no implicit target.
+  it('a caller with no staff identity gets NO implicit target either', async () => {
     const screen = await screenFor([THEIRS], { activeStaffId: null })
+    expect(screen.nextAppointment).toBeNull()
+    // The picker's ordering is untouched — the whole day is still listed for
+    // an explicit choice, exactly as before.
+    expect(screen.nearbyBookings.map((b) => b.id)).toEqual(['a-theirs'])
+  })
+
+  it('no staff identity + an EXPLICIT ?appointmentId still binds (deliberate act)', async () => {
+    const screen = await screenFor([THEIRS], {
+      activeStaffId: null,
+      requestedAppointmentId: 'a-theirs',
+    })
     expect(screen.nextAppointment).toMatchObject({ id: 'a-theirs' })
   })
 })

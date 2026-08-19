@@ -930,13 +930,17 @@ export function RecordPageView({
   // collapse to a single column so the record button isn't dwarfed by a half-empty grid.
   const layoutMode: 'single' | 'split' = targetAppointment ? 'split' : 'single'
 
-  // Idle, nothing in flight, and NO booking of the signed-in staff's own today
+  // Idle, no take in flight, and NO booking of the signed-in staff's own today
   // — buildRecordScreen no longer auto-picks a colleague's booking (8/19
   // ruling), so there is nothing to record against until the staff says who.
   // The target card carries the two explicit actions and the big record button
   // steps aside (mock A2); the walk-in flow itself is unchanged, only its
   // trigger moved out of the no-booking prompt.
-  const showNoTargetActions = phase === 'idle' && !live && !nextAppointment
+  // recState, NOT the composite `live` (A-1, 8/19): a pipeline still crunching
+  // the LAST take with an idle recorder is a normal working window — the staff
+  // can and must line up the next customer there. Gating on `live` dropped them
+  // back onto the legacy scaffold, whose 別の予約を選択 sheet lists the whole salon.
+  const showNoTargetActions = phase === 'idle' && recState === 'idle' && !nextAppointment
 
   // F2: every OPEN starts clean — a hung take's in-flight write must not
   // pre-lock the NEXT take's dialog as 保存中 (the finally reset in onResolve
@@ -1168,15 +1172,15 @@ export function RecordPageView({
             {!scheduleMismatch && (
               <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
             )}
-            {!scheduleMismatch && (
+            {!scheduleMismatch && nextAppointment && (
               <Suspense
-                key={nextAppointment?.customerId ?? 'none'}
+                key={nextAppointment.customerId}
                 fallback={<BriefLoadingCard />}
               >
                 <StreamingBriefCard
                   aiBriefPromise={aiBriefPromise}
                   fallbackBrief={brief}
-                  customerName={nextAppointment?.customerName ?? null}
+                  customerName={nextAppointment.customerName}
                 />
               </Suspense>
             )}
@@ -1204,15 +1208,20 @@ export function RecordPageView({
           {!scheduleMismatch && (
             <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
           )}
-          {!scheduleMismatch && (
+          {/* A-3 (8/19): no target → NO brief block. With a null customer
+              PreSessionBriefCard falls through to its own 「録音対象が…」
+              explainer, which stacked a SECOND empty-state card under the new
+              one (approved mock A2 has exactly one). The block only ever had
+              content to show for a bound customer anyway. */}
+          {!scheduleMismatch && nextAppointment && (
             <Suspense
-              key={nextAppointment?.customerId ?? 'none'}
+              key={nextAppointment.customerId}
               fallback={<BriefLoadingCard />}
             >
               <StreamingBriefCard
                 aiBriefPromise={aiBriefPromise}
                 fallbackBrief={brief}
-                customerName={nextAppointment?.customerName ?? null}
+                customerName={nextAppointment.customerName}
               />
             </Suspense>
           )}
