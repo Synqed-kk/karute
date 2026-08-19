@@ -14,6 +14,14 @@
    panel BOTH track lists as custom properties and the media query below picks
    between them — same widths, same 1320px breakpoint, no shared harness. */
 
+/* ⚖ BUTTON-WEIGHT RULING (PACKET-PARITY-WAVE-2026-08-19, ADDENDUM 2): canon's
+   .btn weight disagrees per page (customers 600 / today 500 / settings 700) —
+   parity is each screen matching ITS OWN canon, so the shared shell sheet's
+   today-sourced 500 base is overridden back to 600 here, scoped to `.page`
+   (this screen's own root, holding every button incl. the dialog) so it
+   never reaches the shared sidebar/topbar chrome. */
+.biz .page .btn { font-weight: 600; }
+
 .biz .page { padding: 24px 28px 40px; }
 .biz .page-head { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 16px; }
 .biz .eyebrow { margin-bottom: 4px; color: var(--indigo); font-size: 12px; font-weight: 800; letter-spacing: .05em; }
