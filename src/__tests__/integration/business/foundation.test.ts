@@ -246,8 +246,9 @@ describe('the fixture data door', () => {
   })
   it('staff: a clamped lens keeps this store + floating, drops other stores and unknowns', async () => {
     // p-01 email-linked, c-03 floating, p-04 user_id-ONLY link, p-05 both
-    // stores; p-02 is STORE_B and p-09 has no card at all.
-    expect((await data.listStaff(STORE_A)).map((m) => m.id)).toEqual(['p-01', 'c-03', 'p-04', 'p-05'])
+    // stores, p-06 the operator's own roster row; p-02 is STORE_B and p-09 has
+    // no card at all.
+    expect((await data.listStaff(STORE_A)).map((m) => m.id)).toEqual(['p-01', 'c-03', 'p-04', 'p-05', 'p-06'])
     expect((await data.listStaff(STORE_B)).map((m) => m.id)).toEqual(['p-02', 'c-03', 'p-05'])
   })
   it('the default lens is the FIRST store, never the business-wide merge', async () => {
@@ -284,8 +285,10 @@ describe('the fixture data door', () => {
     ]
     const INVENTORY: Record<string, string[]> = {
       'src/business/lib/clock.ts': [],
-      'src/business/lib/data.ts': ['./fixtures'],
+      'src/business/lib/data.ts': ['./fixtures', './fixtures-today'],
       'src/business/lib/fixtures.ts': ['./clock'],
+      'src/business/lib/fixtures-today.ts': ['./fixtures'],
+      'src/business/lib/today-board.ts': ['./clock', './fixtures', './fixtures-today'],
       'src/business/i18n/index.ts': ['./ja.json'],
       'src/app/[locale]/(business)/layout.tsx': [
         './BusinessSidebar',
@@ -309,6 +312,20 @@ describe('the fixture data door', () => {
       ],
       'src/app/[locale]/(business)/business/customers/CustomersScreen.tsx': ['react'],
       'src/app/[locale]/(business)/business/customers/loading.tsx': ['@/business/i18n'],
+      'src/app/[locale]/(business)/business/today/page.tsx': [
+        './TodayScreen',
+        './today.css',
+        '@/business/lib/admission',
+        '@/business/lib/clock',
+        '@/business/lib/data',
+        '@/business/lib/today-board',
+      ],
+      'src/app/[locale]/(business)/business/today/TodayScreen.tsx': [
+        '@/business/lib/today-board',
+        'next/link',
+        'react',
+      ],
+      'src/app/[locale]/(business)/business/today/loading.tsx': ['@/business/i18n'],
     }
     for (const [file, expected] of Object.entries(INVENTORY)) {
       const src = readFileSync(join(process.cwd(), file), 'utf8')
@@ -487,7 +504,10 @@ describe('顧客一覧 screen', () => {
   })
   it('renders every fixture customer, thin book-cast rows included', async () => {
     const rows = await render()
-    expect(rows).toHaveLength(12)
+    // 13 since the Today board arrived: 見本 さくら is the registered-but-never-
+    // visited customer the board's 新規 category needs (cus-10 must keep its
+    // never-booked-anywhere CM-9 shape, so it could not carry that case).
+    expect(rows).toHaveLength(13)
     expect(rows.map((r) => r.name)).toContain('見本 あかり')
     expect(rows.every((r) => r.no.startsWith('C-'))).toBe(true)
     expect(rows.filter((r) => r.thin).map((r) => r.id)).toEqual(['thin-01', 'thin-02'])
