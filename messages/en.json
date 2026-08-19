@@ -627,7 +627,8 @@
       "lastVisitWithMenu": "Last: {date} ({menu})",
       "lastVisitOnly": "Last: {date}",
       "lastVisitNone": "Last: no visits yet",
-      "todayAt": "Today {time}"
+      "todayAt": "Today {time}",
+      "clearSearch": "Clear search"
     },
     "brief": {
       "title": "Pre-session brief",

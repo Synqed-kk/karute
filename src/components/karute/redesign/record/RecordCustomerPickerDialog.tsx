@@ -22,7 +22,7 @@
 // legacy 別の予約を選択 sheet (SelectBookingSheet) is the auto-context picker
 // the guarantee talks about and is still absent from every null-target state.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Search, X } from 'lucide-react'
 
@@ -92,8 +92,18 @@ export function RecordCustomerPickerDialog({
   // 'recording' (not 'recording.target'): RecordPageView reads the same namespace,
   // and the dialog's aria-label is pinned as target.chooseCustomer by the armor test.
   const t = useTranslations('recording')
+  const tc = useTranslations('common')
   const tCustomers = useTranslations('customers')
   const [query, setQuery] = useState('')
+
+  // Move focus INTO the dialog on mount — same sibling convention
+  // RecordingConsentDialog uses: without it the opener (the just-tapped
+  // お客様を選んで録音 button) keeps keyboard focus behind the backdrop, so a
+  // stray Enter re-fires it and screen-reader focus never enters the modal.
+  const panelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    panelRef.current?.focus()
+  }, [])
 
   const factById = useMemo(
     () => new Map((facts ?? []).map((f) => [f.id, f])),
@@ -105,11 +115,19 @@ export function RecordCustomerPickerDialog({
     () => [...bookings].sort((a, b) => a.start.localeCompare(b.start)),
     [bookings],
   )
-  // Booked TODAY → the 本日 HH:MM chip on a search row. First booking wins
-  // (dayRows is already time-sorted).
+  // Booked TODAY → the 本日 HH:MM chip + status stripe on a search row. Earliest
+  // wins (dayRows is time-sorted), EXCEPT that a 記録済 slot loses to any later
+  // booking still open: for a customer sitting twice today the chip must point
+  // at the visit that can still be recorded, not the one already written up.
   const todayByCustomer = useMemo(() => {
     const m = new Map<string, RecordTargetBooking>()
-    for (const b of dayRows) if (b.customerId && !m.has(b.customerId)) m.set(b.customerId, b)
+    for (const b of dayRows) {
+      if (!b.customerId) continue
+      const held = m.get(b.customerId)
+      if (!held || (held.statusKey === 'done' && b.statusKey !== 'done')) {
+        m.set(b.customerId, b)
+      }
+    }
     return m
   }, [dayRows])
 
@@ -127,10 +145,12 @@ export function RecordCustomerPickerDialog({
         onClick={onClose}
       />
       <div
+        ref={panelRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={t('target.chooseCustomer')}
-        className="fixed left-1/2 top-1/2 z-50 flex max-h-[85dvh] w-[calc(100%-1.75rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-xl"
+        className="fixed left-1/2 top-1/2 z-50 flex max-h-[85dvh] w-[calc(100%-1.75rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-xl outline-none"
       >
         <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3.5">
           <h3 className="text-[16px] font-bold text-foreground">
@@ -139,7 +159,9 @@ export function RecordCustomerPickerDialog({
           <button
             type="button"
             onClick={onClose}
-            aria-label={cancelLabel}
+            // 閉じる, not キャンセル: this × dismisses the dialog, and the footer
+            // button below is the one that reads as the cancel action.
+            aria-label={tc('close')}
             className="flex items-center rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             <X size={16} />
@@ -169,8 +191,11 @@ export function RecordCustomerPickerDialog({
               <button
                 type="button"
                 onClick={() => setQuery('')}
-                aria-label={cancelLabel}
-                className="flex shrink-0 items-center text-muted-foreground hover:text-foreground"
+                // Its own label — it clears the SEARCH BOX, it does not cancel
+                // the dialog. p-1 (like the header ×) so the tap target clears
+                // 24px instead of being the bare 14px glyph.
+                aria-label={t('target.clearSearch')}
+                className="flex shrink-0 items-center rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 <X size={14} />
               </button>
@@ -211,21 +236,31 @@ export function RecordCustomerPickerDialog({
                   {t('target.pickerEmpty')}
                 </p>
               ) : (
-                <ul
-                  role="listbox"
-                  aria-label={t('target.sheetTitle')}
-                  className="max-h-[42dvh] divide-y divide-border overflow-y-auto overscroll-contain rounded-xl border border-border"
-                >
-                  {dayRows.map((b) => (
-                    <BookingRow
-                      key={b.id}
-                      booking={b}
-                      fact={b.customerId ? factById.get(b.customerId) : undefined}
-                      onSelect={onSelectBooking}
-                      t={t}
-                    />
-                  ))}
-                </ul>
+                // The mock's scroll cue: the day list scrolls inside its own
+                // box, so without the fade a row clipped at the bottom edge
+                // reads as the last one. Overlay, not a border, so it can't
+                // change the list's height.
+                <div className="relative">
+                  <ul
+                    role="listbox"
+                    aria-label={t('target.sheetTitle')}
+                    className="max-h-[42dvh] divide-y divide-border overflow-y-auto overscroll-contain rounded-xl border border-border"
+                  >
+                    {dayRows.map((b) => (
+                      <BookingRow
+                        key={b.id}
+                        booking={b}
+                        fact={b.customerId ? factById.get(b.customerId) : undefined}
+                        onSelect={onSelectBooking}
+                        t={t}
+                      />
+                    ))}
+                  </ul>
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-x-px bottom-px h-6 rounded-b-xl bg-gradient-to-b from-transparent to-card"
+                  />
+                </div>
               )}
             </div>
           )}
@@ -316,7 +351,17 @@ function BookingRow({
 
   if (recorded) {
     return (
-      <li className="relative flex items-center gap-2.5 py-2 pl-4 pr-3 opacity-60">
+      // An option, explicitly unavailable. As a bare <li> this row was invisible
+      // to the listbox — it dropped out of the option count and out of arrow-key
+      // traversal, so the slot read as free to anyone not looking at the pixels.
+      // aria-disabled, never `disabled`: it stays announced and reachable, it
+      // just isn't an offer. There is no onClick — non-tappable is structural.
+      <li
+        role="option"
+        aria-selected={false}
+        aria-disabled="true"
+        className="relative flex items-center gap-2.5 py-2 pl-4 pr-3 opacity-60"
+      >
         <span
           aria-hidden
           className={cn('absolute inset-y-2 left-0 w-[3px] rounded-r-sm', STRIPE.done)}

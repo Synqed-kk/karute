@@ -320,13 +320,111 @@ describe('RecordPageView — customer-picker dialog v2 (8/19 mock)', () => {
     expect(screen.getByText('山本 結衣')).toBeInTheDocument()
     expect(screen.getByText('target.recordedTag')).toBeInTheDocument()
 
-    // …but it is not an option, and nothing about it navigates.
+    // …and it IS an option of the listbox (B-2: as a bare <li> it was invisible
+    // to listbox semantics — a screen reader counted 1 option over a 2-row day
+    // and skipped the slot entirely, which reads as "that time is free")…
     const options = screen.getAllByRole('option')
-    expect(options).toHaveLength(1)
+    expect(options).toHaveLength(2)
     expect(options[0]).toHaveTextContent('佐藤 美咲')
+    expect(options[1]).toHaveTextContent('山本 結衣')
+
+    // …announced as unavailable rather than offered, and nothing about it
+    // navigates.
+    expect(options[1]).toHaveAttribute('aria-disabled', 'true')
+    expect(options[0]).not.toHaveAttribute('aria-disabled')
 
     fireEvent.click(screen.getByText('山本 結衣'))
     expect(mockReplace).not.toHaveBeenCalled()
+  })
+
+  it('a11y: focus enters the panel, the header × is 閉じる, the clear × owns its own label', () => {
+    const dialog = openDialog()
+
+    // B-3: the opener keeps focus otherwise — a stray Enter re-fires it behind
+    // the backdrop, and screen-reader focus never enters the modal.
+    expect(dialog).toHaveFocus()
+
+    // B-4: the header × dismisses, it does not "cancel" — that is the footer
+    // button, which keeps キャンセル.
+    expect(screen.getByLabelText('close')).toBeInTheDocument()
+    expect(screen.getByText('cancel')).toBeInTheDocument()
+
+    // B-1: the clear-search × appears only while searching, carries its OWN
+    // label (it clears the box, it does not close the dialog), and has real
+    // padding instead of being the bare 14px glyph.
+    expect(screen.queryByLabelText('target.clearSearch')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '原' } })
+    const clear = screen.getByLabelText('target.clearSearch')
+    expect(clear).toHaveClass('p-1')
+
+    fireEvent.click(clear)
+    expect(screen.getByRole('combobox')).toHaveValue('')
+    expect(screen.getByText('target.todayBookingsCount')).toBeInTheDocument()
+  })
+
+  it('B-8: a target binding under the open dialog unmounts it (QuietRefresh)', () => {
+    const { rerender } = render(<RecordPageView {...dialogProps} />)
+    fireEvent.click(screen.getByText('chooseCustomer'))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+
+    // The server re-render QuietRefresh paints behind the screen: the staffer
+    // now HAS a booking of their own. The picker may exist only in the
+    // no-target state — floating over a bound target, its rows navigate away
+    // from a live one.
+    rerender(
+      <RecordPageView
+        {...dialogProps}
+        nextAppointment={{
+          id: 'a-mine',
+          customerName: '原 奏恵',
+          customerId: 'c 1',
+          karuteNumber: '#00214',
+          startTime: '2026-08-19T03:00:00.000Z',
+          durationMinutes: 60,
+          title: 'カット',
+          notes: null,
+          statusKey: 'booked' as const,
+          staffName: '原',
+        }}
+      />,
+    )
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('B-9: the 本日 chip follows the booking still open, not the earlier 記録済 one', () => {
+    // 原 奏恵 sits twice today: an early slot already written up, and a later
+    // one still to record. The chip/stripe must point at the one the staffer
+    // can still act on.
+    const twice = [
+      {
+        ...dialogProps.nearbyBookings[0],
+        id: 'a-early-done',
+        start: '09:00',
+        end: '10:00',
+        customer: '原 奏恵',
+        customerId: 'c 1',
+        statusKey: 'done' as const,
+      },
+      {
+        ...dialogProps.nearbyBookings[1],
+        id: 'a-late-open',
+        start: '13:00',
+        end: '14:00',
+        customer: '原 奏恵',
+        customerId: 'c 1',
+        statusKey: 'booked' as const,
+      },
+    ]
+    render(<RecordPageView {...dialogProps} nearbyBookings={twice} />)
+    fireEvent.click(screen.getByText('chooseCustomer'))
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '原' } })
+
+    const row = screen.getByText('原 奏恵').closest('button')!
+    const stripe = row.querySelector('span.absolute')!
+    // BADGE_COLORS.green.solid (still booked) — never slate, the 記録済 grey.
+    expect(stripe).toHaveClass('bg-green-500')
+    expect(stripe).not.toHaveClass('bg-slate-400')
   })
 
   it('tapping a booking row navigates to the exact encoded ?appointmentId= URL', () => {
@@ -365,7 +463,9 @@ describe('RecordPageView — customer-picker dialog v2 (8/19 mock)', () => {
 
     // Rows survive; only the enrichment chips are absent.
     expect(screen.getByText('佐藤 美咲')).toBeInTheDocument()
-    expect(screen.getAllByRole('option')).toHaveLength(1)
+    const options = screen.getAllByRole('option')
+    expect(options).toHaveLength(2)
+    expect(options.filter((o) => o.hasAttribute('aria-disabled'))).toHaveLength(1)
     expect(screen.queryByText('target.firstVisit')).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByRole('combobox'), { target: { value: '原' } })

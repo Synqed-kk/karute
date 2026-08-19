@@ -8,9 +8,11 @@
  * that decide whether facts exist at all:
  *
  *   · the no-target gate — with a booking bound the picker is unreachable, so
- *     the whole-tenant array is not built,
- *   · graceful degradation — no maps injected → rows still get karute # / 新規,
- *     never a wrong value.
+ *     the whole-tenant array is not built AND the two bulk reads behind it are
+ *     never even fired (B-6: loadPickerFacts is lazy, and the bound mic screen
+ *     is the hottest one in the app),
+ *   · graceful degradation — no loader / no maps → rows still get karute # /
+ *     新規, never a wrong value.
  *
  * The 新規 verdict must come from isReturningCustomer (the one chopstick), so a
  * QR regular with zero karute is NOT 新規 — that exact mislabel is what the
@@ -113,6 +115,18 @@ const theirBooking: AppointmentRow = {
 
 type ScreenInput = Parameters<typeof buildRecordScreen>[0]
 
+// The two whole-tenant reads, behind the lazy loader the callers inject. The
+// spy IS the assertion for B-6: an invocation on the bound path means the
+// hottest screen is paying for a payload it discards.
+const loadPickerFacts = jest.fn(async () => ({
+  enrichment: ENRICHMENT as ReadonlyMap<string, CustomerEnrichment>,
+  packUsage: PACK_USAGE as ReadonlyMap<string, { remaining: number; size: number }>,
+}))
+
+beforeEach(() => {
+  loadPickerFacts.mockClear()
+})
+
 function screen(over: Partial<ScreenInput> = {}) {
   return buildRecordScreen({
     locale: 'ja',
@@ -123,8 +137,7 @@ function screen(over: Partial<ScreenInput> = {}) {
     todayAppts: [theirBooking],
     orgSettings: null,
     statusLabel: () => '',
-    enrichment: ENRICHMENT,
-    packUsage: PACK_USAGE,
+    loadPickerFacts,
     deps: {
       resolveExplicitAppointment: async (id) => (id === 'a-theirs' ? theirBooking : null),
       resolveWalkInCustomer: async () => null as CustomerWithStaff | null,
@@ -176,18 +189,30 @@ describe('buildRecordScreen — picker customerFacts', () => {
     expect(nearbyBookings[0].customerId).toBe('c-regular')
   })
 
-  it('builds NOTHING when a target is bound (the picker cannot open)', async () => {
-    // An EXPLICIT ?appointmentId binds the colleague's booking — with a target
-    // on screen the dialog has no entry point, so the array stays empty.
+  it('fires the bulk loader for a no-target screen (the picker CAN open)', async () => {
+    await screen()
+    expect(loadPickerFacts).toHaveBeenCalledTimes(1)
+  })
+
+  it('builds NOTHING — and reads NOTHING — when a target is bound', async () => {
+    // An EXPLICIT ?appointmentId binds the colleague's booking. With a target
+    // on screen the dialog cannot be mounted, so the array stays empty AND the
+    // two whole-tenant reads behind it never fire (B-6).
     const bound = await screen({ requestedAppointmentId: 'a-theirs' })
     expect(bound.nextAppointment?.id).toBe('a-theirs')
     expect(bound.customerFacts).toEqual([])
+    expect(loadPickerFacts).not.toHaveBeenCalled()
   })
 
-  it('degrades to karute # + 新規 when neither bulk map is injected', async () => {
-    const { customerFacts } = await screen({ enrichment: undefined, packUsage: undefined })
-    const by = new Map(customerFacts.map((f) => [f.id, f]))
-    expect(by.get('c-regular')).toEqual({ id: 'c-regular', karuteNumber: '#00214' })
-    expect(by.get('c-fresh')).toEqual({ id: 'c-fresh', karuteNumber: '#00219', isNew: true })
+  it('degrades to karute # + 新規 with no loader / no maps', async () => {
+    for (const over of [
+      { loadPickerFacts: async () => ({}) },
+      { loadPickerFacts: undefined },
+    ]) {
+      const { customerFacts } = await screen(over)
+      const by = new Map(customerFacts.map((f) => [f.id, f]))
+      expect(by.get('c-regular')).toEqual({ id: 'c-regular', karuteNumber: '#00214' })
+      expect(by.get('c-fresh')).toEqual({ id: 'c-fresh', karuteNumber: '#00219', isNew: true })
+    }
   })
 })

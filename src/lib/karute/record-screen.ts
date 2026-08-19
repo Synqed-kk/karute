@@ -41,8 +41,9 @@ import type { RecordPageNextAppointment } from '@/components/karute/redesign/rec
 import type { RecordCustomerFact } from '@/components/karute/redesign/record/RecordCustomerPickerDialog'
 import type { CachedCustomerOption } from '@/lib/customers/cached'
 // Type-only: list-enrich pulls next/cache + SynqedClient, and this module is
-// imported by suites that mock neither. The enrichment MAP is injected by the
-// caller (same shape buildAppointmentsScreen takes), never fetched here.
+// imported by suites that mock neither. The enrichment MAP comes back from the
+// caller's loadPickerFacts loader (same shape buildAppointmentsScreen takes) —
+// this module decides WHETHER to ask for it, never how to fetch it.
 import type { CustomerEnrichment } from '@/lib/customers/list-enrich'
 
 // The consent row shape this assembly reads (granted_at → the consent pill).
@@ -151,12 +152,20 @@ export async function buildRecordScreen(input: {
   /** reservation.status label resolver (getTranslations) — kept a plain fn so
    *  the module stays loadable by both builds + jest. */
   statusLabel: (key: 'in_session' | 'completed' | 'booked') => string
-  /** Bulk per-customer enrichment (前回 date+menu, 担当, karute count) — the SAME
-   *  cached aggregate the 顧客 list + 予約 agenda read. Optional: without it the
-   *  picker rows simply carry less (never wrong) detail. */
-  enrichment?: ReadonlyMap<string, CustomerEnrichment>
-  /** Bulk 回数券 usage — the same ledger read the 予約 agenda's 残n/m pill uses. */
-  packUsage?: ReadonlyMap<string, { remaining: number; size: number }>
+  /** The picker rows' bulk per-customer reads: enrichment (前回 date+menu, 担当,
+   *  karute count) and 回数券 usage — the SAME cached aggregates the 顧客 list +
+   *  予約 agenda read, so a number shown in the picker can't disagree with them.
+   *
+   *  LAZY on purpose (B-6): both are whole-tenant and listAllPackUsage is
+   *  uncached, while only the NO-TARGET screen can open the picker. This is
+   *  invoked at the customerFacts site and nowhere else, so the bound screen —
+   *  the hottest one — never fires them at all. The loader must run its two
+   *  reads in PARALLEL; each is best-effort (an absent loader or a missing map
+   *  costs the rows detail, never correctness). */
+  loadPickerFacts?: () => Promise<{
+    enrichment?: ReadonlyMap<string, CustomerEnrichment>
+    packUsage?: ReadonlyMap<string, { remaining: number; size: number }>
+  }>
   deps: RecordScreenDeps
 }): Promise<RecordScreenResult> {
   const {
@@ -170,8 +179,7 @@ export async function buildRecordScreen(input: {
     todayAppts,
     orgSettings,
     statusLabel,
-    enrichment,
-    packUsage,
+    loadPickerFacts,
     deps,
   } = input
 
@@ -345,43 +353,54 @@ export async function buildRecordScreen(input: {
   // from the injected bulk maps, and every empty field is OMITTED so a customer
   // with no history costs ~30 bytes on the wire instead of a row of nulls.
   //
-  // Built ONLY when there is no target: the dialog's single entry point is the
-  // no-own-booking card (RecordPageView's showNoTargetActions, which requires
-  // nextAppointment === null), so with a booking on screen this array is a
-  // whole-tenant payload nobody can ever read. If a future edit gives the
-  // picker a second entry point in the bound state, drop this guard — the
-  // dialog itself degrades to lean rows rather than breaking.
-  const customerFacts: RecordCustomerFact[] = nextAppointment ? [] : customers.map((c) => {
-    const e = enrichment?.get(c.id)
-    const usage = packUsage?.get(c.id) ?? null
-    const fact: RecordCustomerFact = { id: c.id }
-    const karuteNumber = karuteNumberByClientId.get(c.id)
-    if (karuteNumber) fact.karuteNumber = karuteNumber
-    const returning = isReturningCustomer({
-      joinDateIso: null,
-      lastVisitIso: e?.lastVisitIso ?? null,
-      isExistingCustomer: c.isExistingCustomer,
-      visitCount: c.visitCount,
-      karuteCount: e?.totalKarute,
-      pastAppointmentCount: e?.pastAppointmentCount,
-      hasTicketPack: c.hasTicketPack || usage !== null,
+  // Built ONLY when the screen resolves to NO target, and the bulk reads behind
+  // it are fired ONLY here (B-6): the picker's render gate is
+  // `showCustomerPicker && showNoTargetActions` (RecordPageView), and
+  // showNoTargetActions requires nextAppointment === null — so with a booking on
+  // screen the dialog cannot be mounted, and this array plus its two
+  // whole-tenant reads would be work nobody can ever read. The gate is on the
+  // STATE, not on any one entry point: whatever opens the dialog, it can only
+  // be open while the target is null (a target binding under an open dialog
+  // unmounts it — B-8). If a future edit lets the picker open in the BOUND
+  // state, move this call rather than deleting it — the dialog itself degrades
+  // to lean rows rather than breaking.
+  let customerFacts: RecordCustomerFact[] = []
+  if (!nextAppointment) {
+    const bulk = await loadPickerFacts?.()
+    const enrichment = bulk?.enrichment
+    const packUsage = bulk?.packUsage
+    customerFacts = customers.map((c) => {
+      const e = enrichment?.get(c.id)
+      const usage = packUsage?.get(c.id) ?? null
+      const fact: RecordCustomerFact = { id: c.id }
+      const karuteNumber = karuteNumberByClientId.get(c.id)
+      if (karuteNumber) fact.karuteNumber = karuteNumber
+      const returning = isReturningCustomer({
+        joinDateIso: null,
+        lastVisitIso: e?.lastVisitIso ?? null,
+        isExistingCustomer: c.isExistingCustomer,
+        visitCount: c.visitCount,
+        karuteCount: e?.totalKarute,
+        pastAppointmentCount: e?.pastAppointmentCount,
+        hasTicketPack: c.hasTicketPack || usage !== null,
+      })
+      if (!returning) fact.isNew = true
+      if ((e?.totalKarute ?? 0) > 0) fact.hasKarute = true
+      if (usage && usage.size > 0) {
+        fact.pack = { remaining: usage.remaining, size: usage.size }
+      }
+      const lastVisit = visitDateLabel(e?.lastVisitIso ?? null, locale, now)
+      if (lastVisit) fact.lastVisitDate = lastVisit
+      if (e?.lastVisitService) fact.lastVisitService = e.lastVisitService
+      if (e?.bookingStaffId) {
+        const name = staffNameById.get(e.bookingStaffId)
+        if (name) fact.staffName = name
+        const colorKey = staffColors.get(e.bookingStaffId)?.key
+        if (colorKey) fact.staffColorKey = colorKey
+      }
+      return fact
     })
-    if (!returning) fact.isNew = true
-    if ((e?.totalKarute ?? 0) > 0) fact.hasKarute = true
-    if (usage && usage.size > 0) {
-      fact.pack = { remaining: usage.remaining, size: usage.size }
-    }
-    const lastVisit = visitDateLabel(e?.lastVisitIso ?? null, locale, now)
-    if (lastVisit) fact.lastVisitDate = lastVisit
-    if (e?.lastVisitService) fact.lastVisitService = e.lastVisitService
-    if (e?.bookingStaffId) {
-      const name = staffNameById.get(e.bookingStaffId)
-      if (name) fact.staffName = name
-      const colorKey = staffColors.get(e.bookingStaffId)?.key
-      if (colorKey) fact.staffColorKey = colorKey
-    }
-    return fact
-  })
+  }
 
   // Wave 2 — everything keyed off the recording TARGET's customer.
   const targetCustomerId = nextAppointment?.customerId ?? null

@@ -627,7 +627,8 @@
       "lastVisitWithMenu": "前回: {date}（{menu}）",
       "lastVisitOnly": "前回: {date}",
       "lastVisitNone": "前回: 来店なし",
-      "todayAt": "本日 {time}"
+      "todayAt": "本日 {time}",
+      "clearSearch": "検索をクリア"
     },
     "brief": {
       "title": "セッション前ブリーフィング",

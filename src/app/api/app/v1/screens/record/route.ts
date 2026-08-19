@@ -163,19 +163,6 @@ export const GET = facadeHandler('screens.record', async (ctx) => {
 
     const t = await getTranslations({ locale, namespace: 'reservation.status' })
 
-    // Picker-dialog facts (v2) — page parity: the same two bulk reads the web
-    // sessions page fires, both best-effort. A failure costs the picker rows
-    // their detail lines; it must never 502 the screen.
-    const [enrichment, packUsage] = await Promise.all([
-      enrichCustomers(
-        businessId,
-        customers.map((c) => c.id),
-      ).catch(() => new Map<string, CustomerEnrichment>()),
-      listAllPackUsageWithClient(synqed).catch(
-        () => new Map<string, CustomerPackUsage>(),
-      ),
-    ])
-
     const screen = await buildRecordScreen({
       locale,
       now,
@@ -187,8 +174,25 @@ export const GET = facadeHandler('screens.record', async (ctx) => {
       todayAppts,
       orgSettings,
       statusLabel: (key) => t(key),
-      enrichment,
-      packUsage,
+      // Picker-dialog facts (v2) — page parity: the same two bulk reads the web
+      // sessions page fires, both best-effort (a failure costs the picker rows
+      // their detail lines; it must never 502 the screen). LAZY like the web's:
+      // buildRecordScreen invokes it only for a no-target screen, so the bound
+      // read no longer pays for them — and they no longer sit SERIALIZED behind
+      // getAppointmentsByDate as a stage of their own (B-6/B-7). The two reads
+      // run in parallel with each other, as before.
+      loadPickerFacts: async () => {
+        const [enrichment, packUsage] = await Promise.all([
+          enrichCustomers(
+            businessId,
+            customers.map((c) => c.id),
+          ).catch(() => new Map<string, CustomerEnrichment>()),
+          listAllPackUsageWithClient(synqed).catch(
+            () => new Map<string, CustomerPackUsage>(),
+          ),
+        ])
+        return { enrichment, packUsage }
+      },
       deps: {
         resolveExplicitAppointment: (id) =>
           resolveExplicitAppointmentForClient(synqed, id, nameById),

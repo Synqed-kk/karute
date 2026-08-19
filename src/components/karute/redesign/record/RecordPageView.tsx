@@ -335,6 +335,30 @@ export function RecordPageView({
   const [showNoBookingPrompt, setShowNoBookingPrompt] = useState(false)
   const [showCustomerPicker, setShowCustomerPicker] = useState(false)
   const [recordingDuration, setRecordingDuration] = useState(0)
+
+  // Idle, no take in flight, and NO booking of the signed-in staff's own today
+  // — buildRecordScreen no longer auto-picks a colleague's booking (8/19
+  // ruling), so there is nothing to record against until the staff says who.
+  // The target card carries the two explicit actions and the big record button
+  // steps aside (mock A2); the walk-in flow itself is unchanged, only its
+  // trigger moved out of the no-booking prompt.
+  // recState, NOT the composite `live` (A-1, 8/19): a pipeline still crunching
+  // the LAST take with an idle recorder is a normal working window — the staff
+  // can and must line up the next customer there. Gating on `live` dropped them
+  // back onto the legacy scaffold, whose 別の予約を選択 sheet lists the whole salon.
+  const showNoTargetActions = phase === 'idle' && recState === 'idle' && !nextAppointment
+
+  // B-8: the picker exists ONLY in that state. QuietRefresh re-renders this
+  // page with fresh server props behind the paint, so a target can bind while
+  // the dialog is open (a colleague hands over a booking, the staffer's own is
+  // created) — and showCustomerPicker, a plain flag, never noticed: the dialog
+  // floated over a bound screen and its rows navigated away from a live target.
+  // The flag follows the state back down, so the dialog also can't spring open
+  // by itself the next time the target clears. The render gate below is the
+  // enforcement; this keeps the flag from lying in between.
+  useEffect(() => {
+    if (!showNoTargetActions) setShowCustomerPicker(false)
+  }, [showNoTargetActions])
   // Outcome is chosen the MOMENT recording stops (the staff knows it live),
   // before transcription — so they decide once, up front, then the AI runs in
   // the background while they move on. It rides the pipeline context to save.
@@ -940,18 +964,6 @@ export function RecordPageView({
   // collapse to a single column so the record button isn't dwarfed by a half-empty grid.
   const layoutMode: 'single' | 'split' = targetAppointment ? 'split' : 'single'
 
-  // Idle, no take in flight, and NO booking of the signed-in staff's own today
-  // — buildRecordScreen no longer auto-picks a colleague's booking (8/19
-  // ruling), so there is nothing to record against until the staff says who.
-  // The target card carries the two explicit actions and the big record button
-  // steps aside (mock A2); the walk-in flow itself is unchanged, only its
-  // trigger moved out of the no-booking prompt.
-  // recState, NOT the composite `live` (A-1, 8/19): a pipeline still crunching
-  // the LAST take with an idle recorder is a normal working window — the staff
-  // can and must line up the next customer there. Gating on `live` dropped them
-  // back onto the legacy scaffold, whose 別の予約を選択 sheet lists the whole salon.
-  const showNoTargetActions = phase === 'idle' && recState === 'idle' && !nextAppointment
-
   // F2: every OPEN starts clean — a hung take's in-flight write must not
   // pre-lock the NEXT take's dialog as 保存中 (the finally reset in onResolve
   // only fires when that write eventually settles; a request that never
@@ -1390,7 +1402,7 @@ export function RecordPageView({
           colleague's still lands on otherStaffBanner, which is the deliberate
           8/19 pick), and a searched customer keeps the pre-existing
           ?customerId= path the 顧客 card's mic uses (bottom-nav.tsx). */}
-      {showCustomerPicker && (
+      {showCustomerPicker && showNoTargetActions && (
         <RecordCustomerPickerDialog
           customers={customers}
           bookings={nearbyBookings}
