@@ -34,6 +34,7 @@ import {
   listStoreOptions,
   readDayPlanes,
   readShellIdentity,
+  readStaffStores,
   type StoreLens,
 } from '@/business/lib/data'
 import {
@@ -44,7 +45,6 @@ import {
   hhmm,
   laneMinutes,
   openDecisions,
-  place,
   utilization,
   yen,
   type BoardBooking,
@@ -60,6 +60,9 @@ const fmtMonth = new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'lon
 const fmtTime = new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false, ...JST })
 
 const DAY_MS = 86_400_000
+/** 予約種別 as canon writes it on a card and in the 精算 dialog's sub-line. */
+const CATEGORY_WORD = { new: '新規', repeat: '単発', ticket: '回数券', vip: 'VIP' } as const
+const WEEKDAY_WORD = ['日曜', '月曜', '火曜', '水曜', '木曜', '金曜', '土曜'] as const
 /** The window the date nav and the month calendar can reach. Wide enough for a
  *  month either way, small enough that the per-day sums are free. */
 const WINDOW = 45
@@ -108,6 +111,7 @@ export default async function TodayPage({
     readDayPlanes(lens),
     readShellIdentity(),
   ])
+  const staffStores = await readStaffStores(lens)
 
   const storeNames = new Map(storeOptions.map((s) => [s.id, s.name]))
   const input: BuildInput = {
@@ -118,6 +122,8 @@ export default async function TodayPage({
     resources,
     shifts: planes.shifts,
     qualifications: planes.staffQualifications,
+    staffListPrice: planes.staffListPrice,
+    staffStores,
     absence: planes.absence,
     blocks: planes.blocks,
     sellSlots: planes.sellSlots,
@@ -167,8 +173,11 @@ export default async function TodayPage({
     const offset = i - WINDOW
     const at = new Date(now.getTime() + offset * DAY_MS)
     const p = jstParts(at)
-    const free = freeSlots(rosterMinutes, bookedByDay.get(todayKey + offset) ?? 0)
-    return { offset, ...p, free, booked: countByDay.get(todayKey + offset) ?? 0 }
+    // 定休日 has no capacity to advertise — a closed day showing free slots is
+    // the impossible state, not a rounding question.
+    const closed = p.wd === planes.closedWeekday
+    const free = closed ? 0 : freeSlots(rosterMinutes, bookedByDay.get(todayKey + offset) ?? 0)
+    return { offset, ...p, closed, free, booked: countByDay.get(todayKey + offset) ?? 0 }
   })
 
   // ── C: ops strip ──────────────────────────────────────────────────────────
@@ -219,7 +228,6 @@ export default async function TodayPage({
           (d) => !d.appointment_id || bookingById.get(d.appointment_id)?.state !== 'hold',
         ).length,
         waitingContact: incidentDecisions.filter((d) => d.notification === 'unsent').length,
-        safeSlots: planes.sellSlots.length,
         steps: planes.recoverySteps,
         intakeStopped: planes.absence.intake_stopped,
         caseId: incidentDecisions[0]?.id ?? null,
@@ -348,16 +356,6 @@ export default async function TodayPage({
   const heldBooking = bookings.find((b) => b.state === 'hold') ?? null
   const holdDecision = heldBooking ? planes.decisions.find((d) => d.appointment_id === heldBooking.id) ?? null : null
 
-  // ── E2: sell shelf + the tint cells on the lanes ──────────────────────────
-  const sellCells = planes.sellSlots.map((s) => ({
-    id: s.id,
-    laneKey: s.staff_id,
-    resourceKey: s.resource_id,
-    ...place(s.start, s.end, planes.operatingHours),
-    price: yen(s.price_high),
-    label: `${hhmm(s.start)}–${hhmm(s.end)} · ${staffName.get(s.staff_id) ?? '担当未定'} · ${yen(s.price_low)}〜${yen(s.price_high)}`,
-  }))
-
   const props: TodayProps = {
     locale,
     storeParam: clamped ? query.store! : null,
@@ -373,14 +371,16 @@ export default async function TodayPage({
       : null,
     nowLabel: hhmm(planes.boardNow),
     lanes,
-    sellCells,
-    sellShelfDegraded: planes.sellShelfDegraded,
-    // Canon's chip carries the count and the entry price, not just the words —
-    // the number is the reason to open the shelf.
-    sellChipLabel:
-      planes.sellSlots.length === 0
-        ? 'オンライン販売なし'
-        : `オンライン販売中 ${planes.sellSlots.length}枠・${yen(Math.min(...planes.sellSlots.map((s) => s.price_low)))}〜`,
+    // The 販売可能枠 layer is DERIVED IN THE BROWSER, not here: it has to answer
+    // to a drag in progress, and a server-frozen cell list would keep painting
+    // a window the card being dragged is already standing in. The dials come
+    // from the store's settings; the arithmetic is canon's
+    // (src/business/lib/canon-logic/availability.ts).
+    sell: {
+      gridMin: planes.opsConfig.reserveStartGridMin,
+      nowMinute: dayOffset === 0 ? planes.boardNow : null,
+    },
+    closedWeekdayLabel: WEEKDAY_WORD[planes.closedWeekday],
     ops: {
       total: yen(totals.total),
       settled: `${totals.settled}件`,
@@ -389,7 +389,6 @@ export default async function TodayPage({
       unresolved: open.length,
       syncLabel,
       undelivered,
-      published: planes.sellSlots.length,
     },
     myDay: mineShift
       ? {
@@ -436,7 +435,7 @@ export default async function TodayPage({
       checkout: inStore
         ? {
             title: `${inStore.customerName} 様の精算`,
-            sub: `${inStore.timeRange} / ${inStore.menuName}`,
+            sub: `${inStore.timeRange} / ${inStore.menuName} / ${CATEGORY_WORD[inStore.category]}`,
             amount: inStore.price == null ? '記録なし' : `${yen(inStore.price)}（税込）`,
             rows: [
               ['請求額', inStore.price == null ? '記録なし' : `${yen(inStore.price)}（税込）`],
@@ -452,6 +451,10 @@ export default async function TodayPage({
         hqMax: planes.pricingRule.hq_max,
         hqSpread,
         version: planes.pricingRule.version,
+        approvedAt: fmtDayShort
+          .format(new Date(now.getTime() - planes.pricingRule.approved_days_ago * DAY_MS))
+          .replace(/\([^)]*\)/, '')
+          .concat(` ${hhmm(planes.pricingRule.approved_minute)}`),
         approvedBy: planes.pricingRule.approved_by,
         protectedLabel: `回数券 ${planes.pricingRule.protected.ticket}件 / VIP ${planes.pricingRule.protected.vip}件 / 店頭 ${planes.pricingRule.protected.walkin}件`,
         slots: planes.sellSlots.map((s) => ({
@@ -499,16 +502,27 @@ export default async function TodayPage({
           .map((c) => ({ id: c.id, name: c.name, no: c.member_number, phone: c.phone ?? '電話未登録', furigana: c.furigana ?? '' })),
         sources: ['店頭', '電話', 'Reserve', '紹介'],
         blockKinds: ['休憩', '準備', '記録', '清掃', 'ミーティング'],
+        // canon's block flow is 種類 / 長さ / メモ. The lengths are multiples of
+        // the store's own block step, so a block cannot be created at a
+        // granularity the board would then refuse to move it at.
+        blockLengths: [1, 2, 3, 6, 12].map((n) => n * planes.opsConfig.blockStepMin * 2),
         openLabel: hhmm(planes.operatingHours.open),
         closeLabel: hhmm(planes.operatingHours.close),
       },
       storeFront: {
-        slots: planes.sellSlots.map((s) => ({
-          id: s.id,
-          label: `${hhmm(s.start)}–${hhmm(s.end)} / ${staffName.get(s.staff_id) ?? '担当未定'} + ${resourceName.get(s.resource_id) ?? '設備未定'}`,
-          storePrice: yen(planes.pricingRule.base),
-          publicPrice: yen(s.price_high),
-        })),
+        // canon's change list is コース / 店頭予約価格 / Reserve公開価格. The menu
+        // is the one the slot's length actually buys — a slot that matches no
+        // menu length says so rather than naming one it is not.
+        slots: planes.sellSlots.map((s) => {
+          const fits = menus.find((m) => m.duration_minutes === s.end - s.start) ?? null
+          return {
+            id: s.id,
+            label: `${hhmm(s.start)}–${hhmm(s.end)} / ${staffName.get(s.staff_id) ?? '担当未定'} + ${resourceName.get(s.resource_id) ?? '設備未定'}`,
+            menuName: fits ? fits.name : `${s.end - s.start}分（メニュー未設定）`,
+            storePrice: yen(planes.pricingRule.base),
+            publicPrice: yen(s.price_high),
+          }
+        }),
       },
       blocks: [...planes.blocks].map((b) => ({
         id: b.id,

@@ -20,9 +20,9 @@
    a custom property for its count, so the ruler uses auto-flow columns — same
    result, one source.
 
-   NOT CARRIED (out of batch 1 per ⚖ L-7, and dead CSS is worse than absent
-   CSS): drag/resize grips, drop and slot ghosts, the 仮置きエリア shelf, the
-   スキマガード demo layer and its popover/log, and the two-day d1 machinery. */
+   NOT CARRIED (dead CSS is worse than absent CSS): the スキマガード demo layer
+   with its popover and log — canon's own copy calls it a page-local teaching
+   sample — and the two-day d1 machinery, which our `?day=` link replaces. */
 
 /* ═══ page ═══ */
 .biz .page { padding: 14px 28px 36px; }
@@ -63,10 +63,14 @@
 .biz .register-cell span { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .biz .register-cell b { font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .biz .register-cell b.warn { color: var(--red-dark); }
-.biz .register-cell.act { border-right: 1px solid var(--section); background: #fff; color: var(--ink); text-align: left; font: inherit; }
+/* canon :898/:906 — `border: 0` is the whole declaration, and it has to be:
+   without the reset a <button> keeps the browser's own outset bevel, which is
+   the black box Liam saw around these three cells. It also drops the divider
+   the plain cells carry; that is canon's own look for an entrance cell. */
+.biz .register-cell.act { border: 0; background: #fff; color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
 .biz .register-cell.act:hover { background: #fafafb; }
 .biz .register-cell.act > b::after, .biz .ops-decisions > b::after { content: " ›"; color: var(--quiet); font-weight: 500; }
-.biz .ops-decisions { background: #fff; color: var(--ink); text-align: left; }
+.biz .ops-decisions { border: 0; background: #fff; color: var(--ink); text-align: left; cursor: pointer; }
 .biz .ops-decisions:hover { background: #fafafb; }
 .biz .ops-decisions b { color: var(--orange); }
 .biz .ops-right { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; padding: 6px 12px; }
@@ -360,6 +364,40 @@
   background-image: repeating-linear-gradient(135deg, rgba(24, 24, 27, .04) 0 6px, transparent 6px 12px), linear-gradient(to right, var(--row) 1px, transparent 1px);
 }
 
+/* ── drag surfaces (canon :1436–1453) ────────────────────────────────────
+   Both edges resize, so both edges must visibly say so. Real child grips keep
+   the ::before channel free for the booking-category stripe. */
+.biz .event[data-book] { cursor: grab; touch-action: none; }
+/* Screen-reader-only: the keyboard-shortcut sentence canon puts on every card.
+   Scoped here rather than borrowing a utility class the .biz sheet does not own. */
+.biz .board-keyhelp { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.biz .event-resize-grip { position: absolute; z-index: 4; top: 4px; bottom: 4px; width: 8px; opacity: 0; cursor: ew-resize; transition: opacity .12s ease; }
+.biz .event-resize-grip.left { left: 0; border-left: 2px solid currentColor; }
+.biz .event-resize-grip.right { right: 0; border-right: 2px solid currentColor; }
+.biz .event[data-book]:hover .event-resize-grip,
+.biz .event[data-book]:focus-visible .event-resize-grip { opacity: .42; }
+.biz .event.dragging { opacity: .88; z-index: 30; cursor: grabbing; box-shadow: 0 8px 22px rgba(24, 24, 27, .22); }
+.biz .event.pending { outline: 2px dashed var(--orange); outline-offset: 1px; z-index: 6; }
+.biz .event.parked { display: none !important; }
+.biz .track.drop-target { background-color: var(--indigo-soft); background-image: linear-gradient(to right, rgba(63, 91, 232, .22) 1px, transparent 1px); box-shadow: inset 0 0 0 2px var(--select-line); }
+/* 行またぎドラッグの着地プレビュー — 実寸・スナップ済みの半透明ゴースト */
+.biz .drop-ghost { position: absolute; top: 2px; bottom: 2px; left: var(--x); width: var(--w); border: 1.5px dashed var(--select-line); border-radius: 8px; background: rgba(63, 91, 232, .12); pointer-events: none; z-index: 3; }
+
+/* ── 仮置きエリア (canon :1493–1507) ──────────────────────────────────────
+   The WHOLE bar is the drop zone, so the whole bar is drawn as the receptacle;
+   lighting only the label box was a lie about the target. */
+.biz .park-shelf { display: flex; align-items: center; gap: 12px; min-height: 38px; margin: 8px 10px 4px; padding: 3px 12px; border: 1.5px dashed #c2c2ca; border-radius: 9px; background: #fafafb; }
+.biz .park-label { flex: 0 0 auto; display: flex; align-items: baseline; gap: 8px; }
+.biz .park-label strong { font-size: 12.5px; }
+.biz .park-label span { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.biz .park-shelf.over { border-color: var(--orange); background: var(--orange-soft); }
+.biz .park-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.biz .park-chip { position: relative; display: grid; gap: 1px; padding: 6px 30px 6px 14px; border: 1px solid #ecc9a4; border-radius: 8px; background: var(--orange-soft); color: var(--orange); font-size: 12px; cursor: grab; touch-action: none; text-align: left; }
+.biz .park-chip::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 8px 0 0 8px; background: var(--cat, #9d9da8); }
+.biz .park-chip strong { font-size: 12.5px; }
+.biz .park-chip .park-x { position: absolute; right: 4px; top: 4px; display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: var(--orange); font-size: 13px; cursor: pointer; }
+.biz .park-chip .park-x:hover { background: #fff; }
+
 .biz .event {
   position: absolute;
   left: var(--x);
@@ -403,9 +441,11 @@
 .biz .timeline.hide-time .e-time, .biz .timeline.hide-tkt .e-tkt { display: none; }
 .biz.drawer-open .event .tg { display: none; }
 
-/* 販売可能枠 tint (E9b). ドラッグ時のみ / 非表示 are canon's own modes; with
-   drag out of batch 1 the drag mode simply never reveals them, which is what it
-   says on the label. */
+/* 販売可能枠 tint (E9b), canon :586–598. The wash's alpha SCALES WITH THE
+   PRICE TIER — `--tier` is 1/2/3 and the alpha rides it, which is how the board
+   shows relative pricing without a legend. A flat alpha loses that signal
+   entirely. During a drag both modes lift the cells and darken them, because a
+   drag is the moment the price is actually being decided. */
 .biz .cell-price {
   position: absolute;
   top: 4px;
@@ -417,11 +457,19 @@
   display: flex;
   align-items: flex-end;
   padding: 3px 5px;
-  background: rgba(130, 151, 233, .1);
+  background: rgba(130, 151, 233, calc(.04 + var(--tier) * .03));
   z-index: 0;
 }
 .biz .cell-price i { font-style: normal; font-size: 10px; font-weight: 600; color: var(--indigo); opacity: .7; line-height: 1; }
-.biz .timeline.sell-drag .cell-price, .biz .timeline.sell-off .cell-price { display: none; }
+.biz .timeline.sell-drag .cell-price { opacity: 0; }
+.biz .timeline.sell-off .cell-price { display: none; }
+.biz .timeline.sell-tint:has(.event.dragging) .cell-price,
+.biz .timeline.sell-drag:has(.event.dragging) .cell-price { opacity: 1; background: rgba(130, 151, 233, calc(.07 + var(--tier) * .04)); }
+.biz .timeline:has(.event.dragging) .cell-price i { font-weight: 700; font-size: 11px; opacity: .95; }
+/* 密度ガード (E9c, fixed rule — not a setting): too many visible bands and tint
+   behaves as drag-only, so a fragmented day does not turn into confetti. */
+.biz .timeline.sell-tint.density-degraded .cell-price { opacity: 0; }
+.biz .timeline.sell-tint.density-degraded:has(.event.dragging) .cell-price { opacity: 1; }
 .biz .timeline.hide-slot-prices .cell-price i { display: none; }
 .biz .lane.locked .cell-price { display: none; }
 
@@ -744,6 +792,13 @@
 .biz-dialog .cc-ticket-note { color: var(--muted); font-size: 11.5px; line-height: 1.5; }
 .biz-dialog .cc-ticket-actions { display: grid; grid-template-columns: auto 1fr; gap: 7px; margin-top: auto; padding-top: 8px; }
 .biz-dialog .field-error { min-height: 15px; color: var(--red-dark); font-size: 12px; }
+/* ＋新規顧客 — canon's inline registration step (:6499). It sits inside the
+   customer step so a walk-in never sends the operator to another screen. */
+.biz-dialog .cc-newcust { display: grid; gap: 8px; margin-top: 8px; padding: 10px; border: 1px solid var(--section); border-radius: 9px; background: #fafafb; }
+.biz-dialog .cc-newcust-actions { display: flex; justify-content: flex-end; gap: 7px; }
+.biz-dialog .cc-field textarea { width: 100%; padding: 7px 9px; border: 1px solid var(--control); border-radius: 8px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; resize: vertical; }
+.biz-dialog .framing-sample { color: var(--muted); font-size: 11.5px; }
+.biz .park-chip .pc-line1, .biz .park-chip .pc-line2 { color: var(--orange); font-size: 11px; opacity: .82; }
 
 .biz .toast {
   position: fixed;

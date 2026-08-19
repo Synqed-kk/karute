@@ -37,12 +37,15 @@ import {
   boardNow,
   decisions,
   operatingHours,
+  opsConfig,
   register,
   resources,
   sellSlots,
   shifts,
   staffQualifications,
 } from '@/business/lib/fixtures-today'
+import { sellLayerFor } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { money } from '@/business/lib/canon-logic/pricing'
 import {
   availableMinutes,
   bookingCategory,
@@ -50,6 +53,7 @@ import {
   effectiveShift,
   freeSlots,
   openDecisions,
+  minuteOf,
   place,
   suppressedByAbsence,
   utilization,
@@ -245,11 +249,17 @@ describe('the board day is operationally possible (⚖ 8/9 demo-data-product-tru
 describe('board derivations', () => {
   it('places a lane element as a share of the opening-hours window', () => {
     const h = { open: 600, close: 1140 } // 10:00–19:00, 540 minutes
-    expect(place(600, 660, h)).toEqual({ x: 0, w: (60 / 540) * 100 })
-    expect(place(1080, 1140, h)).toEqual({ x: (480 / 540) * 100, w: (60 / 540) * 100 })
-    // Anything outside the window is clipped to it rather than drawn off-board.
+    expect(place(600, 660, h)).toEqual({ x: 0, w: (60 / 540) * 100, startMin: 600, endMin: 660 })
+    expect(place(1080, 1140, h)).toEqual({ x: (480 / 540) * 100, w: (60 / 540) * 100, startMin: 1080, endMin: 1140 })
+    // Anything outside the window is clipped to it rather than drawn off-board —
+    // and the minute pair is clipped identically, so the percent reading and the
+    // minute reading of the same element can never disagree.
     expect(place(540, 660, h).x).toBe(0)
+    expect(place(540, 660, h).startMin).toBe(600)
     expect(place(1100, 1260, h).w).toBe((40 / 540) * 100)
+    expect(place(1100, 1260, h).endMin).toBe(1140)
+    // minuteOf is place()'s inverse, on the same axis.
+    expect(minuteOf(place(750, 810, h).x, h)).toBe(750)
   })
 
   it('reads カテゴリー strongest-first: VIP over 回数券 over 新規/再来', () => {
@@ -355,7 +365,6 @@ describe('今日の運営 screen', () => {
     expect(p.ops.settled).toMatch(/件$/)
     expect(p.ops.awaiting).toMatch(/件$/)
     expect(p.ops.cashDifference).toBe('¥0')
-    expect(p.ops.published).toBe(sellSlots.length)
     expect(p.ops.syncLabel).toMatch(/^\d{2}:\d{2}$/)
   })
 
@@ -396,7 +405,8 @@ describe('今日の運営 screen', () => {
     expect(p.hours.count).toBe((operatingHours.close - operatingHours.open) / 60)
     expect(p.hours.labels).toHaveLength(p.hours.count)
     expect(p.hours.labels[0]).toBe(String(operatingHours.open / 60))
-    expect(p.sellCells).toHaveLength(sellSlots.length)
+    expect(p.sell.gridMin).toBe(opsConfig.reserveStartGridMin)
+    expect(p.sell.nowMinute).toBe(boardNow)
     expect(p.dayLabel).toContain('2026年')
     expect(p.nowFraction).toBeGreaterThan(0)
     expect(p.nowLabel).toBe('13:24')
@@ -468,7 +478,6 @@ describe('今日の運営 screen', () => {
     const p = await board(STORE_A)
     expect(p.incident).not.toBeNull()
     expect(p.incident!.from).toBe('13:00')
-    expect(p.incident!.safeSlots).toBe(sellSlots.length)
     expect(p.incident!.steps).toHaveLength(4)
     expect(p.incident!.intakeStopped).toBe(true)
     expect(p.incident!.undecided).toBeGreaterThan(0)
@@ -538,10 +547,32 @@ describe('今日の運営 screen', () => {
     expect(live.length).toBeGreaterThan(earning.length)
   })
 
-  it('RECONCILES: 公開中 = 安全な空き = the sell shelf rows', async () => {
+  // 公開中, 安全な空き and the shelf's own header used to be three server
+  // numbers that had to be kept equal by hand. They are now ONE derivation the
+  // browser runs (canon-logic/availability), so the equality is structural and
+  // the thing worth asserting is that the derivation answers to the board it
+  // reads — including a lane the operator has locked.
+  it('RECONCILES: 公開中 = 安全な空き = the shelf, because all three read one derivation', async () => {
     const p = await board(STORE_A)
-    expect(p.ops.published).toBe(p.sellCells.length)
-    expect(p.incident!.safeSlots).toBe(p.sellCells.length)
+    const layer = (locked: string[]) =>
+      sellLayerFor(p.lanes, p.hours, {
+        gridMin: p.sell.gridMin,
+        nowMinute: p.sell.nowMinute,
+        locked,
+        showPrice: true,
+        hi: p.dialogs.pricing.hqMax,
+        hqMin: p.dialogs.pricing.hqMin,
+        depth: 9,
+      })
+    const open = layer([])
+    expect(open.staffBands.length).toBeGreaterThan(0)
+    expect(open.chipLabel).toBe(`オンライン販売中 ${open.staffBands.length}窓 · ${open.min === open.max ? money(open.min) : `${money(open.min)}〜`}`)
+    // A locked lane sells nothing of its own — canon's `deriveSellableCells`
+    // skips it outright (:4898), so its windows leave the shelf even though the
+    // beds they used are still free.
+    const lockedLane = p.lanes.find((l) => l.group === 'staff' && open.staffBands.some((b) => b.laneKey === l.key))!
+    expect(layer([lockedLane.key]).staffBands.some((b) => b.laneKey === lockedLane.key)).toBe(false)
+    expect(open.staffBands.some((b) => b.laneKey === lockedLane.key)).toBe(true)
   })
 
   it('the store lens clamps the board: another store never reaches a lane or a card', async () => {
