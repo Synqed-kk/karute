@@ -4,8 +4,9 @@
  * may import anything that can reach synqed-core, even transitively.
  * Lock: the grants table ships separately and `profiles.is_management` does
  * not exist yet, so "missing table / missing column" is the LIVE state every
- * admission read must deny on; admission itself needs BOTH a grant row and the
- * 経営メンバー flag. Door: the lens is required, it drops another store's rows
+ * admission read must deny on. Admission needs a grant row AND a person leg —
+ * the grantee named by granted_by, or the 経営メンバー flag — and only ever on
+ * a non-production deployment. Door: the lens is required, it drops another store's rows
  * AND storeless bookings, a 全店舗 menu survives the clamp, and no territory
  * file names a client path.
  * Unit-level: no live DB, no network — the data reads hit in-territory fixtures.
@@ -27,6 +28,8 @@ import { hasBusinessAdminGrant, isManagementMember } from '@/business/lib/grants
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import * as data from '@/business/lib/data'
 import { STORE_A, STORE_B } from '@/business/lib/fixtures'
+import CustomersPage from '@/app/[locale]/(business)/business/customers/page'
+import { CustomerTable, type CustomerRow } from '@/app/[locale]/(business)/business/customers/CustomerTable'
 
 /** Chainable supabase stub: from(table).select().eq()…maybeSingle() → the
  *  per-table result, or `fallback` for any table not named. Every .eq() lands
@@ -59,8 +62,11 @@ beforeEach(() => (filters.length = 0))
 
 describe('admission reads are fail-closed', () => {
   it('grants only on a row that is actually there, keyed by the frozen workspace id', async () => {
-    service.mockReturnValue(serviceStub({ data: { workspace_id: 'business_admin' }, error: null }))
-    await expect(hasBusinessAdminGrant('biz-1')).resolves.toBe(true)
+    service.mockReturnValue(
+      serviceStub({ data: { workspace_id: 'business_admin', granted_by: 'u1' }, error: null }),
+    )
+    // One read carries both the grant AND the person it is pinned to.
+    await expect(hasBusinessAdminGrant('biz-1')).resolves.toEqual({ granted: true, grantedBy: 'u1' })
     // The registry literal is spelled here, not imported (seal) — pin it.
     expect(filters).toContainEqual(['workspace_id', 'business_admin'])
     expect(filters).toContainEqual(['business_id', 'biz-1'])
@@ -73,7 +79,13 @@ describe('admission reads are fail-closed', () => {
   })
   it.each(DENY)('grant denies on %s', async (_l, result) => {
     service.mockReturnValue(serviceStub(result))
-    await expect(hasBusinessAdminGrant('biz-1')).resolves.toBe(false)
+    await expect(hasBusinessAdminGrant('biz-1')).resolves.toEqual({ granted: false, grantedBy: null })
+  })
+  it('a grant row with a null granted_by is still a grant, pinned to nobody', async () => {
+    service.mockReturnValue(
+      serviceStub({ data: { workspace_id: 'business_admin', granted_by: null }, error: null }),
+    )
+    await expect(hasBusinessAdminGrant('biz-1')).resolves.toEqual({ granted: true, grantedBy: null })
   })
   it.each(DENY)('management denies on %s', async (_l, result) => {
     service.mockReturnValue(serviceStub(result))
@@ -83,25 +95,30 @@ describe('admission reads are fail-closed', () => {
     service.mockImplementation(() => {
       throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY')
     })
-    await expect(hasBusinessAdminGrant('biz-1')).resolves.toBe(false)
+    await expect(hasBusinessAdminGrant('biz-1')).resolves.toEqual({ granted: false, grantedBy: null })
     await expect(isManagementMember('user-1')).resolves.toBe(false)
   })
 })
 
 describe('requireBusinessAdmission', () => {
-  const GRANTED = { data: { workspace_id: 'business_admin' }, error: null }
   const NONE = { data: null, error: null }
   /** Real grants.ts driven through the service stub; only the auth session is
-   *  mocked. No capability mock exists any more — the owner-identity leg was
-   *  removed with the seal (its chain reached core), so the role gate is the
-   *  経営メンバー flag alone. */
-  function env({ grant = true, management = false, user = { id: 'u1', email: 'o@x.jp' } as unknown }) {
+   *  mocked. Role gate = the play-phase person-leg (user.id === granted_by) OR
+   *  the 経営メンバー flag, and production denies everyone either way. */
+  function env({
+    grant = true,
+    grantedBy = null as string | null,
+    management = false,
+    user = { id: 'u1', email: 'o@x.jp' } as unknown,
+  }) {
     supabase.mockResolvedValue({
       auth: { getUser: async () => ({ data: { user }, error: null }) },
     })
     service.mockReturnValue(
       serviceStub(NONE, {
-        business_workspace_grants: grant ? GRANTED : NONE,
+        business_workspace_grants: grant
+          ? { data: { workspace_id: 'business_admin', granted_by: grantedBy }, error: null }
+          : NONE,
         profiles: { data: { customer_id: 'biz-1', is_management: management }, error: null },
       }),
     )
@@ -135,6 +152,47 @@ describe('requireBusinessAdmission', () => {
     env({ grant: true, management: true })
     supabase.mockRejectedValueOnce(new Error('auth backend down'))
     await expect(requireBusinessAdmission()).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+
+  // ── door-lite play-phase legs (⚖ Liam 2026-08-19, path B) ────────────────
+  it('admits the person the grant row names, with no 経営メンバー flag', async () => {
+    env({ grant: true, grantedBy: 'u1', management: false })
+    await expect(requireBusinessAdmission()).resolves.toMatchObject({ userId: 'u1' })
+  })
+  it('denies another signed-in user of the same granted tenant', async () => {
+    env({ grant: true, grantedBy: 'someone-else', management: false })
+    await expect(requireBusinessAdmission()).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+  it('denies when granted_by is null — a grant pinned to nobody matches nobody', async () => {
+    env({ grant: true, grantedBy: null, management: false })
+    await expect(requireBusinessAdmission()).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+  it('denies the named person on PRODUCTION, grant row or not', async () => {
+    env({ grant: true, grantedBy: 'u1', management: true })
+    process.env.VERCEL_ENV = 'production'
+    try {
+      await expect(requireBusinessAdmission()).rejects.toThrow('NEXT_NOT_FOUND')
+    } finally {
+      delete process.env.VERCEL_ENV
+    }
+  })
+  it('denies an UNEXPECTED environment value — the gate is an allowlist', async () => {
+    env({ grant: true, grantedBy: 'u1', management: true })
+    process.env.VERCEL_ENV = 'production2'
+    try {
+      await expect(requireBusinessAdmission()).rejects.toThrow('NEXT_NOT_FOUND')
+    } finally {
+      delete process.env.VERCEL_ENV
+    }
+  })
+  it('admits on a preview deployment (VERCEL_ENV is exactly preview)', async () => {
+    env({ grant: true, grantedBy: 'u1' })
+    process.env.VERCEL_ENV = 'preview'
+    try {
+      await expect(requireBusinessAdmission()).resolves.toMatchObject({ userId: 'u1' })
+    } finally {
+      delete process.env.VERCEL_ENV
+    }
   })
 })
 
@@ -206,6 +264,19 @@ describe('the fixture data door', () => {
       'src/app/[locale]/(business)/layout.tsx': ['@/business/i18n', '@/business/lib/admission'],
       'src/business/lib/admission.ts': ['./grants', '@/lib/supabase/server', 'next/navigation'],
       'src/business/lib/grants.ts': ['@/lib/supabase/service'],
+      'src/app/[locale]/(business)/business/page.tsx': ['next/navigation'],
+      'src/app/[locale]/(business)/business/customers/page.tsx': [
+        './CustomerTable',
+        '@/business/i18n',
+        '@/business/lib/admission',
+        '@/business/lib/data',
+        'next/link',
+      ],
+      'src/app/[locale]/(business)/business/customers/CustomerTable.tsx': [
+        '@/business/i18n',
+        'react',
+      ],
+      'src/app/[locale]/(business)/business/customers/loading.tsx': ['@/business/i18n'],
     }
     for (const [file, expected] of Object.entries(INVENTORY)) {
       const src = readFileSync(join(process.cwd(), file), 'utf8')
@@ -219,5 +290,87 @@ describe('the fixture data door', () => {
       }
       expect({ file, imports: [...found].sort() }).toEqual({ file, imports: [...expected].sort() })
     }
+  })
+})
+
+describe('顧客一覧 screen', () => {
+  // The fixture calendar is fixed, so the clock is too: without a pin, "is this
+  // booking still ahead of us?" would make every assertion below expire.
+  beforeAll(() => jest.useFakeTimers().setSystemTime(new Date('2026-08-19T00:00:00Z')))
+  afterAll(() => jest.useRealTimers())
+  // The page re-asserts admission itself, so the screen renders as an admitted
+  // user rather than inheriting whatever the previous describe left behind.
+  beforeEach(() => {
+    supabase.mockResolvedValue({
+      auth: { getUser: async () => ({ data: { user: { id: 'u1', email: 'o@x.jp' } }, error: null }) },
+    })
+    service.mockReturnValue(
+      serviceStub(
+        { data: null, error: null },
+        {
+          business_workspace_grants: { data: { workspace_id: 'business_admin', granted_by: 'u1' }, error: null },
+          profiles: { data: { customer_id: 'biz-1', is_management: false }, error: null },
+        },
+      ),
+    )
+  })
+
+  /** The page returns an element tree; find the props the table is handed.
+   *  No renderer needed (and react-dom is off the import allowlist anyway). */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function tableRows(node: any): CustomerRow[] | null {
+    if (!node || typeof node !== 'object') return null
+    if (node.type === CustomerTable) return node.props.rows
+    const kids = node.props?.children
+    for (const kid of Array.isArray(kids) ? kids.flat() : [kids]) {
+      const hit = tableRows(kid)
+      if (hit) return hit
+    }
+    return null
+  }
+  const render = async (store?: string) =>
+    tableRows(
+      await CustomersPage({
+        params: Promise.resolve({ locale: 'ja' }),
+        searchParams: Promise.resolve(store ? { store } : {}),
+      }),
+    )
+
+  it('gates itself: a denied session 404s the page, not just the layout', async () => {
+    // The layout gates too, but a screen must not depend on a parent's await
+    // for its authorization (api/business handlers would get none at all).
+    supabase.mockResolvedValue({
+      auth: { getUser: async () => ({ data: { user: null }, error: null }) },
+    })
+    await expect(render()).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+  it('renders every fixture customer through the wrapper', async () => {
+    const rows = await render()
+    expect(rows).toHaveLength(8)
+    expect(rows!.map((r) => r.name)).toContain('見本 あかり')
+    expect(rows!.every((r) => r.memberNumber.startsWith('C-'))).toBe(true)
+  })
+  it('respects the store lens: another store\'s booking never reaches the row', async () => {
+    const ginza = (await render(STORE_A))!.find((r) => r.id === 'cus-01')!
+    const daikanyama = (await render(STORE_B))!.find((r) => r.id === 'cus-01')!
+    expect(ginza.nextSlot).toMatch(/8月19日/) // apt-01 lives in 銀座
+    expect(daikanyama.nextSlot).toBeNull() // …and must not leak into 代官山
+    expect((await render(STORE_B))!.find((r) => r.id === 'cus-03')!.nextSlot).not.toBeNull()
+  })
+  it('a cancelled booking is not a next booking', async () => {
+    expect((await render(STORE_B))!.find((r) => r.id === 'cus-05')!.nextSlot).toBeNull()
+  })
+  it('a booking that already started is not a next booking', async () => {
+    // cus-01 holds a past booking (apt-11, 8月12日) AND a future one (apt-01):
+    // the future one wins. cus-05's only 銀座 booking is past (apt-12) → none.
+    const ginza = (await render(STORE_A))!
+    expect(ginza.find((r) => r.id === 'cus-01')!.nextSlot).toBe('8月19日 10:00–11:00')
+    expect(ginza.find((r) => r.id === 'cus-05')!.nextSlot).toBeNull()
+  })
+  it('formats the slot in JST regardless of the server clock', async () => {
+    // 2026-08-19T01:00:00Z = 10:00 JST — never 01:00.
+    expect((await render(STORE_A))!.find((r) => r.id === 'cus-01')!.nextSlot).toBe(
+      '8月19日 10:00–11:00',
+    )
   })
 })

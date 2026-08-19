@@ -10,7 +10,15 @@
 export const STORE_A = 'store-test-ginza'
 export const STORE_B = 'store-test-daikanyama'
 
-export interface FixtureCustomer { id: string; name: string; furigana: string | null; phone: string | null; visit_count: number; last_visit_at: string | null }
+export interface FixtureStore { id: string; name: string }
+export const stores: FixtureStore[] = [
+  { id: STORE_A, name: 'テスト銀座店' },
+  { id: STORE_B, name: 'テスト代官山店' },
+]
+
+/** member_number / ticket_balance / verified back the canon 顧客一覧 columns
+ *  (顧客 · 回数券・残高 · 確認); a null balance renders 「—」 like the mock. */
+export interface FixtureCustomer { id: string; name: string; furigana: string | null; phone: string | null; member_number: string; visit_count: number; last_visit_at: string | null; ticket_balance: number | null; verified: boolean }
 export interface FixtureAppointment { id: string; store_id: string | null; customer_id: string; staff_id: string | null; starts_at: string; ends_at: string; status: 'booked' | 'done' | 'cancelled' }
 export interface FixtureMenu { id: string; store_id: string | null; name: string; price: number; duration_minutes: number }
 export interface FixtureStaff { id: string; full_name: string; email: string | null }
@@ -20,18 +28,22 @@ export interface FixtureStaffCard { id: string; user_id: string | null; email: s
 
 /** Customers are business-wide — real ones carry no store_id either. */
 export const customers: FixtureCustomer[] = [
-  { id: 'cus-01', name: '見本 あかり', furigana: 'ミホン アカリ', phone: '090-0000-0001', visit_count: 12, last_visit_at: '2026-08-10T02:00:00Z' },
-  { id: 'cus-02', name: '見本 いつき', furigana: 'ミホン イツキ', phone: '090-0000-0002', visit_count: 3, last_visit_at: '2026-07-28T05:30:00Z' },
-  { id: 'cus-03', name: '見本 うみ', furigana: 'ミホン ウミ', phone: null, visit_count: 1, last_visit_at: '2026-08-01T01:00:00Z' },
-  { id: 'cus-04', name: 'テスト えいた', furigana: 'テスト エイタ', phone: '090-0000-0004', visit_count: 27, last_visit_at: '2026-08-15T08:00:00Z' },
-  { id: 'cus-05', name: 'テスト おとは', furigana: 'テスト オトハ', phone: '090-0000-0005', visit_count: 0, last_visit_at: null },
-  { id: 'cus-06', name: '見本 かえる', furigana: 'ミホン カエル', phone: '090-0000-0006', visit_count: 8, last_visit_at: '2026-08-12T03:00:00Z' },
-  { id: 'cus-07', name: '見本 きり', furigana: 'ミホン キリ', phone: null, visit_count: 5, last_visit_at: '2026-06-20T06:00:00Z' },
-  { id: 'cus-08', name: 'テスト くらら', furigana: 'テスト クララ', phone: '090-0000-0008', visit_count: 41, last_visit_at: '2026-08-18T09:00:00Z' },
+  { id: 'cus-01', name: '見本 あかり', furigana: 'ミホン アカリ', phone: '090-0000-0001', member_number: 'C-3001', visit_count: 12, last_visit_at:'2026-08-10T02:00:00Z', ticket_balance: 4, verified: true },
+  { id: 'cus-02', name: '見本 いつき', furigana: 'ミホン イツキ', phone: '090-0000-0002', member_number: 'C-3002', visit_count: 3, last_visit_at:'2026-07-28T05:30:00Z', ticket_balance: null, verified: false },
+  { id: 'cus-03', name: '見本 うみ', furigana: 'ミホン ウミ', phone: null, member_number: 'C-3003', visit_count: 1, last_visit_at:'2026-08-01T01:00:00Z', ticket_balance: null, verified: false },
+  { id: 'cus-04', name: 'テスト えいた', furigana: 'テスト エイタ', phone: '090-0000-0004', member_number: 'C-3004', visit_count: 27, last_visit_at:'2026-08-15T08:00:00Z', ticket_balance: 12, verified: true },
+  { id: 'cus-05', name: 'テスト おとは', furigana: 'テスト オトハ', phone: '090-0000-0005', member_number: 'C-3005', visit_count: 0, last_visit_at:null, ticket_balance: null, verified: false },
+  { id: 'cus-06', name: '見本 かえる', furigana: 'ミホン カエル', phone: '090-0000-0006', member_number: 'C-3006', visit_count: 8, last_visit_at:'2026-08-12T03:00:00Z', ticket_balance: 2, verified: true },
+  { id: 'cus-07', name: '見本 きり', furigana: 'ミホン キリ', phone: null, member_number: 'C-3007', visit_count: 5, last_visit_at:'2026-06-20T06:00:00Z', ticket_balance: null, verified: true },
+  { id: 'cus-08', name: 'テスト くらら', furigana: 'テスト クララ', phone: '090-0000-0008', member_number: 'C-3008', visit_count: 41, last_visit_at:'2026-08-18T09:00:00Z', ticket_balance: 8, verified: true },
 ]
 
 /** apt-09 is deliberately STORELESS (the pre-repair-import shape) — hidden from
- *  a clamped lens, visible under viewAll. */
+ *  a clamped lens, visible under viewAll. apt-11/apt-12 are PAST bookings: a
+ *  booking that already started is never a 次回予約.
+ *  ponytail: these dates are fixed, so the demo's "next booking" column empties
+ *  once real time passes them — re-date the block (or make it relative) when
+ *  the play phase outlives it. */
 export const appointments: FixtureAppointment[] = [
   { id: 'apt-01', store_id: STORE_A, customer_id: 'cus-01', staff_id: 'p-01', starts_at: '2026-08-19T01:00:00Z', ends_at: '2026-08-19T02:00:00Z', status: 'booked' },
   { id: 'apt-02', store_id: STORE_A, customer_id: 'cus-02', staff_id: 'p-04', starts_at: '2026-08-19T02:30:00Z', ends_at: '2026-08-19T03:30:00Z', status: 'booked' },
@@ -43,6 +55,8 @@ export const appointments: FixtureAppointment[] = [
   { id: 'apt-08', store_id: STORE_A, customer_id: 'cus-08', staff_id: 'p-01', starts_at: '2026-08-22T00:30:00Z', ends_at: '2026-08-22T01:30:00Z', status: 'booked' },
   { id: 'apt-09', store_id: null, customer_id: 'cus-07', staff_id: null, starts_at: '2026-08-19T07:00:00Z', ends_at: '2026-08-19T08:00:00Z', status: 'booked' },
   { id: 'apt-10', store_id: STORE_B, customer_id: 'cus-04', staff_id: 'p-05', starts_at: '2026-08-23T02:00:00Z', ends_at: '2026-08-23T03:00:00Z', status: 'booked' },
+  { id: 'apt-11', store_id: STORE_A, customer_id: 'cus-01', staff_id: 'p-01', starts_at: '2026-08-12T01:00:00Z', ends_at: '2026-08-12T02:00:00Z', status: 'booked' },
+  { id: 'apt-12', store_id: STORE_A, customer_id: 'cus-05', staff_id: 'p-04', starts_at: '2026-08-11T04:00:00Z', ends_at: '2026-08-11T05:00:00Z', status: 'booked' },
 ]
 
 /** menu-06 has no store_id: a 全店舗 item, visible in every store. */
