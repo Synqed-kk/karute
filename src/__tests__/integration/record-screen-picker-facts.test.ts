@@ -204,6 +204,25 @@ describe('buildRecordScreen — picker customerFacts', () => {
     expect(loadPickerFacts).not.toHaveBeenCalled()
   })
 
+  // C-8: the loader's own JSDoc calls each read "best-effort (an absent loader
+  // or a missing map costs the rows detail, never correctness)" — but a
+  // REJECTING loader (either whole-tenant read throwing: a network blip, an
+  // RLS refusal, core down) propagated straight out of buildRecordScreen and
+  // took the WHOLE record screen with it. The screen the staff needs when they
+  // have no booking must not die because a decoration couldn't be fetched.
+  it('a REJECTING loader degrades to lean facts, it does not kill the screen', async () => {
+    const { customerFacts, nearbyBookings } = await screen({
+      loadPickerFacts: async () => {
+        throw new Error('bulk read failed')
+      },
+    })
+    const by = new Map(customerFacts.map((f) => [f.id, f]))
+    expect(by.get('c-regular')).toEqual({ id: 'c-regular', karuteNumber: '#00214' })
+    expect(by.get('c-fresh')).toEqual({ id: 'c-fresh', karuteNumber: '#00219', isNew: true })
+    // The rest of the screen is untouched.
+    expect(nearbyBookings[0].customerId).toBe('c-regular')
+  })
+
   it('degrades to karute # + 新規 with no loader / no maps', async () => {
     for (const over of [
       { loadPickerFacts: async () => ({}) },

@@ -364,6 +364,21 @@ export function RecordPageView({
   // the background while they move on. It rides the pipeline context to save.
   const [outcomeOpen, setOutcomeOpen] = useState(false)
 
+  // C-1: the 録音を使用 tap is the ONE user-reachable caller of
+  // globalPipeline.start on this screen (take-recovery's banner is gated on
+  // !live), and the pipeline is single-slot — a start() while a previous run
+  // is still processing supersedes it. On the in-tab arm that DROPS the old
+  // run's result un-settled, which used to happen without a word.
+  const [showSupersedeDialog, setShowSupersedeDialog] = useState(false)
+  // Same convention B-8 established for the picker: the confirm may exist ONLY
+  // while there is a run to supersede. The render gate below is the
+  // enforcement; this keeps the flag from lying in between — a stale true
+  // would spring the dialog open, uninvited and now untrue, the moment the
+  // NEXT take's pipeline starts processing.
+  useEffect(() => {
+    if (pipeline.state !== 'processing') setShowSupersedeDialog(false)
+  }, [pipeline.state])
+
   // D3: discard-with-photos confirmation (see handleDiscard below).
   const [showDiscardPhotosDialog, setShowDiscardPhotosDialog] = useState(false)
   const [discardingPhotos, setDiscardingPhotos] = useState(false)
@@ -978,6 +993,36 @@ export function RecordPageView({
     setOutcomeOpen(true)
   }
 
+  // Which flow the 録音を使用 tap runs, once it's cleared to run at all.
+  function runStopFlow() {
+    // Tickets off OR the pack data on screen isn't this session's customer
+    // (mismatch/anonymous): straight save — no burn, no 成約/回数券 dialog
+    // (resolveStopFlow's contract).
+    const flow = resolveStopFlow({ ticketsEnabled, canRunOutcome, outcomeMode })
+    if (flow === 'save-direct') handleUseRecording(undefined, true)
+    else if (flow === 'auto-redeem') handleAutoFlow()
+    else openOutcomeDialog()
+  }
+
+  // C-1 (Greptile F1): the supersession gate. It sits BEFORE the fork above on
+  // purpose — handleAutoFlow burns a pack session and the outcome dialog can
+  // create one, so asking here means a キャンセル costs nothing and moves no
+  // money. 'processing' only: an 'autosaving' run has finished its AI work and
+  // its save is already dispatched (ProcessingIndicator), so superseding it
+  // loses nothing to warn about, and an errored run is documented as legitimate
+  // to supersede.
+  function handleUseRecordingTap() {
+    if (pipeline.state === 'processing') {
+      // The old run survives server-side — say so, don't ask.
+      if (globalPipeline.serverOwned) toast.info(t('supersedeServerNotice'))
+      else {
+        setShowSupersedeDialog(true)
+        return
+      }
+    }
+    runStopFlow()
+  }
+
   const recorderControls = phase === 'recorded' ? (
     <section className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-7 shadow-sm">
       <div className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">
@@ -1004,15 +1049,7 @@ export function RecordPageView({
           // pack/redeem write, not the whole post-resolve window) — the real
           // guard is outcomeResolvedRef inside openOutcomeDialog.
           disabled={resolvingOutcome}
-          onClick={() => {
-            // Tickets off OR the pack data on screen isn't this session's
-            // customer (mismatch/anonymous): straight save — no burn, no
-            // 成約/回数券 dialog (resolveStopFlow's contract).
-            const flow = resolveStopFlow({ ticketsEnabled, canRunOutcome, outcomeMode })
-            if (flow === 'save-direct') handleUseRecording(undefined, true)
-            else if (flow === 'auto-redeem') handleAutoFlow()
-            else openOutcomeDialog()
-          }}
+          onClick={handleUseRecordingTap}
         >
           {t('useRecording')}
         </Button>
@@ -1446,6 +1483,51 @@ export function RecordPageView({
                 onClick={handleStartAnyway}
               >
                 {t('recordAnyway')}
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* C-1 — supersession confirm. Same shape as the no-booking prompt
+          above (one sibling convention for the page's confirms): キャンセル
+          keeps the previous run alive and leaves this take on its review
+          screen, so nothing is lost either way. */}
+      {showSupersedeDialog && pipeline.state === 'processing' && (
+        <>
+          <div
+            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowSupersedeDialog(false)}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('supersedeTitle')}
+            className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 space-y-4 rounded-xl border border-border bg-card p-6 shadow-xl"
+          >
+            <h3 className="text-base font-semibold text-foreground">
+              {t('supersedeTitle')}
+            </h3>
+            <p className="text-sm text-muted-foreground">{t('supersedeDescription')}</p>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                size="md"
+                className="flex-1"
+                onClick={() => setShowSupersedeDialog(false)}
+              >
+                {tc('cancel')}
+              </Button>
+              <Button
+                variant="default"
+                size="md"
+                className="flex-1"
+                onClick={() => {
+                  setShowSupersedeDialog(false)
+                  runStopFlow()
+                }}
+              >
+                {t('supersedeConfirm')}
               </Button>
             </div>
           </div>

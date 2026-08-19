@@ -141,6 +141,17 @@ class GlobalPipeline {
    * module is not a React component). null for every in-tab run.
    */
   serverSavedRecordId: string | null = null
+  /**
+   * Which arm owns the run currently in flight (C-1). TRUE only while a CORE
+   * JOB owns it: superseding that run costs nothing — the worker keeps going
+   * and the record still saves — so the record page passes a notice instead of
+   * asking. FALSE for every in-tab run, whose result IS dropped un-settled by
+   * a supersession. Derived from the actual dispatch (set in run()/
+   * runServerJob()), never from the port flag alone: on the thin arm a walk-in
+   * or recovery take still runs IN-TAB, and telling that staffer their take is
+   * safe would be the exact silence C-1 removes.
+   */
+  serverOwned = false
 
   private blob: Blob | null = null
   private listeners = new Set<Listener>()
@@ -205,6 +216,8 @@ class GlobalPipeline {
 
   private async run() {
     if (!this.blob || !this.context) return
+    // In-tab from here on — including every fallback runServerJob routes here.
+    this.serverOwned = false
     const runId = ++this.runId
     try {
       // Anchor context for the extraction/summary prompts. Without it the JA
@@ -260,6 +273,7 @@ class GlobalPipeline {
    *  report) until the settle below flips it to 'autosaving'. */
   private async runServerJob() {
     if (!this.blob || !this.context) return
+    this.serverOwned = true
     const runId = ++this.runId
     const blob = this.blob
     const context = this.context
@@ -518,6 +532,7 @@ class GlobalPipeline {
     this.context = null
     this.blob = null
     this.serverSavedRecordId = null
+    this.serverOwned = false
     this.notify()
   }
 }

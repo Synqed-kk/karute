@@ -112,6 +112,31 @@ jest.mock('@/lib/karute/take-store', () => ({
   loadTakeBlob: jest.fn(),
 }))
 
+// C-2: a pass-through wrapper that COUNTS renders of the real dialog. B-8
+// below proves the dialog is gone once a target binds; the counter proves it
+// never renders even once on the way out — i.e. the enforcement lives in the
+// RENDER gate (`showCustomerPicker && showNoTargetActions`), not in the effect
+// that follows it. An effect-only gate ends in the same empty screen while
+// still painting a full picker over a freshly-bound target for one commit,
+// with rows that navigate away from a live recording target.
+const mockDialogRenders = { n: 0 }
+jest.mock('@/components/karute/redesign/record/RecordCustomerPickerDialog', () => {
+  const actual = jest.requireActual<
+    typeof import('@/components/karute/redesign/record/RecordCustomerPickerDialog')
+  >('@/components/karute/redesign/record/RecordCustomerPickerDialog')
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { createElement } = require('react') as typeof import('react')
+  return {
+    ...actual,
+    RecordCustomerPickerDialog: (
+      props: Parameters<typeof actual.RecordCustomerPickerDialog>[0],
+    ) => {
+      mockDialogRenders.n++
+      return createElement(actual.RecordCustomerPickerDialog, props)
+    },
+  }
+})
+
 import { RecordPageView } from '@/components/karute/redesign/record/RecordPageView'
 
 // The no-target screen as the server actually builds it: every
@@ -366,6 +391,8 @@ describe('RecordPageView — customer-picker dialog v2 (8/19 mock)', () => {
     const { rerender } = render(<RecordPageView {...dialogProps} />)
     fireEvent.click(screen.getByText('chooseCustomer'))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+    // C-2: everything the dialog renders from here on must be ZERO.
+    const rendersAtBind = mockDialogRenders.n
 
     // The server re-render QuietRefresh paints behind the screen: the staffer
     // now HAS a booking of their own. The picker may exist only in the
@@ -395,6 +422,8 @@ describe('RecordPageView — customer-picker dialog v2 (8/19 mock)', () => {
     })
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    // C-2: not "gone by the end of the commit" — never painted at all.
+    expect(mockDialogRenders.n).toBe(rendersAtBind)
 
     // The target clears again (staffer's booking gets reassigned elsewhere).
     // The picker must NOT spring back open on its own — only an explicit tap
@@ -403,6 +432,7 @@ describe('RecordPageView — customer-picker dialog v2 (8/19 mock)', () => {
       rerender(<RecordPageView {...dialogProps} />)
     })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(mockDialogRenders.n).toBe(rendersAtBind)
   })
 
   it('B-9: the 本日 chip follows the booking still open, not the earlier 記録済 one', () => {
@@ -438,6 +468,33 @@ describe('RecordPageView — customer-picker dialog v2 (8/19 mock)', () => {
     // BADGE_COLORS.green.solid (still booked) — never slate, the 記録済 grey.
     expect(stripe).toHaveClass('bg-green-500')
     expect(stripe).not.toHaveClass('bg-slate-400')
+  })
+
+  it('C-4: 新規 takes the blue stripe, but never outranks 記録済/施術中', () => {
+    // 佐藤 美咲 (c-2) is a first-timer with a still-open booking → blue, the
+    // colour 新規 has on every other surface. STRIPE.new existed but nothing
+    // could ever reach it: buildRecordScreen's statusKey only carries
+    // done/in-session/booked, so every first-timer read 予約済 green.
+    render(
+      <RecordPageView
+        {...dialogProps}
+        customerFacts={[
+          { id: 'c-2', isNew: true },
+          // …and the finished 15:30 slot belongs to a first-timer too. The
+          // agenda's precedence (terminal > in-session > 新規 > 予約済) says
+          // that row stays slate — it is a receipt, not an upcoming visit.
+          { id: 'c-3', isNew: true },
+        ]}
+      />,
+    )
+    fireEvent.click(screen.getByText('chooseCustomer'))
+
+    const open = screen.getByText('佐藤 美咲').closest('button')!
+    expect(open.querySelector('span.absolute')).toHaveClass('bg-blue-500')
+
+    const done = screen.getByText('山本 結衣').closest('li')!
+    expect(done.querySelector('span.absolute')).toHaveClass('bg-slate-400')
+    expect(done.querySelector('span.absolute')).not.toHaveClass('bg-blue-500')
   })
 
   it('tapping a booking row navigates to the exact encoded ?appointmentId= URL', () => {
@@ -484,5 +541,10 @@ describe('RecordPageView — customer-picker dialog v2 (8/19 mock)', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: '原' } })
     expect(screen.getByText('原 奏恵')).toBeInTheDocument()
     expect(screen.queryByText('#00214')).not.toBeInTheDocument()
+    // C-7: absent facts are NOT a claim. An old payload knows nothing about
+    // this customer's karute — printing カルテ未作成 (the key, in this
+    // key-echoed suite) would state as fact something the server never said,
+    // and staff would open a fresh chart for someone who already has one.
+    expect(screen.queryByText('target.noKarute')).not.toBeInTheDocument()
   })
 })

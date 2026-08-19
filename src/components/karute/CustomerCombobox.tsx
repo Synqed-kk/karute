@@ -21,7 +21,10 @@ type CustomerComboboxProps = {
   disabled?: boolean
 }
 
-const MAX_RESULTS = 8
+/** Rows one customer search shows at once. Exported because a caller that caps
+ *  the list also has to tell the staff how many matches it left off — a header
+ *  reading the capped array announces 8 matches over a salon of 20 (C-3). */
+export const CUSTOMER_SEARCH_LIMIT = 8
 
 /** Strip separators so "080-1234-5678" and "08012345678" match the same way.
  *  Full-width digits (０-９, the kana keyboard's default) fold to half-width
@@ -41,7 +44,7 @@ function digitsOnly(s: string): string {
 export function filterCustomers<T extends CustomerOption>(
   customers: T[],
   query: string,
-  limit = MAX_RESULTS,
+  limit = CUSTOMER_SEARCH_LIMIT,
 ): T[] {
   const trimmed = query.trim()
   if (!trimmed) return []

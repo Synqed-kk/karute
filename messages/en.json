@@ -578,6 +578,10 @@
     "noBookingTitle": "No booking found",
     "noBookingDescription": "You don't have an upcoming appointment. You can still record — it will be saved to your karute but won't be linked to any booking.",
     "recordAnyway": "Record anyway",
+    "supersedeTitle": "The previous recording is still processing. Interrupt it and start the new one?",
+    "supersedeDescription": "If you interrupt it, the previous recording's results will not be saved.",
+    "supersedeConfirm": "Interrupt and start",
+    "supersedeServerNotice": "The previous recording is still processing. It will appear in the chart once it saves.",
     "consentGrantedTitle": "Recording consent on file",
     "consentGrantedDesc": " has consented to having sessions recorded for karute generation and quality improvement. You can start recording.",
     "consentGrantedWhen": "Granted ",
@@ -628,7 +632,8 @@
       "lastVisitOnly": "Last: {date}",
       "lastVisitNone": "Last: no visits yet",
       "todayAt": "Today {time}",
-      "clearSearch": "Clear search"
+      "clearSearch": "Clear search",
+      "searchMore": "{n} more — keep typing to narrow"
     },
     "brief": {
       "title": "Pre-session brief",

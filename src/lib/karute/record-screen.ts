@@ -366,7 +366,16 @@ export async function buildRecordScreen(input: {
   // to lean rows rather than breaking.
   let customerFacts: RecordCustomerFact[] = []
   if (!nextAppointment) {
-    const bulk = await loadPickerFacts?.()
+    // C-8: best-effort for real — the loader's contract says a missing map
+    // costs the rows detail, never correctness, but a REJECTING loader (either
+    // whole-tenant read throwing) propagated out of here and took the entire
+    // record screen down. Degrade to no facts, exactly like an absent loader.
+    let bulk: Awaited<ReturnType<NonNullable<typeof loadPickerFacts>>> | undefined
+    try {
+      bulk = await loadPickerFacts?.()
+    } catch (err) {
+      console.error('[record-screen] picker facts unavailable — rows degrade to lean:', err)
+    }
     const enrichment = bulk?.enrichment
     const packUsage = bulk?.packUsage
     customerFacts = customers.map((c) => {

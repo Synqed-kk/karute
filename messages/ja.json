@@ -578,6 +578,10 @@
     "noBookingTitle": "予約が見つかりません",
     "noBookingDescription": "予約がありません。録音はカルテに保存されますが、予約にはリンクされません。",
     "recordAnyway": "録音する",
+    "supersedeTitle": "前の録音はまだ処理中です。中断して新しい録音を始めますか？",
+    "supersedeDescription": "中断すると前の録音の結果は保存されません。",
+    "supersedeConfirm": "中断して開始",
+    "supersedeServerNotice": "前の録音は処理中です。保存され次第カルテに反映されます",
     "consentGrantedTitle": "録音同意取得済み",
     "consentGrantedDesc": "様からは「施術中の会話を録音し、カルテ作成・品質向上に利用すること」について同意を取得しています。録音を開始できます。",
     "consentGrantedWhen": "取得日：",
@@ -598,7 +602,7 @@
       "current": "現在",
       "seeAllToday": "本日の予約をすべて表示",
       "noBooking": "予約が選択されていません",
-      "staffPrefix": "担当：{name}",
+      "staffPrefix": "担当 {name}",
       "defaultService": "セッション",
       "statusInSession": "施術中",
       "statusDone": "完了",
@@ -628,7 +632,8 @@
       "lastVisitOnly": "前回: {date}",
       "lastVisitNone": "前回: 来店なし",
       "todayAt": "本日 {time}",
-      "clearSearch": "検索をクリア"
+      "clearSearch": "検索をクリア",
+      "searchMore": "他{n}件 — さらに入力して絞り込み"
     },
     "brief": {
       "title": "セッション前ブリーフィング",

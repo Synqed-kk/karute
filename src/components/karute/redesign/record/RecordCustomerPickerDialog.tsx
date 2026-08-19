@@ -33,6 +33,7 @@ import { PackPill } from '@/components/reservation/AppointmentCard'
 import { deriveFamilyInitials } from '@/lib/customers/identity'
 import {
   filterCustomers,
+  CUSTOMER_SEARCH_LIMIT,
   type CustomerOption,
 } from '@/components/karute/CustomerCombobox'
 import type { RecordTargetBooking } from './RecordingTargetCard'
@@ -132,10 +133,20 @@ export function RecordCustomerPickerDialog({
   }, [dayRows])
 
   const trimmed = query.trim()
-  const results = useMemo(
-    () => filterCustomers(customers, trimmed),
+  // C-3: match EVERYTHING, then cap for the screen. The header used to count
+  // the capped array, so a query matching 20 customers announced 「検索結果
+  // (8件)」 — the staff reads 8 rows as the whole salon and stops looking. The
+  // uncapped call costs nothing extra: filterCustomers already scans every
+  // customer, the cap only truncated the result.
+  const matches = useMemo(
+    () => filterCustomers(customers, trimmed, Infinity),
     [customers, trimmed],
   )
+  const results = useMemo(
+    () => matches.slice(0, CUSTOMER_SEARCH_LIMIT),
+    [matches],
+  )
+  const hiddenMatches = matches.length - results.length
   const searching = trimmed.length > 0
 
   return (
@@ -205,25 +216,34 @@ export function RecordCustomerPickerDialog({
           {searching ? (
             <div id={LIST_ID} className="flex flex-col gap-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {t('target.searchResultsCount', { n: results.length })}
+                {t('target.searchResultsCount', { n: matches.length })}
               </p>
               {results.length === 0 ? (
                 <p className="py-4 text-center text-[13px] text-muted-foreground">
                   {tCustomers('table.noResults')}
                 </p>
               ) : (
-                <ul role="listbox" aria-label={t('target.searchResultsLabel')} className="flex flex-col gap-2">
-                  {results.map((c) => (
-                    <SearchRow
-                      key={c.id}
-                      customer={c}
-                      fact={factById.get(c.id)}
-                      todayBooking={todayByCustomer.get(c.id) ?? null}
-                      onSelect={onSelectCustomer}
-                      t={t}
-                    />
-                  ))}
-                </ul>
+                <>
+                  <ul role="listbox" aria-label={t('target.searchResultsLabel')} className="flex flex-col gap-2">
+                    {results.map((c) => (
+                      <SearchRow
+                        key={c.id}
+                        customer={c}
+                        fact={factById.get(c.id)}
+                        todayBooking={todayByCustomer.get(c.id) ?? null}
+                        onSelect={onSelectCustomer}
+                        t={t}
+                      />
+                    ))}
+                  </ul>
+                  {/* The rest of the matches, named rather than dropped —
+                      outside the listbox, so it never counts as an option. */}
+                  {hiddenMatches > 0 && (
+                    <p className="text-center text-[11px] text-muted-foreground">
+                      {t('target.searchMore', { n: hiddenMatches })}
+                    </p>
+                  )}
+                </>
               )}
             </div>
           ) : (
@@ -299,6 +319,23 @@ const STRIPE: Record<RecordTargetBooking['statusKey'], string> = {
   'in-session': BADGE_COLORS.orange.solid,
   booked: BADGE_COLORS.green.solid,
   new: BADGE_COLORS.blue.solid,
+}
+
+/**
+ * C-4: the agenda's own precedence — terminal > in-session > 新規 > 予約済
+ * (reservation-view.ts's computeDisplayStatus). buildRecordScreen's statusKey
+ * only ever carries the first three, so 新規 (blue everywhere, matching the
+ * customer record) could never fire and every first-timer's row read 予約済
+ * green. It is derived, exactly as the agenda derives it, from the customer
+ * being a first-timer — the server fact row's `isNew`, which is the shared
+ * isReturningCustomer verdict — and it can only ever outrank plain 予約済: a
+ * session already running or already written up keeps its own color.
+ */
+function stripeFor(
+  statusKey: RecordTargetBooking['statusKey'],
+  isNew: boolean | undefined,
+): string {
+  return statusKey === 'booked' && isNew ? STRIPE.new : STRIPE[statusKey]
 }
 
 function Avatar({ initials, color }: { initials: string; color: StaffColor }) {
@@ -403,7 +440,7 @@ function BookingRow({
           aria-hidden
           className={cn(
             'absolute inset-y-[7px] left-0 w-[3px] rounded-r-sm',
-            STRIPE[booking.statusKey],
+            stripeFor(booking.statusKey, fact?.isNew),
           )}
         />
         <span className="w-[34px] shrink-0">
@@ -486,7 +523,7 @@ function SearchRow({
             aria-hidden
             className={cn(
               'absolute inset-y-2 left-0 w-[3px] rounded-r-sm',
-              STRIPE[todayBooking.statusKey],
+              stripeFor(todayBooking.statusKey, fact?.isNew),
             )}
           />
         )}
