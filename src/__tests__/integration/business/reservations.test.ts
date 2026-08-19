@@ -61,7 +61,10 @@ import {
   spanText,
   type ReservationFilters,
 } from '@/business/lib/reservations'
-import ReservationsPage from '@/app/[locale]/(business)/business/reservations/page'
+import ReservationsPage, {
+  reservationsScreen,
+} from '@/app/[locale]/(business)/business/reservations/page'
+import { listStoreOptions } from '@/business/lib/data'
 import {
   ReservationsScreen,
   decorate,
@@ -113,6 +116,17 @@ const load = async (store?: string) =>
       params: Promise.resolve({ locale: 'ja' }),
       searchParams: Promise.resolve(store ? { store } : {}),
     }),
+  )!
+
+/** The MERGED payload. Since ⚖ Liam 2026-08-20 すべての店舗 left the sidebar
+ *  switcher and every screen opens on the operator's own store, no URL reaches
+ *  the cross-store view any more — so it is asked for directly, with the lens
+ *  the page can no longer be handed. The depth behind it is kept rather than
+ *  deleted: reconnect restores the lens for a viewAll-capable actor, and until
+ *  then this is what proves the cross-store payload still holds. */
+const loadAll = async () =>
+  screenProps(
+    await reservationsScreen('ja', { viewAll: true }, false, undefined, await listStoreOptions()),
   )!
 
 /** The decorated rows the screen itself works from. */
@@ -257,7 +271,7 @@ describe('lifecycle derivation', () => {
   })
 
   it('all seven canon words have a carrier in the fixture set', async () => {
-    const words = new Set(decorated(await load()).map((r) => r.lifecycle))
+    const words = new Set(decorated(await loadAll()).map((r) => r.lifecycle))
     expect([...words].sort()).toEqual(Object.keys(LIFECYCLE).sort())
   })
 
@@ -274,7 +288,7 @@ describe('lifecycle derivation', () => {
 
   it("本日 is the same number the board reports as 本日の予約件数", async () => {
     for (const store of [undefined, STORE_A, STORE_B]) {
-      const p = await load(store)
+      const p = store ? await load(store) : await loadAll()
       const rows = decorated(p)
       const todayTile = rows.filter((r) => r.isToday && r.lifecycle !== 'cancelled').length
       const boardCount = dayTotals(
@@ -427,8 +441,9 @@ describe('the transplanted bands are populated from fixtures', () => {
   })
 
   it('a booking with no agreed price states it rather than showing ¥0', async () => {
-    // apt-09 lost its store AND its price in a pre-repair import.
-    expect(byId(await load(), 'apt-09').priceLabel).toBe('受付価格の記録なし')
+    // apt-09 lost its store AND its price in a pre-repair import — storeless,
+    // so only the merged payload carries it.
+    expect(byId(await loadAll(), 'apt-09').priceLabel).toBe('受付価格の記録なし')
   })
 
   it('a booking with no bed says 【未定】 rather than guessing one', async () => {
@@ -448,7 +463,8 @@ describe('the transplanted bands are populated from fixtures', () => {
   })
 
   it('本人関係 lists only the parties that DEVIATE (⚖ cut #7)', async () => {
-    const p = await load()
+    // apt-13 is 代官山's — the merged payload is the only one holding all three.
+    const p = await loadAll()
     // cus-03 has a 保護者 and a 支払者, cus-06 a サービス対象; cus-01 is her own
     // everything and her row shows the 顧客 line alone.
     expect(byId(p, 'apt-13').party.map((x) => x.role)).toEqual(['保護者', '支払者'])
@@ -534,7 +550,7 @@ describe('the transplanted bands are populated from fixtures', () => {
 describe('the store lens', () => {
   it('drops the other store and the storeless booking under a clamp', async () => {
     const clamped = decorated(await load(STORE_A)).map((r) => r.id)
-    const all = decorated(await load()).map((r) => r.id)
+    const all = decorated(await loadAll()).map((r) => r.id)
     expect(clamped).not.toContain('apt-09') // storeless
     expect(clamped).not.toContain('apt-13') // 代官山
     expect(all).toContain('apt-09')
@@ -546,7 +562,7 @@ describe('the store lens', () => {
     expect(p.rows.every((r) => r.storeLabel === null)).toBe(true)
     expect(JSON.stringify(p.rows)).not.toContain('テスト代官山店')
     // Under viewAll the label IS the point, and the storeless row says so.
-    const all = await load()
+    const all = await loadAll()
     expect(all.rows.find((r) => r.id === 'apt-09')!.storeLabel).toBe('店舗未設定')
     expect(all.rows.find((r) => r.id === 'apt-12')!.storeLabel).toBe('テスト銀座店')
   })

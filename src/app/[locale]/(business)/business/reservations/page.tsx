@@ -26,6 +26,7 @@
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { jstDayKey, jstMinuteOfDay, jstSlot } from '@/business/lib/clock'
 import {
+  defaultStoreId,
   listAppointments,
   listCustomers,
   listMenus,
@@ -62,13 +63,16 @@ export default async function ReservationsPage({
   await requireBusinessAdmission()
   const [{ locale }, { store }] = await Promise.all([params, searchParams])
   const storeOptions = await listStoreOptions()
-  // An unknown ?store= falls back to every store rather than erroring: the lens
-  // is a view preference, and the wrapper is the thing that clamps.
-  const clamped = storeOptions.some((o) => o.id === store)
-  const lens: StoreLens = clamped ? store! : { viewAll: true }
+  // A missing or unknown ?store= opens on the operator's own store, never the
+  // business-wide merge — すべての店舗 left the sidebar switcher (⚖ Liam 8/20)
+  // and defaultStoreId owns that rule for every screen. The lens stays a view
+  // preference, never an error, and the wrapper is the thing that clamps.
+  const storeId = defaultStoreId(store, storeOptions)
+  const clamped = storeId !== null
+  const lens: StoreLens = clamped ? storeId! : { viewAll: true }
 
   try {
-    return await screen(locale, lens, clamped, store, storeOptions)
+    return await reservationsScreen(locale, lens, clamped, storeId ?? undefined, storeOptions)
   } catch {
     // M-87. Nothing is re-read and nothing is guessed: the screen renders the
     // strip and no numbers at all.
@@ -76,7 +80,11 @@ export default async function ReservationsPage({
   }
 }
 
-async function screen(
+/** The screen itself, given a lens. Exported for the same reason CustomersScreen
+ *  exports its handlers: no renderer resolves inside territory, so a suite proves
+ *  the payload by asking for it directly — and since ⚖ 8/20 the merged lens is
+ *  the one no URL can ask for any more. */
+export async function reservationsScreen(
   locale: string,
   lens: StoreLens,
   clamped: boolean,
