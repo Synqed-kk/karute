@@ -17,7 +17,10 @@
 
 import {
   appointments,
+  business,
   customers,
+  operator,
+  reserveSync,
   stores,
   menus,
   staff,
@@ -80,10 +83,46 @@ export async function listAppointments(
   range: { from?: string; to?: string } = {},
 ): Promise<FixtureAppointment[]> {
   assertLens(lens)
-  const inRange = appointments.filter(
+  const inRange = appointments().filter(
     (a) => (!range.from || a.starts_at >= range.from) && (!range.to || a.starts_at <= range.to),
   )
   return inLens(inRange, lens, false)
+}
+
+/** 来店履歴 (contract D13). Real core has no read for `customer_visits` at all
+ *  — the SDK exposes only the write (SDK-1) — so the app would have to rebuild
+ *  visits from completed bookings, which is exactly what this does. Kept a
+ *  separate read rather than a screen-side filter so the reconnect PR has one
+ *  signature to swap when `listVisits` ships.
+ *  ⚠ RECONNECT: a real visit carries `sales_amount`; this stands in with the
+ *  booking's agreed price, which is not the same number once discounts exist. */
+export async function listVisits(
+  lens: StoreLens,
+  opts: { customerId?: string } = {},
+): Promise<FixtureAppointment[]> {
+  assertLens(lens)
+  const done = appointments().filter(
+    (a) => a.status === 'done' && (!opts.customerId || a.customer_id === opts.customerId),
+  )
+  return inLens(done, lens, false).sort((a, b) => b.starts_at.localeCompare(a.starts_at))
+}
+
+/** The tenant + operator + sync state the shell names. No lens: it describes
+ *  the viewer, not a store's rows.
+ *  ⚠ RECONNECT: `storeCount` must become the count of stores the ACTOR may see
+ *  (isolation law), not the tenant's total. */
+export async function readShellIdentity(): Promise<{
+  business: typeof business
+  operator: typeof operator
+  /** ISO instant of the last Reserve sync. Resolved HERE rather than in the
+   *  shell so the clock is read in a data function, not during render. */
+  reserveSyncedAt: string
+}> {
+  return {
+    business,
+    operator,
+    reserveSyncedAt: new Date(Date.now() - reserveSync.minutes_ago * 60_000).toISOString(),
+  }
 }
 
 export async function listMenus(lens: StoreLens): Promise<FixtureMenu[]> {
