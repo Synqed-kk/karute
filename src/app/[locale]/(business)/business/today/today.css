@@ -211,6 +211,10 @@
 .biz .legend .needs i { background: var(--red-soft); border-color: #e6a09a; }
 .biz .legend .hold i { background: var(--orange-soft); border-color: #ecc9a4; }
 .biz .legend .public i { background: #f7f9ff; border: 1px dashed #a9b7ef; }
+/* canon :427-429 — the two window layers get their own swatches, and the guard
+   row only exists while the store's protection policy is on. */
+.biz .legend .gapfill i { background: var(--orange-soft); border: 1px dashed var(--orange-line); }
+.biz .legend .guard i { background: var(--guard-soft); border: 1px dashed var(--guard-dark); }
 .biz .legend b { margin-left: auto; color: var(--ink-3); font-weight: 500; }
 .biz .legend .cat-legend { display: inline-flex; align-items: center; gap: 4px; padding-left: 11px; border-left: 1px solid var(--section); }
 .biz .legend .cat-legend i.cat { width: 4px; height: 12px; margin-left: 5px; border-radius: 2px; border: 0; background: var(--cat, #9d9da8); }
@@ -478,6 +482,79 @@
 .biz .timeline.hide-slot-prices .cell-price i { display: none; }
 .biz .lane.locked .cell-price { display: none; }
 
+/* ── スキマ枠 / 詰め込みセッション (canon :608–619) ────────────────────────
+   Two more window layers over the same track. スキマ枠 (.cell-gapfill) is the
+   ORANGE one: a residue that only a discounted offer can still sell, and it is
+   deliberately independent of sellMode. 詰め込み (.cell-packed) is a full
+   standard session packed against the head of a pocket — same blue wash as the
+   normal layer but a solid border, because a wide box that reads as a merged
+   band is exactly the misreading the per-hour label rule already fixed once.
+   Canon's label carries the LENGTH as well as the price (¥8,650（60分）): the
+   box is one fixed-start session, not an hour of a band. */
+.biz .cell-gapfill { position: absolute; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); border-radius: 4px; pointer-events: none; display: flex; align-items: flex-end; padding: 3px 5px; background: rgba(232, 130, 60, .09); z-index: 0; }
+.biz .cell-gapfill i { font-style: normal; font-size: 10px; font-weight: 600; color: var(--orange-line); opacity: .85; line-height: 1; }
+.biz .timeline.hide-slot-prices .cell-gapfill i { display: none; }
+.biz .cell-packed { position: absolute; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); border-radius: 4px; pointer-events: none; display: flex; align-items: flex-end; padding: 3px 5px; background: rgba(130, 151, 233, .18); border: 1.5px solid rgba(63, 91, 232, .55); box-sizing: border-box; z-index: 1; }
+.biz .cell-packed i { font-style: normal; font-size: 10px; font-weight: 700; color: var(--indigo); opacity: .9; line-height: 1; }
+.biz .timeline.hide-slot-prices .cell-packed i { display: none; }
+.biz .timeline.sell-drag .cell-packed { opacity: 0; }
+.biz .timeline.sell-off .cell-packed { display: none; }
+.biz .timeline.sell-tint:has(.event.dragging) .cell-packed,
+.biz .timeline.sell-drag:has(.event.dragging) .cell-packed { opacity: 1; }
+.biz .timeline.sell-tint.density-degraded .cell-packed { opacity: 0; }
+.biz .timeline.sell-tint.density-degraded:has(.event.dragging) .cell-packed { opacity: 1; }
+.biz .lane.locked .cell-gapfill, .biz .lane.locked .cell-packed { display: none; }
+
+/* ── スキマガード 60分配置ガイド (canon :626–686) ──────────────────────────
+   An 18px status rail follows each staff lane: every exact 30-minute start,
+   judged by the guard engine, without covering a card or a price. Purple ✓ =
+   the protected window survives; amber △ = it shrinks but the loss is the
+   smallest available; grey — = refused. The mode classes below are a PERSONAL
+   display preference: the rail stays derived and authoritative, they only
+   decide when it is painted, so hiding the guide can never weaken the rule. */
+.biz .guard-placement-rail { display: grid; grid-template-columns: var(--label) minmax(0, 1fr); height: 18px; min-height: 18px; border-bottom: 1px solid var(--row); background: #fff; }
+.biz .guard-rail-label { position: sticky; left: 0; z-index: 7; display: flex; align-items: center; padding: 0 8px 0 11px; border-right: 1px solid var(--section); background: #fafafb; color: #666670; font-size: 9px; font-weight: 800; white-space: nowrap; }
+.biz .guard-rail-track { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 0; min-width: 0; padding: 2px 0; background: #fff; }
+.biz .guard-rail-cell { position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; height: 14px; padding: 0; box-sizing: border-box; border-radius: 2px; font-family: inherit; font-size: 9px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.6px; white-space: nowrap; overflow: hidden; touch-action: manipulation; }
+.biz .guard-rail-cell:not(:last-child)::before { content: ""; position: absolute; z-index: 1; right: 0; top: 1px; bottom: 1px; width: 1px; background: rgba(255, 255, 255, .8); pointer-events: none; }
+.biz .guard-rail-cell i { font: inherit; color: inherit; white-space: nowrap; }
+.biz .guard-rail-cell.guard-slot { border: 1px solid #7656a8; background: var(--guard-soft); color: var(--guard-dark); cursor: pointer; }
+.biz .guard-rail-cell.degraded { border: 1px solid #cf8427; background: #fff0d9; color: #8b4e06; cursor: pointer; }
+.biz .guard-rail-cell.blocked { border: 1px solid #e0e0e5; background: #f2f2f4; color: #8a8a93; }
+.biz .guard-rail-cell:hover:not(.blocked), .biz .guard-rail-cell:focus-visible { outline: 0; filter: brightness(.94); box-shadow: inset 0 0 0 1px currentColor, 0 0 0 2px rgba(85, 60, 143, .18); }
+.biz button.guard-rail-cell:focus { z-index: 6; outline: 2px solid var(--select-line); outline-offset: 1px; filter: brightness(.94); box-shadow: inset 0 0 0 1px currentColor, 0 0 0 3px #fff; }
+@media (max-width: 1200px) {
+  .biz .guard-rail-cell { font-size: 8px; letter-spacing: -.6px; }
+  .biz .guard-rail-label { padding-left: 8px; font-size: 8.5px; }
+}
+@media (min-width: 1400px) { .biz .guard-rail-cell { font-size: 10px; letter-spacing: -.5px; } }
+.biz .timeline.guard-guide-mode-drag:not(.guard-guide-aiming) .guard-placement-rail,
+.biz .timeline.guard-guide-mode-hidden .guard-placement-rail { display: none; }
+
+/* 守るもの — the legend band that names what the rail is protecting (canon
+   :1282–1294 + the #guardDemoHonesty markup at :1855). */
+.biz .guard-band { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 12px 14px; padding: 10px 12px; border-left: 2px solid var(--guard-dark); border-radius: 0 8px 8px 0; background: #f7f7f9; color: var(--ink-3); font-size: 12px; font-weight: 700; line-height: 1.6; }
+.biz .guard-band .guard-key { display: inline-flex; align-items: center; gap: 6px; }
+.biz .guard-band .guard-key::before { content: ""; width: 20px; height: 14px; border-radius: 3px; border: 1px solid #7656a8; background: var(--guard-soft); }
+.biz .guard-band .degraded-key { color: #8b4e06; }
+.biz .guard-band .degraded-key::before { border-color: #cf8427; background: #fff0d9; }
+.biz .guard-band .blocked-key { color: #686871; }
+.biz .guard-band .blocked-key::before { border-color: #d7d7dc; background: #f2f2f4; }
+.biz .guard-band .protected-key { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 7px; background: var(--guard-soft); color: var(--guard-dark); font-weight: 800; }
+.biz .guard-band .guard-band-note { font-weight: 500; color: var(--ink-2); }
+
+/* 配置の相談 — canon's refusal dialog (:741–751). A refused placement never
+   moves: the板 names the engine's real reason and offers the feasible starts
+   as controls that actually perform the placement. */
+.biz .guard-pop { position: fixed; z-index: 80; display: grid; gap: 8px; width: max-content; min-width: 260px; max-width: min(92vw, 340px); padding: 12px 13px; border: 1px solid var(--guard-dark); border-radius: 10px; background: #fff; box-shadow: 0 10px 30px rgba(24, 24, 27, .18); font-size: 12.5px; }
+.biz .guard-pop .gp-reason { font-weight: 800; color: var(--guard-dark); }
+.biz .guard-pop .gp-offer { color: var(--ink-2); }
+.biz .guard-pop .gp-alternatives { display: flex; flex-wrap: wrap; gap: 6px; }
+.biz .guard-pop .gp-alt { border: 1px solid var(--guard-dark); border-radius: 999px; padding: 5px 10px; background: var(--guard-soft); color: var(--guard-dark); font: inherit; font-weight: 800; cursor: pointer; }
+.biz .guard-pop .gp-alt:hover, .biz .guard-pop .gp-alt:focus-visible { background: var(--guard-dark); color: #fff; outline: 0; }
+.biz .guard-pop .gp-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 2px; }
+.biz .guard-pop .gp-cancel { border: 1px solid var(--control); border-radius: 7px; padding: 6px 12px; background: #fff; color: var(--ink-2); font-size: 12.5px; cursor: pointer; }
+
 .biz .elapsed-wash {
   position: absolute;
   left: var(--label);
@@ -600,6 +677,12 @@
   line-height: 1;
   font-weight: 800;
 }
+/* A FAILED check wears canon's red × (canon :1516-1517), never the green ✓ the
+   base rule paints. The pair is one decision with the base rule and rides the
+   same selector, so both places checks render — the hold bar and the create
+   dialog's ticket (.holdbar-checks.cc-ticket-checks) — answer identically. */
+.biz .holdbar-checks .ck.bad::before { content: "×"; background: var(--red-soft); color: var(--red-dark); }
+.biz .holdbar-checks .ck.bad { color: var(--red-dark); font-weight: 700; }
 .biz .holdbar-actions { grid-column: 2; grid-row: 1 / -1; display: flex; gap: 7px; }
 
 /* ═══ I — incident band ═══ */

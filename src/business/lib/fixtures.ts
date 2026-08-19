@@ -296,8 +296,10 @@ export const menus: FixtureMenu[] = [
   { id: 'menu-06', store_id: null, name: '見本 全店舗メニュー', price: 3300, duration_minutes: 20 },
 ]
 
-/** p-09 has no card at all (a profile that was never linked) — the UNKNOWN
- *  case a clamped lens must exclude. */
+/** Everyone on this roster has a card and a store (⚖ 8/20 data-truth): a
+ *  person on the board whose store nobody knows is an impossible state, not a
+ *  teaching case. The clamped-lens rule that excludes an unlinked profile is
+ *  unchanged and tested against a synthetic row. */
 export const staff: FixtureStaff[] = [
   { id: 'p-01', full_name: '見本 はなこ', email: 'hanako@test.invalid' },
   { id: 'p-02', full_name: '見本 たろう', email: 'taro@test.invalid' },
@@ -316,6 +318,7 @@ export const staffCards: FixtureStaffCard[] = [
   { id: 'c-04', user_id: 'p-04', email: null },
   { id: 'c-05', user_id: 'p-05', email: 'goro@test.invalid' },
   { id: 'c-06', user_id: 'p-06', email: 'azusa@test.invalid' },
+  { id: 'c-09', user_id: 'p-09', email: 'mirai@test.invalid' },
 ]
 
 /** Card → stores. An absent card (c-03) is floating: works in every store. */
@@ -325,6 +328,7 @@ export const staffAssignments: Record<string, string[]> = {
   'c-04': [STORE_A],
   'c-05': [STORE_A, STORE_B],
   'c-06': [STORE_A],
+  'c-09': [STORE_A],
 }
 
 /**
@@ -338,8 +342,9 @@ export const staffAssignments: Record<string, string[]> = {
  * Invariants held by hand and asserted in the suite: every slot sits inside
  * 10:00–19:00 JST, no staff member holds two bookings at once, and every
  * staff/store pair matches `staffAssignments` (a floating card works anywhere).
- * apt-09 is deliberately STORELESS — the pre-repair-import shape a clamped
- * lens must hide.
+ * Every row carries a real store (⚖ 8/20 data-truth): a booking no store owns
+ * is an impossible state, and the clamped-lens rule that hides one is tested
+ * against a synthetic row instead of a demo-world one.
  *
  * ponytail: recomputed per call rather than memoised; the set is a dozen rows
  * and a cache would only reintroduce the frozen-calendar bug it replaced.
@@ -452,9 +457,20 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
     slot('apt-20', 'thin-01', STORE_A, 'p-01', 'menu-01', 6, 13, 0, 60, 6600, 'booked'),
     // A cancelled booking is not a 次回予約 — cus-05 must show なし.
     slot('apt-21', 'cus-05', STORE_B, 'p-02', 'menu-05', 2, 10, 0, 45, 5500, 'cancelled'),
-    // Storeless: hidden from a clamped lens, visible under viewAll. It keeps a
-    // 全店舗 menu (visible in every store) but no price — the pre-repair-import
-    // shape, where the store and the agreed price were both lost.
-    slot('apt-09', 'cus-07', null, null, 'menu-06', 1, 16, 0, 20, null, 'booked'),
+    // A 20-minute 全店舗 menu with no room assigned yet and no price agreed —
+    // the partially-filled shape the board has to render honestly (【未定】 and
+    // 価格未記録). The STORE and the 担当 are real: ⚖ the 8/20 data-truth
+    // ruling says no storeless actor exists in the demo world, because a
+    // booking nobody's store owns is an impossible state, not a teaching case.
+    // (The clamped-lens rule that hides a null-store row is unchanged and still
+    // tested — with a synthetic row, which is where an impossible state
+    // belongs.) It sits at 14:05 because a real salon's short appointments do
+    // NOT start on the half hour, and the board has to be honest about what
+    // that leaves behind: the 55- and 35-minute residues either side of it are
+    // what the スキマ枠 layer is FOR — windows at arbitrary offsets that span a
+    // section line, which a board of tidy 30/60/90 bookings never produces.
+    slot('apt-09', 'cus-07', STORE_A, 'p-05', 'menu-06', 0, 14, 5, 20, null, 'booked', {
+      board_state: 'confirmed', source: '店頭 / 見本 ごろう', taken_days_ago: 0, updated_minute: 13 * 60 + 50,
+    }),
   ]
 }

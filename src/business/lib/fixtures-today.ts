@@ -190,7 +190,12 @@ export const opsConfig = {
   gapFillMinMin: 30,
   gapFillDiscountPct: 10,
   standardSessionMin: 60,
-  gapGuardMode: 'off' as 'off' | 'standard' | 'strict',
+  /** ⚖ Liam 2026-08-20: the guard SHIPS ON in the fixture world. Canon's own
+   *  copy leaves this 'off' and puts the 配置ガイド behind a page-local demo
+   *  chip, which made the 表示設定 toggle a dead lever — it flipped the copy
+   *  and rendered nothing. Standard is the honest default for a board whose
+   *  whole subject is what can and cannot be placed. */
+  gapGuardMode: 'standard' as 'off' | 'standard' | 'strict',
   newClientSessionMin: 90,
   leadTimeMin: 60,
 }

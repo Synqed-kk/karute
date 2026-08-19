@@ -22,13 +22,18 @@ import {
   dragModeAt,
   deltaPctIn,
   fractionIn,
+  gapLayerFor,
+  guardRailsFor,
+  guardVerdictAt,
   isOverShelf,
   laneKeyAtY,
   laneSpans,
   nextSpan,
   parkChipText,
+  reasonLine,
   sellLayerFor,
   slotStartAt,
+  type GuardRail,
   type Moves,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { dragOrigin, stepPct } from '@/business/lib/canon-logic/drag-rules'
@@ -191,7 +196,7 @@ describe('the board answers to its own moves', () => {
   })
 
   it('every lane element reports its own minute span for the checks to read', () => {
-    expect(laneSpans(staffA)).toEqual([{ start: 660, end: 720 }])
+    expect(laneSpans(staffA)).toEqual([{ start: 660, end: 720, isBreak: false }])
   })
 })
 
@@ -355,5 +360,105 @@ describe('what a non-booking item wears, and whether it opens', () => {
     const card = paint({ ...offShift('準備', 'x'), kind: 'block' }, () => {}, (m) => said.push(m))
     card.dispatchEvent(new Event('pointerdown', { bubbles: true }))
     expect(said).toHaveLength(4)
+  })
+})
+
+// ── スキマガードの配置ガイド ────────────────────────────────────────────────
+// The rail is a pure derivation over the same board reading everything else
+// uses, so it is provable without a renderer. What the SCREEN adds is the
+// strip, and the strip's states come from here one-to-one.
+describe('the 配置ガイド rail', () => {
+  const GUARD = {
+    services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
+    newClientSessionMin: 90,
+    protectedLabel: '新規',
+    gapFillMinMin: 30,
+    leadTimeMin: 0,
+    mode: 'standard' as const,
+  }
+  const railInput = (over: Partial<Parameters<typeof guardRailsFor>[1]> = {}) => ({
+    open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
+    nowMinute: null, locked: [], guard: GUARD, ...over,
+  })
+  const at = (rail: GuardRail, minute: number) => rail.cells.find((c) => c.start === minute)!
+
+  it('every exact 30-minute start on the board gets a cell', () => {
+    const rails = guardRailsFor([lane({ key: 'p-01', group: 'staff' })], railInput())
+    expect(rails).toHaveLength(1)
+    expect(rails[0].cells.map((c) => c.start)).toEqual(
+      Array.from({ length: 18 }, (_, i) => 600 + i * 30),
+    )
+  })
+
+  it('a start that keeps the protected window is purple ✓ and says so', () => {
+    // An empty 10:00–19:00 shift is 540 minutes: six 90-minute windows before,
+    // and placing 60 at the very start leaves 480 → five. That IS a loss, so
+    // the honest ✓ needs a pocket a 60 fits into without costing a 新規 window:
+    // 10:00–12:30 (150 min) holds one 90, and 60 at 10:00 leaves 90 → still one.
+    const busy = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 750 }, untilLabel: '12:30' })
+    const cell = at(guardRailsFor([busy], railInput())[0], 600)
+    expect(cell.state).toBe('safe')
+    expect(cell.label).toBe('✓10:00')
+    expect(cell.sentence).toBe('新規90分の空きを守れます')
+  })
+
+  it('a start that costs the protected window is amber △ and prices the loss', () => {
+    const short = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 690 }, untilLabel: '11:30' })
+    const cell = at(guardRailsFor([short], railInput())[0], 600)
+    expect(cell.state).toBe('degraded')
+    expect(cell.label).toBe('△10:00')
+    expect(cell.sentence).toContain('新規90分の空き1→0（1枠減・損を減らす）')
+  })
+
+  it('a start with no room at all is grey — and says why, in canon\'s sentence', () => {
+    const rails = guardRailsFor([lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 640 } })], railInput())
+    const cell = at(rails[0], 600)
+    expect(cell.state).toBe('blocked')
+    expect(cell.label).toBe('—')
+    expect(cell.sentence).toBe('この開始には60分の連続した空きがありません')
+  })
+
+  it('the card in hand is not an obstacle to itself', () => {
+    const held = booking({ key: 'k1', caseId: 'apt-1' }, 600, 660)
+    const withCard = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 750 }, untilLabel: '12:30', items: [held] })
+    expect(at(guardRailsFor([withCard], railInput())[0], 600).state).toBe('blocked')
+    expect(at(guardRailsFor([withCard], railInput({ excludeId: 'apt-1' }))[0], 600).state).toBe('safe')
+  })
+
+  it('a locked lane and a bed lane get no rail at all', () => {
+    expect(guardRailsFor([lane({ key: 'p-01', group: 'staff' })], railInput({ locked: ['p-01'] }))).toEqual([])
+    expect(guardRailsFor([lane({ key: 'bed-01', group: 'beds' })], railInput())).toEqual([])
+  })
+
+  it('the drop asks about the card in hand, at ITS length, not the rail\'s 60', () => {
+    const l = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 750 }, untilLabel: '12:30' })
+    expect(guardVerdictAt([l], 'p-01', 600, railInput({ dur: 60 }))!.state).toBe('safe')
+    // The same start with a 180-minute booking has no pocket long enough.
+    expect(guardVerdictAt([l], 'p-01', 600, railInput({ dur: 180 }))!.state).toBe('blocked')
+    expect(guardVerdictAt([l], 'nobody', 600, railInput())).toBeNull()
+  })
+
+  it('reasonLine speaks the engine\'s refusal, never a generic one', () => {
+    expect(reasonLine({ code: 'R-REP', params: { label: '新規（90分）' } }, 90)).toBe('ここに置くと新規（90分）が入らなくなります')
+    expect(reasonLine({ code: 'R-DEAD', params: { n: 25 } }, 90)).toBe('ここに置くと25分の売れない空きが残ります')
+    expect(reasonLine({ code: 'R-SALV', params: { n: 40 } }, 90)).toBe('ここに置くと40分の割引でしか売れない空きが残ります')
+    expect(reasonLine({ code: 'R-UNAVAILABLE', params: { dur: 60 } }, 90)).toBe('この開始には既存60分を配置できません')
+    expect(reasonLine({ code: 'EXEMPT', params: { trigger: 'wall', wallType: 'shiftEnd' } }, 90)).toBe('端はシフト終了に接するため空きになりません')
+    expect(reasonLine({ code: 'EXEMPT', params: { trigger: 'wall', wallType: 'break' } }, 90)).toBe('端は休憩に接するため空きになりません')
+    expect(reasonLine({ code: 'EXEMPT', params: { trigger: 'leadTime' } }, 90)).toBe('端はリードタイムに接するため空きになりません')
+    expect(reasonLine(undefined, 90)).toBe('配置できません')
+  })
+
+  it('the スキマ枠 layer answers from the same lanes as everything else', () => {
+    // A 35-minute tail no menu fills exactly, over the 30-minute dial: orange.
+    const l = lane({ key: 'p-01', group: 'staff', window: { from: 720, until: 755 }, untilLabel: '12:35' })
+    const bed = lane({ key: 'bed-01', group: 'beds' })
+    const out = gapLayerFor([l, bed], {
+      gridMin: 60, sessionMin: 60, gapFillMin: 30, gapFillDiscountPct: 10, nowMinute: null,
+      locked: [], frame: { hi: 6600, lo: 4620, hqMin: 6600, hqMax: 7260 }, depth: 0, guard: GUARD,
+    })
+    expect(out.packed).toEqual([])
+    expect(out.scraps.filter((c) => c.group === 'staff')).toHaveLength(1)
+    expect(out.scraps[0].price).toBeGreaterThan(0)
   })
 })

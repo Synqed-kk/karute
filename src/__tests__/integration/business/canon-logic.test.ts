@@ -45,8 +45,12 @@ import {
 import { createGapGuard } from '@/business/lib/canon-logic/gap-guard'
 import {
   buildSellLayer,
+  deriveGapPackingCells,
   deriveSellableCells,
   freePockets,
+  gapFillPieces,
+  kGridCount,
+  kPackCount,
   mergeBands,
   trackFree,
   type SellResourceLane,
@@ -83,6 +87,27 @@ describe('pricing — canon fable-store-today.html :3046–3094, :4839, :4997–
     expect(clampPriceInputs(6500, 7000, HQ)).toEqual({ hi: 6600, lo: 6600, floor: 4620 })
     // canon's own shipped defaults (:3047/:3050) land untouched.
     expect(clampPriceInputs(7130, 6270, { hqMin: 6600, hqMax: 7260 })).toEqual({ hi: 7130, lo: 6270, floor: 4990 })
+  })
+
+  it('FALSY MEANS DEFAULT, exactly as canon\'s Number(x || default) reads it', () => {
+    // ENGINE-DIFF P-2. Canon guards with `Number(hiPrice.value || 7130)`, so an
+    // empty box, a null out of the database and a literal 0 all mean "use the
+    // store's own number" — the finite test used to read 0 as a real price and
+    // dropped straight to the floor. Hand-run against canon's arithmetic with
+    // the store's numbers in place of canon's page literals.
+    const F = { ...HQ, base: 6270 }
+    expect(clampPriceInputs(6560, 0, F)).toEqual({ hi: 6600, lo: 6270, floor: 4620 })
+    expect(clampPriceInputs(6560, null, F)).toEqual({ hi: 6600, lo: 6270, floor: 4620 })
+    expect(clampPriceInputs(6560, undefined, F)).toEqual({ hi: 6600, lo: 6270, floor: 4620 })
+    expect(clampPriceInputs(6560, '', F)).toEqual({ hi: 6600, lo: 6270, floor: 4620 })
+    // A numeric STRING is a real number to canon, and now to us.
+    expect(clampPriceInputs(6560, '6270', F)).toEqual({ hi: 6600, lo: 6270, floor: 4620 })
+    // Infinity clamps to the ceiling; nonsense stays NaN rather than inventing a price.
+    expect(clampPriceInputs(6560, Infinity, F)).toEqual({ hi: 6600, lo: 6600, floor: 4620 })
+    expect(clampPriceInputs(6560, 'abc', F).lo).toBeNaN()
+    // A missing 基準価格 falls back to the floor — the one place the lift has to
+    // choose, because canon's default is a page literal we do not carry.
+    expect(clampPriceInputs(6560, 0, HQ)).toEqual({ hi: 6600, lo: 4620, floor: 4620 })
   })
 
   it('the guardrail sentence quotes the clamp, so it cannot drift from it', () => {
@@ -369,6 +394,21 @@ describe('スキマガード — ported from gap-guard-engine.js', () => {
     expect(g.fillDecomposition(105)).toBeNull()
   })
 
+  it('a zero-length duration cannot hang the greedy (documented deviation)', () => {
+    // ENGINE-DIFF §5: canon's largest-first greedy picks a 0-minute coin
+    // forever — `remaining` never shrinks — and dies on RangeError. Both sides
+    // were proved to do it. This copy is the one that runs in production, so it
+    // refuses the impossible configuration instead of hanging on it.
+    const zero = createGapGuard({ services: [{ name: 'bad', dur: 0 }, { name: 'ok', dur: 60 }], protectedDurationMin: 90 })
+    // It RETURNS — that is the whole assertion. The answers are the ones the
+    // same greedy gives once the impossible coin is out of the purse.
+    expect(zero.fillDecomposition(150)).toEqual([90, 60])
+    expect(zero.fillDecomposition(120)).toBeNull()
+    expect(zero.fillDecomposition(30)).toBeNull()
+    const negative = createGapGuard({ services: [{ name: 'ok', dur: 60 }], protectedDurationMin: -30 })
+    expect(negative.fillDecomposition(60)).toEqual([60])
+  })
+
   it('protectedCapacity counts non-overlapping 新規 windows, earliest-finish', () => {
     // A 240-minute pocket holds two 90-minute windows (0–90, 90–180); the third
     // would run past the end.
@@ -480,9 +520,22 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
     expect(trackFree(busy, 540, 600)).toBe(true)
   })
 
-  it('a window needs BOTH a free person and a free bed', () => {
-    // One staff, no beds at all: canon offers nothing (:4906).
-    expect(deriveSellableCells({ ...flat, staffLanes: [staff()], resourceLanes: [], now: null })).toEqual([])
+  it('a store with NO resources at all still sells its people (canon :4895)', () => {
+    // canon's `[null]` fallback (ENGINE-DIFF A-1): a store that has configured
+    // no beds is not a store that cannot sell — it sells staff cells with an
+    // empty bed name and no bed row. Skipping the slot silenced the whole
+    // 販売可能 layer for such a store: tint, chip, prices and shelf count.
+    const cells = deriveSellableCells({ ...flat, staffLanes: [staff()], resourceLanes: [], now: null })
+    expect(cells.filter((c) => c.group === 'beds')).toEqual([])
+    expect(cells).toHaveLength(9)
+    expect(cells[0]).toMatchObject({ group: 'staff', resourceKey: '', bed: '' })
+    // …and the `[null]` entry is ONE slot: a second free person that hour gets
+    // no window, exactly as canon's index-wise pairing caps it.
+    const two = deriveSellableCells({ ...flat, staffLanes: [staff(), staff({ key: 's2', name: '見本 ごろう' })], resourceLanes: [], now: null })
+    expect(two.filter((c) => c.h === 600)).toHaveLength(1)
+  })
+
+  it('a window needs BOTH a free person and a free bed wherever beds exist', () => {
     // One staff, one bed: nine hours → nine windows, mirrored onto the bed lane.
     const cells = deriveSellableCells({ ...flat, staffLanes: [staff()], resourceLanes: [bed()], now: null })
     expect(cells.filter((c) => c.group === 'staff')).toHaveLength(9)
@@ -585,13 +638,152 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
     expect(buildSellLayer(many.slice(0, 12), true).degraded).toBe(false)
   })
 
-  it('free pockets carry their walls, so the guard knows what was never for sale', () => {
-    const pockets = freePockets({ from: 600, until: 1140, occupied: [{ start: 720, end: 780 }] })
-    expect(pockets).toEqual([
-      { s: 600, e: 720, walls: { left: 'opening', right: null } },
-      { s: 780, e: 1140, walls: { left: null, right: 'closing' } },
-    ])
-    // A fully booked lane has no pockets rather than a zero-length one.
-    expect(freePockets({ from: 600, until: 660, occupied: [{ start: 600, end: 660 }] })).toEqual([])
+  // ── canon guardPocketsForLane (:7186) — the four rules that decide whether a
+  //    residue is EXEMPT or a real loss. Rewritten 2026-08-20 (ENGINE-DIFF A-2)
+  //    after the first lift was written from canon's prose comment at :4935.
+  describe('free pockets carry canon\'s walls', () => {
+    const lane = (over: Partial<Parameters<typeof freePockets>[0]> = {}) =>
+      freePockets({ from: 600, until: 1140, close: 1140, now: null, occupied: [], ...over })
+
+    it('the OPENING is not a wall — canon says so in as many words', () => {
+      expect(lane({ occupied: [{ start: 720, end: 780 }] })).toEqual([
+        { s: 600, e: 720, walls: { left: null, right: null } },
+        { s: 780, e: 1140, walls: { left: null, right: 'closing' } },
+      ])
+    })
+
+    it('a shift that ends before closing walls with shiftEnd, not closing', () => {
+      expect(lane({ until: 1020 })).toEqual([{ s: 600, e: 1020, walls: { left: null, right: 'shiftEnd' } }])
+      // …and a shift that runs to closing says closing.
+      expect(lane({ until: 1140 })).toEqual([{ s: 600, e: 1140, walls: { left: null, right: 'closing' } }])
+    })
+
+    it('a break walls the pocket before it AND the pocket after it', () => {
+      expect(lane({ occupied: [{ start: 780, end: 840, isBreak: true }] })).toEqual([
+        { s: 600, e: 780, walls: { left: null, right: 'break' } },
+        { s: 840, e: 1140, walls: { left: 'break', right: 'closing' } },
+      ])
+    })
+
+    it('the clock truncates a pocket, and the truncated side is NOT a wall', () => {
+      expect(lane({ now: 804 })).toEqual([{ s: 804, e: 1140, walls: { left: null, right: 'closing' } }])
+      // A pocket entirely in the past is gone, not zero-length.
+      expect(lane({ until: 720, now: 804 })).toEqual([])
+    })
+
+    it('a fully booked lane has no pockets rather than a zero-length one', () => {
+      expect(freePockets({ from: 600, until: 660, close: 1140, now: null, occupied: [{ start: 600, end: 660 }] })).toEqual([])
+    })
+  })
+
+  // ── canon §1/§2 + deriveGapPackingCells (:5066–5182) ──────────────────────
+  describe('スキマ枠 / 詰め込みセッション', () => {
+    const engine = createGapGuard({ services: [{ name: '45', dur: 45 }, { name: '60', dur: 60 }], newClientSessionMin: 90 })
+    const staff = (over: Partial<SellStaffLane> = {}): SellStaffLane => ({
+      key: 's1', name: '見本 はなこ', from: 600, until: 1140, locked: false, occupied: [], listPrice: 7000, stores: null, ...over,
+    })
+    const bed: SellResourceLane = { key: 'b1', name: 'ベッド1', occupied: [], storeId: '' }
+    const derive = (lanes: SellStaffLane[], over: Partial<Parameters<typeof deriveGapPackingCells>[0]> = {}) =>
+      deriveGapPackingCells({
+        staffLanes: lanes, resourceLanes: [bed], gridMin: 60, sessionMin: 60, gapFillMin: 30, now: null,
+        fillableExactly: engine.fillableExactly, fillDecomposition: engine.fillDecomposition,
+        packedPrice: (_l, s, e) => e - s, gapFillPrice: (_l, s, e) => (e - s) * 10, ...over,
+      })
+
+    it('k_pack anchors at the head, k_grid at the customer grid', () => {
+      expect(kPackCount(605, 785, 60)).toBe(3)
+      expect(kGridCount(605, 785, 60, 60)).toBe(2)
+      expect(kGridCount(600, 780, 60, 60)).toBe(3)
+    })
+
+    it('a pocket that lands on the grid leaves only its ENDS to this layer', () => {
+      expect(gapFillPieces(605, 785, 60)).toEqual([{ s: 605, e: 660 }, { s: 780, e: 785 }])
+      // No whole grid slot inside: the head session is the only offer.
+      expect(gapFillPieces(605, 650, 60)).toEqual([{ s: 605, e: 650 }])
+    })
+
+    it('GRID MODE prices the middle through the normal layer and packs a fillable end', () => {
+      // 10:00–12:00 booked, so the pocket is 12:00–19:00 — grid-aligned, ends empty.
+      const out = derive([staff({ occupied: [{ start: 600, end: 720 }] })])
+      expect(out.scraps).toEqual([])
+      expect(out.packed).toEqual([])
+    })
+
+    it('an end a menu fits EXACTLY is a full-price packed session, never a discount', () => {
+      // Pocket 12:00–13:00 (60 min): kGrid 1 = kPack 1, no ends → nothing.
+      // Pocket 12:00–12:45 sits off the grid: gapFillPieces returns it whole,
+      // 45 minutes is a menu duration, so it is packed rather than discounted.
+      const out = derive([staff({ from: 720, until: 765 })])
+      expect(out.packed.filter((c) => c.group === 'staff')).toEqual([
+        { laneKey: 's1', resourceKey: 'b1', group: 'staff', staff: '見本 はなこ', s: 720, e: 765, price: 45 },
+      ])
+      expect(out.scraps).toEqual([])
+    })
+
+    it('an end NO menu combination fills is the orange スキマ枠 offer', () => {
+      // 35 minutes: not 45, not 60, not 90 — and ≥ the 30-minute dial.
+      const out = derive([staff({ from: 720, until: 755 })])
+      expect(out.packed).toEqual([])
+      expect(out.scraps.filter((c) => c.group === 'staff')).toEqual([
+        { laneKey: 's1', resourceKey: 'b1', group: 'staff', staff: '見本 はなこ', s: 720, e: 755, price: 350 },
+      ])
+      // …and the dial is what stops the offer: at 0 there is no offer at all.
+      expect(derive([staff({ from: 720, until: 755 })], { gapFillMin: 0 }).scraps).toEqual([])
+      // …while a residue under the dial is dead time, not an offer.
+      expect(derive([staff({ from: 720, until: 745 })]).scraps).toEqual([])
+    })
+
+    it('one offer claims exactly ONE bed, and a claimed bed cannot be claimed twice', () => {
+      const out = derive([staff({ from: 720, until: 755 }), staff({ key: 's2', name: '見本 ごろう', from: 720, until: 755 })])
+      // Two people, one bed: only the first offer exists.
+      expect(out.scraps.filter((c) => c.group === 'staff').map((c) => c.laneKey)).toEqual(['s1'])
+    })
+
+    it('a locked lane sells nothing here either', () => {
+      expect(derive([staff({ from: 720, until: 755, locked: true })]).scraps).toEqual([])
+    })
+
+    // ⚖ Liam flag 10 (2026-08-20): a window must be able to open at an
+    // ARBITRARY offset and run ACROSS a section line. A board of tidy 30/60/90
+    // bookings never produces one, so these are the cases that prove the layer
+    // is not quietly hour-locked. All three were hand-run on canon's own
+    // §1/§2 arithmetic; the same functions were then differentialled against
+    // canon's live `window.__gapPackingV5` over 7,020 cases (5,796 of them
+    // crossing an hour line), 0 mismatches — oddoffset/odd-offset-canon-diff.json.
+    it('PACK MODE: a pocket the grid cannot use packs a full session mid-cell', () => {
+      // 14:45–15:45 (885–945). k_pack = 1 (the head fits one 60). k_grid = 0:
+      // the first grid start is 15:00 and 15:00+60 = 16:00 runs past the end.
+      // 0 < 1, so the head-anchored session is the offer — and it spans 15:00.
+      expect(kPackCount(885, 945, 60)).toBe(1)
+      expect(kGridCount(885, 945, 60, 60)).toBe(0)
+      const out = derive([staff({ from: 885, until: 945 })])
+      expect(out.scraps).toEqual([])
+      expect(out.packed.filter((c) => c.group === 'staff')).toEqual([
+        { laneKey: 's1', resourceKey: 'b1', group: 'staff', staff: '見本 はなこ', s: 885, e: 945, price: 60 },
+      ])
+      // It really does cross the boundary: starts in the 14:00 hour, ends in 15:00.
+      const cell = out.packed[0]
+      expect(Math.floor(cell.s / 60)).not.toBe(Math.floor((cell.e - 1) / 60))
+    })
+
+    it('an odd residue that spans a section line is the orange offer', () => {
+      // 13:30–14:05 (810–845), 35 minutes: no menu combination fills it, it is
+      // over the 30-minute dial, and it runs across 14:00. This is the exact
+      // shape the demo board now carries on 見本 ごろう's lane.
+      const out = derive([staff({ from: 810, until: 845 })])
+      expect(out.packed).toEqual([])
+      const scrap = out.scraps.find((c) => c.group === 'staff')!
+      expect(scrap).toMatchObject({ s: 810, e: 845 })
+      expect(Math.floor(scrap.s / 60)).not.toBe(Math.floor((scrap.e - 1) / 60))
+    })
+
+    it('the offer follows the pocket, not the clock — every 5-minute start works', () => {
+      // Nothing in the derivation is allowed to assume an on-the-hour start.
+      for (let s = 600; s < 660; s += 5) {
+        const out = derive([staff({ from: s, until: s + 35 })])
+        const scrap = out.scraps.find((c) => c.group === 'staff')
+        expect(scrap).toMatchObject({ s, e: s + 35 })
+      }
+    })
   })
 })

@@ -385,6 +385,27 @@ export default async function TodayPage({
       gridMin: planes.opsConfig.reserveStartGridMin,
       nowMinute: dayOffset === 0 ? planes.boardNow : null,
     },
+    // スキマガード. The engine's config is assembled ONCE, here, from the store's
+    // own dials and menu — so the placement rail, the スキマ枠 layer and the
+    // refusal dialog are all answering out of one configuration and cannot
+    // disagree about what is being protected (canon's own `guardEngine`, :4952).
+    guard: {
+      mode: planes.opsConfig.gapGuardMode,
+      standardSessionMin: planes.opsConfig.standardSessionMin,
+      protectedDurationMin: planes.opsConfig.newClientSessionMin,
+      protectedLabel: '新規',
+      gapFillMinMin: planes.opsConfig.gapFillMinMin,
+      gapFillDiscountPct: planes.opsConfig.gapFillDiscountPct,
+      config: {
+        services: menus.map((m) => ({ name: m.name, dur: m.duration_minutes })),
+        newClientSessionMin: planes.opsConfig.newClientSessionMin,
+        protectedLabel: '新規',
+        gapFillMinMin: planes.opsConfig.gapFillMinMin,
+        blockStepMin: planes.opsConfig.blockStepMin,
+        leadTimeMin: planes.opsConfig.leadTimeMin,
+        mode: planes.opsConfig.gapGuardMode === 'strict' ? 'strict' : 'standard',
+      },
+    },
     closedWeekdayLabel: WEEKDAY_WORD[planes.closedWeekday],
     ops: {
       total: yen(totals.total),
