@@ -36,6 +36,11 @@ export interface SidebarProps {
   operatorMark: string
   operatorRole: string
   stores: ShellStore[]
+  /** 今日の運営 badge (Today A6). One count per store plus the business-wide
+   *  total: the rail renders above the store lens, so it picks the number the
+   *  lens is standing on and the badge always equals the cards the board under
+   *  it is showing. */
+  unresolved: { byStore: Record<string, number>; all: number }
 }
 
 /** Canon's rail glyphs, lifted verbatim. */
@@ -69,7 +74,7 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
   {
     group: '店舗フロア',
     items: [
-      { key: 'today', segment: 'today', label: '今日の運営', mini: '今日', live: false },
+      { key: 'today', segment: 'today', label: '今日の運営', mini: '今日', live: true },
       { key: 'reservations', segment: 'reservations', label: '予約', mini: '予約', live: false },
       { key: 'customers', segment: 'customers', label: '顧客', mini: '顧客', live: true },
       { key: 'inbox', segment: null, label: '受信トレイ', mini: '受信', live: false },
@@ -134,7 +139,7 @@ export function wireStorePicker(pop: HTMLElement, trigger: HTMLElement, onClose:
 }
 
 export function BusinessSidebar(props: SidebarProps) {
-  const { locale, businessName, storeCount, operatorName, operatorMark, operatorRole, stores } = props
+  const { locale, businessName, storeCount, operatorName, operatorMark, operatorRole, stores, unresolved } = props
   const pathname = usePathname()
   const search = useSearchParams()
   const [open, setOpen] = useState(true)
@@ -280,6 +285,7 @@ export function BusinessSidebar(props: SidebarProps) {
                   </a>
                 )
               }
+              const badge = item.key === 'today' ? (current ? (unresolved.byStore[current.id] ?? 0) : unresolved.all) : 0
               return (
                 <Link
                   key={item.key}
@@ -291,6 +297,7 @@ export function BusinessSidebar(props: SidebarProps) {
                   <span className="glyph" aria-hidden="true">{GLYPH[item.key]}</span>
                   <span className="mini" aria-hidden="true">{item.mini}</span>
                   <span className="lbl">{item.label}</span>
+                  {badge > 0 && <span className="badge" aria-label={`未解決 ${badge}件`}>{badge}</span>}
                 </Link>
               )
             })}
