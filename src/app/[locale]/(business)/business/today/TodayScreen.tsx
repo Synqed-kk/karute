@@ -22,8 +22,9 @@
 //     page-local sample.
 
 import Link from 'next/link'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { hhmm, place, yen, type BoardItem, type BoardLane } from '@/business/lib/today-board'
+import { useTopbarAction } from '../../BusinessTopbar'
 
 const HINT = '見本データのため実行できません'
 
@@ -186,6 +187,14 @@ export function TodayScreen(props: TodayProps) {
 
   useShellClass('drawer-open', selected !== null)
   useShellClass('board-compact', density === 'compact')
+
+  // B5 予約を作成 — canon's rightmost topbar action. The button is the shell's,
+  // the dialog is this screen's; the slot is where they meet.
+  const openCreate = useCallback(() => {
+    setSeed(null)
+    createRef.current?.showModal()
+  }, [])
+  useTopbarAction('予約を作成', openCreate)
 
   useEffect(() => {
     if (!toast) return
@@ -616,14 +625,6 @@ export function TodayScreen(props: TodayProps) {
                   <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)}>{label}</button>
                 ))}
               </div>
-
-              {/* B5 予約を作成. Canon puts it in the top bar; the top bar is the
-                  shared shell and cannot reach this screen's dialog, so it sits
-                  at the right end of the board's own tool row instead — same
-                  action, same wording, one region over. */}
-              <button className="btn primary" type="button" onClick={() => { setSeed(null); createRef.current?.showModal() }}>
-                予約を作成
-              </button>
             </div>
           </div>
 
