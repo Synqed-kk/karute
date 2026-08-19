@@ -108,6 +108,68 @@ export function consentLabel(c: CustomerRow['consent']): string {
   return on.length ? on.join('・') : '同意なし'
 }
 
+/** Canon searches 顧客番号 / 氏名 / フリガナ / 携帯番号 / メール
+ *  (fable-store-customers.html:685-687, full-rights view). An empty query
+ *  matches everything. */
+export function matchesCustomerSearch(r: CustomerRow, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return [r.name, r.furigana, r.no, r.phone, r.email].some((v) => v?.toLowerCase().includes(q))
+}
+
+/** 検索をクリア: canon puts the caret back in the box after clearing
+ *  (fable-store-customers.html:887) — clearing is a step in typing the next
+ *  search, not the end of one. */
+export function clearSearch(input: HTMLInputElement | null, setSearch: (v: string) => void): void {
+  setSearch('')
+  input?.focus()
+}
+
+/** 表示する列 popover, canon's own behavior (fable-shared.js:216-244): the
+ *  first checkbox takes focus on open, Escape and a click outside both close
+ *  it and hand focus back to the button. Returns the cleanup, so a caller's
+ *  effect is a thin `return wireColumnsPopover(...)`. */
+export function wireColumnsPopover(pop: HTMLElement, trigger: HTMLElement, onClose: () => void): () => void {
+  pop.querySelector('input')?.focus()
+  const close = () => {
+    onClose()
+    trigger.focus()
+  }
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape') return
+    e.stopPropagation()
+    close()
+  }
+  // The button is excluded so its own click stays a toggle rather than being
+  // closed here and reopened by the click handler.
+  const onDown = (e: MouseEvent) => {
+    const target = e.target as Node
+    if (pop.contains(target) || trigger.contains(target)) return
+    close()
+  }
+  document.addEventListener('keydown', onKey)
+  document.addEventListener('mousedown', onDown)
+  return () => {
+    document.removeEventListener('keydown', onKey)
+    document.removeEventListener('mousedown', onDown)
+  }
+}
+
+/** Canon reopens the dialog EMPTY with the caret in 氏名
+ *  (fable-store-customers.html:846-857); a native <dialog> keeps whatever was
+ *  typed last time, so the form is reset on the way in. */
+export function openCreateDialog(dialog: HTMLDialogElement): void {
+  dialog.querySelector('form')?.reset()
+  dialog.showModal()
+  dialog.querySelector('input')?.focus()
+}
+
+/** Escape is native to showModal(); a backdrop click is not, and canon wires
+ *  it (fable-store-customers.html:879-881). */
+export function closeOnBackdropClick(target: EventTarget | null, dialog: HTMLDialogElement): void {
+  if (target === dialog) dialog.close()
+}
+
 export function CustomersScreen({
   rows,
   lensLabel,
@@ -138,34 +200,12 @@ export function CustomersScreen({
     return () => clearTimeout(t)
   }, [toast])
 
-  // 表示する列 popover, canon's own behavior (fable-shared.js:216-244): the first
-  // checkbox takes focus on open, Escape and a click outside both close it and
-  // hand focus back to the button.
+  // 表示する列 popover — wiring lives in wireColumnsPopover (unit-tested
+  // directly on real DOM nodes; territory's import fence keeps this file off
+  // any renderer, so the effect below is deliberately a thin caller of it).
   useEffect(() => {
-    if (!colsOpen) return
-    popRef.current?.querySelector('input')?.focus()
-    const close = () => {
-      setColsOpen(false)
-      colsBtnRef.current?.focus()
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.stopPropagation()
-      close()
-    }
-    // The button is excluded so its own click stays a toggle rather than being
-    // closed here and reopened by the click handler.
-    const onDown = (e: MouseEvent) => {
-      const target = e.target as Node
-      if (popRef.current?.contains(target) || colsBtnRef.current?.contains(target)) return
-      close()
-    }
-    document.addEventListener('keydown', onKey)
-    document.addEventListener('mousedown', onDown)
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      document.removeEventListener('mousedown', onDown)
-    }
+    if (!colsOpen || !popRef.current || !colsBtnRef.current) return
+    return wireColumnsPopover(popRef.current, colsBtnRef.current, () => setColsOpen(false))
   }, [colsOpen])
 
   const columns = useMemo(() => COLUMNS.filter((c) => shown.includes(c.k)), [shown])
@@ -177,7 +217,6 @@ export function CustomersScreen({
   } as React.CSSProperties
 
   const visible = useMemo(() => {
-    const q = search.trim().toLowerCase()
     const matched = all.filter((r) => {
       const passesFilter =
         filter === 'all' ||
@@ -185,11 +224,7 @@ export function CustomersScreen({
         (filter === 'ticket' && r.ticket != null && r.ticket > 0) ||
         (filter === 'wallet' && r.wallet != null && r.wallet > 0) ||
         (filter === 'merge' && r.merge !== 'none')
-      if (!passesFilter) return false
-      if (!q) return true
-      // Canon searches 顧客番号 / 氏名 / フリガナ / 携帯番号 / メール
-      // (fable-store-customers.html:685-687, full-rights view).
-      return [r.name, r.furigana, r.no, r.phone, r.email].some((v) => v?.toLowerCase().includes(q))
+      return passesFilter && matchesCustomerSearch(r, search)
     })
     if (!grouped) return matched
     // Stores in order, then the CM-9 unassigned bucket LAST — it is the
@@ -209,15 +244,8 @@ export function CustomersScreen({
     wallet: all.filter((r) => r.wallet != null && r.wallet > 0).length,
   }
 
-  /** Canon reopens the dialog EMPTY with the caret in 氏名
-   *  (fable-store-customers.html:846-857); a native <dialog> keeps whatever was
-   *  typed last time, so the form is reset on the way in. */
   function openCreate() {
-    const dialog = dialogRef.current
-    if (!dialog) return
-    dialog.querySelector('form')?.reset()
-    dialog.showModal()
-    dialog.querySelector('input')?.focus()
+    if (dialogRef.current) openCreateDialog(dialogRef.current)
   }
 
   function submitCreate(form: HTMLFormElement) {
@@ -361,16 +389,10 @@ export function CustomersScreen({
               placeholder="名前・電話・顧客番号で検索"
               aria-label="顧客を検索"
             />
-            {/* Canon puts the caret back in the box after clearing
-                (fable-store-customers.html:887) — clearing is a step in typing
-                the next search, not the end of one. */}
             <button
               className="btn"
               type="button"
-              onClick={() => {
-                setSearch('')
-                searchRef.current?.focus()
-              }}
+              onClick={() => clearSearch(searchRef.current, setSearch)}
             >
               検索をクリア
             </button>
@@ -626,13 +648,11 @@ export function CustomersScreen({
         )}
       </div>
 
-      {/* Escape is native to showModal(); a backdrop click is not, and canon
-          wires it (fable-store-customers.html:879-881). */}
       <dialog
         ref={dialogRef}
         aria-labelledby="createCustomerTitle"
         onClick={(e) => {
-          if (e.target === dialogRef.current) dialogRef.current.close()
+          if (dialogRef.current) closeOnBackdropClick(e.target, dialogRef.current)
         }}
       >
         <form
