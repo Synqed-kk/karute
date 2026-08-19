@@ -37,8 +37,11 @@ export const stores: FixtureStore[] = [
 /** The business the shell names. One tenant, two stores. */
 export const business = { name: '見本サンプル整体', storeCount: stores.length }
 
-/** The signed-in operator the sidebar card shows (play phase: fixed persona). */
-export const operator = { name: '見本 あずさ', mark: '見本', role: '店舗管理者' }
+/** The signed-in operator the sidebar card shows (play phase: fixed persona).
+ *  `staff_id` is what makes the Today board's 自分の1日 strip and 自分 lane
+ *  TRUE rather than decorative: the operator is a roster member with a shift, a
+ *  booking and a queue of her own, not a name floating above the board. */
+export const operator = { name: '見本 あずさ', mark: '見本', role: '店舗管理者', staff_id: 'p-06' }
 
 /** Reserve同期 in the topbar. Stored as an OFFSET, never a clock time: a fixed
  *  「13:24」 claims a sync from the future to anyone looking in the morning. */
@@ -87,7 +90,16 @@ export interface FixtureCustomer {
   external_owner: boolean
   /** T3 — メモ / 編集できない理由. */
   note: string | null
+  /** 店舗カテゴリー VIP (Today F13 / E9h). 新規・再来・回数券 are DERIVED from
+   *  bookings and 回数券残数; VIP is the one tier with no derivable signal
+   *  anywhere in core (contract ask T-12), so it is the only one stored. */
+  vip: boolean
 }
+
+/** Board card state (Today F14). Not the same axis as `status`: `status` is the
+ *  booking's lifecycle (the 顧客 screen reads it), this is what the card LOOKS
+ *  like on the day board. A cancelled booking carries `null` and never paints. */
+export type FixtureBoardState = 'confirmed' | 'attention' | 'hold' | 'noshow'
 
 export interface FixtureAppointment {
   id: string
@@ -100,6 +112,26 @@ export interface FixtureAppointment {
   /** 受付価格 (D11) — the price agreed when the booking was taken. */
   booked_price: number | null
   status: 'booked' | 'done' | 'cancelled'
+  /** 予約番号 — human-shaped on purpose (⚖ L-6). Canon's own board reproduced
+   *  raw UUIDs and wrecked every row; that defect must not port. */
+  display_no: string
+  /** Today F14. `null` = not a board card (cancelled). */
+  board_state: FixtureBoardState | null
+  /** Today C2 / C3 / K2 (ask T-08). `null` = nothing to settle yet. */
+  settlement: 'settled' | 'awaiting' | null
+  /** Today F10 / F20–F22 (ask T-04). `null` renders 【未定】, never a guess. */
+  resource_id: string | null
+  /** Inspector G5 予約経路. */
+  source: string
+  /** Today G6 / J2 (ask T-14). The staff this booking was taken for, when the
+   *  one on the card is a proposed replacement. */
+  reassigned_from: string | null
+  /** Inspector G6 作成 — days before the booking that it was taken. Relative
+   *  like everything else here, so 「3日前に受付」 stays true forever. */
+  taken_days_ago: number
+  /** Inspector G6 更新 — JST minute it was last touched, or null for 更新なし.
+   *  Never a fabricated timestamp: a booking nobody touched says so. */
+  updated_minute: number | null
 }
 
 export interface FixtureMenu { id: string; store_id: string | null; name: string; price: number; duration_minutes: number }
@@ -124,7 +156,7 @@ export const customers: FixtureCustomer[] = [
     ticket_balance: 4, wallet_balance: 12000,
     merge_status: 'open', duplicate_of: 'C-3009',
     consent: { line: true, sms: true, email: false }, line_linked: true,
-    party: [], thin: false, external_owner: false, note: null,
+    party: [], thin: false, external_owner: false, note: null, vip: false,
   },
   {
     id: 'cus-02', member_number: 'C-3002', name: '見本 いつき', furigana: 'ミホン イツキ', mark: '見本',
@@ -133,7 +165,7 @@ export const customers: FixtureCustomer[] = [
     ticket_balance: null, wallet_balance: null,
     merge_status: 'none', duplicate_of: null,
     consent: { line: false, sms: true, email: true }, line_linked: false,
-    party: [], thin: false, external_owner: false, note: null,
+    party: [], thin: false, external_owner: false, note: null, vip: false,
   },
   {
     id: 'cus-03', member_number: 'C-3003', name: '見本 うみ', furigana: 'ミホン ウミ', mark: '見本',
@@ -146,7 +178,7 @@ export const customers: FixtureCustomer[] = [
       { role: '保護者', name: '見本 みなと', note: '来店予約と連絡はすべて保護者が担当' },
       { role: '支払者', name: '見本 みなと', note: '会計も保護者が行う' },
     ],
-    thin: false, external_owner: false, note: null,
+    thin: false, external_owner: false, note: null, vip: false,
   },
   {
     id: 'cus-04', member_number: 'C-3004', name: 'テスト えいた', furigana: 'テスト エイタ', mark: 'テスト',
@@ -155,7 +187,9 @@ export const customers: FixtureCustomer[] = [
     ticket_balance: 12, wallet_balance: 0,
     merge_status: 'pending', duplicate_of: 'C-3010',
     consent: { line: true, sms: false, email: false }, line_linked: false,
-    party: [], thin: false, external_owner: false, note: null,
+    // The one VIP: the tier core cannot derive (ask T-12), so the board's VIP
+    // colour and 保護対象 count have exactly one source.
+    party: [], thin: false, external_owner: false, note: null, vip: true,
   },
   {
     id: 'cus-05', member_number: 'C-3005', name: 'テスト おとは', furigana: 'テスト オトハ', mark: 'テスト',
@@ -164,7 +198,7 @@ export const customers: FixtureCustomer[] = [
     ticket_balance: null, wallet_balance: null,
     merge_status: 'none', duplicate_of: null,
     consent: null, line_linked: false,
-    party: [], thin: false, external_owner: false, note: null,
+    party: [], thin: false, external_owner: false, note: null, vip: false,
   },
   {
     id: 'cus-06', member_number: 'C-3006', name: '見本 かえる', furigana: 'ミホン カエル', mark: '見本',
@@ -174,7 +208,7 @@ export const customers: FixtureCustomer[] = [
     merge_status: 'none', duplicate_of: null,
     consent: { line: true, sms: true, email: true }, line_linked: true,
     party: [{ role: 'サービス対象', name: '見本 かえるの家族', note: '施術を受けるのは同伴のご家族' }],
-    thin: false, external_owner: false, note: null,
+    thin: false, external_owner: false, note: null, vip: false,
   },
   {
     id: 'cus-07', member_number: 'C-3007', name: '見本 きり', furigana: 'ミホン キリ', mark: '見本',
@@ -183,7 +217,7 @@ export const customers: FixtureCustomer[] = [
     ticket_balance: null, wallet_balance: null,
     merge_status: 'none', duplicate_of: null,
     consent: { line: false, sms: false, email: true }, line_linked: false,
-    party: [], thin: false, external_owner: false, note: null,
+    party: [], thin: false, external_owner: false, note: null, vip: false,
   },
   {
     id: 'cus-08', member_number: 'C-3008', name: 'テスト くらら', furigana: 'テスト クララ', mark: 'テスト',
@@ -192,7 +226,7 @@ export const customers: FixtureCustomer[] = [
     ticket_balance: 8, wallet_balance: 21000,
     merge_status: 'none', duplicate_of: null,
     consent: { line: true, sms: true, email: false }, line_linked: true,
-    party: [], thin: false, external_owner: false, note: null,
+    party: [], thin: false, external_owner: false, note: null, vip: false,
   },
   {
     id: 'cus-09', member_number: 'C-3009', name: '見本 あかり', furigana: 'ミホン アカリ', mark: '見本',
@@ -201,7 +235,7 @@ export const customers: FixtureCustomer[] = [
     ticket_balance: null, wallet_balance: null,
     merge_status: 'open', duplicate_of: 'C-3001',
     consent: null, line_linked: false,
-    party: [], thin: false, external_owner: false, note: null,
+    party: [], thin: false, external_owner: false, note: null, vip: false,
   },
   {
     // CM-9 in one row: never booked anywhere, so no store owns them and every
@@ -212,7 +246,20 @@ export const customers: FixtureCustomer[] = [
     ticket_balance: null, wallet_balance: null,
     merge_status: 'none', duplicate_of: null,
     consent: { line: false, sms: false, email: false }, line_linked: false,
-    party: [], thin: false, external_owner: false, note: null,
+    party: [], thin: false, external_owner: false, note: null, vip: false,
+  },
+  {
+    // 新規 in the strict sense the board colours by: registered, booked for
+    // today, and with no completed visit behind her. Without this row the
+    // board's 新規 category would have no honest carrier (cus-10 must keep its
+    // never-booked-anywhere CM-9 shape).
+    id: 'cus-11', member_number: 'C-3011', name: '見本 さくら', furigana: 'ミホン サクラ', mark: '見本',
+    phone: '090-0000-0011', email: 'sakura@sample.invalid', source: 'Reserve本人登録',
+    identity_check: null,
+    ticket_balance: null, wallet_balance: null,
+    merge_status: 'none', duplicate_of: null,
+    consent: { line: true, sms: true, email: false }, line_linked: true,
+    party: [], thin: false, external_owner: false, note: null, vip: false,
   },
   {
     // T1–T4: bookings exist, a CRM profile never did. thin-01's 正本 is an
@@ -225,7 +272,7 @@ export const customers: FixtureCustomer[] = [
     merge_status: 'none', duplicate_of: null,
     consent: null, line_linked: false,
     party: [], thin: true, external_owner: true,
-    note: '本人情報の正本は外部予約元にあります。SYNQEDからは編集できません。',
+    note: '本人情報の正本は外部予約元にあります。SYNQEDからは編集できません。', vip: false,
   },
   {
     id: 'thin-02', member_number: 'C-3802', name: 'テスト なぎ', furigana: null, mark: 'テスト',
@@ -235,7 +282,7 @@ export const customers: FixtureCustomer[] = [
     merge_status: 'none', duplicate_of: null,
     consent: { line: false, sms: true, email: false }, line_linked: false,
     party: [], thin: true, external_owner: false,
-    note: '予約時に口頭で伺った内容のみ。本人プロフィールは未登録です。',
+    note: '予約時に口頭で伺った内容のみ。本人プロフィールは未登録です。', vip: false,
   },
 ]
 
@@ -257,6 +304,7 @@ export const staff: FixtureStaff[] = [
   { id: 'c-03', full_name: 'テスト さぶろう', email: null },
   { id: 'p-04', full_name: '見本 しろう', email: 'shiro@test.invalid' },
   { id: 'p-05', full_name: '見本 ごろう', email: 'goro@test.invalid' },
+  { id: 'p-06', full_name: '見本 あずさ', email: 'azusa@test.invalid' },
   { id: 'p-09', full_name: '見本 みらい', email: 'mirai@test.invalid' },
 ]
 
@@ -267,6 +315,7 @@ export const staffCards: FixtureStaffCard[] = [
   { id: 'c-03', user_id: null, email: null },
   { id: 'c-04', user_id: 'p-04', email: null },
   { id: 'c-05', user_id: 'p-05', email: 'goro@test.invalid' },
+  { id: 'c-06', user_id: 'p-06', email: 'azusa@test.invalid' },
 ]
 
 /** Card → stores. An absent card (c-03) is floating: works in every store. */
@@ -275,6 +324,7 @@ export const staffAssignments: Record<string, string[]> = {
   'c-02': [STORE_B],
   'c-04': [STORE_A],
   'c-05': [STORE_A, STORE_B],
+  'c-06': [STORE_A],
 }
 
 /**
@@ -307,6 +357,21 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
     minutes: number,
     booked_price: number | null,
     status: FixtureAppointment['status'],
+    /** Board-plane facts. Only TODAY's rows carry them explicitly; a row that
+     *  never paints on a board takes the defaults, which say nothing it has no
+     *  business claiming (no resource, no settlement, no reassignment). */
+    board: Partial<
+      Pick<
+        FixtureAppointment,
+        | 'board_state'
+        | 'settlement'
+        | 'resource_id'
+        | 'source'
+        | 'reassigned_from'
+        | 'taken_days_ago'
+        | 'updated_minute'
+      >
+    > = {},
   ): FixtureAppointment => ({
     id,
     store_id,
@@ -317,6 +382,16 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
     ends_at: jstSlotEnd(day, hour, minute, minutes, now),
     booked_price,
     status,
+    // Human-shaped and STABLE (⚖ L-6): derived from the row's own id, so
+    // inserting a booking never renumbers the ones around it.
+    display_no: `R-${4800 + Number(id.slice(4))}`,
+    board_state: board.board_state ?? (status === 'cancelled' ? null : 'confirmed'),
+    settlement: board.settlement ?? null,
+    resource_id: board.resource_id ?? null,
+    source: board.source ?? '店頭受付',
+    reassigned_from: board.reassigned_from ?? null,
+    taken_days_ago: board.taken_days_ago ?? 3,
+    updated_minute: board.updated_minute ?? null,
   })
 
   return [
@@ -332,10 +407,41 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
     slot('apt-10', 'thin-01', STORE_A, 'p-01', 'menu-03', -2, 10, 0, 30, 4400, 'done'),
     slot('apt-11', 'thin-02', STORE_B, 'p-02', 'menu-05', -5, 12, 0, 45, 5500, 'done'),
 
-    // ── today (in-hours, no overlap) ──────────────────────────────────────
-    slot('apt-12', 'cus-02', STORE_A, 'p-04', 'menu-01', 0, 10, 0, 60, 6600, 'booked'),
-    slot('apt-13', 'cus-03', STORE_B, 'p-02', 'menu-05', 0, 11, 0, 45, 5500, 'booked'),
-    slot('apt-14', 'cus-06', STORE_A, 'c-03', 'menu-02', 0, 13, 0, 90, 12100, 'booked'),
+    // ── today: the 今日の運営 board's own day ─────────────────────────────
+    // Nine bookings, one per canon board state and category, every one of them
+    // inside its staff member's shift and outside every break, every bed turn
+    // separated by its cleanup window. The board reads THESE rows — the same
+    // ones the 顧客 screen's 次回予約 column reads — so the two screens cannot
+    // disagree about a booking.
+    slot('apt-12', 'cus-02', STORE_A, 'p-04', 'menu-01', 0, 10, 0, 60, 6600, 'done',
+      { board_state: 'confirmed', settlement: 'settled', resource_id: 'bed-01', source: '店頭受付 #357498', taken_days_ago: 6, updated_minute: 11 * 60 + 5 }),
+    slot('apt-22', 'cus-08', STORE_A, 'p-01', 'menu-01', 0, 10, 30, 60, 6600, 'done',
+      { board_state: 'confirmed', settlement: 'settled', resource_id: 'bed-02', source: 'Reserve #357501', taken_days_ago: 11, updated_minute: 11 * 60 + 38 }),
+    slot('apt-25', 'cus-04', STORE_A, 'p-05', 'menu-01', 0, 11, 0, 60, 6600, 'done',
+      { board_state: 'confirmed', settlement: 'awaiting', resource_id: 'bed-03', source: '店頭受付 #357509', taken_days_ago: 2, updated_minute: 12 * 60 }),
+    slot('apt-13', 'cus-03', STORE_B, 'p-02', 'menu-05', 0, 11, 0, 45, 5500, 'booked',
+      { board_state: 'confirmed', resource_id: 'bed-04', source: '電話予約 #357540' }),
+    // 来店なし: a real slot that produced no visit. Non-revenue, so it is out of
+    // the day's total — never quietly deleted, which would hide the loss.
+    slot('apt-23', 'thin-01', STORE_A, 'p-04', 'menu-03', 0, 11, 30, 30, 4400, 'booked',
+      { board_state: 'noshow', source: '外部予約元 #357505', taken_days_ago: 4, updated_minute: 11 * 60 + 45 }),
+    slot('apt-14', 'cus-06', STORE_A, 'c-03', 'menu-02', 0, 13, 0, 90, 12100, 'booked',
+      { board_state: 'confirmed', resource_id: 'bed-02', source: 'Reserve #357512' }),
+    // 仮押さえ: 見本 はなこ's 勤務不可 pushed this one onto 見本 しろう. The card
+    // sits in the PROPOSED lane and stays a hold until the customer accepts —
+    // the price it was taken at rides along untouched.
+    slot('apt-26', 'cus-11', STORE_A, 'p-04', 'menu-01', 0, 14, 30, 60, 6600, 'booked',
+      { board_state: 'hold', resource_id: 'bed-01', source: 'Reserve #357521', reassigned_from: 'p-01', taken_days_ago: 5, updated_minute: 13 * 60 + 2 }),
+    slot('apt-29', 'thin-02', STORE_A, 'p-06', 'menu-01', 0, 14, 30, 60, 6600, 'booked',
+      { board_state: 'confirmed', resource_id: 'bed-03', source: '店頭受付 #357544' }),
+    slot('apt-28', 'cus-09', STORE_A, 'c-03', 'menu-03', 0, 16, 0, 30, 4400, 'booked',
+      { board_state: 'confirmed', resource_id: 'bed-03', source: 'Reserve #357533' }),
+    // 要対応 — and the one booking with NO lane card: it belongs to the absent
+    // staff member and starts after she stops working, so painting it in her
+    // lane would show a business double-booking itself against an absence
+    // (⚖ 8/9). It surfaces in 次に決めること instead, where it can be acted on.
+    slot('apt-27', 'cus-07', STORE_A, 'p-01', 'menu-01', 0, 16, 30, 60, 6600, 'booked',
+      { board_state: 'attention', source: 'Reserve #357530', taken_days_ago: 9, updated_minute: 13 * 60 + 2 }),
 
     // ── ahead (drives 次回予約) ───────────────────────────────────────────
     slot('apt-15', 'cus-01', STORE_A, 'p-01', 'menu-01', 1, 10, 0, 60, 6600, 'booked'),
