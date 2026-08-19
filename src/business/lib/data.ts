@@ -36,6 +36,7 @@ import {
   type FixtureStaff,
   type FixtureStore,
 } from './fixtures'
+import { auditTrail, reservations } from './fixtures-reservations'
 import {
   absence,
   blocks,
@@ -259,6 +260,29 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
     register: today ? register : { ...register, refunds: 0, cash_difference: 0, terminal_held: [] },
     pricingRule,
     recoverySteps: [...recoverySteps],
+  }
+}
+
+/** The 予約一覧 exception plane (asks C-1, C-2, C-5, C-6, C-10). Read as ONE
+ *  call with the day planes it depends on for the SAME reason `readDayPlanes`
+ *  bundles its three: a deadline read a moment apart from the shift that
+ *  justifies it can contradict it. No lens clamp inside — these rows carry no
+ *  store, they key to appointment ids, and `listAppointments` is the clamp that
+ *  decides which of those ids the viewer may resolve at all.
+ *  ⚠ RECONNECT: every field here is fixture-only. See the PR's honesty table. */
+export async function readReservationPlanes(lens: StoreLens) {
+  assertLens(lens)
+  return {
+    reservations,
+    auditTrail,
+    /** JST minutes from midnight — the pinned moment every countdown is measured
+     *  against, the same one the board's now-line uses. */
+    boardNow,
+    operatingHours,
+    shifts,
+    absence: inLens([absence], lens, false)[0] ?? null,
+    sellSlots: inLens(sellSlots, lens, false),
+    register,
   }
 }
 
