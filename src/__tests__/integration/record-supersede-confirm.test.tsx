@@ -53,6 +53,16 @@ jest.mock('sonner', () => ({
   },
 }))
 
+// D-2 (H-1 armor): COUNTS renders of the supersede confirm, mirroring C-2 in
+// record-no-target-page-view.test.tsx. The confirm is inline JSX, so its
+// countable boundary is its 中断して開始 button — one render of that button is
+// one render of the dialog. The point the counter makes that a queryByText
+// cannot: the enforcement lives in the RENDER gate (`showSupersedeDialog &&
+// pipeline.state === 'processing'`), not in the effect that follows it. An
+// effect-only gate ends on the same empty screen while still painting the
+// confirm for one commit — a modal flashing over a take there is nothing left
+// to supersede, whose 中断して開始 then runs the stop flow for real.
+const mockConfirmRenders = { n: 0 }
 jest.mock('@synqed-kk/ui', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { createElement } = require('react') as typeof import('react')
@@ -60,8 +70,10 @@ jest.mock('@synqed-kk/ui', () => {
     createElement('div', rest, children as React.ReactNode)
   // A REAL <button> so `disabled` is honored natively, same reason
   // record-page-outcome-double-tap.test.tsx does it.
-  const button = ({ children, ...rest }: Record<string, unknown> = {}) =>
-    createElement('button', rest, children as React.ReactNode)
+  const button = ({ children, ...rest }: Record<string, unknown> = {}) => {
+    if (children === 'supersedeConfirm') mockConfirmRenders.n++
+    return createElement('button', rest, children as React.ReactNode)
+  }
   return new Proxy(
     {},
     { get: (_target, prop) => (prop === 'Button' ? button : passthrough) },
@@ -137,6 +149,7 @@ afterEach(() => {
   jest.clearAllMocks()
   mockPipeline.state = 'idle'
   mockPipeline.serverOwned = false
+  mockConfirmRenders.n = 0
 })
 
 const NEXT_APPOINTMENT = {
@@ -258,6 +271,30 @@ describe('C-1 — a second take never silently kills the first', () => {
       await Promise.resolve()
     })
     expect(screen.queryByText('supersedeTitle')).not.toBeInTheDocument()
+  })
+
+  it('D-2: the RENDER gate keeps the settled confirm off the screen — zero extra paints', async () => {
+    mockPipeline.state = 'processing'
+    const { rerender } = await renderRecorded()
+    await tapUseRecording()
+    expect(screen.getByText('supersedeTitle')).toBeInTheDocument()
+    // Everything the confirm paints from here on must be ZERO.
+    const rendersAtSettle = mockConfirmRenders.n
+
+    // The old run settles into 'autosaving' — its AI work is done and the save
+    // is already dispatched, so there is nothing left to ask about. The flag
+    // is still true for this commit; only the render gate stands between the
+    // staffer and a modal that is now a lie.
+    mockPipeline.state = 'autosaving'
+    await act(async () => {
+      rerender(<RecordPageView {...PROPS} />)
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByText('supersedeTitle')).not.toBeInTheDocument()
+    // Not "gone by the end of the commit" — never painted at all.
+    expect(mockConfirmRenders.n).toBe(rendersAtSettle)
+    expect(mockPipeline.start).not.toHaveBeenCalled()
   })
 
   it('nothing in flight: no dialog, no notice, straight through', async () => {

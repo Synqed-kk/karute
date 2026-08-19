@@ -531,6 +531,79 @@ describe('globalPipeline server-path poll cadence + cap (packet 22, Greptile #58
   })
 })
 
+describe('globalPipeline serverOwned = "a live server job DEFINITIVELY exists" (D-1, Greptile P1 r4)', () => {
+  // The flag is the C-1 branch: true → the record page shows a passive notice
+  // and hands the take over, false → it ASKS before superseding. So a true
+  // that only means "the server path was attempted" silently drops the run it
+  // claimed was safe. These pin the flag to the definitive answer, never the
+  // attempt.
+  it('t1: the staging window is NOT ownership — nothing has reached core yet', async () => {
+    stageForJob.mockImplementationOnce(() => new Promise<{ path: string }>(() => {})) // never settles
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    expect(enqueueJob).not.toHaveBeenCalled()
+    expect(globalPipeline.state).toBe('processing')
+    expect(globalPipeline.serverOwned).toBe(false)
+  })
+
+  it('t1b: staging FAILED with the probe dark → error, and still not owned (the take exists only here)', async () => {
+    stageForJob.mockRejectedValueOnce(new Error('upload failed'))
+    jobStatus.mockRejectedValueOnce(new Error('network down')) // no definitive answer
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    expect(globalPipeline.state).toBe('error')
+    expect(globalPipeline.serverOwned).toBe(false)
+    warn.mockRestore()
+  })
+
+  it('t2: a COMMITTED enqueue IS ownership — core accepted the job', async () => {
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    expect(enqueueJob).toHaveBeenCalledTimes(1)
+    expect(globalPipeline.state).toBe('processing')
+    expect(globalPipeline.serverOwned).toBe(true)
+  })
+
+  it('t3: the ambiguous window is NOT ownership — the confirm stays armed while we do not know', async () => {
+    enqueueJob.mockRejectedValueOnce(new Error('response lost'))
+    jobStatus.mockRejectedValue(new Error('network down')) // never answers
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    expect(globalPipeline.serverOwned).toBe(false)
+    await tick(30_000) // deep into the 90s resolution budget, still no answer
+    expect(globalPipeline.state).toBe('processing')
+    expect(globalPipeline.serverOwned).toBe(false)
+    warn.mockRestore()
+  })
+
+  it('t4: ambiguity that RESOLVES to a live job flips ownership on — notice from then, not confirm', async () => {
+    enqueueJob.mockRejectedValueOnce(new Error('response lost'))
+    jobStatus
+      .mockRejectedValueOnce(new Error('network down')) // probe 1: dark → not owned
+      .mockResolvedValue({ status: 'RUNNING', karuteRecordId: null, attempts: 1, maxAttempts: 3, lastError: null })
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    expect(globalPipeline.serverOwned).toBe(false)
+    await tick(5000) // re-probe finds the committed job → poll it
+    expect(globalPipeline.state).toBe('processing')
+    expect(globalPipeline.serverOwned).toBe(true)
+    warn.mockRestore()
+  })
+
+  it('an in-tab run superseding an owned one clears ownership (the walk-in is on its own)', async () => {
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    expect(globalPipeline.serverOwned).toBe(true)
+    globalPipeline.start(new Blob(['b']), { locale: 'ja', customers: [] }) // walk-in → in-tab
+    await tick(0)
+    expect(mockDeferreds).toHaveLength(1)
+    expect(globalPipeline.serverOwned).toBe(false)
+  })
+})
+
 describe('globalPipeline server-path supersession (packet 22)', () => {
   it('a new start() mid-poll supersedes — the stale poll settles nothing', async () => {
     globalPipeline.start(new Blob(['a']), eligibleCtx)

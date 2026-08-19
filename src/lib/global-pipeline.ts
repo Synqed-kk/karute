@@ -142,14 +142,31 @@ class GlobalPipeline {
    */
   serverSavedRecordId: string | null = null
   /**
-   * Which arm owns the run currently in flight (C-1). TRUE only while a CORE
-   * JOB owns it: superseding that run costs nothing — the worker keeps going
-   * and the record still saves — so the record page passes a notice instead of
-   * asking. FALSE for every in-tab run, whose result IS dropped un-settled by
-   * a supersession. Derived from the actual dispatch (set in run()/
-   * runServerJob()), never from the port flag alone: on the thin arm a walk-in
-   * or recovery take still runs IN-TAB, and telling that staffer their take is
-   * safe would be the exact silence C-1 removes.
+   * Which arm owns the run currently in flight (C-1). TRUE means exactly one
+   * thing: a LIVE SERVER JOB DEFINITIVELY EXISTS for this run — core accepted
+   * the enqueue, or a status probe found the job (QUEUED/RUNNING/DONE).
+   * Superseding such a run costs nothing (the worker keeps going and the record
+   * still saves), so the record page passes a passive notice instead of asking.
+   *
+   * FALSE everywhere else — including every window where a server job is merely
+   * BEING ATTEMPTED (D-1, Greptile P1 fix round 4): staging the blob, the
+   * enqueue in flight, and the whole ambiguous-enqueue resolution window, where
+   * nothing yet proves core committed anything. It used to be set at
+   * runServerJob() ENTRY, i.e. it meant "the server path was attempted" — so a
+   * run whose staging failed still read as server-safe, the C-1 confirm was
+   * skipped, and that take's run was dropped in silence. The asymmetry is
+   * deliberate: confirming during ambiguity costs one dialog on a run that
+   * might have survived server-side (annoying, never lossy), while skipping the
+   * confirm when no job exists LOSES the run. So the only writer of `true` is
+   * pollServerJob(), which every caller reaches solely on a definitive
+   * live-job answer — a run that resolves definitive LATE flips there too.
+   *
+   * FALSE for every in-tab run, whose result IS dropped un-settled by a
+   * supersession — on the thin arm a walk-in or recovery take still runs
+   * IN-TAB, so this is never read off the port flag alone.
+   *
+   * Read imperatively at tap time (RecordPageView.handleUseRecordingTap), never
+   * through the useSyncExternalStore snapshot, so flipping it needs no notify().
    */
   serverOwned = false
 
@@ -273,7 +290,10 @@ class GlobalPipeline {
    *  report) until the settle below flips it to 'autosaving'. */
   private async runServerJob() {
     if (!this.blob || !this.context) return
-    this.serverOwned = true
+    // D-1: an ATTEMPT is not ownership. Nothing between here and a definitive
+    // live-job answer proves a core job exists, so the supersession confirm
+    // stays armed across staging/enqueue/ambiguity — pollServerJob flips it.
+    this.serverOwned = false
     const runId = ++this.runId
     const blob = this.blob
     const context = this.context
@@ -416,6 +436,13 @@ class GlobalPipeline {
    *  re-checks runId — a superseding start()/reset() must make a stale poll
    *  settle nothing, same guard class as run(). */
   private async pollServerJob(runId: number, recordingSessionId: string) {
+    // D-1: the ONE place serverOwned turns true. Every caller arrives on a
+    // definitive live job — a committed enqueue, the stage-failure ghost probe,
+    // or the ambiguity resolution — so "we are polling it" IS the proof the
+    // flag is supposed to carry. Guarded: a superseded run must not stamp
+    // ownership onto the newer run's flag.
+    if (runId !== this.runId) return
+    this.serverOwned = true
     const start = Date.now()
     const deadline = start + SERVER_JOB_TIMEOUT_MS
     const port = getRecordingPipelinePort()
