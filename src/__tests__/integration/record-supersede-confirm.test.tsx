@@ -137,8 +137,33 @@ jest.mock('@/lib/global-pipeline', () => ({
   },
 }))
 
+import { useLayoutEffect } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { RecordPageView } from '@/components/karute/redesign/record/RecordPageView'
+
+/**
+ * Fix round 6 — the race window itself, not a simulation of its inputs. The
+ * tap the C-1 gate now catches lands in ONE specific gap: after React commits
+ * 'autosaving', before that commit's passive effects flush. Everything keyed on
+ * pipeline.state is pending in that gap — ProcessingIndicator's autosave AND
+ * this page's dialog-hygiene effect — so the tap's setShowSupersedeDialog(true)
+ * is followed, in the same hook queue, by whatever those pending effects
+ * dispatch. A hygiene effect that still cleared on 'autosaving' put a false
+ * behind the tap's true and the confirm never painted: a dead button in exactly
+ * the case it exists for.
+ *
+ * A LAYOUT effect is the deterministic stand-in for the tap — React runs every
+ * layout effect of a commit before any passive effect of it — so this pins the
+ * ordering with no timer games. (Same technique as the anti-poisoning test in
+ * thin-authed-indicators.test.tsx.)
+ */
+function TapDuringAutosavingCommit({ phase }: { phase: string }) {
+  useLayoutEffect(() => {
+    if (phase !== 'autosaving') return
+    fireEvent.click(screen.getByText('useRecording'))
+  }, [phase])
+  return null
+}
 
 const mockPipeline = (
   jest.requireMock('@/lib/global-pipeline') as {
@@ -197,6 +222,17 @@ async function renderRecorded() {
     await Promise.resolve()
   })
   return view
+}
+
+// The page plus the tap stand-in above, so the tap can be fired from inside the
+// commit that turns 'autosaving' rather than after it.
+function RaceHarness({ phase }: { phase: string }) {
+  return (
+    <>
+      <RecordPageView {...PROPS} />
+      <TapDuringAutosavingCommit phase={phase} />
+    </>
+  )
 }
 
 async function tapUseRecording() {
@@ -352,6 +388,32 @@ describe('C-1 — a second take never silently kills the first', () => {
 
     expect(screen.queryByText('supersedeTitle')).not.toBeInTheDocument()
     expect(mockPipeline.start).toHaveBeenCalledTimes(1)
+  })
+
+  it('the race window itself: a tap landing before the autosave flush still PAINTS the confirm', async () => {
+    mockPipeline.state = 'processing'
+    const { rerender } = render(<RaceHarness phase="processing" />)
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(screen.queryByText('supersedeTitle')).not.toBeInTheDocument()
+
+    // The old run reaches 'autosaving' with nothing secured yet, and the tap
+    // lands inside that commit — before the autosave effect (which would set
+    // autosaveDispatched) and before the dialog-hygiene effect have flushed.
+    mockPipeline.state = 'autosaving'
+    mockPipeline.autosaveDispatched = false
+    await act(async () => {
+      rerender(<RaceHarness phase="autosaving" />)
+      await Promise.resolve()
+    })
+
+    // Both widenings are load-bearing here: the hygiene effect must not clear
+    // the flag the tap just set, and the render gate must let 'autosaving'
+    // through. Either one narrow = a dead 録音を使用 button.
+    expect(screen.getByText('supersedeTitle')).toBeInTheDocument()
+    expect(mockPipeline.start).not.toHaveBeenCalled()
   })
 
   it('nothing in flight: no dialog, no notice, straight through', async () => {

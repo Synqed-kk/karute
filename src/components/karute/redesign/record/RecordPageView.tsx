@@ -375,8 +375,18 @@ export function RecordPageView({
   // enforcement; this keeps the flag from lying in between — a stale true
   // would spring the dialog open, uninvited and now untrue, the moment the
   // NEXT take's pipeline starts processing.
+  //
+  // 'autosaving' counts as a run to supersede (fix round 6), for the same
+  // reason the tap gate and the render gate span it: until the autosave
+  // dispatches there is still an unsaved result to ask about. Narrower, this
+  // effect SWALLOWS the tap it exists to protect — in the race window it is a
+  // pending passive effect of the very commit that turned 'autosaving', so the
+  // tap's setShowSupersedeDialog(true) is followed in the same hook queue by
+  // this effect's false, and the confirm never paints. review/idle/error still
+  // clear it: there the question is moot.
   useEffect(() => {
-    if (pipeline.state !== 'processing') setShowSupersedeDialog(false)
+    if (pipeline.state !== 'processing' && pipeline.state !== 'autosaving')
+      setShowSupersedeDialog(false)
   }, [pipeline.state])
 
   // D3: discard-with-photos confirmation (see handleDiscard below).
@@ -1015,9 +1025,12 @@ export function RecordPageView({
   // effect flush would supersede a finished-but-unsaved run and drop the whole
   // transcription in silence. autosaveDispatched closes exactly that window.
   // It self-resolves in the staff's favour: opening the confirm is itself a
-  // React update, and React flushes the pending passive effect before rendering
-  // it, so by the time the dialog is on screen the save has gone out and a
-  // 中断して開始 loses nothing — one extra dialog beats one lost take (D-1).
+  // React update, and React flushes that commit's pending passive effects
+  // before rendering it, so by the time the dialog is on screen the save has
+  // gone out and a 中断して開始 loses nothing — one extra dialog beats one lost
+  // take (D-1). Every effect keyed on pipeline.state is in that same flush,
+  // which is why the dialog-hygiene effect above has to span 'autosaving' too
+  // (fix round 6) — narrower, it clears the flag this tap just set.
   function handleUseRecordingTap() {
     if (pipeline.state === 'processing') {
       // The old run survives server-side — say so, don't ask.
@@ -1512,8 +1525,11 @@ export function RecordPageView({
           screen, so nothing is lost either way. The render gate spans
           'autosaving' too (fix round 5): that transition is the window the tap
           gate now covers, so closing on it would swallow the tap it was opened
-          by. A run that settles past both states has nothing left to ask
-          about, and the confirm still goes with it. */}
+          by — as would the dialog-hygiene effect near the state declaration,
+          widened with it (fix round 6). Both have to move together; either one
+          left narrow is the same dead button. A run that settles past both
+          states has nothing left to ask about, and the confirm still goes with
+          it. */}
       {showSupersedeDialog &&
         (pipeline.state === 'processing' || pipeline.state === 'autosaving') && (
         <>
