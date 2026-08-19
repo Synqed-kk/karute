@@ -30,7 +30,7 @@ jest.mock('next/navigation', () => ({
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import { jstDayKey, jstMinuteOfDay } from '@/business/lib/clock'
-import { appointments, operator, STORE_A, STORE_B } from '@/business/lib/fixtures'
+import { appointments, operator, reserveSync, STORE_A, STORE_B } from '@/business/lib/fixtures'
 import {
   absence,
   blocks,
@@ -357,6 +357,26 @@ describe('今日の運営 screen', () => {
     expect(p.ops.cashDifference).toBe('¥0')
     expect(p.ops.published).toBe(sellSlots.length)
     expect(p.ops.syncLabel).toMatch(/^\d{2}:\d{2}$/)
+  })
+
+  it('ONE world clock — the shell stamp and the board chip are the same instant, and it is behind the now-line', async () => {
+    // The play-phase world runs on the board's anchor. Two surfaces quote the
+    // Reserve sync — the shell topbar (layout.tsx formats shell.reserveSyncedAt)
+    // and the ops-strip chip (page.tsx formats the SAME field) — so the first
+    // assertion is that they are one value, not two clocks that happen to agree.
+    const shell = await data.readShellIdentity()
+    const stamp = new Date(shell.reserveSyncedAt)
+    const p = await board(STORE_A)
+    const fmt = new Intl.DateTimeFormat('ja-JP', {
+      hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Tokyo',
+    })
+    expect(p.ops.syncLabel).toBe(fmt.format(stamp))
+    // …and that the one value sits BEFORE the board's own now — a sync stamped
+    // after the moment the board is showing is the contradiction this fixes.
+    expect(jstMinuteOfDay(stamp)).toBe(boardNow - reserveSync.minutes_ago)
+    expect(jstMinuteOfDay(stamp)).toBeLessThan(boardNow)
+    // The DAY is still the real one (⚖ L-6 — only the intra-day time is pinned).
+    expect(jstDayKey(stamp)).toBe(jstDayKey(new Date()))
   })
 
   it('D — 自分の1日 renders for the operator, from her own roster row', async () => {

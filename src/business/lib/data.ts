@@ -18,6 +18,7 @@
 // structural.
 
 import { cache } from 'react'
+import { jstSlotEnd } from './clock'
 import {
   appointments,
   business,
@@ -165,7 +166,18 @@ export async function readShellIdentity(): Promise<{
   return {
     business,
     operator,
-    reserveSyncedAt: new Date(renderNow().getTime() - reserveSync.minutes_ago * 60_000).toISOString(),
+    // ONE WORLD CLOCK. The play-phase world runs on the board's anchor, not the
+    // wall clock: `boardNow` pins 今日の運営 at 13:24 JST (fixtures-today.ts),
+    // so a sync stamp derived from Date.now() would put a second, contradicting
+    // time in the topbar above that same now-line — the shell saying 09:07 over
+    // a board whose afternoon is already settled. Both stamps are the same
+    // scene now: the sync happened `minutes_ago` before the board's moment.
+    // `jstSlotEnd(0, 0, boardNow, …)` = today at 00:00 JST + boardNow minutes,
+    // shifted back — the day still comes from the real date (⚖ L-6, only the
+    // intra-day time is pinned). The DAY is resolved off `renderNow()`, never a
+    // fresh `new Date()`: one clock read per request render (Greptile P1 on
+    // #724), so the stamp cannot land on a different day from the rest of it.
+    reserveSyncedAt: jstSlotEnd(0, 0, boardNow, -reserveSync.minutes_ago, renderNow()),
   }
 }
 
