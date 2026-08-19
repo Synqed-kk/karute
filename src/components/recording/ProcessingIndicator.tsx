@@ -61,9 +61,9 @@ export function ProcessingIndicator() {
     // ctx/result guard or the save call (the server path has no `result`;
     // runAIPipeline never ran client-side).
     if (globalPipeline.serverSavedRecordId) {
-      // Secured: the record already exists server-side, so the C-1 gate can let
+      // Settled: the record already exists server-side, so the C-1 gate can let
       // a supersession through without losing anything.
-      globalPipeline.autosaveDispatched = true
+      globalPipeline.autosaveSettled = true
       const id = globalPipeline.serverSavedRecordId
       if (globalPipeline.isCurrentRun(runId)) {
         toast.success(t('autoSaved'), {
@@ -107,10 +107,6 @@ export function ProcessingIndicator() {
     // landed; the durable server-job is the documented v2). runId guards the
     // in-session races: a save resolving after a new recording started must not
     // clobber or hijack the new take.
-    // Secured from here: the IIFE below runs saveKaruteRecordInline
-    // synchronously up to its first await, so the result is in flight the
-    // moment this flips — which is what releases the C-1 gate.
-    globalPipeline.autosaveDispatched = true
     void (async () => {
       const res = await saveKaruteRecordInline({
         customerId,
@@ -138,6 +134,16 @@ export function ProcessingIndicator() {
         if (globalPipeline.isCurrentRun(runId)) toast.error(t('autosaveFailed'))
         globalPipeline.failAutosaveToReview(runId)
       } else {
+        // SETTLED (fix round 7): the record exists, so the C-1 gate can stop
+        // asking about this run. Deliberately NOT set before the await — a save
+        // in flight can still come back {error}, and this run's fallback to
+        // review is runId-guarded above, so a run superseded mid-flight and
+        // then failing would be lost in silence.
+        // runId-guarded like the toast below, NOT unconditional like the take
+        // delete beside it: the flag describes the run the pipeline is holding
+        // NOW (start()/reset() clear it), so a superseded run's late success
+        // must not stamp "secured" onto the NEW take's unsettled window.
+        if (globalPipeline.isCurrentRun(runId)) globalPipeline.autosaveSettled = true
         // The record is saved — the persisted audio has served its purpose.
         // Unconditional (not runId-guarded): the take must be deleted
         // regardless of which run is now live, same as before this fix.

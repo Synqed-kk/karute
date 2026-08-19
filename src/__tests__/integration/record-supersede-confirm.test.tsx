@@ -115,7 +115,7 @@ jest.mock('@/hooks/use-global-recorder', () => ({
 }))
 
 // The live singleton, mutable per test: `state` is what a PREVIOUS take's run
-// is doing, `serverOwned` is which arm owns it, and `autosaveDispatched` /
+// is doing, `serverOwned` is which arm owns it, and `autosaveSettled` /
 // `serverSavedRecordId` are whether that run's RESULT is secured yet (fix
 // round 5). Declared inside the factory (jest.mock is hoisted above every
 // const) and picked up below via requireMock.
@@ -128,7 +128,7 @@ jest.mock('@/lib/global-pipeline', () => ({
     error: null,
     context: null,
     serverOwned: false,
-    autosaveDispatched: false,
+    autosaveSettled: false,
     serverSavedRecordId: null,
     subscribe: () => () => {},
     start: jest.fn(),
@@ -170,7 +170,7 @@ const mockPipeline = (
     globalPipeline: {
       state: string
       serverOwned: boolean
-      autosaveDispatched: boolean
+      autosaveSettled: boolean
       serverSavedRecordId: string | null
       start: jest.Mock
     }
@@ -183,7 +183,7 @@ afterEach(() => {
   jest.clearAllMocks()
   mockPipeline.state = 'idle'
   mockPipeline.serverOwned = false
-  mockPipeline.autosaveDispatched = false
+  mockPipeline.autosaveSettled = false
   mockPipeline.serverSavedRecordId = null
   mockConfirmRenders.n = 0
 })
@@ -332,8 +332,8 @@ describe('C-1 — a second take never silently kills the first', () => {
     // so there is nothing left to ask about. The flag is still true for this
     // commit; only the render gate stands between the staffer and a modal that
     // is now a lie. ('autosaving' is deliberately NOT the settle state here
-    // since fix round 5 — an undispatched autosave is exactly what the gate
-    // asks about, so the confirm has to survive that transition.)
+    // since fix round 5 — an unsettled autosave is exactly what the gate asks
+    // about, so the confirm has to survive that transition.)
     mockPipeline.state = 'review'
     await act(async () => {
       rerender(<RecordPageView {...PROPS} />)
@@ -346,16 +346,23 @@ describe('C-1 — a second take never silently kills the first', () => {
     expect(mockPipeline.start).not.toHaveBeenCalled()
   })
 
-  // Fix round 5 (Greptile round-3 finding (a)). The autosave is dispatched by a
-  // passive effect, so 'autosaving' is not one state but two: BEFORE the flush
-  // the run holds a finished result nothing has saved, and superseding it drops
-  // the transcription in silence; AFTER it the save is in flight and the tap
-  // costs nothing. autosaveDispatched is which of the two we are in, and it is
-  // read off the LIVE singleton because the render snapshot is a commit stale
-  // in exactly this window.
-  it('autosaving BEFORE the save is dispatched: asks, and starts nothing', async () => {
+  // Fix round 5 (Greptile round-3 finding (a)), retimed in round 7 (round-4
+  // P1). 'autosaving' is not one state but two: UNSETTLED, where the run holds
+  // a result no record exists for yet, and SETTLED, where the karute is
+  // persisted and a tap costs nothing. autosaveSettled is which of the two we
+  // are in, and it is read off the LIVE singleton because the render snapshot
+  // is a commit stale in exactly this window.
+  //
+  // Unsettled covers BOTH sub-cases — before the autosave effect flushes, and
+  // while its save is in flight — and the gate cannot tell them apart by
+  // design: an in-flight save can still fail, and a run superseded before that
+  // answer arrives has no review fallback (runId-guarded), which is the same
+  // silent loss one step later. The in-flight sub-case is pinned against the
+  // REAL pipeline in thin-authed-indicators.test.tsx, where dispatch actually
+  // happens; here there is one observable, so there is one test.
+  it('autosaving while the save is UNSETTLED (pre-dispatch or in flight): asks, and starts nothing', async () => {
     mockPipeline.state = 'autosaving'
-    mockPipeline.autosaveDispatched = false
+    mockPipeline.autosaveSettled = false
     await renderRecorded()
 
     await tapUseRecording()
@@ -365,9 +372,9 @@ describe('C-1 — a second take never silently kills the first', () => {
     expect(mockToastInfo).not.toHaveBeenCalled()
   })
 
-  it('autosaving AFTER the save is dispatched: no dialog, straight through', async () => {
+  it('autosaving with the save SETTLED: no dialog, straight through', async () => {
     mockPipeline.state = 'autosaving'
-    mockPipeline.autosaveDispatched = true
+    mockPipeline.autosaveSettled = true
     await renderRecorded()
 
     await tapUseRecording()
@@ -378,9 +385,9 @@ describe('C-1 — a second take never silently kills the first', () => {
 
   it('autosaving with the record already saved server-side: no dialog', async () => {
     // The server-job settle branch: the karute exists under this id, so the run
-    // has nothing left to lose even with the in-tab dispatch flag false.
+    // has nothing left to lose even with the in-tab settle flag false.
     mockPipeline.state = 'autosaving'
-    mockPipeline.autosaveDispatched = false
+    mockPipeline.autosaveSettled = false
     mockPipeline.serverSavedRecordId = 'record-1'
     await renderRecorded()
 
@@ -401,9 +408,9 @@ describe('C-1 — a second take never silently kills the first', () => {
 
     // The old run reaches 'autosaving' with nothing secured yet, and the tap
     // lands inside that commit — before the autosave effect (which would set
-    // autosaveDispatched) and before the dialog-hygiene effect have flushed.
+    // autosaveSettled) and before the dialog-hygiene effect have flushed.
     mockPipeline.state = 'autosaving'
-    mockPipeline.autosaveDispatched = false
+    mockPipeline.autosaveSettled = false
     await act(async () => {
       rerender(<RaceHarness phase="autosaving" />)
       await Promise.resolve()

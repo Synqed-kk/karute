@@ -171,22 +171,28 @@ class GlobalPipeline {
   serverOwned = false
   /**
    * True once the 'autosaving' run's RESULT IS SECURED — the inline save has
-   * been dispatched (in flight or done), or the server job already wrote the
-   * record. Set by ProcessingIndicator's autosave effect at each secure point,
-   * never here.
+   * SUCCEEDED (the karute record is persisted) or the server job already wrote
+   * the record. Set by ProcessingIndicator's autosave effect at those two
+   * settle points, never here.
    *
-   * Read by RecordPageView's supersession gate (C-1, fix round 5): the autosave
-   * dispatch is a PASSIVE EFFECT, not part of the transition into 'autosaving',
-   * so there is a window where the run holds a finished result that nothing has
-   * saved yet. Superseding in that window drops the take's whole transcription
-   * in silence, which is why the gate asks with this flag false and lets the tap
-   * through with it true.
+   * SETTLEMENT, not dispatch (fix round 7, Greptile round-4 P1). The first cut
+   * flipped this the moment saveKaruteRecordInline was called, on the reasoning
+   * that an in-flight save can't be lost. It can: the save may come back
+   * `{error}`, and its fallback to review is runId-guarded
+   * (failAutosaveToReview bails on a stale id, as does the error toast) — so a
+   * run superseded WHILE its save was in flight and then failing is lost with
+   * no review screen and no word to the staff. Until the record actually
+   * exists, superseding still asks.
+   *
+   * Read by RecordPageView's supersession gate (C-1): the autosave runs from a
+   * PASSIVE EFFECT, not from the transition into 'autosaving', so the unsettled
+   * window spans both the pre-dispatch gap and the whole in-flight save.
    *
    * Cleared synchronously by start()/reset() only — the two places a run's
    * result stops existing. Read imperatively at tap time like serverOwned, so
    * flipping it needs no notify().
    */
-  autosaveDispatched = false
+  autosaveSettled = false
 
   private blob: Blob | null = null
   private listeners = new Set<Listener>()
@@ -238,7 +244,7 @@ class GlobalPipeline {
     this.result = null
     this.error = null
     this.serverSavedRecordId = null
-    this.autosaveDispatched = false
+    this.autosaveSettled = false
     this.notify()
     // Server path only where the world can stage a tenant-scoped key the worker
     // can prove ownership of (thin arm). Web stays in-tab — see the port's
@@ -579,7 +585,7 @@ class GlobalPipeline {
     this.blob = null
     this.serverSavedRecordId = null
     this.serverOwned = false
-    this.autosaveDispatched = false
+    this.autosaveSettled = false
     this.notify()
   }
 }

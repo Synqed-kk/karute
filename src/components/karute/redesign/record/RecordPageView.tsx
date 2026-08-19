@@ -1020,17 +1020,26 @@ export function RecordPageView({
   // money. An errored run stays documented as legitimate to supersede.
   //
   // 'autosaving' is NOT the safe state the first cut claimed (fix round 5): the
-  // save is dispatched by a PASSIVE EFFECT in ProcessingIndicator, not by the
+  // save runs from a PASSIVE EFFECT in ProcessingIndicator, not from the
   // transition itself, so a tap landing between the 'autosaving' commit and its
   // effect flush would supersede a finished-but-unsaved run and drop the whole
-  // transcription in silence. autosaveDispatched closes exactly that window.
-  // It self-resolves in the staff's favour: opening the confirm is itself a
-  // React update, and React flushes that commit's pending passive effects
-  // before rendering it, so by the time the dialog is on screen the save has
-  // gone out and a 中断して開始 loses nothing — one extra dialog beats one lost
-  // take (D-1). Every effect keyed on pipeline.state is in that same flush,
-  // which is why the dialog-hygiene effect above has to span 'autosaving' too
-  // (fix round 6) — narrower, it clears the flag this tap just set.
+  // transcription in silence.
+  //
+  // autosaveSettled covers the WHOLE unsettled window — the pre-dispatch gap
+  // AND the in-flight save (fix round 7): an in-flight save can come back
+  // {error}, and a run superseded before that answer arrives can't fall back to
+  // review (the fallback is runId-guarded, so it no-ops for a superseded run),
+  // which is the same silent loss one step later. Once the record is persisted
+  // the flag flips and taps pass with zero friction.
+  //
+  // What the staff sees is the D-1 conservative direction — extra dialog beats
+  // silent loss. Opening the confirm is itself a React update and React flushes
+  // that commit's pending passive effects before rendering it, so by the time
+  // the dialog is on screen the save is at least in flight; a 中断して開始 then
+  // is an explicit, informed call rather than something that happened to them.
+  // Every effect keyed on pipeline.state is in that same flush, which is why
+  // the dialog-hygiene effect above has to span 'autosaving' too (fix round 6)
+  // — narrower, it clears the flag this tap just set.
   function handleUseRecordingTap() {
     if (pipeline.state === 'processing') {
       // The old run survives server-side — say so, don't ask.
@@ -1044,7 +1053,7 @@ export function RecordPageView({
     // in exactly the window this closes.
     if (
       globalPipeline.state === 'autosaving' &&
-      !globalPipeline.autosaveDispatched &&
+      !globalPipeline.autosaveSettled &&
       !globalPipeline.serverSavedRecordId
     ) {
       setShowSupersedeDialog(true)
