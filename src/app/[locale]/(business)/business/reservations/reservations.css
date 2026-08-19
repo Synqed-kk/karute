@@ -22,6 +22,13 @@
 
 .biz .page { padding: 24px 28px 42px; }
 
+/* ⚖ BUTTON-WEIGHT RULING (PACKET-PARITY-WAVE ADDENDUM 2): the canon pages
+   disagree on button weight, and parity means each screen matches ITS OWN canon
+   page. The shared sheet carries 今日の運営's values; this page's canon primaries
+   are 700, so the override lives here, scoped to this screen only. Canon itself
+   shipped per-page CSS copies — per-screen weights ARE canon behavior. */
+.biz .btn.primary { font-weight: 700; }
+
 /* Canon section I / A3: the head's CTA stays on one line and the description is
    the side that shrinks — decided by wrap permission, not by width. */
 .biz .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 22px; margin-bottom: 15px; }
@@ -55,17 +62,26 @@
 .biz .saved-views { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
 .biz .saved-views > span { color: var(--quiet); font-size: 12px; font-weight: 800; letter-spacing: .04em; }
 .biz .saved-view {
-  min-height: 32px;
-  padding: 0 11px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
   background: #fff;
-  color: var(--ink-2);
-  font-size: 13px;
-  font-weight: 700;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
 }
 .biz .saved-view:hover { background: #fafafb; }
-.biz .saved-view[aria-pressed="true"] { border-color: var(--select-line); background: var(--select-bg); color: var(--select-ink); }
+/* Canon's own pressed chip (w2-bookings-customers.css:196): the accent wash
+   plus an inset ring that thickens the border without moving the box. Never a
+   solid fill — a saved view is a selected STATE, not a commit (R13). */
+.biz .saved-view[aria-pressed="true"] {
+  border-color: var(--select-line);
+  background: var(--select-bg);
+  color: var(--select-ink);
+  box-shadow: inset 0 0 0 1px var(--select-line);
+}
 
 .biz .filters {
   display: grid;
@@ -115,8 +131,13 @@
    identifiers with nowhere to break, so their tracks take a min-content floor
    (measured by the browser, never a px guess); 受付元 is the column that absorbs
    the remainder and drops an unbreakable Latin token inside itself with
-   overflow-wrap. No truncation, no ellipsis — that is this page's rule. */
-.biz #bookingPanel { --fx-cols: 84px minmax(min-content, 1.15fr) minmax(min-content, .72fr) minmax(0, 1.08fr) 152px; }
+   overflow-wrap. No truncation, no ellipsis — that is this page's rule.
+
+   表示設定 makes the column SET a user choice, so the two track lists ride in
+   from the screen as --fx-wide / --fx-narrow (built from the visible columns
+   only) and this media query still picks between them — one property, one
+   source, canon's contract intact under a hidden column. */
+.biz #bookingPanel { --fx-cols: var(--fx-wide); }
 .biz .list-head {
   display: grid;
   grid-template-columns: var(--fx-cols);
@@ -144,8 +165,11 @@
 }
 .biz .booking-row:hover { background: #fafafb; }
 .biz .booking-row.selected { background: var(--indigo-soft); box-shadow: inset 3px 0 0 var(--indigo); }
-.biz .booking-row .cell:nth-child(2) > strong, .biz .booking-row .cell:nth-child(3) > strong { white-space: nowrap; }
-.biz .booking-row .cell:nth-child(4) > strong { overflow-wrap: anywhere; }
+/* Keyed to the COLUMN, not the position: with 表示設定 able to hide any of the
+   five, nth-child would hand 受付元's wrapping rule to whichever cell slid into
+   slot 4. */
+.biz .booking-row .cell[data-col="who"] > strong, .biz .booking-row .cell[data-col="staff"] > strong { white-space: nowrap; }
+.biz .booking-row .cell[data-col="source"] > strong { overflow-wrap: anywhere; }
 .biz .cell strong { display: block; font-size: 14px; }
 .biz .cell span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.4; }
 
@@ -353,6 +377,6 @@
 @media (max-width: 1320px) {
   .biz .page { padding-left: 20px; padding-right: 20px; }
   .biz .workspace { grid-template-columns: minmax(0, 1fr) 330px; gap: 10px; }
-  .biz #bookingPanel { --fx-cols: 78px minmax(min-content, 1.1fr) minmax(min-content, .68fr) minmax(0, 1.02fr) 140px; }
+  .biz #bookingPanel { --fx-cols: var(--fx-narrow); }
   .biz .queue-card { grid-template-columns: 168px minmax(0, 1fr) 190px; gap: 11px; }
 }

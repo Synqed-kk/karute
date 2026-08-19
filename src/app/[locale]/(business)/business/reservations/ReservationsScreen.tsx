@@ -29,6 +29,7 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { toggleColumn, wireColumnsPopover } from '@/business/lib/column-config'
 import {
   DEADLINE_WORD,
   LIFECYCLE,
@@ -39,10 +40,13 @@ import {
   flagsOf,
   isQueued,
   matchesFilters,
+  primaryActionOf,
   safeSlotsFor,
   spanText,
+  viewFilters,
   type DecisionKind,
   type Lifecycle,
+  type SavedView,
 } from '@/business/lib/reservations'
 import { hhmm } from '@/business/lib/today-board'
 
@@ -75,6 +79,9 @@ export interface ReservationRow {
   party: Array<{ role: string; name: string; note: string }>
   history: Array<[string, string, string]>
   shiftWarning: string | null
+  /** 担当資格, read off the roster's 資格 plane — canon's literal 「小顔対応済み」
+   *  would affirm a qualification the assigned staff may not hold. */
+  qualificationText: string
   staffUnavailable: boolean
   settled: boolean
   txNote: string
@@ -99,6 +106,10 @@ export interface ReservationsProps {
   slots: SlotOption[]
   lensLabel: string
   spanLabel: string
+  /** Canon's date filter names its days (「本日 8月5日」/「8月6日以降」). Both come
+   *  off the server's clock so no second calendar exists on the client. */
+  todayLabel: string
+  tomorrowLabel: string
   storeParam: string | null
   /** JST minutes from midnight — the one pinned world clock (13:24), shared
    *  with the Today board's now-line and the topbar's Reserve同期 stamp. */
@@ -113,7 +124,21 @@ const HINT = '見本データのため実行できません'
 type DateFilter = 'all' | 'today' | 'future'
 type StatusFilter = 'all' | 'attention' | Lifecycle
 type SourceFilter = 'all' | 'reserve' | 'store' | 'external'
-type SavedView = 'all' | 'attention' | 'reserve' | 'none'
+
+/** 表示する列 — canon's own `data-columns-config` for this panel, verbatim
+ *  (fable-store-reservations.html:407). `nw` is the ≤1320px track the page's
+ *  @media block declares. Reservations lists no column as `off`, so all five
+ *  start visible; the popover is a per-device display preference, which is what
+ *  fable-shared.js's comment calls it (no permission gate). */
+export const COLUMNS = [
+  { k: 'when', label: '日時', w: '84px', nw: '78px' },
+  { k: 'who', label: 'お客様・メニュー', w: 'minmax(min-content, 1.15fr)', nw: 'minmax(min-content, 1.1fr)' },
+  { k: 'staff', label: '担当・設備', w: 'minmax(min-content, .72fr)', nw: 'minmax(min-content, .68fr)' },
+  { k: 'source', label: '受付元・価格', w: 'minmax(0, 1.08fr)', nw: 'minmax(0, 1.02fr)' },
+  { k: 'state', label: '状態', w: '152px', nw: '140px' },
+] as const
+
+const DEFAULT_COLUMNS: string[] = COLUMNS.map((c) => c.k)
 
 const STATUS_OPTIONS: Array<[StatusFilter, string]> = [
   ['all', 'すべての状態'],
@@ -134,7 +159,7 @@ const SOURCE_OPTIONS: Array<[SourceFilter, string]> = [
   ['external', '外部予約元'],
 ]
 
-const SAVED_VIEWS: Array<[SavedView, string]> = [
+const SAVED_VIEW_LABELS: Array<[SavedView, string]> = [
   ['all', 'すべて'],
   ['attention', '要対応'],
   ['reserve', 'Reserve受付'],
@@ -151,7 +176,7 @@ const DECISION: Record<DecisionKind, (r: Decorated) => string> = {
   open: (r) => `${r.customerName}さんの予約に期限のある判断が残っている`,
 }
 
-interface Decorated extends ReservationRow {
+export interface Decorated extends ReservationRow {
   deadlineMinute: number | null
   overdue: boolean
   queued: boolean
@@ -173,6 +198,103 @@ export function decorate(row: ReservationRow, boardNow: number, closeMinute: num
     queued: isQueued(row.lifecycle, deadlineMinute),
     allFlags,
     kind: decisionKindOf(row.lifecycle, allFlags),
+  }
+}
+
+/** What a dialog's 反映 button produces: the row patch and the sentence the
+ *  toast says. `null` = the gate refused, and nothing at all happens. */
+export interface Commit {
+  patch: Partial<ReservationRow>
+  message: string
+}
+
+const stamp = (row: Decorated, boardNow: number, action: string, detail: string): Array<[string, string, string]> =>
+  [[hhmm(boardNow), action, detail], ...row.history]
+
+/**
+ * 受付リクエストを確定 (canon :694). The gate is re-checked HERE, not only on the
+ * checkbox: canon's own commit re-asserts `decisionOf(item)==='accept'` and
+ * `isQueued(item)` because the dialog can be standing open over a booking that
+ * has since stopped being an acceptance decision.
+ */
+export function acceptCommit(row: Decorated, confirmed: boolean, lensLabel: string, boardNow: number): Commit | null {
+  if (row.kind !== 'accept' || !row.queued || !confirmed) return null
+  return {
+    patch: {
+      lifecycle: 'confirmed',
+      deadline: null,
+      history: stamp(row, boardNow, '受付リクエストを確定', `${lensLabel} / ${row.priceLabel}保持 / Reserve通知 + SMS送信`),
+    },
+    message: 'この画面内のプロトタイプで、空き・資格・設備・受付価格・通知先を確認した確定結果を表示しました',
+  }
+}
+
+/**
+ * 画面内で変更を試す (canon :699) — the in-page trial move. The day does NOT
+ * move: a 販売可能枠 is a daily shape offered on the booking's own date, so this
+ * changes time, staff and bed only. The agreed price is carried untouched, and
+ * 変更希望あり comes off while 担当変更あり goes on when the person changed.
+ */
+export function changeCommit(
+  row: Decorated,
+  slot: SlotOption | undefined,
+  reason: string,
+  confirmed: boolean,
+  boardNow: number,
+): Commit | null {
+  if (!row.flags.includes(WANTS_CHANGE) || !slot || !reason || !confirmed) return null
+  const before = `${row.dateLabel} ${row.timeLabel} / ${row.staffName} / ${row.resourceName}`
+  const timeLabel = `${hhmm(slot.start)}–${hhmm(slot.start + row.durationMinutes)}`
+  const after = `${row.dateLabel} ${timeLabel} / ${slot.staffName} / ${slot.resourceName}`
+  return {
+    patch: {
+      startMinute: slot.start,
+      timeLabel,
+      staffName: slot.staffName,
+      resourceName: slot.resourceName,
+      lifecycle: 'confirmed',
+      deadline: null,
+      flags: row.flags.filter((f) => f !== WANTS_CHANGE),
+      reassigned: row.reassigned || slot.staffName !== row.staffName,
+      proof: `${reason}。元の ${before}を履歴に保持し、受付価格 ${row.priceLabel}は変更していません。`,
+      history: stamp(row, boardNow, '予約を変更', `${before} → ${after} / ${reason} / SMS送信`),
+    },
+    message: 'この画面内のプロトタイプで、新しい枠・担当資格・設備・価格保持・通知先を確認した変更結果を表示しました',
+  }
+}
+
+/**
+ * 来店・キャンセルを記録 (canon :704). Three outcomes, and none of them deletes
+ * the booking — 無断キャンセル in particular is 来店なし plus the contact evidence,
+ * because the chasing that follows belongs to 受信トレイ.
+ *
+ * 来店済み clears the stored deadline and gains one: 精算期限 IS 閉店, derived by
+ * `deadlineOf`, so the row leaves the queue as an acceptance and re-enters it as
+ * a settlement without a second number being written anywhere.
+ */
+export function recordCommit(
+  row: Decorated,
+  outcome: string,
+  source: string,
+  confirmed: boolean,
+  lensLabel: string,
+  boardNow: number,
+): Commit | null {
+  if (row.lifecycle !== 'confirmed' || !outcome || !source || !confirmed) return null
+  const [lifecycle, label, message] =
+    outcome === 'arrived'
+      ? (['awaiting_settlement', '来店済み・精算待ち', 'この画面内のプロトタイプで来店結果を表示しました。受付価格は見本データのままです'] as const)
+      : outcome === 'cancelled'
+        ? (['cancelled', 'お客様キャンセル', 'この画面内のプロトタイプで、予約を消さずにキャンセルと確認元を表示しました'] as const)
+        : (['no_show', '無断キャンセル', 'この画面内のプロトタイプで、予約を消さずに無断キャンセルと連絡証拠を表示しました'] as const)
+  return {
+    patch: {
+      lifecycle,
+      deadline: null,
+      proof: `${label}。確認元: ${source}。受付価格 ${row.priceLabel}と元の予約枠を履歴に保持。`,
+      history: stamp(row, boardNow, label, `${source} / ${lensLabel}`),
+    },
+    message,
   }
 }
 
@@ -223,10 +345,21 @@ function Screen(props: ReservationsProps) {
   const [date, setDate] = useState<DateFilter>('all')
   const [status, setStatus] = useState<StatusFilter>('all')
   const [source, setSource] = useState<SourceFilter>('all')
-  const [savedView, setSavedView] = useState<SavedView | null>(null)
+  // Canon starts on 「すべて」 (w2-bookings-customers.js `runtime.savedView='all'`)
+  // and only ever moves when another chip is pressed — editing a filter by hand
+  // does NOT clear it, which is why canon's own 保存した表示 criteria string
+  // reads the live controls rather than the view. One lit chip, always.
+  const [savedView, setSavedView] = useState<SavedView>('all')
   const [openParty, setOpenParty] = useState(false)
   const [toast, setToast] = useState('')
+  const [shown, setShown] = useState<string[]>(DEFAULT_COLUMNS)
+  const [colsOpen, setColsOpen] = useState(false)
 
+  const listRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const countRef = useRef<HTMLSpanElement>(null)
+  const colsBtnRef = useRef<HTMLButtonElement>(null)
+  const popRef = useRef<HTMLDivElement>(null)
   const acceptRef = useRef<HTMLDialogElement>(null)
   const changeRef = useRef<HTMLDialogElement>(null)
   const recordRef = useRef<HTMLDialogElement>(null)
@@ -240,9 +373,24 @@ function Screen(props: ReservationsProps) {
 
   useEffect(() => {
     if (!toast) return
-    const t = setTimeout(() => setToast(''), 3000)
+    const t = setTimeout(() => setToast(''), 2700)
     return () => clearTimeout(t)
   }, [toast])
+
+  // 表示する列 popover — the wiring itself is the shared canon primitive, unit-
+  // tested on real DOM nodes, so this effect stays a thin caller of it.
+  useEffect(() => {
+    if (!colsOpen || !popRef.current || !colsBtnRef.current) return
+    return wireColumnsPopover(popRef.current, colsBtnRef.current, () => setColsOpen(false))
+  }, [colsOpen])
+
+  const columns = useMemo(() => COLUMNS.filter((c) => shown.includes(c.k)), [shown])
+  // Both track lists ride as custom properties; the stylesheet's 1320px media
+  // query picks between them, exactly as canon's own @media does.
+  const trackStyle = {
+    '--fx-wide': columns.map((c) => c.w).join(' '),
+    '--fx-narrow': columns.map((c) => c.nw).join(' '),
+  } as React.CSSProperties
 
   const all = useMemo(
     () => props.rows.map((r) => decorate({ ...r, ...patch[r.id] }, boardNow, closeMinute)),
@@ -275,28 +423,33 @@ function Screen(props: ReservationsProps) {
     setPatch((was) => ({ ...was, [id]: { ...was[id], ...next } }))
     setSelected(id)
     setToast(message)
+    // canon `focusResult` (:541): a commit hands focus back to the row it
+    // changed, so the proof of the change is where the keyboard already is.
+    // The row is re-rendered by this same update, hence the frame's delay.
+    requestAnimationFrame(() => focusResult(listRef.current, countRef.current, id))
   }
 
-  function stamp(row: Decorated, action: string, detail: string): Array<[string, string, string]> {
-    return [[hhmm(boardNow), action, detail], ...row.history]
-  }
-
+  // canon `clearFilters` (:710): the saved-view chip is NOT cleared here, and
+  // the caret goes back in the search box — clearing is a step in typing the
+  // next search, not the end of one.
   function clearFilters() {
     setSearch('')
     setDate('all')
     setStatus('all')
     setSource('all')
-    setSavedView(null)
+    searchRef.current?.focus()
   }
 
   function applyView(view: SavedView) {
+    const f = viewFilters(view)
     setSavedView(view)
-    setDate('all')
-    setSource(view === 'reserve' ? 'reserve' : 'all')
-    setStatus(view === 'attention' ? 'attention' : 'all')
-    // 一致なし is canon's own empty-result view: a saved view that matches
-    // nothing has to be visibly survivable, not a state the screen hides.
-    setSearch(view === 'none' ? '__一致なし__' : '')
+    setDate(f.date)
+    setSource(f.source)
+    setStatus(f.status)
+    setSearch(f.search)
+    // canon hands focus to the result count (:744) — the one thing on screen
+    // that just changed meaning.
+    countRef.current?.focus()
   }
 
   function openAccept() {
@@ -316,68 +469,12 @@ function Screen(props: ReservationsProps) {
     recordRef.current?.showModal()
   }
 
-  function commitAccept() {
-    if (!current || current.kind !== 'accept' || !acceptOk) return
-    update(
-      current.id,
-      {
-        lifecycle: 'confirmed',
-        deadline: null,
-        history: stamp(current, '受付リクエストを確定', `${props.lensLabel} / ${current.priceLabel}を保持 / Reserve通知 + SMS送信`),
-      },
-      'この画面内のプロトタイプで、空き・資格・設備・受付価格・通知先を確認した確定結果を表示しました',
-    )
-    acceptRef.current?.close()
-  }
-
-  function commitChange() {
-    const slot = candidates.find((s) => s.id === changeSlot)
-    if (!current || !slot || !changeReason || !changeOk) return
-    const before = `${current.dateLabel} ${current.timeLabel} / ${current.staffName} / ${current.resourceName}`
-    const timeLabel = `${hhmm(slot.start)}–${hhmm(slot.start + current.durationMinutes)}`
-    const after = `${current.dateLabel} ${timeLabel} / ${slot.staffName} / ${slot.resourceName}`
-    update(
-      current.id,
-      {
-        // The day does not move: a 販売可能枠 is offered on the booking's own
-        // date, so a change is a change of time, staff and bed.
-        startMinute: slot.start,
-        timeLabel,
-        staffName: slot.staffName,
-        resourceName: slot.resourceName,
-        lifecycle: 'confirmed',
-        deadline: null,
-        flags: current.flags.filter((f) => f !== WANTS_CHANGE),
-        reassigned: current.reassigned || slot.staffName !== current.staffName,
-        proof: `${changeReason}。元の ${before} を履歴に保持し、受付価格 ${current.priceLabel} は変更していません。`,
-        history: stamp(current, '予約を変更', `${before} → ${after} / ${changeReason} / SMS送信`),
-      },
-      'この画面内のプロトタイプで、新しい枠・担当資格・設備・価格保持・通知先を確認した変更結果を表示しました',
-    )
-    changeRef.current?.close()
-  }
-
-  function commitRecord() {
-    if (!current || current.lifecycle !== 'confirmed' || !recordType || !recordSource || !recordOk) return
-    const [lifecycle, label, message] =
-      recordType === 'arrived'
-        ? (['awaiting_settlement', '来店済み・精算待ち', 'この画面内のプロトタイプで来店結果を表示しました。受付価格は見本データのままです'] as const)
-        : recordType === 'cancelled'
-          ? (['cancelled', 'お客様キャンセル', 'この画面内のプロトタイプで、予約を消さずにキャンセルと確認元を表示しました'] as const)
-          : // 無断キャンセル = no contact and no visit. The lifecycle is 来店なし
-            // and the chasing that follows belongs to 受信トレイ.
-            (['no_show', '無断キャンセル', 'この画面内のプロトタイプで、予約を消さずに無断キャンセルと連絡証拠を表示しました'] as const)
-    update(
-      current.id,
-      {
-        lifecycle,
-        deadline: null,
-        proof: `${label}。確認元: ${recordSource}。受付価格 ${current.priceLabel} と元の予約枠を履歴に保持。`,
-        history: stamp(current, label, `${recordSource} / ${props.lensLabel}`),
-      },
-      message,
-    )
-    recordRef.current?.close()
+  // The three commits are thin: the gate and the transition are pure functions
+  // above (unit-tested directly), and these own only the dialog and the patch.
+  function run(commit: Commit | null, dialog: HTMLDialogElement | null) {
+    if (!commit || !current) return
+    update(current.id, commit.patch, commit.message)
+    dialog?.close()
   }
 
   return (
@@ -407,7 +504,7 @@ function Screen(props: ReservationsProps) {
 
       <div className="saved-views" role="group" aria-label="保存した表示">
         <span>保存した表示</span>
-        {SAVED_VIEWS.map(([k, label]) => (
+        {SAVED_VIEW_LABELS.map(([k, label]) => (
           <button
             key={k}
             className="saved-view"
@@ -423,70 +520,85 @@ function Screen(props: ReservationsProps) {
       <form className="filters" aria-label="予約を絞り込む" onSubmit={(e) => e.preventDefault()}>
         <input
           type="search"
+          ref={searchRef}
           value={search}
-          onChange={(e) => { setSearch(e.target.value); setSavedView(null) }}
+          onChange={(e) => setSearch(e.target.value)}
           placeholder="お客様名・予約番号・メニュー・担当"
           aria-label="予約を検索"
         />
-        <select value={date} onChange={(e) => { setDate(e.target.value as DateFilter); setSavedView(null) }} aria-label="日付">
+        <select value={date} onChange={(e) => setDate(e.target.value as DateFilter)} aria-label="日付">
           <option value="all">{props.spanLabel}</option>
-          <option value="today">本日</option>
-          <option value="future">明日以降</option>
+          <option value="today">本日 {props.todayLabel}</option>
+          <option value="future">{props.tomorrowLabel}以降</option>
         </select>
-        <select value={status} onChange={(e) => { setStatus(e.target.value as StatusFilter); setSavedView(null) }} aria-label="状態">
+        <select value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)} aria-label="状態">
           {STATUS_OPTIONS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
         </select>
-        <select value={source} onChange={(e) => { setSource(e.target.value as SourceFilter); setSavedView(null) }} aria-label="受付元">
+        <select value={source} onChange={(e) => setSource(e.target.value as SourceFilter)} aria-label="受付元">
           {SOURCE_OPTIONS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
         </select>
         <button className="btn" type="button" onClick={clearFilters}>クリア</button>
       </form>
 
       <div className="workspace">
-        <section className="panel" id="bookingPanel" aria-labelledby="listTitle">
+        <section className="panel" id="bookingPanel" style={trackStyle} aria-labelledby="listTitle">
           <div className="panel-head">
             <div>
               <strong id="listTitle">全予約リスト</strong>
               <span>{props.spanLabel}の全件。検索と絞り込みはこの一覧に効きます</span>
             </div>
-            <span className="result-count" role="status" aria-live="polite">{visible.length}件</span>
+            <div className="panel-actions" style={{ position: 'relative' }}>
+              <span className="result-count" role="status" aria-live="polite" tabIndex={-1} ref={countRef}>
+                {visible.length}件
+              </span>
+              <button
+                className="btn fx-cols-btn"
+                type="button"
+                ref={colsBtnRef}
+                aria-expanded={colsOpen}
+                aria-haspopup="dialog"
+                onClick={() => setColsOpen((v) => !v)}
+              >
+                表示設定
+              </button>
+              {colsOpen && (
+                <div className="fx-cols-pop" role="dialog" aria-label="表示する列" ref={popRef}>
+                  <h3>表示する列</h3>
+                  {COLUMNS.map((c) => (
+                    <label className="fx-cols-opt" key={c.k}>
+                      <input
+                        type="checkbox"
+                        checked={shown.includes(c.k)}
+                        onChange={() => setShown((was) => toggleColumn(was, c.k))}
+                      />
+                      <span>{c.label}</span>
+                    </label>
+                  ))}
+                  <p className="fx-cols-note">この端末での表示だけを変えます。データは消えません。</p>
+                </div>
+              )}
+            </div>
           </div>
           <div className="fx-scroll">
             <div className="list-head" aria-hidden="true">
-              <span>日時</span>
-              <span>お客様・メニュー</span>
-              <span>担当・設備</span>
-              <span>受付元・価格</span>
-              <span className="badge-col">状態</span>
+              {columns.map((c) => (
+                <span key={c.k} className={c.k === 'state' ? 'badge-col' : undefined}>{c.label}</span>
+              ))}
             </div>
             {visible.length > 0 && (
-              <div className="booking-list">
+              <div className="booking-list" ref={listRef}>
                 {visible.map((r) => (
                   <button
                     key={r.id}
                     type="button"
+                    data-id={r.id}
                     className={`booking-row${r.id === current?.id ? ' selected' : ''}`}
                     aria-pressed={r.id === current?.id}
                     onClick={() => setSelected(r.id)}
                   >
-                    <span className="cell">
-                      <strong>{r.dateLabel}</strong>
-                      <span>{r.timeLabel}</span>
-                    </span>
-                    <span className="cell">
-                      <strong>{r.customerName}</strong>
-                      <span>{r.menuName} / {r.no}</span>
-                    </span>
-                    <span className="cell">
-                      <strong>{r.staffName}</strong>
-                      <span>{r.resourceName}</span>
-                    </span>
-                    <span className="cell">
-                      <strong>{r.sourceLabel}</strong>
-                      <span>{r.priceLabel}</span>
-                      {r.storeLabel && <small className="w2-provenance">{r.storeLabel} / {r.no}</small>}
-                    </span>
-                    <span className="cell state-cell badge-col"><StateCell row={r} /></span>
+                    {columns.map((c) => (
+                      <Cell key={c.k} col={c.k} row={r} />
+                    ))}
                   </button>
                 ))}
               </div>
@@ -630,13 +742,25 @@ function Screen(props: ReservationsProps) {
                           if (r.kind === 'accept') openAccept()
                           else if (r.kind === 'change') openChange()
                           else if (r.kind === 'escalate')
-                            setToast(`この画面内のプロトタイプでは、予約 ${r.no} と影響範囲を判断できる担当者へ渡すところまでを示します`)
+                            setToast(`この画面内のプロトタイプでは、予約 ${r.no}と影響範囲を判断できる担当者へ渡すところまでを示します`)
                         }}
                       >
                         {QUEUE_ACTION[r.kind]}
                       </button>
                     )}
-                    <button className="btn" type="button" onClick={() => setSelected(r.id)}>予約の正本を見る</button>
+                    {/* canon (:602-605) selects the booking AND sends focus to
+                        its row — the queue's job is to hand you off to the
+                        record, so the keyboard goes there too. */}
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={() => {
+                        setSelected(r.id)
+                        requestAnimationFrame(() => focusResult(listRef.current, countRef.current, r.id))
+                      }}
+                    >
+                      予約の正本を見る
+                    </button>
                   </div>
                 </article>
               )
@@ -659,7 +783,10 @@ function Screen(props: ReservationsProps) {
             <div className="dialog-facts">
               <div className="dialog-fact"><span>お客様・通知先</span><b>{current.customerName} / Reserve登録先</b></div>
               <div className="dialog-fact"><span>予約枠</span><b>{current.dateLabel} {current.timeLabel}</b></div>
-              <div className="dialog-fact"><span>担当資格・設備</span><b>{current.staffName} / {current.resourceName}</b></div>
+              {/* Three segments, canon's own shape (:692) — WHO, what they are
+                  qualified for, and on which bed. The middle one is read off
+                  the roster's 資格 plane rather than written in. */}
+              <div className="dialog-fact"><span>担当資格・設備</span><b>{current.staffName} / {current.qualificationText} / {current.resourceName}</b></div>
               <div className="dialog-fact"><span>受付価格</span><b>{current.priceLabel}</b></div>
               <div className="dialog-fact"><span>価格条件</span><b>{current.eligibility}</b></div>
               <div className="dialog-fact"><span>確定通知</span><b>Reserve通知 + SMS / 送信待ち</b></div>
@@ -675,7 +802,7 @@ function Screen(props: ReservationsProps) {
         </div>
         <div className="dialog-foot">
           <button className="btn" type="button" onClick={() => acceptRef.current?.close()}>戻る</button>
-          <button className="btn primary" type="button" disabled={!acceptOk} onClick={commitAccept}>
+          <button className="btn primary" type="button" disabled={!acceptOk} onClick={() => current && run(acceptCommit(current, acceptOk, props.lensLabel, boardNow), acceptRef.current)}>
             証拠を残して受け付ける
           </button>
         </div>
@@ -738,7 +865,13 @@ function Screen(props: ReservationsProps) {
             type="button"
             disabled={!changeOk || !changeReason || !changeSlot}
             title={candidates.length === 0 ? HINT : undefined}
-            onClick={commitChange}
+            onClick={() =>
+              current &&
+              run(
+                changeCommit(current, candidates.find((s) => s.id === changeSlot), changeReason, changeOk, boardNow),
+                changeRef.current,
+              )
+            }
           >
             画面内で変更を試す
           </button>
@@ -793,7 +926,10 @@ function Screen(props: ReservationsProps) {
             className="btn primary"
             type="button"
             disabled={!recordType || !recordSource || !recordOk}
-            onClick={commitRecord}
+            onClick={() =>
+              current &&
+              run(recordCommit(current, recordType, recordSource, recordOk, props.lensLabel, boardNow), recordRef.current)
+            }
           >
             証拠を残して反映
           </button>
@@ -809,6 +945,66 @@ function Screen(props: ReservationsProps) {
 
 function href(props: ReservationsProps, segment: string): string {
   return `/${props.locale}/business/${segment}${props.storeParam ? `?store=${props.storeParam}` : ''}`
+}
+
+/** canon `focusResult` (:541): after a commit or a queue jump, focus lands on
+ *  the row that changed; on the first row when that booking is filtered out of
+ *  the list; and on the result count when the list is empty. Exported so the
+ *  suite drives it on real nodes — this is the focus handoff, not a decoration. */
+export function focusResult(
+  list: HTMLElement | null,
+  count: HTMLElement | null,
+  preferredId: string,
+): void {
+  const target =
+    list?.querySelector<HTMLElement>(`[data-id="${CSS.escape(preferredId)}"]`) ??
+    list?.querySelector<HTMLElement>('.booking-row') ??
+    count
+  target?.focus()
+}
+
+/** One list cell. The column set is user-controlled, so each cell names its
+ *  column (`data-col`) rather than relying on its position — hiding 日時 must
+ *  not hand 受付元's wrapping rules to whichever cell slid into slot 4. */
+function Cell({ col, row }: { col: (typeof COLUMNS)[number]['k']; row: Decorated }) {
+  if (col === 'when') {
+    return (
+      <span className="cell" data-col="when">
+        <strong>{row.dateLabel}</strong>
+        <span>{row.timeLabel}</span>
+      </span>
+    )
+  }
+  if (col === 'who') {
+    return (
+      <span className="cell" data-col="who">
+        <strong>{row.customerName}</strong>
+        <span>{row.menuName} / {row.no}</span>
+      </span>
+    )
+  }
+  if (col === 'staff') {
+    return (
+      <span className="cell" data-col="staff">
+        <strong>{row.staffName}</strong>
+        <span>{row.resourceName}</span>
+      </span>
+    )
+  }
+  if (col === 'source') {
+    return (
+      <span className="cell" data-col="source">
+        <strong>{row.sourceLabel}</strong>
+        <span>{row.priceLabel}</span>
+        {row.storeLabel && <small className="w2-provenance">{row.storeLabel} / {row.no}</small>}
+      </span>
+    )
+  }
+  return (
+    <span className="cell state-cell badge-col" data-col="state">
+      <StateCell row={row} />
+    </span>
+  )
 }
 
 /** 状態列 = the lifecycle pill over its modifier flags. */
@@ -924,47 +1120,42 @@ function Primary({
   // same as everywhere else in Business — a disabled filled button reads as a
   // broken commit rather than as "not built yet".
   const pending = 'btn wide'
-  if (row.kind === 'escalate') {
-    return (
-      <button
-        className={cls}
-        type="button"
-        onClick={() => onToast(`この画面内のプロトタイプでは、予約 ${row.no} を判断できる担当者へ渡すところまでを示します`)}
-      >
-        判断できる担当者へ相談
-      </button>
-    )
+  switch (primaryActionOf(row.lifecycle, row.allFlags, row.deadlineMinute)) {
+    case 'escalate':
+      return (
+        <button
+          className={cls}
+          type="button"
+          onClick={() => onToast(`この画面内のプロトタイプでは、予約 ${row.no}を判断できる担当者へ渡すところまでを示します`)}
+        >
+          判断できる担当者へ相談
+        </button>
+      )
+    case 'change':
+      return <button className={cls} type="button" onClick={onChange}>日時・担当変更を確認</button>
+    case 'accept':
+      return <button className={cls} type="button" onClick={onAccept}>受付リクエストを確認</button>
+    case 'settle':
+      return <button className={pending} type="button" disabled title="売上・レジは準備中です">売上・レジで精算（準備中）</button>
+    case 'external':
+      return (
+        <button
+          className={cls}
+          type="button"
+          onClick={() => onToast(`外部予約元 ${row.no}の参照先はこの探索では省略しています。SYNQEDから変更はしません`)}
+        >
+          予約元の記録を確認
+        </button>
+      )
+    case 'record':
+      return <button className={cls} type="button" onClick={onRecord}>来店・キャンセルを記録</button>
+    case 'propose':
+      return <button className={pending} type="button" disabled title="受信トレイは準備中です">受信トレイで提案（準備中）</button>
+    case 'contact':
+      return <button className={pending} type="button" disabled title="受信トレイは準備中です">お客様対応を確認（準備中）</button>
+    default:
+      return <Link className={cls} href={href(props, 'today')}>今日の運営で見る</Link>
   }
-  if (row.kind === 'change') {
-    return <button className={cls} type="button" onClick={onChange}>日時・担当変更を確認</button>
-  }
-  if (row.kind === 'accept') {
-    return <button className={cls} type="button" onClick={onAccept}>受付リクエストを確認</button>
-  }
-  if (row.lifecycle === 'awaiting_settlement') {
-    return <button className={pending} type="button" disabled title="売上・レジは準備中です">売上・レジで精算（準備中）</button>
-  }
-  if (row.lifecycle === 'external') {
-    return (
-      <button
-        className={cls}
-        type="button"
-        onClick={() => onToast(`外部予約元 ${row.no} の参照先はこの探索では省略しています。SYNQEDから変更はしません`)}
-      >
-        予約元の記録を確認
-      </button>
-    )
-  }
-  if (row.lifecycle === 'confirmed') {
-    return <button className={cls} type="button" onClick={onRecord}>来店・キャンセルを記録</button>
-  }
-  if (row.lifecycle === 'pending_accept') {
-    return <button className={pending} type="button" disabled title="受信トレイは準備中です">受信トレイで提案（準備中）</button>
-  }
-  if (row.lifecycle === 'cancelled' || row.lifecycle === 'no_show') {
-    return <button className={pending} type="button" disabled title="受信トレイは準備中です">お客様対応を確認（準備中）</button>
-  }
-  return <Link className={cls} href={href(props, 'today')}>今日の運営で見る</Link>
 }
 
 /** 本人関係, collapsed per ⚖ cut #7 — the same treatment the 顧客 screen carries,
