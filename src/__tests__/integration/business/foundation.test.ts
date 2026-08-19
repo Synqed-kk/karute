@@ -30,11 +30,11 @@ import * as data from '@/business/lib/data'
 import { appointments, staffAssignments, staffCards, staff, customers, STORE_A, STORE_B } from '@/business/lib/fixtures'
 import { jstMidnight, jstSlot } from '@/business/lib/clock'
 import CustomersPage from '@/app/[locale]/(business)/business/customers/page'
+import { toggleColumn } from '@/business/lib/column-config'
 import {
   CustomersScreen,
   consentLabel,
   ticketLabel,
-  toggleColumn,
   walletLabel,
   type CustomerRow,
 } from '@/app/[locale]/(business)/business/customers/CustomersScreen'
@@ -300,6 +300,9 @@ describe('the fixture data door', () => {
       'src/business/lib/fixtures-reservations.ts': [],
       'src/business/lib/today-board.ts': ['./clock', './fixtures', './fixtures-today'],
       'src/business/lib/reservations.ts': ['./fixtures', './fixtures-reservations', './fixtures-today', './today-board'],
+      // The 表示する列 primitive canon keeps in fable-shared.js. Pure DOM +
+      // arrays, shared by 顧客 and 予約一覧, so it imports nothing at all.
+      'src/business/lib/column-config.ts': [],
       // canon-logic — the lifted mock behaviour. These four are PURE by design
       // (that is the whole point of lifting them out of canon's inline script),
       // so an empty inventory is not laziness: any import at all here would
@@ -337,7 +340,10 @@ describe('the fixture data door', () => {
         '@/business/lib/admission',
         '@/business/lib/data',
       ],
-      'src/app/[locale]/(business)/business/customers/CustomersScreen.tsx': ['react'],
+      'src/app/[locale]/(business)/business/customers/CustomersScreen.tsx': [
+        '@/business/lib/column-config',
+        'react',
+      ],
       'src/app/[locale]/(business)/business/customers/loading.tsx': ['@/business/i18n'],
       'src/app/[locale]/(business)/business/today/page.tsx': [
         './TodayScreen',
@@ -376,6 +382,7 @@ describe('the fixture data door', () => {
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/reservations/ReservationsScreen.tsx': [
+        '@/business/lib/column-config',
         '@/business/lib/reservations',
         '@/business/lib/today-board',
         'next/link',
