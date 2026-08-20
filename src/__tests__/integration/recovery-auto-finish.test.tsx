@@ -498,6 +498,28 @@ describe('auto-finish lands the record itself', () => {
     expect(banner()).toBeNull()
   })
 
+  it('a BURNED pack + an unanswered 結果 stays TWO lines — the merge is unresolved-only', async () => {
+    grantConsent()
+    // 残2 = the repurchase cohort: auto-finish never asks it and never burns,
+    // so the 結果 stays owed. The notice's REFETCH then reveals a burn that
+    // landed before the crash — redeemed + owed, the one combination ⚖ 14
+    // deliberately leaves as two lines (the burn is a settled money fact, not
+    // a chore). Widening `merged` to include 'redeemed' fails right here.
+    mockDayFacts
+      .mockImplementationOnce(async () => factsWith({ remaining: 2 }))
+      .mockImplementation(async () =>
+        factsWith({ remaining: 2, redeemedAppointments: ['appt-1'] }),
+      )
+
+    await renderPage()
+    expect(startCtx().recoveryUnanswered).toBe(true)
+
+    await pipelineSaves()
+    expect(screen.getByText('recoverAutoTicketBurned:{"remaining":2,"size":6}')).toBeTruthy()
+    expect(screen.getByText('recoverAutoOutcomeUnanswered')).toBeTruthy()
+    expect(screen.queryByText('recoverAutoTicketAndOutcomeUnanswered')).toBeNull()
+  })
+
   it('the notice links to the karute the save actually landed', async () => {
     grantConsent()
     await renderPage()

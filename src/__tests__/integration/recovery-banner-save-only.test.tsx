@@ -733,6 +733,31 @@ describe('RecordCustomerPickerDialog — repoint variant', () => {
     expect(screen.queryByText('target.repointPinnedNoBooking')).toBeNull()
   })
 
+  // …and the CALLER side of the same fix. The two tests above hand `bookedToday`
+  // in by hand, so they pin the dialog's OR-merge but not the one line that
+  // actually derives it (RecordPageView: `offerBinding.appointmentId != null`).
+  // This opens the real 保存先を変更 from the real banner, on a bound take whose
+  // only booking that day is the one B-8 strips out — so nothing but the
+  // caller's flag can make the pinned row read 予約あり.
+  it('the PAGE wires the flag: a bound take’s repoint picker reads 予約あり end to end', async () => {
+    DAY_FACTS.bookings = [
+      {
+        ...dayBooking,
+        id: 'appt-1',
+        customer: '佐藤 美咲',
+        customerId: 'cust-1',
+        karute: '#00058',
+      },
+    ] as never
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverRepoint'))
+      for (let i = 0; i < 4; i++) await Promise.resolve()
+    })
+    expect(screen.getByText('target.repointPinnedNote')).toBeTruthy()
+    expect(screen.queryByText('target.repointPinnedNoBooking')).toBeNull()
+  })
+
   it('a WALK-IN pinned take (no flag, not in the day list) still reads 当日の予約なし', () => {
     renderRepoint()
     expect(screen.getByText('target.repointPinnedNoBooking')).toBeTruthy()

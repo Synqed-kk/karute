@@ -82,6 +82,13 @@ bindForegroundRevalidate()
 
 afterEach(() => {
   cleanup()
+  // ORDER IS LOAD-BEARING: reset the pipeline BEFORE the sign-out. A reset from
+  // a non-idle state is a run end, so it can launch a real chrome refetch on a
+  // still-'ready' store; the sign-out below bumps the epoch and clears the
+  // single-flight flag, so that fetch can never land in the next test. File-
+  // level (not per-describe) so it holds for any test that touches the
+  // pipeline, wherever it is added.
+  globalPipeline.reset()
   // Two-step reset (established codebase idiom): the signed-out flip clears
   // ScreenBoundary's dtoCache/fetchedAtByPath AND resets chrome-store to idle.
   setSessionState({ status: 'signed-out' })
@@ -404,10 +411,6 @@ describe('chrome refresh when a pipeline run ends', () => {
     })
   }
 
-  afterEach(() => {
-    globalPipeline.reset()
-  })
-
   it('the END of a run refetches the chrome exactly once — further idle notifications cost nothing', async () => {
     const apiFetch = jest
       .fn<Promise<Response>, unknown[]>()
@@ -434,6 +437,42 @@ describe('chrome refresh when a pipeline run ends', () => {
       await new Promise((r) => setTimeout(r, 0))
     })
     expect(apiFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('an ERRORED run ends TWICE: once at the error card, once when it is dismissed', async () => {
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValue(jsonResponse({ data: CHROME_DTO }))
+    await loadChrome(apiFetch as unknown as jest.Mock)
+
+    armRunning()
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+
+    // The error arm — 'error' is the transition NEW-2 was actually reported on.
+    // Same fake-transition idiom as armRunning: `state` is a plain field, and
+    // publishSavedRecord fires notify() without touching it.
+    await act(async () => {
+      globalPipeline.state = 'error'
+      globalPipeline.publishSavedRecord(globalPipeline.runId, 'rec-err')
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+
+    // Already errored — a repeat notification is not a new end.
+    await act(async () => {
+      globalPipeline.publishSavedRecord(globalPipeline.runId, 'rec-err2')
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+
+    // Dismissing the error card (error → idle) IS a second end, and the second
+    // GET is deliberate: it is the only one that can pick up a recovery-banner
+    // save made while the error card was up.
+    await act(async () => {
+      globalPipeline.reset()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(apiFetch).toHaveBeenCalledTimes(3)
   })
 
   it('a chrome store that is not ready is left alone — a run end never starts the first fetch', async () => {

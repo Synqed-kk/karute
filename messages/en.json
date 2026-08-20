@@ -734,7 +734,7 @@
     "recoverAutoTicketBurned": "{size}-session pack · One pack session was used ({remaining}/{size} left)",
     "recoverAutoTicketUnresolved": "The pack is not applied yet — check on the record",
     "recoverAutoOutcomeUnanswered": "The result is still unanswered. Please answer it on the record.",
-    "recoverAutoTicketAndOutcomeUnanswered": "Ticket unprocessed and outcome unanswered — review from the karute.",
+    "recoverAutoTicketAndOutcomeUnanswered": "The pack is not applied yet and the result is still unanswered — check on the record",
     "recoverAutoOpenKarute": "Open the record",
     "recoverBannerTitle": "This record was not saved properly",
     "recoverFieldCustomer": "Customer",
