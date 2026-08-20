@@ -31,7 +31,7 @@
 // page-local sample.
 
 import Link from 'next/link'
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   computeChecks,
   confirmCaption,
@@ -60,6 +60,7 @@ import {
   blockChrome,
   clickClosesPopover,
   dragModeAt,
+  fieldsPopAnchor,
   fractionIn,
   gapLayerFor,
   guardRailsFor,
@@ -293,6 +294,8 @@ export function TodayScreen(props: TodayProps) {
   const dragRef = useRef<DragCtx | null>(null)
   const boardRef = useRef<HTMLDivElement>(null)
   const shelfRef = useRef<HTMLDivElement>(null)
+  const fieldsPopRef = useRef<HTMLDivElement>(null)
+  const fieldsBtnRef = useRef<HTMLButtonElement>(null)
   const chipDragRef = useRef<{ id: string; startX: number; startY: number; moved: boolean; laneKey: string | null } | null>(null)
 
   // ── the store's price levers (L3) ────────────────────────────────────────
@@ -339,6 +342,29 @@ export function TodayScreen(props: TodayProps) {
     }
     document.addEventListener('click', onDoc)
     return () => document.removeEventListener('click', onDoc)
+  }, [pop])
+
+  // canon `positionFieldsPop` (:5782) + its resize listener (:5820). 表示設定
+  // is viewport-pinned, not button-hung, so the whole panel is on screen with
+  // nothing to scroll. Before paint, so it never flashes at the CSS seed.
+  useLayoutEffect(() => {
+    if (pop !== 'fields') return
+    const place = () => {
+      const el = fieldsPopRef.current
+      const btn = fieldsBtnRef.current
+      if (!el || !btn) return
+      const { top, left } = fieldsPopAnchor(
+        btn.getBoundingClientRect(),
+        el.getBoundingClientRect().width,
+        el.scrollHeight,
+        { width: window.innerWidth, height: window.innerHeight },
+      )
+      el.style.top = `${Math.round(top)}px`
+      el.style.left = `${Math.round(left)}px`
+    }
+    place()
+    window.addEventListener('resize', place)
+    return () => window.removeEventListener('resize', place)
   }, [pop])
 
   /** THE BOARD, twice. `boardLanes` is the truth every derivation reads — the
@@ -1244,6 +1270,7 @@ export function TodayScreen(props: TodayProps) {
 
               <div className="fields-pop-wrap" data-pop="fields">
                 <button
+                  ref={fieldsBtnRef}
                   type="button"
                   className="btn text"
                   aria-expanded={pop === 'fields'}
@@ -1252,7 +1279,7 @@ export function TodayScreen(props: TodayProps) {
                   表示設定
                 </button>
                 {pop === 'fields' && (
-                  <div className="fields-pop">
+                  <div className="fields-pop" ref={fieldsPopRef}>
                     <strong>予約カードの表示項目（店舗設定）</strong>
                     <label><input type="checkbox" checked={showTime} onChange={() => setShowTime((v) => !v)} /> 時間・メニュー</label>
                     <label><input type="checkbox" checked={showTicket} onChange={() => setShowTicket((v) => !v)} /> チケット・価格</label>

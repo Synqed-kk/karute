@@ -21,6 +21,7 @@ import {
   clickClosesPopover,
   dragModeAt,
   deltaPctIn,
+  fieldsPopAnchor,
   fractionIn,
   gapLayerFor,
   guardRailsFor,
@@ -269,6 +270,59 @@ describe('popovers and dialogs', () => {
     // A popover whose wrapper has gone (a re-render mid-click) closes rather
     // than sticking open with nothing to dismiss it.
     expect(clickClosesPopover(null, inside)).toBe(true)
+  })
+
+  /** 表示設定 must FIT WHOLE — no internal scrolling, nothing cut off (⚖ Liam
+   *  2026-08-20). The panel's real content height, measured in a real browser
+   *  on the real board at both target widths (the板 is 368px wide at each, so
+   *  the content reflows identically): 672px. Canon's own panel is 711px and
+   *  clears the same bar, so the height the rule has to survive is canon's. */
+  const PANEL_CONTENT = 672
+  const CANON_PANEL_CONTENT = 711
+  // The 表示設定 button as the board actually places it: right end of the
+  // board tools, near the top of the page.
+  const BOARD_BUTTON = { top: 130.5, bottom: 164.5, left: 1153.5, right: 1225.5 }
+
+  it.each([
+    ['1440x900 — MacBook logical', 1440, 900],
+    ['1280x800', 1280, 800],
+  ])('表示設定 fits whole at %s, with nothing to scroll', (_label, width, height) => {
+    for (const content of [PANEL_CONTENT, CANON_PANEL_CONTENT]) {
+      const a = fieldsPopAnchor(BOARD_BUTTON, 368, content, { width, height })
+      // The panel is allowed its ENTIRE content height — the +2 is canon's own
+      // rounding allowance, so `height >= content` means nothing is cut off and
+      // the overflow-y: auto never engages.
+      expect(a.height).toBeGreaterThanOrEqual(content)
+      // ...and the whole of it is on screen, top and bottom.
+      expect(a.top).toBeGreaterThanOrEqual(12)
+      expect(a.top + a.height).toBeLessThanOrEqual(height - 12)
+      // Horizontally too: opens to the LEFT of the button, fully inside.
+      expect(a.left).toBeGreaterThanOrEqual(12)
+      expect(a.left + 368).toBeLessThanOrEqual(width - 12)
+      expect(a.left + 368).toBeLessThanOrEqual(BOARD_BUTTON.left)
+    }
+  })
+
+  it('slides UP off the button rather than hanging below it and overflowing', () => {
+    // Under the button there are only 900 - 164.5 - 12 = 723.5px, which the
+    // 672px panel happens to clear — but canon's 711px one at 1280x800 does
+    // not. The rule is the same either way: the panel moves, it never scrolls.
+    const a = fieldsPopAnchor(BOARD_BUTTON, 368, CANON_PANEL_CONTENT, { width: 1280, height: 800 })
+    expect(a.top).toBeLessThan(BOARD_BUTTON.bottom)
+    expect(a.height).toBe(CANON_PANEL_CONTENT + 2)
+  })
+
+  it('falls back to internal scrolling only when the viewport truly cannot hold it', () => {
+    // canon :1554 — 「高さが足りない場合だけ内部スクロールへ戻す」.
+    const a = fieldsPopAnchor(BOARD_BUTTON, 368, PANEL_CONTENT, { width: 1280, height: 500 })
+    expect(a.height).toBe(500 - 24)
+    expect(a.top).toBe(12)
+  })
+
+  it('flips to the right of the button when there is no room on the left', () => {
+    const hugging = { top: 130.5, bottom: 164.5, left: 20, right: 92 }
+    const a = fieldsPopAnchor(hugging, 368, PANEL_CONTENT, { width: 1440, height: 900 })
+    expect(a.left).toBe(hugging.right + 8)
   })
 
   it('a dialog opens modal and closes, and closing twice is not an error', () => {

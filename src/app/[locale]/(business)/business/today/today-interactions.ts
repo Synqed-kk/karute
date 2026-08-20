@@ -89,6 +89,52 @@ export function clickClosesPopover(wrapper: Element | null, target: EventTarget 
   return !(target instanceof Node) || !wrapper.contains(target)
 }
 
+export interface AnchorRect {
+  top: number
+  bottom: number
+  left: number
+  right: number
+}
+
+export interface FieldsPopAnchor {
+  top: number
+  left: number
+  /** The height the popover is allowed to take. Equal to its content height
+   *  whenever the viewport can hold it — which is the whole point. */
+  height: number
+}
+
+/** canon `positionFieldsPop` (:5782), verbatim math.
+ *
+ *  表示設定 is the one popover on this board whose content is taller than the
+ *  room under its button, so canon does NOT hang it off the button's parent —
+ *  it pins it to the VIEWPORT and slides it up until the whole panel is on
+ *  screen (canon's own comment at :1553: 「ボタン親の座標ではなく可視領域へ固定
+ *  して全体を見せる。高さが足りない場合だけ内部スクロールへ戻す。」). Internal
+ *  scrolling is the fallback for a viewport too short to hold it, never the
+ *  normal state.
+ *
+ *  The transplant took the `.fields-pop` family base (absolute, under the
+ *  button, `max-height: min(620px, 100dvh - 240px)`) and dropped this override,
+ *  which is why the built board scrolled inside the panel at every size. */
+export function fieldsPopAnchor(
+  button: AnchorRect,
+  popWidth: number,
+  popScrollHeight: number,
+  viewport: { width: number; height: number },
+): FieldsPopAnchor {
+  const margin = 12
+  const gap = 8
+  const height = Math.min(popScrollHeight + 2, viewport.height - margin * 2)
+  const top = Math.max(margin, Math.min(button.bottom + 6, viewport.height - height - margin))
+  // Opens to the LEFT of the button, because the button sits at the right end
+  // of the board tools and a right-anchored panel this tall reads as a wall.
+  let left = button.left - popWidth - gap
+  if (left < margin) left = button.right + gap
+  left = Math.max(margin, Math.min(left, viewport.width - popWidth - margin))
+  return { top, left, height }
+}
+
 // ── the board's own state transitions ──────────────────────────────────────
 
 /** The board as it currently stands: the server's lanes, plus staged moves,
