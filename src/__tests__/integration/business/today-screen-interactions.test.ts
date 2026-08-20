@@ -24,7 +24,9 @@ import {
   dragModeAt,
   deltaPctIn,
   fieldsPopAnchor,
+  fitsDrag,
   fractionIn,
+  freePartnerLane,
   gapLayerFor,
   guardRailsFor,
   guardVerdictAt,
@@ -33,6 +35,7 @@ import {
   laneSpans,
   nextSpan,
   parkChipText,
+  proxyTransform,
   reasonLine,
   sellLayerFor,
   slotStartAt,
@@ -565,8 +568,9 @@ describe('the window layers price the committed board, never the card in flight'
   it('the screen feeds both layers the committed board, and builds it from `moves` alone', () => {
     const src = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
     // The committed board is applyMoves over `moves` — NOT `liveMoves`, which
-    // carries the pointer's current position.
-    const memo = /const committedLanes = useMemo\(\s*\(\) => applyMoves\(props\.lanes, moves, parked, added, hours\)/
+    // carries the pointer's current position. (`addedHere` is `added` narrowed
+    // to the day on screen, ⚖ Liam 22 — it carries no pointer state either.)
+    const memo = /const committedLanes = useMemo\(\s*\(\) => applyMoves\(props\.lanes, moves, parked, addedHere, hours\)/
     expect(memo.test(src)).toBe(true)
     expect(src).toContain('sellLayerFor(committedLanes')
     expect(src).toContain('gapLayerFor(committedLanes')
@@ -628,5 +632,331 @@ describe('a free run that crosses the hour — when canon merges and when the gr
     const out = run(950, 1055)
     expect(staff(out, 'packed')).toEqual([])
     expect(staff(out, 'scraps')).toEqual([[1020, 1055]])
+  })
+})
+
+/** WO-2e ITEM 1 — ⚖ Liam 2026-08-20, length-matched drag emphasis.
+ *
+ *  Canon deepens every derived window for the length of a drag (:594–598).
+ *  Liam's ruling: the emphasis must answer "where does THIS fit at full value",
+ *  so only windows advertising the dragged booking's own length take it and the
+ *  rest go calm. At rest nothing changes — canon's border grammar is untouched.
+ *
+ *  There is no DOM renderer in this territory (import fence: react/next/node
+ *  only), so the RULE is driven directly against real derived layers, the
+ *  WIRING is pinned as a source contract, and the PAINT as a stylesheet
+ *  contract. Between them nothing in the chain is assumed. */
+describe('the drag emphasis follows the dragged length, and nothing else', () => {
+  const GUARD = {
+    services: [{ name: '整体60', dur: 60 }, { name: 'ストレッチ30', dur: 30 }],
+    newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
+    mode: 'standard' as const,
+  }
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+
+  it('a window fits only its own advertised length — never a longer or shorter card', () => {
+    expect(fitsDrag(60, 60)).toBe(true)
+    expect(fitsDrag(30, 30)).toBe(true)
+    // A 60-minute card does NOT fit a 30-minute window, and vice versa: the
+    // question is "at full value", not "does it physically overlap".
+    expect(fitsDrag(30, 60)).toBe(false)
+    expect(fitsDrag(60, 30)).toBe(false)
+    expect(fitsDrag(60, 90)).toBe(false)
+    // And at rest — nothing in flight — nothing is emphasised at all.
+    expect(fitsDrag(60, null)).toBe(false)
+    expect(fitsDrag(30, null)).toBe(false)
+  })
+
+  it('over a real board: a 30-minute card lights the 30分 box and leaves the hour boxes calm', () => {
+    // 見本 A works 14:00–17:30. That leaves a 210-minute run: the grid takes
+    // three hours and a 30-minute end an exact menu fills — one 詰め込み box.
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', window: { from: 840, until: 1050 }, untilLabel: '17:30' }),
+      lane({ key: 'bed-01', group: 'beds' }),
+    ]
+    const sell = sellLayerFor(lanes, HOURS, { gridMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 })
+    const gap = gapLayerFor(lanes, {
+      gridMin: 60, sessionMin: 60, gapFillMin: 30, gapFillDiscountPct: 10, nowMinute: null,
+      locked: [], frame: { hi: 7260, lo: 6600, hqMin: 6600, hqMax: 7260 }, depth: 9, guard: GUARD,
+    })
+    const hourBoxes = sell.cells.filter((c) => c.group === 'staff')
+    const packed = gap.packed.filter((c) => c.group === 'staff')
+    expect(hourBoxes.length).toBeGreaterThan(0)
+    expect(packed.map((c) => c.e - c.s)).toEqual([30])
+
+    // Dragging a 30-minute booking: the 30分 box only.
+    expect(hourBoxes.filter((c) => fitsDrag(60, 30))).toHaveLength(0)
+    expect(packed.filter((c) => fitsDrag(c.e - c.s, 30))).toHaveLength(1)
+    // Dragging a 60-minute booking: every hour box, and NOT the 30分 one.
+    expect(hourBoxes.filter((c) => fitsDrag(60, 60))).toHaveLength(hourBoxes.length)
+    expect(packed.filter((c) => fitsDrag(c.e - c.s, 60))).toHaveLength(0)
+    // Dragging a 90-minute booking: nothing on this board fits it at full value.
+    expect(hourBoxes.filter((c) => fitsDrag(60, 90))).toHaveLength(0)
+    expect(packed.filter((c) => fitsDrag(c.e - c.s, 90))).toHaveLength(0)
+  })
+
+  it('the screen keys the class off the dragged length and clears it on every exit', () => {
+    // The two boxes ask about their OWN advertised length…
+    expect(SRC).toContain("`cell-price${fitsDrag(60, dragLen) ? ' fits' : ''}`")
+    expect(SRC).toContain('packedHere && fitsDrag(c.e - c.s, dragLen)')
+    // …a スキマ枠 is a discount, not a session, so it never takes the class.
+    expect(SRC).not.toContain("'cell-gapfill fits'")
+    // …the length is the card's own, not the span the pointer is dragging out…
+    expect(SRC).toContain('setDragLen(ctx.item.endMin - ctx.item.startMin)')
+    // …and BOTH gestures reach it, which `:has(.event.dragging)` could not.
+    expect(SRC).toContain("dragLen != null ? 'dragging-live' : ''")
+    // Every teardown path clears it: release/cancel/blur go through clearDrag,
+    // the shelf's three endings through clearChipDrag.
+    for (const fn of ['function clearDrag()', 'function clearChipDrag()']) {
+      const body = SRC.slice(SRC.indexOf(fn), SRC.indexOf(fn) + 400)
+      expect(body).toContain('setDragLen(null)')
+    }
+    // …including the two lost-pointer self-heals, which route into those two.
+    expect(SRC).toContain('if (e.buttons === 0) { cancelDrag(); return }')
+    expect(SRC).toContain('if (e.buttons === 0) { clearChipDrag(); return }')
+  })
+
+  it('the stylesheet emphasises only .fits, and calms a 詰め込み box that does not', () => {
+    expect(CSS).toContain('.biz .timeline.dragging-live .cell-price.fits {')
+    expect(CSS).toContain('.biz .timeline.dragging-live .cell-packed:not(.fits) { background: rgba(130, 151, 233, .07); border-color: transparent; }')
+    // The old uniform-deepen selectors are gone: no window rule is gated on a
+    // card being on the board any more (comments about them are not rules).
+    expect(CSS.split('\n').filter((l) => !l.trimStart().startsWith('`') && /:has\(/.test(l) && /cell-(price|packed)/.test(l))).toEqual([])
+    // At rest the border grammar is exactly canon's: 詰め込み keeps its border.
+    expect(CSS).toContain('border: 1.5px solid rgba(63, 91, 232, .55)')
+  })
+})
+
+/** WO-2e ITEM 2 — ⚖ Liam 2026-08-20, the fixture day is livened with odd-minute
+ *  bookings so canon's PACK MODE has something to say. WO-2d proved the renderer
+ *  already merges exactly where canon does; what it could not do was SHOW it,
+ *  because every booking sat on a clean 30-minute boundary and all ten pockets
+ *  came out GRID MODE. These assertions are on the demo world itself. */
+describe('the sample day produces a merged cross-boundary window', () => {
+  const FIXTURES = readFileSync(join(process.cwd(), 'src/business/lib/fixtures.ts'), 'utf8')
+
+  it('the default store keeps its odd-minute bookings', () => {
+    // 見本 あずさ: 14:05–15:05 and 17:12–18:12. The run between them is 127
+    // minutes from an odd start — two packed sessions where the hour grid fits
+    // one, which is canon's own PACK MODE test (k_grid < k_pack, :5164).
+    expect(FIXTURES).toContain("slot('apt-29', 'thin-02', STORE_A, 'p-06', 'menu-01', 0, 14, 5, 60,")
+    expect(FIXTURES).toContain("slot('apt-30', 'cus-06', STORE_A, 'p-06', 'menu-01', 0, 17, 12, 60,")
+    // …and 代官山 gets one too, so the layer is not a single-store trick.
+    expect(FIXTURES).toContain("slot('apt-31', 'cus-08', STORE_B, 'p-05', 'menu-05', 0, 15, 45, 45,")
+    // The 20/30-minute menus stay: ⚖ Liam kept them and their bordered boxes.
+    expect(FIXTURES).toContain("duration_minutes: 30")
+    expect(FIXTURES).toContain("duration_minutes: 20")
+  })
+
+  it('that shape of run really does merge, and a clean one really does not', () => {
+    const GUARD = {
+      services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }, { name: 'ストレッチ30', dur: 30 }],
+      newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
+      mode: 'standard' as const,
+    }
+    const run = (from: number, until: number) =>
+      gapLayerFor(
+        [lane({ key: 'p-06', group: 'staff', window: { from, until }, untilLabel: '' }), lane({ key: 'bed-01', group: 'beds' })],
+        {
+          gridMin: 60, sessionMin: 60, gapFillMin: 30, gapFillDiscountPct: 10, nowMinute: null,
+          locked: [], frame: { hi: 7260, lo: 6600, hqMin: 6600, hqMax: 7260 }, depth: 9, guard: GUARD,
+        },
+      ).packed.filter((c) => c.group === 'staff').map((c) => [c.s, c.e])
+
+    // 15:05 → 17:12, the run the two new bookings leave: TWO 60-minute boxes,
+    // both crossing an hour line. This is the box Liam remembers from canon.
+    expect(run(905, 1032)).toEqual([[905, 965], [965, 1025]])
+    // The same lane BEFORE the change — 15:30 → 19:00 — merged NOTHING: the
+    // grid fits three hours and packing fits three, so GRID MODE won and all
+    // that came back was the 30-minute end an exact menu fills. That single
+    // short bordered box is the whole 詰め込み layer the old fixture could show.
+    expect(run(930, 1140)).toEqual([[930, 960]])
+  })
+})
+
+/** WO-2e ITEM 3 — ⚖ Liam flags 19/20, the drag proxy. The card he grabbed
+ *  travels with the cursor; the dashed outline stays as the snapped landing
+ *  preview; the origin dims. The overlay is a real node whose transform is
+ *  written straight to it, so the lifecycle is driven here on a real jsdom node
+ *  through the same three transitions the screen puts it through. */
+describe('the drag proxy: mounted on the gesture, moved by transform, gone on every ending', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+
+  it('hangs off the exact point the card was grabbed by — attached, not trailing', () => {
+    // Card at (100, 40), grabbed 30px in and 8px down: the proxy's top-left is
+    // always 30/8 behind the cursor, wherever the cursor goes.
+    const grab = { dx: 30, dy: 8 }
+    expect(proxyTransform(130, 48, grab)).toBe('translate3d(100px, 40px, 0)')
+    expect(proxyTransform(430, 148, grab)).toBe('translate3d(400px, 140px, 0)')
+    // Sub-pixel pointer positions are rounded — a fractional transform makes
+    // the card's own text shimmer while it travels.
+    expect(proxyTransform(130.4, 48.6, grab)).toBe('translate3d(100px, 41px, 0)')
+  })
+
+  it('one node, one style property, across a whole gesture', () => {
+    const board = document.createElement('div')
+    const proxy = document.createElement('div')
+    proxy.className = 'event confirmed drag-proxy'
+    const grab = { dx: 12, dy: 6 }
+    // start
+    board.appendChild(proxy)
+    proxy.style.transform = proxyTransform(200, 100, grab)
+    expect(board.querySelectorAll('.drag-proxy')).toHaveLength(1)
+    expect(proxy.style.transform).toBe('translate3d(188px, 94px, 0)')
+    // …tracks
+    proxy.style.transform = proxyTransform(260, 220, grab)
+    expect(proxy.style.transform).toBe('translate3d(248px, 214px, 0)')
+    expect(board.querySelectorAll('.drag-proxy')).toHaveLength(1) // never a second one
+    // …and goes on the release
+    proxy.remove()
+    expect(board.querySelectorAll('.drag-proxy')).toHaveLength(0)
+  })
+
+  it('the screen mounts it once, never re-parents the real card, and drops it on all four endings', () => {
+    // Content set once, behind the move threshold; only the transform repeats.
+    expect(SRC).toContain("setProxy({ kind: 'card', item: ctx.item")
+    expect(SRC).toContain('moveProxy(clientX, clientY, ctx.grab)')
+    expect(SRC).toContain('proxyAt.current = proxyTransform(clientX, clientY, grab)')
+    // WO-2c's architecture is intact: the DRAWN board during a drag is the
+    // committed one, so the real node is never moved between lanes.
+    expect(SRC).toContain('const drawnLanes = live ? committedLanes : boardLanes')
+    // WO-2d's is intact too: the window layers still read committedLanes.
+    expect(SRC).toContain('sellLayerFor(committedLanes')
+    expect(SRC).toContain('gapLayerFor(committedLanes')
+    // Release / cancel / blur and the board self-heal → clearDrag.
+    // Shelf up / cancel and the shelf self-heal → clearChipDrag.
+    for (const fn of ['function clearDrag()', 'function clearChipDrag()']) {
+      const body = SRC.slice(SRC.indexOf(fn), SRC.indexOf(fn) + 400)
+      expect(body).toContain('setProxy(null)')
+    }
+    // The dashed outline is now drawn for EVERY live drag, not only a lane
+    // change — with the card in hand it is the board's only landing statement.
+    expect(SRC).toContain('const landing = live && !live.overShelf ? { laneKey: live.targetLane, x: live.x, w: live.w } : null')
+    // …and the origin dims rather than travelling.
+    expect(CSS).toContain('.biz .event.dragging { opacity: .32;')
+    expect(CSS).toContain('.biz .event.drag-proxy,')
+  })
+})
+
+/** WO-2e ITEM 4 — ⚖ Liam flag 21, 次回予約を作成 carried from canon (:6903 →
+ *  :6826 armPlacing → :6820 track click → :6005 createAtCell). The button arms
+ *  the board rather than opening the create dialog; the slot click makes the
+ *  booking with the ご来店中 customer already filled in; `prefilled` means the
+ *  hold bar, not the modal. */
+describe('次回予約を作成 arms the board, and the slot click makes the booking', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+
+  it('a placement needs a room as well as a person, and says so when there is none', () => {
+    const beds = [
+      lane({ key: 'bed-01', group: 'beds', items: [booking({ key: 'b1', caseId: 'apt-1' }, 900, 960)] }),
+      lane({ key: 'bed-02', group: 'beds', items: [booking({ key: 'b2', caseId: 'apt-2' }, 890, 1000)] }),
+    ]
+    const staff = [lane({ key: 'p-01', group: 'staff' })]
+    // 15:00–16:00: both beds are busy → canon refuses the placement outright.
+    expect(freePartnerLane([...staff, ...beds], 'staff', 900, 960)).toBeNull()
+    // 16:00–17:00: bed-02 is still busy until 16:40, bed-01 is free → first wins.
+    expect(freePartnerLane([...staff, ...beds], 'staff', 960, 1020)?.key).toBe('bed-01')
+    // Touching ends do not overlap: a bed free FROM 16:00 can take 16:00.
+    expect(freePartnerLane([lane({ key: 'bed-09', group: 'beds', items: [booking({ key: 'b3', caseId: 'apt-3' }, 840, 900)] })], 'staff', 900, 960)?.key).toBe('bed-09')
+  })
+
+  it('carries canon’s own words and canon’s own transitions', () => {
+    // The button no longer opens the create dialog.
+    expect(SRC).toContain('<button className="btn text" type="button" onClick={armNextVisit}>次回予約を作成</button>')
+    // canon's label, hint and × (:6908, :1866).
+    expect(SRC).toContain('様の次回予約（${props.guard.standardSessionMin}分・単発）— お客様情報は自動入力')
+    expect(SRC).toContain('<span>置きたい日へ移動して、空き枠をクリック</span>')
+    expect(SRC).toContain('aria-label="配置モードをやめる"')
+    // canon's toast, which itself promises the day-navigation allowance.
+    expect(SRC).toContain('配置モード: 置きたい空き枠をクリック（日付を移動してもそのまま）')
+    // canon's two refusals, verbatim (:6829, :6817, :6023).
+    expect(SRC).toContain('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+    expect(SRC).toContain('この時間帯に空いているベッドがいません')
+    expect(SRC).toContain('シフトロック中: このスタッフには新しい予約を置けません')
+    // An armed board treats the empty slot as a landing, not as a form.
+    expect(SRC).toContain('if (placing) { placeNextVisit(lane, start); return }')
+    // `prefilled` → the hold bar, never the create modal (:6076–6083).
+    const body = SRC.slice(SRC.indexOf('function placeNextVisit'), SRC.indexOf('function placeFromShelf'))
+    expect(body).toContain('setPending({ id, origin:')
+    expect(body).not.toContain('createRef.current?.showModal()')
+    // The customer rides along; the length and category are canon's literals.
+    expect(body).toContain('title: p.name')
+    expect(body).toContain("ticketCat: '単発'")
+    expect(body).toContain('props.guard.standardSessionMin')
+    // Escape puts it down (:6942).
+    expect(SRC).toContain("if (e.key === 'Escape' && !document.querySelector('dialog[open]')) setPlacing(null)")
+  })
+})
+
+/** WO-2e ITEM 5 — ⚖ Liam flag 22, the cross-day park flow. The chip survives a
+ *  date change and can be placed on ANY viewed day. The mechanism is one field:
+ *  a card this session put on a board carries the day it was put on, and the
+ *  origin day keeps hiding the booking through `parked` — so the booking is on
+ *  exactly one board, the one it was placed on. */
+describe('a parked chip crosses days, lands on the day being viewed, and the × brings it home', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const origin = [
+    lane({ key: 'p-01', group: 'staff', items: [booking({ key: 'a', caseId: 'apt-1' }, 720, 780)] }),
+    lane({ key: 'p-04', group: 'staff' }),
+  ]
+  const carried: BoardItem = booking({ key: 'a', caseId: 'apt-1' }, 900, 960)
+
+  it('parked: the origin day loses the card, and the chip keeps the origin date in its 元: line', () => {
+    const parkedDay = applyMoves(origin, {}, ['apt-1'], [], HOURS)
+    expect(parkedDay[0].items.filter((i) => i.caseId === 'apt-1')).toHaveLength(0)
+    const chip = parkChipText(booking({ key: 'a', caseId: 'apt-1' }, 720, 780), HOURS, '2026年8月20日(木)')
+    expect(chip.title).toBe('見本 はなこ様（仮押さえ・未配置）')
+    expect(chip.line2).toBe('元: 2026年8月20日(木) 12:00〜13:00 — 置きたい日の枠へドラッグ')
+  })
+
+  it('placed on ANOTHER day: it is on that board, and on no other', () => {
+    // The other day's board knows nothing of apt-1 — which is exactly why a
+    // `moves` entry alone could never draw it there.
+    const otherDayLanes = [lane({ key: 'p-01', group: 'staff' }), lane({ key: 'p-04', group: 'staff' })]
+    const placedRow = { dayOffset: 2, laneKey: 'p-04', item: carried }
+    const dayShown = (offset: number, lanes: BoardLane[]) =>
+      applyMoves(lanes, { 'apt-1': { laneKey: 'p-04', x: carried.x, w: carried.w } }, ['apt-1'],
+        [placedRow].filter((a) => a.dayOffset === offset), HOURS)
+
+    const onTarget = dayShown(2, otherDayLanes)
+    expect(onTarget.find((l) => l.key === 'p-04')!.items.map((i) => i.caseId)).toEqual(['apt-1'])
+    expect(onTarget.find((l) => l.key === 'p-01')!.items).toHaveLength(0)
+
+    // Back on the origin day the booking is still hidden — one board, not two.
+    const onOrigin = dayShown(0, origin)
+    expect(onOrigin.flatMap((l) => l.items).filter((i) => i.caseId === 'apt-1')).toHaveLength(0)
+
+    // …and a third day, which was never involved, shows nothing at all.
+    expect(dayShown(-1, otherDayLanes).flatMap((l) => l.items)).toHaveLength(0)
+  })
+
+  it('the × restores the booking to its origin day and slot', () => {
+    // unpark drops the id from `parked` and any placed row, and points `moves`
+    // back at the span it was taken from.
+    const home = { laneKey: 'p-01', x: origin[0].items[0].x, w: origin[0].items[0].w }
+    const restored = applyMoves(origin, { 'apt-1': home }, [], [], HOURS)
+    const card = restored.find((l) => l.key === 'p-01')!.items.find((i) => i.caseId === 'apt-1')!
+    expect([card.startMin, card.endMin]).toEqual([720, 780])
+    expect(restored.find((l) => l.key === 'p-04')!.items).toHaveLength(0)
+  })
+
+  it('the screen scopes every added row to a day, and both undo paths clear it', () => {
+    expect(SRC).toContain('const addedHere = useMemo(')
+    expect(SRC).toContain('added.filter((a) => a.dayOffset === props.dayOffset)')
+    // All three boards read the day-scoped list — a card placed on 8/22 cannot
+    // leak into 8/20's derivation, let alone its price layer.
+    expect(SRC).toContain('applyMoves(props.lanes, liveMoves, parked, addedHere, hours)')
+    expect(SRC).toContain('applyMoves(props.lanes, moves, parked, addedHere, hours)')
+    // The shelf lands through `added`, stamped with the day on screen.
+    const body = SRC.slice(SRC.indexOf('function placeFromShelf'), SRC.indexOf('function placeFromShelf') + 1400)
+    expect(body).toContain('dayOffset: props.dayOffset')
+    expect(body).toContain('setParkChips((was) => was.filter((c) => c.id !== chip.id))')
+    // The × and the hold bar's 元に戻す both take the placed row back off.
+    expect(SRC).toContain('setAdded((was) => was.filter((a) => a.item.caseId !== id))')
+    expect(SRC).toContain('const placed = added.find((a) => a.item.caseId === id)')
+    // The shelf's hint already advertises 日付またぎ — canon's own copy.
+    expect(SRC).toContain('ドラッグでここへ（日付またぎ・置くと仮押さえ）')
   })
 })
