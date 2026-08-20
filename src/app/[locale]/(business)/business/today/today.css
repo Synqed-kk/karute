@@ -188,6 +188,21 @@
   box-shadow: 0 10px 30px rgba(24, 24, 27, .14);
   font-size: 12px;
 }
+/* canon :1553-1555 (`#fieldsPop`) — 表示設定は内容が長いため、ボタン親の座標では
+   なく可視領域へ固定して全体を見せる。高さが足りない場合だけ内部スクロールへ戻す。
+   Scoped to the 表示設定 panel alone: the shelf and help popovers share the
+   `.fields-pop` base and stay button-anchored, exactly as canon leaves them.
+   `top`/`left` here are only the pre-measurement seed — `fieldsPopAnchor`
+   writes the real ones before paint. */
+.biz [data-pop="fields"] > .fields-pop {
+  position: fixed;
+  right: auto;
+  top: 12px;
+  left: 12px;
+  max-height: calc(100dvh - 24px);
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
 .biz .fields-pop strong { font-size: 12.5px; }
 .biz .fields-pop label { display: flex; align-items: center; gap: 7px; }
 .biz .fields-pop input { min-height: 0; width: 15px; height: 15px; }
