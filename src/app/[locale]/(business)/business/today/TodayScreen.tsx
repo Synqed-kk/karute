@@ -1080,15 +1080,33 @@ export function TodayScreen(props: TodayProps) {
   function placeFromShelf(chip: ParkChip, laneKey: string, span: { x: number; w: number }) {
     const start = minuteOf(span.x, hours)
     const end = minuteOf(span.x + span.w, hours)
+    // A booking is a person AND a room, so the landing proves a room the same
+    // way canon's `createAtCell` does. The parked card's OLD bed cannot simply
+    // ride along: on another day it may be taken, and a card labelled 【ベッド3】
+    // over an empty ベッド3 lane is the impossible state ⚖ 8/9 forbids.
+    const bed = freePartnerLane(boardLanes, 'staff', start, end)
+    if (!bed) {
+      show('この時間帯に空いているベッドがいません')
+      return
+    }
+    const staffLabel = boardLanes.find((l) => l.key === laneKey)?.label ?? ''
+    const landed = {
+      ...chip.item,
+      ...place(start, end, hours),
+      time: `${hhmm(start)}〜${hhmm(end)}`,
+      state: 'hold' as const,
+      // The accessible name is REBUILT, in `today-board`'s own grammar (:362),
+      // not patched: the landing can change the time, the staff member AND the
+      // bed at once, and a name that carries any of the three from where the
+      // card used to be tells a screen reader the one thing on this board that
+      // is not true.
+      label: `${hhmm(start)}–${hhmm(end)} ${chip.item.title}様 / ${[chip.item.ticketCat, chip.item.ticketCore].filter(Boolean).join(' ')} / ${staffLabel} / ${bed.label} / 仮押さえ`,
+    }
     setParkChips((was) => was.filter((c) => c.id !== chip.id))
     setAdded((was) => [
       ...was.filter((a) => a.item.caseId !== chip.id),
-      {
-        dayOffset: props.dayOffset,
-        laneKey,
-        fromChip: chip,
-        item: { ...chip.item, ...place(start, end, hours), time: `${hhmm(start)}〜${hhmm(end)}`, state: 'hold' },
-      },
+      { dayOffset: props.dayOffset, laneKey, fromChip: chip, item: { ...landed, key: `${chip.id}-staff`, tag: `【${bed.label}】` } },
+      { dayOffset: props.dayOffset, laneKey: bed.key, item: { ...landed, key: `${chip.id}-bed`, tag: `【${staffLabel}】` } },
     ])
     setMoves((was) => ({ ...was, [chip.id]: { laneKey, ...span } }))
     setPending({ id: chip.id, origin: chip.home })
