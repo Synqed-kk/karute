@@ -75,6 +75,17 @@ export interface PipelineContext {
    * process-recording-outcome.test.ts + app-api-record-schemas.test.ts).
    */
   recoveryUnanswered?: boolean
+  /**
+   * PR-B2 F3 — this run was started by recovery AUTO-FINISH, so the record
+   * page's green notice is already reporting it. ProcessingIndicator's generic
+   * 保存済み toast stands down when this is set: one save, one report. Set for
+   * EVERY auto-finished take (answered, 'auto' cohort and unanswered alike),
+   * which is why it is its own flag and not a reading of recoveryUnanswered.
+   *
+   * CLIENT-SIDE ONLY, same containment as recoveryUnanswered — it never
+   * reaches the job payload, whose schema is `.strict()`.
+   */
+  autoFinish?: boolean
   /** Server-minted recording_sessions id (synqed-core), captured at record-start
    *  — carried to the save so core's idempotent-save dedupe (unique FK on
    *  karute_records.recording_session_id) has something to key on. null when

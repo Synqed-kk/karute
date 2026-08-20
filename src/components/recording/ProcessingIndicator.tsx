@@ -67,7 +67,10 @@ export function ProcessingIndicator() {
       const id = globalPipeline.serverSavedRecordId
       // PR-B2: publish the landed record so the recovery notice can name it.
       globalPipeline.publishSavedRecord(runId, id)
-      if (globalPipeline.isCurrentRun(runId)) {
+      // PR-B2 F3: an auto-finished recovery take is already being reported by
+      // the record page's green notice — this toast would be the second telling
+      // of one save. Every other cohort toasts exactly as before.
+      if (globalPipeline.isCurrentRun(runId) && !globalPipeline.context?.autoFinish) {
         toast.success(t('autoSaved'), {
           action: {
             label: t('viewSaved'),
@@ -161,7 +164,7 @@ export function ProcessingIndicator() {
         // Same runId guard as the error branch above — a late success must
         // not toast (or offer a `/karute/${id}` action that pushState's the
         // path) once this run is no longer current.
-        if (globalPipeline.isCurrentRun(runId)) {
+        if (globalPipeline.isCurrentRun(runId) && !ctx.autoFinish) {
           toast.success(t('autoSaved'), {
             action: {
               label: t('viewSaved'),

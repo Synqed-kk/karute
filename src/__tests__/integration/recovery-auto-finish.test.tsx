@@ -120,11 +120,12 @@ const TAKE = {
 let offerTake = true
 let takeOverride: Record<string, unknown> | null = null
 const mockStampTakeOutcome = jest.fn(async () => {})
+const mockDeleteTake = jest.fn()
 let mockTakeBlob: Blob | null = new Blob(['audio'])
 jest.mock('@/lib/karute/take-store', () => ({
   appendTakeSegment: jest.fn(),
   createTake: jest.fn(),
-  deleteTake: jest.fn(),
+  deleteTake: (...a: unknown[]) => mockDeleteTake(...a),
   stampTakeSession: jest.fn(),
   stampTakeOutcome: (...a: unknown[]) => mockStampTakeOutcome(...(a as [])),
   readTakeOutcome: jest.fn(async () => null),
@@ -199,7 +200,7 @@ jest.mock('@/lib/global-pipeline', () => ({
 }))
 
 import { StrictMode } from 'react'
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import {
   RecordPageView,
   type RecordPageViewProps,
@@ -217,6 +218,7 @@ afterEach(() => {
   mockDayFacts.mockImplementation(async () => DAY_FACTS)
   mockRedeem.mockReset()
   mockRedeem.mockResolvedValue({ ok: true, redemptionId: 'r1' })
+  mockDeleteTake.mockReset()
   offerTake = true
   takeOverride = null
   offerDraft = null
@@ -231,6 +233,7 @@ afterEach(() => {
   mockPipeline.runId = 0
   mockPipeline.savedRecordId = null
   mockPipeline.context = null
+  mockPipeline.state = 'idle'
 })
 
 function grantConsent() {
@@ -261,7 +264,15 @@ async function renderPage(
       {...overrides}
     />
   )
-  const result = render(buildUi(), opts.strict ? { wrapper: StrictMode } : undefined)
+  // Rendered INSIDE an awaited act: with a booked target the page mounts a
+  // Suspense boundary (StreamingBriefCard's use(aiBriefPromise)) that always
+  // suspends on its first pass, and a suspension inside a non-awaited act
+  // scope leaves the tree's effects unrun.
+  let result!: ReturnType<typeof render>
+  await act(async () => {
+    result = render(buildUi(), opts.strict ? { wrapper: StrictMode } : undefined)
+    await Promise.resolve()
+  })
   // Mount effects (draft + take load), the day-facts fetch, then the whole
   // auto-run chain: consent read → answer read → money legs → write → the
   // notice's own day-facts refetch.
@@ -279,6 +290,17 @@ async function renderPage(
   }
 }
 
+/** Move the pipeline the way a real run does — `live` follows it, and with
+ *  `live` the recovery offer appears and disappears. */
+async function setPipelineState(state: string) {
+  await act(async () => {
+    mockPipeline.state = state
+    mockPipeline.version += 1
+    mockPipelineListeners.forEach((f) => f())
+    for (let i = 0; i < 6; i++) await Promise.resolve()
+  })
+}
+
 /** The pipeline's save landing, as ProcessingIndicator reports it. */
 async function pipelineSaves(id = 'karute-9') {
   await act(async () => {
@@ -286,6 +308,52 @@ async function pipelineSaves(id = 'karute-9') {
     for (let i = 0; i < 4; i++) await Promise.resolve()
   })
 }
+
+/** Day facts with an explicit pack/redemption shape — the two reads
+ *  (the mount gate, and armAutoNotice's post-money refetch) must be able to
+ *  DISAGREE, or "refetched, not frozen" is unprovable. */
+function factsWith(over: {
+  remaining?: number
+  redeemedAppointments?: string[]
+  redeemedCustomers?: string[]
+}) {
+  return {
+    ...DAY_FACTS,
+    packs:
+      over.remaining === undefined
+        ? []
+        : [{ customerId: 'cust-1', packId: 'pack-1', remaining: over.remaining, size: 6 }],
+    redeemed: {
+      appointmentIds: over.redeemedAppointments ?? [],
+      customerIds: over.redeemedCustomers ?? [],
+    },
+  }
+}
+
+const DRAFT = {
+  transcript: 't',
+  summary: 's',
+  entries: [] as unknown[],
+  duration: 1380,
+  appointmentId: 'appt-1',
+  appointmentCustomerId: 'cust-1',
+  recordingSessionId: 'sess-1',
+  takeId: 'take-1',
+  savedAt: Date.parse('2026-08-18T05:45:00Z'),
+}
+
+/** A bookable target, so the record button is live and handleStartRecording
+ *  (the notice's one clear point) is actually reachable from a test. */
+const APPOINTMENT = {
+  id: 'appt-next',
+  customerId: 'cust-1',
+  customerName: '佐藤 美咲',
+  karuteNumber: null,
+  startTime: '2026-08-18T06:00:00.000Z',
+  durationMinutes: 60,
+  title: null,
+  notes: null,
+} as never
 
 const notice = () => screen.queryByText('recoverAutoSavedTitle')
 const banner = () => screen.queryByText('recoverBannerTitle')
@@ -297,8 +365,14 @@ describe('auto-finish lands the record itself', () => {
     grantConsent()
     TAKE.outcome = { status: 'success' }
     TAKE.outcomeLegs = { burn: 'done', pack: 'none' }
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
-    DAY_FACTS.redeemed = { appointmentIds: ['appt-1'], customerIds: [] }
+    // R-B4, provable only if the two reads DISAGREE: the mount gate sees an
+    // un-burned 残5, the post-money refetch sees the burn and 残4. A notice
+    // built from the frozen flow would say 未処理 / 残5 and fail here.
+    mockDayFacts
+      .mockImplementationOnce(async () => factsWith({ remaining: 5 }))
+      .mockImplementation(async () =>
+        factsWith({ remaining: 4, redeemedAppointments: ['appt-1'] }),
+      )
 
     await renderPage()
 
@@ -307,18 +381,22 @@ describe('auto-finish lands the record itself', () => {
     expect(mockPipelineStart).toHaveBeenCalledTimes(1)
     expect(startCtx().outcome).toEqual({ status: 'success' })
     expect(startCtx().recoveryUnanswered).toBe(false)
-    // Legs were already certified before the crash — nothing re-runs.
+    // Legs were already certified before the crash — nothing re-runs, and the
+    // answer that survived is not re-stamped over itself either.
     expect(mockRedeem).not.toHaveBeenCalled()
+    expect(mockStampTakeOutcome).not.toHaveBeenCalled()
 
     // The notice waits for the record to provably exist.
     expect(notice()).toBeNull()
     await pipelineSaves()
     expect(notice()).toBeTruthy()
     expect(banner()).toBeNull()
-    // B0a's line, off REFETCHED day facts (R-B4) — not off the legs.
+    // B0a's line, off the REFETCH (call 2's 残4), never the mount read's 残5.
+    expect(mockDayFacts).toHaveBeenCalledTimes(2)
     expect(
       screen.getByText('recoverAutoTicketBurned:{"remaining":4,"size":6}'),
     ).toBeTruthy()
+    expect(screen.queryByText('recoverAutoTicketUnresolved')).toBeNull()
     expect(screen.queryByText('recoverAutoOutcomeUnanswered')).toBeNull()
     // 「佐藤 美咲様 · … · …」 — the identity line (B0a's meta).
     expect(screen.getByText(/^佐藤 美咲target\.honorific · /)).toBeTruthy()
@@ -372,6 +450,16 @@ describe('auto-finish lands the record itself', () => {
     })
     expect(startCtx().outcomeSkipped).toBe(true)
     expect(startCtx().recoveryUnanswered).toBe(false)
+    // The same certification its tapped twin pins (A-6, recovery-banner-save-
+    // only.test.tsx): the burn leg is stamped done, with no outcome and no
+    // pack payload, so a relaunch never re-runs it.
+    expect(mockStampTakeOutcome).toHaveBeenCalledWith(
+      'take-1',
+      undefined,
+      true,
+      { burn: 'done', pack: 'none' },
+      null,
+    )
 
     await pipelineSaves()
     expect(screen.getByText('recoverAutoTicketBurned:{"remaining":4,"size":6}')).toBeTruthy()
@@ -416,6 +504,106 @@ describe('auto-finish lands the record itself', () => {
       screen.getByText('recoverAutoOpenKarute').click()
     })
     expect(mockRouterPush).toHaveBeenCalledWith('/karute/karute-42')
+  })
+})
+
+// ── R-B4's ladder: refetch → this session's leg ACK → pre-save state ──────
+describe('the notice never invents a money line', () => {
+  it('a refetch that FAILS after a real burn still says 消化済み — the leg ACK is a server answer', async () => {
+    grantConsent()
+    // 残4 (>2) = the 'auto' cohort, so a burn genuinely runs this session…
+    mockDayFacts
+      .mockImplementationOnce(async () => factsWith({ remaining: 4 }))
+      // …and the notice's own refetch is exactly what dies.
+      .mockImplementation(async () => {
+        throw new Error('core down')
+      })
+
+    await renderPage()
+
+    expect(mockRedeem).toHaveBeenCalledTimes(1)
+    await pipelineSaves()
+    // Tier ②: the burn was ACKed, so 未処理 would be a lie about money. The
+    // COUNT is dropped — 残4 is the pre-burn number and the read that would
+    // have proven the new one is what just failed.
+    expect(screen.getByText('recoverTicketRedeemed')).toBeTruthy()
+    expect(screen.queryByText('recoverAutoTicketUnresolved')).toBeNull()
+    expect(screen.queryByText(/recoverAutoTicketBurned/)).toBeNull()
+  })
+
+  it('below_zero is NOT a burn: an empty pack reads 未処理 even though the leg certified', async () => {
+    grantConsent()
+    mockDayFacts
+      .mockImplementationOnce(async () => factsWith({ remaining: 4 }))
+      .mockImplementation(async () => {
+        throw new Error('core down')
+      })
+    // The leg settles (retrying cannot change an empty pack) but NOTHING moved.
+    mockRedeem.mockResolvedValue({ ok: false, error: 'below_zero' })
+
+    await renderPage()
+
+    await pipelineSaves()
+    expect(screen.getByText('recoverAutoTicketUnresolved')).toBeTruthy()
+    expect(screen.queryByText('recoverTicketRedeemed')).toBeNull()
+  })
+
+  it('tickets OFF: no ticket line, and the notice never spends a refetch on one', async () => {
+    grantConsent()
+    mockDayFacts.mockImplementation(async () => factsWith({ remaining: 4 }))
+
+    await renderPage({ ticketsEnabled: false })
+
+    await pipelineSaves()
+    expect(notice()).toBeTruthy()
+    expect(screen.queryByText('recoverAutoTicketUnresolved')).toBeNull()
+    expect(screen.queryByText('recoverTicketRedeemed')).toBeNull()
+    expect(screen.queryByText(/recoverAutoTicketBurned/)).toBeNull()
+    expect(mockRedeem).not.toHaveBeenCalled()
+    // Only the mount gate's read — armAutoNotice asks nothing when there is no
+    // money question to answer.
+    expect(mockDayFacts).toHaveBeenCalledTimes(1)
+  })
+
+  it('a notice cleared by a NEW recording is never resurrected by the refetch it was waiting on', async () => {
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT }
+    let releaseRefetch: (v: unknown) => void = () => {}
+    mockDayFacts
+      .mockImplementationOnce(async () => factsWith({ remaining: 4 }))
+      .mockImplementationOnce(
+        () =>
+          new Promise((r) => {
+            releaseRefetch = r as (v: unknown) => void
+          }) as never,
+      )
+
+    await renderPage({ nextAppointment: APPOINTMENT })
+    // A booked target renders the Suspense'd brief card, which defers this
+    // component's own mount effects past the microtask queue — one macrotask
+    // settles it, and only then has the auto-run actually run.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+
+    expect(mockSaveInline).toHaveBeenCalledTimes(1)
+    expect(notice()).toBeNull()
+
+    // The staffer moves on and starts a NEW recording.
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('startAria'))
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      releaseRefetch(factsWith({ remaining: 4 }))
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+
+    // 前回の録音 is no longer 前回. The report about it stays dead.
+    expect(notice()).toBeNull()
   })
 })
 
@@ -498,6 +686,9 @@ describe('what auto-finish REFUSES to do — the banner is the fallback, untouch
     expect(mockSaveInline).toHaveBeenCalledTimes(1)
     expect(notice()).toBeNull()
     expect(banner()).toBeTruthy()
+    // "the take alone" — the audio survives a failed save, or the retry the
+    // banner is offering would have nothing left to save.
+    expect(mockDeleteTake).not.toHaveBeenCalled()
   })
 })
 
@@ -508,26 +699,51 @@ describe('one shot per offer', () => {
     expect(mockPipelineStart).toHaveBeenCalledTimes(1)
   })
 
-  it('a FAILED attempt does not re-fire on re-render — the human retry takes over', async () => {
+  // A REAL dependency re-run, not a re-render: the pipeline going busy hides
+  // the offer (`live`), and going idle again brings the SAME offer back, so
+  // `activeOfferId` genuinely changes null → id and the effect body executes a
+  // second time for this offer. That is the only thing standing between a
+  // failed attempt and a second unattended save — and it is the ref, nothing
+  // else. (A plain rerenderSame() cannot prove this: none of the effect's
+  // dependencies move, so React would not re-invoke it even with no guard.)
+  it('a FAILED attempt does not re-fire when the effect genuinely runs again', async () => {
     grantConsent()
     offerTake = false
-    offerDraft = {
-      transcript: 't',
-      summary: 's',
-      entries: [],
-      duration: 60,
-      appointmentId: 'appt-1',
-      appointmentCustomerId: 'cust-1',
-      recordingSessionId: 'sess-1',
-      takeId: 'take-1',
-      savedAt: Date.parse('2026-08-18T05:45:00Z'),
-    }
+    offerDraft = { ...DRAFT }
     mockSaveInline.mockResolvedValue({ error: 'boom' })
 
-    const { rerenderSame } = await renderPage()
+    await renderPage()
     expect(mockSaveInline).toHaveBeenCalledTimes(1)
-    await rerenderSame()
-    await rerenderSame()
+    expect(banner()).toBeTruthy()
+
+    await setPipelineState('processing')
+    expect(banner()).toBeNull()
+    await setPipelineState('idle')
+
+    // The offer is back, the banner is back, and the human 保存する is the only
+    // thing that will move it now.
+    expect(banner()).toBeTruthy()
     expect(mockSaveInline).toHaveBeenCalledTimes(1)
+  })
+
+  // SEAMS: a mount that could not read the day's money facts must not BURN the
+  // one shot — the gate order (facts first, ref second) is what guarantees the
+  // staffer's retry still gets an automatic save instead of a dead banner.
+  it('a facts-blocked mount does not spend the shot; the retry then attempts exactly once', async () => {
+    grantConsent()
+    mockDayFacts
+      .mockImplementationOnce(async () => ({ ...DAY_FACTS, unavailable: true as const }))
+      .mockImplementation(async () => factsWith({ remaining: 4 }))
+
+    await renderPage()
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+    expect(screen.getByText('recoverTicketUnknown')).toBeTruthy()
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverTicketRetry'))
+      for (let i = 0; i < 20; i++) await Promise.resolve()
+    })
+
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
   })
 })

@@ -39,9 +39,9 @@ describe('record-flow F8 schemas — over-cap / strict rejection', () => {
   })
   // PR-B2 — an auto-finishing recovery take enqueues with NO answer at all.
   // The wire body is JSON, so `outcome: undefined` disappears entirely; this
-  // pins that the .strict() schema takes that shape, and still refuses the
-  // client-side-only recoveryUnanswered flag if it ever leaked onto the body.
-  it('RecordingJobEnqueue: an outcome-less body passes; a leaked recoveryUnanswered does not', () => {
+  // pins that the .strict() schema takes that shape, and still refuses EITHER
+  // client-side-only marker if one ever leaked onto the body.
+  it('RecordingJobEnqueue: an outcome-less body passes; a leaked client-only flag does not', () => {
     const wire = JSON.parse(
       JSON.stringify({
         recordingSessionId: 'sess-1',
@@ -54,9 +54,11 @@ describe('record-flow F8 schemas — over-cap / strict rejection', () => {
       }),
     )
     expect(RecordingJobEnqueueSchema.safeParse(wire).success).toBe(true)
-    expect(
-      RecordingJobEnqueueSchema.safeParse({ ...wire, recoveryUnanswered: true }).success,
-    ).toBe(false)
+    for (const leaked of ['recoveryUnanswered', 'autoFinish']) {
+      expect(
+        RecordingJobEnqueueSchema.safeParse({ ...wire, [leaked]: true }).success,
+      ).toBe(false)
+    }
   })
 
   it('SaveKarute: over-cap transcript → fail; spoofed extra key → fail', () => {

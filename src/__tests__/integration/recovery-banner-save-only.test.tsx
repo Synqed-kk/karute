@@ -383,13 +383,28 @@ describe('consent is fail-closed on BOTH recovery saves', () => {
     expect(screen.getByRole('dialog', { name: 'consentDialogTitle' })).toBeTruthy()
   })
 
-  it('an UNREADABLE consent read is treated as not granted', async () => {
-    mockGetCustomerConsent.mockRejectedValueOnce(new Error('network'))
+  // TWO reads, TWO arms, one rule. PR-B2's auto-finish reads consent first and
+  // unprompted, so a single Once would be spent before the tap ever happened
+  // and the tap's own rejection handling would go unexercised. Both reads
+  // reject here, and each arm is asserted separately: the auto arm must stand
+  // down in SILENCE (fail-closed, no dialog nobody asked for), the tap arm must
+  // treat the same unreadable answer as not granted and open the gate.
+  it('an UNREADABLE consent read is treated as not granted — on BOTH the auto and the tap arm', async () => {
+    mockGetCustomerConsent
+      .mockRejectedValueOnce(new Error('network'))
+      .mockRejectedValueOnce(new Error('network'))
     await renderPage()
+    // The auto arm already ran and already read consent — it rejected, so
+    // nothing was saved and nothing was opened.
+    expect(mockGetCustomerConsent).toHaveBeenCalledTimes(1)
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: 'consentDialogTitle' })).toBeNull()
+
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
       for (let i = 0; i < 6; i++) await Promise.resolve()
     })
+    expect(mockGetCustomerConsent).toHaveBeenCalledTimes(2)
     expect(mockPipelineStart).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog', { name: 'consentDialogTitle' })).toBeTruthy()
   })
@@ -1285,17 +1300,29 @@ describe('the flow freezes its offer (A-1) and the abort really aborts', () => {
   // watching any more.
   it('F-5: an offer that dies during the consent read moves no money and opens nothing', async () => {
     let releaseConsent: (v: { consent: null }) => void = () => {}
-    mockGetCustomerConsent.mockReturnValueOnce(
-      new Promise((r) => {
-        releaseConsent = r as (v: { consent: null }) => void
-      }) as never,
-    )
+    mockGetCustomerConsent
+      // PR-B2: the auto arm reads FIRST and unprompted. Give it its own
+      // not-granted answer so it stands down immediately — the promise held
+      // open below must belong to the TAP, or this test would hold the auto
+      // arm's read and never exercise the abort it is named for.
+      .mockResolvedValueOnce({ consent: null })
+      .mockReturnValueOnce(
+        new Promise((r) => {
+          releaseConsent = r as (v: { consent: null }) => void
+        }) as never,
+      )
     DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
     const { rerenderSame } = await renderPage()
+    // The auto arm is done and stood down; the banner is the live surface.
+    expect(mockGetCustomerConsent).toHaveBeenCalledTimes(1)
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
       for (let i = 0; i < 4; i++) await Promise.resolve()
     })
+    // The TAP's read is the one now held open — proof the offer really does die
+    // DURING it, which is the abort this test exists for.
+    expect(mockGetCustomerConsent).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('dialog', { name: 'consentDialogTitle' })).toBeNull()
     // Offer dies while the consent read is still in flight.
     mockPipelineContext = { takeId: 'take-1' }
     await rerenderSame()

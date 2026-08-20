@@ -134,6 +134,7 @@ describe('globalPipeline server-path eligibility (packet 22)', () => {
       ...eligibleCtx,
       outcome: undefined,
       recoveryUnanswered: true,
+      autoFinish: true,
     })
     await tick(0)
     expect(stageForJob).toHaveBeenCalledTimes(1)
@@ -142,6 +143,7 @@ describe('globalPipeline server-path eligibility (packet 22)', () => {
     const body = enqueueJob.mock.calls[0][0] as Record<string, unknown>
     expect(body.outcome).toBeUndefined()
     expect('recoveryUnanswered' in body).toBe(false)
+    expect('autoFinish' in body).toBe(false)
     expect(body).toEqual({
       recordingSessionId: 'sess-1',
       customerId: 'cust-1',

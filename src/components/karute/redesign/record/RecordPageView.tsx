@@ -723,7 +723,9 @@ export function RecordPageView({
       return
     }
     // PR-B2: the green notice reports the PREVIOUS recording's save. A new one
-    // starting is where that report stops being the screen's news.
+    // starting is where that report stops being the screen's news. The epoch
+    // bump makes that stick against an armAutoNotice refetch still in flight.
+    noticeEpochRef.current++
     setAutoNotice(null)
     // A new take begins here — clear the previous take's resolution latch.
     outcomeResolvedRef.current = false
@@ -1068,6 +1070,10 @@ export function RecordPageView({
   //   karute simply exists. A missed notice is fine; a false one never is, and
   //   a persisted notice ledger would be a second source of truth about money.
   const [autoNotice, setAutoNotice] = useState<AutoSavedNotice | null>(null)
+  // F2 — the notice's own generation. Bumped wherever the notice stops being
+  // this screen's news (a new recording, an aborted flow), so armAutoNotice's
+  // in-flight refetch cannot land a report on a screen that moved on.
+  const noticeEpochRef = useRef(0)
   // One-shot per offer: the auto-run fires ONCE for an offerId per mount cycle.
   // Set BEFORE the async start (React strict-mode double-invokes effects on the
   // same mount, so the ref survives and the second invoke is a no-op), and
@@ -1149,6 +1155,10 @@ export function RecordPageView({
     // It stays because the moment anyone adds a generation check after a
     // commit begins, this is what keeps it honest.
     if (!f || f.committing || f.offerId === activeOfferId) return
+    // F2: an aborted flow's offer is gone, so any report about it is gone too.
+    // Reached only when `committing` is false, so no armAutoNotice for THIS
+    // flow can be in flight — it is the NEXT flow's protection, not this one's.
+    noticeEpochRef.current++
     setConsentFlow(null)
     setOutcomeFlow(null)
     setRepointed(null)
@@ -1356,7 +1366,7 @@ export function RecordPageView({
     // outcomeSkipped — those are the staff's own acts. The karute's OutcomeCard
     // is where the answer is given, and where a burn can still follow.
     if (flow.autoFinish) {
-      await commitRecoverySave(flow, undefined, false)
+      await commitRecoverySave(flow, undefined, false, null)
       return
     }
     setOutcomeFlow(flow)
@@ -1407,7 +1417,10 @@ export function RecordPageView({
       ? (answered.legs.burn === 'pending' ? 1 : 0) + (answered.legs.pack === 'pending' ? 1 : 0)
       : 0
     if (pending === 0) {
-      await commitRecoverySave(flow, answered.outcome, answered.skipped)
+      // Every leg settled BEFORE this session (pre-crash), so this session's
+      // own legs prove nothing new — the notice falls through to the day's
+      // refetched facts, or to the pre-save state (F1's null).
+      await commitRecoverySave(flow, answered.outcome, answered.skipped, null)
       return
     }
     await runRecoveryLegs(flow, answered)
@@ -1446,6 +1459,17 @@ export function RecordPageView({
     const gen = flowGenRef.current
     const legs = { ...(answer.legs ?? { burn: 'none' as LegState, pack: 'none' as LegState }) }
     let transient = false
+    /**
+     * F1 — what the burn leg's server ACK actually PROVED, this session.
+     *
+     * Deliberately NOT derived from `legs.burn === 'done'` downstream: that bit
+     * certifies below_zero too, which means the pack was EMPTY and nothing
+     * moved. This is the finer answer, and it is a definitive server ACK rather
+     * than a guess — which is exactly what the green notice needs when its own
+     * day-facts refetch cannot be reached (R-B4's second choice).
+     * `null` = no burn leg ran, so this session proved nothing either way.
+     */
+    let burnAck: RecoveryTicketState | null = null
 
     // The legacy residual: a leg stamped 'pending' by a build that did not yet
     // persist the payload. It can never be re-run — the size and price are
@@ -1502,6 +1526,7 @@ export function RecordPageView({
             .then((res) => {
               if (res.ok) {
                 legs.burn = 'done'
+                burnAck = 'redeemed'
                 if (answer.auto) {
                   const from = answer.burnFrom ?? 0
                   toast.success(
@@ -1528,6 +1553,10 @@ export function RecordPageView({
                 // visit, or the pack has nothing left. Retrying cannot change
                 // either, so the leg is finished — certify it.
                 legs.burn = 'done'
+                // already_redeemed = a redemption for this visit provably
+                // EXISTS (消化済み). below_zero = the pack had nothing to give,
+                // so nothing moved (未処理). Same certified leg, opposite money.
+                burnAck = res.error === 'already_redeemed' ? 'redeemed' : 'unresolved'
                 if (res.error === 'already_redeemed') toast.info(t('recoverAlreadyRedeemed'))
                 else toast.error(tPacks('redeemNoSessionsLeft'))
               } else if (res.error === 'guard_unavailable') {
@@ -1559,7 +1588,7 @@ export function RecordPageView({
       releaseRecoverySave()
       return
     }
-    await commitRecoverySave(flow, settled.outcome, settled.skipped)
+    await commitRecoverySave(flow, settled.outcome, settled.skipped, burnAck)
   }
 
   /** No money to move — certify and save in one step. */
@@ -1573,7 +1602,8 @@ export function RecordPageView({
     // clobber the new flow's flowRef at the commit. Same bail as every other
     // await boundary in this file.
     if (gen !== flowGenRef.current) return
-    await commitRecoverySave(flow, answer.outcome, answer.skipped)
+    // No leg ran, so this session proved nothing about the ticket (F1's null).
+    await commitRecoverySave(flow, answer.outcome, answer.skipped, null)
   }
 
   /** A-3 + A-4 + F-2/F-3 — the ONE place an answer becomes certified: after its
@@ -1599,29 +1629,43 @@ export function RecordPageView({
   }
 
   /**
-   * R-B4 — the notice's 回数券 line is REFETCHED derived truth.
+   * R-B4 — the notice's 回数券 line, in three tiers of decreasing proof. It
+   * never invents, and it never prints a number it cannot stand behind.
    *
-   * Leg state cannot answer it: `already_redeemed` and `below_zero` both
-   * CERTIFY a leg without a ticket having moved on this attempt, and the 'auto'
-   * cohort's silent burn lands server-side. Only the day's redemption rows know
-   * what actually happened, so they are read again after the money settled.
-   * A failed refetch falls back to the state the banner was ALREADY showing
-   * before the save — older, but still server-derived — never a leg-derived
-   * guess and never an invented 消化済み.
+   *  ① REFETCHED derived truth. The day's redemption rows, read again after
+   *     the money settled. This is the answer whenever it is reachable.
+   *  ② THIS SESSION'S OWN LEG ACK (`burnAck`). A server ACK, not a guess: a
+   *     successful burn or a provable already_redeemed means 消化済み;
+   *     below_zero means the pack was empty and nothing moved, so 未処理.
+   *     Deliberately NOT the bare `legs.burn === 'done'` bit, which certifies
+   *     below_zero too and would call an empty pack a burn. The COUNT is
+   *     dropped in this tier — a fresh burn makes `flow.pack`'s remaining
+   *     stale by one, and the refetch that would have proven the new number is
+   *     exactly what just failed, so the count-free wording is the honest one.
+   *  ③ The pre-save state the banner was ALREADY showing. Older, still
+   *     server-derived, and all that is left when this session moved nothing.
    */
   async function armAutoNotice(
     flow: RecoveryFlow,
     outcome: SessionOutcome | undefined,
     outcomeSkipped: boolean,
+    burnAck: RecoveryTicketState | null,
     recordId: string | null,
     runId: number | null,
   ) {
+    // F2 — this notice's epoch, snapshotted BEFORE the await. The refetch is a
+    // network round-trip, and a staffer starting a NEW recording inside it has
+    // already cleared the notice on purpose; without this the continuation
+    // would re-arm the one they just moved past, pointing at the old take.
+    // Same class of guard as flowGenRef, scoped to the notice.
+    const epoch = noticeEpochRef.current
     const f = ticketsEnabled
       ? await getRecoveryDayFacts({
           date: flow.dayYmd,
           pinnedCustomerIds: [flow.dest.customerId],
         }).catch(() => null)
       : null
+    if (epoch !== noticeEpochRef.current) return
     const fresh =
       f && !f.unavailable
         ? resolveRecoveryTicketState({
@@ -1630,18 +1674,16 @@ export function RecordPageView({
             appointmentId: flow.dest.appointmentId,
           })
         : null
+    // Tier ③'s wording, for when neither ① nor ② can speak.
+    const preSave: RecoveryTicketState = flow.alreadyRedeemed
+      ? 'redeemed'
+      : flow.pack
+        ? 'unresolved'
+        : 'none'
     setAutoNotice({
       meta: flow.meta,
-      ticketState: fresh
-        ? fresh.state
-        : !ticketsEnabled
-          ? 'none'
-          : flow.alreadyRedeemed
-            ? 'redeemed'
-            : flow.pack
-              ? 'unresolved'
-              : 'none',
-      pack: fresh ? fresh.pack : flow.pack,
+      ticketState: fresh ? fresh.state : !ticketsEnabled ? 'none' : (burnAck ?? preSave),
+      pack: fresh ? fresh.pack : burnAck ? null : flow.pack,
       // R-B2: the ONLY honest reading of "the staff still owes an answer" —
       // no outcome was written and no skip was performed.
       outcomeOwed: !outcome && !outcomeSkipped,
@@ -1672,6 +1714,8 @@ export function RecordPageView({
     flow: RecoveryFlow,
     outcome: SessionOutcome | undefined,
     outcomeSkipped: boolean,
+    /** F1 — what this session's own burn leg PROVED. See armAutoNotice. */
+    burnAck: RecoveryTicketState | null,
   ) {
     // F-5 — DELIBERATELY no generation check in this function, and the trace
     // for it: `committing` is set on the line below, BEFORE any await, and the
@@ -1711,6 +1755,12 @@ export function RecordPageView({
           // honest flag rather than a fabricated skip (R-B2). Never set on the
           // tapped path, which always arrives with an answer or a real skip.
           recoveryUnanswered: flow.autoFinish && !outcome && !outcomeSkipped,
+          // F3: the green notice IS this save's report. Without this marker
+          // ProcessingIndicator also fires its generic 保存済み toast and the
+          // staff gets the same news twice — the draft path has suppressed its
+          // own toast since round 0, and this is the take path's twin.
+          // Client-side only, like recoveryUnanswered: never on the job body.
+          autoFinish: flow.autoFinish,
           recordingSessionId: o.take.recordingSessionId,
           takeId: o.take.takeId,
         })
@@ -1718,7 +1768,7 @@ export function RecordPageView({
         // runServerJob() bump it synchronously before their first await), so
         // this is the run whose completion the notice waits for.
         if (flow.autoFinish) {
-          void armAutoNotice(flow, outcome, outcomeSkipped, null, globalPipeline.runId)
+          void armAutoNotice(flow, outcome, outcomeSkipped, burnAck, null, globalPipeline.runId)
         }
         setRecoveredTake(null)
         return
@@ -1762,7 +1812,7 @@ export function RecordPageView({
       // The draft's write is synchronous-to-completion, so its notice is armed
       // with the record id right here. The auto path's notice REPLACES the
       // toast — one report of one save, not two.
-      if (flow.autoFinish) void armAutoNotice(flow, outcome, outcomeSkipped, res.id, null)
+      if (flow.autoFinish) void armAutoNotice(flow, outcome, outcomeSkipped, burnAck, res.id, null)
       else toast.success(t('recoverSaved'))
     } finally {
       releaseRecoverySave()

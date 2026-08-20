@@ -104,5 +104,49 @@ describe('ProcessingIndicator server-path settle (packet 22 B3)', () => {
     await waitFor(() => expect(globalPipeline.savedRecordId).toBe('record-9'))
     // NOT bounced to review — the take is landed, not handed back.
     expect(globalPipeline.state).not.toBe('review')
+    // F3's negative control: no auto-finish marker → the generic toast fires
+    // exactly as it always has.
+    await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1))
+  })
+
+  // PR-B2 F3 — ONE save, ONE report. An auto-finished recovery take is already
+  // reported by the record page's green notice, so this generic 保存済み toast
+  // (with its own 「見る」 action to the same karute) would be the second
+  // telling. The draft arm has suppressed its own toast since round 0; these
+  // are the take arm's twins, one per settle branch.
+  it.each([
+    ['server-job settle', true],
+    ['in-tab settle', false],
+  ])('%s: an auto-finished recovery take does NOT also toast', async (_label, serverPath) => {
+    saveKaruteRecordInline.mockResolvedValueOnce({ id: 'record-7' })
+    act(() => {
+      globalPipeline.start(new Blob(['a']), {
+        locale: 'ja',
+        customers: [],
+        appointmentCustomerId: 'cust-1',
+        recoveryUnanswered: true,
+        autoFinish: true,
+        takeId: 'take-1',
+      })
+    })
+    act(() => {
+      if (serverPath) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(globalPipeline as any).serverSavedRecordId = 'record-7'
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(globalPipeline as any).result = { transcript: 't', summary: 'S', entries: [] }
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(globalPipeline as any).state = 'autosaving'
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(globalPipeline as any).notify()
+    })
+
+    render(<ProcessingIndicator />)
+
+    // The save still lands and still publishes — only the TELLING is dropped.
+    await waitFor(() => expect(globalPipeline.savedRecordId).toBe('record-7'))
+    expect(toast.success).not.toHaveBeenCalled()
   })
 })
