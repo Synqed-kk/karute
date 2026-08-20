@@ -950,9 +950,22 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
     expect(SRC).toContain('applyMoves(props.lanes, liveMoves, parked, addedHere, hours)')
     expect(SRC).toContain('applyMoves(props.lanes, moves, parked, addedHere, hours)')
     // The shelf lands through `added`, stamped with the day on screen.
-    const body = SRC.slice(SRC.indexOf('function placeFromShelf'), SRC.indexOf('function placeFromShelf') + 1400)
+    const body = SRC.slice(SRC.indexOf('function placeFromShelf'), SRC.indexOf('function placeFromShelf') + 2400)
     expect(body).toContain('dayOffset: props.dayOffset')
     expect(body).toContain('setParkChips((was) => was.filter((c) => c.id !== chip.id))')
+    // The card's accessible name leads with its span, so the landing rewrites it
+    // — a card drawn at 15:00 that still announces 14:05 is the one thing on the
+    // board that is not true. (Caught by the browser run, not by a review.)
+    // The landing can change time, staff AND bed at once, so the accessible
+    // name is rebuilt in today-board's grammar rather than patched — a card
+    // drawn at 15:00 on ベッド1 that still announces 14:05 / ベッド3 is the one
+    // thing on the board that is not true. (Caught by the browser run.)
+    expect(body).toContain('label: `${hhmm(start)}–${hhmm(end)} ${chip.item.title}様 /')
+    // …and the landing proves a room, exactly as 次回予約 does. A card labelled
+    // 【ベッド3】 over an empty ベッド3 lane is the impossible state ⚖ 8/9 forbids.
+    expect(body).toContain("const bed = freePartnerLane(boardLanes, 'staff', start, end)")
+    expect(body).toContain('この時間帯に空いているベッドがいません')
+    expect(body).toContain('laneKey: bed.key')
     // The × and the hold bar's 元に戻す both take the placed row back off.
     expect(SRC).toContain('setAdded((was) => was.filter((a) => a.item.caseId !== id))')
     expect(SRC).toContain('const placed = added.find((a) => a.item.caseId === id)')
