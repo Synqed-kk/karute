@@ -117,21 +117,40 @@ export function ProcessingIndicator() {
     // in-session races: a save resolving after a new recording started must not
     // clobber or hijack the new take.
     void (async () => {
-      const res = await saveKaruteRecordInline({
-        customerId,
-        transcript: result.transcript,
-        summary: result.summary,
-        entries: result.entries.map((e) => ({
-          category: e.category as EntryCategory,
-          content: e.title,
-          sourceQuote: e.source_quote,
-          confidenceScore: e.confidence_score,
-        })),
-        duration: ctx.duration,
-        appointmentId: ctx.appointmentId,
-        outcome: ctx.outcome,
-        recordingSessionId: ctx.recordingSessionId,
-      })
+      // Greptile #729: saveKaruteRecordInline REJECTS as well as returning
+      // {error} — it throws CONSENT_REQUIRED_ERROR outright, and any transport
+      // failure rejects. An unhandled rejection here left the pipeline wedged in
+      // 'autosaving' in silence: no toast, no review fallback, a spinner that
+      // never settles. Same shape the recovery save already uses for this exact
+      // call (RecordPageView's B-2), and the rejection is treated as exactly
+      // what it is — a failed save, identical handling to the {error} arm below.
+      //   PR-B2 is why this stopped being cosmetic: an outcome-less RECOVERY
+      //   take reaches here AFTER setRecoveredTake(null) cleared its offer, so a
+      //   wedge left that cohort with no banner, no notice and no toast. (The
+      //   take itself is deleted only on success, so a relaunch still self-heals
+      //   — what was lost was the telling, not the recording.)
+      let res: Awaited<ReturnType<typeof saveKaruteRecordInline>>
+      try {
+        res = await saveKaruteRecordInline({
+          customerId,
+          transcript: result.transcript,
+          summary: result.summary,
+          entries: result.entries.map((e) => ({
+            category: e.category as EntryCategory,
+            content: e.title,
+            sourceQuote: e.source_quote,
+            confidenceScore: e.confidence_score,
+          })),
+          duration: ctx.duration,
+          appointmentId: ctx.appointmentId,
+          outcome: ctx.outcome,
+          recordingSessionId: ctx.recordingSessionId,
+        })
+      } catch {
+        if (globalPipeline.isCurrentRun(runId)) toast.error(t('autosaveFailed'))
+        globalPipeline.failAutosaveToReview(runId)
+        return
+      }
       if ('error' in res) {
         // Never silently lose a take — tell the staff, and drop THIS run to
         // review (no-op if a newer recording already superseded it).
