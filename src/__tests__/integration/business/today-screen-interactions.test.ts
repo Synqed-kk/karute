@@ -56,6 +56,8 @@ import {
   type Moves,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { dragOrigin, stepPct } from '@/business/lib/canon-logic/drag-rules'
+import { buildSellLayer, type SellCell } from '@/business/lib/canon-logic/availability'
+import { DENSITY_CEILING } from '@/business/lib/canon-logic/pricing'
 import { minuteOf, place, type BoardItem, type BoardLane } from '@/business/lib/today-board'
 
 if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
@@ -1413,5 +1415,45 @@ describe('予定ブロック move, resize and open — canon’s second pipeline
     const blockPipe = SRC.slice(SRC.indexOf('function beginBlockDrag'), SRC.indexOf('function clearBlockDrag'))
     expect(blockPipe).not.toContain('setDragLen(')
     expect(SRC).toContain("`cell-price${fitsDrag(60, dragLen) ? ' fits' : ''}`")
+  })
+})
+
+/** ⚖ FLAG 27 — the density auto-degrade is dead for display. A DELIBERATE
+ *  overturn of canon's E9c, not a port gap: the engine keeps computing the
+ *  verdict, the board stops obeying it. */
+describe('販売可能枠の表示 means what it says, at any band count', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+
+  it('the engine still computes it — this is an overturn at the consumer, not a deletion', () => {
+    // A 13-band day is exactly the case canon degraded. The layer still SAYS so.
+    const cells: SellCell[] = Array.from({ length: DENSITY_CEILING + 1 }, (_, i) => ({
+      laneKey: `p-${i}`, resourceKey: `bed-${i}`, group: 'staff' as const,
+      staff: `s${i}`, bed: `bed-${i}`, h: 600 + i * 60, price: 6600 + i * 10, tier: 2 as const,
+    }))
+    const layer = buildSellLayer(cells, true)
+    expect(layer.staffBands.length).toBeGreaterThan(DENSITY_CEILING)
+    expect(layer.degraded).toBe(true)
+  })
+
+  it('…and no display decision reads it any more', () => {
+    // The class is gone from the board root — that one ternary was the valve.
+    // (Asserted on code shapes, not bare words: the comment above the deletion
+    // NAMES the overturn on purpose, and a naked substring ban would forbid
+    // recording why it happened.)
+    expect(SRC).not.toMatch(/'density-degraded'/)
+    expect(SRC).not.toMatch(/sell\.degraded\s*(\?|&&)/)
+    // The caption that explained the override went with it.
+    expect(SRC).not.toContain('本日は販売枠が細かく分かれているため、価格はドラッグ中のみ表示しています')
+    // The rules the class drove are gone too — a dead selector is a trap for
+    // whoever tries to bring the valve back by accident.
+    expect(CSS).not.toContain('.timeline.sell-tint.density-degraded')
+    // What survives is the guard's OWN 'degraded' verdict (橙 △) — a different
+    // word, a different feature, and untouched by this ruling.
+    expect(CSS).toContain('.biz .guard-rail-cell.degraded {')
+    // The three modes stay literal: tint always, drag on the gesture, off hidden.
+    expect(CSS).toContain('.biz .timeline.sell-drag .cell-price { opacity: 0; }')
+    expect(CSS).toContain('.biz .timeline.sell-off .cell-price { display: none; }')
+    expect(SRC).toContain("[['tint', '淡色表示'], ['drag', 'ドラッグ時のみ'], ['off', '非表示']]")
   })
 })
