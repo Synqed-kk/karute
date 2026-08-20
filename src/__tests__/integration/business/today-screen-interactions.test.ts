@@ -741,9 +741,9 @@ describe('the sample day produces a merged cross-boundary window', () => {
     // minutes from an odd start — two packed sessions where the hour grid fits
     // one, which is canon's own PACK MODE test (k_grid < k_pack, :5164).
     expect(FIXTURES).toContain("slot('apt-29', 'thin-02', STORE_A, 'p-06', 'menu-01', 0, 14, 5, 60,")
-    expect(FIXTURES).toContain("slot('apt-30', 'cus-06', STORE_A, 'p-06', 'menu-01', 0, 17, 12, 60,")
+    expect(FIXTURES).toContain("slot('apt-33', 'cus-06', STORE_A, 'p-06', 'menu-01', 0, 17, 12, 60,")
     // …and 代官山 gets one too, so the layer is not a single-store trick.
-    expect(FIXTURES).toContain("slot('apt-31', 'cus-08', STORE_B, 'p-05', 'menu-05', 0, 15, 45, 45,")
+    expect(FIXTURES).toContain("slot('apt-34', 'cus-08', STORE_B, 'p-05', 'menu-05', 0, 15, 45, 45,")
     // The 20/30-minute menus stay: ⚖ Liam kept them and their bordered boxes.
     expect(FIXTURES).toContain("duration_minutes: 30")
     expect(FIXTURES).toContain("duration_minutes: 20")
