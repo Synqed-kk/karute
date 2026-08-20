@@ -1544,7 +1544,16 @@ export function TodayScreen(props: TodayProps) {
     showTicket ? '' : 'hide-tkt',
     showSlotPrice ? '' : 'hide-slot-prices',
     `sell-${sellMode}`,
-    sell.degraded ? 'density-degraded' : '',
+    // ⚖ Liam flag 27 (2026-08-20) — THE DEGRADE VALVE IS OFF, and this is a
+    // deliberate overturn of canon's E9c (:5369–5372), not a port gap. Canon
+    // blanked the tint once a day carried more than DENSITY_CEILING visible
+    // bands; Liam ruled that 販売可能枠の表示 means literally what it says —
+    // 淡色表示 = tint and price at ANY band count, ドラッグ時のみ = drag-only,
+    // 非表示 = hidden — because a setting that silently overrides the operator's
+    // own choice reads as a broken screen, not as a kindness. `sell.degraded` is
+    // still COMPUTED by the frozen engine; this display layer no longer consumes
+    // it, which is the whole change. PRINCIPLE for the lane: a control never
+    // silently overrides an explicit choice.
     // ⚖ Liam 2026-08-20. Canon gates the drag reveal on `:has(.event.dragging)`,
     // which can only ever see a card on the board — a shelf chip travelling to a
     // lane left the whole window layer asleep. One class, set for BOTH gestures.
@@ -2050,12 +2059,9 @@ export function TodayScreen(props: TodayProps) {
                         <button key={k} type="button" aria-pressed={sellMode === k} onClick={() => setSellMode(k)}>{label}</button>
                       ))}
                     </div>
-                    {/* E9c: the degrade note is a live consequence of the board,
-                        not a stored flag — it appears exactly when tint mode has
-                        been degraded by the density ceiling. */}
-                    {sell.degraded && sellMode === 'tint' && (
-                      <span>本日は販売枠が細かく分かれているため、価格はドラッグ中のみ表示しています</span>
-                    )}
+                    {/* ⚖ Liam flag 27: canon's degrade caption (:1809) is GONE with
+                        the valve that raised it — a note explaining why the board
+                        stopped honouring the setting has nothing left to explain. */}
                     <span>お客様名は常に表示 / 全ボード共通の店舗設定</span>
 
                     <div className="pop-divider" role="presentation" />
