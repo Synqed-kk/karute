@@ -1571,6 +1571,61 @@ describe('deferred start + abort, at the edges', () => {
     expect(mockPipelineStart).toHaveBeenCalledTimes(1)
   })
 
+  // N1: an abort during the stamp await, with a NEW flow started AND STILL IN
+  // FLIGHT when the old stamp resolves. flowRef is non-null again — but it
+  // belongs to the new flow, so a truthiness check let the DEAD flow commit
+  // straight over it.
+  it('N1: a flow aborted during its stamp never commits over the new one', async () => {
+    grantConsent()
+    // ticketsEnabled false → certifyAndCommit is the path taken.
+    let releaseStamp: () => void = () => {}
+    mockStampTakeOutcome.mockReturnValueOnce(
+      new Promise<void>((r) => {
+        releaseStamp = r
+      }),
+    )
+    const { rerenderSame } = await renderPage({ ticketsEnabled: false })
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    expect(mockStampTakeOutcome).toHaveBeenCalledTimes(1)
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+
+    // The offer dies (abort), then returns, and the staffer starts a NEW flow —
+    // parked on its own blob read, so flowRef is non-null and committing when
+    // the dead flow's stamp finally resolves.
+    mockPipelineContext = { takeId: 'take-1' }
+    await rerenderSame()
+    mockPipelineContext = null
+    await rerenderSame()
+    const store = jest.requireMock('@/lib/karute/take-store') as { loadTakeBlob: jest.Mock }
+    let releaseBlob: (v: Blob) => void = () => {}
+    store.loadTakeBlob.mockReturnValueOnce(
+      new Promise<Blob>((r) => {
+        releaseBlob = r
+      }),
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+
+    // The DEAD flow's stamp resolves while the new flow owns flowRef.
+    await act(async () => {
+      releaseStamp()
+      for (let i = 0; i < 14; i++) await Promise.resolve()
+    })
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+
+    // Only the NEW flow ever saves, exactly once.
+    await act(async () => {
+      releaseBlob(new Blob(['audio']))
+      for (let i = 0; i < 14; i++) await Promise.resolve()
+    })
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+  })
+
   // F-5: the abort landing DURING the money legs. The legs are already in
   // flight, so they settle and are certified (certify-then-bail) — but the
   // record must NOT be handed to the pipeline, because the take now belongs to

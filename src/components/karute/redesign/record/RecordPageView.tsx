@@ -1079,6 +1079,13 @@ export function RecordPageView({
     // a save the staffer never re-authorised fired with it.
     setPendingStart(null)
     setRepointOpen(false)
+    // `f.committing` is DEFENSIVE, and deliberately kept unpinned (N3): a
+    // successful commit clears the offer itself, so without it this effect
+    // would read that success as an abort. Its only consequence today is that
+    // releaseRecoverySave does not run twice — every generation check lives
+    // BEFORE a commit begins, so nothing reads flowGenRef after that point
+    // (which is also why commitRecoverySave carries no check of its own). It
+    // stays because the moment anyone adds one, this is what keeps it honest.
     if (!f || f.committing || f.offerId === activeOfferId) return
     setConsentFlow(null)
     setOutcomeFlow(null)
@@ -1153,6 +1160,11 @@ export function RecordPageView({
     // {status:'loading'} while THIS effect still reads the render's already
     // captured values. Gating on the key match is what makes the wait real:
     // the flow starts only once the facts for the picked destination are in.
+    //   ACCEPTED (N2): if that fetch FAILS, the deferred start is dropped
+    //   silently — no toast fires for it. Safe and visible rather than
+    //   invisible: the banner is already showing 回数券の状態を確認できません
+    //   with its retry, the destination the staffer picked is on screen, and
+    //   one tap on 保存する resumes. Nothing is lost, so this stays as-is.
     if (!pendingStart || !factsFresh || recoverySavingRef.current) return
     const dest = pendingStart
     setPendingStart(null)
@@ -1401,8 +1413,15 @@ export function RecordPageView({
 
   /** No money to move — certify and save in one step. */
   async function certifyAndCommit(flow: RecoveryFlow, answer: RecoveryAnswer) {
+    const gen = flowGenRef.current
     await settleRecoveryAnswer(flow, answer)
-    if (!flowRef.current) return
+    // N1: the GENERATION, not `flowRef.current` truthiness. The stamp is an
+    // IndexedDB write, so an abort can land inside it — and if the staffer
+    // then starts a NEW flow before it resolves, flowRef is non-null again but
+    // belongs to someone else. Truthiness let this dead flow sail on and
+    // clobber the new flow's flowRef at the commit. Same bail as every other
+    // await boundary in this file.
+    if (gen !== flowGenRef.current) return
     await commitRecoverySave(flow, answer.outcome, answer.skipped)
   }
 
