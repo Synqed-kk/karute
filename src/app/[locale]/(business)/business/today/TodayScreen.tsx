@@ -369,7 +369,7 @@ export function TodayScreen(props: TodayProps) {
 
   /** THE BOARD, twice. `boardLanes` is the truth every derivation reads — the
    *  dragged card is already on the lane it is heading for, which is what makes
-   *  the windows, the prices and the guard refill LIVE across lanes. `drawn` is
+   *  the guard and the drop target answer LIVE across lanes. `drawn` is
    *  what the DOM renders: canon never re-parents a card mid-drag (it moves the
    *  element horizontally and paints a ghost in the destination), and neither
    *  can we — re-parenting destroys the element the pointer stream is bound to
@@ -389,6 +389,22 @@ export function TodayScreen(props: TodayProps) {
         : boardLanes,
     [props.lanes, moves, live, parked, added, hours, boardLanes],
   )
+  /** The board WITHOUT the in-flight pointer — what the window layers price
+   *  against. canon's `renderPublicLayer` (:5343) and `renderGapFillLayer`
+   *  (:5235) run off the committed board and are not called again until the
+   *  move commits: measured live, canon's `.cell-price` / `.cell-packed` /
+   *  `.cell-gapfill` set is byte-identical idle → mid-drag → after the drop,
+   *  and a drag's liveness is the CSS reveal (:594–598), which lifts and
+   *  emphasises the boxes already derived. Feeding them `boardLanes` re-ran the
+   *  bed ledger on every frame, so boxes on OTHER lanes appeared and vanished
+   *  under a moving card and a ¥3,860（30分） could become ¥7,710 mid-gesture —
+   *  measured 3 distinct layer states across 30 pointer frames against canon's
+   *  1. `boardLanes` stays the truth for the guard and the drop target, which
+   *  DO have to answer where the card is heading. */
+  const committedLanes = useMemo(
+    () => applyMoves(props.lanes, moves, parked, added, hours),
+    [props.lanes, moves, parked, added, hours],
+  )
   const dropTarget = live && !live.overShelf && live.targetLane !== live.homeLane
     ? { laneKey: live.targetLane, x: live.x, w: live.w }
     : chipTarget
@@ -404,7 +420,7 @@ export function TodayScreen(props: TodayProps) {
 
   const sell = useMemo(
     () =>
-      sellLayerFor(boardLanes, hours, {
+      sellLayerFor(committedLanes, hours, {
         gridMin: props.sell.gridMin,
         nowMinute: props.sell.nowMinute,
         locked,
@@ -413,14 +429,14 @@ export function TodayScreen(props: TodayProps) {
         hqMin: dialogs.pricing.hqMin,
         depth,
       }),
-    [boardLanes, hours, props.sell, locked, showSlotPrice, price.hi, dialogs.pricing.hqMin, depth],
+    [committedLanes, hours, props.sell, locked, showSlotPrice, price.hi, dialogs.pricing.hqMin, depth],
   )
 
   /** スキマ枠 + 詰め込みセッション — canon renders them from the same board pass
    *  as the normal layer (renderPublicLayer → renderGapFillLayer :5402). */
   const gap = useMemo(
     () =>
-      gapLayerFor(boardLanes, {
+      gapLayerFor(committedLanes, {
         gridMin: props.sell.gridMin,
         sessionMin: props.guard.standardSessionMin,
         gapFillMin: props.guard.gapFillMinMin,
@@ -431,7 +447,7 @@ export function TodayScreen(props: TodayProps) {
         depth,
         guard: props.guard.config,
       }),
-    [boardLanes, props.sell, props.guard, locked, frame, depth],
+    [committedLanes, props.sell, props.guard, locked, frame, depth],
   )
 
   /** The 配置ガイド. `guardOn` is the STORE's protection policy; `guideMode` is

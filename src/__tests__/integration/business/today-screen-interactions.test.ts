@@ -15,6 +15,8 @@
  * span canon's lattice says it should, that a release outside a lane refuses,
  * that a park/place round trip returns the card where it came from.
  */
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   applyMoves,
   blockChrome,
@@ -514,5 +516,117 @@ describe('the 配置ガイド rail', () => {
     expect(out.packed).toEqual([])
     expect(out.scraps.filter((c) => c.group === 'staff')).toHaveLength(1)
     expect(out.scraps[0].price).toBeGreaterThan(0)
+  })
+})
+
+/** WO-2d, Liam flags 14/15. canon's window layers are derived from the board as
+ *  it STANDS: `renderPublicLayer` (:5343) and `renderGapFillLayer` (:5235) run
+ *  once and are not called again until a move commits. Measured in a real
+ *  browser on canon itself — its `.cell-price` / `.cell-packed` / `.cell-gapfill`
+ *  set is byte-identical idle → mid-drag → after the drop (1 distinct state
+ *  across 30 pointer frames). A drag's liveness is the CSS reveal at :594–598,
+ *  which lifts and emphasises boxes already derived; it is not a re-derivation.
+ *
+ *  Ours fed the layers the IN-FLIGHT pointer position, which re-ran the bed
+ *  ledger every frame: 3 distinct states across the same 30 frames, with boxes
+ *  on OTHER lanes appearing and vanishing and a ¥3,860（30分） turning into a
+ *  ¥7,710 mid-gesture. */
+describe('the window layers price the committed board, never the card in flight', () => {
+  const GUARD = {
+    services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
+    newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
+    mode: 'standard' as const,
+  }
+  const sellOpts = { gridMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 }
+  const gapOpts = {
+    gridMin: 60, sessionMin: 60, gapFillMin: 30, gapFillDiscountPct: 10, nowMinute: null,
+    locked: [], frame: { hi: 7260, lo: 6600, hqMin: 6600, hqMax: 7260 }, depth: 9, guard: GUARD,
+  }
+  // One card at 12:00 on p-01, one bed. A drag carries it to 15:05 on p-04 —
+  // an off-grid landing, so the スキマ枠 layer answers differently too.
+  const lanes = [
+    lane({ key: 'p-01', group: 'staff', items: [booking({ key: 'a', caseId: 'apt-1' }, 720, 780)] }),
+    lane({ key: 'p-04', group: 'staff' }),
+    lane({ key: 'bed-01', group: 'beds', items: [booking({ key: 'a-bed', caseId: 'apt-1' }, 720, 780)] }),
+  ]
+  const committed: Moves = {}
+  const inFlight: Moves = { 'apt-1': { laneKey: 'p-04', ...place(905, 965, HOURS) } }
+
+  it('the two boards genuinely disagree — so WHICH one the layers read is the whole question', () => {
+    const still = sellLayerFor(applyMoves(lanes, committed, [], [], HOURS), HOURS, sellOpts)
+    const flying = sellLayerFor(applyMoves(lanes, inFlight, [], [], HOURS), HOURS, sellOpts)
+    // 12:00 is off sale while the card sits there; 15:00 goes off sale the
+    // moment the card is treated as already landed.
+    expect(still.cells.some((c) => c.group === 'staff' && c.laneKey === 'p-01' && c.h === 720)).toBe(false)
+    expect(flying.cells.some((c) => c.group === 'staff' && c.laneKey === 'p-04' && c.h === 900)).toBe(false)
+    expect(flying.cells.some((c) => c.group === 'staff' && c.laneKey === 'p-01' && c.h === 720)).toBe(true)
+  })
+
+  it('the screen feeds both layers the committed board, and builds it from `moves` alone', () => {
+    const src = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+    // The committed board is applyMoves over `moves` — NOT `liveMoves`, which
+    // carries the pointer's current position.
+    const memo = /const committedLanes = useMemo\(\s*\(\) => applyMoves\(props\.lanes, moves, parked, added, hours\)/
+    expect(memo.test(src)).toBe(true)
+    expect(src).toContain('sellLayerFor(committedLanes')
+    expect(src).toContain('gapLayerFor(committedLanes')
+    expect(src).not.toContain('sellLayerFor(boardLanes')
+    expect(src).not.toContain('gapLayerFor(boardLanes')
+    // …and the live board is still what the guard and the drop target read,
+    // because those DO have to answer where the card is heading.
+    expect(src).toContain('guardRailsFor(boardLanes')
+  })
+
+  it('the スキマ枠 layer disagrees too — an off-grid landing opens a 55-minute tail', () => {
+    const before = gapLayerFor(applyMoves(lanes, committed, [], [], HOURS), gapOpts)
+    const after = gapLayerFor(applyMoves(lanes, inFlight, [], [], HOURS), gapOpts)
+    expect(before.scraps).toEqual([])
+    expect(after.scraps.filter((c) => c.group === 'staff').map((c) => [c.s, c.e])).toEqual([[965, 1020]])
+  })
+})
+
+/** WO-2d, Liam flag 15: "a free run crossing a boundary (15:50→16:00) should
+ *  merge and advertise ONE 60-minute box". Canon's answer, driven against
+ *  canon's own exposed `__gapPackingV5` on this exact family and matched
+ *  0/54 mismatches: it merges ONLY when the customer grid cannot fit the same
+ *  number of sessions (k_grid < k_pack → PACK MODE, canon :5164–5178). At 70
+ *  minutes the grid fits one 60 too, so canon takes the hour-aligned box and
+ *  drops the 10-minute head. Below the dial that head is not advertised at all. */
+describe('a free run that crosses the hour — when canon merges and when the grid wins', () => {
+  const GUARD = {
+    services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
+    newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
+    mode: 'standard' as const,
+  }
+  const run = (from: number, until: number) =>
+    gapLayerFor(
+      [lane({ key: 'p-01', group: 'staff', window: { from, until }, untilLabel: '' }), lane({ key: 'bed-01', group: 'beds' })],
+      {
+        gridMin: 60, sessionMin: 60, gapFillMin: 30, gapFillDiscountPct: 10, nowMinute: null,
+        locked: [], frame: { hi: 7260, lo: 6600, hqMin: 6600, hqMax: 7260 }, depth: 9, guard: GUARD,
+      },
+    )
+  const staff = (o: ReturnType<typeof run>, k: 'packed' | 'scraps') => o[k].filter((c) => c.group === 'staff').map((c) => [c.s, c.e])
+
+  it('exactly 60 free minutes from 15:50 → ONE 60-minute box at 15:50, no fragments', () => {
+    const out = run(950, 1010)
+    expect(staff(out, 'packed')).toEqual([[950, 1010]])
+    expect(staff(out, 'scraps')).toEqual([])
+  })
+
+  it('70 free minutes from 15:50 → the grid wins: the hour box, and the 10-minute head is not advertised', () => {
+    const out = run(950, 1020)
+    expect(staff(out, 'packed')).toEqual([])
+    expect(staff(out, 'scraps')).toEqual([]) // 10 minutes is under the 30-minute dial
+  })
+
+  it('120 free minutes from 15:50 → the grid fits one, packing fits two, so packing wins', () => {
+    expect(staff(run(950, 1070), 'packed')).toEqual([[950, 1010], [1010, 1070]])
+  })
+
+  it('105 free minutes from 15:50 → hour box plus a 35-minute tail, offered orange', () => {
+    const out = run(950, 1055)
+    expect(staff(out, 'packed')).toEqual([])
+    expect(staff(out, 'scraps')).toEqual([[1020, 1055]])
   })
 })
