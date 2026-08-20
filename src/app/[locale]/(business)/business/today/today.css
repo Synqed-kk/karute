@@ -748,6 +748,11 @@
   box-shadow: 0 8px 24px rgba(24, 24, 27, .08);
 }
 .biz .holdbar-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+/* 日付ピン (canon :1521): the 仮押さえ bar outlives the day it was staged on, so
+   on any other day it names its own day and offers the way back. */
+.biz .hold-daypin { display: inline-flex; align-items: center; gap: 7px; padding: 2px 8px; border-radius: 7px; background: var(--orange-soft); font-size: 12px; font-weight: 700; }
+.biz .hold-daypin a { color: var(--indigo); font-size: 12px; font-weight: 700; text-decoration: none; }
+.biz .hold-daypin a:hover { text-decoration: underline; }
 .biz .holdbar-checks { grid-column: 1; display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-3); font-size: 12px; }
 .biz .holdbar-checks .ck { display: inline-flex; align-items: center; gap: 5px; }
 .biz .holdbar-checks .ck::before {

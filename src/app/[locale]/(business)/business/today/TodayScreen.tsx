@@ -329,7 +329,11 @@ export function TodayScreen(props: TodayProps) {
   const [parked, setParked] = useState<string[]>([])
   /** The staged change awaiting 確定 — canon's `pendingChange`. `origin` is
    *  where the card came from, so 元に戻す has somewhere to go. */
-  const [pending, setPending] = useState<{ id: string; origin: Move } | null>(null)
+  /** canon's `pendingChange`, and — ⚖ R11-4 (:5686) — the DAY it is staged on.
+   *  A 仮押さえ survives day navigation, so the bar can outlive the board that
+   *  explains it; without the day it would compute its checks against whatever
+   *  board happened to be on screen and answer for a card that is not there. */
+  const [pending, setPending] = useState<{ id: string; origin: Move; dayOffset: number; dayLabel: string } | null>(null)
   /** canon's 配置モード (`placing`, :6826). Armed by 次回予約を作成, disarmed by the
    *  ×, by Escape, or by the placement itself. ⚖ Liam 21: it survives day
    *  navigation, which is what its own toast promises. */
@@ -352,6 +356,15 @@ export function TodayScreen(props: TodayProps) {
   const proxyRef = useRef<HTMLDivElement | null>(null)
   const proxyAt = useRef('')
   const createSeq = useRef(0)
+  /** canon `suppressClickUntil` (:5640, :6811). A chip released over a track can
+   *  land its click on that track, and an empty-track click means "create a
+   *  booking here" — or, with 配置モード armed, "place it here". Canon calls this
+   *  its last line of defence and it is: pointer capture is an assist, not a
+   *  guarantee, and a drop that turns into a second booking is not recoverable
+   *  by the operator. The window is canon's own 400ms, measured off the EVENTS' own
+   *  timestamps rather than a clock call — same monotonic origin, and nothing
+   *  in this component reads the wall clock during a render. */
+  const suppressClickUntil = useRef(0)
   const boardRef = useRef<HTMLDivElement>(null)
   const shelfRef = useRef<HTMLDivElement>(null)
   const fieldsPopRef = useRef<HTMLDivElement>(null)
@@ -628,12 +641,22 @@ export function TodayScreen(props: TodayProps) {
     [boardLanes, sell.cells, hours, locked],
   )
 
-  const pendingChecks = pending && moves[pending.id] ? checksFor(pending.id, moves[pending.id]) : []
-  const pendingConfirm = confirmCaption(pendingChecks)
+  /** canon `syncPendingUI` (:3673): while the board is showing a DIFFERENT day
+   *  from the one the 仮押さえ is staged on, the bar keeps standing — it is the
+   *  thing that has to be resolved before anything else — but it stops
+   *  answering. Its checks are computed from the board on screen, and that board
+   *  does not contain the card; canon carries every day in one DOM and so never
+   *  had to say this out loud. The pin says where the card is and takes the
+   *  operator back to it. */
+  const pendingOffDay = pending != null && pending.dayOffset !== props.dayOffset
+  const pendingChecks = pending && !pendingOffDay && moves[pending.id] ? checksFor(pending.id, moves[pending.id]) : []
+  const pendingConfirm = pendingOffDay
+    ? { enabled: false, label: 'この内容で確定' }
+    : confirmCaption(pendingChecks)
 
   function stage(id: string, laneKey: string, span: { x: number; w: number }, from: Move) {
     setMoves((was) => ({ ...was, [id]: { laneKey, ...span } }))
-    setPending((was) => (was && was.id === id ? was : { id, origin: from }))
+    setPending((was) => (was && was.id === id ? was : { id, origin: from, dayOffset: props.dayOffset, dayLabel: props.dayLabel }))
     setSelected(null)
   }
 
@@ -666,7 +689,7 @@ export function TodayScreen(props: TodayProps) {
     // canon R11-7 (:5461): the checks are re-run at the moment of confirm, so a
     // lane locked after staging cannot be confirmed through.
     const at = moves[pending.id]
-    if (!at || !confirmCaption(checksFor(pending.id, at)).enabled) {
+    if (pendingOffDay || !at || !confirmCaption(checksFor(pending.id, at)).enabled) {
       show('状況が変わったため、この内容では確定できません')
       return
     }
@@ -943,7 +966,10 @@ export function TodayScreen(props: TodayProps) {
   }
 
   function onChipPointerDown(e: React.PointerEvent<HTMLElement>, id: string) {
-    if (e.button !== 0 || dragRef.current) return
+    // canon :5591: a press on the × is a press on the ×. Without this the chip
+    // arms a drag under the button, and the release that should have returned
+    // the booking is spent cancelling a gesture nobody started.
+    if (e.button !== 0 || dragRef.current || (e.target as Element).closest('.park-x')) return
     if (pending) {
       show('仮押さえ中の変更を確定するか、元に戻してから操作してください')
       return
@@ -981,7 +1007,10 @@ export function TodayScreen(props: TodayProps) {
     }
     ctx.moved = true
     moveProxy(e.clientX, e.clientY, ctx.grab)
-    ctx.laneKey = laneKeyAtY(boardRef.current, 'staff', e.clientY)
+    // canon :5629 takes ANY lane under the pointer, not only a staff one — a
+    // chip dropped on a bed lane is the receptionist saying which ROOM it goes
+    // in and leaving the person alone.
+    ctx.laneKey = laneKeyAtY(boardRef.current, 'staff', e.clientY) ?? laneKeyAtY(boardRef.current, 'beds', e.clientY)
     setChipTarget(ctx.laneKey)
   }
 
@@ -991,6 +1020,7 @@ export function TodayScreen(props: TodayProps) {
     const ctx = chipDragRef.current
     clearChipDrag()
     if (!ctx || !ctx.moved || !ctx.laneKey) return
+    suppressClickUntil.current = e.timeStamp + 400
     const chip = parkChips.find((c) => c.id === ctx.id)
     const track = boardRef.current?.querySelector(`.lane[data-lane="${ctx.laneKey}"] .track`)
     if (!chip || !track) return
@@ -1062,7 +1092,7 @@ export function TodayScreen(props: TodayProps) {
     setMoves((was) => ({ ...was, [id]: { laneKey: lane.key, ...span } }))
     // '' is `revertPending`'s "there is no earlier span" sentinel: 元に戻す on a
     // creation deletes it rather than moving it somewhere it has never been.
-    setPending({ id, origin: { laneKey: '', x: 0, w: 0 } })
+    setPending({ id, origin: { laneKey: '', x: 0, w: 0 }, dayOffset: props.dayOffset, dayLabel: props.dayLabel })
     setSelected(null)
     show(`${p.name}様の次回予約を${props.dayLabel} ${hhmm(start)}に仮押さえしました（お客様情報は自動入力）`)
   }
@@ -1080,16 +1110,24 @@ export function TodayScreen(props: TodayProps) {
   function placeFromShelf(chip: ParkChip, laneKey: string, span: { x: number; w: number }) {
     const start = minuteOf(span.x, hours)
     const end = minuteOf(span.x + span.w, hours)
-    // A booking is a person AND a room, so the landing proves a room the same
-    // way canon's `createAtCell` does. The parked card's OLD bed cannot simply
-    // ride along: on another day it may be taken, and a card labelled 【ベッド3】
-    // over an empty ベッド3 lane is the impossible state ⚖ 8/9 forbids.
-    const bed = freePartnerLane(boardLanes, 'staff', start, end)
-    if (!bed) {
+    // canon :5629/:5666: the drop names ONE lane, and which group it belongs to
+    // decides what the operator just said. A bed lane means "this room" and the
+    // person stays whoever the chip left with; a staff lane means "this person"
+    // and the room still has to be found.
+    const dropped = boardLanes.find((l) => l.key === laneKey)
+    const free = (l: BoardLane | undefined) => l != null && l.items.every((i) => i.endMin <= start || i.startMin >= end)
+    const staff = dropped?.group === 'beds' ? boardLanes.find((l) => l.key === chip.home.laneKey) : dropped
+    // A booking is a person AND a room. canon puts the parked card's OWN bed
+    // back, so that is the first candidate — but on another day it may be taken,
+    // and a card labelled 【ベッド3】 over an occupied ベッド3 is the impossible
+    // state ⚖ 8/9 forbids, so a free one is found the way `createAtCell` does.
+    const home = boardLanes.find((l) => l.group === 'beds' && l.label === chip.item.tag.replace(/[【】]/g, ''))
+    const bed = dropped?.group === 'beds' ? dropped : free(home) ? home : freePartnerLane(boardLanes, 'staff', start, end)
+    if (!bed || !staff) {
       show('この時間帯に空いているベッドがいません')
       return
     }
-    const staffLabel = boardLanes.find((l) => l.key === laneKey)?.label ?? ''
+    const staffLabel = staff.label
     const landed = {
       ...chip.item,
       ...place(start, end, hours),
@@ -1105,11 +1143,11 @@ export function TodayScreen(props: TodayProps) {
     setParkChips((was) => was.filter((c) => c.id !== chip.id))
     setAdded((was) => [
       ...was.filter((a) => a.item.caseId !== chip.id),
-      { dayOffset: props.dayOffset, laneKey, fromChip: chip, item: { ...landed, key: `${chip.id}-staff`, tag: `【${bed.label}】` } },
+      { dayOffset: props.dayOffset, laneKey: staff.key, fromChip: chip, item: { ...landed, key: `${chip.id}-staff`, tag: `【${bed.label}】` } },
       { dayOffset: props.dayOffset, laneKey: bed.key, item: { ...landed, key: `${chip.id}-bed`, tag: `【${staffLabel}】` } },
     ])
-    setMoves((was) => ({ ...was, [chip.id]: { laneKey, ...span } }))
-    setPending({ id: chip.id, origin: chip.home })
+    setMoves((was) => ({ ...was, [chip.id]: { laneKey: staff.key, ...span } }))
+    setPending({ id: chip.id, origin: chip.home, dayOffset: props.dayOffset, dayLabel: props.dayLabel })
     setSelected(null)
     show(`${chip.item.title}様を${props.dayLabel} ${hhmm(start)}へ仮押さえしました`)
   }
@@ -1194,7 +1232,9 @@ export function TodayScreen(props: TodayProps) {
         <div
           className={`track${dropTarget?.laneKey === lane.key ? ' drop-target' : ''}`}
           onClick={(e) => {
-            if (e.target !== e.currentTarget || lane.group !== 'staff') return
+            // canon :6811: a release, however it was caught, is never a create.
+            if (e.target !== e.currentTarget || e.timeStamp < suppressClickUntil.current) return
+            if (lane.group !== 'staff') return
             if (isLocked) {
               if (placing) show('シフトロック中: このスタッフには新しい予約を置けません')
               return
@@ -1681,6 +1721,44 @@ export function TodayScreen(props: TodayProps) {
 
           <div className="board-body">
             <div className="board-main">
+              {/* 仮置きエリア — the whole bar is the drop zone (canon R18). */}
+              <div
+                className={`park-shelf${live?.overShelf ? ' over' : ''}`}
+                ref={shelfRef}
+                aria-label="仮置きエリア。日付をまたいだ変更のための一時置き場"
+                title="日付をまたいで予約を変更したい場合は、一旦このエリアに置いてください。置いた予約は仮押さえになります。"
+              >
+                <div className="park-label"><strong>仮置きエリア</strong><span>ドラッグでここへ（日付またぎ・置くと仮押さえ）</span></div>
+                <div className="park-chips">
+                  {parkChips.map((chip) => (
+                    <div
+                      className="park-chip"
+                      key={chip.id}
+                      style={chip.category ? ({ '--cat': CAT_COLOR[chip.category] } as React.CSSProperties) : undefined}
+                      onPointerDown={(e) => onChipPointerDown(e, chip.id)}
+                      onPointerMove={onChipPointerMove}
+                      onPointerUp={onChipPointerUp}
+                      onPointerCancel={clearChipDrag}
+                    >
+                      <strong>{chip.title}</strong>
+                      <span className="pc-line1">{chip.line1}</span>
+                      <span className="pc-line2">{chip.line2}</span>
+                      <button className="park-x" type="button" aria-label="元の枠に戻す" onClick={(e) => { e.stopPropagation(); unpark(chip.id) }}>×</button>
+                    </div>
+                  ))}
+                </div>
+                {/* canon `#placingNote` (:1866), inside the shelf next to the
+                    chips — 配置モード is the same "something is in your hand"
+                    state the shelf already describes, so it says so in the same
+                    place, with the same × to put it down. */}
+                {placing && (
+                  <div className="placing-note" role="status">
+                    <strong>{placing.label}</strong>
+                    <span>置きたい日へ移動して、空き枠をクリック</span>
+                    <button className="park-x" type="button" aria-label="配置モードをやめる" onClick={() => setPlacing(null)}>×</button>
+                  </div>
+                )}
+              </div>
               <div className="timeline-scroll" tabIndex={0} aria-label={`営業時間${hhmm(hours.open)}から${hhmm(hours.close)}の予約ボード`}>
                 <div
                   className={timelineClasses}
@@ -1725,45 +1803,6 @@ export function TodayScreen(props: TodayProps) {
                     キーボード操作: Shiftと左右矢印で開始時刻、Altと左右矢印で終了時刻を30分ずつ変更します
                   </p>
                 </div>
-              </div>
-
-              {/* 仮置きエリア — the whole bar is the drop zone (canon R18). */}
-              <div
-                className={`park-shelf${live?.overShelf ? ' over' : ''}`}
-                ref={shelfRef}
-                aria-label="仮置きエリア。日付をまたいだ変更のための一時置き場"
-                title="日付をまたいで予約を変更したい場合は、一旦このエリアに置いてください。置いた予約は仮押さえになります。"
-              >
-                <div className="park-label"><strong>仮置きエリア</strong><span>ドラッグでここへ（日付またぎ・置くと仮押さえ）</span></div>
-                <div className="park-chips">
-                  {parkChips.map((chip) => (
-                    <div
-                      className="park-chip"
-                      key={chip.id}
-                      style={chip.category ? ({ '--cat': CAT_COLOR[chip.category] } as React.CSSProperties) : undefined}
-                      onPointerDown={(e) => onChipPointerDown(e, chip.id)}
-                      onPointerMove={onChipPointerMove}
-                      onPointerUp={onChipPointerUp}
-                      onPointerCancel={clearChipDrag}
-                    >
-                      <strong>{chip.title}</strong>
-                      <span className="pc-line1">{chip.line1}</span>
-                      <span className="pc-line2">{chip.line2}</span>
-                      <button className="park-x" type="button" aria-label="元の枠に戻す" onClick={(e) => { e.stopPropagation(); unpark(chip.id) }}>×</button>
-                    </div>
-                  ))}
-                </div>
-                {/* canon `#placingNote` (:1866), inside the shelf next to the
-                    chips — 配置モード is the same "something is in your hand"
-                    state the shelf already describes, so it says so in the same
-                    place, with the same × to put it down. */}
-                {placing && (
-                  <div className="placing-note" role="status">
-                    <strong>{placing.label}</strong>
-                    <span>置きたい日へ移動して、空き枠をクリック</span>
-                    <button className="park-x" type="button" aria-label="配置モードをやめる" onClick={() => setPlacing(null)}>×</button>
-                  </div>
-                )}
               </div>
             </div>
 
@@ -1818,7 +1857,16 @@ export function TodayScreen(props: TodayProps) {
           <div className="holdbar" role="region" aria-label="仮押さえの確認">
             <div className="holdbar-head">
               <span className="status waiting">仮押さえ</span>
-              <strong>{holdSummary(boardLanes, pending.id, moves[pending.id], hours)}</strong>
+              <strong>{pendingOffDay ? '' : holdSummary(boardLanes, pending.id, moves[pending.id], hours)}</strong>
+              {/* canon's 日付ピン (:2048, :3675): the bar persists across days, so
+                  when it is not this day's it says whose it is and offers the
+                  way back rather than sitting there answering for nothing. */}
+              {pendingOffDay && (
+                <span className="hold-daypin">
+                  <span>確定待ち: {pending.dayLabel}</span>
+                  <Link href={dayHref(pending.dayOffset)}>{pending.dayLabel}へ戻る</Link>
+                </span>
+              )}
             </div>
             <div className="holdbar-checks">
               {pendingChecks.map((c) => <span className={`ck${c.ok ? '' : ' bad'}`} key={c.label}>{c.label}</span>)}
