@@ -65,6 +65,8 @@ export function ProcessingIndicator() {
       // a supersession through without losing anything.
       globalPipeline.autosaveSettled = true
       const id = globalPipeline.serverSavedRecordId
+      // PR-B2: publish the landed record so the recovery notice can name it.
+      globalPipeline.publishSavedRecord(runId, id)
       if (globalPipeline.isCurrentRun(runId)) {
         toast.success(t('autoSaved'), {
           action: {
@@ -91,9 +93,13 @@ export function ProcessingIndicator() {
     const result = globalPipeline.result
     // The state machine only enters 'autosaving' with a customer + outcome; this
     // guard is defensive (incl. an empty AI summary). Fall back to review.
+    // PR-B2 adds recoveryUnanswered as a third qualifying state (see
+    // global-pipeline's isServerJobEligible) — this guard must recognise the
+    // same cohort the state machine does, or an auto-finishing recovery take
+    // would enter 'autosaving' and be bounced straight back to review.
     if (
       !ctx?.appointmentCustomerId ||
-      (!ctx.outcome && !ctx.outcomeSkipped) ||
+      (!ctx.outcome && !ctx.outcomeSkipped && !ctx.recoveryUnanswered) ||
       !result ||
       !result.summary?.trim()
     ) {
@@ -144,6 +150,9 @@ export function ProcessingIndicator() {
         // NOW (start()/reset() clear it), so a superseded run's late success
         // must not stamp "secured" onto the NEW take's unsettled window.
         if (globalPipeline.isCurrentRun(runId)) globalPipeline.autosaveSettled = true
+        // PR-B2: same publish as the server branch above — the recovery notice
+        // only appears once a record provably exists, and this is that point.
+        globalPipeline.publishSavedRecord(runId, res.id)
         // The record is saved — the persisted audio has served its purpose.
         // Unconditional (not runId-guarded): the take must be deleted
         // regardless of which run is now live, same as before this fix.

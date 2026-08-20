@@ -219,7 +219,36 @@ async function answerPopup(optionKey: string) {
   })
 }
 
+/**
+ * Consent is CURRENT from the staff's TAP onward.
+ *
+ * ⚠ PR-B2 ordering, and it is the field's own, not a test-only switch: the
+ * auto-finish attempt reads consent FIRST, unprompted, before any human has
+ * touched the screen. A non-current read there makes it stand down SILENTLY —
+ * no grant dialog, no money moved, the amber banner and its 保存する intact —
+ * which is precisely the fallback state every test below is about. So the
+ * first read answers "not granted" (the auto attempt stands down, spending its
+ * one shot for this offer) and every read after it answers granted (the staff
+ * taps, and the tapped flow runs exactly as it always has).
+ *
+ * The auto path's own behaviour is pinned by recovery-auto-finish.test.tsx,
+ * where consent is current from the first read.
+ */
 function grantConsent() {
+  mockGetCustomerConsent
+    .mockResolvedValueOnce({ consent: null })
+    .mockResolvedValue({
+      consent: {
+        policy_version: RECORDING_CONSENT_POLICY_VERSION,
+        granted_at: '2026-08-01T00:00:00Z',
+      },
+    })
+}
+
+/** For an offer the auto path never attempts at all — an UNBOUND take, which
+ *  has no binding to save to — no auto consent read happens, so consent is
+ *  current from the very first one. */
+function grantConsentAlways() {
   mockGetCustomerConsent.mockResolvedValue({
     consent: {
       policy_version: RECORDING_CONSENT_POLICY_VERSION,
@@ -534,7 +563,7 @@ describe('a take whose 結果 survived the crash saves without re-asking', () =>
 
 describe('an unbound take: the picker IS the save’s first step', () => {
   it('選んで保存する → pick a day booking → the save continues to the writer', async () => {
-    grantConsent()
+    grantConsentAlways()
     takeOverride = { ...TAKE, target: null }
     DAY_FACTS.bookings = [
       {
@@ -1286,7 +1315,7 @@ describe('the flow freezes its offer (A-1) and the abort really aborts', () => {
   // it — and it fired a save the staffer never re-authorised once the offer
   // came back. The picker re-opened itself for the same reason.
   it('F-6: a pending deferred start is cancelled when the offer goes away', async () => {
-    grantConsent()
+    grantConsentAlways()
     takeOverride = { ...TAKE, target: null }
     DAY_FACTS.bookings = [OTHER_BOOKING] as never
     // Hold the post-pick refetch open so the deferred start is still waiting.
@@ -1344,7 +1373,7 @@ describe('the flow freezes its offer (A-1) and the abort really aborts', () => {
 // ── F-1: the searched customer's 回数券 must reach the save ─────────────────
 describe('a search-re-pointed customer keeps their pack (F-1)', () => {
   it('the second fetch carries the DESTINATION, and the auto leg burns', async () => {
-    grantConsent()
+    grantConsentAlways()
     takeOverride = { ...TAKE, target: null }
     DAY_FACTS.bookings = []
     // Call 1 (unbound, no destination yet): the day has nothing to say.
@@ -1445,6 +1474,9 @@ describe('draft answers are durable (F-2)', () => {
     expect(mockSaveInline).toHaveBeenCalledTimes(1)
 
     // THE RELOAD. Everything in memory is gone; only what was stamped survives.
+    // PR-B2: no tap here any more — this launch is exactly the case auto-finish
+    // exists for, so the app lands it ITSELF (consent is current from this
+    // mount's own read; the first read was spent by the pre-reload attempt).
     cleanup()
     stampedAnswer = {
       outcome: { status: 'success', reason: null, isFirstVisit: false },
@@ -1453,12 +1485,12 @@ describe('draft answers are durable (F-2)', () => {
     }
     await renderPage({ packPresets: [{ size: 10, unitPrice: 9900 }] })
     await act(async () => {
-      fireEvent.click(screen.getByText('recoverSaveAction'))
       for (let i = 0; i < 16; i++) await Promise.resolve()
     })
-    // Straight to the save: no popup, and — the money defect the probe caught —
-    // still exactly ONE pack sale for this customer.
+    // Straight to the save: no popup, no banner left, and — the money defect
+    // the probe caught — still exactly ONE pack sale for this customer.
     expect(screen.queryByText('disclaimer')).toBeNull()
+    expect(screen.queryByText('recoverSaveAction')).toBeNull()
     expect(packs.createPackAction).toHaveBeenCalledTimes(1)
     expect(mockSaveInline).toHaveBeenCalledTimes(2)
   })
@@ -1572,7 +1604,7 @@ describe('deferred start + abort, at the edges', () => {
   // against the pre-pick facts. The destination would be right but its picker
   // rows and pack row would be another customer's.
   it('tickets OFF: the deferred start still waits for the destination’s facts', async () => {
-    grantConsent()
+    grantConsentAlways()
     takeOverride = { ...TAKE, target: null }
     DAY_FACTS.bookings = []
     mockDayFacts.mockImplementationOnce(async () => ({ ...DAY_FACTS, packs: [] }))

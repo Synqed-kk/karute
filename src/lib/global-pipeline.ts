@@ -58,6 +58,23 @@ export interface PipelineContext {
    *  happened — asking would pollute the coaching labels). true = autosave
    *  proceeds without one; the save simply writes no outcome row. */
   outcomeSkipped?: boolean
+  /**
+   * PR-B2 — a RECOVERED take whose 結果 was never answered and never skipped.
+   *
+   * Its own flag, deliberately NOT `outcomeSkipped: true` (R-B2 money law):
+   * skipping is a human act the staff performs in the popup, and inventing one
+   * would tell the coaching layer a question was declined that nobody was ever
+   * asked. This says the honest thing instead — nobody answered, and the
+   * auto-finish path must still land the record without a review detour. The
+   * saved karute simply carries no outcome, and the detail page's OutcomeCard
+   * is where the staff answers it.
+   *
+   * CLIENT-SIDE ONLY. It widens the autosave cohort here; it is never put on
+   * the job payload, whose schema is `.strict()` and whose worker already
+   * writes no outcome row when the field is absent (pinned by
+   * process-recording-outcome.test.ts + app-api-record-schemas.test.ts).
+   */
+  recoveryUnanswered?: boolean
   /** Server-minted recording_sessions id (synqed-core), captured at record-start
    *  — carried to the save so core's idempotent-save dedupe (unique FK on
    *  karute_records.recording_session_id) has something to key on. null when
@@ -100,12 +117,17 @@ type Listener = () => void
  *  PR-B1 changed one member: a RECOVERED take now qualifies whenever its
  *  answer survived the crash (take-store's stamped outcome) or was given on
  *  the banner — it starts with an outcome, so it autosaves instead of taking
- *  the review detour the old doRecoverTake forced on every recovery. */
+ *  the review detour the old doRecoverTake forced on every recovery.
+ *  PR-B2 adds the THIRD qualifying state: a recovered take auto-finishing with
+ *  NO answer at all (recoveryUnanswered). The gate's real question was never
+ *  "is there an outcome" — it is "does the staff still owe this take a
+ *  decision before it can save", and for the auto-finish cohort the answer is
+ *  no: the record lands now, the 結果 is answered later on the karute. */
 function isServerJobEligible(context: PipelineContext): boolean {
   return !!(
     context.recordingSessionId &&
     context.appointmentCustomerId &&
-    (context.outcome || context.outcomeSkipped)
+    (context.outcome || context.outcomeSkipped || context.recoveryUnanswered)
   )
 }
 
@@ -196,6 +218,26 @@ class GlobalPipeline {
    * flipping it needs no notify().
    */
   autosaveSettled = false
+  /**
+   * PR-B2 — the karute record an autosave actually landed, published so a
+   * completion surface can name it (the green recovery notice's カルテを確認).
+   * Set at the SAME two settle points as autosaveSettled, via
+   * publishSavedRecord; cleared by start()/reset() with the rest of the run.
+   * Distinct from serverSavedRecordId, which means "the server job wrote the
+   * record" and is the input to ProcessingIndicator's settle branch — this one
+   * means "an autosave finished, by either arm".
+   */
+  savedRecordId: string | null = null
+
+  /** Publish a landed autosave's record id (see savedRecordId). runId-guarded
+   *  like the toast it sits beside: a superseded run's late success must not
+   *  point a notice at the wrong take. notify() so subscribers can react — the
+   *  id exists for only as long as the run does. */
+  publishSavedRecord(runId: number, recordId: string) {
+    if (runId !== this.runId) return
+    this.savedRecordId = recordId
+    this.notify()
+  }
 
   private blob: Blob | null = null
   private listeners = new Set<Listener>()
@@ -247,6 +289,7 @@ class GlobalPipeline {
     this.result = null
     this.error = null
     this.serverSavedRecordId = null
+    this.savedRecordId = null
     this.autosaveSettled = false
     this.notify()
     // Server path only where the world can stage a tenant-scoped key the worker
@@ -293,9 +336,14 @@ class GlobalPipeline {
       // (from the booking) + an outcome chosen at stop. The always-mounted
       // ProcessingIndicator performs the save, so the staff never comes back.
       // Otherwise fall to review — a walk-in still needs customer selection,
-      // and a take with no outcome needs the manual save.
+      // and a take with no outcome needs the manual save. PR-B2: except an
+      // auto-finishing recovery take, which owes no decision (see
+      // recoveryUnanswered) — the web/in-tab arm has to land it too, or the
+      // cohort would autosave on phones and detour to review on desktop.
       this.state =
-        (this.context?.outcome || this.context?.outcomeSkipped) &&
+        (this.context?.outcome ||
+          this.context?.outcomeSkipped ||
+          this.context?.recoveryUnanswered) &&
         this.context?.appointmentCustomerId
           ? 'autosaving'
           : 'review'
@@ -587,6 +635,7 @@ class GlobalPipeline {
     this.context = null
     this.blob = null
     this.serverSavedRecordId = null
+    this.savedRecordId = null
     this.serverOwned = false
     this.autosaveSettled = false
     this.notify()

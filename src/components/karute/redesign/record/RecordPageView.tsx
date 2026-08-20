@@ -71,6 +71,7 @@ import {
   type RecordCustomerFact,
 } from './RecordCustomerPickerDialog'
 import { RecoveryBanner, type RecoveryTicketState } from './RecoveryBanner'
+import { RecoveryAutoSavedNotice } from './RecoveryAutoSavedNotice'
 import {
   createPackAction,
   redeemSessionAction,
@@ -296,6 +297,22 @@ interface RecoveryFlow {
   /** This visit's ticket already moved — the popup states it instead of
    *  offering a second one. */
   alreadyRedeemed: boolean
+  /**
+   * PR-B2 — the app started this save ITSELF on relaunch, with no 保存する tap.
+   *
+   * ONE divergence from the tapped flow, and only one: where the tap would open
+   * a dialog the auto path stands down instead. No outcome popup (the record
+   * lands with NO outcome and the notice says 結果未回答 — R-B2 forbids
+   * inventing one), and no consent grant dialog opened unprompted (a
+   * non-current consent leaves the amber banner exactly as it is today, for the
+   * human tap to handle). Everything else — money legs, certification, the
+   * writers — is the same code.
+   */
+  autoFinish: boolean
+  /** The green notice's identity line, composed at FREEZE time from the same
+   *  formatters the banner uses (A-1: nothing downstream re-reads render
+   *  scope). Empty string on the tapped path, which shows no notice. */
+  meta: string
 }
 
 /** A-5 — the day's facts are three worlds, not two. `failed` is what the
@@ -315,6 +332,21 @@ type DayFactsState =
   | { status: 'loading' }
   | { status: 'loaded'; key: string; facts: RecoveryDayFacts }
   | { status: 'failed'; key: string }
+
+/** PR-B2 — what the green auto-saved notice reports. Frozen once, at the two
+ *  points a save is KNOWN COMPLETE in this session. */
+interface AutoSavedNotice {
+  meta: string
+  ticketState: RecoveryTicketState
+  pack: { remaining: number; size: number } | null
+  /** The 結果 was never answered and never skipped (R-B2's unanswered cohort). */
+  outcomeOwed: boolean
+  /** null while a take's pipeline run is still in flight — the notice renders
+   *  only once a record provably exists. The draft path has it immediately. */
+  recordId: string | null
+  /** The pipeline run the take was handed to; null on the draft path. */
+  runId: number | null
+}
 
 /** What the recovery banner's 回数券 line says. Exported for tests.
  *
@@ -690,6 +722,9 @@ export function RecordPageView({
       setShowNoBookingPrompt(true)
       return
     }
+    // PR-B2: the green notice reports the PREVIOUS recording's save. A new one
+    // starting is where that report stops being the screen's news.
+    setAutoNotice(null)
     // A new take begins here — clear the previous take's resolution latch.
     outcomeResolvedRef.current = false
     // A hung write must not dead-lock the NEXT take's save button: the finally
@@ -1025,6 +1060,20 @@ export function RecordPageView({
 
   const [repointOpen, setRepointOpen] = useState(false)
   const [recoverySaving, setRecoverySaving] = useState(false)
+  // PR-B2 — the green auto-saved notice (mock B0a/B0b). SESSION-SCOPED: it
+  // reports what THIS launch did, so a new recording clears it and nothing
+  // persists it across launches.
+  //   ACCEPTED CEILING (stated, not fixed): if the app closes mid-flight and
+  //   the save completes server-side, the next launch shows NO notice — the
+  //   karute simply exists. A missed notice is fine; a false one never is, and
+  //   a persisted notice ledger would be a second source of truth about money.
+  const [autoNotice, setAutoNotice] = useState<AutoSavedNotice | null>(null)
+  // One-shot per offer: the auto-run fires ONCE for an offerId per mount cycle.
+  // Set BEFORE the async start (React strict-mode double-invokes effects on the
+  // same mount, so the ref survives and the second invoke is a no-op), and
+  // never cleared — a FAILED auto-attempt must fall back to the banner and the
+  // human retry machinery rather than loop.
+  const autoRunRef = useRef<string | null>(null)
   // An unbound take's picked destination, waiting for its day facts (see
   // repointTo). Never set for a plain re-point of a bound take — that one just
   // updates the banner and waits for the staffer's 保存する.
@@ -1119,7 +1168,7 @@ export function RecordPageView({
   /** A-1 ① — FREEZE, then run. Everything downstream takes this object as an
    *  argument; nothing re-reads `offer`/`destination`/`ticket` from render
    *  scope, so the flow survives whatever the page does underneath it. */
-  function startRecoveryFlow(dest: RecoveryDestination) {
+  function startRecoveryFlow(dest: RecoveryDestination, autoFinish = false) {
     if (recoverySavingRef.current || !offer || !offerDayYmd || factsBlockSave) return
     // Recomputed for THIS destination rather than reusing the render's
     // `ticket`: a pick made in the picker lands here before React has
@@ -1132,6 +1181,24 @@ export function RecordPageView({
     })
     const flow: RecoveryFlow = {
       offerId: recoveryOfferId(offer),
+      autoFinish,
+      // Composed here, at the freeze, from the same formatters the banner
+      // renders — 「山本 結衣様 · 8月18日(月) 14:35 · 52分」 (mock B0a/B0b).
+      meta: autoFinish
+        ? [
+            `${dest.customerName}${t('target.honorific')}`,
+            offerStartedAt !== null
+              ? `${formatCompactDateJst(new Date(offerStartedAt), locale)} ${hmInJst(
+                  new Date(offerStartedAt),
+                )}`
+              : null,
+            offerDurationSec > 0
+              ? t('target.durationMinutes', { n: Math.max(1, Math.round(offerDurationSec / 60)) })
+              : null,
+          ]
+            .filter(Boolean)
+            .join(' · ')
+        : '',
       offer,
       dest,
       dayYmd: offerDayYmd,
@@ -1187,6 +1254,42 @@ export function RecordPageView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingStart, factsFresh])
 
+  /**
+   * PR-B2 — AUTO-FINISH. Stopping always saves; after a crash the app finishes
+   * the save ITSELF on relaunch. The amber banner survives only as last-resort
+   * residue for the cases this cannot honestly complete (doctrine ⑦).
+   *
+   * Every gate below is a REFUSAL to guess, not a convenience:
+   *   · fresh, readable day facts — the same `factsBlockSave` gate the tap
+   *     honours, so a save can never silently skip the money question;
+   *   · idle — implied by `offer` itself (takeOffer/draftOffer both require it);
+   *   · not already running, and not already attempted for this offer.
+   * Consent is checked one step later, inside beginRecoverySave, because that
+   * is the ONE place it is checked for both paths (fail-closed, and on the auto
+   * path silent — no grant dialog opens unprompted).
+   *
+   * It saves to `offerBinding`, NOT to `destination`: the auto path may only
+   * land the recording where the recording itself was bound — the same
+   * customer a crash-free stop would have saved to. A `repointed`/`pendingStart`
+   * destination means a HUMAN is at the picker choosing one, and their pick
+   * belongs to their own flow (which asks the 結果 question, because they are
+   * standing there to answer it). Unbound takes have no binding at all and stay
+   * with the banner and its picker.
+   */
+  useEffect(() => {
+    if (!activeOfferId || factsBlockSave || !factsFresh) return
+    if (recoverySavingRef.current || autoRunRef.current === activeOfferId) return
+    // Spent on the first evaluation either way — an offer the auto path may not
+    // touch must not become auto-touchable later (e.g. the moment a staffer's
+    // pick lands a destination on it).
+    autoRunRef.current = activeOfferId
+    if (!offerBinding || repointed || pendingStart) return
+    startRecoveryFlow(offerBinding, true)
+    // Same closure rule as the deferred start above: startRecoveryFlow freezes
+    // THIS render's facts, which the gate just proved fresh for this key.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeOfferId, factsFresh, factsBlockSave])
+
   /** Consent gate, then the outcome question, then the save. Fail CLOSED: an
    *  unreadable consent opens the grant dialog and the save stays locked —
    *  identical rule to ReviewScreen's save-time gate (the server enforces it
@@ -1205,6 +1308,14 @@ export function RecordPageView({
     // offer, or move money for a flow the staffer abandoned.
     if (gen !== flowGenRef.current) return
     if (!consentCurrent) {
+      // FAIL-CLOSED, and SILENT on the auto path: auto-finish never opens the
+      // grant dialog unprompted (a consent attestation is a human act, and a
+      // dialog nobody asked for is exactly the question this whole path exists
+      // to remove). It stands down; the amber banner and its tap are unchanged.
+      if (flow.autoFinish) {
+        releaseRecoverySave()
+        return
+      }
       setConsentError(null)
       setConsentFlow(flow)
       return
@@ -1236,6 +1347,16 @@ export function RecordPageView({
     // customer still must not be asked — they just have nothing left to burn.
     if (flow.packId && resolveOutcomeMode(flow.pack) === 'auto') {
       await runRecoveryAutoRedeem(flow)
+      return
+    }
+    // PR-B2 — the auto path's ONE divergence. The tap opens the 結果 popup
+    // here; auto-finish must not (a notice, never a question), so it lands the
+    // record with NO outcome and NOTHING burned, and the green notice says
+    // 結果未回答. R-B2: never a fabricated outcome, never a fabricated
+    // outcomeSkipped — those are the staff's own acts. The karute's OutcomeCard
+    // is where the answer is given, and where a burn can still follow.
+    if (flow.autoFinish) {
+      await commitRecoverySave(flow, undefined, false)
       return
     }
     setOutcomeFlow(flow)
@@ -1477,6 +1598,74 @@ export function RecordPageView({
     }
   }
 
+  /**
+   * R-B4 — the notice's 回数券 line is REFETCHED derived truth.
+   *
+   * Leg state cannot answer it: `already_redeemed` and `below_zero` both
+   * CERTIFY a leg without a ticket having moved on this attempt, and the 'auto'
+   * cohort's silent burn lands server-side. Only the day's redemption rows know
+   * what actually happened, so they are read again after the money settled.
+   * A failed refetch falls back to the state the banner was ALREADY showing
+   * before the save — older, but still server-derived — never a leg-derived
+   * guess and never an invented 消化済み.
+   */
+  async function armAutoNotice(
+    flow: RecoveryFlow,
+    outcome: SessionOutcome | undefined,
+    outcomeSkipped: boolean,
+    recordId: string | null,
+    runId: number | null,
+  ) {
+    const f = ticketsEnabled
+      ? await getRecoveryDayFacts({
+          date: flow.dayYmd,
+          pinnedCustomerIds: [flow.dest.customerId],
+        }).catch(() => null)
+      : null
+    const fresh =
+      f && !f.unavailable
+        ? resolveRecoveryTicketState({
+            facts: f,
+            customerId: flow.dest.customerId,
+            appointmentId: flow.dest.appointmentId,
+          })
+        : null
+    setAutoNotice({
+      meta: flow.meta,
+      ticketState: fresh
+        ? fresh.state
+        : !ticketsEnabled
+          ? 'none'
+          : flow.alreadyRedeemed
+            ? 'redeemed'
+            : flow.pack
+              ? 'unresolved'
+              : 'none',
+      pack: fresh ? fresh.pack : flow.pack,
+      // R-B2: the ONLY honest reading of "the staff still owes an answer" —
+      // no outcome was written and no skip was performed.
+      outcomeOwed: !outcome && !outcomeSkipped,
+      recordId,
+      runId,
+    })
+  }
+
+  // A take's notice waits for its pipeline run to land a record — it appears
+  // only when the save is KNOWN COMPLETE (the processing chip owns the in-flight
+  // window). Read in RENDER, not inside the effect: the pipeline hook above
+  // already re-renders this component on every notify, so this is what turns
+  // "a record was published" into a real dependency.
+  const pipelineSavedRecordId = globalPipeline.savedRecordId
+  useEffect(() => {
+    if (!autoNotice || autoNotice.recordId !== null || autoNotice.runId === null) return
+    // The run guard is the honesty one: a superseded run's record must never be
+    // the one this notice points at.
+    if (!pipelineSavedRecordId || globalPipeline.runId !== autoNotice.runId) return
+    setAutoNotice((n) =>
+      n && n.recordId === null ? { ...n, recordId: pipelineSavedRecordId } : n,
+    )
+  }, [autoNotice, pipelineSavedRecordId])
+
   /** The take's audio / the draft's transcript, through the SAME writers the
    *  normal path uses (R-B1). No parallel recovery writer exists. */
   async function commitRecoverySave(
@@ -1518,9 +1707,19 @@ export function RecordPageView({
           // cohort (isServerJobEligible) — it saves without a review detour.
           outcome,
           outcomeSkipped,
+          // PR-B2: and WITHOUT one, an auto-finishing take qualifies on its own
+          // honest flag rather than a fabricated skip (R-B2). Never set on the
+          // tapped path, which always arrives with an answer or a real skip.
+          recoveryUnanswered: flow.autoFinish && !outcome && !outcomeSkipped,
           recordingSessionId: o.take.recordingSessionId,
           takeId: o.take.takeId,
         })
+        // globalPipeline.start() has already minted this run's id (run()/
+        // runServerJob() bump it synchronously before their first await), so
+        // this is the run whose completion the notice waits for.
+        if (flow.autoFinish) {
+          void armAutoNotice(flow, outcome, outcomeSkipped, null, globalPipeline.runId)
+        }
         setRecoveredTake(null)
         return
       }
@@ -1560,7 +1759,11 @@ export function RecordPageView({
       if (d.takeId) void deleteTake(d.takeId)
       setRecoveredDraft(null)
       setRecoveredTake(null)
-      toast.success(t('recoverSaved'))
+      // The draft's write is synchronous-to-completion, so its notice is armed
+      // with the record id right here. The auto path's notice REPLACES the
+      // toast — one report of one save, not two.
+      if (flow.autoFinish) void armAutoNotice(flow, outcome, outcomeSkipped, res.id, null)
+      else toast.success(t('recoverSaved'))
     } finally {
       releaseRecoverySave()
     }
@@ -2003,6 +2206,25 @@ export function RecordPageView({
           saving={recoverySaving}
           // Disabled while the day's truth is still in flight.
           saveDisabled={factsBlockSave}
+        />
+      )}
+
+      {/* PR-B2 — the GREEN notice (mock B0a/B0b): the app finished the save
+       *  itself, and this states what it did. Mutually exclusive with the amber
+       *  banner by construction (a landed save clears the offer) and idle-only,
+       *  the same visibility discipline the banner has. It renders only once a
+       *  record provably exists — `recordId` is what proves it. */}
+      {!offer && !live && autoNotice?.recordId && (
+        <RecoveryAutoSavedNotice
+          meta={autoNotice.meta}
+          ticketState={autoNotice.ticketState}
+          pack={autoNotice.pack}
+          outcomeOwed={autoNotice.outcomeOwed}
+          onOpenKarute={() =>
+            router.push(
+              `/karute/${autoNotice.recordId}` as Parameters<typeof router.push>[0],
+            )
+          }
         />
       )}
 
