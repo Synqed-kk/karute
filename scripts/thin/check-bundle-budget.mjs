@@ -167,7 +167,16 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // ceiling — over by 11,763 B. Ceiling set 5,308 B above the measurement, the
 // same low-headroom convention as the #726 raise above: unused slack is
 // harmless, an undersized ceiling costs another round-trip.
-const BUDGET_BYTES = 1_934_400
+// Raised 2026-08-24 (lane date) at Build C — 録音中の名前表示: the customer's
+// name on the live indicators (ninja-dot popover nameline + the bottom mic
+// button's under-clock label), the NEW-2 chrome refetch when a pipeline run
+// ends, the ⚖14 merged green-notice line, and the picker pinned-card
+// bookedToday flag. Measured 1,935,376 B ground-truth at tip 9966d0ae
+// (deterministic: identical across two clean builds from an emptied
+// thin/dist) against the prior 1,934,400 B ceiling — over by 976 B (diff
+// cost +1,536 B). Ceiling set 5,024 B above the measurement, same
+// low-headroom convention as the two raises above.
+const BUDGET_BYTES = 1_940_400
 
 let dir
 try {
