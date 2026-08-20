@@ -164,32 +164,43 @@ export async function redeemSessionActionWithClient(
     input.appointmentId !== undefined
       ? input.appointmentId
       : await findCustomerAppointmentForDateWithClient(synqed, input.customerId, redeemedOn)
-  // D5 (R-B6 ⑦) — the customer-day guard, for EVERY recovery burn.
+  // D5 (R-B6 ⑦) — the customer-day guard, for a WALK-IN recovery burn only.
   //
-  // The storage layer enforces one booking = max one burn via a partial unique
-  // index on pack_redemptions(appointment_id) — but that index only sees rows
-  // that HAVE an appointment_id. A prior NULL-appointment burn for the same
-  // customer on the same day (the reconcile strip's backfill, an earlier
-  // walk-in recovery) is completely invisible to it, so a BOOKED recovery burn
-  // can still double-charge one visit. Fix round 1 A-2: the customer+JST-day
-  // check the auto-burn cron runs as guard 2 therefore runs for every recovery
-  // burn, booked or not — the index stays as the backstop underneath it.
+  // ⚖ 2026-08-21 (Liam): recovery burns are BOOKING-KEYED whenever a booking
+  // exists. A customer's second back-to-back same-day BOOKING takes its own
+  // ticket — his salons book a double visit as two bookings, never one long
+  // one — so a booked recovery burn is guarded by the DB's partial unique
+  // index on pack_redemptions(appointment_id) alone: ONE BOOKING = MAX ONE
+  // BURN, which is exactly the law and nothing stricter.
+  //
+  // The customer+JST-day check (the auto-burn cron's guard 2, ported here in
+  // fix round 1 as A-2) survives ONLY for a burn with no appointment at all,
+  // where it is the sole protection: the index cannot see NULL-appointment
+  // rows, the banner can re-offer the same unbooked visit after a second
+  // crash, and two takes of one walk-in would otherwise both burn.
+  // `appointmentId` here is the RESOLVED one — a caller-supplied id, or the
+  // booking the server found for the customer that day — so a recovery burn
+  // that merely omitted the id is still treated as booked.
   //   RESIDUAL, documented not fixed (BA-1 class): check-then-write has a race
-  //   window — two burns for one customer-day landing between the read and the
-  //   write both pass. Closing it for real needs a core-side uniqueness delta
-  //   on (customer_id, redeemed_on) — an OPTIONAL Anthony one-liner, not a
-  //   blocker: the window is milliseconds wide on a path a single staffer
-  //   drives by hand, and the client's own single-flight latch already covers
-  //   the double-tap case.
-  //   CEILING (money lens #8, recorded not fixed): a visit whose burn was
-  //   dated to an ADJACENT JST day is outside this day-keyed check.
-  //   CEILING (F-10): keying on the customer-DAY means two genuine same-day
-  //   visits by one customer burn ONE ticket. That is parity with the
-  //   auto-burn cron's guard 2 ("one customer-day burns ONE ticket EVER"), not
-  //   a regression — but the recovery picker deliberately keeps that
-  //   customer's OTHER same-day bookings selectable (B-8), so the UI can offer
-  //   a destination this guard then refuses with the 消化済み message.
-  if (input.recovery) {
+  //   window — two walk-in burns for one customer-day landing between the read
+  //   and the write both pass. Closing it for real needs a core-side
+  //   uniqueness delta on (customer_id, redeemed_on) — an OPTIONAL Anthony
+  //   one-liner, not a blocker: the window is milliseconds wide on a path a
+  //   single staffer drives by hand, and the client's own single-flight latch
+  //   already covers the double-tap case.
+  //   CEILING (money lens #8, recorded not fixed): a walk-in visit whose burn
+  //   was dated to an ADJACENT JST day is outside this day-keyed check.
+  //   CEILING (F-10, RE-KEYED by the ⚖ ruling): the old ceiling was the
+  //   opposite one — two genuine same-day visits by one customer burned ONE
+  //   ticket. That is gone for booked visits. What replaces it: a prior
+  //   NULL-appointment burn for the same customer-day no longer blocks a
+  //   BOOKED burn, so a walk-in row that was really this booking's burn (a
+  //   reconcile-strip backfill, an earlier unbooked recovery of the same
+  //   visit) can be followed by a second, booked burn for it. That is a data
+  //   MIS-KEYING, not a second visit: manager reconcile (F7) is where it is
+  //   corrected, and the recovery banner's 回数券 line is derived from the same
+  //   redemption rows, so it still shows what actually happened.
+  if (input.recovery && !appointmentId) {
     // Floor one JST day back, exactly like the cron's historySince — a `since`
     // equal to the day itself relies on core's comparison being inclusive,
     // which the app repo cannot see.

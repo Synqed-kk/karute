@@ -346,14 +346,18 @@ export function resolveRecoveryTicketState(opts: {
   const pack = row ? { remaining: row.remaining, size: row.size } : null
   const packId = row?.packId ?? null
   if (!facts.redeemed) return { state: 'none', pack, packId }
-  // A-2: EITHER key means this visit's ticket already moved. Keying a booked
-  // destination on the appointment alone missed a prior NULL-appointment burn
-  // for the same customer-day (a reconcile-strip backfill, an earlier walk-in
-  // recovery) — the banner then read 未処理 and the popup offered a burn the
-  // customer had already paid. Same OR the server-side guard now applies.
-  const burned =
-    (!!appointmentId && facts.redeemed.appointmentIds.includes(appointmentId)) ||
-    facts.redeemed.customerIds.includes(customerId)
+  // ⚖ 2026-08-21 (Liam) — BOOKING-KEYED, exactly like the server guard this
+  // mirrors (actions/packs.ts, D5). A destination WITH a booking asks one
+  // question: has THIS booking already burned? A same-day burn keyed to some
+  // other booking (or to no booking at all) belongs to a different visit —
+  // his salons book a double visit as two bookings, and each takes its own
+  // ticket. The customer-day key survives only for an UNBOUND destination,
+  // where the appointment index has nothing to see and the day is the only
+  // dedupe key there is. Client and server must key the same way or the
+  // banner and the guard can disagree about money.
+  const burned = appointmentId
+    ? facts.redeemed.appointmentIds.includes(appointmentId)
+    : facts.redeemed.customerIds.includes(customerId)
   if (burned) return { state: 'redeemed', pack, packId }
   return { state: pack ? 'unresolved' : 'none', pack, packId }
 }

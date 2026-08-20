@@ -3,12 +3,16 @@
  *
  * ONE BOOKING = MAX ONE BURN (⚖ 8/21 R-B6) holds at the STORAGE layer, but only
  * for a BOOKED burn: the DB's partial unique index is on
- * pack_redemptions(appointment_id), and a NULL appointment_id sits outside it
- * (the in-code note at RecordPageView:396-399). The recovery banner can re-offer
- * the same unbooked visit — a second crash re-shows it, two takes of one walk-in
- * both save — so the customer+JST-day check the auto-burn cron runs as guard 2
- * runs here too, check-then-write, and ONLY on the recovery path (the normal
- * stop flow is deliberately untouched).
+ * pack_redemptions(appointment_id), and a NULL appointment_id sits outside it.
+ * The recovery banner can re-offer the same unbooked visit — a second crash
+ * re-shows it, two takes of one walk-in both save — so the customer+JST-day
+ * check the auto-burn cron runs as guard 2 runs here too, check-then-write.
+ *
+ * ⚖ 8/21 EVE (PR-B2): that customer-day check is now BOOKING-KEYED — it runs
+ * only when the RESOLVED appointment is null (a true walk-in burn). A booked
+ * recovery burn is guarded by the index alone, so a customer's second same-day
+ * BOOKING takes its own ticket. Still scoped to the recovery path; the normal
+ * stop flow is deliberately untouched.
  *
  * D7: the burn is tagged recovery-resolved at the audit layer — the redemption
  * `source` column has no 'recovery' value and the set the DB accepts is not
@@ -160,13 +164,14 @@ describe('D5 — unbooked recovery burn, same-customer/same-day guard', () => {
     expect(res).toEqual({ ok: false, error: 'already_redeemed' })
   })
 
-  // A-2 (fix round 1) — this test used to assert the OPPOSITE, and in doing so
-  // it PINNED a real double-burn: the DB's partial unique index is on
-  // pack_redemptions(appointment_id), so it cannot see a prior burn that had NO
-  // appointment (a reconcile-strip backfill, an earlier walk-in recovery). A
-  // booked recovery burn on top of one of those charged the customer twice for
-  // one visit, and the old assertion called that correct.
-  it('DOES fire for a BOOKED recovery burn — the index cannot see NULL-appointment burns', async () => {
+  // ⚖ 8/21 EVE — this assertion was INVERTED by the booking-keyed ruling. It
+  // used to pin "a prior walk-in burn blocks a booked one", which under the
+  // ruling is over-blocking: the booking is where money happens, so a burn
+  // that carries a booking answers only to that booking's own index row. The
+  // accepted residual is named in the guard's F-10 ceiling — a mis-keyed
+  // NULL-appointment row for the same visit is a reconcile (F7) job, not a
+  // reason to refuse a booked customer's ticket.
+  it('does NOT fire for a BOOKED recovery burn — the booking takes its own ticket', async () => {
     ledger = [{ customer_id: 'cust-1', appointment_id: null, redeemed_on: `${DAY}T00:00:00Z` }]
     const res = await redeemSessionActionWithClient(fakeClient, 'staff-1', {
       packId: 'pack-1',
@@ -175,8 +180,59 @@ describe('D5 — unbooked recovery burn, same-customer/same-day guard', () => {
       appointmentId: 'appt-1',
       recovery: true,
     })
+    expect(res.ok).toBe(true)
+    expect(addRedemptionWithClient).toHaveBeenCalledTimes(1)
+    // The customer-day history is not even READ for a booked burn.
+    expect(listRecentRedemptions).not.toHaveBeenCalled()
+  })
+
+  // THE ruled case (⚖ 8/21 EVE, Liam's own salons' convention): a double visit
+  // is booked as TWO bookings, and each one takes its own ticket.
+  it('a SECOND same-day BOOKING burns its own ticket', async () => {
+    ledger = [
+      { customer_id: 'cust-1', appointment_id: 'appt-1', redeemed_on: `${DAY}T00:00:00Z` },
+    ]
+    const res = await redeemSessionActionWithClient(fakeClient, 'staff-1', {
+      packId: 'pack-1',
+      customerId: 'cust-1',
+      redeemedOn: DAY,
+      appointmentId: 'appt-2',
+      recovery: true,
+    })
+    expect(res.ok).toBe(true)
+    expect(addRedemptionWithClient).toHaveBeenCalledTimes(1)
+  })
+
+  // ONE BOOKING = MAX ONE BURN still holds — it just holds at the DB index
+  // now, not at this guard. addRedemptionWithClient maps 23505/P2002 on
+  // pack_redemptions_active_appointment_unique to 'already_redeemed'.
+  it('a booked burn the index already holds still reports already_redeemed', async () => {
+    addRedemptionWithClient.mockResolvedValueOnce({ ok: false, error: 'already_redeemed' })
+    const res = await redeemSessionActionWithClient(fakeClient, 'staff-1', {
+      packId: 'pack-1',
+      customerId: 'cust-1',
+      redeemedOn: DAY,
+      appointmentId: 'appt-1',
+      recovery: true,
+    })
     expect(res).toEqual({ ok: false, error: 'already_redeemed' })
-    expect(addRedemptionWithClient).not.toHaveBeenCalled()
+  })
+
+  // The guard keys on the RESOLVED appointment, never the raw input: a
+  // recovery burn that simply omits the id is still BOOKED once the server
+  // finds the customer's booking for that day. Keying on input.appointmentId
+  // would have run the walk-in guard over a booked visit.
+  it('an OMITTED appointment id that the server resolves counts as booked', async () => {
+    findCustomerAppointmentForDateWithClient.mockResolvedValue('appt-9')
+    ledger = [{ customer_id: 'cust-1', appointment_id: null, redeemed_on: `${DAY}T00:00:00Z` }]
+    const res = await redeemSessionActionWithClient(fakeClient, 'staff-1', {
+      packId: 'pack-1',
+      customerId: 'cust-1',
+      redeemedOn: DAY,
+      recovery: true,
+    })
+    expect(res.ok).toBe(true)
+    expect(listRecentRedemptions).not.toHaveBeenCalled()
   })
 
   it('a booked recovery burn with a CLEAN ledger still goes through', async () => {

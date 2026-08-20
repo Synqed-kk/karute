@@ -742,16 +742,36 @@ describe('resolveRecoveryTicketState', () => {
     expect(r.pack).toEqual({ remaining: 4, size: 6 })
   })
 
-  // A-2 (client half): a prior NULL-appointment burn for the same customer-day
-  // must read 消化済み even for a BOOKED destination. Keying on the appointment
-  // alone let the banner say 未処理 over a ticket that had already moved.
-  it('a booked destination still reads 消化済み off a customer-day burn', () => {
+  // ⚖ 8/21 EVE (client half of the booking-keyed ruling): a customer-day burn
+  // keyed to no booking belongs to a DIFFERENT visit, so a booked destination
+  // still reads 未処理 — its own booking has not burned. The same row still
+  // reads 消化済み for an UNBOUND destination, where the day is the only key
+  // there is. Client and server must key the same way (actions/packs.ts D5).
+  it('a booked destination reads 未処理 off a customer-day burn — its booking has not burned', () => {
     const r = resolveRecoveryTicketState({
       facts: facts({ redeemed: { appointmentIds: [], customerIds: ['c1'] } }),
       customerId: 'c1',
       appointmentId: 'a1',
     })
+    expect(r.state).toBe('unresolved')
+  })
+
+  it('the SAME customer-day burn reads 消化済み for an unbound destination', () => {
+    const r = resolveRecoveryTicketState({
+      facts: facts({ redeemed: { appointmentIds: [], customerIds: ['c1'] } }),
+      customerId: 'c1',
+      appointmentId: null,
+    })
     expect(r.state).toBe('redeemed')
+  })
+
+  it('a SECOND same-day booking reads 未処理 off the first booking’s burn', () => {
+    const r = resolveRecoveryTicketState({
+      facts: facts({ redeemed: { appointmentIds: ['a1'], customerIds: ['c1'] } }),
+      customerId: 'c1',
+      appointmentId: 'a2',
+    })
+    expect(r.state).toBe('unresolved')
   })
 
   // T-8: the two sets are asymmetric ON PURPOSE. customerIds is filtered to the
