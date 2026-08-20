@@ -445,35 +445,28 @@
    a proxy that inherited `position: absolute; left: var(--x)` from .event would
    sit at the board's left edge instead of on the cursor. */
 .biz .event.drag-proxy,
-.biz .drag-proxy.chip {
-  position: fixed;
-  left: 0;
-  top: 0;
-  right: auto;
-  bottom: auto;
-  margin: 0;
-  z-index: 120;
-  pointer-events: none;
-  will-change: transform;
-  opacity: .96;
-  cursor: grabbing;
-}
-.biz .event.drag-proxy { box-sizing: border-box; box-shadow: inset 3px 0 0 currentColor, 0 10px 26px rgba(24, 24, 27, .26); }
+/* ⚖ Liam flag 28 (2026-08-21): the chip in hand is sized like a BOARD CARD —
+   the booking's real duration wide, the lane's card height tall (JS writes both
+   from the parked booking's minutes). So its INSIDE is a card's inside too: the
+   .event padding and the .event overflow rules, or a 30分 proxy would spend its
+   whole width on the chip's roomy side padding and clip its own name. The
+   orange stays — this is still a 仮押さえ, and colour is what says so. */
 .biz .drag-proxy.chip {
   display: grid;
-  align-content: center;
+  align-content: start;
   gap: 1px;
   box-sizing: border-box;
-  padding: 6px 14px;
+  padding: 5px 2px 4px 6px;
   border: 1px solid #ecc9a4;
   border-radius: 8px;
   background: var(--orange-soft);
   color: var(--orange);
   font-size: 12px;
+  overflow: hidden;
   box-shadow: 0 10px 26px rgba(24, 24, 27, .26);
 }
 .biz .drag-proxy.chip strong { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.biz .drag-proxy.chip small { font-size: 11px; opacity: .82; }
+.biz .drag-proxy.chip small { font-size: 11px; opacity: .82; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── 仮置きエリア (canon :1493–1507) ──────────────────────────────────────
    The WHOLE bar is the drop zone, so the whole bar is drawn as the receptacle;

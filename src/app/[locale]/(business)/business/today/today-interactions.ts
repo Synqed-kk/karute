@@ -502,6 +502,35 @@ export function proxyTransform(clientX: number, clientY: number, grab: { dx: num
   return `translate3d(${Math.round(clientX - grab.dx)}px, ${Math.round(clientY - grab.dy)}px, 0)`
 }
 
+/** ⚖ Liam flag 28 (2026-08-21) — THE CHIP IN HAND IS A BOARD CARD. A shelf chip
+ *  is as wide as its longest sentence; the booking it holds is 30 or 60 or 90
+ *  minutes long. Carrying the chip's own box meant the operator aimed an
+ *  elongated orange slab at a slot it had nothing to do with — Liam: 「1時間の
+ *  施術なら1時間の長さであるべき」. So the proxy is sized from the BOOKING: its
+ *  minutes against the board's own span, times the track the card will land on.
+ *
+ *  DELIBERATE DEVIATION FROM CANON. Canon clones the whole chip (`bindChipDrag`
+ *  :5599–5651) precisely so the in-hand thing and the shelf thing can never
+ *  disagree; Liam's ruling overrides that — the in-hand thing must agree with
+ *  the LANDING, not with the shelf. `lenMin` comes off the parked record (the
+ *  same figure `parkChipText` prints), never off the chip's rendered text.
+ *
+ *  Height is the card's, derived rather than guessed: `.event` is pinned
+ *  `top: 2px; bottom: 2px` inside `.track`, so a board card is exactly the
+ *  track minus those four pixels at whatever density the board is drawn at.
+ *  `null` when the board has no measurable track (jsdom, a collapsed group) —
+ *  the caller then keeps the chip's own box, which is the old behaviour. */
+const CARD_INSET = 4
+
+export function chipProxySize(board: Element | null, hours: Hours, lenMin: number): { w: number; h: number } | null {
+  const track = board?.querySelector('.track')
+  if (!track) return null
+  const r = track.getBoundingClientRect()
+  const span = hours.close - hours.open
+  if (r.width === 0 || span <= 0) return null
+  return { w: (lenMin / span) * r.width, h: Math.max(0, r.height - CARD_INSET) }
+}
+
 /** canon `createAtCell`'s partner search (:6021–6027): a booking is a person AND
  *  a room, so a card placed on a staff lane must find a free lane in the other
  *  group or the placement is refused outright. First free one wins, exactly as

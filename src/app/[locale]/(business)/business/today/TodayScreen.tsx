@@ -63,6 +63,7 @@ import {
   blockDragModeAt,
   blockEdgeZones,
   blockStepPct,
+  chipProxySize,
   clampLabelWidth,
   clickClosesPopover,
   dragModeAt,
@@ -1376,7 +1377,16 @@ export function TodayScreen(props: TodayProps) {
       setDragLen(chip?.lenMin ?? null)
       // The chip travels too (⚖ Liam 19): the shelf keeps its place in the row —
       // canon's chip never physically moves — and the operator carries a copy.
-      if (chip) setProxy({ kind: 'chip', title: chip.title, line1: chip.line1, category: chip.category, w: ctx.grab.w, h: ctx.grab.h })
+      // ⚖ Liam flag 28: the copy is a BOARD CARD at the booking's real duration,
+      // not a clone of the chip's own sentence-shaped box. It is also CENTRED on
+      // the pointer rather than keeping the chip's grip, because `shelfLanding`
+      // centres the landing on the pointer too — the thing in hand and the dashed
+      // preview under it now describe the same rectangle.
+      if (chip) {
+        const size = chipProxySize(boardRef.current, hours, chip.lenMin) ?? ctx.grab
+        ctx.grab = { dx: size.w / 2, dy: size.h / 2, w: size.w, h: size.h }
+        setProxy({ kind: 'chip', title: chip.title, line1: chip.line1, category: chip.category, w: size.w, h: size.h })
+      }
     }
     ctx.moved = true
     moveProxy(e.clientX, e.clientY, ctx.grab)

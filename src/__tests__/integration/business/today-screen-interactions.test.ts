@@ -25,6 +25,7 @@ import {
   blockDragModeAt,
   blockEdgeZones,
   blockStepPct,
+  chipProxySize,
   clampLabelWidth,
   labelWidthOf,
   spotCardAt,
@@ -274,6 +275,68 @@ describe('the 仮置きエリア chip', () => {
   it('a card with no ticket line says only its length', () => {
     const item = booking({ key: 'a', caseId: 'apt-1', ticketCat: null, ticketCore: null }, 660, 750)
     expect(parkChipText(item, HOURS, '本日').line1).toBe('90分')
+  })
+})
+
+/** ⚖ Liam flag 28 (2026-08-21). The reported bug: dragging a chip off the shelf
+ *  produced an elongated orange slab — the proxy was measured from the CHIP's
+ *  rect, whose width is driven by the 元: sentence, while it drew only two of
+ *  the chip's three lines. What travels now is a board card at the booking's own
+ *  duration. */
+describe('the chip in hand is a board card at the booking’s own length', () => {
+  function boardWithTrack(width: number, height: number): HTMLElement {
+    const board = document.createElement('div')
+    const lane = document.createElement('div')
+    lane.className = 'lane'
+    const track = document.createElement('div')
+    track.className = 'track'
+    rect(track, { left: 0, top: 0, width, height })
+    lane.appendChild(track)
+    board.appendChild(lane)
+    return board
+  }
+
+  it('sizes the proxy from the booking’s minutes against the board, never from the chip box', () => {
+    // 900px over a nine-hour board: one hour is 100px. The chip that carries
+    // this booking is ~250px wide whatever its length — that number is gone.
+    const board = boardWithTrack(900, 72)
+    expect(chipProxySize(board, HOURS, 60)?.w).toBeCloseTo(100, 9)
+    expect(chipProxySize(board, HOURS, 30)?.w).toBeCloseTo(50, 9)
+    expect(chipProxySize(board, HOURS, 90)?.w).toBeCloseTo(150, 9)
+    // Height is the lane's card height: the track less .event's 2px top+bottom.
+    expect(chipProxySize(board, HOURS, 60)?.h).toBe(68)
+    // A denser board draws shorter cards, and the proxy follows it.
+    expect(chipProxySize(boardWithTrack(900, 52), HOURS, 60)?.h).toBe(48)
+  })
+
+  it('the minutes it is sized from are the parked record’s — the same figure the chip prints', () => {
+    const item = booking({ key: 'a', caseId: 'apt-1' }, 660, 720)
+    const lenMin = item.endMin - item.startMin
+    expect(parkChipText(item, HOURS, '本日').line1.startsWith(`${lenMin}分`)).toBe(true)
+    expect(chipProxySize(boardWithTrack(900, 72), HOURS, lenMin)?.w).toBeCloseTo(100, 9)
+  })
+
+  it('the screen sizes the travelling copy from the board, never from the chip it grabbed', () => {
+    const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+    expect(SRC).toContain('const size = chipProxySize(boardRef.current, hours, chip.lenMin) ?? ctx.grab')
+    expect(SRC).toContain("setProxy({ kind: 'chip', title: chip.title, line1: chip.line1, category: chip.category, w: size.w, h: size.h })")
+    // Centred on the pointer — because `shelfLanding` centres the landing on the
+    // pointer, so the thing in hand and the dashed ghost describe one rectangle.
+    expect(SRC).toContain('ctx.grab = { dx: size.w / 2, dy: size.h / 2, w: size.w, h: size.h }')
+    expect(SRC).toContain('shelfLanding(fractionIn(track, e.clientX), w, chip.home.x, STEP)')
+    // A 30分 proxy is a card-sized box, so it wears the card's insides.
+    const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+    const chipProxy = CSS.slice(CSS.indexOf('.biz .drag-proxy.chip {'), CSS.indexOf('.biz .drag-proxy.chip strong'))
+    expect(chipProxy).toContain('padding: 5px 2px 4px 6px;')
+    expect(chipProxy).toContain('align-content: start;')
+    expect(CSS).toContain('.biz .drag-proxy.chip small { font-size: 11px; opacity: .82; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }')
+  })
+
+  it('says null — keep the chip’s own box — when nothing measurable is on screen', () => {
+    expect(chipProxySize(null, HOURS, 60)).toBeNull()
+    // A board with no lanes rendered yet, and a collapsed group with no width.
+    expect(chipProxySize(document.createElement('div'), HOURS, 60)).toBeNull()
+    expect(chipProxySize(boardWithTrack(0, 0), HOURS, 60)).toBeNull()
   })
 })
 
