@@ -56,14 +56,21 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane } from '@/business/lib/today-board'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
+  applyBlockMoves,
   applyMoves,
   blockChrome,
+  blockClash,
+  blockDragModeAt,
+  blockEdgeZones,
+  blockStepPct,
+  clampLabelWidth,
   clickClosesPopover,
   dragModeAt,
   fieldsPopAnchor,
   fitsDrag,
   fractionIn,
   freePartnerLane,
+  labelWidthOf,
   proxyTransform,
   gapLayerFor,
   guardRailsFor,
@@ -74,10 +81,15 @@ import {
   parkChipText,
   sellLayerFor,
   slotStartAt,
+  spotCardAt,
+  spotHitIndex,
+  spotTargets,
+  wrapStep,
   type GuardRail,
   type Move,
   type Moves,
   type RailCell,
+  type SpotRect,
 } from './today-interactions'
 
 const HINT = '見本データのため実行できません'
@@ -202,6 +214,23 @@ export interface TodayProps {
 
 const WD = ['日', '月', '火', '水', '木', '金', '土']
 
+/** The `--label` the stylesheet seeds the board with (today.css `.biz .timeline`).
+ *  The divider's first drag starts from whatever is computed, and falls back to
+ *  this when the property has not been resolved yet. */
+const LABEL_DEFAULT = 112
+
+const boxOf = (r: { left: number; top: number; width: number; height: number }): SpotRect =>
+  ({ left: r.left, top: r.top, width: r.width, height: r.height })
+
+type TourStep = { title: string; text: string; idx: number; total: number }
+const sameStep = (a: TourStep, b: TourStep) =>
+  a.title === b.title && a.text === b.text && a.idx === b.idx && a.total === b.total
+
+const samePos = (a: { hole: SpotRect; top: number; left: number }, b: { hole: SpotRect; top: number; left: number }) =>
+  a.top === b.top && a.left === b.left &&
+  a.hole.left === b.hole.left && a.hole.top === b.hole.top &&
+  a.hole.width === b.hole.width && a.hole.height === b.hole.height
+
 /** Canon's board root classes live on <body>; the root layout owns <body>, so
  *  they ride the shell root instead — the same relocation WO-1 made for the
  *  rail. One effect, one class, removed on unmount. */
@@ -269,7 +298,35 @@ interface ParkChip {
 
 type DragProxy =
   | { kind: 'card'; item: BoardItem; state: string; w: number; h: number }
+  /** ⚖ Liam flag 26 — a block travels under the cursor for the same reason a
+   *  booking does (flag 19): a box that only slides sideways while the pointer
+   *  goes down is the "can't drag it to another lane" report all over again. */
+  | { kind: 'block'; item: BoardItem; state: string; w: number; h: number }
   | { kind: 'chip'; title: string; line1: string; category: string | null; w: number; h: number }
+
+/** ⚖ Liam flag 26 — canon's `blockDragCtx` (:4060). A deliberate twin of
+ *  `DragCtx` rather than a flag on it: the two gestures share their plumbing
+ *  (threshold, rAF coalescing, window-level listeners) but nothing of their
+ *  MEANING — a block release has no shelf, no 仮押さえ, no guard consultation
+ *  and no partner lane, so folding it into `finishDrag` would have been three
+ *  branches through the one function WO-2c had to rebuild to make drag work at
+ *  all. Canon draws the same line (bindDrag / bindBlockDrag, :4050). */
+interface BlockDragCtx {
+  key: string
+  pointerId: number
+  origin: DragOrigin
+  startX: number
+  startY: number
+  homeLane: string
+  targetLane: string
+  track: Element
+  moved: boolean
+  item: BoardItem
+  grab: { dx: number; dy: number; w: number; h: number }
+  pending: { clientX: number; clientY: number } | null
+  frame: number | null
+  detach: () => void
+}
 
 /** The drag as the BOARD sees it, one state object updated at most once per
  *  animation frame. `homeLane` is where the card is still DRAWN — canon moves a
@@ -346,10 +403,31 @@ export function TodayScreen(props: TodayProps) {
    *  release, cancel, blur, and both lost-pointer self-heals — clears it through
    *  `clearDrag` / `clearChipDrag`, so no gesture can leave the board emphasised. */
   const [dragLen, setDragLen] = useState<number | null>(null)
+  /** ⚖ Liam flag 26 — 休憩/準備/記録/レジ/清掃 and every other non-booking box,
+   *  where they have been dragged to. Keyed by `item.key`, because a block has
+   *  no `caseId`: it is not a booking, it never enters the 仮押さえ gate, the
+   *  shelf or the guard's conflict ledger, and canon keeps `bindBlockDrag` a
+   *  separate pipeline from `bindDrag` for exactly that reason. */
+  const [blockMoves, setBlockMoves] = useState<Moves>({})
+  /** The block in flight, and its snapped landing — the block twin of `live`.
+   *  It is NOT folded into the lanes any derivation reads: canon repaints the
+   *  window layers on a block DROP (`renderPublicLayer()` at the end of
+   *  `blockDrop`, :4165) and never during the gesture, so WO-2d's committed
+   *  freeze holds for blocks too. */
+  const [blockLive, setBlockLive] = useState<{ key: string; homeLane: string; targetLane: string; x: number; w: number } | null>(null)
   const [proxy, setProxy] = useState<DragProxy | null>(null)
   const [chipTarget, setChipTarget] = useState<string | null>(null)
   const [advice, setAdvice] = useState<GuardAdvice | null>(null)
+  /** ⚖ Liam flag 25 — 画面の説明. The step the tour is on, `-1` when it is
+   *  closed. The STEPS themselves are never held in state: they are re-read from
+   *  the DOM registry on every render of the overlay, which is what makes a
+   *  section that appears or disappears (a popover, a strip behind a permission)
+   *  change the tour without anyone maintaining a list. */
+  const [tourIdx, setTourIdx] = useState(-1)
+  const [tourTick, setTourTick] = useState(0)
+  const tourCardRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragCtx | null>(null)
+  const blockDragRef = useRef<BlockDragCtx | null>(null)
   /** The proxy's node and the transform it should be wearing. Kept OUT of React
    *  state on purpose: the value changes once per animation frame and React must
    *  never re-apply a stale one over it on an unrelated re-render. */
@@ -391,6 +469,9 @@ export function TodayScreen(props: TodayProps) {
   useShellClass('board-compact', density === 'compact')
 
   const STEP = stepPct(hours.count)
+  /** ⚖ Liam flag 26 — the BLOCK lattice, the store's own dial. Canon keeps this
+   *  a second constant beside STEP_PCT rather than a mode of it (:3543). */
+  const BLOCK_STEP = blockStepPct(hours.count, props.guard.config.blockStepMin)
 
   // B5 予約を作成 — canon's rightmost topbar action. The button is the shell's,
   // the dialog is this screen's; the slot is where they meet.
@@ -468,9 +549,18 @@ export function TodayScreen(props: TodayProps) {
     () => added.filter((a) => a.dayOffset === props.dayOffset),
     [added, props.dayOffset],
   )
+  /** ⚖ Liam flag 26 — the server's board with this session's block moves on it.
+   *  One pass, ahead of the booking passes, so both the live board and the
+   *  committed board see the same blocks: a 休憩 that has been dragged is where
+   *  it was dragged to for the guard, the sell layer and the next block's
+   *  overlap check alike. */
+  const placedLanes = useMemo(
+    () => applyBlockMoves(props.lanes, blockMoves, hours),
+    [props.lanes, blockMoves, hours],
+  )
   const boardLanes = useMemo(
-    () => applyMoves(props.lanes, liveMoves, parked, addedHere, hours),
-    [props.lanes, liveMoves, parked, addedHere, hours],
+    () => applyMoves(placedLanes, liveMoves, parked, addedHere, hours),
+    [placedLanes, liveMoves, parked, addedHere, hours],
   )
   /** The board WITHOUT the in-flight pointer — what the window layers price
    *  against. canon's `renderPublicLayer` (:5343) and `renderGapFillLayer`
@@ -485,25 +575,34 @@ export function TodayScreen(props: TodayProps) {
    *  1. `boardLanes` stays the truth for the guard and the drop target, which
    *  DO have to answer where the card is heading. */
   const committedLanes = useMemo(
-    () => applyMoves(props.lanes, moves, parked, addedHere, hours),
-    [props.lanes, moves, parked, addedHere, hours],
+    () => applyMoves(placedLanes, moves, parked, addedHere, hours),
+    [placedLanes, moves, parked, addedHere, hours],
   )
   /** WHAT THE DOM DRAWS while a card is in flight: the board as it stands. The
    *  card he grabbed is under his cursor now (the proxy), so the original stays
    *  at its origin and dims — it is the "you took this from here" marker, and a
    *  card that both dims AND slides is two travelling things at once. */
-  const drawnLanes = live ? committedLanes : boardLanes
+  const drawnLanes = live || blockLive ? committedLanes : boardLanes
   /** ⚖ Liam 2026-08-20: the dashed outline is now the SNAPPED LANDING PREVIEW and
    *  is drawn for every live drag, same lane or not — with the card off travelling
    *  it is the only thing on the board saying where the release will actually put
    *  it. Canon only ever drew it on a lane change (:4519) because its card never
    *  left the lane. The lane HIGHLIGHT stays canon's: a foreign lane only. */
-  const landing = live && !live.overShelf ? { laneKey: live.targetLane, x: live.x, w: live.w } : null
-  const dropTarget = live && !live.overShelf && live.targetLane !== live.homeLane
-    ? { laneKey: live.targetLane, x: live.x, w: live.w }
-    : chipTarget
-      ? { laneKey: chipTarget, x: 0, w: 0 }
+  // ⚖ Liam flag 26: a block in flight gets the same landing preview and the
+  // same foreign-lane highlight — one gesture grammar for everything on the
+  // board, so a 休憩 says where it will land exactly as a booking does.
+  const landing = blockLive
+    ? { laneKey: blockLive.targetLane, x: blockLive.x, w: blockLive.w }
+    : live && !live.overShelf
+      ? { laneKey: live.targetLane, x: live.x, w: live.w }
       : null
+  const dropTarget = blockLive && blockLive.targetLane !== blockLive.homeLane
+    ? { laneKey: blockLive.targetLane, x: blockLive.x, w: blockLive.w }
+    : live && !live.overShelf && live.targetLane !== live.homeLane
+      ? { laneKey: live.targetLane, x: live.x, w: live.w }
+      : chipTarget
+        ? { laneKey: chipTarget, x: 0, w: 0 }
+        : null
 
   const price = clampPriceInputs(appliedPrice.hi, appliedPrice.lo, dialogs.pricing)
   const depth = Math.round((1 - price.lo / price.hi) * 100)
@@ -892,6 +991,280 @@ export function TodayScreen(props: TodayProps) {
   // The listeners outlive a render, so an unmount mid-drag has to take them.
   useEffect(() => () => { dragRef.current?.detach() }, [])
 
+  // ── ⚖ Liam flag 25 — 画面の説明 (the guided tour) ─────────────────────────
+
+  /** canon's spotlight engine (:3335–3440). Two things make it worth carrying
+   *  whole rather than writing a steps array:
+   *
+   *  THE REGISTRY. A section joins the tour by declaring `data-guide-title` +
+   *  `data-guide` on itself. There is no list to maintain, so a section can
+   *  never render without being explained, and one that is hidden — a popover,
+   *  the 自分の1日 header a manager's board does not show, the 守るもの band on a
+   *  store with the guard off — drops out of the walk and out of the N/M count
+   *  by itself. That is the adaptive property Liam built in and asked for back.
+   *
+   *  POINT-TO-ASK. The dim layer is a click surface: clicking any registered
+   *  region jumps to its explanation, and nested regions resolve smallest-first
+   *  so the board never swallows its own group headings.
+   *
+   *  ⚖ LANE RULE (Liam, flag 25): every new section in any future round
+   *  registers its own pair. Absence fails the round's gate. */
+  const tourRectsRef = useRef<SpotRect[]>([])
+  const [tourStep, setTourStep] = useState<TourStep | null>(null)
+  const [tourPos, setTourPos] = useState<{ hole: SpotRect; top: number; left: number } | null>(null)
+  const [tourHover, setTourHover] = useState<SpotRect | null>(null)
+
+  useLayoutEffect(() => {
+    if (tourIdx < 0) { setTourStep(null); setTourPos(null); setTourHover(null); return }
+    const targets = spotTargets(document)
+    if (targets.length === 0) { setTourIdx(-1); return }
+    const i = Math.min(tourIdx, targets.length - 1)
+    const el = targets[i]
+    // canon (:3350): a step off screen is scrolled to before it is measured,
+    // or the spotlight would cut a hole in empty space.
+    let r = el.getBoundingClientRect()
+    if (r.top < 60 || r.bottom > window.innerHeight - 40) {
+      el.scrollIntoView({ block: 'center' })
+      r = el.getBoundingClientRect()
+    }
+    tourRectsRef.current = targets.map((t) => boxOf(t.getBoundingClientRect()))
+    const nextStep = { title: el.dataset.guideTitle ?? '', text: el.dataset.guide ?? '', idx: i, total: targets.length }
+    // BOTH writes are identity-guarded, and `tourStep` is its own dependency:
+    // the effect runs a second time ONLY so the card can be measured carrying
+    // this step's real text, and a fresh object every pass would be an infinite
+    // render loop — measured as one in a real browser before this guard existed.
+    setTourStep((was) => (was && sameStep(was, nextStep) ? was : nextStep))
+    const card = tourCardRef.current
+    const size = { width: card?.offsetWidth || 300, height: card?.offsetHeight || 160 }
+    const at = spotCardAt(boxOf(r), size, { width: window.innerWidth, height: window.innerHeight })
+    const next = { hole: { left: r.left - 5, top: r.top - 5, width: r.width + 10, height: r.height + 10 }, ...at }
+    setTourPos((was) => (was && samePos(was, next) ? was : next))
+  }, [tourIdx, tourTick, tourStep])
+
+  useEffect(() => {
+    if (tourIdx < 0) return
+    const bump = () => setTourTick((t) => t + 1)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setTourIdx(-1)
+      if (e.key === 'ArrowRight') setTourIdx((i) => wrapStep(i + 1, tourRectsRef.current.length))
+      if (e.key === 'ArrowLeft') setTourIdx((i) => wrapStep(i - 1, tourRectsRef.current.length))
+    }
+    window.addEventListener('resize', bump)
+    window.addEventListener('scroll', bump, true)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('resize', bump)
+      window.removeEventListener('scroll', bump, true)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [tourIdx])
+
+  // ── ⚖ Liam flag 26 — block drag / resize ─────────────────────────────────
+
+  /** canon `bindBlockDrag` (:4050). Same shape as the card drag above, three
+   *  rules of its own:
+   *
+   *  1. THE LATTICE IS 5 MINUTES, not 30 — `opsConfig.blockStepMin`, the store's
+   *     own dial (canon :3543). A 休憩 dragged out to 35分 is legal; a booking
+   *     dragged to 35分 is not, and neither pipeline may borrow the other's
+   *     granularity (canon says so in as many words at :4486).
+   *  2. EVERY LANE IS A LANDING. Canon lets 清掃 travel to a person, because
+   *     staff do cleaning — the same-group leash was the bug that made blocks
+   *     refuse to move vertically at all (:4114). Only a locked lane refuses.
+   *  3. A RELEASE THAT OVERLAPS ANYTHING REAL GOES BACK. Blocks skip the 仮押さえ
+   *     gate entirely (they are placeholders, not bookings), but canon still
+   *     runs a "軽ゲート" overlap check and restores + toasts on a clash (:4145).
+   *
+   *  A plain click still opens ブロック情報 — that is the block's other half and
+   *  canon binds both through one `bindBlock` (:4276) so a box can never end up
+   *  movable but unopenable. `suppressClickUntil` keeps the release's synthetic
+   *  click out of it, exactly as the cards already do. */
+  function beginBlockDrag(ctx: Omit<BlockDragCtx, 'detach' | 'pending' | 'frame'>) {
+    const onMove = (e: PointerEvent) => {
+      const c = blockDragRef.current
+      if (!c || e.pointerId !== c.pointerId) return
+      e.preventDefault()
+      if (e.buttons === 0) { cancelBlockDrag(); return }
+      c.pending = { clientX: e.clientX, clientY: e.clientY }
+      if (c.frame != null) return
+      c.frame = requestAnimationFrame(() => { c.frame = null; applyBlockFrame() })
+    }
+    const onUp = (e: PointerEvent) => {
+      const c = blockDragRef.current
+      if (!c || e.pointerId !== c.pointerId) return
+      finishBlockDrag(e)
+    }
+    const onCancel = (e: PointerEvent) => {
+      const c = blockDragRef.current
+      if (!c || e.pointerId !== c.pointerId) return
+      cancelBlockDrag()
+    }
+    window.addEventListener('pointermove', onMove, { passive: false })
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
+    window.addEventListener('blur', cancelBlockDrag)
+    blockDragRef.current = {
+      ...ctx,
+      pending: null,
+      frame: null,
+      detach: () => {
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+        window.removeEventListener('pointercancel', onCancel)
+        window.removeEventListener('blur', cancelBlockDrag)
+      },
+    }
+  }
+
+  function applyBlockFrame() {
+    const ctx = blockDragRef.current
+    if (!ctx || !ctx.pending) return
+    const { clientX, clientY } = ctx.pending
+    ctx.pending = null
+    const dx = clientX - ctx.startX
+    const dy = clientY - ctx.startY
+    if (!ctx.moved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return
+    if (!ctx.moved) {
+      ctx.moved = true
+      const { cls } = blockChrome(ctx.item.kind)
+      setProxy({ kind: 'block', item: ctx.item, state: cls, w: ctx.grab.w, h: ctx.grab.h })
+    }
+    moveProxy(clientX, clientY, ctx.grab)
+    const span = nextSpan(ctx.origin, ctx.track, dx, BLOCK_STEP)
+    if (ctx.origin.mode === 'move') {
+      // `null` group: rule 2 above. A locked lane keeps the previous target,
+      // which is canon's `if (lane.classList.contains("locked")) return`.
+      const laneKey = laneKeyAtY(boardRef.current, null, clientY)
+      if (laneKey && !locked.includes(laneKey)) ctx.targetLane = laneKey
+    }
+    setBlockLive({ key: ctx.key, homeLane: ctx.homeLane, targetLane: ctx.targetLane, ...span })
+  }
+
+  /** The cursor and the grab zone, read on hover — canon does both from one
+   *  function (:4075–4084) so what the cursor promises and what pointerdown
+   *  does can never disagree. `--grip` is the overhang that lets a ~18px micro
+   *  be grabbed at all (canon :4047). */
+  function onBlockPointerMove(e: React.PointerEvent<HTMLButtonElement>) {
+    if (dragRef.current || blockDragRef.current) return
+    const el = e.currentTarget
+    const r = el.getBoundingClientRect()
+    el.style.setProperty('--grip', `${blockEdgeZones(r.width).overhang.toFixed(1)}px`)
+    el.style.cursor = blockDragModeAt(el, e.clientX) === 'move' ? 'grab' : 'ew-resize'
+  }
+
+  function onBlockPointerDown(e: React.PointerEvent<HTMLButtonElement>, item: BoardItem, lane: BoardLane) {
+    if (e.button !== 0 || dragRef.current || blockDragRef.current) return
+    if (pending) { show('仮押さえ中の変更を確定するか、元に戻してから操作してください'); return }
+    const track = e.currentTarget.closest('.track')
+    if (!track) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    e.currentTarget.style.setProperty('--grip', `${blockEdgeZones(rect.width).overhang.toFixed(1)}px`)
+    beginBlockDrag({
+      key: item.key,
+      pointerId: e.pointerId,
+      origin: dragOrigin(item.x, item.w, blockDragModeAt(e.currentTarget, e.clientX), BLOCK_STEP),
+      startX: e.clientX,
+      startY: e.clientY,
+      homeLane: lane.key,
+      targetLane: lane.key,
+      track,
+      moved: false,
+      item,
+      grab: { dx: e.clientX - rect.left, dy: e.clientY - rect.top, w: rect.width, h: rect.height },
+    })
+    e.preventDefault()
+  }
+
+  function finishBlockDrag(e: PointerEvent) {
+    const ctx = blockDragRef.current
+    if (!ctx) return
+    // A press that never travelled is the click, and the click opens ブロック情報.
+    if (!ctx.moved) { clearBlockDrag(); return }
+    // canon (:4142): a drag-release is never also a click on the box.
+    // Read off the event's own clock, the same monotonic origin the board's
+    // click checks use — nothing in this component reads the wall clock.
+    suppressClickUntil.current = e.timeStamp + 400
+    const span = nextSpan(ctx.origin, ctx.track, e.clientX - ctx.startX, BLOCK_STEP)
+    let targetLane = ctx.targetLane
+    if (ctx.origin.mode === 'move') {
+      const laneKey = laneKeyAtY(boardRef.current, null, e.clientY)
+      if (!laneKey || locked.includes(laneKey)) {
+        clearBlockDrag()
+        show('予定を置く行の中で離してください')
+        return
+      }
+      targetLane = laneKey
+    } else {
+      targetLane = ctx.homeLane
+    }
+    clearBlockDrag()
+    if (blockClash(placedLanes.find((l) => l.key === targetLane), ctx.key, span)) {
+      show('他の予定と重なるため元の位置に戻しました')
+      return
+    }
+    if (span.x === ctx.origin.x && span.w === ctx.origin.w && targetLane === ctx.homeLane) return
+    setBlockMoves((was) => ({ ...was, [ctx.key]: { laneKey: targetLane, x: span.x, w: span.w } }))
+    const laneLabel = placedLanes.find((l) => l.key === targetLane)?.label ?? ''
+    const from = minuteOf(span.x, hours)
+    const to = minuteOf(span.x + span.w, hours)
+    show(`${ctx.item.title}を${laneLabel}の${hhmm(from)}〜${hhmm(to)}に変更しました`)
+  }
+
+  function cancelBlockDrag() {
+    if (!blockDragRef.current) return
+    clearBlockDrag()
+  }
+
+  function clearBlockDrag() {
+    const ctx = blockDragRef.current
+    if (ctx) {
+      if (ctx.frame != null) cancelAnimationFrame(ctx.frame)
+      ctx.detach()
+    }
+    blockDragRef.current = null
+    setBlockLive(null)
+    setProxy(null)
+  }
+
+  useEffect(() => () => { blockDragRef.current?.detach() }, [])
+
+  // ── ⚖ Liam flag 24 — the staff-name column's width ───────────────────────
+
+  /** canon's `#labelResize` pipeline (:5961–5986), which it keeps deliberately
+   *  APART from the card and block drags: dragging the divider writes one CSS
+   *  custom property on the board root, so the grid re-lays out and React never
+   *  hears about it. Nothing is stored — canon does not persist the width
+   *  either, and a column width is a "right now, let me read this" gesture, not
+   *  a setting. The guard against starting on top of a live card drag is
+   *  canon's own (`if (dragCtx || blockDragCtx) return`). */
+  function onLabelResizeDown(e: React.PointerEvent<HTMLElement>) {
+    if (e.button !== 0 || dragRef.current || blockDragRef.current) return
+    e.preventDefault()
+    e.stopPropagation()
+    const handle = e.currentTarget
+    const board = boardRef.current
+    if (!board) return
+    const startX = e.clientX
+    const startW = labelWidthOf(board, LABEL_DEFAULT)
+    const onMove = (ev: PointerEvent) => {
+      board.style.setProperty('--label', `${clampLabelWidth(startW, ev.clientX - startX)}px`)
+    }
+    const done = () => {
+      handle.classList.remove('dragging')
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', done)
+      window.removeEventListener('pointercancel', done)
+    }
+    handle.classList.add('dragging')
+    // On `window`, not the handle: a 10px-wide element loses the pointer the
+    // instant the drag outruns it, and canon only gets away with binding the
+    // handle because it also takes pointer capture. Same reasoning as the card
+    // drag above, one line cheaper.
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', done)
+    window.addEventListener('pointercancel', done)
+  }
+
   /** canon's refusal beat (:7106): a placement the guard refuses does not move
    *  back on its own — the board names the engine's real reason and offers the
    *  feasible starts as controls. The card is already staged, so 確定 is behind
@@ -1175,7 +1548,12 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ Liam 2026-08-20. Canon gates the drag reveal on `:has(.event.dragging)`,
     // which can only ever see a card on the board — a shelf chip travelling to a
     // lane left the whole window layer asleep. One class, set for BOTH gestures.
-    dragLen != null ? 'dragging-live' : '',
+    // ⚖ Liam flag 26: canon's reveal gate is `:has(.event.dragging)`, and
+    // `bindBlockDrag` puts `.dragging` on the block it moves — so canon DOES lift
+    // the window layer for a block drag, and so do we. What a block does NOT get
+    // is the length emphasis: `.fits` keys off `dragLen`, which stays null,
+    // because a 休憩 is not a session and has no length to match a window against.
+    dragLen != null || blockLive ? 'dragging-live' : '',
     placing ? 'placing' : '',
     `guard-guide-mode-${guideMode}`,
   ]
@@ -1351,13 +1729,21 @@ export function TodayScreen(props: TodayProps) {
       // is what canon shows.
       return opens ? (
         <button
-          className={`event ${cls}${item.micro ? ' micro' : ''}`}
+          // ⚖ Liam flag 26 — drag/resize on the 5-minute lattice AND the plain
+          // click that opens ブロック情報, bound together the way canon's
+          // `bindBlock` (:4276) binds them: a box that moves but cannot be
+          // opened is the exact bug canon's own note records fixing.
+          className={`event ${cls}${item.micro ? ' micro' : ''}${blockLive?.key === item.key ? ' dragging' : ''}`}
           type="button"
           key={item.key}
           style={style}
-          title={item.label}
+          // No `title` while it is draggable — the browser's black tooltip over
+          // a live drag is the same complaint the cards answered (flag 8).
           aria-label={item.label}
-          onClick={() => {
+          onPointerDown={(e) => onBlockPointerDown(e, item, lane)}
+          onPointerMove={onBlockPointerMove}
+          onClick={(e) => {
+            if (e.timeStamp < suppressClickUntil.current) return
             setBlockInfo({ kind: item.title, who: lane.label, whoLabel: lane.group === 'staff' ? '担当' : '設備', time: item.time, note: blockNote(item.title) })
             blockRef.current?.showModal()
           }}
@@ -1442,7 +1828,12 @@ export function TodayScreen(props: TodayProps) {
   return (
     <div className="page">
       {/* ── C: 本日の店舗状態 ─────────────────────────────────────────── */}
-      <header className="ops-strip" aria-label="本日の店舗状態">
+      <header
+        className="ops-strip"
+        aria-label="本日の店舗状態"
+        data-guide-title="本日の店舗状態"
+        data-guide="金額と未処理の集計。レジ当番・金額権限のある人にだけ表示されます。"
+      >
         {/* Canon makes every stat an entrance to 売上・レジ. That screen is
             準備中, and a greyed-out button would dim the day's headline number
             to 45% — so the three cells whose drill-in is not built render as
@@ -1482,7 +1873,12 @@ export function TodayScreen(props: TodayProps) {
 
       {/* ── D: 自分の1日 ─────────────────────────────────────────────── */}
       {props.myDay && (
-        <header className="ops-strip" aria-label="自分の1日">
+        <header
+          className="ops-strip"
+          aria-label="自分の1日"
+          data-guide-title="自分の1日"
+          data-guide="ログイン中のスタッフ専用。次のお客様と自分の未処理だけを表示します。"
+        >
           <div className="register-cell"><span>次のお客様</span><b>{props.myDay.next}</b></div>
           <div className="register-cell">
             <span>自分の未処理</span>
@@ -1507,6 +1903,8 @@ export function TodayScreen(props: TodayProps) {
                   type="button"
                   className="online-chip"
                   aria-expanded={pop === 'shelf'}
+                  data-guide-title="オンライン販売中"
+                  data-guide="いまReserveで販売中の枠数。押すと枠の一覧（時間・担当・価格）が開き、行を押すとボード上の場所を示します。"
                   hidden={sellMode === 'off'}
                   onClick={() => setPop((p) => (p === 'shelf' ? '' : 'shelf'))}
                 >
@@ -1546,12 +1944,27 @@ export function TodayScreen(props: TodayProps) {
                     <span>カードはドラッグで移動・両端で時間変更</span>
                     <span>キーボード: Shift＋←/→で開始、Alt＋←/→で終了を30分ずつ変更</span>
                     <span>仮置きエリア（ボード上の点線バー）: 日付をまたいで予約を変更したい場合は、一旦このエリアに置いてください。置いた予約は仮押さえになります。</span>
+                    {/* ⚖ Liam flag 26 — the block gesture, said where the other
+                        gestures are said. Its lattice differs from a予約's, and
+                        an operator who does not know that reads the finer snap
+                        as the board being imprecise. */}
+                    <span>休憩・清掃などの予定ブロック: ドラッグで移動・両端で時間変更（{props.guard.config.blockStepMin ?? 5}分きざみ）・クリックでブロック情報</span>
+                    {/* ⚖ Liam flag 25 — the length-matched emphasis has no region
+                        of its own to spotlight (it is a property of every window
+                        on the board), so it registers HERE, in the 操作ヒント
+                        layer, rather than as a tour step pointing at nothing. */}
+                    <span>ドラッグ中は、いま持っているカードと同じ長さの販売可能枠だけが濃く表示されます</span>
+                    <button className="btn" type="button" onClick={() => { setPop(''); setTourIdx(0) }}>画面の説明を表示</button>
                   </div>
                 )}
               </div>
 
               {props.inStore && (
-                <div className="session-chip">
+                <div
+                  className="session-chip"
+                  data-guide-title="ご来店中"
+                  data-guide="いま店内にいるお客様。ここから次回予約をその場で作成できます。"
+                >
                   <i aria-hidden="true" />
                   ご来店中: {props.inStore.name}様（施術済み・精算待ち）
                   <button className="btn text" type="button" onClick={armNextVisit}>次回予約を作成</button>
@@ -1560,7 +1973,14 @@ export function TodayScreen(props: TodayProps) {
             </div>
 
             <div className="board-tools">
-              <div className="time-nav date-nav" role="group" aria-label="日付の移動" data-pop="cal">
+              <div
+                className="time-nav date-nav"
+                role="group"
+                aria-label="日付の移動"
+                data-pop="cal"
+                data-guide-title="日付の移動"
+                data-guide="日付を押すと月カレンダーで空き状況を確認できます。"
+              >
                 <Link href={dayHref(props.dayOffset - 1)} aria-label="前の日へ" prefetch={false}>‹</Link>
                 <button
                   type="button"
@@ -1611,6 +2031,8 @@ export function TodayScreen(props: TodayProps) {
                   type="button"
                   className="btn text"
                   aria-expanded={pop === 'fields'}
+                  data-guide-title="表示設定"
+                  data-guide="カード・販売可能枠・配置ガイドの見え方と、ボードの密度を調整します。"
                   onClick={() => setPop((p) => (p === 'fields' ? '' : 'fields'))}
                 >
                   表示設定
@@ -1691,7 +2113,13 @@ export function TodayScreen(props: TodayProps) {
                 )}
               </div>
 
-              <div className="segmented" role="group" aria-label="ボード表示">
+              <div
+                className="segmented"
+                role="group"
+                aria-label="ボード表示"
+                data-guide-title="表示の切替"
+                data-guide="スタッフだけ・設備だけ・両方の表示を切り替えます。"
+              >
                 {([['both', '両方'], ['staff', 'スタッフ'], ['beds', '設備']] as const).map(([k, label]) => (
                   <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)}>{label}</button>
                 ))}
@@ -1704,7 +2132,12 @@ export function TodayScreen(props: TodayProps) {
               guide's own 非表示 setting never removes it: the legend explains a
               RULE that is still running, not the strip that draws it. */}
           {guardOn && (
-            <div className="guard-band" role="note">
+            <div
+              className="guard-band"
+              role="note"
+              data-guide-title="スキマガード"
+              data-guide="新規のお客様のための時間を守る仕組みです。記号の意味はこの帯に、各スタッフの「60分配置」の細い帯には、その時間に60分の施術を始めた場合の判定が並びます。"
+            >
               <span className="protected-key">守るもの: {props.guard.protectedLabel}{props.guard.protectedDurationMin}分</span>
               <span className="guard-key">紫 ✓ = 空きを減らさない</span>
               <span className="guard-key degraded-key">橙 △ = 空きが減るが置ける（損を減らす）</span>
@@ -1726,6 +2159,8 @@ export function TodayScreen(props: TodayProps) {
                 className={`park-shelf${live?.overShelf ? ' over' : ''}`}
                 ref={shelfRef}
                 aria-label="仮置きエリア。日付をまたいだ変更のための一時置き場"
+                data-guide-title="仮置きエリア"
+                data-guide="日付をまたぐ変更の一時置き場。ドラッグで置くと仮押さえになります。"
                 title="日付をまたいで予約を変更したい場合は、一旦このエリアに置いてください。置いた予約は仮押さえになります。"
               >
                 <div className="park-label"><strong>仮置きエリア</strong><span>ドラッグでここへ（日付またぎ・置くと仮押さえ）</span></div>
@@ -1759,7 +2194,13 @@ export function TodayScreen(props: TodayProps) {
                   </div>
                 )}
               </div>
-              <div className="timeline-scroll" tabIndex={0} aria-label={`営業時間${hhmm(hours.open)}から${hhmm(hours.close)}の予約ボード`}>
+              <div
+                className="timeline-scroll"
+                tabIndex={0}
+                aria-label={`営業時間${hhmm(hours.open)}から${hhmm(hours.close)}の予約ボード`}
+                data-guide-title="今日のボード"
+                data-guide="空き枠をクリックで新規予約。カードはドラッグで移動、端をつかんで時間変更。"
+              >
                 <div
                   className={timelineClasses}
                   ref={boardRef}
@@ -1767,7 +2208,16 @@ export function TodayScreen(props: TodayProps) {
                 >
                   {props.nowFraction != null && <div className="elapsed-wash" aria-hidden="true" />}
                   <div className="time-head">
-                    <span>時間</span>
+                    <span>
+                      時間
+                      {/* ⚖ Liam flag 24 — the name column's width handle. */}
+                      <i
+                        className="label-resize"
+                        title="ドラッグで名前列の幅を調整"
+                        aria-hidden="true"
+                        onPointerDown={onLabelResizeDown}
+                      />
+                    </span>
                     <div className="hours">
                       {hours.labels.map((h) => <span key={h}>{h}</span>)}
                     </div>
@@ -1895,7 +2345,12 @@ export function TodayScreen(props: TodayProps) {
 
       {/* ── I: 本日の運営影響 ─────────────────────────────────────────── */}
       {props.incident && (
-        <section className="incident" aria-label="本日の運営影響">
+        <section
+          className="incident"
+          aria-label="本日の運営影響"
+          data-guide-title="本日の運営影響"
+          data-guide="いま起きている問題と、対応がどこまで進んだかを示します。"
+        >
           <div className="incident-main">
             <span className="incident-icon" aria-hidden="true">!</span>
             <span>
@@ -1929,7 +2384,12 @@ export function TodayScreen(props: TodayProps) {
       )}
 
       {/* ── J: 次に決めること ─────────────────────────────────────────── */}
-      <section className="decision-section" aria-labelledby="decisionTitle">
+      <section
+        className="decision-section"
+        aria-labelledby="decisionTitle"
+        data-guide-title="次に決めること"
+        data-guide="根拠と期限のある判断だけが並びます。上の件数セルを押すと該当カードがボード上で光ります。"
+      >
         <div className="section-head">
           <strong id="decisionTitle">次に決めること</strong>
           <div className="section-tools">
@@ -1964,7 +2424,12 @@ export function TodayScreen(props: TodayProps) {
       </section>
 
       {/* ── K: 店舗全体の指標 ─────────────────────────────────────────── */}
-      <section className="decision-section" aria-labelledby="kpiStripTitle">
+      <section
+        className="decision-section"
+        aria-labelledby="kpiStripTitle"
+        data-guide-title="店舗全体の指標"
+        data-guide="本日の予約件数・売上・稼働率。予約件数は本日の全予約、売上は売上・レジの取引データ、稼働率はスタッフ・シフトの勤務時間から算出しています。"
+      >
         <div className="section-head">
           <strong id="kpiStripTitle">店舗全体の指標</strong>
           <div className="section-tools"><span>{props.kpi.note}</span></div>
@@ -2326,10 +2791,67 @@ export function TodayScreen(props: TodayProps) {
               <strong>{proxy.title}</strong>
               <small>{proxy.line1}</small>
             </>
+          ) : proxy.kind === 'block' ? (
+            // The block's own face, not a card's: it has no ticket and no
+            // customer, and a micro carries no time label on the board either.
+            <>
+              <strong>{proxy.item.title}</strong>
+              {!proxy.item.micro && <small>{proxy.item.time}</small>}
+            </>
           ) : (
             cardFace(proxy.item, proxy.item.caseId != null && settled.includes(proxy.item.caseId))
           )}
         </div>
+      )}
+
+      {/* ⚖ Liam flag 25 — 画面の説明. Canon's four layers, in canon's order:
+          the click catcher, the hover outline, the spotlight hole, the card. */}
+      {tourIdx >= 0 && (
+        <>
+          <div
+            className="spot-catch"
+            onClick={(e) => {
+              const hit = spotHitIndex(e.clientX, e.clientY, tourRectsRef.current)
+              // canon (:3419): a click on nothing registered ends the tour —
+              // the dim layer behaves like the scrim it looks like.
+              if (hit >= 0) setTourIdx(hit)
+              else setTourIdx(-1)
+            }}
+            onMouseMove={(e) => {
+              const hit = spotHitIndex(e.clientX, e.clientY, tourRectsRef.current)
+              setTourHover(hit >= 0 && hit !== tourStep?.idx ? tourRectsRef.current[hit] : null)
+            }}
+          />
+          {tourHover && (
+            <div
+              className="spot-hover"
+              aria-hidden="true"
+              style={{ top: tourHover.top - 5, left: tourHover.left - 5, width: tourHover.width + 10, height: tourHover.height + 10 }}
+            />
+          )}
+          {tourPos && (
+            <div className="spot-hole" aria-hidden="true" style={{ top: tourPos.hole.top, left: tourPos.hole.left, width: tourPos.hole.width, height: tourPos.hole.height }} />
+          )}
+          <div
+            className="spot-card"
+            ref={tourCardRef}
+            role="dialog"
+            aria-label="画面の説明"
+            style={tourPos ? { top: tourPos.top, left: tourPos.left } : { top: -9999, left: -9999 }}
+          >
+            <b>{tourStep?.title ?? ''}</b>
+            <span className="spot-text">{tourStep?.text ?? ''}</span>
+            <div className="spot-hint">気になる場所をクリックすると、その説明にジャンプします</div>
+            <div className="spot-foot">
+              <button type="button" className="spot-prev" disabled={tourStep?.idx === 0} onClick={() => setTourIdx((i) => wrapStep(i - 1, tourRectsRef.current.length))}>前へ</button>
+              <button type="button" className="spot-next" onClick={() => setTourIdx((i) => wrapStep(i + 1, tourRectsRef.current.length))}>
+                {tourStep && tourStep.idx === tourStep.total - 1 ? '最初へ' : '次へ'}
+              </button>
+              <span className="count">{tourStep ? `${tourStep.idx + 1} / ${tourStep.total}` : ''}</span>
+              <button type="button" className="spot-done" onClick={() => setTourIdx(-1)}>終了 ✕</button>
+            </div>
+          </div>
+        </>
       )}
 
       <div className={`toast${toast ? ' show' : ''}`} role="status" aria-live="polite" aria-atomic="true">{toast}</div>

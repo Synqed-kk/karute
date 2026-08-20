@@ -288,6 +288,13 @@
   color: var(--quiet);
   font-size: 12px;
 }
+/* ⚖ Liam flag 24 — the name column's own width handle (canon :460–462, the
+   same 10px hit area / 2px line the family's `.fx-handle` uses in
+   fable-shared.css :109–137). Invisible until it is worth grabbing: the line
+   only paints on hover and while dragging, so the header keeps canon's calm. */
+.biz .label-resize { position: absolute; top: 0; bottom: 0; right: -5px; width: 10px; cursor: col-resize; z-index: 8; touch-action: none; }
+.biz .label-resize::after { content: ""; position: absolute; top: 0; bottom: 0; left: 4px; width: 2px; background: transparent; }
+.biz .label-resize:hover::after, .biz .label-resize.dragging::after { background: var(--select-line); }
 /* See the header note: auto-flow columns instead of repeat(N) so the ruler
    reads the same --hours the track does. */
 .biz .hours { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
@@ -395,6 +402,28 @@
 .biz .event-resize-grip.right { right: 0; border-right: 2px solid currentColor; }
 .biz .event[data-book]:hover .event-resize-grip,
 .biz .event[data-book]:focus-visible .event-resize-grip { opacity: .42; }
+/* ⚖ Liam flag 26 — blocks drag and stretch too, on their own 5-minute lattice.
+   The cursor is written by the handler (grab / ew-resize) because the edge zone
+   SCALES with the box; `touch-action: none` is what lets a pointer drag survive
+   the browser's own pan gesture, exactly as the booking cards have it.
+
+   canon :569–583 — 準備/レジ締め micros are ~18px wide, so their inner edge
+   zones shrink to a few px and could not be grabbed at all. `--grip` (written
+   by the same reader that sets the cursor) reaches the hit area OUTSIDE the box
+   through two generated pseudo-elements: no new DOM, the event target stays the
+   block itself, and a wide 休憩 gets grip 0 = byte-identical to no overhang.
+   `overflow: visible` is required — .event clips, and the overhang with it. */
+.biz .event.block, .biz .event.cleanup { overflow: visible; touch-action: none; }
+.biz .event.block::before, .biz .event.block::after,
+.biz .event.cleanup::before, .biz .event.cleanup::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--grip, 0px);
+}
+.biz .event.block::before, .biz .event.cleanup::before { left: calc(-1 * var(--grip, 0px)); }
+.biz .event.block::after, .biz .event.cleanup::after { right: calc(-1 * var(--grip, 0px)); }
 /* ⚖ Liam 2026-08-20 (flag 19): the card he grabbed is now travelling as the
    proxy, so the one still standing in the lane is the ORIGIN MARKER and dims to
    say so. Canon's .88-and-a-shadow belonged to a card that WAS the traveller. */
@@ -1006,3 +1035,41 @@
   .biz .decision-card { padding-left: 10px; padding-right: 10px; }
   .biz.drawer-open .board-body { grid-template-columns: minmax(0, 1fr) 300px; }
 }
+
+/* ═══ ⚖ Liam flag 25 — 画面の説明 (the guided tour), canon :1614–1626 ═══════
+   A spotlight, not a modal: the hole is one big box-shadow, so the region
+   stays fully lit and the rest of the page dims behind it without a single
+   element being moved or re-rendered. `.spot-catch` is the click surface that
+   makes every registered region jumpable, and it sits UNDER the hole and the
+   card so neither is swallowed by it. */
+.biz .spot-hole {
+  position: fixed;
+  z-index: 70;
+  pointer-events: none;
+  border-radius: 12px;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 9999px rgba(24, 24, 27, .42);
+  transition: top .24s cubic-bezier(.2, .7, .1, 1), left .24s cubic-bezier(.2, .7, .1, 1), width .24s cubic-bezier(.2, .7, .1, 1), height .24s cubic-bezier(.2, .7, .1, 1);
+}
+.biz .spot-catch { position: fixed; inset: 0; z-index: 69; cursor: pointer; }
+.biz .spot-hover { position: fixed; z-index: 70; pointer-events: none; border: 2px dashed rgba(255, 255, 255, .9); border-radius: 12px; }
+.biz .spot-card {
+  position: fixed;
+  z-index: 72;
+  width: 300px;
+  padding: 12px 14px 10px;
+  border: 1.5px solid var(--control);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 40px rgba(24, 24, 27, .3);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+.biz .spot-card b { display: block; margin-bottom: 2px; font-size: 13.5px; color: var(--ink); }
+.biz .spot-hint { margin-top: 6px; color: var(--quiet); font-size: 11px; }
+.biz .spot-foot { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--section); }
+.biz .spot-foot .count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.biz .spot-foot button { min-height: 30px; padding: 0 11px; border: 1px solid var(--control); border-radius: 7px; background: #fff; color: var(--ink-2); font-size: 12px; font-weight: 600; cursor: pointer; }
+.biz .spot-foot button:hover { background: #f4f4f5; }
+.biz .spot-foot button:disabled { opacity: .4; cursor: default; }
+.biz .spot-foot .spot-done { margin-left: auto; }
