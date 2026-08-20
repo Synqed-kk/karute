@@ -65,7 +65,12 @@ export function ProcessingIndicator() {
       // a supersession through without losing anything.
       globalPipeline.autosaveSettled = true
       const id = globalPipeline.serverSavedRecordId
-      if (globalPipeline.isCurrentRun(runId)) {
+      // PR-B2: publish the landed record so the recovery notice can name it.
+      globalPipeline.publishSavedRecord(runId, id)
+      // PR-B2 F3: an auto-finished recovery take is already being reported by
+      // the record page's green notice — this toast would be the second telling
+      // of one save. Every other cohort toasts exactly as before.
+      if (globalPipeline.isCurrentRun(runId) && !globalPipeline.context?.autoFinish) {
         toast.success(t('autoSaved'), {
           action: {
             label: t('viewSaved'),
@@ -91,9 +96,13 @@ export function ProcessingIndicator() {
     const result = globalPipeline.result
     // The state machine only enters 'autosaving' with a customer + outcome; this
     // guard is defensive (incl. an empty AI summary). Fall back to review.
+    // PR-B2 adds recoveryUnanswered as a third qualifying state (see
+    // global-pipeline's isServerJobEligible) — this guard must recognise the
+    // same cohort the state machine does, or an auto-finishing recovery take
+    // would enter 'autosaving' and be bounced straight back to review.
     if (
       !ctx?.appointmentCustomerId ||
-      (!ctx.outcome && !ctx.outcomeSkipped) ||
+      (!ctx.outcome && !ctx.outcomeSkipped && !ctx.recoveryUnanswered) ||
       !result ||
       !result.summary?.trim()
     ) {
@@ -108,21 +117,40 @@ export function ProcessingIndicator() {
     // in-session races: a save resolving after a new recording started must not
     // clobber or hijack the new take.
     void (async () => {
-      const res = await saveKaruteRecordInline({
-        customerId,
-        transcript: result.transcript,
-        summary: result.summary,
-        entries: result.entries.map((e) => ({
-          category: e.category as EntryCategory,
-          content: e.title,
-          sourceQuote: e.source_quote,
-          confidenceScore: e.confidence_score,
-        })),
-        duration: ctx.duration,
-        appointmentId: ctx.appointmentId,
-        outcome: ctx.outcome,
-        recordingSessionId: ctx.recordingSessionId,
-      })
+      // Greptile #729: saveKaruteRecordInline REJECTS as well as returning
+      // {error} — it throws CONSENT_REQUIRED_ERROR outright, and any transport
+      // failure rejects. An unhandled rejection here left the pipeline wedged in
+      // 'autosaving' in silence: no toast, no review fallback, a spinner that
+      // never settles. Same shape the recovery save already uses for this exact
+      // call (RecordPageView's B-2), and the rejection is treated as exactly
+      // what it is — a failed save, identical handling to the {error} arm below.
+      //   PR-B2 is why this stopped being cosmetic: an outcome-less RECOVERY
+      //   take reaches here AFTER setRecoveredTake(null) cleared its offer, so a
+      //   wedge left that cohort with no banner, no notice and no toast. (The
+      //   take itself is deleted only on success, so a relaunch still self-heals
+      //   — what was lost was the telling, not the recording.)
+      let res: Awaited<ReturnType<typeof saveKaruteRecordInline>>
+      try {
+        res = await saveKaruteRecordInline({
+          customerId,
+          transcript: result.transcript,
+          summary: result.summary,
+          entries: result.entries.map((e) => ({
+            category: e.category as EntryCategory,
+            content: e.title,
+            sourceQuote: e.source_quote,
+            confidenceScore: e.confidence_score,
+          })),
+          duration: ctx.duration,
+          appointmentId: ctx.appointmentId,
+          outcome: ctx.outcome,
+          recordingSessionId: ctx.recordingSessionId,
+        })
+      } catch {
+        if (globalPipeline.isCurrentRun(runId)) toast.error(t('autosaveFailed'))
+        globalPipeline.failAutosaveToReview(runId)
+        return
+      }
       if ('error' in res) {
         // Never silently lose a take — tell the staff, and drop THIS run to
         // review (no-op if a newer recording already superseded it).
@@ -144,6 +172,9 @@ export function ProcessingIndicator() {
         // NOW (start()/reset() clear it), so a superseded run's late success
         // must not stamp "secured" onto the NEW take's unsettled window.
         if (globalPipeline.isCurrentRun(runId)) globalPipeline.autosaveSettled = true
+        // PR-B2: same publish as the server branch above — the recovery notice
+        // only appears once a record provably exists, and this is that point.
+        globalPipeline.publishSavedRecord(runId, res.id)
         // The record is saved — the persisted audio has served its purpose.
         // Unconditional (not runId-guarded): the take must be deleted
         // regardless of which run is now live, same as before this fix.
@@ -152,7 +183,7 @@ export function ProcessingIndicator() {
         // Same runId guard as the error branch above — a late success must
         // not toast (or offer a `/karute/${id}` action that pushState's the
         // path) once this run is no longer current.
-        if (globalPipeline.isCurrentRun(runId)) {
+        if (globalPipeline.isCurrentRun(runId) && !ctx.autoFinish) {
           toast.success(t('autoSaved'), {
             action: {
               label: t('viewSaved'),

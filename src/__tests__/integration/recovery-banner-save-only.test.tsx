@@ -219,7 +219,36 @@ async function answerPopup(optionKey: string) {
   })
 }
 
+/**
+ * Consent is CURRENT from the staff's TAP onward.
+ *
+ * ⚠ PR-B2 ordering, and it is the field's own, not a test-only switch: the
+ * auto-finish attempt reads consent FIRST, unprompted, before any human has
+ * touched the screen. A non-current read there makes it stand down SILENTLY —
+ * no grant dialog, no money moved, the amber banner and its 保存する intact —
+ * which is precisely the fallback state every test below is about. So the
+ * first read answers "not granted" (the auto attempt stands down, spending its
+ * one shot for this offer) and every read after it answers granted (the staff
+ * taps, and the tapped flow runs exactly as it always has).
+ *
+ * The auto path's own behaviour is pinned by recovery-auto-finish.test.tsx,
+ * where consent is current from the first read.
+ */
 function grantConsent() {
+  mockGetCustomerConsent
+    .mockResolvedValueOnce({ consent: null })
+    .mockResolvedValue({
+      consent: {
+        policy_version: RECORDING_CONSENT_POLICY_VERSION,
+        granted_at: '2026-08-01T00:00:00Z',
+      },
+    })
+}
+
+/** For an offer the auto path never attempts at all — an UNBOUND take, which
+ *  has no binding to save to — no auto consent read happens, so consent is
+ *  current from the very first one. */
+function grantConsentAlways() {
   mockGetCustomerConsent.mockResolvedValue({
     consent: {
       policy_version: RECORDING_CONSENT_POLICY_VERSION,
@@ -354,13 +383,28 @@ describe('consent is fail-closed on BOTH recovery saves', () => {
     expect(screen.getByRole('dialog', { name: 'consentDialogTitle' })).toBeTruthy()
   })
 
-  it('an UNREADABLE consent read is treated as not granted', async () => {
-    mockGetCustomerConsent.mockRejectedValueOnce(new Error('network'))
+  // TWO reads, TWO arms, one rule. PR-B2's auto-finish reads consent first and
+  // unprompted, so a single Once would be spent before the tap ever happened
+  // and the tap's own rejection handling would go unexercised. Both reads
+  // reject here, and each arm is asserted separately: the auto arm must stand
+  // down in SILENCE (fail-closed, no dialog nobody asked for), the tap arm must
+  // treat the same unreadable answer as not granted and open the gate.
+  it('an UNREADABLE consent read is treated as not granted — on BOTH the auto and the tap arm', async () => {
+    mockGetCustomerConsent
+      .mockRejectedValueOnce(new Error('network'))
+      .mockRejectedValueOnce(new Error('network'))
     await renderPage()
+    // The auto arm already ran and already read consent — it rejected, so
+    // nothing was saved and nothing was opened.
+    expect(mockGetCustomerConsent).toHaveBeenCalledTimes(1)
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: 'consentDialogTitle' })).toBeNull()
+
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
       for (let i = 0; i < 6; i++) await Promise.resolve()
     })
+    expect(mockGetCustomerConsent).toHaveBeenCalledTimes(2)
     expect(mockPipelineStart).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog', { name: 'consentDialogTitle' })).toBeTruthy()
   })
@@ -534,7 +578,7 @@ describe('a take whose 結果 survived the crash saves without re-asking', () =>
 
 describe('an unbound take: the picker IS the save’s first step', () => {
   it('選んで保存する → pick a day booking → the save continues to the writer', async () => {
-    grantConsent()
+    grantConsentAlways()
     takeOverride = { ...TAKE, target: null }
     DAY_FACTS.bookings = [
       {
@@ -742,16 +786,36 @@ describe('resolveRecoveryTicketState', () => {
     expect(r.pack).toEqual({ remaining: 4, size: 6 })
   })
 
-  // A-2 (client half): a prior NULL-appointment burn for the same customer-day
-  // must read 消化済み even for a BOOKED destination. Keying on the appointment
-  // alone let the banner say 未処理 over a ticket that had already moved.
-  it('a booked destination still reads 消化済み off a customer-day burn', () => {
+  // ⚖ 8/21 EVE (client half of the booking-keyed ruling): a customer-day burn
+  // keyed to no booking belongs to a DIFFERENT visit, so a booked destination
+  // still reads 未処理 — its own booking has not burned. The same row still
+  // reads 消化済み for an UNBOUND destination, where the day is the only key
+  // there is. Client and server must key the same way (actions/packs.ts D5).
+  it('a booked destination reads 未処理 off a customer-day burn — its booking has not burned', () => {
     const r = resolveRecoveryTicketState({
       facts: facts({ redeemed: { appointmentIds: [], customerIds: ['c1'] } }),
       customerId: 'c1',
       appointmentId: 'a1',
     })
+    expect(r.state).toBe('unresolved')
+  })
+
+  it('the SAME customer-day burn reads 消化済み for an unbound destination', () => {
+    const r = resolveRecoveryTicketState({
+      facts: facts({ redeemed: { appointmentIds: [], customerIds: ['c1'] } }),
+      customerId: 'c1',
+      appointmentId: null,
+    })
     expect(r.state).toBe('redeemed')
+  })
+
+  it('a SECOND same-day booking reads 未処理 off the first booking’s burn', () => {
+    const r = resolveRecoveryTicketState({
+      facts: facts({ redeemed: { appointmentIds: ['a1'], customerIds: ['c1'] } }),
+      customerId: 'c1',
+      appointmentId: 'a2',
+    })
+    expect(r.state).toBe('unresolved')
   })
 
   // T-8: the two sets are asymmetric ON PURPOSE. customerIds is filtered to the
@@ -1236,17 +1300,29 @@ describe('the flow freezes its offer (A-1) and the abort really aborts', () => {
   // watching any more.
   it('F-5: an offer that dies during the consent read moves no money and opens nothing', async () => {
     let releaseConsent: (v: { consent: null }) => void = () => {}
-    mockGetCustomerConsent.mockReturnValueOnce(
-      new Promise((r) => {
-        releaseConsent = r as (v: { consent: null }) => void
-      }) as never,
-    )
+    mockGetCustomerConsent
+      // PR-B2: the auto arm reads FIRST and unprompted. Give it its own
+      // not-granted answer so it stands down immediately — the promise held
+      // open below must belong to the TAP, or this test would hold the auto
+      // arm's read and never exercise the abort it is named for.
+      .mockResolvedValueOnce({ consent: null })
+      .mockReturnValueOnce(
+        new Promise((r) => {
+          releaseConsent = r as (v: { consent: null }) => void
+        }) as never,
+      )
     DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
     const { rerenderSame } = await renderPage()
+    // The auto arm is done and stood down; the banner is the live surface.
+    expect(mockGetCustomerConsent).toHaveBeenCalledTimes(1)
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
       for (let i = 0; i < 4; i++) await Promise.resolve()
     })
+    // The TAP's read is the one now held open — proof the offer really does die
+    // DURING it, which is the abort this test exists for.
+    expect(mockGetCustomerConsent).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('dialog', { name: 'consentDialogTitle' })).toBeNull()
     // Offer dies while the consent read is still in flight.
     mockPipelineContext = { takeId: 'take-1' }
     await rerenderSame()
@@ -1266,7 +1342,7 @@ describe('the flow freezes its offer (A-1) and the abort really aborts', () => {
   // it — and it fired a save the staffer never re-authorised once the offer
   // came back. The picker re-opened itself for the same reason.
   it('F-6: a pending deferred start is cancelled when the offer goes away', async () => {
-    grantConsent()
+    grantConsentAlways()
     takeOverride = { ...TAKE, target: null }
     DAY_FACTS.bookings = [OTHER_BOOKING] as never
     // Hold the post-pick refetch open so the deferred start is still waiting.
@@ -1324,7 +1400,7 @@ describe('the flow freezes its offer (A-1) and the abort really aborts', () => {
 // ── F-1: the searched customer's 回数券 must reach the save ─────────────────
 describe('a search-re-pointed customer keeps their pack (F-1)', () => {
   it('the second fetch carries the DESTINATION, and the auto leg burns', async () => {
-    grantConsent()
+    grantConsentAlways()
     takeOverride = { ...TAKE, target: null }
     DAY_FACTS.bookings = []
     // Call 1 (unbound, no destination yet): the day has nothing to say.
@@ -1425,6 +1501,9 @@ describe('draft answers are durable (F-2)', () => {
     expect(mockSaveInline).toHaveBeenCalledTimes(1)
 
     // THE RELOAD. Everything in memory is gone; only what was stamped survives.
+    // PR-B2: no tap here any more — this launch is exactly the case auto-finish
+    // exists for, so the app lands it ITSELF (consent is current from this
+    // mount's own read; the first read was spent by the pre-reload attempt).
     cleanup()
     stampedAnswer = {
       outcome: { status: 'success', reason: null, isFirstVisit: false },
@@ -1433,12 +1512,12 @@ describe('draft answers are durable (F-2)', () => {
     }
     await renderPage({ packPresets: [{ size: 10, unitPrice: 9900 }] })
     await act(async () => {
-      fireEvent.click(screen.getByText('recoverSaveAction'))
       for (let i = 0; i < 16; i++) await Promise.resolve()
     })
-    // Straight to the save: no popup, and — the money defect the probe caught —
-    // still exactly ONE pack sale for this customer.
+    // Straight to the save: no popup, no banner left, and — the money defect
+    // the probe caught — still exactly ONE pack sale for this customer.
     expect(screen.queryByText('disclaimer')).toBeNull()
+    expect(screen.queryByText('recoverSaveAction')).toBeNull()
     expect(packs.createPackAction).toHaveBeenCalledTimes(1)
     expect(mockSaveInline).toHaveBeenCalledTimes(2)
   })
@@ -1552,7 +1631,7 @@ describe('deferred start + abort, at the edges', () => {
   // against the pre-pick facts. The destination would be right but its picker
   // rows and pack row would be another customer's.
   it('tickets OFF: the deferred start still waits for the destination’s facts', async () => {
-    grantConsent()
+    grantConsentAlways()
     takeOverride = { ...TAKE, target: null }
     DAY_FACTS.bookings = []
     mockDayFacts.mockImplementationOnce(async () => ({ ...DAY_FACTS, packs: [] }))

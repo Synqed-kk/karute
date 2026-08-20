@@ -67,5 +67,86 @@ describe('ProcessingIndicator server-path settle (packet 22 B3)', () => {
 
     // The held 保存済み chip renders (same as the in-tab success path).
     expect(screen.getByText('保存済み — カルテ作成完了')).toBeTruthy()
+    // PR-B2: the landed record is published so the recovery notice can name it.
+    expect(globalPipeline.savedRecordId).toBe('record-1')
+  })
+
+  // PR-B2 — the in-tab (web/desktop) arm of the widened cohort. This effect's
+  // own guard has to recognise recoveryUnanswered too, or an auto-finishing
+  // recovery take would enter 'autosaving' and be bounced straight back to
+  // review — the exact detour PR-B1 removed for answered takes.
+  it('an outcome-less RECOVERY take still autosaves in-tab, and publishes its record', async () => {
+    saveKaruteRecordInline.mockResolvedValueOnce({ id: 'record-9' })
+    act(() => {
+      globalPipeline.start(new Blob(['a']), {
+        locale: 'ja',
+        customers: [],
+        appointmentCustomerId: 'cust-1',
+        recoveryUnanswered: true,
+        takeId: 'take-1',
+      })
+    })
+    act(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(globalPipeline as any).result = { transcript: 't', summary: 'S', entries: [] }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(globalPipeline as any).state = 'autosaving'
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(globalPipeline as any).notify()
+    })
+
+    render(<ProcessingIndicator />)
+
+    await waitFor(() => expect(saveKaruteRecordInline).toHaveBeenCalledTimes(1))
+    // R-B2: no outcome was invented on the way to the writer.
+    expect((saveKaruteRecordInline.mock.calls[0][0] as { outcome?: unknown }).outcome)
+      .toBeUndefined()
+    await waitFor(() => expect(globalPipeline.savedRecordId).toBe('record-9'))
+    // NOT bounced to review — the take is landed, not handed back.
+    expect(globalPipeline.state).not.toBe('review')
+    // F3's negative control: no auto-finish marker → the generic toast fires
+    // exactly as it always has.
+    await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1))
+  })
+
+  // PR-B2 F3 — ONE save, ONE report. An auto-finished recovery take is already
+  // reported by the record page's green notice, so this generic 保存済み toast
+  // (with its own 「見る」 action to the same karute) would be the second
+  // telling. The draft arm has suppressed its own toast since round 0; these
+  // are the take arm's twins, one per settle branch.
+  it.each([
+    ['server-job settle', true],
+    ['in-tab settle', false],
+  ])('%s: an auto-finished recovery take does NOT also toast', async (_label, serverPath) => {
+    saveKaruteRecordInline.mockResolvedValueOnce({ id: 'record-7' })
+    act(() => {
+      globalPipeline.start(new Blob(['a']), {
+        locale: 'ja',
+        customers: [],
+        appointmentCustomerId: 'cust-1',
+        recoveryUnanswered: true,
+        autoFinish: true,
+        takeId: 'take-1',
+      })
+    })
+    act(() => {
+      if (serverPath) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(globalPipeline as any).serverSavedRecordId = 'record-7'
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(globalPipeline as any).result = { transcript: 't', summary: 'S', entries: [] }
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(globalPipeline as any).state = 'autosaving'
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(globalPipeline as any).notify()
+    })
+
+    render(<ProcessingIndicator />)
+
+    // The save still lands and still publishes — only the TELLING is dropped.
+    await waitFor(() => expect(globalPipeline.savedRecordId).toBe('record-7'))
+    expect(toast.success).not.toHaveBeenCalled()
   })
 })

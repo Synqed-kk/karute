@@ -730,6 +730,11 @@
       "bodyLast": "This is their LAST session. Be sure to discuss the next pack — you'll record the result after stopping."
     },
     "otherStaffBooking": "Booked under {staff} · this record saves under {you}",
+    "recoverAutoSavedTitle": "The last recording was saved automatically",
+    "recoverAutoTicketBurned": "{size}-session pack · One pack session was used ({remaining}/{size} left)",
+    "recoverAutoTicketUnresolved": "The pack is not applied yet — check on the record",
+    "recoverAutoOutcomeUnanswered": "The result is still unanswered. Please answer it on the record.",
+    "recoverAutoOpenKarute": "Open the record",
     "recoverBannerTitle": "This record was not saved properly",
     "recoverFieldCustomer": "Customer",
     "recoverFieldRecordedAt": "Recorded",

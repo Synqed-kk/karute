@@ -122,6 +122,39 @@ describe('globalPipeline server-path eligibility (packet 22)', () => {
     expect(mockDeferreds).toHaveLength(1)
   })
 
+  // PR-B2 — the ONE genuinely new seam: a RECOVERED take auto-finishing with no
+  // answer at all must still take the durable server route (it is the route
+  // that survives the app being closed mid-flight, which is this whole lane's
+  // premise). The flag is CLIENT-SIDE: the enqueue body must stay exactly the
+  // shape the facade's `.strict()` schema accepts, i.e. no outcome key and no
+  // stray recoveryUnanswered key. The worker already writes no outcome row for
+  // an absent outcome (process-recording-outcome.test.ts).
+  it('recoveryUnanswered (no outcome, no skip) → server path, and the payload carries NO outcome', async () => {
+    globalPipeline.start(new Blob(['a']), {
+      ...eligibleCtx,
+      outcome: undefined,
+      recoveryUnanswered: true,
+      autoFinish: true,
+    })
+    await tick(0)
+    expect(stageForJob).toHaveBeenCalledTimes(1)
+    expect(enqueueJob).toHaveBeenCalledTimes(1)
+    expect(mockDeferreds).toHaveLength(0)
+    const body = enqueueJob.mock.calls[0][0] as Record<string, unknown>
+    expect(body.outcome).toBeUndefined()
+    expect('recoveryUnanswered' in body).toBe(false)
+    expect('autoFinish' in body).toBe(false)
+    expect(body).toEqual({
+      recordingSessionId: 'sess-1',
+      customerId: 'cust-1',
+      audioPath: 'staged.webm',
+      appointmentId: undefined,
+      locale: 'ja',
+      durationSeconds: undefined,
+      outcome: undefined,
+    })
+  })
+
   it('no recordingSessionId (e.g. take-recovery accept) → in-tab path, no staging', async () => {
     globalPipeline.start(new Blob(['a']), { ...eligibleCtx, recordingSessionId: undefined })
     await tick(0)

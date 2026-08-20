@@ -57,6 +57,35 @@ beforeEach(() => {
 })
 
 describe('globalPipeline run supersession', () => {
+  // PR-B2 — the in-tab arm of the widened autosave cohort. The server route is
+  // thin-only (web's staging key is not tenant-scoped), so on the web arm an
+  // auto-finishing recovery take comes through run(), and this is the branch
+  // that decides whether it lands or is handed back to a review screen nobody
+  // asked for. It must land: recoveryUnanswered means the staff owes the take
+  // nothing before it saves.
+  it('an outcome-less RECOVERY take settles into autosaving, not review', async () => {
+    globalPipeline.start(new Blob(['a']), {
+      locale: 'en',
+      customers: [],
+      appointmentCustomerId: 'c1',
+      recoveryUnanswered: true,
+    })
+    mockDeferreds[0].resolve(makeResult('A'))
+    await flush()
+    expect(globalPipeline.state).toBe('autosaving')
+  })
+
+  it('a take with NO answer and NO recovery flag still takes the review detour', async () => {
+    globalPipeline.start(new Blob(['a']), {
+      locale: 'en',
+      customers: [],
+      appointmentCustomerId: 'c1',
+    })
+    mockDeferreds[0].resolve(makeResult('A'))
+    await flush()
+    expect(globalPipeline.state).toBe('review')
+  })
+
   it('completes a single run into the review state', async () => {
     globalPipeline.start(new Blob(['a']), ctx)
     expect(globalPipeline.state).toBe('processing')
