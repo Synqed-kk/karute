@@ -27,6 +27,7 @@
 
 import { currentUserId } from '@/lib/karute/draft'
 import type { RecordingTarget } from '@/lib/global-recorder'
+import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 const DB_NAME = 'karute_takes'
 const TAKES = 'takes'
@@ -54,6 +55,16 @@ export type TakeMeta = {
   updatedAt: number
   /** Highest persisted segment seq; -1 until the first flush lands. */
   lastSeq: number
+  /** R-B3: the 結果 answer, stamped HERE the moment staff answer it. Without
+   *  it the answer rides only the in-memory pipeline context
+   *  (global-pipeline.ts), so a crash between the money writes (already
+   *  durable server-side) and the karute save loses it and recovery re-asks.
+   *  Absent = never answered — the app NEVER invents an outcome. */
+  outcome?: SessionOutcome
+  /** True when the stop flow deliberately skipped the question (自動 mid-pack
+   *  flow / tickets off) — the pipeline's isServerJobEligible reads it the
+   *  same way `outcome` is read. */
+  outcomeSkipped?: boolean
 }
 
 /** What the recovery banner needs — everything except the audio itself. */
@@ -187,6 +198,26 @@ export async function stampTakeSession(
   }
 }
 
+/** R-B3: stamp the 結果 answer onto the take the moment staff answer it, so a
+ *  crash before the karute save recovers the answer instead of re-asking.
+ *  Same best-effort, no-throw, no-op-if-gone contract as stampTakeSession. */
+export async function stampTakeOutcome(
+  takeId: string,
+  outcome: SessionOutcome | undefined,
+  outcomeSkipped = false,
+): Promise<void> {
+  try {
+    const db = await openDb()
+    if (!db) return
+    const tx = db.transaction(TAKES, 'readwrite')
+    const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
+    if (!meta) return
+    await req(tx.objectStore(TAKES).put({ ...meta, outcome, outcomeSkipped }))
+  } catch (err) {
+    console.error('[take-store] stampTakeOutcome failed:', err)
+  }
+}
+
 /** Remove a take (meta + all segments). Called on successful karute save,
  *  explicit discard, and TTL expiry. */
 export async function deleteTake(takeId: string): Promise<void> {
@@ -283,6 +314,8 @@ export async function getRecoverableTake(
       mimeType: newest.mimeType,
       startedAt: newest.startedAt,
       updatedAt: newest.updatedAt,
+      outcome: newest.outcome,
+      outcomeSkipped: newest.outcomeSkipped,
     }
   } catch (err) {
     console.error('[take-store] getRecoverableTake failed:', err)

@@ -39,6 +39,9 @@ const RedeemSchema = z
     appointmentId: z.string().nullable().optional(),
     karuteRecordId: z.string().nullable().optional(),
     source: z.enum(['manual', 'backfill']).optional(),
+    /** PR-B1: the crash-recovery banner's burn. Turns on the unbooked
+     *  same-customer/same-day guard (D5) in the shared core. */
+    recovery: z.boolean().optional(),
   })
   .strict()
 
@@ -79,6 +82,7 @@ export const POST = facadeHandler<Params>('customer.pack.redeem', async (ctx) =>
     ...('appointmentId' in parsed.data ? { appointmentId: parsed.data.appointmentId } : {}),
     karuteRecordId: parsed.data.karuteRecordId ?? null,
     source: parsed.data.source,
+    recovery: parsed.data.recovery,
   })
   if (!result.ok) {
     // Over-redeem / double-burn guard (trg_pack_below_zero) → a conflict, not a

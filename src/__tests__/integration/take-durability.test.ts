@@ -166,6 +166,7 @@ import {
   clearOwnTakes,
   getRecoverableTake,
   loadTakeBlob,
+  stampTakeOutcome,
 } from '@/lib/karute/take-store'
 import { wipeSessionVault } from '@/lib/karute/logout-wipe'
 
@@ -484,5 +485,66 @@ describe('take durability — recovered-save dedupe', () => {
 
     const offered = await getRecoverableTake([])
     expect(offered?.recordingSessionId).toBe('sess-1')
+  })
+})
+
+// ── PR-B1 D6 (R-B3): the 結果 answer survives the crash ────────────────────
+//
+// Before this, the answer rode ONLY the in-memory pipeline context, so a crash
+// between the money writes (durable server-side the instant they land) and the
+// karute save lost it — and recovery re-asked, offering a SECOND burn for one
+// visit. stampTakeOutcome writes it onto the take at answer time; recovery
+// reads it back and never asks again.
+describe('take durability — outcome survives the crash (R-B3)', () => {
+  async function quietTake(): Promise<string> {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    globalRecorder.stop()
+    await drain()
+    await passGrace()
+    return takeId
+  }
+
+  it('round-trips a stamped outcome to the recovery offer', async () => {
+    const takeId = await quietTake()
+    // No answer yet → nothing to restore, and the app must NEVER invent one.
+    expect((await getRecoverableTake([]))?.outcome).toBeUndefined()
+
+    await stampTakeOutcome(takeId, { status: 'success', reason: null, isFirstVisit: true })
+    await drain()
+
+    const offered = await getRecoverableTake([])
+    expect(offered?.takeId).toBe(takeId)
+    expect(offered?.outcome).toEqual({ status: 'success', reason: null, isFirstVisit: true })
+    expect(offered?.outcomeSkipped).toBe(false)
+  })
+
+  it('round-trips a deliberate SKIP (mid-pack auto flow) distinctly from an answer', async () => {
+    const takeId = await quietTake()
+    await stampTakeOutcome(takeId, undefined, true)
+    await drain()
+
+    const offered = await getRecoverableTake([])
+    expect(offered?.outcome).toBeUndefined()
+    expect(offered?.outcomeSkipped).toBe(true)
+  })
+
+  it('never resurrects an outcome for a DIFFERENT take, and no-ops on a gone one', async () => {
+    const takeId = await quietTake()
+    await stampTakeOutcome('take-that-never-existed', { status: 'no_deal' })
+    await drain()
+    expect((await getRecoverableTake([]))?.outcome).toBeUndefined()
+    // The real take is untouched and still offerable.
+    expect((await getRecoverableTake([]))?.takeId).toBe(takeId)
+  })
+
+  it('stays best-effort: a failing write never throws at the caller', async () => {
+    const takeId = await quietTake()
+    failWrites = true
+    await expect(
+      stampTakeOutcome(takeId, { status: 'pending' }),
+    ).resolves.toBeUndefined()
+    failWrites = false
   })
 })

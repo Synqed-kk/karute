@@ -234,7 +234,23 @@ export const AUDITED_CORES: {
   // updateKaruteOutcome is the AFTER-THE-FACT path only — a save-embedded
   // outcome write is covered by that path's karute.save row on both surfaces
   // (see the FACADE_AUDIT_MAP mirror-block comment in audit.ts).
-  { file: 'src/actions/packs.ts', symbols: ['setLifecycleAction'] },
+  // redeemSessionAction emits ONLY on the PR-B1 recovery path (D7): the burn's
+  // own facade twin already auto-emits customer.pack_redeem, so this row exists
+  // to carry the resolved_via:'recovery' marker the redemption `source` column
+  // cannot (no 'recovery' value, and the set core accepts is not visible from
+  // this repo). A normal web burn still emits nothing — the documented parity
+  // gap recorded against packs.addRedemption below is unchanged.
+  {
+    file: 'src/actions/packs.ts',
+    symbols: ['setLifecycleAction', 'redeemSessionAction'],
+    unproven: [
+      {
+        symbol: 'redeemSessionAction',
+        reason:
+          'PR-B1 D7: the auditWeb() emit is CONDITIONAL BY DESIGN — it fires only for a recovery-path burn (input.recovery), to carry the resolved_via marker the redemption `source` column cannot. A normal web burn still emits nothing, which is the pre-existing documented parity gap (see SDK_WRITE_ALLOWLIST packs.addRedemption). The single `return result` merges both, through a plain identifier, so the walker cannot prove domination — the same mechanical ceiling as customers.ts#updateCustomer, not a missing writer.',
+      },
+    ],
+  },
   { file: 'src/actions/karute-outcome.ts', symbols: ['updateKaruteOutcome'] },
 ]
 

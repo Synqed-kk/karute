@@ -79,6 +79,23 @@ interface Props {
   onSelectCustomer: (customerId: string) => void
   onClose: () => void
   cancelLabel: string
+  /**
+   * 'record' (default) = the Build A お客様を選んで録音 dialog, unchanged.
+   *
+   * 'repoint' (PR-B1) = the recovery banner's 保存先を変更 picker: the SAME rows,
+   * fed the RECORDING day's bookings instead of today's, with NO search box.
+   * That absence is the feature — a re-point may only ever land on a customer
+   * who was actually in the salon that day, so offering salon-wide search would
+   * re-open exactly the mis-attribution the day restriction closes (⚖ 8/21
+   * doctrine ⑥). The take's own customer is the ONE exception, and it arrives
+   * pinned rather than searched.
+   */
+  variant?: 'record' | 'repoint'
+  /** repoint: the take's originally-bound customer, offerable even with no
+   *  booking that day. Null for a walk-in take that never got one. */
+  pinned?: { customerId: string; name: string; karuteNumber?: string | null } | null
+  /** repoint: the recording day, pre-formatted ("8月18日(月)"). */
+  dayLabel?: string
 }
 
 export function RecordCustomerPickerDialog({
@@ -89,7 +106,11 @@ export function RecordCustomerPickerDialog({
   onSelectCustomer,
   onClose,
   cancelLabel,
+  variant = 'record',
+  pinned = null,
+  dayLabel,
 }: Props) {
+  const repoint = variant === 'repoint'
   // 'recording' (not 'recording.target'): RecordPageView reads the same namespace,
   // and the dialog's aria-label is pinned as target.chooseCustomer by the armor test.
   const t = useTranslations('recording')
@@ -160,12 +181,12 @@ export function RecordCustomerPickerDialog({
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-label={t('target.chooseCustomer')}
+        aria-label={repoint ? t('target.repointTitle') : t('target.chooseCustomer')}
         className="fixed left-1/2 top-1/2 z-50 flex max-h-[85dvh] w-[calc(100%-1.75rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-xl outline-none"
       >
         <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3.5">
           <h3 className="text-[16px] font-bold text-foreground">
-            {t('target.chooseCustomer')}
+            {repoint ? t('target.repointTitle') : t('target.chooseCustomer')}
           </h3>
           <button
             type="button"
@@ -183,6 +204,8 @@ export function RecordCustomerPickerDialog({
             dialog's max-h and the late rows run off-screen (the exact bug
             SelectBookingSheet's comment records). */}
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-3.5">
+          {/* repoint: NO search box — see the `variant` doc above. */}
+          {!repoint && (
           <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-2.5">
             <Search size={16} className="shrink-0 text-muted-foreground" aria-hidden />
             <input
@@ -212,6 +235,27 @@ export function RecordCustomerPickerDialog({
               </button>
             )}
           </div>
+          )}
+
+          {/* repoint: the take's OWN customer, pinned above the day list —
+              offerable even with no booking that day (⚖ 8/21 doctrine ⑥: the
+              re-point is bounded, but never away from where the audio started). */}
+          {repoint && pinned && (
+            <div className="flex flex-col gap-1.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {t('target.repointPinnedLabel')}
+              </p>
+              <ul role="listbox" aria-label={t('target.repointPinnedLabel')} className="rounded-xl border border-border">
+                <PinnedRow
+                  pinned={pinned}
+                  fact={factById.get(pinned.customerId)}
+                  bookedToday={todayByCustomer.has(pinned.customerId)}
+                  onSelect={onSelectCustomer}
+                  t={t}
+                />
+              </ul>
+            </div>
+          )}
 
           {searching ? (
             <div id={LIST_ID} className="flex flex-col gap-3">
@@ -249,11 +293,13 @@ export function RecordCustomerPickerDialog({
           ) : (
             <div id={LIST_ID} className="flex flex-col gap-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {t('target.todayBookingsCount', { n: dayRows.length })}
+                {repoint
+                  ? t('target.repointDayBookings', { date: dayLabel ?? '', n: dayRows.length })
+                  : t('target.todayBookingsCount', { n: dayRows.length })}
               </p>
               {dayRows.length === 0 ? (
                 <p className="py-4 text-center text-[13px] leading-relaxed text-muted-foreground">
-                  {t('target.pickerEmpty')}
+                  {repoint ? t('target.repointDayEmpty') : t('target.pickerEmpty')}
                 </p>
               ) : (
                 // The mock's scroll cue: the day list scrolls inside its own
@@ -281,6 +327,11 @@ export function RecordCustomerPickerDialog({
                     className="pointer-events-none absolute inset-x-px bottom-px h-6 rounded-b-xl bg-gradient-to-b from-transparent to-card"
                   />
                 </div>
+              )}
+              {repoint && (
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  {t('target.repointNote', { date: dayLabel ?? '' })}
+                </p>
               )}
             </div>
           )}
@@ -365,6 +416,68 @@ function NewChip({ label }: { label: string }) {
     >
       {label}
     </span>
+  )
+}
+
+/** The take's originally-bound customer, atop the repoint picker. Same row
+ *  visuals as a booking row minus the time column (there may be no booking) —
+ *  it is a destination, not a slot. */
+function PinnedRow({
+  pinned,
+  fact,
+  bookedToday,
+  onSelect,
+  t,
+}: {
+  pinned: { customerId: string; name: string; karuteNumber?: string | null }
+  fact: RecordCustomerFact | undefined
+  bookedToday: boolean
+  onSelect: (id: string) => void
+  t: T
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        role="option"
+        aria-selected={false}
+        onClick={() => onSelect(pinned.customerId)}
+        className="flex w-full items-start gap-2.5 rounded-xl bg-primary/8 px-3 py-2.5 text-left transition-colors hover:bg-primary/12"
+      >
+        <Avatar initials={deriveFamilyInitials(pinned.name)} color={getStaffColorByKey(null)} />
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-baseline gap-1">
+            <span className="text-[13.5px] font-semibold tracking-tight text-foreground">
+              {pinned.name}
+              <span className="ml-0.5 text-[11px] font-normal text-muted-foreground">
+                {t('target.honorific')}
+              </span>
+            </span>
+            {pinned.karuteNumber && (
+              <span className="text-[10px] tabular-nums text-muted-foreground">
+                {pinned.karuteNumber}
+              </span>
+            )}
+            {fact?.pack && <PackPill remaining={fact.pack.remaining} size={fact.pack.size} />}
+          </span>
+          <span className="mt-[3px] block text-[10.5px] text-muted-foreground">
+            {bookedToday
+              ? t('target.repointPinnedNote')
+              : t('target.repointPinnedNoBooking')}
+          </span>
+        </span>
+        <span
+          className={cn(
+            'inline-flex h-[17px] shrink-0 items-center rounded-full border px-2 text-[9.5px] font-semibold',
+            BADGE_COLORS.blue.bg,
+            BADGE_COLORS.blue.text,
+            BADGE_COLORS.blue.border,
+          )}
+        >
+          {t('target.repointCurrent')}
+        </span>
+      </button>
+    </li>
   )
 }
 
