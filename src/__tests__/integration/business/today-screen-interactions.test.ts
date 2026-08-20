@@ -18,8 +18,21 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  applyBlockMoves,
   applyMoves,
   blockChrome,
+  blockClash,
+  blockDragModeAt,
+  blockEdgeZones,
+  blockStepPct,
+  clampLabelWidth,
+  labelWidthOf,
+  spotCardAt,
+  spotHitIndex,
+  spotTargets,
+  wrapStep,
+  LABEL_MAX,
+  LABEL_MIN,
   clickClosesPopover,
   dragModeAt,
   deltaPctIn,
@@ -43,7 +56,7 @@ import {
   type Moves,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { dragOrigin, stepPct } from '@/business/lib/canon-logic/drag-rules'
-import { place, type BoardItem, type BoardLane } from '@/business/lib/today-board'
+import { minuteOf, place, type BoardItem, type BoardLane } from '@/business/lib/today-board'
 
 if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
   HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement): void {
@@ -570,8 +583,12 @@ describe('the window layers price the committed board, never the card in flight'
     // The committed board is applyMoves over `moves` — NOT `liveMoves`, which
     // carries the pointer's current position. (`addedHere` is `added` narrowed
     // to the day on screen, ⚖ Liam 22 — it carries no pointer state either.)
-    const memo = /const committedLanes = useMemo\(\s*\(\) => applyMoves\(props\.lanes, moves, parked, addedHere, hours\)/
+    // ⚖ Liam flag 26 folded ONE pass in front of it — `placedLanes` is
+    // props.lanes with this session's BLOCK moves applied — and nothing else
+    // changed: the booking argument is still `moves`, never `liveMoves`.
+    const memo = /const committedLanes = useMemo\(\s*\(\) => applyMoves\(placedLanes, moves, parked, addedHere, hours\)/
     expect(memo.test(src)).toBe(true)
+    expect(src).toContain('applyBlockMoves(props.lanes, blockMoves, hours)')
     expect(src).toContain('sellLayerFor(committedLanes')
     expect(src).toContain('gapLayerFor(committedLanes')
     expect(src).not.toContain('sellLayerFor(boardLanes')
@@ -705,7 +722,11 @@ describe('the drag emphasis follows the dragged length, and nothing else', () =>
     // …the length is the card's own, not the span the pointer is dragging out…
     expect(SRC).toContain('setDragLen(ctx.item.endMin - ctx.item.startMin)')
     // …and BOTH gestures reach it, which `:has(.event.dragging)` could not.
-    expect(SRC).toContain("dragLen != null ? 'dragging-live' : ''")
+    // ⚖ Liam flag 26 added the third: a block drag lifts the layer too (canon's
+    // bindBlockDrag puts `.dragging` on the block), but carries no length, so it
+    // reveals without emphasising — `dragLen` stays null through the gesture.
+    expect(SRC).toContain("dragLen != null || blockLive ? 'dragging-live' : ''")
+    expect(SRC).not.toContain('setDragLen(ctx.item.endMin - ctx.item.startMin)\n      setBlockLive')
     // Every teardown path clears it: release/cancel/blur go through clearDrag,
     // the shelf's three endings through clearChipDrag.
     for (const fn of ['function clearDrag()', 'function clearChipDrag()']) {
@@ -821,7 +842,8 @@ describe('the drag proxy: mounted on the gesture, moved by transform, gone on ev
     expect(SRC).toContain('proxyAt.current = proxyTransform(clientX, clientY, grab)')
     // WO-2c's architecture is intact: the DRAWN board during a drag is the
     // committed one, so the real node is never moved between lanes.
-    expect(SRC).toContain('const drawnLanes = live ? committedLanes : boardLanes')
+    // (⚖ flag 26: a block drag holds the same freeze, for the same reason.)
+    expect(SRC).toContain('const drawnLanes = live || blockLive ? committedLanes : boardLanes')
     // WO-2d's is intact too: the window layers still read committedLanes.
     expect(SRC).toContain('sellLayerFor(committedLanes')
     expect(SRC).toContain('gapLayerFor(committedLanes')
@@ -833,7 +855,14 @@ describe('the drag proxy: mounted on the gesture, moved by transform, gone on ev
     }
     // The dashed outline is now drawn for EVERY live drag, not only a lane
     // change — with the card in hand it is the board's only landing statement.
-    expect(SRC).toContain('const landing = live && !live.overShelf ? { laneKey: live.targetLane, x: live.x, w: live.w } : null')
+    // (⚖ flag 26 put the block's landing in front of the booking's in the same
+    // ternary — the booking arm is unchanged and still refuses over the shelf.)
+    expect(SRC).toContain([
+      '    : live && !live.overShelf',
+      '      ? { laneKey: live.targetLane, x: live.x, w: live.w }',
+      '      : null',
+    ].join('\n'))
+    expect(SRC).toContain('const landing = blockLive')
     // …and the origin dims rather than travelling.
     expect(CSS).toContain('.biz .event.dragging { opacity: .32;')
     expect(CSS).toContain('.biz .event.drag-proxy,')
@@ -947,8 +976,10 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
     expect(SRC).toContain('added.filter((a) => a.dayOffset === props.dayOffset)')
     // All three boards read the day-scoped list — a card placed on 8/22 cannot
     // leak into 8/20's derivation, let alone its price layer.
-    expect(SRC).toContain('applyMoves(props.lanes, liveMoves, parked, addedHere, hours)')
-    expect(SRC).toContain('applyMoves(props.lanes, moves, parked, addedHere, hours)')
+    // (⚖ flag 26: `placedLanes` is props.lanes + this session's block moves —
+    // the day-scoped `addedHere` argument is what this test is pinning.)
+    expect(SRC).toContain('applyMoves(placedLanes, liveMoves, parked, addedHere, hours)')
+    expect(SRC).toContain('applyMoves(placedLanes, moves, parked, addedHere, hours)')
     // The shelf lands through `added`, stamped with the day on screen.
     const body = SRC.slice(SRC.indexOf('function placeFromShelf'), SRC.indexOf('function placeFromShelf') + 3200)
     expect(body).toContain('dayOffset: props.dayOffset')
@@ -1036,5 +1067,351 @@ describe('the shelf family, enumerated against canon rather than against the fla
     expect(freePartnerLane([lane({ key: 'p-01', group: 'staff' }), ...beds], 'staff', 900, 960)?.key).toBe('bed-02')
     // A parked card holds no ground, so its own bed reads free and comes back.
     expect(freePartnerLane([lane({ key: 'p-01', group: 'staff' }), lane({ key: 'bed-01', group: 'beds' })], 'staff', 900, 960)?.key).toBe('bed-01')
+  })
+})
+
+/** ═══ WO-2f — Liam's BATCH-2 flags 24 · 25 · 26 · 27 ═══════════════════════ */
+
+/** ⚖ FLAG 24 — the staff-name column resizes. Canon's divider drags `--label`
+ *  between 90 and 240px (:5961–5986); the reveal is the grid track widening and
+ *  the label's own `text-overflow: ellipsis` letting go, so there is no second
+ *  rendering path and no stored width to get out of step. */
+describe('the staff-name column takes a width from the divider', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+
+  it('the clamp is canon’s 90–240, both ends, in both directions', () => {
+    expect(clampLabelWidth(112, 0)).toBe(112)
+    expect(clampLabelWidth(112, 60)).toBe(172)
+    expect(clampLabelWidth(112, -60)).toBe(52 < LABEL_MIN ? LABEL_MIN : 52)
+    // A drag past either end STOPS there — it does not wrap, invert or unclamp.
+    expect(clampLabelWidth(112, -9000)).toBe(LABEL_MIN)
+    expect(clampLabelWidth(112, 9000)).toBe(LABEL_MAX)
+    expect(clampLabelWidth(LABEL_MAX, 1)).toBe(LABEL_MAX)
+    expect(clampLabelWidth(LABEL_MIN, -1)).toBe(LABEL_MIN)
+  })
+
+  it('the start width is read live, and a board that has not painted falls back', () => {
+    const board = document.createElement('div')
+    document.body.appendChild(board)
+    // jsdom resolves an unset custom property to '' — the case that would snap
+    // the column to zero on the first pixel if it were parsed as a number.
+    expect(labelWidthOf(board, 112)).toBe(112)
+    board.style.setProperty('--label', '186px')
+    expect(labelWidthOf(board, 112)).toBe(186)
+    expect(labelWidthOf(null, 112)).toBe(112)
+    board.remove()
+  })
+
+  it('the handle is wired to the board root, and paints only when it is being used', () => {
+    expect(SRC).toContain('className="label-resize"')
+    expect(SRC).toContain('onPointerDown={onLabelResizeDown}')
+    // The width is one CSS custom property on the board root — no state, no
+    // re-render, and the same var the lanes and the guard rails already read.
+    expect(SRC).toContain("board.style.setProperty('--label', `${clampLabelWidth(startW, ev.clientX - startX)}px`)")
+    // It never starts on top of a live card or block drag (canon's own guard).
+    expect(SRC).toContain('if (e.button !== 0 || dragRef.current || blockDragRef.current) return')
+    expect(CSS).toContain('.biz .label-resize { position: absolute;')
+    expect(CSS).toContain('cursor: col-resize')
+    expect(CSS).toContain('.biz .label-resize:hover::after, .biz .label-resize.dragging::after { background: var(--select-line); }')
+    // Both group headers share the column, because both are the same grid.
+    expect(CSS).toContain('.biz .time-head, .biz .lane { display: grid; grid-template-columns: var(--label) minmax(0, 1fr); }')
+    expect(CSS).toContain('.biz .guard-placement-rail { display: grid; grid-template-columns: var(--label)')
+  })
+})
+
+/** ⚖ FLAG 25 — 画面の説明. The property Liam cares about is the REGISTRY: a
+ *  section declares itself and the tour finds it, so a section can never ship
+ *  unexplained and a hidden one drops out of the count by itself. */
+describe('the guided tour builds itself out of what is on screen', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+  const SIDEBAR = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/BusinessSidebar.tsx'), 'utf8')
+
+  function declared(html: string) {
+    const host = document.createElement('div')
+    host.innerHTML = html
+    document.body.appendChild(host)
+    return host
+  }
+
+  it('the registry is the DOM: declare a pair and the section joins, in visual order', () => {
+    const host = declared(`
+      <section data-guide-title="A" data-guide="a"></section>
+      <section data-guide-title="B" data-guide="b"><span data-guide-title="B-in" data-guide="bi"></span></section>
+      <section>no pair</section>`)
+    const boxes = host.querySelectorAll<HTMLElement>('[data-guide]')
+    boxes.forEach((el) => rect(el, { left: 0, top: 0, width: 100, height: 40 }))
+    const found = spotTargets(host)
+    expect(found.map((e) => e.dataset.guideTitle)).toEqual(['A', 'B', 'B-in'])
+    host.remove()
+  })
+
+  it('…and a section that is not on screen leaves the tour, and the count with it', () => {
+    const host = declared(`
+      <section data-guide-title="A" data-guide="a"></section>
+      <section data-guide-title="Hidden" data-guide="h"></section>`)
+    const [a, hidden] = Array.from(host.querySelectorAll<HTMLElement>('[data-guide]'))
+    rect(a, { left: 0, top: 0, width: 100, height: 40 })
+    rect(hidden, { left: 0, top: 0, width: 0, height: 0 })
+    expect(spotTargets(host)).toHaveLength(1)
+    expect(spotTargets(host)[0].dataset.guideTitle).toBe('A')
+    host.remove()
+  })
+
+  it('click-to-jump resolves the SMALLEST region, so a board never eats its headings', () => {
+    const board = { left: 0, top: 0, width: 900, height: 500 }
+    const heading = { left: 10, top: 20, width: 200, height: 25 }
+    expect(spotHitIndex(50, 30, [board, heading])).toBe(1)
+    expect(spotHitIndex(50, 30, [heading, board])).toBe(0)
+    // Outside every region: canon closes the tour rather than jumping anywhere.
+    expect(spotHitIndex(950, 30, [board, heading])).toBe(-1)
+  })
+
+  it('the card takes the widest free side and never covers the region it explains', () => {
+    const view = { width: 1440, height: 900 }
+    const card = { width: 300, height: 160 }
+    // Room below → below.
+    expect(spotCardAt({ left: 40, top: 100, width: 400, height: 60 }, card, view).top).toBe(172)
+    // No room below, room above → above.
+    expect(spotCardAt({ left: 40, top: 700, width: 400, height: 60 }, card, view).top).toBe(700 - 160 - 12)
+    // Squeezed level with a full-height region → beside it, never over it.
+    const beside = spotCardAt({ left: 40, top: 10, width: 400, height: 880 }, card, view)
+    expect(beside.left).toBe(40 + 400 + 12)
+    expect(beside.top).toBeGreaterThanOrEqual(10)
+  })
+
+  it('the walk is a ring, and an empty registry is not a tour', () => {
+    expect(wrapStep(3, 4)).toBe(3)
+    expect(wrapStep(4, 4)).toBe(0)
+    expect(wrapStep(-1, 4)).toBe(3)
+    expect(wrapStep(1, 0)).toBe(-1)
+  })
+
+  it('the ? popover carries canon’s hints, ours, and the button that starts the tour', () => {
+    expect(SRC).toContain('<strong>操作ヒント</strong>')
+    expect(SRC).toContain('・時間外は非表示')
+    expect(SRC).toContain('カードはドラッグで移動・両端で時間変更')
+    expect(SRC).toContain('キーボード: Shift＋←/→で開始、Alt＋←/→で終了を30分ずつ変更')
+    expect(SRC).toContain('仮置きエリア（ボード上の点線バー）')
+    // ⚖ flag 26's gesture and ⚖ flag 25's emphasis — the two behaviours with no
+    // region of their own — register in THIS layer rather than as tour steps
+    // pointing at nothing.
+    expect(SRC).toContain('休憩・清掃などの予定ブロック: ドラッグで移動・両端で時間変更')
+    expect(SRC).toContain('ドラッグ中は、いま持っているカードと同じ長さの販売可能枠だけが濃く表示されます')
+    expect(SRC).toContain('画面の説明を表示')
+    expect(SRC).toContain("onClick={() => { setPop(''); setTourIdx(0) }}")
+  })
+
+  it('canon’s own sections carry canon’s own words, to the character', () => {
+    for (const [title, body] of [
+      ['本日の店舗状態', '金額と未処理の集計。レジ当番・金額権限のある人にだけ表示されます。'],
+      ['自分の1日', 'ログイン中のスタッフ専用。次のお客様と自分の未処理だけを表示します。'],
+      ['オンライン販売中', 'いまReserveで販売中の枠数。押すと枠の一覧（時間・担当・価格）が開き、行を押すとボード上の場所を示します。'],
+      ['ご来店中', 'いま店内にいるお客様。ここから次回予約をその場で作成できます。'],
+      ['日付の移動', '日付を押すと月カレンダーで空き状況を確認できます。'],
+      ['表示設定', 'カード・販売可能枠・配置ガイドの見え方と、ボードの密度を調整します。'],
+      ['表示の切替', 'スタッフだけ・設備だけ・両方の表示を切り替えます。'],
+      ['仮置きエリア', '日付をまたぐ変更の一時置き場。ドラッグで置くと仮押さえになります。'],
+      ['今日のボード', '空き枠をクリックで新規予約。カードはドラッグで移動、端をつかんで時間変更。'],
+      ['本日の運営影響', 'いま起きている問題と、対応がどこまで進んだかを示します。'],
+      ['次に決めること', '根拠と期限のある判断だけが並びます。上の件数セルを押すと該当カードがボード上で光ります。'],
+      ['店舗全体の指標', '本日の予約件数・売上・稼働率。予約件数は本日の全予約、売上は売上・レジの取引データ、稼働率はスタッフ・シフトの勤務時間から算出しています。'],
+    ]) {
+      expect(SRC).toContain(`data-guide-title="${title}"`)
+      expect(SRC).toContain(`data-guide="${body}"`)
+    }
+  })
+
+  it('OUR sections register too — the lane rule, machine-checked', () => {
+    // The store lens is the shell's, and the registry is document-wide, so it
+    // joins the same walk from another file with no wiring between them.
+    expect(SIDEBAR).toContain('data-guide-title="店舗の切替"')
+    expect(SIDEBAR).toContain('data-guide="いま見ている店舗。押すと店舗を切り替えられ、ボードも数字もその店舗のものに変わります。"')
+    // The guard band explains the legend AND the 60分配置 strips under each lane.
+    expect(SRC).toContain('data-guide-title="スキマガード"')
+    expect(SRC).toContain('60分配置')
+    // The tour reads the live document — nothing here is a hand-kept list.
+    expect(SRC).toContain('spotTargets(document)')
+    expect(SRC).not.toMatch(/const TOUR_STEPS\b/)
+  })
+
+  it('the overlay is canon’s four layers, and every exit is wired', () => {
+    expect(SRC).toContain('className="spot-catch"')
+    expect(SRC).toContain('className="spot-hover"')
+    expect(SRC).toContain('className="spot-hole"')
+    expect(SRC).toContain('className="spot-card"')
+    expect(SRC).toContain('気になる場所をクリックすると、その説明にジャンプします')
+    expect(SRC).toContain('>前へ<')
+    expect(SRC).toContain("'最初へ' : '次へ'")
+    expect(SRC).toContain('終了 ✕')
+    expect(SRC).toContain('{tourStep ? `${tourStep.idx + 1} / ${tourStep.total}` : \'\'}')
+    // Escape and the arrows, canon (:3441–3446).
+    expect(SRC).toContain("if (e.key === 'Escape') setTourIdx(-1)")
+    expect(SRC).toContain("if (e.key === 'ArrowRight')")
+    expect(SRC).toContain("if (e.key === 'ArrowLeft')")
+    expect(CSS).toContain('.biz .spot-hole {')
+    expect(CSS).toContain('box-shadow: 0 0 0 2px #fff, 0 0 0 9999px rgba(24, 24, 27, .42);')
+    expect(CSS).toContain('.biz .spot-catch { position: fixed; inset: 0;')
+  })
+})
+
+/** ⚖ FLAG 26 — blocks drag and stretch on their own 5-minute lattice. */
+describe('予定ブロック move, resize and open — canon’s second pipeline', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+  const BLOCK_STEP = blockStepPct(9, 5)
+
+  function block(key: string, start: number, end: number, over: Partial<BoardItem> = {}): BoardItem {
+    return {
+      key, kind: 'break', state: null, category: null, ...place(start, end, HOURS),
+      title: '休憩', tag: '', time: '', ticketCat: null, ticketCore: null,
+      held: false, micro: false, caseId: null, label: '', ...over,
+    }
+  }
+
+  it('the block lattice is 5 minutes where the booking lattice is 30', () => {
+    expect(blockStepPct(9, 5)).toBeCloseTo(stepPct(9) / 6, 10)
+    // The store's dial is the source; a config that does not carry one is 5.
+    expect(blockStepPct(9, 15)).toBeCloseTo(stepPct(9) / 2, 10)
+    expect(blockStepPct(9, undefined)).toBeCloseTo(blockStepPct(9, 5), 10)
+  })
+
+  it('a 休憩 dragged out to 35 minutes is legal — a booking’s lattice could not say it', () => {
+    const item = block('br-1', 780, 810) // 13:00–13:30
+    const track = document.createElement('div')
+    rect(track, { left: 0, top: 0, width: 540, height: 40 })
+    const origin = dragOrigin(item.x, item.w, 'resize', BLOCK_STEP)
+    // +5 minutes of track: one block step, a sixth of a booking step.
+    const dxFor = (min: number) => (min / (HOURS.close - HOURS.open)) * 540
+    expect(minuteOf(nextSpan(origin, track, dxFor(5), BLOCK_STEP).w + item.x, HOURS) - 600).toBeCloseTo(
+      minuteOf(item.x, HOURS) - 600 + 35, 6,
+    )
+    // …and the same gesture on the booking lattice cannot reach 35 at all.
+    const bookingOrigin = dragOrigin(item.x, item.w, 'resize', STEP)
+    const bookingSpan = nextSpan(bookingOrigin, track, dxFor(5), STEP)
+    expect(minuteOf(bookingSpan.x + bookingSpan.w, HOURS)).toBe(810)
+  })
+
+  it('every lane is a landing for a block — including across staff and equipment', () => {
+    const root = document.createElement('div')
+    root.innerHTML = '<div class="lane" data-lane="p-01" data-group="staff"></div><div class="lane" data-lane="bed-01" data-group="beds"></div>'
+    document.body.appendChild(root)
+    const [staff, bed] = Array.from(root.querySelectorAll('.lane'))
+    rect(staff, { left: 0, top: 0, width: 600, height: 47 })
+    rect(bed, { left: 0, top: 47, width: 600, height: 47 })
+    // A BOOKING is leashed to its own group — a person's booking has a bed
+    // partner, and a bed lane is not somewhere it can go.
+    expect(laneKeyAtY(root, 'staff', 60)).toBeNull()
+    // A BLOCK is not: canon lets 清掃 travel to a person, because staff clean.
+    expect(laneKeyAtY(root, null, 60)).toBe('bed-01')
+    expect(laneKeyAtY(root, null, 20)).toBe('p-01')
+    root.remove()
+  })
+
+  it('the grab zone scales with the box, so a micro can still be stretched', () => {
+    const wide = document.createElement('button')
+    rect(wide, { left: 100, top: 0, width: 120, height: 30 })
+    expect(blockEdgeZones(120)).toEqual({ inner: 10, overhang: 0 })
+    expect(blockDragModeAt(wide, 105)).toBe('resizeL')
+    expect(blockDragModeAt(wide, 160)).toBe('move')
+    expect(blockDragModeAt(wide, 215)).toBe('resize')
+    // An 18px micro: a flat 10px each side would leave NO move zone at all.
+    const micro = document.createElement('button')
+    rect(micro, { left: 100, top: 0, width: 18, height: 30 })
+    expect(blockEdgeZones(18).inner).toBe(4.5)
+    expect(blockEdgeZones(18).overhang).toBe(7.5)
+    expect(blockDragModeAt(micro, 109)).toBe('move')
+    expect(blockDragModeAt(micro, 101)).toBe('resizeL')
+    expect(blockDragModeAt(micro, 117)).toBe('resize')
+    // …and the overhang reaches OUTSIDE the box, which is the whole point.
+    expect(blockDragModeAt(micro, 95)).toBe('resizeL')
+    expect(blockDragModeAt(micro, 124)).toBe('resize')
+  })
+
+  it('a landing that overlaps anything real is refused; free minutes are not', () => {
+    const target = lane({
+      key: 'p-01', group: 'staff',
+      items: [block('br-1', 780, 810), booking({ key: 'a', caseId: 'apt-1' }, 900, 960)],
+    })
+    // Onto the booking → clash.
+    expect(blockClash(target, 'br-1', place(915, 945, HOURS))).toBe(true)
+    // Into free minutes → fine.
+    expect(blockClash(target, 'br-1', place(840, 870, HOURS))).toBe(false)
+    // Onto ITSELF → not a clash; a block that cannot be nudged is not resizable.
+    expect(blockClash(target, 'br-1', place(785, 815, HOURS))).toBe(false)
+    expect(blockClash(undefined, 'br-1', place(840, 870, HOURS))).toBe(false)
+  })
+
+  it('a moved block leaves its old lane, arrives on the new one, and carries its clock', () => {
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', items: [block('br-1', 780, 810)] }),
+      lane({ key: 'bed-01', group: 'beds', items: [] }),
+    ]
+    const moved = applyBlockMoves(lanes, { 'br-1': { laneKey: 'bed-01', ...place(840, 875, HOURS) } }, HOURS)
+    expect(moved.find((l) => l.key === 'p-01')!.items).toHaveLength(0)
+    const landed = moved.find((l) => l.key === 'bed-01')!.items
+    expect(landed).toHaveLength(1)
+    expect(landed[0].startMin).toBe(840)
+    expect(landed[0].endMin).toBe(875)
+    // The visible label follows — a 35-minute 休憩 says 14:00〜14:35, not the
+    // span the server rendered.
+    expect(landed[0].time).toBe('14:00〜14:35')
+    // No moves = the same array, untouched.
+    expect(applyBlockMoves(lanes, {}, HOURS)).toBe(lanes)
+  })
+
+  it('a block resized in place stays put and keeps its lane', () => {
+    const lanes = [lane({ key: 'p-01', group: 'staff', items: [block('br-1', 780, 810)] })]
+    const out = applyBlockMoves(lanes, { 'br-1': { laneKey: 'p-01', ...place(780, 815, HOURS) } }, HOURS)
+    expect(out[0].items).toHaveLength(1)
+    expect(out[0].items[0].endMin).toBe(815)
+  })
+
+  it('a booking never travels on the block map, and a block never on the booking map', () => {
+    const lanes = [lane({ key: 'p-01', group: 'staff', items: [booking({ key: 'a', caseId: 'apt-1' }, 900, 960)] })]
+    // A block move addressed to a booking's key does nothing: bookings are not
+    // in the home map, so there is nothing to evict and nothing to arrive.
+    expect(applyBlockMoves(lanes, { 'zzz': { laneKey: 'p-01', x: 0, w: 5 } }, HOURS)[0].items).toHaveLength(1)
+    // And applyMoves keys on caseId, which a block does not have.
+    const withBlock = [lane({ key: 'p-01', group: 'staff', items: [block('br-1', 780, 810)] })]
+    expect(applyMoves(withBlock, { 'br-1': { laneKey: 'p-99', x: 0, w: 5 } }, [], [], HOURS)[0].items).toHaveLength(1)
+  })
+
+  it('the screen binds drag AND click to the same box, and keeps the two lattices apart', () => {
+    expect(SRC).toContain('onPointerDown={(e) => onBlockPointerDown(e, item, lane)}')
+    expect(SRC).toContain('onPointerMove={onBlockPointerMove}')
+    // Canon's own bug: a box that moves but cannot be opened. The click survives.
+    expect(SRC).toContain('blockRef.current?.showModal()')
+    expect(SRC).toContain('if (e.timeStamp < suppressClickUntil.current) return')
+    // Two constants, never one: the block lattice is the store's blockStepMin.
+    expect(SRC).toContain('const BLOCK_STEP = blockStepPct(hours.count, props.guard.config.blockStepMin)')
+    expect(SRC).toContain('nextSpan(ctx.origin, ctx.track, dx, BLOCK_STEP)')
+    // A locked lane refuses a block, exactly as it refuses a booking.
+    expect(SRC).toContain('if (laneKey && !locked.includes(laneKey)) ctx.targetLane = laneKey')
+    // The refusal toast is canon's sentence.
+    expect(SRC).toContain('他の予定と重なるため元の位置に戻しました')
+    // The block travels under the cursor like everything else on this board…
+    expect(SRC).toContain("setProxy({ kind: 'block', item: ctx.item, state: cls, w: ctx.grab.w, h: ctx.grab.h })")
+    // …and the pointer stream lives on the window, so no re-render can break it.
+    const begin = SRC.slice(SRC.indexOf('function beginBlockDrag'), SRC.indexOf('function applyBlockFrame'))
+    for (const ev of ['pointermove', 'pointerup', 'pointercancel', 'blur']) {
+      expect(begin).toContain(`window.addEventListener('${ev}'`)
+      expect(begin).toContain(`window.removeEventListener('${ev}'`)
+    }
+    expect(begin).toContain('if (e.buttons === 0) { cancelBlockDrag(); return }')
+    expect(CSS).toContain('.biz .event.block, .biz .event.cleanup { overflow: visible; touch-action: none; }')
+    expect(CSS).toContain('width: var(--grip, 0px);')
+  })
+
+  it('a block drag lifts the window layer but never emphasises it — it is not a session', () => {
+    // canon's bindBlockDrag puts `.dragging` on the block, so canon's own reveal
+    // gate fires for a block drag. Ours fires on the same event…
+    expect(SRC).toContain("dragLen != null || blockLive ? 'dragging-live' : ''")
+    // …and `dragLen` — the ONLY input to the length emphasis — is never set by
+    // the block pipeline, so no window can claim to fit a 休憩.
+    const blockPipe = SRC.slice(SRC.indexOf('function beginBlockDrag'), SRC.indexOf('function clearBlockDrag'))
+    expect(blockPipe).not.toContain('setDragLen(')
+    expect(SRC).toContain("`cell-price${fitsDrag(60, dragLen) ? ' fits' : ''}`")
   })
 })

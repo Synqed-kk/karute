@@ -23,7 +23,7 @@ import {
 } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardReason } from '@/business/lib/canon-logic/gap-guard'
 import { gapFillPrice, packedPrice, priceAt, type PriceFrame } from '@/business/lib/canon-logic/pricing'
-import { dragGeometry, dragModeFor, type DragMode, type DragOrigin } from '@/business/lib/canon-logic/drag-rules'
+import { dragGeometry, dragModeFor, spansOverlap, stepPct, type DragMode, type DragOrigin } from '@/business/lib/canon-logic/drag-rules'
 import { minuteOf, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 
 export type { DragMode, DragOrigin }
@@ -63,12 +63,20 @@ export function fractionIn(track: Element, clientX: number): number {
 /** canon `semanticLaneAt` (:3822). One vertical resolver for every board drag:
  *  the row under the pointer, within the same group. Canon's own note — a guide
  *  rail belongs to the lane above it, and treating that strip as empty space
- *  turned a fifth of every staff row into a silent dead drop zone. */
-export function laneKeyAtY(root: Element | null, group: string, clientY: number): string | null {
+ *  turned a fifth of every staff row into a silent dead drop zone.
+ *
+ *  `group` of `null` means ANY lane, which is the block drag's rule and only
+ *  the block drag's: canon lets 休憩/清掃 cross between people and rooms
+ *  ("清掃を人へも動かせる — スタッフが清掃を担うのは実運用", bindBlockDrag :4114)
+ *  and says the same-group leash was the bug that made blocks refuse to travel
+ *  vertically at all. A booking still passes its own group and is still leashed:
+ *  a person's booking has a bed partner, and moving it to a bed lane is not a
+ *  move, it is a category error. */
+export function laneKeyAtY(root: Element | null, group: string | null, clientY: number): string | null {
   if (!root) return null
   let found: string | null = null
   for (const lane of Array.from(root.querySelectorAll('.lane'))) {
-    if ((lane as HTMLElement).dataset.group !== group) continue
+    if (group !== null && (lane as HTMLElement).dataset.group !== group) continue
     const r = lane.getBoundingClientRect()
     if (clientY >= r.top && clientY <= r.bottom) found = (lane as HTMLElement).dataset.lane ?? null
   }
@@ -156,18 +164,7 @@ export function applyMoves(
     }
   }
 
-  const moved = (item: BoardItem): BoardItem => {
-    const m = item.caseId ? moves[item.caseId] : undefined
-    if (!m) return item
-    return {
-      ...item,
-      x: m.x,
-      w: m.w,
-      startMin: minuteOf(m.x, hours),
-      endMin: minuteOf(m.x + m.w, hours),
-      time: `${clock(minuteOf(m.x, hours))}〜${clock(minuteOf(m.x + m.w, hours))}`,
-    }
-  }
+  const moved = (item: BoardItem): BoardItem => atSpan(item, item.caseId ? moves[item.caseId] : undefined, hours)
 
   return lanes.map((lane) => {
     const extra = added.filter((a) => a.laneKey === lane.key).map((a) => a.item)
@@ -188,6 +185,17 @@ export function applyMoves(
     }
     return { ...lane, items: [...kept, ...arrivals].map(moved).concat(extra).sort(byX) }
   })
+}
+
+/** An item redrawn at a staged span — the percent pair AND the minutes and the
+ *  clock line that every other layer reads, so a moved card cannot be at one
+ *  time on the board and another in a check. Shared by the booking pass and the
+ *  block pass; `undefined` means "not moved" and returns the item untouched. */
+function atSpan(item: BoardItem, m: Move | undefined, hours: Hours): BoardItem {
+  if (!m) return item
+  const startMin = minuteOf(m.x, hours)
+  const endMin = minuteOf(m.x + m.w, hours)
+  return { ...item, x: m.x, w: m.w, startMin, endMin, time: `${clock(startMin)}〜${clock(endMin)}` }
 }
 
 const byX = (a: BoardItem, b: BoardItem) => a.x - b.x
@@ -520,4 +528,167 @@ export function freePartnerLane(lanes: BoardLane[], group: 'staff' | 'beds', sta
  *  owns that), so the emphasis cannot move a box or change a price. */
 export function fitsDrag(advertisedMin: number, dragLenMin: number | null): boolean {
   return dragLenMin !== null && advertisedMin === dragLenMin
+}
+
+// ── ⚖ Liam flag 24 — the resizable staff-name column ───────────────────────
+
+/** canon's `#labelResize` handler (:5961–5986). The divider at the name
+ *  column's right edge drags `--label` between 90 and 240px, and the column is
+ *  a plain CSS grid track, so nothing re-renders and nothing is stored: wide
+ *  shows 整体・小顔 / 11:00–20:00 whole, slim lets the same `text-overflow:
+ *  ellipsis` that is already on the label truncate it to 整体・…. One clamp,
+ *  because the ends are what the operator can actually get wrong — 0 collapses
+ *  the roster and 600 eats the day. */
+export const LABEL_MIN = 90
+export const LABEL_MAX = 240
+
+export function clampLabelWidth(startWidth: number, dx: number): number {
+  return Math.max(LABEL_MIN, Math.min(LABEL_MAX, startWidth + dx))
+}
+
+/** The width the divider starts from. Canon reads the live computed `--label`
+ *  and falls back to its own default when the property has not been written
+ *  yet (a jsdom or pre-paint read returns ''), which is exactly the case that
+ *  would otherwise snap the column to 0 on the first pixel of drag. */
+export function labelWidthOf(root: Element | null, fallback: number): number {
+  if (!root) return fallback
+  const raw = parseFloat(getComputedStyle(root).getPropertyValue('--label'))
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback
+}
+
+// ── ⚖ Liam flag 26 — block drag/resize on their own lattice ────────────────
+
+/** canon `blockEdgeZones` (:4037). A block's grab zones SCALE with the box,
+ *  where a booking card's are a flat 10px (`dragModeFor`, frozen in
+ *  canon-logic): 準備/レジ締め micros are ~18px wide, and a flat 10px each side
+ *  leaves a card with no move zone at all. `overhang` is how far outside the
+ *  box the zone then reaches — canon's answer to Liam's 8/11 field report that
+ *  narrow blocks could not be stretched — and it is 0 for anything ≥40px, so a
+ *  休憩 keeps byte-identical behaviour to the old flat zones. */
+export function blockEdgeZones(w: number): { inner: number; overhang: number } {
+  const inner = Math.min(10, w / 4)
+  return { inner, overhang: inner < 10 ? 12 - inner : 0 }
+}
+
+/** Which part of a BLOCK the pointer grabbed (canon :4060–4064). Separate from
+ *  `dragModeAt` on purpose: canon keeps bindDrag and bindBlockDrag as two
+ *  pipelines and never lets one's granularity leak into the other. */
+export function blockDragModeAt(el: Element, clientX: number): DragMode {
+  const r = el.getBoundingClientRect()
+  const { inner, overhang } = blockEdgeZones(r.width)
+  const dRight = r.right - clientX
+  const dLeft = clientX - r.left
+  if (dRight <= inner && dRight >= -overhang) return 'resize'
+  if (dLeft <= inner && dLeft >= -overhang) return 'resizeL'
+  return 'move'
+}
+
+/** canon's block landing check (`blockDrop` :4145–4157). "軽ゲート" — a block is
+ *  a placeholder, not a booking, so it never goes through the 仮押さえ gate;
+ *  but it still may not be laid over anything real. Canon skips the element
+ *  itself and its parked/public siblings and refuses on any other overlap.
+ *  Derived inventory (販売可能枠, スキマ枠) never enters `lane.items`, so it is
+ *  out of the pool here for the same reason canon's `.public` cells are. */
+export function blockClash(lane: BoardLane | undefined, movingKey: string, span: { x: number; w: number }): boolean {
+  if (!lane) return false
+  return lane.items.some((i) => i.key !== movingKey && spansOverlap(span.x, span.w, i.x, i.w))
+}
+
+/** The span a block move/resize lands on, on the BLOCK lattice. Same geometry
+ *  as a booking's — canon's own note is "形はSTEP_PCT版と同一、定数だけ差し替え"
+ *  (:3702) — with `blockStepMin` in place of the booking step. */
+export const BLOCK_STEP_MIN_DEFAULT = 5
+
+export function blockStepPct(boardHours: number, blockStepMin: number | undefined): number {
+  return stepPct(boardHours, blockStepMin ?? BLOCK_STEP_MIN_DEFAULT)
+}
+
+/** ⚖ Liam flag 26 — blocks are moved by their own key, because they have no
+ *  `caseId`: a 休憩 or a 清掃 is not a booking and never enters the moves map
+ *  that the 仮押さえ gate, the shelf and the guard all read. Applied as its own
+ *  pass so the booking rules above stay untouched — and because the LANE rule
+ *  differs: a booking is mirrored on a staff lane AND a bed lane, so it may not
+ *  be evicted from its partner; a block lives on exactly one lane, so the plain
+ *  "drop from every lane but the target" rule is the correct one. */
+export function applyBlockMoves(lanes: BoardLane[], blockMoves: Moves, hours: Hours): BoardLane[] {
+  if (Object.keys(blockMoves).length === 0) return lanes
+  const home = new Map<string, BoardItem>()
+  for (const lane of lanes) for (const i of lane.items) if (blockMoves[i.key]) home.set(i.key, i)
+  return lanes.map((lane) => {
+    const kept = lane.items.filter((i) => !blockMoves[i.key] || blockMoves[i.key].laneKey === lane.key)
+    const arrivals = Object.entries(blockMoves)
+      .filter(([key, m]) => m.laneKey === lane.key && !lane.items.some((i) => i.key === key))
+      .map(([key]) => home.get(key))
+      .filter((i): i is BoardItem => i != null)
+    return { ...lane, items: [...kept, ...arrivals].map((i) => atSpan(i, blockMoves[i.key], hours)).sort(byX) }
+  })
+}
+
+// ── ⚖ Liam flag 25 — the guided tour's positioning rules ───────────────────
+
+export interface SpotRect { left: number; top: number; width: number; height: number }
+
+/** canon `spotRender`'s card placement (:3357–3380). The card goes on the
+ *  spotlight's WIDEST free side and never covers the region it is explaining —
+ *  below if there is room, above if there is not, and beside it only when it
+ *  had to be squeezed level with the target. */
+export function spotCardAt(
+  target: SpotRect,
+  card: { width: number; height: number },
+  viewport: { width: number; height: number },
+): { top: number; left: number } {
+  const bottom = target.top + target.height
+  const right = target.left + target.width
+  const below = viewport.height - bottom
+  const above = target.top
+  let top: number
+  if (below >= card.height + 18) top = bottom + 12
+  else if (above >= card.height + 18) top = target.top - card.height - 12
+  else top = Math.max(10, Math.min(viewport.height - card.height - 10, target.top))
+  const clear = top >= bottom + 12 || top + card.height <= target.top - 2
+  const left = clear
+    ? Math.max(10, Math.min(target.left, viewport.width - card.width - 10))
+    : viewport.width - right - 18 >= card.width
+      ? right + 12
+      : Math.max(10, target.left - card.width - 12)
+  return { top, left }
+}
+
+/** canon `spotHitIndex` (:3406–3416) — click-any-region-to-jump. Registered
+ *  regions nest (the board contains its group headings), so the SMALLEST region
+ *  under the pointer wins and a big section can never swallow its own children.
+ *  `-1` = the click was on nothing registered, which closes the tour. */
+export function spotHitIndex(x: number, y: number, rects: SpotRect[]): number {
+  let best = -1
+  let bestArea = Infinity
+  rects.forEach((r, i) => {
+    if (x < r.left || x > r.left + r.width || y < r.top || y > r.top + r.height) return
+    const area = r.width * r.height
+    if (area < bestArea) { bestArea = area; best = i }
+  })
+  return best
+}
+
+/** canon `spotTargets` (:3343). THE REGISTRY, and the whole adaptive property
+ *  Liam built in: a section joins the tour by DECLARING itself with `data-guide`
+ *  — there is no steps table to keep in sync, so a section that renders is a
+ *  section that is explained, and one that is hidden (a popover, a strip behind
+ *  a permission, the 自分の1日 header on a manager's board) silently drops out
+ *  of the count. DOM order is visual order, so the walk needs no sort.
+ *
+ *  ⚖ LANE RULE (Liam, flag 25): every new section added to this board in any
+ *  future round registers a `data-guide` + `data-guide-title` pair. */
+/** canon `spotGo` (:3380): the walk is a RING — 次へ on the last step returns to
+ *  the first, which is why its label reads 最初へ there. `-1` for an empty
+ *  registry, because a board with nothing declared has no tour to be on. */
+export function wrapStep(i: number, total: number): number {
+  return total === 0 ? -1 : ((i % total) + total) % total
+}
+
+export function spotTargets(root: Document | Element | null): HTMLElement[] {
+  if (!root) return []
+  return Array.from(root.querySelectorAll<HTMLElement>('[data-guide]')).filter((el) => {
+    const r = el.getBoundingClientRect()
+    return r.width > 0 || r.height > 0
+  })
 }

@@ -225,7 +225,16 @@ export function BusinessSidebar(props: SidebarProps) {
           lens cannot filter the rows — customers carry no store_id (CM-9) — so
           it changes the booking-derived columns and the store labels only. That
           honest limit is the #723 behavior, kept. */}
-      <div className="store-picker">
+      {/* ⚖ Liam flag 25 — this card is OURS, not canon's, so it registers itself
+          into 画面の説明 the way canon's own sections do: one `data-guide` pair,
+          picked up by the tour's DOM registry (today-interactions `spotTargets`)
+          with no list anywhere to keep in sync. LANE RULE: every new section in
+          any future round does the same. */}
+      <div
+        className="store-picker"
+        data-guide-title="店舗の切替"
+        data-guide="いま見ている店舗。押すと店舗を切り替えられ、ボードも数字もその店舗のものに変わります。"
+      >
         <button
           ref={cardRef}
           className="store-context"
