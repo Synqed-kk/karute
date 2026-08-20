@@ -753,7 +753,8 @@
     "recoverSaved": "カルテを保存しました",
     "recoverSaveFailed": "保存できませんでした。もう一度お試しください。",
     "recoverAlreadyRedeemed": "この来店の回数券はすでに消化済みです",
-    "recoverBurnCheckFailed": "回数券の確認ができませんでした。もう一度お試しください"
+    "recoverBurnCheckFailed": "回数券の確認ができませんでした。もう一度お試しください",
+    "recoverPackSaleLost": "回数券の販売登録が失われました。お客様ページから登録してください"
   },
   "customers": {
     "title": "顧客",

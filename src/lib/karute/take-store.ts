@@ -71,6 +71,12 @@ export type TakeMeta = {
    *  lost in silence. Absent on takes stamped before this field existed —
    *  read as "no legs pending", which is the old all-or-nothing behavior. */
   outcomeLegs?: { burn: 'none' | 'pending' | 'done'; pack: 'none' | 'pending' | 'done' }
+  /** The 新しい回数券 the staffer registered, kept ONLY while its leg is still
+   *  pending. `outcomeLegs.pack === 'pending'` says a sale is owed; without the
+   *  numbers a reload could not re-run it, so the sale was silently dropped and
+   *  the karute saved anyway. Cleared to null the moment the leg is done, so a
+   *  later crash can never re-mint from a stale payload. */
+  outcomeNewPack?: { size: number; unitPrice: number } | null
 }
 
 /** What the recovery banner needs — everything except the audio itself. */
@@ -222,6 +228,8 @@ export async function stampTakeOutcome(
   outcome: SessionOutcome | undefined,
   outcomeSkipped?: boolean,
   outcomeLegs?: TakeMeta['outcomeLegs'],
+  /** null CLEARS it (the leg finished); undefined leaves it alone. */
+  outcomeNewPack?: TakeMeta['outcomeNewPack'],
 ): Promise<void> {
   try {
     const db = await openDb()
@@ -235,6 +243,7 @@ export async function stampTakeOutcome(
         ...(outcome === undefined ? {} : { outcome }),
         ...(outcomeSkipped === undefined ? {} : { outcomeSkipped }),
         ...(outcomeLegs === undefined ? {} : { outcomeLegs }),
+        ...(outcomeNewPack === undefined ? {} : { outcomeNewPack }),
       }),
     )
   } catch (err) {
@@ -247,7 +256,7 @@ export async function stampTakeOutcome(
  *  survive a reload too). Deliberately NOT owner-filtered differently from the
  *  rest of this module: same gate, same fail-closed null. */
 export async function readTakeOutcome(takeId: string): Promise<
-  Pick<TakeMeta, 'outcome' | 'outcomeSkipped' | 'outcomeLegs'> | null
+  Pick<TakeMeta, 'outcome' | 'outcomeSkipped' | 'outcomeLegs' | 'outcomeNewPack'> | null
 > {
   try {
     const db = await openDb()
@@ -262,6 +271,7 @@ export async function readTakeOutcome(takeId: string): Promise<
       outcome: meta.outcome,
       outcomeSkipped: meta.outcomeSkipped,
       outcomeLegs: meta.outcomeLegs,
+      outcomeNewPack: meta.outcomeNewPack,
     }
   } catch (err) {
     console.error('[take-store] readTakeOutcome failed:', err)
@@ -368,6 +378,7 @@ export async function getRecoverableTake(
       outcome: newest.outcome,
       outcomeSkipped: newest.outcomeSkipped,
       outcomeLegs: newest.outcomeLegs,
+      outcomeNewPack: newest.outcomeNewPack,
     }
   } catch (err) {
     console.error('[take-store] getRecoverableTake failed:', err)

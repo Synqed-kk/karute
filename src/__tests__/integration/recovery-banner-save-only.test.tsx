@@ -456,6 +456,8 @@ describe('a take whose 結果 survived the crash saves without re-asking', () =>
       false,
       // F-3: the stamp now carries WHICH legs settled.
       { burn: 'done', pack: 'none' },
+      // …and the pack payload, null because no sale is owed.
+      null,
     )
     expect(mockStampTakeOutcome.mock.invocationCallOrder[0]).toBeGreaterThan(
       (jest.requireMock('@/actions/packs') as { redeemSessionAction: jest.Mock })
@@ -793,10 +795,13 @@ describe('auto mode parity (A-6)', () => {
     expect(ctx.outcome).toBeUndefined()
     expect(ctx.outcomeSkipped).toBe(true)
     // A-3: the stamp certifies the money phase, so it carries skipped=true.
-    expect(mockStampTakeOutcome).toHaveBeenCalledWith('take-1', undefined, true, {
-      burn: 'done',
-      pack: 'none',
-    })
+    expect(mockStampTakeOutcome).toHaveBeenCalledWith(
+      'take-1',
+      undefined,
+      true,
+      { burn: 'done', pack: 'none' },
+      null,
+    )
   })
 
   it('an ALREADY-burned auto customer does not burn again', async () => {
@@ -1396,6 +1401,7 @@ describe('draft answers are durable (F-2)', () => {
       expect.objectContaining({ status: 'pending' }),
       false,
       { burn: 'done', pack: 'none' },
+      null,
     )
   })
 
@@ -1470,6 +1476,8 @@ describe('per-leg certification (F-3)', () => {
       expect.anything(),
       false,
       { burn: 'pending', pack: 'done' },
+      // The sale landed, so its payload is cleared — no re-mint on a retry.
+      null,
     )
 
     await act(async () => {
@@ -1501,10 +1509,13 @@ describe('per-leg certification (F-3)', () => {
     expect(toast.error).toHaveBeenCalledWith('recoverBurnCheckFailed')
     expect(toast.info).not.toHaveBeenCalledWith('recoverAlreadyRedeemed')
     // Nothing certified, nothing saved, and the burn is still owed.
-    expect(mockStampTakeOutcome).toHaveBeenLastCalledWith('take-1', undefined, true, {
-      burn: 'pending',
-      pack: 'none',
-    })
+    expect(mockStampTakeOutcome).toHaveBeenLastCalledWith(
+      'take-1',
+      undefined,
+      true,
+      { burn: 'pending', pack: 'none' },
+      null,
+    )
     expect(mockPipelineStart).not.toHaveBeenCalled()
     expect((screen.getByText('recoverSaveAction') as HTMLButtonElement).disabled).toBe(false)
   })
@@ -1522,10 +1533,13 @@ describe('per-leg certification (F-3)', () => {
       for (let i = 0; i < 14; i++) await Promise.resolve()
     })
     // Retrying cannot change it, so the leg is finished — and the record saves.
-    expect(mockStampTakeOutcome).toHaveBeenLastCalledWith('take-1', undefined, true, {
-      burn: 'done',
-      pack: 'none',
-    })
+    expect(mockStampTakeOutcome).toHaveBeenLastCalledWith(
+      'take-1',
+      undefined,
+      true,
+      { burn: 'done', pack: 'none' },
+      null,
+    )
     expect(mockPipelineStart).toHaveBeenCalledTimes(1)
   })
 })
@@ -1664,6 +1678,142 @@ describe('deferred start + abort, at the edges', () => {
     expect(mockStampTakeOutcome).toHaveBeenCalledTimes(1)
     // …but never handed to the pipeline, which is now busy with a live take.
     expect(mockPipelineStart).not.toHaveBeenCalled()
+  })
+})
+
+
+// ── The pack payload survives the reload (Greptile #728) ───────────────────
+//
+// legs.pack === 'pending' says a 回数券 SALE is still owed. Persisting the flag
+// without the numbers meant a reload restored "owed" with nothing to re-run:
+// the leg no-opped, `transient` stayed false, and the karute saved with the
+// sale gone forever and not one signal on screen.
+describe('the new-pack payload is durable (Greptile #728)', () => {
+  const DRAFT3 = {
+    transcript: 't',
+    summary: 's',
+    entries: [],
+    duration: 60,
+    appointmentId: 'appt-1',
+    appointmentCustomerId: 'cust-1',
+    recordingSessionId: 'sess-1',
+    takeId: 'take-1',
+    savedAt: Date.parse('2026-08-18T05:45:00Z'),
+  }
+  const packs = () =>
+    jest.requireMock('@/actions/packs') as {
+      createPackAction: jest.Mock
+      redeemSessionAction: jest.Mock
+    }
+
+  it('① a reload with a PENDING pack leg re-creates it once, with the restored size/price', async () => {
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT3 }
+    // The stamp a crashed session left behind: the sale is owed AND its
+    // numbers are on the take.
+    stampedAnswer = {
+      outcome: { status: 'success', reason: null, isFirstVisit: false },
+      outcomeSkipped: false,
+      outcomeLegs: { burn: 'done', pack: 'pending' },
+      outcomeNewPack: { size: 10, unitPrice: 9900 },
+    }
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 18; i++) await Promise.resolve()
+    })
+    // No popup — the answer is already given; only the unfinished leg re-runs.
+    expect(screen.queryByText('disclaimer')).toBeNull()
+    expect(packs().createPackAction).toHaveBeenCalledTimes(1)
+    expect(packs().createPackAction.mock.calls[0][0]).toMatchObject({
+      customerId: 'cust-1',
+      packSize: 10,
+      unitPrice: 9900,
+      purchasedAt: '2026-08-18',
+    })
+    // The burn was already done — it must NOT re-run.
+    expect(packs().redeemSessionAction).not.toHaveBeenCalled()
+    // And the record lands.
+    expect(mockSaveInline).toHaveBeenCalledTimes(1)
+  })
+
+  it('② a LEGACY pending leg with no payload still lands the karute, and says so', async () => {
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT3 }
+    // A stamp written before the payload was persisted: owed, unrecoverable.
+    stampedAnswer = {
+      outcome: { status: 'success', reason: null, isFirstVisit: false },
+      outcomeSkipped: false,
+      outcomeLegs: { burn: 'done', pack: 'pending' },
+    }
+    const { toast } = jest.requireMock('sonner') as { toast: { error: jest.Mock } }
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 18; i++) await Promise.resolve()
+    })
+    // Nothing to re-run, so nothing is attempted…
+    expect(packs().createPackAction).not.toHaveBeenCalled()
+    // …but it is NOT silent, and the record still lands (doctrine).
+    expect(toast.error).toHaveBeenCalledWith('recoverPackSaleLost')
+    expect(mockSaveInline).toHaveBeenCalledTimes(1)
+    // Marked done, so a further attempt cannot loop on it.
+    expect(mockStampTakeOutcome).toHaveBeenLastCalledWith(
+      'take-1',
+      expect.anything(),
+      false,
+      { burn: 'done', pack: 'done' },
+      null,
+    )
+  })
+
+  it('③ the payload is CLEARED once the sale lands — no re-mint from a stale copy', async () => {
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT3 }
+    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    mockSaveInline.mockResolvedValueOnce({ error: 'boom' })
+    await renderPage({ packPresets: [{ size: 10, unitPrice: 9900 }] })
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    await answerPopup('repurchase.success.title')
+    // The sale landed; the save did not. The stamp records the sale as DONE
+    // and drops its payload — a second crash must not find numbers to re-mint.
+    expect(packs().createPackAction).toHaveBeenCalledTimes(1)
+    expect(mockStampTakeOutcome).toHaveBeenLastCalledWith(
+      'take-1',
+      expect.anything(),
+      false,
+      { burn: 'done', pack: 'done' },
+      null,
+    )
+  })
+
+  it('the payload IS written while the sale is still owed', async () => {
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT3 }
+    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    packs().createPackAction.mockResolvedValueOnce({ ok: false, error: 'boom' })
+    await renderPage({ packPresets: [{ size: 10, unitPrice: 9900 }] })
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    await answerPopup('repurchase.success.title')
+    // Sale failed transiently → still owed → the numbers ride the stamp, so a
+    // reload can re-run it.
+    expect(mockStampTakeOutcome).toHaveBeenLastCalledWith(
+      'take-1',
+      expect.anything(),
+      false,
+      { burn: 'done', pack: 'pending' },
+      { size: 10, unitPrice: 9900 },
+    )
   })
 })
 

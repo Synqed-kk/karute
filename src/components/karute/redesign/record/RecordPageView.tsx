@@ -1246,7 +1246,12 @@ export function RecordPageView({
     if (flow.offer.kind === 'take') {
       const t = flow.offer.take
       if (!t.outcome && !t.outcomeSkipped) return null
-      return { outcome: t.outcome, skipped: !!t.outcomeSkipped, legs: t.outcomeLegs }
+      return {
+        outcome: t.outcome,
+        skipped: !!t.outcomeSkipped,
+        legs: t.outcomeLegs,
+        newPack: t.outcomeNewPack ?? undefined,
+      }
     }
     const takeId = flow.offer.draft.takeId
     if (!takeId) return null
@@ -1256,6 +1261,7 @@ export function RecordPageView({
       outcome: stamped.outcome,
       skipped: !!stamped.outcomeSkipped,
       legs: stamped.outcomeLegs,
+      newPack: stamped.outcomeNewPack ?? undefined,
     }
   }
 
@@ -1306,6 +1312,17 @@ export function RecordPageView({
     const gen = flowGenRef.current
     const legs = { ...(answer.legs ?? { burn: 'none' as LegState, pack: 'none' as LegState }) }
     let transient = false
+
+    // The legacy residual: a leg stamped 'pending' by a build that did not yet
+    // persist the payload. It can never be re-run — the size and price are
+    // gone — so it must not loop and must not stay silent. LAND THE KARUTE
+    // (doctrine: the record is the artifact that matters), say plainly that
+    // the sale was lost, and name where to re-enter it. Marked done so the
+    // next attempt does not repeat this.
+    if (legs.pack === 'pending' && !answer.newPack) {
+      legs.pack = 'done'
+      toast.error(t('recoverPackSaleLost'))
+    }
 
     const packPromise =
       legs.pack === 'pending' && answer.newPack
@@ -1435,7 +1452,15 @@ export function RecordPageView({
     const takeId =
       flow.offer.kind === 'take' ? flow.offer.take.takeId : flow.offer.draft.takeId
     if (takeId) {
-      await stampTakeOutcome(takeId, answer.outcome, answer.skipped, answer.legs)
+      // The pack payload rides the stamp ONLY while its leg is still owed.
+      // `legs.pack === 'pending'` says a sale has to be re-run, and a reload
+      // that restored the pending flag without the numbers could not re-run
+      // it — the leg no-opped and the karute saved with the sale gone. Cleared
+      // to null the moment the leg is done, so a later crash cannot re-mint
+      // from a stale payload.
+      const newPack =
+        answer.legs?.pack === 'pending' && answer.newPack ? answer.newPack : null
+      await stampTakeOutcome(takeId, answer.outcome, answer.skipped, answer.legs, newPack)
     }
   }
 

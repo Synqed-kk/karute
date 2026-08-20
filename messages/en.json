@@ -753,7 +753,8 @@
     "recoverSaved": "Record saved",
     "recoverSaveFailed": "Could not save. Please try again.",
     "recoverAlreadyRedeemed": "This visit's pack session is already used",
-    "recoverBurnCheckFailed": "Could not check the pack. Please try again."
+    "recoverBurnCheckFailed": "Could not check the pack. Please try again.",
+    "recoverPackSaleLost": "The pack sale was lost. Please register it from the customer page."
   },
   "customers": {
     "title": "Customers",
