@@ -156,7 +156,18 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // 8,192 B above the measurement, back on the low-headroom convention (the
 // 8/8 razor-fail was a 193 B margin; ~1.3 KB is the floor) rather than the
 // two most recent entries' provisional multi-PR margins.
-const BUDGET_BYTES = 1_917_329
+// Raised 2026-08-21 (17th) at the 復元バナー PR (PR-B1) — 保存されなかった
+// カルテの復元バナー: the two amber recovery strips replaced by one
+// informative save-only card, the day-restricted 保存先 re-point picker
+// (RecoveryBanner + the picker's repoint variant), the in-flow 結果 popup with
+// its per-leg money settlement, and the take-store outcome stamp — plus the
+// two blind rounds and the delta-verify round on top of them. Measured at
+// 1,929,092 B ground-truth at final tip (deterministic: identical across two
+// clean builds from an emptied thin/dist) against the prior 1,917,329 B
+// ceiling — over by 11,763 B. Ceiling set 5,308 B above the measurement, the
+// same low-headroom convention as the #726 raise above: unused slack is
+// harmless, an undersized ceiling costs another round-trip.
+const BUDGET_BYTES = 1_934_400
 
 let dir
 try {
