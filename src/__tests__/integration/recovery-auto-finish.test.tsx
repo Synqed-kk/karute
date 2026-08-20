@@ -422,10 +422,12 @@ describe('auto-finish lands the record itself', () => {
     expect(mockStampTakeOutcome).not.toHaveBeenCalled()
 
     await pipelineSaves()
-    // B0b's line, plus the 未処理 ticket line (design notes items 5 + 6 are
-    // separate lines — a pack that nobody decided about is its own fact).
-    expect(screen.getByText('recoverAutoOutcomeUnanswered')).toBeTruthy()
-    expect(screen.getByText('recoverAutoTicketUnresolved')).toBeTruthy()
+    // ⚖ 14 (Liam 8/23): 未処理 pack + 未回答 結果 no longer stack as two lines
+    // that both point at the karute — one merged line, and neither single-
+    // condition line may appear alongside it.
+    expect(screen.getByText('recoverAutoTicketAndOutcomeUnanswered')).toBeTruthy()
+    expect(screen.queryByText('recoverAutoOutcomeUnanswered')).toBeNull()
+    expect(screen.queryByText('recoverAutoTicketUnresolved')).toBeNull()
   })
 
   it('③ the mid-pack auto cohort burns silently, exactly as the live stop flow does', async () => {

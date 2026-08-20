@@ -40,6 +40,12 @@ export function RecoveryAutoSavedNotice({
 }: RecoveryAutoSavedNoticeProps) {
   const t = useTranslations('recording')
 
+  // ⚖ 14 (Liam 8/23): an unresolved pack AND an unanswered 結果 used to stack as
+  // two lines that both said "go to the karute" — one line now. Each condition
+  // alone keeps its own line, and a BURNED pack + owed 結果 still reads as two
+  // (the burn is a settled money fact, not a chore).
+  const merged = ticketState === 'unresolved' && outcomeOwed
+
   const lines: string[] = []
   if (ticketState === 'redeemed') {
     // Without the pack numbers the count-free wording is the honest one — the
@@ -49,10 +55,12 @@ export function RecoveryAutoSavedNotice({
         ? t('recoverAutoTicketBurned', { remaining: pack.remaining, size: pack.size })
         : t('recoverTicketRedeemed'),
     )
+  } else if (merged) {
+    lines.push(t('recoverAutoTicketAndOutcomeUnanswered'))
   } else if (ticketState === 'unresolved') {
     lines.push(t('recoverAutoTicketUnresolved'))
   }
-  if (outcomeOwed) lines.push(t('recoverAutoOutcomeUnanswered'))
+  if (outcomeOwed && !merged) lines.push(t('recoverAutoOutcomeUnanswered'))
 
   const link = (
     <button

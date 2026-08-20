@@ -100,7 +100,17 @@ interface Props {
   variant?: 'record' | 'repoint'
   /** repoint: the take's originally-bound customer, offerable even with no
    *  booking that day. Null for a walk-in take that never got one. */
-  pinned?: { customerId: string; name: string; karuteNumber?: string | null } | null
+  pinned?: {
+    customerId: string
+    name: string
+    karuteNumber?: string | null
+    /** The pinned take is bound to a booking on the pictured day. The caller
+     *  has to say so: `bookings` arrives B-8-filtered (the binding's OWN
+     *  appointment is removed as a duplicate of this row), so a customer whose
+     *  only booking that day IS this one is absent from the day list and the
+     *  row read 「当日の予約なし」 about the very booking it represents. */
+    bookedToday?: boolean
+  } | null
   /** repoint (B-3): where the save lands RIGHT NOW. After a re-point that is a
    *  day booking, not the pinned original, and the 現在の保存先 badge has to
    *  move with it — otherwise the picker keeps telling the staffer the save
@@ -267,7 +277,9 @@ export function RecordCustomerPickerDialog({
                 <PinnedRow
                   pinned={pinned}
                   fact={factById.get(pinned.customerId)}
-                  bookedToday={todayByCustomer.has(pinned.customerId)}
+                  bookedToday={
+                    Boolean(pinned.bookedToday) || todayByCustomer.has(pinned.customerId)
+                  }
                   // B-3: the badge follows the CURRENT destination. After a
                   // re-point the original is a way BACK, not where this saves.
                   isCurrent={pinnedIsCurrent}

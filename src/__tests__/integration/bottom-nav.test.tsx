@@ -12,7 +12,7 @@ let mockPathname = '/dashboard'
 // center button into "recording, off /sessions" and control what the global
 // recorder singleton is bound to.
 let mockRecState: 'idle' | 'recording' | 'paused' | 'recorded' = 'idle'
-let mockTarget: { customerId: string } | null = null
+let mockTarget: { customerId: string; customerName?: string } | null = null
 const push = jest.fn()
 
 jest.mock('@/i18n/navigation', () => ({
@@ -185,5 +185,56 @@ describe('BottomNav center button — live target binding (field bug 8/2)', () =
     mockTarget = null
     const { container } = render(<BottomNav nextCustomer={null} locale="ja" />)
     expect(container.querySelector('a[href="/sessions"]')).not.toBeNull()
+  })
+})
+
+// ── Build C part 1b (mock M1-C2): WHO is being recorded, under the clock ────
+describe('BottomNav center button — live recording name line', () => {
+  it('names the bound customer while recording OFF /sessions', () => {
+    mockPathname = '/customers/123'
+    mockRecState = 'recording'
+    mockTarget = { customerId: 'cust-A', customerName: '佐藤 美咲' }
+    render(<BottomNav nextCustomer={null} locale="ja" />)
+    expect(screen.getByText('佐藤 美咲様')).toBeTruthy()
+  })
+
+  it('names the bound customer while recording ON /sessions (the stop branch)', () => {
+    mockPathname = '/sessions'
+    mockRecState = 'recording'
+    mockTarget = { customerId: 'cust-A', customerName: '佐藤 美咲' }
+    render(<BottomNav nextCustomer={null} locale="ja" />)
+    // The stop button proves we are in that branch, not the navigate-back one.
+    expect(screen.getByLabelText('録音を停止')).toBeTruthy()
+    expect(screen.getByText('佐藤 美咲様')).toBeTruthy()
+  })
+
+  it('drops the honorific in EN', () => {
+    mockPathname = '/customers/123'
+    mockRecState = 'recording'
+    mockTarget = { customerId: 'cust-A', customerName: 'Misaki Sato' }
+    render(<BottomNav nextCustomer={null} locale="en" />)
+    expect(screen.getByText('Misaki Sato')).toBeTruthy()
+    expect(screen.queryByText('Misaki Sato様')).toBeNull()
+  })
+
+  it('an anonymous walk-in take renders NO name node — never a placeholder', () => {
+    mockPathname = '/customers/123'
+    mockRecState = 'recording'
+    mockTarget = null
+    const { container } = render(<BottomNav nextCustomer={null} locale="ja" />)
+    // Only the elapsed clock lives under the mic in this branch.
+    expect(container.querySelector('.text-\\[9\\.5px\\]')).toBeNull()
+    expect(screen.getByText('00:00')).toBeTruthy()
+  })
+
+  it('the idle branch is unchanged: the next-customer label, no recording name', () => {
+    mockPathname = '/customers/123'
+    mockRecState = 'idle'
+    mockTarget = null
+    const { container } = render(
+      <BottomNav nextCustomer={upcoming(10)} locale="ja" />,
+    )
+    expect(screen.getByText('田中様')).toBeTruthy()
+    expect(container.querySelector('.text-\\[9\\.5px\\]')).toBeNull()
   })
 })

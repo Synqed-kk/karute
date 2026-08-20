@@ -15,6 +15,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
 import { seedKnownSession, setSessionState } from '@/lib/auth/mobile/session-store'
 import { globalRecorder } from '@/lib/global-recorder'
+import { globalPipeline } from '@/lib/global-pipeline'
 
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
@@ -378,5 +379,92 @@ describe('fetchedAtByPath hygiene — mirrors dtoCache 1:1', () => {
     expect(fetchedAtByPath.has(path)).toBe(false)
     expect(dtoCache.has(path)).toBe(false)
     setSessionState({ status: 'recovering' })
+  })
+})
+
+// ── NEW-2 (field triage 8/19): the idle mic label went stale for the shift ──
+// The chrome DTO carries nextCustomer and is fetched ONCE per signed-in
+// session, so after a session was recorded the mic kept naming the customer
+// who had already left. A run ENDING refetches it — once, silently.
+describe('chrome refresh when a pipeline run ends', () => {
+  // Production notifies on every state change, so the store sees the
+  // processing notification before the end one. Reproduce that faithfully:
+  // publishSavedRecord notifies WITHOUT touching `state`.
+  function armRunning(): void {
+    globalPipeline.state = 'processing'
+    act(() => globalPipeline.publishSavedRecord(globalPipeline.runId, 'rec-1'))
+  }
+
+  async function loadChrome(apiFetch: jest.Mock): Promise<void> {
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+    await act(async () => {
+      ensureChromeLoaded()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+  }
+
+  afterEach(() => {
+    globalPipeline.reset()
+  })
+
+  it('the END of a run refetches the chrome exactly once — further idle notifications cost nothing', async () => {
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValueOnce(jsonResponse({ data: CHROME_DTO }))
+      .mockResolvedValueOnce(jsonResponse({ data: { ...CHROME_DTO, staffId: 's2' } }))
+    await loadChrome(apiFetch as unknown as jest.Mock)
+    expect(getChromeState().dto?.staffId).toBe('s1')
+
+    armRunning()
+    expect(apiFetch).toHaveBeenCalledTimes(1) // processing is not an end state
+
+    await act(async () => {
+      globalPipeline.reset()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    expect(getChromeState().dto?.staffId).toBe('s2')
+
+    // Already idle — the pipeline notifies plenty (saves, publishes), and none
+    // of it is a run ending. No polling, no second GET.
+    await act(async () => {
+      globalPipeline.reset()
+      globalPipeline.publishSavedRecord(globalPipeline.runId, 'rec-2')
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('a chrome store that is not ready is left alone — a run end never starts the first fetch', async () => {
+    const apiFetch = jest.fn<Promise<Response>, unknown[]>()
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+    expect(getChromeState().status).toBe('idle')
+
+    armRunning()
+    await act(async () => {
+      globalPipeline.reset()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(getChromeState().status).toBe('idle')
+  })
+
+  it('a refetch that FAILS keeps the rendered chrome — best-effort, never an empty nav', async () => {
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValueOnce(jsonResponse({ data: CHROME_DTO }))
+      .mockRejectedValueOnce(new Error('chrome 500'))
+    await loadChrome(apiFetch as unknown as jest.Mock)
+
+    armRunning()
+    await act(async () => {
+      globalPipeline.reset()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    expect(getChromeState().status).toBe('ready')
+    expect(getChromeState().dto?.staffId).toBe('s1')
   })
 })
