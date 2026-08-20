@@ -61,7 +61,10 @@ import {
   clickClosesPopover,
   dragModeAt,
   fieldsPopAnchor,
+  fitsDrag,
   fractionIn,
+  freePartnerLane,
+  proxyTransform,
   gapLayerFor,
   guardRailsFor,
   guardVerdictAt,
@@ -228,11 +231,45 @@ interface DragCtx {
    *  them rather than read them off an event target that may not be the card. */
   item: BoardItem
   lane: BoardLane
+  /** Where inside the card the pointer actually landed, and how big the card is.
+   *  The proxy is drawn from these so it hangs off the cursor at the exact point
+   *  it was grabbed — ⚖ Liam 2026-08-20: "attached, not trailing". */
+  grab: { dx: number; dy: number; w: number; h: number }
   /** rAF coalescing: the newest pointer position, applied once per frame. */
   pending: { clientX: number; clientY: number } | null
   frame: number | null
   detach: () => void
 }
+
+/** ⚖ Liam 2026-08-20 (flags 19/20) — THE DRAG PROXY. Canon slides the real card
+ *  horizontally inside its own lane and paints a dashed ghost in the destination
+ *  (dragMove :4505–4523), so a drag that travels DOWN shows the operator nothing
+ *  but an empty outline moving. Liam rejected that: the card he grabbed travels
+ *  with the cursor, in both axes, and the dashed outline stays behind as the
+ *  snapped landing preview while the origin dims.
+ *
+ *  It is an OVERLAY, never the card itself. Re-parenting the real node mid-drag
+ *  is what killed the pointer capture in WO-2c, and moving it per frame through
+ *  React would put the board back in the render loop WO-2d took it out of. This
+ *  element is mounted once per gesture, its transform is written straight to the
+ *  node from the same coalesced rAF, and React never owns that transform. */
+/** A booking sitting in the 仮置きエリア. It carries the whole card, because the
+ *  day it came from may not be the day on screen any more (⚖ Liam 22) and the
+ *  chip is then the only record of what is being carried. */
+interface ParkChip {
+  id: string
+  title: string
+  line1: string
+  line2: string
+  category: string | null
+  home: Move
+  lenMin: number
+  item: BoardItem
+}
+
+type DragProxy =
+  | { kind: 'card'; item: BoardItem; state: string; w: number; h: number }
+  | { kind: 'chip'; title: string; line1: string; category: string | null; w: number; h: number }
 
 /** The drag as the BOARD sees it, one state object updated at most once per
  *  animation frame. `homeLane` is where the card is still DRAWN — canon moves a
@@ -276,7 +313,12 @@ export function TodayScreen(props: TodayProps) {
   const [resolved, setResolved] = useState<string[]>([])
   const [proposalSent, setProposalSent] = useState(false)
   const [holdConfirmed, setHoldConfirmed] = useState(false)
-  const [added, setAdded] = useState<Array<{ laneKey: string; item: BoardItem }>>([])
+  /** ⚖ Liam 2026-08-20 (flag 22) — cards this session put on a board, and THE DAY
+   *  each one belongs to. Canon keeps every day in one DOM and stamps a card
+   *  `data-day`; our board is one day per server render, so the day travels with
+   *  the row instead. Without it a card placed from the shelf onto 8/22 would
+   *  reappear on every other day of the month. */
+  const [added, setAdded] = useState<Array<{ dayOffset: number; laneKey: string; item: BoardItem; fromChip?: ParkChip }>>([])
   const [calMonth, setCalMonth] = useState(0)
   const [toast, setToast] = useState('')
   const [blockInfo, setBlockInfo] = useState<{ kind: string; who: string; whoLabel: string; time: string; note: string } | null>(null)
@@ -288,15 +330,33 @@ export function TodayScreen(props: TodayProps) {
   /** The staged change awaiting 確定 — canon's `pendingChange`. `origin` is
    *  where the card came from, so 元に戻す has somewhere to go. */
   const [pending, setPending] = useState<{ id: string; origin: Move } | null>(null)
+  /** canon's 配置モード (`placing`, :6826). Armed by 次回予約を作成, disarmed by the
+   *  ×, by Escape, or by the placement itself. ⚖ Liam 21: it survives day
+   *  navigation, which is what its own toast promises. */
+  const [placing, setPlacing] = useState<{ label: string; name: string } | null>(null)
   const [live, setLive] = useState<LiveDrag | null>(null)
+  /** ⚖ Liam 2026-08-20: the length of whatever is in flight, board card or shelf
+   *  chip, and `null` the moment nothing is. It is the ONLY input to the
+   *  length-matched window emphasis (`fitsDrag`), it is set once when a gesture
+   *  crosses the move threshold rather than per frame, and every teardown path —
+   *  release, cancel, blur, and both lost-pointer self-heals — clears it through
+   *  `clearDrag` / `clearChipDrag`, so no gesture can leave the board emphasised. */
+  const [dragLen, setDragLen] = useState<number | null>(null)
+  const [proxy, setProxy] = useState<DragProxy | null>(null)
   const [chipTarget, setChipTarget] = useState<string | null>(null)
   const [advice, setAdvice] = useState<GuardAdvice | null>(null)
   const dragRef = useRef<DragCtx | null>(null)
+  /** The proxy's node and the transform it should be wearing. Kept OUT of React
+   *  state on purpose: the value changes once per animation frame and React must
+   *  never re-apply a stale one over it on an unrelated re-render. */
+  const proxyRef = useRef<HTMLDivElement | null>(null)
+  const proxyAt = useRef('')
+  const createSeq = useRef(0)
   const boardRef = useRef<HTMLDivElement>(null)
   const shelfRef = useRef<HTMLDivElement>(null)
   const fieldsPopRef = useRef<HTMLDivElement>(null)
   const fieldsBtnRef = useRef<HTMLButtonElement>(null)
-  const chipDragRef = useRef<{ id: string; startX: number; startY: number; moved: boolean; laneKey: string | null } | null>(null)
+  const chipDragRef = useRef<{ id: string; startX: number; startY: number; moved: boolean; laneKey: string | null; grab: { dx: number; dy: number; w: number; h: number } } | null>(null)
 
   // ── the store's price levers (L3) ────────────────────────────────────────
   const [hiInput, setHiInput] = useState(dialogs.pricing.hqMax)
@@ -332,6 +392,18 @@ export function TodayScreen(props: TodayProps) {
     const t = setTimeout(() => setToast(''), 3200)
     return () => clearTimeout(t)
   }, [toast])
+
+  // canon (:6942): Escape puts down whatever is in the operator's hand. Armed
+  // 配置モード has no other keyboard exit, and a mode you cannot leave without
+  // hunting for a × is a trap on a board this dense.
+  useEffect(() => {
+    if (!placing) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !document.querySelector('dialog[open]')) setPlacing(null)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [placing])
 
   // canon (:5772): a click outside the open popover closes it.
   useEffect(() => {
@@ -378,16 +450,14 @@ export function TodayScreen(props: TodayProps) {
     () => (live ? { ...moves, [live.id]: { laneKey: live.targetLane, x: live.x, w: live.w } } : moves),
     [moves, live],
   )
-  const boardLanes = useMemo(
-    () => applyMoves(props.lanes, liveMoves, parked, added, hours),
-    [props.lanes, liveMoves, parked, added, hours],
+  /** Only the cards this session put on the day currently on screen. */
+  const addedHere = useMemo(
+    () => added.filter((a) => a.dayOffset === props.dayOffset),
+    [added, props.dayOffset],
   )
-  const drawnLanes = useMemo(
-    () =>
-      live && live.targetLane !== live.homeLane
-        ? applyMoves(props.lanes, { ...moves, [live.id]: { laneKey: live.homeLane, x: live.x, w: live.w } }, parked, added, hours)
-        : boardLanes,
-    [props.lanes, moves, live, parked, added, hours, boardLanes],
+  const boardLanes = useMemo(
+    () => applyMoves(props.lanes, liveMoves, parked, addedHere, hours),
+    [props.lanes, liveMoves, parked, addedHere, hours],
   )
   /** The board WITHOUT the in-flight pointer — what the window layers price
    *  against. canon's `renderPublicLayer` (:5343) and `renderGapFillLayer`
@@ -402,9 +472,20 @@ export function TodayScreen(props: TodayProps) {
    *  1. `boardLanes` stays the truth for the guard and the drop target, which
    *  DO have to answer where the card is heading. */
   const committedLanes = useMemo(
-    () => applyMoves(props.lanes, moves, parked, added, hours),
-    [props.lanes, moves, parked, added, hours],
+    () => applyMoves(props.lanes, moves, parked, addedHere, hours),
+    [props.lanes, moves, parked, addedHere, hours],
   )
+  /** WHAT THE DOM DRAWS while a card is in flight: the board as it stands. The
+   *  card he grabbed is under his cursor now (the proxy), so the original stays
+   *  at its origin and dims — it is the "you took this from here" marker, and a
+   *  card that both dims AND slides is two travelling things at once. */
+  const drawnLanes = live ? committedLanes : boardLanes
+  /** ⚖ Liam 2026-08-20: the dashed outline is now the SNAPPED LANDING PREVIEW and
+   *  is drawn for every live drag, same lane or not — with the card off travelling
+   *  it is the only thing on the board saying where the release will actually put
+   *  it. Canon only ever drew it on a lane change (:4519) because its card never
+   *  left the lane. The lane HIGHLIGHT stays canon's: a foreign lane only. */
+  const landing = live && !live.overShelf ? { laneKey: live.targetLane, x: live.x, w: live.w } : null
   const dropTarget = live && !live.overShelf && live.targetLane !== live.homeLane
     ? { laneKey: live.targetLane, x: live.x, w: live.w }
     : chipTarget
@@ -559,6 +640,17 @@ export function TodayScreen(props: TodayProps) {
   function revertPending() {
     if (!pending) return
     const { id, origin } = pending
+    // canon's `snap: [{ el, remove: true }]` (:6084): a placement's 元に戻す takes
+    // the card back OFF the day it was put on. A shelf placement goes back to the
+    // shelf it came from; anything else just returns to its own span.
+    const placed = added.find((a) => a.item.caseId === id)
+    if (placed) {
+      setAdded((was) => was.filter((a) => a.item.caseId !== id))
+      if (placed.fromChip) {
+        const chip = placed.fromChip
+        setParkChips((was) => (was.some((c) => c.id === id) ? was : [...was, chip]))
+      }
+    }
     setMoves((was) => {
       const next = { ...was }
       if (origin.laneKey === '' ) delete next[id]
@@ -648,6 +740,14 @@ export function TodayScreen(props: TodayProps) {
     }
   }
 
+  /** The proxy's whole motion path: one string, written straight to the node.
+   *  Held in a ref as well, so the ref callback can dress the element the frame
+   *  it mounts and it never appears at the top-left corner first. */
+  function moveProxy(clientX: number, clientY: number, grab: { dx: number; dy: number }) {
+    proxyAt.current = proxyTransform(clientX, clientY, grab)
+    if (proxyRef.current) proxyRef.current.style.transform = proxyAt.current
+  }
+
   function applyDragFrame() {
     const ctx = dragRef.current
     if (!ctx || !ctx.pending) return
@@ -656,7 +756,16 @@ export function TodayScreen(props: TodayProps) {
     const dx = clientX - ctx.startX
     const dy = clientY - ctx.startY
     if (!ctx.moved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return
-    ctx.moved = true
+    if (!ctx.moved) {
+      ctx.moved = true
+      // The booking's OWN length, read off the committed card — not off the span
+      // in flight, which a resize is changing under the pointer.
+      setDragLen(ctx.item.endMin - ctx.item.startMin)
+      // The proxy's CONTENT is set once, here. Everything after this is a
+      // transform written straight to the node — React never sees the motion.
+      setProxy({ kind: 'card', item: ctx.item, state: ctx.item.state ?? '', w: ctx.grab.w, h: ctx.grab.h })
+    }
+    moveProxy(clientX, clientY, ctx.grab)
     const span = nextSpan(ctx.origin, ctx.track, dx, STEP)
     if (ctx.origin.mode === 'move') {
       ctx.overShelf = isOverShelf(shelfRef.current, clientY)
@@ -675,12 +784,14 @@ export function TodayScreen(props: TodayProps) {
     const track = e.currentTarget.closest('.track')
     if (!track) return
     const mode = dragModeAt(e.currentTarget, e.clientX)
+    const card = e.currentTarget.getBoundingClientRect()
     beginDrag({
       id: item.caseId,
       pointerId: e.pointerId,
       origin: dragOrigin(item.x, item.w, mode, STEP),
       startX: e.clientX,
       startY: e.clientY,
+      grab: { dx: e.clientX - card.left, dy: e.clientY - card.top, w: card.width, h: card.height },
       group: lane.group,
       homeLane: lane.key,
       targetLane: lane.key,
@@ -751,6 +862,8 @@ export function TodayScreen(props: TodayProps) {
     }
     dragRef.current = null
     setLive(null)
+    setDragLen(null)
+    setProxy(null)
   }
 
   // The listeners outlive a render, so an unmount mid-drag has to take them.
@@ -804,20 +917,27 @@ export function TodayScreen(props: TodayProps) {
 
   // ── 仮置きエリア ──────────────────────────────────────────────────────────
 
-  const [parkChips, setParkChips] = useState<Array<{ id: string; title: string; line1: string; line2: string; category: string | null; home: Move }>>([])
+  const [parkChips, setParkChips] = useState<ParkChip[]>([])
 
   function park(id: string, item: BoardItem, from: Move) {
+    // ⚖ Liam 22: `parkChipText` stamps the ORIGIN day into the 元: line here, at
+    // park time — so the line still names 8/20 12:00 after the operator has
+    // paged forward to 8/22, which is the whole point of the shelf.
     const text = parkChipText(item, hours, props.dayLabel)
     setParked((was) => (was.includes(id) ? was : [...was, id]))
-    setParkChips((was) => [...was.filter((c) => c.id !== id), { id, ...text, category: item.category, home: from }])
+    setParkChips((was) => [...was.filter((c) => c.id !== id), { id, ...text, category: item.category, home: from, lenMin: item.endMin - item.startMin, item }])
     setPending(null)
     show(`${item.title}様を仮置きエリアへ移動しました（仮押さえ扱い）`)
   }
 
+  /** The chip's ×. ⚖ Liam 22: it restores the booking to its ORIGIN day and slot
+   *  — `home` is the span it was taken from, and dropping it out of `parked` puts
+   *  the original card back on the day that owns it, whichever day is on screen. */
   function unpark(id: string) {
     const chip = parkChips.find((c) => c.id === id)
     setParked((was) => was.filter((x) => x !== id))
     setParkChips((was) => was.filter((c) => c.id !== id))
+    setAdded((was) => was.filter((a) => a.item.caseId !== id))
     if (chip) setMoves((was) => ({ ...was, [id]: chip.home }))
     show(`${chip?.title.replace('（仮押さえ・未配置）', '') ?? '予約'}を元の枠に戻しました`)
   }
@@ -828,17 +948,39 @@ export function TodayScreen(props: TodayProps) {
       show('仮押さえ中の変更を確定するか、元に戻してから操作してください')
       return
     }
-    chipDragRef.current = { id, startX: e.clientX, startY: e.clientY, moved: false, laneKey: null }
+    const box = e.currentTarget.getBoundingClientRect()
+    chipDragRef.current = {
+      id, startX: e.clientX, startY: e.clientY, moved: false, laneKey: null,
+      grab: { dx: e.clientX - box.left, dy: e.clientY - box.top, w: box.width, h: box.height },
+    }
     try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* capture is an assist */ }
     e.preventDefault()
+  }
+
+  /** One teardown for the shelf gesture, so the pointer-up, the pointercancel and
+   *  the `buttons === 0` self-heal cannot drift apart — a chip drag that ended on
+   *  any of the three used to leave the board's emphasis behind on one of them. */
+  function clearChipDrag() {
+    chipDragRef.current = null
+    setChipTarget(null)
+    setDragLen(null)
+    setProxy(null)
   }
 
   function onChipPointerMove(e: React.PointerEvent<HTMLElement>) {
     const ctx = chipDragRef.current
     if (!ctx) return
-    if (e.buttons === 0) { chipDragRef.current = null; setChipTarget(null); return }
+    if (e.buttons === 0) { clearChipDrag(); return }
     if (!ctx.moved && Math.abs(e.clientX - ctx.startX) < 5 && Math.abs(e.clientY - ctx.startY) < 5) return
+    const chip = parkChips.find((c) => c.id === ctx.id) ?? null
+    if (!ctx.moved) {
+      setDragLen(chip?.lenMin ?? null)
+      // The chip travels too (⚖ Liam 19): the shelf keeps its place in the row —
+      // canon's chip never physically moves — and the operator carries a copy.
+      if (chip) setProxy({ kind: 'chip', title: chip.title, line1: chip.line1, category: chip.category, w: ctx.grab.w, h: ctx.grab.h })
+    }
     ctx.moved = true
+    moveProxy(e.clientX, e.clientY, ctx.grab)
     ctx.laneKey = laneKeyAtY(boardRef.current, 'staff', e.clientY)
     setChipTarget(ctx.laneKey)
   }
@@ -847,19 +989,111 @@ export function TodayScreen(props: TodayProps) {
    *  centred on the pointer, and arrives as a 仮押さえ rather than a booking. */
   function onChipPointerUp(e: React.PointerEvent<HTMLElement>) {
     const ctx = chipDragRef.current
-    chipDragRef.current = null
-    setChipTarget(null)
+    clearChipDrag()
     if (!ctx || !ctx.moved || !ctx.laneKey) return
     const chip = parkChips.find((c) => c.id === ctx.id)
     const track = boardRef.current?.querySelector(`.lane[data-lane="${ctx.laneKey}"] .track`)
     if (!chip || !track) return
     const w = chip.home.w
-    const x = shelfLanding(fractionIn(track, e.clientX), w, chip.home.x, STEP)
-    setParked((was) => was.filter((id) => id !== ctx.id))
-    setParkChips((was) => was.filter((c) => c.id !== ctx.id))
-    setMoves((was) => ({ ...was, [ctx.id]: { laneKey: ctx.laneKey!, x, w } }))
-    setPending({ id: ctx.id, origin: chip.home })
+    placeFromShelf(chip, ctx.laneKey, { x: shelfLanding(fractionIn(track, e.clientX), w, chip.home.x, STEP), w })
+  }
+
+  // ── 配置モード — canon's `armPlacing` / `disarmPlacing` / `createAtCell` ────
+
+  /** ⚖ Liam 2026-08-20 (flag 21) — 次回予約を作成, carried from canon (:6903).
+   *  The button does NOT open the create dialog: it ARMS the board. The
+   *  ご来店中 customer is already known, so nothing needs typing — the operator
+   *  picks a slot and the booking is made there, on whatever day they navigate
+   *  to. Length and category are the store's standard session and 単発, which is
+   *  what canon's own label states out loud. */
+  function armNextVisit() {
+    if (!props.inStore) return
+    if (pending) {
+      show('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      return
+    }
+    setPlacing({
+      label: `${props.inStore.name}様の次回予約（${props.guard.standardSessionMin}分・単発）— お客様情報は自動入力`,
+      name: props.inStore.name,
+    })
+    show('配置モード: 置きたい空き枠をクリック（日付を移動してもそのまま）')
+  }
+
+  /** canon `createAtCell` (:6005) reached through 配置モード: the click makes the
+   *  booking there and then, as a 仮押さえ on the hold bar — NOT the create
+   *  modal, because `prefilled` is true and there is nothing left to ask
+   *  (:6076–6083). A person needs a room, so the placement is refused when no
+   *  lane in the other group is free, in canon's own words. */
+  function placeNextVisit(lane: BoardLane, start: number) {
+    const p = placing
+    if (!p) return
+    const end = Math.min(start + props.guard.standardSessionMin, hours.close)
+    const partner = freePartnerLane(boardLanes, 'staff', start, end)
+    if (!partner) {
+      show('この時間帯に空いているベッドがいません')
+      return
+    }
+    setPlacing(null)
+    // canon's `cellCreateSeq` (:6029): a counter, not a clock. Two placements in
+    // the same millisecond would collide on a timestamp, and the id is a React
+    // key here — the board would drop one of the two cards.
+    createSeq.current += 1
+    const id = `nextvisit-${createSeq.current}`
+    const span = place(start, end, hours)
+    const face = {
+      kind: 'booking' as const,
+      state: 'hold' as const,
+      category: 'repeat' as const,
+      ...span,
+      title: p.name,
+      time: `${hhmm(start)}〜${hhmm(end)}`,
+      ticketCat: '単発',
+      ticketCore: yen(dialogs.pricing.base),
+      held: false,
+      micro: false,
+      caseId: id,
+      label: `${hhmm(start)}–${hhmm(end)} ${p.name}様 次回予約（仮押さえ）`,
+    }
+    setAdded((was) => [
+      ...was,
+      { dayOffset: props.dayOffset, laneKey: lane.key, item: { ...face, key: `${id}-staff`, tag: `【${partner.label}】` } },
+      { dayOffset: props.dayOffset, laneKey: partner.key, item: { ...face, key: `${id}-bed`, tag: `【${lane.label}】` } },
+    ])
+    setMoves((was) => ({ ...was, [id]: { laneKey: lane.key, ...span } }))
+    // '' is `revertPending`'s "there is no earlier span" sentinel: 元に戻す on a
+    // creation deletes it rather than moving it somewhere it has never been.
+    setPending({ id, origin: { laneKey: '', x: 0, w: 0 } })
     setSelected(null)
+    show(`${p.name}様の次回予約を${props.dayLabel} ${hhmm(start)}に仮押さえしました（お客様情報は自動入力）`)
+  }
+
+  /** ⚖ Liam 2026-08-20 (flag 22) — the landing, on WHATEVER DAY is on screen.
+   *
+   *  The chip used to land through `moves` alone, which can only ever re-place a
+   *  card the shown day already knows about: carry a chip to 8/22 and the drop
+   *  did nothing, because 8/22's board has no such booking to move. It lands as
+   *  a row on the day being viewed instead, and `parked` keeps the origin day
+   *  hiding the booking — so it is on exactly one board, the one it was put on.
+   *
+   *  `moves` is still written because the 仮押さえ bar's checks read the span
+   *  from there; it never draws the card. */
+  function placeFromShelf(chip: ParkChip, laneKey: string, span: { x: number; w: number }) {
+    const start = minuteOf(span.x, hours)
+    const end = minuteOf(span.x + span.w, hours)
+    setParkChips((was) => was.filter((c) => c.id !== chip.id))
+    setAdded((was) => [
+      ...was.filter((a) => a.item.caseId !== chip.id),
+      {
+        dayOffset: props.dayOffset,
+        laneKey,
+        fromChip: chip,
+        item: { ...chip.item, ...place(start, end, hours), time: `${hhmm(start)}〜${hhmm(end)}`, state: 'hold' },
+      },
+    ])
+    setMoves((was) => ({ ...was, [chip.id]: { laneKey, ...span } }))
+    setPending({ id: chip.id, origin: chip.home })
+    setSelected(null)
+    show(`${chip.item.title}様を${props.dayLabel} ${hhmm(start)}へ仮押さえしました`)
   }
 
   // The month grid the calendar popover draws: the loaded window, grouped by
@@ -882,6 +1116,11 @@ export function TodayScreen(props: TodayProps) {
     showSlotPrice ? '' : 'hide-slot-prices',
     `sell-${sellMode}`,
     sell.degraded ? 'density-degraded' : '',
+    // ⚖ Liam 2026-08-20. Canon gates the drag reveal on `:has(.event.dragging)`,
+    // which can only ever see a card on the board — a shelf chip travelling to a
+    // lane left the whole window layer asleep. One class, set for BOTH gestures.
+    dragLen != null ? 'dragging-live' : '',
+    placing ? 'placing' : '',
     `guard-guide-mode-${guideMode}`,
   ]
     .filter(Boolean)
@@ -937,8 +1176,16 @@ export function TodayScreen(props: TodayProps) {
         <div
           className={`track${dropTarget?.laneKey === lane.key ? ' drop-target' : ''}`}
           onClick={(e) => {
-            if (e.target !== e.currentTarget || isLocked || lane.group !== 'staff') return
-            setSeed({ staffId: lane.key, start: slotStartAt(e.currentTarget, e.clientX, hours), nonce: Date.now() })
+            if (e.target !== e.currentTarget || lane.group !== 'staff') return
+            if (isLocked) {
+              if (placing) show('シフトロック中: このスタッフには新しい予約を置けません')
+              return
+            }
+            const start = slotStartAt(e.currentTarget, e.clientX, hours)
+            // canon (:6820): while 配置モード is armed the empty slot is a LANDING,
+            // not an invitation to fill a form — the customer is already known.
+            if (placing) { placeNextVisit(lane, start); return }
+            setSeed({ staffId: lane.key, start, nonce: Date.now() })
             createRef.current?.showModal()
           }}
         >
@@ -947,7 +1194,9 @@ export function TodayScreen(props: TodayProps) {
               const span = place(c.h, c.h + 60, hours)
               return (
                 <span
-                  className="cell-price"
+                  // A plain 販売可能 wash advertises one standard hour, always
+                  // (canon :4867) — so it is the box a 60-minute card fits.
+                  className={`cell-price${fitsDrag(60, dragLen) ? ' fits' : ''}`}
                   key={`${lane.key}-${c.group}-${c.h}`}
                   aria-hidden="true"
                   style={{ '--x': `${span.x}%`, '--w': `${span.w}%`, '--tier': c.tier } as React.CSSProperties}
@@ -962,7 +1211,10 @@ export function TodayScreen(props: TodayProps) {
               const packedHere = gap.packed.includes(c)
               return (
                 <span
-                  className={packedHere ? 'cell-packed' : 'cell-gapfill'}
+                  // A 詰め込み box advertises the length on its own label; a
+                  // スキマ枠 advertises a discount, not a session, so canon gives
+                  // it no drag emphasis at all and neither do we.
+                  className={`${packedHere ? 'cell-packed' : 'cell-gapfill'}${packedHere && fitsDrag(c.e - c.s, dragLen) ? ' fits' : ''}`}
                   key={`${lane.key}-${c.group}-${packedHere ? 'p' : 's'}-${c.s}`}
                   aria-hidden="true"
                   style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
@@ -975,8 +1227,8 @@ export function TodayScreen(props: TodayProps) {
                 </span>
               )
             })}
-          {dropTarget?.laneKey === lane.key && dropTarget.w > 0 && (
-            <div className="drop-ghost" aria-hidden="true" style={{ '--x': `${dropTarget.x}%`, '--w': `${dropTarget.w}%` } as React.CSSProperties} />
+          {landing?.laneKey === lane.key && landing.w > 0 && (
+            <div className="drop-ghost" aria-hidden="true" style={{ '--x': `${landing.x}%`, '--w': `${landing.w}%` } as React.CSSProperties} />
           )}
           {lane.items.map((item) => renderItem(item, lane))}
         </div>
@@ -1093,6 +1345,21 @@ export function TodayScreen(props: TodayProps) {
         onPointerDown={(e) => onCardPointerDown(e, item, lane)}
         onKeyDown={(e) => onCardKeyDown(e, item, lane)}
       >
+        {cardFace(item, settledHere)}
+        {/* The grips say what they do through the card's own 操作ヒント and the
+            cursor; a `title` here is the same mid-drag tooltip as above. */}
+        <span className="event-resize-grip left" aria-hidden="true" />
+        <span className="event-resize-grip right" aria-hidden="true" />
+      </button>
+    )
+  }
+
+  /** The card's FACE — name, tag, time, ticket line. Shared with the drag proxy
+   *  so what travels under the cursor is the visual he grabbed, to the character,
+   *  rather than a second rendering of the same booking that can drift from it. */
+  function cardFace(item: BoardItem, settledHere: boolean) {
+    return (
+      <>
         <strong>
           {item.title}
           <i className="tg">{item.tag}</i>
@@ -1103,11 +1370,7 @@ export function TodayScreen(props: TodayProps) {
           <span className="tkt-core">{settledHere ? '精算済' : item.ticketCore}</span>
           {item.held && <span className="tkt-note">保持</span>}
         </small>
-        {/* The grips say what they do through the card's own 操作ヒント and the
-            cursor; a `title` here is the same mid-drag tooltip as above. */}
-        <span className="event-resize-grip left" aria-hidden="true" />
-        <span className="event-resize-grip right" aria-hidden="true" />
-      </button>
+      </>
     )
   }
 
@@ -1233,7 +1496,7 @@ export function TodayScreen(props: TodayProps) {
                 <div className="session-chip">
                   <i aria-hidden="true" />
                   ご来店中: {props.inStore.name}様（施術済み・精算待ち）
-                  <button className="btn text" type="button" onClick={() => createRef.current?.showModal()}>次回予約を作成</button>
+                  <button className="btn text" type="button" onClick={armNextVisit}>次回予約を作成</button>
                 </div>
               )}
             </div>
@@ -1463,7 +1726,7 @@ export function TodayScreen(props: TodayProps) {
                       onPointerDown={(e) => onChipPointerDown(e, chip.id)}
                       onPointerMove={onChipPointerMove}
                       onPointerUp={onChipPointerUp}
-                      onPointerCancel={() => { chipDragRef.current = null; setChipTarget(null) }}
+                      onPointerCancel={clearChipDrag}
                     >
                       <strong>{chip.title}</strong>
                       <span className="pc-line1">{chip.line1}</span>
@@ -1472,6 +1735,17 @@ export function TodayScreen(props: TodayProps) {
                     </div>
                   ))}
                 </div>
+                {/* canon `#placingNote` (:1866), inside the shelf next to the
+                    chips — 配置モード is the same "something is in your hand"
+                    state the shelf already describes, so it says so in the same
+                    place, with the same × to put it down. */}
+                {placing && (
+                  <div className="placing-note" role="status">
+                    <strong>{placing.label}</strong>
+                    <span>置きたい日へ移動して、空き枠をクリック</span>
+                    <button className="park-x" type="button" aria-label="配置モードをやめる" onClick={() => setPlacing(null)}>×</button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1782,7 +2056,7 @@ export function TodayScreen(props: TodayProps) {
         hours={hours}
         seed={seed}
         onCreate={(laneKey, item, message) => {
-          setAdded((was) => [...was, { laneKey, item }])
+          setAdded((was) => [...was, { dayOffset: props.dayOffset, laneKey, item }])
           show(message)
         }}
       />
@@ -1962,6 +2236,33 @@ export function TodayScreen(props: TodayProps) {
               <button className="btn primary" type="button" onClick={() => setAdvice(null)}>この開始に配置</button>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ⚖ Liam 19/20 — the card under the cursor. Board-level and `position:
+          fixed`, so no lane, no track and no scroller can clip it and nothing on
+          the board is re-parented to carry it. `aria-hidden`: the booking it
+          copies is still on the board with its own accessible name, and a screen
+          reader announcing the same card twice mid-gesture helps nobody. */}
+      {proxy && (
+        <div
+          className={`drag-proxy${proxy.kind === 'chip' ? ' chip' : ` event ${proxy.state}`}`}
+          ref={(el) => {
+            proxyRef.current = el
+            if (el) el.style.transform = proxyAt.current
+          }}
+          aria-hidden="true"
+          data-cat={proxy.kind === 'chip' ? (proxy.category ?? undefined) : (proxy.item.category ?? undefined)}
+          style={{ width: proxy.w, height: proxy.h }}
+        >
+          {proxy.kind === 'chip' ? (
+            <>
+              <strong>{proxy.title}</strong>
+              <small>{proxy.line1}</small>
+            </>
+          ) : (
+            cardFace(proxy.item, proxy.item.caseId != null && settled.includes(proxy.item.caseId))
+          )}
         </div>
       )}
 

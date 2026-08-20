@@ -395,12 +395,56 @@
 .biz .event-resize-grip.right { right: 0; border-right: 2px solid currentColor; }
 .biz .event[data-book]:hover .event-resize-grip,
 .biz .event[data-book]:focus-visible .event-resize-grip { opacity: .42; }
-.biz .event.dragging { opacity: .88; z-index: 30; cursor: grabbing; box-shadow: 0 8px 22px rgba(24, 24, 27, .22); }
+/* ⚖ Liam 2026-08-20 (flag 19): the card he grabbed is now travelling as the
+   proxy, so the one still standing in the lane is the ORIGIN MARKER and dims to
+   say so. Canon's .88-and-a-shadow belonged to a card that WAS the traveller. */
+.biz .event.dragging { opacity: .32; cursor: grabbing; box-shadow: none; }
 .biz .event.pending { outline: 2px dashed var(--orange); outline-offset: 1px; z-index: 6; }
 .biz .event.parked { display: none !important; }
 .biz .track.drop-target { background-color: var(--indigo-soft); background-image: linear-gradient(to right, rgba(63, 91, 232, .22) 1px, transparent 1px); box-shadow: inset 0 0 0 2px var(--select-line); }
-/* 行またぎドラッグの着地プレビュー — 実寸・スナップ済みの半透明ゴースト */
+/* 着地プレビュー — 実寸・スナップ済みの破線ゴースト。⚖ Liam 19: 行またぎだけでなく
+   ドラッグ中は常に出す（カードは手元にあるので、盤面で着地点を言うのはこれだけ）。 */
 .biz .drop-ghost { position: absolute; top: 2px; bottom: 2px; left: var(--x); width: var(--w); border: 1.5px dashed var(--select-line); border-radius: 8px; background: rgba(63, 91, 232, .12); pointer-events: none; z-index: 3; }
+
+/* ── ドラッグプロキシ (⚖ Liam 2026-08-20, flags 19/20) ─────────────────────
+   The card under the cursor. `fixed` + `translate3d` written straight to the
+   node: no lane can clip it, no scroll offset can shift it, and it never enters
+   React's per-frame work. `will-change` keeps it on its own layer so the board
+   underneath is not repainted for every pixel of travel. */
+/* The overriding half needs .event in the selector: every state class
+   (.confirmed / .hold / …) is already two classes deep and owns box-shadow, and
+   a proxy that inherited `position: absolute; left: var(--x)` from .event would
+   sit at the board's left edge instead of on the cursor. */
+.biz .event.drag-proxy,
+.biz .drag-proxy.chip {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: auto;
+  bottom: auto;
+  margin: 0;
+  z-index: 120;
+  pointer-events: none;
+  will-change: transform;
+  opacity: .96;
+  cursor: grabbing;
+}
+.biz .event.drag-proxy { box-sizing: border-box; box-shadow: inset 3px 0 0 currentColor, 0 10px 26px rgba(24, 24, 27, .26); }
+.biz .drag-proxy.chip {
+  display: grid;
+  align-content: center;
+  gap: 1px;
+  box-sizing: border-box;
+  padding: 6px 14px;
+  border: 1px solid #ecc9a4;
+  border-radius: 8px;
+  background: var(--orange-soft);
+  color: var(--orange);
+  font-size: 12px;
+  box-shadow: 0 10px 26px rgba(24, 24, 27, .26);
+}
+.biz .drag-proxy.chip strong { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .drag-proxy.chip small { font-size: 11px; opacity: .82; }
 
 /* ── 仮置きエリア (canon :1493–1507) ──────────────────────────────────────
    The WHOLE bar is the drop zone, so the whole bar is drawn as the receptacle;
@@ -416,6 +460,15 @@
 .biz .park-chip strong { font-size: 12.5px; }
 .biz .park-chip .park-x { position: absolute; right: 4px; top: 4px; display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: var(--orange); font-size: 13px; cursor: pointer; }
 .biz .park-chip .park-x:hover { background: #fff; }
+/* 配置モード note — canon :1485. Same dashed-orange grammar as a chip because it
+   is the same state: something is in the operator's hand and has to be put down
+   somewhere before anything else happens. */
+.biz .placing-note { position: relative; display: grid; gap: 1px; padding: 6px 30px 6px 12px; border: 1.5px dashed #d99b4e; border-radius: 8px; background: var(--orange-soft); color: var(--orange); font-size: 12px; }
+.biz .placing-note strong { font-size: 12.5px; }
+.biz .placing-note .park-x { position: absolute; right: 4px; top: 4px; display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: var(--orange); font-size: 13px; cursor: pointer; }
+.biz .placing-note .park-x:hover { background: #fff; }
+/* While the board is armed every empty slot is a landing, so it says so. */
+.biz .timeline.placing .track { cursor: copy; }
 
 .biz .event {
   position: absolute;
@@ -487,13 +540,24 @@
 .biz .cell-price i { font-style: normal; font-size: 10px; font-weight: 600; color: var(--indigo); opacity: .7; line-height: 1; }
 .biz .timeline.sell-drag .cell-price { opacity: 0; }
 .biz .timeline.sell-off .cell-price { display: none; }
-.biz .timeline.sell-tint:has(.event.dragging) .cell-price,
-.biz .timeline.sell-drag:has(.event.dragging) .cell-price { opacity: 1; background: rgba(130, 151, 233, calc(.07 + var(--tier) * .04)); }
-.biz .timeline:has(.event.dragging) .cell-price i { font-weight: 700; font-size: 11px; opacity: .95; }
+/* ⚖ Liam 2026-08-20 — LENGTH-MATCHED EMPHASIS, superseding canon's uniform
+   deepen. Canon lifts and darkens EVERY derived box for the length of a drag
+   (:594–598). Liam's board answers the sharper question — "where does THIS card
+   fit at full value" — so the gesture still REVEALS the whole layer (a hidden
+   window helps nobody aim), but only the boxes advertising the dragged
+   booking's own length take the emphasis. `.fits` is put on by `fitsDrag`, a
+   comparison of two lengths already on screen: nothing here re-derives a layer,
+   and the board at rest keeps canon's grammar exactly.
+   `.dragging-live` rather than `:has(.event.dragging)` because a shelf chip in
+   flight is a drag too and has no card on the board to be seen. */
+.biz .timeline.sell-tint.dragging-live .cell-price,
+.biz .timeline.sell-drag.dragging-live .cell-price { opacity: 1; }
+.biz .timeline.dragging-live .cell-price.fits { background: rgba(130, 151, 233, calc(.07 + var(--tier) * .04)); box-shadow: inset 0 0 0 1.5px rgba(63, 91, 232, .55); }
+.biz .timeline.dragging-live .cell-price.fits i { font-weight: 700; font-size: 11px; opacity: .95; }
 /* 密度ガード (E9c, fixed rule — not a setting): too many visible bands and tint
    behaves as drag-only, so a fragmented day does not turn into confetti. */
 .biz .timeline.sell-tint.density-degraded .cell-price { opacity: 0; }
-.biz .timeline.sell-tint.density-degraded:has(.event.dragging) .cell-price { opacity: 1; }
+.biz .timeline.sell-tint.density-degraded.dragging-live .cell-price { opacity: 1; }
 .biz .timeline.hide-slot-prices .cell-price i { display: none; }
 .biz .lane.locked .cell-price { display: none; }
 
@@ -514,10 +578,17 @@
 .biz .timeline.hide-slot-prices .cell-packed i { display: none; }
 .biz .timeline.sell-drag .cell-packed { opacity: 0; }
 .biz .timeline.sell-off .cell-packed { display: none; }
-.biz .timeline.sell-tint:has(.event.dragging) .cell-packed,
-.biz .timeline.sell-drag:has(.event.dragging) .cell-packed { opacity: 1; }
+.biz .timeline.sell-tint.dragging-live .cell-packed,
+.biz .timeline.sell-drag.dragging-live .cell-packed { opacity: 1; }
+/* …and the other half of Liam's rule: at rest this border says "a full-price
+   session of a length the store sells starts here". For the length of a drag the
+   board is answering a different question, so a box that does not fit the card
+   in hand goes calm — a light wash and no border — and stops competing with the
+   ones that do. The border comes straight back on release. */
+.biz .timeline.dragging-live .cell-packed:not(.fits) { background: rgba(130, 151, 233, .07); border-color: transparent; }
+.biz .timeline.dragging-live .cell-packed:not(.fits) i { font-weight: 600; opacity: .7; }
 .biz .timeline.sell-tint.density-degraded .cell-packed { opacity: 0; }
-.biz .timeline.sell-tint.density-degraded:has(.event.dragging) .cell-packed { opacity: 1; }
+.biz .timeline.sell-tint.density-degraded.dragging-live .cell-packed { opacity: 1; }
 .biz .lane.locked .cell-gapfill, .biz .lane.locked .cell-packed { display: none; }
 
 /* ── スキマガード 60分配置ガイド (canon :626–686) ──────────────────────────

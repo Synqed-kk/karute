@@ -484,3 +484,40 @@ export function slotStartAt(track: Element, clientX: number, hours: Hours, stepM
 export function spanFor(start: number, end: number, hours: Hours) {
   return place(start, end, hours)
 }
+
+/** ⚖ Liam 2026-08-20 (flags 19/20) — where the drag proxy hangs. The card keeps
+ *  the grip it was picked up by: subtracting the grab offset means the point
+ *  under the cursor is the same point that was under it at pointerdown, which is
+ *  the difference between a card that feels attached and one that trails.
+ *  Rounded to whole pixels — a fractional transform makes text shimmer. */
+export function proxyTransform(clientX: number, clientY: number, grab: { dx: number; dy: number }): string {
+  return `translate3d(${Math.round(clientX - grab.dx)}px, ${Math.round(clientY - grab.dy)}px, 0)`
+}
+
+/** canon `createAtCell`'s partner search (:6021–6027): a booking is a person AND
+ *  a room, so a card placed on a staff lane must find a free lane in the other
+ *  group or the placement is refused outright. First free one wins, exactly as
+ *  canon takes the first `laneFreeAt` — the board is not choosing a best bed,
+ *  it is proving one exists. `null` = nothing free, which is canon's refusal. */
+export function freePartnerLane(lanes: BoardLane[], group: 'staff' | 'beds', start: number, end: number): BoardLane | null {
+  const other = group === 'staff' ? 'beds' : 'staff'
+  return lanes.find((l) => l.group === other && l.items.every((i) => i.endMin <= start || i.startMin >= end)) ?? null
+}
+
+/** ⚖ Liam 2026-08-20 — LENGTH-MATCHED DRAG EMPHASIS, and the one place the rule
+ *  lives. Canon deepens EVERY derived window while a card is in flight (CSS
+ *  reveal, :594–598). Liam's board answers a sharper question — "where does THIS
+ *  card fit at full value" — so the drag reveals the whole layer and only the
+ *  windows advertising the dragged booking's own length take the emphasis.
+ *
+ *  A plain 販売可能 wash advertises one standard session, always (canon's
+ *  `SELL_SLOT_MIN`, :4867); a 詰め込み box advertises the span it draws, which is
+ *  the （60分）/（30分） on its own label. `null` means nothing is in flight, and
+ *  then nothing is emphasised — the board at rest is untouched.
+ *
+ *  PAINT ONLY. This compares a length already on screen against a length the
+ *  drag already carries; no layer is re-derived (WO-2d's `committedLanes` still
+ *  owns that), so the emphasis cannot move a box or change a price. */
+export function fitsDrag(advertisedMin: number, dragLenMin: number | null): boolean {
+  return dragLenMin !== null && advertisedMin === dragLenMin
+}
