@@ -1081,11 +1081,20 @@ export function RecordPageView({
     setRepointOpen(false)
     // `f.committing` is DEFENSIVE, and deliberately kept unpinned (N3): a
     // successful commit clears the offer itself, so without it this effect
-    // would read that success as an abort. Its only consequence today is that
-    // releaseRecoverySave does not run twice — every generation check lives
-    // BEFORE a commit begins, so nothing reads flowGenRef after that point
-    // (which is also why commitRecoverySave carries no check of its own). It
-    // stays because the moment anyone adds one, this is what keeps it honest.
+    // would read that success as an abort. It has TWO consequences, not one:
+    //   ① releaseRecoverySave does not run twice — every generation check
+    //     lives BEFORE a commit begins, so nothing reads flowGenRef after that
+    //     point (which is also why commitRecoverySave carries no check of its
+    //     own).
+    //   ② the SAME short-circuit gates setRepointed(null) three lines below.
+    //     On the DRAFT path a failed saveKaruteRecordInline deliberately keeps
+    //     the offer alive so the staffer can retry, and that retry rebuilds
+    //     `destination = repointed ?? offerBinding`. With `repointed` wrongly
+    //     nulled it resolves back to the ORIGINAL binding, and the
+    //     persisted-answer branch commits straight to it — a WRONG-CUSTOMER
+    //     save, in silence. That is the consequence worth the guard.
+    // It stays because the moment anyone adds a generation check after a
+    // commit begins, this is what keeps it honest.
     if (!f || f.committing || f.offerId === activeOfferId) return
     setConsentFlow(null)
     setOutcomeFlow(null)
