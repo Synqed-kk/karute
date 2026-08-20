@@ -950,7 +950,7 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
     expect(SRC).toContain('applyMoves(props.lanes, liveMoves, parked, addedHere, hours)')
     expect(SRC).toContain('applyMoves(props.lanes, moves, parked, addedHere, hours)')
     // The shelf lands through `added`, stamped with the day on screen.
-    const body = SRC.slice(SRC.indexOf('function placeFromShelf'), SRC.indexOf('function placeFromShelf') + 2400)
+    const body = SRC.slice(SRC.indexOf('function placeFromShelf'), SRC.indexOf('function placeFromShelf') + 3200)
     expect(body).toContain('dayOffset: props.dayOffset')
     expect(body).toContain('setParkChips((was) => was.filter((c) => c.id !== chip.id))')
     // The card's accessible name leads with its span, so the landing rewrites it
@@ -963,7 +963,11 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
     expect(body).toContain('label: `${hhmm(start)}–${hhmm(end)} ${chip.item.title}様 /')
     // …and the landing proves a room, exactly as 次回予約 does. A card labelled
     // 【ベッド3】 over an empty ベッド3 lane is the impossible state ⚖ 8/9 forbids.
-    expect(body).toContain("const bed = freePartnerLane(boardLanes, 'staff', start, end)")
+    // The drop names one lane; which group it belongs to decides what was said
+    // (canon :5629/:5666), the parked card's own bed is tried first, and a
+    // landing with no free room is refused in canon's words rather than drawn.
+    expect(body).toContain("const staff = dropped?.group === 'beds' ? boardLanes.find((l) => l.key === chip.home.laneKey) : dropped")
+    expect(body).toContain("const bed = dropped?.group === 'beds' ? dropped : free(home) ? home : freePartnerLane(boardLanes, 'staff', start, end)")
     expect(body).toContain('この時間帯に空いているベッドがいません')
     expect(body).toContain('laneKey: bed.key')
     // The × and the hold bar's 元に戻す both take the placed row back off.
@@ -971,5 +975,66 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
     expect(SRC).toContain('const placed = added.find((a) => a.item.caseId === id)')
     // The shelf's hint already advertises 日付またぎ — canon's own copy.
     expect(SRC).toContain('ドラッグでここへ（日付またぎ・置くと仮押さえ）')
+  })
+})
+
+/** WO-2e COMPLETENESS PASS — ⚖ Liam 2026-08-20, verbatim: "If you read the code
+ *  properly and understood the functions and the code and everything, things
+ *  shouldn't be missing." So the shelf / park / 配置モード family was enumerated
+ *  against canon's own handlers (`parkBooking` :5556, `bindChipDrag` :5589,
+ *  `placeFromShelf` :5653, `armPlacing` :6826, `createAtCell` :6005,
+ *  `syncPendingUI` :3673) rather than only the itemised flags, and every row
+ *  that came back missing is closed here. The table lives in the evidence doc.
+ *
+ *  The first row is the one Liam felt: he reported the 仮置きエリア as a
+ *  COMPLETELY DEAD drop zone on preview 4173d5d1. The handlers were fine — a
+ *  real pointer drag parks a card on that exact tip — but canon puts the shelf
+ *  ABOVE the board (:1863) and ours had it below, so on a real laptop it sits
+ *  under the fold and the only way to reach it is to drag off the screen. */
+describe('the shelf family, enumerated against canon rather than against the flags', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+
+  it('the 仮置きエリア is ABOVE the board, where a card can be dragged to without leaving the screen', () => {
+    expect(SRC.indexOf('className={`park-shelf')).toBeLessThan(SRC.indexOf('className="timeline-scroll"'))
+    // …and it is still the first thing inside the board column, as in canon.
+    expect(SRC.indexOf('<div className="board-main">')).toBeLessThan(SRC.indexOf('className={`park-shelf'))
+  })
+
+  it('a press on the chip’s × is a press on the ×, not the start of a drag', () => {
+    expect(SRC).toContain("(e.target as Element).closest('.park-x')")
+  })
+
+  it('a chip can be dropped on a bed lane, and that names the room', () => {
+    expect(SRC).toContain("laneKeyAtY(boardRef.current, 'staff', e.clientY) ?? laneKeyAtY(boardRef.current, 'beds', e.clientY)")
+    expect(SRC).toContain("const staff = dropped?.group === 'beds' ? boardLanes.find((l) => l.key === chip.home.laneKey) : dropped")
+  })
+
+  it('the released chip cannot become a second booking', () => {
+    // canon's last line of defence (:5640, :6811) — pointer capture is an
+    // assist, and a drop that turns into a create is not undoable by hand.
+    expect(SRC).toContain('suppressClickUntil.current = e.timeStamp + 400')
+    expect(SRC).toContain('e.timeStamp < suppressClickUntil.current')
+  })
+
+  it('a 仮押さえ staged on another day says so, and cannot be confirmed from here', () => {
+    // canon carries every day in one DOM, so its bar is always answering about a
+    // card it can see. Ours renders one day, so the bar has to know its own.
+    expect(SRC).toContain('const pendingOffDay = pending != null && pending.dayOffset !== props.dayOffset')
+    expect(SRC).toContain("? { enabled: false, label: 'この内容で確定' }")
+    expect(SRC).toContain('if (pendingOffDay || !at ||')
+    expect(SRC).toContain('確定待ち: {pending.dayLabel}')
+    expect(SRC).toContain('{pending.dayLabel}へ戻る')
+    expect(CSS).toContain('.biz .hold-daypin {')
+  })
+
+  it('the chip’s free-bed test is the same one 次回予約 uses — one rule, one home', () => {
+    const beds = [
+      lane({ key: 'bed-01', group: 'beds', items: [booking({ key: 'b1', caseId: 'x' }, 900, 960)] }),
+      lane({ key: 'bed-02', group: 'beds' }),
+    ]
+    expect(freePartnerLane([lane({ key: 'p-01', group: 'staff' }), ...beds], 'staff', 900, 960)?.key).toBe('bed-02')
+    // A parked card holds no ground, so its own bed reads free and comes back.
+    expect(freePartnerLane([lane({ key: 'p-01', group: 'staff' }), lane({ key: 'bed-01', group: 'beds' })], 'staff', 900, 960)?.key).toBe('bed-01')
   })
 })
