@@ -531,6 +531,57 @@ export function chipProxySize(board: Element | null, hours: Hours, lenMin: numbe
   return { w: (lenMin / span) * r.width, h: Math.max(0, r.height - CARD_INSET) }
 }
 
+/** ⚖ Liam flag 29 (2026-08-21) — WHO CARRIES THE CARD, and the one place the
+ *  move/resize split is decided.
+ *
+ *  A MOVE takes the booking off the board and puts it in the operator's hand
+ *  (flag 19's proxy): this returns `true`, and the proxy, the shelf test and
+ *  the lane hunt all belong to that half. A RESIZE does not pick anything up —
+ *  canon stretches the card WHERE IT STANDS (`evSet`, :3697, called from
+ *  `dragMove` :4488–4508) and returns before any lane, shelf or ghost logic.
+ *  Pressing an edge and watching the whole card fly to the cursor was Liam's
+ *  flag 29; this function is the fix, and the two halves cannot drift apart
+ *  because one call answers for both.
+ *
+ *  The write goes straight to the node React already owns — the same custom
+ *  properties its `style` prop sets, in the same `${n}%` spelling — so the
+ *  gesture costs no re-render and `clearDrag` hands the node back by calling
+ *  this once more with the ORIGIN span.
+ *
+ *  NODES, PLURAL: a booking is a person AND a room, so the board draws it twice
+ *  and BOTH drawings are the same booking. Stretching only the one under the
+ *  pointer left the other saying 60分 while the card in hand said 90分 until the
+ *  release caught it up — a lie about bed occupancy for the length of the
+ *  gesture. A block has exactly one drawing and passes exactly one node. */
+export function stretchOrCarry(nodes: readonly HTMLElement[], mode: DragMode, span: { x: number; w: number }): boolean {
+  if (mode === 'move') return true
+  for (const node of nodes) {
+    if (mode === 'resizeL') node.style.setProperty('--x', `${span.x}%`)
+    node.style.setProperty('--w', `${span.w}%`)
+  }
+  return false
+}
+
+/** canon `evLabel` (:3766) — a card being stretched says the time it is being
+ *  stretched TO, in its own time line, live. Same contract as above: the node
+ *  is React's, and the teardown writes back the string React last rendered.
+ *  Canon's overflow fallback is not carried — canon appends a suffix and can
+ *  outgrow the box; our `.e-time` holds the range alone and `.event small`
+ *  already ellipsises. Blocks get no label: canon does not call `evLabel` from
+ *  `bindBlockDrag` either (a 休憩 is a placeholder, not a time). */
+export function liveTimeLabel(nodes: readonly Element[], text: string): void {
+  for (const node of nodes) {
+    const t = node.querySelector('.e-time')
+    if (t) t.textContent = text
+  }
+}
+
+/** Every drawing of one booking. The board puts the same card on a staff lane
+ *  and on a bed lane (canon's `pairOf`), and a gesture owns all of them. */
+export function cardNodes(board: Element | null, caseId: string): HTMLElement[] {
+  return Array.from(board?.querySelectorAll<HTMLElement>(`.event[data-book="${caseId}"]`) ?? [])
+}
+
 /** canon `createAtCell`'s partner search (:6021–6027): a booking is a person AND
  *  a room, so a card placed on a staff lane must find a free lane in the other
  *  group or the placement is refused outright. First free one wins, exactly as

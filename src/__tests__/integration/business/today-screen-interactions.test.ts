@@ -25,9 +25,12 @@ import {
   blockDragModeAt,
   blockEdgeZones,
   blockStepPct,
+  cardNodes,
   chipProxySize,
   clampLabelWidth,
   labelWidthOf,
+  liveTimeLabel,
+  stretchOrCarry,
   spotCardAt,
   spotHitIndex,
   spotTargets,
@@ -337,6 +340,155 @@ describe('the chip in hand is a board card at the booking’s own length', () =>
     // A board with no lanes rendered yet, and a collapsed group with no width.
     expect(chipProxySize(document.createElement('div'), HOURS, 60)).toBeNull()
     expect(chipProxySize(boardWithTrack(0, 0), HOURS, 60)).toBeNull()
+  })
+})
+
+/** ⚖ Liam flag 29 (2026-08-21). The reported bug: pressing a card's edge picked
+ *  the whole card up — `applyDragFrame` created the flying proxy on every mode,
+ *  and `applyBlockFrame` was its twin. Canon stretches the card where it stands
+ *  (dragMove :4488–4508) and returns before any lane, shelf or proxy work. */
+describe('an edge press stretches the card where it stands, it does not pick it up', () => {
+  function card(x: number, w: number): HTMLElement {
+    const el = document.createElement('button')
+    el.className = 'event confirmed'
+    // What React drew, in React's own spelling.
+    el.style.setProperty('--x', `${x}%`)
+    el.style.setProperty('--w', `${w}%`)
+    const t = document.createElement('small')
+    t.className = 'e-time'
+    t.textContent = '11:00〜12:00'
+    el.appendChild(t)
+    return el
+  }
+
+  it('only a MOVE puts the booking in the operator’s hand', () => {
+    const el = card(10, 20)
+    expect(stretchOrCarry([el], 'move', { x: 30, w: 20 })).toBe(true)
+    // …and a move paints nothing on the node: the card in flight is the proxy,
+    // the node is the husk React is still drawing at the committed span.
+    expect(el.style.getPropertyValue('--x')).toBe('10%')
+    expect(el.style.getPropertyValue('--w')).toBe('20%')
+    // Both resize modes refuse the hand — which is the proxy gate, since this
+    // answer is the only thing the board consults before creating one.
+    expect(stretchOrCarry([el], 'resize', { x: 10, w: 33.5 })).toBe(false)
+    expect(stretchOrCarry([el], 'resizeL', { x: 3.75, w: 26.25 })).toBe(false)
+  })
+
+  it('a right-edge drag grows the width in place and never moves the start', () => {
+    const el = card(10, 20)
+    stretchOrCarry([el], 'resize', { x: 10, w: 33.5 })
+    expect(el.style.getPropertyValue('--w')).toBe('33.5%')
+    expect(el.style.getPropertyValue('--x')).toBe('10%')
+  })
+
+  it('a left-edge drag moves the start as well as the width', () => {
+    const el = card(10, 20)
+    stretchOrCarry([el], 'resizeL', { x: 3.75, w: 26.25 })
+    expect(el.style.getPropertyValue('--x')).toBe('3.75%')
+    expect(el.style.getPropertyValue('--w')).toBe('26.25%')
+  })
+
+  it('the teardown hands the node back at the span React last wrote', () => {
+    const el = card(10, 20)
+    stretchOrCarry([el], 'resizeL', { x: 3.75, w: 26.25 })
+    // clearDrag's restore: the same call, with the origin span.
+    stretchOrCarry([el], 'resizeL', { x: 10, w: 20 })
+    expect(el.style.getPropertyValue('--x')).toBe('10%')
+    expect(el.style.getPropertyValue('--w')).toBe('20%')
+  })
+
+  it('the span it paints is canon’s lattice, not a second spelling of it', () => {
+    const track = document.createElement('div')
+    // 900px over nine hours: one 30-minute step is 50px.
+    rect(track, { left: 0, top: 0, width: 900, height: 40 })
+    const span = nextSpan(dragOrigin(0, 100 / 9, 'resize', STEP), track, 50, STEP)
+    const el = card(0, 100 / 9)
+    stretchOrCarry([el], 'resize', span)
+    expect(el.style.getPropertyValue('--w')).toBe(`${span.w}%`)
+    expect(span.w).toBeCloseTo(100 / 9 + STEP, 6)
+  })
+
+  it('the card says the time it is being stretched to, and takes it back on release', () => {
+    const el = card(10, 20)
+    liveTimeLabel([el], '11:00〜12:30')
+    expect(el.querySelector('.e-time')?.textContent).toBe('11:00〜12:30')
+    liveTimeLabel([el], '11:00〜12:00')
+    expect(el.querySelector('.e-time')?.textContent).toBe('11:00〜12:00')
+  })
+
+  it('the screen asks it once per frame, and hangs the whole hand half off the answer', () => {
+    const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+    // Both pipelines, one call each, BEFORE anything is created or hunted.
+    expect(SRC).toContain('const inHand = stretchOrCarry(ctx.nodes, ctx.origin.mode, span)')
+    expect(SRC.match(/const inHand = stretchOrCarry/g)).toHaveLength(2)
+    // The booking pipeline takes EVERY drawing of the card (staff row + bed
+    // row); the block pipeline takes its one box. A card drag that captured
+    // only `e.currentTarget` would leave the room's row stale mid-stretch.
+    expect(SRC).toContain('nodes: cardNodes(boardRef.current, item.caseId),')
+    expect(SRC).toContain('const inHand = stretchOrCarry([ctx.node], ctx.origin.mode, span)')
+    // The proxy, the emphasis, the shelf and the lane hunt are all inside it.
+    for (const fn of ['function applyDragFrame()', 'function applyBlockFrame()']) {
+      const from = SRC.indexOf(fn)
+      const frame = SRC.slice(from, SRC.indexOf('\n  }\n', from))
+      expect(frame).toMatch(/const inHand = stretchOrCarry\((ctx\.nodes|\[ctx\.node\]), ctx\.origin\.mode, span\)/)
+      // Nothing before the first gate creates a proxy, moves one, or hunts a
+      // lane — the whole hand half of the frame lives behind the answer.
+      const beforeGate = frame.slice(0, frame.indexOf('if (inHand) {'))
+      expect(beforeGate).toContain('const inHand =')
+      expect(beforeGate).not.toContain('setProxy({')
+      expect(beforeGate).not.toContain('moveProxy(')
+      expect(beforeGate).not.toContain('laneKeyAtY(')
+    }
+    // Both teardowns hand the node back at the origin span.
+    for (const fn of ['function clearDrag()', 'function clearBlockDrag()']) {
+      const body = SRC.slice(SRC.indexOf(fn), SRC.indexOf(fn) + 800)
+      expect(body).toMatch(/stretchOrCarry\((ctx\.nodes|\[ctx\.node\]), ctx\.origin\.mode, ctx\.origin\)/)
+    }
+    // A stretched card wears canon's live look, never the move's husk…
+    expect(SRC).toContain("live.mode === 'move' ? ' dragging' : ' resizing'")
+    expect(SRC).toContain("blockLive.mode === 'move' ? ' dragging' : ' resizing'")
+    const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+    expect(CSS).toContain('.biz .event.resizing { opacity: .88; z-index: 30; cursor: grabbing; box-shadow: 0 8px 22px rgba(24, 24, 27, .22); }')
+    // …and it must be written BELOW the state colours, or [data-cat] takes the
+    // lift away at the same specificity. This ordering is the rule, pinned.
+    expect(CSS.indexOf('.biz .event.resizing {')).toBeGreaterThan(CSS.indexOf('.biz .event[data-cat] {'))
+  })
+
+  it('a box with no time line — a block, a micro — is left alone', () => {
+    const block = document.createElement('button')
+    const small = document.createElement('small')
+    small.textContent = '13:00〜14:00'
+    block.appendChild(small)
+    liveTimeLabel([block], '13:00〜14:30')
+    expect(block.querySelector('small')?.textContent).toBe('13:00〜14:00')
+    // …and a stretch with nothing to stretch is a no-op, not a crash.
+    expect(stretchOrCarry([], 'resize', { x: 0, w: 10 })).toBe(false)
+    expect(stretchOrCarry([], 'move', { x: 0, w: 10 })).toBe(true)
+  })
+  it('stretches EVERY drawing of the booking — the person’s row and the room’s', () => {
+    // A booking is a person AND a room, so the board draws it twice. Stretching
+    // only the grabbed one left the bed row saying 60分 while the card in hand
+    // said 90分, until the release caught it up.
+    const board = document.createElement('div')
+    const staff = card(10, 20)
+    const bed = card(10, 20)
+    for (const [group, el] of [['staff', staff], ['beds', bed]] as const) {
+      const lane = document.createElement('div')
+      lane.className = 'lane'
+      lane.dataset.group = group
+      el.dataset.book = 'apt-1'
+      lane.appendChild(el)
+      board.appendChild(lane)
+    }
+    expect(cardNodes(board, 'apt-1')).toHaveLength(2)
+    expect(cardNodes(board, 'apt-none')).toHaveLength(0)
+    expect(cardNodes(null, 'apt-1')).toHaveLength(0)
+    stretchOrCarry(cardNodes(board, 'apt-1'), 'resize', { x: 10, w: 30 })
+    expect(staff.style.getPropertyValue('--w')).toBe('30%')
+    expect(bed.style.getPropertyValue('--w')).toBe('30%')
+    liveTimeLabel(cardNodes(board, 'apt-1'), '11:00〜13:00')
+    expect(staff.querySelector('.e-time')?.textContent).toBe('11:00〜13:00')
+    expect(bed.querySelector('.e-time')?.textContent).toBe('11:00〜13:00')
   })
 })
 
@@ -790,12 +942,16 @@ describe('the drag emphasis follows the dragged length, and nothing else', () =>
     // ⚖ Liam flag 26 added the third: a block drag lifts the layer too (canon's
     // bindBlockDrag puts `.dragging` on the block), but carries no length, so it
     // reveals without emphasising — `dragLen` stays null through the gesture.
-    expect(SRC).toContain("dragLen != null || blockLive ? 'dragging-live' : ''")
+    // ⚖ Liam flag 29 added the fourth, for the same reason: an edge drag lifts
+    // the layer (canon sets `dragActive` before its mode branch) and carries no
+    // length either — the card is not looking for a window, it is growing into
+    // one, so `live` reveals and `dragLen` stays null.
+    expect(SRC).toContain("dragLen != null || live || blockLive ? 'dragging-live' : ''")
     expect(SRC).not.toContain('setDragLen(ctx.item.endMin - ctx.item.startMin)\n      setBlockLive')
     // Every teardown path clears it: release/cancel/blur go through clearDrag,
     // the shelf's three endings through clearChipDrag.
     for (const fn of ['function clearDrag()', 'function clearChipDrag()']) {
-      const body = SRC.slice(SRC.indexOf(fn), SRC.indexOf(fn) + 400)
+      const body = SRC.slice(SRC.indexOf(fn), SRC.indexOf(fn) + 800)
       expect(body).toContain('setDragLen(null)')
     }
     // …including the two lost-pointer self-heals, which route into those two.
@@ -915,7 +1071,7 @@ describe('the drag proxy: mounted on the gesture, moved by transform, gone on ev
     // Release / cancel / blur and the board self-heal → clearDrag.
     // Shelf up / cancel and the shelf self-heal → clearChipDrag.
     for (const fn of ['function clearDrag()', 'function clearChipDrag()']) {
-      const body = SRC.slice(SRC.indexOf(fn), SRC.indexOf(fn) + 400)
+      const body = SRC.slice(SRC.indexOf(fn), SRC.indexOf(fn) + 800)
       expect(body).toContain('setProxy(null)')
     }
     // The dashed outline is now drawn for EVERY live drag, not only a lane
@@ -1472,7 +1628,8 @@ describe('予定ブロック move, resize and open — canon’s second pipeline
   it('a block drag lifts the window layer but never emphasises it — it is not a session', () => {
     // canon's bindBlockDrag puts `.dragging` on the block, so canon's own reveal
     // gate fires for a block drag. Ours fires on the same event…
-    expect(SRC).toContain("dragLen != null || blockLive ? 'dragging-live' : ''")
+    // (⚖ flag 29 added `live` to the same gate: an edge drag reveals too.)
+    expect(SRC).toContain("dragLen != null || live || blockLive ? 'dragging-live' : ''")
     // …and `dragLen` — the ONLY input to the length emphasis — is never set by
     // the block pipeline, so no window can claim to fit a 休憩.
     const blockPipe = SRC.slice(SRC.indexOf('function beginBlockDrag'), SRC.indexOf('function clearBlockDrag'))
