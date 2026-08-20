@@ -9,12 +9,13 @@ import { useRouter } from '@/i18n/navigation'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import { useWaveformBars } from '@/hooks/use-waveform-bars'
 import { ReviewScreen } from '@/components/review/ReviewScreen'
-import type { Entry } from '@/types/ai'
 import { loadDraft, clearDraft, type KaruteDraft } from '@/lib/karute/draft'
 import {
   deleteTake,
   getRecoverableTake,
   loadTakeBlob,
+  readTakeOutcome,
+  stampTakeOutcome,
   type RecoverableTake,
 } from '@/lib/karute/take-store'
 import { globalRecorder } from '@/lib/global-recorder'
@@ -29,6 +30,11 @@ import {
 } from '@/actions/customers'
 import { isConsentCurrent } from '@/lib/consent'
 import { sessionPhotoStore } from '@/lib/karute/session-photos'
+import { saveKaruteRecordInline } from '@/actions/karute'
+import { getRecoveryDayFacts } from '@/actions/recovery'
+import type { RecoveryDayFacts } from '@/lib/karute/recovery-facts'
+import { formatCompactDateJst, hmInJst, ymdInJst } from '@/lib/date/jst'
+import type { EntryCategory } from '@/lib/karute/categories'
 
 import { RecordPageHeader } from './RecordPageHeader'
 import { PipelineErrorCard } from './PipelineErrorCard'
@@ -64,6 +70,7 @@ import {
   RecordCustomerPickerDialog,
   type RecordCustomerFact,
 } from './RecordCustomerPickerDialog'
+import { RecoveryBanner, type RecoveryTicketState } from './RecoveryBanner'
 import {
   createPackAction,
   redeemSessionAction,
@@ -215,6 +222,140 @@ export function resolveStopFlow(opts: {
 }): 'save-direct' | 'auto-redeem' | 'dialog' {
   if (!opts.ticketsEnabled || !opts.canRunOutcome) return 'save-direct'
   return opts.outcomeMode === 'auto' ? 'auto-redeem' : 'dialog'
+}
+
+/** The ONE unsaved session the banner offers. A surviving review draft still
+ *  wins over raw audio — its transcription is already paid for. */
+type RecoveryOffer =
+  | { kind: 'draft'; draft: KaruteDraft }
+  | { kind: 'take'; take: RecoverableTake }
+
+/** Where a recovery save lands. Either what the audio was BOUND to at record
+ *  time or the staff's explicit re-point — never today's schedule. */
+interface RecoveryDestination {
+  customerId: string
+  customerName: string
+  karuteNumber?: string | null
+  appointmentId: string | null
+}
+
+/** Stable identity for one unsaved session — the key A-4's answer latch and
+ *  A-1's abort effect both hang off. A draft has no id of its own; its save
+ *  timestamp is unique per draft and survives a reload, which is all this
+ *  needs. */
+function recoveryOfferId(o: RecoveryOffer): string {
+  return o.kind === 'take' ? `take:${o.take.takeId}` : `draft:${o.draft.savedAt}`
+}
+
+/** Per-leg settlement (F-3). 'none' = never asked for · 'pending' = asked for,
+ *  not settled · 'done' = provably finished (succeeded, or the server refused
+ *  it in a way retrying cannot change). Only 'pending' legs ever re-run. */
+export type LegState = 'none' | 'pending' | 'done'
+
+/**
+ * An answer and the state of its money legs. Recorded per offer AND stamped
+ * durably, so a retry after a failed karute save re-runs only what never
+ * settled (A-4 + F-3): a done leg never fires twice — no second 回数券 sale —
+ * and a pending one is always re-offered, so a transient blip cannot cost a
+ * burn in silence.
+ */
+export interface RecoveryAnswer {
+  outcome: SessionOutcome | undefined
+  skipped: boolean
+  legs?: { burn: LegState; pack: LegState }
+  /** The 新しい回数券 the staffer registered — kept so a resumed pack leg can
+   *  re-run with the SAME numbers rather than re-asking. */
+  newPack?: NewPackInput
+  /** Remaining sessions at answer time, for the auto leg's 残N→残N-1 toast. */
+  burnFrom?: number
+  /** The silent mid-pack leg (A-6) — drives which toast the burn shows. */
+  auto?: boolean
+}
+
+/**
+ * A recovery save in flight, FROZEN at the tap (A-1).
+ *
+ * Every step downstream — consent, the outcome popup, the money legs, the
+ * write — takes this as an argument instead of re-reading `offer`/
+ * `destination`/`ticket` from render scope. Those are derived from live state
+ * that a NEW recording wipes out: mid-flow they would evaporate, unmounting
+ * the dialogs, wedging the latch, and (worst case) failing the write's own
+ * `!offer` bail AFTER the money already moved — a silently lost karute under
+ * a success toast.
+ */
+interface RecoveryFlow {
+  offerId: string
+  offer: RecoveryOffer
+  dest: RecoveryDestination
+  /** JST day of the recording — dates the burn and the pack purchase. */
+  dayYmd: string
+  durationSec: number
+  /** The FIFO burn target for `dest`, resolved at freeze time. */
+  packId: string | null
+  pack: { remaining: number; size: number } | null
+  /** This visit's ticket already moved — the popup states it instead of
+   *  offering a second one. */
+  alreadyRedeemed: boolean
+}
+
+/** A-5 — the day's facts are three worlds, not two. `failed` is what the
+ *  server's explicit `unavailable` flag maps to; it is NOT an empty day. */
+/**
+ * A-5 — the day's facts are three worlds, not two. `failed` is what the
+ * server's explicit `unavailable` flag maps to; it is NOT an empty day.
+ *
+ * F-1(b): a settled state carries the KEY it was fetched for. Without it,
+ * "loaded" was read as "loaded for the CURRENT destination" — but the effect
+ * that marks the state stale runs after the render that changed the key, so a
+ * pick landing in that window started its save against the previous
+ * customer's facts (null pack ⇒ the burn question silently dropped, exactly
+ * what A-5 exists to prevent).
+ */
+type DayFactsState =
+  | { status: 'loading' }
+  | { status: 'loaded'; key: string; facts: RecoveryDayFacts }
+  | { status: 'failed'; key: string }
+
+/** What the recovery banner's 回数券 line says. Exported for tests.
+ *
+ * DERIVED truth only (R-B2 / F7): packs minus redemptions, both read from the
+ * server for the RECORDING's day. Three honest states and no fourth —
+ * `facts.redeemed === null` means the burn history could not be read, and an
+ * unknown ticket state must render NOTHING rather than a calm-looking 未処理
+ * that could be a lie about money.
+ *
+ * `redeemed` for the UNBOOKED case keys on the customer + the recording's JST
+ * day (buildRecoveryDayFacts filters it), which is the same dedupe key D5's
+ * guard writes against — so the banner and the guard can never disagree.
+ */
+export function resolveRecoveryTicketState(opts: {
+  facts: RecoveryDayFacts | null
+  customerId: string | null
+  appointmentId: string | null
+}): {
+  state: RecoveryTicketState
+  pack: { remaining: number; size: number } | null
+  /** The FIFO burn target for this customer — null when there is nothing
+   *  burnable, which is also the only state in which the popup must not offer
+   *  a burn at all. */
+  packId: string | null
+} {
+  const { facts, customerId, appointmentId } = opts
+  if (!facts || !customerId) return { state: 'none', pack: null, packId: null }
+  const row = facts.packs.find((p) => p.customerId === customerId) ?? null
+  const pack = row ? { remaining: row.remaining, size: row.size } : null
+  const packId = row?.packId ?? null
+  if (!facts.redeemed) return { state: 'none', pack, packId }
+  // A-2: EITHER key means this visit's ticket already moved. Keying a booked
+  // destination on the appointment alone missed a prior NULL-appointment burn
+  // for the same customer-day (a reconcile-strip backfill, an earlier walk-in
+  // recovery) — the banner then read 未処理 and the popup offered a burn the
+  // customer had already paid. Same OR the server-side guard now applies.
+  const burned =
+    (!!appointmentId && facts.redeemed.appointmentIds.includes(appointmentId)) ||
+    facts.redeemed.customerIds.includes(customerId)
+  if (burned) return { state: 'redeemed', pack, packId }
+  return { state: pack ? 'unresolved' : 'none', pack, packId }
 }
 
 export function RecordPageView({
@@ -442,9 +583,8 @@ export function RecordPageView({
 
   // Crash recovery: a draft persisted by ReviewScreen from a session that was
   // never saved (WebView killed, tab reloaded). Loaded after mount (client-only,
-  // so no SSR hydration mismatch). `restoring` = the staffer chose to reopen it.
+  // so no SSR hydration mismatch).
   const [recoveredDraft, setRecoveredDraft] = useState<KaruteDraft | null>(null)
-  const [restoring, setRestoring] = useState(false)
   // Take recovery: persisted AUDIO from a session that never reached a saved
   // karute record (killed mid-recording, or reloaded mid-transcription before
   // any draft existed). A surviving draft is PREFERRED — its transcription is
@@ -745,52 +885,11 @@ export function RecordPageView({
   // take-store) deleted its persisted audio. Settling a review must never
   // touch the recorder; the phase-sync effect above owns the UI state.
 
-  // Take recovery accept: rebuild the audio from its persisted segments and
-  // hand it to the SAME background pipeline a live stop uses, with the
-  // persisted context (target, recordingSessionId — so core's idempotent-save
-  // dedupe still holds on the recovered save). No outcome is carried, so the
-  // pipeline always lands in review — an interrupted take is processed and
-  // saved manually, never auto-resumed or auto-saved.
-  //
-  // Re-entry guard (same class as usingRecording): loadTakeBlob opens a real
-  // async window — a double-tap must not start the pipeline twice, and the
-  // 破棄 button respects the ref so a Process→Discard race can't delete the
-  // take out from under an accept that already committed to processing it.
-  const recoveringTake = useRef(false)
-  async function handleRecoverTake() {
-    if (!recoveredTake || recoveringTake.current) return
-    recoveringTake.current = true
-    try {
-      await doRecoverTake(recoveredTake)
-    } finally {
-      recoveringTake.current = false
-    }
-  }
-  async function doRecoverTake(take: RecoverableTake) {
-    const blob = await loadTakeBlob(take.takeId)
-    if (!blob || blob.size === 0) {
-      // Unreadable — corrupted, or the owner gate refused (uid changed since
-      // the banner loaded, e.g. logout/login under a stale page). Do NOT
-      // delete here: a delete on this path would let the wrong user destroy
-      // the owner's audio. Clear the offer; the TTL owns cleanup.
-      toast.error(tc('somethingWentWrong'))
-      setRecoveredTake(null)
-      return
-    }
-    globalPipeline.start(blob, {
-      locale,
-      customers,
-      // Rough length from the flush timestamps (pauses included) — display +
-      // save metadata only, nothing downstream branches on it.
-      duration: Math.max(1, Math.round((take.updatedAt - take.startedAt) / 1000)),
-      // '' (walk-in target) → undefined, same coercion as handleUseRecording.
-      appointmentId: take.target?.appointmentId || undefined,
-      appointmentCustomerId: take.target?.customerId || undefined,
-      recordingSessionId: take.recordingSessionId,
-      takeId: take.takeId,
-    })
-    setRecoveredTake(null)
-  }
+  // NOTE (PR-B1): the old take-recovery accept (handleRecoverTake /
+  // doRecoverTake) is gone. It started the pipeline with NO outcome, so a
+  // recovered take could never join the autosave cohort and always took a
+  // review detour. commitRecoverySave below is its replacement — same
+  // pipeline, same persisted context, plus the restored outcome (D6).
 
   // Offer the audio only while fully idle, never for the take the recorder or
   // pipeline is CURRENTLY working on (mount raced a live session), and only
@@ -799,12 +898,718 @@ export function RecordPageView({
   const takeOffer =
     recoveredTake &&
     !recoveredDraft &&
-    !restoring &&
     !live &&
     recoveredTake.takeId !== activeTakeId &&
     recoveredTake.takeId !== pipeline.context?.takeId
       ? recoveredTake
       : null
+
+  // ── PR-B1: ONE recovery offer, ONE banner, ONE action ────────────────────
+  // The draft still wins over the take (its transcription is already paid
+  // for); what changed is that both now render the SAME informative card and
+  // save through the SAME flow instead of two strips with a 破棄 button.
+  const draftOffer = recoveredDraft && !live ? recoveredDraft : null
+  const offer: RecoveryOffer | null = draftOffer
+    ? { kind: 'draft', draft: draftOffer }
+    : takeOffer
+      ? { kind: 'take', take: takeOffer }
+      : null
+
+  // When the audio was captured. The take stamps its real start; a draft only
+  // knows when the AI result landed, so its start is that minus the recorded
+  // length — approximate by the transcription time, and used only for display
+  // + the picker's day.
+  const offerStartedAt = offer
+    ? offer.kind === 'take'
+      ? offer.take.startedAt
+      : offer.draft.savedAt - (offer.draft.duration ?? 0) * 1000
+    : null
+  const offerDurationSec = offer
+    ? offer.kind === 'take'
+      ? Math.max(1, Math.round((offer.take.updatedAt - offer.take.startedAt) / 1000))
+      : (offer.draft.duration ?? 0)
+    : 0
+  const offerDayYmd = offerStartedAt ? ymdInJst(new Date(offerStartedAt)) : null
+
+  // Where the save lands: the staff's re-point if they made one, else what the
+  // audio was bound to at record time. NEVER nextAppointment — the schedule
+  // has moved on since the crash (the 8/2 misattribution class).
+  const [repointed, setRepointed] = useState<RecoveryDestination | null>(null)
+  const offerBinding: RecoveryDestination | null = offer
+    ? offer.kind === 'take'
+      ? offer.take.target
+        ? {
+            customerId: offer.take.target.customerId,
+            customerName: offer.take.target.customerName,
+            // B-4: the take's bind-time snapshot already carries it.
+            karuteNumber: offer.take.target.karuteNumber,
+            appointmentId: offer.take.target.appointmentId || null,
+          }
+        : null
+      : offer.draft.appointmentCustomerId
+        ? {
+            customerId: offer.draft.appointmentCustomerId,
+            // B-1: a draft whose customer has since left the cached list still
+            // has a real, saveable id — only the NAME is unknown. Coalesce it
+            // so the banner can never read as unbound (which would send the
+            // staffer to a picker they don't need, and open a blank-titled
+            // popup). Bound-ness is decided by the destination, never by
+            // whether a display string happened to resolve.
+            customerName:
+              customers.find((c) => c.id === offer.draft.appointmentCustomerId)?.name ||
+              t('recoverCustomerUnknown'),
+            appointmentId: offer.draft.appointmentId || null,
+          }
+        : null
+    : null
+  const destination = repointed ?? offerBinding
+
+  // ── Recording-day facts: TRI-STATE (A-5) ─────────────────────────────────
+  // `null` used to conflate three different worlds — still loading, no pack,
+  // and the read FAILED — and the save button never knew the difference, so a
+  // tap landing before the fetch resolved silently skipped the burn question.
+  // The server now answers with an explicit `unavailable` discriminant.
+  const [dayFacts, setDayFacts] = useState<DayFactsState>({ status: 'loading' })
+  // Bumped by the banner's retry affordance — the only way `failed` clears.
+  const [factsAttempt, setFactsAttempt] = useState(0)
+  // Keyed on the DESTINATION too (A-4): after a re-point the burn history for
+  // the NEW customer is what decides 消化済み, so stale facts must not survive.
+  const factsKey = offer
+    ? `${offerDayYmd}|${offerBinding?.customerId ?? ''}|${destination?.customerId ?? ''}|${factsAttempt}`
+    : null
+  useEffect(() => {
+    if (!factsKey || !offerDayYmd) return
+    let cancelled = false
+    const key = factsKey
+    setDayFacts({ status: 'loading' })
+    void getRecoveryDayFacts({
+      date: offerDayYmd,
+      // BOTH ids (F-1a). The ORIGINAL binding so the picker can always offer
+      // the take's own customer back, AND the CURRENT destination so its 回数券
+      // row exists — after a search re-point the destination is neither pinned
+      // nor booked that day, and sending only the binding meant the server
+      // built no pack row for them at all. The request used to be byte-identical
+      // across a re-point, which is why the "destination-keyed" refetch was
+      // pure cost.
+      pinnedCustomerIds: [offerBinding?.customerId, destination?.customerId],
+    }).then((f) => {
+      if (cancelled) return
+      setDayFacts(
+        f.unavailable ? { status: 'failed', key } : { status: 'loaded', key, facts: f },
+      )
+    })
+    return () => {
+      cancelled = true
+    }
+    // factsKey collapses every input — re-fetch only when one genuinely moves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [factsKey])
+
+  // FRESH means "settled for the key this render is actually asking about".
+  const factsFresh = dayFacts.status !== 'loading' && dayFacts.key === factsKey
+  const loadedFacts = factsFresh && dayFacts.status === 'loaded' ? dayFacts.facts : null
+  const factsFailed = factsFresh && dayFacts.status === 'failed'
+  const ticket = resolveRecoveryTicketState({
+    facts: loadedFacts,
+    customerId: destination?.customerId ?? null,
+    appointmentId: destination?.appointmentId ?? null,
+  })
+  // A-5: money questions need the day's truth — for THIS destination. Tickets
+  // off → there is no money question at all, so a failed read must NOT strand
+  // the record (it only costs the picker its detail lines).
+  const factsBlockSave = ticketsEnabled && !loadedFacts
+
+  const [repointOpen, setRepointOpen] = useState(false)
+  const [recoverySaving, setRecoverySaving] = useState(false)
+  // An unbound take's picked destination, waiting for its day facts (see
+  // repointTo). Never set for a plain re-point of a bound take — that one just
+  // updates the banner and waits for the staffer's 保存する.
+  const [pendingStart, setPendingStart] = useState<RecoveryDestination | null>(null)
+  // A-1 ②: both dialogs render off the FROZEN flow, not off live state — a new
+  // recording starting mid-flow used to evaporate `offer`/`destination` under
+  // them, unmounting the dialog and wedging the latch.
+  const [outcomeFlow, setOutcomeFlow] = useState<RecoveryFlow | null>(null)
+  const [consentFlow, setConsentFlow] = useState<RecoveryFlow | null>(null)
+  // Synchronous single-flight for the whole recovery save (state reads stale
+  // mid-tick — same reason resolvingOutcomeRef is a ref).
+  const recoverySavingRef = useRef(false)
+  // A SECOND, narrower latch for the popup's own 保存: the outer one spans the
+  // whole flow (it is what greys the banner), so feeding it to the dialog's
+  // `saving` prop would leave the dialog's own button disabled from the moment
+  // it opens — the staffer could never answer. This one spans only the money
+  // legs, exactly like resolvingOutcome does on the normal path.
+  const recoveryResolvingRef = useRef(false)
+  const [recoveryResolving, setRecoveryResolving] = useState(false)
+  // Which offer the in-flight flow belongs to, and whether its write has begun
+  // — the abort effect's two inputs.
+  const flowRef = useRef<{ offerId: string; committing: boolean } | null>(null)
+  // A-4 — the per-offer answer latch. Money legs are NOT idempotent as a set:
+  // a burn is guarded server-side, but createPackAction has no dedupe of its
+  // own, so a retry after "burn landed, karute save failed" would MINT A SECOND
+  // 回数券 SALE. Once an offer's answer has been through its money phase it is
+  // recorded here, and every retry goes straight to the save with it.
+  const answeredRef = useRef(new Map<string, RecoveryAnswer>())
+  // F-5 — the abort's cancellation token. Nulling flowRef tore down the UI but
+  // could not stop the awaited chain: a resumed step would re-open a popup for
+  // a dead offer, move money for an aborted flow, or resurrect flowRef and hand
+  // the OLD take's blob to the pipeline while a new recording was live. Every
+  // await boundary re-checks the generation it captured and bails when stale.
+  const flowGenRef = useRef(0)
+
+  function releaseRecoverySave() {
+    recoverySavingRef.current = false
+    recoveryResolvingRef.current = false
+    flowRef.current = null
+    flowGenRef.current++
+    setRecoverySaving(false)
+    setRecoveryResolving(false)
+  }
+
+  // A-1 ③ — the abort. If the offer a flow was saving disappears before its
+  // write began (the staffer starts a NEW recording, another tab settles the
+  // session), tear the flow down: leaving it up means dialogs bound to a dead
+  // offer and a latch nothing will ever release. Deliberately stands down once
+  // the commit is under way — that path clears the offer itself, on purpose.
+  const activeOfferId = offer ? recoveryOfferId(offer) : null
+  useEffect(() => {
+    const f = flowRef.current
+    // F-6: the deferred start and the picker are cleaned up even when NO flow
+    // is running — that is precisely the state during the pendingStart wait.
+    // Left behind, the picker re-opened by itself when the offer came back, and
+    // a save the staffer never re-authorised fired with it.
+    setPendingStart(null)
+    setRepointOpen(false)
+    // `f.committing` is DEFENSIVE, and deliberately kept unpinned (N3): a
+    // successful commit clears the offer itself, so without it this effect
+    // would read that success as an abort. Its only consequence today is that
+    // releaseRecoverySave does not run twice — every generation check lives
+    // BEFORE a commit begins, so nothing reads flowGenRef after that point
+    // (which is also why commitRecoverySave carries no check of its own). It
+    // stays because the moment anyone adds one, this is what keeps it honest.
+    if (!f || f.committing || f.offerId === activeOfferId) return
+    setConsentFlow(null)
+    setOutcomeFlow(null)
+    setRepointed(null)
+    releaseRecoverySave()
+  }, [activeOfferId])
+
+  /** 保存する. Unbound take → the picker decides the destination first. */
+  function handleRecoverySaveTap() {
+    if (recoverySavingRef.current) return
+    if (!destination) {
+      setRepointOpen(true)
+      return
+    }
+    startRecoveryFlow(destination)
+  }
+
+  /** A-1 ① — FREEZE, then run. Everything downstream takes this object as an
+   *  argument; nothing re-reads `offer`/`destination`/`ticket` from render
+   *  scope, so the flow survives whatever the page does underneath it. */
+  function startRecoveryFlow(dest: RecoveryDestination) {
+    if (recoverySavingRef.current || !offer || !offerDayYmd || factsBlockSave) return
+    // Recomputed for THIS destination rather than reusing the render's
+    // `ticket`: a pick made in the picker lands here before React has
+    // re-rendered with the new destination, and a stale null pack would hide a
+    // burn the customer actually has.
+    const own = resolveRecoveryTicketState({
+      facts: loadedFacts,
+      customerId: dest.customerId,
+      appointmentId: dest.appointmentId,
+    })
+    const flow: RecoveryFlow = {
+      offerId: recoveryOfferId(offer),
+      offer,
+      dest,
+      dayYmd: offerDayYmd,
+      durationSec: offerDurationSec,
+      packId: own.packId,
+      pack: own.pack,
+      alreadyRedeemed: own.state === 'redeemed',
+    }
+    recoverySavingRef.current = true
+    flowRef.current = { offerId: flow.offerId, committing: false }
+    setRecoverySaving(true)
+    void beginRecoverySave(flow)
+  }
+
+  /** The picker's exit. For a take that HAD a destination this is a plain
+   *  re-point (the staffer taps 保存する when they're ready); for an unbound
+   *  one the picker WAS the save's first step — its button says
+   *  お客様を選んで保存する — so the save continues from here. */
+  function repointTo(dest: RecoveryDestination | null) {
+    // B-6: judge BEFORE mutating, or the setState below changes the very
+    // condition the continuation is decided by.
+    const continueSave = !destination && !!dest && !recoverySavingRef.current
+    setRepointOpen(false)
+    setRepointed(dest)
+    // NOT started here: a new destination re-fetches the day's facts, and the
+    // flow must freeze the ticket for the customer it is ACTUALLY saving to.
+    // Starting synchronously would freeze the OLD facts — for an unbound take
+    // that means a null pack, so a customer with a live 回数券 would be saved
+    // with the burn question silently skipped. The effect below starts it the
+    // moment the right facts are in.
+    if (continueSave && dest) setPendingStart(dest)
+  }
+
+  /** The deferred half of repointTo: fires once the destination's own day facts
+   *  have landed, so startRecoveryFlow freezes a ticket that is actually true. */
+  useEffect(() => {
+    // F-1(b): `factsFresh` — NOT factsBlockSave. The facts effect is declared
+    // above this one, so in the single commit where a pick lands it sets
+    // {status:'loading'} while THIS effect still reads the render's already
+    // captured values. Gating on the key match is what makes the wait real:
+    // the flow starts only once the facts for the picked destination are in.
+    //   ACCEPTED (N2): if that fetch FAILS, the deferred start is dropped
+    //   silently — no toast fires for it. Safe and visible rather than
+    //   invisible: the banner is already showing 回数券の状態を確認できません
+    //   with its retry, the destination the staffer picked is on screen, and
+    //   one tap on 保存する resumes. Nothing is lost, so this stays as-is.
+    if (!pendingStart || !factsFresh || recoverySavingRef.current) return
+    const dest = pendingStart
+    setPendingStart(null)
+    startRecoveryFlow(dest)
+    // startRecoveryFlow closes over this render's facts, which is exactly what
+    // the gate above just proved fresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingStart, factsFresh])
+
+  /** Consent gate, then the outcome question, then the save. Fail CLOSED: an
+   *  unreadable consent opens the grant dialog and the save stays locked —
+   *  identical rule to ReviewScreen's save-time gate (the server enforces it
+   *  again either way). */
+  async function beginRecoverySave(flow: RecoveryFlow) {
+    const gen = flowGenRef.current
+    let consentCurrent = false
+    try {
+      const { consent: row } = await getCustomerConsent(flow.dest.customerId)
+      consentCurrent = isConsentCurrent(row)
+    } catch {
+      consentCurrent = false
+    }
+    // F-5: the offer died while we were away — the abort already released
+    // everything, so resuming here would re-open a dialog bound to a dead
+    // offer, or move money for a flow the staffer abandoned.
+    if (gen !== flowGenRef.current) return
+    if (!consentCurrent) {
+      setConsentError(null)
+      setConsentFlow(flow)
+      return
+    }
+    await afterRecoveryConsent(flow)
+  }
+
+  async function afterRecoveryConsent(flow: RecoveryFlow) {
+    const gen = flowGenRef.current
+    // A-4 + F-2 — this offer's money phase already ran. Never re-open the
+    // popup; resume only the legs that did NOT settle, then save.
+    const answered = answeredRef.current.get(flow.offerId) ?? (await loadPersistedAnswer(flow))
+    if (gen !== flowGenRef.current) return
+    if (answered) {
+      await resumeRecoveryLegs(flow, answered)
+      return
+    }
+    // Tickets off → the stop flow saves directly and never asks (the same
+    // contract resolveStopFlow's 'save-direct' carries).
+    if (!ticketsEnabled) {
+      await certifyAndCommit(flow, { outcome: undefined, skipped: true })
+      return
+    }
+    // A-6 — 'auto' PARITY. A mid-pack customer (>2 sessions left) had no
+    // conversion conversation, so the live stop flow burns silently for them
+    // and writes NO outcome row; asking 成約/不成約 here would pollute exactly
+    // the coaching labels that design protects. Recovery must behave the same.
+    // The mode decides ALONE whether to ask: an already-burned mid-pack
+    // customer still must not be asked — they just have nothing left to burn.
+    if (flow.packId && resolveOutcomeMode(flow.pack) === 'auto') {
+      await runRecoveryAutoRedeem(flow)
+      return
+    }
+    setOutcomeFlow(flow)
+  }
+
+  /**
+   * F-2 — the answer as it survived a RELOAD.
+   *
+   * A take carries its own stamp. A DRAFT's answer used to live only in the
+   * in-memory latch, so a reload between "money settled, save failed" and the
+   * retry re-opened the popup and minted a SECOND 回数券 sale — and a phone
+   * WebView being killed in that window is this lane's whole premise, not an
+   * exotic case. The draft already carries the take id it deletes on success;
+   * the stamp rides through it.
+   *
+   * ponytail: a legacy draft with NO takeId keeps the in-memory latch only —
+   * it has no durable anchor to hang an answer on, and inventing one is a
+   * storage migration this fix does not need.
+   */
+  async function loadPersistedAnswer(flow: RecoveryFlow): Promise<RecoveryAnswer | null> {
+    if (flow.offer.kind === 'take') {
+      const t = flow.offer.take
+      if (!t.outcome && !t.outcomeSkipped) return null
+      return {
+        outcome: t.outcome,
+        skipped: !!t.outcomeSkipped,
+        legs: t.outcomeLegs,
+        newPack: t.outcomeNewPack ?? undefined,
+      }
+    }
+    const takeId = flow.offer.draft.takeId
+    if (!takeId) return null
+    const stamped = await readTakeOutcome(takeId)
+    if (!stamped || (!stamped.outcome && !stamped.outcomeSkipped)) return null
+    return {
+      outcome: stamped.outcome,
+      skipped: !!stamped.outcomeSkipped,
+      legs: stamped.outcomeLegs,
+      newPack: stamped.outcomeNewPack ?? undefined,
+    }
+  }
+
+  /** F-3 — re-run ONLY the legs that never settled, then save. A leg already
+   *  recorded done never fires again (no second pack sale); a leg that failed
+   *  transiently is always re-offered (no silent money loss). */
+  async function resumeRecoveryLegs(flow: RecoveryFlow, answered: RecoveryAnswer) {
+    const pending = answered.legs
+      ? (answered.legs.burn === 'pending' ? 1 : 0) + (answered.legs.pack === 'pending' ? 1 : 0)
+      : 0
+    if (pending === 0) {
+      await commitRecoverySave(flow, answered.outcome, answered.skipped)
+      return
+    }
+    await runRecoveryLegs(flow, answered)
+  }
+
+  /** A-6's silent leg — handleAutoFlow's twin, dated to the visit and tagged
+   *  recovery. Same undo-able toast, so the staff can still reverse it. */
+  async function runRecoveryAutoRedeem(flow: RecoveryFlow) {
+    // Already burned for this visit → nothing to move, and still nothing to
+    // ask. Straight to the save, with the same skipped-outcome shape.
+    if (flow.alreadyRedeemed) {
+      await certifyAndCommit(flow, { outcome: undefined, skipped: true })
+      return
+    }
+    await runRecoveryLegs(flow, {
+      outcome: undefined,
+      skipped: true,
+      legs: { burn: 'pending', pack: 'none' },
+      burnFrom: flow.pack?.remaining ?? 0,
+      auto: true,
+    })
+  }
+
+  /**
+   * F-3 — the money phase, per leg.
+   *
+   * A leg is CERTIFIED only when it provably finished: it succeeded, or the
+   * server provably refused it (the DB index / the customer-day guard / an
+   * empty pack). A transient failure — a reject, a network drop, or the guard
+   * being unable to READ the history — certifies nothing, keeps the banner,
+   * and is re-offered on the next attempt. Before this, allSettled plus
+   * per-leg catches certified everything, so a blip cost the burn permanently
+   * while telling the staffer it had already been used.
+   */
+  async function runRecoveryLegs(flow: RecoveryFlow, answer: RecoveryAnswer) {
+    const gen = flowGenRef.current
+    const legs = { ...(answer.legs ?? { burn: 'none' as LegState, pack: 'none' as LegState }) }
+    let transient = false
+
+    // The legacy residual: a leg stamped 'pending' by a build that did not yet
+    // persist the payload. It can never be re-run — the size and price are
+    // gone — so it must not loop and must not stay silent. LAND THE KARUTE
+    // (doctrine: the record is the artifact that matters), say plainly that
+    // the sale was lost, and name where to re-enter it. Marked done so the
+    // next attempt does not repeat this.
+    if (legs.pack === 'pending' && !answer.newPack) {
+      legs.pack = 'done'
+      toast.error(t('recoverPackSaleLost'))
+    }
+
+    const packPromise =
+      legs.pack === 'pending' && answer.newPack
+        ? createPackAction({
+            customerId: flow.dest.customerId,
+            kind: 'pack',
+            packSize: answer.newPack.size,
+            unitPrice: answer.newPack.unitPrice,
+            // The purchase happened on the RECORDING's day, not today.
+            purchasedAt: flow.dayYmd,
+          })
+            .then((res) => {
+              if (res.ok) {
+                legs.pack = 'done'
+                toast.success(
+                  tPacks('packCreated', {
+                    size: answer.newPack!.size,
+                    price: answer.newPack!.unitPrice.toLocaleString('ja-JP'),
+                  }),
+                )
+              } else {
+                transient = true
+                toast.error(tPacks('packCreateFailed'))
+              }
+            })
+            .catch(() => {
+              transient = true
+              toast.error(tPacks('packCreateFailed'))
+            })
+        : Promise.resolve()
+
+    const burnPromise =
+      legs.burn === 'pending' && flow.packId
+        ? redeemSessionAction({
+            packId: flow.packId,
+            customerId: flow.dest.customerId,
+            // The burn belongs to the VISIT, not to today.
+            redeemedOn: flow.dayYmd,
+            appointmentId: flow.dest.appointmentId ?? null,
+            // D5 + D7: the customer-day guard, and the recovery-resolved tag.
+            recovery: true,
+          })
+            .then((res) => {
+              if (res.ok) {
+                legs.burn = 'done'
+                if (answer.auto) {
+                  const from = answer.burnFrom ?? 0
+                  toast.success(
+                    tPacks('autoRedeemed', { from, to: from - 1 }),
+                    res.redemptionId
+                      ? {
+                          action: {
+                            label: tPacks('undo'),
+                            onClick: () =>
+                              void undoRedemptionAction(res.redemptionId!).then((u) =>
+                                u.ok
+                                  ? toast.success(tPacks('undone'))
+                                  : toast.error(tPacks('redeemFailed')),
+                              ),
+                          },
+                        }
+                      : undefined,
+                  )
+                } else {
+                  toast.success(tPacks('redeemDone'))
+                }
+              } else if (res.error === 'already_redeemed' || res.error === 'below_zero') {
+                // PROVABLE refusals: the ticket is already spent for this
+                // visit, or the pack has nothing left. Retrying cannot change
+                // either, so the leg is finished — certify it.
+                legs.burn = 'done'
+                if (res.error === 'already_redeemed') toast.info(t('recoverAlreadyRedeemed'))
+                else toast.error(tPacks('redeemNoSessionsLeft'))
+              } else if (res.error === 'guard_unavailable') {
+                // F-3: the guard could not READ the history, so nothing burned
+                // and nothing is known. Say exactly that — never 消化済み.
+                transient = true
+                toast.error(t('recoverBurnCheckFailed'))
+              } else {
+                transient = true
+                toast.error(tPacks('redeemFailed'))
+              }
+            })
+            .catch(() => {
+              transient = true
+              toast.error(tPacks('redeemFailed'))
+            })
+        : Promise.resolve()
+
+    await Promise.allSettled([packPromise, burnPromise])
+
+    // Certify FIRST, bail second (F-5's ordering rule): a leg that settled is
+    // recorded even if the flow was aborted while it was in flight, or the
+    // next attempt would run it twice.
+    const settled: RecoveryAnswer = { ...answer, legs }
+    await settleRecoveryAnswer(flow, settled)
+    if (gen !== flowGenRef.current) return
+    if (transient) {
+      // The banner stays. The retry re-runs only what is still pending.
+      releaseRecoverySave()
+      return
+    }
+    await commitRecoverySave(flow, settled.outcome, settled.skipped)
+  }
+
+  /** No money to move — certify and save in one step. */
+  async function certifyAndCommit(flow: RecoveryFlow, answer: RecoveryAnswer) {
+    const gen = flowGenRef.current
+    await settleRecoveryAnswer(flow, answer)
+    // N1: the GENERATION, not `flowRef.current` truthiness. The stamp is an
+    // IndexedDB write, so an abort can land inside it — and if the staffer
+    // then starts a NEW flow before it resolves, flowRef is non-null again but
+    // belongs to someone else. Truthiness let this dead flow sail on and
+    // clobber the new flow's flowRef at the commit. Same bail as every other
+    // await boundary in this file.
+    if (gen !== flowGenRef.current) return
+    await commitRecoverySave(flow, answer.outcome, answer.skipped)
+  }
+
+  /** A-3 + A-4 + F-2/F-3 — the ONE place an answer becomes certified: after its
+   *  money phase settled, never before, and per leg. The durable stamp (which
+   *  recovery reads as "already resolved, don't ask") and the in-memory retry
+   *  latch move together, so neither can claim money that did not complete.
+   *  Drafts stamp through the take id they already carry. */
+  async function settleRecoveryAnswer(flow: RecoveryFlow, answer: RecoveryAnswer) {
+    answeredRef.current.set(flow.offerId, answer)
+    const takeId =
+      flow.offer.kind === 'take' ? flow.offer.take.takeId : flow.offer.draft.takeId
+    if (takeId) {
+      // The pack payload rides the stamp ONLY while its leg is still owed.
+      // `legs.pack === 'pending'` says a sale has to be re-run, and a reload
+      // that restored the pending flag without the numbers could not re-run
+      // it — the leg no-opped and the karute saved with the sale gone. Cleared
+      // to null the moment the leg is done, so a later crash cannot re-mint
+      // from a stale payload.
+      const newPack =
+        answer.legs?.pack === 'pending' && answer.newPack ? answer.newPack : null
+      await stampTakeOutcome(takeId, answer.outcome, answer.skipped, answer.legs, newPack)
+    }
+  }
+
+  /** The take's audio / the draft's transcript, through the SAME writers the
+   *  normal path uses (R-B1). No parallel recovery writer exists. */
+  async function commitRecoverySave(
+    flow: RecoveryFlow,
+    outcome: SessionOutcome | undefined,
+    outcomeSkipped: boolean,
+  ) {
+    // F-5 — DELIBERATELY no generation check in this function, and the trace
+    // for it: `committing` is set on the line below, BEFORE any await, and the
+    // abort effect stands down on `committing` (adjudicated semantics). The
+    // only other writer of flowGenRef is releaseRecoverySave, which runs in
+    // this function's own finally. So the generation is provably constant for
+    // the whole body — a check here could never fire. Every path INTO this
+    // function re-checks its own generation after its own awaits, which is
+    // where an abort is actually observable.
+    flowRef.current = { offerId: flow.offerId, committing: true }
+    try {
+      const { offer: o, dest } = flow
+      if (o.kind === 'take') {
+        const blob = await loadTakeBlob(o.take.takeId)
+        if (!blob || blob.size === 0) {
+          // Unreadable — corrupted, or the owner gate refused (uid changed
+          // since the banner loaded). Do NOT delete: a delete here would let
+          // the wrong user destroy the owner's audio. The TTL owns cleanup.
+          // A-1 ④: SAY SO. Returning silently here left the staffer looking at
+          // a banner that had just eaten their tap, with the money already
+          // moved.
+          toast.error(t('recoverSaveFailed'))
+          setRecoveredTake(null)
+          return
+        }
+        globalPipeline.start(blob, {
+          locale,
+          customers,
+          duration: flow.durationSec,
+          appointmentId: dest.appointmentId || undefined,
+          appointmentCustomerId: dest.customerId,
+          // WITH the outcome the take now qualifies for the existing autosave
+          // cohort (isServerJobEligible) — it saves without a review detour.
+          outcome,
+          outcomeSkipped,
+          recordingSessionId: o.take.recordingSessionId,
+          takeId: o.take.takeId,
+        })
+        setRecoveredTake(null)
+        return
+      }
+      // DRAFT — the transcript already exists, so it saves DIRECTLY through
+      // the in-tab autosave's own chokepoint caller. No 4th writer shape.
+      const d = o.draft
+      // B-2: a transport failure throws rather than returning { error } — an
+      // unhandled rejection here would leave the flow latched forever.
+      let res: Awaited<ReturnType<typeof saveKaruteRecordInline>>
+      try {
+        res = await saveKaruteRecordInline({
+          customerId: dest.customerId,
+          transcript: d.transcript,
+          summary: d.summary,
+          entries: d.entries.map((e) => ({
+            category: e.category as EntryCategory,
+            content: e.content,
+            sourceQuote: e.sourceQuote,
+            confidenceScore: e.confidenceScore,
+          })),
+          duration: d.duration,
+          appointmentId: dest.appointmentId || undefined,
+          outcome,
+          recordingSessionId: d.recordingSessionId,
+        })
+      } catch {
+        toast.error(t('recoverSaveFailed'))
+        return
+      }
+      if ('error' in res) {
+        // The offer STAYS — the staffer retries, and A-4's latch makes that
+        // retry cost nothing: no popup, no second burn, no second pack sale.
+        toast.error(t('recoverSaveFailed'))
+        return
+      }
+      clearDraft()
+      if (d.takeId) void deleteTake(d.takeId)
+      setRecoveredDraft(null)
+      setRecoveredTake(null)
+      toast.success(t('recoverSaved'))
+    } finally {
+      releaseRecoverySave()
+    }
+  }
+
+  /** Grant + resume. Uses the FROZEN flow the gate opened with, never a re-read
+   *  of live state — the record can only ever save to the customer whose
+   *  consent was just attested (same rule ReviewScreen's frozen pending payload
+   *  enforces). */
+  async function handleGrantRecoveryConsent() {
+    const flow = consentFlow
+    if (!flow || consentSubmitting) return
+    setConsentSubmitting(true)
+    setConsentError(null)
+    let r: Awaited<ReturnType<typeof grantCustomerConsent>>
+    try {
+      r = await grantCustomerConsent(flow.dest.customerId, { method: 'VERBAL' })
+    } catch {
+      // A transport failure must release the dialog, not wedge it.
+      setConsentSubmitting(false)
+      setConsentError(tc('somethingWentWrong'))
+      return
+    }
+    setConsentSubmitting(false)
+    if (!r.ok) {
+      setConsentError(r.error)
+      return
+    }
+    setConsentFlow(null)
+    await afterRecoveryConsent(flow)
+  }
+
+  /** The recovery popup's 保存 — the SAME money legs the normal path runs
+   *  (mirror of onResolve below), plus D5's guard and D6's post-settle stamp. */
+  function handleRecoveryResolve(
+    flow: RecoveryFlow,
+    outcome: SessionOutcome,
+    redeemPack: boolean,
+    newPack: NewPackInput | null,
+  ) {
+    // First tap wins — a double-tap must never fire two burns or create two
+    // packs (the live prod bug the normal path's ref closed).
+    if (recoveryResolvingRef.current) return
+    recoveryResolvingRef.current = true
+    setRecoveryResolving(true)
+    setOutcomeFlow(null)
+    void (async () => {
+      // The legs the staffer actually asked for. runRecoveryLegs settles each
+      // one independently and certifies only what provably finished (F-3), so
+      // the stamp still lands after the money (A-3) but no longer claims a leg
+      // that failed.
+      await runRecoveryLegs(flow, {
+        outcome,
+        skipped: false,
+        legs: {
+          burn: redeemPack && flow.packId ? 'pending' : 'none',
+          pack: newPack ? 'pending' : 'none',
+        },
+        newPack: newPack ?? undefined,
+      })
+    })()
+  }
 
   // What the stop flow shows, decided by the pack state (single source —
   // resolveOutcomeMode): conversion dialog / repurchase dialog / nothing at all.
@@ -908,45 +1713,11 @@ export function RecordPageView({
     )
   }
 
-  // Crash recovery: the staffer chose to reopen an unsaved draft (offered by the
-  // banner below). Re-mount ReviewScreen seeded from the stored draft. Entry shape
-  // is mapped back from the draft's storage shape. No outcome is carried (it's
-  // not persisted) — the karute saves; any pack side-effect is handled manually.
-  if (restoring && recoveredDraft) {
-    return (
-      <ReviewScreen
-        transcript={recoveredDraft.transcript}
-        entries={recoveredDraft.entries.map(
-          (e): Entry => ({
-            category: e.category as Entry['category'],
-            title: e.content,
-            source_quote: e.sourceQuote ?? '',
-            confidence_score: e.confidenceScore,
-          }),
-        )}
-        summary={recoveredDraft.summary}
-        customers={customers}
-        duration={recoveredDraft.duration}
-        appointmentId={recoveredDraft.appointmentId}
-        appointmentCustomerId={recoveredDraft.appointmentCustomerId}
-        recordingSessionId={recoveredDraft.recordingSessionId}
-        takeId={recoveredDraft.takeId}
-        onSaved={() => {
-          clearDraft()
-          // The draft's session is settled — its persisted audio goes too.
-          if (recoveredDraft.takeId) void deleteTake(recoveredDraft.takeId)
-          setRecoveredDraft(null)
-          setRestoring(false)
-        }}
-        onDiscard={() => {
-          clearDraft()
-          if (recoveredDraft.takeId) void deleteTake(recoveredDraft.takeId)
-          setRecoveredDraft(null)
-          setRestoring(false)
-        }}
-      />
-    )
-  }
+  // NOTE (PR-B1): the "reopen the unsaved draft in ReviewScreen" branch is
+  // gone with the 復元する button that was its only entry point. A recovered
+  // draft now saves DIRECTLY through saveKaruteRecordInline (D3) — the
+  // transcript already exists, so a second trip through review only stood
+  // between the staffer and the record.
 
   // Map nextAppointment to the target card shape. Status key comes
   // from the server (sessions/page.tsx derives it from now vs the
@@ -1175,68 +1946,51 @@ export function RecordPageView({
         />
       )}
 
-      {/* Crash-recovery offer — a session that reached the AI review but was
-       *  never saved. Shown only when fully idle so it never competes with a
-       *  live recording; non-hijacking (explicit 復元/破棄). */}
-      {recoveredDraft && !restoring && !live && (
-        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm dark:border-amber-500/30 dark:bg-amber-500/10">
-          <span className="flex-1 text-amber-900 dark:text-amber-200">
-            {t('recoverTitle')}
-          </span>
-          <button
-            type="button"
-            onClick={() => setRestoring(true)}
-            className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-amber-700"
-          >
-            {t('recoverAction')}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              clearDraft()
-              // Discarding the draft settles its whole session — the linked
-              // persisted audio goes too, or the take banner would re-offer
-              // the session the user just threw away.
-              if (recoveredDraft.takeId) void deleteTake(recoveredDraft.takeId)
-              setRecoveredDraft(null)
-            }}
-            className="rounded-lg px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/10"
-          >
-            {t('recoverDiscard')}
-          </button>
-        </div>
-      )}
-
-      {/* Interrupted-take offer — persisted AUDIO that never reached a saved
-       *  record (killed mid-recording / reloaded mid-transcription). Shown only
-       *  when no draft survived; processing it re-runs transcription. Same
-       *  non-hijacking amber pattern as the draft banner above. */}
-      {takeOffer && (
-        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm dark:border-amber-500/30 dark:bg-amber-500/10">
-          <span className="flex-1 text-amber-900 dark:text-amber-200">
-            {t('recoverTakeTitle')}
-          </span>
-          <button
-            type="button"
-            onClick={() => void handleRecoverTake()}
-            className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-amber-700"
-          >
-            {t('recoverTakeAction')}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              // Inert while an accept is in flight — a Process→Discard race
-              // must not delete the take mid-processing (see recoveringTake).
-              if (recoveringTake.current) return
-              void deleteTake(takeOffer.takeId)
-              setRecoveredTake(null)
-            }}
-            className="rounded-lg px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/10"
-          >
-            {t('recoverDiscard')}
-          </button>
-        </div>
+      {/* PR-B1 — the ONE crash-recovery banner. It replaces the two amber
+       *  strips (draft-recover + take-recover) that each carried a 破棄
+       *  button: ⚖ 8/20 abolished discarding at this point entirely, because
+       *  reaching this banner is a SYSTEM failure and the staffer's only job
+       *  is to land the record. Shown only while fully idle, so it never
+       *  competes with a live recording. */}
+      {offer && offerStartedAt !== null && offerDayYmd && (
+        <RecoveryBanner
+          // B-1: bound-ness is the DESTINATION's existence, never whether a
+          // display name happened to resolve.
+          bound={!!destination}
+          customerName={destination?.customerName ?? null}
+          recordedAt={`${formatCompactDateJst(new Date(offerStartedAt), locale)} ${hmInJst(
+            new Date(offerStartedAt),
+          )}`}
+          dayLabel={formatCompactDateJst(new Date(offerStartedAt), locale)}
+          lengthLabel={
+            offerDurationSec > 0
+              ? t('target.durationMinutes', { n: Math.max(1, Math.round(offerDurationSec / 60)) })
+              : null
+          }
+          recordedBy={currentStaffName}
+          // B-7: after a re-point the take's bind-time snapshot belongs to the
+          // OTHER booking, so the menu is re-read from the NEW destination's
+          // own row on the recording day rather than dropped.
+          service={
+            repointed
+              ? (loadedFacts?.bookings.find((b) => b.id === repointed.appointmentId)?.service ??
+                null)
+              : offer.kind === 'take'
+                ? offer.take.target?.service
+                : null
+          }
+          ticketState={ticket.state}
+          pack={ticket.pack}
+          // A-5: 回数券の状態を確認できません + a retry, instead of a save that
+          // silently skips the money question.
+          factsFailed={ticketsEnabled && factsFailed}
+          onRetryFacts={() => setFactsAttempt((n) => n + 1)}
+          onRepoint={() => setRepointOpen(true)}
+          onSave={handleRecoverySaveTap}
+          saving={recoverySaving}
+          // Disabled while the day's truth is still in flight.
+          saveDisabled={factsBlockSave}
+        />
       )}
 
       {micError && (
@@ -1364,6 +2118,15 @@ export function RecordPageView({
           // before any async work, so a re-tap of 録音を使用 during the
           // upcoming await window can't reopen this dialog for the same take.
           outcomeResolvedRef.current = true
+          // D6 (R-B3) — the answer is persisted ONTO the take, so a crash
+          // between the money writes and the karute save recovers it instead
+          // of re-asking (the double-burn doorway ⚖ 8/21 closes). The takeId is
+          // captured HERE but STAMPED after the legs settle (A-3): a stamp
+          // means "this answer's money phase completed", and recovery skips
+          // the popup for a stamped take — so stamping first would certify
+          // money that might still fail. Captured now because handleUseRecording
+          // below hands the take to the pipeline and clears the recorder.
+          const takeIdForStamp = globalRecorder.takeId
           setResolvingOutcome(true)
           setOutcomeOpen(false)
           // 成約/購入した with the inline picker filled → the pack is created
@@ -1427,6 +2190,8 @@ export function RecordPageView({
                       .catch(() => toast.error(tPacks('redeemFailed')))
                   : Promise.resolve()
               await Promise.allSettled([packPromise, redeemPromise])
+              // A-3 — stamp only now, with the money phase behind it.
+              if (takeIdForStamp) await stampTakeOutcome(takeIdForStamp, outcome)
             } finally {
               resolvingOutcomeRef.current = false
               setResolvingOutcome(false)
@@ -1455,6 +2220,122 @@ export function RecordPageView({
           handleUseRecording(outcome)
         }}
       />
+      )}
+
+      {/* PR-B1 — the recovery popup. The SAME PostSessionResolutionDialog the
+          normal stop flow opens, packed with facts for the CURRENT 保存先 (a
+          re-point re-packs it), and told when this booking's ticket already
+          burned so it states 消化済み instead of offering a second one (D4). */}
+      {outcomeFlow && (
+        <PostSessionResolutionDialog
+          open
+          customerName={outcomeFlow.dest.customerName}
+          isFirstVisit={false}
+          // The returning-customer signal is derived for the SCREEN's target,
+          // not this one — unknown must never speculatively offer 通常ご来店.
+          isReturningCustomer={null}
+          saving={recoveryResolving}
+          mode={
+            resolveOutcomeMode(outcomeFlow.pack) === 'repurchase' ? 'repurchase' : 'conversion'
+          }
+          pack={
+            outcomeFlow.packId && outcomeFlow.pack
+              ? { id: outcomeFlow.packId, ...outcomeFlow.pack }
+              : null
+          }
+          alreadyRedeemed={outcomeFlow.alreadyRedeemed}
+          packPresets={packPresets}
+          staffCanCustomize={staffCanCustomizePacks}
+          previousPack={null}
+          onCancel={() => {
+            setOutcomeFlow(null)
+            releaseRecoverySave()
+          }}
+          onResolve={(outcome, redeemPack, newPack) =>
+            handleRecoveryResolve(outcomeFlow, outcome, redeemPack, newPack)
+          }
+        />
+      )}
+
+      {/* PR-B1 — 保存先を変更. The Build A picker in repoint mode: the
+          RECORDING day's bookings, the take's own customer pinned, no search
+          box (⚖ 8/21 doctrine ⑥). */}
+      {repointOpen && offer && (
+        <RecordCustomerPickerDialog
+          variant="repoint"
+          customers={customers}
+          // B-8: the pinned row IS the original booking, so listing it again
+          // below is a duplicate. Only that EXACT appointment is filtered — the
+          // same customer's OTHER bookings that day stay selectable.
+          bookings={(loadedFacts?.bookings ?? []).filter(
+            (b) => !offerBinding?.appointmentId || b.id !== offerBinding.appointmentId,
+          )}
+          facts={(loadedFacts?.packs ?? []).map((p) => ({
+            id: p.customerId,
+            pack: { remaining: p.remaining, size: p.size },
+          }))}
+          pinned={
+            offerBinding
+              ? {
+                  customerId: offerBinding.customerId,
+                  name: offerBinding.customerName,
+                  karuteNumber: offerBinding.karuteNumber ?? null,
+                }
+              : null
+          }
+          // B-3: the 現在の保存先 badge marks where the save actually lands NOW,
+          // which after a re-point is not the pinned original.
+          pinnedIsCurrent={!repointed}
+          currentAppointmentId={repointed?.appointmentId ?? null}
+          dayLabel={offerStartedAt ? formatCompactDateJst(new Date(offerStartedAt), locale) : ''}
+          cancelLabel={tc('cancel')}
+          onClose={() => setRepointOpen(false)}
+          onSelectBooking={(booking) => {
+            if (!booking.customerId) {
+              setRepointOpen(false)
+              return
+            }
+            repointTo({
+              customerId: booking.customerId,
+              customerName: booking.customer,
+              karuteNumber: booking.karute,
+              appointmentId: booking.id,
+            })
+          }}
+          onSelectCustomer={(id) => {
+            // The pinned original → back to the take's own binding, appointment
+            // and all. A re-point never invents a booking.
+            if (offerBinding && id === offerBinding.customerId) {
+              repointTo(null)
+              return
+            }
+            // A-7: a searched customer, which only an UNBOUND take can reach —
+            // no booking to attach, exactly like the walk-in pick-at-review
+            // path this mirrors.
+            repointTo({
+              customerId: id,
+              customerName:
+                customers.find((c) => c.id === id)?.name || t('recoverCustomerUnknown'),
+              appointmentId: null,
+            })
+          }}
+        />
+      )}
+
+      {/* PR-B1 — the recovery save's consent gate. Its customer may not be the
+          screen's bound one, so it carries its own FROZEN flow rather than
+          overloading the start-gate dialog below. */}
+      {consentFlow && (
+        <RecordingConsentDialog
+          customerName={consentFlow.dest.customerName}
+          submitting={consentSubmitting}
+          error={consentError}
+          onCancel={() => {
+            setConsentFlow(null)
+            releaseRecoverySave()
+          }}
+          onConfirm={() => void handleGrantRecoveryConsent()}
+        />
       )}
 
       {/* Consent dialog — shared with the review screen's save-time gate */}

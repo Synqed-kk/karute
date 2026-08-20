@@ -268,6 +268,8 @@ async function facadeRedeemSession(input: {
   appointmentId?: string | null
   karuteRecordId?: string | null
   source?: 'manual' | 'backfill'
+  /** PR-B1 recovery-banner burn — drives the unbooked same-day guard (D5). */
+  recovery?: boolean
 }): Promise<{ ok: boolean; redemptionId?: string; error?: string }> {
   const { customerId, ...rest } = input
   const res = await getDataPort().apiFetch(
@@ -275,9 +277,18 @@ async function facadeRedeemSession(input: {
     idemPost(rest),
   )
   const body = (await res.json().catch(() => null)) as
-    | { redemptionId?: string; error?: { message?: string } }
+    | { redemptionId?: string; error?: { message?: string; code?: string; reason?: string } }
     | null
   if (res.ok) return { ok: true, redemptionId: body?.redemptionId }
+  // B-9 + F-8 parity: the route labels the two guard outcomes with a
+  // MACHINE-READABLE `reason`, so the phone returns the SAME discriminators the
+  // web action does. Never match on the message — a copy edit there would
+  // silently regress the phone to a generic 失敗 toast (and, for
+  // guard_unavailable, back to certifying an answer whose burn never happened).
+  const reason = body?.error?.reason
+  if (reason === 'already_redeemed' || reason === 'guard_unavailable') {
+    return { ok: false, error: reason }
+  }
   return { ok: false, error: body?.error?.message ?? `Redeem failed (${res.status})` }
 }
 
@@ -1410,6 +1421,34 @@ export const getBurnablePackSummary = async (
     return null
   }
 }
+// -- recovery banner (PR-B1): the recording DAY's bookings + 回数券 facts +
+// that day's burn history, for the 保存先 picker. READ. A failure degrades to
+// the SAME honest empty the web action returns — no rows to offer, and
+// `redeemed: null` = 消化 state UNKNOWN, so the banner says nothing about the
+// ticket rather than claiming 未処理 (F7).
+export const getRecoveryDayFacts = (async (input: {
+  date: string
+  pinnedCustomerIds?: (string | null | undefined)[]
+}): Promise<import('@/lib/karute/recovery-facts').RecoveryDayFacts> => {
+  const empty = { date: input.date, unavailable: true as const, bookings: [], packs: [], redeemed: null }
+  try {
+    const qs = `date=${enc(input.date)}${
+      (input.pinnedCustomerIds ?? [])
+        .filter((id): id is string => !!id)
+        .map((id) => `&pinnedCustomerId=${enc(id)}`)
+        .join('')
+    }`
+    const res = await getDataPort().apiFetch(`/api/app/v1/recovery/day-facts?${qs}`)
+    if (!res.ok) return empty
+    const body = (await res.json().catch(() => null)) as
+      | import('@/lib/karute/recovery-facts').RecoveryDayFacts
+      | null
+    return body ?? empty
+  } catch {
+    return empty
+  }
+}) satisfies typeof import('@/actions/recovery').getRecoveryDayFacts
+
 // -- karute-outcome (packet 07 §Build 3). The `satisfies` pin is type-only
 // (erased by vite, no runtime import): under tsc the shared components check
 // against the WEB action while vite swaps in this port — a signature drift

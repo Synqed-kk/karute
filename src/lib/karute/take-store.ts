@@ -27,6 +27,7 @@
 
 import { currentUserId } from '@/lib/karute/draft'
 import type { RecordingTarget } from '@/lib/global-recorder'
+import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 const DB_NAME = 'karute_takes'
 const TAKES = 'takes'
@@ -54,6 +55,28 @@ export type TakeMeta = {
   updatedAt: number
   /** Highest persisted segment seq; -1 until the first flush lands. */
   lastSeq: number
+  /** R-B3: the 結果 answer, stamped HERE the moment staff answer it. Without
+   *  it the answer rides only the in-memory pipeline context
+   *  (global-pipeline.ts), so a crash between the money writes (already
+   *  durable server-side) and the karute save loses it and recovery re-asks.
+   *  Absent = never answered — the app NEVER invents an outcome. */
+  outcome?: SessionOutcome
+  /** True when the stop flow deliberately skipped the question (自動 mid-pack
+   *  flow / tickets off) — the pipeline's isServerJobEligible reads it the
+   *  same way `outcome` is read. */
+  outcomeSkipped?: boolean
+  /** F-3: which of the answer's MONEY LEGS provably finished. A retry after a
+   *  failed karute save re-runs only what is still 'pending', so a settled
+   *  pack sale is never minted twice and a transiently-failed burn is never
+   *  lost in silence. Absent on takes stamped before this field existed —
+   *  read as "no legs pending", which is the old all-or-nothing behavior. */
+  outcomeLegs?: { burn: 'none' | 'pending' | 'done'; pack: 'none' | 'pending' | 'done' }
+  /** The 新しい回数券 the staffer registered, kept ONLY while its leg is still
+   *  pending. `outcomeLegs.pack === 'pending'` says a sale is owed; without the
+   *  numbers a reload could not re-run it, so the sale was silently dropped and
+   *  the karute saved anyway. Cleared to null the moment the leg is done, so a
+   *  later crash can never re-mint from a stale payload. */
+  outcomeNewPack?: { size: number; unitPrice: number } | null
 }
 
 /** What the recovery banner needs — everything except the audio itself. */
@@ -187,6 +210,75 @@ export async function stampTakeSession(
   }
 }
 
+/** R-B3: stamp the 結果 answer onto the take so recovery restores it instead of
+ *  re-asking.
+ *
+ *  THE INVARIANT (fix round 1, A-3): a stamp means "this answer's MONEY PHASE
+ *  COMPLETED" — not merely "the staffer picked something". Every call site
+ *  therefore stamps only AFTER its burn/pack-create legs have settled. Stamping
+ *  earlier would certify money that never moved: recovery reads a stamped take
+ *  as already-resolved and skips the popup entirely, so a crash (or a failed
+ *  burn) between the pick and the write would be permanently un-re-offerable.
+ *
+ *  Best-effort, no-throw, no-op-if-gone — same contract as stampTakeSession.
+ *  B-5: only SUPPLIED fields are written, so a later partial stamp can never
+ *  blank an answer already stored. */
+export async function stampTakeOutcome(
+  takeId: string,
+  outcome: SessionOutcome | undefined,
+  outcomeSkipped?: boolean,
+  outcomeLegs?: TakeMeta['outcomeLegs'],
+  /** null CLEARS it (the leg finished); undefined leaves it alone. */
+  outcomeNewPack?: TakeMeta['outcomeNewPack'],
+): Promise<void> {
+  try {
+    const db = await openDb()
+    if (!db) return
+    const tx = db.transaction(TAKES, 'readwrite')
+    const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
+    if (!meta) return
+    await req(
+      tx.objectStore(TAKES).put({
+        ...meta,
+        ...(outcome === undefined ? {} : { outcome }),
+        ...(outcomeSkipped === undefined ? {} : { outcomeSkipped }),
+        ...(outcomeLegs === undefined ? {} : { outcomeLegs }),
+        ...(outcomeNewPack === undefined ? {} : { outcomeNewPack }),
+      }),
+    )
+  } catch (err) {
+    console.error('[take-store] stampTakeOutcome failed:', err)
+  }
+}
+
+/** F-2: read back a stamped answer by take id — the durable seam a recovered
+ *  DRAFT uses (it carries the take id it deletes on save, so its answer can
+ *  survive a reload too). Deliberately NOT owner-filtered differently from the
+ *  rest of this module: same gate, same fail-closed null. */
+export async function readTakeOutcome(takeId: string): Promise<
+  Pick<TakeMeta, 'outcome' | 'outcomeSkipped' | 'outcomeLegs' | 'outcomeNewPack'> | null
+> {
+  try {
+    const db = await openDb()
+    if (!db) return null
+    const uid = await currentUserId()
+    if (!uid) return null
+    const meta = (await req(
+      db.transaction(TAKES).objectStore(TAKES).get(takeId),
+    )) as TakeMeta | undefined
+    if (!meta || meta.ownerUid !== uid) return null
+    return {
+      outcome: meta.outcome,
+      outcomeSkipped: meta.outcomeSkipped,
+      outcomeLegs: meta.outcomeLegs,
+      outcomeNewPack: meta.outcomeNewPack,
+    }
+  } catch (err) {
+    console.error('[take-store] readTakeOutcome failed:', err)
+    return null
+  }
+}
+
 /** Remove a take (meta + all segments). Called on successful karute save,
  *  explicit discard, and TTL expiry. */
 export async function deleteTake(takeId: string): Promise<void> {
@@ -283,6 +375,10 @@ export async function getRecoverableTake(
       mimeType: newest.mimeType,
       startedAt: newest.startedAt,
       updatedAt: newest.updatedAt,
+      outcome: newest.outcome,
+      outcomeSkipped: newest.outcomeSkipped,
+      outcomeLegs: newest.outcomeLegs,
+      outcomeNewPack: newest.outcomeNewPack,
     }
   } catch (err) {
     console.error('[take-store] getRecoverableTake failed:', err)

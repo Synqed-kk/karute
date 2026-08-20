@@ -33,6 +33,12 @@ interface PostSessionResolutionDialogProps {
    *  staff are guaranteed to be in the app (design #1). null/absent → row
    *  hidden, dialog unchanged. */
   pack?: { id: string; remaining: number; size: number } | null
+  /** R-B6 ⑥ — this session's BOOKING already carries a live redemption (server-
+   *  derived; the storage layer would refuse a second one anyway). The dialog
+   *  then STATES 消化済み instead of offering the burn again, and asks only the
+   *  non-money questions. Absent/false → today's behavior, toggle and all
+   *  (its pre-ON default is Liam-ruled ⚖ 8/21 ③ and untouched here). */
+  alreadyRedeemed?: boolean
   /** conversion (default) = the trial/first-visit sale question (成約/不成約).
    *  repurchase = the 残2/残1 decision point — 「次の回数券のご案内は？」 with
    *  購入した/案内したが未購入/後で決める. Same Outcome values, different copy —
@@ -84,6 +90,7 @@ export function PostSessionResolutionDialog({
   isReturningCustomer = null,
   saving = false,
   pack = null,
+  alreadyRedeemed = false,
   mode = 'conversion',
   packPresets = [],
   staffCanCustomize = true,
@@ -235,7 +242,17 @@ export function PostSessionResolutionDialog({
         {/* 回数券消化 — one tap at the moment staff are guaranteed in the app.
          *  Forgotten redemptions silently corrupt 残回数 (which every 離客 alert
          *  depends on); this makes the check-off part of the existing stop flow. */}
-        {pack && pack.remaining > 0 && (
+        {/* R-B6: one booking = max one burn. The ticket already moved for this
+         *  visit, so there is nothing to decide — state it and move on. */}
+        {pack && alreadyRedeemed && (
+          <div className="mt-4 rounded-xl border border-border bg-muted/30 p-3.5">
+            <p className="text-[12px] font-medium text-foreground">
+              {t('redeemAlready', { remaining: pack.remaining, size: pack.size })}
+            </p>
+          </div>
+        )}
+
+        {pack && !alreadyRedeemed && pack.remaining > 0 && (
           <div className="mt-4 rounded-xl border border-border p-3.5">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -474,7 +491,9 @@ export function PostSessionResolutionDialog({
                   reason: effectiveStatus === 'no_deal' ? reason : null,
                   isFirstVisit,
                 },
-                !!pack && pack.remaining > 0 && redeem,
+                // alreadyRedeemed → never a second burn, whatever the toggle
+                // last held (it isn't even on screen).
+                !alreadyRedeemed && !!pack && pack.remaining > 0 && redeem,
                 effectiveStatus === 'success' && !later && npSize > 0 && npPrice > 0
                   ? { size: npSize, unitPrice: npPrice }
                   : null,

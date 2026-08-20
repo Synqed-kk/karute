@@ -18,6 +18,7 @@ import {
   type ContactChannel,
   type CreatePackInput,
 } from '@/lib/packs/store'
+import { ymdInJst } from '@/lib/date/jst'
 import type { SynqedClient } from '@synqed-kk/client'
 import {
   nextPurchaseRound,
@@ -135,6 +136,15 @@ interface RedeemSessionActionInput {
   karuteRecordId?: string | null
   /** 'backfill' when the reconcile strip redeems retroactively. */
   source?: 'manual' | 'backfill'
+  /** This burn comes from the crash-recovery banner (PR-B1). Two effects, both
+   *  scoped to that path so the normal stop flow is untouched:
+   *   · D5 — with NO appointment to key on, the DB's partial unique index
+   *     (pack_redemptions_active_appointment_unique) cannot protect anything,
+   *     so the same-customer/same-JST-day check-then-write guard the auto-burn
+   *     cron uses (guard 2) runs here instead;
+   *   · D7 — the burn is tagged recovery-resolved for reconcile visibility
+   *     (⚖ 8/21 ②). */
+  recovery?: boolean
 }
 
 /** Redeem core (SINGLE SOURCE): burn pairing is SERVER-derived here — when the
@@ -154,6 +164,53 @@ export async function redeemSessionActionWithClient(
     input.appointmentId !== undefined
       ? input.appointmentId
       : await findCustomerAppointmentForDateWithClient(synqed, input.customerId, redeemedOn)
+  // D5 (R-B6 ⑦) — the customer-day guard, for EVERY recovery burn.
+  //
+  // The storage layer enforces one booking = max one burn via a partial unique
+  // index on pack_redemptions(appointment_id) — but that index only sees rows
+  // that HAVE an appointment_id. A prior NULL-appointment burn for the same
+  // customer on the same day (the reconcile strip's backfill, an earlier
+  // walk-in recovery) is completely invisible to it, so a BOOKED recovery burn
+  // can still double-charge one visit. Fix round 1 A-2: the customer+JST-day
+  // check the auto-burn cron runs as guard 2 therefore runs for every recovery
+  // burn, booked or not — the index stays as the backstop underneath it.
+  //   RESIDUAL, documented not fixed (BA-1 class): check-then-write has a race
+  //   window — two burns for one customer-day landing between the read and the
+  //   write both pass. Closing it for real needs a core-side uniqueness delta
+  //   on (customer_id, redeemed_on) — an OPTIONAL Anthony one-liner, not a
+  //   blocker: the window is milliseconds wide on a path a single staffer
+  //   drives by hand, and the client's own single-flight latch already covers
+  //   the double-tap case.
+  //   CEILING (money lens #8, recorded not fixed): a visit whose burn was
+  //   dated to an ADJACENT JST day is outside this day-keyed check.
+  //   CEILING (F-10): keying on the customer-DAY means two genuine same-day
+  //   visits by one customer burn ONE ticket. That is parity with the
+  //   auto-burn cron's guard 2 ("one customer-day burns ONE ticket EVER"), not
+  //   a regression — but the recovery picker deliberately keeps that
+  //   customer's OTHER same-day bookings selectable (B-8), so the UI can offer
+  //   a destination this guard then refuses with the 消化済み message.
+  if (input.recovery) {
+    // Floor one JST day back, exactly like the cron's historySince — a `since`
+    // equal to the day itself relies on core's comparison being inclusive,
+    // which the app repo cannot see.
+    const since = ymdInJst(new Date(Date.parse(`${redeemedOn}T00:00:00+09:00`) - 86_400_000))
+    const already = await synqed.packs
+      .listRecentRedemptions(since)
+      .then((rows) =>
+        rows.some(
+          (r) => r.customer_id === input.customerId && r.redeemed_on.slice(0, 10) === redeemedOn,
+        ),
+      )
+      // Fail CLOSED on an unreadable history — we cannot prove this burn safe.
+      // But it gets its OWN discriminator (F-3): reporting it as
+      // 'already_redeemed' told the staffer the ticket had been used, and the
+      // client then certified the answer, so a transient read blip cost a burn
+      // permanently under a message that gave nobody a reason to look. No burn
+      // happens either way; only the truth the client is told differs.
+      .catch(() => 'unreadable' as const)
+    if (already === 'unreadable') return { ok: false, error: 'guard_unavailable' }
+    if (already) return { ok: false, error: 'already_redeemed' }
+  }
   const result = await addRedemptionWithClient(synqed, {
     packId: input.packId,
     customerId: input.customerId,
@@ -189,6 +246,41 @@ export async function redeemSessionAction(
   if (!synqed) return { ok: false, error: 'write failed' }
   const result = await redeemSessionActionWithClient(synqed, staffId, input)
   if (result.ok) revalidateProfile()
+  // D7 (⚖ 8/21 ②) — recovery-resolved burns are visible to reconcile. VERIFIED
+  // against @synqed-kk/client 1.25.0, the version package.json PINS (re-checked
+  // on a clean npm ci — an earlier pass read a stale 1.19.0 tree, so the version
+  // is named here on purpose): a `source` surface DOES exist end-to-end
+  // (AddRedemptionInput → SDK `source?: string`), but it is a BARE string — no
+  // union, no 'recovery' value, no enumeration at all — so the typings say
+  // nothing about what the DB accepts, and the package ships compiled .d.ts only
+  // (packs/store.ts's own header: assume nothing beyond the error-string
+  // contract). Sending an unknown literal on a MONEY write is not a risk worth
+  // taking blind, so the tag lives at the audit layer instead — never a
+  // client-side shadow ledger.
+  // THIS IS THE WEB HALF. The PHONE half rides the facade route's ctx.auditDetail
+  // seam (customers/[id]/packs/redeem) — the build round wrongly claimed the
+  // facade twin could carry no per-call detail; it can, and now does. What is
+  // still missing on BOTH is a queryable source column, which stays the OPTIONAL
+  // Anthony one-liner: add 'recovery' to the redemption source enum.
+  if (result.ok && input.recovery) {
+    await auditWeb({
+      category: 'customer',
+      action: 'customer.pack_redeem',
+      targetType: 'customer',
+      targetId: input.customerId,
+      severity: 'notice',
+      detail: {
+        resolved_via: 'recovery',
+        pack_id: input.packId,
+        appointment_id: input.appointmentId ?? null,
+        redemption_id: result.redemptionId ?? null,
+        redeemed_on: input.redeemedOn ?? null,
+      },
+      // B-10: the repo's defensive form — crypto.randomUUID is absent in some
+      // runtimes/test envs, and an audit emit must never break the burn.
+      requestId: globalThis.crypto?.randomUUID?.(),
+    })
+  }
   return result
 }
 

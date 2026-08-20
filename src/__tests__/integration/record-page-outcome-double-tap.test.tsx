@@ -79,13 +79,25 @@ jest.mock('@synqed-kk/ui', () => {
     { get: (_target, prop) => (prop === 'Button' ? button : passthrough) },
   )
 })
+const mockStampTakeOutcome = jest.fn(async () => {})
 jest.mock('@/lib/karute/take-store', () => ({
   appendTakeSegment: jest.fn(),
   createTake: jest.fn(),
   deleteTake: jest.fn(),
   stampTakeSession: jest.fn(),
+  stampTakeOutcome: (...a: unknown[]) => mockStampTakeOutcome(...(a as [])),
   getRecoverableTake: jest.fn(async () => null),
   loadTakeBlob: jest.fn(),
+}))
+// The NORMAL path's stamp reads globalRecorder.takeId, so the singleton needs
+// one for the A-3 ordering test below to have anything to stamp.
+jest.mock('@/lib/global-recorder', () => ({
+  globalRecorder: {
+    takeId: 'take-normal',
+    state: 'idle',
+    subscribe: () => () => {},
+    discard: jest.fn(),
+  },
 }))
 
 // Real getUserMedia/MediaRecorder don't exist in jsdom, so the recorder
@@ -474,5 +486,47 @@ describe('RecordPageView — per-take outcome resolution latch (Greptile P1, #67
 
     expect(screen.getByText('save')).toBeInTheDocument()
     expect(screen.getByText('save')).not.toBeDisabled()
+  })
+})
+
+// ── A-3 (PR-B1 fix round 1) — the NORMAL path stamps after the money ───────
+//
+// The stamp is what recovery reads as "this answer is settled, don't ask
+// again". Firing it before the burn/pack-create legs settle certifies money
+// that might still fail or be interrupted, and the take is then never
+// re-offered — the same class of silent loss R-B3 exists to close, one step
+// earlier. Held-open burn: nothing may be stamped yet.
+describe('the outcome stamp follows the money (A-3)', () => {
+  it('does not stamp while the redemption is still in flight', async () => {
+    let settleBurn: (v: { ok: boolean }) => void = () => {}
+    mockRedeemSessionAction.mockReturnValueOnce(
+      new Promise((r) => {
+        settleBurn = r
+      }) as unknown as Promise<{ ok: boolean; redemptionId: string }>,
+    )
+    await renderRecordedPage({ targetPack: REPURCHASE_PACK })
+    await act(async () => {
+      fireEvent.click(screen.getByText('useRecording'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('repurchase.pending.title'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('save'))
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+    expect(mockRedeemSessionAction).toHaveBeenCalledTimes(1)
+    expect(mockStampTakeOutcome).not.toHaveBeenCalled()
+
+    await act(async () => {
+      settleBurn({ ok: true })
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    expect(mockStampTakeOutcome).toHaveBeenCalledWith(
+      'take-normal',
+      expect.objectContaining({ status: 'pending' }),
+    )
   })
 })

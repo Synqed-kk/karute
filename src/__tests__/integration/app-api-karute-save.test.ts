@@ -194,6 +194,29 @@ describe('POST /api/app/v1/karute (save)', () => {
     expect(update).toHaveBeenCalled()
     expect(create).not.toHaveBeenCalled()
   })
+  // E-1 (PR-B1 fix round 1): the dedupe UPDATE must carry the CUSTOMER, not
+  // only the appointment. The recovery banner's 保存先を変更 can re-point a
+  // take whose earlier partial save already landed a record under this
+  // recording_session_id; without customer_id the record stayed filed on the
+  // OLD customer while appointment_id moved to the NEW one's booking — a
+  // mis-attributed karute, reported to the staffer as a success.
+  it('a dedupe UPDATE carries the re-pointed customer, not just the appointment', async () => {
+    // The existing record is filed under a DIFFERENT customer than the save is
+    // for — exactly the post-re-point shape.
+    existingBySession.current = { id: 'kar-existing', transcript: 'old' }
+    const res = await savePOST(
+      post({ ...auth, ...idem }, { ...validSave, recordingSessionId: 'rec-1', appointmentId: 'appt-new' }),
+      noRoute,
+    )
+    expect(res.status).toBe(200)
+    expect(update).toHaveBeenCalledTimes(1)
+    // BOTH move together. Before the fix only appointment_id was sent, so the
+    // karute kept the old customer while pointing at the new one's booking.
+    expect((update.mock.calls[0] as unknown[])[1]).toMatchObject({
+      customer_id: 'cust-1',
+      appointment_id: 'appt-new',
+    })
+  })
   it('unresolvable attribution (not on roster, no appointment) → 403, no write', async () => {
     roster.current = []
     const res = await savePOST(post({ ...auth, ...idem }, validSave), noRoute)

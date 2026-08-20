@@ -281,6 +281,7 @@ export type FacadeEndpointKey =
   | 'recordings.job.status'
   | 'recordings.session.mint'
   | 'recordings.uploadUrl'
+  | 'recovery.day_facts'
   | 'screens.appointments'
   | 'screens.chrome'
   | 'screens.dashboard'
@@ -452,6 +453,10 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   'screens.settings': { kind: 'skip', category: 'settings', action: '' },
   'screens.welcome': { kind: 'skip', category: 'staff', action: '' },
   'screens.record': { kind: 'skip', category: 'recording', action: '' },
+  // Read-only day list for the recovery banner's 保存先 picker — a list GET,
+  // so the same wayfinding skip every other list carries. The SAVE it leads
+  // to is audited at the record chokepoint, and its burn at the money leg.
+  'recovery.day_facts': { kind: 'skip', category: 'recording', action: '' },
   'screens.appointments': { kind: 'skip', category: 'customer', action: '' },
   'screens.dataExport': { kind: 'skip', category: 'privacy', action: '' },
   'sessions.list': { kind: 'skip', category: 'recording', action: '' },

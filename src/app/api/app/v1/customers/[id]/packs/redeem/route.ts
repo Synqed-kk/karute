@@ -39,6 +39,9 @@ const RedeemSchema = z
     appointmentId: z.string().nullable().optional(),
     karuteRecordId: z.string().nullable().optional(),
     source: z.enum(['manual', 'backfill']).optional(),
+    /** PR-B1: the crash-recovery banner's burn. Turns on the unbooked
+     *  same-customer/same-day guard (D5) in the shared core. */
+    recovery: z.boolean().optional(),
   })
   .strict()
 
@@ -79,6 +82,7 @@ export const POST = facadeHandler<Params>('customer.pack.redeem', async (ctx) =>
     ...('appointmentId' in parsed.data ? { appointmentId: parsed.data.appointmentId } : {}),
     karuteRecordId: parsed.data.karuteRecordId ?? null,
     source: parsed.data.source,
+    recovery: parsed.data.recovery,
   })
   if (!result.ok) {
     // Over-redeem / double-burn guard (trg_pack_below_zero) → a conflict, not a
@@ -86,8 +90,31 @@ export const POST = facadeHandler<Params>('customer.pack.redeem', async (ctx) =>
     if (result.error === 'below_zero') {
       throw new AppApiError('conflict', 'pack has no remaining sessions')
     }
+    // B-9: an already-recorded burn is the guard SUCCEEDING (the DB's partial
+    // unique index, or D5's customer-day check) — a conflict the client can
+    // read as 消化済み, never an upstream failure it should retry.
+    // The `reason` detail is the MACHINE-READABLE half (F-8): the phone port
+    // branches on it, never on this message string, which a copy edit would
+    // otherwise silently regress to a generic 失敗 toast.
+    if (result.error === 'already_redeemed') {
+      throw new AppApiError('conflict', 'this visit already has a redemption', {
+        reason: 'already_redeemed',
+      })
+    }
+    // F-3: the guard could not READ the history. Fail-closed (nothing burned),
+    // but retryable and honestly labelled — the client must not certify the
+    // answer or tell the staffer the ticket was used.
+    if (result.error === 'guard_unavailable') {
+      throw new AppApiError('upstream_unavailable', 'could not verify existing redemptions', {
+        reason: 'guard_unavailable',
+      })
+    }
     throw new AppApiError('upstream_unavailable', result.error ?? 'redeem failed')
   }
+  // C-2 (D7 on the phone): the recovery-resolved marker rides the handler's own
+  // audit hook, which already emits customer.pack_redeem for this route. Same
+  // seam karute outcome/entry-edits use — one bounded route key.
+  if (parsed.data.recovery) ctx.auditDetail = { resolved_via: 'recovery' }
   return ok(ctx, { ok: true, redemptionId: result.redemptionId }, 201)
 })
 
