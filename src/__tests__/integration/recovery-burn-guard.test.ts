@@ -143,7 +143,13 @@ describe('D5 — unbooked recovery burn, same-customer/same-day guard', () => {
     expect(addRedemptionWithClient).not.toHaveBeenCalled()
   })
 
-  it('does NOT fire for a BOOKED recovery burn — the DB index owns that case', async () => {
+  // A-2 (fix round 1) — this test used to assert the OPPOSITE, and in doing so
+  // it PINNED a real double-burn: the DB's partial unique index is on
+  // pack_redemptions(appointment_id), so it cannot see a prior burn that had NO
+  // appointment (a reconcile-strip backfill, an earlier walk-in recovery). A
+  // booked recovery burn on top of one of those charged the customer twice for
+  // one visit, and the old assertion called that correct.
+  it('DOES fire for a BOOKED recovery burn — the index cannot see NULL-appointment burns', async () => {
     ledger = [{ customer_id: 'cust-1', appointment_id: null, redeemed_on: `${DAY}T00:00:00Z` }]
     const res = await redeemSessionActionWithClient(fakeClient, 'staff-1', {
       packId: 'pack-1',
@@ -152,8 +158,21 @@ describe('D5 — unbooked recovery burn, same-customer/same-day guard', () => {
       appointmentId: 'appt-1',
       recovery: true,
     })
+    expect(res).toEqual({ ok: false, error: 'already_redeemed' })
+    expect(addRedemptionWithClient).not.toHaveBeenCalled()
+  })
+
+  it('a booked recovery burn with a CLEAN ledger still goes through', async () => {
+    ledger = [{ customer_id: 'cust-OTHER', appointment_id: null, redeemed_on: `${DAY}T00:00:00Z` }]
+    const res = await redeemSessionActionWithClient(fakeClient, 'staff-1', {
+      packId: 'pack-1',
+      customerId: 'cust-1',
+      redeemedOn: DAY,
+      appointmentId: 'appt-1',
+      recovery: true,
+    })
     expect(res.ok).toBe(true)
-    expect(listRecentRedemptions).not.toHaveBeenCalled()
+    expect(addRedemptionWithClient).toHaveBeenCalledTimes(1)
   })
 
   it('does NOT fire on the NORMAL stop flow (recovery flag absent) — scope guard', async () => {

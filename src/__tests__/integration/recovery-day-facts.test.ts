@@ -168,6 +168,22 @@ describe('the burn history is TRI-STATE', () => {
     expect(listRecentRedemptions).toHaveBeenCalledWith('2026-08-17')
   })
 
+  // T-8: core's redeemed_on is a CALENDAR DATE by contract, but the ledger has
+  // been observed carrying a full timestamp too. Both must read the same, or a
+  // burn silently drops out of the customer-day set and the banner says 未処理
+  // over money that already moved.
+  it.each([
+    ['bare calendar date', '2026-08-18'],
+    ['full ISO timestamp', '2026-08-18T04:30:00.000Z'],
+    ['date + time, no zone', '2026-08-18 04:30:00'],
+  ])('reads a %s redeemed_on identically', async (_label, redeemed_on) => {
+    listRecentRedemptions.mockResolvedValueOnce([
+      { customer_id: 'cust-1', appointment_id: 'appt-1', redeemed_on },
+    ])
+    const facts = await run()
+    expect(facts.redeemed).toEqual({ appointmentIds: ['appt-1'], customerIds: ['cust-1'] })
+  })
+
   it('an UNREADABLE history is null — never an empty set that reads as 未処理', async () => {
     listRecentRedemptions.mockRejectedValueOnce(new Error('core down'))
     const facts = await run()

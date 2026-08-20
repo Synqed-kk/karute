@@ -83,17 +83,30 @@ interface Props {
    * 'record' (default) = the Build A お客様を選んで録音 dialog, unchanged.
    *
    * 'repoint' (PR-B1) = the recovery banner's 保存先を変更 picker: the SAME rows,
-   * fed the RECORDING day's bookings instead of today's, with NO search box.
-   * That absence is the feature — a re-point may only ever land on a customer
-   * who was actually in the salon that day, so offering salon-wide search would
-   * re-open exactly the mis-attribution the day restriction closes (⚖ 8/21
-   * doctrine ⑥). The take's own customer is the ONE exception, and it arrives
-   * pinned rather than searched.
+   * fed the RECORDING day's bookings instead of today's.
+   *
+   * THE SEARCH BOX IS THE DOCTRINE (⚖ 8/21 ⑥), and it is conditional. With a
+   * `pinned` original the box is OFF: re-pointing a BOUND take may only ever
+   * land on a customer who was actually in the salon that day, or it re-opens
+   * the mis-attribution the day restriction closes. With `pinned === null` —
+   * an UNBOUND take, which by definition has no original binding for the
+   * doctrine to anchor on — the box is ON, because otherwise an empty or
+   * failed day list is a dead end: no save, no discard, TTL death for real
+   * customer audio (fix round 1, A-7). That is the same trust tier the
+   * walk-in pick-at-review flow has always had, over the same `customers`
+   * prop the 'record' variant already searches — no new data reaches the
+   * client.
    */
   variant?: 'record' | 'repoint'
   /** repoint: the take's originally-bound customer, offerable even with no
    *  booking that day. Null for a walk-in take that never got one. */
   pinned?: { customerId: string; name: string; karuteNumber?: string | null } | null
+  /** repoint (B-3): where the save lands RIGHT NOW. After a re-point that is a
+   *  day booking, not the pinned original, and the 現在の保存先 badge has to
+   *  move with it — otherwise the picker keeps telling the staffer the save
+   *  goes somewhere it no longer goes. */
+  pinnedIsCurrent?: boolean
+  currentAppointmentId?: string | null
   /** repoint: the recording day, pre-formatted ("8月18日(月)"). */
   dayLabel?: string
 }
@@ -108,9 +121,14 @@ export function RecordCustomerPickerDialog({
   cancelLabel,
   variant = 'record',
   pinned = null,
+  pinnedIsCurrent = true,
+  currentAppointmentId = null,
   dayLabel,
 }: Props) {
   const repoint = variant === 'repoint'
+  // A-7: the day restriction anchors on the ORIGINAL binding. An unbound take
+  // has none, so hiding search would only guarantee a dead end.
+  const searchable = !repoint || pinned === null
   // 'recording' (not 'recording.target'): RecordPageView reads the same namespace,
   // and the dialog's aria-label is pinned as target.chooseCustomer by the armor test.
   const t = useTranslations('recording')
@@ -204,8 +222,8 @@ export function RecordCustomerPickerDialog({
             dialog's max-h and the late rows run off-screen (the exact bug
             SelectBookingSheet's comment records). */}
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-3.5">
-          {/* repoint: NO search box — see the `variant` doc above. */}
-          {!repoint && (
+          {/* Search box presence IS the doctrine — see the `variant` doc. */}
+          {searchable && (
           <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-2.5">
             <Search size={16} className="shrink-0 text-muted-foreground" aria-hidden />
             <input
@@ -250,6 +268,9 @@ export function RecordCustomerPickerDialog({
                   pinned={pinned}
                   fact={factById.get(pinned.customerId)}
                   bookedToday={todayByCustomer.has(pinned.customerId)}
+                  // B-3: the badge follows the CURRENT destination. After a
+                  // re-point the original is a way BACK, not where this saves.
+                  isCurrent={pinnedIsCurrent}
                   onSelect={onSelectCustomer}
                   t={t}
                 />
@@ -317,6 +338,7 @@ export function RecordCustomerPickerDialog({
                         key={b.id}
                         booking={b}
                         fact={b.customerId ? factById.get(b.customerId) : undefined}
+                        isCurrent={!!currentAppointmentId && b.id === currentAppointmentId}
                         onSelect={onSelectBooking}
                         t={t}
                       />
@@ -426,12 +448,14 @@ function PinnedRow({
   pinned,
   fact,
   bookedToday,
+  isCurrent,
   onSelect,
   t,
 }: {
   pinned: { customerId: string; name: string; karuteNumber?: string | null }
   fact: RecordCustomerFact | undefined
   bookedToday: boolean
+  isCurrent: boolean
   onSelect: (id: string) => void
   t: T
 }) {
@@ -442,7 +466,10 @@ function PinnedRow({
         role="option"
         aria-selected={false}
         onClick={() => onSelect(pinned.customerId)}
-        className="flex w-full items-start gap-2.5 rounded-xl bg-primary/8 px-3 py-2.5 text-left transition-colors hover:bg-primary/12"
+        className={cn(
+          'flex w-full items-start gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors',
+          isCurrent ? 'bg-primary/8 hover:bg-primary/12' : 'hover:bg-muted/60',
+        )}
       >
         <Avatar initials={deriveFamilyInitials(pinned.name)} color={getStaffColorByKey(null)} />
         <span className="min-w-0 flex-1">
@@ -466,29 +493,39 @@ function PinnedRow({
               : t('target.repointPinnedNoBooking')}
           </span>
         </span>
-        <span
-          className={cn(
-            'inline-flex h-[17px] shrink-0 items-center rounded-full border px-2 text-[9.5px] font-semibold',
-            BADGE_COLORS.blue.bg,
-            BADGE_COLORS.blue.text,
-            BADGE_COLORS.blue.border,
-          )}
-        >
-          {t('target.repointCurrent')}
-        </span>
+        {isCurrent && <CurrentChip label={t('target.repointCurrent')} />}
       </button>
     </li>
+  )
+}
+
+/** 現在の保存先 — the badge marking where the save actually lands. */
+function CurrentChip({ label }: { label: string }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex h-[17px] shrink-0 items-center rounded-full border px-2 text-[9.5px] font-semibold',
+        BADGE_COLORS.blue.bg,
+        BADGE_COLORS.blue.text,
+        BADGE_COLORS.blue.border,
+      )}
+    >
+      {label}
+    </span>
   )
 }
 
 function BookingRow({
   booking,
   fact,
+  isCurrent = false,
   onSelect,
   t,
 }: {
   booking: RecordTargetBooking
   fact: RecordCustomerFact | undefined
+  /** B-3: this booking is the CURRENT 保存先 (repoint variant only). */
+  isCurrent?: boolean
   onSelect: (b: RecordTargetBooking) => void
   t: T
 }) {
@@ -547,7 +584,10 @@ function BookingRow({
         role="option"
         aria-selected={false}
         onClick={() => onSelect(booking)}
-        className="relative flex w-full items-start gap-2.5 py-2.5 pl-4 pr-3 text-left transition-colors hover:bg-muted/60"
+        className={cn(
+          'relative flex w-full items-start gap-2.5 py-2.5 pl-4 pr-3 text-left transition-colors',
+          isCurrent ? 'bg-primary/8 hover:bg-primary/12' : 'hover:bg-muted/60',
+        )}
       >
         <span
           aria-hidden
@@ -591,7 +631,11 @@ function BookingRow({
             {t('target.staffPrefix', { name: booking.staff })}
           </span>
         </span>
-        {fact?.isNew && <NewChip label={t('target.firstVisit')} />}
+        {isCurrent ? (
+          <CurrentChip label={t('target.repointCurrent')} />
+        ) : (
+          fact?.isNew && <NewChip label={t('target.firstVisit')} />
+        )}
       </button>
     </li>
   )

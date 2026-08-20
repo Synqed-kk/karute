@@ -517,7 +517,22 @@ describe('take durability — outcome survives the crash (R-B3)', () => {
     const offered = await getRecoverableTake([])
     expect(offered?.takeId).toBe(takeId)
     expect(offered?.outcome).toEqual({ status: 'success', reason: null, isFirstVisit: true })
-    expect(offered?.outcomeSkipped).toBe(false)
+    // B-5: an omitted field is left ALONE, not written as false — a later
+    // partial stamp must never blank an answer already stored.
+    expect(offered?.outcomeSkipped).toBeUndefined()
+  })
+
+  it('B-5: a later partial stamp never blanks the stored answer', async () => {
+    const takeId = await quietTake()
+    await stampTakeOutcome(takeId, { status: 'success' }, false)
+    await drain()
+    // Re-stamp with ONLY the skip flag — the answer must survive.
+    await stampTakeOutcome(takeId, undefined, true)
+    await drain()
+
+    const offered = await getRecoverableTake([])
+    expect(offered?.outcome).toEqual({ status: 'success' })
+    expect(offered?.outcomeSkipped).toBe(true)
   })
 
   it('round-trips a deliberate SKIP (mid-pack auto flow) distinctly from an answer', async () => {

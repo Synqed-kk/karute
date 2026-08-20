@@ -210,3 +210,80 @@ describe('予約 menu picker — accent tier', () => {
     expect(standard.className).toMatch(cls('text-primary'))
   })
 })
+
+// PR-B1 fix round 1, T-8 — the recovery banner's 変更 link and the repoint
+// picker's pinned row. Both are PRESSABLE, so accent is exactly right on them;
+// what the law forbids here is the pinned row's SELECTED state becoming a solid
+// fill instead of the /8 wash (R13), and the 変更 link going neutral (it is a
+// real action, not a label).
+describe('recovery banner + repoint picker (PR-B1)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { RecoveryBanner } = require('@/components/karute/redesign/record/RecoveryBanner') as
+    typeof import('@/components/karute/redesign/record/RecoveryBanner')
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { RecordCustomerPickerDialog } = require(
+    '@/components/karute/redesign/record/RecordCustomerPickerDialog',
+  ) as typeof import('@/components/karute/redesign/record/RecordCustomerPickerDialog')
+
+  it('変更 keeps accent (a pressable), 保存する keeps the solid commit fill', () => {
+    render(
+      <RecoveryBanner
+        bound
+        customerName="佐藤 美咲"
+        recordedAt="8月18日(月) 14:22"
+        dayLabel="8月18日(月)"
+        lengthLabel="23分"
+        recordedBy="原"
+        ticketState="none"
+        onRepoint={() => {}}
+        onSave={() => {}}
+      />,
+    )
+    expect(screen.getByText('recoverRepoint').className).toMatch(cls('text-primary'))
+    const save = screen.getByText('recoverSaveAction').closest('button')!
+    expect(save.className).toMatch(cls('bg-primary'))
+    expect(save.className).toMatch(cls('hover:bg-primary-hover'))
+    // Never an opacity hover on the fill (drops white text below AA).
+    expect(save.className).not.toMatch(cls('hover:bg-primary/90'))
+  })
+
+  it('the pinned row marks 現在の保存先 with the /8 wash, never a solid fill', () => {
+    render(
+      <RecordCustomerPickerDialog
+        variant="repoint"
+        customers={[]}
+        bookings={[]}
+        pinned={{ customerId: 'c1', name: '佐藤 美咲', karuteNumber: '#00058' }}
+        pinnedIsCurrent
+        dayLabel="8月18日(月)"
+        cancelLabel="cancel"
+        onSelectBooking={() => {}}
+        onSelectCustomer={() => {}}
+        onClose={() => {}}
+      />,
+    )
+    const row = screen.getByText('target.repointCurrent').closest('button')!
+    expect(row.className).toMatch(cls('bg-primary/8'))
+    expect(row.className).not.toMatch(cls('bg-primary'))
+  })
+
+  it('a pinned row that is NOT current carries no wash and no badge', () => {
+    render(
+      <RecordCustomerPickerDialog
+        variant="repoint"
+        customers={[]}
+        bookings={[]}
+        pinned={{ customerId: 'c1', name: '佐藤 美咲' }}
+        pinnedIsCurrent={false}
+        dayLabel="8月18日(月)"
+        cancelLabel="cancel"
+        onSelectBooking={() => {}}
+        onSelectCustomer={() => {}}
+        onClose={() => {}}
+      />,
+    )
+    expect(screen.queryByText('target.repointCurrent')).toBeNull()
+    const row = screen.getByText('佐藤 美咲').closest('button')!
+    expect(row.className).not.toMatch(cls('bg-primary/8'))
+  })
+})

@@ -26,7 +26,11 @@ function readLocale(ctx: FacadeContext): 'ja' | 'en' {
 }
 
 export const GET = facadeHandler('recovery.day_facts', async (ctx) => {
+  // C-1: BOTH gates. records.write because this is part of saving a record,
+  // AND customers.view because the rows are booked-customer data — the same
+  // pairing the record screen itself carries (screens/record/route.ts).
   ensureCapability(ctx.identity.capabilities, 'records.write')
+  ensureCapability(ctx.identity.capabilities, 'customers.view')
 
   const url = new URL(ctx.req.url)
   const date = url.searchParams.get('date') ?? ''
@@ -55,11 +59,12 @@ export const GET = facadeHandler('recovery.day_facts', async (ctx) => {
       }),
     )
   } catch (err) {
-    // Same degrade the web action takes: no rows to offer and 消化 state
-    // UNKNOWN (never 「未処理」 — F7). The banner still saves; it just can't
-    // re-point or state the ticket line.
+    // Same degrade the web action takes, and it is EXPLICIT (`unavailable`),
+    // not inferred from empty arrays: the banner reads this as "回数券 state
+    // unknown", says nothing about the ticket, and BLOCKS the save behind a
+    // retry rather than silently dropping the burn question (A-5).
     console.error('[recovery.day_facts] unavailable:', err)
-    return ok(ctx, { date, bookings: [], packs: [], redeemed: null })
+    return ok(ctx, { date, unavailable: true, bookings: [], packs: [], redeemed: null })
   }
 })
 

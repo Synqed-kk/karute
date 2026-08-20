@@ -59,7 +59,15 @@ jest.mock('@/actions/customers', () => ({
 jest.mock('@/actions/packs', () => ({
   createPackAction: jest.fn(async () => ({ ok: true })),
   redeemSessionAction: jest.fn(async () => ({ ok: true, redemptionId: 'r1' })),
-  undoRedemptionAction: jest.fn(),
+  undoRedemptionAction: jest.fn(async () => ({ ok: true })),
+}))
+jest.mock('sonner', () => ({
+  toast: Object.assign(jest.fn(), {
+    success: jest.fn(),
+    error: jest.fn(),
+    info: jest.fn(),
+    warning: jest.fn(),
+  }),
 }))
 
 jest.mock('@synqed-kk/ui', () => {
@@ -163,6 +171,15 @@ import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 afterEach(() => {
   cleanup()
   jest.clearAllMocks()
+  // clearAllMocks clears CALLS, not implementations — a helper that installed a
+  // persistent mockResolvedValue (grantConsent below) would otherwise leak a
+  // granted consent into every later test and silently skip the gate.
+  mockGetCustomerConsent.mockReset()
+  mockGetCustomerConsent.mockResolvedValue({ consent: null })
+  mockSaveInline.mockReset()
+  mockSaveInline.mockResolvedValue({ id: 'karute-1' })
+  mockDayFacts.mockReset()
+  mockDayFacts.mockImplementation(async () => DAY_FACTS)
   offerTake = true
   takeOverride = null
   offerDraft = null
@@ -172,6 +189,20 @@ afterEach(() => {
   DAY_FACTS.bookings = []
   DAY_FACTS.redeemed = { appointmentIds: [], customerIds: [] }
 })
+
+/** Pick an option in the 結果 popup and press 保存. Two separate act() blocks —
+ *  RTL wraps each fireEvent in its own act, and the save button's enabled state
+ *  only settles after the pick's commit. */
+async function answerPopup(optionKey: string) {
+  await act(async () => {
+    fireEvent.click(screen.getByText(optionKey))
+    await Promise.resolve()
+  })
+  await act(async () => {
+    fireEvent.click(screen.getByText('save'))
+    for (let i = 0; i < 14; i++) await Promise.resolve()
+  })
+}
 
 function grantConsent() {
   mockGetCustomerConsent.mockResolvedValue({
@@ -355,14 +386,18 @@ describe('a take whose 結果 survived the crash saves without re-asking', () =>
 
   it('the popup is ANSWERABLE — its 保存 is not disabled by the banner’s own lock', async () => {
     grantConsent()
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    // remaining 2 = 'repurchase' (REPURCHASE_PROMPT_REMAINING) — the mode that
+    // still ASKS. remaining 4 would be 'auto', which A-6 now answers with the
+    // silent burn leg and no dialog at all.
+    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
     await renderPage()
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
       for (let i = 0; i < 8; i++) await Promise.resolve()
     })
     await act(async () => {
-      fireEvent.click(screen.getByText('pending.title'))
+      // repurchase mode: the cards carry the repurchase.* copy keys.
+      fireEvent.click(screen.getByText('repurchase.pending.title'))
       await Promise.resolve()
     })
     const save = screen.getByText('save') as HTMLButtonElement
@@ -384,23 +419,66 @@ describe('a take whose 結果 survived the crash saves without re-asking', () =>
       redeemedOn: '2026-08-18',
       recovery: true,
     })
-    expect(mockStampTakeOutcome).toHaveBeenCalledWith('take-1', { status: 'pending', reason: null, isFirstVisit: false })
+    // A-3: the stamp lands AFTER the money legs, and carries skipped=false.
+    expect(mockStampTakeOutcome).toHaveBeenCalledWith(
+      'take-1',
+      { status: 'pending', reason: null, isFirstVisit: false },
+      false,
+    )
+    expect(mockStampTakeOutcome.mock.invocationCallOrder[0]).toBeGreaterThan(
+      (jest.requireMock('@/actions/packs') as { redeemSessionAction: jest.Mock })
+        .redeemSessionAction.mock.invocationCallOrder[0],
+    )
     expect(mockPipelineStart).toHaveBeenCalledTimes(1)
     expect((mockPipelineStart.mock.calls[0][1] as Record<string, unknown>).outcome).toMatchObject({
       status: 'pending',
     })
   })
 
+  // A-3, the invariant a call-order assertion cannot reach: a stamp means the
+  // money phase COMPLETED. Hold the burn open and the stamp must not exist yet
+  // — otherwise an interruption in that window leaves a take that recovery
+  // reads as already-resolved and never re-asks, over money that never moved.
+  it('A-3: nothing is stamped while the burn is still in flight', async () => {
+    grantConsent()
+    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    const packs = jest.requireMock('@/actions/packs') as { redeemSessionAction: jest.Mock }
+    let settleBurn: (v: { ok: boolean }) => void = () => {}
+    packs.redeemSessionAction.mockReturnValueOnce(
+      new Promise((r) => {
+        settleBurn = r
+      }),
+    )
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    await answerPopup('repurchase.pending.title')
+    expect(packs.redeemSessionAction).toHaveBeenCalledTimes(1)
+    expect(mockStampTakeOutcome).not.toHaveBeenCalled()
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+    await act(async () => {
+      settleBurn({ ok: true })
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    expect(mockStampTakeOutcome).toHaveBeenCalledTimes(1)
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+  })
+
   it('double-tapping the popup’s 保存 burns ONCE', async () => {
     grantConsent()
-    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    // remaining 2 = 'repurchase' (REPURCHASE_PROMPT_REMAINING) — the mode that
+    // still ASKS. remaining 4 would be 'auto', which A-6 now answers with the
+    // silent burn leg and no dialog at all.
+    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
     await renderPage()
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
       for (let i = 0; i < 8; i++) await Promise.resolve()
     })
     await act(async () => {
-      fireEvent.click(screen.getByText('pending.title'))
+      fireEvent.click(screen.getByText('repurchase.pending.title'))
       await Promise.resolve()
     })
     const save = screen.getByText('save')
@@ -628,6 +706,494 @@ describe('resolveRecoveryTicketState', () => {
     expect(r.state).toBe('none')
     // The pack itself is still known — it is the BURN that is unknown.
     expect(r.pack).toEqual({ remaining: 4, size: 6 })
+  })
+
+  // A-2 (client half): a prior NULL-appointment burn for the same customer-day
+  // must read 消化済み even for a BOOKED destination. Keying on the appointment
+  // alone let the banner say 未処理 over a ticket that had already moved.
+  it('a booked destination still reads 消化済み off a customer-day burn', () => {
+    const r = resolveRecoveryTicketState({
+      facts: facts({ redeemed: { appointmentIds: [], customerIds: ['c1'] } }),
+      customerId: 'c1',
+      appointmentId: 'a1',
+    })
+    expect(r.state).toBe('redeemed')
+  })
+
+  // T-8: the two sets are asymmetric ON PURPOSE. customerIds is filtered to the
+  // recording day; appointmentIds is not, because a redemption keyed to THIS
+  // appointment is this visit's burn whatever calendar day it was dated to
+  // (a late reconcile, a cron pass after midnight).
+  it('an appointment-keyed burn dated to another day still reads 消化済み', () => {
+    const r = resolveRecoveryTicketState({
+      facts: facts({ redeemed: { appointmentIds: ['a1'], customerIds: [] } }),
+      customerId: 'c1',
+      appointmentId: 'a1',
+    })
+    expect(r.state).toBe('redeemed')
+  })
+})
+
+// ── A-6: mid-pack customers never see the conversion question ──────────────
+describe('auto mode parity (A-6)', () => {
+  it('burns silently and saves — no dialog, no outcome row', async () => {
+    grantConsent()
+    // >2 sessions left = resolveOutcomeMode 'auto': no conversion conversation
+    // happened, so asking would pollute the coaching labels the live stop flow
+    // protects by burning silently.
+    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    expect(screen.queryByText('disclaimer')).toBeNull()
+    const { redeemSessionAction } = jest.requireMock('@/actions/packs') as {
+      redeemSessionAction: jest.Mock
+    }
+    expect(redeemSessionAction).toHaveBeenCalledTimes(1)
+    expect(redeemSessionAction.mock.calls[0][0]).toMatchObject({
+      packId: 'pack-1',
+      redeemedOn: '2026-08-18',
+      recovery: true,
+    })
+    const ctx = mockPipelineStart.mock.calls[0][1] as Record<string, unknown>
+    expect(ctx.outcome).toBeUndefined()
+    expect(ctx.outcomeSkipped).toBe(true)
+    // A-3: the stamp certifies the money phase, so it carries skipped=true.
+    expect(mockStampTakeOutcome).toHaveBeenCalledWith('take-1', undefined, true)
+  })
+
+  it('an ALREADY-burned auto customer does not burn again', async () => {
+    grantConsent()
+    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    DAY_FACTS.redeemed = { appointmentIds: ['appt-1'], customerIds: [] }
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    const { redeemSessionAction } = jest.requireMock('@/actions/packs') as {
+      redeemSessionAction: jest.Mock
+    }
+    expect(redeemSessionAction).not.toHaveBeenCalled()
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ── T-1: alreadyRedeemed, wired end to end through the page ────────────────
+describe('alreadyRedeemed wiring (T-1)', () => {
+  it('a burned booking reaches the popup as a static row and burns nothing', async () => {
+    grantConsent()
+    // remaining 2 → repurchase, so the dialog still opens (auto would not).
+    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    DAY_FACTS.redeemed = { appointmentIds: ['appt-1'], customerIds: [] }
+    await renderPage()
+    // The banner states it too.
+    expect(screen.getByText('recoverTicketRedeemedCount')).toBeTruthy()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    expect(screen.getByText('redeemAlready')).toBeTruthy()
+    expect(screen.queryByRole('switch')).toBeNull()
+    await act(async () => {
+      fireEvent.click(screen.getByText('repurchase.pending.title'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('save'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    const { redeemSessionAction } = jest.requireMock('@/actions/packs') as {
+      redeemSessionAction: jest.Mock
+    }
+    expect(redeemSessionAction).not.toHaveBeenCalled()
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ── T-2: the bound re-point, end to end ────────────────────────────────────
+const OTHER_BOOKING = {
+  id: 'appt-2',
+  start: '13:00',
+  end: '14:00',
+  customer: '田中 花子',
+  customerId: 'cust-2',
+  initials: '田',
+  karute: '#00071',
+  service: 'カット',
+  staff: '原',
+  staffId: 'staff-1',
+  staffColorKey: null,
+  statusKey: 'booked',
+  statusLabel: '予約済',
+}
+
+describe('bound re-point (T-2)', () => {
+  it('変更 → another booking → 保存 lands on the NEW customer and booking', async () => {
+    grantConsent()
+    DAY_FACTS.bookings = [OTHER_BOOKING] as never
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverRepoint'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('田中 花子'))
+      // The re-point re-fetches the day's facts for the NEW destination, and
+      // 保存する stays disabled until they land (A-5 + A-4).
+      for (let i = 0; i < 16; i++) await Promise.resolve()
+    })
+    // A re-point alone must NOT save — the staffer still has to press 保存する.
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    // cust-2 holds no pack → conversion mode → the question is asked.
+    await answerPopup('pending.title')
+    const ctx = mockPipelineStart.mock.calls[0][1] as Record<string, unknown>
+    expect(ctx.appointmentCustomerId).toBe('cust-2')
+    expect(ctx.appointmentId).toBe('appt-2')
+    // The consent gate ran for the NEW customer, not the original.
+    expect(mockGetCustomerConsent).toHaveBeenLastCalledWith('cust-2')
+  })
+
+  // B-3: after a re-point the picker must stop telling the staffer the save
+  // goes to the original — the badge marks where it ACTUALLY goes.
+  it('the 現在の保存先 badge moves to the re-pointed booking', async () => {
+    grantConsent()
+    DAY_FACTS.bookings = [OTHER_BOOKING] as never
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverRepoint'))
+      await Promise.resolve()
+    })
+    // Before: the pinned original wears it.
+    expect(
+      screen.getByText('target.repointCurrent').closest('button')!.textContent,
+    ).toContain('佐藤 美咲')
+    await act(async () => {
+      fireEvent.click(screen.getByText('田中 花子'))
+      for (let i = 0; i < 16; i++) await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverRepoint'))
+      await Promise.resolve()
+    })
+    // After: the booking does.
+    const badged = screen.getByText('target.repointCurrent').closest('button')!
+    expect(badged.textContent).toContain('田中 花子')
+    expect(badged.textContent).not.toContain('佐藤 美咲')
+  })
+
+  it('the pinned row reverts to the original binding', async () => {
+    grantConsent()
+    DAY_FACTS.bookings = [OTHER_BOOKING] as never
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverRepoint'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('田中 花子'))
+      // The re-point re-fetches the day's facts for the NEW destination, and
+      // 保存する stays disabled until they land (A-5 + A-4).
+      for (let i = 0; i < 16; i++) await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverRepoint'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('佐藤 美咲'))
+      for (let i = 0; i < 16; i++) await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    await answerPopup('pending.title')
+    const ctx = mockPipelineStart.mock.calls[0][1] as Record<string, unknown>
+    expect(ctx.appointmentCustomerId).toBe('cust-1')
+    expect(ctx.appointmentId).toBe('appt-1')
+  })
+})
+
+// ── T-3: the latch always comes back ───────────────────────────────────────
+describe('latch release (T-3)', () => {
+  it('cancelling the outcome popup re-enables 保存する', async () => {
+    grantConsent()
+    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('cancel'))
+      await Promise.resolve()
+    })
+    const save = screen.getByText('recoverSaveAction') as HTMLButtonElement
+    expect(save.disabled).toBe(false)
+    // And a SECOND attempt genuinely proceeds.
+    await act(async () => {
+      fireEvent.click(save)
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    expect(screen.getByText('disclaimer')).toBeTruthy()
+  })
+
+  it('cancelling the consent dialog re-enables 保存する', async () => {
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+    expect(screen.getByRole('dialog', { name: 'consentDialogTitle' })).toBeTruthy()
+    await act(async () => {
+      fireEvent.click(screen.getAllByText('cancel')[0])
+      await Promise.resolve()
+    })
+    expect((screen.getByText('recoverSaveAction') as HTMLButtonElement).disabled).toBe(false)
+  })
+})
+
+// ── T-5 + A-4: the draft path, and what a failed save must NOT cost ────────
+describe('draft save (T-5) and the per-offer answer latch (A-4)', () => {
+  const DRAFT = {
+    transcript: 't',
+    summary: 's',
+    entries: [
+      { category: 'SYMPTOM', content: '肩こり', sourceQuote: 'q', confidenceScore: 0.9 },
+    ],
+    duration: 1380,
+    appointmentId: 'appt-1',
+    appointmentCustomerId: 'cust-1',
+    recordingSessionId: 'sess-1',
+    takeId: 'take-1',
+    savedAt: Date.parse('2026-08-18T05:45:00Z'),
+  }
+
+  it('happy path: mapped entries reach the inline save, then the draft settles', async () => {
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT }
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('pending.title'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('save'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    expect(mockSaveInline).toHaveBeenCalledTimes(1)
+    expect(mockSaveInline.mock.calls[0][0]).toMatchObject({
+      customerId: 'cust-1',
+      appointmentId: 'appt-1',
+      recordingSessionId: 'sess-1',
+      entries: [
+        { category: 'SYMPTOM', content: '肩こり', sourceQuote: 'q', confidenceScore: 0.9 },
+      ],
+    })
+    const { clearDraft } = jest.requireMock('@/lib/karute/draft') as { clearDraft: jest.Mock }
+    const { deleteTake } = jest.requireMock('@/lib/karute/take-store') as {
+      deleteTake: jest.Mock
+    }
+    expect(clearDraft).toHaveBeenCalled()
+    expect(deleteTake).toHaveBeenCalledWith('take-1')
+  })
+
+  it('A-4: a retry after a FAILED save never mints a second pack sale', async () => {
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT }
+    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    mockSaveInline.mockResolvedValueOnce({ error: 'boom' })
+    // A preset prefills the 新しい回数券 panel, so 成約 can actually submit —
+    // that combination (a burn AND a pack sale) is the one A-4 protects.
+    await renderPage({ packPresets: [{ size: 10, unitPrice: 9900 }] })
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    await answerPopup('repurchase.success.title')
+    const packs = jest.requireMock('@/actions/packs') as {
+      createPackAction: jest.Mock
+      redeemSessionAction: jest.Mock
+    }
+    expect(mockSaveInline).toHaveBeenCalledTimes(1)
+    const firstCreates = packs.createPackAction.mock.calls.length
+    const firstRedeems = packs.redeemSessionAction.mock.calls.length
+    // The offer SURVIVES a failed save, so the staffer can retry.
+    const retry = screen.getByText('recoverSaveAction') as HTMLButtonElement
+    expect(retry.disabled).toBe(false)
+    await act(async () => {
+      fireEvent.click(retry)
+      for (let i = 0; i < 14; i++) await Promise.resolve()
+    })
+    // The retry saved again — and moved NO money a second time, and never
+    // re-opened the question.
+    expect(mockSaveInline).toHaveBeenCalledTimes(2)
+    expect(packs.createPackAction.mock.calls.length).toBe(firstCreates)
+    expect(packs.redeemSessionAction.mock.calls.length).toBe(firstRedeems)
+    expect(screen.queryByText('disclaimer')).toBeNull()
+  })
+
+  it('B-2: a THROWN inline save is caught, not left as a wedged latch', async () => {
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT }
+    mockSaveInline.mockRejectedValueOnce(new Error('network'))
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('pending.title'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('save'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    expect((screen.getByText('recoverSaveAction') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('B-1: a draft whose customer left the cached list is still BOUND', async () => {
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT, appointmentCustomerId: 'cust-gone' }
+    await renderPage()
+    // Bound → the save action, the 保存先 row, never the picker prompt.
+    expect(screen.getByText('recoverSaveAction')).toBeTruthy()
+    expect(screen.queryByText('recoverPickAndSaveAction')).toBeNull()
+    expect(screen.getByText('recoverDestination')).toBeTruthy()
+    expect(screen.getAllByText('recoverCustomerUnknown').length).toBeGreaterThan(0)
+  })
+})
+
+// ── A-5: the day's money truth gates the save ──────────────────────────────
+describe('dayFacts tri-state (A-5)', () => {
+  it('保存する is disabled until the facts land', async () => {
+    grantConsent()
+    let release: (v: typeof DAY_FACTS) => void = () => {}
+    mockDayFacts.mockReturnValueOnce(
+      new Promise<typeof DAY_FACTS>((r) => {
+        release = r
+      }),
+    )
+    await renderPage()
+    expect((screen.getByText('recoverSaveAction') as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => {
+      release(DAY_FACTS)
+      for (let i = 0; i < 6; i++) await Promise.resolve()
+    })
+    expect((screen.getByText('recoverSaveAction') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('a FAILED read says so, blocks the save, and offers a retry that recovers', async () => {
+    grantConsent()
+    mockDayFacts.mockResolvedValueOnce({ ...DAY_FACTS, unavailable: true } as never)
+    await renderPage()
+    expect(screen.getByText('recoverTicketUnknown')).toBeTruthy()
+    expect((screen.getByText('recoverSaveAction') as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverTicketRetry'))
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+    expect(screen.queryByText('recoverTicketUnknown')).toBeNull()
+    expect((screen.getByText('recoverSaveAction') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('tickets OFF: a failed read never strands the record', async () => {
+    grantConsent()
+    mockDayFacts.mockResolvedValueOnce({ ...DAY_FACTS, unavailable: true } as never)
+    await renderPage({ ticketsEnabled: false })
+    expect((screen.getByText('recoverSaveAction') as HTMLButtonElement).disabled).toBe(false)
+  })
+})
+
+// ── A-7: an unbound take is always landable ────────────────────────────────
+describe('unbound takes stay landable (A-7)', () => {
+  it('an EMPTY day still offers the customer search', async () => {
+    grantConsent()
+    takeOverride = { ...TAKE, target: null }
+    DAY_FACTS.bookings = []
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverPickAndSaveAction'))
+      await Promise.resolve()
+    })
+    const box = screen.getByRole('combobox')
+    expect(box).toBeTruthy()
+    await act(async () => {
+      fireEvent.change(box, { target: { value: '佐藤' } })
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('佐藤 美咲'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    // Picked → the save continues, with no booking invented.
+    expect(mockGetCustomerConsent).toHaveBeenLastCalledWith('cust-1')
+  })
+
+  it('a BOUND take keeps the search box OFF — the day restriction stands', async () => {
+    grantConsent()
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverRepoint'))
+      await Promise.resolve()
+    })
+    expect(screen.queryByRole('combobox')).toBeNull()
+  })
+})
+
+// ── A-1: the flow is frozen, and aborts cleanly ────────────────────────────
+describe('the flow freezes its offer (A-1)', () => {
+  it('an offer that evaporates mid-flow closes the dialogs and frees the latch', async () => {
+    grantConsent()
+    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    const { rerender } = await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    expect(screen.getByText('disclaimer')).toBeTruthy()
+    // A new recording starts: the take is no longer offerable.
+    offerTake = false
+    takeOverride = null
+    await act(async () => {
+      rerender(<div />)
+      await Promise.resolve()
+    })
+    // Re-mount cleanly — the point is that nothing was left half-open or
+    // half-latched behind the unmount.
+    await renderPage()
+    expect(screen.queryByText('disclaimer')).toBeNull()
+  })
+
+  it('an unreadable take SAYS SO instead of eating the tap', async () => {
+    grantConsent()
+    const store = jest.requireMock('@/lib/karute/take-store') as { loadTakeBlob: jest.Mock }
+    store.loadTakeBlob.mockResolvedValueOnce(new Blob([]))
+    TAKE.outcome = { status: 'success' }
+    const { toast } = jest.requireMock('sonner') as { toast: { error: jest.Mock } }
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+    expect(toast.error).toHaveBeenCalledWith('recoverSaveFailed')
   })
 })
 

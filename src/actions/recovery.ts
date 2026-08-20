@@ -19,6 +19,7 @@ import type { RecoveryDayFacts } from '@/lib/karute/recovery-facts'
  *  「未処理」 — F7: derived truth or nothing). */
 const unavailable = (date: string): RecoveryDayFacts => ({
   date,
+  unavailable: true,
   bookings: [],
   packs: [],
   redeemed: null,
@@ -42,9 +43,11 @@ export async function getRecoveryDayFacts(input: {
         import('@/lib/auth/store-scope'),
         import('@/lib/karute/recovery-facts'),
       ])
-    // Same gate the recording flow itself carries — a recovery banner is part
-    // of saving a record, and these rows are booked-customer data.
+    // C-1: BOTH gates, same pairing the record screen carries — records.write
+    // because this is part of saving a record, customers.view because the rows
+    // are booked-customer data.
     await requireCapability('records.write')
+    await requireCapability('customers.view')
     const [synqed, scope, tStatus] = await Promise.all([
       getSynqedClient(),
       resolveStoreScope(),

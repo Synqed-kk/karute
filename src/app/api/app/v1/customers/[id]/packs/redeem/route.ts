@@ -90,8 +90,18 @@ export const POST = facadeHandler<Params>('customer.pack.redeem', async (ctx) =>
     if (result.error === 'below_zero') {
       throw new AppApiError('conflict', 'pack has no remaining sessions')
     }
+    // B-9: an already-recorded burn is the guard SUCCEEDING (the DB's partial
+    // unique index, or D5's customer-day check) — a conflict the client can
+    // read as 消化済み, never an upstream failure it should retry.
+    if (result.error === 'already_redeemed') {
+      throw new AppApiError('conflict', 'this visit already has a redemption')
+    }
     throw new AppApiError('upstream_unavailable', result.error ?? 'redeem failed')
   }
+  // C-2 (D7 on the phone): the recovery-resolved marker rides the handler's own
+  // audit hook, which already emits customer.pack_redeem for this route. Same
+  // seam karute outcome/entry-edits use — one bounded route key.
+  if (parsed.data.recovery) ctx.auditDetail = { resolved_via: 'recovery' }
   return ok(ctx, { ok: true, redemptionId: result.redemptionId }, 201)
 })
 

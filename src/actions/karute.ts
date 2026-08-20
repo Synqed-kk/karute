@@ -173,6 +173,15 @@ export async function createOrUpdateKaruteRecord(
       const existingHasEntries = Array.isArray(existing.entries) && existing.entries.length > 0
       const omitEntries = entriesMode === 'fill-if-empty' && existingHasEntries
       await synqed.karuteRecords.update(existing.id, {
+        // E-1 (fix round 1): the CUSTOMER moves with the update. Without it a
+        // save that re-points to a different customer — the recovery banner's
+        // 保存先を変更, after an earlier partial save already landed a record
+        // under this recording_session_id — silently kept the OLD customer
+        // while appointment_id below moved to the NEW one: a karute filed on
+        // customer A carrying customer B's booking, with a success toast. The
+        // payload's customer is the caller's explicit intent on every one of
+        // this chokepoint's callers, so it is the authority here too.
+        customer_id: payload.customer_id,
         transcript: payload.transcript,
         ai_summary: payload.ai_summary,
         appointment_id: payload.appointment_id,

@@ -198,13 +198,23 @@ export async function stampTakeSession(
   }
 }
 
-/** R-B3: stamp the 結果 answer onto the take the moment staff answer it, so a
- *  crash before the karute save recovers the answer instead of re-asking.
- *  Same best-effort, no-throw, no-op-if-gone contract as stampTakeSession. */
+/** R-B3: stamp the 結果 answer onto the take so recovery restores it instead of
+ *  re-asking.
+ *
+ *  THE INVARIANT (fix round 1, A-3): a stamp means "this answer's MONEY PHASE
+ *  COMPLETED" — not merely "the staffer picked something". Every call site
+ *  therefore stamps only AFTER its burn/pack-create legs have settled. Stamping
+ *  earlier would certify money that never moved: recovery reads a stamped take
+ *  as already-resolved and skips the popup entirely, so a crash (or a failed
+ *  burn) between the pick and the write would be permanently un-re-offerable.
+ *
+ *  Best-effort, no-throw, no-op-if-gone — same contract as stampTakeSession.
+ *  B-5: only SUPPLIED fields are written, so a later partial stamp can never
+ *  blank an answer already stored. */
 export async function stampTakeOutcome(
   takeId: string,
   outcome: SessionOutcome | undefined,
-  outcomeSkipped = false,
+  outcomeSkipped?: boolean,
 ): Promise<void> {
   try {
     const db = await openDb()
@@ -212,7 +222,13 @@ export async function stampTakeOutcome(
     const tx = db.transaction(TAKES, 'readwrite')
     const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
     if (!meta) return
-    await req(tx.objectStore(TAKES).put({ ...meta, outcome, outcomeSkipped }))
+    await req(
+      tx.objectStore(TAKES).put({
+        ...meta,
+        ...(outcome === undefined ? {} : { outcome }),
+        ...(outcomeSkipped === undefined ? {} : { outcomeSkipped }),
+      }),
+    )
   } catch (err) {
     console.error('[take-store] stampTakeOutcome failed:', err)
   }

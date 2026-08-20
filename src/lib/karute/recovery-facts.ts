@@ -38,6 +38,11 @@ export interface RecoveryDayFacts {
   /** The JST day these facts describe (echoed back so a client can't paint a
    *  list under the wrong date heading). */
   date: string
+  /** A-5: the read FAILED (or was refused) — this is not a quiet day, it is an
+   *  unknown one. An EXPLICIT discriminant, never inferred from emptiness: a
+   *  salon with no bookings that day and a salon whose read 502'd produce the
+   *  identical empty arrays, and only one of them may let a save proceed. */
+  unavailable?: true
   /** Bookings on that day — the picker rows (terminal rows already dropped by
    *  the shared by-date assembly). */
   bookings: RecordTargetBooking[]

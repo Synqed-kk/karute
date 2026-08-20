@@ -277,9 +277,15 @@ async function facadeRedeemSession(input: {
     idemPost(rest),
   )
   const body = (await res.json().catch(() => null)) as
-    | { redemptionId?: string; error?: { message?: string } }
+    | { redemptionId?: string; error?: { message?: string; code?: string } }
     | null
   if (res.ok) return { ok: true, redemptionId: body?.redemptionId }
+  // B-9 parity: the route now answers an already-recorded burn with 409. Map it
+  // back to the SAME discriminator the web action returns, or the phone shows a
+  // generic 失敗 toast where the browser shows 消化済み.
+  if (res.status === 409 && /already has a redemption/i.test(body?.error?.message ?? '')) {
+    return { ok: false, error: 'already_redeemed' }
+  }
   return { ok: false, error: body?.error?.message ?? `Redeem failed (${res.status})` }
 }
 
@@ -1421,7 +1427,7 @@ export const getRecoveryDayFacts = (async (input: {
   date: string
   pinnedCustomerId?: string | null
 }): Promise<import('@/lib/karute/recovery-facts').RecoveryDayFacts> => {
-  const empty = { date: input.date, bookings: [], packs: [], redeemed: null }
+  const empty = { date: input.date, unavailable: true as const, bookings: [], packs: [], redeemed: null }
   try {
     const qs = `date=${enc(input.date)}${
       input.pinnedCustomerId ? `&pinnedCustomerId=${enc(input.pinnedCustomerId)}` : ''

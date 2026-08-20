@@ -20,8 +20,15 @@ import { AlertTriangle, Save, UserRound } from 'lucide-react'
 export type RecoveryTicketState = 'redeemed' | 'unresolved' | 'none'
 
 export interface RecoveryBannerProps {
-  /** null = the take never got a customer (walk-in interrupted before the
-   *  pick). The action then reads お客様を選んで保存する and opens the picker. */
+  /**
+   * B-1: is there a save DESTINATION? Deliberately its own flag rather than
+   * `customerName !== null`: a draft whose customer has left the cached list
+   * is fully bound and fully saveable — only the display name is unknown — and
+   * keying on the name sent that staffer to a picker they didn't need, then
+   * opened a blank-titled popup behind it.
+   */
+  bound: boolean
+  /** null only when unbound. */
   customerName: string | null
   /** 「8月18日(月) 14:22」, pre-formatted JST. */
   recordedAt: string
@@ -50,9 +57,19 @@ export interface RecoveryBannerProps {
   onRepoint?: () => void
   onSave: () => void
   saving?: boolean
+  /**
+   * A-5: the day's 回数券 truth could not be read. NOT the same as "no pack" —
+   * saving here would silently skip the burn question, so the banner says so
+   * and offers a retry instead of a save that quietly loses money.
+   */
+  factsFailed?: boolean
+  onRetryFacts?: () => void
+  /** Save is not available yet (facts still loading, or failed). */
+  saveDisabled?: boolean
 }
 
 export function RecoveryBanner({
+  bound,
   customerName,
   recordedAt,
   dayLabel,
@@ -64,6 +81,9 @@ export function RecoveryBanner({
   onRepoint,
   onSave,
   saving = false,
+  factsFailed = false,
+  onRetryFacts,
+  saveDisabled = false,
 }: RecoveryBannerProps) {
   const t = useTranslations('recording')
 
@@ -75,8 +95,8 @@ export function RecoveryBanner({
       </div>
 
       <dl className="flex flex-col gap-0.5 text-[13px] text-amber-900 dark:text-amber-200">
-        <Row label={t('recoverFieldCustomer')} muted={!customerName}>
-          {customerName ?? t('recoverCustomerUnset')}
+        <Row label={t('recoverFieldCustomer')} muted={!bound}>
+          {bound ? customerName : t('recoverCustomerUnset')}
         </Row>
         <Row label={t('recoverFieldRecordedAt')} tnum>
           {recordedAt}
@@ -88,23 +108,41 @@ export function RecoveryBanner({
         )}
         {recordedBy && <Row label={t('recoverFieldRecordedBy')}>{recordedBy}</Row>}
         {service && <Row label={t('recoverFieldService')}>{service}</Row>}
-        {ticketState !== 'none' && (
-          <Row label={t('recoverFieldTicket')} muted={ticketState === 'unresolved'}>
-            {ticketState === 'redeemed'
-              ? pack
-                ? t('recoverTicketRedeemedCount', {
-                    remaining: pack.remaining,
-                    size: pack.size,
-                  })
-                : t('recoverTicketRedeemed')
-              : t('recoverTicketUnresolved')}
+        {/* A-5: an unreadable day says so, out loud, on the same line the
+            ticket truth would occupy. Silence here would read as 対象外. */}
+        {factsFailed ? (
+          <Row label={t('recoverFieldTicket')} muted>
+            {t('recoverTicketUnknown')}
           </Row>
+        ) : (
+          ticketState !== 'none' && (
+            <Row label={t('recoverFieldTicket')} muted={ticketState === 'unresolved'}>
+              {ticketState === 'redeemed'
+                ? pack
+                  ? t('recoverTicketRedeemedCount', {
+                      remaining: pack.remaining,
+                      size: pack.size,
+                    })
+                  : t('recoverTicketRedeemed')
+                : t('recoverTicketUnresolved')}
+            </Row>
+          )
         )}
       </dl>
 
+      {factsFailed && onRetryFacts && (
+        <button
+          type="button"
+          onClick={onRetryFacts}
+          className="mt-2 rounded-lg px-1 py-0.5 text-[12.5px] font-semibold text-primary underline underline-offset-2"
+        >
+          {t('recoverTicketRetry')}
+        </button>
+      )}
+
       {/* 保存先 + 変更 — bound case only. A take with no customer has no
           destination to show yet; its ONE button opens the picker instead. */}
-      {customerName && onRepoint && (
+      {bound && onRepoint && (
         <div className="mt-2.5 flex flex-wrap items-center gap-2 rounded-lg bg-white/70 px-3 py-2 shadow-[0_0_0_1px] shadow-amber-200 dark:bg-white/5 dark:shadow-amber-500/30">
           <span className="text-[11.5px] text-amber-800 dark:text-amber-300/90">
             {t('recoverDestination')}
@@ -126,15 +164,17 @@ export function RecoveryBanner({
       <button
         type="button"
         onClick={onSave}
-        disabled={saving}
+        // A-5: never savable while the day's money truth is loading or failed —
+        // a tap in that window used to drop the burn question in silence.
+        disabled={saving || saveDisabled}
         className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary text-[14.5px] font-semibold text-primary-foreground transition-colors hover:bg-primary-hover disabled:opacity-50"
       >
-        {customerName ? <Save size={17} aria-hidden /> : <UserRound size={17} aria-hidden />}
-        {customerName ? t('recoverSaveAction') : t('recoverPickAndSaveAction')}
+        {bound ? <Save size={17} aria-hidden /> : <UserRound size={17} aria-hidden />}
+        {bound ? t('recoverSaveAction') : t('recoverPickAndSaveAction')}
       </button>
 
       <p className="mt-2 px-0.5 text-[11.5px] leading-relaxed text-amber-800 dark:text-amber-300/90">
-        {customerName ? t('recoverCaption') : t('recoverCaptionUnbound', { date: dayLabel })}
+        {bound ? t('recoverCaption') : t('recoverCaptionUnbound', { date: dayLabel })}
       </p>
     </div>
   )

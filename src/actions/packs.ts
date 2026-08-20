@@ -164,21 +164,26 @@ export async function redeemSessionActionWithClient(
     input.appointmentId !== undefined
       ? input.appointmentId
       : await findCustomerAppointmentForDateWithClient(synqed, input.customerId, redeemedOn)
-  // D5 (R-B6 ⑦) — the walk-in hole. One booking = max one burn is enforced at
-  // the STORAGE layer, but only for a booked burn: the partial unique index is
-  // on pack_redemptions(appointment_id), and a NULL appointment_id is outside
-  // it (in-code note, RecordPageView). A recovery save can re-offer the same
-  // unbooked visit (banner re-shown after a second crash, two takes of one
-  // walk-in), so the customer+JST-day check the auto-burn cron already runs as
-  // guard 2 runs here too, check-then-write.
+  // D5 (R-B6 ⑦) — the customer-day guard, for EVERY recovery burn.
+  //
+  // The storage layer enforces one booking = max one burn via a partial unique
+  // index on pack_redemptions(appointment_id) — but that index only sees rows
+  // that HAVE an appointment_id. A prior NULL-appointment burn for the same
+  // customer on the same day (the reconcile strip's backfill, an earlier
+  // walk-in recovery) is completely invisible to it, so a BOOKED recovery burn
+  // can still double-charge one visit. Fix round 1 A-2: the customer+JST-day
+  // check the auto-burn cron runs as guard 2 therefore runs for every recovery
+  // burn, booked or not — the index stays as the backstop underneath it.
   //   RESIDUAL, documented not fixed (BA-1 class): check-then-write has a race
-  //   window — two unbooked burns for one customer-day landing between the read
-  //   and the write both pass. Closing it for real needs a core-side uniqueness
-  //   delta on (customer_id, redeemed_on) for NULL-appointment rows — an
-  //   OPTIONAL Anthony one-liner, not a blocker: the window is milliseconds
-  //   wide on a path a single staffer drives by hand, and the client's own
-  //   single-flight latch already covers the double-tap case.
-  if (input.recovery && appointmentId == null) {
+  //   window — two burns for one customer-day landing between the read and the
+  //   write both pass. Closing it for real needs a core-side uniqueness delta
+  //   on (customer_id, redeemed_on) — an OPTIONAL Anthony one-liner, not a
+  //   blocker: the window is milliseconds wide on a path a single staffer
+  //   drives by hand, and the client's own single-flight latch already covers
+  //   the double-tap case.
+  //   CEILING (money lens #8, recorded not fixed): a visit whose burn was
+  //   dated to an ADJACENT JST day is outside this day-keyed check.
+  if (input.recovery) {
     // Floor one JST day back, exactly like the cron's historySince — a `since`
     // equal to the day itself relies on core's comparison being inclusive,
     // which the app repo cannot see.
@@ -241,10 +246,12 @@ export async function redeemSessionAction(
   // (packs/store.ts's own header: assume nothing beyond the error-string
   // contract). Sending an unknown literal on a MONEY write is not a risk worth
   // taking blind, so the tag lives at the audit layer instead — never a
-  // client-side shadow ledger. Full cross-platform coverage
-  // (the facade twin's automatic row carries no per-call detail, and the
-  // server-job save is core-owned) needs the OPTIONAL Anthony one-liner: add
-  // 'recovery' to the redemption source enum, then this becomes one field.
+  // client-side shadow ledger.
+  // THIS IS THE WEB HALF. The PHONE half rides the facade route's ctx.auditDetail
+  // seam (customers/[id]/packs/redeem) — the build round wrongly claimed the
+  // facade twin could carry no per-call detail; it can, and now does. What is
+  // still missing on BOTH is a queryable source column, which stays the OPTIONAL
+  // Anthony one-liner: add 'recovery' to the redemption source enum.
   if (result.ok && input.recovery) {
     await auditWeb({
       category: 'customer',
@@ -259,7 +266,9 @@ export async function redeemSessionAction(
         redemption_id: result.redemptionId ?? null,
         redeemed_on: input.redeemedOn ?? null,
       },
-      requestId: crypto.randomUUID(),
+      // B-10: the repo's defensive form — crypto.randomUUID is absent in some
+      // runtimes/test envs, and an audit emit must never break the burn.
+      requestId: globalThis.crypto?.randomUUID?.(),
     })
   }
   return result

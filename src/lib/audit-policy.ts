@@ -108,7 +108,9 @@ export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 // membership alone grants nothing): every exported symbol in the file whose
 // subtree (incl. nested closures like the emitSave idiom) contains a real
 // audit()/auditWeb() call, verified by the same src-wide AST scan CP7 runs.
-// One entry carries `unproven`: customers.ts#updateCustomer's single `return
+// Two entries carry `unproven` — customers.ts#updateCustomer and
+// packs.ts#redeemSessionAction — for the SAME mechanical reason. Taking the
+// first: its single `return
 // result` merges the success/no-op-failure paths through a plain identifier
 // (not an object literal, not a call — `result` is a discriminated-union
 // VARIABLE), which is un-provable by a lexical/AST walker without type

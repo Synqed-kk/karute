@@ -95,9 +95,12 @@ type Listener = () => void
 
 /** Stage-1 server-path cohort (packet 22, locked scope — do not widen here):
  *  takes that autosave with ZERO staff interaction AND have a server-minted
- *  recording_sessions id to key the job on. Walk-ins, review takes, and
- *  take-recovery accepts (they never carry outcome — see RecordPageView's
- *  doRecoverTake) fall through to the unchanged in-tab run() below. */
+ *  recording_sessions id to key the job on. Walk-ins and review takes fall
+ *  through to the unchanged in-tab run() below.
+ *  PR-B1 changed one member: a RECOVERED take now qualifies whenever its
+ *  answer survived the crash (take-store's stamped outcome) or was given on
+ *  the banner — it starts with an outcome, so it autosaves instead of taking
+ *  the review detour the old doRecoverTake forced on every recovery. */
 function isServerJobEligible(context: PipelineContext): boolean {
   return !!(
     context.recordingSessionId &&
