@@ -426,6 +426,12 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
       { board_state: 'confirmed', settlement: 'awaiting', resource_id: 'bed-03', source: '店頭受付 #357509', taken_days_ago: 2, updated_minute: 12 * 60 }),
     slot('apt-13', 'cus-03', STORE_B, 'p-02', 'menu-05', 0, 11, 0, 45, 5500, 'booked',
       { board_state: 'confirmed', resource_id: 'bed-04', source: '電話予約 #357540' }),
+    // 代官山 gets the same treatment on 見本 ごろう, who works both stores
+    // (staffAssignments c-05). His break ends 13:30 and this starts 15:45, so the
+    // run between them packs two 60-minute sessions the hour grid cannot fit —
+    // the 詰め込み layer is visible in BOTH stores rather than only the default.
+    slot('apt-31', 'cus-08', STORE_B, 'p-05', 'menu-05', 0, 15, 45, 45, 5500, 'booked',
+      { board_state: 'confirmed', resource_id: 'bed-04', source: 'Reserve #357551', taken_days_ago: 1, updated_minute: 12 * 60 + 55 }),
     // 来店なし: a real slot that produced no visit. Non-revenue, so it is out of
     // the day's total — never quietly deleted, which would hide the loss.
     slot('apt-23', 'thin-01', STORE_A, 'p-04', 'menu-03', 0, 11, 30, 30, 4400, 'booked',
@@ -437,8 +443,19 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
     // the price it was taken at rides along untouched.
     slot('apt-26', 'cus-11', STORE_A, 'p-04', 'menu-01', 0, 14, 30, 60, 6600, 'booked',
       { board_state: 'hold', resource_id: 'bed-01', source: 'Reserve #357521', reassigned_from: 'p-01', taken_days_ago: 5, updated_minute: 13 * 60 + 2 }),
-    slot('apt-29', 'thin-02', STORE_A, 'p-06', 'menu-01', 0, 14, 30, 60, 6600, 'booked',
+    // 14:05, not 14:30 (⚖ Liam 2026-08-20). A real salon's day does not sit on
+    // the half hour, and the board's own 詰め込み layer only has something to say
+    // when it does not: this booking and apt-30 leave 見本 あずさ a free run from
+    // 15:05 to 17:12, which the customer grid cannot fill as densely as packing
+    // can, so canon's PACK MODE fires and the run is advertised as TWO merged
+    // 60-minute sessions crossing the 16:00 and 17:00 lines. On a board of tidy
+    // 30/60/90 starts that layer is unreachable — the demo was hiding a feature.
+    slot('apt-29', 'thin-02', STORE_A, 'p-06', 'menu-01', 0, 14, 5, 60, 6600, 'booked',
       { board_state: 'confirmed', resource_id: 'bed-03', source: '店頭受付 #357544' }),
+    // The far wall of that run, and odd on its own account (canon's fixture day
+    // runs on 17:12 / 12:27 / 10:25 starts for exactly this reason).
+    slot('apt-30', 'cus-06', STORE_A, 'p-06', 'menu-01', 0, 17, 12, 60, 6600, 'booked',
+      { board_state: 'confirmed', resource_id: 'bed-02', source: '電話予約 #357548', taken_days_ago: 8, updated_minute: 12 * 60 + 40 }),
     slot('apt-28', 'cus-09', STORE_A, 'c-03', 'menu-03', 0, 16, 0, 30, 4400, 'booked',
       { board_state: 'confirmed', resource_id: 'bed-03', source: 'Reserve #357533' }),
     // 要対応 — and the one booking with NO lane card: it belongs to the absent
