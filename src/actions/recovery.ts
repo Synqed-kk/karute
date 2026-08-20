@@ -30,8 +30,10 @@ const YMD = /^\d{4}-\d{2}-\d{2}$/
 export async function getRecoveryDayFacts(input: {
   /** JST yyyy-mm-dd of the interrupted recording. */
   date: string
-  /** The take's originally-bound customer (pinned in the picker). */
-  pinnedCustomerId?: string | null
+  /** Customers to include even when unbooked that day: the take's original
+   *  binding (the picker's pinned row) and the current destination (its pack
+   *  facts). See buildRecoveryDayFacts. */
+  pinnedCustomerIds?: (string | null | undefined)[]
 }): Promise<RecoveryDayFacts> {
   if (!YMD.test(input.date)) return unavailable(input.date)
   try {
@@ -56,7 +58,7 @@ export async function getRecoveryDayFacts(input: {
     return await buildRecoveryDayFacts(synqed, {
       dateYmd: input.date,
       storeId: scope.storeId ?? undefined,
-      pinnedCustomerId: input.pinnedCustomerId ?? undefined,
+      pinnedCustomerIds: input.pinnedCustomerIds ?? [],
       statusLabel: (key) => tStatus(key),
     })
   } catch (err) {

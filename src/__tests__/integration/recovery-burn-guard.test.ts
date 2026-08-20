@@ -130,7 +130,11 @@ describe('D5 — unbooked recovery burn, same-customer/same-day guard', () => {
     expect(listRecentRedemptions).toHaveBeenCalledWith('2026-08-17')
   })
 
-  it('fails CLOSED when the burn history cannot be read', async () => {
+  // F-3: fail-closed, but SAY WHICH. Reporting an unreadable history as
+  // 'already_redeemed' told the staffer the ticket had been used and let the
+  // client certify the answer — so a transient blip cost the burn permanently,
+  // with nothing on screen to suggest anything had gone wrong.
+  it('fails CLOSED with its OWN discriminator when the history cannot be read', async () => {
     ledgerThrows = true
     const res = await redeemSessionActionWithClient(fakeClient, 'staff-1', {
       packId: 'pack-1',
@@ -139,8 +143,21 @@ describe('D5 — unbooked recovery burn, same-customer/same-day guard', () => {
       appointmentId: null,
       recovery: true,
     })
-    expect(res).toEqual({ ok: false, error: 'already_redeemed' })
+    expect(res).toEqual({ ok: false, error: 'guard_unavailable' })
+    // Fail-closed is unchanged: nothing burned.
     expect(addRedemptionWithClient).not.toHaveBeenCalled()
+  })
+
+  it('a PROVABLE hit still reports already_redeemed — the two are distinguishable', async () => {
+    ledger = [{ customer_id: 'cust-1', appointment_id: null, redeemed_on: `${DAY}T00:00:00Z` }]
+    const res = await redeemSessionActionWithClient(fakeClient, 'staff-1', {
+      packId: 'pack-1',
+      customerId: 'cust-1',
+      redeemedOn: DAY,
+      appointmentId: null,
+      recovery: true,
+    })
+    expect(res).toEqual({ ok: false, error: 'already_redeemed' })
   })
 
   // A-2 (fix round 1) — this test used to assert the OPPOSITE, and in doing so

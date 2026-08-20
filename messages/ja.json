@@ -752,7 +752,8 @@
     "recoverCaptionUnbound": "録音日（{date}）の予約リストからお客様を選びます。",
     "recoverSaved": "カルテを保存しました",
     "recoverSaveFailed": "保存できませんでした。もう一度お試しください。",
-    "recoverAlreadyRedeemed": "この来店の回数券はすでに消化済みです"
+    "recoverAlreadyRedeemed": "この来店の回数券はすでに消化済みです",
+    "recoverBurnCheckFailed": "回数券の確認ができませんでした。もう一度お試しください"
   },
   "customers": {
     "title": "顧客",

@@ -131,7 +131,7 @@ describe('回数券 rows are derived, and scoped to who the picker can reach', (
   })
 
   it('includes the PINNED customer even with no booking that day', async () => {
-    const facts = await run({ pinnedCustomerId: 'cust-PINNED' })
+    const facts = await run({ pinnedCustomerIds: ['cust-PINNED'] })
     expect(facts.packs.find((p) => p.customerId === 'cust-PINNED')).toEqual({
       customerId: 'cust-PINNED',
       packId: 'pack-2',
@@ -141,8 +141,26 @@ describe('回数券 rows are derived, and scoped to who the picker can reach', (
   })
 
   it('never leaks a customer nobody on this list can reach', async () => {
-    const facts = await run({ pinnedCustomerId: 'cust-PINNED' })
+    const facts = await run({ pinnedCustomerIds: ['cust-PINNED'] })
     expect(facts.packs.some((p) => p.customerId === 'cust-ELSEWHERE')).toBe(false)
+  })
+
+  // F-1(a): the banner sends BOTH the original binding AND the current
+  // destination. A search re-point lands on a customer who is neither pinned
+  // nor booked that day — with one id only, the server built no pack row for
+  // them and the save silently dropped the burn question.
+  it('includes EVERY id it is given, not just the first', async () => {
+    const facts = await run({ pinnedCustomerIds: ['cust-PINNED', 'cust-ELSEWHERE'] })
+    expect(facts.packs.map((p) => p.customerId).sort()).toEqual([
+      'cust-1',
+      'cust-ELSEWHERE',
+      'cust-PINNED',
+    ])
+  })
+
+  it('tolerates null/undefined ids in the list (unbound take, no original)', async () => {
+    const facts = await run({ pinnedCustomerIds: [null, undefined, 'cust-PINNED'] })
+    expect(facts.packs.some((p) => p.customerId === 'cust-PINNED')).toBe(true)
   })
 })
 

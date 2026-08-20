@@ -752,7 +752,8 @@
     "recoverCaptionUnbound": "Pick from the bookings on the recording's day ({date}).",
     "recoverSaved": "Record saved",
     "recoverSaveFailed": "Could not save. Please try again.",
-    "recoverAlreadyRedeemed": "This visit's pack session is already used"
+    "recoverAlreadyRedeemed": "This visit's pack session is already used",
+    "recoverBurnCheckFailed": "Could not check the pack. Please try again."
   },
   "customers": {
     "title": "Customers",

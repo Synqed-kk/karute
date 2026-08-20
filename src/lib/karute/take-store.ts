@@ -65,6 +65,12 @@ export type TakeMeta = {
    *  flow / tickets off) — the pipeline's isServerJobEligible reads it the
    *  same way `outcome` is read. */
   outcomeSkipped?: boolean
+  /** F-3: which of the answer's MONEY LEGS provably finished. A retry after a
+   *  failed karute save re-runs only what is still 'pending', so a settled
+   *  pack sale is never minted twice and a transiently-failed burn is never
+   *  lost in silence. Absent on takes stamped before this field existed —
+   *  read as "no legs pending", which is the old all-or-nothing behavior. */
+  outcomeLegs?: { burn: 'none' | 'pending' | 'done'; pack: 'none' | 'pending' | 'done' }
 }
 
 /** What the recovery banner needs — everything except the audio itself. */
@@ -215,6 +221,7 @@ export async function stampTakeOutcome(
   takeId: string,
   outcome: SessionOutcome | undefined,
   outcomeSkipped?: boolean,
+  outcomeLegs?: TakeMeta['outcomeLegs'],
 ): Promise<void> {
   try {
     const db = await openDb()
@@ -227,10 +234,38 @@ export async function stampTakeOutcome(
         ...meta,
         ...(outcome === undefined ? {} : { outcome }),
         ...(outcomeSkipped === undefined ? {} : { outcomeSkipped }),
+        ...(outcomeLegs === undefined ? {} : { outcomeLegs }),
       }),
     )
   } catch (err) {
     console.error('[take-store] stampTakeOutcome failed:', err)
+  }
+}
+
+/** F-2: read back a stamped answer by take id — the durable seam a recovered
+ *  DRAFT uses (it carries the take id it deletes on save, so its answer can
+ *  survive a reload too). Deliberately NOT owner-filtered differently from the
+ *  rest of this module: same gate, same fail-closed null. */
+export async function readTakeOutcome(takeId: string): Promise<
+  Pick<TakeMeta, 'outcome' | 'outcomeSkipped' | 'outcomeLegs'> | null
+> {
+  try {
+    const db = await openDb()
+    if (!db) return null
+    const uid = await currentUserId()
+    if (!uid) return null
+    const meta = (await req(
+      db.transaction(TAKES).objectStore(TAKES).get(takeId),
+    )) as TakeMeta | undefined
+    if (!meta || meta.ownerUid !== uid) return null
+    return {
+      outcome: meta.outcome,
+      outcomeSkipped: meta.outcomeSkipped,
+      outcomeLegs: meta.outcomeLegs,
+    }
+  } catch (err) {
+    console.error('[take-store] readTakeOutcome failed:', err)
+    return null
   }
 }
 
@@ -332,6 +367,7 @@ export async function getRecoverableTake(
       updatedAt: newest.updatedAt,
       outcome: newest.outcome,
       outcomeSkipped: newest.outcomeSkipped,
+      outcomeLegs: newest.outcomeLegs,
     }
   } catch (err) {
     console.error('[take-store] getRecoverableTake failed:', err)

@@ -163,13 +163,38 @@ describe('GET /recovery/day-facts — gates (C-1)', () => {
     expect(buildRecoveryDayFacts).not.toHaveBeenCalled()
   })
 
-  it('threads the clamped store and the pinned customer into the derivation', async () => {
-    await call('date=2026-08-18&pinnedCustomerId=cust-1')
+  it('threads the clamped store and EVERY pinned customer into the derivation', async () => {
+    // F-1(a): the banner sends two ids — the original binding and the current
+    // destination — so a search-re-pointed customer gets a 回数券 row too.
+    await call('date=2026-08-18&pinnedCustomerId=cust-1&pinnedCustomerId=cust-2')
     expect(buildRecoveryDayFacts.mock.calls[0][1]).toMatchObject({
       dateYmd: '2026-08-18',
       storeId: 'store-A',
-      pinnedCustomerId: 'cust-1',
+      pinnedCustomerIds: ['cust-1', 'cust-2'],
     })
+  })
+
+  it('F-3: guard_unavailable is a retryable 502 that keeps its reason', async () => {
+    redeemSessionActionWithClient.mockResolvedValueOnce({
+      ok: false,
+      error: 'guard_unavailable',
+    } as never)
+    const res = await redeem(
+      new Request('https://x/api/app/v1/customers/cust-1/packs/redeem', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${bearer()}`,
+          'content-type': 'application/json',
+          'idempotency-key': 'idem-g',
+        },
+        body: JSON.stringify({ packId: 'pack-1', recovery: true }),
+      }),
+      { params: Promise.resolve({ id: 'cust-1' }) },
+    )
+    expect(res.status).toBe(502)
+    // The MACHINE-READABLE half (F-8) — the phone branches on this, never on
+    // the message, so a copy edit cannot regress it to a generic failure.
+    expect((await res.json()).error).toMatchObject({ reason: 'guard_unavailable' })
   })
 
   it('an upstream failure degrades to the EXPLICIT unavailable shape', async () => {

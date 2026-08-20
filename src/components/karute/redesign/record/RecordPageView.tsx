@@ -14,6 +14,7 @@ import {
   deleteTake,
   getRecoverableTake,
   loadTakeBlob,
+  readTakeOutcome,
   stampTakeOutcome,
   type RecoverableTake,
 } from '@/lib/karute/take-store'
@@ -246,11 +247,29 @@ function recoveryOfferId(o: RecoveryOffer): string {
   return o.kind === 'take' ? `take:${o.take.takeId}` : `draft:${o.draft.savedAt}`
 }
 
-/** An answer whose MONEY PHASE completed. Recorded per offer so a retry after
- *  a failed karute save never re-runs the legs (A-4). */
-interface RecoveryAnswer {
+/** Per-leg settlement (F-3). 'none' = never asked for · 'pending' = asked for,
+ *  not settled · 'done' = provably finished (succeeded, or the server refused
+ *  it in a way retrying cannot change). Only 'pending' legs ever re-run. */
+export type LegState = 'none' | 'pending' | 'done'
+
+/**
+ * An answer and the state of its money legs. Recorded per offer AND stamped
+ * durably, so a retry after a failed karute save re-runs only what never
+ * settled (A-4 + F-3): a done leg never fires twice — no second 回数券 sale —
+ * and a pending one is always re-offered, so a transient blip cannot cost a
+ * burn in silence.
+ */
+export interface RecoveryAnswer {
   outcome: SessionOutcome | undefined
   skipped: boolean
+  legs?: { burn: LegState; pack: LegState }
+  /** The 新しい回数券 the staffer registered — kept so a resumed pack leg can
+   *  re-run with the SAME numbers rather than re-asking. */
+  newPack?: NewPackInput
+  /** Remaining sessions at answer time, for the auto leg's 残N→残N-1 toast. */
+  burnFrom?: number
+  /** The silent mid-pack leg (A-6) — drives which toast the burn shows. */
+  auto?: boolean
 }
 
 /**
@@ -281,10 +300,21 @@ interface RecoveryFlow {
 
 /** A-5 — the day's facts are three worlds, not two. `failed` is what the
  *  server's explicit `unavailable` flag maps to; it is NOT an empty day. */
+/**
+ * A-5 — the day's facts are three worlds, not two. `failed` is what the
+ * server's explicit `unavailable` flag maps to; it is NOT an empty day.
+ *
+ * F-1(b): a settled state carries the KEY it was fetched for. Without it,
+ * "loaded" was read as "loaded for the CURRENT destination" — but the effect
+ * that marks the state stale runs after the render that changed the key, so a
+ * pick landing in that window started its save against the previous
+ * customer's facts (null pack ⇒ the burn question silently dropped, exactly
+ * what A-5 exists to prevent).
+ */
 type DayFactsState =
   | { status: 'loading' }
-  | { status: 'loaded'; facts: RecoveryDayFacts }
-  | { status: 'failed' }
+  | { status: 'loaded'; key: string; facts: RecoveryDayFacts }
+  | { status: 'failed'; key: string }
 
 /** What the recovery banner's 回数券 line says. Exported for tests.
  *
@@ -950,15 +980,23 @@ export function RecordPageView({
   useEffect(() => {
     if (!factsKey || !offerDayYmd) return
     let cancelled = false
+    const key = factsKey
     setDayFacts({ status: 'loading' })
     void getRecoveryDayFacts({
       date: offerDayYmd,
-      // The ORIGINAL binding stays the pin, so the picker can always offer the
-      // take's own customer back — even after a re-point away from them.
-      pinnedCustomerId: offerBinding?.customerId ?? null,
+      // BOTH ids (F-1a). The ORIGINAL binding so the picker can always offer
+      // the take's own customer back, AND the CURRENT destination so its 回数券
+      // row exists — after a search re-point the destination is neither pinned
+      // nor booked that day, and sending only the binding meant the server
+      // built no pack row for them at all. The request used to be byte-identical
+      // across a re-point, which is why the "destination-keyed" refetch was
+      // pure cost.
+      pinnedCustomerIds: [offerBinding?.customerId, destination?.customerId],
     }).then((f) => {
       if (cancelled) return
-      setDayFacts(f.unavailable ? { status: 'failed' } : { status: 'loaded', facts: f })
+      setDayFacts(
+        f.unavailable ? { status: 'failed', key } : { status: 'loaded', key, facts: f },
+      )
     })
     return () => {
       cancelled = true
@@ -967,16 +1005,19 @@ export function RecordPageView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factsKey])
 
-  const loadedFacts = dayFacts.status === 'loaded' ? dayFacts.facts : null
+  // FRESH means "settled for the key this render is actually asking about".
+  const factsFresh = dayFacts.status !== 'loading' && dayFacts.key === factsKey
+  const loadedFacts = factsFresh && dayFacts.status === 'loaded' ? dayFacts.facts : null
+  const factsFailed = factsFresh && dayFacts.status === 'failed'
   const ticket = resolveRecoveryTicketState({
     facts: loadedFacts,
     customerId: destination?.customerId ?? null,
     appointmentId: destination?.appointmentId ?? null,
   })
-  // A-5: money questions need the day's truth. Tickets off → there is no money
-  // question at all, so a failed read must NOT strand the record (it only
-  // costs the picker its detail lines).
-  const factsBlockSave = ticketsEnabled && dayFacts.status !== 'loaded'
+  // A-5: money questions need the day's truth — for THIS destination. Tickets
+  // off → there is no money question at all, so a failed read must NOT strand
+  // the record (it only costs the picker its detail lines).
+  const factsBlockSave = ticketsEnabled && !loadedFacts
 
   const [repointOpen, setRepointOpen] = useState(false)
   const [recoverySaving, setRecoverySaving] = useState(false)
@@ -1008,11 +1049,18 @@ export function RecordPageView({
   // 回数券 SALE. Once an offer's answer has been through its money phase it is
   // recorded here, and every retry goes straight to the save with it.
   const answeredRef = useRef(new Map<string, RecoveryAnswer>())
+  // F-5 — the abort's cancellation token. Nulling flowRef tore down the UI but
+  // could not stop the awaited chain: a resumed step would re-open a popup for
+  // a dead offer, move money for an aborted flow, or resurrect flowRef and hand
+  // the OLD take's blob to the pipeline while a new recording was live. Every
+  // await boundary re-checks the generation it captured and bails when stale.
+  const flowGenRef = useRef(0)
 
   function releaseRecoverySave() {
     recoverySavingRef.current = false
     recoveryResolvingRef.current = false
     flowRef.current = null
+    flowGenRef.current++
     setRecoverySaving(false)
     setRecoveryResolving(false)
   }
@@ -1020,15 +1068,20 @@ export function RecordPageView({
   // A-1 ③ — the abort. If the offer a flow was saving disappears before its
   // write began (the staffer starts a NEW recording, another tab settles the
   // session), tear the flow down: leaving it up means dialogs bound to a dead
-  // offer and a latch nothing will ever release. Deliberately skipped once the
-  // commit is under way — that path clears the offer itself, on purpose.
+  // offer and a latch nothing will ever release. Deliberately stands down once
+  // the commit is under way — that path clears the offer itself, on purpose.
   const activeOfferId = offer ? recoveryOfferId(offer) : null
   useEffect(() => {
     const f = flowRef.current
+    // F-6: the deferred start and the picker are cleaned up even when NO flow
+    // is running — that is precisely the state during the pendingStart wait.
+    // Left behind, the picker re-opened by itself when the offer came back, and
+    // a save the staffer never re-authorised fired with it.
+    setPendingStart(null)
+    setRepointOpen(false)
     if (!f || f.committing || f.offerId === activeOfferId) return
     setConsentFlow(null)
     setOutcomeFlow(null)
-    setRepointOpen(false)
     setRepointed(null)
     releaseRecoverySave()
   }, [activeOfferId])
@@ -1095,20 +1148,26 @@ export function RecordPageView({
   /** The deferred half of repointTo: fires once the destination's own day facts
    *  have landed, so startRecoveryFlow freezes a ticket that is actually true. */
   useEffect(() => {
-    if (!pendingStart || factsBlockSave || recoverySavingRef.current) return
+    // F-1(b): `factsFresh` — NOT factsBlockSave. The facts effect is declared
+    // above this one, so in the single commit where a pick lands it sets
+    // {status:'loading'} while THIS effect still reads the render's already
+    // captured values. Gating on the key match is what makes the wait real:
+    // the flow starts only once the facts for the picked destination are in.
+    if (!pendingStart || !factsFresh || recoverySavingRef.current) return
     const dest = pendingStart
     setPendingStart(null)
     startRecoveryFlow(dest)
     // startRecoveryFlow closes over this render's facts, which is exactly what
     // the gate above just proved fresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingStart, factsBlockSave])
+  }, [pendingStart, factsFresh])
 
   /** Consent gate, then the outcome question, then the save. Fail CLOSED: an
    *  unreadable consent opens the grant dialog and the save stays locked —
    *  identical rule to ReviewScreen's save-time gate (the server enforces it
    *  again either way). */
   async function beginRecoverySave(flow: RecoveryFlow) {
+    const gen = flowGenRef.current
     let consentCurrent = false
     try {
       const { consent: row } = await getCustomerConsent(flow.dest.customerId)
@@ -1116,6 +1175,10 @@ export function RecordPageView({
     } catch {
       consentCurrent = false
     }
+    // F-5: the offer died while we were away — the abort already released
+    // everything, so resuming here would re-open a dialog bound to a dead
+    // offer, or move money for a flow the staffer abandoned.
+    if (gen !== flowGenRef.current) return
     if (!consentCurrent) {
       setConsentError(null)
       setConsentFlow(flow)
@@ -1125,26 +1188,19 @@ export function RecordPageView({
   }
 
   async function afterRecoveryConsent(flow: RecoveryFlow) {
-    // A-4 — this offer's money phase already completed once (a retry after a
-    // failed save). Never re-open the popup, never re-run the legs.
-    const answered = answeredRef.current.get(flow.offerId)
+    const gen = flowGenRef.current
+    // A-4 + F-2 — this offer's money phase already ran. Never re-open the
+    // popup; resume only the legs that did NOT settle, then save.
+    const answered = answeredRef.current.get(flow.offerId) ?? (await loadPersistedAnswer(flow))
+    if (gen !== flowGenRef.current) return
     if (answered) {
-      await commitRecoverySave(flow, answered.outcome, answered.skipped)
-      return
-    }
-    // The answer SURVIVED the crash (D6) — its money legs settled server-side
-    // before the crash, so re-asking would offer a second burn for one visit.
-    const persisted = flow.offer.kind === 'take' ? flow.offer.take.outcome : undefined
-    const persistedSkipped =
-      flow.offer.kind === 'take' ? flow.offer.take.outcomeSkipped : undefined
-    if (persisted || persistedSkipped) {
-      await commitRecoverySave(flow, persisted, !!persistedSkipped)
+      await resumeRecoveryLegs(flow, answered)
       return
     }
     // Tickets off → the stop flow saves directly and never asks (the same
     // contract resolveStopFlow's 'save-direct' carries).
     if (!ticketsEnabled) {
-      await commitRecoverySave(flow, undefined, true)
+      await certifyAndCommit(flow, { outcome: undefined, skipped: true })
       return
     }
     // A-6 — 'auto' PARITY. A mid-pack customer (>2 sessions left) had no
@@ -1160,66 +1216,207 @@ export function RecordPageView({
     setOutcomeFlow(flow)
   }
 
+  /**
+   * F-2 — the answer as it survived a RELOAD.
+   *
+   * A take carries its own stamp. A DRAFT's answer used to live only in the
+   * in-memory latch, so a reload between "money settled, save failed" and the
+   * retry re-opened the popup and minted a SECOND 回数券 sale — and a phone
+   * WebView being killed in that window is this lane's whole premise, not an
+   * exotic case. The draft already carries the take id it deletes on success;
+   * the stamp rides through it.
+   *
+   * ponytail: a legacy draft with NO takeId keeps the in-memory latch only —
+   * it has no durable anchor to hang an answer on, and inventing one is a
+   * storage migration this fix does not need.
+   */
+  async function loadPersistedAnswer(flow: RecoveryFlow): Promise<RecoveryAnswer | null> {
+    if (flow.offer.kind === 'take') {
+      const t = flow.offer.take
+      if (!t.outcome && !t.outcomeSkipped) return null
+      return { outcome: t.outcome, skipped: !!t.outcomeSkipped, legs: t.outcomeLegs }
+    }
+    const takeId = flow.offer.draft.takeId
+    if (!takeId) return null
+    const stamped = await readTakeOutcome(takeId)
+    if (!stamped || (!stamped.outcome && !stamped.outcomeSkipped)) return null
+    return {
+      outcome: stamped.outcome,
+      skipped: !!stamped.outcomeSkipped,
+      legs: stamped.outcomeLegs,
+    }
+  }
+
+  /** F-3 — re-run ONLY the legs that never settled, then save. A leg already
+   *  recorded done never fires again (no second pack sale); a leg that failed
+   *  transiently is always re-offered (no silent money loss). */
+  async function resumeRecoveryLegs(flow: RecoveryFlow, answered: RecoveryAnswer) {
+    const pending = answered.legs
+      ? (answered.legs.burn === 'pending' ? 1 : 0) + (answered.legs.pack === 'pending' ? 1 : 0)
+      : 0
+    if (pending === 0) {
+      await commitRecoverySave(flow, answered.outcome, answered.skipped)
+      return
+    }
+    await runRecoveryLegs(flow, answered)
+  }
+
   /** A-6's silent leg — handleAutoFlow's twin, dated to the visit and tagged
    *  recovery. Same undo-able toast, so the staff can still reverse it. */
   async function runRecoveryAutoRedeem(flow: RecoveryFlow) {
     // Already burned for this visit → nothing to move, and still nothing to
     // ask. Straight to the save, with the same skipped-outcome shape.
     if (flow.alreadyRedeemed) {
-      await settleRecoveryAnswer(flow, undefined, true)
-      await commitRecoverySave(flow, undefined, true)
+      await certifyAndCommit(flow, { outcome: undefined, skipped: true })
       return
     }
-    const from = flow.pack?.remaining ?? 0
-    await redeemSessionAction({
-      packId: flow.packId!,
-      customerId: flow.dest.customerId,
-      redeemedOn: flow.dayYmd,
-      appointmentId: flow.dest.appointmentId ?? null,
-      recovery: true,
+    await runRecoveryLegs(flow, {
+      outcome: undefined,
+      skipped: true,
+      legs: { burn: 'pending', pack: 'none' },
+      burnFrom: flow.pack?.remaining ?? 0,
+      auto: true,
     })
-      .then((res) => {
-        if (res.ok) {
-          toast.success(
-            tPacks('autoRedeemed', { from, to: from - 1 }),
-            res.redemptionId
-              ? {
-                  action: {
-                    label: tPacks('undo'),
-                    onClick: () =>
-                      void undoRedemptionAction(res.redemptionId!).then((u) =>
-                        u.ok ? toast.success(tPacks('undone')) : toast.error(tPacks('redeemFailed')),
-                      ),
-                  },
-                }
-              : undefined,
-          )
-        } else if (res.error === 'already_redeemed') {
-          toast.info(t('recoverAlreadyRedeemed'))
-        } else {
-          toast.error(
-            tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'),
-          )
-        }
-      })
-      .catch(() => toast.error(tPacks('redeemFailed')))
-    // A-3 + A-4: the money phase is over, so the answer may now be certified.
-    await settleRecoveryAnswer(flow, undefined, true)
-    await commitRecoverySave(flow, undefined, true)
   }
 
-  /** A-3 + A-4 — the ONE place an answer becomes certified: after its money
-   *  phase settled, never before. The take stamp (which recovery reads as
-   *  "already resolved, don't ask") and the in-memory retry latch move
-   *  together, so neither can claim money that did not complete. */
-  async function settleRecoveryAnswer(
-    flow: RecoveryFlow,
-    outcome: SessionOutcome | undefined,
-    skipped: boolean,
-  ) {
-    answeredRef.current.set(flow.offerId, { outcome, skipped })
-    if (flow.offer.kind === 'take') {
-      await stampTakeOutcome(flow.offer.take.takeId, outcome, skipped)
+  /**
+   * F-3 — the money phase, per leg.
+   *
+   * A leg is CERTIFIED only when it provably finished: it succeeded, or the
+   * server provably refused it (the DB index / the customer-day guard / an
+   * empty pack). A transient failure — a reject, a network drop, or the guard
+   * being unable to READ the history — certifies nothing, keeps the banner,
+   * and is re-offered on the next attempt. Before this, allSettled plus
+   * per-leg catches certified everything, so a blip cost the burn permanently
+   * while telling the staffer it had already been used.
+   */
+  async function runRecoveryLegs(flow: RecoveryFlow, answer: RecoveryAnswer) {
+    const gen = flowGenRef.current
+    const legs = { ...(answer.legs ?? { burn: 'none' as LegState, pack: 'none' as LegState }) }
+    let transient = false
+
+    const packPromise =
+      legs.pack === 'pending' && answer.newPack
+        ? createPackAction({
+            customerId: flow.dest.customerId,
+            kind: 'pack',
+            packSize: answer.newPack.size,
+            unitPrice: answer.newPack.unitPrice,
+            // The purchase happened on the RECORDING's day, not today.
+            purchasedAt: flow.dayYmd,
+          })
+            .then((res) => {
+              if (res.ok) {
+                legs.pack = 'done'
+                toast.success(
+                  tPacks('packCreated', {
+                    size: answer.newPack!.size,
+                    price: answer.newPack!.unitPrice.toLocaleString('ja-JP'),
+                  }),
+                )
+              } else {
+                transient = true
+                toast.error(tPacks('packCreateFailed'))
+              }
+            })
+            .catch(() => {
+              transient = true
+              toast.error(tPacks('packCreateFailed'))
+            })
+        : Promise.resolve()
+
+    const burnPromise =
+      legs.burn === 'pending' && flow.packId
+        ? redeemSessionAction({
+            packId: flow.packId,
+            customerId: flow.dest.customerId,
+            // The burn belongs to the VISIT, not to today.
+            redeemedOn: flow.dayYmd,
+            appointmentId: flow.dest.appointmentId ?? null,
+            // D5 + D7: the customer-day guard, and the recovery-resolved tag.
+            recovery: true,
+          })
+            .then((res) => {
+              if (res.ok) {
+                legs.burn = 'done'
+                if (answer.auto) {
+                  const from = answer.burnFrom ?? 0
+                  toast.success(
+                    tPacks('autoRedeemed', { from, to: from - 1 }),
+                    res.redemptionId
+                      ? {
+                          action: {
+                            label: tPacks('undo'),
+                            onClick: () =>
+                              void undoRedemptionAction(res.redemptionId!).then((u) =>
+                                u.ok
+                                  ? toast.success(tPacks('undone'))
+                                  : toast.error(tPacks('redeemFailed')),
+                              ),
+                          },
+                        }
+                      : undefined,
+                  )
+                } else {
+                  toast.success(tPacks('redeemDone'))
+                }
+              } else if (res.error === 'already_redeemed' || res.error === 'below_zero') {
+                // PROVABLE refusals: the ticket is already spent for this
+                // visit, or the pack has nothing left. Retrying cannot change
+                // either, so the leg is finished — certify it.
+                legs.burn = 'done'
+                if (res.error === 'already_redeemed') toast.info(t('recoverAlreadyRedeemed'))
+                else toast.error(tPacks('redeemNoSessionsLeft'))
+              } else if (res.error === 'guard_unavailable') {
+                // F-3: the guard could not READ the history, so nothing burned
+                // and nothing is known. Say exactly that — never 消化済み.
+                transient = true
+                toast.error(t('recoverBurnCheckFailed'))
+              } else {
+                transient = true
+                toast.error(tPacks('redeemFailed'))
+              }
+            })
+            .catch(() => {
+              transient = true
+              toast.error(tPacks('redeemFailed'))
+            })
+        : Promise.resolve()
+
+    await Promise.allSettled([packPromise, burnPromise])
+
+    // Certify FIRST, bail second (F-5's ordering rule): a leg that settled is
+    // recorded even if the flow was aborted while it was in flight, or the
+    // next attempt would run it twice.
+    const settled: RecoveryAnswer = { ...answer, legs }
+    await settleRecoveryAnswer(flow, settled)
+    if (gen !== flowGenRef.current) return
+    if (transient) {
+      // The banner stays. The retry re-runs only what is still pending.
+      releaseRecoverySave()
+      return
+    }
+    await commitRecoverySave(flow, settled.outcome, settled.skipped)
+  }
+
+  /** No money to move — certify and save in one step. */
+  async function certifyAndCommit(flow: RecoveryFlow, answer: RecoveryAnswer) {
+    await settleRecoveryAnswer(flow, answer)
+    if (!flowRef.current) return
+    await commitRecoverySave(flow, answer.outcome, answer.skipped)
+  }
+
+  /** A-3 + A-4 + F-2/F-3 — the ONE place an answer becomes certified: after its
+   *  money phase settled, never before, and per leg. The durable stamp (which
+   *  recovery reads as "already resolved, don't ask") and the in-memory retry
+   *  latch move together, so neither can claim money that did not complete.
+   *  Drafts stamp through the take id they already carry. */
+  async function settleRecoveryAnswer(flow: RecoveryFlow, answer: RecoveryAnswer) {
+    answeredRef.current.set(flow.offerId, answer)
+    const takeId =
+      flow.offer.kind === 'take' ? flow.offer.take.takeId : flow.offer.draft.takeId
+    if (takeId) {
+      await stampTakeOutcome(takeId, answer.outcome, answer.skipped, answer.legs)
     }
   }
 
@@ -1230,8 +1427,14 @@ export function RecordPageView({
     outcome: SessionOutcome | undefined,
     outcomeSkipped: boolean,
   ) {
-    // Past this line the abort effect stands down: clearing the offer is what
-    // a successful save DOES.
+    // F-5 — DELIBERATELY no generation check in this function, and the trace
+    // for it: `committing` is set on the line below, BEFORE any await, and the
+    // abort effect stands down on `committing` (adjudicated semantics). The
+    // only other writer of flowGenRef is releaseRecoverySave, which runs in
+    // this function's own finally. So the generation is provably constant for
+    // the whole body — a check here could never fire. Every path INTO this
+    // function re-checks its own generation after its own awaits, which is
+    // where an abort is actually observable.
     flowRef.current = { offerId: flow.offerId, committing: true }
     try {
       const { offer: o, dest } = flow
@@ -1348,56 +1551,19 @@ export function RecordPageView({
     setRecoveryResolving(true)
     setOutcomeFlow(null)
     void (async () => {
-      const packPromise = newPack
-        ? (async () => {
-            const res = await createPackAction({
-              customerId: flow.dest.customerId,
-              kind: 'pack',
-              packSize: newPack.size,
-              unitPrice: newPack.unitPrice,
-              // The purchase happened on the RECORDING's day, not today.
-              purchasedAt: flow.dayYmd,
-            })
-            if (res.ok) {
-              toast.success(
-                tPacks('packCreated', {
-                  size: newPack.size,
-                  price: newPack.unitPrice.toLocaleString('ja-JP'),
-                }),
-              )
-            } else {
-              toast.error(tPacks('packCreateFailed'))
-            }
-          })().catch(() => toast.error(tPacks('packCreateFailed')))
-        : Promise.resolve()
-      const redeemPromise =
-        redeemPack && flow.packId
-          ? redeemSessionAction({
-              packId: flow.packId,
-              customerId: flow.dest.customerId,
-              // The burn belongs to the VISIT, not to today.
-              redeemedOn: flow.dayYmd,
-              appointmentId: flow.dest.appointmentId ?? null,
-              // D5 + D7: the customer-day guard, and the recovery-resolved tag.
-              recovery: true,
-            })
-              .then((res) => {
-                if (res.ok) toast.success(tPacks('redeemDone'))
-                else if (res.error === 'already_redeemed')
-                  toast.info(t('recoverAlreadyRedeemed'))
-                else
-                  toast.error(
-                    tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'),
-                  )
-              })
-              .catch(() => toast.error(tPacks('redeemFailed')))
-          : Promise.resolve()
-      await Promise.allSettled([packPromise, redeemPromise])
-      // A-3 — the stamp lands HERE, not before the legs. Stamping first told
-      // recovery "this answer is settled" while the money might still fail or
-      // be interrupted, and a stamped take is never re-asked.
-      await settleRecoveryAnswer(flow, outcome, false)
-      await commitRecoverySave(flow, outcome, false)
+      // The legs the staffer actually asked for. runRecoveryLegs settles each
+      // one independently and certifies only what provably finished (F-3), so
+      // the stamp still lands after the money (A-3) but no longer claims a leg
+      // that failed.
+      await runRecoveryLegs(flow, {
+        outcome,
+        skipped: false,
+        legs: {
+          burn: redeemPack && flow.packId ? 'pending' : 'none',
+          pack: newPack ? 'pending' : 'none',
+        },
+        newPack: newPack ?? undefined,
+      })
     })()
   }
 
@@ -1773,7 +1939,7 @@ export function RecordPageView({
           pack={ticket.pack}
           // A-5: 回数券の状態を確認できません + a retry, instead of a save that
           // silently skips the money question.
-          factsFailed={ticketsEnabled && dayFacts.status === 'failed'}
+          factsFailed={ticketsEnabled && factsFailed}
           onRetryFacts={() => setFactsAttempt((n) => n + 1)}
           onRepoint={() => setRepointOpen(true)}
           onSave={handleRecoverySaveTap}

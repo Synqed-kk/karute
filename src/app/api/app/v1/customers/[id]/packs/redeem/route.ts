@@ -93,8 +93,21 @@ export const POST = facadeHandler<Params>('customer.pack.redeem', async (ctx) =>
     // B-9: an already-recorded burn is the guard SUCCEEDING (the DB's partial
     // unique index, or D5's customer-day check) — a conflict the client can
     // read as 消化済み, never an upstream failure it should retry.
+    // The `reason` detail is the MACHINE-READABLE half (F-8): the phone port
+    // branches on it, never on this message string, which a copy edit would
+    // otherwise silently regress to a generic 失敗 toast.
     if (result.error === 'already_redeemed') {
-      throw new AppApiError('conflict', 'this visit already has a redemption')
+      throw new AppApiError('conflict', 'this visit already has a redemption', {
+        reason: 'already_redeemed',
+      })
+    }
+    // F-3: the guard could not READ the history. Fail-closed (nothing burned),
+    // but retryable and honestly labelled — the client must not certify the
+    // answer or tell the staffer the ticket was used.
+    if (result.error === 'guard_unavailable') {
+      throw new AppApiError('upstream_unavailable', 'could not verify existing redemptions', {
+        reason: 'guard_unavailable',
+      })
     }
     throw new AppApiError('upstream_unavailable', result.error ?? 'redeem failed')
   }

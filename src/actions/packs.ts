@@ -183,6 +183,12 @@ export async function redeemSessionActionWithClient(
   //   the double-tap case.
   //   CEILING (money lens #8, recorded not fixed): a visit whose burn was
   //   dated to an ADJACENT JST day is outside this day-keyed check.
+  //   CEILING (F-10): keying on the customer-DAY means two genuine same-day
+  //   visits by one customer burn ONE ticket. That is parity with the
+  //   auto-burn cron's guard 2 ("one customer-day burns ONE ticket EVER"), not
+  //   a regression — but the recovery picker deliberately keeps that
+  //   customer's OTHER same-day bookings selectable (B-8), so the UI can offer
+  //   a destination this guard then refuses with the 消化済み message.
   if (input.recovery) {
     // Floor one JST day back, exactly like the cron's historySince — a `since`
     // equal to the day itself relies on core's comparison being inclusive,
@@ -195,10 +201,14 @@ export async function redeemSessionActionWithClient(
           (r) => r.customer_id === input.customerId && r.redeemed_on.slice(0, 10) === redeemedOn,
         ),
       )
-      // Fail CLOSED on an unreadable history: we cannot prove this burn safe,
-      // and the UX for "already burned" is the honest thing to show (the same
-      // discriminator the DB index produces on the booked path).
-      .catch(() => true)
+      // Fail CLOSED on an unreadable history — we cannot prove this burn safe.
+      // But it gets its OWN discriminator (F-3): reporting it as
+      // 'already_redeemed' told the staffer the ticket had been used, and the
+      // client then certified the answer, so a transient read blip cost a burn
+      // permanently under a message that gave nobody a reason to look. No burn
+      // happens either way; only the truth the client is told differs.
+      .catch(() => 'unreadable' as const)
+    if (already === 'unreadable') return { ok: false, error: 'guard_unavailable' }
     if (already) return { ok: false, error: 'already_redeemed' }
   }
   const result = await addRedemptionWithClient(synqed, {

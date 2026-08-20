@@ -35,7 +35,8 @@ export const GET = facadeHandler('recovery.day_facts', async (ctx) => {
   const url = new URL(ctx.req.url)
   const date = url.searchParams.get('date') ?? ''
   if (!YMD.test(date)) throw new AppApiError('validation', 'date must be YYYY-MM-DD')
-  const pinnedCustomerId = url.searchParams.get('pinnedCustomerId') ?? undefined
+  // Repeated param: the original binding AND the current destination (F-1).
+  const pinnedCustomerIds = url.searchParams.getAll('pinnedCustomerId')
 
   const synqed = newSynqedClient(ctx.identity.businessId)
   // Store clamp BEFORE any read, OUTSIDE the degrade below — a store_forbidden
@@ -54,7 +55,7 @@ export const GET = facadeHandler('recovery.day_facts', async (ctx) => {
       await buildRecoveryDayFacts(synqed, {
         dateYmd: date,
         storeId: clamp.storeId ?? undefined,
-        pinnedCustomerId,
+        pinnedCustomerIds,
         statusLabel: (key) => t(key),
       }),
     )

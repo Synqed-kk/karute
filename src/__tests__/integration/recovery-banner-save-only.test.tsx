@@ -105,6 +105,8 @@ let offerTake = true
  *  in afterEach — a mockResolvedValue would leak into every later test, since
  *  clearAllMocks clears CALLS, not implementations. */
 let takeOverride: Record<string, unknown> | null = null
+/** What take-store would hand back after a reload (F-2's durable draft seam). */
+let stampedAnswer: Record<string, unknown> | null = null
 const mockStampTakeOutcome = jest.fn(async () => {})
 jest.mock('@/lib/karute/take-store', () => ({
   appendTakeSegment: jest.fn(),
@@ -112,6 +114,9 @@ jest.mock('@/lib/karute/take-store', () => ({
   deleteTake: jest.fn(),
   stampTakeSession: jest.fn(),
   stampTakeOutcome: (...a: unknown[]) => mockStampTakeOutcome(...(a as [])),
+  // F-2: a draft's answer now survives a reload through the take id it already
+  // carries. `stampedAnswer` is what a REMOUNT would read back.
+  readTakeOutcome: jest.fn(async () => stampedAnswer),
   getRecoverableTake: jest.fn(async () => (offerTake ? (takeOverride ?? TAKE) : null)),
   loadTakeBlob: jest.fn(async () => new Blob(['audio'])),
 }))
@@ -143,6 +148,12 @@ jest.mock('@/hooks/use-global-recorder', () => ({
   }),
 }))
 const mockPipelineStart = jest.fn()
+// F-4: the pipeline's CONTEXT is mutable so a test can make the offered take
+// become the pipeline's own in-flight take — that is how activeOfferId changes
+// while the component stays MOUNTED, which is the only way the abort effect can
+// actually be observed (the old test unmounted, destroying the very state the
+// effect exists to clean up).
+let mockPipelineContext: { takeId?: string } | null = null
 jest.mock('@/lib/global-pipeline', () => ({
   globalPipeline: {
     version: 0,
@@ -150,7 +161,9 @@ jest.mock('@/lib/global-pipeline', () => ({
     step: null,
     result: null,
     error: null,
-    context: null,
+    get context() {
+      return mockPipelineContext
+    },
     subscribe: () => () => {},
     start: (...a: unknown[]) => mockPipelineStart(...(a as [])),
     retry: jest.fn(),
@@ -182,6 +195,8 @@ afterEach(() => {
   mockDayFacts.mockImplementation(async () => DAY_FACTS)
   offerTake = true
   takeOverride = null
+  stampedAnswer = null
+  mockPipelineContext = null
   offerDraft = null
   TAKE.outcome = undefined
   TAKE.outcomeSkipped = undefined
@@ -214,7 +229,10 @@ function grantConsent() {
 }
 
 async function renderPage(overrides: Partial<RecordPageViewProps> = {}) {
-  const result = render(
+  // A FACTORY, not a cached element: React bails out of re-rendering a fiber
+  // whose element is referentially identical, so reusing one would silently
+  // no-op every rerenderSame() — and with it every mounted-abort assertion.
+  const buildUi = () => (
     <RecordPageView
       customers={[{ id: 'cust-1', name: '佐藤 美咲' } as never]}
       locale="ja"
@@ -227,13 +245,25 @@ async function renderPage(overrides: Partial<RecordPageViewProps> = {}) {
       currentStaffName="原"
       ticketsEnabled
       {...overrides}
-    />,
+    />
   )
+  const result = render(buildUi())
   // Flush the mount effects (draft + take load, then the day-facts fetch).
   await act(async () => {
     for (let i = 0; i < 8; i++) await Promise.resolve()
   })
-  return result
+  return {
+    ...result,
+    /** Re-render the SAME props so a change to a mocked singleton (the
+     *  pipeline's claimed take) is picked up WITHOUT unmounting — the only way
+     *  the abort effect is observable (F-4). */
+    rerenderSame: async () => {
+      await act(async () => {
+        result.rerender(buildUi())
+        for (let i = 0; i < 6; i++) await Promise.resolve()
+      })
+    },
+  }
 }
 
 /** The banner's own subtree — assertions must never accidentally count a
@@ -424,6 +454,8 @@ describe('a take whose 結果 survived the crash saves without re-asking', () =>
       'take-1',
       { status: 'pending', reason: null, isFirstVisit: false },
       false,
+      // F-3: the stamp now carries WHICH legs settled.
+      { burn: 'done', pack: 'none' },
     )
     expect(mockStampTakeOutcome.mock.invocationCallOrder[0]).toBeGreaterThan(
       (jest.requireMock('@/actions/packs') as { redeemSessionAction: jest.Mock })
@@ -761,7 +793,10 @@ describe('auto mode parity (A-6)', () => {
     expect(ctx.outcome).toBeUndefined()
     expect(ctx.outcomeSkipped).toBe(true)
     // A-3: the stamp certifies the money phase, so it carries skipped=true.
-    expect(mockStampTakeOutcome).toHaveBeenCalledWith('take-1', undefined, true)
+    expect(mockStampTakeOutcome).toHaveBeenCalledWith('take-1', undefined, true, {
+      burn: 'done',
+      pack: 'none',
+    })
   })
 
   it('an ALREADY-burned auto customer does not burn again', async () => {
@@ -1157,28 +1192,111 @@ describe('unbound takes stay landable (A-7)', () => {
   })
 })
 
-// ── A-1: the flow is frozen, and aborts cleanly ────────────────────────────
-describe('the flow freezes its offer (A-1)', () => {
-  it('an offer that evaporates mid-flow closes the dialogs and frees the latch', async () => {
+// ── A-1 / F-4 / F-5 / F-6: the flow freezes, and the abort actually aborts ──
+describe('the flow freezes its offer (A-1) and the abort really aborts', () => {
+  // F-4: the previous version of this test called rerender(<div />), which
+  // UNMOUNTS RecordPageView — flowRef and every piece of state the effect
+  // exists to clean up die with it, so the assertion held whether the effect
+  // ran or not. The verifier disabled the effect entirely and 4,945 tests
+  // stayed green. This one keeps the component mounted and moves the OFFER out
+  // from under the live flow, which is the real production sequence.
+  it('F-4: an offer claimed mid-flow closes the dialogs and frees the latch, MOUNTED', async () => {
     grantConsent()
     DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
-    const { rerender } = await renderPage()
+    const { rerenderSame } = await renderPage()
     await act(async () => {
       fireEvent.click(screen.getByText('recoverSaveAction'))
       for (let i = 0; i < 10; i++) await Promise.resolve()
     })
     expect(screen.getByText('disclaimer')).toBeTruthy()
-    // A new recording starts: the take is no longer offerable.
-    offerTake = false
-    takeOverride = null
+
+    // The pipeline claims this take (a new recording handed off) — the offer
+    // is gone while the component is very much still on screen.
+    mockPipelineContext = { takeId: 'take-1' }
+    await rerenderSame()
+
+    // The popup bound to the dead offer is gone, the banner with it, and the
+    // latch is released rather than wedged forever.
+    expect(screen.queryByText('disclaimer')).toBeNull()
+    expect(screen.queryByText('recoverBannerTitle')).toBeNull()
+    // Bring the offer back: the banner returns ready, not mid-flow.
+    mockPipelineContext = null
+    await rerenderSame()
+    expect((screen.getByText('recoverSaveAction') as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.queryByText('disclaimer')).toBeNull()
+  })
+
+  // F-5: the abort used to tear down the UI while the awaited chain sailed on —
+  // re-opening a popup for a dead offer, or moving money for a flow nobody was
+  // watching any more.
+  it('F-5: an offer that dies during the consent read moves no money and opens nothing', async () => {
+    let releaseConsent: (v: { consent: null }) => void = () => {}
+    mockGetCustomerConsent.mockReturnValueOnce(
+      new Promise((r) => {
+        releaseConsent = r as (v: { consent: null }) => void
+      }) as never,
+    )
+    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    const { rerenderSame } = await renderPage()
     await act(async () => {
-      rerender(<div />)
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 4; i++) await Promise.resolve()
+    })
+    // Offer dies while the consent read is still in flight.
+    mockPipelineContext = { takeId: 'take-1' }
+    await rerenderSame()
+    await act(async () => {
+      releaseConsent({ consent: null })
+      for (let i = 0; i < 14; i++) await Promise.resolve()
+    })
+    const packs = jest.requireMock('@/actions/packs') as { redeemSessionAction: jest.Mock }
+    // No auto-burn for an abandoned flow, no consent dialog resurrected, and
+    // nothing handed to the pipeline.
+    expect(packs.redeemSessionAction).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: 'consentDialogTitle' })).toBeNull()
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+  })
+
+  // F-6: the deferred start is not a flow, so the abort's flow branch skipped
+  // it — and it fired a save the staffer never re-authorised once the offer
+  // came back. The picker re-opened itself for the same reason.
+  it('F-6: a pending deferred start is cancelled when the offer goes away', async () => {
+    grantConsent()
+    takeOverride = { ...TAKE, target: null }
+    DAY_FACTS.bookings = [OTHER_BOOKING] as never
+    // Hold the post-pick refetch open so the deferred start is still waiting.
+    let releaseFacts: (v: typeof DAY_FACTS) => void = () => {}
+    const { rerenderSame } = await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverPickAndSaveAction'))
       await Promise.resolve()
     })
-    // Re-mount cleanly — the point is that nothing was left half-open or
-    // half-latched behind the unmount.
-    await renderPage()
-    expect(screen.queryByText('disclaimer')).toBeNull()
+    mockDayFacts.mockReturnValueOnce(
+      new Promise<typeof DAY_FACTS>((r) => {
+        releaseFacts = r
+      }),
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByText('田中 花子'))
+      for (let i = 0; i < 4; i++) await Promise.resolve()
+    })
+    // Offer dies while the pending start waits on its facts.
+    mockPipelineContext = { takeId: 'take-1' }
+    await rerenderSame()
+    await act(async () => {
+      releaseFacts(DAY_FACTS)
+      for (let i = 0; i < 14; i++) await Promise.resolve()
+    })
+    expect(mockGetCustomerConsent).not.toHaveBeenCalled()
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+    // And when the offer returns, nothing fires by itself and no picker pops.
+    mockPipelineContext = null
+    await rerenderSame()
+    await act(async () => {
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    expect(mockGetCustomerConsent).not.toHaveBeenCalled()
+    expect(screen.queryByText('target.repointTitle')).toBeNull()
   })
 
   it('an unreadable take SAYS SO instead of eating the tap', async () => {
@@ -1194,6 +1312,303 @@ describe('the flow freezes its offer (A-1)', () => {
     })
     expect(mockPipelineStart).not.toHaveBeenCalled()
     expect(toast.error).toHaveBeenCalledWith('recoverSaveFailed')
+  })
+})
+
+
+// ── F-1: the searched customer's 回数券 must reach the save ─────────────────
+describe('a search-re-pointed customer keeps their pack (F-1)', () => {
+  it('the second fetch carries the DESTINATION, and the auto leg burns', async () => {
+    grantConsent()
+    takeOverride = { ...TAKE, target: null }
+    DAY_FACTS.bookings = []
+    // Call 1 (unbound, no destination yet): the day has nothing to say.
+    // Call 2 (after the search pick): the destination's pack appears — which
+    // only happens because the request now carries their id.
+    mockDayFacts.mockImplementationOnce(async () => ({
+      ...DAY_FACTS,
+      packs: [],
+    }))
+    mockDayFacts.mockImplementationOnce(async () => ({
+      ...DAY_FACTS,
+      packs: [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }],
+    }))
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverPickAndSaveAction'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '佐藤' } })
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('佐藤 美咲'))
+      for (let i = 0; i < 20; i++) await Promise.resolve()
+    })
+
+    // (a) both ids ride the request — the original binding (null here) AND the
+    // destination. Identical args across the two calls was the whole bug.
+    const second = mockDayFacts.mock.calls[1][0] as { pinnedCustomerIds?: unknown[] }
+    expect(second.pinnedCustomerIds).toContain('cust-1')
+
+    // (b) remaining 4 = 'auto' → the silent burn leg, NOT the conversion popup.
+    // The probe scenario (zero burns + popup open) must be unreachable.
+    const packs = jest.requireMock('@/actions/packs') as { redeemSessionAction: jest.Mock }
+    expect(screen.queryByText('disclaimer')).toBeNull()
+    expect(packs.redeemSessionAction).toHaveBeenCalledTimes(1)
+    expect(packs.redeemSessionAction.mock.calls[0][0]).toMatchObject({
+      packId: 'pack-1',
+      customerId: 'cust-1',
+      recovery: true,
+    })
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ── F-2: a draft's answer survives a reload ────────────────────────────────
+describe('draft answers are durable (F-2)', () => {
+  const DRAFT2 = {
+    transcript: 't',
+    summary: 's',
+    entries: [],
+    duration: 1380,
+    appointmentId: 'appt-1',
+    appointmentCustomerId: 'cust-1',
+    recordingSessionId: 'sess-1',
+    takeId: 'take-1',
+    savedAt: Date.parse('2026-08-18T05:45:00Z'),
+  }
+
+  it('the answer is stamped THROUGH the draft’s take id', async () => {
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT2 }
+    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    await answerPopup('repurchase.pending.title')
+    expect(mockStampTakeOutcome).toHaveBeenCalledWith(
+      'take-1',
+      expect.objectContaining({ status: 'pending' }),
+      false,
+      { burn: 'done', pack: 'none' },
+    )
+  })
+
+  it('after a RELOAD the retry goes straight to the save — no second pack sale', async () => {
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT2 }
+    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    mockSaveInline.mockResolvedValueOnce({ error: 'boom' })
+    await renderPage({ packPresets: [{ size: 10, unitPrice: 9900 }] })
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    await answerPopup('repurchase.success.title')
+    const packs = jest.requireMock('@/actions/packs') as {
+      createPackAction: jest.Mock
+      redeemSessionAction: jest.Mock
+    }
+    expect(packs.createPackAction).toHaveBeenCalledTimes(1)
+    expect(mockSaveInline).toHaveBeenCalledTimes(1)
+
+    // THE RELOAD. Everything in memory is gone; only what was stamped survives.
+    cleanup()
+    stampedAnswer = {
+      outcome: { status: 'success', reason: null, isFirstVisit: false },
+      outcomeSkipped: false,
+      outcomeLegs: { burn: 'done', pack: 'done' },
+    }
+    await renderPage({ packPresets: [{ size: 10, unitPrice: 9900 }] })
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 16; i++) await Promise.resolve()
+    })
+    // Straight to the save: no popup, and — the money defect the probe caught —
+    // still exactly ONE pack sale for this customer.
+    expect(screen.queryByText('disclaimer')).toBeNull()
+    expect(packs.createPackAction).toHaveBeenCalledTimes(1)
+    expect(mockSaveInline).toHaveBeenCalledTimes(2)
+  })
+})
+
+// ── F-3: certify per leg, and only on settled money ────────────────────────
+describe('per-leg certification (F-3)', () => {
+  function packsMock() {
+    return jest.requireMock('@/actions/packs') as {
+      createPackAction: jest.Mock
+      redeemSessionAction: jest.Mock
+    }
+  }
+
+  it('a TRANSIENT burn failure certifies nothing, keeps the banner, and retries only that leg', async () => {
+    grantConsent()
+    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    const packs = packsMock()
+    packs.redeemSessionAction.mockRejectedValueOnce(new Error('network'))
+    await renderPage({ packPresets: [{ size: 10, unitPrice: 9900 }] })
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    await answerPopup('repurchase.success.title')
+
+    // Pack sale landed; burn did not. Nothing saved, banner still there.
+    expect(packs.createPackAction).toHaveBeenCalledTimes(1)
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+    const retry = screen.getByText('recoverSaveAction') as HTMLButtonElement
+    expect(retry.disabled).toBe(false)
+    // The stamp records the SPLIT, so the retry knows what is left.
+    expect(mockStampTakeOutcome).toHaveBeenLastCalledWith(
+      'take-1',
+      expect.anything(),
+      false,
+      { burn: 'pending', pack: 'done' },
+    )
+
+    await act(async () => {
+      fireEvent.click(retry)
+      for (let i = 0; i < 18; i++) await Promise.resolve()
+    })
+    // ONLY the burn re-ran. No second sale, no popup, and now it saves.
+    expect(packs.createPackAction).toHaveBeenCalledTimes(1)
+    expect(packs.redeemSessionAction).toHaveBeenCalledTimes(2)
+    expect(screen.queryByText('disclaimer')).toBeNull()
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+  })
+
+  it('guard_unavailable says so honestly and certifies nothing', async () => {
+    grantConsent()
+    // remaining 4 → the auto leg, where the misleading 消化済み was worst.
+    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    const packs = packsMock()
+    packs.redeemSessionAction.mockResolvedValueOnce({ ok: false, error: 'guard_unavailable' })
+    const { toast } = jest.requireMock('sonner') as {
+      toast: { error: jest.Mock; info: jest.Mock }
+    }
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 14; i++) await Promise.resolve()
+    })
+    // Its own message — never 消化済み, which is what used to be shown.
+    expect(toast.error).toHaveBeenCalledWith('recoverBurnCheckFailed')
+    expect(toast.info).not.toHaveBeenCalledWith('recoverAlreadyRedeemed')
+    // Nothing certified, nothing saved, and the burn is still owed.
+    expect(mockStampTakeOutcome).toHaveBeenLastCalledWith('take-1', undefined, true, {
+      burn: 'pending',
+      pack: 'none',
+    })
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+    expect((screen.getByText('recoverSaveAction') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('a PROVABLE already_redeemed certifies the leg and saves', async () => {
+    grantConsent()
+    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 4, size: 6 }]
+    packsMock().redeemSessionAction.mockResolvedValueOnce({
+      ok: false,
+      error: 'already_redeemed',
+    })
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 14; i++) await Promise.resolve()
+    })
+    // Retrying cannot change it, so the leg is finished — and the record saves.
+    expect(mockStampTakeOutcome).toHaveBeenLastCalledWith('take-1', undefined, true, {
+      burn: 'done',
+      pack: 'none',
+    })
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+  })
+})
+
+
+// ── The two guards the first round-2 red-run pass could not reach ──────────
+describe('deferred start + abort, at the edges', () => {
+  // F-1b: with tickets OFF, factsBlockSave is always false — so gating the
+  // deferred start on it (instead of on facts FRESHNESS) starts the flow
+  // against the pre-pick facts. The destination would be right but its picker
+  // rows and pack row would be another customer's.
+  it('tickets OFF: the deferred start still waits for the destination’s facts', async () => {
+    grantConsent()
+    takeOverride = { ...TAKE, target: null }
+    DAY_FACTS.bookings = []
+    mockDayFacts.mockImplementationOnce(async () => ({ ...DAY_FACTS, packs: [] }))
+    let releaseSecond: (v: typeof DAY_FACTS) => void = () => {}
+    mockDayFacts.mockReturnValueOnce(
+      new Promise<typeof DAY_FACTS>((r) => {
+        releaseSecond = r
+      }),
+    )
+    await renderPage({ ticketsEnabled: false })
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverPickAndSaveAction'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '佐藤' } })
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('佐藤 美咲'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    // The second fetch is still open: nothing may have started yet.
+    expect(mockGetCustomerConsent).not.toHaveBeenCalled()
+    await act(async () => {
+      releaseSecond(DAY_FACTS)
+      for (let i = 0; i < 16; i++) await Promise.resolve()
+    })
+    expect(mockGetCustomerConsent).toHaveBeenCalledWith('cust-1')
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+  })
+
+  // F-5: the abort landing DURING the money legs. The legs are already in
+  // flight, so they settle and are certified (certify-then-bail) — but the
+  // record must NOT be handed to the pipeline, because the take now belongs to
+  // a live recording.
+  it('an offer claimed during the money legs certifies them but saves nothing', async () => {
+    grantConsent()
+    DAY_FACTS.packs = [{ customerId: 'cust-1', packId: 'pack-1', remaining: 2, size: 6 }]
+    const packs = jest.requireMock('@/actions/packs') as { redeemSessionAction: jest.Mock }
+    let settleBurn: (v: { ok: boolean }) => void = () => {}
+    packs.redeemSessionAction.mockReturnValueOnce(
+      new Promise((r) => {
+        settleBurn = r
+      }),
+    )
+    const { rerenderSame } = await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('repurchase.pending.title'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('save'))
+      for (let i = 0; i < 6; i++) await Promise.resolve()
+    })
+    // The pipeline claims the take while the burn is still in flight.
+    mockPipelineContext = { takeId: 'take-1' }
+    await rerenderSame()
+    await act(async () => {
+      settleBurn({ ok: true })
+      for (let i = 0; i < 16; i++) await Promise.resolve()
+    })
+    // Certified (the money DID move, so a later retry must not repeat it)…
+    expect(mockStampTakeOutcome).toHaveBeenCalledTimes(1)
+    // …but never handed to the pipeline, which is now busy with a live take.
+    expect(mockPipelineStart).not.toHaveBeenCalled()
   })
 })
 

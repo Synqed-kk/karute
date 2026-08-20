@@ -72,16 +72,21 @@ export async function buildRecoveryDayFacts(
     dateYmd: string
     /** Active store — the same clamp every other recording surface applies. */
     storeId?: string
-    /** The take's ORIGINALLY-bound customer. Pinned atop the picker even with
-     *  no booking that day (⚖ doctrine ⑥), and given a fact row so the banner
-     *  can state their 回数券 truth while they are still the 保存先. */
-    pinnedCustomerId?: string
+    /**
+     * Customers to include even with no booking that day: the take's ORIGINAL
+     * binding (pinned atop the picker, ⚖ doctrine ⑥) AND the CURRENT
+     * destination, which after a search re-point may be neither pinned nor
+     * booked. Both get a 回数券 row, or the banner and the save flow read
+     * "no pack" for a customer who has one and the burn question is silently
+     * dropped (F-1). Ids the client already legitimately holds — no new tier.
+     */
+    pinnedCustomerIds?: (string | null | undefined)[]
     /** reservation.status label resolver (getTranslations), kept a plain fn so
      *  this module stays loadable by both builds + jest. */
     statusLabel: (key: 'in_session' | 'completed' | 'booked') => string
   },
 ): Promise<RecoveryDayFacts> {
-  const { dateYmd, storeId, pinnedCustomerId, statusLabel } = input
+  const { dateYmd, storeId, pinnedCustomerIds = [], statusLabel } = input
 
   const customerRes = await listAllCustomers(synqed as SynqedClient, {
     sort_by: 'created_at',
@@ -147,7 +152,7 @@ export async function buildRecoveryDayFacts(
   // wire weight.
   const packs: RecoveryDayFacts['packs'] = []
   const seen = new Set<string>()
-  for (const cid of [pinnedCustomerId, ...bookings.map((b) => b.customerId)]) {
+  for (const cid of [...pinnedCustomerIds, ...bookings.map((b) => b.customerId)]) {
     if (!cid || seen.has(cid)) continue
     seen.add(cid)
     const usage = packUsage?.get(cid)

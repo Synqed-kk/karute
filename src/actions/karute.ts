@@ -181,6 +181,12 @@ export async function createOrUpdateKaruteRecord(
         // customer A carrying customer B's booking, with a success toast. The
         // payload's customer is the caller's explicit intent on every one of
         // this chokepoint's callers, so it is the authority here too.
+        //   CEILING (F-7, recorded not fixed): store_id and staff_id do NOT
+        //   move with it. A cross-store re-point onto an existing record keeps
+        //   the OLD store stamp, so under the ⚖ store-isolation law the new
+        //   customer's branch cannot see their own karute. Reachable only when
+        //   the staff's active store changed between the partial save and the
+        //   recovery; queued to the store-isolation census lane.
         customer_id: payload.customer_id,
         transcript: payload.transcript,
         ai_summary: payload.ai_summary,

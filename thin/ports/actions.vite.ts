@@ -277,14 +277,17 @@ async function facadeRedeemSession(input: {
     idemPost(rest),
   )
   const body = (await res.json().catch(() => null)) as
-    | { redemptionId?: string; error?: { message?: string; code?: string } }
+    | { redemptionId?: string; error?: { message?: string; code?: string; reason?: string } }
     | null
   if (res.ok) return { ok: true, redemptionId: body?.redemptionId }
-  // B-9 parity: the route now answers an already-recorded burn with 409. Map it
-  // back to the SAME discriminator the web action returns, or the phone shows a
-  // generic 失敗 toast where the browser shows 消化済み.
-  if (res.status === 409 && /already has a redemption/i.test(body?.error?.message ?? '')) {
-    return { ok: false, error: 'already_redeemed' }
+  // B-9 + F-8 parity: the route labels the two guard outcomes with a
+  // MACHINE-READABLE `reason`, so the phone returns the SAME discriminators the
+  // web action does. Never match on the message — a copy edit there would
+  // silently regress the phone to a generic 失敗 toast (and, for
+  // guard_unavailable, back to certifying an answer whose burn never happened).
+  const reason = body?.error?.reason
+  if (reason === 'already_redeemed' || reason === 'guard_unavailable') {
+    return { ok: false, error: reason }
   }
   return { ok: false, error: body?.error?.message ?? `Redeem failed (${res.status})` }
 }
@@ -1425,12 +1428,15 @@ export const getBurnablePackSummary = async (
 // ticket rather than claiming 未処理 (F7).
 export const getRecoveryDayFacts = (async (input: {
   date: string
-  pinnedCustomerId?: string | null
+  pinnedCustomerIds?: (string | null | undefined)[]
 }): Promise<import('@/lib/karute/recovery-facts').RecoveryDayFacts> => {
   const empty = { date: input.date, unavailable: true as const, bookings: [], packs: [], redeemed: null }
   try {
     const qs = `date=${enc(input.date)}${
-      input.pinnedCustomerId ? `&pinnedCustomerId=${enc(input.pinnedCustomerId)}` : ''
+      (input.pinnedCustomerIds ?? [])
+        .filter((id): id is string => !!id)
+        .map((id) => `&pinnedCustomerId=${enc(id)}`)
+        .join('')
     }`
     const res = await getDataPort().apiFetch(`/api/app/v1/recovery/day-facts?${qs}`)
     if (!res.ok) return empty
