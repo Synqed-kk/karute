@@ -605,6 +605,30 @@ describe('the notice never invents a money line', () => {
     // 前回の録音 is no longer 前回. The report about it stays dead.
     expect(notice()).toBeNull()
   })
+
+  // The test above pins the EPOCH GUARD (a held refetch cannot re-arm) — its
+  // notice was never on screen to begin with. This one pins the other half:
+  // the synchronous clear, on a notice that is provably VISIBLE. The recorder
+  // is inert in this harness, so `live` never flips — setAutoNotice(null) is
+  // the only thing that can take the notice off the screen.
+  it('a VISIBLE notice is cleared the moment a new recording starts', async () => {
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT }
+
+    await renderPage({ nextAppointment: APPOINTMENT })
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    expect(notice()).toBeTruthy()
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('startAria'))
+      for (let i = 0; i < 4; i++) await Promise.resolve()
+    })
+    expect(notice()).toBeNull()
+  })
 })
 
 describe('what auto-finish REFUSES to do — the banner is the fallback, untouched', () => {
