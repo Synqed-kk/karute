@@ -108,6 +108,19 @@ const BASE_PARAMS: Params = {
   storeId: 'store-own',
 }
 
+// Fixtures above/below pin booking dates to 2026-08-21 and expect the
+// "次回は" (upcoming booking) variant — that only holds while the real
+// calendar hasn't caught up to the fixture dates yet. Pin the clock here,
+// file-wide, so the suite never rots again; the same-JST-day test below
+// still overrides it locally to reach the "本日この後" branch on purpose.
+beforeEach(() => {
+  jest.useFakeTimers().setSystemTime(new Date('2026-08-01T00:00:00.000Z')) // well before every fixture date
+})
+
+afterEach(() => {
+  jest.useRealTimers()
+})
+
 describe('next-booking line — via getSuggestedFollowUpWithClient (facade, client passed directly)', () => {
   beforeEach(() => {
     jest.clearAllMocks()
