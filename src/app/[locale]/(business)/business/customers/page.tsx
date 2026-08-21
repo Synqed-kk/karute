@@ -34,6 +34,7 @@ import {
   listStaff,
   listStoreOptions,
   listVisits,
+  renderNow,
   type StoreLens,
 } from '@/business/lib/data'
 import { CustomersScreen, type CustomerRow } from './CustomersScreen'
@@ -77,10 +78,12 @@ export default async function CustomersPage({
   const storeName = new Map(storeOptions.map((s) => [s.id, s.name]))
 
   // 次回予約 per customer, within the lens: the earliest still-booked slot that
-  // has NOT started yet. One `now` for the whole render, compared as ISO
-  // instants — "already began" is an absolute fact, so no timezone enters here
-  // (JST belongs to the display strings above).
-  const now = new Date().toISOString()
+  // has NOT started yet. `now` is THE render anchor the rows above were derived
+  // from (data.ts), not a second clock read — otherwise a render crossing JST
+  // midnight would filter one fixture day's bookings against another day's now.
+  // Compared as ISO instants: "already began" is an absolute fact, so no
+  // timezone enters here (JST belongs to the display strings above).
+  const now = renderNow().toISOString()
   const nextByCustomer = new Map<string, (typeof appointments)[number]>()
   for (const a of [...appointments].sort((x, y) => x.starts_at.localeCompare(y.starts_at))) {
     if (a.status !== 'booked' || a.starts_at <= now || nextByCustomer.has(a.customer_id)) continue

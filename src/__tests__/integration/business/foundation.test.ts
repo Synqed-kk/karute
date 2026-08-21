@@ -284,7 +284,7 @@ describe('the fixture data door', () => {
     ]
     const INVENTORY: Record<string, string[]> = {
       'src/business/lib/clock.ts': [],
-      'src/business/lib/data.ts': ['./fixtures'],
+      'src/business/lib/data.ts': ['./fixtures', 'react'],
       'src/business/lib/fixtures.ts': ['./clock'],
       'src/business/i18n/index.ts': ['./ja.json'],
       'src/app/[locale]/(business)/layout.tsx': [

@@ -13,8 +13,11 @@
 // = that store; { viewAll: true } = every store), the clamp semantics, and the
 // fail-loud posture (nothing here swallows an error into an empty list).
 //
-// This module imports NOTHING outside territory — the seal is structural.
+// This module imports NOTHING outside territory except React's cache() — the
+// render runtime, already on the isolation allowlist — so the data seal stays
+// structural.
 
+import { cache } from 'react'
 import {
   appointments,
   business,
@@ -34,6 +37,19 @@ import {
 } from './fixtures'
 
 export type StoreLens = string | { viewAll: true }
+
+/** THE clock read for one server render — every fixture date in a render is
+ *  derived from this single instant.
+ *  `appointments()` re-derives the whole calendar from the clock on every call
+ *  (fixtures.ts:280, deliberately), so two reads in one render that straddle
+ *  JST midnight returned two different fixture days: the same booking could
+ *  carry one date in 予約 and another in 来店履歴, and a screen's own `new
+ *  Date()` could land on a third (Greptile P1 on #724). React cache() pins one
+ *  value per request — the same tool src/lib/perf/render-stamp.ts uses — so
+ *  screens read their "now" from HERE rather than the clock.
+ *  ponytail: the anchor is cached, not the row array — appointments() stays a
+ *  per-call function and a dozen rows twice a render costs nothing. */
+export const renderNow = cache((): Date => new Date())
 
 const lensStoreId = (lens: StoreLens): string | undefined =>
   typeof lens === 'string' ? lens : undefined
@@ -94,7 +110,7 @@ export async function listAppointments(
   range: { from?: string; to?: string } = {},
 ): Promise<FixtureAppointment[]> {
   assertLens(lens)
-  const inRange = appointments().filter(
+  const inRange = appointments(renderNow()).filter(
     (a) => (!range.from || a.starts_at >= range.from) && (!range.to || a.starts_at <= range.to),
   )
   return inLens(inRange, lens, false)
@@ -112,7 +128,7 @@ export async function listVisits(
   opts: { customerId?: string } = {},
 ): Promise<FixtureAppointment[]> {
   assertLens(lens)
-  const done = appointments().filter(
+  const done = appointments(renderNow()).filter(
     (a) => a.status === 'done' && (!opts.customerId || a.customer_id === opts.customerId),
   )
   return inLens(done, lens, false).sort((a, b) => b.starts_at.localeCompare(a.starts_at))
@@ -126,13 +142,14 @@ export async function readShellIdentity(): Promise<{
   business: typeof business
   operator: typeof operator
   /** ISO instant of the last Reserve sync. Resolved HERE rather than in the
-   *  shell so the clock is read in a data function, not during render. */
+   *  shell so the clock is read in a data function, not during render — and off
+   *  the render anchor, so the door reads the clock in exactly one place. */
   reserveSyncedAt: string
 }> {
   return {
     business,
     operator,
-    reserveSyncedAt: new Date(Date.now() - reserveSync.minutes_ago * 60_000).toISOString(),
+    reserveSyncedAt: new Date(renderNow().getTime() - reserveSync.minutes_ago * 60_000).toISOString(),
   }
 }
 
