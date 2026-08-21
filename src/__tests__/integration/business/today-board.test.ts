@@ -282,10 +282,13 @@ describe('the board day is operationally possible (⚖ 8/9 demo-data-product-tru
     }
   })
 
-  it('the terminal-held transaction names a booking that is genuinely unsettled', () => {
-    const held = today().find((a) => a.id === register.terminal_held.appointment_id)!
-    expect(held.settlement).toBe('awaiting')
-    expect(held.booked_price).toBe(register.terminal_held.amount)
+  it('every terminal-held transaction names a booking that is genuinely unsettled', () => {
+    expect(register.terminal_held.length).toBeGreaterThan(0)
+    for (const t of register.terminal_held) {
+      const held = today().find((a) => a.id === t.appointment_id)!
+      expect(held.settlement).toBe('awaiting')
+      expect(held.booked_price).toBe(t.amount)
+    }
   })
 })
 
@@ -730,6 +733,20 @@ describe('今日の運営 screen', () => {
     // settles nothing, so its 純売上 is ¥0 rather than the refund's negative.
     expect(register.refunds).toBeGreaterThan(0)
     expect(tomorrow.kpi.revenue).toBe('¥0')
+    // 決済端末: today's held transaction is today's closing blocker. On a
+    // viewed day the terminal holds nothing, so the checklist says so, the
+    // 閉店阻害 list has no row for it, and the 照合 dialog those rows open has
+    // nothing to show — no null arm anywhere, just an empty list.
+    const terminalCheck = (p: TodayProps) => p.dialogs.closing.checks.find(([k]) => k === '決済端末')!
+    expect(terminalCheck(t)[1]).toContain('端末保持 1件')
+    expect(terminalCheck(t)[2]).toBe(true)
+    expect(t.dialogs.blockers.map(([k]) => k)).toContain('決済端末')
+    expect(t.dialogs.terminal.rows).toHaveLength(5)
+
+    expect(terminalCheck(tomorrow)).toEqual(['決済端末', '端末保持 0件', false])
+    expect(tomorrow.dialogs.blockers.map(([k]) => k)).not.toContain('決済端末')
+    expect(tomorrow.dialogs.terminal.rows).toEqual([])
+
     // The day itself is still a real board: the standing planes came through.
     expect(tomorrow.lanes.length).toBe(t.lanes.length)
     expect(tomorrow.hours).toEqual(t.hours)

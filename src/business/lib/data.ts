@@ -252,10 +252,11 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
     blocks: inLens(blocks, lens, false),
     sellSlots: inLens(sellSlots, lens, false),
     decisions: inLens(today ? decisions : [], lens, false),
-    // ponytail: the money AGGREGATES are the day's; `terminal_held` is left as
-    // it is because emptying it turns the 決済端末 dialog's props nullable
-    // through TodayScreen. Make it null here when that dialog earns a null arm.
-    register: today ? register : { ...register, refunds: 0, cash_difference: 0 },
+    // Money aggregates AND the terminal's held transactions: all three are
+    // today's, and the empty list is what another day genuinely holds — no
+    // null arm anywhere, so the 閉店阻害 row and the 照合 dialog just have
+    // nothing to show rather than showing today's.
+    register: today ? register : { ...register, refunds: 0, cash_difference: 0, terminal_held: [] },
     pricingRule,
     recoverySteps: [...recoverySteps],
   }

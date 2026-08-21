@@ -368,6 +368,17 @@ export default async function TodayPage({
         }
   })
 
+  // ── 決済端末 ──────────────────────────────────────────────────────────────
+  // What the terminal is still holding is TODAY's state and TODAY's closing
+  // blocker. The count is read off the plane instead of written into the copy,
+  // so a day being VIEWED — which holds nothing — reads 端末保持 0件 and lists
+  // no 閉店阻害 row, rather than presenting today's transaction as its own.
+  const terminalHeld = planes.register.terminal_held
+  const terminalLabel =
+    terminalHeld.length === 0
+      ? '端末保持 0件'
+      : `端末保持 ${terminalHeld.length}件 / ${yen(terminalHeld.reduce((n, h) => n + h.amount, 0))}`
+
   // ── H: the hold on the board ──────────────────────────────────────────────
   const heldBooking = bookings.find((b) => b.state === 'hold') ?? null
   const holdDecision = heldBooking ? planes.decisions.find((d) => d.appointment_id === heldBooking.id) ?? null : null
@@ -502,13 +513,15 @@ export default async function TodayPage({
         })),
       },
       terminal: {
-        rows: [
-          ['端末取引', `${hhmm(planes.register.terminal_held.at)} / ${yen(planes.register.terminal_held.amount)} / ${planes.register.terminal_held.terminal}`],
-          ['二重送信防止ID', planes.register.terminal_held.idempotency_id],
-          ['予約', `${bookingById.get(planes.register.terminal_held.appointment_id)?.displayNo ?? '—'} / ${bookingById.get(planes.register.terminal_held.appointment_id)?.customerName ?? '—'} 様`],
+        // One block of rows per held transaction — so a day holding none has
+        // no rows, and the dialog it belongs to has no 閉店阻害 row to open it.
+        rows: terminalHeld.flatMap((h): Array<[string, string]> => [
+          ['端末取引', `${hhmm(h.at)} / ${yen(h.amount)} / ${h.terminal}`],
+          ['二重送信防止ID', h.idempotency_id],
+          ['予約', `${bookingById.get(h.appointment_id)?.displayNo ?? '—'} / ${bookingById.get(h.appointment_id)?.customerName ?? '—'} 様`],
           ['レジ状態', '端末送信待ち / 金額未反映'],
           ['反映後', '端末保持 0件 / 差異0件'],
-        ],
+        ]),
       },
       closing: {
         title: `${fmtDayShort.format(shownAt)}の閉店準備`,
@@ -516,13 +529,14 @@ export default async function TodayPage({
         checks: [
           ['予約終了', incident ? `未連絡 ${incident.waitingContact}件` : '未連絡 0件', (incident?.waitingContact ?? 0) > 0],
           ['精算', `未精算 ${totals.awaiting}件`, totals.awaiting > 0],
-          ['決済端末', `端末保持 1件 / ${yen(planes.register.terminal_held.amount)}`, true],
+          ['決済端末', terminalLabel, terminalHeld.length > 0],
           ['現金', `差異 ${yen(planes.register.cash_difference)}`, false],
           ['回数券', `本日${bookings.filter((b) => b.category === 'ticket').length}回 / Karute同期済み`, false],
         ] as Array<[string, string, boolean]>,
       },
       blockers: [
-        ['決済端末', `端末保持 1件 / ${yen(planes.register.terminal_held.amount)}`],
+        // 決済端末 is listed only when the terminal is actually holding one.
+        ...(terminalHeld.length > 0 ? [['決済端末', terminalLabel] as [string, string]] : []),
         ['未精算', `${totals.awaiting}件 / ${inStore ? `${inStore.customerName}様` : '—'}`],
       ] as Array<[string, string]>,
       create: {

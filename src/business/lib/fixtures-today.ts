@@ -201,19 +201,27 @@ export const opsConfig = {
 }
 
 /** レジ (ask T-08). The aggregates the money band shows that no booking row
- *  carries: cash variance, refunds, and the transaction the terminal is still
+ *  carries: cash variance, refunds, and the transactions the terminal is still
  *  holding. Everything else in the band is summed from the bookings. */
 export const register = {
   cash_difference: 0,
   /** Refund tenders, subtracted from gross to reach 純売上 (KPI K2). */
   refunds: 1100,
-  terminal_held: {
-    appointment_id: 'apt-25',
-    amount: 6600,
-    terminal: 'カード T-02',
-    idempotency_id: 'C-8821',
-    at: 12 * 60 + 15,
-  },
+  /** A LIST, not one transaction: the board counts these out loud (「端末保持
+   *  N件」), a register can hold more than one at a time, and — the reason it
+   *  matters here — HOLDING NOTHING has to be sayable. An empty list is the
+   *  normal state of a day that is not today, so the 閉店阻害 row and the
+   *  照合 dialog have an honest zero to render instead of another day's
+   *  ¥6,600. */
+  terminal_held: [
+    {
+      appointment_id: 'apt-25',
+      amount: 6600,
+      terminal: 'カード T-02',
+      idempotency_id: 'C-8821',
+      at: 12 * 60 + 15,
+    },
+  ],
 }
 
 /** 次に決めること (ask T-15). Core has no exception model, so every card is
