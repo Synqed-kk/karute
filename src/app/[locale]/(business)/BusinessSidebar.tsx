@@ -75,7 +75,7 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
     group: '店舗フロア',
     items: [
       { key: 'today', segment: 'today', label: '今日の運営', mini: '今日', live: true },
-      { key: 'reservations', segment: 'reservations', label: '予約', mini: '予約', live: false },
+      { key: 'reservations', segment: 'reservations', label: '予約', mini: '予約', live: true },
       { key: 'customers', segment: 'customers', label: '顧客', mini: '顧客', live: true },
       { key: 'inbox', segment: null, label: '受信トレイ', mini: '受信', live: false },
       { key: 'shifts', segment: null, label: 'スタッフ・シフト', mini: 'シフト', live: false },

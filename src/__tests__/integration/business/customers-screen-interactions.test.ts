@@ -27,10 +27,10 @@
  * enough of the native contract (the `open` boolean flipping); `open`
  * itself is already a normal reflected attribute in jsdom 20.
  */
+import { wireColumnsPopover } from '@/business/lib/column-config'
 import {
   matchesCustomerSearch,
   clearSearch,
-  wireColumnsPopover,
   openCreateDialog,
   closeOnBackdropClick,
   type CustomerRow,

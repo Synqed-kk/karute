@@ -115,7 +115,11 @@ export interface FixtureAppointment {
   /** 予約番号 — human-shaped on purpose (⚖ L-6). Canon's own board reproduced
    *  raw UUIDs and wrecked every row; that defect must not port. */
   display_no: string
-  /** Today F14. `null` = not a board card (cancelled). */
+  /** Today F14. `null` = the row paints NO board card. Two cases carry it: a
+   *  cancelled booking (nothing happened), and a Reserve request nobody has
+   *  accepted yet — an unaccepted request holds no floor, so painting it would
+   *  claim a slot the store has not given away (⚖ 8/9). The 予約一覧 lifecycle
+   *  reads the same rows and calls the second case 受付判断. */
   board_state: FixtureBoardState | null
   /** Today C2 / C3 / K2 (ask T-08). `null` = nothing to settle yet. */
   settlement: 'settled' | 'awaiting' | null
@@ -390,7 +394,10 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
     // Human-shaped and STABLE (⚖ L-6): derived from the row's own id, so
     // inserting a booking never renumbers the ones around it.
     display_no: `R-${4800 + Number(id.slice(4))}`,
-    board_state: board.board_state ?? (status === 'cancelled' ? null : 'confirmed'),
+    // `in`, not `??`: an EXPLICIT null means "paints no card" and `??` would
+    // silently overwrite it with 'confirmed' — which is how an unaccepted
+    // Reserve request would have shown up on the board as a held slot.
+    board_state: 'board_state' in board ? (board.board_state ?? null) : status === 'cancelled' ? null : 'confirmed',
     settlement: board.settlement ?? null,
     resource_id: board.resource_id ?? null,
     source: board.source ?? '店頭受付',
@@ -489,5 +496,29 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
     slot('apt-09', 'cus-07', STORE_A, 'p-05', 'menu-06', 0, 14, 5, 20, null, 'booked', {
       board_state: 'confirmed', source: '店頭 / 見本 ごろう', taken_days_ago: 0, updated_minute: 13 * 60 + 50,
     }),
+
+    // ── the 予約一覧 lifecycle cases (WO-3) ────────────────────────────────
+    // Deliberately on days AFTER today: the 予約 list spans a week, the board
+    // shows one day, and today's rows are what the board's counts are made of.
+    // Putting these three here means the list gains its missing lifecycle words
+    // without moving a single number the board already reports.
+    //
+    // 受付判断 — a Reserve request awaiting a human yes/no (ask C-1). It runs
+    // 30 minutes past 見本 しろう's shift, which is exactly why a person has to
+    // look at it: the accept dialog's 勤務時間 warning is DERIVED from that
+    // overlap, never stored. `board_state: null` keeps the unaccepted request
+    // off every board — the bed below is the slot it WOULD take, not one it
+    // holds.
+    slot('apt-30', 'cus-06', STORE_A, 'p-04', 'menu-01', 1, 17, 30, 60, 6600, 'booked',
+      { board_state: null, resource_id: 'bed-02', source: 'Reserve #357552', taken_days_ago: 0 }),
+    // 変更希望あり — a confirmed booking the customer has asked to move, and
+    // nobody answered before the deadline. The one 期限超過 row.
+    slot('apt-31', 'cus-04', STORE_A, 'p-06', 'menu-01', 2, 16, 30, 60, 6600, 'booked',
+      { board_state: 'confirmed', resource_id: 'bed-01', source: 'Reserve #357556', taken_days_ago: 8, updated_minute: 11 * 60 + 48 }),
+    // 予約元で管理 — the 正本 lives at an external booking source, so SYNQED
+    // shows it and changes nothing. Its customer is thin-01, whose profile is
+    // owned by that same external source: one story, told the same way twice.
+    slot('apt-32', 'thin-01', STORE_A, 'p-05', 'menu-03', 3, 15, 0, 30, 4400, 'booked',
+      { board_state: 'confirmed', resource_id: 'bed-02', source: '外部予約元 #357561', taken_days_ago: 1 }),
   ]
 }

@@ -116,6 +116,15 @@ describe('one clock anchor per render (#724)', () => {
     expect(today).toContain('const now = renderNow()')
     expect(today.match(/new Date\(\s*\)/g)).toBeNull()
 
+    // 予約一覧 has the widest exposure of the three screens: the READ WINDOW
+    // itself (`from`/`to`), 今日 bucketing, 表示日 and the 明日 label all hang
+    // off one `now`, so a bare clock read here can fetch one day's window and
+    // then label it with another's. (Greptile P1 on #727 — this page's commits
+    // predate the #724 fix, so it carried the same disease.)
+    const reservations = code('src/app/[locale]/(business)/business/reservations/page.tsx')
+    expect(reservations).toContain('const now = renderNow()')
+    expect(reservations.match(/new Date\(\s*\)/g)).toBeNull()
+
     // …and in the door itself the one bare clock read sits inside cache(),
     // with no call to appointments() left taking its own default clock.
     const data = code('src/business/lib/data.ts')
@@ -124,16 +133,31 @@ describe('one clock anchor per render (#724)', () => {
     expect(data.match(/appointments\(\s*\)/g)).toBeNull()
 
     // THE BLIND SPOT the scans above cannot see: clock.ts DEFAULTS its `now`
-    // parameter to `new Date()` (jstMidnight, jstSlot, jstSlotEnd), so a
-    // guarded file can take a second clock read with no `new Date()` of its own
-    // anywhere in it. Every call to one of them must hand over the anchor.
+    // parameter to `new Date()` (jstMidnight, jstSlot, jstSlotEnd — verified to
+    // be the complete set; jstDayKey and jstMinuteOfDay take a required
+    // argument), so a guarded file can take a second clock read with no
+    // `new Date()` of its own anywhere in it. Every call to one of them must
+    // hand over the anchor.
+    //
+    // "Hands over the anchor" is `renderNow()` inline OR the anchor const being
+    // passed as the last argument — the second is the idiom every guarded file
+    // actually uses (`const now = renderNow()`, then `jstSlot(…, now)`), and
+    // requiring the literal call on every line would have failed correct code.
+    // The `const now = renderNow()` assertion above is what makes passing `now`
+    // mean the anchor and not some other local.
+    //
+    // ponytail: line-level, not a parse. It catches the omitted argument, which
+    // is the whole defect; it would not catch a line that both calls a helper
+    // WITHOUT the anchor and mentions `now)` for some other reason. Reach for a
+    // real parse if that ever stops being far-fetched.
     for (const [file, src] of [
       ['customers/page.tsx', page],
       ['today/page.tsx', today],
+      ['reservations/page.tsx', reservations],
       ['data.ts', data],
     ] as const) {
       for (const line of src.split('\n').filter((l) => /\b(jstMidnight|jstSlot|jstSlotEnd)\(/.test(l))) {
-        expect(`${file}: ${line.trim()}`).toContain('renderNow()')
+        expect(`${file}: ${line.trim()}`).toMatch(/renderNow\(\)|\bnow\s*\)/)
       }
     }
   })

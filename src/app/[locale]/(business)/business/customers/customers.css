@@ -75,7 +75,6 @@
 }
 .biz .panel-head strong { display: block; font-size: 15px; }
 .biz .panel-head span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
-.biz .panel-actions { display: flex; align-items: center; gap: 8px; }
 .biz .search-row { display: grid; grid-template-columns: minmax(220px, 1fr) auto; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line-2); }
 .biz .search { min-height: 42px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); }
 .biz .filters { display: flex; gap: 7px; padding: 10px 12px; border-bottom: 1px solid var(--line-2); overflow-x: auto; }
@@ -135,7 +134,8 @@
 .biz .person .person-sub { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
 .biz .cell strong { display: block; font-size: 13px; }
 .biz .cell span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.4; }
-.biz .pill.alert { background: var(--red-soft); color: var(--red); }
+/* .pill.alert moved to business-shell.css — 予約 needs the same red pill, and
+   the shell owns the .pill primitive. */
 .biz .empty { min-height: 300px; display: grid; place-content: center; padding: 28px; text-align: center; }
 .biz .empty strong { font-size: 16px; }
 .biz .empty span { margin-top: 6px; color: var(--muted); font-size: 13px; }
@@ -167,37 +167,6 @@
   font-size: 11px;
   line-height: 1.5;
 }
-
-/* ═══ 表示設定 (列の出し入れ) — fable-shared.css §4 ═══ */
-.biz .fx-cols-pop {
-  position: absolute;
-  z-index: 60;
-  right: 12px;
-  min-width: 244px;
-  max-width: 320px;
-  margin-top: 6px;
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 14px 38px rgba(24, 24, 27, .14);
-}
-.biz .fx-cols-pop h3 { margin: 2px 6px 6px; color: var(--quiet); font-size: 11.5px; font-weight: 800; letter-spacing: .06em; }
-.biz .fx-cols-opt {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 40px;
-  padding: 0 8px;
-  border-radius: 8px;
-  color: var(--ink-2);
-  font-size: 13px;
-  cursor: pointer;
-}
-.biz .fx-cols-opt:hover { background: var(--row); }
-.biz .fx-cols-opt input { width: 18px; height: 18px; flex: 0 0 18px; accent-color: var(--indigo); }
-.biz .fx-cols-opt input:disabled { opacity: .45; cursor: not-allowed; }
-.biz .fx-cols-note { margin: 7px 6px 2px; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
 
 /* ═══ 詳細 aside ═══ */
 .biz .detail { position: sticky; top: 80px; max-height: calc(100vh - 96px); overflow-y: auto; }

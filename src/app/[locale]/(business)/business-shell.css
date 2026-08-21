@@ -206,6 +206,12 @@
 .biz .pill.good { background: var(--green-soft); color: var(--green-dark); }
 .biz .pill.warn { background: var(--orange-soft); color: var(--orange); }
 .biz .pill.indigo { background: var(--indigo-soft); color: var(--indigo); }
+/* The red variant. It began on 顧客 (重複候補) and 予約 needs the same one for
+   取消 / 来店なし / 期限超過, so it moved up here beside its three siblings —
+   one red pill, one declaration. Canon spells this class `bad` on the
+   reservations page and `alert` on 顧客; the repo already had `alert`, and two
+   names for one pill is the second way of doing a thing that L-10 forbids. */
+.biz .pill.alert { background: var(--red-soft); color: var(--red); }
 .biz .pill.pill { display: inline-flex; }
 
 .biz .badge-col.badge-col {
@@ -219,6 +225,41 @@
 
 .biz .fx-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
 .biz .fx-scroll > * { min-width: min-content; }
+
+/* ═══ 表示設定 (列の出し入れ) — fable-shared.css §4 ═══
+   Canon ships this in the SHARED sheet, not per page, because 顧客 and 予約一覧
+   both raise the same popover off their .panel-head. It lives here for the same
+   reason (it moved out of customers.css when 予約一覧 grew its own 表示設定). */
+.biz .panel-actions { display: flex; align-items: center; gap: 8px; }
+.biz .fx-cols-pop {
+  position: absolute;
+  z-index: 60;
+  right: 12px;
+  min-width: 244px;
+  max-width: 320px;
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 14px 38px rgba(24, 24, 27, .14);
+}
+.biz .fx-cols-pop h3 { margin: 2px 6px 6px; color: var(--quiet); font-size: 11.5px; font-weight: 800; letter-spacing: .06em; }
+.biz .fx-cols-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 8px;
+  border-radius: 8px;
+  color: var(--ink-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+.biz .fx-cols-opt:hover { background: var(--row); }
+.biz .fx-cols-opt input { width: 18px; height: 18px; flex: 0 0 18px; accent-color: var(--indigo); }
+.biz .fx-cols-opt input:disabled { opacity: .45; cursor: not-allowed; }
+.biz .fx-cols-note { margin: 7px 6px 2px; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
 
 /* ═══ SIDEBAR — canon .sidebar system ═══ */
 .biz .sidebar {

@@ -19,6 +19,7 @@
 // ⚖ CUT #5: canon's subtitle is reduced to one short functional line.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { toggleColumn, wireColumnsPopover } from '@/business/lib/column-config'
 
 export interface CustomerRow {
   id: string
@@ -87,14 +88,6 @@ const HINT = '見本データのため実行できません'
  *  (`data-columns-config` … `"off":true`, fable-store-customers.html:488). */
 const DEFAULT_COLUMNS = COLUMNS.filter((c) => !c.optional).map((c) => c.k as string)
 
-/** 表示する列 toggle, canon's rule (fable-shared.js:190-193): EVERY column can be
- *  hidden, but unchecking the last visible one is refused — an all-hidden list is
- *  a broken screen, so the checkbox snaps back instead. */
-export function toggleColumn(shown: readonly string[], key: string): string[] {
-  if (!shown.includes(key)) return [...shown, key]
-  return shown.length <= 1 ? [...shown] : shown.filter((k) => k !== key)
-}
-
 // Exported for the suite: "a missing value says 「—」" is the rule the canon
 // crash and the ¥0 misread both came from, so it gets asserted directly.
 const yen = (n: number) => `¥${n.toLocaleString('ja-JP')}`
@@ -123,36 +116,6 @@ export function matchesCustomerSearch(r: CustomerRow, query: string): boolean {
 export function clearSearch(input: HTMLInputElement | null, setSearch: (v: string) => void): void {
   setSearch('')
   input?.focus()
-}
-
-/** 表示する列 popover, canon's own behavior (fable-shared.js:216-244): the
- *  first checkbox takes focus on open, Escape and a click outside both close
- *  it and hand focus back to the button. Returns the cleanup, so a caller's
- *  effect is a thin `return wireColumnsPopover(...)`. */
-export function wireColumnsPopover(pop: HTMLElement, trigger: HTMLElement, onClose: () => void): () => void {
-  pop.querySelector('input')?.focus()
-  const close = () => {
-    onClose()
-    trigger.focus()
-  }
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape') return
-    e.stopPropagation()
-    close()
-  }
-  // The button is excluded so its own click stays a toggle rather than being
-  // closed here and reopened by the click handler.
-  const onDown = (e: MouseEvent) => {
-    const target = e.target as Node
-    if (pop.contains(target) || trigger.contains(target)) return
-    close()
-  }
-  document.addEventListener('keydown', onKey)
-  document.addEventListener('mousedown', onDown)
-  return () => {
-    document.removeEventListener('keydown', onKey)
-    document.removeEventListener('mousedown', onDown)
-  }
 }
 
 /** Canon reopens the dialog EMPTY with the caret in 氏名
