@@ -37,9 +37,11 @@ jest.mock('@/lib/auth/require-permission', () => ({
 }))
 
 // The record drives the ACL (staff_id) + tenancy (get throws 404 for foreign id).
-const REC = { current: { id: 'kar-1', created_at: '2026-06-01T03:00:00Z', transcript: 'RAW', staff_id: 'auth-user-1', customer_id: 'cust-1', entries: [{ id: 'old-1' }] } as Record<string, unknown> }
+// UUID-shaped (root-cause fix, 2026-08-29 packet): logFacadeAudit only
+// stamps params.id as an audit target when it's UUID-shaped.
+const REC = { current: { id: '00000000-0000-4000-8000-000000000007', created_at: '2026-06-01T03:00:00Z', transcript: 'RAW', staff_id: 'auth-user-1', customer_id: 'cust-1', entries: [{ id: 'old-1' }] } as Record<string, unknown> }
 const recGet = jest.fn(async (id: string) => {
-  if (id !== 'kar-1') throw Object.assign(new Error('nope'), { status: 404 })
+  if (id !== '00000000-0000-4000-8000-000000000007') throw Object.assign(new Error('nope'), { status: 404 })
   return REC.current
 })
 const addEntry = jest.fn(async () => ({ id: 'new-1' }))
@@ -116,7 +118,7 @@ beforeEach(() => {
   capabilities.current = new Set(['records.write'])
   roster.current = [{ id: 'auth-user-1', full_name: '田中' }]
   revoked.current = false
-  REC.current = { id: 'kar-1', created_at: '2026-06-01T03:00:00Z', transcript: 'RAW', staff_id: 'auth-user-1', customer_id: 'cust-1', entries: [{ id: 'old-1' }] }
+  REC.current = { id: '00000000-0000-4000-8000-000000000007', created_at: '2026-06-01T03:00:00Z', transcript: 'RAW', staff_id: 'auth-user-1', customer_id: 'cust-1', entries: [{ id: 'old-1' }] }
   consume.mockResolvedValue({ allowed: true })
   planGate.mockResolvedValue(true)
   runExtract.mockResolvedValue({ result: { entries: [{ category: 'symptom', title: '肩こり', source_quote: 'q', confidence_score: 0.9 }] }, usage: { tokensIn: 10, tokensOut: 5 } })
@@ -126,18 +128,18 @@ beforeEach(() => {
 // ── regenerate ────────────────────────────────────────────────────────────────
 describe('POST /karute/[id]/regenerate (Decision 2)', () => {
   it('happy path (owner): applies entries + summary → 200 {added,removed}', async () => {
-    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('kar-1'))
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.added).toBe(1)
     expect(body.removed).toBe(1)
     expect(addEntry).toHaveBeenCalled()
-    expect(deleteEntry).toHaveBeenCalledWith('kar-1', 'old-1')
-    expect(update).toHaveBeenCalledWith('kar-1', { ai_summary: '・肩こり改善傾向' })
+    expect(deleteEntry).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000007', 'old-1')
+    expect(update).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000007', { ai_summary: '・肩こり改善傾向' })
   })
 
   it('missing Idempotency-Key → 400, no LLM/no write', async () => {
-    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: auth }), routeFor('kar-1'))
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: auth }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(400)
     expect(runExtract).not.toHaveBeenCalled()
     expect(addEntry).not.toHaveBeenCalled()
@@ -145,7 +147,7 @@ describe('POST /karute/[id]/regenerate (Decision 2)', () => {
 
   it('ACL: a non-owner without recordings.viewAll → 403, NO LLM, NO write', async () => {
     REC.current = { ...REC.current, staff_id: 'other-staff' }
-    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('kar-1'))
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(403)
     expect(runExtract).not.toHaveBeenCalled()
     expect(addEntry).not.toHaveBeenCalled()
@@ -155,14 +157,14 @@ describe('POST /karute/[id]/regenerate (Decision 2)', () => {
   it('ACL: a recordings.viewAll caller regenerates any staff’s record → 200', async () => {
     REC.current = { ...REC.current, staff_id: 'other-staff' }
     capabilities.current = new Set(['records.write', 'recordings.viewAll'])
-    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('kar-1'))
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(200)
     expect(addEntry).toHaveBeenCalled()
   })
 
   it('plan-locked (aiKaruteGeneration) → 403, NO quota consume, NO LLM, NO write', async () => {
     planGate.mockResolvedValue(false)
-    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('kar-1'))
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(403)
     expect(consume).not.toHaveBeenCalled() // gated BEFORE quota burn
     expect(runExtract).not.toHaveBeenCalled()
@@ -174,7 +176,7 @@ describe('POST /karute/[id]/regenerate (Decision 2)', () => {
 
   it('extract failure → NO write, old entries intact', async () => {
     runExtract.mockRejectedValueOnce(new Error('llm down'))
-    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('kar-1'))
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(200)
     expect((await res.json()).error).toContain('No changes applied')
     expect(addEntry).not.toHaveBeenCalled()
@@ -183,7 +185,7 @@ describe('POST /karute/[id]/regenerate (Decision 2)', () => {
 
   it('empty extraction → NO delete, old entries kept', async () => {
     runExtract.mockResolvedValueOnce({ result: { entries: [] }, usage: null })
-    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('kar-1'))
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(200)
     expect((await res.json()).error).toContain('No entries extracted')
     expect(addEntry).not.toHaveBeenCalled()
@@ -192,7 +194,7 @@ describe('POST /karute/[id]/regenerate (Decision 2)', () => {
 
   it('summary failure → entries STILL applied + warning', async () => {
     runSummary.mockRejectedValueOnce(new Error('summary down'))
-    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('kar-1'))
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.added).toBe(1)
@@ -203,7 +205,7 @@ describe('POST /karute/[id]/regenerate (Decision 2)', () => {
 
   it('rate-limit cap hit → 429 classified, NO LLM/no write', async () => {
     consume.mockResolvedValueOnce({ allowed: false, reason: 'daily_cost', cap: 100, costCap: 500, costUsed: 500, resetAt: 't' })
-    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('kar-1'))
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(429)
     expect((await res.json()).error.code).toBe('rate_limited')
     expect(runExtract).not.toHaveBeenCalled()
@@ -216,7 +218,7 @@ describe('POST /karute/[id]/regenerate (Decision 2)', () => {
         ? { allowed: false, reason: 'daily_cost', cap: 100, costCap: 500, costUsed: 500, resetAt: 't' }
         : { allowed: true },
     )
-    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('kar-1'))
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.added).toBe(1) // extraction ran and applied
@@ -234,20 +236,20 @@ describe('POST /karute/[id]/regenerate (Decision 2)', () => {
 
   it('missing capability → 403, no downstream', async () => {
     capabilities.current = new Set()
-    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('kar-1'))
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(403)
     expect(recGet).not.toHaveBeenCalled()
   })
 
   it('missing Bearer → 401, no downstream', async () => {
-    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: { 'Idempotency-Key': 'k1' } }), routeFor('kar-1'))
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: { 'Idempotency-Key': 'k1' } }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(401)
     expect(recGet).not.toHaveBeenCalled()
   })
 
   it('revoked staffer (getUser null) → 401 via the server round-trip, no write', async () => {
     revoked.current = true
-    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('kar-1'))
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(401)
     expect(addEntry).not.toHaveBeenCalled()
   })
@@ -256,42 +258,42 @@ describe('POST /karute/[id]/regenerate (Decision 2)', () => {
 // ── outcome ─────────────────────────────────────────────────────────────────
 describe('POST /karute/[id]/outcome (§Build 3)', () => {
   it('happy path: upserts with the SERVER-derived customerId', async () => {
-    const res = await outcome(jsonReq({ status: 'success', isFirstVisit: true }), routeFor('kar-1'))
+    const res = await outcome(jsonReq({ status: 'success', isFirstVisit: true }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(200)
     expect(upsertOutcome).toHaveBeenCalledWith(
-      expect.objectContaining({ karute_record_id: 'kar-1', customer_id: 'cust-1', outcome: 'success', is_first_visit: true, decided_by: 'auth-user-1' }),
+      expect.objectContaining({ karute_record_id: '00000000-0000-4000-8000-000000000007', customer_id: 'cust-1', outcome: 'success', is_first_visit: true, decided_by: 'auth-user-1' }),
     )
   })
 
   it('Wave W3: a 2xx emits karute.outcome_set carrying the ROUTE-set customer_id detail (pins outcome/route.ts ctx.auditDetail, not just the seam machinery)', async () => {
     const lines = await auditLines(async () => {
-      const res = await outcome(jsonReq({ status: 'success' }), routeFor('kar-1'))
+      const res = await outcome(jsonReq({ status: 'success' }), routeFor('00000000-0000-4000-8000-000000000007'))
       expect(res.status).toBe(200)
     })
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({
       action: 'karute.outcome_set',
       target_type: 'karute',
-      target_id: 'kar-1',
+      target_id: '00000000-0000-4000-8000-000000000007',
       source: 'facade',
     })
     expect(lines[0].detail).toMatchObject({ customer_id: 'cust-1' })
   })
 
   it('customerId is DERIVED from the record — a spoofed body customerId is rejected (strict)', async () => {
-    const res = await outcome(jsonReq({ status: 'success', customerId: 'cust-EVIL' }), routeFor('kar-1'))
+    const res = await outcome(jsonReq({ status: 'success', customerId: 'cust-EVIL' }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(400)
     expect(upsertOutcome).not.toHaveBeenCalled()
   })
 
   it('invalid status → validation 400, no write', async () => {
-    const res = await outcome(jsonReq({ status: 'maybe' }), routeFor('kar-1'))
+    const res = await outcome(jsonReq({ status: 'maybe' }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(400)
     expect(upsertOutcome).not.toHaveBeenCalled()
   })
 
   it('invalid reason → validation 400, no write', async () => {
-    const res = await outcome(jsonReq({ status: 'no_deal', reason: 'nope' }), routeFor('kar-1'))
+    const res = await outcome(jsonReq({ status: 'no_deal', reason: 'nope' }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(400)
     expect(upsertOutcome).not.toHaveBeenCalled()
   })
@@ -304,14 +306,14 @@ describe('POST /karute/[id]/outcome (§Build 3)', () => {
 
   it('missing capability → 403, no write', async () => {
     capabilities.current = new Set()
-    const res = await outcome(jsonReq({ status: 'success' }), routeFor('kar-1'))
+    const res = await outcome(jsonReq({ status: 'success' }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(403)
     expect(upsertOutcome).not.toHaveBeenCalled()
   })
 
   it('revoked staffer → 401 via server round-trip, no write', async () => {
     revoked.current = true
-    const res = await outcome(jsonReq({ status: 'success' }), routeFor('kar-1'))
+    const res = await outcome(jsonReq({ status: 'success' }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(401)
     expect(upsertOutcome).not.toHaveBeenCalled()
   })
@@ -322,7 +324,7 @@ describe('OPTIONS preflight — shell origin, no auth', () => {
   it.each([['regenerate', regenerateOptions], ['outcome', outcomeOptions]] as const)(
     '%s → 204 + Allow-Origin, no downstream',
     async (_n, handler) => {
-      const res = await handler(new Request('https://s/x', { method: 'OPTIONS', headers: { origin: 'capacitor://localhost' } }), routeFor('kar-1'))
+      const res = await handler(new Request('https://s/x', { method: 'OPTIONS', headers: { origin: 'capacitor://localhost' } }), routeFor('00000000-0000-4000-8000-000000000007'))
       expect(res.status).toBe(204)
       expect(res.headers.get('access-control-allow-origin')).toBe('capacitor://localhost')
       expect(recGet).not.toHaveBeenCalled()
@@ -344,7 +346,7 @@ describe('POST /karute/[id]/outcome — an ineligible revisit is still a 400 her
   })
 
   it('first-visit prospect → 400, nothing written', async () => {
-    const res = await outcome(jsonReq({ status: 'revisit' }), routeFor('kar-1'))
+    const res = await outcome(jsonReq({ status: 'revisit' }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(400)
     expect(upsertOutcome).not.toHaveBeenCalled()
   })
@@ -356,7 +358,7 @@ describe('POST /karute/[id]/outcome — an ineligible revisit is still a 400 her
     listPacks.mockRejectedValue(new Error('core down'))
     listKaruteRecords.mockRejectedValue(new Error('core down'))
     custGet.mockRejectedValue(new Error('core down'))
-    const res = await outcome(jsonReq({ status: 'revisit' }), routeFor('kar-1'))
+    const res = await outcome(jsonReq({ status: 'revisit' }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).not.toBe(400)
     expect((await res.json()).error.code).toBe('upstream_unavailable')
     expect(upsertOutcome).not.toHaveBeenCalled()
@@ -366,10 +368,10 @@ describe('POST /karute/[id]/outcome — an ineligible revisit is still a 400 her
     listKaruteRecords.mockResolvedValue({
       karute_records: [{ id: 'kar-old', recording_session_id: 'sess-earlier' }],
     })
-    const res = await outcome(jsonReq({ status: 'revisit' }), routeFor('kar-1'))
+    const res = await outcome(jsonReq({ status: 'revisit' }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(200)
     expect(upsertOutcome).toHaveBeenCalledWith(
-      expect.objectContaining({ karute_record_id: 'kar-1', outcome: 'revisit' }),
+      expect.objectContaining({ karute_record_id: '00000000-0000-4000-8000-000000000007', outcome: 'revisit' }),
     )
   })
 })
@@ -391,7 +393,7 @@ describe('POST /karute/[id]/outcome — an old shell cannot overwrite a masked r
 
   it('stored revisit + NO app-version → Japanese validation 400, NOTHING written', async () => {
     getOutcome.mockResolvedValue({ outcome: 'revisit' })
-    const res = await outcome(jsonReq({ status: 'success' }), routeFor('kar-1'))
+    const res = await outcome(jsonReq({ status: 'success' }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(400)
     expect((await res.json()).error.message).toContain('アプリを更新')
     expect(upsertOutcome).not.toHaveBeenCalled()
@@ -399,16 +401,16 @@ describe('POST /karute/[id]/outcome — an old shell cannot overwrite a masked r
 
   it('stored revisit + app-version present → the new-shell edit still writes', async () => {
     getOutcome.mockResolvedValue({ outcome: 'revisit' })
-    const res = await outcome(jsonReq({ status: 'success' }, newShell), routeFor('kar-1'))
+    const res = await outcome(jsonReq({ status: 'success' }, newShell), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(200)
     expect(upsertOutcome).toHaveBeenCalledWith(
-      expect.objectContaining({ karute_record_id: 'kar-1', outcome: 'success' }),
+      expect.objectContaining({ karute_record_id: '00000000-0000-4000-8000-000000000007', outcome: 'success' }),
     )
   })
 
   it('stored UNKNOWN future value + NO app-version → same rejection (allowlist, symmetric with the read gate)', async () => {
     getOutcome.mockResolvedValue({ outcome: 'foo' })
-    const res = await outcome(jsonReq({ status: 'success' }), routeFor('kar-1'))
+    const res = await outcome(jsonReq({ status: 'success' }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(400)
     expect((await res.json()).error.message).toContain('アプリを更新')
     expect(upsertOutcome).not.toHaveBeenCalled()
@@ -416,19 +418,19 @@ describe('POST /karute/[id]/outcome — an old shell cannot overwrite a masked r
 
   it('stored NON-revisit + NO app-version → old shells keep editing normally', async () => {
     getOutcome.mockResolvedValue({ outcome: 'success' })
-    const res = await outcome(jsonReq({ status: 'no_deal' }), routeFor('kar-1'))
+    const res = await outcome(jsonReq({ status: 'no_deal' }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(200)
     expect(upsertOutcome).toHaveBeenCalledWith(
-      expect.objectContaining({ karute_record_id: 'kar-1', outcome: 'no_deal' }),
+      expect.objectContaining({ karute_record_id: '00000000-0000-4000-8000-000000000007', outcome: 'no_deal' }),
     )
   })
 
   it('stored-outcome read FAILS + NO app-version → fail-open, the write proceeds', async () => {
     getOutcome.mockRejectedValue(new Error('core down'))
-    const res = await outcome(jsonReq({ status: 'success' }), routeFor('kar-1'))
+    const res = await outcome(jsonReq({ status: 'success' }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(200)
     expect(upsertOutcome).toHaveBeenCalledWith(
-      expect.objectContaining({ karute_record_id: 'kar-1', outcome: 'success' }),
+      expect.objectContaining({ karute_record_id: '00000000-0000-4000-8000-000000000007', outcome: 'success' }),
     )
   })
 })

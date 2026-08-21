@@ -414,12 +414,15 @@ describe('PATCH/DELETE memory/[itemId]', () => {
     expect(res.status).toBe(200)
     expect(setMemoryItemPinned).toHaveBeenCalledWith('item-1', true)
   })
-  // Param-binding pin (Greptile #633 r1 refutation): on this nested route the
-  // audit hook stamps params.id — the OUTER [id] segment, i.e. the CUSTOMER —
-  // never params.itemId. The Params type ({ id, itemId }) is validated against
-  // the real segment names by next build's route-type check, so this test plus
-  // that gate closes the claim that the item id could land as the target.
-  it('audit row targets the CUSTOMER id from [id], never the memory item id', async () => {
+  // Param-binding pin (Greptile #633 r1 refutation; UPDATED 2026-08-29 —
+  // sentinel-poison root-cause fix): the [id] segment is decorative (the web
+  // action signatures carry only itemId, so thin/ports/actions.vite.ts fills
+  // it with a sentinel) and is deliberately WRONG here ('cus-77') to prove
+  // the hook no longer trusts it. proveMemoryItemInBusiness already resolved
+  // item-1's REAL owning customer (cust-1, per the tenancy oracle above) and
+  // the route hands that to ctx.auditTargetId — the row targets THAT id,
+  // never the route segment and never the item id.
+  it('audit row targets the REAL owning customer id, never the decorative [id] segment or the memory item id', async () => {
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
     try {
       const res = await memoryPatch(jsonReq({ pinned: true }), route({ id: 'cus-77', itemId: 'item-1' }))
@@ -437,9 +440,10 @@ describe('PATCH/DELETE memory/[itemId]', () => {
       expect(rows[0]).toMatchObject({
         action: 'customer.memory_update',
         target_type: 'customer',
-        target_id: 'cus-77',
+        target_id: 'cust-1',
       })
       expect(rows[0].target_id).not.toBe('item-1')
+      expect(rows[0].target_id).not.toBe('cus-77')
     } finally {
       logSpy.mockRestore()
     }
@@ -473,6 +477,30 @@ describe('PATCH/DELETE memory/[itemId]', () => {
     const res = await memoryDelete(new Request('https://s/x', { method: 'DELETE', headers: auth }), route({ id: '-', itemId: 'item-1' }))
     expect(res.status).toBe(200)
     expect(softDeleteMemoryItem).toHaveBeenCalledWith('item-1')
+  })
+  it('delete audit row also targets the REAL owning customer id, never the decorative [id] segment', async () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      const res = await memoryDelete(new Request('https://s/x', { method: 'DELETE', headers: auth }), route({ id: 'cus-77', itemId: 'item-1' }))
+      expect(res.status).toBe(200)
+      const rows = logSpy.mock.calls
+        .map(([l]) => {
+          try {
+            return JSON.parse(String(l))
+          } catch {
+            return null
+          }
+        })
+        .filter((o): o is Record<string, unknown> => !!o && o.evt === 'audit')
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        action: 'customer.memory_delete',
+        target_type: 'customer',
+        target_id: 'cust-1',
+      })
+    } finally {
+      logSpy.mockRestore()
+    }
   })
   it('delete cross-tenant item id → 404, no write', async () => {
     const res = await memoryDelete(new Request('https://s/x', { method: 'DELETE', headers: auth }), route({ id: '-', itemId: 'item-other' }))

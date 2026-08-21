@@ -48,9 +48,11 @@ jest.mock('@/lib/auth/require-permission', () => ({
 // genuinely unmapped key). Only the emitter is stubbed.
 jest.mock('@/lib/audit', () => ({ ...jest.requireActual('@/lib/audit'), audit: jest.fn() }))
 
+// UUID-shaped (root-cause fix, 2026-08-29 packet): logFacadeAudit only
+// stamps params.id as an audit target when it's UUID-shaped.
 const get = jest.fn(async (id: string) => {
-  if (id !== 'kar-1') throw Object.assign(new Error('not found'), { status: 404 })
-  return { id: 'kar-1', customer_id: 'cust-1' }
+  if (id !== '00000000-0000-4000-8000-000000000006') throw Object.assign(new Error('not found'), { status: 404 })
+  return { id: '00000000-0000-4000-8000-000000000006', customer_id: 'cust-1' }
 })
 // Shape of a raw synqed entry_edit row for mock data — mirrors
 // KaruteEntryEdit (node_modules/@synqed-kk/client/dist/types.d.ts:650),
@@ -87,7 +89,7 @@ const listEntryEdits = jest.fn(async (): Promise<{
       id: 'ed-1',
       business_id: 'business-1',
       customer_id: 'cust-1',
-      karute_record_id: 'kar-1',
+      karute_record_id: '00000000-0000-4000-8000-000000000006',
       entry_id_old: null,
       entry_id_new: 'e1',
       actor_staff_id: 'auth-user-1',
@@ -106,7 +108,7 @@ const listEntryEdits = jest.fn(async (): Promise<{
       id: 'ed-2',
       business_id: 'business-1',
       customer_id: 'cust-1',
-      karute_record_id: 'kar-1',
+      karute_record_id: '00000000-0000-4000-8000-000000000006',
       entry_id_old: 'e1',
       entry_id_new: 'e1',
       actor_staff_id: 'staff-2',
@@ -154,7 +156,7 @@ beforeEach(() => {
 describe('GET /karute/[id]/entry-edits (edit-layer W2 history-sheet packet)', () => {
   it('missing capability → 403, no read at all (T3)', async () => {
     capabilities.current = new Set()
-    const res = await GET(getReq(), routeFor('kar-1'))
+    const res = await GET(getReq(), routeFor('00000000-0000-4000-8000-000000000006'))
     expect(res.status).toBe(403)
     expect(get).not.toHaveBeenCalled()
     expect(listEntryEdits).not.toHaveBeenCalled()
@@ -167,9 +169,9 @@ describe('GET /karute/[id]/entry-edits (edit-layer W2 history-sheet packet)', ()
   })
 
   it('happy path → 200, names resolved off the roster, newest first, truncated:false', async () => {
-    const res = await GET(getReq(), routeFor('kar-1'))
+    const res = await GET(getReq(), routeFor('00000000-0000-4000-8000-000000000006'))
     expect(res.status).toBe(200)
-    expect(listEntryEdits).toHaveBeenCalledWith({ karute_record_id: 'kar-1', page: 1, page_size: 100 })
+    expect(listEntryEdits).toHaveBeenCalledWith({ karute_record_id: '00000000-0000-4000-8000-000000000006', page: 1, page_size: 100 })
     const body = (await res.json()) as { edits: unknown[]; truncated: boolean }
     expect(body.truncated).toBe(false)
     expect(body.edits).toEqual([
@@ -197,7 +199,7 @@ describe('GET /karute/[id]/entry-edits (edit-layer W2 history-sheet packet)', ()
   })
 
   it('happy path emits karute.entry_edits_view with the customer_id name-join detail (Wave V — real route, not the seam in isolation)', async () => {
-    const res = await GET(getReq(), routeFor('kar-1'))
+    const res = await GET(getReq(), routeFor('00000000-0000-4000-8000-000000000006'))
     expect(res.status).toBe(200)
     const { audit } = jest.requireMock('@/lib/audit') as { audit: jest.Mock }
     const viewEmits = audit.mock.calls.filter(([e]) => e.action === 'karute.entry_edits_view')
@@ -206,7 +208,7 @@ describe('GET /karute/[id]/entry-edits (edit-layer W2 history-sheet packet)', ()
       category: 'karute',
       action: 'karute.entry_edits_view',
       targetType: 'karute',
-      targetId: 'kar-1',
+      targetId: '00000000-0000-4000-8000-000000000006',
       source: 'facade',
       detail: { customer_id: 'cust-1' },
     })
@@ -219,7 +221,7 @@ describe('GET /karute/[id]/entry-edits (edit-layer W2 history-sheet packet)', ()
           id: 'ed-legacy',
           business_id: 'business-1',
           customer_id: 'cust-1',
-          karute_record_id: 'kar-1',
+          karute_record_id: '00000000-0000-4000-8000-000000000006',
           entry_id_old: null,
           entry_id_new: 'e1',
           actor_staff_id: null,
@@ -239,7 +241,7 @@ describe('GET /karute/[id]/entry-edits (edit-layer W2 history-sheet packet)', ()
       page: 1,
       page_size: 100,
     })
-    const res = await GET(getReq(), routeFor('kar-1'))
+    const res = await GET(getReq(), routeFor('00000000-0000-4000-8000-000000000006'))
     expect(res.status).toBe(200)
     const body = (await res.json()) as { edits: Array<{ action: string | null }> }
     expect(body.edits).toEqual([expect.objectContaining({ id: 'ed-legacy', action: null })])

@@ -37,7 +37,10 @@ const custGet = jest.fn(async (id: string) => {
 })
 const karGet = jest.fn(async (id: string) => {
   if (id === 'kar-upstream') throw Object.assign(new Error('boom'), { status: 500 })
-  if (id !== 'kar-1') throw Object.assign(new Error('nope'), { status: 404 })
+  // UUID-shaped (root-cause fix, 2026-08-29 packet): the facade hook now
+  // only stamps params.id as an audit target when it's UUID-shaped, so the
+  // happy-path id here has to be one for the target_id assertion below.
+  if (id !== '00000000-0000-4000-8000-000000000005') throw Object.assign(new Error('nope'), { status: 404 })
   return { id, ai_summary: '・肩こり改善傾向', customer_id: 'cust-1' }
 })
 const fakeClient = { customers: { get: (id: string) => custGet(id) }, karuteRecords: { get: (id: string) => karGet(id) } }
@@ -118,14 +121,14 @@ describe('GET /customers/[id]/ai/body-prediction (Decision 1)', () => {
 
 describe('GET /karute/[id]/ai/suggested-message (Decision 1)', () => {
   it('happy path → 200 { draft }; prompt anchors DERIVED server-side from the record', async () => {
-    const res = await suggestedMessage(req({ headers: auth }), routeFor('kar-1'))
+    const res = await suggestedMessage(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000005'))
     expect(res.status).toBe(200)
     expect((await res.json()).draft.body).toBe('draft body')
     // summary + customerName come from the record/customer, never the client.
     const [, , actorId, requestId, params] = getSuggestedFollowUpWithClient.mock.calls[0]
     expect(params.summary).toBe('・肩こり改善傾向')
     expect(params.customerName).toBe('山田 花子')
-    expect(params.karuteId).toBe('kar-1')
+    expect(params.karuteId).toBe('00000000-0000-4000-8000-000000000005')
     // 2026-07-29 honesty split: the record's customer threads through for the
     // 生成 row's detail; actor/requestId thread from the verified identity so
     // a real generation stamps the same requestId as this request's view row.
@@ -142,7 +145,7 @@ describe('GET /karute/[id]/ai/suggested-message (Decision 1)', () => {
   it('hook row is the VIEW twin and carries detail.customer_id (Wave V name-join canon)', async () => {
     const { auditLines } = await import('./helpers/audit-lines')
     const lines = await auditLines(async () => {
-      const res = await suggestedMessage(req({ headers: auth }), routeFor('kar-1'))
+      const res = await suggestedMessage(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000005'))
       expect(res.status).toBe(200)
     })
     const hookRows = lines.filter((l) => l.action === 'ai.suggested_message_view')
@@ -150,7 +153,7 @@ describe('GET /karute/[id]/ai/suggested-message (Decision 1)', () => {
     expect(hookRows[0]).toMatchObject({
       category: 'ai',
       target_type: 'karute',
-      target_id: 'kar-1',
+      target_id: '00000000-0000-4000-8000-000000000005',
       detail: expect.objectContaining({ customer_id: 'cust-1' }),
       source: 'facade',
     })
@@ -160,7 +163,7 @@ describe('GET /karute/[id]/ai/suggested-message (Decision 1)', () => {
   })
   it('generator miss (locked/no-summary/failure) → 200 { draft: null }', async () => {
     getSuggestedFollowUpWithClient.mockResolvedValueOnce(null)
-    const res = await suggestedMessage(req({ headers: auth }), routeFor('kar-1'))
+    const res = await suggestedMessage(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000005'))
     expect(res.status).toBe(200)
     expect((await res.json()).draft).toBeNull()
   })
@@ -176,12 +179,12 @@ describe('GET /karute/[id]/ai/suggested-message (Decision 1)', () => {
   })
   it('missing capability → 403', async () => {
     capabilities.current = new Set()
-    const res = await suggestedMessage(req({ headers: auth }), routeFor('kar-1'))
+    const res = await suggestedMessage(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000005'))
     expect(res.status).toBe(403)
     expect(karGet).not.toHaveBeenCalled()
   })
   it('OPTIONS shell origin → 204', async () => {
-    const res = await msgOptions(new Request('https://s/x', { method: 'OPTIONS', headers: { origin: 'capacitor://localhost' } }), routeFor('kar-1'))
+    const res = await msgOptions(new Request('https://s/x', { method: 'OPTIONS', headers: { origin: 'capacitor://localhost' } }), routeFor('00000000-0000-4000-8000-000000000005'))
     expect(res.status).toBe(204)
     expect(res.headers.get('access-control-allow-origin')).toBe('capacitor://localhost')
   })

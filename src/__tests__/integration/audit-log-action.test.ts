@@ -434,25 +434,94 @@ describe('listAuditLog — T3 actor_label pass-through (SDK 1.14 write-time snap
 })
 
 describe('listAuditLog — target name resolution (read-time join, PII stays out of rows)', () => {
+  // UUID-shaped (root-cause fix, 2026-08-29 packet): resolveTargetLabels only
+  // batches UUID-shaped ids into customers.list (the same cast core's Prisma
+  // findMany applies) — every id this describe block resolves successfully
+  // has to be one; poison-tolerance itself is covered by the dedicated test
+  // below.
+  const CUS_1 = '00000000-0000-4000-8000-000000000001'
+  const CUS_OLD = '00000000-0000-4000-8000-00000000001d'
+  const CUS_LIVE = '00000000-0000-4000-8000-00000000001e'
+
   it('resolves customer targets in ONE batch call including soft-deleted', async () => {
     const customersList = jest.fn(async () => ({
-      customers: [{ id: 'cus-1', name: '鈴木 一郎' }],
+      customers: [{ id: CUS_1, name: '鈴木 一郎' }],
     }))
     newSynqedClient.mockImplementation(() => ({
       audit: mockAudit(),
       customers: { list: customersList },
     }))
+    list.mockImplementation(async () => ({
+      events: [coreEvent({ target_id: CUS_1 })],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
     const res = await listAuditLog({})
     if (!res.ok) throw new Error('expected ok')
-    expect(res.targetLabels).toEqual({ 'cus-1': '鈴木 一郎' })
+    expect(res.targetLabels).toEqual({ [CUS_1]: '鈴木 一郎' })
     expect(customersList).toHaveBeenCalledTimes(1)
-    expect(customersList).toHaveBeenCalledWith({ ids: ['cus-1'], include_deleted: true })
+    expect(customersList).toHaveBeenCalledWith({ ids: [CUS_1], include_deleted: true })
+  })
+
+  // Root-cause fix (2026-08-29 packet): thin/ports/actions.vite.ts's
+  // MEMORY_ITEM_ID_SENTINEL ('-') fills the memory routes' decorative
+  // customer segment, and logFacadeAudit used to stamp it verbatim — real
+  // poisoned rows (target_type:'customer', target_id:'-') exist in prod
+  // since 2026-08-18. Un-filtered, that id in the customers.list ids batch
+  // 500'd core's WHOLE findMany (UUID cast), dropping every label on the
+  // page — reproduced live this session. The mock below throws on ANY
+  // non-UUID id, mirroring that cast exactly, so this red-runs genuinely red
+  // without the UUID_RE filter.
+  it("a poisoned target_id ('-') never reaches customers.list — that row stays unresolved, valid customer AND karute rows still resolve", async () => {
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    const customersList = jest.fn(async (q: { ids: string[] }) => {
+      if (q.ids.some((id) => !UUID_RE.test(id))) {
+        throw new Error('Error creating UUID, invalid group count: expected 5, found 2')
+      }
+      return { customers: [{ id: CUS_1, name: '鈴木 一郎' }] }
+    })
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: customersList },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({ id: 'evt-good', target_id: CUS_1 }),
+        coreEvent({ id: 'evt-poison', action: 'customer.memory_delete', target_id: '-' }),
+        coreEvent({
+          id: 'evt-kar',
+          category: 'karute',
+          action: 'karute.save',
+          target_type: 'karute',
+          target_id: 'kar-1',
+          detail: { customer_id: CUS_1 },
+        }),
+      ],
+      total: 3,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    // Only the UUID-shaped id reaches the batch — never '-'.
+    expect(customersList).toHaveBeenCalledWith({ ids: [CUS_1], include_deleted: true })
+    expect(res.targetLabels).toEqual({ [CUS_1]: '鈴木 一郎', 'kar-1': '鈴木 一郎' })
+    expect(res.targetLabels['-']).toBeUndefined()
   })
 
   it('a failed lookup degrades to empty labels — the feed never fails', async () => {
     newSynqedClient.mockImplementation(() => ({
       audit: mockAudit(),
       customers: { list: jest.fn(async () => { throw new Error('core down') }) },
+    }))
+    // UUID-shaped so the batch call actually happens (and actually throws) —
+    // this test is pinning the CATCH branch, not the UUID filter's own guard.
+    list.mockImplementation(async () => ({
+      events: [coreEvent({ target_id: CUS_1 })],
+      total: 1,
+      page: 1,
+      page_size: 100,
     }))
     const res = await listAuditLog({})
     if (!res.ok) throw new Error('expected ok')
@@ -462,7 +531,7 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
 
   it('a karute row resolves its CUSTOMER label off detail.customer_id, keyed by the karute target_id (packet 30 §4)', async () => {
     const customersList = jest.fn(async () => ({
-      customers: [{ id: 'cus-1', name: '鈴木 一郎' }],
+      customers: [{ id: CUS_1, name: '鈴木 一郎' }],
     }))
     newSynqedClient.mockImplementation(() => ({
       audit: mockAudit(),
@@ -476,7 +545,7 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
           action: 'karute.save',
           target_type: 'karute',
           target_id: 'kar-1',
-          detail: { customer_id: 'cus-1' },
+          detail: { customer_id: CUS_1 },
         }),
       ],
       total: 1,
@@ -487,7 +556,7 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     if (!res.ok) throw new Error('expected ok')
     // Batched into ONE customers.list call, not a second query.
     expect(customersList).toHaveBeenCalledTimes(1)
-    expect(customersList).toHaveBeenCalledWith({ ids: ['cus-1'], include_deleted: true })
+    expect(customersList).toHaveBeenCalledWith({ ids: [CUS_1], include_deleted: true })
     expect(res.targetLabels).toEqual({ 'kar-1': '鈴木 一郎' })
   })
 
@@ -495,9 +564,9 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
   // before customer_id rode in detail — the whole historical backlog — now
   // fall back to a bounded karuteRecords.get so old rows heal at read time.
   it('a karute row WITHOUT detail.customer_id heals via the record lookup (historical-row fallback)', async () => {
-    const karGet = jest.fn(async (id: string) => ({ id, customer_id: 'cus-old' }))
+    const karGet = jest.fn(async (id: string) => ({ id, customer_id: CUS_OLD }))
     const customersList = jest.fn(async () => ({
-      customers: [{ id: 'cus-old', name: 'ぴあそん りえむ' }],
+      customers: [{ id: CUS_OLD, name: 'ぴあそん りえむ' }],
     }))
     newSynqedClient.mockImplementation(() => ({
       audit: mockAudit(),
@@ -525,7 +594,7 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     // include_entries:false pinned — this lookup may only ever read
     // customer_id, never ship the clinical entry set (blind-round P2).
     expect(karGet).toHaveBeenCalledWith('kar-2', { include_entries: false })
-    expect(customersList).toHaveBeenCalledWith({ ids: ['cus-old'], include_deleted: true })
+    expect(customersList).toHaveBeenCalledWith({ ids: [CUS_OLD], include_deleted: true })
     expect(res.targetLabels).toEqual({ 'kar-2': 'ぴあそん りえむ' })
   })
 
@@ -557,10 +626,10 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
   it('record lookup REJECTS (deleted/cross-tenant karute): that id stays raw, siblings still resolve', async () => {
     const karGet = jest.fn(async (id: string) => {
       if (id === 'kar-dead') throw Object.assign(new Error('nope'), { status: 404 })
-      return { id, customer_id: 'cus-live' }
+      return { id, customer_id: CUS_LIVE }
     })
     const customersList = jest.fn(async () => ({
-      customers: [{ id: 'cus-live', name: '鈴木 一郎' }],
+      customers: [{ id: CUS_LIVE, name: '鈴木 一郎' }],
     }))
     newSynqedClient.mockImplementation(() => ({
       audit: mockAudit(),
@@ -716,12 +785,12 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
   it('a failed staff lookup degrades to ids for staff only — other labels survive, the feed never fails', async () => {
     newSynqedClient.mockImplementation(() => ({
       audit: mockAudit(),
-      customers: { list: jest.fn(async () => ({ customers: [{ id: 'cus-1', name: '鈴木 一郎' }] })) },
+      customers: { list: jest.fn(async () => ({ customers: [{ id: CUS_1, name: '鈴木 一郎' }] })) },
       staff: { list: jest.fn(async () => { throw new Error('core down') }) },
     }))
     list.mockImplementation(async () => ({
       events: [
-        coreEvent(),
+        coreEvent({ target_id: CUS_1 }),
         coreEvent({ id: 'e-stf', category: 'staff', action: 'staff.update', target_type: 'staff', target_id: 'syn-kita' }),
       ],
       total: 2,
@@ -731,7 +800,7 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     const res = await listAuditLog({})
     if (!res.ok) throw new Error('expected ok')
     expect(res.events).toHaveLength(2)
-    expect(res.targetLabels).toEqual({ 'cus-1': '鈴木 一郎' })
+    expect(res.targetLabels).toEqual({ [CUS_1]: '鈴木 一郎' })
   })
 
   // stress-audit F5c (8/17, PACKET-AUDITUI-ALLOWLIST): 'menu' was a valid

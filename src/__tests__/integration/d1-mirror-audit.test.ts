@@ -106,15 +106,18 @@ describe('facade hook — D1 mirror keys emit on 2xx (Wave W3)', () => {
       config: HS_CONFIG,
       getUser: async () => ({ id: 'u1' }),
     })
+    // UUID-shaped (root-cause fix, 2026-08-29 packet — logFacadeAudit only
+    // stamps params.id when it's UUID-shaped; every real caller's id is one).
+    const customerId = '00000000-0000-4000-8000-000000000009'
     const lines = await auditLines(async () => {
-      const res = await handler(authedReq(), route({ id: 'cus-9' }))
+      const res = await handler(authedReq(), route({ id: customerId }))
       expect(res.status).toBe(200)
     })
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({
       action,
       target_type: targetType,
-      target_id: 'cus-9',
+      target_id: customerId,
       source: 'facade',
     })
   })
@@ -128,12 +131,14 @@ describe('facade hook — D1 mirror keys emit on 2xx (Wave W3)', () => {
       },
       { config: HS_CONFIG, getUser: async () => ({ id: 'u1' }) },
     )
-    const lines = await auditLines(() => handler(authedReq(), route({ id: 'kar-3' })))
+    // UUID-shaped — same fix as the it.each block above.
+    const karuteId = '00000000-0000-4000-8000-000000000003'
+    const lines = await auditLines(() => handler(authedReq(), route({ id: karuteId })))
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({
       action: 'karute.outcome_set',
       target_type: 'karute',
-      target_id: 'kar-3',
+      target_id: karuteId,
       source: 'facade',
     })
     expect(lines[0].detail).toMatchObject({ customer_id: 'cus-7' })

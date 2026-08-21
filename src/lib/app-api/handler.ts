@@ -17,6 +17,12 @@ import { audit, FACADE_AUDIT_MAP, type FacadeEndpointKey } from '@/lib/audit'
 import type { VerifierConfig } from '@/lib/auth/verify-bearer'
 import type { GetUserFn } from '@/lib/auth/revocation'
 
+// Mirrors src/actions/audit-log.ts's UUID_RE (can't import — that file is
+// 'use server', which only permits async function exports). Root-cause fix,
+// 2026-08-29 packet: a non-UUID params.id (e.g. thin/ports/actions.vite.ts's
+// MEMORY_ITEM_ID_SENTINEL '-') must never stamp a target — see logFacadeAudit.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export interface RouteContext<P = Record<string, string>> {
   params: Promise<P>
 }
@@ -52,6 +58,14 @@ export interface FacadeContext<P = Record<string, string>> {
    *  storeId → core store_id). Never authority — display/filter color only;
    *  unset = business-wide row, exactly as before. */
   auditStoreId?: string
+  /** Server-resolved TRUE target id (root-cause fix, 2026-08-29 packet): a
+   *  route whose path param is decorative (e.g. the memory-item routes'
+   *  itemId-only signature — thin/ports/actions.vite.ts fills the customer
+   *  segment with a sentinel) sets this to the real owning id it already
+   *  proved server-side. Same additive-only contract as auditDetail/
+   *  auditStoreId. Unset falls back to params.id, but ONLY when it's
+   *  UUID-shaped — see logFacadeAudit. */
+  auditTargetId?: string
 }
 
 type FacadeFn<P> = (ctx: FacadeContext<P>) => Promise<Response>
@@ -110,7 +124,17 @@ export function facadeHandler<P = Record<string, string>>(
       const identity = await resolveBearerIdentity(req, endpoint, deps)
       const ctx: FacadeContext<P> = { req, identity, origin, route, meta }
       const res = await fn(ctx)
-      await logFacadeAudit(endpoint, res, identity, route, meta, clientRequestId, ctx.auditDetail, ctx.auditStoreId)
+      await logFacadeAudit(
+        endpoint,
+        res,
+        identity,
+        route,
+        meta,
+        clientRequestId,
+        ctx.auditDetail,
+        ctx.auditStoreId,
+        ctx.auditTargetId,
+      )
       return res
     } catch (err) {
       const apiErr = toAppApiError(err)
@@ -138,6 +162,7 @@ async function logFacadeAudit(
   clientRequestId: string | null,
   routeDetail?: FacadeContext['auditDetail'],
   routeStoreId?: string,
+  routeTargetId?: string,
 ): Promise<void> {
   try {
     // 2xx only — a redirect or other non-success must not read as a completed
@@ -183,7 +208,14 @@ async function logFacadeAudit(
       actorType: 'staff',
       businessId: identity.businessId,
       targetType: rule.targetType,
-      targetId: rule.targetType && params?.id ? params.id : undefined,
+      // Precedence: a route's server-resolved true id (routeTargetId — set
+      // when the path param is decorative or poisoned) wins verbatim;
+      // otherwise params.id counts only when UUID-shaped. A rule with
+      // targetType but no usable id writes a null target — honest, matches
+      // this emitter's own targetId ?? null (audit.ts).
+      targetId: rule.targetType
+        ? (routeTargetId ?? (params?.id && UUID_RE.test(params.id) ? params.id : undefined))
+        : undefined,
       storeId: routeStoreId,
       requestId: meta.requestId,
       // Contract §7 / PR-M5 piece ③: the (possibly forged) client header is

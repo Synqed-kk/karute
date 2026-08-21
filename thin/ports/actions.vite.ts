@@ -84,6 +84,9 @@ const jsonInit = (method: string, body: unknown): RequestInit => ({
 // read the path [id], so it is a decorative segment here; the port fills it with
 // a sentinel. Flagged for Fable/Anthony (itemId-only routes, or thread
 // customerId through the three signatures). Tenancy is unaffected.
+// 2026-08-29: the facade hook no longer stamps this non-UUID segment as an
+// audit target — customer.memory.update/delete now set ctx.auditTargetId
+// from the item's real owning customer id instead (handler.ts).
 const MEMORY_ITEM_ID_SENTINEL = '-'
 
 async function facadeAddMemoryItem(input: {
