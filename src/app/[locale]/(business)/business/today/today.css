@@ -930,6 +930,14 @@
 
 /* ═══ L — dialogs and toast ═══ */
 .biz-dialog {
+  /* ⚖ Liam flag 32 — THIS ONE LINE IS THE CENTERING. Tailwind's preflight
+     (tailwindcss/preflight.css:7-16) sets `margin: 0` on *, ::backdrop and every
+     element, which includes <dialog> — so the UA's own `dialog:modal { margin:
+     auto }` is overridden and every native dialog on this screen pinned itself
+     to the top-left corner. Canon has no CSS reset and so never had to say it.
+     Restored here rather than allowlisted in preflight: the reset is the app's
+     baseline, and this is the one family that needs its UA rule back. */
+  margin: auto;
   width: min(650px, calc(100vw - 40px));
   max-height: calc(100vh - 40px);
   padding: 0;
