@@ -95,6 +95,7 @@ import {
   parkChipText,
   pinInViewport,
   sameStore,
+  sharesStore,
   sellLayerFor,
   sidesAt,
   slotStartAt,
@@ -1042,7 +1043,7 @@ export function TodayScreen(props: TodayProps) {
         }
       }
       const staffLane = boardLanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === id))
-      return computeChecks(at, {
+      const checks = computeChecks(at, {
         spans,
         bookingId: id,
         staffName: staffLane?.label ?? '—',
@@ -1050,6 +1051,27 @@ export function TodayScreen(props: TodayProps) {
         laneLocked: staffLane != null && locked.includes(staffLane.key),
         minutesOf: (x) => minuteOf(x, hours),
       })
+      /** ⚖ STORE ISOLATION ON THE EXPLICIT ROOM CHOICE (Greptile #725).
+       *
+       *  `allocateBed` scopes the search to the booking's own store, but a
+       *  BED-ROW gesture never asks it — that is the operator naming the room
+       *  out loud, and batch-6 deliberately lets it stage. Under the all-stores
+       *  lens that meant a person and a room in two different stores could be
+       *  committed with nothing said. The lens is dormant in the UI today; the
+       *  law is system-wide, so this is closed by construction.
+       *
+       *  Said HERE rather than refused at the drop, for parity with how an
+       *  occupied room behaves on the same path: the change stages, 確定 goes
+       *  dead (`confirmCaption` is every-row-ok) and the reason is a × row in
+       *  the surface the operator is already reading. `confirmPending` re-runs
+       *  these at the moment of confirm, so the commit is closed too, and both
+       *  the pointer drop and the keyboard nudge land in the same ledgers this
+       *  reads — one place, not one per gesture. */
+      const bedLane = boardLanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === id))
+      if (staffLane && bedLane && !sharesStore(staffLane.stores, bedLane.stores)) {
+        checks.push({ ok: false, label: `担当と店舗が異なります: ${staffLane.label} / ${bedLane.label}` })
+      }
+      return checks
     },
     [boardLanes, sell.cells, hours, locked],
   )

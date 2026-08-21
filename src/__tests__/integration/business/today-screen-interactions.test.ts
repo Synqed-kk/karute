@@ -18,6 +18,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { opsConfig, resources } from '@/business/lib/fixtures-today'
+import { confirmCaption } from '@/business/lib/canon-logic/drag-rules'
 import {
   applyBlockMoves,
   applyMoves,
@@ -63,6 +64,7 @@ import {
   slotStartAt,
   onShownBoard,
   sameStore,
+  sharesStore,
   unparkOutcome,
   foreignStoreRefusal,
   anchorOnScreen,
@@ -2755,6 +2757,87 @@ describe('the pair keeps both its lanes, and no ending turns a release into a bo
     // The one thing the old code produced instead: 担当 —, on no lane at all.
     const collapsed = applyMoves(lanes, { 'apt-1': { laneKey: 'bed-02', ...SPAN } }, [], [], HOURS)
     expect(collapsed.find((l) => l.key === 'p-01')!.items).toHaveLength(0)
+  })
+
+  /** ⚖ STORE ISOLATION ON THE EXPLICIT ROOM CHOICE — GREPTILE #725 (final P1).
+   *
+   *  `allocateBed` scopes the room SEARCH to the booking's own store, but a
+   *  bed-row gesture never asks it: that is the operator naming the room out
+   *  loud, and batch-6 deliberately lets that path stage. Under the all-stores
+   *  lens a person and a room in two different stores could therefore be
+   *  committed with nothing said. Closed the same way an occupied room is —
+   *  stage, 確定 dead, reason named — never a silent drop. */
+  it('a bed retarget onto ANOTHER STORE’s room stages, and 確定 goes dead with the reason named', () => {
+    const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+    const staffA = lane({ key: 'p-a1', group: 'staff', label: '見本 しろう', stores: ['store-a'],
+      items: [booking({ key: 'a-staff', caseId: 'apt-1' }, 600, 660)] })
+    const bedA = lane({ key: 'bed-a1', group: 'beds', label: 'A・ベッド1', stores: ['store-a'],
+      items: [booking({ key: 'a-bed', caseId: 'apt-1' }, 600, 660)] })
+    const bedB = lane({ key: 'bed-b1', group: 'beds', label: 'B・ベッド1', stores: ['store-b'] })
+
+    // The gesture STAGES — parity with the occupied-room case above. The card is
+    // genuinely on store-b's lane, which is what makes the check row reachable.
+    const board = applyMoves([staffA, bedA, bedB], { 'apt-1': { laneKey: 'p-a1', ...SPAN } }, [], [], HOURS,
+      { 'apt-1': { laneKey: 'bed-b1', ...SPAN } })
+    expect(board.find((l) => l.key === 'bed-b1')!.items.map((i) => i.caseId)).toContain('apt-1')
+    expect(board.find((l) => l.key === 'bed-a1')!.items).toHaveLength(0)
+
+    // …and the pair now fails the one store rule, which is what `checksFor` asks.
+    const staffOn = board.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === 'apt-1'))!
+    const bedOn = board.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === 'apt-1'))!
+    expect(sharesStore(staffOn.stores, bedOn.stores)).toBe(false)
+
+    // THE ROW IS `ok: false`, pinned on the pushed literal itself. Asserting it
+    // through a row this test builds would prove `confirmCaption`, not the code
+    // — and an `ok: true` row is the bug in costume: the reason would be printed
+    // ABOVE A LIVE 確定, which is the red-× screenshot Liam already rejected.
+    expect(SRC).toContain("checks.push({ ok: false, label: `担当と店舗が異なります: ${staffLane.label} / ${bedLane.label}` })")
+    // …and canon's every-row-ok rule is what turns that into a dead button, so
+    // the operator READS the reason instead of losing the gesture to a silent
+    // refusal. (`confirmCaption` is canon's, exercised here for real.)
+    expect(confirmCaption([{ ok: true, label: '時間帯の重複なし' }]).enabled).toBe(true)
+    expect(confirmCaption([
+      { ok: true, label: '時間帯の重複なし' },
+      { ok: false, label: `担当と店舗が異なります: ${staffOn.label} / ${bedOn.label}` },
+    ]).enabled).toBe(false)
+    // The sentence names BOTH sides of the mismatch — the check-row voice.
+    expect(staffOn.label).toBe('見本 しろう')
+    expect(bedOn.label).toBe('B・ベッド1')
+
+    // SAME-STORE retarget is untouched: still stages, still passes the rule.
+    const bedA2 = lane({ key: 'bed-a2', group: 'beds', label: 'A・ベッド2', stores: ['store-a'] })
+    const ownBoard = applyMoves([staffA, bedA, bedA2], { 'apt-1': { laneKey: 'p-a1', ...SPAN } }, [], [], HOURS,
+      { 'apt-1': { laneKey: 'bed-a2', ...SPAN } })
+    const ownBed = ownBoard.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === 'apt-1'))!
+    expect(ownBed.key).toBe('bed-a2')
+    expect(sharesStore(staffA.stores, ownBed.stores)).toBe(true)
+
+    // ONE rule, ONE home — the confirm asks the same predicate the allocator
+    // filters with, so the two cannot drift into different answers.
+    expect(SRC).toContain('!sharesStore(staffLane.stores, bedLane.stores)')
+    expect(SRC).toContain('担当と店舗が異なります: ${staffLane.label} / ${bedLane.label}')
+    expect(INT).toContain("lanes.filter((l) => l.group === 'beds' && sharesStore(opts.stores, l.stores))")
+    // Appended to `checksFor`, which is the ONE place both gestures are judged:
+    // the pointer drop and the keyboard nudge both stage into `moves`/`bedMoves`,
+    // and `confirmPending` re-runs these at the moment of confirm.
+    expect(SRC).toContain('const bedLane = boardLanes.find((l) => l.group === \'beds\' && l.items.some((i) => i.caseId === id))')
+    expect(SRC).toContain('if (pendingOffBoard || !at || !confirmCaption(checksFor(pending.id, at)).enabled) {')
+  })
+
+  it('sharesStore: floating pairs with anything, otherwise the two must share a store', () => {
+    // canon `canPair`'s rule (availability.ts:51), on whole arrays.
+    expect(sharesStore(['store-a'], ['store-a'])).toBe(true)
+    expect(sharesStore(['store-a'], ['store-b'])).toBe(false)
+    // Either side floating = every store.
+    expect(sharesStore(null, ['store-b'])).toBe(true)
+    expect(sharesStore(['store-a'], null)).toBe(true)
+    expect(sharesStore(null, null)).toBe(true)
+    // A lane in BOTH stores is reachable from either — the array is compared
+    // whole, so this does not inherit A-5's `stores?.[0]` collapse.
+    expect(sharesStore(['store-a'], ['store-b', 'store-a'])).toBe(true)
+    expect(sharesStore(['store-b', 'store-a'], ['store-a'])).toBe(true)
+    // Empty list belongs to no store and pairs with nobody — fail-closed.
+    expect(sharesStore([], ['store-a'])).toBe(false)
   })
 
   it('a bed retarget onto an occupied room is judged by the SAME checks a staff move is', () => {

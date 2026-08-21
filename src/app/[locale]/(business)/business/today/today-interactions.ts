@@ -997,6 +997,26 @@ export function blockNode(board: Element | null, key: string): HTMLElement | nul
 
 // ── ⚖ Liam flag 51 — PEOPLE ARE CHOSEN, ROOMS ARE SOLVED ───────────────────
 
+/** ⚖ STORE ISOLATION — CAN THESE TWO LANES BE THE SAME BOOKING'S PAIR?
+ *
+ *  Canon's `canPair` (availability.ts:51) is the rule: a lane belonging to no
+ *  particular store (`null`) pairs with anything, and otherwise the two have to
+ *  SHARE a store. It is re-spelled here against the raw lists rather than called,
+ *  because canPair reads the sell layer's flattened shapes and that flattening is
+ *  the known A-5 defect — `sellResourceLanes` collapses a room to
+ *  `stores?.[0] ?? ''`, so a multi-store room answers for one store and a
+ *  floating room answers for none. Comparing whole arrays does not inherit it.
+ *
+ *  ONE HOME, because there are two ways a booking gets a room and they must not
+ *  drift: `allocateBed` uses it as a FILTER when the board is choosing (a room in
+ *  another store is not a candidate), and the confirm's check rows use it as a
+ *  TEST when the operator chose the room themselves on a bed row — that gesture
+ *  never reaches the allocator, which is how a staff/room pair in two different
+ *  stores could be committed under the all-stores lens (Greptile #725). */
+export function sharesStore(a: string[] | null, b: string[] | null): boolean {
+  return a === null || b === null || a.some((s) => b.includes(s))
+}
+
 /** ⚠SETTINGS-BATCH — the store's two room-allocation judgements, as data. They
  *  arrive from `opsConfig.roomPolicy`; nothing in this file or in the board
  *  decides them, so a store that runs its 個室 differently changes a setting
@@ -1017,7 +1037,8 @@ export interface RoomPolicy {
  *      member is plainly free reads as nonsense (Liam's own scene).
  *
  *  A bed-row drag is the operator saying WHICH ROOM out loud and is never
- *  auto-solved — that path keeps batch-6's stage-with-確定-disabled behaviour.
+ *  auto-solved — that path keeps batch-6's stage-with-確定-disabled behaviour,
+ *  and gets the store rule as a check row rather than as a filter (`sharesStore`).
  *
  *  WHAT COUNTS AS BUSY. Everything standing on the room, 清掃 included — the
  *  board already calls that 予約不可時間 and `freePartnerLane` (which this
@@ -1062,17 +1083,11 @@ export function allocateBed(
         i.endMin > start &&
         i.startMin < end,
     )
-  // ⚖ STORE ISOLATION, at the only place rooms are chosen. Same rule as canon's
-  // `canPair` (availability.ts:51) — a floating lane pairs with anything, and
-  // otherwise the two have to SHARE a store. It is spelled against BoardLane
-  // here because canPair reads the sell layer's flattened shapes, and that
-  // flattening is itself the known A-5 defect: `sellResourceLanes` collapses a
-  // bed to `stores?.[0] ?? ''`, so a multi-store room answers for one store and
-  // a floating room answers for none. Comparing the arrays directly means this
-  // allocator does not inherit that bug.
-  const sharesStore = (bed: BoardLane) =>
-    opts.stores === null || bed.stores === null || opts.stores.some((s) => bed.stores!.includes(s))
-  const beds = lanes.filter((l) => l.group === 'beds' && sharesStore(l))
+  // ⚖ STORE ISOLATION where the allocator CHOOSES a room. The explicit bed-side
+  // gesture never reaches here — the operator picked the room out loud — so the
+  // same predicate is applied to that landing as a confirm-blocking check row;
+  // see `sharesStore` for why there is only one spelling of the rule.
+  const beds = lanes.filter((l) => l.group === 'beds' && sharesStore(opts.stores, l.stores))
   const needsPrivate = opts.vip && policy.vipStaysPrivate
   const compatible = (l: BoardLane) => (needsPrivate ? l.roomClass === 'private' : true)
   const free = (l: BoardLane) => blockersOn(l).length === 0
