@@ -84,6 +84,7 @@ import {
   guardRailsFor,
   guardVerdictAt,
   holdPopAnchor,
+  isCrumbOffer,
   isOverShelf,
   laneKeyAtY,
   nextSpan,
@@ -163,6 +164,9 @@ export interface TodayProps {
     protectedLabel: string
     gapFillMinMin: number
     gapFillDiscountPct: number
+    /** ⚖ Liam 2026-08-21 — 販売可能な最小の長さ. Shorter than this and the space
+     *  is not advertised at all (see `gapLayerFor`). A store dial. */
+    minSellableMin: number
     config: GuardConfig
   }
   closedWeekdayLabel: string
@@ -756,6 +760,7 @@ export function TodayScreen(props: TodayProps) {
         sessionMin: props.guard.standardSessionMin,
         gapFillMin: props.guard.gapFillMinMin,
         gapFillDiscountPct: props.guard.gapFillDiscountPct,
+        minSellableMin: props.guard.minSellableMin,
         nowMinute: props.sell.nowMinute,
         locked,
         frame,
@@ -2106,12 +2111,19 @@ export function TodayScreen(props: TodayProps) {
             gapHere.map((c) => {
               const span = place(c.s, c.e, hours)
               const packedHere = gap.packed.includes(c)
+              // ⚖ Liam flag 38 / BATCH-5 R6 — COLOUR CARRIES MEANING, BORDERS
+              // CARRY DRAG STATE. A full-length session is the product: blue.
+              // Anything shorter is a leftover the residue broke off — the same
+              // salvage the スキマ枠 layer sells, so it wears the same quiet
+              // orange, even though it is priced at full value. Nothing on this
+              // layer has a border at rest; the ring belongs to the drag alone.
+              const crumbHere = packedHere && isCrumbOffer(c, props.guard.standardSessionMin)
               return (
                 <span
                   // A 詰め込み box advertises the length on its own label; a
                   // スキマ枠 advertises a discount, not a session, so canon gives
                   // it no drag emphasis at all and neither do we.
-                  className={`${packedHere ? 'cell-packed' : 'cell-gapfill'}${packedHere && fitsDrag(c.e - c.s, dragLen) ? ' fits' : ''}`}
+                  className={`${packedHere ? 'cell-packed' : 'cell-gapfill'}${crumbHere ? ' crumb' : ''}${packedHere && fitsDrag(c.e - c.s, dragLen) ? ' fits' : ''}`}
                   key={`${lane.key}-${c.group}-${packedHere ? 'p' : 's'}-${c.s}`}
                   aria-hidden="true"
                   style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}

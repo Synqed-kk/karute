@@ -614,27 +614,50 @@
    Two more window layers over the same track. スキマ枠 (.cell-gapfill) is the
    ORANGE one: a residue that only a discounted offer can still sell, and it is
    deliberately independent of sellMode. 詰め込み (.cell-packed) is a full
-   standard session packed against the head of a pocket — same blue wash as the
-   normal layer but a solid border, because a wide box that reads as a merged
-   band is exactly the misreading the per-hour label rule already fixed once.
-   Canon's label carries the LENGTH as well as the price (¥8,650（60分）): the
-   box is one fixed-start session, not an hour of a band. */
+   standard session packed against the head of a pocket — the blue wash of the
+   normal layer. Canon's label carries the LENGTH as well as the price
+   (¥8,650（60分）): the box is one fixed-start session, not an hour of a band.
+
+   ⚖ Liam flag 39 / BATCH-5 R6 (2026-08-21) — COLOUR CARRIES MEANING, BORDERS
+   CARRY DRAG STATE, and this is a deliberate deviation from canon on both.
+
+   Canon gives .cell-packed a 1.5px solid ring AT REST. Batch-4 measured what
+   that costs: the resting ring and the mid-drag length emphasis are the same
+   hue, the same weight and the same 1.5px, so a drop that freed a pocket grew
+   dark-ringed boxes that read as emphasis stuck on the board (flag 37's
+   screenshot). Liam's ruling: nothing on this layer wears a border at rest.
+   The ring is now ONLY the drag's "this box is exactly your card's length",
+   which is the one thing that needs to shout while a card is in the air.
+
+   And the fill says what the box IS, at rest, without a drag to explain it:
+   blue = a full standard session, the real product; orange = a leftover, the
+   same salvage the discounted スキマ枠 sells. A crumb is priced at full value
+   (its minutes fit the menu exactly) — the colour reports the SHAPE of the
+   offer, not the discount, and that is the distinction the operator sells on. */
 .biz .cell-gapfill { position: absolute; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); border-radius: 4px; pointer-events: none; display: flex; align-items: flex-end; padding: 3px 5px; background: rgba(232, 130, 60, .09); z-index: 0; }
 .biz .cell-gapfill i { font-style: normal; font-size: 10px; font-weight: 600; color: var(--orange-line); opacity: .85; line-height: 1; }
 .biz .timeline.hide-slot-prices .cell-gapfill i { display: none; }
-.biz .cell-packed { position: absolute; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); border-radius: 4px; pointer-events: none; display: flex; align-items: flex-end; padding: 3px 5px; background: rgba(130, 151, 233, .18); border: 1.5px solid rgba(63, 91, 232, .55); box-sizing: border-box; z-index: 1; }
+.biz .cell-packed { position: absolute; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); border-radius: 4px; pointer-events: none; display: flex; align-items: flex-end; padding: 3px 5px; background: rgba(130, 151, 233, .18); box-sizing: border-box; z-index: 1; }
 .biz .cell-packed i { font-style: normal; font-size: 10px; font-weight: 700; color: var(--indigo); opacity: .9; line-height: 1; }
+/* The leftover half of the same layer: full price, but not a session — so it
+   wears the スキマ枠's own orange rather than the session blue. */
+.biz .cell-packed.crumb { background: rgba(232, 130, 60, .13); }
+.biz .cell-packed.crumb i { color: var(--orange-line); opacity: .95; }
 .biz .timeline.hide-slot-prices .cell-packed i { display: none; }
 .biz .timeline.sell-drag .cell-packed { opacity: 0; }
 .biz .timeline.sell-off .cell-packed { display: none; }
 .biz .timeline.sell-tint.dragging-live .cell-packed,
 .biz .timeline.sell-drag.dragging-live .cell-packed { opacity: 1; }
-/* …and the other half of Liam's rule: at rest this border says "a full-price
-   session of a length the store sells starts here". For the length of a drag the
-   board is answering a different question, so a box that does not fit the card
-   in hand goes calm — a light wash and no border — and stops competing with the
-   ones that do. The border comes straight back on release. */
-.biz .timeline.dragging-live .cell-packed:not(.fits) { background: rgba(130, 151, 233, .07); border-color: transparent; }
+/* …and the other half of Liam's rule: for the length of a drag the board is
+   answering "where does THIS card fit at full value", so the box that matches
+   the card in hand takes the ring — the same inset ring the normal layer's
+   `.cell-price.fits` wears, one grammar for one question — and every box that
+   does not goes calm and stops competing with it. Both states die with the
+   drag, which is what makes a ring on this board mean "you are holding
+   something" and nothing else. */
+.biz .timeline.dragging-live .cell-packed.fits { box-shadow: inset 0 0 0 1.5px rgba(63, 91, 232, .55); }
+.biz .timeline.dragging-live .cell-packed:not(.fits) { background: rgba(130, 151, 233, .07); }
+.biz .timeline.dragging-live .cell-packed.crumb:not(.fits) { background: rgba(232, 130, 60, .06); }
 .biz .timeline.dragging-live .cell-packed:not(.fits) i { font-weight: 600; opacity: .7; }
 /* ⚖ Liam flag 27: the packed layer's half of the same overturn — see the note
    on .cell-price above. */

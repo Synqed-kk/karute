@@ -47,6 +47,7 @@ import {
   gapLayerFor,
   guardRailsFor,
   guardVerdictAt,
+  isCrumbOffer,
   isOverShelf,
   laneKeyAtY,
   laneSpans,
@@ -69,7 +70,7 @@ import {
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { dragOrigin, stepPct } from '@/business/lib/canon-logic/drag-rules'
 import { buildSellLayer, type SellCell } from '@/business/lib/canon-logic/availability'
-import { DENSITY_CEILING } from '@/business/lib/canon-logic/pricing'
+import { DENSITY_CEILING, packedPrice } from '@/business/lib/canon-logic/pricing'
 import { minuteOf, place, type BoardItem, type BoardLane } from '@/business/lib/today-board'
 
 if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
@@ -877,6 +878,102 @@ describe('a free run that crosses the hour — when canon merges and when the gr
   })
 })
 
+/** ⚖ Liam flag 38 / BATCH-5 R1 · R2 · R3 · R6 (2026-08-21).
+ *
+ *  A leftover run the store's menu can only fill in several pieces used to draw
+ *  a box PER PIECE — ¥3,860（30分）beside ¥2,690（20分）over 50 minutes nobody
+ *  can book twice. Liam's ruling: the crumbs of one residue combine into ONE
+ *  offer at the union length, priced by ONE call over the union; full 60/90
+ *  sessions keep their own boxes because they are the actual product; and
+ *  nothing shorter than the store's minimum sellable length is advertised at
+ *  all. The colour then reports which of the two a box is. */
+describe('the crumbs of one leftover combine into one offer', () => {
+  // The fixture store's own menu shape: a 50-minute run has no single coin.
+  const MENU = {
+    services: [{ name: '20', dur: 20 }, { name: '30', dur: 30 }, { name: '60', dur: 60 }],
+    newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
+    mode: 'standard' as const,
+  }
+  const FRAME = { hi: 6600, lo: 4620, hqMin: 6600, hqMax: 7260 }
+  const DEPTH = 9
+  const run = (from: number, until: number, over: { minSellableMin?: number } = {}) =>
+    gapLayerFor(
+      [lane({ key: 'p-01', group: 'staff', window: { from, until }, untilLabel: '' }), lane({ key: 'bed-01', group: 'beds' })],
+      {
+        gridMin: 60, sessionMin: 60, gapFillMin: 30, gapFillDiscountPct: 10, nowMinute: null,
+        locked: [], frame: FRAME, depth: DEPTH, guard: MENU, ...over,
+      },
+    )
+  const staff = (o: ReturnType<typeof run>, k: 'packed' | 'scraps') => o[k].filter((c) => c.group === 'staff')
+  const spans = (o: ReturnType<typeof run>, k: 'packed' | 'scraps') => staff(o, k).map((c) => [c.s, c.e])
+
+  it('a 50-minute leftover is ONE 50分 offer, not 30分 beside 20分', () => {
+    // 10:20–11:10. The greedy breaks 50 into 30 + 20; the board shows one box.
+    const out = run(620, 670)
+    expect(spans(out, 'packed')).toEqual([[620, 670]])
+    expect(spans(out, 'scraps')).toEqual([])
+    // Both rows — a staff row and a bed row — combined, or the bed layer would
+    // still be advertising the pieces.
+    expect(out.packed.map((c) => [c.group, c.s, c.e])).toEqual([['staff', 620, 670], ['beds', 620, 670]])
+  })
+
+  it('…priced by ONE call over the union, never by adding the rounded pieces up', () => {
+    // Each piece is rounded to ¥10 on its own, so the sum charges the rounding
+    // remainder twice. Here that is a real ¥10 the customer would be overcharged
+    // for a run the shop is trying to salvage.
+    const union = packedPrice(7000, 620, 670, FRAME, DEPTH)
+    const sumOfPieces = packedPrice(7000, 620, 650, FRAME, DEPTH) + packedPrice(7000, 650, 670, FRAME, DEPTH)
+    expect(union).toBe(5330)
+    expect(sumOfPieces).toBe(5340)
+    expect(staff(run(620, 670), 'packed')[0].price).toBe(union)
+  })
+
+  it('full sessions are the product and keep their own boxes', () => {
+    // 15:50 + 120: packing fits two hours where the grid fits one, so two
+    // 60-minute sessions land back to back. Adjacent, and NOT combined.
+    expect(spans(run(950, 1070), 'packed')).toEqual([[950, 1010], [1010, 1070]])
+  })
+
+  it('a leftover under the minimum sellable length is not advertised at all', () => {
+    // 20 minutes: a real full-price offer by the menu, and still not stock.
+    expect(spans(run(720, 740), 'packed')).toEqual([[720, 740]])
+    expect(spans(run(720, 740, { minSellableMin: 30 }), 'packed')).toEqual([])
+    // …and the floor is applied AFTER the crumbs combine: run it before and the
+    // 30-minute piece would survive alone while its 20-minute other half died.
+    expect(spans(run(620, 670, { minSellableMin: 30 }), 'packed')).toEqual([[620, 670]])
+    expect(spans(run(620, 670, { minSellableMin: 60 }), 'packed')).toEqual([])
+  })
+
+  it('R5: a first-class leftover the greedy jams on renders instead of crashing', () => {
+    // 40 = 20 + 20 by the DP, null by the largest-first greedy. This is the
+    // exact pair that threw inside deriveGapPackingCells and took the board
+    // down on twelve legal landings, Liam's own 見本きり → p-05 16:00 included.
+    expect(() => run(720, 760)).not.toThrow()
+    expect(spans(run(720, 760), 'packed')).toEqual([[720, 760]])
+    // Full price over the whole 40 — one union call, not the discounted layer.
+    expect(staff(run(720, 760), 'packed')[0].price).toBe(packedPrice(7000, 720, 760, FRAME, DEPTH))
+    expect(spans(run(720, 760), 'scraps')).toEqual([])
+  })
+
+  it('the screen paints the meaning: orange for a leftover, blue for a session', () => {
+    const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+    const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+    // One answer drives both the combining and the colour.
+    expect(isCrumbOffer({ s: 620, e: 670 }, 60)).toBe(true)
+    expect(isCrumbOffer({ s: 950, e: 1010 }, 60)).toBe(false)
+    expect(SRC).toContain("const crumbHere = packedHere && isCrumbOffer(c, props.guard.standardSessionMin)")
+    expect(SRC).toContain("${crumbHere ? ' crumb' : ''}")
+    expect(SRC).toContain('minSellableMin: props.guard.minSellableMin')
+    // ⚖ R6 — NOTHING on this layer wears a border at rest. The ring is the
+    // drag's own signal and dies with it, which is the whole point: batch-4
+    // proved the resting ring and the emphasis were the same picture.
+    expect(CSS).not.toMatch(/\.biz \.cell-packed \{[^}]*border:/)
+    expect(CSS).toContain('.biz .cell-packed.crumb { background: rgba(232, 130, 60, .13); }')
+    expect(CSS).toContain('.biz .cell-packed.crumb i { color: var(--orange-line); opacity: .95; }')
+    expect(CSS).toContain('.biz .timeline.dragging-live .cell-packed.fits { box-shadow: inset 0 0 0 1.5px rgba(63, 91, 232, .55); }')
+  })
+})
+
 /** WO-2e ITEM 1 — ⚖ Liam 2026-08-20, length-matched drag emphasis.
  *
  *  Canon deepens every derived window for the length of a drag (:594–598).
@@ -969,12 +1066,18 @@ describe('the drag emphasis follows the dragged length, and nothing else', () =>
 
   it('the stylesheet emphasises only .fits, and calms a 詰め込み box that does not', () => {
     expect(CSS).toContain('.biz .timeline.dragging-live .cell-price.fits {')
-    expect(CSS).toContain('.biz .timeline.dragging-live .cell-packed:not(.fits) { background: rgba(130, 151, 233, .07); border-color: transparent; }')
+    expect(CSS).toContain('.biz .timeline.dragging-live .cell-packed:not(.fits) { background: rgba(130, 151, 233, .07); }')
     // The old uniform-deepen selectors are gone: no window rule is gated on a
     // card being on the board any more (comments about them are not rules).
     expect(CSS.split('\n').filter((l) => !l.trimStart().startsWith('`') && /:has\(/.test(l) && /cell-(price|packed)/.test(l))).toEqual([])
-    // At rest the border grammar is exactly canon's: 詰め込み keeps its border.
-    expect(CSS).toContain('border: 1.5px solid rgba(63, 91, 232, .55)')
+    // ⚖ Liam flag 39 / BATCH-5 R6 (2026-08-21) SUPERSEDES the line that used to
+    // stand here ("at rest 詰め込み keeps canon's border"). Batch-4 measured why:
+    // canon's resting ring and this emphasis are the same hue, weight and 1.5px,
+    // so a drop that freed a pocket grew boxes that read as emphasis stuck on
+    // the board. The ring now belongs to the drag alone — nothing on the window
+    // layer has a border at rest, and the emphasis is the box's own inset ring.
+    expect(CSS).not.toMatch(/\.biz \.cell-packed \{[^}]*border:/)
+    expect(CSS).toContain('.biz .timeline.dragging-live .cell-packed.fits { box-shadow: inset 0 0 0 1.5px rgba(63, 91, 232, .55); }')
   })
 })
 

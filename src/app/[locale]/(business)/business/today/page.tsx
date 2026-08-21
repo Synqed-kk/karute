@@ -421,6 +421,7 @@ export default async function TodayPage({
       protectedLabel: '新規',
       gapFillMinMin: planes.opsConfig.gapFillMinMin,
       gapFillDiscountPct: planes.opsConfig.gapFillDiscountPct,
+      minSellableMin: planes.opsConfig.minSellableMin,
       config: {
         services: menus.map((m) => ({ name: m.name, dur: m.duration_minutes })),
         newClientSessionMin: planes.opsConfig.newClientSessionMin,

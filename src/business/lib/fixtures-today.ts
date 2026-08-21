@@ -190,6 +190,11 @@ export const opsConfig = {
   gapFillMinMin: 30,
   gapFillDiscountPct: 10,
   standardSessionMin: 60,
+  /** ⚖ Liam 2026-08-21 — 販売可能な最小の長さ. Under this the board advertises
+   *  nothing: the leftover stays plain track. Fragments are a salvage market,
+   *  and a 20-minute orphan is not stock — it is the phone call that costs the
+   *  hour. The 店舗設定 control for it ships with the settings batch. */
+  minSellableMin: 30,
   /** ⚖ Liam 2026-08-20: the guard SHIPS ON in the fixture world. Canon's own
    *  copy leaves this 'off' and puts the 配置ガイド behind a page-local demo
    *  chip, which made the 表示設定 toggle a dead lever — it flipped the copy
