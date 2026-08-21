@@ -575,6 +575,13 @@ class GlobalPipeline {
         return
       }
       if (status.status === 'FAILED') {
+        // R1: the raw reason goes to the console, exactly like the in-tab
+        // catch above — this module's own contract says the UI localizes from
+        // the CODE and "the raw error goes to the console for field debugging"
+        // (PipelineErrorCode doc), but the server arm never logged, so a field
+        // failure left no trace anywhere. Core's audit exclusion of
+        // recordingJobs.fail is untouched; this is a client console line.
+        console.error('[global-pipeline] server job failed:', status.lastError)
         // Take is NEVER deleted on FAILED — the staff can retry or fall back.
         this.error =
           status.lastError === CONSENT_REQUIRED_ERROR

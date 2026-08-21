@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, use, useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button, ConsentCheckCard } from '@synqed-kk/ui'
 import { toast } from 'sonner'
@@ -13,11 +13,14 @@ import { loadDraft, clearDraft, type KaruteDraft } from '@/lib/karute/draft'
 import {
   deleteTake,
   getRecoverableTake,
+  listOwnTakes,
   loadTakeBlob,
   readTakeOutcome,
   stampTakeOutcome,
   type RecoverableTake,
 } from '@/lib/karute/take-store'
+import { loadInbox, useRecordingsInbox } from '@/lib/recordings/inbox-store'
+import type { InboxRow } from '@/lib/recordings/inbox'
 import { globalRecorder } from '@/lib/global-recorder'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
@@ -71,6 +74,7 @@ import {
   type RecordCustomerFact,
 } from './RecordCustomerPickerDialog'
 import { RecoveryBanner, type RecoveryTicketState } from './RecoveryBanner'
+import { RecordingsInboxCard } from './RecordingsInboxCard'
 import { RecoveryAutoSavedNotice } from './RecoveryAutoSavedNotice'
 import {
   createPackAction,
@@ -646,6 +650,18 @@ export function RecordPageView({
     }
   }, [])
 
+  // 録音履歴 (Build F1) — the folded inbox. Mounting subscribes AND fetches, so
+  // every navigation onto this page recomputes; the store also refreshes itself
+  // when a pipeline run ends.
+  const inbox = useRecordingsInbox()
+  // Name resolution for inbox rows whose take carries no bind-time snapshot
+  // (server rows never do). The page already holds the customer list, so this
+  // costs no extra read.
+  const customerNameById = useMemo(
+    () => new Map(customers.map((c) => [c.id, c.name])),
+    [customers],
+  )
+
   const [consent, setConsent] = useState<{ granted: boolean; grantedAt: string | null } | null>(null)
   const [showConsentDialog, setShowConsentDialog] = useState(false)
   const [consentSubmitting, setConsentSubmitting] = useState(false)
@@ -1173,6 +1189,62 @@ export function RecordPageView({
       return
     }
     startRecoveryFlow(destination)
+  }
+
+  // ── 録音履歴 (Build F1) ───────────────────────────────────────────────────
+  // The inbox row's 開く / 確認する opens the karute this session produced.
+  // 確認する ALSO settles the take: the record exists, the staffer is looking at
+  // it right now, so the un-settled audio that made the row 確認待ち has done its
+  // job. The row decays to 保存済み and the 要対応 count drops by one.
+  function handleInboxOpenRecord(row: InboxRow) {
+    if (!row.karuteRecordId) return
+    if (row.state === 'awaiting-check' && row.takeId) {
+      void deleteTake(row.takeId).then(() => loadInbox())
+    }
+    router.push(`/karute/${row.karuteRecordId}` as Parameters<typeof router.push>[0])
+  }
+
+  /**
+   * 保存する / 再試行 on an inbox row — the SAME recovery save the banner runs,
+   * parameterized by THIS row's take instead of the newest one.
+   *
+   * It promotes the chosen take into the recovery offer and then enters the
+   * flow through its own deferred-start seam (`pendingStart`), which waits for
+   * that destination's day facts before freezing the ticket. No second save
+   * writer exists, and none is added here: an unbound take opens the same
+   * picker `handleRecoverySaveTap` opens, whose exit continues the save.
+   */
+  function handleInboxSaveTake(row: InboxRow) {
+    if (recoverySavingRef.current || !row.takeId) return
+    const wanted = row.takeId
+    void (async () => {
+      // Re-read rather than trusting the rendered row: the take may have been
+      // saved or swept since the list was folded, and offering audio that is
+      // gone is exactly the lie this feature exists to end.
+      const take = (await listOwnTakes()).find((tk) => tk.takeId === wanted)
+      if (!take) {
+        void loadInbox()
+        return
+      }
+      // A surviving review draft normally wins the banner; an explicit tap on a
+      // specific take is the staffer overriding that, so the draft stands down
+      // for this offer.
+      setRecoveredDraft(null)
+      setRepointed(null)
+      setRecoveredTake(take)
+      const dest: RecoveryDestination | null = take.target
+        ? {
+            customerId: take.target.customerId,
+            customerName: take.target.customerName,
+            karuteNumber: take.target.karuteNumber,
+            appointmentId: take.target.appointmentId || null,
+          }
+        : null
+      // Bound → start as soon as the day's facts land. Unbound → the picker IS
+      // the save's first step (repointTo continues it), same as the banner.
+      if (dest) setPendingStart(dest)
+      else setRepointOpen(true)
+    })()
   }
 
   /** A-1 ① — FREEZE, then run. Everything downstream takes this object as an
@@ -2367,6 +2439,19 @@ export function RecordPageView({
           )}
         </div>
       )}
+
+      {/* 録音履歴 (Build F1, approved mock §1) — directly under the record
+          controls in both layouts. Every session the signed-in staffer recorded
+          in the last 7 days, with an honest state and at most one action. */}
+      <RecordingsInboxCard
+        rows={inbox.rows}
+        needsAttention={inbox.needsAttention}
+        serverFailed={inbox.serverFailed}
+        locale={locale}
+        customerNameById={customerNameById}
+        onOpenRecord={handleInboxOpenRecord}
+        onSaveTake={handleInboxSaveTake}
+      />
 
       <LiveTranscriptCard connected={false} lines={[]} />
 

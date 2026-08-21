@@ -35,13 +35,22 @@ export async function wipeSessionVault(opts: { uid?: string } = {}): Promise<voi
   // after the dynamic-import await left a window where a settling response
   // still counted as fresh (Greptile #649 r3).
   clearAiSlotCache()
-  const [{ globalRecorder }, { globalPipeline }, { clearDraft }, { clearOwnTakes }] =
-    await Promise.all([
-      import('@/lib/global-recorder'),
-      import('@/lib/global-pipeline'),
-      import('@/lib/karute/draft'),
-      import('@/lib/karute/take-store'),
-    ])
+  const [
+    { globalRecorder },
+    { globalPipeline },
+    { clearDraft },
+    { clearOwnTakes },
+    { resetInbox },
+  ] = await Promise.all([
+    import('@/lib/global-recorder'),
+    import('@/lib/global-pipeline'),
+    import('@/lib/karute/draft'),
+    import('@/lib/karute/take-store'),
+    // Build F1: the 録音履歴 rows name the leaving staffer's own customers.
+    // Same shared-device hygiene as the rest of this wipe.
+    import('@/lib/recordings/inbox-store'),
+  ])
+  resetInbox()
   globalRecorder.discard() // stops the mic if live; deletes the live take
   globalPipeline.reset()
   clearDraft()

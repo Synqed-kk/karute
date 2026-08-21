@@ -277,6 +277,7 @@ export type FacadeEndpointKey =
   | 'permissions.get'
   | 'permissions.update'
   | 'recordings.discard'
+  | 'recordings.inbox'
   | 'recordings.job.enqueue'
   | 'recordings.job.status'
   | 'recordings.session.mint'
@@ -468,6 +469,11 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   'customer.pack.burnable': { kind: 'skip', category: 'customer', action: '' },
   'customer.consent.read': { kind: 'skip', category: 'customer', action: '' },
   'recordings.job.status': { kind: 'skip', category: 'recording', action: '' },
+  // 録音履歴 (Build F1) — a read-only list of the CALLER'S OWN sessions plus
+  // their state. Same wayfinding skip every list GET carries: it shows no
+  // transcript and no summary, and each action it leads to (the recovery save,
+  // the retry) is audited at its own chokepoint.
+  'recordings.inbox': { kind: 'skip', category: 'recording', action: '' },
 
   // screens.dashboard (§3.1 D4, Liam-confirmed): the attention cards render a
   // one-line per-customer memo preview (attention.ts:142-144) and AI-generated

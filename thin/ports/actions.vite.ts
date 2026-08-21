@@ -28,6 +28,9 @@ import type { Capability, PermissionRole } from '@/lib/auth/permissions'
 // drift from it. Erased at compile, so the 'use server' module never enters
 // this bundle's graph (thin/chrome/Chrome.tsx does the same with StoreRow).
 import type { VoiceRefusal } from '@/actions/voice'
+// Same type-only idiom for the 録音履歴 row shape (Build F1) — lib/recordings/
+// inbox.ts is pure, so nothing of it enters this bundle's import graph.
+import type { InboxServerSession } from '@/lib/recordings/inbox'
 
 function notWired(name: string) {
   return async (): Promise<never> => {
@@ -930,6 +933,19 @@ export const getStaffStores = facadeGetStaffStores
 export const setStaffStores = facadeSetStaffStores
 export const getEntitlement = facadeGetEntitlement
 export const startRecordingSession = facadeStartRecordingSession
+
+// -- 録音履歴 inbox (Build F1). Type-only import of the row shape: inbox.ts is
+// pure (no next/*, no synqed client), so this erases at compile and the DTO
+// stays defined in ONE place instead of being redeclared here.
+export const listRecordingsInbox = async (): Promise<InboxServerSession[]> => {
+  const res = await getDataPort().apiFetch('/api/app/v1/recordings/inbox')
+  // Throw, don't degrade: the inbox store catches this and says out loud that
+  // part of the list is missing. A silent [] would render "no failures" for a
+  // staffer whose recordings are exactly what failed.
+  if (!res.ok) throw new Error(`recordings inbox failed (${res.status})`)
+  const body = (await res.json()) as { sessions?: InboxServerSession[] }
+  return body.sessions ?? []
+}
 
 // -- audit log (design-parity packet 17 §S3 — 監査ログ tab live). Mirrors
 // AuditLogEvent/AuditLogFilters (src/actions/audit-log.ts) — local
