@@ -3850,8 +3850,12 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
       ['chip place + 次回予約 + create', 'function askGuard(', 'function closeAdvice('],
     ] as const) {
       const body = SRC.slice(SRC.indexOf(from), SRC.indexOf(to))
-      expect([name, body.includes('verdictAtLanding(')]).toEqual([name, true])
-      expect([name, body.includes("kind === 'blocked'")]).toEqual([name, true])
+      expect([name, body.includes('const v = verdictAtLanding(ask)')]).toEqual([name, true])
+      // The EXACT gating line, not a substring: `kind === 'blocked'` also appears
+      // inside the alternative-start re-check, so a weaker pin survives a mutant
+      // that opens the gate (M10 of the batch-9 red-runs found this test, not
+      // the code — a mutant that lives is a test that is not doing its job).
+      expect([name, body.includes("if (v.kind === 'blocked') {")]).toEqual([name, true])
       expect([name, body.includes('explainBlocked(')]).toEqual([name, true])
     }
     // The release path puts the pair back BEFORE it explains (⚖ 47: a refusal
