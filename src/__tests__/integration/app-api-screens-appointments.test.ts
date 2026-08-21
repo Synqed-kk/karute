@@ -66,27 +66,34 @@ jest.mock('@/lib/auth/require-permission', () => {
   return { ...actual, capabilitiesForUser: () => mockCapabilities() }
 })
 
+// cust-1 has an event at store-A; cust-2 is the other branch's. The fake
+// stands in for core's server-side store filter, so a dropped clamp argument
+// shows up as 佐藤 sitting in a clamped caller's combobox.
+const CUST_A = {
+  id: 'cust-1',
+  name: '田中',
+  isExistingCustomer: true,
+  created_at: '2026-01-05T00:00:00.000Z',
+  visitCount: 12,
+  hasTicketPack: true,
+  karute_number: 139,
+}
+const CUST_B = {
+  id: 'cust-2',
+  name: '佐藤',
+  isExistingCustomer: false,
+  created_at: '2026-02-01T00:00:00.000Z',
+  visitCount: 0,
+  hasTicketPack: false,
+  karute_number: null,
+}
+// Rest-typed so the exact ARGUMENT the route threads survives into the spy.
+const getCachedCustomerListFor = jest.fn(async (...args: unknown[]) => {
+  const storeId = args[1]
+  return storeId === 'store-A' ? [CUST_A] : storeId === 'store-B' ? [CUST_B] : [CUST_A, CUST_B]
+})
 jest.mock('@/lib/customers/cached', () => ({
-  getCachedCustomerListFor: jest.fn(async () => [
-    {
-      id: 'cust-1',
-      name: '田中',
-      isExistingCustomer: true,
-      created_at: '2026-01-05T00:00:00.000Z',
-      visitCount: 12,
-      hasTicketPack: true,
-      karute_number: 139,
-    },
-    {
-      id: 'cust-2',
-      name: '佐藤',
-      isExistingCustomer: false,
-      created_at: '2026-02-01T00:00:00.000Z',
-      visitCount: 0,
-      hasTicketPack: false,
-      karute_number: null,
-    },
-  ]),
+  getCachedCustomerListFor: (...a: unknown[]) => getCachedCustomerListFor(...a),
 }))
 
 // Booking-picker menu union (PR-4a) — one all-store row, one store-scoped row
@@ -378,6 +385,31 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(
       dto.reservationViews.find((r) => r.id === 'appt-1')!.staffName,
     ).toBe('Mika Tanaka')
+  })
+
+  // ⚖ Liam 2026-08-17, customer half of the picker isolation. Unlike the menu
+  // union above (a business-wide cache clamped at the DTO) the customer list is
+  // SERVER-filtered — the clamp IS the argument, which is what makes the
+  // client-side combobox search store-clamped too.
+  it('a clamped caller’s booking combobox carries ONLY their store’s customers', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-A'] })
+    const res = await GET(req({ 'store-id': 'store-A' }), route)
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(getCachedCustomerListFor).toHaveBeenCalledWith('business-1', 'store-A')
+    expect(dto.customers.map((c) => c.id)).toEqual(['cust-1'])
+  })
+
+  it('a viewAll / floating caller keeps the business-wide list', async () => {
+    // Default staffStores is the empty (floating) set; viewAll takes the same
+    // unclamped branch. The undefined lens is passed through — the helper's own
+    // arity guard is what keeps it from forking a second unstable_cache entry.
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'stores.viewAll']))
+    const res = await GET(req({ 'store-id': 'store-A' }), route)
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(getCachedCustomerListFor).toHaveBeenCalledWith('business-1', undefined)
+    expect(dto.customers.map((c) => c.id)).toEqual(['cust-1', 'cust-2'])
   })
 
   it('a failed pack-usage read degrades to pill-less rows, not an error', async () => {

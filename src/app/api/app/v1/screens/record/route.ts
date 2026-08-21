@@ -106,9 +106,10 @@ export const GET = facadeHandler('screens.record', async (ctx) => {
   const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000)
   const todayStr = jstNow.toISOString().split('T')[0]
 
-  // Store clamp BEFORE any read — a store_forbidden throw must reach the client
-  // as 403, so it stays OUTSIDE the 502 catch below (the recording-target set is
-  // store-scoped just like the web page's resolveStoreScope lens).
+  // Store clamp BEFORE any read — a store_forbidden throw must reach the
+  // client as 403, so it stays OUTSIDE the 502 catch below. The clamp result
+  // scopes the recording-target set below and (for clamped actors) the
+  // customer combobox list; viewAll stays business-wide (#347 semantics).
   const clamp = await resolveStoreForRequest({
     synqed,
     authUserId: ctx.identity.authUserId,
@@ -116,13 +117,25 @@ export const GET = facadeHandler('screens.record', async (ctx) => {
     requestedStoreId: ctx.req.headers.get('store-id'),
   })
   const activeStore = clamp.storeId
+  const clamped = clamp.allowedStoreIds != null
 
   try {
-    // Wave 1 — staff roster, business-wide customer list (the batch-1 helper, NOT
-    // getCachedCustomerList), org settings. Any throw → 502.
+    // Wave 1 — staff roster, customer list (the batch-1 helper, NOT
+    // getCachedCustomerList): business-wide for viewAll, store-scoped for
+    // clamped actors. Org settings. Any throw → 502.
     const [staffList, customerRes, orgSettings] = await Promise.all([
       staffListByBusinessOrThrow(businessId),
-      listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
+      // ⚖ Liam 2026-08-17, sessions-route precedent: enforceStore keeps the
+      // clamp on even while searching, so a branch staff's record picker can
+      // never reach another store's customers.
+      clamped
+        ? listAllCustomers(synqed, {
+            store_id: activeStore,
+            enforceStore: true,
+            sort_by: 'created_at',
+            sort_order: 'asc',
+          })
+        : listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
       orgSettingsWithClient(synqed),
     ])
 

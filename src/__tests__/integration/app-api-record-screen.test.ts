@@ -53,7 +53,14 @@ const customersGet = jest.fn(async (id: string) => {
   if (id !== 'cust-1') throw Object.assign(new Error('cross-tenant'), { status: 404 })
   return CUSTOMER
 })
+// The store clamp's two reads — a viewAll caller never reaches either, so they
+// exist for the clamped cases below (store-id header → tenancy check, then the
+// caller's assignment).
+const storesGet = jest.fn(async () => ({ id: 'store-A' }))
+const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 const fakeClient = {
+  stores: { get: storesGet },
+  staffStores: { get: staffStoresGet },
   appointments: { list: apptList, get: apptGet },
   karuteRecords: { list: jest.fn(async () => ({ karute_records: [{ id: 'kar-1', appointment_id: null, customer_id: 'cust-1', created_at: '2026-05-01T03:00:00Z', ai_summary: '・肩こり改善', entry_count: 2, entries: [] }] })) },
   staff: { list: jest.fn(async () => ({ staff: [{ id: 'auth-user-1', user_id: 'auth-user-1', name: '田中' }] })) },
@@ -61,7 +68,20 @@ const fakeClient = {
   packs: { listPacks: jest.fn(async () => []), listRedemptions: jest.fn(async () => []), getLifecycle: jest.fn(async () => null) },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
-jest.mock('@/lib/customers/list-all', () => ({ listAllCustomers: jest.fn(async () => ({ customers: [{ id: 'cust-1', name: '山田 花子', created_at: '2026-01-01T00:00:00Z', is_existing_customer: true, visit_count: 3, has_ticket_pack: false, karute_number: 1 }], total: 1 })) }))
+// cust-1 has an event at store-A; cust-2 is the other branch's. The fake
+// stands in for core's server-side store filter, so a dropped clamp shows up
+// as the other branch's customer sitting in the record picker.
+const CUST_A = { id: 'cust-1', name: '山田 花子', created_at: '2026-01-01T00:00:00Z', is_existing_customer: true, visit_count: 3, has_ticket_pack: false, karute_number: 1 }
+const CUST_B = { id: 'cust-2', name: '佐藤 次郎', created_at: '2026-02-01T00:00:00Z', is_existing_customer: false, visit_count: 0, has_ticket_pack: false, karute_number: 2 }
+const listAllCustomers = jest.fn(async (_client: unknown, opts?: { store_id?: string | null }) =>
+  opts?.store_id === 'store-A'
+    ? { customers: [CUST_A], total: 1 }
+    : { customers: [CUST_A, CUST_B], total: 2 },
+)
+jest.mock('@/lib/customers/list-all', () => ({
+  listAllCustomers: (client: unknown, opts?: { store_id?: string | null }) =>
+    listAllCustomers(client, opts),
+}))
 jest.mock('@/lib/customers/queries', () => ({ getCustomerWithClient: jest.fn(async (_c: unknown, id: string) => { if (id !== 'cust-1') throw new Error('404'); return CUSTOMER }) }))
 
 import { GET, OPTIONS } from '@/app/api/app/v1/screens/record/route'
@@ -85,6 +105,8 @@ const req = (path = '', headers: Record<string, string> = auth) =>
 beforeEach(() => {
   capabilities.current = new Set(['customers.view', 'stores.viewAll'])
   upstream.appts = false
+  staffStoresGet.mockResolvedValue({ store_ids: [] })
+  listAllCustomers.mockClear()
 })
 
 describe('GET /api/app/v1/screens/record', () => {
@@ -200,6 +222,35 @@ describe('GET /api/app/v1/screens/record', () => {
     const res = await GET(req(), route)
     expect(res.status).toBe(200)
     expect((await res.json()).staffCanDeletePhotos).toBe(false)
+  })
+
+  // ⚖ Liam 2026-08-17 store isolation, record-picker half. Copies the sessions
+  // route's precedent: enforceStore keeps the clamp on even while searching, so
+  // a branch staff's picker can never reach another store's customers.
+  it('a clamped caller’s record picker carries ONLY their store’s customers', async () => {
+    capabilities.current = new Set(['customers.view'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-A'] })
+    const res = await GET(req('', { ...auth, 'store-id': 'store-A' }), route)
+    expect(res.status).toBe(200)
+    expect(listAllCustomers).toHaveBeenCalledWith(fakeClient, {
+      store_id: 'store-A',
+      enforceStore: true,
+      sort_by: 'created_at',
+      sort_order: 'asc',
+    })
+    const ids = (await res.json()).customers.map((c: { id: string }) => c.id)
+    expect(ids).toEqual(['cust-1'])
+  })
+
+  it('a viewAll caller keeps the business-wide list, unchanged', async () => {
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+    expect(listAllCustomers).toHaveBeenCalledWith(fakeClient, {
+      sort_by: 'created_at',
+      sort_order: 'asc',
+    })
+    const ids = (await res.json()).customers.map((c: { id: string }) => c.id)
+    expect(ids).toEqual(['cust-1', 'cust-2'])
   })
 
   it('OPTIONS → 204 preflight (shell-origin CORS, no auth)', async () => {

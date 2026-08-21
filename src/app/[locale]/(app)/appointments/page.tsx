@@ -67,6 +67,20 @@ export default async function AppointmentsPage({
   const weekRange = view === 'week' ? computeWeekRange(selectedDate) : null
   const monthRange = view === 'month' ? computeMonthRange(selectedDate) : null
 
+  // Resolved BEFORE the wave because the customer read is now an ARGUMENT of
+  // it (⚖ Liam 2026-08-17: a clamped actor's booking picker must not offer
+  // another branch's customers). React-cache'd and already resolved by the
+  // layout this request, so this is a memo hit, not a serialized roundtrip.
+  const storeScope = await t.phase('storeScope', () => resolveStoreScope())
+  // Clamped → the single active-store lens (server-filtered, so the combobox's
+  // client-side search is store-clamped by construction). viewAll, floating
+  // and degraded stay business-wide: reads ignore `degraded` by the shipped
+  // F-A convention — the fail-closed blindness the menu clamp below applies is
+  // a WRITE-offer posture, not the read plane's.
+  const customerStoreId = storeScope.allowedStoreIds
+    ? storeScope.storeId ?? undefined
+    : undefined
+
   const [
     {
       data: { user },
@@ -79,14 +93,13 @@ export default async function AppointmentsPage({
     businessId,
     weekRangeAppts,
     monthRangeAppts,
-    storeScope,
     menuOptions,
   ] = await Promise.all([
     t.phase('auth.getUser', () => supabase.auth.getUser()),
     t.phase('staffList', () => getStaffList()),
     t.phase('activeStaffId', () => getCurrentUserStaffId()),
     t.phase('orgSettings', () => getOrgSettings()),
-    t.phase('customerList', () => getCachedCustomerList()),
+    t.phase('customerList', () => getCachedCustomerList(customerStoreId)),
     // The agenda is the ONE consumer that wants cancelled rows — rendered as
     // thin greyed キャンセル済み tombstones in their original slot. Every other
     // getAppointmentsByDate caller keeps the hidden-by-default contract.
@@ -110,7 +123,6 @@ export default async function AppointmentsPage({
           )
         : Promise.resolve(null),
     ),
-    t.phase('storeScope', () => resolveStoreScope()),
     // 60s cached active-menu union for the booking picker. Degraded the same
     // way the facade route degrades it — a menus outage must not 500 the
     // agenda; the dialog keeps today's free-text service field. Degraded is
@@ -127,7 +139,7 @@ export default async function AppointmentsPage({
 
   // Store-isolate the picker (⚖ Liam 2026-08-17): the cached union is
   // business-wide and actor-blind by design, so the clamp lands here, on the
-  // scope resolved at :113. A degraded assignment lookup vouches for no store
+  // scope resolved above. A degraded assignment lookup vouches for no store
   // → 全店舗 rows only, the same fail-closed posture as the write clamp.
   const menus = scopeMenuOptions(
     menuOptions,
