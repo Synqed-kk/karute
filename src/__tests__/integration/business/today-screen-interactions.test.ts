@@ -17,6 +17,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { opsConfig, resources } from '@/business/lib/fixtures-today'
 import {
   applyBlockMoves,
   applyMoves,
@@ -44,7 +45,7 @@ import {
   fieldsPopAnchor,
   fitsDrag,
   fractionIn,
-  freePartnerLane,
+  allocateBed,
   gapLayerFor,
   guardRailsFor,
   guardVerdictAt,
@@ -67,6 +68,7 @@ import {
   anchorOnScreen,
   guardCheckRow,
   holdPopAnchor,
+  holdSummary,
   pinInViewport,
   type GuardRail,
   type Moves,
@@ -90,6 +92,9 @@ if (typeof HTMLDialogElement.prototype.close !== 'function') {
 
 const HOURS = { open: 600, close: 1140 } // 10:00–19:00
 const STEP = stepPct(9)
+/** ⚠SETTINGS-BATCH — the store's shipped room policy (opsConfig.roomPolicy).
+ *  The tests that care about the dials set their own. */
+const POLICY = { vipStaysPrivate: true, privateIsLastResort: true }
 
 /** jsdom has no layout: give a node the rect the test needs. */
 function rect(el: Element, r: { left: number; top: number; width: number; height: number }) {
@@ -114,6 +119,9 @@ function lane(over: Partial<BoardLane> & Pick<BoardLane, 'key' | 'group'>): Boar
     untilLabel: over.group === 'staff' ? '19:00' : null,
     listPrice: over.group === 'staff' ? 7000 : 0,
     stores: over.group === 'staff' ? null : ['store-a'],
+    // ⚖ flag 51 — a person has no room class; a room defaults to the
+    // interchangeable 施術室 unless the case under test says otherwise.
+    roomClass: over.group === 'staff' ? null : 'standard',
     ...over,
   }
 }
@@ -1409,18 +1417,28 @@ describe('the drag proxy: mounted on the gesture, moved by transform, gone on ev
 describe('次回予約を作成 arms the board, and the slot click makes the booking', () => {
   const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
 
+  // ⚖ BATCH-8 flag 51 — RENEGOTIATED: `freePartnerLane` is gone and this
+  // placement asks `allocateBed`, the one bed search. The claims are the same
+  // three (both busy refuses · first free wins · touching ends do not overlap);
+  // the refusal now NAMES the busy rooms, which is the flag-44/51 grammar.
   it('a placement needs a room as well as a person, and says so when there is none', () => {
     const beds = [
-      lane({ key: 'bed-01', group: 'beds', items: [booking({ key: 'b1', caseId: 'apt-1' }, 900, 960)] }),
-      lane({ key: 'bed-02', group: 'beds', items: [booking({ key: 'b2', caseId: 'apt-2' }, 890, 1000)] }),
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b1', caseId: 'apt-1', title: '見本 かえる' }, 900, 960)] }),
+      lane({ key: 'bed-02', group: 'beds', label: 'ベッド2', items: [booking({ key: 'b2', caseId: 'apt-2', title: '見本 あかり' }, 890, 1000)] }),
     ]
     const staff = [lane({ key: 'p-01', group: 'staff' })]
-    // 15:00–16:00: both beds are busy → canon refuses the placement outright.
-    expect(freePartnerLane([...staff, ...beds], 'staff', 900, 960)).toBeNull()
+    const solve = (start: number, end: number, lanes = [...staff, ...beds]) =>
+      allocateBed(lanes, { id: null, currentBed: null, vip: false, start, end, policy: POLICY })
+    // 15:00–16:00: both beds are busy → the placement is refused outright, and
+    // the sentence names the window and both rooms with who is in them.
+    expect(solve(900, 960)).toEqual({
+      laneKey: null,
+      refusal: '15:00〜16:00はベッドが満室です。ベッド1が使用中（見本 かえる様）、ベッド2が使用中（見本 あかり様）',
+    })
     // 16:00–17:00: bed-02 is still busy until 16:40, bed-01 is free → first wins.
-    expect(freePartnerLane([...staff, ...beds], 'staff', 960, 1020)?.key).toBe('bed-01')
+    expect(solve(960, 1020).laneKey).toBe('bed-01')
     // Touching ends do not overlap: a bed free FROM 16:00 can take 16:00.
-    expect(freePartnerLane([lane({ key: 'bed-09', group: 'beds', items: [booking({ key: 'b3', caseId: 'apt-3' }, 840, 900)] })], 'staff', 900, 960)?.key).toBe('bed-09')
+    expect(solve(900, 960, [lane({ key: 'bed-09', group: 'beds', items: [booking({ key: 'b3', caseId: 'apt-3' }, 840, 900)] })]).laneKey).toBe('bed-09')
   })
 
   it('carries canon’s own words and canon’s own transitions', () => {
@@ -1433,8 +1451,11 @@ describe('次回予約を作成 arms the board, and the slot click makes the boo
     // canon's toast, which itself promises the day-navigation allowance.
     expect(SRC).toContain('配置モード: 置きたい空き枠をクリック（日付を移動してもそのまま）')
     // canon's two refusals, verbatim (:6829, :6817, :6023).
+    // ⚖ BATCH-8 flag 51 — RENEGOTIATED: canon's 「この時間帯に空いているベッドが
+    // いません」 named nothing the operator could act on. The no-room refusal is
+    // now the allocator's 満室 sentence, one home for every landing path, pinned
+    // above and in the BATCH-8 describe rather than as a source string here.
     expect(SRC).toContain('仮押さえ中の変更を確定するか、元に戻してから操作してください')
-    expect(SRC).toContain('この時間帯に空いているベッドがいません')
     expect(SRC).toContain('シフトロック中: このスタッフには新しい予約を置けません')
     // An armed board treats the empty slot as a landing, not as a form.
     // ⚖ BATCH-4 flag 31c: the landing now goes through `askGuard`, which places
@@ -1549,9 +1570,14 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
     // The drop names one lane; which group it belongs to decides what was said
     // (canon :5629/:5666), the parked card's own bed is tried first, and a
     // landing with no free room is refused in canon's words rather than drawn.
+    // ⚖ BATCH-8 flag 51 — RENEGOTIATED: the three-way expression this pinned
+    // (own bed → any free bed → refuse) IS the allocator's rule, so the chip
+    // landing asks `solveBed` instead of keeping a second copy of it. The claim
+    // is unchanged and sharper: a drop on a BED row is still the operator's
+    // explicit room choice, and a staff-row drop still proves a room.
     expect(body).toContain("const staff = dropped?.group === 'beds' ? boardLanes.find((l) => l.key === chip.home.laneKey) : dropped")
-    expect(body).toContain("const bed = dropped?.group === 'beds' ? dropped : free(home) ? home : freePartnerLane(boardLanes, 'staff', start, end)")
-    expect(body).toContain('この時間帯に空いているベッドがいません')
+    expect(body).toContain("dropped?.group === 'beds'\n        ? dropped")
+    expect(body).toContain("const key = solveBed(chip.id, home?.key ?? null, chip.item.category === 'vip', span)")
     expect(body).toContain('laneKey: bed.key')
     // The × and the hold bar's 元に戻す both take the placed row back off.
     expect(SRC).toContain('setAdded((was) => was.filter((a) => a.item.caseId !== id))')
@@ -1832,14 +1858,19 @@ describe('the shelf family, enumerated against canon rather than against the fla
     expect(CSS).toContain('.biz .hold-daypin {')
   })
 
+  // ⚖ BATCH-8 flag 51 — RENEGOTIATED: same claim, one home further along. The
+  // chip landing and 次回予約 now call the SAME function rather than the same
+  // helper from two expressions.
   it('the chip’s free-bed test is the same one 次回予約 uses — one rule, one home', () => {
     const beds = [
       lane({ key: 'bed-01', group: 'beds', items: [booking({ key: 'b1', caseId: 'x' }, 900, 960)] }),
       lane({ key: 'bed-02', group: 'beds' }),
     ]
-    expect(freePartnerLane([lane({ key: 'p-01', group: 'staff' }), ...beds], 'staff', 900, 960)?.key).toBe('bed-02')
+    const solve = (lanes: BoardLane[], currentBed: string | null = null) =>
+      allocateBed(lanes, { id: null, currentBed, vip: false, start: 900, end: 960, policy: POLICY })
+    expect(solve([lane({ key: 'p-01', group: 'staff' }), ...beds]).laneKey).toBe('bed-02')
     // A parked card holds no ground, so its own bed reads free and comes back.
-    expect(freePartnerLane([lane({ key: 'p-01', group: 'staff' }), lane({ key: 'bed-01', group: 'beds' })], 'staff', 900, 960)?.key).toBe('bed-01')
+    expect(solve([lane({ key: 'p-01', group: 'staff' }), lane({ key: 'bed-01', group: 'beds' })], 'bed-01').laneKey).toBe('bed-01')
   })
 })
 
@@ -2252,7 +2283,12 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // …and the drop still stages, which is the part canon's real drop DOES do.
     // ⚖ BATCH-6 flag 45 — RENEGOTIATED: the landing is now the PAIR's, resolved
     // by `sidesAt`, and a pending change's origin is carried on both sides.
-    expect(finishDrag).toContain('stage(\n      ctx.id,\n      sidesAt(ctx.home, ctx.group, targetLane),\n      span,\n      pending?.id === ctx.id ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from,\n    )')
+    // ⚖ BATCH-8 flag 51 — RENEGOTIATED AGAIN: the pair is resolved into a named
+    // `sides` first, because a STAFF-side landing re-solves the room before it
+    // stages. Both halves are pinned: the sides still come from `sidesAt`, and
+    // the origin is still the first gesture's on both sides.
+    expect(finishDrag).toContain('const sides = sidesAt(ctx.home, ctx.group, targetLane)')
+    expect(finishDrag).toContain('stage(\n      ctx.id,\n      sides,\n      span,\n      pending?.id === ctx.id ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from,\n    )')
   })
 
   // ── flag 33's root cause, found in the browser ────────────────────────────
@@ -2284,7 +2320,13 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     expect(CSS).toContain('.biz .holdbar-checks .ck.warn::before { content: "△";')
   })
 
-  it('guardCheckRow: safe says nothing, degraded warns, refused reads as bad', () => {
+  // ⚖ BATCH-8 flag 52 — RENEGOTIATED: the row that used to come back `bad` for a
+  // refused verdict comes back `warn`. It is the same row saying the same
+  // sentence; only the MARK changed, and it changed because × means "this line
+  // blocks" and this line cannot (31b, pinned in the test above: the gate is
+  // `computeChecks` alone). Liam's screenshot — a red × above a live 確定 — is
+  // the case this kills.
+  it('guardCheckRow: safe says nothing, and an advisory is ALWAYS △, never ×', () => {
     const cell = (over: Partial<RailCell>): RailCell => ({
       start: 990, state: 'safe', label: '', sentence: '', alternatives: [], alternativeKind: null, ackAllowed: true, ...over,
     })
@@ -2297,8 +2339,13 @@ describe('the confirm comes to the card, and the consult goes back to the placem
       state: 'degraded',
       sentence: '新規90分の空き2→1（1枠減・損を減らす）。15:45はこの区間で損が最少の開始です',
     }))).toEqual({ label: '新規90分の空き2→1（1枠減）', tone: 'warn' })
+    // Liam's exact ×-over-an-enabled-確定 line, now wearing △.
     expect(guardCheckRow(cell({ state: 'blocked', sentence: 'ここに置くと新規（90分）が入らなくなります' })))
-      .toEqual({ label: 'ここに置くと新規（90分）が入らなくなります', tone: 'bad' })
+      .toEqual({ label: 'ここに置くと新規（90分）が入らなくなります', tone: 'warn' })
+    // Neither state can produce the blocking mark, whatever the engine thought.
+    for (const state of ['degraded', 'blocked'] as const) {
+      expect(guardCheckRow(cell({ state, sentence: 'なにか。あと' }))?.tone).toBe('warn')
+    }
   })
 
   // ── flag 31c ─────────────────────────────────────────────────────────────
@@ -2650,9 +2697,12 @@ describe('the pair keeps both its lanes, and no ending turns a release into a bo
     // The staging rule and the snapshot are one call each, at every landing.
     expect(SRC).toContain('home: pairLanesOf(boardLanes, item.caseId, { x: item.x, w: item.w })')
     expect(SRC).toContain('...sidesAt(ctx.home, ctx.group, ctx.targetLane),')
-    expect(SRC).toContain('sidesAt(ctx.home, ctx.group, targetLane),')
+    // ⚖ BATCH-8 flag 51 — RENEGOTIATED (both landings): the answer is bound to a
+    // name so the room can be re-solved on top of it before it stages. Same
+    // call, same arguments, same two landings.
+    expect(SRC).toContain('const sides = sidesAt(ctx.home, ctx.group, targetLane)')
     // The keyboard nudge is the same landing and takes the same answer.
-    expect(SRC).toContain('sidesAt(from, lane.group, lane.key),')
+    expect(SRC).toContain('const sides = sidesAt(from, lane.group, lane.key)')
     // Every abandoned landing restores BOTH sides — and `from` is the pair.
     expect(SRC).toContain('const from = ctx.home')
     // ⚖ M2, found by the mutation round: the restore is TWO writes, and dropping
@@ -2662,7 +2712,10 @@ describe('the pair keeps both its lanes, and no ending turns a release into a bo
     expect(restore).toContain('if (home.staff) setMoves((was) => ({ ...was, [id]: home.staff! }))')
     expect(restore).toContain('if (home.bed) return { ...was, [id]: home.bed }')
     const finish = SRC.slice(SRC.indexOf('function finishDrag('), SRC.indexOf('function cancelDrag('))
-    expect(finish.match(/restoreSides\(ctx\.id, from\)/g)).toHaveLength(3)
+    // ⚖ BATCH-8 flag 51 — RENEGOTIATED: 3 → 4. The 満室 refusal is a fourth
+    // abandoned landing and restores the pair for the same reason the other
+    // three do (⚖ 47: a refusal changes NOTHING).
+    expect(finish.match(/restoreSides\(ctx\.id, from\)/g)).toHaveLength(4)
     expect(finish).not.toContain('setMoves(')
     const cancel = SRC.slice(SRC.indexOf('function cancelDrag('), SRC.indexOf('function clearDrag()'))
     expect(cancel).toContain('restoreSides(ctx.id, ctx.home)')
@@ -2903,8 +2956,12 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     // ONE door for refusals — every one of them, greppable by name. If a future
     // round adds a refusal through `show(` it will not carry the dwell, so the
     // known refusal sentences are pinned to the door here.
+    // ⚖ BATCH-8 flag 51 — RENEGOTIATED: 「この時間帯に空いているベッドがいません」
+    // is retired. The no-room refusal is now COMPOSED (it names the busy rooms),
+    // so it cannot be pinned as a literal — the door is pinned instead, at the
+    // one place that says it, and the sentence itself is pinned in the BATCH-8
+    // describe against the real allocator.
     for (const sentence of [
-      'この時間帯に空いているベッドがいません',
       'シフトロック中: このスタッフには新しい予約を置けません',
       '予約を置く行の中で離してください',
       '予定を置く行の中で離してください',
@@ -2916,6 +2973,10 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
       expect(SRC).toContain(`refuse('${sentence}')`)
       expect(SRC).not.toContain(`show('${sentence}')`)
     }
+    // The composed refusals go through the same door — the allocator's 満室
+    // sentence and the chip landing's missing-person one.
+    expect(SRC).toContain('if (solved.refusal) {\n      refuse(solved.refusal)')
+    expect(SRC).toContain('refuse(`${chip.item.title}様の担当がこのボードにいません')
   })
 
   it('⚖ 47 — cross-day placement is what canon promises, and nothing gates on the day', () => {
@@ -3035,5 +3096,217 @@ describe('BATCH-7 — FLAGS 25c backlog: the three unregistered surfaces join th
     expect(spotTargets(host)).toHaveLength(0)
     rect(pop, { left: 0, top: 0, width: 380, height: 120 })
     expect(spotTargets(host)).toHaveLength(1)
+  })
+})
+
+/** ═══ BATCH-8 — Liam's flags 51 · 52 · 53 + study-50 (c) ═══════════════════
+ *
+ *  51 ⚖ LOCKED (Liam 8/21): "people are chosen, rooms are solved". A staff-lane
+ *     time-move carried its bed UNCHANGED and validated THAT bed at the new
+ *     time, so テストなぎ (ベッド3, taken at 16:00) refused with
+ *     「時間帯が重複: 見本 あかり」 while its staff member あずさ was plainly free.
+ *     The bed is now an ALLOCATION re-solved at every landing.
+ *  52  × is for blocking lines only (see the renegotiated guardCheckRow test).
+ *  53  the 「ドラッグ中のみ」 guide mode was a dead lever.
+ *  50(c) the aimed rail chip — study 50's one true parity gap. */
+describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal names it', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+  const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+
+  /** Liam's exact scene, as lanes: 見本 あずさ free at 16:00; あかり holds ベッド3
+   *  (the 個室) 16:00–17:00; ベッド1 and ベッド2 are 施術室A and free. */
+  const scene = (over: { bed1?: BoardItem[]; bed2?: BoardItem[]; bed3?: BoardItem[] } = {}) => [
+    lane({ key: 'p-06', group: 'staff', label: '見本 あずさ' }),
+    lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', roomClass: 'standard', items: over.bed1 ?? [] }),
+    lane({ key: 'bed-02', group: 'beds', label: 'ベッド2', roomClass: 'standard', items: over.bed2 ?? [] }),
+    lane({
+      key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private',
+      items: over.bed3 ?? [booking({ key: 'akari-bed', caseId: 'apt-akari', title: '見本 あかり' }, 960, 1020)],
+    }),
+  ]
+  const solve = (lanes: BoardLane[], over: Partial<Parameters<typeof allocateBed>[1]> = {}) =>
+    allocateBed(lanes, { id: 'apt-nagi', currentBed: 'bed-03', vip: false, start: 960, end: 1020, policy: POLICY, ...over })
+
+  it('keeps the booking’s own room when it is free at the landing time', () => {
+    // 見本 かえる's case: carries ベッド2, and ベッド2 is free at 16:00 → nothing
+    // moves. The room the operator can see on the card is the room they get.
+    expect(solve(scene(), { currentBed: 'bed-02' })).toEqual({ laneKey: 'bed-02', refusal: null })
+  })
+
+  it('retargets to a free compatible room when its own is taken — Liam’s なぎ case', () => {
+    // The whole flag: ベッド3 is held by あかり at 16:00, あずさ is free, so the
+    // landing succeeds in another room instead of refusing about a person.
+    expect(solve(scene())).toEqual({ laneKey: 'bed-01', refusal: null })
+  })
+
+  it('refuses ONLY at true 満室 — and the sentence names the window and the rooms', () => {
+    const full = scene({
+      bed1: [booking({ key: 'k1', caseId: 'apt-kaeru', title: '見本 かえる' }, 960, 1020)],
+      bed2: [{ ...booking({ key: 'apt-x-cleanup', caseId: null }, 960, 990), kind: 'cleanup', title: '清掃' }],
+    })
+    expect(solve(full)).toEqual({
+      laneKey: null,
+      refusal: '16:00〜17:00はベッドが満室です。ベッド1が使用中（見本 かえる様）、ベッド2が使用中（清掃）、ベッド3が使用中（見本 あかり様）',
+    })
+  })
+
+  it('a VIP never silently leaves the 個室 — a busy 個室 IS 満室 for it', () => {
+    // 施術室A is wide open, and that is not an answer for a VIP: the policy says
+    // the room is part of what was sold.
+    expect(solve(scene(), { vip: true, currentBed: 'bed-03' })).toEqual({
+      laneKey: null,
+      refusal: '16:00〜17:00は個室が満室です。ベッド3が使用中（見本 あかり様）',
+    })
+    // …and with the 個室 free it goes there, never into a 施術室.
+    expect(solve(scene({ bed3: [] }), { vip: true, currentBed: null }).laneKey).toBe('bed-03')
+    // A store with no 個室 at all says that instead of naming rooms it has not.
+    expect(solve([lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })], { vip: true, currentBed: null })).toEqual({
+      laneKey: null,
+      refusal: '16:00〜17:00に使える個室がありません',
+    })
+  })
+
+  it('a regular booking takes the 個室 only when no 施術室 is free', () => {
+    const bothStandardBusy = scene({
+      bed1: [booking({ key: 'k1', caseId: 'apt-a', title: 'A' }, 960, 1020)],
+      bed2: [booking({ key: 'k2', caseId: 'apt-b', title: 'B' }, 960, 1020)],
+      bed3: [],
+    })
+    expect(solve(bothStandardBusy, { currentBed: null }).laneKey).toBe('bed-03')
+    // With a 施術室 free the 個室 is left alone even though it is free too — and
+    // even though it comes FIRST in lane order here.
+    const privateFirst = [
+      lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private' }),
+      lane({ key: 'bed-02', group: 'beds', label: 'ベッド2', roomClass: 'standard' }),
+    ]
+    expect(solve(privateFirst, { currentBed: null }).laneKey).toBe('bed-02')
+  })
+
+  it('both dials are the STORE’s, and both actually steer the solve', () => {
+    // ⚠SETTINGS-BATCH: overturnable defaults, so the code must read them rather
+    // than know them. Flip each one and the answer changes.
+    expect(solve(scene(), { vip: true, policy: { vipStaysPrivate: false, privateIsLastResort: true } }).laneKey).toBe('bed-01')
+    const privateFirst = [
+      lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private' }),
+      lane({ key: 'bed-02', group: 'beds', label: 'ベッド2', roomClass: 'standard' }),
+    ]
+    expect(solve(privateFirst, { currentBed: null, policy: { vipStaysPrivate: true, privateIsLastResort: false } }).laneKey).toBe('bed-03')
+  })
+
+  it('the booking and its OWN 清掃 travel with it; anyone else’s 清掃 is busy room', () => {
+    // A card moving 30 minutes later on its own bed must not be thrown out of
+    // the room by its own turnaround — the 清掃 is derived FROM the booking
+    // (today-board.cleanupBlocks keys it `${id}-cleanup`) and follows it.
+    const own = [
+      lane({
+        key: 'bed-02', group: 'beds', label: 'ベッド2',
+        items: [
+          booking({ key: 'nagi-bed', caseId: 'apt-nagi' }, 900, 960),
+          { ...booking({ key: 'apt-nagi-cleanup', caseId: null }, 960, 990), kind: 'cleanup' as const, title: '清掃' },
+        ],
+      }),
+    ]
+    expect(allocateBed(own, { id: 'apt-nagi', currentBed: 'bed-02', vip: false, start: 960, end: 1020, policy: POLICY }))
+      .toEqual({ laneKey: 'bed-02', refusal: null })
+    // Somebody else's turnaround is the room being unavailable, exactly as the
+    // board's own 「清掃を予約不可時間として表示」 says.
+    const theirs = [
+      lane({
+        key: 'bed-02', group: 'beds', label: 'ベッド2',
+        items: [{ ...booking({ key: 'apt-other-cleanup', caseId: null }, 960, 990), kind: 'cleanup' as const, title: '清掃' }],
+      }),
+    ]
+    expect(allocateBed(theirs, { id: 'apt-nagi', currentBed: 'bed-02', vip: false, start: 960, end: 1020, policy: POLICY }).laneKey)
+      .toBeNull()
+  })
+
+  it('the popover NAMES the final room, and shows the change when there was one', () => {
+    // A silent switch the staff cannot see is a defect (Liam's own words).
+    const landed = [
+      lane({ key: 'p-06', group: 'staff', label: '見本 あずさ', items: [booking({ key: 's', caseId: 'apt-nagi', title: 'テスト なぎ' }, 960, 1020)] }),
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b', caseId: 'apt-nagi', title: 'テスト なぎ' }, 960, 1020)] }),
+      lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private' }),
+    ]
+    const at = { laneKey: 'p-06', ...place(960, 1020, HOURS) }
+    expect(holdSummary(landed, 'apt-nagi', at, HOURS, 'bed-03'))
+      .toBe('テスト なぎ様 → 16:00〜17:00 / 担当 見本 あずさ / ベッド3 → ベッド1')
+    // A room that did not change says nothing — the line is not a diff report.
+    expect(holdSummary(landed, 'apt-nagi', at, HOURS, 'bed-01'))
+      .toBe('テスト なぎ様 → 16:00〜17:00 / 担当 見本 あずさ / ベッド1')
+    expect(holdSummary(landed, 'apt-nagi', at, HOURS)).not.toContain('→ ベッド1')
+    // …and the screen hands it the PAIR SNAPSHOT's bed, not a live lane.
+    expect(SRC).toContain('holdSummary(boardLanes, pending.id, moves[pending.id], hours, pending.bedOrigin?.laneKey ?? null)')
+  })
+
+  it('a retargeted card no longer wears the room it left', () => {
+    // Every card wears its PARTNER's name. A staff card still reading 【ベッド3】
+    // over a booking now standing on ベッド2 is the impossible state ⚖ 8/9
+    // forbids — and it is the first thing the operator reads.
+    const lanes = [
+      lane({ key: 'p-06', group: 'staff', label: '見本 あずさ', items: [booking({ key: 's', caseId: 'apt-nagi', tag: '【ベッド3】' }, 900, 960)] }),
+      lane({ key: 'bed-02', group: 'beds', label: 'ベッド2' }),
+      lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private', items: [booking({ key: 'b', caseId: 'apt-nagi', tag: '【見本 あずさ】' }, 900, 960)] }),
+    ]
+    const span = place(960, 1020, HOURS)
+    const staged = applyMoves(
+      lanes,
+      { 'apt-nagi': { laneKey: 'p-06', ...span } },
+      [], [], HOURS,
+      { 'apt-nagi': { laneKey: 'bed-02', ...span } },
+    )
+    expect(staged[0].items[0].tag).toBe('【ベッド2】')
+    // …and the room's own drawing keeps naming the person, having landed there.
+    expect(staged[1].items[0].tag).toBe('【見本 あずさ】')
+    expect(staged[2].items).toHaveLength(0)
+  })
+
+  it('an EXPLICIT bed-row drag is never auto-solved — batch-6’s choice path stands', () => {
+    const finish = SRC.slice(SRC.indexOf('function finishDrag('), SRC.indexOf('function cancelDrag('))
+    expect(finish).toContain("if (ctx.group !== 'beds' && sides.bedLane != null) {")
+    // A 満室 landing changes NOTHING (⚖ 47) — the pair goes back, nothing stages.
+    expect(finish).toContain('      if (bed == null) {\n        restoreSides(ctx.id, from)\n        return\n      }')
+    // Every landing that carries a room goes through the ONE solver.
+    expect(SRC.match(/solveBed\(/g)).toHaveLength(5)
+    for (const call of [
+      "solveBed(ctx.id, sides.bedLane, item.category === 'vip', span)",
+      "solveBed(item.caseId, sides.bedLane, item.category === 'vip', next)",
+      'solveBed(null, null, false, place(start, end, hours))',
+      "solveBed(chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
+    ]) {
+      expect(SRC).toContain(call)
+    }
+    // The policy is DATA, read from the store, never a literal in the solve.
+    expect(SRC).toContain('policy: props.rooms')
+    expect(INT).not.toContain("'個室 / VIP対応'")
+    expect(INT).not.toContain('施術室')
+  })
+
+  it('the SHIPPED store states its room classes and its policy as data', () => {
+    // The allocator is only as honest as the config it reads: if 個室 is not
+    // stated private, every rule above is right about the wrong board.
+    expect(resources.filter((r) => r.room_class === 'private').map((r) => r.name)).toEqual(['ベッド3'])
+    expect(resources.find((r) => r.id === 'bed-03')?.note).toContain('個室')
+    expect(resources.filter((r) => r.room_class === 'standard').map((r) => r.id)).toEqual(['bed-01', 'bed-02', 'bed-04'])
+    expect(opsConfig.roomPolicy).toEqual({ vipStaysPrivate: true, privateIsLastResort: true })
+    // (the lane's own carry of it is pinned in today-board.test.ts, against the
+    // REAL buildLanes rather than against this file's lane fixture)
+  })
+
+  it('⚖ 53 — 「ドラッグ中のみ」 is no longer a dead lever', () => {
+    // The CSS gate has always been there; nothing ever set the class.
+    expect(CSS).toContain('.biz .timeline.guard-guide-mode-drag:not(.guard-guide-aiming) .guard-placement-rail')
+    expect(SRC).toContain("dragLen != null || live || blockLive ? 'guard-guide-aiming' : ''")
+  })
+
+  it('⚖ 50(c) — the aimed rail chip is in sync with the landing preview', () => {
+    // canon :7599-7606 + the `.aimed` half of its :667 rule, which the
+    // transplant dropped.
+    expect(CSS).toContain('.biz .guard-rail-cell.aimed { outline: 0;')
+    expect(SRC).toContain("aimed?.laneKey === rail.laneKey && aimed.start === c.start ? ' aimed' : ''")
+    // Floored to the rail's own 30-minute lattice, never rounded: an off-lattice
+    // landing belongs to the cell it starts INSIDE (flag 48's rule).
+    expect(SRC).toContain('start: Math.floor(minuteOf(landing.x, hours) / 30) * 30')
+    expect(SRC).not.toContain('start: Math.round(minuteOf(landing.x, hours) / 30) * 30')
   })
 })

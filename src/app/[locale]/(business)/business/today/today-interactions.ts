@@ -297,13 +297,20 @@ export function holdPopAnchor(
  *  The row is the verdict's own first sentence, minus the rail's `・損を減らす`
  *  aside — that clause is advice for CHOOSING a start, and this row is reporting
  *  the one already chosen. `null` for a safe landing: a check that always passes
- *  is noise. */
-export function guardCheckRow(cell: RailCell | null): { label: string; tone: 'warn' | 'bad' } | null {
+ *  is noise.
+ *
+ *  ⚖ Liam flag 52 (2026-08-21) — AND IT IS ALWAYS △, NEVER ×. The mark is the
+ *  row's SEVERITY, and severity on this board means one thing: × is a line that
+ *  BLOCKS. Liam's screenshot has a red ×「ここに置くと新規(90分)が入らなくなり
+ *  ます」 sitting above a live 確定 button — the mirror image of flag 7, where
+ *  failed checks wore ✓. This row cannot block by construction (31b, above:
+ *  `computeChecks` alone is the gate), so it cannot earn ×, whatever the engine
+ *  thought of the start. The engine's own strength still reaches the operator —
+ *  in the sentence, and on the 60分配置 rail, which is where ✓/△/— live. The
+ *  return type says so, so a future caller cannot reintroduce the ×. */
+export function guardCheckRow(cell: RailCell | null): { label: string; tone: 'warn' } | null {
   if (!cell || cell.state === 'safe') return null
-  return {
-    label: cell.sentence.split('。')[0].replace('・損を減らす', ''),
-    tone: cell.state === 'degraded' ? 'warn' : 'bad',
-  }
+  return { label: cell.sentence.split('。')[0].replace('・損を減らす', ''), tone: 'warn' }
 }
 
 // ── the board's own state transitions ──────────────────────────────────────
@@ -338,7 +345,24 @@ export function applyMoves(
   // ONE SPAN FOR THE PAIR, and it lives in `moves`: every writer sets both
   // records from the same span, so a bed row and its staff twin can never show
   // different times — which is the whole reason canon calls `evSet` on `pairOf`.
-  const moved = (item: BoardItem): BoardItem => atSpan(item, item.caseId ? moves[item.caseId] : undefined, hours)
+  //
+  // ⚖ Liam flag 51 — AND THE CARD SAYS WHICH HALF IT IS PAIRED WITH. Every card
+  // wears its PARTNER's name (【ベッド2】 on a staff lane, 【見本 しろう】 on a
+  // room lane, today-board :188), and that name comes off the row the SERVER
+  // drew. Once a landing can retarget the room, a card left wearing 【ベッド3】
+  // while its twin stands on ベッド2 is the impossible state ⚖ 8/9 forbids — the
+  // same reason `placeFromShelf` rebuilds its own labels. The other side's
+  // staged lane is the truth, so the tag is taken from there whenever one
+  // exists. (This was already latent for a bed-row drag, which retargets the
+  // room explicitly; it is fixed for both sides at once, in the one pass.)
+  const laneLabel = new Map(lanes.map((l) => [l.key, l.label]))
+  const moved = (item: BoardItem, group: string): BoardItem => {
+    const at = atSpan(item, item.caseId ? moves[item.caseId] : undefined, hours)
+    if (item.kind !== 'booking' || !item.caseId) return at
+    const partner = group === 'staff' ? bedMoves[item.caseId] : moves[item.caseId]
+    const label = partner ? laneLabel.get(partner.laneKey) : undefined
+    return label != null && at.tag !== `【${label}】` ? { ...at, tag: `【${label}】` } : at
+  }
 
   return lanes.map((lane) => {
     // ⚖ BATCH-6 flag 45 — ONE membership pass, and which record owns it is the
@@ -359,7 +383,7 @@ export function applyMoves(
       if (!row || lane.items.some((i) => i.caseId === id)) continue
       arrivals.push(row)
     }
-    return { ...lane, items: [...kept, ...arrivals].map(moved).concat(extra).sort(byX) }
+    return { ...lane, items: [...kept, ...arrivals].map((i) => moved(i, lane.group)).concat(extra).sort(byX) }
   })
 }
 
@@ -906,14 +930,126 @@ export function blockNode(board: Element | null, key: string): HTMLElement | nul
   return board?.querySelector<HTMLElement>(`.event[data-block="${key}"]`) ?? null
 }
 
-/** canon `createAtCell`'s partner search (:6021–6027): a booking is a person AND
- *  a room, so a card placed on a staff lane must find a free lane in the other
- *  group or the placement is refused outright. First free one wins, exactly as
- *  canon takes the first `laneFreeAt` — the board is not choosing a best bed,
- *  it is proving one exists. `null` = nothing free, which is canon's refusal. */
-export function freePartnerLane(lanes: BoardLane[], group: 'staff' | 'beds', start: number, end: number): BoardLane | null {
-  const other = group === 'staff' ? 'beds' : 'staff'
-  return lanes.find((l) => l.group === other && l.items.every((i) => i.endMin <= start || i.startMin >= end)) ?? null
+// ── ⚖ Liam flag 51 — PEOPLE ARE CHOSEN, ROOMS ARE SOLVED ───────────────────
+
+/** ⚠SETTINGS-BATCH — the store's two room-allocation judgements, as data. They
+ *  arrive from `opsConfig.roomPolicy`; nothing in this file or in the board
+ *  decides them, so a store that runs its 個室 differently changes a setting
+ *  rather than a component. */
+export interface RoomPolicy {
+  vipStaysPrivate: boolean
+  privateIsLastResort: boolean
+}
+
+/** ⚖ LIAM 2026-08-21 (flag 51, LOCKED) — THE BED IS AN ALLOCATION, NOT A
+ *  CHOICE. Staff, customer and time are human decisions; the room is something
+ *  the system re-solves at EVERY landing:
+ *
+ *    · keep the booking's current bed when it is free at the landing time;
+ *    · otherwise retarget silently to any free compatible bed;
+ *    · refuse ONLY when no compatible bed is free — 満室, with the blocking
+ *      bed(s) NAMED, because 「時間帯が重複: 見本 あかり」 on a lane whose staff
+ *      member is plainly free reads as nonsense (Liam's own scene).
+ *
+ *  A bed-row drag is the operator saying WHICH ROOM out loud and is never
+ *  auto-solved — that path keeps batch-6's stage-with-確定-disabled behaviour.
+ *
+ *  WHAT COUNTS AS BUSY. Everything standing on the room, 清掃 included — the
+ *  board already calls that 予約不可時間 and `freePartnerLane` (which this
+ *  replaces, so there is ONE bed search rather than three) always did. TWO
+ *  exclusions, both of which travel WITH the booking rather than blocking it:
+ *  its own drawing, and its own trailing 清掃 (`${id}-cleanup`, derived per
+ *  booking in `today-board.cleanupBlocks`). Without the second, moving a card
+ *  30 minutes later on its own bed collided with its own turnaround and got
+ *  thrown out of the room it was already in. */
+export function allocateBed(
+  lanes: BoardLane[],
+  opts: {
+    /** The booking being landed. `null` for one that does not exist yet. */
+    id: string | null
+    /** The room it carries in — the first candidate, per the keep-if-free rule. */
+    currentBed: string | null
+    /** A VIP/個室クラス booking never silently leaves the 個室. */
+    vip: boolean
+    start: number
+    end: number
+    policy: RoomPolicy
+  },
+): { laneKey: string | null; refusal: string | null } {
+  const { id, start, end, policy } = opts
+  const blockersOn = (lane: BoardLane) =>
+    lane.items.filter(
+      (i) =>
+        (id == null || (i.caseId !== id && i.key !== `${id}-cleanup`)) &&
+        i.endMin > start &&
+        i.startMin < end,
+    )
+  const beds = lanes.filter((l) => l.group === 'beds')
+  const needsPrivate = opts.vip && policy.vipStaysPrivate
+  const compatible = (l: BoardLane) => (needsPrivate ? l.roomClass === 'private' : true)
+  const free = (l: BoardLane) => blockersOn(l).length === 0
+  const current = beds.find((l) => l.key === opts.currentBed)
+  if (current && compatible(current) && free(current)) return { laneKey: current.key, refusal: null }
+  const candidates = beds.filter(compatible)
+  // 個室 last for a regular booking: it is the room the VIP work needs, so it is
+  // spent only when the treatment rooms are gone.
+  const ordered =
+    needsPrivate || !policy.privateIsLastResort
+      ? candidates
+      : [...candidates.filter((l) => l.roomClass !== 'private'), ...candidates.filter((l) => l.roomClass === 'private')]
+  const taken = ordered.find(free)
+  if (taken) return { laneKey: taken.key, refusal: null }
+  return { laneKey: null, refusal: fullRoomsRefusal(candidates.map((l) => [l, blockersOn(l)] as const), start, end, needsPrivate) }
+}
+
+/** canon `renderHoldBar`'s summary line (:4769): who, when, on whom, on what.
+ *
+ *  ⚖ Liam flag 51 — AND WHEN THE ROOM CHANGED, THE LINE SAYS SO: ベッド3 →
+ *  ベッド2. The allocator retargets silently on purpose (the operator chose a
+ *  person and a time, not a room), but a silent switch the staff cannot SEE is a
+ *  defect — this line is where they see it, in the same surface they confirm
+ *  from. `bedFrom` is the pair snapshot's own bed lane, so it is the room the
+ *  booking stood in before this whole change, not the room it stood in a frame
+ *  ago; a change that ends where it started says nothing.
+ *
+ *  It lives out here with the rest of the board's answers rather than in the
+ *  JSX for this file's own stated reason: a sentence the operator confirms from
+ *  has to be provable without a renderer. */
+export function holdSummary(
+  lanes: BoardLane[],
+  id: string,
+  at: Move | undefined,
+  hours: Hours,
+  bedFrom: string | null = null,
+): string {
+  if (!at) return ''
+  const staffLane = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === id))
+  const bedLane = lanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === id))
+  const item = staffLane?.items.find((i) => i.caseId === id) ?? bedLane?.items.find((i) => i.caseId === id)
+  const from = minuteOf(at.x, hours)
+  const to = minuteOf(at.x + at.w, hours)
+  const moved =
+    bedFrom != null && bedLane != null && bedFrom !== bedLane.key
+      ? `${lanes.find((l) => l.key === bedFrom)?.label ?? bedFrom} → `
+      : ''
+  return `${item?.title ?? ''}様 → ${clockOf(from)}〜${clockOf(to)} / 担当 ${staffLane?.label ?? '—'} / ${moved}${bedLane?.label ?? '—'}`
+}
+
+/** ⚖ flags 44 + 51 — 満室, said the way the board says every other refusal: the
+ *  exact window it judged, then WHY, naming the room and who is in it. 清掃 and
+ *  予定ブロック answer with their own word (they have no customer). */
+function fullRoomsRefusal(
+  rows: ReadonlyArray<readonly [BoardLane, BoardItem[]]>,
+  start: number,
+  end: number,
+  needsPrivate: boolean,
+): string {
+  const window = `${clockOf(start)}〜${clockOf(end)}`
+  const room = needsPrivate ? '個室' : 'ベッド'
+  if (rows.length === 0) return `${window}に使える${room}がありません`
+  const who = (i: BoardItem) => (i.kind === 'booking' ? `${i.title}様` : i.title)
+  const named = rows.map(([lane, blockers]) => `${lane.label}が使用中（${[...new Set(blockers.map(who))].join('・')}）`)
+  return `${window}は${room}が満室です。${named.join('、')}`
 }
 
 /** ⚖ Liam 2026-08-20 — LENGTH-MATCHED DRAG EMPHASIS, and the one place the rule

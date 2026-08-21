@@ -58,6 +58,7 @@ import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane } from '@/bu
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
+  allocateBed,
   anchorOnScreen,
   applyBlockMoves,
   applyMoves,
@@ -74,7 +75,6 @@ import {
   fieldsPopAnchor,
   fitsDrag,
   fractionIn,
-  freePartnerLane,
   labelWidthOf,
   liveTimeLabel,
   proxyTransform,
@@ -85,6 +85,7 @@ import {
   guardVerdictAt,
   blockNode,
   holdPopAnchor,
+  holdSummary,
   isCrumbOffer,
   isOverShelf,
   laneKeyAtY,
@@ -108,6 +109,7 @@ import {
   type Moves,
   type PairLanes,
   type RailCell,
+  type RoomPolicy,
   type SpotRect,
 } from './today-interactions'
 
@@ -182,6 +184,9 @@ export interface TodayProps {
     minSellableMin: number
     config: GuardConfig
   }
+  /** ⚠SETTINGS-BATCH — ⚖ Liam flag 51. The store's room-allocation policy, the
+   *  only judgement in the bed solve. A store dial, never a component's opinion. */
+  rooms: RoomPolicy
   closedWeekdayLabel: string
   ops: {
     total: string
@@ -413,7 +418,7 @@ interface HoldPop {
   summary: string
   checks: Array<{ label: string; tone: '' | 'bad' }>
   /** ⚖ 31b — the guard's own row, informational, never a gate. */
-  guardRow: { label: string; tone: 'warn' | 'bad' } | null
+  guardRow: { label: string; tone: 'warn' } | null
   confirm: { label: string; enabled: boolean; run: () => void }
   revert: { enabled: boolean; run: () => void }
 }
@@ -849,6 +854,17 @@ export function TodayScreen(props: TodayProps) {
     : live && !live.overShelf
       ? { laneKey: live.targetLane, x: live.x, w: live.w }
       : null
+  /** ⚖ Liam flag 50(c) — THE RAIL CHIP THE DRAG IS AIMED AT, highlighted in sync
+   *  with the landing preview. Canon's `updateAimedTarget` (:7599-7606) marks the
+   *  hovered start's cell `.aimed` and its CSS gives it the hover treatment
+   *  (:667); the transplant carried the rule but dropped the `.aimed` half of the
+   *  selector, so the label and the strip never agreed during a drag. The only
+   *  genuine parity gap study 50 found. Floored to the 30-minute rail lattice for
+   *  flag 48's reason: an off-lattice landing belongs to the cell it starts
+   *  INSIDE, and rounding would name the next chip along. */
+  const aimed = landing && landing.w > 0
+    ? { laneKey: landing.laneKey, start: Math.floor(minuteOf(landing.x, hours) / 30) * 30 }
+    : null
   const dropTarget = blockLive && blockLive.targetLane !== blockLive.homeLane
     ? { laneKey: blockLive.targetLane, x: blockLive.x, w: blockLive.w }
     : live && !live.overShelf && live.targetLane !== live.homeLane
@@ -1097,8 +1113,9 @@ export function TodayScreen(props: TodayProps) {
         status: '仮押さえ',
         tone: 'waiting',
         // ⚖ 46 forerunner: blank on ANOTHER STORE's board too — `holdSummary`
-        // reads `boardLanes`, which is this store's.
-        summary: pendingOffBoard ? '' : holdSummary(boardLanes, pending.id, moves[pending.id], hours),
+        // reads `boardLanes`, which is this store's. Batch-8's bed argument
+        // (⚖ 52's △-grammar) rides along; the two are orthogonal.
+        summary: pendingOffBoard ? '' : holdSummary(boardLanes, pending.id, moves[pending.id], hours, pending.bedOrigin?.laneKey ?? null),
         checks: pendingChecks.map((c) => ({ label: c.label, tone: c.ok ? '' : 'bad' })),
         guardRow: pendingGuardRow,
         confirm: { label: pendingConfirm.label, enabled: pendingConfirm.enabled, run: confirmPending },
@@ -1223,6 +1240,38 @@ export function TodayScreen(props: TodayProps) {
     // inside `pin`), and predates the two unmount gates above. All four belong —
     // dropping either half re-opens the bug the other half was written for.
   }, [holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])
+
+  /** ⚖ Liam flag 51 (LOCKED) — THE ROOM, RE-SOLVED AT THIS LANDING. Every path
+   *  that puts a booking down carrying a bed comes through here: the staff-lane
+   *  drag, the keyboard nudge, the shelf chip and 次回予約. `null` back means the
+   *  board is 満室 for this booking — the refusal has already been SAID, naming
+   *  the blocking room, and the caller must change nothing (⚖ 47).
+   *
+   *  A BED-ROW drag never calls this: that gesture is the operator choosing the
+   *  room out loud, and batch-6's stage-with-確定-disabled behaviour is the
+   *  deliberate-choice path, untouched.
+   *
+   *  Solved at the LANDING, not per frame. `boardLanes` already carries the card
+   *  in flight, and the allocator excludes the booking from its own search, so
+   *  the answer is the board as it will stand — but re-solving on every pointer
+   *  frame would re-parent a bed drawing mid-gesture (canon never does) and pay
+   *  for the whole bed ledger 60 times a second. */
+  function solveBed(id: string | null, currentBed: string | null, vip: boolean, span: { x: number; w: number }): string | null {
+    const start = minuteOf(span.x, hours)
+    const solved = allocateBed(boardLanes, {
+      id,
+      currentBed,
+      vip,
+      start,
+      end: minuteOf(span.x + span.w, hours),
+      policy: props.rooms,
+    })
+    if (solved.refusal) {
+      refuse(solved.refusal)
+      return null
+    }
+    return solved.laneKey
+  }
 
   /** ⚖ BATCH-6 flag 45 — ONE SIDE RETARGETS, BOTH RE-TIME (canon `stageChange`
    *  :4648-4674). `at` is the landing as `sidesAt` resolved it: the grabbed
@@ -1615,9 +1664,22 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ BATCH-6 flag 45 — `sidesAt` decides which half of the pair the landing
     // belongs to; the origin stays the FIRST gesture's when one is already
     // pending, both sides of it, so 元に戻す is still an undo of the whole change.
+    // ⚖ Liam flag 51 — and on a STAFF-side landing the room is re-solved rather
+    // than carried: the person and the time are what the operator just decided,
+    // the bed is what the board owes them. A 満室 refusal changes nothing — the
+    // pair goes back where it stood, exactly as the two refusals above do.
+    const sides = sidesAt(ctx.home, ctx.group, targetLane)
+    if (ctx.group !== 'beds' && sides.bedLane != null) {
+      const bed = solveBed(ctx.id, sides.bedLane, item.category === 'vip', span)
+      if (bed == null) {
+        restoreSides(ctx.id, from)
+        return
+      }
+      sides.bedLane = bed
+    }
     stage(
       ctx.id,
-      sidesAt(ctx.home, ctx.group, targetLane),
+      sides,
       span,
       pending?.id === ctx.id ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from,
     )
@@ -2078,9 +2140,17 @@ export function TodayScreen(props: TodayProps) {
       refuse('これ以上は時間を変更できません')
       return
     }
+    // ⚖ Liam flag 51 — a keyboard nudge is a landing like any other: it changes
+    // the span the room is held for, so the room is re-solved against it.
+    const sides = sidesAt(from, lane.group, lane.key)
+    if (lane.group !== 'beds' && sides.bedLane != null) {
+      const bed = solveBed(item.caseId, sides.bedLane, item.category === 'vip', next)
+      if (bed == null) return
+      sides.bedLane = bed
+    }
     stage(
       item.caseId,
-      sidesAt(from, lane.group, lane.key),
+      sides,
       next,
       pending?.id === item.caseId ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from,
     )
@@ -2311,11 +2381,14 @@ export function TodayScreen(props: TodayProps) {
       return
     }
     const end = Math.min(start + props.guard.standardSessionMin, hours.close)
-    const partner = freePartnerLane(boardLanes, 'staff', start, end)
-    if (!partner) {
-      refuse('この時間帯に空いているベッドがいません')
-      return
-    }
+    // ⚖ Liam flag 51 — the same allocator every landing uses. A 次回予約 has no
+    // room yet, so there is nothing to keep and it takes the first free
+    // compatible one; when there is none the refusal NAMES the rooms that are
+    // busy instead of the old 「空いているベッドがいません」, which told the
+    // operator nothing they could act on.
+    const partnerKey = solveBed(null, null, false, place(start, end, hours))
+    const partner = partnerKey == null ? null : boardLanes.find((l) => l.key === partnerKey)
+    if (!partner) return
     setPlacing(null)
     // canon's `cellCreateSeq` (:6029): a counter, not a clock. Two placements in
     // the same millisecond would collide on a timestamp, and the id is a React
@@ -2395,16 +2468,30 @@ export function TodayScreen(props: TodayProps) {
     // person stays whoever the chip left with; a staff lane means "this person"
     // and the room still has to be found.
     const dropped = boardLanes.find((l) => l.key === laneKey)
-    const free = (l: BoardLane | undefined) => l != null && l.items.every((i) => i.endMin <= start || i.startMin >= end)
     const staff = dropped?.group === 'beds' ? boardLanes.find((l) => l.key === chip.home.laneKey) : dropped
     // A booking is a person AND a room. canon puts the parked card's OWN bed
     // back, so that is the first candidate — but on another day it may be taken,
     // and a card labelled 【ベッド3】 over an occupied ベッド3 is the impossible
-    // state ⚖ 8/9 forbids, so a free one is found the way `createAtCell` does.
-    const home = boardLanes.find((l) => l.group === 'beds' && l.label === chip.item.tag.replace(/[【】]/g, ''))
-    const bed = dropped?.group === 'beds' ? dropped : free(home) ? home : freePartnerLane(boardLanes, 'staff', start, end)
-    if (!bed || !staff) {
-      refuse('この時間帯に空いているベッドがいません')
+    // state ⚖ 8/9 forbids.
+    // ⚖ Liam flag 51 — which is exactly the keep-if-free-else-retarget rule, so
+    // this now asks the one allocator instead of keeping its own copy of it: the
+    // chip's own room first, then any free compatible one, then 満室 with the
+    // busy rooms named. A drop ON a bed row stays the operator's explicit choice.
+    const bed =
+      dropped?.group === 'beds'
+        ? dropped
+        : (() => {
+            const home = boardLanes.find((l) => l.group === 'beds' && l.label === chip.item.tag.replace(/[【】]/g, ''))
+            const key = solveBed(chip.id, home?.key ?? null, chip.item.category === 'vip', span)
+            return key == null ? null : boardLanes.find((l) => l.key === key)
+          })()
+    // `bed` null means `solveBed` has already said 満室 (⚖ 47: the refusal speaks
+    // and changes nothing). `staff` null is the other half — a room drop whose
+    // person is not on this board — and it gets its own sentence rather than the
+    // bare return that used to make a live board look dead.
+    if (!bed) return
+    if (!staff) {
+      refuse(`${chip.item.title}様の担当がこのボードにいません。担当スタッフの行に置いてください`)
       return
     }
     const staffLabel = staff.label
@@ -2475,6 +2562,14 @@ export function TodayScreen(props: TodayProps) {
     // is emphasised. The emphasis answers "where does this card FIT", and a card
     // that is not going anywhere is not asking.
     dragLen != null || live || blockLive ? 'dragging-live' : '',
+    // ⚖ flag 53 (builder-found, batch-7) — THE DEAD LEVER. today.css:689 hides
+    // the 配置ガイド in 「ドラッグ中のみ」 mode unless the board is AIMING, and
+    // nothing in the app ever set that class: the mode flipped the copy and
+    // rendered nothing, which is flag 3's disease exactly. Canon sets it from
+    // `SynqedGapGuardGuideDisplay.setAiming` (:5919-5920) while a gesture is in
+    // flight; ours is in flight for the same three gestures the reveal above
+    // answers to, so one condition serves both and they cannot drift.
+    dragLen != null || live || blockLive ? 'guard-guide-aiming' : '',
     placing ? 'placing' : '',
     `guard-guide-mode-${guideMode}`,
   ]
@@ -2669,7 +2764,8 @@ export function TodayScreen(props: TodayProps) {
         <div className="guard-rail-track">
           {rail.cells.map((c) => (
             <span
-              className={`guard-rail-cell ${c.state === 'safe' ? 'guard-slot safe' : c.state}`}
+              // ⚖ flag 50(c) — canon's `.aimed`, in sync with the dashed landing.
+              className={`guard-rail-cell ${c.state === 'safe' ? 'guard-slot safe' : c.state}${aimed?.laneKey === rail.laneKey && aimed.start === c.start ? ' aimed' : ''}`}
               key={c.start}
               data-start={c.start}
               data-state={c.state}
@@ -3917,17 +4013,6 @@ export function TodayScreen(props: TodayProps) {
 const POLICY_WORD: Record<'off' | 'standard' | 'strict', string> = { off: 'オフ', standard: '標準', strict: '厳格' }
 
 const CAT_COLOR: Record<string, string> = { new: '#3d7ab8', repeat: '#8a63b8', ticket: '#2f8f8f', vip: '#3f3f46' }
-
-/** canon `renderHoldBar`'s summary line (:4769): who, when, on whom, on what. */
-function holdSummary(lanes: BoardLane[], id: string, at: Move | undefined, hours: { open: number; close: number }): string {
-  if (!at) return ''
-  const staffLane = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === id))
-  const bedLane = lanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === id))
-  const item = staffLane?.items.find((i) => i.caseId === id) ?? bedLane?.items.find((i) => i.caseId === id)
-  const from = minuteOf(at.x, hours)
-  const to = minuteOf(at.x + at.w, hours)
-  return `${item?.title ?? ''}様 → ${hhmm(from)}〜${hhmm(to)} / 担当 ${staffLane?.label ?? '—'} / ${bedLane?.label ?? '—'}`
-}
 
 /** L4 新規予約を作成 — canon's two-column dialog: the steps on the left, the
  *  ticket that assembles itself on the right. Confirming puts a real card on
