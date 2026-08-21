@@ -565,6 +565,10 @@ export function TodayScreen(props: TodayProps) {
    *  timestamps rather than a clock call — same monotonic origin, and nothing
    *  in this component reads the wall clock during a render. */
   const suppressClickUntil = useRef(0)
+  /** ⚖ BATCH-6 flag 43 — canon's `suppressClickSource` (:4643): the element the
+   *  gesture was on, so the capture-phase interceptor below can tell the drag's
+   *  own trailing click from an unrelated one and swallow only the first. */
+  const suppressClickSource = useRef<Element | null>(null)
   const boardRef = useRef<HTMLDivElement>(null)
   const shelfRef = useRef<HTMLDivElement>(null)
   const fieldsPopRef = useRef<HTMLDivElement>(null)
@@ -1281,6 +1285,60 @@ export function TodayScreen(props: TodayProps) {
 
   // ── card drag ────────────────────────────────────────────────────────────
 
+  /** ⚖ BATCH-6 flag 43 — CANON'S CLICK WINDOW, OPENED FROM ONE PLACE.
+   *
+   *  A drag-release fires a synthetic click on whatever is under the pointer,
+   *  and on this board an empty-track click means 新規予約を作成 — a phantom
+   *  booking the operator cannot undo by hand. Canon opens the window on EVERY
+   *  ending a gesture can have: `finishNormalBookingDrag` (:4563), the forced
+   *  teardowns `forceDragCancel` (:4535-4546) and `forceBlockCancel`
+   *  (:4015-4028, whose own comment names this 「Liam bug #4」), `blockDrop`
+   *  (:4139-4140) and the chip's moved-only release (:5640). Batch-4 carried the
+   *  first of those and none of the rest, so a drag that died on a pointercancel,
+   *  on the lost-pointerup self-heal or on a window blur still opened the dialog.
+   *
+   *  `at` is the ENDING EVENT'S own timestamp — the same monotonic origin the
+   *  click will carry, and this component reads no clock outside an event.
+   *  `source` is canon's `suppressClickSource`, read by the capture interceptor. */
+  function openClickWindow(at: number, source: Element | null) {
+    suppressClickUntil.current = at + 400
+    suppressClickSource.current = source
+  }
+
+  /** ⚖ BATCH-6 flag 43 — CANON'S SECOND NET (:4633-4645), carried whole.
+   *
+   *  The window above is a flag every click handler has to remember to read. The
+   *  interceptor is a document-level CAPTURE-phase listener, so it runs before
+   *  any element's own handler and swallows the release's trailing click outright
+   *  — canon's own comment says why it is not redundant: when a drag's release
+   *  lands somewhere other than the element the pointer was captured on, the old
+   *  single-net implementation had already consumed the window by the time the
+   *  slot handler read it. It consumes only its OWN click (inside the gesture's
+   *  source) and lets everything else ride the 400ms timeout, which is what stops
+   *  it from eating an unrelated one.
+   *
+   *  Plain DOM, no renderer: react-dom is off Business territory's allowlist and
+   *  a capture-phase document listener has no React equivalent that runs this
+   *  early. Mounted once; the return takes it. */
+  useEffect(() => {
+    const onClickCapture = (e: MouseEvent) => {
+      if (!suppressClickUntil.current) return
+      const within = e.timeStamp < suppressClickUntil.current
+      const source = suppressClickSource.current
+      const fromDragged = source != null && e.target instanceof Node && source.contains(e.target)
+      if (!within || fromDragged) {
+        suppressClickUntil.current = 0
+        suppressClickSource.current = null
+      }
+      if (within && fromDragged) {
+        e.stopPropagation()
+        e.preventDefault()
+      }
+    }
+    document.addEventListener('click', onClickCapture, true)
+    return () => document.removeEventListener('click', onClickCapture, true)
+  }, [])
+
   /** THE POINTER STREAM LIVES ON THE WINDOW, not on the card.
    *
    *  It used to ride the card's own JSX handlers with `setPointerCapture`, and
@@ -1304,7 +1362,7 @@ export function TodayScreen(props: TodayProps) {
       e.preventDefault()
       // canon's self-heal (:4466): a move with no button down means the release
       // was lost, and the card would otherwise stay stuck to the cursor.
-      if (e.buttons === 0) { cancelDrag(); return }
+      if (e.buttons === 0) { cancelDrag(e); return }
       // One board update per animation frame. Chrome delivers pointer moves far
       // faster than it paints, and a derive-and-paint per raw event is the jank
       // Liam felt as "not snappy" — the newest position wins, the rest are free.
@@ -1320,7 +1378,7 @@ export function TodayScreen(props: TodayProps) {
     const onCancel = (e: PointerEvent) => {
       const c = dragRef.current
       if (!c || e.pointerId !== c.pointerId) return
-      cancelDrag()
+      cancelDrag(e)
     }
     window.addEventListener('pointermove', onMove, { passive: false })
     window.addEventListener('pointerup', onUp)
@@ -1453,7 +1511,10 @@ export function TodayScreen(props: TodayProps) {
     // surface in Liam's screenshot, and it was one missing line. Every branch
     // below is covered because the window opens above all of them (canon's own
     // order), including the two refusals that put the card back.
-    suppressClickUntil.current = upAt + 400
+    // ⚖ BATCH-6 flag 43 — through the one helper now, because the window is only
+    // half of canon's defence: `suppressClickSource` is what the capture-phase
+    // interceptor reads, and without it the second net has nothing to match on.
+    openClickWindow(upAt, ctx.nodes[0] ?? null)
     // canon (:4567): the release position is authoritative — recompute once more
     // rather than trusting the last move Chrome delivered.
     const span = nextSpan(ctx.origin, ctx.track, clientX - ctx.startX, STEP)
@@ -1501,10 +1562,17 @@ export function TodayScreen(props: TodayProps) {
     )
   }
 
-  function cancelDrag() {
+  /** ⚖ BATCH-6 flag 43 — canon `forceDragCancel` (:4535-4546), which is the
+   *  revert AND the click window: pointercancel, the lost-pointerup self-heal and
+   *  the blur net all end a real gesture, and the release that gets lost with them
+   *  still lands its click on the empty track underneath. The event is required
+   *  rather than optional so no caller can drop the timestamp and reach for a
+   *  clock instead. (⚖ 45: the revert is now two-sided.) */
+  function cancelDrag(e: { timeStamp: number }) {
     const ctx = dragRef.current
     if (!ctx) return
     restoreSides(ctx.id, ctx.home)
+    openClickWindow(e.timeStamp, ctx.nodes[0] ?? null)
     clearDrag()
   }
 
@@ -1623,7 +1691,7 @@ export function TodayScreen(props: TodayProps) {
       const c = blockDragRef.current
       if (!c || e.pointerId !== c.pointerId) return
       e.preventDefault()
-      if (e.buttons === 0) { cancelBlockDrag(); return }
+      if (e.buttons === 0) { cancelBlockDrag(e); return }
       c.pending = { clientX: e.clientX, clientY: e.clientY }
       if (c.frame != null) return
       c.frame = requestAnimationFrame(() => { c.frame = null; applyBlockFrame() })
@@ -1636,7 +1704,7 @@ export function TodayScreen(props: TodayProps) {
     const onCancel = (e: PointerEvent) => {
       const c = blockDragRef.current
       if (!c || e.pointerId !== c.pointerId) return
-      cancelBlockDrag()
+      cancelBlockDrag(e)
     }
     window.addEventListener('pointermove', onMove, { passive: false })
     window.addEventListener('pointerup', onUp)
@@ -1729,7 +1797,7 @@ export function TodayScreen(props: TodayProps) {
     // canon (:4142): a drag-release is never also a click on the box.
     // Read off the event's own clock, the same monotonic origin the board's
     // click checks use — nothing in this component reads the wall clock.
-    suppressClickUntil.current = e.timeStamp + 400
+    openClickWindow(e.timeStamp, ctx.node)
     const span = nextSpan(ctx.origin, ctx.track, e.clientX - ctx.startX, BLOCK_STEP)
     let targetLane = ctx.targetLane
     if (ctx.origin.mode === 'move') {
@@ -1817,8 +1885,19 @@ export function TodayScreen(props: TodayProps) {
     show(`${a.title}を元の位置に戻しました`)
   }
 
-  function cancelBlockDrag() {
-    if (!blockDragRef.current) return
+  /** ⚖ BATCH-6 flag 43 — canon `forceBlockCancel` (:4015-4028). Its own comment
+   *  names this bug out loud: 「blockDrop を通らずに終わったドラッグの解放が、
+   *  そのままスロットのクリック＝新規予約作成として読まれていた（Liam bug #4）」.
+   *
+   *  The window belongs HERE and not in `clearBlockDrag`: that teardown is also
+   *  the one an unmoved press uses, and a block's plain click is what opens
+   *  ブロック情報 — canon's `blockDrop` returns on `!ctx.moved` BEFORE its own
+   *  write for exactly that reason. Deviation from the packet's letter, kept to
+   *  its intent; recorded in the build report. */
+  function cancelBlockDrag(e: { timeStamp: number }) {
+    const ctx = blockDragRef.current
+    if (!ctx) return
+    openClickWindow(e.timeStamp, ctx.node)
     clearBlockDrag()
   }
 
@@ -2018,8 +2097,18 @@ export function TodayScreen(props: TodayProps) {
 
   /** One teardown for the shelf gesture, so the pointer-up, the pointercancel and
    *  the `buttons === 0` self-heal cannot drift apart — a chip drag that ended on
-   *  any of the three used to leave the board's emphasis behind on one of them. */
-  function clearChipDrag() {
+   *  any of the three used to leave the board's emphasis behind on one of them.
+   *
+   *  ⚖ BATCH-6 flag 43 — and canon's click window opens here, on the SAME three
+   *  endings, so they cannot drift apart on that either. Canon's condition is
+   *  MOVED, not landed (:5640: `if (moved) { suppressClickUntil = …;
+   *  suppressClickSource = chip; }`): ours only opened it on a chip that found a
+   *  lane, so a chip carried across the board and released over nothing fired its
+   *  trailing click straight into the track underneath. An UNMOVED press keeps
+   *  its click — that click is the chip's own ×. */
+  function clearChipDrag(e?: { timeStamp: number; currentTarget: EventTarget | null }) {
+    const ctx = chipDragRef.current
+    if (e && ctx?.moved) openClickWindow(e.timeStamp, e.currentTarget instanceof Element ? e.currentTarget : null)
     chipDragRef.current = null
     setChipTarget(null)
     setDragLen(null)
@@ -2029,7 +2118,7 @@ export function TodayScreen(props: TodayProps) {
   function onChipPointerMove(e: React.PointerEvent<HTMLElement>) {
     const ctx = chipDragRef.current
     if (!ctx) return
-    if (e.buttons === 0) { clearChipDrag(); return }
+    if (e.buttons === 0) { clearChipDrag(e); return }
     if (!ctx.moved && Math.abs(e.clientX - ctx.startX) < 5 && Math.abs(e.clientY - ctx.startY) < 5) return
     const chip = parkChips.find((c) => c.id === ctx.id) ?? null
     if (!ctx.moved) {
@@ -2060,9 +2149,8 @@ export function TodayScreen(props: TodayProps) {
    *  centred on the pointer, and arrives as a 仮押さえ rather than a booking. */
   function onChipPointerUp(e: React.PointerEvent<HTMLElement>) {
     const ctx = chipDragRef.current
-    clearChipDrag()
+    clearChipDrag(e)
     if (!ctx || !ctx.moved || !ctx.laneKey) return
-    suppressClickUntil.current = e.timeStamp + 400
     const chip = parkChips.find((c) => c.id === ctx.id)
     const track = boardRef.current?.querySelector(`.lane[data-lane="${ctx.laneKey}"] .track`)
     if (!chip || !track) return
@@ -2340,8 +2428,15 @@ export function TodayScreen(props: TodayProps) {
         <div
           className={`track${dropTarget?.laneKey === lane.key ? ' drop-target' : ''}`}
           onClick={(e) => {
-            // canon :6811: a release, however it was caught, is never a create.
-            if (e.target !== e.currentTarget || e.timeStamp < suppressClickUntil.current) return
+            // canon :6811: a release, however it was caught, is never a create —
+            // and ⚖ BATCH-6 flag 43 restores canon's first clause with it: a
+            // click dispatched while a gesture is still in hand is not a create
+            // either (`if (dragCtx || blockDragCtx || … ) return`). The window is
+            // this track's last line of defence, and the capture interceptor
+            // above can only swallow a release that landed on the dragged element
+            // itself — a release that fell through to the track is stopped here.
+            if (e.target !== e.currentTarget || dragRef.current || blockDragRef.current) return
+            if (e.timeStamp < suppressClickUntil.current) return
             if (lane.group !== 'staff') return
             if (isLocked) {
               if (placing) show('シフトロック中: このスタッフには新しい予約を置けません')

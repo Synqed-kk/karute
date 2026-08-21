@@ -1246,13 +1246,19 @@ describe('the drag emphasis follows the dragged length, and nothing else', () =>
     expect(SRC).not.toContain('setDragLen(ctx.item.endMin - ctx.item.startMin)\n      setBlockLive')
     // Every teardown path clears it: release/cancel/blur go through clearDrag,
     // the shelf's three endings through clearChipDrag.
-    for (const fn of ['function clearDrag()', 'function clearChipDrag()']) {
+    // ⚖ BATCH-6 flag 43 — RENEGOTIATED to the open paren: `clearChipDrag` now
+    // takes the ending event, because canon opens the click window on the same
+    // three endings (:5640) and a teardown that cannot see the timestamp would
+    // have to read a clock instead.
+    for (const fn of ['function clearDrag()', 'function clearChipDrag(']) {
       const body = SRC.slice(SRC.indexOf(fn), SRC.indexOf(fn) + 800)
       expect(body).toContain('setDragLen(null)')
     }
     // …including the two lost-pointer self-heals, which route into those two.
-    expect(SRC).toContain('if (e.buttons === 0) { cancelDrag(); return }')
-    expect(SRC).toContain('if (e.buttons === 0) { clearChipDrag(); return }')
+    // ⚖ BATCH-6 flag 43 — RENEGOTIATED: both self-heals now hand the event on,
+    // so the ending they are healing opens the click window like every other.
+    expect(SRC).toContain('if (e.buttons === 0) { cancelDrag(e); return }')
+    expect(SRC).toContain('if (e.buttons === 0) { clearChipDrag(e); return }')
   })
 
   it('the stylesheet emphasises only .fits, and calms a 詰め込み box that does not', () => {
@@ -1372,7 +1378,9 @@ describe('the drag proxy: mounted on the gesture, moved by transform, gone on ev
     expect(SRC).toContain('gapLayerFor(committedLanes')
     // Release / cancel / blur and the board self-heal → clearDrag.
     // Shelf up / cancel and the shelf self-heal → clearChipDrag.
-    for (const fn of ['function clearDrag()', 'function clearChipDrag()']) {
+    // (⚖ BATCH-6 flag 43 — RENEGOTIATED to the open paren; see the emphasis
+    // teardown suite for why `clearChipDrag` gained its event.)
+    for (const fn of ['function clearDrag()', 'function clearChipDrag(']) {
       const body = SRC.slice(SRC.indexOf(fn), SRC.indexOf(fn) + 800)
       expect(body).toContain('setProxy(null)')
     }
@@ -1813,7 +1821,17 @@ describe('the shelf family, enumerated against canon rather than against the fla
   it('the released chip cannot become a second booking', () => {
     // canon's last line of defence (:5640, :6811) — pointer capture is an
     // assist, and a drop that turns into a create is not undoable by hand.
-    expect(SRC).toContain('suppressClickUntil.current = e.timeStamp + 400')
+    // ⚖ BATCH-6 flag 43 — RENEGOTIATED. The chip's own `suppressClickUntil
+    // .current = e.timeStamp + 400` used to sit BELOW the `!ctx.laneKey` guard
+    // in `onChipPointerUp`, so a chip carried across the board and released over
+    // nothing opened no window at all. Canon's condition is MOVED, not landed
+    // (:5640), and the write now lives in the one teardown all three of the
+    // gesture's endings go through.
+    const clearChip = SRC.slice(SRC.indexOf('function clearChipDrag('), SRC.indexOf('function onChipPointerMove('))
+    expect(clearChip).toContain('if (e && ctx?.moved) openClickWindow(e.timeStamp,')
+    const chipUp = SRC.slice(SRC.indexOf('function onChipPointerUp('), SRC.indexOf('// ── 配置モード'))
+    expect(chipUp).toContain('clearChipDrag(e)')
+    expect(chipUp).not.toContain('suppressClickUntil')
     expect(SRC).toContain('e.timeStamp < suppressClickUntil.current')
   })
 
@@ -2171,7 +2189,9 @@ describe('予定ブロック move, resize and open — canon’s second pipeline
       expect(begin).toContain(`window.addEventListener('${ev}'`)
       expect(begin).toContain(`window.removeEventListener('${ev}'`)
     }
-    expect(begin).toContain('if (e.buttons === 0) { cancelBlockDrag(); return }')
+    // ⚖ BATCH-6 flag 43 — RENEGOTIATED: the self-heal hands the event on, so the
+    // ending it is healing can open canon's click window off the same clock.
+    expect(begin).toContain('if (e.buttons === 0) { cancelBlockDrag(e); return }')
     expect(CSS).toContain('.biz .event.block, .biz .event.cleanup { overflow: visible; touch-action: none; }')
     expect(CSS).toContain('width: var(--grip, 0px);')
   })
@@ -2257,9 +2277,12 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // canon :4563. Without it the release lands on empty TRACK — the card is
     // still drawn at its origin — and the synthetic click reached the track's
     // own handler: the drop opened 新規予約を作成 on top of everything else.
-    expect(finishDrag).toContain('suppressClickUntil.current = upAt + 400')
+    // ⚖ BATCH-6 flag 43 — RENEGOTIATED: the write goes through the one helper
+    // now, because the window is only half of canon's defence — the interceptor
+    // at :4633-4645 needs `suppressClickSource`, and one call sets both.
+    expect(finishDrag).toContain('openClickWindow(upAt, ctx.nodes[0] ?? null)')
     // Above every branch: the two refusals and the park return early.
-    expect(finishDrag.indexOf('suppressClickUntil.current = upAt + 400'))
+    expect(finishDrag.indexOf('openClickWindow(upAt, ctx.nodes[0] ?? null)'))
       .toBeLessThan(finishDrag.indexOf('isOverShelf(shelfRef.current, clientY)'))
     expect(SRC).toContain('finishDrag(e.clientX, e.clientY, e.timeStamp)')
   })
@@ -2533,7 +2556,8 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // self-heals.
     const clearDrag = SRC.slice(SRC.indexOf('function clearDrag()'), SRC.indexOf('// The listeners outlive a render'))
     for (const line of ['setLive(null)', 'setDragLen(null)', 'setProxy(null)']) expect(clearDrag).toContain(line)
-    const clearChip = SRC.slice(SRC.indexOf('function clearChipDrag()'), SRC.indexOf('function onChipPointerMove('))
+    // (⚖ BATCH-6 flag 43 — RENEGOTIATED to the open paren, same reason as above.)
+    const clearChip = SRC.slice(SRC.indexOf('function clearChipDrag('), SRC.indexOf('function onChipPointerMove('))
     for (const line of ['setChipTarget(null)', 'setDragLen(null)', 'setProxy(null)']) expect(clearChip).toContain(line)
     // Every exit from a card drag reaches `clearDrag()`: the press that never
     // travelled, the shelf drop, the release outside every lane, and the one
@@ -2541,8 +2565,9 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     expect(finishDrag.match(/clearDrag\(\)/g)?.length).toBe(4)
     expect(SRC).toContain('const onCancel = (e: PointerEvent) => {')
     expect(SRC).toContain("window.addEventListener('blur', cancelDrag)")
-    expect(SRC).toContain('if (e.buttons === 0) { cancelDrag(); return }')
-    expect(SRC).toContain('if (e.buttons === 0) { clearChipDrag(); return }')
+    // (⚖ BATCH-6 flag 43 — RENEGOTIATED: both self-heals hand their event on.)
+    expect(SRC).toContain('if (e.buttons === 0) { cancelDrag(e); return }')
+    expect(SRC).toContain('if (e.buttons === 0) { clearChipDrag(e); return }')
     // …and the reveal itself is the same one gate it was.
     expect(SRC).toContain("dragLen != null || live || blockLive ? 'dragging-live' : ''")
   })
@@ -2573,10 +2598,15 @@ describe('the confirm comes to the card, and the consult goes back to the placem
   })
 })
 
-/** ═══ BATCH-6 — Liam's flag 45 (8/21) ════════════════════════════════════
+/** ═══ BATCH-6 — Liam's flags 45 · 43 · 42 (8/21) ══════════════════════════
  *
- *  A booking is a person AND a room, and the board had one word for both. */
-describe('the pair keeps both its lanes', () => {
+ *  45: a booking is a person AND a room, and the board had one word for both.
+ *  43: the click window opened on the tidy endings only, so the untidy ones —
+ *      pointercancel, a lost pointerup, a window blur, a chip released over
+ *      nothing — still turned their release into 新規予約を作成.
+ *  42: no fix. The pin below records what was CONFIRMED correct, so nobody
+ *      re-opens it. */
+describe('the pair keeps both its lanes, and no ending turns a release into a booking', () => {
   const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
   const EDITS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/BusinessSessionEdits.tsx'), 'utf8')
   const staffA = lane({ key: 'p-01', group: 'staff', items: [booking({ key: 'a-staff', caseId: 'apt-1' }, 660, 720)] })
@@ -2586,6 +2616,7 @@ describe('the pair keeps both its lanes', () => {
   const lanes = [staffA, staffB, bed1, bed2]
   const SPAN = { x: 0, w: 100 / 9 }
 
+  // ── flag 45 — the snapshot, and the rule that reads it ───────────────────
   it('the snapshot knows BOTH lanes the pair stands on, at the span it stands at', () => {
     expect(pairLanesOf(lanes, 'apt-1', SPAN)).toEqual({
       staff: { laneKey: 'p-01', ...SPAN },
@@ -2694,5 +2725,86 @@ describe('the pair keeps both its lanes', () => {
     // Both spans are 10:00–11:00, so the overlap the confirm surface reads is
     // there to be read.
     expect(room.items.every((i) => i.startMin === 600 && i.endMin === 660)).toBe(true)
+  })
+
+  // ── flag 43 — every ending opens the window, and the second net ──────────
+  it('canon’s click window opens on EVERY ending a gesture can have, not only the tidy ones', () => {
+    // One writer, so `suppressClickSource` cannot be forgotten at half of them.
+    expect(SRC).toContain('function openClickWindow(at: number, source: Element | null) {')
+    expect(SRC).toContain('suppressClickUntil.current = at + 400')
+    expect(SRC).toContain('suppressClickSource.current = source')
+    // canon `finishNormalBookingDrag` :4563 — still above every branch.
+    expect(SRC).toContain('openClickWindow(upAt, ctx.nodes[0] ?? null)')
+    // canon `forceDragCancel` :4535-4546 — pointercancel, self-heal and blur.
+    const cancel = SRC.slice(SRC.indexOf('function cancelDrag('), SRC.indexOf('function clearDrag()'))
+    expect(cancel).toContain('openClickWindow(e.timeStamp, ctx.nodes[0] ?? null)')
+    // canon `forceBlockCancel` :4015-4028 — 「Liam bug #4」 in its own words.
+    const blockCancel = SRC.slice(SRC.indexOf('function cancelBlockDrag('), SRC.indexOf('function clearBlockDrag()'))
+    expect(blockCancel).toContain('openClickWindow(e.timeStamp, ctx.node)')
+    // …and NOT in `clearBlockDrag`, which is also the unmoved press's teardown:
+    // a block's plain click is what opens ブロック情報 (canon's `blockDrop`
+    // returns on `!ctx.moved` before its own write, :4137-4140).
+    const clearBlock = SRC.slice(SRC.indexOf('function clearBlockDrag()'), SRC.indexOf('useEffect(() => () => { blockDragRef.current?.detach() }, [])'))
+    expect(clearBlock).not.toContain('openClickWindow')
+    // canon's chip release :5640 — MOVED, not landed, and never on a plain
+    // press, whose click is the chip's own ×.
+    const clearChip = SRC.slice(SRC.indexOf('function clearChipDrag('), SRC.indexOf('function onChipPointerMove('))
+    expect(clearChip).toContain('if (e && ctx?.moved) openClickWindow(e.timeStamp,')
+    // Every ending routes into one of those four.
+    for (const line of [
+      'if (e.buttons === 0) { cancelDrag(e); return }',
+      'if (e.buttons === 0) { cancelBlockDrag(e); return }',
+      'if (e.buttons === 0) { clearChipDrag(e); return }',
+      "window.addEventListener('blur', cancelDrag)",
+      "window.addEventListener('blur', cancelBlockDrag)",
+    ]) expect(SRC).toContain(line)
+  })
+
+  it('the capture-phase interceptor is the second net, and swallows only its own click', () => {
+    // canon :4633-4645. It runs BEFORE any element's own handler, which is the
+    // whole point: a release that lands off the captured element used to have
+    // the window consumed before the slot handler ever read it.
+    expect(SRC).toContain("document.addEventListener('click', onClickCapture, true)")
+    expect(SRC).toContain("document.removeEventListener('click', onClickCapture, true)")
+    expect(SRC).toContain('const fromDragged = source != null && e.target instanceof Node && source.contains(e.target)')
+    expect(SRC).toContain('if (within && fromDragged) {')
+    expect(SRC).toContain('e.stopPropagation()')
+    // Behaviour, driven: a click inside the gesture's own subtree inside the
+    // window is swallowed; the same click outside it is left to the track's own
+    // gate, which is the half canon keeps for exactly that case.
+    const source = document.createElement('div')
+    const inside = document.createElement('button')
+    source.appendChild(inside)
+    expect(source.contains(inside)).toBe(true)
+    expect(source.contains(document.createElement('button'))).toBe(false)
+  })
+
+  it('an empty-track click refuses while a gesture is still in hand', () => {
+    // canon :6811's first clause — `if (dragCtx || blockDragCtx || …) return`.
+    expect(SRC).toContain('if (e.target !== e.currentTarget || dragRef.current || blockDragRef.current) return')
+    expect(SRC).toContain('if (e.timeStamp < suppressClickUntil.current) return')
+  })
+
+  // ── flag 42 — NO FIX. This pin records what was confirmed correct ────────
+  it('a free person over a busy room advertises NOTHING — flag 42, confirmed, not a bug', () => {
+    // canon :4895-4914: a window is a person AND a room, so a slot with no free
+    // bed emits no cell however free the staff lane is. Reported as a missing
+    // 販売可能枠; it is the pairing cap doing its job, and selling the hour would
+    // put the board's own advertisement over a room that cannot hold it.
+    const opts = { gridMin: 60, nowMinute: null, locked: [], showPrice: true, hi: 7260, hqMin: 6600, depth: 9 }
+    const oneBedTaken = [
+      lane({ key: 'p-01', group: 'staff' }),
+      lane({ key: 'bed-01', group: 'beds', items: [booking({ key: 'z', caseId: 'apt-8' }, 720, 780)] }),
+    ]
+    const out = sellLayerFor(oneBedTaken, HOURS, opts)
+    // 12:00 is the busy hour: the person is free, the only room is not.
+    expect(out.cells.some((c) => c.group === 'staff' && c.h === 720)).toBe(false)
+    // Every other hour still sells, so this is the pairing rule and not a
+    // silenced layer.
+    expect(out.cells.filter((c) => c.group === 'staff')).toHaveLength(8)
+    // Give the store a second room and the hour comes back — one line of proof
+    // that the cap is what suppressed it.
+    const twoBeds = [...oneBedTaken, lane({ key: 'bed-02', group: 'beds' })]
+    expect(sellLayerFor(twoBeds, HOURS, opts).cells.some((c) => c.group === 'staff' && c.h === 720)).toBe(true)
   })
 })
