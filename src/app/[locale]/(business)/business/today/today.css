@@ -780,29 +780,46 @@
 .biz .inspector-actions .delete { grid-column: 1 / -1; min-height: 32px; border: 0; background: transparent; color: var(--red-dark); font-weight: 700; }
 .biz .inspector-actions .delete:hover { background: var(--red-soft); }
 
-/* ═══ H — hold bar ═══ */
-.biz .holdbar {
-  position: relative;
-  z-index: 46;
+/* ═══ H — 仮押さえの確認 ═══
+   ⚖ Liam flag 34: the full-width in-flow bar is RETIRED. It sat after the board
+   in normal flow (`position: relative; margin-top: 8px`), so on a tall board the
+   operator had to scroll AWAY from the card to reach the buttons that answer for
+   it. The confirm hangs under the card now, on the same fixed layer as the
+   consult popup and wearing the same grammar — and when the card is not on
+   screen the identical content becomes a pill at the bottom of the VIEWPORT,
+   which cannot be scrolled away from at all. */
+.biz .hold-pop {
+  position: fixed;
+  z-index: 80;
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 6px 12px;
-  align-items: center;
-  margin-top: 8px;
-  padding: 10px 14px;
+  gap: 8px;
+  /* ONE width in both states (popup law): the surface never resizes as it moves
+     between anchored and pinned, and never scrolls inside itself. */
+  width: min(92vw, 340px);
+  padding: 11px 13px;
   border: 1px solid var(--card);
   border-top: 2px solid var(--orange);
   border-radius: 12px;
   background: #fff;
-  box-shadow: 0 8px 24px rgba(24, 24, 27, .08);
+  box-shadow: 0 10px 30px rgba(24, 24, 27, .18);
 }
-.biz .holdbar-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+/* The fallback: the anchor card is not on screen, so the surface stops chasing
+   it and pins itself where nothing can hide it. */
+.biz .hold-pop.pinned { left: 50%; bottom: 18px; top: auto; transform: translateX(-50%); }
+.biz .hp-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.biz .hp-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.biz .hp-actions { display: flex; gap: 7px; justify-content: flex-end; }
+.biz .hp-actions .btn { flex: 1; justify-content: center; }
 /* 日付ピン (canon :1521): the 仮押さえ bar outlives the day it was staged on, so
    on any other day it names its own day and offers the way back. */
 .biz .hold-daypin { display: inline-flex; align-items: center; gap: 7px; padding: 2px 8px; border-radius: 7px; background: var(--orange-soft); font-size: 12px; font-weight: 700; }
 .biz .hold-daypin a { color: var(--indigo); font-size: 12px; font-weight: 700; text-decoration: none; }
 .biz .hold-daypin a:hover { text-decoration: underline; }
-.biz .holdbar-checks { grid-column: 1; display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-3); font-size: 12px; }
+/* The check strip itself is unchanged and keeps its name: the create dialog's
+   ticket renders the same marks through `.holdbar-checks.cc-ticket-checks`, and
+   both places have to answer identically. The two grid-placement rules that
+   belonged to the retired bar's own layout are gone with it. */
+.biz .holdbar-checks { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-3); font-size: 12px; }
 .biz .holdbar-checks .ck { display: inline-flex; align-items: center; gap: 5px; }
 .biz .holdbar-checks .ck::before {
   content: "✓";
@@ -823,7 +840,12 @@
    dialog's ticket (.holdbar-checks.cc-ticket-checks) — answer identically. */
 .biz .holdbar-checks .ck.bad::before { content: "×"; background: var(--red-soft); color: var(--red-dark); }
 .biz .holdbar-checks .ck.bad { color: var(--red-dark); font-weight: 700; }
-.biz .holdbar-actions { grid-column: 2; grid-row: 1 / -1; display: flex; gap: 7px; }
+/* ⚖ Liam flag 31b — the guard's row: canon's own △ for a degraded landing, in
+   the guard's own colours, beside the checks that gate the 確定. The mark is the
+   third member of the same one-decision pair above (✓ pass, × fail, △ the
+   guard's warning) — a warning is not a failure, and 確定 stays enabled. */
+.biz .holdbar-checks .ck.warn::before { content: "△"; background: var(--guard-soft); color: var(--guard-dark); }
+.biz .holdbar-checks .ck.warn { color: var(--guard-dark); font-weight: 700; }
 
 /* ═══ I — incident band ═══ */
 .biz .incident {
@@ -930,6 +952,14 @@
 
 /* ═══ L — dialogs and toast ═══ */
 .biz-dialog {
+  /* ⚖ Liam flag 32 — THIS ONE LINE IS THE CENTERING. Tailwind's preflight
+     (tailwindcss/preflight.css:7-16) sets `margin: 0` on *, ::backdrop and every
+     element, which includes <dialog> — so the UA's own `dialog:modal { margin:
+     auto }` is overridden and every native dialog on this screen pinned itself
+     to the top-left corner. Canon has no CSS reset and so never had to say it.
+     Restored here rather than allowlisted in preflight: the reset is the app's
+     baseline, and this is the one family that needs its UA rule back. */
+  margin: auto;
   width: min(650px, calc(100vw - 40px));
   max-height: calc(100vh - 40px);
   padding: 0;

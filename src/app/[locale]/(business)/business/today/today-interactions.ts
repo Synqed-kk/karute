@@ -143,6 +143,91 @@ export function fieldsPopAnchor(
   return { top, left, height }
 }
 
+/** ⚖ Liam flag 35 — THE ONE CLAMP. canon `placePopNear` (:7075-7081): a
+ *  fixed-layer surface is pinned inside the viewport on ALL FOUR edges before it
+ *  paints, so a booking in the last column or the bottom lane never opens a
+ *  popup that is half off screen. The transplant carried canon's popup but not
+ *  its pinning (the 配置の相談 hung off a hard-coded `Math.min(x, 1600)`), which
+ *  is the same defect class 表示設定 had before `fieldsPopAnchor` restored it.
+ *
+ *  Every fixed surface on this board goes through here — the consult popup and
+ *  the 仮押さえ popover both — so there is exactly one place the rule lives.
+ *  A surface WIDER than the viewport still gets its top-left corner on screen,
+ *  which is canon's own choice of which edge to sacrifice. */
+export function pinInViewport(
+  want: { left: number; top: number },
+  size: { width: number; height: number },
+  viewport: { width: number; height: number },
+  margin = 8,
+): { left: number; top: number } {
+  // FLOOR, where canon rounds: a surface 297.33px wide pinned to the right edge
+  // rounds its left UP and ends a third of a pixel past the margin. Flooring can
+  // only ever move it further inside, which is the whole point of the clamp.
+  return {
+    left: Math.floor(Math.max(margin, Math.min(want.left, viewport.width - size.width - margin))),
+    top: Math.floor(Math.max(margin, Math.min(want.top, viewport.height - size.height - margin))),
+  }
+}
+
+/** ⚖ Liam flag 34 — is the card the 仮押さえ answers for still in front of the
+ *  operator? The board scrolls, the day flips and the store switches; when the
+ *  anchor is not on screen the confirm surface stops chasing it and becomes the
+ *  fixed pill instead. Intersection, not containment: a card half in view is
+ *  still a card the operator can see the popover point at. */
+export function anchorOnScreen(rect: AnchorRect, viewport: { width: number; height: number }): boolean {
+  return rect.bottom > 0 && rect.top < viewport.height && rect.right > 0 && rect.left < viewport.width
+}
+
+/** ⚖ Liam flag 34 — the confirm popover's own position: UNDER the moved card,
+ *  centred on it, flipped ABOVE when the room below cannot hold it whole.
+ *
+ *  IT NEVER COVERS THE CARD (⚖ Liam's 8/21 sharpening: "the operator must be
+ *  able to SEE what they moved while confirming it"). That is why this returns
+ *  `null` rather than a clamped position when neither side can hold the whole
+ *  surface: a vertical clamp would slide the popover back over its own anchor,
+ *  which is the one thing it must not do. `null` is the caller's signal to use
+ *  the fixed pill, which is always visible and covers nothing on the board.
+ *  Horizontally it is centred on the card and clamped by `pinInViewport` (⚖ 35)
+ *  — that axis cannot hide the card, it only slides along it. */
+export function holdPopAnchor(
+  rect: AnchorRect,
+  popWidth: number,
+  popHeight: number,
+  viewport: { width: number; height: number },
+  gap = 8,
+  margin = 8,
+): { left: number; top: number } | null {
+  const below = rect.bottom + gap
+  const above = rect.top - popHeight - gap
+  const top = below + popHeight <= viewport.height - margin ? below : above >= margin ? above : null
+  if (top === null) return null
+  return {
+    left: pinInViewport({ left: (rect.left + rect.right) / 2 - popWidth / 2, top }, { width: popWidth, height: popHeight }, viewport, margin).left,
+    top: Math.floor(top),
+  }
+}
+
+/** ⚖ Liam flag 31b — the guard's verdict as ONE row for the confirm surface.
+ *
+ *  canon never showed the move-assessment anywhere: its 配置の相談 fires from an
+ *  off-by-default teaching card, and its real drop path says nothing at all. The
+ *  assessment is worth keeping, so it joins the checks the operator is already
+ *  reading before 確定 — as INFORMATION, not as a gate: `computeChecks` still
+ *  owns what can and cannot be confirmed (canon-logic, frozen), and a degraded
+ *  landing stays confirmable exactly as canon's `ackAllowed` allows it.
+ *
+ *  The row is the verdict's own first sentence, minus the rail's `・損を減らす`
+ *  aside — that clause is advice for CHOOSING a start, and this row is reporting
+ *  the one already chosen. `null` for a safe landing: a check that always passes
+ *  is noise. */
+export function guardCheckRow(cell: RailCell | null): { label: string; tone: 'warn' | 'bad' } | null {
+  if (!cell || cell.state === 'safe') return null
+  return {
+    label: cell.sentence.split('。')[0].replace('・損を減らす', ''),
+    tone: cell.state === 'degraded' ? 'warn' : 'bad',
+  }
+}
+
 // ── the board's own state transitions ──────────────────────────────────────
 
 /** The board as it currently stands: the server's lanes, plus staged moves,

@@ -267,6 +267,11 @@
 
 /* ═══ dialog ═══ */
 .biz dialog {
+  /* ⚖ Liam flag 32 — same fix, same cause as `.biz-dialog` in today.css:
+     Tailwind's preflight zeroes the margin on every element, <dialog> included,
+     which kills the UA's `dialog:modal { margin: auto }` centering. Every native
+     dialog in Business territory needs this line back. */
+  margin: auto;
   width: min(700px, calc(100vw - 40px));
   max-height: calc(100vh - 40px);
   padding: 0;
