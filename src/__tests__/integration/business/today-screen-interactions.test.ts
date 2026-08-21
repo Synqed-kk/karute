@@ -1551,8 +1551,14 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
     // RENEGOTIATED AGAIN (cycle 7): batch-6's `dayOffset: props.dayOffset` pin
     // was the forerunner-era spelling of THIS assertion and no longer matches —
     // the stamp is `{ ...board, … }`. The day half is still pinned, inside
-    // `board`, on the line below. Window widened for batch-6's longer body.
-    const body = SRC.slice(SRC.indexOf('function placeFromShelf'), SRC.indexOf('function placeFromShelf') + 3600)
+    // `board`, on the line below.
+    //
+    // The window is the FUNCTION, not a character count. Three slices in this
+    // file read placeFromShelf; the other two already end at `const monthCells`
+    // (the next declaration), and this one's magic 3200/3600 silently stopped
+    // reaching the stamp as batches 6, 7 and 8 each grew the body — a pin that
+    // passes because the window moved off the line is worse than no pin.
+    const body = SRC.slice(SRC.indexOf('function placeFromShelf'), SRC.indexOf('const monthCells ='))
     expect(body).toContain('{ ...board, laneKey: staff.key, fromChip: chip,')
     expect(SRC).toContain('const board = useMemo(')
     expect(SRC).toContain('() => ({ dayOffset: props.dayOffset, store: props.storeParam }),')

@@ -1286,8 +1286,13 @@ export function TodayScreen(props: TodayProps) {
     if (bedLane) setBedMoves((was) => ({ ...was, [id]: { laneKey: bedLane, ...span } }))
     // ⚖ 46 forerunner kept under batch-6's two-sided rewrite: the stamp is
     // `boardStamp`, not the day pair batch-6 was written against — it predates
-    // the store scoping, and `PendingChange` now REQUIRES store + storeLabel.
-    // Batch-7's full ⚖ 46 supersedes this stamp when it replays.
+    // the store scoping, and `PendingChange` REQUIRES store + storeLabel.
+    //
+    // AND IT STAYS. Batch-7's ⚖ 46 rebuilt ParkHome and PlacingIntent, but never
+    // reached PendingChange — its own version of this type carries no store at
+    // all. So this is not a forerunner spelling waiting to be replaced: it is the
+    // only store scoping the 仮押さえ family has. Do not "finish the supersession"
+    // by reverting it to the day pair.
     setPending((was) =>
       was && was.id === id
         ? was
