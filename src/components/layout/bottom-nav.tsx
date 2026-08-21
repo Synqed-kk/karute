@@ -383,6 +383,7 @@ function CenterRecordButton({
   // BottomNav keeps the re-render scoped to this cell, the same reason
   // useGlobalRecorder lives here.
   const { needsAttention } = useRecordingsInbox()
+  const tInbox = useTranslations('recording.inbox')
   // Live, ticking countdown for the idle sub-label (「あと5分」→「残り5分」→
   // 「まもなく終了」). Only surfaces in the idle branch below.
   const centerHint = useLiveHint(nextCustomer, locale)
@@ -508,7 +509,11 @@ function CenterRecordButton({
           )
         }, closeMenuIfOpen)}
         className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-black/30 ring-4 ring-background transition-transform hover:scale-105 hover:bg-red-500/90"
-        aria-label={ariaLabelIdle}
+        aria-label={
+          needsAttention > 0
+            ? `${ariaLabelIdle}${tInbox('needsAttentionAria', { n: needsAttention })}`
+            : ariaLabelIdle
+        }
         aria-current={isOnSessionsPage ? 'page' : undefined}
       >
         <Mic className="h-5 w-5" />

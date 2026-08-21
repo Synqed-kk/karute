@@ -29,7 +29,7 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { paginateDedupe } from '@/lib/customers/paginate'
-import { INBOX_WINDOW_MS, type InboxServerSession, type InboxJobStatus } from './inbox'
+import { INBOX_WINDOW_MS, type InboxServerSession } from './inbox'
 
 /** Core clamps page_size at 500 — the house pattern's page size. */
 const PAGE_SIZE = 500
@@ -82,6 +82,7 @@ export async function readRecordingsInbox({
     durationSeconds: s.duration_seconds ?? null,
     karuteRecordId: recordBySession.get(s.id) ?? null,
     jobStatus: null,
+    jobProbeFailed: false,
     jobLastError: null,
   }))
 
@@ -108,15 +109,30 @@ export async function readRecordingsInbox({
     Array.from({ length: Math.min(PROBE_CONCURRENCY, probes.length) }, async () => {
       for (let i = next++; i < probes.length; i = next++) {
         const row = probes[i]
-        // A 404 means "no job for this session" — a real answer, and the state
-        // the fold needs. Any other failure is also swallowed to null: the row
-        // then reads as unsettled/failed rather than claiming a status we do
-        // not have.
+        // ONLY a 404 means "no job for this session" — the repo's own rule for
+        // this exact class of lookup (actions/karute.ts's upsert probe). Every
+        // other failure (timeout, 5xx, network-dark) is NOT an answer, and
+        // collapsing it into "no job" is how a blip turns a session core is
+        // actively processing into a 復元可能 row offering a second save.
+        // Structural status check, not instanceof, so a partial test mock of
+        // the client package can't break the detection.
         const job = await synqed.recordingJobs
           .getByRecordingSession(row.recordingSessionId)
-          .catch(() => null)
+          .catch((err: unknown) => {
+            const status =
+              err && typeof err === 'object' && 'status' in err
+                ? (err as { status: unknown }).status
+                : undefined
+            if (status === 404) return null
+            console.warn(
+              `[recordings-inbox] job probe failed for ${row.recordingSessionId} (status ${String(status)}):`,
+              err,
+            )
+            row.jobProbeFailed = true
+            return null
+          })
         if (!job) continue
-        row.jobStatus = job.status as InboxJobStatus
+        row.jobStatus = job.status
         row.jobLastError = job.status === 'FAILED' ? job.last_error : null
       }
     }),

@@ -28,6 +28,7 @@ function session(over: Partial<InboxServerSession> & { recordingSessionId: strin
     durationSeconds: 1380,
     karuteRecordId: null,
     jobStatus: null,
+    jobProbeFailed: false,
     jobLastError: null,
     ...over,
   }
@@ -305,6 +306,7 @@ describe('録音履歴 — i18n parity for the new keys', () => {
     'title',
     'caption',
     'needsAttention',
+    'needsAttentionAria',
     'empty',
     'partial',
     'today',
@@ -354,5 +356,106 @@ describe('録音履歴 — i18n parity for the new keys', () => {
     for (const r of emitted) expect(typeof jaInbox.reason[r]).toBe('string')
     expect(typeof jaRecording.pipelineErrorEmptyTranscript).toBe('string')
     expect(typeof enRecording.pipelineErrorEmptyTranscript).toBe('string')
+  })
+})
+
+describe('録音履歴 — a probe that FAILED is not a probe that found nothing (FX-1)', () => {
+  it('a non-404 probe failure with a local take is 処理中, NEVER 復元可能', () => {
+    // The blip class: core is up, the status endpoint hiccupped. Reading that
+    // as "no job" used to offer 保存する for audio a live job may already be
+    // turning into a record — two writers for one session.
+    const [row] = fold(
+      [session({ recordingSessionId: 's1', jobProbeFailed: true })],
+      [take({ takeId: 't1', recordingSessionId: 's1' })],
+    )
+    expect(row.state).toBe('processing')
+    expect(row.reason).toBe('unsettled')
+    expect(row.canRetry).toBe(false)
+    expect(needsAttention(row)).toBe(false)
+  })
+
+  it('a non-404 probe failure with NO take, past the grace, is 処理中, NEVER 失敗', () => {
+    const [row] = fold([
+      session({
+        recordingSessionId: 's1',
+        jobProbeFailed: true,
+        createdAt: new Date(NOW - SESSION_UNSETTLED_GRACE_MS - 60 * MIN).toISOString(),
+      }),
+    ])
+    expect(row.state).toBe('processing')
+    expect(row.reason).toBe('unsettled')
+  })
+
+  it('a 404 (jobProbeFailed false, jobStatus null) is unchanged — a real answer', () => {
+    const withTake = fold(
+      [session({ recordingSessionId: 's1' })],
+      [take({ takeId: 't1', recordingSessionId: 's1' })],
+    )[0]
+    const withoutTake = fold([
+      session({
+        recordingSessionId: 's2',
+        createdAt: new Date(NOW - SESSION_UNSETTLED_GRACE_MS - 60 * MIN).toISOString(),
+      }),
+    ])[0]
+    expect(withTake.state).toBe('recoverable')
+    expect(withoutTake.state).toBe('failed')
+  })
+
+  it('a record still wins over a failed probe — an existing record is definitive', () => {
+    const [row] = fold([
+      session({ recordingSessionId: 's1', karuteRecordId: 'rec-1', jobProbeFailed: true }),
+    ])
+    expect(row.state).toBe('saved')
+  })
+})
+
+describe('録音履歴 — a status this build has never heard of (FX-8)', () => {
+  it('a future core status renders processing-class instead of throwing or lying', () => {
+    // Phones run a BAKED bundle: the day core adds a fifth status, an old
+    // phone must degrade to "still in flight", never to 失敗 or 復元可能.
+    const [row] = fold(
+      [session({ recordingSessionId: 's1', jobStatus: 'RETRY_SCHEDULED' })],
+      [take({ takeId: 't1', recordingSessionId: 's1' })],
+    )
+    expect(row.state).toBe('processing')
+    expect(row.reason).toBe('unsettled')
+    expect(row.canRetry).toBe(false)
+  })
+
+  it('the four known statuses still narrow exactly as before', () => {
+    const states = (['QUEUED', 'RUNNING', 'DONE', 'FAILED'] as const).map(
+      (jobStatus, i) => fold([session({ recordingSessionId: `s${i}`, jobStatus })])[0].state,
+    )
+    expect(states).toEqual(['processing', 'processing', 'failed', 'failed'])
+  })
+})
+
+describe('録音履歴 — the exact boundaries (FX-6a)', () => {
+  it('now − startedAt === SESSION_UNSETTLED_GRACE_MS is STILL 処理中 (<=, not <)', () => {
+    const [row] = fold([
+      session({
+        recordingSessionId: 's1',
+        createdAt: new Date(NOW - SESSION_UNSETTLED_GRACE_MS).toISOString(),
+      }),
+    ])
+    expect(row.state).toBe('processing')
+  })
+
+  it('one millisecond past the grace flips to 失敗', () => {
+    const [row] = fold([
+      session({
+        recordingSessionId: 's1',
+        createdAt: new Date(NOW - SESSION_UNSETTLED_GRACE_MS - 1).toISOString(),
+      }),
+    ])
+    expect(row.state).toBe('failed')
+  })
+
+  it('a row exactly at the window floor is KEPT; one ms older is dropped', () => {
+    const rows = fold([
+      session({ recordingSessionId: 'edge', createdAt: new Date(NOW - INBOX_WINDOW_MS).toISOString() }),
+      session({ recordingSessionId: 'out', createdAt: new Date(NOW - INBOX_WINDOW_MS - 1).toISOString() }),
+    ])
+    expect(rows.map((r) => r.recordingSessionId)).toEqual(['edge'])
   })
 })

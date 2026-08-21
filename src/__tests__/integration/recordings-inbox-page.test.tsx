@@ -164,7 +164,8 @@ type ServerSession = {
   createdAt: string
   durationSeconds: number | null
   karuteRecordId: string | null
-  jobStatus: 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED' | null
+  jobStatus: string | null
+  jobProbeFailed: boolean
   jobLastError: string | null
 }
 let serverSessions: ServerSession[] = []
@@ -206,6 +207,7 @@ function session(over: Partial<ServerSession> & { recordingSessionId: string }):
     durationSeconds: 1200,
     karuteRecordId: null,
     jobStatus: null,
+    jobProbeFailed: false,
     jobLastError: null,
     ...over,
   }

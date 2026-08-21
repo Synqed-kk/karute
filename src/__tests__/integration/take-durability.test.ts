@@ -450,6 +450,22 @@ describe('take durability — deletion lifecycle', () => {
     expect(takes().size).toBe(1)
   })
 
+  // FX-6(a): the prune is `> TAKE_TTL_MS`, so a take aged EXACTLY the TTL is
+  // still offered. Pinned because the 録音履歴 window uses the same convention
+  // (a row at exactly the floor is kept) — the two must not drift apart.
+  it('a take aged exactly TAKE_TTL_MS is STILL recoverable (> , not >=)', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    const key = JSON.stringify(takeId)
+    const meta = takes().get(key)!
+    const exactly = Date.now() - 7 * 24 * 60 * 60 * 1000
+    takes().set(key, { ...meta, startedAt: exactly, updatedAt: exactly })
+    expect(await getRecoverableTake([])).not.toBeNull()
+    await drain()
+    expect(takes().size).toBe(1)
+  })
+
   it('expired takes (7-day TTL) are dropped and deleted in passing', async () => {
     const takeId = await startAndSettle()
     pushChunk('aaa')

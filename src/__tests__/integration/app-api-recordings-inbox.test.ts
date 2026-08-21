@@ -48,20 +48,22 @@ type KaruteRow = { id: string; recording_session_id: string | null; staff_id: st
 const recordingRows = { current: [] as RecordingRow[] }
 const karuteRows = { current: [] as KaruteRow[] }
 
-const listRecordings = jest.fn(async (opts: Record<string, unknown>) => {
+const listRecordingsImpl = async (opts: Record<string, unknown>) => {
   // The route is expected to scope by staff_id server-side; honour it here so a
   // test can prove which id was actually sent.
   const rows = recordingRows.current.filter(
     (r) => !opts.staff_id || r.staff_id === opts.staff_id,
   )
   return { recordings: rows, total: rows.length, page: 1, page_size: 500 }
-})
-const listKarute = jest.fn(async () => ({
+}
+const listKaruteImpl = async () => ({
   karute_records: karuteRows.current,
   total: karuteRows.current.length,
   page: 1,
   page_size: 500,
-}))
+})
+const listRecordings = jest.fn(listRecordingsImpl)
+const listKarute = jest.fn(listKaruteImpl)
 const getByRecordingSession = jest.fn(async (_id: string) => {
   throw Object.assign(new Error('not found'), { status: 404 })
 })
@@ -102,6 +104,10 @@ const listOpts = (call: unknown): Record<string, unknown> =>
 
 beforeEach(() => {
   jest.clearAllMocks()
+  // clearAllMocks clears CALLS, not implementations: a test that installs a
+  // mockRejectedValue would otherwise poison every test after it.
+  listRecordings.mockImplementation(listRecordingsImpl)
+  listKarute.mockImplementation(listKaruteImpl)
   capabilities.current = new Set(['customers.view', 'records.write'])
   getUser.fn.mockResolvedValue({ data: { user: { id: 'auth-user-1' } }, error: null })
   staffStoresGet.mockResolvedValue({ store_ids: [] })
@@ -257,6 +263,7 @@ describe('GET recordings/inbox — the join', () => {
       'customerId',
       'durationSeconds',
       'jobLastError',
+      'jobProbeFailed',
       'jobStatus',
       'karuteRecordId',
       'recordingSessionId',
@@ -286,5 +293,100 @@ describe('GET recordings/inbox — audit registration', () => {
       category: 'recording',
       action: '',
     })
+  })
+})
+
+describe('GET recordings/inbox — a failed probe is not an absent job (FX-1)', () => {
+  it('404 → jobStatus null, jobProbeFailed FALSE (a real answer)', async () => {
+    const res = await GET(req(), noRoute)
+    const body = (await res.json()) as {
+      sessions: Array<{ jobStatus: string | null; jobProbeFailed: boolean }>
+    }
+    expect(body.sessions[0]).toMatchObject({ jobStatus: null, jobProbeFailed: false })
+  })
+
+  it.each([500, 503, 429])('a %d probe → jobProbeFailed TRUE, never a silent null', async (status) => {
+    getByRecordingSession.mockRejectedValue(Object.assign(new Error('boom'), { status }))
+    const res = await GET(req(), noRoute)
+    expect(res.status).toBe(200) // the row still ships; only its job state is unknown
+    const body = (await res.json()) as { sessions: Array<{ jobProbeFailed: boolean }> }
+    expect(body.sessions[0].jobProbeFailed).toBe(true)
+  })
+
+  it('a transport reject with no status at all is also NOT read as "no job"', async () => {
+    getByRecordingSession.mockRejectedValue(new Error('network down'))
+    const res = await GET(req(), noRoute)
+    const body = (await res.json()) as { sessions: Array<{ jobProbeFailed: boolean }> }
+    expect(body.sessions[0].jobProbeFailed).toBe(true)
+  })
+
+  it('an unrecognised status string rides the wire intact (phones bake this DTO)', async () => {
+    getByRecordingSession.mockResolvedValue({
+      status: 'RETRY_SCHEDULED',
+      karute_record_id: null,
+      attempts: 1,
+      max_attempts: 3,
+      last_error: null,
+    } as never)
+    const res = await GET(req(), noRoute)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { sessions: Array<{ jobStatus: string | null }> }
+    expect(body.sessions[0].jobStatus).toBe('RETRY_SCHEDULED')
+  })
+})
+
+describe('GET recordings/inbox — the N+1 stays bounded (FX-6b)', () => {
+  it('a pathological residue probes exactly MAX_JOB_PROBES times, never once more', async () => {
+    recordingRows.current = Array.from({ length: 140 }, (_, i) => ({
+      id: `sess-${i}`,
+      customer_id: 'c1',
+      staff_id: 'auth-user-1',
+      duration_seconds: null,
+      created_at: nowIso(i + 1),
+    }))
+    karuteRows.current = []
+    const res = await GET(req(), noRoute)
+    expect(res.status).toBe(200)
+    expect(getByRecordingSession).toHaveBeenCalledTimes(100)
+    // …and every row still ships — the cap costs job DETAIL, never the row.
+    const body = (await res.json()) as { sessions: unknown[] }
+    expect(body.sessions).toHaveLength(140)
+  })
+})
+
+describe('GET recordings/inbox — a foreign record can never become a row (FX-7c)', () => {
+  it('a karute record for someone else’s session is joined to nothing', async () => {
+    // The karute list is deliberately not staff-filtered (the worker and the
+    // web save stamp different ids). This is the belt: the ONLY thing that can
+    // put a row on screen is a session in the actor's own set.
+    karuteRows.current = [
+      { id: 'rec-mine', recording_session_id: 'sess-mine', staff_id: 'auth-user-1' },
+      { id: 'rec-theirs', recording_session_id: 'sess-theirs', staff_id: 'auth-user-2' },
+      { id: 'rec-unknown', recording_session_id: 'sess-never-seen', staff_id: 'auth-user-2' },
+    ]
+    const res = await GET(req(), noRoute)
+    const body = (await res.json()) as {
+      sessions: Array<{ recordingSessionId: string; karuteRecordId: string | null }>
+    }
+    expect(body.sessions).toHaveLength(1)
+    expect(body.sessions[0]).toMatchObject({
+      recordingSessionId: 'sess-mine',
+      karuteRecordId: 'rec-mine',
+    })
+    expect(JSON.stringify(body)).not.toContain('rec-theirs')
+    expect(JSON.stringify(body)).not.toContain('rec-unknown')
+  })
+})
+
+describe('GET recordings/inbox — roster failure taxonomy (FX-7b)', () => {
+  it('a transient roster failure is 502 upstream_unavailable, not a bare 500', async () => {
+    const staff = jest.requireMock('@/lib/staff') as {
+      staffListByBusinessOrThrow: jest.Mock
+    }
+    staff.staffListByBusinessOrThrow.mockRejectedValueOnce(new Error('core timeout'))
+    const res = await GET(req(), noRoute)
+    expect(res.status).toBe(502)
+    const body = (await res.json()) as { error: { code: string } }
+    expect(body.error.code).toBe('upstream_unavailable')
   })
 })

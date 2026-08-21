@@ -15,7 +15,16 @@ const InboxSessionSchema = z.object({
   createdAt: z.string(),
   durationSeconds: z.number().nullable(),
   karuteRecordId: z.string().nullable(),
-  jobStatus: z.enum(['QUEUED', 'RUNNING', 'DONE', 'FAILED']).nullable(),
+  // A plain string, NOT an enum, and that is load-bearing: phones run a BAKED
+  // bundle, so a narrow enum would start rejecting this whole payload the day
+  // core adds a fifth status value — every phone's inbox blank until the next
+  // release. The fold narrows it instead, and treats anything it doesn't
+  // recognise as "unknown, still in flight" (the same handling a failed probe
+  // gets). null = a DEFINITIVE no-job answer.
+  jobStatus: z.string().nullable(),
+  /** The probe failed with something other than a 404 — "we don't know", which
+   *  is a different fact from "there is no job". */
+  jobProbeFailed: z.boolean(),
   jobLastError: z.string().nullable(),
 })
 

@@ -208,7 +208,7 @@ export function RecordingsInboxCard({
                       {row.state === 'failed' && <X size={9} aria-hidden="true" />}
                       {row.state === 'processing' && (
                         <i
-                          className="size-1.5 shrink-0 rounded-full bg-blue-500 motion-safe:animate-pulse"
+                          className="size-1.5 shrink-0 rounded-full bg-blue-500/70 motion-safe:animate-pulse dark:bg-blue-300/80"
                           aria-hidden="true"
                         />
                       )}

@@ -13,8 +13,10 @@ let mockPathname = '/dashboard'
 jest.mock('@/i18n/navigation', () => ({
   usePathname: () => mockPathname,
   useRouter: () => ({ push: jest.fn(), back: jest.fn(), refresh: jest.fn() }),
-  Link: ({ children, href }: { children: React.ReactNode; href?: unknown }) => (
-    <a href={typeof href === 'string' ? href : undefined}>{children}</a>
+  Link: ({ children, href, ...rest }: { children: React.ReactNode; href?: unknown }) => (
+    <a href={typeof href === 'string' ? href : undefined} {...rest}>
+      {children}
+    </a>
   ),
 }))
 jest.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }))
@@ -48,7 +50,8 @@ type ServerSession = {
   createdAt: string
   durationSeconds: number | null
   karuteRecordId: string | null
-  jobStatus: 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED' | null
+  jobStatus: string | null
+  jobProbeFailed: boolean
   jobLastError: string | null
 }
 let serverSessions: ServerSession[] = []
@@ -70,6 +73,7 @@ function session(over: Partial<ServerSession> & { recordingSessionId: string }):
     durationSeconds: 900,
     karuteRecordId: null,
     jobStatus: null,
+    jobProbeFailed: false,
     jobLastError: null,
     ...over,
   }
@@ -132,5 +136,38 @@ describe('要対応 badge — desktop sidebar', () => {
     render(<Sidebar />)
     await flush()
     expect(screen.queryByTestId('sidebar-needs-attention')).toBeNull()
+  })
+})
+
+describe('要対応 badge — it has to be ANNOUNCED, not just drawn (FX-5)', () => {
+  it('the mic FAB carries the count in its own aria-label', async () => {
+    // An aria-label REPLACES the element's descendant text, so the badge span
+    // inside the Link is invisible to a screen reader unless the label says it.
+    serverSessions = [
+      session({ recordingSessionId: 'f1', jobStatus: 'FAILED', jobLastError: 'x' }),
+      session({ recordingSessionId: 'f2', jobStatus: 'FAILED', jobLastError: 'y' }),
+    ]
+    render(<BottomNav />)
+    await flush()
+    const link = screen.getByTestId('mic-needs-attention').closest('a')!
+    expect(link.getAttribute('aria-label')).toContain('needsAttentionAria')
+  })
+
+  it('with nothing waiting the FAB label is unchanged', async () => {
+    render(<BottomNav />)
+    await flush()
+    const links = screen.getAllByRole('link')
+    for (const l of links) {
+      expect(l.getAttribute('aria-label') ?? '').not.toContain('needsAttentionAria')
+    }
+  })
+
+  it('the sidebar badge labels itself', async () => {
+    serverSessions = [session({ recordingSessionId: 'f1', jobStatus: 'FAILED', jobLastError: 'x' })]
+    render(<Sidebar />)
+    await flush()
+    expect(screen.getByTestId('sidebar-needs-attention').getAttribute('aria-label')).toBe(
+      'needsAttention',
+    )
   })
 })

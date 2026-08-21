@@ -705,6 +705,7 @@
       "title": "Recording history",
       "caption": "Your recordings from the past 7 days",
       "needsAttention": "{n} need attention",
+      "needsAttentionAria": ", {n} need attention",
       "empty": "No recordings in the past 7 days.",
       "partial": "Some recordings could not be loaded.",
       "today": "Today",

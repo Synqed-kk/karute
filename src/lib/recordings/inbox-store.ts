@@ -22,7 +22,17 @@
  *
  * Refresh: on mount/navigation (the consumers' effects) and on the
  * globalPipeline settle transition — the same signal thin's chrome-store uses,
- * so a run ending updates the rows and the badge with no reload. No polling.
+ * so a run ending updates the rows and the badge with no reload.
+ *
+ * ONE bounded exception to "no polling", and it exists because of the very case
+ * this feature was built for: a SUPERSEDED run's later completion is silent by
+ * construction. The pipeline guards every settle on `runId`, so when a second
+ * recording supersedes the first, the first run's eventual DONE notifies
+ * nothing and no client-side event will ever fire for it. Without a poll a
+ * 処理中 row would sit there until the staffer navigated away and back. So:
+ * while ANY row is processing-class AND a consumer is mounted, re-fold every
+ * 90 s; the timer stops the moment a fold comes back with none. No timer on an
+ * unmounted store, none on a settled list, and never more than one in flight.
  */
 
 import { useEffect, useSyncExternalStore } from 'react'
@@ -53,10 +63,19 @@ const EMPTY: InboxState = {
 let current: InboxState = EMPTY
 const listeners = new Set<() => void>()
 let loading = false
+/** A refresh that arrived while a fold was in flight. The dropped call used to
+ *  be lost outright, so a pipeline settle landing mid-load left the rows and
+ *  the badge showing the PRE-settle world until something else moved. One
+ *  trailing re-run, never a loop: the flag is cleared before the re-run
+ *  starts, so N concurrent calls cost exactly one follow-up fold. */
+let pendingReload = false
 /** Bumped on every sign-out wipe so an in-flight fetch can't write the
  *  PREVIOUS user's sessions into a shared salon device. Same discipline as
  *  chrome-store's epoch / globalPipeline's runId. */
 let epoch = 0
+/** The bounded processing poll (see the header). At most one, ever. */
+let pollTimer: ReturnType<typeof setTimeout> | null = null
+export const INBOX_POLL_MS = 90_000
 
 function set(next: InboxState): void {
   current = next
@@ -71,6 +90,9 @@ export function subscribeInbox(listener: () => void): () => void {
   listeners.add(listener)
   return () => {
     listeners.delete(listener)
+    // Last consumer gone → nothing is watching, so the processing poll stands
+    // down immediately rather than firing one more fetch nobody reads.
+    if (listeners.size === 0) stopPoll()
   }
 }
 
@@ -79,7 +101,29 @@ export function subscribeInbox(listener: () => void): () => void {
 export function resetInbox(): void {
   epoch++
   loading = false
+  pendingReload = false
+  stopPoll()
   set(EMPTY)
+}
+
+function stopPoll(): void {
+  if (!pollTimer) return
+  clearTimeout(pollTimer)
+  pollTimer = null
+}
+
+/** Arm the bounded processing poll for the rows we just folded, or stand it
+ *  down. Called on every settled fold, so a list that goes quiet stops the
+ *  timer by itself and an unmounted store never holds one. */
+function schedulePoll(rows: readonly InboxRow[]): void {
+  stopPoll()
+  // All three processing-class reasons (transcribing / unsettled / the
+  // unknown-job handling) land on this one state.
+  if (listeners.size === 0 || !rows.some((r) => r.state === 'processing')) return
+  pollTimer = setTimeout(() => {
+    pollTimer = null
+    void loadInbox()
+  }, INBOX_POLL_MS)
 }
 
 /** This device's takes, minus the ones a live recorder/pipeline owns. An
@@ -116,12 +160,18 @@ async function readServerSessions() {
 }
 
 /**
- * Re-read both halves and re-fold. Single-flight: a second call while one is in
- * flight is dropped (every consumer mounts its own effect, and the settle
- * subscription fires on top of them).
+ * Re-read both halves and re-fold. Single-flight with a TRAILING re-run: a call
+ * that arrives while a fold is in flight is remembered, not dropped, and runs
+ * exactly once when the current one finishes. Several consumers mount their own
+ * effects and the settle subscription fires on top of them, so concurrent calls
+ * are the normal case — and the one that matters most (a pipeline settle) is
+ * precisely the one that used to be thrown away mid-load.
  */
 export async function loadInbox(): Promise<void> {
-  if (loading) return
+  if (loading) {
+    pendingReload = true
+    return
+  }
   loading = true
   const myEpoch = epoch
   armPipelineWatch()
@@ -144,8 +194,18 @@ export async function loadInbox(): Promise<void> {
       foldedAt,
       serverFailed: server.failed,
     })
+    schedulePoll(rows)
   } finally {
-    if (epoch === myEpoch) loading = false
+    if (epoch === myEpoch) {
+      loading = false
+      // A refresh that arrived mid-fold runs now, once. Cleared BEFORE the
+      // re-run so the re-run's own concurrent callers can set it again without
+      // this one looping.
+      if (pendingReload) {
+        pendingReload = false
+        void loadInbox()
+      }
+    }
   }
 }
 

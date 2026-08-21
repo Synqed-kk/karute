@@ -141,6 +141,7 @@ export function Sidebar() {
   // 要対応 count for the 録音 row (Build F1). Same store the record page and the
   // mic FAB read, so the three surfaces can never show different numbers.
   const { needsAttention } = useRecordingsInbox()
+  const tInbox = useTranslations('recording.inbox')
   const activeId = NAV_ROUTES.find((r) => pathname.startsWith(r.href))?.id
 
   function hrefFor(route: NavRoute): string {
@@ -213,6 +214,7 @@ export function Sidebar() {
                   <span
                     className="ml-auto flex h-[19px] min-w-[19px] items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-1.5 text-[11px] font-bold leading-none tabular-nums text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200"
                     data-testid="sidebar-needs-attention"
+                    aria-label={tInbox('needsAttention', { n: needsAttention })}
                   >
                     {needsAttention}
                   </span>

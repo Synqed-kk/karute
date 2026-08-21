@@ -66,6 +66,8 @@ export type InboxReason =
 
 export type InboxJobStatus = 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED'
 
+const KNOWN_JOB_STATUSES = new Set<string>(['QUEUED', 'RUNNING', 'DONE', 'FAILED'])
+
 /** One recording session as the SERVER can see it. */
 export interface InboxServerSession {
   recordingSessionId: string
@@ -75,8 +77,24 @@ export interface InboxServerSession {
   durationSeconds: number | null
   /** The karute record for this session, when one exists. */
   karuteRecordId: string | null
-  /** Job state, probed only for record-less sessions. null = no job at all. */
-  jobStatus: InboxJobStatus | null
+  /**
+   * The job's status STRING as core reported it, probed only for record-less
+   * sessions. `null` means a DEFINITIVE "no job for this session" (a 404).
+   *
+   * Deliberately a plain string, not the union: a phone runs a BAKED bundle,
+   * so the day core adds a fifth status value a narrow enum would reject the
+   * whole payload and the inbox would go blank on every phone in the field.
+   * An unrecognised value is narrowed below to the same honest "we don't know"
+   * handling a failed probe gets.
+   */
+  jobStatus: string | null
+  /**
+   * The probe itself failed with anything other than a 404 — a timeout, a 5xx,
+   * a network blip. This is NOT "no job": it is "we could not find out", and
+   * the two must never collapse into one signal (a probe blip used to read as
+   * 復元可能, offering 保存する for audio a live job may already be processing).
+   */
+  jobProbeFailed: boolean
   /** Present only on FAILED — mapped to a reason, never rendered raw. */
   jobLastError: string | null
 }
@@ -185,6 +203,18 @@ export function deriveInboxRows(input: {
       continue
     }
 
+    // WE DO NOT KNOW what this job is doing — the probe failed with something
+    // other than a 404, or core reported a status this build has never heard
+    // of. Both mean the same thing and must be handled the same way: treat it
+    // as STILL IN FLIGHT. Never 失敗 (we have no failure to report) and never
+    // 復元可能 even with a take on the device — offering 保存する here would
+    // hand the staffer a save for audio a live job may already be turning into
+    // a record, which is the double-write the whole pipeline is built to avoid.
+    if (s.jobProbeFailed || (s.jobStatus !== null && !KNOWN_JOB_STATUSES.has(s.jobStatus))) {
+      rows.push({ ...base, state: 'processing', reason: 'unsettled' })
+      continue
+    }
+
     if (s.jobStatus === 'QUEUED' || s.jobStatus === 'RUNNING') {
       rows.push({ ...base, state: 'processing', reason: 'transcribing' })
       continue
@@ -205,6 +235,13 @@ export function deriveInboxRows(input: {
     if (s.jobStatus === 'DONE') {
       // DONE with no record is a core anomaly (global-pipeline treats it the
       // same way). No reason to claim beyond the generic one.
+      // ponytail: the 再試行 this offers converges on the SAME core job row
+      // (enqueue is idempotent per recording_session), so on a phone — where
+      // the server path owns the run — a retry re-arms the anomaly rather than
+      // healing it, and fails visibly with the take kept. On web the retry
+      // genuinely heals it (the in-tab pipeline writes the record itself), so
+      // the affordance stays. Upgrade path if this is ever seen in the field:
+      // a core-side "re-mint the job" verb, or hiding retry on the thin arm.
       rows.push({ ...base, state: 'failed', reason: 'genericFailure', canRetry: !!take })
       continue
     }
@@ -215,8 +252,14 @@ export function deriveInboxRows(input: {
       rows.push({ ...base, state: 'recoverable', reason: 'localAudio' })
       continue
     }
+    // ponytail: `now` is the CLIENT's clock and `startedAt` is the SERVER's
+    // stamp, so a badly-skewed device reads ages wrong — far-behind clocks hold
+    // a lost session at 処理中 longer, far-ahead ones call it 失敗 early. Same
+    // assumption the take TTL and the 7-day window already run on. Upgrade path
+    // if drift is ever observed in the field: have the read return the age
+    // server-computed and compare that instead of two clocks.
     rows.push(
-      now - startedAt < SESSION_UNSETTLED_GRACE_MS
+      now - startedAt <= SESSION_UNSETTLED_GRACE_MS
         ? { ...base, state: 'processing', reason: 'unsettled' }
         : { ...base, state: 'failed', reason: 'genericFailure' },
     )

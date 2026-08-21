@@ -705,6 +705,7 @@
       "title": "録音履歴",
       "caption": "過去7日間の自分の録音",
       "needsAttention": "要対応 {n}件",
+      "needsAttentionAria": "、要対応{n}件",
       "empty": "この7日間の録音はありません。",
       "partial": "一部の録音を読み込めませんでした。",
       "today": "今日",

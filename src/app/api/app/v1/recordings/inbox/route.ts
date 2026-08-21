@@ -39,11 +39,15 @@ export const GET = facadeHandler('recordings.inbox', async (ctx) => {
     requestedStoreId: ctx.req.headers.get('store-id'),
   })
 
-  const staffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
-  // No staff identity → no sessions of your own (parity with the web action).
-  if (!staffId) return ok(ctx, RecordingsInboxDTO.parse({ sessions: [] }))
-
   try {
+    // INSIDE the try on purpose: this is a roster read, so a transient core
+    // failure must surface as 502 upstream_unavailable like every other read on
+    // this route (and like screens/record's own roster read). Outside it, the
+    // same blip escaped as a bare 500.
+    const staffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
+    // No staff identity → no sessions of your own (parity with the web action).
+    if (!staffId) return ok(ctx, RecordingsInboxDTO.parse({ sessions: [] }))
+
     const sessions = await readRecordingsInbox({ synqed, staffId, now: new Date() })
     return ok(ctx, RecordingsInboxDTO.parse({ sessions }))
   } catch (err) {
