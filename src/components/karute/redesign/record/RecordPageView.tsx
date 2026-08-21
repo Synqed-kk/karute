@@ -2565,6 +2565,12 @@ export function RecordPageView({
                   customerId: offerBinding.customerId,
                   name: offerBinding.customerName,
                   karuteNumber: offerBinding.karuteNumber ?? null,
+                  // The B-8 filter above removed this binding's own
+                  // appointment from `bookings`, so the row cannot find it
+                  // there. A bound take's appointment IS a booking on the
+                  // recording day (the re-point is day-restricted); a walk-in
+                  // has no appointmentId and correctly keeps 当日の予約なし.
+                  bookedToday: offerBinding.appointmentId != null,
                 }
               : null
           }

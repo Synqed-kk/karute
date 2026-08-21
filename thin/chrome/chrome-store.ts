@@ -15,6 +15,7 @@ import {
   hasKnownSession,
   subscribeSessionState,
 } from '@/lib/auth/mobile/session-store'
+import { globalPipeline, type PipelineState } from '@/lib/global-pipeline'
 import { emitRefresh } from '../ports/nav.vite'
 import { getThinActiveStore, setThinActiveStore } from './store-pref'
 
@@ -174,6 +175,49 @@ export function resyncChromeAfterHeal(): void {
     })
 }
 
+// NEW-2 (field triage 8/19): the idle mic label's next customer is baked into
+// the chrome DTO, and this store fetches that DTO exactly ONCE per signed-in
+// session — nothing recording-related ever refetches, so after a session was
+// recorded the label kept naming the customer who had already left, all shift.
+// Refetch when a pipeline run ENDS: 'idle' (saved or discarded) or 'error'
+// (the errored-run case NEW-2 was actually reported on). One GET per run end,
+// and an ERRORED run ends twice — once when the error card appears, once when
+// the staff dismisses it (error → idle). The post-dismiss GET is kept
+// deliberately: it is the only one that can pick up a recovery-banner save
+// made while the error card was up. No polling, no timers.
+// Silent + best-effort like refetchLensedChrome: a failure keeps the rendered
+// chrome. No seedStoreLens — seeding is a heal/first-boot concern, not this.
+// Web is untouched: its chrome is server-fetched per navigation.
+let refreshingAfterRun = false
+function refreshChromeAfterRun(): void {
+  if (current.status !== 'ready' || refreshingAfterRun) return
+  const myEpoch = epoch
+  refreshingAfterRun = true
+  void fetchChromeDto()
+    .then((dto) => {
+      if (epoch !== myEpoch) return
+      set({ status: 'ready', dto })
+    })
+    .catch(() => {})
+    .finally(() => {
+      refreshingAfterRun = false
+    })
+}
+
+// Module-level subscription, one per bundle lifetime — same idiom as the
+// sign-out block below. The pipeline notifies on every step, so fire on the
+// TRANSITION into an end state only; a run that was already idle/errored has
+// produced nothing new for the chrome to show.
+let prevPipelineState: PipelineState = globalPipeline.state
+globalPipeline.subscribe(() => {
+  const next = globalPipeline.state
+  const ended =
+    (next === 'idle' && prevPipelineState !== 'idle') ||
+    (next === 'error' && prevPipelineState !== 'error')
+  prevPipelineState = next
+  if (ended) refreshChromeAfterRun()
+})
+
 // Fresh-install store lens (design-parity Gap B½): the web defaults an unset
 // active-store cookie to the PRIMARY store (resolveStoreScope), but the facade
 // clamp reads a missing store-id header as unrestricted-in-tenant — so a
@@ -204,6 +248,12 @@ function seedStoreLens(dto: ChromeScreenDTOType): boolean {
 subscribeSessionState(() => {
   if (getSessionState().status === 'signed-out' && current.status !== 'idle') {
     epoch++ // invalidate any in-flight fetch (see the epoch note above)
+    // …and clear the single-flight flags with it: neither fetch aborts (bare
+    // fetch, no AbortController), so a hung one would otherwise leave its flag
+    // true for the platform timeout and silently eat the NEXT legitimate
+    // refetch — on a shared salon device that is the next user's run end.
+    refreshingAfterRun = false
+    resyncing = false
     set({ status: 'idle', dto: null })
   }
 })

@@ -175,6 +175,22 @@ export function DiscreetRecordingIndicator() {
             </button>
           </div>
 
+          {/* Who this recording is FOR (mock M1-C1). `target` is null while an
+           *  anonymous walk-in records (it binds at review) — the whole card is
+           *  omitted then, never a placeholder (same honesty rule as
+           *  RecoveryAutoSavedNotice's omitted lines). Soft blue wash on a
+           *  non-pressable card: the legal wash tier, so no text-primary. */}
+          {target && (
+            <div className="mb-2 flex items-baseline gap-[7px] rounded-lg border border-blue-100 bg-blue-50 px-2.5 py-1.5 dark:border-blue-500/20 dark:bg-blue-500/10">
+              <span className="shrink-0 text-[11px] leading-none text-muted-foreground">
+                {t('customerLabel')}
+              </span>
+              <span className="text-[14px] font-semibold leading-tight text-foreground">
+                {t('customerName', { name: target.customerName })}
+              </span>
+            </div>
+          )}
+
           <div className="mb-2 text-[20px] font-semibold leading-none tabular-nums text-foreground">
             {elapsedStr}
           </div>

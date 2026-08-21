@@ -15,6 +15,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
 import { seedKnownSession, setSessionState } from '@/lib/auth/mobile/session-store'
 import { globalRecorder } from '@/lib/global-recorder'
+import { globalPipeline } from '@/lib/global-pipeline'
 
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
@@ -81,6 +82,13 @@ bindForegroundRevalidate()
 
 afterEach(() => {
   cleanup()
+  // ORDER IS LOAD-BEARING: reset the pipeline BEFORE the sign-out. A reset from
+  // a non-idle state is a run end, so it can launch a real chrome refetch on a
+  // still-'ready' store; the sign-out below bumps the epoch and clears the
+  // single-flight flag, so that fetch can never land in the next test. File-
+  // level (not per-describe) so it holds for any test that touches the
+  // pipeline, wherever it is added.
+  globalPipeline.reset()
   // Two-step reset (established codebase idiom): the signed-out flip clears
   // ScreenBoundary's dtoCache/fetchedAtByPath AND resets chrome-store to idle.
   setSessionState({ status: 'signed-out' })
@@ -378,5 +386,124 @@ describe('fetchedAtByPath hygiene — mirrors dtoCache 1:1', () => {
     expect(fetchedAtByPath.has(path)).toBe(false)
     expect(dtoCache.has(path)).toBe(false)
     setSessionState({ status: 'recovering' })
+  })
+})
+
+// ── NEW-2 (field triage 8/19): the idle mic label went stale for the shift ──
+// The chrome DTO carries nextCustomer and is fetched ONCE per signed-in
+// session, so after a session was recorded the mic kept naming the customer
+// who had already left. A run ENDING refetches it — once, silently.
+describe('chrome refresh when a pipeline run ends', () => {
+  // Production notifies on every state change, so the store sees the
+  // processing notification before the end one. Reproduce that faithfully:
+  // publishSavedRecord notifies WITHOUT touching `state`.
+  function armRunning(): void {
+    globalPipeline.state = 'processing'
+    act(() => globalPipeline.publishSavedRecord(globalPipeline.runId, 'rec-1'))
+  }
+
+  async function loadChrome(apiFetch: jest.Mock): Promise<void> {
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+    await act(async () => {
+      ensureChromeLoaded()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+  }
+
+  it('the END of a run refetches the chrome exactly once — further idle notifications cost nothing', async () => {
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValueOnce(jsonResponse({ data: CHROME_DTO }))
+      .mockResolvedValueOnce(jsonResponse({ data: { ...CHROME_DTO, staffId: 's2' } }))
+    await loadChrome(apiFetch as unknown as jest.Mock)
+    expect(getChromeState().dto?.staffId).toBe('s1')
+
+    armRunning()
+    expect(apiFetch).toHaveBeenCalledTimes(1) // processing is not an end state
+
+    await act(async () => {
+      globalPipeline.reset()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    expect(getChromeState().dto?.staffId).toBe('s2')
+
+    // Already idle — the pipeline notifies plenty (saves, publishes), and none
+    // of it is a run ending. No polling, no second GET.
+    await act(async () => {
+      globalPipeline.reset()
+      globalPipeline.publishSavedRecord(globalPipeline.runId, 'rec-2')
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('an ERRORED run ends TWICE: once at the error card, once when it is dismissed', async () => {
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValue(jsonResponse({ data: CHROME_DTO }))
+    await loadChrome(apiFetch as unknown as jest.Mock)
+
+    armRunning()
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+
+    // The error arm — 'error' is the transition NEW-2 was actually reported on.
+    // Same fake-transition idiom as armRunning: `state` is a plain field, and
+    // publishSavedRecord fires notify() without touching it.
+    await act(async () => {
+      globalPipeline.state = 'error'
+      globalPipeline.publishSavedRecord(globalPipeline.runId, 'rec-err')
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+
+    // Already errored — a repeat notification is not a new end.
+    await act(async () => {
+      globalPipeline.publishSavedRecord(globalPipeline.runId, 'rec-err2')
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+
+    // Dismissing the error card (error → idle) IS a second end, and the second
+    // GET is deliberate: it is the only one that can pick up a recovery-banner
+    // save made while the error card was up.
+    await act(async () => {
+      globalPipeline.reset()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(apiFetch).toHaveBeenCalledTimes(3)
+  })
+
+  it('a chrome store that is not ready is left alone — a run end never starts the first fetch', async () => {
+    const apiFetch = jest.fn<Promise<Response>, unknown[]>()
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+    expect(getChromeState().status).toBe('idle')
+
+    armRunning()
+    await act(async () => {
+      globalPipeline.reset()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(getChromeState().status).toBe('idle')
+  })
+
+  it('a refetch that FAILS keeps the rendered chrome — best-effort, never an empty nav', async () => {
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValueOnce(jsonResponse({ data: CHROME_DTO }))
+      .mockRejectedValueOnce(new Error('chrome 500'))
+    await loadChrome(apiFetch as unknown as jest.Mock)
+
+    armRunning()
+    await act(async () => {
+      globalPipeline.reset()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    expect(getChromeState().status).toBe('ready')
+    expect(getChromeState().dto?.staffId).toBe('s1')
   })
 })

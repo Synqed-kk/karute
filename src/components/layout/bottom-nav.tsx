@@ -399,6 +399,15 @@ function CenterRecordButton({
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   })()
 
+  // WHO is being recorded, under the running clock (mock M1-C2). Null while an
+  // anonymous walk-in records (binds at review) → the line is omitted, never a
+  // placeholder. Full name + 様 rather than the mock's surname-only 「佐藤様」:
+  // same treatment the idle label already gives nextCustomer, and customer
+  // names are not reliably space-delimited so a split would guess.
+  const targetName = target?.customerName
+    ? `${target.customerName}${locale === 'ja' ? '様' : ''}`
+    : null
+
   const closeMenuIfOpen = () => {
     if (menuOpen) setMenuOpen(false)
   }
@@ -423,6 +432,11 @@ function CenterRecordButton({
         <span className="mt-2 text-[10px] font-semibold leading-none tabular-nums text-red-600 dark:text-red-300">
           {elapsedStr}
         </span>
+        {targetName && (
+          <span className="mt-0.5 max-w-[88px] truncate text-[9.5px] font-medium leading-none text-muted-foreground">
+            {targetName}
+          </span>
+        )}
       </div>
     )
   }
@@ -459,6 +473,11 @@ function CenterRecordButton({
         <span className="mt-2 text-[10px] font-semibold leading-none tabular-nums text-red-600 dark:text-red-300">
           {elapsedStr}
         </span>
+        {targetName && (
+          <span className="mt-0.5 max-w-[88px] truncate text-[9.5px] font-medium leading-none text-muted-foreground">
+            {targetName}
+          </span>
+        )}
       </div>
     )
   }

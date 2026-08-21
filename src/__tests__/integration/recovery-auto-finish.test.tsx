@@ -422,10 +422,12 @@ describe('auto-finish lands the record itself', () => {
     expect(mockStampTakeOutcome).not.toHaveBeenCalled()
 
     await pipelineSaves()
-    // B0b's line, plus the 未処理 ticket line (design notes items 5 + 6 are
-    // separate lines — a pack that nobody decided about is its own fact).
-    expect(screen.getByText('recoverAutoOutcomeUnanswered')).toBeTruthy()
-    expect(screen.getByText('recoverAutoTicketUnresolved')).toBeTruthy()
+    // ⚖ 14 (Liam 8/23): 未処理 pack + 未回答 結果 no longer stack as two lines
+    // that both point at the karute — one merged line, and neither single-
+    // condition line may appear alongside it.
+    expect(screen.getByText('recoverAutoTicketAndOutcomeUnanswered')).toBeTruthy()
+    expect(screen.queryByText('recoverAutoOutcomeUnanswered')).toBeNull()
+    expect(screen.queryByText('recoverAutoTicketUnresolved')).toBeNull()
   })
 
   it('③ the mid-pack auto cohort burns silently, exactly as the live stop flow does', async () => {
@@ -494,6 +496,28 @@ describe('auto-finish lands the record itself', () => {
     // The draft's write completes in-line, so its notice needs no pipeline.
     expect(notice()).toBeTruthy()
     expect(banner()).toBeNull()
+  })
+
+  it('a BURNED pack + an unanswered 結果 stays TWO lines — the merge is unresolved-only', async () => {
+    grantConsent()
+    // 残2 = the repurchase cohort: auto-finish never asks it and never burns,
+    // so the 結果 stays owed. The notice's REFETCH then reveals a burn that
+    // landed before the crash — redeemed + owed, the one combination ⚖ 14
+    // deliberately leaves as two lines (the burn is a settled money fact, not
+    // a chore). Widening `merged` to include 'redeemed' fails right here.
+    mockDayFacts
+      .mockImplementationOnce(async () => factsWith({ remaining: 2 }))
+      .mockImplementation(async () =>
+        factsWith({ remaining: 2, redeemedAppointments: ['appt-1'] }),
+      )
+
+    await renderPage()
+    expect(startCtx().recoveryUnanswered).toBe(true)
+
+    await pipelineSaves()
+    expect(screen.getByText('recoverAutoTicketBurned:{"remaining":2,"size":6}')).toBeTruthy()
+    expect(screen.getByText('recoverAutoOutcomeUnanswered')).toBeTruthy()
+    expect(screen.queryByText('recoverAutoTicketAndOutcomeUnanswered')).toBeNull()
   })
 
   it('the notice links to the karute the save actually landed', async () => {

@@ -705,6 +705,65 @@ describe('RecordCustomerPickerDialog — repoint variant', () => {
     expect(screen.getByText('target.repointCurrent')).toBeTruthy()
   })
 
+  // Build C part 4 (defect queued 8/23): `bookings` reaches the dialog B-8-
+  // FILTERED — the binding's own appointment is stripped as a duplicate of the
+  // pinned row — so a bound take whose customer has only that one booking is
+  // absent from the day list and the pinned row said 当日の予約なし about the
+  // very booking it represents. The caller now asserts the fact.
+  it('a BOUND pinned take reads 予約あり even though its booking is filtered out of the day list', () => {
+    render(
+      <RecordCustomerPickerDialog
+        variant="repoint"
+        customers={[]}
+        bookings={[dayBooking]}
+        pinned={{
+          customerId: 'cust-1',
+          name: '佐藤 美咲',
+          karuteNumber: '#00058',
+          bookedToday: true,
+        }}
+        dayLabel="8月18日(月)"
+        cancelLabel="cancel"
+        onSelectBooking={jest.fn()}
+        onSelectCustomer={jest.fn()}
+        onClose={jest.fn()}
+      />,
+    )
+    expect(screen.getByText('target.repointPinnedNote')).toBeTruthy()
+    expect(screen.queryByText('target.repointPinnedNoBooking')).toBeNull()
+  })
+
+  // …and the CALLER side of the same fix. The two tests above hand `bookedToday`
+  // in by hand, so they pin the dialog's OR-merge but not the one line that
+  // actually derives it (RecordPageView: `offerBinding.appointmentId != null`).
+  // This opens the real 保存先を変更 from the real banner, on a bound take whose
+  // only booking that day is the one B-8 strips out — so nothing but the
+  // caller's flag can make the pinned row read 予約あり.
+  it('the PAGE wires the flag: a bound take’s repoint picker reads 予約あり end to end', async () => {
+    DAY_FACTS.bookings = [
+      {
+        ...dayBooking,
+        id: 'appt-1',
+        customer: '佐藤 美咲',
+        customerId: 'cust-1',
+        karute: '#00058',
+      },
+    ] as never
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverRepoint'))
+      for (let i = 0; i < 4; i++) await Promise.resolve()
+    })
+    expect(screen.getByText('target.repointPinnedNote')).toBeTruthy()
+    expect(screen.queryByText('target.repointPinnedNoBooking')).toBeNull()
+  })
+
+  it('a WALK-IN pinned take (no flag, not in the day list) still reads 当日の予約なし', () => {
+    renderRepoint()
+    expect(screen.getByText('target.repointPinnedNoBooking')).toBeTruthy()
+    expect(screen.queryByText('target.repointPinnedNote')).toBeNull()
+  })
+
   it('has NO search box — a customer who was not in the salon that day is unreachable', () => {
     renderRepoint()
     expect(screen.queryByRole('combobox')).toBeNull()

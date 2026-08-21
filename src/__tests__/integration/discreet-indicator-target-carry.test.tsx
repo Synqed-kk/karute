@@ -9,14 +9,15 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 
 let mockRecState: 'idle' | 'recording' | 'paused' = 'idle'
-let mockTarget: { customerId: string } | null = null
+let mockTarget: { customerId: string; customerName?: string } | null = null
 const push = jest.fn()
 
 jest.mock('@/i18n/navigation', () => ({
   useRouter: () => ({ push, back: jest.fn() }),
 }))
 jest.mock('next-intl', () => ({
-  useTranslations: () => (key: string) => key,
+  useTranslations: () => (key: string, params?: Record<string, unknown>) =>
+    params ? `${key}:${JSON.stringify(params)}` : key,
 }))
 jest.mock('@/hooks/use-global-recorder', () => ({
   useGlobalRecorder: () => ({
@@ -75,5 +76,28 @@ describe('DiscreetRecordingIndicator — 開く carries the live target', () => 
     expect(screen.getByText('openPage')).toBeInTheDocument()
     fireEvent.pointerDown(document.body)
     expect(screen.queryByText('openPage')).not.toBeInTheDocument()
+  })
+})
+
+// ── Build C part 1a (mock M1-C1): the popover names who this is for ────────
+describe('DiscreetRecordingIndicator — the customer nameline', () => {
+  it('shows the label + the bound name when a customer is bound', () => {
+    mockRecState = 'recording'
+    mockTarget = { customerId: 'cust-A', customerName: '佐藤 美咲' }
+    render(<DiscreetRecordingIndicator />)
+    fireEvent.click(screen.getByLabelText('dotAria'))
+    expect(screen.getByText('customerLabel')).toBeInTheDocument()
+    // 様 comes from the message file, never hardcoded in the TSX.
+    expect(screen.getByText('customerName:{"name":"佐藤 美咲"}')).toBeInTheDocument()
+  })
+
+  it('omits the whole card for an anonymous take — never a placeholder', () => {
+    mockRecState = 'recording'
+    mockTarget = null
+    render(<DiscreetRecordingIndicator />)
+    fireEvent.click(screen.getByLabelText('dotAria'))
+    expect(screen.getByText('openPage')).toBeInTheDocument() // popover IS open
+    expect(screen.queryByText('customerLabel')).not.toBeInTheDocument()
+    expect(screen.queryByText(/^customerName/)).not.toBeInTheDocument()
   })
 })
