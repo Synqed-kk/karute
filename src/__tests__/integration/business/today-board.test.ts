@@ -747,6 +747,20 @@ describe('今日の運営 screen', () => {
     expect(tomorrow.dialogs.blockers.map(([k]) => k)).not.toContain('決済端末')
     expect(tomorrow.dialogs.terminal.rows).toEqual([])
 
+    // NOW belongs to today only. `boardNow` is the pinned board moment, so a
+    // day being viewed must not wear 13:24 as its own current time anywhere:
+    // the 閉店準備 stamp is dropped (the dialog is titled with its own date),
+    // the now-line and the 販売可能枠 grid were already null, and 次のお客様
+    // stops filtering a day against an hour that has not happened on it.
+    expect(t.dialogs.closing.sub).toContain(`${t.nowLabel}現在`)
+    expect(t.myDay!.next).toContain('様')
+    expect(tomorrow.dialogs.closing.sub).not.toContain(tomorrow.nowLabel)
+    expect(tomorrow.dialogs.closing.sub).not.toContain('現在')
+    expect(tomorrow.dialogs.closing.title).not.toBe(t.dialogs.closing.title)
+    expect(tomorrow.nowFraction).toBeNull()
+    expect(tomorrow.sell.nowMinute).toBeNull()
+    expect(tomorrow.myDay!.next).toBe('予約はありません')
+
     // The day itself is still a real board: the standing planes came through.
     expect(tomorrow.lanes.length).toBe(t.lanes.length)
     expect(tomorrow.hours).toEqual(t.hours)

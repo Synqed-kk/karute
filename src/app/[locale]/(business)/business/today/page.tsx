@@ -203,7 +203,10 @@ export default async function TodayPage({
   // ── D: 自分の1日 ──────────────────────────────────────────────────────────
   const mineShift = planes.shifts.find((s) => s.staff_id === shell.operator.staff_id) ?? null
   const mineBookings = bookings.filter((b) => b.staffId === shell.operator.staff_id)
-  const mineNext = mineBookings.find((b) => b.startMinute >= planes.boardNow) ?? null
+  // 次のお客様 is "next" relative to NOW, and now only exists on today. On a day
+  // being viewed the whole day is still ahead, so the day's first booking is the
+  // next one — filtering it against today's 13:24 dropped that day's morning.
+  const mineNext = mineBookings.find((b) => dayOffset !== 0 || b.startMinute >= planes.boardNow) ?? null
   const minePending = open.filter((d) => d.owner_staff_id === shell.operator.staff_id)
 
   // ── E5: ご来店中 ──────────────────────────────────────────────────────────
@@ -442,7 +445,10 @@ export default async function TodayPage({
       ? {
           next: mineNext
             ? `${hhmm(mineNext.startMinute)} ${mineNext.customerName}様（${mineNext.category === 'new' ? '新規' : '再来'}・${mineNext.endMinute - mineNext.startMinute}分）`
-            : '本日の残り予約はありません',
+            // 「残り」 is a claim about now, so it is only true of today.
+            : dayOffset === 0
+              ? '本日の残り予約はありません'
+              : '予約はありません',
           pending: minePending.length === 0 ? 'なし' : `${minePending.length}件 — ${minePending[0].kind}の確認`,
           pendingWarn: minePending.length > 0,
           todayCount: `${mineBookings.length}件`,
@@ -525,7 +531,11 @@ export default async function TodayPage({
       },
       closing: {
         title: `${fmtDayShort.format(shownAt)}の閉店準備`,
-        sub: `${hhmm(planes.boardNow)}現在。予約、精算、決済端末、現金、回数券の阻害を先に確認します`,
+        // 「HH:MM現在」 is TODAY's clock (`boardNow`, the pinned board moment).
+        // A day being VIEWED gets the same checklist with no timestamp at all,
+        // rather than wearing today's now as its own current time — the dialog
+        // is already titled with the date it belongs to.
+        sub: `${dayOffset === 0 ? `${hhmm(planes.boardNow)}現在。` : ''}予約、精算、決済端末、現金、回数券の阻害を先に確認します`,
         checks: [
           ['予約終了', incident ? `未連絡 ${incident.waitingContact}件` : '未連絡 0件', (incident?.waitingContact ?? 0) > 0],
           ['精算', `未精算 ${totals.awaiting}件`, totals.awaiting > 0],
