@@ -26,6 +26,7 @@ import { listAllCustomers } from '@/lib/customers/list-all'
 import { getCustomer } from '@/lib/customers/queries'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
 import { auditWeb } from '@/lib/audit-web'
+import { lookupProfileIdForSynqedStaffId } from '@/lib/synqed/staff-map'
 
 interface KaruteDetailPageProps {
   params: Promise<{ id: string; locale: string }>
@@ -55,6 +56,16 @@ export default async function KaruteDetailPage({
     ])
   if (!karute) notFound()
 
+  // Recorder-lock fix (⚖ Liam 8/22): the karute's staff_profile_id sometimes
+  // carries a synqed-core staff CARD id (not a Supabase profile id) — those
+  // rows locked the recorder out of her own transcript. Translate card→profile
+  // for the ACL compare only; `?? original` keeps profile-id-stamped rows
+  // (the common case) and card ids with no linked profile unchanged.
+  const ownerProfileId = karute.staff_profile_id
+    ? ((await lookupProfileIdForSynqedStaffId(karute.staff_profile_id)) ??
+      karute.staff_profile_id)
+    : null
+
   const customerId = karute.client_id ?? null
 
   // Customer contact + consent are both cached per-customer with their own tag
@@ -71,7 +82,7 @@ export default async function KaruteDetailPage({
   // Post-fetch assembly is shared with the facade screen GET (packet 07) so web
   // and thin can never derive a different view-model from the same raw wave.
   const built = buildKaruteDetailScreen({
-    karute,
+    karute: { ...karute, staff_profile_id: ownerProfileId },
     allCustomers,
     outcome,
     viewerStaffId,

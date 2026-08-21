@@ -23,6 +23,17 @@ jest.mock('@supabase/supabase-js', () => ({
   }),
 }))
 jest.mock('@synqed-kk/client', () => ({ SynqedClient: jest.fn(), SynqedError: class extends Error {} }))
+// Recorder-lock fix (2026-08-30 packet): regenerateKaruteWithClient now
+// calls staff-map's card-id→profile-id lookup on every non-null staff_id.
+// This suite's fixtures already stamp staff_id with a profile id
+// ('auth-user-1' / 'other-staff') — the translation is out of scope here
+// (pinned in app-api-karute-detail-screen.test.ts) — so it's mocked to
+// null, which `?? original` in the caller resolves back to the raw id,
+// preserving this suite's existing ACL behavior unchanged.
+jest.mock('@/lib/synqed/staff-map', () => ({
+  lookupProfileIdForSynqedStaffId: jest.fn(async () => null),
+  lookupProfileIdForSynqedStaffIdForBusiness: jest.fn(async () => null),
+}))
 
 const capabilities = { current: new Set<string>(['records.write']) }
 const roster = { current: [{ id: 'auth-user-1', full_name: '田中' }] as Array<{ id: string; full_name: string }> }

@@ -27,6 +27,15 @@ jest.mock('@/lib/supabase/karute', () => ({
 }))
 jest.mock('@/lib/karute/outcome', () => ({ getKaruteOutcome: jest.fn(async () => null) }))
 jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn(async () => ({})) }))
+// Recorder-lock fix (2026-08-30 packet): the page now imports staff-map.ts
+// for the card-id→profile-id translation. This fixture's karute has no
+// staff_profile_id (untested here — pinned separately in
+// app-api-karute-detail-screen.test.ts), so the lookup is never called; the
+// mock only exists to keep the real module (which imports @synqed-kk/client,
+// an unmocked ESM package) out of this suite's module graph.
+jest.mock('@/lib/synqed/staff-map', () => ({
+  lookupProfileIdForSynqedStaffId: jest.fn(async () => null),
+}))
 jest.mock('@/lib/auth/require-permission', () => ({ can: jest.fn(async () => false) }))
 jest.mock('@/lib/customers/list-all', () => ({
   listAllCustomers: jest.fn(async () => ({ customers: [] })),

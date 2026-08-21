@@ -8,6 +8,10 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
 import { canViewTranscript } from '@/lib/auth/recording-acl'
 import {
+  lookupProfileIdForSynqedStaffId,
+  lookupProfileIdForSynqedStaffIdForBusiness,
+} from '@/lib/synqed/staff-map'
+import {
   enforceAiRateLimitWithClient,
   reportAiUsageWithClient,
 } from '@/lib/ai-rate-limit'
@@ -351,7 +355,15 @@ export async function regenerateKaruteWithClient(
 
   // Recording-privacy ACL server-gate (#4): withholding the transcript also
   // withholds the regenerate — it reads the same raw text. Fail closed.
-  const ownerStaffId = (record.staff_id as string | null) ?? null
+  // Recorder-lock fix (⚖ Liam 8/22): record.staff_id may carry a synqed-core
+  // staff CARD id rather than a profile id — translate before the compare,
+  // `?? original` keeps profile-id-stamped rows and unlinked cards unchanged.
+  const rawOwnerStaffId = (record.staff_id as string | null) ?? null
+  const ownerStaffId = rawOwnerStaffId
+    ? ((businessId
+        ? await lookupProfileIdForSynqedStaffIdForBusiness(rawOwnerStaffId, businessId)
+        : await lookupProfileIdForSynqedStaffId(rawOwnerStaffId)) ?? rawOwnerStaffId)
+    : null
   if (!canViewTranscript({ ownerStaffId, viewerStaffId, canViewAll })) {
     throw new AppApiError('forbidden', 'You cannot regenerate a recording you are not allowed to view.')
   }

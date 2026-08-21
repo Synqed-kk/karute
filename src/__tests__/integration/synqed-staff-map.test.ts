@@ -105,6 +105,14 @@ async function loadLookupFn() {
   return fn
 }
 
+async function loadForwardLookupFn() {
+  let fn!: typeof import('@/lib/synqed/staff-map').lookupProfileIdForSynqedStaffId
+  await jest.isolateModulesAsync(async () => {
+    fn = (await import('@/lib/synqed/staff-map')).lookupProfileIdForSynqedStaffId
+  })
+  return fn
+}
+
 beforeEach(() => {
   jest.resetModules()
   mockStaff = []
@@ -292,6 +300,45 @@ describe('lookupSynqedStaffId — pure lookup, no create', () => {
     const lookup = await loadLookupFn()
     await expect(lookup('profile-missing')).resolves.toBeNull()
     expect(staffCreate).not.toHaveBeenCalled()
+  })
+})
+
+// Forward translation (recorder-lock fix, 2026-08-30 packet): synqed-core
+// staff CARD id → Supabase profile id (staff.user_id). Read-only — no
+// self-heal, no create, reuses the same cached roster as the reverse lookups
+// above (never a raw staff.list() re-fetch of its own).
+describe('lookupProfileIdForSynqedStaffId — forward (card id → profile id) lookup', () => {
+  it('returns the linked profile id for a known card id', async () => {
+    mockDeps({
+      staff: [{ id: 'card-101', user_id: 'profile-1', email: 'a@x.com' }],
+    })
+    const lookup = await loadForwardLookupFn()
+    await expect(lookup('card-101')).resolves.toBe('profile-1')
+  })
+
+  it('returns null when the id is not a known card id', async () => {
+    mockDeps({
+      staff: [{ id: 'card-101', user_id: 'profile-1', email: 'a@x.com' }],
+    })
+    const lookup = await loadForwardLookupFn()
+    await expect(lookup('not-a-card-id')).resolves.toBeNull()
+  })
+
+  it('returns null when the matched card has no linked profile (user_id null)', async () => {
+    mockDeps({
+      staff: [{ id: 'card-201', user_id: null, email: 'b@x.com' }],
+    })
+    const lookup = await loadForwardLookupFn()
+    await expect(lookup('card-201')).resolves.toBeNull()
+  })
+
+  it('reuses the cached roster — a single lookup makes exactly one staff.list call', async () => {
+    mockDeps({
+      staff: [{ id: 'card-101', user_id: 'profile-1', email: 'a@x.com' }],
+    })
+    const lookup = await loadForwardLookupFn()
+    await lookup('card-101')
+    expect(staffListMock).toHaveBeenCalledTimes(1)
   })
 })
 

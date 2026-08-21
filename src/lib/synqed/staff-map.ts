@@ -107,6 +107,26 @@ export async function lookupSynqedStaffIdForBusiness(
   return null
 }
 
+/** Reverse translation: synqed-core staff (card) id → Supabase profile id
+ *  (staff.user_id). Read-only — no self-heal, no create, no extra fetch
+ *  (reuses the cached roster). Returns null when the id isn't a known card
+ *  id or the card has no linked profile (user_id null) — callers keep their
+ *  original id via `?? original`. */
+export async function lookupProfileIdForSynqedStaffIdForBusiness(
+  synqedStaffId: string,
+  businessId: string,
+): Promise<string | null> {
+  const staff = await synqedStaffListByBusiness(businessId)
+  return staff.find((s) => s.id === synqedStaffId)?.user_id ?? null
+}
+
+/** Cookie path twin — resolves businessId via getBusinessId(). */
+export async function lookupProfileIdForSynqedStaffId(
+  synqedStaffId: string,
+): Promise<string | null> {
+  return lookupProfileIdForSynqedStaffIdForBusiness(synqedStaffId, await getBusinessId())
+}
+
 /**
  * Translate a Supabase profile id to its synqed-core staff id, creating the
  * synqed record on demand when none exists (booking flow: appointments FK to
