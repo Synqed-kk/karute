@@ -78,6 +78,12 @@ function appt(overrides: Partial<Appointment> = {}): Appointment {
     source: 'MANUAL',
     external_refs: {},
     cancelled_at: null,
+    // SDK 1.28.0 made these four required on Appointment. Untouched-by-staff
+    // shape for a MANUAL booking; nothing in ai-outreach reads them.
+    status_source: 'STAFF',
+    status_set_by: null,
+    status_reason: null,
+    status_set_at: null,
     created_at: '2026-08-01T00:00:00.000Z',
     updated_at: '2026-08-01T00:00:00.000Z',
     ...overrides,

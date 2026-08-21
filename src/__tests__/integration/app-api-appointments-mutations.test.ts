@@ -194,6 +194,21 @@ describe('POST /api/app/v1/appointments (create)', () => {
     expect(apptCreate).not.toHaveBeenCalled()
   })
 
+  it('an over-long Idempotency-Key → 400, no write; the 200-char cap itself passes', async () => {
+    const over = await createPOST(
+      post(CREATE_URL, CREATE_BODY, { 'idempotency-key': 'k'.repeat(201) }),
+      noParams,
+    )
+    expect(over.status).toBe(400)
+    expect(apptCreate).not.toHaveBeenCalled()
+
+    const atCap = await createPOST(
+      post(CREATE_URL, CREATE_BODY, { 'idempotency-key': 'k'.repeat(200) }),
+      noParams,
+    )
+    expect(atCap.status).toBe(201)
+  })
+
   it('unknown field → 400 (strict schema), no write', async () => {
     const res = await createPOST(
       post(CREATE_URL, { ...CREATE_BODY, storeId: 'store-B' }),
@@ -338,6 +353,12 @@ describe('POST /api/app/v1/appointments/[id]/cancel', () => {
     expect(await res.json()).toEqual({ success: true })
     expect(apptUpdate).toHaveBeenCalledTimes(1)
     expect(addRedemption).toHaveBeenCalledTimes(1)
+    // core #69, end to end: the REAL header on the request (`idem` above)
+    // survives route → BookingActor → cancel core → store, so whatever key the
+    // client sent is the key core will see.
+    expect(addRedemption).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: 'test-key-1' }),
+    )
   })
 })
 
@@ -360,6 +381,10 @@ describe('POST /api/app/v1/appointments/[id]/no-show', () => {
     expect(apptUpdate).toHaveBeenCalledWith(
       'appt-1',
       expect.objectContaining({ status: 'NO_SHOW' }),
+    )
+    // Same end-to-end pin as the cancel twin above (core #69).
+    expect(addRedemption).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: 'test-key-1' }),
     )
   })
 })

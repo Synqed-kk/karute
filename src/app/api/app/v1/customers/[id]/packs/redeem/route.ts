@@ -53,7 +53,13 @@ async function customerId(ctx: FacadeContext<Params>): Promise<string> {
 
 export const POST = facadeHandler<Params>('customer.pack.redeem', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'customers.view')
-  requireIdempotencyKey(ctx.req)
+  // The client's key, now FORWARDED to core's redemption dedup (#69) instead of
+  // only being presence-checked: a burn arriving twice under the SAME key
+  // replays the stored row rather than spending a second session. No client
+  // sends one twice YET — idemPost mints per call, and facadeApiFetch's
+  // stranded-pin heal replays a request the clamp rejected BEFORE any write —
+  // so this is the SERVER half, waiting on the queued per-gesture key.
+  const idempotencyKey = requireIdempotencyKey(ctx.req)
   const id = await customerId(ctx)
   const synqed = newSynqedClient(ctx.identity.businessId)
   await proveCustomerInBusiness(synqed, id)
@@ -83,6 +89,7 @@ export const POST = facadeHandler<Params>('customer.pack.redeem', async (ctx) =>
     karuteRecordId: parsed.data.karuteRecordId ?? null,
     source: parsed.data.source,
     recovery: parsed.data.recovery,
+    idempotencyKey,
   })
   if (!result.ok) {
     // Over-redeem / double-burn guard (trg_pack_below_zero) → a conflict, not a

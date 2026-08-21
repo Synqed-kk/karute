@@ -21,7 +21,11 @@ const NoShowSchema = z.object({ burnPack: z.boolean() }).strict()
 
 export const POST = facadeHandler<Params>('appointment.noShow', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'bookings.manage')
-  requireIdempotencyKey(ctx.req)
+  // Captured, not just presence-checked: the ticket burn inside the core
+  // forwards it to core's redemption dedup (#69). No NEW protection here — a
+  // no-show burn always has an appointment_id, which the DB's partial unique
+  // index already dedupes — it keeps the two burn paths consistent.
+  const idempotencyKey = requireIdempotencyKey(ctx.req)
 
   const { id } = await ctx.route.params
   if (!id) throw new AppApiError('validation', 'appointment id is required')
@@ -49,6 +53,7 @@ export const POST = facadeHandler<Params>('appointment.noShow', async (ctx) => {
     businessId,
     source: 'facade',
     requestId: ctx.meta.requestId,
+    idempotencyKey,
   })
   return ok(ctx, result)
 })

@@ -175,6 +175,16 @@ export interface AddRedemptionInput {
    *  the ticket is spent but no visit happened, so visit-count-driven surfaces
    *  (lifecycle, dormancy) must not treat it as one. */
   countsAsVisit?: boolean
+  /** Core's redemption dedup (core #69, SDK 1.28.0 → `Idempotency-Key`): a
+   *  burn arriving twice under the SAME key replays the stored row instead of
+   *  burning a second session. Aimed at the walk-in hole the DB's partial
+   *  unique index cannot see — it keys on appointment_id, and NULL never equals
+   *  NULL. Only bites once the key is minted ONCE per user gesture and reused
+   *  by every re-send of it: that CLIENT half is QUEUED (today's idemPost mints
+   *  per call), so what lands here is the SERVER half. Set only by callers with
+   *  a client-supplied key (the facade routes' Idempotency-Key header). Omitted
+   *  → no header → exactly today's behavior. */
+  idempotencyKey?: string
 }
 
 /** Check one session off a pack. The caller decides WHEN consumption happens
@@ -205,8 +215,13 @@ export async function addRedemptionWithClient(
     }
     // SDK-skew cast: @synqed-kk/client 1.11.0's addRedemption() type doesn't
     // declare counts_as_visit yet (synqed-core #39) — cast to send it.
+    // (Re-checked on 1.28.0: AddRedemptionInput STILL has no counts_as_visit,
+    // so the cast stays load-bearing.)
     const { id } = await synqed.packs.addRedemption(
       payload as Parameters<typeof synqed.packs.addRedemption>[0],
+      // Undefined is identical to omitting the arg (the SDK reads
+      // `options?.idempotencyKey`), so an unkeyed caller sends no header.
+      input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : undefined,
     )
     return { ok: true, id }
   } catch (err) {

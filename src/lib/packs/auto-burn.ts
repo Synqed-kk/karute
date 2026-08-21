@@ -447,6 +447,15 @@ export async function autoBurnForBusiness(
  * coveredBy proof). The driver legitimately returns without emitting when there
  * is nothing to burn, which is not something a per-mutation writer contract can
  * express; this is.
+ *
+ * NO idempotencyKey (core #69), deliberately — the one path in the map that
+ * stays unkeyed. There is no client identity to key on: a cron tick has no
+ * inbound request (see the audit note below), so any key minted here would be
+ * fresh on every attempt and dedupe nothing. It needs none, either — this path
+ * is already double-burn-guarded twice over: the driver's own history ledger
+ * (guard 1) and the DB's appointment-scoped partial unique index, which works
+ * here precisely because a cron burn always has an appointment_id.
+ * ponytail: unkeyed by design, not by omission.
  */
 export async function burnOneAutoRedemption(
   synqed: Pick<SynqedClient, 'packs'>,

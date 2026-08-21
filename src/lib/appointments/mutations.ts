@@ -46,6 +46,17 @@ type BookingActor = {
    *  the facade twin. Optional only because a couple of tests construct a
    *  BookingActor without it — every real caller threads it. */
   requestId?: string
+  /** The CLIENT's Idempotency-Key, when there is one — forwarded to core's
+   *  redemption dedup (#69) by the ticket burn these two cores share. Set by
+   *  the facade twins only (straight off the header); the web actions leave it
+   *  unset, since a server-minted key is unique per execution and would dedupe
+   *  nothing. Adds no protection HERE today — a booking burn always has an
+   *  appointment_id, so the DB's partial unique index (plus the
+   *  appointmentAlreadyBurned pre-check) already dedupes it — it is threaded
+   *  for consistency with core's design.
+   *  NOT requestId: that one is minted per REQUEST on both sides, so it
+   *  differs between the two halves of a retried action. */
+  idempotencyKey?: string
 }
 
 /** A no-show or a same-day-contact cancel is the one shape where a ticket may
@@ -192,6 +203,7 @@ async function executeGuardedBurn(
   appt: { customer_id: string; starts_at: string; created_at: string },
   appointmentId: string,
   target: { id: string },
+  idempotencyKey?: string,
 ): Promise<'below_zero' | 'burn_failed' | 'already_burned' | null> {
   // The window starts a day before the EARLIER of starts_at and created_at —
   // not starts_at alone (Fable fix-round finding, 2026-07-27). starts_at is
@@ -213,6 +225,7 @@ async function executeGuardedBurn(
     appointmentId,
     source: 'manual',
     countsAsVisit: false,
+    idempotencyKey,
   })
   if (!burn.ok) return burn.error === 'below_zero' ? 'below_zero' : 'burn_failed'
   return null
@@ -299,7 +312,7 @@ export async function cancelAppointmentCore(
       // Same ordering contract as the no-show burn: status FIRST, burn LAST —
       // a failed burn can never strand a spent ticket, and the partial
       // outcome (cancel recorded, ticket not consumed) reaches the staff.
-      burnError = await executeGuardedBurn(synqed, appt, appointmentId, burnTarget)
+      burnError = await executeGuardedBurn(synqed, appt, appointmentId, burnTarget, actor.idempotencyKey)
     }
     // 自動消化 parity (packet 11 fix round, blind-round F4) — the SAME rider the
     // no-show path got at L1#6, and the settings copy is why it matters: it
@@ -460,7 +473,9 @@ export async function markNoShowAppointmentCore(
       patch as unknown as Parameters<typeof synqed.appointments.update>[1],
     )
 
-    let burnError = target ? await executeGuardedBurn(synqed, appt, appointmentId, target) : null
+    let burnError = target
+      ? await executeGuardedBurn(synqed, appt, appointmentId, target, actor.idempotencyKey)
+      : null
     // 自動消化 correction (packet 11 rider, L1#6). With auto mode on, a booking
     // the cron already burned can still be corrected to NO_SHOW afterwards. The
     // burn path is already safe (guard 1 → 'already_burned', never a second
