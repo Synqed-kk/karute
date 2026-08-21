@@ -987,6 +987,11 @@ export function TodayScreen(props: TodayProps) {
       const viewport = { width: window.innerWidth, height: window.innerHeight }
       const box = card?.getBoundingClientRect()
       const self = el.getBoundingClientRect()
+      // ANCHOR NOT IN THE DOM → the pill, whatever unmounted it. `cardNodes`
+      // returns nothing, so `box` is undefined and this falls to `!at` below by
+      // the same road as an off-screen card. The rule is deliberately about the
+      // NODE, not about any one reason it went away.
+      //
       // Off screen, or no side of the card can hold the whole surface without
       // covering it (⚖ Liam 8/21: he has to SEE what he moved) → the pill.
       const at = box && anchorOnScreen(box, viewport) ? holdPopAnchor(box, self.width, self.height, viewport) : null
@@ -1011,7 +1016,18 @@ export function TodayScreen(props: TodayProps) {
       window.removeEventListener('scroll', coarse, true)
       window.removeEventListener('resize', coarse)
     }
-  }, [holdAnchorId, holdPinned, moves, props.dayOffset])
+    // Greptile #738 P1 — the rule above only helps if this effect RE-RUNS when
+    // the anchor leaves the DOM. Exactly two STATES unmount a card: `collapsed`
+    // (the group folded away, :2014) and `view` (the staff/beds segmented
+    // control, which gates both the lane :2013 and the whole group :2692).
+    // Neither was here, so collapsing the group holding a staged 仮押さえ left the
+    // popover floating at the coordinates of a card that no longer existed. Both
+    // are listed now, so the pill engages on either, and expanding re-anchors by
+    // the same road.
+    // ponytail: enumerated because `renderLane`'s gates are enumerable and this
+    // suite cannot render. A board-level ResizeObserver feeding `coarse` would
+    // cover unmount paths generically — take it if a third gate ever appears.
+  }, [holdAnchorId, holdPinned, collapsed, view, moves, props.dayOffset])
 
   function stage(id: string, laneKey: string, span: { x: number; w: number }, from: Move) {
     setMoves((was) => ({ ...was, [id]: { laneKey, ...span } }))

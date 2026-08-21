@@ -2063,11 +2063,54 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     expect(SRC).toContain('const coarse = () => { clearTimeout(t); t = setTimeout(pin, 120) }')
     expect(SRC).toContain("window.addEventListener('scroll', coarse, true)")
     // The effect keys on the ID, not the object it is rebuilt in every render.
-    expect(SRC).toContain('}, [holdAnchorId, holdPinned, moves, props.dayOffset])')
+    // RENEGOTIATED (Greptile #738 P1): the dep array gained the two gates that
+    // can unmount the anchor card — see the collapse test below.
+    expect(SRC).toContain('}, [holdAnchorId, holdPinned, collapsed, view, moves, props.dayOffset])')
     // A standing 仮押さえ this session did not stage is ALWAYS the pill: anchored,
     // it sat on the board indefinitely and swallowed the pointerdown of a card in
     // the lane below (measured, 2026-08-21).
     expect(SRC).toContain('          // The day\'s own standing 仮押さえ (the incident\'s) — the pill, always.\n          anchorId: null,')
+  })
+
+  /** Greptile #738 P1 — COLLAPSING THE GROUP UNMOUNTS THE ANCHOR.
+   *
+   *  `renderLane` returns null for a collapsed group (:2004), so the staged
+   *  card's node leaves the DOM while the 仮押さえ is still live. The positioning
+   *  effect's anchor-missing branch already answers this correctly — but it
+   *  never ran, because neither gate that can unmount a card was in its dep
+   *  array. The popover stayed at the coordinates of a card that no longer
+   *  existed, anchored to nothing.
+   *
+   *  The fence forbids a DOM renderer in this folder, so the TRIGGER is pinned
+   *  by source (as all wiring in this suite is) and the ROAD it takes is driven
+   *  on real jsdom nodes below. */
+  it('an anchor that leaves the DOM — collapse included — falls back to the pill', () => {
+    // BOTH gates `renderLane` returns null on, so a view switch cannot silently
+    // reintroduce the same bug the collapse did.
+    expect(SRC).toContain('}, [holdAnchorId, holdPinned, collapsed, view, moves, props.dayOffset])')
+    expect(SRC).toContain('if (collapsed.includes(lane.group)) return null')
+    // The rule is about the NODE, not about any one reason it went away.
+    expect(SRC).toContain('const card = anchorId ? cardNodes(boardRef.current, anchorId)[0] : null')
+    expect(SRC).toContain('      if (!at) {\n        setHoldPinned(true)')
+
+    // …and the road really is reachable: a collapsed group takes its whole lane
+    // out, so the anchor lookup the effect performs comes back empty.
+    const board = document.createElement('div')
+    board.innerHTML =
+      '<div class="lane" data-group="staff"><div class="event" data-book="bk-1"></div></div>'
+    expect(cardNodes(board, 'bk-1')).toHaveLength(1)
+    const anchored = cardNodes(board, 'bk-1')[0]
+    rect(anchored, { left: 400, top: 300, width: 110, height: 67 })
+    const vp = { width: 1440, height: 1100 }
+    expect(anchorOnScreen(anchored.getBoundingClientRect(), vp)).toBe(true)
+    expect(holdPopAnchor(anchored.getBoundingClientRect(), 340, 120, vp)).not.toBeNull()
+
+    // collapse: the lane is gone, and with it the only node the popover can hang on
+    board.querySelector('.lane[data-group="staff"]')!.remove()
+    expect(cardNodes(board, 'bk-1')).toHaveLength(0)
+    // `card` null → `box` undefined → `at` null → the pill. Same branch an
+    // off-screen or cross-store anchor takes.
+    expect(cardNodes(board, 'bk-1')[0]?.getBoundingClientRect()).toBeUndefined()
   })
 
   it('anchorOnScreen: a card half in view is still a card the operator can see', () => {
