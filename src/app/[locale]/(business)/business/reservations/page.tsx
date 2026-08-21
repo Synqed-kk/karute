@@ -230,14 +230,17 @@ export async function reservationsScreen(
 function registerEvidence(
   id: string,
   settlement: string | null,
-  register: { terminal_held: { appointment_id: string; terminal: string; idempotency_id: string } },
+  register: { terminal_held: Array<{ appointment_id: string; terminal: string; idempotency_id: string }> },
 ): { txNote: string; txDetail: string | null } {
   if (settlement === 'settled') return { txNote: 'レジで精算済み', txDetail: null }
-  const held = register.terminal_held.appointment_id === id
+  // The plane carries a LIST — more than one terminal can be holding, and a day
+  // that is merely being VIEWED holds nothing at all (`data.ts` empties it off
+  // today). This was written against the single-object shape the plane had
+  // before the Today stack landed; reading `.appointment_id` off the array gave
+  // `undefined`, so every row silently lost its evidence line.
+  const held = register.terminal_held.find((t) => t.appointment_id === id)
   return {
     txNote: '未作成 — 閉店処理を止めています',
-    txDetail: held
-      ? `${register.terminal_held.terminal} が ${register.terminal_held.idempotency_id} を保留中`
-      : null,
+    txDetail: held ? `${held.terminal} が ${held.idempotency_id} を保留中` : null,
   }
 }

@@ -484,7 +484,13 @@ describe('the transplanted bands are populated from fixtures', () => {
     expect(byId(p, 'apt-27').staffUnavailable).toBe(true)
     expect(byId(p, 'apt-29').staffUnavailable).toBe(false)
     // レジ取引 — from the register plane, naming the booking the terminal holds.
-    expect(byId(p, 'apt-25').txDetail).toContain(register.terminal_held.idempotency_id)
+    // RENEGOTIATED (cycle 8): `terminal_held` became a LIST when the Today stack
+    // landed, so the row is looked up by the booking it names rather than read
+    // off the plane as a single object — which is the same correction the page's
+    // own `registerEvidence` needed, and pinning it by index would hide that.
+    const heldOnApt25 = register.terminal_held.find((t) => t.appointment_id === 'apt-25')!
+    expect(heldOnApt25).toBeDefined()
+    expect(byId(p, 'apt-25').txDetail).toContain(heldOnApt25.idempotency_id)
     expect(byId(p, 'apt-12').txNote).toBe('レジで精算済み')
     // 勤務時間 — from the shift plane.
     expect(byId(p, 'apt-30').shiftWarning).toBe('見本 しろう 10:00–18:00・この予約は30分超過')
