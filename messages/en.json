@@ -2891,7 +2891,10 @@
     "enterPinFor": "Enter PIN for {name}",
     "added": "Added {date}",
     "deleteConfirm": "Delete {name}? This action cannot be undone.",
-    "failedToDelete": "Failed to delete staff member."
+    "failedToDelete": "Failed to delete staff member.",
+    "management": "Management member",
+    "managementHint": "Hidden from staff pickers and the day view — shown on days they have a booking.",
+    "managementUnlinkedHint": "Available once they finish signing up."
   },
   "pin": {
     "clear": "Clear",

@@ -151,9 +151,11 @@ describe('GET /api/app/v1/screens/customers — happy path', () => {
     expect(dto.totalRegistered).toBe(2)
     expect(dto.selfStaffId).toBe('auth-user-1')
     expect(dto.bookingDataAvailable).toBe(true)
+    // isManagement rides the picker roster (経営メンバー flag); the LIST itself
+    // stays complete — the filter pills must keep offering everyone.
     expect(dto.staffList).toEqual([
-      { id: 'auth-user-1', name: '佐藤 美咲', initials: expect.any(String) },
-      { id: 'staff-2', name: '田中 太郎', initials: expect.any(String) },
+      { id: 'auth-user-1', name: '佐藤 美咲', initials: expect.any(String), isManagement: false },
+      { id: 'staff-2', name: '田中 太郎', initials: expect.any(String), isManagement: false },
     ])
     const row1 = dto.rows.find((r: { id: string }) => r.id === 'cust-1')
     expect(row1.preferredStaffName).toBe('田中 太郎')

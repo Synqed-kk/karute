@@ -45,7 +45,14 @@ export const SessionsScreenDTO = z.object({
   monthCount: z.number(),
   /** Staff filter pills (id + display name + initials). */
   staffList: z.array(
-    z.object({ id: z.string(), name: z.string(), initials: z.string() }),
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      initials: z.string(),
+      /** 経営メンバー — for the 新規カルテ dialog's staff picker; the filter
+       *  pills built from the same list stay complete (Liam ruling Ⓒ). */
+      isManagement: z.boolean().optional(),
+    }),
   ),
   /** The caller's staff id when they are on the roster (Me filter). */
   currentStaffId: z.string().nullable(),

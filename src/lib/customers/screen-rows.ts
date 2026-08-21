@@ -39,7 +39,7 @@ export interface CustomersListScreen {
 
 export function buildCustomersListScreen(args: {
   list: Awaited<ReturnType<typeof listAllCustomers>>
-  staffList: Array<{ id: string; full_name: string | null }>
+  staffList: Array<{ id: string; full_name: string | null; isManagement?: boolean }>
   locale: string
   lastVisitStrings: LastVisitStrings
   enrichment: Map<string, CustomerEnrichment>
@@ -168,7 +168,12 @@ export function buildCustomersListScreen(args: {
   // — kanji names get a single-char initial, ASCII names get first+last.
   const staffForFilter: StaffFilterEntry[] = staffList.map((s) => {
     const name = s.full_name ?? 'Unknown'
-    return { id: s.id, name, initials: deriveFamilyInitials(name) }
+    return {
+      id: s.id,
+      name,
+      initials: deriveFamilyInitials(name),
+      isManagement: s.isManagement ?? false,
+    }
   })
 
   return {

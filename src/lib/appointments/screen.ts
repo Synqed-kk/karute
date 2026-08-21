@@ -87,7 +87,16 @@ export interface AppointmentsScreenInputs {
 }
 
 export interface AppointmentsScreen {
-  staff: { id: string; name: string; avatarInitials: string; avatarUrl?: string }[]
+  staff: {
+    id: string
+    name: string
+    avatarInitials: string
+    avatarUrl?: string
+    /** 経営メンバー — rides along so the booking picker can default-hide them
+     *  client-side. The LIST stays complete: the 担当 view filter must keep
+     *  offering everyone (Liam ruling Ⓒ). */
+    isManagement?: boolean
+  }[]
   reservationStaff: ReservationStaff[]
   visibleActiveStaffId: string | null
   reservationViews: ReservationView[]
@@ -143,6 +152,7 @@ export function buildAppointmentsScreen(
     name: s.full_name ?? 'Unknown',
     avatarInitials: (s.full_name ?? 'U').slice(0, 2).toUpperCase(),
     avatarUrl: s.avatar_url ?? undefined,
+    isManagement: s.isManagement ?? false,
   }))
 
   const reservationStaff: ReservationStaff[] = visibleStaff.map((s) => ({

@@ -55,7 +55,14 @@ export const CustomersScreenDTO = z.object({
   /** Staff filter pills (id + display name + initials) — scoped to the
    *  active store (店舗別担当フィルター, fix 1, 2026-08-17). */
   staffList: z.array(
-    z.object({ id: z.string(), name: z.string(), initials: z.string() }),
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      initials: z.string(),
+      /** 経営メンバー — for the 指名スタッフ picker fed from this roster; the
+       *  filter pills themselves stay complete (Liam ruling Ⓒ). */
+      isManagement: z.boolean().optional(),
+    }),
   ),
   /** 指名スタッフ picker roster — the FULL business-wide staff list, same
    *  shape as customer-profile's assignableStaff (customer-profile-screen-dto.ts).

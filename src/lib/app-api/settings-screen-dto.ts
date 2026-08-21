@@ -192,6 +192,10 @@ const StaffMemberSchema = z.object({
   // key zod would strip the flag and the shell would fall back to the
   // fetch-and-fail path this flag exists to prevent.
   unlinked: z.boolean().optional(),
+  // 経営メンバー visibility flag (lib/staff.ts). Same reason as `unlinked`:
+  // without the key zod strips it and the shell's staff editor would open its
+  // toggle on a default-false it never read.
+  isManagement: z.boolean().optional(),
 })
 
 export const SettingsScreenDTO = z.object({
