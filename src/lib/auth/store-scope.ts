@@ -107,6 +107,40 @@ export const resolveStoreScope = cache(async (): Promise<StoreScope> => {
 })
 
 /**
+ * The customer-list STORE LENS for a resolved scope — one home for the rule the
+ * three cached-list call sites (予約 page, 録音 page, screens/appointments route)
+ * each spelled inline as `clamped ? storeId : undefined`:
+ *
+ *   `undefined` → business-wide (viewAll / floating / degraded — the read plane
+ *                 ignores `degraded` by the shipped F-A convention)
+ *   a store id  → that store's server-filtered lens
+ *   `null`      → BLIND: the caller ships an EMPTY list.
+ *
+ * Structural argument so both resolvers fit: web's StoreScope above and the
+ * facade's ClampedStore (src/lib/app-api/store-clamp.ts).
+ *
+ * ponytail: the `null` arm is dead code in production and must stay that way —
+ * it backstops the invariant "clamped ⇒ storeId non-null" (resolveStoreScope
+ * returns `activeStore ?? allowed[0]`, resolveStoreForRequest returns
+ * `requestedStoreId ?? assigned[0]`; both pinned by tests). If that ever broke,
+ * the old inline shape collapsed to the BUSINESS-WIDE list — the RBAC clamp
+ * failing OPEN, the one direction it must never fail. An empty list is
+ * wrong-but-safe; another branch's customers are not. Same posture as
+ * listAllCustomers' guard (src/lib/customers/list-all.ts:56), and `null` is not
+ * assignable to the cached readers' `storeId?: string`, so tsc makes every call
+ * site answer for it. Upgrade path if a legitimate "clamped with no store" case
+ * ever appears: it doesn't — that combination is a clamp the caller could not
+ * name.
+ */
+export function customerLensFor(scope: {
+  storeId: string | null
+  allowedStoreIds: string[] | null
+}): string | null | undefined {
+  if (!scope.allowedStoreIds) return undefined
+  return scope.storeId ?? null
+}
+
+/**
  * Which stores may the menu UI OFFER this actor (store pills + editable rows)?
  * The server write clamp (storeScopeError, src/actions/menus.ts) is the real
  * enforcement — this only decides what the UI dangles in front of the actor,

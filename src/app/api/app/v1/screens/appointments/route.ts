@@ -26,7 +26,7 @@ import { getCachedMenuOptionsFor, scopeMenuOptions } from '@/lib/menus/cached'
 import { orgSettingsWithClient } from '@/actions/org-settings'
 import { enrichCustomers, type CustomerEnrichment } from '@/lib/customers/list-enrich'
 import { listAllPackUsageWithClient, type CustomerPackUsage } from '@/lib/packs/store'
-import { storeStaffIdSetForBusiness } from '@/lib/auth/store-scope'
+import { customerLensFor, storeStaffIdSetForBusiness } from '@/lib/auth/store-scope'
 import {
   getAppointmentsByDateWithClient,
   getAppointmentsInRangeWithClient,
@@ -70,6 +70,7 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
     requestedStoreId: ctx.req.headers.get('store-id'),
   })
   const storeId = clamp.storeId ?? undefined
+  const customerLens = customerLensFor(clamp)
 
   try {
     const weekRange = view === 'week' ? computeWeekRange(selectedDate) : null
@@ -78,7 +79,13 @@ export const GET = facadeHandler('screens.appointments', async (ctx) => {
     // Wave 1 — roster, cached customer list, org settings, menu union.
     const [staffList, customers, orgSettings, menus] = await Promise.all([
       staffListByBusinessOrThrow(businessId),
-      getCachedCustomerListFor(businessId),
+      // ⚖ Liam 2026-08-17: a clamped caller's booking combobox carries ONLY
+      // their store's customers (server-filtered, so the client-side search is
+      // clamped by construction). viewAll + floating stay business-wide — the
+      // same lens the web page's resolveStoreScope applies (#347 semantics).
+      // `null` = clamped with no store to name: EMPTY, never business-wide
+      // (customerLensFor, lib/auth/store-scope.ts).
+      customerLens === null ? [] : getCachedCustomerListFor(businessId, customerLens),
       orgSettingsWithClient(synqed),
       // Degraded-allowed, same shape as the pack-usage read below: a failed
       // menus read must NEVER 502 the agenda — the picker just doesn't render

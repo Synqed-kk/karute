@@ -9,7 +9,10 @@ jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: (c: string) => requireCapability(c),
 }))
 const getCurrentUserStaffId = jest.fn(async (): Promise<string | null> => 'auth-user-1')
-jest.mock('@/lib/staff', () => ({ getCurrentUserStaffId: () => getCurrentUserStaffId() }))
+jest.mock('@/lib/staff', () => ({
+  getCurrentUserStaffId: () => getCurrentUserStaffId(),
+  getBusinessId: async () => 'business-1',
+}))
 const fakeClient = { marker: 'the business-scoped client' }
 jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: async () => fakeClient }))
 const readRecordingsInbox = jest.fn(async (_deps: unknown) => [] as unknown[])
@@ -24,6 +27,37 @@ beforeEach(() => {
   requireCapability.mockImplementation(async () => {})
   getCurrentUserStaffId.mockImplementation(async () => 'auth-user-1')
   readRecordingsInbox.mockImplementation(async () => [])
+})
+
+// ⚖ Liam 2026-08-17. The server-side customer name fill lives INSIDE the shared
+// read (lib/recordings/inbox-read.ts) so the cookie and Bearer arms cannot
+// disagree about a row's name; it is exercised for real in
+// app-api-recordings-inbox.test.ts. What this arm still owes is the tenant key
+// the fill runs on, and that it hands its consumers whatever the read returned.
+describe('listRecordingsInbox — the shared read’s name fill', () => {
+  it('threads businessId so the fill has a tenant to resolve against', async () => {
+    await listRecordingsInbox()
+    const deps = readRecordingsInbox.mock.calls[0][0] as { businessId: string }
+    expect(deps.businessId).toBe('business-1')
+  })
+
+  it('hands back the read’s rows verbatim — filled names included', async () => {
+    const filled = [
+      {
+        recordingSessionId: 'sess-out',
+        customerId: 'cust-other-branch',
+        customerName: '代官山 太郎',
+        createdAt: '2026-08-25T04:00:00.000Z',
+        durationSeconds: 60,
+        karuteRecordId: 'karute-1',
+        jobStatus: null,
+        jobProbeFailed: false,
+        jobLastError: null,
+      },
+    ]
+    readRecordingsInbox.mockImplementation(async () => filled)
+    await expect(listRecordingsInbox()).resolves.toEqual(filled)
+  })
 })
 
 describe('listRecordingsInbox (web action)', () => {

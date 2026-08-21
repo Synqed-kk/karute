@@ -12,6 +12,18 @@ import { z } from 'zod'
 const InboxSessionSchema = z.object({
   recordingSessionId: z.string(),
   customerId: z.string().nullable(),
+  /** Server-resolved display name (⚖ Liam 2026-08-17). These rows are
+   *  STAFF-scoped while the record screen's customer array is STORE-scoped, so
+   *  a clamped staffer's own recording of an out-of-store customer has an id
+   *  that array cannot resolve — the name is filled server-side instead, from
+   *  the business-wide list used strictly as a `.get(id)` lookup (only the
+   *  names these rows reference ship, never the roster).
+   *
+   *  `nullish` on purpose, matching InboxServerSession: absent/null = "not
+   *  resolved", and the client falls back to its own map exactly as before. A
+   *  pre-fill bake receives the field and ignores it (its own fold reads only
+   *  the take snapshot), so this is additive in both directions. */
+  customerName: z.string().nullish(),
   createdAt: z.string(),
   durationSeconds: z.number().nullable(),
   karuteRecordId: z.string().nullable(),

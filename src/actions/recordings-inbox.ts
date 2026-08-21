@@ -9,7 +9,7 @@
 // action takes no arguments, so there is no id for a caller to supply.
 
 import { getSynqedClient } from '@/lib/synqed/client'
-import { getCurrentUserStaffId } from '@/lib/staff'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { requireCapability } from '@/lib/auth/require-permission'
 import { readRecordingsInbox } from '@/lib/recordings/inbox-read'
 import type { InboxServerSession } from '@/lib/recordings/inbox'
@@ -22,5 +22,13 @@ export async function listRecordingsInbox(): Promise<InboxServerSession[]> {
   // No staff identity → no sessions of your own. Empty, not an error: the
   // inbox still shows this device's recoverable takes.
   if (!staffId) return []
-  return readRecordingsInbox({ synqed, staffId, now: new Date() })
+  // businessId is the tenant key for the shared read's server-side customer
+  // name fill (⚖ Liam 2026-08-17). Request-memoized, and getSynqedClient
+  // already resolved it internally, so it costs no extra roundtrip.
+  return readRecordingsInbox({
+    synqed,
+    staffId,
+    businessId: await getBusinessId(),
+    now: new Date(),
+  })
 }

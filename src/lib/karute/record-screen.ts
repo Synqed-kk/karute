@@ -435,9 +435,22 @@ export async function buildRecordScreen(input: {
   const lifecycleUnknown = !lifecycleRead.ok
 
   const targetCustomerName = nextAppointment?.customerName ?? 'Unknown'
-  const targetKaruteNumber = nextAppointment?.customerId
-    ? (karuteNumberByClientId.get(nextAppointment.customerId) ?? null)
-    : null
+  // `karuteNumberByClientId` is derived from `customers` — the PICKER corpus,
+  // narrowed to the single active store — so a deep link the clamp ADMITS
+  // (another store in the caller's assignment) misses the map and the bound
+  // card shows no chart number. Fall back to the REAL core number on the per-id
+  // record this assembly already fetched above (⚖ ruling ②: per-id customer
+  // reads are unscoped, so this ships nothing new). NEVER the sequential index:
+  // it only means anything WITHIN the list it was counted from, and inventing
+  // one for an out-of-array row would collide with a real customer's number.
+  // The card stamps this field before the fetch exists (:271/:293 need
+  // customerId to fetch AT ALL), so patch that ONE field here.
+  const targetKaruteNumber =
+    nextAppointment?.karuteNumber ??
+    (targetCustomer?.karute_number
+      ? `#${String(targetCustomer.karute_number).padStart(5, '0')}`
+      : null)
+  if (nextAppointment) nextAppointment.karuteNumber = targetKaruteNumber
 
   const targetVisitCount = targetCustomer?.visit_count ?? 0
 
@@ -496,15 +509,24 @@ export async function buildRecordScreen(input: {
     previousPack = newest
       ? { size: newest.pack_size, unitPrice: newest.unit_price }
       : null
+    // Same store-narrowed-corpus seam as the chart number above: `cc` is absent
+    // for an ADMITTED cross-store target, which used to drop every returning
+    // signal and frame a regular 初回 (no 回数券, first-visit brief). Fall back
+    // to the per-id record already fetched for `visitSignals` below — the BOUND
+    // target only, and it is never pushed into `customers` (that array is the
+    // picker + customerFacts corpus, the isolation law's list surface).
+    // `??` not `||`: a present `cc` keeps its own false/0 verbatim, so an
+    // in-store target's classification is byte-unchanged.
+    targetHasTicketPack =
+      (cc?.hasTicketPack ?? targetCustomer?.has_ticket_pack ?? false) || targetHasActivePack
     const targetReturning = isReturningCustomer({
       joinDateIso: null,
       lastVisitIso: null,
-      isExistingCustomer: cc?.isExistingCustomer,
-      visitCount: cc?.visitCount,
-      hasTicketPack: (cc?.hasTicketPack ?? false) || targetHasActivePack,
+      isExistingCustomer: cc?.isExistingCustomer ?? targetCustomer?.is_existing_customer,
+      visitCount: cc?.visitCount ?? targetCustomer?.visit_count,
+      hasTicketPack: targetHasTicketPack,
       karuteCount: customerKarute.length,
     })
-    targetHasTicketPack = (cc?.hasTicketPack ?? false) || targetHasActivePack
     const visitSignals = {
       joinDateIso: targetCustomer?.created_at ?? null,
       lastVisitIso: targetCustomer?.last_visit_at ?? null,

@@ -72,6 +72,16 @@ const KNOWN_JOB_STATUSES = new Set<string>(['QUEUED', 'RUNNING', 'DONE', 'FAILED
 export interface InboxServerSession {
   recordingSessionId: string
   customerId: string | null
+  /** Name resolved SERVER-SIDE at row-build time, when the arm that built the
+   *  row can see the whole business (⚖ Liam 2026-08-17): these rows are
+   *  STAFF-scoped (recordings.list({staff_id})), so a staffer's own recording
+   *  of a customer outside their assigned store has an id the caller's
+   *  store-scoped customer array cannot resolve. Filled from the business-wide
+   *  cached list used strictly as a `.get(id)` lookup — only the names these
+   *  rows actually reference ship, never the roster (the maps rule,
+   *  store-scope.ts ~:170-177 / ~:288-294). Absent = fall back to the caller's
+   *  own list, which is today's behaviour. */
+  customerName?: string | null
   /** ISO — when the session was minted, i.e. when recording started. */
   createdAt: string
   durationSeconds: number | null
@@ -120,8 +130,9 @@ export interface InboxRow {
   takeId: string | null
   karuteRecordId: string | null
   customerId: string | null
-  /** Bind-time name snapshot off the take. Server rows resolve the name from
-   *  the caller's customer list instead — this module never fetches. */
+  /** Bind-time name snapshot off the take, else the server row's own fill.
+   *  null → the consumer falls back to the caller's customer list; this module
+   *  never fetches. */
   customerName: string | null
   /** Epoch ms — when the audio started. */
   startedAt: number
@@ -184,7 +195,9 @@ export function deriveInboxRows(input: {
       takeId: take?.takeId ?? null,
       karuteRecordId: s.karuteRecordId,
       customerId: s.customerId ?? take?.customerId ?? null,
-      customerName: take?.customerName ?? null,
+      // Take snapshot first (bind-time truth), then the server fill; null only
+      // when neither arm could name the customer.
+      customerName: take?.customerName ?? s.customerName ?? null,
       startedAt,
       durationSeconds: s.durationSeconds ?? takeDuration(take),
       canRetry: false,

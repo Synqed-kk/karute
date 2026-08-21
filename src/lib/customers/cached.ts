@@ -91,10 +91,16 @@ const customerListByBusiness = unstable_cache(
 /**
  * Get customer list for dropdowns. Cached for 60s per tenant; mutation actions in
  * `src/actions/customers.ts` call revalidateTag('customers') to invalidate.
+ *
+ * Pass storeId to get that store's server-filtered lens instead of the
+ * business-wide list (the caller resolves it via resolveStoreScope — never a
+ * raw cookie). Routed through the businessId-explicit twin so the arity guard
+ * that keeps `undefined` from forking a second cache entry lives in ONE place.
  */
-export async function getCachedCustomerList(): Promise<CachedCustomerOption[]> {
-  const businessId = await getBusinessId()
-  return customerListByBusiness(businessId)
+export async function getCachedCustomerList(
+  storeId?: string,
+): Promise<CachedCustomerOption[]> {
+  return getCachedCustomerListFor(await getBusinessId(), storeId)
 }
 
 /**

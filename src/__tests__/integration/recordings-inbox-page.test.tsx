@@ -161,6 +161,8 @@ jest.mock('@/lib/global-pipeline', () => ({
 type ServerSession = {
   recordingSessionId: string
   customerId: string | null
+  /** Server-side name fill (⚖ 2026-08-17) — see the store-isolation cases. */
+  customerName?: string | null
   createdAt: string
   durationSeconds: number | null
   karuteRecordId: string | null
@@ -296,6 +298,48 @@ describe('録音履歴 — multi-take recovery', () => {
     stored = [take({ takeId: 'orphan', recordingSessionId: null })]
     await renderPage()
     expect(row('take:orphan')).toBeInTheDocument()
+  })
+})
+
+// ⚖ Liam 2026-08-17 store isolation. The page's customer array is STORE-scoped
+// for a clamped actor; these rows are STAFF-scoped, so a staffer's own
+// recording of an out-of-store customer has an id that array cannot resolve.
+// The name is filled server-side instead (actions/recordings-inbox.ts) — the
+// pair below is the whole contract: with the fill the name renders, without it
+// the row honestly says 不明 rather than inventing one.
+describe('録音履歴 — out-of-store customer names', () => {
+  const OUT_OF_STORE = 'cust-other-branch'
+
+  it('a saved row for a customer outside the store lens renders the SERVER-filled name', async () => {
+    serverSessions = [
+      session({
+        recordingSessionId: 'sess-out',
+        customerId: OUT_OF_STORE,
+        customerName: '代官山 太郎',
+        karuteRecordId: 'karute-out',
+      }),
+    ]
+    // The clamped page array: the out-of-store id is deliberately absent.
+    await renderPage({ customers: [{ id: 'cust-1', name: '佐藤 美咲' } as never] })
+
+    const r = row('session:sess-out')
+    expect(r.dataset.state).toBe('saved')
+    expect(within(r).getByText('代官山 太郎')).toBeInTheDocument()
+    expect(within(r).queryByText('recording.recoverCustomerUnknown')).not.toBeInTheDocument()
+  })
+
+  it('without the fill the same row falls back to 不明 — never a wrong name', async () => {
+    serverSessions = [
+      session({
+        recordingSessionId: 'sess-out',
+        customerId: OUT_OF_STORE,
+        karuteRecordId: 'karute-out',
+      }),
+    ]
+    await renderPage({ customers: [{ id: 'cust-1', name: '佐藤 美咲' } as never] })
+
+    const r = row('session:sess-out')
+    expect(within(r).getByText('recording.recoverCustomerUnknown')).toBeInTheDocument()
   })
 })
 

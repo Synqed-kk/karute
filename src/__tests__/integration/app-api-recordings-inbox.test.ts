@@ -92,6 +92,17 @@ const fakeClient = {
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
+// The shared read's server-side name fill (⚖ 2026-08-17) resolves through this
+// business-wide list, used strictly as a .get(id) lookup. Only the READ is
+// faked — the fill itself runs for real inside readRecordingsInbox.
+const getCachedCustomerListFor = jest.fn(async (..._a: unknown[]) => [
+  { id: 'cust-1', name: '山田 花子' },
+  { id: 'cust-other-branch', name: '代官山 太郎' },
+])
+jest.mock('@/lib/customers/cached', () => ({
+  getCachedCustomerListFor: (...a: unknown[]) => getCachedCustomerListFor(...a),
+}))
+
 import { GET } from '@/app/api/app/v1/recordings/inbox/route'
 import { DELETE as SESSION_DELETE } from '@/app/api/app/v1/recordings/session/[id]/route'
 import { FACADE_AUDIT_MAP } from '@/lib/audit'
@@ -144,6 +155,54 @@ beforeEach(() => {
     { id: 'sess-theirs', customer_id: 'cust-9', staff_id: 'auth-user-2', duration_seconds: 600, created_at: nowIso(80) },
   ]
   karuteRows.current = []
+  getCachedCustomerListFor.mockImplementation(async () => [
+    { id: 'cust-1', name: '山田 花子' },
+    { id: 'cust-other-branch', name: '代官山 太郎' },
+  ])
+})
+
+// ⚖ Liam 2026-08-17. These rows are STAFF-scoped; the record screen's customer
+// array is STORE-scoped (screens/record/route.ts), so a clamped staffer's own
+// recording of an out-of-store customer has an id that array cannot resolve.
+// The name is filled inside the shared read and now rides the DTO, so the
+// phone renders it instead of 不明 at the next bake.
+describe('GET recordings/inbox — server-side customer name fill', () => {
+  it('ships the name for a customer outside the caller’s store lens', async () => {
+    recordingRows.current = [
+      {
+        id: 'sess-out',
+        customer_id: 'cust-other-branch',
+        staff_id: 'auth-user-1',
+        duration_seconds: 300,
+        created_at: nowIso(30),
+      },
+    ]
+    const res = await GET(req(), noRoute)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      sessions: Array<{ recordingSessionId: string; customerName?: string | null }>
+    }
+    expect(body.sessions[0].customerName).toBe('代官山 太郎')
+    // Business-wide list, keyed by the VERIFIED token identity — never a header.
+    expect(getCachedCustomerListFor).toHaveBeenCalledWith('business-1')
+  })
+
+  // The fill's own edge cases (unresolvable id, no-id skip) live with the
+  // shared read in recordings-inbox-name-fill.test.ts. What only THIS level can
+  // prove is that a degraded fill is still a 200 — the route's failure contract.
+  it('a failed list read degrades to no name, never a failed inbox', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    getCachedCustomerListFor.mockRejectedValueOnce(new Error('core down'))
+    const res = await GET(req(), noRoute)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { sessions: Array<{ customerName?: string | null }> }
+    expect(body.sessions[0].customerName).toBeUndefined()
+    expect(warn.mock.calls[0][0]).toEqual(
+      expect.stringContaining('[recordings-inbox] customer name fill degraded'),
+    )
+    warn.mockRestore()
+  })
+
 })
 
 describe('GET recordings/inbox — actor-derived scoping', () => {
@@ -282,9 +341,14 @@ describe('GET recordings/inbox — the join', () => {
     karuteRows.current = [{ id: 'rec-1', recording_session_id: 'sess-mine', staff_id: 'auth-user-1' }]
     const res = await GET(req(), noRoute)
     const body = (await res.json()) as { sessions: Array<Record<string, unknown>> }
+    // customerName joined the allowlist with the ⚖ 2026-08-17 server-side fill.
+    // Same tier as the customerId already here — WHO the session is about, not
+    // WHAT was said; the privacy line this guard defends is transcript /
+    // summary / audio path, and none of them moved.
     expect(Object.keys(body.sessions[0]).sort()).toEqual([
       'createdAt',
       'customerId',
+      'customerName',
       'durationSeconds',
       'jobLastError',
       'jobProbeFailed',

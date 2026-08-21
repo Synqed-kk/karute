@@ -3,6 +3,7 @@ import { renderStamp } from '@/lib/perf/render-stamp'
 import { getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList, getBusinessId } from '@/lib/staff'
 import { getCachedCustomerList } from '@/lib/customers/cached'
+import { customerLensFor, resolveStoreScope } from '@/lib/auth/store-scope'
 import { getCustomer } from '@/lib/customers/queries'
 import { getCustomerConsent } from '@/actions/customers'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
@@ -40,7 +41,25 @@ export default async function SessionsPage({
   const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000)
   const todayStr = jstNow.toISOString().split('T')[0]
 
-  const customersPromise = getCachedCustomerList()
+  // ⚖ Liam 2026-08-17: the 録音 picker must not offer another branch's
+  // customers, so this array carries the clamped actor's store lens only
+  // (server-filtered → the picker's client-side search is clamped too).
+  // viewAll, floating and degraded stay business-wide — reads ignore
+  // `degraded` by the shipped F-A convention.
+  //
+  // The array is ALSO the fallback name map for the 録音履歴 rows, the recovery
+  // banner and the re-point dialog. Those rows carry their own customerName
+  // (take snapshot, or the server fill in actions/recordings-inbox.ts), so a
+  // narrowed array costs them nothing. The ONE exception is a crash-recovered
+  // KaruteDraft, which holds an appointmentCustomerId and no name — see the
+  // banner's coalesce in RecordPageView.
+  //
+  // `null` lens = clamped with no store to name: an EMPTY array, never the
+  // business-wide one (customerLensFor, lib/auth/store-scope.ts).
+  const scope = await resolveStoreScope()
+  const customerLens = customerLensFor(scope)
+  const customersPromise =
+    customerLens === null ? Promise.resolve([]) : getCachedCustomerList(customerLens)
 
   // Wave 1 — every read that needs nothing but the request itself, fired
   // together (staff id, staff list, status translations, customer list, today's
