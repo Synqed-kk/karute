@@ -54,10 +54,11 @@ async function customerId(ctx: FacadeContext<Params>): Promise<string> {
 export const POST = facadeHandler<Params>('customer.pack.redeem', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'customers.view')
   // The client's key, now FORWARDED to core's redemption dedup (#69) instead of
-  // only being presence-checked: the phone mints one per user action and
-  // re-sends it on every retry of that action — including facadeApiFetch's own
-  // stranded-pin retry, which copies the headers — so a replayed burn replays
-  // the stored row rather than spending a second session.
+  // only being presence-checked: a burn arriving twice under the SAME key
+  // replays the stored row rather than spending a second session. No client
+  // sends one twice YET — idemPost mints per call, and facadeApiFetch's
+  // stranded-pin heal replays a request the clamp rejected BEFORE any write —
+  // so this is the SERVER half, waiting on the queued per-gesture key.
   const idempotencyKey = requireIdempotencyKey(ctx.req)
   const id = await customerId(ctx)
   const synqed = newSynqedClient(ctx.identity.businessId)

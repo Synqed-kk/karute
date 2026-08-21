@@ -22,9 +22,9 @@ const NoShowSchema = z.object({ burnPack: z.boolean() }).strict()
 export const POST = facadeHandler<Params>('appointment.noShow', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'bookings.manage')
   // Captured, not just presence-checked: the ticket burn inside the core
-  // forwards it to core's redemption dedup (#69), so a retried no-show
-  // that re-sends the same key replays the stored burn instead of spending a
-  // second session.
+  // forwards it to core's redemption dedup (#69). No NEW protection here — a
+  // no-show burn always has an appointment_id, which the DB's partial unique
+  // index already dedupes — it keeps the two burn paths consistent.
   const idempotencyKey = requireIdempotencyKey(ctx.req)
 
   const { id } = await ctx.route.params

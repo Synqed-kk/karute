@@ -82,6 +82,13 @@ export async function provePhotoForCustomer(
 export function requireIdempotencyKey(req: { headers: Headers }): string {
   const key = req.headers.get('idempotency-key')?.trim()
   if (!key) throw new AppApiError('validation', 'Idempotency-Key header is required')
+  // Bound it at the trust boundary: the value is now FORWARDED as a header and
+  // persisted by core, so an unbounded client string must not ride through.
+  // Every live client sends a 36-char UUID (crypto.randomUUID, idemPost), so no
+  // legitimate caller can reach this.
+  if (key.length > 200) {
+    throw new AppApiError('validation', 'Idempotency-Key must be at most 200 characters')
+  }
   return key
 }
 

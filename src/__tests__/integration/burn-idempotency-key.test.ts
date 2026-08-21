@@ -1,12 +1,15 @@
 // P2 — the walk-in double-burn hole (core #69, SDK 1.28.0 options.idempotencyKey).
 //
-// Core dedupes redemption creates on Idempotency-Key EQUALITY, so the only thing
-// worth pinning is identity across a RETRY: the same user action retried must
-// send the SAME key, and two different actions must not collide. The phone mints
-// the key (thin/ports/actions.vite.ts idemPost) and re-sends it on every retry of
-// that action, so these tests drive the real seams where a client-supplied key
-// exists — the facade walk-in route and the shared booking-burn core — and always
-// assert at the SDK boundary, i.e. the header core will really see.
+// Core dedupes redemption creates on Idempotency-Key EQUALITY, so real dedup
+// needs a client that sends the SAME key twice. None does YET — idemPost mints
+// one per call (thin/ports/actions.vite.ts:243-250), so a re-tap sends a new
+// key — which makes that the QUEUED client half and this the SERVER half. What
+// these tests pin is the plumbing that half is made of: whatever key the client
+// sends reaches the SDK boundary unchanged (same key in → same key out, distinct
+// keys stay distinct), and an unkeyed caller still sends no header at all. They
+// drive the real seams where a client-supplied key exists — the facade walk-in
+// route and the shared booking-burn core — and always assert at the SDK
+// boundary, i.e. the header core will really see.
 //
 // Nothing between the entry point and the SDK is mocked: route →
 // redeemSessionActionWithClient → addRedemptionWithClient → packs.addRedemption
@@ -79,7 +82,7 @@ jest.mock('@/lib/synqed/client', () => ({
 
 import { POST as packRedeem } from '@/app/api/app/v1/customers/[id]/packs/redeem/route'
 import { addRedemptionWithClient } from '@/lib/packs/store'
-import { markNoShowAppointmentCore } from '@/lib/appointments/mutations'
+import { cancelAppointmentCore, markNoShowAppointmentCore } from '@/lib/appointments/mutations'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -92,7 +95,7 @@ function bearer() {
   return `${header}.${payload}.${sig}`
 }
 const route = (id: string) => ({ params: Promise.resolve({ id }) })
-/** One walk-in burn request, carrying the key the client minted for the action. */
+/** One walk-in burn request, carrying the key the client minted for this call. */
 const walkInBurn = (key: string) =>
   new Request('https://s/x', {
     method: 'POST',
@@ -115,10 +118,11 @@ beforeEach(() => {
 })
 
 describe('walk-in burn — the key reaches the SDK', () => {
-  it('THE DEDUP PIN: the same action retried sends the SAME key both times', async () => {
-    // One user action, one key (idemPost mints it once); the retry re-sends it —
-    // exactly what facadeApiFetch does when it replays a request, since the
-    // retry copies the headers.
+  it('THE PLUMBING PIN: one key sent twice reaches the SDK unchanged both times', async () => {
+    // Same key in → same key out: route → action → store → SDK forwards it
+    // verbatim, which is exactly what core's equality dedup needs to see.
+    // SENDING it twice is the CLIENT's job and is queued, not done here — so
+    // this pins the forwarding, not a live double-burn defense.
     const key = 'action-key-abc'
     expect((await packRedeem(walkInBurn(key), route('cust-1'))).status).toBe(201)
     expect((await packRedeem(walkInBurn(key), route('cust-1'))).status).toBe(201)
@@ -126,8 +130,8 @@ describe('walk-in burn — the key reaches the SDK', () => {
     expect(addRedemption).toHaveBeenCalledTimes(2)
     expect(sdkOptions(0)?.idempotencyKey).toBe(key)
     expect(sdkOptions(1)?.idempotencyKey).toBe(key)
-    // The point of the whole PR: core sees one key twice, so it replays instead
-    // of burning a second session.
+    // Once a client DOES send one key twice, this is what core receives — one
+    // key, twice — and replays instead of burning a second session.
     expect(sdkOptions(1)?.idempotencyKey).toBe(sdkOptions(0)?.idempotencyKey)
   })
 
@@ -172,7 +176,26 @@ describe('booking-linked burn — the key reaches the SDK', () => {
     expect((addRedemption.mock.calls[0] as unknown[])[0]).toMatchObject({ appointment_id: 'appt-1' })
   })
 
-  it('same booking action retried → SAME key both times', async () => {
+  it('the cancel core forwards it too — the no-show twin is not the only path', async () => {
+    const res = await cancelAppointmentCore(
+      fakeSynqed as never,
+      'appt-1',
+      { reason: 'cancel-same-day-contact', burnPack: true },
+      'staff-1',
+      {
+        actorId: 'auth-user-1',
+        businessId: 'business-1',
+        source: 'facade',
+        requestId: 'req-1',
+        idempotencyKey: 'cancel-action-key',
+      },
+    )
+
+    expect(res).toMatchObject({ success: true })
+    expect(sdkOptions(0)?.idempotencyKey).toBe('cancel-action-key')
+  })
+
+  it('same booking key sent twice → SAME key both times', async () => {
     const actor = {
       actorId: 'auth-user-1',
       businessId: 'business-1',
@@ -189,8 +212,10 @@ describe('booking-linked burn — the key reaches the SDK', () => {
 
 describe('unkeyed callers', () => {
   it('NO key → no options object, i.e. no header — byte-identical to before the bump', async () => {
-    // The auto-burn cron and the web cookie action both land here (see their own
-    // comments for why they stay unkeyed): they must not start sending a header.
+    // Pins store.ts's ternary ONLY — this calls addRedemptionWithClient
+    // directly, never the unkeyed call sites themselves (the auto-burn cron,
+    // the web cookie action), which carry their own comments for why they stay
+    // unkeyed. What it proves: no key → no options object → no header.
     await addRedemptionWithClient(fakeSynqed as never, {
       packId: 'pack-1',
       customerId: 'cust-1',

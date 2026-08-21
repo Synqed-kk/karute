@@ -176,12 +176,13 @@ export interface AddRedemptionInput {
    *  (lifecycle, dormancy) must not treat it as one. */
   countsAsVisit?: boolean
   /** Core's redemption dedup (core #69, SDK 1.28.0 → `Idempotency-Key`): a
-   *  retried burn carrying the SAME key replays the stored row instead of
-   *  burning a second session. Closes the walk-in hole the DB's partial unique
-   *  index cannot — it keys on appointment_id, and NULL never equals NULL.
-   *  Only meaningful when the key is minted ONCE per user action and reused by
-   *  every retry of it, so the only callers that set it are the ones with a
-   *  CLIENT-supplied key (the facade routes' Idempotency-Key header). Omitted
+   *  burn arriving twice under the SAME key replays the stored row instead of
+   *  burning a second session. Aimed at the walk-in hole the DB's partial
+   *  unique index cannot see — it keys on appointment_id, and NULL never equals
+   *  NULL. Only bites once the key is minted ONCE per user gesture and reused
+   *  by every re-send of it: that CLIENT half is QUEUED (today's idemPost mints
+   *  per call), so what lands here is the SERVER half. Set only by callers with
+   *  a client-supplied key (the facade routes' Idempotency-Key header). Omitted
    *  → no header → exactly today's behavior. */
   idempotencyKey?: string
 }

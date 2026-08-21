@@ -48,9 +48,12 @@ type BookingActor = {
   requestId?: string
   /** The CLIENT's Idempotency-Key, when there is one — forwarded to core's
    *  redemption dedup (#69) by the ticket burn these two cores share. Set by
-   *  the facade twins only (the phone mints one key per user action and
-   *  re-sends it on every retry); the web actions leave it unset, since a
-   *  server-minted key is unique per execution and would dedupe nothing.
+   *  the facade twins only (straight off the header); the web actions leave it
+   *  unset, since a server-minted key is unique per execution and would dedupe
+   *  nothing. Adds no protection HERE today — a booking burn always has an
+   *  appointment_id, so the DB's partial unique index (plus the
+   *  appointmentAlreadyBurned pre-check) already dedupes it — it is threaded
+   *  for consistency with core's design.
    *  NOT requestId: that one is minted per REQUEST on both sides, so it
    *  differs between the two halves of a retried action. */
   idempotencyKey?: string

@@ -146,9 +146,11 @@ interface RedeemSessionActionInput {
    *     (⚖ 8/21 ②). */
   recovery?: boolean
   /** The caller's Idempotency-Key, forwarded to core's redemption dedup (#69).
-   *  Set ONLY by the facade route, where the phone mints one key per user
-   *  action and every retry of that action re-sends it. The web action leaves
-   *  it unset on purpose — see redeemSessionAction below. */
+   *  Set ONLY by the facade route, straight off the request header. Core dedupes
+   *  on key EQUALITY, so it bites only once a client sends the SAME key twice —
+   *  today's phone mints a fresh one per call (idemPost), so that client half is
+   *  QUEUED. The web action leaves it unset on purpose — see redeemSessionAction
+   *  below. */
   idempotencyKey?: string
 }
 
@@ -249,13 +251,14 @@ export async function redeemSessionActionWithClient(
  *  server action: one invocation = one execution = one addRedemption call, with
  *  no retry between them (the SDK's fetch does not retry — client.js:82-96), so
  *  a key minted on this side would be unique per execution and dedupe exactly
- *  nothing — protection on paper, none in the field. The phone gets a REAL key
- *  because the client mints it (thin/ports/actions.vite.ts idemPost) and every
- *  retry of that action re-sends it; the web has no such client-supplied
- *  identity today, and what actually stops a web double-tap is the callers'
- *  single-flight latches (RecordPageView usingRecording/resolvingOutcomeRef).
- *  ponytail: unkeyed until a key is minted in the browser per user gesture and
- *  threaded in — a UI-side change, deliberately out of this PR's fence. */
+ *  nothing — protection on paper, none in the field. The phone is no better off
+ *  yet: idemPost mints the key INSIDE the call (thin/ports/actions.vite.ts
+ *  :243-250), so a re-tap after a failure toast sends a NEW key. A STABLE
+ *  per-gesture key — web AND phone — is the QUEUED client half; what stops a
+ *  double-tap on either side today is the callers' single-flight latches
+ *  (RecordPageView usingRecording/resolvingOutcomeRef).
+ *  ponytail: unkeyed until a key is minted per user gesture and threaded in —
+ *  a UI-side change, deliberately out of this PR's fence. */
 export async function redeemSessionAction(
   input: RedeemSessionActionInput,
 ): Promise<{ ok: boolean; redemptionId?: string; error?: string }> {
@@ -277,7 +280,7 @@ export async function redeemSessionAction(
   const result = await redeemSessionActionWithClient(synqed, staffId, input)
   if (result.ok) revalidateProfile()
   // D7 (⚖ 8/21 ②) — recovery-resolved burns are visible to reconcile. VERIFIED
-  // against @synqed-kk/client 1.25.0, the version package.json PINS (re-checked
+  // against @synqed-kk/client 1.28.0, the version package.json PINS (re-checked
   // on a clean npm ci — an earlier pass read a stale 1.19.0 tree, so the version
   // is named here on purpose): a `source` surface DOES exist end-to-end
   // (AddRedemptionInput → SDK `source?: string`), but it is a BARE string — no
