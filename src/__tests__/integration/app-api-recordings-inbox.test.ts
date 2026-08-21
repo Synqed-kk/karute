@@ -187,22 +187,9 @@ describe('GET recordings/inbox — server-side customer name fill', () => {
     expect(getCachedCustomerListFor).toHaveBeenCalledWith('business-1')
   })
 
-  it('an unresolvable id ships without a name — never a wrong or invented one', async () => {
-    recordingRows.current = [
-      {
-        id: 'sess-gone',
-        customer_id: 'cust-gone',
-        staff_id: 'auth-user-1',
-        duration_seconds: 300,
-        created_at: nowIso(30),
-      },
-    ]
-    const body = (await (await GET(req(), noRoute)).json()) as {
-      sessions: Array<{ customerName?: string | null }>
-    }
-    expect(body.sessions[0].customerName).toBeUndefined()
-  })
-
+  // The fill's own edge cases (unresolvable id, no-id skip) live with the
+  // shared read in recordings-inbox-name-fill.test.ts. What only THIS level can
+  // prove is that a degraded fill is still a 200 — the route's failure contract.
   it('a failed list read degrades to no name, never a failed inbox', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     getCachedCustomerListFor.mockRejectedValueOnce(new Error('core down'))
@@ -216,19 +203,6 @@ describe('GET recordings/inbox — server-side customer name fill', () => {
     warn.mockRestore()
   })
 
-  it('no row carries a customer id → the list is never read at all', async () => {
-    recordingRows.current = [
-      {
-        id: 'sess-walkin',
-        customer_id: null,
-        staff_id: 'auth-user-1',
-        duration_seconds: 300,
-        created_at: nowIso(30),
-      },
-    ]
-    await GET(req(), noRoute)
-    expect(getCachedCustomerListFor).not.toHaveBeenCalled()
-  })
 })
 
 describe('GET recordings/inbox — actor-derived scoping', () => {
