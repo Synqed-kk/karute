@@ -1037,6 +1037,20 @@ export interface RoomPolicy {
   privateIsLastResort: boolean
 }
 
+/** ⚖ 51 — A VIP NEVER SILENTLY LEAVES THE 個室, spelled ONCE.
+ *
+ *  The same two-sided shape as `sharesStore`, for the same reason: `allocateBed`
+ *  uses it as a FILTER when the board is choosing a room, and `landingVerdict`
+ *  uses it as a TEST when the operator named the room out loud on a bed row.
+ *  That gesture never reaches the allocator (⚖ 51's exemption), so while the
+ *  rule lived only inside `allocateBed` a 個室クラス booking could be hand-placed
+ *  onto a same-store standard bed with no verdict at all — the auto path
+ *  enforced the floor and the explicit path walked straight past it
+ *  (Greptile #744 P1). A rule with two spellings is a rule with two answers. */
+export function roomFitsClass(lane: BoardLane, vip: boolean, policy: RoomPolicy): boolean {
+  return !(vip && policy.vipStaysPrivate) || lane.roomClass === 'private'
+}
+
 /** ⚖ LIAM 2026-08-21 (flag 51, LOCKED) — THE BED IS AN ALLOCATION, NOT A
  *  CHOICE. Staff, customer and time are human decisions; the room is something
  *  the system re-solves at EVERY landing:
@@ -1108,7 +1122,7 @@ export function allocateBed(
   // see `sharesStore` for why there is only one spelling of the rule.
   const beds = lanes.filter((l) => l.group === 'beds' && sharesStore(opts.stores, l.stores))
   const needsPrivate = opts.vip && policy.vipStaysPrivate
-  const compatible = (l: BoardLane) => (needsPrivate ? l.roomClass === 'private' : true)
+  const compatible = (l: BoardLane) => roomFitsClass(l, opts.vip, policy)
   const free = (l: BoardLane) => opts.allowBusy === true || blockersOn(l).length === 0
   const current = beds.find((l) => l.key === opts.currentBed)
   if (current && compatible(current) && free(current)) return { laneKey: current.key, refusal: null }
@@ -1274,6 +1288,16 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   // tests, and `sharesStore` is the one spelling of the rule either way.
   if (!q.solveRoom && bed && !sharesStore(staff.stores, bed.stores)) {
     return stop(`担当と店舗が異なります: ${staff.label} / ${bed.label}`)
+  }
+  // ⚖ 51 on the explicit room choice — the store rule is not the only floor the
+  // allocator applies, so it may not be the only one this path re-tests: a 個室
+  // クラス booking dropped straight onto a standard bed was landing silently.
+  // 置けない like every other floor, which means it inherits ⚖ 50(d) whole — the
+  // explanation names the policy, and the 「注意して配置」 escalation appears only
+  // where the store's overridePolicy put it. The VIP leaves the 個室 out loud,
+  // with a manager's name on it, or not at all.
+  if (!q.solveRoom && bed && !roomFitsClass(bed, q.vip, q.rooms)) {
+    return stop(`VIP・個室クラスのご予約です: ${bed.label}は個室ではありません`)
   }
 
   const spans: CheckSpan[] = []

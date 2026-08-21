@@ -62,6 +62,7 @@ import {
   parkChipText,
   proxyTransform,
   reasonLine,
+  roomFitsClass,
   sellLayerFor,
   sidesAt,
   slotStartAt,
@@ -3729,6 +3730,65 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // …and the allocator is NOT consulted on that path — the operator named the
     // room out loud (⚖ 51's exemption, unchanged).
     expect(INT).toContain('const solved = q.solveRoom')
+  })
+
+  it('⚖ 51 on the EXPLICIT bed row — a VIP hand-placed onto a standard bed is 置けない', () => {
+    // Greptile #744 P1. The exemption says the operator's own room choice is not
+    // re-solved; it never said the floors stop applying. The allocator refuses to
+    // put a 個室クラス booking anywhere but a 個室, and until now the bed-row drag
+    // walked straight past that — same store, so `sharesStore` waved it through,
+    // and nothing else on that path asked.
+    const v = verdict(board(), { solveRoom: false, bedLane: 'bed-01', vip: true }, cellOf('safe', ''))
+    expect(v.kind).toBe('blocked')
+    expect(v.label).toBe('置けない')
+    // The explanation names the POLICY, in the check rows' own voice — 「配置でき
+    // ません」 with no reason is the unreadable error of flag 54.
+    expect(v.reason).toBe('VIP・個室クラスのご予約です: ベッド1は個室ではありません')
+    // …and the 個室 itself is still a clean landing for the same booking, so the
+    // sentence is a floor and not a ban on bed-row drags.
+    expect(verdict(board(), { solveRoom: false, bedLane: 'bed-03', vip: true }, cellOf('safe', '')).kind).toBe('clean')
+  })
+
+  it('⚖ 51 — the floor is the policy’s, not the board’s: OFF, and a non-VIP, are silent', () => {
+    // The dial is store DATA (⚠SETTINGS-BATCH). A store that does not run its
+    // 個室 that way gets no verdict at all…
+    const off = { solveRoom: false, bedLane: 'bed-01', vip: true, rooms: { vipStaysPrivate: false, privateIsLastResort: true } }
+    expect(verdict(board(), off, cellOf('safe', '')).kind).toBe('clean')
+    // …and a regular booking on a standard bed never sees the sentence.
+    expect(verdict(board(), { solveRoom: false, bedLane: 'bed-01', vip: false }, cellOf('safe', '')).kind).toBe('clean')
+  })
+
+  it('⚖ 51 — ONE spelling of the rule: the allocator FILTERS with it, the bed row TESTS with it', () => {
+    const standard = lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })
+    const priv = lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private' })
+    expect(roomFitsClass(standard, true, POLICY)).toBe(false)
+    expect(roomFitsClass(priv, true, POLICY)).toBe(true)
+    expect(roomFitsClass(standard, false, POLICY)).toBe(true)
+    expect(roomFitsClass(standard, true, { vipStaysPrivate: false, privateIsLastResort: true })).toBe(true)
+    // The auto path is UNCHANGED and still routes through the same predicate —
+    // a VIP is solved into the 個室 and never into the free standard bed.
+    expect(allocateBed(board(), { id: null, currentBed: null, stores: ['store-a'], vip: true, start: 960, end: 1020, policy: POLICY }).laneKey).toBe('bed-03')
+    // Structurally one home: the allocator's filter IS this function, so the two
+    // paths cannot drift into two answers (the defect this test exists for).
+    expect(INT).toContain('const compatible = (l: BoardLane) => roomFitsClass(l, opts.vip, policy)')
+    expect(INT).toContain('if (!q.solveRoom && bed && !roomFitsClass(bed, q.vip, q.rooms)) {')
+    // Exactly two readings of `roomClass` survive in the whole file: this
+    // predicate, and the 個室-last ORDERING (a different rule about spending the
+    // room, not about needing it). A third is the rule re-spelled somewhere.
+    expect(INT.match(/roomClass === 'private'/g)).toHaveLength(2)
+  })
+
+  it('⚖ 50(d) — the VIP floor is a red like any other, so it carries the gated override', () => {
+    // Nothing special was built for it: it is `blocked`, and every blocked
+    // landing on every gesture ending goes to `explainBlocked`, whose 「注意して
+    // 配置」 exists only where the store's overridePolicy put it.
+    expect(SRC).toContain('override: props.canOverride ? () => { setAdvice(null); run.override() } : null,')
+    // On a BED-ROW gesture the override places on the room the operator named —
+    // `land` re-solves the bed only for the staff-side paths, so the escalation
+    // is the manager putting the VIP in that exact bed, stamped with the reason
+    // it walked past (`land(v.reason, span)` → `stage(..., override)`).
+    expect(SRC).toContain("if (ctx.group !== 'beds' && on.bedLane != null) {")
+    expect(SRC).toContain('override: () => land(v.reason, span),')
   })
 
   // ── the ORDER is the answer the operator can act on ──────────────────────
