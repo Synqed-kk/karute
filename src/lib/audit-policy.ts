@@ -68,6 +68,7 @@ export const AUDIT_ACTIONS = [
   'privacy.voice_enroll',
   'privacy.voice_revoke',
   'recording.discard',
+  'recording.session_cleanup',
   'recording.transcribe',
   'settings.menu_create',
   'settings.menu_reactivate',
@@ -145,6 +146,11 @@ export const AUDITED_CORES: {
   // real writer is provably covered, not left off as "not required."
   { file: 'src/lib/auth/pin-throttle.ts', symbols: ['auditLockout'] },
   { file: 'src/lib/jobs/process-recording.ts', symbols: ['processJob'] },
+  // Build F1 fix round 3 — the deliberate-discard orphan cleanup. Its
+  // recordings.delete is the write; the audit() sits on the ONLY success path
+  // (every refusal returns { error } before reaching it). INTERIM: P5's
+  // kept-discard build deletes the module, and this entry goes with it.
+  { file: 'src/lib/recording/session-cleanup.ts', symbols: ['deleteRecordingSessionWithClient'] },
   // 自動消化 (packet 11) — the ONE auto-burn writer. The batch driver
   // autoBurnForBusiness is deliberately not listed: it performs no write of its
   // own and returns unemitted whenever there is nothing to burn.

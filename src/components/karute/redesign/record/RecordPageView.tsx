@@ -35,6 +35,7 @@ import { isConsentCurrent } from '@/lib/consent'
 import { sessionPhotoStore } from '@/lib/karute/session-photos'
 import { saveKaruteRecordInline } from '@/actions/karute'
 import { getRecoveryDayFacts } from '@/actions/recovery'
+import { deleteRecordingSession } from '@/actions/recordings'
 import type { RecoveryDayFacts } from '@/lib/karute/recovery-facts'
 import { formatCompactDateJst, hmInJst, ymdInJst } from '@/lib/date/jst'
 import type { EntryCategory } from '@/lib/karute/categories'
@@ -814,8 +815,31 @@ export function RecordPageView({
     if (dropped > 0) toast.warning(t('sessionPhotos.uploadsDropped', { n: dropped }))
   }
 
+  /**
+   * ⚠ INTERIM, deleted by P5 (see lib/recording/session-cleanup.ts). A
+   * deliberate 破棄 destroys the take and writes no karute, so its
+   * recording_sessions row is left an orphan the 録音履歴 inbox can only render
+   * as 失敗 — a false alarm in 要対応 that nobody can clear for seven days.
+   * Remove the row with it. Fire-and-forget: the discard never waits on this
+   * and never fails because of it.
+   *
+   * Wired at the DELIBERATE chokepoints only — proceedDiscard (the 破棄 button
+   * and both photo-dialog exits) and ReviewScreen's onDiscard. Explicitly NOT
+   * on the error card's キャンセル (dismiss-only, the take is KEPT and the row
+   * is still honest), settle-on-save (the row becomes 保存済み), the TTL prune,
+   * or the logout wipe (a phone-path session can still complete server-side
+   * after sign-out).
+   */
+  function cleanUpDiscardedSession(recordingSessionId: string | null | undefined) {
+    if (!recordingSessionId) return
+    void deleteRecordingSession(recordingSessionId).catch(() => {})
+  }
+
   function proceedDiscard() {
     toastDroppedErrorPhotos()
+    // BEFORE discardRecording(), which nulls recordingSessionId on the
+    // singleton — same read-it-first rule toastDroppedErrorPhotos above obeys.
+    cleanUpDiscardedSession(globalRecorder.recordingSessionId)
     // Invalidate any in-flight handleUseRecording: its post-await body must
     // not hand a take the staff just discarded to the pipeline.
     useRecordingGen.current++
@@ -2042,6 +2066,7 @@ export function RecordPageView({
           // Deliberate discard → drop the draft + take too, or they reappear
           // as recovery offers for a session the user intentionally threw away.
           clearDraft()
+          cleanUpDiscardedSession(pipeline.context?.recordingSessionId)
           if (pipeline.context?.takeId) void deleteTake(pipeline.context.takeId)
           setRecoveredDraft(null)
           setRecoveredTake(null)

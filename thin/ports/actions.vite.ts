@@ -934,6 +934,30 @@ export const setStaffStores = facadeSetStaffStores
 export const getEntitlement = facadeGetEntitlement
 export const startRecordingSession = facadeStartRecordingSession
 
+// The mint's undo (Build F1 fix round 3, INTERIM — P5's kept-discard build
+// replaces it). Fire-and-forget by contract: a failed cleanup must never block
+// the discard, so every failure resolves to { error } instead of throwing.
+export const deleteRecordingSession = async (
+  recordingSessionId: string,
+): Promise<{ ok: true } | { error: string }> => {
+  try {
+    const res = await getDataPort().apiFetch(
+      `/api/app/v1/recordings/session/${enc(recordingSessionId)}`,
+      // idemPost() with no body: the id is in the path, so a DELETE carries
+      // no payload — only the Idempotency-Key the route requires.
+      { ...idemPost(), method: 'DELETE' },
+    )
+    const body = (await res.json().catch(() => null)) as
+      | { ok?: true; error?: string | { message?: string } }
+      | null
+    if (res.ok && body?.ok) return { ok: true }
+    const message = typeof body?.error === 'string' ? body.error : body?.error?.message
+    return { error: message ?? `cleanup failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
 // -- 録音履歴 inbox (Build F1). Type-only import of the row shape: inbox.ts is
 // pure (no next/*, no synqed client), so this erases at compile and the DTO
 // stays defined in ONE place instead of being redeclared here.

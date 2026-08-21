@@ -11,7 +11,7 @@ import { setDataPort } from '@/lib/ports/data-port'
 
 jest.mock('@/lib/karute/take-store', () => ({}))
 
-import { listRecordingsInbox } from '../../../thin/ports/actions.vite'
+import { deleteRecordingSession, listRecordingsInbox } from '../../../thin/ports/actions.vite'
 
 const ROW = {
   recordingSessionId: 'sess-1',
@@ -68,5 +68,38 @@ describe('thin actions port — 録音履歴 transport contract', () => {
       throw new Error('network down')
     })
     await expect(listRecordingsInbox()).rejects.toThrow('network down')
+  })
+})
+
+describe('thin actions port — discard session cleanup (fix round 3)', () => {
+  it('DELETEs the id path with an Idempotency-Key and no body', async () => {
+    let seen: { path: string; init: RequestInit } | null = null
+    const apiFetch = jest.fn(async (path: string, init: RequestInit) => {
+      seen = { path, init }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 })
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await expect(deleteRecordingSession('sess 1/x')).resolves.toEqual({ ok: true })
+    const call = seen as unknown as { path: string; init: RequestInit }
+    expect(call.path).toBe('/api/app/v1/recordings/session/sess%201%2Fx')
+    expect(call.init.method).toBe('DELETE')
+    expect((call.init.headers as Record<string, string>)['Idempotency-Key']).toBeTruthy()
+    expect(call.init.body).toBeUndefined()
+  })
+
+  it('a refusal or failure RESOLVES to { error } — never throws into the discard', async () => {
+    setDataPort({
+      apiFetch: async () =>
+        new Response(JSON.stringify({ error: 'not_owned' }), { status: 200 }),
+    } as unknown as Parameters<typeof setDataPort>[0])
+    await expect(deleteRecordingSession('s1')).resolves.toEqual({ error: 'not_owned' })
+
+    setDataPort({
+      apiFetch: async () => {
+        throw new Error('network down')
+      },
+    } as unknown as Parameters<typeof setDataPort>[0])
+    await expect(deleteRecordingSession('s1')).resolves.toEqual({ error: 'network down' })
   })
 })

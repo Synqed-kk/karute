@@ -70,8 +70,15 @@ const getByRecordingSession = jest.fn(async (_id: string) => {
 const storesGet = jest.fn(async (id: string) => ({ id }))
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 
+const recordingsGet = jest.fn(async (id: string) => ({
+  id,
+  staff_id: 'auth-user-1',
+  customer_id: 'cust-1',
+  audio_storage_path: null,
+}))
+const recordingsDelete = jest.fn(async (_id: string) => {})
 const fakeClient = {
-  recordings: { list: listRecordings },
+  recordings: { list: listRecordings, get: recordingsGet, delete: recordingsDelete },
   karuteRecords: { list: listKarute },
   recordingJobs: { getByRecordingSession },
   stores: { get: storesGet },
@@ -80,6 +87,7 @@ const fakeClient = {
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
 import { GET } from '@/app/api/app/v1/recordings/inbox/route'
+import { DELETE as SESSION_DELETE } from '@/app/api/app/v1/recordings/session/[id]/route'
 import { FACADE_AUDIT_MAP } from '@/lib/audit'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
@@ -108,6 +116,13 @@ beforeEach(() => {
   // mockRejectedValue would otherwise poison every test after it.
   listRecordings.mockImplementation(listRecordingsImpl)
   listKarute.mockImplementation(listKaruteImpl)
+  recordingsGet.mockImplementation(async (id: string) => ({
+    id,
+    staff_id: 'auth-user-1',
+    customer_id: 'cust-1',
+    audio_storage_path: null,
+  }))
+  recordingsDelete.mockImplementation(async () => {})
   capabilities.current = new Set(['customers.view', 'records.write'])
   getUser.fn.mockResolvedValue({ data: { user: { id: 'auth-user-1' } }, error: null })
   staffStoresGet.mockResolvedValue({ store_ids: [] })
@@ -405,5 +420,56 @@ describe('GET recordings/inbox — roster failure taxonomy (FX-7b)', () => {
     expect(res.status).toBe(502)
     const body = (await res.json()) as { error: { code: string } }
     expect(body.error.code).toBe('upstream_unavailable')
+  })
+})
+
+describe('DELETE recordings/session/[id] — the discard cleanup twin', () => {
+  const idem = { 'idempotency-key': 'k1' }
+  const delReq = (headers: Record<string, string> = {}) =>
+    new Request('https://s/api/app/v1/recordings/session/sess-1', {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${bearer()}`, ...headers },
+    })
+  const route = (id = 'sess-1') => ({ params: Promise.resolve({ id }) })
+
+  it('deletes the caller’s OWN session row', async () => {
+    const res = await SESSION_DELETE(delReq(idem), route())
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect(recordingsDelete).toHaveBeenCalledWith('sess-1')
+  })
+
+  it('leaves ANOTHER staffer’s session untouched (core’s DELETE is business-scoped)', async () => {
+    recordingsGet.mockResolvedValue({
+      id: 'sess-1',
+      staff_id: 'auth-user-2',
+      customer_id: 'cust-9',
+      audio_storage_path: null,
+    })
+    const res = await SESSION_DELETE(delReq(idem), route())
+    expect(await res.json()).toEqual({ error: 'not_owned' })
+    expect(recordingsDelete).not.toHaveBeenCalled()
+  })
+
+  it('requires records.write', async () => {
+    capabilities.current = new Set(['customers.view'])
+    const res = await SESSION_DELETE(delReq(idem), route())
+    expect(res.status).toBe(403)
+    expect(recordingsDelete).not.toHaveBeenCalled()
+  })
+
+  it('requires an Idempotency-Key (it undoes an effectful mint)', async () => {
+    const res = await SESSION_DELETE(delReq(), route())
+    expect(res.status).toBe(400)
+    expect(recordingsDelete).not.toHaveBeenCalled()
+  })
+
+  it('is registered revocation-sensitive and audit-skipped to the shared core', async () => {
+    const { REVOCATION_SENSITIVE_ENDPOINTS } = await import('@/lib/auth/revocation')
+    expect([...REVOCATION_SENSITIVE_ENDPOINTS]).toContain('recordings.session.delete')
+    expect(FACADE_AUDIT_MAP['recordings.session.delete']).toMatchObject({
+      kind: 'skip',
+      coveredBy: 'src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient',
+    })
   })
 })

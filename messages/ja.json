@@ -2358,6 +2358,7 @@
         },
         "recording": {
           "discard": "録音を破棄",
+          "session_cleanup": "録音セッション行を削除",
           "transcribe": "録音を文字起こし"
         }
       },

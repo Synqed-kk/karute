@@ -2358,6 +2358,7 @@
         },
         "recording": {
           "discard": "Discarded recording",
+          "session_cleanup": "Recording session row removed",
           "transcribe": "Transcribed recording"
         }
       },
