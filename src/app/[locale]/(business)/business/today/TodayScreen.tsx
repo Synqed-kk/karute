@@ -58,6 +58,7 @@ import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane } from '@/bu
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
+  anchorOnScreen,
   applyBlockMoves,
   applyMoves,
   blockChrome,
@@ -79,13 +80,16 @@ import {
   proxyTransform,
   stretchOrCarry,
   gapLayerFor,
+  guardCheckRow,
   guardRailsFor,
   guardVerdictAt,
+  holdPopAnchor,
   isOverShelf,
   laneKeyAtY,
   nextSpan,
   onShownBoard,
   parkChipText,
+  pinInViewport,
   sameStore,
   sellLayerFor,
   slotStartAt,
@@ -356,14 +360,46 @@ interface LiveDrag {
   mode: DragMode
 }
 
-/** The 配置の相談 canon opens on a refused placement (:7106). */
+/** ⚖ Liam flag 34 — the 仮押さえ confirm, as data. Two very different sources
+ *  (the session's staged change and the day's own hold from the incident) render
+ *  ONE surface, so there is one set of buttons, one set of check marks and one
+ *  position rule rather than two bars that have to be kept looking alike. */
+interface HoldPop {
+  /** The booking the popover hangs under. Not on screen → the fixed pill.
+   *  `null` = ALWAYS the pill: a standing 仮押さえ that this session did not
+   *  stage has no gesture to answer and would otherwise sit on the board
+   *  indefinitely, covering the lane under its card (canon's bar is in normal
+   *  flow precisely so it "never covers the staged card", :4782). Measured, not
+   *  argued: the anchored version swallowed the pointerdown of a card in the
+   *  next lane down in the real-browser harness. */
+  anchorId: string | null
+  status: string
+  tone: 'waiting' | 'done'
+  summary: string
+  checks: Array<{ label: string; tone: '' | 'bad' }>
+  /** ⚖ 31b — the guard's own row, informational, never a gate. */
+  guardRow: { label: string; tone: 'warn' | 'bad' } | null
+  confirm: { label: string; enabled: boolean; run: () => void }
+  revert: { enabled: boolean; run: () => void }
+}
+
+/** The 配置の相談 canon opens on a refused placement (:7106).
+ *
+ *  ⚖ Liam flag 31 — it opens on a NEW PLACEMENT now, never on a move. `place`
+ *  is the placement the operator was in the middle of making, held so the
+ *  popup's controls can actually perform it: an alternative runs it at the safer
+ *  start, この開始に配置 runs it at the one they asked for. Canon holds exactly
+ *  the same two callbacks on its own `info` object (`onAlternative` / `onAttempt`,
+ *  :7141-7161) and for the same reason — the popup is a question about a
+ *  placement, so it has to be carrying that placement. */
 interface GuardAdvice {
-  id: string
   laneKey: string
   start: number
-  x: number
-  y: number
   cell: RailCell
+  /** Where the operator's hand was — canon opens the popup at the pointer
+   *  (`placePopNear(x, y)`), pinned inside the viewport (⚖ flag 35). */
+  anchor: { x: number; y: number }
+  place: (start: number) => void
 }
 
 export function TodayScreen(props: TodayProps) {
@@ -443,6 +479,12 @@ export function TodayScreen(props: TodayProps) {
   const [proxy, setProxy] = useState<DragProxy | null>(null)
   const [chipTarget, setChipTarget] = useState<string | null>(null)
   const [advice, setAdvice] = useState<GuardAdvice | null>(null)
+  /** ⚖ Liam flag 34 — the 仮押さえ confirm has left the bottom of the page and
+   *  hangs under the card it is answering for. `true` when that card is not on
+   *  screen (scrolled away, another day, another store) and the same content
+   *  becomes the fixed pill instead — which is also what retires the in-flow bar
+   *  Liam had to scroll to find. */
+  const [holdPinned, setHoldPinned] = useState(false)
   /** ⚖ Liam flag 25 — 画面の説明. The step the tour is on, `-1` when it is
    *  closed. The STEPS themselves are never held in state: they are re-read from
    *  the DOM registry on every render of the overlay, which is what makes a
@@ -472,6 +514,12 @@ export function TodayScreen(props: TodayProps) {
   const shelfRef = useRef<HTMLDivElement>(null)
   const fieldsPopRef = useRef<HTMLDivElement>(null)
   const fieldsBtnRef = useRef<HTMLButtonElement>(null)
+  const advicePopRef = useRef<HTMLDivElement>(null)
+  const holdPopRef = useRef<HTMLDivElement>(null)
+  /** canon's `popOpenedAt` (:7074): a popup opened from a pointerup is followed
+   *  by one synthetic click on the thing underneath, and without this window the
+   *  popup would close itself the instant it appeared. */
+  const adviceOpenedAt = useRef(0)
   const chipDragRef = useRef<{ id: string; startX: number; startY: number; moved: boolean; laneKey: string | null; grab: { dx: number; dy: number; w: number; h: number } } | null>(null)
 
   // ── the store's price levers (L3) ────────────────────────────────────────
@@ -500,10 +548,18 @@ export function TodayScreen(props: TodayProps) {
 
   // B5 予約を作成 — canon's rightmost topbar action. The button is the shell's,
   // the dialog is this screen's; the slot is where they meet.
-  const openCreate = useCallback(() => {
-    setSeed(null)
+  //
+  // ⚖ Liam flag 33 — EVERY opening of this dialog goes through here, and every
+  // one of them puts the consult popup down first. A native <dialog> renders in
+  // the TOP LAYER: a popup left open under it is painted over, unreachable and
+  // still alive, which is exactly the "two surfaces at once" Liam saw. One
+  // function, so no future caller can open the modal and forget.
+  const openCreateAt = useCallback((at: { staffId: string; start: number } | null) => {
+    setAdvice(null)
+    setSeed(at ? { ...at, nonce: Date.now() } : null)
     createRef.current?.showModal()
   }, [])
+  const openCreate = useCallback(() => openCreateAt(null), [openCreateAt])
   useTopbarAction('予約を作成', openCreate)
 
   useEffect(() => {
@@ -511,18 +567,6 @@ export function TodayScreen(props: TodayProps) {
     const t = setTimeout(() => setToast(''), 3200)
     return () => clearTimeout(t)
   }, [toast])
-
-  // canon (:6942): Escape puts down whatever is in the operator's hand. Armed
-  // 配置モード has no other keyboard exit, and a mode you cannot leave without
-  // hunting for a × is a trap on a board this dense.
-  useEffect(() => {
-    if (!placing) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !document.querySelector('dialog[open]')) setPlacing(null)
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [placing])
 
   // canon (:5772): a click outside the open popover closes it.
   useEffect(() => {
@@ -534,6 +578,56 @@ export function TodayScreen(props: TodayProps) {
     document.addEventListener('click', onDoc)
     return () => document.removeEventListener('click', onDoc)
   }, [pop])
+
+  /** ⚖ Liam flag 33 — canon's DISMISSAL CONTRACT on the consult popup
+   *  (:7082-7087), which the transplant left off entirely: the popup had no exit
+   *  but its own two buttons, so a click anywhere else left it standing and the
+   *  next surface painted straight over it.
+   *
+   *  Outside click closes it, behind canon's own 80ms window — a popup opened
+   *  from a pointerup is followed by exactly one synthetic click on the thing
+   *  underneath, and without the window it would dismiss itself on arrival.
+   *  Canon reads `performance.now()`; both ends of this comparison are EVENT
+   *  timestamps instead — the same monotonic origin, and this component reads no
+   *  clock outside an event (the rule `suppressClickUntil` already follows). */
+  useEffect(() => {
+    if (!advice) return
+    const onDoc = (e: MouseEvent) => {
+      if (e.timeStamp - adviceOpenedAt.current < 80) return
+      if (clickClosesPopover(advicePopRef.current, e.target)) setAdvice(null)
+    }
+    document.addEventListener('click', onDoc)
+    return () => document.removeEventListener('click', onDoc)
+  }, [advice])
+
+  /** ⚖ Liam flag 35 — the consult popup is pinned inside the viewport before it
+   *  paints, through the SAME clamp the 仮押さえ popover uses. It used to sit at
+   *  the raw pointer position behind a hard-coded `Math.min(x, 1600)`, so a
+   *  placement near the right edge opened a popup that ran off the screen
+   *  (Liam, 8/21). Measured then placed, canon's `placePopNear` (:7075) exactly:
+   *  the size is only knowable after the content is in the DOM, which is why
+   *  neither canon nor this writes a position in the markup. */
+  useLayoutEffect(() => {
+    if (!advice) return
+    const pin = () => {
+      const el = advicePopRef.current
+      if (!el) return
+      // The RECT, not offsetWidth: offsetWidth is rounded to an integer, and a
+      // surface measured 0.33px narrower than it paints lands that far past the
+      // margin when it is pinned to an edge.
+      const size = el.getBoundingClientRect()
+      const at = pinInViewport(
+        { left: advice.anchor.x, top: advice.anchor.y },
+        { width: size.width, height: size.height },
+        { width: window.innerWidth, height: window.innerHeight },
+      )
+      el.style.left = `${at.left}px`
+      el.style.top = `${at.top}px`
+    }
+    pin()
+    window.addEventListener('resize', pin)
+    return () => window.removeEventListener('resize', pin)
+  }, [advice])
 
   // canon `positionFieldsPop` (:5782) + its resize listener (:5820). 表示設定
   // is viewport-pinned, not button-hung, so the whole panel is on screen with
@@ -739,6 +833,29 @@ export function TodayScreen(props: TodayProps) {
 
   // ── the 仮押さえ gate ─────────────────────────────────────────────────────
 
+  /** ONE guard question, asked in one shape. The consult popup (⚖ 31c) and the
+   *  confirm surface's guard row (⚖ 31b) are the same verdict about the same
+   *  board; building the engine's input twice is how the two would drift apart.
+   *  The card's OWN length, not the rail's 60 minutes: the rail answers "could a
+   *  standard session start here", a placement asks about the booking in hand. */
+  const verdictAt = useCallback(
+    (laneKey: string, start: number, dur: number, excludeId: string | null): RailCell | null =>
+      guardOn
+        ? guardVerdictAt(boardLanes, laneKey, start, {
+            open: hours.open,
+            close: hours.close,
+            stepMin: 30,
+            dur,
+            protectedDur: props.guard.protectedDurationMin,
+            nowMinute: props.sell.nowMinute,
+            locked,
+            guard: props.guard.config,
+            excludeId,
+          })
+        : null,
+    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked],
+  )
+
   /** canon `computeChecks` fed from the board as it currently stands. The sell
    *  layer's own windows join the pool as DERIVED inventory, exactly as canon's
    *  `isDerivedInventory` treats `.public` cells — they yield to a real
@@ -788,6 +905,114 @@ export function TodayScreen(props: TodayProps) {
     ? { enabled: false, label: 'この内容で確定' }
     : confirmCaption(pendingChecks)
 
+  /** ⚖ Liam flag 31b — WHERE THE GUARD'S MOVE-ASSESSMENT GOES. A move no longer
+   *  interrupts the operator with a dialog (31a), but the assessment it carried
+   *  is real: it joins the checks the confirm surface already shows, as one more
+   *  row. It is INFORMATION — `pendingConfirm` above is untouched, so what can
+   *  and cannot be confirmed is still `computeChecks`' answer alone and a
+   *  degraded landing stays confirmable, exactly as canon's own ackAllowed lets
+   *  it be. Neither canon's hold bar nor the built one showed this at all. */
+  const pendingGuardRow = useMemo(() => {
+    // ⚖ 46 forerunner: `pendingOffBoard`, not a day-only test — `verdictAt` reads
+    // the board on screen, so a 仮押さえ staged in another STORE would have its
+    // row computed from this store's cards. Same predicate as the checks above.
+    if (!pending || pendingOffBoard) return null
+    const at = moves[pending.id]
+    if (!at) return null
+    const start = minuteOf(at.x, hours)
+    return guardCheckRow(verdictAt(at.laneKey, start, minuteOf(at.x + at.w, hours) - start, pending.id))
+  }, [pending, pendingOffBoard, moves, hours, verdictAt])
+
+  /** ⚖ Liam flag 34 — THE CONFIRM COMES TO THE CARD, one surface answering for
+   *  whichever 仮押さえ is live: this session's staged change, or the day's own
+   *  from the incident. Canon put both on a full-width bar at the bottom of the
+   *  page; ours was IN FLOW there (today.css :784), so on a tall board the
+   *  operator had to scroll away from the card to find the button that answers
+   *  for it — Liam's complaint, and structural rather than cosmetic. */
+  const holdPop: HoldPop | null = pending
+    ? {
+        anchorId: pending.id,
+        status: '仮押さえ',
+        tone: 'waiting',
+        // ⚖ 46 forerunner: blank on ANOTHER STORE's board too — `holdSummary`
+        // reads `boardLanes`, which is this store's.
+        summary: pendingOffBoard ? '' : holdSummary(boardLanes, pending.id, moves[pending.id], hours),
+        checks: pendingChecks.map((c) => ({ label: c.label, tone: c.ok ? '' : 'bad' })),
+        guardRow: pendingGuardRow,
+        confirm: { label: pendingConfirm.label, enabled: pendingConfirm.enabled, run: confirmPending },
+        revert: { enabled: true, run: revertPending },
+      }
+    : props.hold
+      ? {
+          // The day's own standing 仮押さえ (the incident's) — the pill, always.
+          anchorId: null,
+          status: holdConfirmed ? '確定済み' : '仮押さえ',
+          tone: holdConfirmed ? 'done' : 'waiting',
+          summary: props.hold.summary,
+          checks: props.hold.checks.map((label) => ({ label, tone: '' })),
+          guardRow: null,
+          confirm: {
+            label: 'この内容で確定',
+            enabled: !holdConfirmed,
+            run: () => {
+              setHoldConfirmed(true)
+              setResolved((was) => toggleOn(was, props.cards.find((c) => c.kind === '担当変更')?.id))
+              show('仮押さえをこの画面の中だけで確定しました。再読み込みすると戻ります')
+            },
+          },
+          revert: { enabled: holdConfirmed, run: () => { setHoldConfirmed(false); show('仮押さえに戻しました') } },
+        }
+      : null
+
+  /** ⚖ Liam flag 34 — where that surface goes, measured rather than guessed.
+   *
+   *  Under the card when the card is on screen (⚖ flag 35 clamps it inside the
+   *  viewport on all four edges, through the same helper the consult popup uses);
+   *  the fixed pill at the bottom of the VIEWPORT when it is not — scrolled away,
+   *  another day, another store. The pill is always visible with nothing to
+   *  scroll to, which is what retires the in-flow bar for good.
+   *
+   *  COARSE ON PURPOSE (packet's rule, and WO-2d's): re-anchoring is debounced to
+   *  the end of a scroll, never per frame. A popover that chased the board at
+   *  60fps would be the jank the drag path was rebuilt to remove. */
+  // The ID alone, never the object: `holdPop` is rebuilt on every render, and an
+  // effect keyed on it would re-measure the DOM on every frame of a drag.
+  const holdAnchorId = holdPop?.anchorId ?? null
+  useLayoutEffect(() => {
+    const anchorId = holdAnchorId
+    const pin = () => {
+      const el = holdPopRef.current
+      if (!el) return
+      const card = anchorId ? cardNodes(boardRef.current, anchorId)[0] : null
+      const viewport = { width: window.innerWidth, height: window.innerHeight }
+      const box = card?.getBoundingClientRect()
+      const self = el.getBoundingClientRect()
+      // Off screen, or no side of the card can hold the whole surface without
+      // covering it (⚖ Liam 8/21: he has to SEE what he moved) → the pill.
+      const at = box && anchorOnScreen(box, viewport) ? holdPopAnchor(box, self.width, self.height, viewport) : null
+      if (!at) {
+        setHoldPinned(true)
+        el.style.left = ''
+        el.style.top = ''
+        return
+      }
+      setHoldPinned(false)
+      el.style.left = `${at.left}px`
+      el.style.top = `${at.top}px`
+    }
+    pin()
+    let t: ReturnType<typeof setTimeout> | undefined
+    const coarse = () => { clearTimeout(t); t = setTimeout(pin, 120) }
+    // Capture, so a scroll of the board's own scroller is heard too.
+    window.addEventListener('scroll', coarse, true)
+    window.addEventListener('resize', coarse)
+    return () => {
+      clearTimeout(t)
+      window.removeEventListener('scroll', coarse, true)
+      window.removeEventListener('resize', coarse)
+    }
+  }, [holdAnchorId, holdPinned, moves, props.dayOffset])
+
   function stage(id: string, laneKey: string, span: { x: number; w: number }, from: Move) {
     setMoves((was) => ({ ...was, [id]: { laneKey, ...span } }))
     setPending((was) => (was && was.id === id ? was : { id, origin: from, ...boardStamp }))
@@ -833,6 +1058,28 @@ export function TodayScreen(props: TodayProps) {
     show('この画面の中だけで確定しました。再読み込みすると戻ります')
   }
 
+  // canon (:6941-6947): Escape puts down whatever is in the operator's hand,
+  // ONE surface per press, innermost first. Armed 配置モード has no other
+  // keyboard exit, and a mode you cannot leave without hunting for a × is a trap
+  // on a board this dense.
+  //
+  // ⚖ Liam flag 34 — the chain's LAST branch is canon's own R11-6 (:6946):
+  // with nothing else open, Escape is 元に戻す. Discarding is always safe and
+  // 確定 never happens implicitly, which is why canon gives the key to the
+  // revert and not to the commit. A live drag holds the key (canon's `!dragCtx`).
+  useEffect(() => {
+    if (!placing && !advice && !pop && !pending) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || document.querySelector('dialog[open]')) return
+      if (advice) { setAdvice(null); return }
+      if (pop) { setPop(''); return }
+      if (placing) { setPlacing(null); return }
+      if (pending && !dragRef.current) revertPending()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [placing, advice, pop, pending, revertPending])
+
   // ── card drag ────────────────────────────────────────────────────────────
 
   function homeMoveFor(id: string, lane: BoardLane, item: BoardItem): Move {
@@ -873,7 +1120,7 @@ export function TodayScreen(props: TodayProps) {
     const onUp = (e: PointerEvent) => {
       const c = dragRef.current
       if (!c || e.pointerId !== c.pointerId) return
-      finishDrag(e.clientX, e.clientY)
+      finishDrag(e.clientX, e.clientY, e.timeStamp)
     }
     const onCancel = (e: PointerEvent) => {
       const c = dragRef.current
@@ -972,7 +1219,7 @@ export function TodayScreen(props: TodayProps) {
     e.preventDefault()
   }
 
-  function finishDrag(clientX: number, clientY: number) {
+  function finishDrag(clientX: number, clientY: number, upAt: number) {
     const ctx = dragRef.current
     if (!ctx) return
     const { item, lane } = ctx
@@ -983,6 +1230,16 @@ export function TodayScreen(props: TodayProps) {
       setSelected(item.caseId)
       return
     }
+    // ⚖ Liam flag 33, ROOT CAUSE — canon `finishNormalBookingDrag` (:4563) opens
+    // its click window HERE, before any branch, and the transplant carried that
+    // line into the shelf-chip path only. A card drag leaves the card at its
+    // ORIGIN until React repaints, so the release lands on empty TRACK: the
+    // browser's synthetic click then reached the track's own handler and the
+    // drop opened 新規予約を作成 on top of everything else. That is the third
+    // surface in Liam's screenshot, and it was one missing line. Every branch
+    // below is covered because the window opens above all of them (canon's own
+    // order), including the two refusals that put the card back.
+    suppressClickUntil.current = upAt + 400
     // canon (:4567): the release position is authoritative — recompute once more
     // rather than trusting the last move Chrome delivered.
     const span = nextSpan(ctx.origin, ctx.track, clientX - ctx.startX, STEP)
@@ -1011,8 +1268,13 @@ export function TodayScreen(props: TodayProps) {
       setMoves((was) => ({ ...was, [ctx.id]: from }))
       return
     }
+    // ⚖ Liam flag 31a — A MOVE NEVER OPENS THE CONSULT. It used to call
+    // `askGuard` here, and that was the transplant's own invention: canon's
+    // 配置の相談 fires ONLY from a teaching card its own copy calls
+    // 「このページだけのサンプル」 (guard-demo :1823), and canon's real drop
+    // (`finishNormalBookingDrag` :4559-4626) shows no dialog whatsoever. What the
+    // popup knew is not lost — it is a row on the confirm surface now (31b).
     stage(ctx.id, targetLane, span, pending?.id === ctx.id ? pending.origin : from)
-    askGuard(ctx.id, targetLane, span, clientX, clientY)
   }
 
   function cancelDrag() {
@@ -1327,29 +1589,43 @@ export function TodayScreen(props: TodayProps) {
     window.addEventListener('pointercancel', done)
   }
 
-  /** canon's refusal beat (:7106): a placement the guard refuses does not move
-   *  back on its own — the board names the engine's real reason and offers the
-   *  feasible starts as controls. The card is already staged, so 確定 is behind
-   *  the same checks it always was; this dialog is the guard's own sentence. */
-  function askGuard(id: string, laneKey: string, span: { x: number; w: number }, clientX: number, clientY: number) {
-    if (!guardOn) return
-    const start = minuteOf(span.x, hours)
-    // The card's OWN length, not the rail's 60 minutes: the rail answers "could
-    // a standard session start here", the drop asks about the booking in hand.
-    const dur = minuteOf(span.x + span.w, hours) - start
-    const cell = guardVerdictAt(boardLanes, laneKey, start, {
-      open: hours.open,
-      close: hours.close,
-      stepMin: 30,
-      dur,
-      protectedDur: props.guard.protectedDurationMin,
-      nowMinute: props.sell.nowMinute,
-      locked,
-      guard: props.guard.config,
-      excludeId: id,
-    })
-    if (!cell || cell.state === 'safe') return
-    setAdvice({ id, laneKey, start, x: clientX, y: clientY, cell })
+  /** canon's refusal beat (:7106), ⚖ MOVED BY LIAM'S FLAG 31 TO WHERE IT BELONGS:
+   *  a NEW PLACEMENT, where the operator is still choosing a start and a better
+   *  one is worth offering. A move already has a card in a place and its own
+   *  confirm surface; a placement has neither, which is the difference.
+   *
+   *  Every new-placement flow goes through here — the empty-track create, 次回予約
+   *  and the shelf chip — and a SAFE landing is placed with no popup at all: this
+   *  function performs the placement or asks about it, so no caller can forget
+   *  half of the pair. The popup's controls carry the same `run`, which is what
+   *  makes この開始に配置 an honest button (it used to only close the popup). */
+  function askGuard(
+    laneKey: string,
+    start: number,
+    dur: number,
+    excludeId: string | null,
+    at: { x: number; y: number; t: number },
+    run: (start: number) => void,
+  ) {
+    const cell = verdictAt(laneKey, start, dur, excludeId)
+    if (!cell || cell.state === 'safe') {
+      run(start)
+      return
+    }
+    // canon reads `performance.now()` here; we take the OPENING EVENT's own
+    // timestamp instead — same monotonic origin, and this component reads no
+    // clock outside an event (the same rule `suppressClickUntil` follows).
+    adviceOpenedAt.current = at.t
+    setAdvice({ laneKey, start, cell, anchor: at, place: run })
+  }
+
+  /** ⚖ Liam flag 33 — canon's SINGLETON invariant (:7086-7087): a new gesture on
+   *  the board puts the open popup down before it starts, so at most one
+   *  transient surface is ever alive. Canon guarantees it on `bindDemoPointer`'s
+   *  pointerdown (:7779); ours hangs off the board root, which every card, block
+   *  and track gesture passes through, plus the shelf chip's own press. */
+  function closeAdvice() {
+    if (advice) setAdvice(null)
   }
 
   /** canon `keyboardResizeBooking` (:3889). */
@@ -1429,6 +1705,7 @@ export function TodayScreen(props: TodayProps) {
     // arms a drag under the button, and the release that should have returned
     // the booking is spent cancelling a gesture nobody started.
     if (e.button !== 0 || dragRef.current || (e.target as Element).closest('.park-x')) return
+    closeAdvice()
     if (pending) {
       show('仮押さえ中の変更を確定するか、元に戻してから操作してください')
       return
@@ -1493,7 +1770,21 @@ export function TodayScreen(props: TodayProps) {
     const track = boardRef.current?.querySelector(`.lane[data-lane="${ctx.laneKey}"] .track`)
     if (!chip || !track) return
     const w = chip.home.w
-    placeFromShelf(chip, ctx.laneKey, { x: shelfLanding(fractionIn(track, e.clientX), w, chip.home.x, STEP), w })
+    const laneKey = ctx.laneKey
+    const span = { x: shelfLanding(fractionIn(track, e.clientX), w, chip.home.x, STEP), w }
+    // ⚖ Liam flag 31c — a shelf drop is a NEW placement too, so it gets the same
+    // consult: an unsafe landing offers the better starts before the card is put
+    // down, and the buttons re-aim this very drop. `chip.id` is excluded from the
+    // guard's obstacles — a parked card holds no ground on the board it left.
+    const start = minuteOf(span.x, hours)
+    const dur = minuteOf(span.x + span.w, hours) - start
+    askGuard(laneKey, start, dur, chip.id, { x: e.clientX, y: e.clientY, t: e.timeStamp }, (s) =>
+      // The start the drop already computed keeps its EXACT span: canon's dual
+      // lattice can land a card on 17:12, and re-deriving it through the minute
+      // would quietly round the drop the operator actually made. Only a start the
+      // popup offered — always a clean one — is re-derived.
+      placeFromShelf(chip, laneKey, s === start ? span : place(s, s + dur, hours)),
+    )
   }
 
   // ── 配置モード — canon's `armPlacing` / `disarmPlacing` / `createAtCell` ────
@@ -1760,11 +2051,23 @@ export function TodayScreen(props: TodayProps) {
               return
             }
             const start = slotStartAt(e.currentTarget, e.clientX, hours)
+            const at = { x: e.clientX, y: e.clientY, t: e.timeStamp }
+            // ⚖ Liam flag 31c — the consult belongs HERE. The operator is
+            // proposing a start that does not exist yet, so the guard's better
+            // starts are an offer rather than an interruption, and both of the
+            // popup's buttons perform the thing they name: an alternative opens
+            // the flow at the safer start, この開始に配置 at the one they picked.
+            // A safe slot never sees the popup at all.
+            //
             // canon (:6820): while 配置モード is armed the empty slot is a LANDING,
             // not an invitation to fill a form — the customer is already known.
-            if (placing) { placeNextVisit(lane, start); return }
-            setSeed({ staffId: lane.key, start, nonce: Date.now() })
-            createRef.current?.showModal()
+            if (placing) {
+              askGuard(lane.key, start, props.guard.standardSessionMin, null, at, (s) => placeNextVisit(lane, s))
+              return
+            }
+            askGuard(lane.key, start, props.guard.standardSessionMin, null, at, (s) =>
+              openCreateAt({ staffId: lane.key, start: s }),
+            )
           }}
         >
           {!isLocked &&
@@ -2347,6 +2650,10 @@ export function TodayScreen(props: TodayProps) {
                   className={timelineClasses}
                   ref={boardRef}
                   style={{ '--hours': hours.count, '--now': props.nowFraction ?? 0 } as React.CSSProperties}
+                  // ⚖ Liam flag 33 — canon's singleton, at the one place every
+                  // board gesture starts (capture, so a card's own handler
+                  // cannot get there first).
+                  onPointerDownCapture={closeAdvice}
                 >
                   {props.nowFraction != null && <div className="elapsed-wash" aria-hidden="true" />}
                   <div className="time-head">
@@ -2444,49 +2751,9 @@ export function TodayScreen(props: TodayProps) {
           </div>
         </section>
 
-        {/* ── H: hold bar ──────────────────────────────────────────────── */}
-        {pending ? (
-          <div className="holdbar" role="region" aria-label="仮押さえの確認">
-            <div className="holdbar-head">
-              <span className="status waiting">仮押さえ</span>
-              <strong>{pendingOffBoard ? '' : holdSummary(boardLanes, pending.id, moves[pending.id], hours)}</strong>
-              {/* canon's 日付ピン (:2048, :3675): the bar persists across days, so
-                  when it is not this day's it says whose it is and offers the
-                  way back rather than sitting there answering for nothing.
-                  ⚖ 46 forerunner: it persists across STORES too, so the pin names
-                  the store when that is what differs, and the way back carries
-                  the pending's OWN store — this store's `?store=` would land the
-                  operator on the right day of the wrong board. */}
-              {pendingOffBoard && (
-                <span className="hold-daypin">
-                  <span>確定待ち: {sameStore(pending.store, props.storeParam) ? pending.dayLabel : `${pending.storeLabel} ${pending.dayLabel}`}</span>
-                  <Link href={dayHref(pending.dayOffset, pending.store)}>{pending.dayLabel}へ戻る</Link>
-                </span>
-              )}
-            </div>
-            <div className="holdbar-checks">
-              {pendingChecks.map((c) => <span className={`ck${c.ok ? '' : ' bad'}`} key={c.label}>{c.label}</span>)}
-            </div>
-            <div className="holdbar-actions">
-              <button className="btn primary" type="button" disabled={!pendingConfirm.enabled} onClick={confirmPending}>{pendingConfirm.label}</button>
-              <button className="btn" type="button" onClick={revertPending}>元に戻す</button>
-            </div>
-          </div>
-        ) : props.hold ? (
-          <div className="holdbar" role="region" aria-label="仮押さえの確認">
-            <div className="holdbar-head">
-              <span className={`status ${holdConfirmed ? 'done' : 'waiting'}`}>{holdConfirmed ? '確定済み' : '仮押さえ'}</span>
-              <strong>{props.hold.summary}</strong>
-            </div>
-            <div className="holdbar-checks">
-              {props.hold.checks.map((c) => <span className="ck" key={c}>{c}</span>)}
-            </div>
-            <div className="holdbar-actions">
-              <button className="btn primary" type="button" disabled={holdConfirmed} onClick={() => { setHoldConfirmed(true); setResolved((was) => toggleOn(was, props.cards.find((c) => c.kind === '担当変更')?.id)); show('仮押さえをこの画面の中だけで確定しました。再読み込みすると戻ります') }}>この内容で確定</button>
-              <button className="btn" type="button" disabled={!holdConfirmed} onClick={() => { setHoldConfirmed(false); show('仮押さえに戻しました') }}>元に戻す</button>
-            </div>
-          </div>
-        ) : null}
+        {/* ── H: the 仮押さえ confirm is no longer here. ⚖ Liam flag 34 — it
+            hangs under the card it answers for, at the end of this file with the
+            board's other fixed-layer surfaces. */}
       </div>
 
       {/* ── I: 本日の運営影響 ─────────────────────────────────────────── */}
@@ -2869,17 +3136,14 @@ export function TodayScreen(props: TodayProps) {
         </div>
       </dialog>
 
-      {/* 配置の相談 — canon `openGuardPopover` (:7106). A refused placement is
-          not silently undone and not silently allowed: the board says what the
+      {/* 配置の相談 — canon `openGuardPopover` (:7106). The board says what the
           engine actually decided and offers the starts it would accept, as
-          buttons that perform the move. */}
+          buttons that PERFORM the placement (⚖ 31c: この開始に配置 used to do
+          nothing but close this popup — a button that lied about its own name).
+          No position in the markup: it is measured and pinned before paint
+          (⚖ 35), which is canon's own order of operations. */}
       {advice && (
-        <div
-          className="guard-pop"
-          role="dialog"
-          aria-label="配置の確認"
-          style={{ left: Math.round(Math.max(8, Math.min(advice.x, 1600))), top: Math.round(Math.max(8, advice.y)) }}
-        >
+        <div className="guard-pop" role="dialog" aria-label="配置の確認" ref={advicePopRef}>
           <div className="gp-reason">{advice.cell.sentence}</div>
           <div className="gp-offer">
             {advice.cell.alternatives.length === 0
@@ -2896,10 +3160,8 @@ export function TodayScreen(props: TodayProps) {
                   type="button"
                   key={start}
                   onClick={() => {
-                    const at = moves[advice.id]
-                    if (at) setMoves((was) => ({ ...was, [advice.id]: { ...at, x: place(start, start + (minuteOf(at.x + at.w, hours) - minuteOf(at.x, hours)), hours).x } }))
                     setAdvice(null)
-                    show(`${hhmm(start)}へ移しました（仮押さえのまま・確定は下のバーで）`)
+                    advice.place(start)
                   }}
                 >
                   {hhmm(start)} に置く{advice.cell.alternativeKind === 'least-loss' ? '（損を減らす）' : ''}
@@ -2908,10 +3170,57 @@ export function TodayScreen(props: TodayProps) {
             </div>
           )}
           <div className="gp-actions">
-            <button className="btn" type="button" onClick={() => { revertPending(); setAdvice(null) }}>やめる</button>
+            {/* やめる CLOSES. Nothing has been placed yet — the popup now opens
+                BEFORE the placement, not after it, so there is nothing to undo
+                (it used to call revertPending, which was the move path's). */}
+            <button className="btn" type="button" onClick={() => setAdvice(null)}>やめる</button>
             {advice.cell.ackAllowed && (
-              <button className="btn primary" type="button" onClick={() => setAdvice(null)}>この開始に配置</button>
+              <button
+                className="btn primary"
+                type="button"
+                onClick={() => {
+                  setAdvice(null)
+                  advice.place(advice.start)
+                }}
+              >
+                この開始に配置
+              </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ⚖ Liam flag 34 — 仮押さえの確認, under the card it answers for, or as the
+          always-visible pill when that card is not on screen. Same fixed layer,
+          same fits-whole rule and the same clamp as the consult popup above. */}
+      {holdPop && (
+        <div className={`hold-pop${holdPinned ? ' pinned' : ''}`} ref={holdPopRef} role="region" aria-label="仮押さえの確認">
+          <div className="hp-head">
+            <span className={`status ${holdPop.tone}`}>{holdPop.status}</span>
+            <strong>{holdPop.summary}</strong>
+          </div>
+          {/* canon's 日付ピン (:2048, :3675): the 仮押さえ outlives the day it was
+              staged on, so on any other day it names its own day and offers the
+              way back rather than sitting there answering for nothing.
+              ⚖ 46 forerunner: it outlives the STORE too, so the pin names the
+              store when that is what differs, and the way back carries the
+              pending's OWN store — this store's `?store=` would land the
+              operator on the right day of the wrong board. */}
+          {pending && pendingOffBoard && (
+            <span className="hold-daypin">
+              <span>確定待ち: {sameStore(pending.store, props.storeParam) ? pending.dayLabel : `${pending.storeLabel} ${pending.dayLabel}`}</span>
+              <Link href={dayHref(pending.dayOffset, pending.store)}>{pending.dayLabel}へ戻る</Link>
+            </span>
+          )}
+          <div className="holdbar-checks">
+            {holdPop.checks.map((c) => <span className={`ck${c.tone ? ` ${c.tone}` : ''}`} key={c.label}>{c.label}</span>)}
+            {/* ⚖ 31b — the guard's move-assessment, where the operator is already
+                reading. It reports; it never disables 確定. */}
+            {holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}
+          </div>
+          <div className="hp-actions">
+            <button className="btn primary" type="button" disabled={!holdPop.confirm.enabled} onClick={holdPop.confirm.run}>{holdPop.confirm.label}</button>
+            <button className="btn" type="button" disabled={!holdPop.revert.enabled} onClick={holdPop.revert.run}>元に戻す</button>
           </div>
         </div>
       )}

@@ -59,8 +59,13 @@ import {
   onShownBoard,
   sameStore,
   unparkOutcome,
+  anchorOnScreen,
+  guardCheckRow,
+  holdPopAnchor,
+  pinInViewport,
   type GuardRail,
   type Moves,
+  type RailCell,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { dragOrigin, stepPct } from '@/business/lib/canon-logic/drag-rules'
 import { buildSellLayer, type SellCell } from '@/business/lib/canon-logic/availability'
@@ -1129,7 +1134,10 @@ describe('次回予約を作成 arms the board, and the slot click makes the boo
     expect(SRC).toContain('この時間帯に空いているベッドがいません')
     expect(SRC).toContain('シフトロック中: このスタッフには新しい予約を置けません')
     // An armed board treats the empty slot as a landing, not as a form.
-    expect(SRC).toContain('if (placing) { placeNextVisit(lane, start); return }')
+    // ⚖ BATCH-4 flag 31c: the landing now goes through `askGuard`, which places
+    // it outright when the guard has nothing to say and consults first when it
+    // does. Still a landing, never a form — that is what this line protects.
+    expect(SRC).toContain('askGuard(lane.key, start, props.guard.standardSessionMin, null, at, (s) => placeNextVisit(lane, s))')
     // `prefilled` → the hold bar, never the create modal (:6076–6083).
     const body = SRC.slice(SRC.indexOf('function placeNextVisit'), SRC.indexOf('function placeFromShelf'))
     expect(body).toContain('setPending({ id, origin:')
@@ -1139,7 +1147,10 @@ describe('次回予約を作成 arms the board, and the slot click makes the boo
     expect(body).toContain("ticketCat: '単発'")
     expect(body).toContain('props.guard.standardSessionMin')
     // Escape puts it down (:6942).
-    expect(SRC).toContain("if (e.key === 'Escape' && !document.querySelector('dialog[open]')) setPlacing(null)")
+    // ⚖ BATCH-4 flag 34: Escape is a CHAIN now (canon :6941-6947) — the mode is
+    // still one of its branches, and still refuses to fire under a dialog.
+    expect(SRC).toContain("if (e.key !== 'Escape' || document.querySelector('dialog[open]')) return")
+    expect(SRC).toContain('if (placing) { setPlacing(null); return }')
   })
 })
 
@@ -1914,5 +1925,251 @@ describe('販売可能枠の表示 means what it says, at any band count', () =>
     expect(CSS).toContain('.biz .timeline.sell-drag .cell-price { opacity: 0; }')
     expect(CSS).toContain('.biz .timeline.sell-off .cell-price { display: none; }')
     expect(SRC).toContain("[['tint', '淡色表示'], ['drag', 'ドラッグ時のみ'], ['off', '非表示']]")
+  })
+})
+
+/** ═══ BATCH-4 — Liam's flags 31 · 32 · 33 · 34 · 35 (8/21) ═════════════════
+ *
+ *  One sentence for the whole round: the board asked the operator several
+ *  questions at once, and the one it asked loudest was about a move it should
+ *  never have interrupted. The consult goes back to NEW placements, where its
+ *  buttons can do what they say; the move's own assessment becomes a row on the
+ *  confirm surface; and that confirm surface comes to the card instead of
+ *  waiting at the bottom of the page. */
+describe('the confirm comes to the card, and the consult goes back to the placements', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+  const CUSTOMERS_CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/customers/customers.css'), 'utf8')
+  const finishDrag = SRC.slice(SRC.indexOf('function finishDrag('), SRC.indexOf('function cancelDrag('))
+
+  // ── flag 31a ─────────────────────────────────────────────────────────────
+  it('a MOVE never opens the consult — canon fires it from a teaching card only', () => {
+    expect(finishDrag).not.toContain('askGuard(')
+    // …and the drop still stages, which is the part canon's real drop DOES do.
+    expect(finishDrag).toContain('stage(ctx.id, targetLane, span, pending?.id === ctx.id ? pending.origin : from)')
+  })
+
+  // ── flag 33's root cause, found in the browser ────────────────────────────
+  it('the release opens canon’s click window BEFORE any branch, so a drop is never a create', () => {
+    // canon :4563. Without it the release lands on empty TRACK — the card is
+    // still drawn at its origin — and the synthetic click reached the track's
+    // own handler: the drop opened 新規予約を作成 on top of everything else.
+    expect(finishDrag).toContain('suppressClickUntil.current = upAt + 400')
+    // Above every branch: the two refusals and the park return early.
+    expect(finishDrag.indexOf('suppressClickUntil.current = upAt + 400'))
+      .toBeLessThan(finishDrag.indexOf('isOverShelf(shelfRef.current, clientY)'))
+    expect(SRC).toContain('finishDrag(e.clientX, e.clientY, e.timeStamp)')
+  })
+
+  // ── flag 31b ─────────────────────────────────────────────────────────────
+  it('the guard’s move-assessment becomes a CHECK ROW, and never a gate', () => {
+    expect(SRC).toContain('const pendingGuardRow = useMemo(')
+    expect(SRC).toContain('guardCheckRow(verdictAt(at.laneKey, start, minuteOf(at.x + at.w, hours) - start, pending.id))')
+    expect(SRC).toContain('{holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}')
+    // The gate is still `computeChecks` alone — the guard row is not in it.
+    expect(SRC).toContain(': confirmCaption(pendingChecks)')
+    const confirm = SRC.slice(SRC.indexOf('function confirmPending()'), SRC.indexOf('// ── card drag'))
+    expect(confirm).not.toContain('guardRow')
+    expect(confirm).not.toContain('verdictAt')
+    // canon's △ for the row, beside the ✓ and × of the same one decision.
+    expect(CSS).toContain('.biz .holdbar-checks .ck.warn::before { content: "△";')
+  })
+
+  it('guardCheckRow: safe says nothing, degraded warns, refused reads as bad', () => {
+    const cell = (over: Partial<RailCell>): RailCell => ({
+      start: 990, state: 'safe', label: '', sentence: '', alternatives: [], alternativeKind: null, ackAllowed: true, ...over,
+    })
+    expect(guardCheckRow(null)).toBeNull()
+    expect(guardCheckRow(cell({ state: 'safe', sentence: '新規90分の空きを守れます' }))).toBeNull()
+    // The rail's 「損を減らす」 aside is advice for CHOOSING a start; this row is
+    // reporting the one already chosen, so it comes off — and the row is exactly
+    // the sentence Liam's own flag quoted back at us.
+    expect(guardCheckRow(cell({
+      state: 'degraded',
+      sentence: '新規90分の空き2→1（1枠減・損を減らす）。15:45はこの区間で損が最少の開始です',
+    }))).toEqual({ label: '新規90分の空き2→1（1枠減）', tone: 'warn' })
+    expect(guardCheckRow(cell({ state: 'blocked', sentence: 'ここに置くと新規（90分）が入らなくなります' })))
+      .toEqual({ label: 'ここに置くと新規（90分）が入らなくなります', tone: 'bad' })
+  })
+
+  // ── flag 31c ─────────────────────────────────────────────────────────────
+  it('the consult fires from the three NEW-placement flows, and its buttons perform the placement', () => {
+    // One function asks AND places, so no caller can carry half the pair.
+    expect(SRC).toContain('const cell = verdictAt(laneKey, start, dur, excludeId)')
+    expect(SRC).toContain("if (!cell || cell.state === 'safe') {")
+    expect(SRC).toContain('      run(start)')
+    // 1 · empty track → the create dialog, seeded at the start the popup names
+    expect(SRC).toContain('askGuard(lane.key, start, props.guard.standardSessionMin, null, at, (s) =>\n              openCreateAt({ staffId: lane.key, start: s }),')
+    // 2 · 配置モード (次回予約)
+    expect(SRC).toContain('askGuard(lane.key, start, props.guard.standardSessionMin, null, at, (s) => placeNextVisit(lane, s))')
+    // 3 · the shelf chip
+    expect(SRC).toContain('askGuard(laneKey, start, dur, chip.id, { x: e.clientX, y: e.clientY, t: e.timeStamp }, (s) =>')
+    // この開始に配置 PERFORMS it — it used to be a button that only closed itself.
+    expect(SRC).toContain('                  setAdvice(null)\n                  advice.place(advice.start)')
+    expect(SRC).toContain('                    setAdvice(null)\n                    advice.place(start)')
+    // やめる just closes: nothing has been placed yet on this path.
+    expect(SRC).toContain('<button className="btn" type="button" onClick={() => setAdvice(null)}>やめる</button>')
+  })
+
+  // ── flag 32 ──────────────────────────────────────────────────────────────
+  it('every native dialog centres again — the preflight reset took the UA’s margin', () => {
+    // Tailwind's preflight sets `margin: 0` on EVERY element, <dialog> included,
+    // which overrides the UA's `dialog:modal { margin: auto }`. Both stylesheets
+    // that dress a dialog in this territory put it back.
+    expect(CSS).toContain('  margin: auto;\n  width: min(650px, calc(100vw - 40px));')
+    expect(CUSTOMERS_CSS).toContain('  margin: auto;\n  width: min(700px, calc(100vw - 40px));')
+  })
+
+  // ── flag 33 ──────────────────────────────────────────────────────────────
+  it('at most ONE transient surface is alive — canon’s dismissal contract, all three parts', () => {
+    // outside click, behind canon's 80ms window (:7082-7084)
+    expect(SRC).toContain('if (e.timeStamp - adviceOpenedAt.current < 80) return')
+    expect(SRC).toContain('if (clickClosesPopover(advicePopRef.current, e.target)) setAdvice(null)')
+    // singleton: a new board gesture, and the shelf chip's own press
+    expect(SRC).toContain('onPointerDownCapture={closeAdvice}')
+    const chipDown = SRC.slice(SRC.indexOf('function onChipPointerDown('), SRC.indexOf('function clearChipDrag('))
+    expect(chipDown).toContain('closeAdvice()')
+    // the native <dialog> renders in the TOP LAYER, so it is opened through one
+    // function that puts the popup down first
+    expect(SRC).toContain('const openCreateAt = useCallback((at: { staffId: string; start: number } | null) => {\n    setAdvice(null)')
+    expect(SRC).not.toMatch(/setSeed\(\{ staffId: lane\.key/)
+  })
+
+  it('Escape puts down ONE surface per press, innermost first, and reverts last', () => {
+    const esc = SRC.slice(SRC.indexOf('const onKey = (e: KeyboardEvent) => {'), SRC.indexOf("document.addEventListener('keydown', onKey)"))
+    expect(esc).toContain("if (e.key !== 'Escape' || document.querySelector('dialog[open]')) return")
+    expect(esc.indexOf('setAdvice(null)')).toBeLessThan(esc.indexOf("setPop('')"))
+    expect(esc.indexOf("setPop('')")).toBeLessThan(esc.indexOf('setPlacing(null)'))
+    // canon R11-6 (:6946): last branch, and never during a drag.
+    expect(esc).toContain('if (pending && !dragRef.current) revertPending()')
+  })
+
+  // ── flag 34 ──────────────────────────────────────────────────────────────
+  it('the full-width hold bar is gone, and the confirm hangs under the card', () => {
+    expect(SRC).not.toContain('className="holdbar"')
+    expect(CSS).not.toContain('.biz .holdbar {')
+    expect(CSS).not.toContain('.biz .holdbar-actions')
+    // The check strip keeps its name: the create dialog's ticket renders the
+    // same marks through `.holdbar-checks.cc-ticket-checks`.
+    expect(CSS).toContain('.biz .holdbar-checks {')
+    expect(SRC).toContain('<div className={`hold-pop${holdPinned ? \' pinned\' : \'\'}`} ref={holdPopRef} role="region" aria-label="仮押さえの確認">')
+    expect(SRC).toContain('const at = box && anchorOnScreen(box, viewport) ? holdPopAnchor(box, self.width, self.height, viewport) : null')
+    // …and the fallback pill, which is what actually retires the scrolling bar
+    expect(SRC).toContain('      if (!at) {\n        setHoldPinned(true)')
+    expect(CSS).toContain('.biz .hold-pop.pinned { left: 50%; bottom: 18px; top: auto; transform: translateX(-50%); }')
+    // ONE width in both states: the surface never resizes as it moves.
+    expect(CSS).toContain('  width: min(92vw, 340px);')
+    // Re-anchoring is COARSE — never per frame (WO-2d's law).
+    expect(SRC).toContain('const coarse = () => { clearTimeout(t); t = setTimeout(pin, 120) }')
+    expect(SRC).toContain("window.addEventListener('scroll', coarse, true)")
+    // The effect keys on the ID, not the object it is rebuilt in every render.
+    expect(SRC).toContain('}, [holdAnchorId, holdPinned, moves, props.dayOffset])')
+    // A standing 仮押さえ this session did not stage is ALWAYS the pill: anchored,
+    // it sat on the board indefinitely and swallowed the pointerdown of a card in
+    // the lane below (measured, 2026-08-21).
+    expect(SRC).toContain('          // The day\'s own standing 仮押さえ (the incident\'s) — the pill, always.\n          anchorId: null,')
+  })
+
+  it('anchorOnScreen: a card half in view is still a card the operator can see', () => {
+    const vp = { width: 1440, height: 1100 }
+    const at = (top: number, left = 400) => ({ top, bottom: top + 67, left, right: left + 110 })
+    expect(anchorOnScreen(at(500), vp)).toBe(true)
+    expect(anchorOnScreen(at(-40), vp)).toBe(true) // half above the fold
+    expect(anchorOnScreen(at(-67), vp)).toBe(false) // exactly gone
+    expect(anchorOnScreen(at(1100), vp)).toBe(false) // exactly below
+    expect(anchorOnScreen(at(1090), vp)).toBe(true)
+    expect(anchorOnScreen(at(500, 1440), vp)).toBe(false) // scrolled off to the right
+    expect(anchorOnScreen(at(500, -110), vp)).toBe(false)
+  })
+
+  it('holdPopAnchor: under the card, above it when it must be, and NEVER over it', () => {
+    const vp = { width: 1440, height: 900 }
+    const overlaps = (a: { left: number; top: number }, w: number, h: number, c: { top: number; bottom: number; left: number; right: number }) =>
+      a.top < c.bottom && a.top + h > c.top && a.left < c.right && a.left + w > c.left
+    // Room below → under it, centred on the card.
+    const card = { top: 400, bottom: 467, left: 600, right: 710 }
+    expect(holdPopAnchor(card, 340, 200, vp)).toEqual({ left: 485, top: 475 })
+    // No room below → above it, and still clear of the card.
+    const low = { top: 700, bottom: 767, left: 600, right: 710 }
+    expect(holdPopAnchor(low, 340, 200, vp)).toEqual({ left: 485, top: 492 })
+    expect(overlaps(holdPopAnchor(low, 340, 200, vp)!, 340, 200, low)).toBe(false)
+    // Last column: the horizontal clamp keeps it on screen; that axis slides
+    // along the card, it cannot hide it.
+    const right = { top: 400, bottom: 467, left: 1380, right: 1430 }
+    expect(holdPopAnchor(right, 340, 200, vp)).toEqual({ left: 1092, top: 475 })
+    // ⚖ Liam 8/21 — neither side can hold it whole → NO position. A vertical
+    // clamp here would slide the surface back over its own anchor, and the
+    // operator has to be able to see what they moved. `null` = the pill.
+    const tall = { top: 300, bottom: 700, left: 600, right: 710 }
+    expect(holdPopAnchor(tall, 340, 400, vp)).toBeNull()
+    expect(holdPopAnchor({ top: 40, bottom: 800, left: 600, right: 710 }, 340, 200, vp)).toBeNull()
+  })
+
+  // ── flag 35 ──────────────────────────────────────────────────────────────
+  it('pinInViewport is THE clamp, on all four edges, and both surfaces use it', () => {
+    const vp = { width: 1440, height: 900 }
+    const size = { width: 340, height: 200 }
+    expect(pinInViewport({ left: 500, top: 300 }, size, vp)).toEqual({ left: 500, top: 300 })
+    expect(pinInViewport({ left: 1430, top: 300 }, size, vp)).toEqual({ left: 1092, top: 300 }) // right
+    expect(pinInViewport({ left: -50, top: 300 }, size, vp)).toEqual({ left: 8, top: 300 }) // left
+    expect(pinInViewport({ left: 500, top: 890 }, size, vp)).toEqual({ left: 500, top: 692 }) // bottom
+    expect(pinInViewport({ left: 500, top: -20 }, size, vp)).toEqual({ left: 500, top: 8 }) // top
+    // FLOOR, not round: a fractional width rounded up lands a hair past the margin.
+    expect(pinInViewport({ left: 9999, top: 0 }, { width: 297.33, height: 124 }, vp).left).toBe(1134)
+    // A surface wider than the viewport still gets its top-left corner on screen.
+    expect(pinInViewport({ left: 400, top: 300 }, { width: 2000, height: 200 }, vp)).toEqual({ left: 8, top: 300 })
+    // Both fixed surfaces go through it — the consult directly, the confirm
+    // through holdPopAnchor — and the hard-coded 1600 is gone.
+    expect(SRC).toContain('const at = pinInViewport(\n        { left: advice.anchor.x, top: advice.anchor.y },')
+    expect(SRC).not.toContain('Math.min(advice.x, 1600)')
+    // Measured from the RECT: offsetWidth is integer-rounded, and a surface
+    // measured 0.33px narrow lands that far past the margin when it is pinned.
+    expect(SRC).toContain('const size = el.getBoundingClientRect()')
+  })
+
+  // ── flag 37 ──────────────────────────────────────────────────────────────
+  it('every teardown path clears the emphasis — nothing stays lit after a release', () => {
+    // The length-matched emphasis answers "where does THIS card fit while it is
+    // in my hand". A board still lit after the hand is empty is answering a
+    // question nobody asked (Liam, 8/21). One teardown per pipeline, and every
+    // exit goes through it — release, refusal, cancel, blur and both lost-pointer
+    // self-heals.
+    const clearDrag = SRC.slice(SRC.indexOf('function clearDrag()'), SRC.indexOf('// The listeners outlive a render'))
+    for (const line of ['setLive(null)', 'setDragLen(null)', 'setProxy(null)']) expect(clearDrag).toContain(line)
+    const clearChip = SRC.slice(SRC.indexOf('function clearChipDrag()'), SRC.indexOf('function onChipPointerMove('))
+    for (const line of ['setChipTarget(null)', 'setDragLen(null)', 'setProxy(null)']) expect(clearChip).toContain(line)
+    // Every exit from a card drag reaches `clearDrag()`: the press that never
+    // travelled, the shelf drop, the release outside every lane, and the one
+    // above the landing branch that covers both the no-op and the staged move.
+    expect(finishDrag.match(/clearDrag\(\)/g)?.length).toBe(4)
+    expect(SRC).toContain('const onCancel = (e: PointerEvent) => {')
+    expect(SRC).toContain("window.addEventListener('blur', cancelDrag)")
+    expect(SRC).toContain('if (e.buttons === 0) { cancelDrag(); return }')
+    expect(SRC).toContain('if (e.buttons === 0) { clearChipDrag(); return }')
+    // …and the reveal itself is the same one gate it was.
+    expect(SRC).toContain("dragLen != null || live || blockLive ? 'dragging-live' : ''")
+  })
+
+  // ── flag 36 — the layer already answers a staged move; this pins it ───────
+  it('a staged 仮押さえ is real occupancy: the window layer re-derives from `moves`', () => {
+    // canon's own words at :4792 — 「仮押さえも実配置と同じ occupancy — レイヤーは
+    // 同じ再計算で応答する（置けばそのセルは消え、戻せば戻る）」 — and it calls
+    // renderPublicLayer() from renderHoldBar (:4789), from 確定 (:5515) and from
+    // 元に戻す (:5527). Ours reads the staged `moves`, so the same is true.
+    expect(SRC).toContain('const committedLanes = useMemo(\n    () => applyMoves(placedLanes, moves, parked, addedHere, hours),')
+    // What is frozen for the length of a GESTURE is `liveMoves`, and only that.
+    expect(SRC).toContain('const drawnLanes = live || blockLive ? committedLanes : boardLanes')
+    const sell = SRC.slice(SRC.indexOf('const sell = useMemo('), SRC.indexOf('const gap = useMemo('))
+    expect(sell).toContain('sellLayerFor(committedLanes, hours, {')
+    expect(sell).not.toContain('boardLanes')
+    // Proven arithmetically here too: the span a staged move VACATES is free for
+    // the layer that prices it.
+    const hours = { open: 600, close: 1140, count: 9, labels: [] }
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 1140 }, items: [booking({ key: 'k', caseId: 'apt-9' }, 840, 900)] }),
+      lane({ key: 'bed-01', group: 'beds', items: [] }),
+    ]
+    const staged = applyMoves(lanes, { 'apt-9': { laneKey: 'p-01', ...place(1020, 1080, hours) } }, [], [], hours)
+    expect(staged[0].items.map((i) => [i.startMin, i.endMin])).toEqual([[1020, 1080]])
   })
 })
