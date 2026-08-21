@@ -31,8 +31,19 @@ import type { SynqedClient } from '@synqed-kk/client'
 import { paginateDedupe } from '@/lib/customers/paginate'
 import { INBOX_WINDOW_MS, type InboxServerSession } from './inbox'
 
-/** Core clamps page_size at 500 — the house pattern's page size. */
-const PAGE_SIZE = 500
+/**
+ * BOTH list endpoints this file calls REJECT a page_size above 200 — they do
+ * not clamp it. Core validates with `z.coerce.number().int().min(1).max(200)`
+ * (synqed-core src/validations/recording.ts + karute.ts, verified 2026-08-25),
+ * so 500 came back 400 on every request and the inbox rendered empty behind its
+ * 「一部の録音を読み込めませんでした」 line. Caught on the live preview; the
+ * mocked suites could not see it.
+ *
+ * paginateDedupe's own doc says core "clamps page_size at 500" — that is TRUE
+ * of the customers endpoint it was written for and MUST NOT be carried over to
+ * other endpoint families. Check the family's own validator before raising it.
+ */
+const PAGE_SIZE = 200
 
 /** Probes run newest-first; past this the oldest record-less sessions keep
  *  jobStatus null (they are already outside every in-flight window, so the

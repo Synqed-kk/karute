@@ -270,6 +270,23 @@ describe('GET recordings/inbox — the join', () => {
     ])
   })
 
+  it('page_size stays <= 200 on BOTH lists — core REJECTS above it (400)', async () => {
+    // Fix round 2, caught on the live preview: core validates page_size with
+    // z.coerce...max(200) on the recording AND karute list routes — it 400s
+    // rather than clamping, so a 500 here blanked the whole inbox. NOT a
+    // constant comparison: read the value the SDK actually received, so a
+    // revert to 500 (or a "paginateDedupe says 500 is fine" edit) fails here.
+    await GET(req(), noRoute)
+    for (const call of [...listRecordings.mock.calls, ...listKarute.mock.calls]) {
+      const size = listOpts(call).page_size
+      expect(typeof size).toBe('number')
+      expect(size as number).toBeLessThanOrEqual(200)
+      expect(size as number).toBeGreaterThanOrEqual(1)
+    }
+    expect(listRecordings).toHaveBeenCalled()
+    expect(listKarute).toHaveBeenCalled()
+  })
+
   it('a 7-day window is asked of BOTH lists', async () => {
     await GET(req(), noRoute)
     const from = String(listOpts(listRecordings.mock.calls[0]).from)
