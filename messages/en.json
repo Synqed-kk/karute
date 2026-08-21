@@ -701,6 +701,37 @@
       "discardDeleteFailed": "Failed to delete {n} photo(s)",
       "uploadsDropped": "{n} photo(s) that failed to upload were not saved"
     },
+    "inbox": {
+      "title": "Recording history",
+      "caption": "Your recordings from the past 7 days",
+      "needsAttention": "{n} need attention",
+      "needsAttentionAria": ", {n} need attention",
+      "empty": "No recordings in the past 7 days.",
+      "partial": "Some recordings could not be loaded.",
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "unsetCustomer": "No customer set",
+      "state": {
+        "saved": "Saved",
+        "awaitingCheck": "Needs a look",
+        "processing": "Processing",
+        "failed": "Failed",
+        "recoverable": "Recoverable"
+      },
+      "reason": {
+        "transcribing": "Transcribing on the server",
+        "unsettled": "No result has come back yet",
+        "autoSaved": "This recording was saved automatically (nobody has checked it yet)",
+        "genericFailure": "This recording was not saved",
+        "localAudio": "The audio is still on this device (unsaved)"
+      },
+      "action": {
+        "open": "Open",
+        "check": "Check",
+        "retry": "Retry",
+        "save": "Save"
+      }
+    },
     "recent": {
       "title": "Recent recordings",
       "showAll": "Show all",
@@ -2327,6 +2358,7 @@
         },
         "recording": {
           "discard": "Discarded recording",
+          "session_cleanup": "Recording session row removed",
           "transcribe": "Transcribed recording"
         }
       },

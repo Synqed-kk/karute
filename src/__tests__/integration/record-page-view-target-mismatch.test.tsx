@@ -77,6 +77,8 @@ jest.mock('@/lib/global-pipeline', () => ({
     retry: jest.fn(),
     reset: jest.fn(),
     state: 'idle',
+    // The 録音履歴 store arms a settle watch on it (Build F1).
+    subscribe: jest.fn(() => () => {}),
   },
 }))
 jest.mock('@/hooks/use-global-pipeline', () => ({

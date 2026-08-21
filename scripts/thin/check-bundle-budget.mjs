@@ -176,7 +176,16 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // thin/dist) against the prior 1,934,400 B ceiling — over by 976 B (diff
 // cost +1,536 B). Ceiling set 5,024 B above the measurement, same
 // low-headroom convention as the two raises above.
-const BUDGET_BYTES = 1_940_400
+// Raised 2026-08-25 (lane date) at Build F1/F2 — 録音履歴 (recordings inbox):
+// one honest row per recording session on the record page (five states,
+// probe-failure honesty, supersession poll), 要対応 badges on the mic FAB and
+// sidebar, multi-take recovery, take TTL 7 days, and the tolerant phone-side
+// job-status parse. Measured 1,950,482 B ground-truth at tip f894bd03
+// (deterministic: identical across two clean builds from an emptied
+// thin/dist) against the prior 1,940,400 B ceiling — over by 10,082 B
+// (feature cost +13,123 B vs the c9d66c93 base). Ceiling set 5,118 B above
+// the measurement, same low-headroom convention as the three raises above.
+const BUDGET_BYTES = 1_955_600
 
 let dir
 try {

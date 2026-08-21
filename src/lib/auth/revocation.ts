@@ -75,6 +75,7 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // upload-url mints no durable state but is a POST, so it re-checks too (the
   // "every facade mutation re-checks revocation" rule; the coverage test enforces it).
   'customer.consent.grant',
+  'recordings.session.delete',
   'recordings.session.mint',
   'recordings.uploadUrl',
   // The discard receipt (recording-integrity A1) — a POST that writes a

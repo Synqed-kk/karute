@@ -701,6 +701,37 @@
       "discardDeleteFailed": "写真の削除に失敗しました（{n}枚）",
       "uploadsDropped": "アップロードに失敗した写真{n}枚は保存されていません"
     },
+    "inbox": {
+      "title": "録音履歴",
+      "caption": "過去7日間の自分の録音",
+      "needsAttention": "要対応 {n}件",
+      "needsAttentionAria": "、要対応{n}件",
+      "empty": "この7日間の録音はありません。",
+      "partial": "一部の録音を読み込めませんでした。",
+      "today": "今日",
+      "yesterday": "昨日",
+      "unsetCustomer": "顧客未設定",
+      "state": {
+        "saved": "保存済み",
+        "awaitingCheck": "確認待ち",
+        "processing": "処理中",
+        "failed": "失敗",
+        "recoverable": "復元可能"
+      },
+      "reason": {
+        "transcribing": "サーバーで文字起こし中",
+        "unsettled": "まだ結果が届いていません",
+        "autoSaved": "この録音は自動で保存されました（まだ確認されていません）",
+        "genericFailure": "この録音は保存されませんでした",
+        "localAudio": "この端末に音声が残っています（未保存）"
+      },
+      "action": {
+        "open": "開く",
+        "check": "確認する",
+        "retry": "再試行",
+        "save": "保存する"
+      }
+    },
     "recent": {
       "title": "最近の録音",
       "showAll": "すべて表示",
@@ -2327,6 +2358,7 @@
         },
         "recording": {
           "discard": "録音を破棄",
+          "session_cleanup": "録音セッション行を削除",
           "transcribe": "録音を文字起こし"
         }
       },

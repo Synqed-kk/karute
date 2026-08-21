@@ -32,8 +32,13 @@ import type { SessionOutcome } from '@/lib/karute/outcome-types'
 const DB_NAME = 'karute_takes'
 const TAKES = 'takes'
 const SEGMENTS = 'segments'
-/** Same 24 h window the review draft uses. */
-const TAKE_TTL_MS = 24 * 60 * 60 * 1000
+/** How long a take stays recoverable. 7 days (⚖ Liam 2026-08-25, R2): at 24 h
+ *  a crash on Friday evening was unrecoverable by Saturday's shift, and the
+ *  録音履歴 inbox now SHOWS those takes as 復元可能 — a window shorter than the
+ *  inbox's would offer a row whose audio had already been swept. Read-time
+ *  prune only (getRecoverableTake/listOwnTakes), so this constant is the whole
+ *  lifetime rule; nothing else reads it. */
+const TAKE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 /** A take flushed within this window may belong to a LIVE session in another
  *  same-origin tab (IndexedDB is shared; the caller's exclude list only knows
  *  its own tab's singletons). Live takes flush every ~5 s, so anything quiet
@@ -333,28 +338,34 @@ export async function clearOwnTakes(explicitUid?: string): Promise<void> {
 }
 
 /**
- * The newest recoverable take for the SIGNED-IN user, or null. Owner gate at
+ * EVERY recoverable take for the SIGNED-IN user, newest first. Owner gate at
  * the store layer: another user's takes are hidden (never deleted — their
  * rightful owner can still recover them; TTL cleans up). Expired takes (any
  * owner) are deleted in passing, like loadDraft's stale-draft sweep. Takes
- * with no persisted segments (crash before the first flush) are skipped.
- * `excludeTakeIds` filters the live recorder/pipeline take so an in-progress
- * session is never offered as its own recovery.
+ * with no persisted segments (crash before the first flush) are skipped, so
+ * every row this returns HAS audio. `excludeTakeIds` filters the live
+ * recorder/pipeline take so an in-progress session is never offered as its own
+ * recovery.
+ *
+ * The recovery BANNER still takes only the newest (getRecoverableTake below —
+ * ⚖ 8/20 keeps it the last-resort residue). The 録音履歴 inbox is what needed
+ * the rest: older valid takes used to sit un-offered until the TTL swept them,
+ * which is the multi-take loss the inbox exists to end.
  */
-export async function getRecoverableTake(
+export async function listOwnTakes(
   excludeTakeIds: ReadonlyArray<string | null | undefined> = [],
-): Promise<RecoverableTake | null> {
+): Promise<RecoverableTake[]> {
   try {
     const db = await openDb()
-    if (!db) return null
+    if (!db) return []
     const uid = await currentUserId()
-    if (!uid) return null
+    if (!uid) return []
     const metas = (await req(
       db.transaction(TAKES).objectStore(TAKES).getAll(),
     )) as TakeMeta[]
     const now = Date.now()
     const exclude = new Set(excludeTakeIds.filter(Boolean))
-    let newest: TakeMeta | null = null
+    const out: RecoverableTake[] = []
     for (const m of metas) {
       const lastActivity = m.updatedAt ?? m.startedAt
       if (now - lastActivity > TAKE_TTL_MS) {
@@ -365,25 +376,34 @@ export async function getRecoverableTake(
       if (m.lastSeq < 0) continue
       // Recently flushed = possibly live in another tab; wait out the grace.
       if (now - lastActivity < ACTIVE_GRACE_MS) continue
-      if (!newest || m.startedAt > newest.startedAt) newest = m
+      out.push({
+        takeId: m.takeId,
+        target: m.target,
+        recordingSessionId: m.recordingSessionId,
+        mimeType: m.mimeType,
+        startedAt: m.startedAt,
+        updatedAt: m.updatedAt,
+        outcome: m.outcome,
+        outcomeSkipped: m.outcomeSkipped,
+        outcomeLegs: m.outcomeLegs,
+        outcomeNewPack: m.outcomeNewPack,
+      })
     }
-    if (!newest) return null
-    return {
-      takeId: newest.takeId,
-      target: newest.target,
-      recordingSessionId: newest.recordingSessionId,
-      mimeType: newest.mimeType,
-      startedAt: newest.startedAt,
-      updatedAt: newest.updatedAt,
-      outcome: newest.outcome,
-      outcomeSkipped: newest.outcomeSkipped,
-      outcomeLegs: newest.outcomeLegs,
-      outcomeNewPack: newest.outcomeNewPack,
-    }
+    out.sort((a, b) => b.startedAt - a.startedAt)
+    return out
   } catch (err) {
-    console.error('[take-store] getRecoverableTake failed:', err)
-    return null
+    console.error('[take-store] listOwnTakes failed:', err)
+    return []
   }
+}
+
+/** The newest recoverable take for the signed-in user, or null — the recovery
+ *  banner's single offer. Same gates as listOwnTakes above (it IS listOwnTakes;
+ *  one prune path, one owner gate, no second copy of the rules to drift). */
+export async function getRecoverableTake(
+  excludeTakeIds: ReadonlyArray<string | null | undefined> = [],
+): Promise<RecoverableTake | null> {
+  return (await listOwnTakes(excludeTakeIds))[0] ?? null
 }
 
 /** Reassemble a take's audio from its persisted segments, in seq order.

@@ -85,7 +85,14 @@ jest.mock('@/actions/packs', () => ({
   undoRedemptionAction: jest.fn(),
 }))
 jest.mock('@/lib/global-pipeline', () => ({
-  globalPipeline: { start: jest.fn(), retry: jest.fn(), reset: jest.fn(), state: 'idle' },
+  globalPipeline: {
+    start: jest.fn(),
+    retry: jest.fn(),
+    reset: jest.fn(),
+    state: 'idle',
+    // The 録音履歴 store arms a settle watch on it (Build F1).
+    subscribe: jest.fn(() => () => {}),
+  },
 }))
 jest.mock('@/hooks/use-global-pipeline', () => ({
   useGlobalPipeline: () => ({

@@ -22,6 +22,7 @@ import { wipeSessionVault } from '@/lib/karute/logout-wipe'
 import { useSession } from '@/providers/session-provider'
 import { useSidebarStyle } from '@/lib/sidebar-style/hooks'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
+import { useRecordingsInbox } from '@/lib/recordings/inbox-store'
 
 function MicIcon() {
   return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>
@@ -137,6 +138,10 @@ export function Sidebar() {
   // /sessions re-resolves to the next scheduled booking. String href only
   // (thin-shell shim).
   const { target: recTarget } = useGlobalRecorder()
+  // 要対応 count for the 録音 row (Build F1). Same store the record page and the
+  // mic FAB read, so the three surfaces can never show different numbers.
+  const { needsAttention } = useRecordingsInbox()
+  const tInbox = useTranslations('recording.inbox')
   const activeId = NAV_ROUTES.find((r) => pathname.startsWith(r.href))?.id
 
   function hrefFor(route: NavRoute): string {
@@ -202,6 +207,26 @@ export function Sidebar() {
               >
                 <Icon />
                 {getLabel(route.labelKey)}
+                {/* 要対応 (Build F1) — the desktop twin of the mic-FAB badge.
+                    Soft amber count on the 録音 row while recordings still owe
+                    the staffer something; gone the moment the list is clean. */}
+                {route.id === 'recording' && needsAttention > 0 && (
+                  <span
+                    className="ml-auto flex h-[19px] min-w-[19px] items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-1.5 text-[11px] font-bold leading-none tabular-nums text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200"
+                    data-testid="sidebar-needs-attention"
+                  >
+                    {/* The name is real TEXT, not an aria-label: this badge is
+                        a bare span (role=generic), where aria-label is
+                        name-prohibited and Chrome drops it — the count would
+                        have been drawn but never announced. The digits are
+                        hidden from the a11y tree and the sr-only phrase rides
+                        into the link's name-from-contents instead. */}
+                    <span aria-hidden="true">{needsAttention}</span>
+                    <span className="sr-only">
+                      {tInbox('needsAttention', { n: needsAttention })}
+                    </span>
+                  </span>
+                )}
               </span>
             </Link>
           )

@@ -431,11 +431,13 @@ describe('take durability — deletion lifecycle', () => {
     expect(takes().size).toBe(0)
   })
 
-  it('expired takes (24 h TTL) are dropped and deleted in passing', async () => {
+  // R2 (⚖ Liam 2026-08-25): the window is 7 DAYS, not 24 h — a Friday-evening
+  // crash has to still be recoverable on Saturday's shift, and the 録音履歴
+  // inbox lists 復元可能 takes over the same 7 days.
+  it('a take past yesterday is still recoverable (7-day TTL)', async () => {
     const takeId = await startAndSettle()
     pushChunk('aaa')
     await jest.advanceTimersByTimeAsync(5_000)
-    // Age the take past the TTL directly in the store.
     const key = JSON.stringify(takeId)
     const meta = takes().get(key)!
     takes().set(key, {
@@ -443,6 +445,36 @@ describe('take durability — deletion lifecycle', () => {
       startedAt: Date.now() - 25 * 60 * 60 * 1000,
       updatedAt: Date.now() - 25 * 60 * 60 * 1000,
     })
+    expect(await getRecoverableTake([])).not.toBeNull()
+    await drain()
+    expect(takes().size).toBe(1)
+  })
+
+  // FX-6(a): the prune is `> TAKE_TTL_MS`, so a take aged EXACTLY the TTL is
+  // still offered. Pinned because the 録音履歴 window uses the same convention
+  // (a row at exactly the floor is kept) — the two must not drift apart.
+  it('a take aged exactly TAKE_TTL_MS is STILL recoverable (> , not >=)', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    const key = JSON.stringify(takeId)
+    const meta = takes().get(key)!
+    const exactly = Date.now() - 7 * 24 * 60 * 60 * 1000
+    takes().set(key, { ...meta, startedAt: exactly, updatedAt: exactly })
+    expect(await getRecoverableTake([])).not.toBeNull()
+    await drain()
+    expect(takes().size).toBe(1)
+  })
+
+  it('expired takes (7-day TTL) are dropped and deleted in passing', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    // Age the take past the TTL directly in the store.
+    const key = JSON.stringify(takeId)
+    const meta = takes().get(key)!
+    const past = Date.now() - 8 * 24 * 60 * 60 * 1000
+    takes().set(key, { ...meta, startedAt: past, updatedAt: past })
     expect(await getRecoverableTake([])).toBeNull()
     await drain()
     expect(takes().size).toBe(0)

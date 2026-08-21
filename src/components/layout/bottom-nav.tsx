@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import type { NextCustomerInfo } from '@/lib/appointments/next-customer'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
+import { useRecordingsInbox } from '@/lib/recordings/inbox-store'
 import { tapActivation } from '@/lib/tap-activation'
 
 type Route = { href: string; label: string; icon: React.ComponentType<{ className?: string }> }
@@ -378,6 +379,11 @@ function CenterRecordButton({
 }) {
   const router = useRouter()
   const { state, startedAt, stopRecording, target } = useGlobalRecorder()
+  // 要対応 count for the FAB badge (Build F1). Subscribing here rather than in
+  // BottomNav keeps the re-render scoped to this cell, the same reason
+  // useGlobalRecorder lives here.
+  const { needsAttention } = useRecordingsInbox()
+  const tInbox = useTranslations('recording.inbox')
   // Live, ticking countdown for the idle sub-label (「あと5分」→「残り5分」→
   // 「まもなく終了」). Only surfaces in the idle branch below.
   const centerHint = useLiveHint(nextCustomer, locale)
@@ -502,11 +508,27 @@ function CenterRecordButton({
               : '/sessions',
           )
         }, closeMenuIfOpen)}
-        className="-mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-black/30 ring-4 ring-background transition-transform hover:scale-105 hover:bg-red-500/90"
-        aria-label={ariaLabelIdle}
+        className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-black/30 ring-4 ring-background transition-transform hover:scale-105 hover:bg-red-500/90"
+        aria-label={
+          needsAttention > 0
+            ? `${ariaLabelIdle}${tInbox('needsAttentionAria', { n: needsAttention })}`
+            : ariaLabelIdle
+        }
         aria-current={isOnSessionsPage ? 'page' : undefined}
       >
         <Mic className="h-5 w-5" />
+        {/* 要対応 (Build F1) — recordings that still owe the staffer something,
+            from wherever they are in the app. A soft amber count, not a fill:
+            it reports a state, it is not a second thing to press. Idle only —
+            during a live recording the FAB is the recording's own control. */}
+        {needsAttention > 0 && (
+          <span
+            className="absolute -right-1.5 -top-1 flex h-[19px] min-w-[19px] items-center justify-center rounded-full border-2 border-background bg-amber-100 px-1.5 text-[11px] font-bold leading-none tabular-nums text-amber-800 dark:bg-amber-500/25 dark:text-amber-100"
+            data-testid="mic-needs-attention"
+          >
+            {needsAttention}
+          </span>
+        )}
       </Link>
       <span className="mt-2 max-w-[88px] truncate text-[10px] font-medium leading-none text-foreground">
         {nextCustomerName}
