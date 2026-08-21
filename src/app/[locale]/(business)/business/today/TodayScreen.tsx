@@ -41,6 +41,7 @@ import {
   stepPct,
   type Check,
   type CheckSpan,
+  type DragMode,
   type DragOrigin,
 } from '@/business/lib/canon-logic/drag-rules'
 import {
@@ -63,6 +64,8 @@ import {
   blockDragModeAt,
   blockEdgeZones,
   blockStepPct,
+  cardNodes,
+  chipProxySize,
   clampLabelWidth,
   clickClosesPopover,
   dragModeAt,
@@ -71,7 +74,9 @@ import {
   fractionIn,
   freePartnerLane,
   labelWidthOf,
+  liveTimeLabel,
   proxyTransform,
+  stretchOrCarry,
   gapLayerFor,
   guardRailsFor,
   guardVerdictAt,
@@ -260,6 +265,12 @@ interface DragCtx {
    *  them rather than read them off an event target that may not be the card. */
   item: BoardItem
   lane: BoardLane
+  /** ⚖ Liam flag 29 — EVERY drawing of this booking (the staff card and its bed
+   *  copy). A RESIZE never leaves the board, so the frame is painted onto these
+   *  elements directly (canon's `evSet`); they are stable for the life of the
+   *  gesture because nothing re-parents the board mid-drag and `drawnLanes`
+   *  freezes at the committed span. */
+  nodes: HTMLElement[]
   /** Where inside the card the pointer actually landed, and how big the card is.
    *  The proxy is drawn from these so it hangs off the cursor at the exact point
    *  it was grabbed — ⚖ Liam 2026-08-20: "attached, not trailing". */
@@ -322,6 +333,10 @@ interface BlockDragCtx {
   track: Element
   moved: boolean
   item: BoardItem
+  /** ⚖ Liam flag 29 — the block's own node, for the same reason the card has
+   *  one: an edge press stretches the box in place instead of lifting it. A
+   *  block has no bed copy, so it is always exactly one. */
+  node: HTMLElement
   grab: { dx: number; dy: number; w: number; h: number }
   pending: { clientX: number; clientY: number } | null
   frame: number | null
@@ -340,6 +355,11 @@ interface LiveDrag {
   x: number
   w: number
   overShelf: boolean
+  /** ⚖ Liam flag 29 — which gesture is in flight, so the origin card can wear
+   *  the right face: a MOVE dims to .32 (the card is in the hand, this is the
+   *  marker it was taken from), a RESIZE wears canon's live look (:1444) because
+   *  the card the operator is holding IS this one. */
+  mode: DragMode
 }
 
 /** The 配置の相談 canon opens on a refused placement (:7106). */
@@ -414,7 +434,7 @@ export function TodayScreen(props: TodayProps) {
    *  window layers on a block DROP (`renderPublicLayer()` at the end of
    *  `blockDrop`, :4165) and never during the gesture, so WO-2d's committed
    *  freeze holds for blocks too. */
-  const [blockLive, setBlockLive] = useState<{ key: string; homeLane: string; targetLane: string; x: number; w: number } | null>(null)
+  const [blockLive, setBlockLive] = useState<{ key: string; homeLane: string; targetLane: string; x: number; w: number; mode: DragMode } | null>(null)
   const [proxy, setProxy] = useState<DragProxy | null>(null)
   const [chipTarget, setChipTarget] = useState<string | null>(null)
   const [advice, setAdvice] = useState<GuardAdvice | null>(null)
@@ -878,23 +898,33 @@ export function TodayScreen(props: TodayProps) {
     const dx = clientX - ctx.startX
     const dy = clientY - ctx.startY
     if (!ctx.moved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return
+    const span = nextSpan(ctx.origin, ctx.track, dx, STEP)
+    // ⚖ Liam flag 29 — ONE call decides the whole frame. By the time it returns,
+    // a resize has already been painted onto the card where it stands; `true`
+    // means the booking is in the operator's hand, and everything below this
+    // line — the proxy, the length emphasis, the shelf, the lane hunt — is the
+    // hand's business and no part of a stretch.
+    const inHand = stretchOrCarry(ctx.nodes, ctx.origin.mode, span)
     if (!ctx.moved) {
       ctx.moved = true
-      // The booking's OWN length, read off the committed card — not off the span
-      // in flight, which a resize is changing under the pointer.
-      setDragLen(ctx.item.endMin - ctx.item.startMin)
-      // The proxy's CONTENT is set once, here. Everything after this is a
-      // transform written straight to the node — React never sees the motion.
-      setProxy({ kind: 'card', item: ctx.item, state: ctx.item.state ?? '', w: ctx.grab.w, h: ctx.grab.h })
+      if (inHand) {
+        // The booking's OWN length, read off the committed card — not off the
+        // span in flight, which a resize is changing under the pointer.
+        setDragLen(ctx.item.endMin - ctx.item.startMin)
+        // The proxy's CONTENT is set once, here. Everything after this is a
+        // transform written straight to the node — React never sees the motion.
+        setProxy({ kind: 'card', item: ctx.item, state: ctx.item.state ?? '', w: ctx.grab.w, h: ctx.grab.h })
+      }
     }
-    moveProxy(clientX, clientY, ctx.grab)
-    const span = nextSpan(ctx.origin, ctx.track, dx, STEP)
-    if (ctx.origin.mode === 'move') {
+    if (inHand) {
+      moveProxy(clientX, clientY, ctx.grab)
       ctx.overShelf = isOverShelf(shelfRef.current, clientY)
       const laneKey = laneKeyAtY(boardRef.current, ctx.group, clientY)
       if (laneKey) ctx.targetLane = laneKey
+    } else {
+      liveTimeLabel(ctx.nodes, `${hhmm(minuteOf(span.x, hours))}〜${hhmm(minuteOf(span.x + span.w, hours))}`)
     }
-    setLive({ id: ctx.id, homeLane: ctx.homeLane, targetLane: ctx.targetLane, ...span, overShelf: ctx.overShelf })
+    setLive({ id: ctx.id, homeLane: ctx.homeLane, targetLane: ctx.targetLane, ...span, overShelf: ctx.overShelf, mode: ctx.origin.mode })
   }
 
   function onCardPointerDown(e: React.PointerEvent<HTMLButtonElement>, item: BoardItem, lane: BoardLane) {
@@ -913,6 +943,7 @@ export function TodayScreen(props: TodayProps) {
       origin: dragOrigin(item.x, item.w, mode, STEP),
       startX: e.clientX,
       startY: e.clientY,
+      nodes: cardNodes(boardRef.current, item.caseId),
       grab: { dx: e.clientX - card.left, dy: e.clientY - card.top, w: card.width, h: card.height },
       group: lane.group,
       homeLane: lane.key,
@@ -980,6 +1011,13 @@ export function TodayScreen(props: TodayProps) {
     const ctx = dragRef.current
     if (ctx) {
       if (ctx.frame != null) cancelAnimationFrame(ctx.frame)
+      // ⚖ Liam flag 29 — the node goes back to React wearing exactly what React
+      // last wrote on it. A release that stages a new span is repainted by the
+      // re-render; a release that changes nothing gets no re-render at all, and
+      // without this the card would simply stay stretched. (canon does the same
+      // on its cancel path: `evSet(el, ctx.orig.x, ctx.orig.w)`, :4142.)
+      stretchOrCarry(ctx.nodes, ctx.origin.mode, ctx.origin)
+      liveTimeLabel(ctx.nodes, ctx.item.time)
       ctx.detach()
     }
     dragRef.current = null
@@ -1124,20 +1162,26 @@ export function TodayScreen(props: TodayProps) {
     const dx = clientX - ctx.startX
     const dy = clientY - ctx.startY
     if (!ctx.moved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return
+    const span = nextSpan(ctx.origin, ctx.track, dx, BLOCK_STEP)
+    // ⚖ Liam flag 29 — the card's rule, on the block: an edge press stretches the
+    // box where it stands and never puts it in the air. Canon's own block drag
+    // does exactly this (`evSet` then `return`, bindBlockDrag :4098–4110).
+    const inHand = stretchOrCarry([ctx.node], ctx.origin.mode, span)
     if (!ctx.moved) {
       ctx.moved = true
-      const { cls } = blockChrome(ctx.item.kind)
-      setProxy({ kind: 'block', item: ctx.item, state: cls, w: ctx.grab.w, h: ctx.grab.h })
+      if (inHand) {
+        const { cls } = blockChrome(ctx.item.kind)
+        setProxy({ kind: 'block', item: ctx.item, state: cls, w: ctx.grab.w, h: ctx.grab.h })
+      }
     }
-    moveProxy(clientX, clientY, ctx.grab)
-    const span = nextSpan(ctx.origin, ctx.track, dx, BLOCK_STEP)
-    if (ctx.origin.mode === 'move') {
+    if (inHand) {
+      moveProxy(clientX, clientY, ctx.grab)
       // `null` group: rule 2 above. A locked lane keeps the previous target,
       // which is canon's `if (lane.classList.contains("locked")) return`.
       const laneKey = laneKeyAtY(boardRef.current, null, clientY)
       if (laneKey && !locked.includes(laneKey)) ctx.targetLane = laneKey
     }
-    setBlockLive({ key: ctx.key, homeLane: ctx.homeLane, targetLane: ctx.targetLane, ...span })
+    setBlockLive({ key: ctx.key, homeLane: ctx.homeLane, targetLane: ctx.targetLane, ...span, mode: ctx.origin.mode })
   }
 
   /** The cursor and the grab zone, read on hover — canon does both from one
@@ -1170,6 +1214,7 @@ export function TodayScreen(props: TodayProps) {
       track,
       moved: false,
       item,
+      node: e.currentTarget,
       grab: { dx: e.clientX - rect.left, dy: e.clientY - rect.top, w: rect.width, h: rect.height },
     })
     e.preventDefault()
@@ -1219,6 +1264,8 @@ export function TodayScreen(props: TodayProps) {
     const ctx = blockDragRef.current
     if (ctx) {
       if (ctx.frame != null) cancelAnimationFrame(ctx.frame)
+      // ⚖ Liam flag 29 — hand the node back to React at the span it started on.
+      stretchOrCarry([ctx.node], ctx.origin.mode, ctx.origin)
       ctx.detach()
     }
     blockDragRef.current = null
@@ -1376,7 +1423,16 @@ export function TodayScreen(props: TodayProps) {
       setDragLen(chip?.lenMin ?? null)
       // The chip travels too (⚖ Liam 19): the shelf keeps its place in the row —
       // canon's chip never physically moves — and the operator carries a copy.
-      if (chip) setProxy({ kind: 'chip', title: chip.title, line1: chip.line1, category: chip.category, w: ctx.grab.w, h: ctx.grab.h })
+      // ⚖ Liam flag 28: the copy is a BOARD CARD at the booking's real duration,
+      // not a clone of the chip's own sentence-shaped box. It is also CENTRED on
+      // the pointer rather than keeping the chip's grip, because `shelfLanding`
+      // centres the landing on the pointer too — the thing in hand and the dashed
+      // preview under it now describe the same rectangle.
+      if (chip) {
+        const size = chipProxySize(boardRef.current, hours, chip.lenMin) ?? ctx.grab
+        ctx.grab = { dx: size.w / 2, dy: size.h / 2, w: size.w, h: size.h }
+        setProxy({ kind: 'chip', title: chip.title, line1: chip.line1, category: chip.category, w: size.w, h: size.h })
+      }
     }
     ctx.moved = true
     moveProxy(e.clientX, e.clientY, ctx.grab)
@@ -1562,7 +1618,12 @@ export function TodayScreen(props: TodayProps) {
     // the window layer for a block drag, and so do we. What a block does NOT get
     // is the length emphasis: `.fits` keys off `dragLen`, which stays null,
     // because a 休憩 is not a session and has no length to match a window against.
-    dragLen != null || blockLive ? 'dragging-live' : '',
+    // ⚖ Liam flag 29: a RESIZE is in the same position — canon lifts the layer
+    // for it (`dragActive` is set before the mode branch, :4468) because the edge
+    // is being dragged INTO those windows, but `dragLen` stays null, so nothing
+    // is emphasised. The emphasis answers "where does this card FIT", and a card
+    // that is not going anywhere is not asking.
+    dragLen != null || live || blockLive ? 'dragging-live' : '',
     placing ? 'placing' : '',
     `guard-guide-mode-${guideMode}`,
   ]
@@ -1742,7 +1803,7 @@ export function TodayScreen(props: TodayProps) {
           // click that opens ブロック情報, bound together the way canon's
           // `bindBlock` (:4276) binds them: a box that moves but cannot be
           // opened is the exact bug canon's own note records fixing.
-          className={`event ${cls}${item.micro ? ' micro' : ''}${blockLive?.key === item.key ? ' dragging' : ''}`}
+          className={`event ${cls}${item.micro ? ' micro' : ''}${blockLive?.key === item.key ? (blockLive.mode === 'move' ? ' dragging' : ' resizing') : ''}`}
           type="button"
           key={item.key}
           style={style}
@@ -1786,7 +1847,10 @@ export function TodayScreen(props: TodayProps) {
         // CANON, deliberately: canon's cards do carry `title`, and canon only
         // gets away with it because its drags never break — a tooltip cannot
         // appear while a button is held. Ours must not depend on that.
-        className={`event ${state}${selected === item.caseId ? ' selected' : ''}${live?.id === item.caseId ? ' dragging' : ''}${isPending ? ' pending' : ''}`}
+        // ⚖ Liam flag 29 — `dragging` is the ORIGIN MARKER of a card that left
+        // (opacity .32); a card being stretched never left, so it wears canon's
+        // live resize look instead of dimming to a husk.
+        className={`event ${state}${selected === item.caseId ? ' selected' : ''}${live?.id === item.caseId ? (live.mode === 'move' ? ' dragging' : ' resizing') : ''}${isPending ? ' pending' : ''}`}
         type="button"
         key={item.key}
         data-book={item.caseId ?? undefined}

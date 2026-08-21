@@ -459,21 +459,28 @@
   cursor: grabbing;
 }
 .biz .event.drag-proxy { box-sizing: border-box; box-shadow: inset 3px 0 0 currentColor, 0 10px 26px rgba(24, 24, 27, .26); }
+/* ⚖ Liam flag 28 (2026-08-21): the chip in hand is sized like a BOARD CARD —
+   the booking's real duration wide, the lane's card height tall (JS writes both
+   from the parked booking's minutes). So its INSIDE is a card's inside too: the
+   .event padding and the .event overflow rules, or a 30分 proxy would spend its
+   whole width on the chip's roomy side padding and clip its own name. The
+   orange stays — this is still a 仮押さえ, and colour is what says so. */
 .biz .drag-proxy.chip {
   display: grid;
-  align-content: center;
+  align-content: start;
   gap: 1px;
   box-sizing: border-box;
-  padding: 6px 14px;
+  padding: 5px 2px 4px 6px;
   border: 1px solid #ecc9a4;
   border-radius: 8px;
   background: var(--orange-soft);
   color: var(--orange);
   font-size: 12px;
+  overflow: hidden;
   box-shadow: 0 10px 26px rgba(24, 24, 27, .26);
 }
 .biz .drag-proxy.chip strong { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.biz .drag-proxy.chip small { font-size: 11px; opacity: .82; }
+.biz .drag-proxy.chip small { font-size: 11px; opacity: .82; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── 仮置きエリア (canon :1493–1507) ──────────────────────────────────────
    The WHOLE bar is the drop zone, so the whole bar is drawn as the receptacle;
@@ -544,6 +551,15 @@
 .biz .event[data-cat="vip"] { --cat: #3f3f46; }
 .biz .e-tkt::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 4px; border-radius: 50%; background: var(--cat, #9d9da8); }
 .biz .tkt-note { margin-left: 5px; opacity: .85; }
+/* ⚖ Liam flag 29 (2026-08-21) — A CARD BEING STRETCHED NEVER LEFT. `.dragging`
+   is the husk a MOVE leaves behind (opacity .32, up in the drag-surfaces
+   block); an edge drag has no husk, because the card the operator is holding is
+   this one — so it wears canon's own live look verbatim (:1444: opacity .88,
+   z-index 30, grabbing, lift shadow). Bookings and blocks both.
+   IT LIVES DOWN HERE ON PURPOSE: every state colour and the [data-cat] stripe
+   rule own `box-shadow` at this exact specificity, so a rule written up beside
+   `.dragging` would lose the lift on every card that has a category. */
+.biz .event.resizing { opacity: .88; z-index: 30; cursor: grabbing; box-shadow: 0 8px 22px rgba(24, 24, 27, .22); }
 .biz .timeline.hide-time .e-time, .biz .timeline.hide-tkt .e-tkt { display: none; }
 .biz.drawer-open .event .tg { display: none; }
 
