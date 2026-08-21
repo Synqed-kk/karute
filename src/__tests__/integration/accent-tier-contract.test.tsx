@@ -287,3 +287,92 @@ describe('recovery banner + repoint picker (PR-B1)', () => {
     expect(row.className).not.toMatch(cls('bg-primary/8'))
   })
 })
+
+
+// Build F1 — 録音履歴 rows. Three accent tiers live in one card, and the law is
+// what keeps them apart: the state CHIPS are non-pressable status (wash + dark
+// text, never a solid fill), 確認する is the R13 selected-state recipe, and only
+// 保存する — the commit — carries the solid accent.
+describe('録音履歴 inbox rows (Build F1)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { RecordingsInboxCard } = require(
+    '@/components/karute/redesign/record/RecordingsInboxCard',
+  ) as typeof import('@/components/karute/redesign/record/RecordingsInboxCard')
+
+  type Row = Parameters<typeof RecordingsInboxCard>[0]['rows'][number]
+  const baseRow: Row = {
+    key: 'session:s1',
+    state: 'recoverable',
+    reason: 'localAudio',
+    recordingSessionId: 's1',
+    takeId: 't1',
+    karuteRecordId: null,
+    customerId: 'c1',
+    customerName: '佐藤 美咲',
+    startedAt: Date.parse('2026-08-25T01:00:00.000Z'),
+    durationSeconds: 540,
+    canRetry: false,
+  }
+
+  function renderRows(rows: Row[]) {
+    return render(
+      <RecordingsInboxCard
+        rows={rows}
+        needsAttention={rows.length}
+        serverFailed={false}
+        now={Date.parse('2026-08-25T04:00:00.000Z')}
+        locale="ja"
+        customerNameById={new Map()}
+        onOpenRecord={() => {}}
+        onSaveTake={() => {}}
+      />,
+    )
+  }
+
+  it('保存する is the ONLY solid accent fill, with the darkening hover', () => {
+    renderRows([baseRow])
+    const save = screen.getByText('action.save').closest('button')!
+    expect(save.className).toMatch(cls('bg-primary'))
+    expect(save.className).toMatch(cls('hover:bg-primary-hover'))
+    expect(save.className).not.toMatch(cls('hover:bg-primary/90'))
+  })
+
+  it('確認する uses the R13 wash recipe, never a solid fill', () => {
+    renderRows([
+      { ...baseRow, state: 'awaiting-check', reason: 'autoSaved', karuteRecordId: 'rec-1' },
+    ])
+    const check = screen.getByText('action.check').closest('button')!
+    expect(check.className).toMatch(cls('bg-primary/8'))
+    expect(check.className).toMatch(cls('text-primary'))
+    expect(check.className).toMatch(cls('border-primary'))
+    expect(check.className).not.toMatch(cls('bg-primary'))
+  })
+
+  it('開く / 再試行 stay quiet links — accent text, no fill', () => {
+    renderRows([
+      { ...baseRow, key: 'a', state: 'saved', reason: null, karuteRecordId: 'rec-1' },
+      { ...baseRow, key: 'b', state: 'failed', reason: 'genericFailure', canRetry: true },
+    ])
+    for (const label of ['action.open', 'action.retry']) {
+      const link = screen.getByText(label).closest('button')!
+      expect(link.className).toMatch(cls('text-primary'))
+      expect(link.className).not.toMatch(cls('bg-primary'))
+    }
+  })
+
+  it('every state CHIP is a wash — no chip ever carries a solid accent fill', () => {
+    const states: Array<Row['state']> = [
+      'saved',
+      'awaiting-check',
+      'processing',
+      'failed',
+      'recoverable',
+    ]
+    renderRows(states.map((state, i) => ({ ...baseRow, key: `k${i}`, state, karuteRecordId: 'rec-1' })))
+    for (const state of states) {
+      const chip = screen.getByText(`state.${state === 'awaiting-check' ? 'awaitingCheck' : state}`)
+      expect(chip.className).not.toMatch(cls('bg-primary'))
+      expect(chip.className).toMatch(/bg-(green|amber|blue|red)-50/)
+    }
+  })
+})

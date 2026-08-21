@@ -2447,6 +2447,7 @@ export function RecordPageView({
         rows={inbox.rows}
         needsAttention={inbox.needsAttention}
         serverFailed={inbox.serverFailed}
+        now={inbox.foldedAt}
         locale={locale}
         customerNameById={customerNameById}
         onOpenRecord={handleInboxOpenRecord}

@@ -32,12 +32,23 @@ export interface InboxState {
   status: 'idle' | 'loading' | 'ready' | 'partial'
   rows: InboxRow[]
   needsAttention: number
+  /** When these rows were folded. The card's 今日/昨日 headers are read off THIS
+   *  rather than a render-time clock — a component that reads Date.now() while
+   *  rendering is impure (react-hooks/purity), and labels that disagree with
+   *  the fold would be a second, quieter source of truth about the same rows. */
+  foldedAt: number
   /** True when the SERVER half failed — the rows below are this device's takes
    *  only, so the list is incomplete and says so rather than reading clean. */
   serverFailed: boolean
 }
 
-const EMPTY: InboxState = { status: 'idle', rows: [], needsAttention: 0, serverFailed: false }
+const EMPTY: InboxState = {
+  status: 'idle',
+  rows: [],
+  needsAttention: 0,
+  foldedAt: 0,
+  serverFailed: false,
+}
 
 let current: InboxState = EMPTY
 const listeners = new Set<() => void>()
@@ -124,11 +135,13 @@ export async function loadInbox(): Promise<void> {
       readServerSessions(),
     ])
     if (epoch !== myEpoch) return
-    const rows = deriveInboxRows({ sessions: server.sessions, takes, now: Date.now() })
+    const foldedAt = Date.now()
+    const rows = deriveInboxRows({ sessions: server.sessions, takes, now: foldedAt })
     set({
       status: server.failed ? 'partial' : 'ready',
       rows,
       needsAttention: countNeedsAttention(rows),
+      foldedAt,
       serverFailed: server.failed,
     })
   } finally {

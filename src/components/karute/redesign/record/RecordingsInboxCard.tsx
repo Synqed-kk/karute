@@ -25,6 +25,10 @@ export interface RecordingsInboxCardProps {
   /** True when the server half of the read failed — the list is incomplete and
    *  the card says so rather than reading clean. */
   serverFailed: boolean
+  /** Epoch ms the rows were folded at — the anchor for 今日/昨日. Passed in
+   *  rather than read from a render-time clock (purity), so the headers can
+   *  never disagree with the rows underneath them. */
+  now: number
   locale: string
   /** Name lookup for rows whose take carries no bind-time snapshot. */
   customerNameById: ReadonlyMap<string, string>
@@ -57,10 +61,17 @@ const CHIP_CLASS: Record<InboxState, string> = {
     'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-500/15 dark:text-amber-200 dark:border-amber-500/30',
 }
 
+const QUIET_BTN = 'rounded-lg px-1 py-0.5 text-[12.5px] font-semibold text-primary'
+const WASH_BTN =
+  'inline-flex h-8 items-center gap-1.5 rounded-[9px] border border-primary bg-primary/8 px-3 text-[12.5px] font-semibold text-primary'
+const SOLID_BTN =
+  'inline-flex h-8 items-center gap-1.5 rounded-[9px] bg-primary px-3 text-[12.5px] font-semibold text-primary-foreground hover:bg-primary-hover'
+
 export function RecordingsInboxCard({
   rows,
   needsAttention,
   serverFailed,
+  now,
   locale,
   customerNameById,
   onOpenRecord,
@@ -69,8 +80,8 @@ export function RecordingsInboxCard({
   const t = useTranslations('recording.inbox')
   const tRec = useTranslations('recording')
 
-  const todayYmd = ymdInJst(new Date())
-  const yesterdayYmd = ymdInJst(new Date(Date.now() - 24 * 60 * 60 * 1000))
+  const todayYmd = ymdInJst(new Date(now))
+  const yesterdayYmd = ymdInJst(new Date(now - 24 * 60 * 60 * 1000))
 
   function dayLabel(startedAt: number): string {
     const ymd = ymdInJst(new Date(startedAt))
@@ -93,8 +104,42 @@ export function RecordingsInboxCard({
     return t(`reason.${row.reason}` as 'reason.transcribing')
   }
 
-  // Day headers are emitted inline while walking the (already newest-first) rows.
-  let lastDay: string | null = null
+  /** The ONE thing a row still offers, or nothing. Quiet link for the two that
+   *  navigate/re-run, the R13 wash for 確認する, the solid commit for 保存する. */
+  function actionFor(row: InboxRow) {
+    if (row.karuteRecordId && (row.state === 'saved' || row.state === 'awaiting-check')) {
+      const check = row.state === 'awaiting-check'
+      return {
+        labelKey: check ? 'action.check' : 'action.open',
+        className: check ? WASH_BTN : QUIET_BTN,
+        Icon: check ? Eye : undefined,
+        run: () => onOpenRecord(row),
+      }
+    }
+    if (row.state === 'recoverable') {
+      return {
+        labelKey: 'action.save',
+        className: SOLID_BTN,
+        Icon: Save,
+        run: () => onSaveTake(row),
+      }
+    }
+    if (row.state === 'failed' && row.canRetry) {
+      return {
+        labelKey: 'action.retry',
+        className: QUIET_BTN,
+        Icon: undefined,
+        run: () => onSaveTake(row),
+      }
+    }
+    return null
+  }
+
+  // Day headers, resolved in one pure pass over the (already newest-first) rows
+  // — a header shows when its label differs from the row above it.
+  const items = rows
+    .map((row) => ({ row, day: dayLabel(row.startedAt) }))
+    .map((it, i, all) => ({ ...it, showDay: i === 0 || all[i - 1].day !== it.day }))
 
   return (
     <section
@@ -127,11 +172,9 @@ export function RecordingsInboxCard({
         </p>
       ) : (
         <ul className="m-0 list-none p-0">
-          {rows.map((row) => {
-            const day = dayLabel(row.startedAt)
-            const showDay = day !== lastDay
-            lastDay = day
+          {items.map(({ row, day, showDay }) => {
             const reason = reasonFor(row)
+            const action = actionFor(row)
             return (
               <li key={row.key} className="m-0 p-0">
                 {showDay && (
@@ -179,52 +222,15 @@ export function RecordingsInboxCard({
                     </p>
                   )}
 
-                  {row.state === 'saved' && row.karuteRecordId && (
+                  {action && (
                     <div className="flex justify-end">
                       <button
                         type="button"
-                        onClick={() => onOpenRecord(row)}
-                        className="rounded-lg px-1 py-0.5 text-[12.5px] font-semibold text-primary"
+                        onClick={action.run}
+                        className={action.className}
                       >
-                        {t('action.open')}
-                      </button>
-                    </div>
-                  )}
-
-                  {row.state === 'awaiting-check' && row.karuteRecordId && (
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => onOpenRecord(row)}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-[9px] border border-primary bg-primary/8 px-3 text-[12.5px] font-semibold text-primary"
-                      >
-                        <Eye size={13} aria-hidden="true" />
-                        {t('action.check')}
-                      </button>
-                    </div>
-                  )}
-
-                  {row.state === 'failed' && row.canRetry && (
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => onSaveTake(row)}
-                        className="rounded-lg px-1 py-0.5 text-[12.5px] font-semibold text-primary"
-                      >
-                        {t('action.retry')}
-                      </button>
-                    </div>
-                  )}
-
-                  {row.state === 'recoverable' && (
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => onSaveTake(row)}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-[9px] bg-primary px-3 text-[12.5px] font-semibold text-primary-foreground hover:bg-primary-hover"
-                      >
-                        <Save size={13} aria-hidden="true" />
-                        {t('action.save')}
+                        {action.Icon && <action.Icon size={13} aria-hidden="true" />}
+                        {t(action.labelKey as 'action.open')}
                       </button>
                     </div>
                   )}
