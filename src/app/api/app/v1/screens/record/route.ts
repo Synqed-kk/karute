@@ -52,7 +52,7 @@ function readLocale(ctx: FacadeContext): 'ja' | 'en' {
  *  `allowedStoreIds` is the clamp the ROUTE already resolved (never a second
  *  resolution): null = viewAll or floating, unchanged. */
 async function resolveExplicitAppointmentForClient(
-  synqed: Pick<SynqedClient, 'appointments' | 'staff'>,
+  synqed: Pick<SynqedClient, 'appointments' | 'staff' | 'customers'>,
   id: string,
   nameById: Map<string, string>,
   allowedStoreIds: string[] | null,
@@ -88,6 +88,22 @@ async function resolveExplicitAppointmentForClient(
       .filter((s): s is typeof s & { user_id: string } => s.user_id != null)
       .map((s) => [s.id, s.user_id]),
   )
+  // Name fill for a row the clamp ADMITS. The clamp above passes any store in
+  // `allowedStoreIds`, but `nameById` is the PICKER map, narrowed to the single
+  // active store — so a two-store staff pinned to 銀座 deep-linking their 代官山
+  // booking used to render 'Unknown' (record-screen.ts:269) and lose the
+  // returning/回数券 signals with it. The web twin resolves the same name
+  // business-wide (actions/appointments.ts, getAppointmentById), and the shipped
+  // convention is the same: business-wide maps are fine for .get(id), never for
+  // lists (store-scope.ts, picker-filter header). ONE per-id read, only on a
+  // miss, only for the already-admitted row — never the roster. Display-only, so
+  // a failed read degrades to today's null rather than 502-ing the screen.
+  const name =
+    nameById.get(a.customer_id) ??
+    (await synqed.customers
+      .get(a.customer_id)
+      .then((c) => c.name)
+      .catch(() => null))
   return {
     id: a.id,
     staff_profile_id: profileByStaffId.get(a.staff_id) ?? a.staff_id,
@@ -98,7 +114,7 @@ async function resolveExplicitAppointmentForClient(
     notes: a.notes,
     karute_record_id: null,
     created_at: a.created_at,
-    customers: nameById.has(a.customer_id) ? { name: nameById.get(a.customer_id)! } : null,
+    customers: name == null ? null : { name },
     synqed_status: a.status,
     source: a.source,
     status_reason: null,

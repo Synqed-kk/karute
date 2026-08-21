@@ -55,7 +55,11 @@ const apptGet = jest.fn(async (id: string) => {
   return { id, staff_id: 'auth-user-1', customer_id: 'cust-1', starts_at: '2026-07-13T02:00:00Z', duration_minutes: 60, title: 'x', notes: null, created_at: '2026-07-01T00:00:00Z', status: 'CONFIRMED', source: 'MANUAL' }
 })
 const CUSTOMER = { id: 'cust-1', name: '山田 花子', visit_count: 3, created_at: '2026-01-01T00:00:00Z', last_visit_at: '2026-05-01T00:00:00Z', is_existing_customer: true, notes: null }
+// The other branch's customer, readable PER ID (⚖ per-id customer reads are
+// unscoped) — the deep-link name fill below is the only path that asks for it.
+const CUSTOMER_B = { id: 'cust-2', name: '佐藤 次郎', visit_count: 0, created_at: '2026-02-01T00:00:00Z', last_visit_at: null, is_existing_customer: false, notes: null }
 const customersGet = jest.fn(async (id: string) => {
+  if (id === 'cust-2') return CUSTOMER_B
   if (id !== 'cust-1') throw Object.assign(new Error('cross-tenant'), { status: 404 })
   return CUSTOMER
 })
@@ -248,6 +252,30 @@ describe('GET /api/app/v1/screens/record', () => {
     expect(body.nextAppointment?.id).toBe('appt-1')
     expect(body.nextAppointment?.customerId).toBe('cust-1')
     expect(JSON.stringify(body)).not.toContain('佐藤 次郎')
+  })
+
+  // A-1 (2026-08-28 audit). The clamp admits ANY store in the caller's
+  // assignment, but the picker's `nameById` covers the single ACTIVE store — so
+  // a two-store staff pinned to 銀座 deep-linking their 代官山 booking bound the
+  // row with `customers: null` → 'Unknown', and the returning/回数券 signals
+  // dropped with it. The web twin (getAppointmentById) resolves that name
+  // business-wide; this does too now, with ONE per-id read on the miss.
+  it('a two-store staff deep-linking their OTHER store’s booking gets the real name', async () => {
+    capabilities.current = new Set(['customers.view'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-A', 'store-B'] })
+    const res = await GET(
+      req('?appointmentId=appt-other-store', { ...auth, 'store-id': 'store-A' }),
+      route,
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    // The clamp ADMITS the row (store-B is in the assignment)…
+    expect(body.nextAppointment?.id).toBe('appt-other-store')
+    expect(body.nextAppointment?.customerId).toBe('cust-2')
+    // …and its name resolves even though the picker map covers store-A only.
+    expect(body.nextAppointment?.customerName).toBe('佐藤 次郎')
+    // One referenced name, never a widened picker array.
+    expect(body.customers.map((c: { id: string }) => c.id)).toEqual(['cust-1'])
   })
 
   it('a viewAll caller still resolves the same cross-store booking', async () => {
