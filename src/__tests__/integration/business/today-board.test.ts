@@ -117,7 +117,7 @@ async function mergedLanes() {
       data.listMenus(lens),
       data.listStaff(lens),
       data.listResources(lens),
-      data.readDayPlanes(lens),
+      data.readDayPlanes(lens, jstDayKey(new Date())),
       data.readShellIdentity(),
       data.listStoreOptions(),
       data.readStaffStores(lens),
@@ -705,6 +705,34 @@ describe('今日の運営 screen', () => {
     expect(tomorrow.dayLabel).not.toBe(t.dayLabel)
     // Tomorrow's board is a different day of bookings, and still a real board.
     expect(tomorrow.lanes.length).toBe(t.lanes.length)
+  })
+
+  it("a day being VIEWED carries none of today's operational state", async () => {
+    // The board planes split two ways (data.ts readDayPlanes): shifts, hours
+    // and blocks are the store's standing arrangement and belong to every open
+    // day, but the decision queue, the 勤務不可 incident and the register
+    // aggregates are TODAY's snapshot. Repeating them on ?day=1 showed today's
+    // ¥1,100 refund as tomorrow's −¥1,100 純売上, and today's decisions and
+    // absence band over tomorrow's bookings.
+    const t = await board(STORE_A)
+    const tomorrow = await board(STORE_A, '1')
+
+    // Today still has all of it — the guard cannot pass by emptying the board.
+    expect(t.ops.unresolved).toBeGreaterThan(0)
+    expect(t.cards.length).toBeGreaterThan(0)
+    expect(t.incident).not.toBeNull()
+
+    expect(tomorrow.ops.unresolved).toBe(0)
+    expect(tomorrow.ops.undelivered).toBe(0)
+    expect(tomorrow.cards).toEqual([])
+    expect(tomorrow.incident).toBeNull()
+    // …and no refund is subtracted from a day that never took one. Tomorrow
+    // settles nothing, so its 純売上 is ¥0 rather than the refund's negative.
+    expect(register.refunds).toBeGreaterThan(0)
+    expect(tomorrow.kpi.revenue).toBe('¥0')
+    // The day itself is still a real board: the standing planes came through.
+    expect(tomorrow.lanes.length).toBe(t.lanes.length)
+    expect(tomorrow.hours).toEqual(t.hours)
   })
 
   it('an out-of-range or unparseable ?day= is clamped, never an error', async () => {

@@ -109,11 +109,32 @@ describe('one clock anchor per render (#724)', () => {
     expect(page).toContain('renderNow().toISOString()')
     expect(page.match(/new Date\(\s*\)/g)).toBeNull()
 
+    // 今日の運営 has the same exposure and more of it: todayKey, the read
+    // window, 表示日, the month calendar and the ルール stamp all hang off one
+    // `now`, so a bare clock read there shifts the whole board a day.
+    const today = code('src/app/[locale]/(business)/business/today/page.tsx')
+    expect(today).toContain('const now = renderNow()')
+    expect(today.match(/new Date\(\s*\)/g)).toBeNull()
+
     // …and in the door itself the one bare clock read sits inside cache(),
     // with no call to appointments() left taking its own default clock.
     const data = code('src/business/lib/data.ts')
     expect(data.match(/new Date\(\s*\)/g)).toHaveLength(1)
     expect(data).toContain('cache((): Date => new Date())')
     expect(data.match(/appointments\(\s*\)/g)).toBeNull()
+
+    // THE BLIND SPOT the scans above cannot see: clock.ts DEFAULTS its `now`
+    // parameter to `new Date()` (jstMidnight, jstSlot, jstSlotEnd), so a
+    // guarded file can take a second clock read with no `new Date()` of its own
+    // anywhere in it. Every call to one of them must hand over the anchor.
+    for (const [file, src] of [
+      ['customers/page.tsx', page],
+      ['today/page.tsx', today],
+      ['data.ts', data],
+    ] as const) {
+      for (const line of src.split('\n').filter((l) => /\b(jstMidnight|jstSlot|jstSlotEnd)\(/.test(l))) {
+        expect(`${file}: ${line.trim()}`).toContain('renderNow()')
+      }
+    }
   })
 })

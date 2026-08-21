@@ -18,7 +18,7 @@
 // structural.
 
 import { cache } from 'react'
-import { jstSlotEnd } from './clock'
+import { jstDayKey, jstSlotEnd } from './clock'
 import {
   appointments,
   business,
@@ -218,9 +218,27 @@ export async function listResources(lens: StoreLens): Promise<FixtureResource[]>
  *  staff member (shifts, qualifications) are not — the roster read is what
  *  decides which staff the lens can see, and clamping twice would drop the
  *  floating card that legitimately works in every store.
- *  ⚠ RECONNECT: every field below is fixture-only. See the PR's honesty table. */
-export async function readDayPlanes(lens: StoreLens) {
+ *
+ *  `dayKey` (jstDayKey of the day being read) is REQUIRED, because the planes
+ *  split two ways and only the reader knows which day it is asking about:
+ *
+ *  · DATED — operating hours, 定休日, shifts, blocks, 販売可能枠, qualifications
+ *    and 定価 are the store's standing arrangement, true of every open day, so
+ *    they come back whatever day is asked for.
+ *  · TODAY-ONLY SNAPSHOTS — the 次に決めること queue points at TODAY's booking
+ *    ids, the 勤務不可 incident is happening NOW, and the register aggregates
+ *    are today's money. Handing those to a day the operator is merely VIEWING
+ *    put today's ¥1,100 refund into tomorrow's 純売上 and today's decisions and
+ *    absence band on tomorrow's board, so they come back EMPTY for any other
+ *    day. Nothing is invented in their place: the fixture world holds exactly
+ *    one day of them, and an empty queue is what another day honestly has.
+ *
+ *  ⚠ RECONNECT: every field below is fixture-only. See the PR's honesty table.
+ *  The real door queries the dated planes BY `dayKey` instead of returning the
+ *  standing one, and the today-only branch disappears with the fixtures. */
+export async function readDayPlanes(lens: StoreLens, dayKey: number) {
   assertLens(lens)
+  const today = dayKey === jstDayKey(renderNow())
   return {
     operatingHours,
     /** JST minutes from midnight — the moment the board is showing. */
@@ -230,11 +248,14 @@ export async function readDayPlanes(lens: StoreLens) {
     staffListPrice,
     closedWeekday,
     opsConfig,
-    absence: inLens([absence], lens, false)[0] ?? null,
+    absence: inLens(today ? [absence] : [], lens, false)[0] ?? null,
     blocks: inLens(blocks, lens, false),
     sellSlots: inLens(sellSlots, lens, false),
-    decisions: inLens(decisions, lens, false),
-    register,
+    decisions: inLens(today ? decisions : [], lens, false),
+    // ponytail: the money AGGREGATES are the day's; `terminal_held` is left as
+    // it is because emptying it turns the 決済端末 dialog's props nullable
+    // through TodayScreen. Make it null here when that dialog earns a null arm.
+    register: today ? register : { ...register, refunds: 0, cash_difference: 0 },
     pricingRule,
     recoverySteps: [...recoverySteps],
   }

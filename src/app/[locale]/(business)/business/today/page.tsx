@@ -36,6 +36,7 @@ import {
   readDayPlanes,
   readShellIdentity,
   readStaffStores,
+  renderNow,
   type StoreLens,
 } from '@/business/lib/data'
 import {
@@ -101,7 +102,14 @@ export default async function TodayPage({
   const requested = Number.parseInt(query.day ?? '0', 10)
   const dayOffset = Number.isFinite(requested) ? Math.max(-WINDOW, Math.min(WINDOW, requested)) : 0
 
-  const now = new Date()
+  // ONE CLOCK READ PER RENDER (Greptile P1 on #724). The fixture calendar is
+  // derived from the clock on every read, so a screen that reads its own `new
+  // Date()` beside the door's anchor can straddle JST midnight: the day this
+  // page filters for and the day the bookings were generated for would be
+  // different days, and the board would come back empty or shifted. Every date
+  // below — todayKey, the read window, 表示日, the calendar, the ルール stamp —
+  // is derived from this one instant.
+  const now = renderNow()
   const todayKey = jstDayKey(now)
   const shownKey = todayKey + dayOffset
   const from = new Date(now.getTime() + (-WINDOW - 1) * DAY_MS).toISOString()
@@ -113,7 +121,10 @@ export default async function TodayPage({
     listMenus(lens),
     listStaff(lens),
     listResources(lens),
-    readDayPlanes(lens),
+    // The day is the door's argument, not a filter applied afterwards: the
+    // today-only planes (decisions, 勤務不可, register aggregates) come back
+    // empty for a day the operator is only viewing — see readDayPlanes.
+    readDayPlanes(lens, shownKey),
     readShellIdentity(),
   ])
   const staffStores = await readStaffStores(lens)
