@@ -304,6 +304,14 @@ export async function listAuditLog(filters: AuditLogFilters): Promise<ListAuditL
   return listAuditLogWithClient(synqed, actor, filters)
 }
 
+// Core casts every id in customers.list's `ids` batch to UUID — ONE
+// malformed id (the phone memory-route sentinel '-', root-cause fix
+// 2026-08-29) 500s the WHOLE findMany and silently drops every label on the
+// page (the batch call's catch below then leaves ALL ids raw, not just the
+// poisoned one). Mirrored in handler.ts's logFacadeAudit (can't import —
+// that file is 'use server', which only permits async function exports).
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 /** Batch name lookup for this page's customer + store targets. Best-effort:
  *  a failed lookup degrades to ids in the UI, never fails the feed. Deleted
  *  customers resolve while soft-deleted (include_deleted); hard-purged rows
@@ -364,9 +372,12 @@ async function resolveTargetLabels(
       }),
     )
   }
+  // Non-UUID ids (the '-' sentinel; any other malformed id) simply never
+  // resolve — their rows keep showing the raw value, same honest-state
+  // fallback as a purged customer or a failed batch call below.
   const allCustomerIds = [
     ...new Set([...customerIds, ...karuteCustomerIds, ...karuteCustomerById.values()]),
-  ]
+  ].filter((id) => UUID_RE.test(id))
   if (allCustomerIds.length > 0) {
     try {
       const { customers } = await synqed.customers.list({

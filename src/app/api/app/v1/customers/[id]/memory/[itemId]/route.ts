@@ -54,7 +54,11 @@ export const PATCH = facadeHandler<Params>('customer.memory.update', async (ctx)
   ensureCapability(ctx.identity.capabilities, 'customers.view')
   const id = await itemId(ctx)
   const synqed = newSynqedClient(ctx.identity.businessId)
-  await proveMemoryItemInBusiness(synqed, id)
+  // proveMemoryItemInBusiness already resolved the REAL owning customer id
+  // server-side — hand it to the audit hook so the row targets that id, not
+  // the route's decorative (sentinel-filled) [id] segment (root-cause fix,
+  // 2026-08-29 packet).
+  ctx.auditTargetId = await proveMemoryItemInBusiness(synqed, id)
 
   let body: unknown
   try {
@@ -86,7 +90,9 @@ export const DELETE = facadeHandler<Params>('customer.memory.delete', async (ctx
   ensureCapability(ctx.identity.capabilities, 'customers.view')
   const id = await itemId(ctx)
   const synqed = newSynqedClient(ctx.identity.businessId)
-  await proveMemoryItemInBusiness(synqed, id)
+  // Same as PATCH above: stamp the real customer id, not the sentinel-filled
+  // path segment.
+  ctx.auditTargetId = await proveMemoryItemInBusiness(synqed, id)
 
   const r = await deleteMemoryItemWithClient(synqed, id)
   if (!r.ok) throw new AppApiError('upstream_unavailable', 'memory delete failed')

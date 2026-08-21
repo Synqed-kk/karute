@@ -74,10 +74,15 @@ describe('audit() emitter', () => {
 
 describe('facadeHandler audit hook', () => {
   const route = (params: Record<string, string> = {}) => ({ params: Promise.resolve(params) })
+  // Root-cause fix (2026-08-29 packet): logFacadeAudit only stamps params.id
+  // when it's UUID-shaped (handler.ts's UUID_RE) — tests exercising the
+  // POSITIVE stamping path need a real-shaped id, matching every production
+  // caller (synqed-core ids are always UUIDs).
+  const CUSTOMER_ID = '00000000-0000-4000-8000-000000000001'
 
   it('a mapped single-record GET emits customer.view with actor + tenant + target ids', async () => {
     const handler = facadeHandler('customer.read', async (ctx) => ok(ctx, { hi: 1 }), { config: HS_CONFIG })
-    const lines = await auditLines(() => handler(authedReq(), route({ id: 'c-9' })))
+    const lines = await auditLines(() => handler(authedReq(), route({ id: CUSTOMER_ID })))
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({
       action: 'customer.view',
@@ -85,7 +90,7 @@ describe('facadeHandler audit hook', () => {
       actor_id: 'u1',
       business_id: 'business-1',
       target_type: 'customer',
-      target_id: 'c-9',
+      target_id: CUSTOMER_ID,
       source: 'facade',
     })
   })
@@ -95,10 +100,10 @@ describe('facadeHandler audit hook', () => {
   // the target (karute id for the two karute.* keys, customer id for the two
   // customer.* keys — both routes are [id]-parameterized on exactly that id).
   it.each([
-    ['karute.read', 'karute.view', 'karute', 'k-7'],
-    ['karute.entryEdits.list', 'karute.entry_edits_view', 'karute', 'k-7'],
-    ['customer.ai.preSessionBrief', 'customer.brief_view', 'customer', 'c-7'],
-    ['customer.ai.bodyPrediction', 'customer.ai_prediction_view', 'customer', 'c-7'],
+    ['karute.read', 'karute.view', 'karute', '00000000-0000-4000-8000-000000000002'],
+    ['karute.entryEdits.list', 'karute.entry_edits_view', 'karute', '00000000-0000-4000-8000-000000000002'],
+    ['customer.ai.preSessionBrief', 'customer.brief_view', 'customer', '00000000-0000-4000-8000-000000000003'],
+    ['customer.ai.bodyPrediction', 'customer.ai_prediction_view', 'customer', '00000000-0000-4000-8000-000000000003'],
   ] as const)('%s emits %s (Wave V view row)', async (endpoint, action, targetType, id) => {
     const handler = facadeHandler(endpoint, async (ctx) => ok(ctx, { ok: 1 }), { config: HS_CONFIG })
     const lines = await auditLines(() => handler(authedReq(), route({ id })))
@@ -186,11 +191,28 @@ describe('facadeHandler audit hook', () => {
       getUser: async () => ({ id: 'u1' }),
     })
     const lines = await auditLines(async () => {
-      const res = await handler(authedReq(), route({ id: 'c-9' }))
+      const res = await handler(authedReq(), route({ id: CUSTOMER_ID }))
       expect(res.status).toBe(200)
     })
     expect(lines).toHaveLength(1)
-    expect(lines[0]).toMatchObject({ action: 'customer.edit', target_id: 'c-9' })
+    expect(lines[0]).toMatchObject({ action: 'customer.edit', target_id: CUSTOMER_ID })
+  })
+
+  it('a non-UUID params.id with no ctx.auditTargetId override writes a NULL target, never the garbage string (root-cause fix, 2026-08-29 packet — the sentinel-poison class)', async () => {
+    const handler = facadeHandler('customer.update', async (ctx) => ok(ctx, { ok: true }), {
+      config: HS_CONFIG,
+      getUser: async () => ({ id: 'u1' }),
+    })
+    // '-' is the exact sentinel thin/ports/actions.vite.ts fills the memory
+    // routes' decorative segment with — the value that 500'd core's
+    // customers.list findMany (UUID cast) and poisoned the 監査ログ page.
+    const lines = await auditLines(async () => {
+      const res = await handler(authedReq(), route({ id: '-' }))
+      expect(res.status).toBe(200)
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ action: 'customer.edit', target_type: 'customer' })
+    expect(lines[0].target_id).toBeNull()
   })
 
   it('customer.pack.undoRedemption never stamps its route param as the target (fix round F1: that param is a REDEMPTION id, not a customer id)', async () => {
@@ -341,12 +363,15 @@ describe('FACADE_AUDIT_MAP row disposition — every rule, parameterized', () =>
     async (key) => {
       const rule = FACADE_AUDIT_MAP[key]
       const handler = facadeHandler(key, async (ctx) => ok(ctx, { ok: 1 }), deps)
-      const lines = await auditLines(() => handler(authedReq(), route({ id: 'target-1' })))
+      // UUID-shaped (root-cause fix, 2026-08-29 packet — non-UUID params.id no
+      // longer stamps a target; this loop exercises the POSITIVE path).
+      const targetId = '00000000-0000-4000-8000-000000000004'
+      const lines = await auditLines(() => handler(authedReq(), route({ id: targetId })))
       expect(lines).toHaveLength(1)
       expect(lines[0]).toMatchObject({ category: rule.category, action: rule.action, source: 'facade' })
       if (rule.targetType) {
         expect(lines[0].target_type).toBe(rule.targetType)
-        expect(lines[0].target_id).toBe('target-1')
+        expect(lines[0].target_id).toBe(targetId)
       } else {
         expect(lines[0].target_type).toBeNull()
         expect(lines[0].target_id).toBeNull()
