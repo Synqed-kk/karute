@@ -145,6 +145,11 @@ interface RedeemSessionActionInput {
    *   · D7 — the burn is tagged recovery-resolved for reconcile visibility
    *     (⚖ 8/21 ②). */
   recovery?: boolean
+  /** The caller's Idempotency-Key, forwarded to core's redemption dedup (#69).
+   *  Set ONLY by the facade route, where the phone mints one key per user
+   *  action and every retry of that action re-sends it. The web action leaves
+   *  it unset on purpose — see redeemSessionAction below. */
+  idempotencyKey?: string
 }
 
 /** Redeem core (SINGLE SOURCE): burn pairing is SERVER-derived here — when the
@@ -230,13 +235,27 @@ export async function redeemSessionActionWithClient(
     karuteRecordId: input.karuteRecordId ?? null,
     source: input.source ?? 'manual',
     createdBy: staffId,
+    idempotencyKey: input.idempotencyKey,
   })
   return result.ok
     ? { ok: true, redemptionId: result.id }
     : { ok: false, error: result.error }
 }
 
-/** Check one session off a pack (manual check-off; date defaults to today JST). */
+/** Check one session off a pack (manual check-off; date defaults to today JST).
+ *
+ *  NO idempotencyKey here, deliberately. Core dedupes on key EQUALITY, so a key
+ *  only protects anything if the same one is sent twice. This action is a
+ *  server action: one invocation = one execution = one addRedemption call, with
+ *  no retry between them (the SDK's fetch does not retry — client.js:82-96), so
+ *  a key minted on this side would be unique per execution and dedupe exactly
+ *  nothing — protection on paper, none in the field. The phone gets a REAL key
+ *  because the client mints it (thin/ports/actions.vite.ts idemPost) and every
+ *  retry of that action re-sends it; the web has no such client-supplied
+ *  identity today, and what actually stops a web double-tap is the callers'
+ *  single-flight latches (RecordPageView usingRecording/resolvingOutcomeRef).
+ *  ponytail: unkeyed until a key is minted in the browser per user gesture and
+ *  threaded in — a UI-side change, deliberately out of this PR's fence. */
 export async function redeemSessionAction(
   input: RedeemSessionActionInput,
 ): Promise<{ ok: boolean; redemptionId?: string; error?: string }> {

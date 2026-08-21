@@ -71,14 +71,18 @@ export async function provePhotoForCustomer(
   }
 }
 
-/** Require an Idempotency-Key on an effectful POST (contract §8). Presence is
- *  enforced here so a client can't omit it; de-duplication itself is a
- *  backend/store concern (Anthony) not yet built, so the current guarantee is
- *  AT-LEAST-ONCE — a retried request re-runs.
- *  ponytail: presence-only; wire a real dedup store here when Anthony ships it. */
-export function requireIdempotencyKey(req: { headers: Headers }): void {
+/** Require an Idempotency-Key on an effectful POST (contract §8), and RETURN it
+ *  so the route can hand it to a write that knows how to dedupe on it.
+ *  Anthony shipped the first such write (core #69, SDK 1.28.0): redemption
+ *  creates carrying the key replay the stored row instead of burning twice.
+ *  Every OTHER facade write is still AT-LEAST-ONCE — presence-only, a retried
+ *  request re-runs — so routes that ignore the return value are unchanged.
+ *  ponytail: per-write adoption, not a generic dedup store; wire the next write
+ *  the same way when core grows a key scope for it. */
+export function requireIdempotencyKey(req: { headers: Headers }): string {
   const key = req.headers.get('idempotency-key')?.trim()
   if (!key) throw new AppApiError('validation', 'Idempotency-Key header is required')
+  return key
 }
 
 /** The acting staff id for a facade write: the verified auth user, ONLY if they

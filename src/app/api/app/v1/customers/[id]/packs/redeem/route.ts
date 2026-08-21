@@ -53,7 +53,12 @@ async function customerId(ctx: FacadeContext<Params>): Promise<string> {
 
 export const POST = facadeHandler<Params>('customer.pack.redeem', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'customers.view')
-  requireIdempotencyKey(ctx.req)
+  // The client's key, now FORWARDED to core's redemption dedup (#69) instead of
+  // only being presence-checked: the phone mints one per user action and
+  // re-sends it on every retry of that action — including facadeApiFetch's own
+  // stranded-pin retry, which copies the headers — so a replayed burn replays
+  // the stored row rather than spending a second session.
+  const idempotencyKey = requireIdempotencyKey(ctx.req)
   const id = await customerId(ctx)
   const synqed = newSynqedClient(ctx.identity.businessId)
   await proveCustomerInBusiness(synqed, id)
@@ -83,6 +88,7 @@ export const POST = facadeHandler<Params>('customer.pack.redeem', async (ctx) =>
     karuteRecordId: parsed.data.karuteRecordId ?? null,
     source: parsed.data.source,
     recovery: parsed.data.recovery,
+    idempotencyKey,
   })
   if (!result.ok) {
     // Over-redeem / double-burn guard (trg_pack_below_zero) → a conflict, not a
