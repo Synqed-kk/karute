@@ -63,6 +63,7 @@ import {
   onShownBoard,
   sameStore,
   unparkOutcome,
+  foreignStoreRefusal,
   anchorOnScreen,
   guardCheckRow,
   holdPopAnchor,
@@ -1603,35 +1604,40 @@ describe('the session’s edits outlive the day flip, and the × knows which day
     const body = SRC.slice(SRC.indexOf('function park('), SRC.indexOf('function unpark('))
     // canon's snapshot carries `day` per element (:5567-5570); ours carries it
     // on the record, because our chip outlives the DOM it was taken from.
-    // RENEGOTIATED (⚖ 46 forerunner, Greptile #737 P1): the four stamp fields
-    // are spelled ONCE, in `boardStamp`, so no site can record the day and
-    // forget the store. The pin follows them there.
-    expect(body).toContain('home: { ...from, ...boardStamp }')
-    expect(SRC).toContain('const boardStamp = { ...board, dayLabel: props.dayLabel, storeLabel: props.lensLabel }')
+    expect(body).toContain('dayOffset: props.dayOffset,')
+    expect(body).toContain('dayLabel: props.dayLabel,')
+    // ⚖ flag 46 — and the STORE, on the same record for the same reason.
+    expect(body).toContain('storeParam: props.storeParam,')
+    expect(body).toContain('storeLabel: props.lensLabel,')
     // …and the printed line is still the printed line.
     expect(body).toContain('const text = parkChipText(item, hours, props.dayLabel)')
   })
 
   it('the × is answered by the recorded day, never by the board on screen', () => {
-    // RENEGOTIATED (⚖ 46 forerunner): a board is a day AND a store, so both
-    // sides of the comparison are now boards. Same four day cases, one store.
-    const A = (dayOffset: number) => ({ dayOffset, store: 'store-a' })
+    const A = 'store-a'
     // Origin day on screen and the booking on it: straight home, canon's toast.
-    expect(unparkOutcome(A(0), A(0), true)).toBe('here')
+    expect(unparkOutcome({ dayOffset: 0, storeParam: A }, 0, A, true)).toBe('here')
     // Origin day elsewhere: the restore is still right — the booking lives on
     // exactly one day — so it happens, and the caller names the day it went to.
     // What is on THIS board is irrelevant, which is the whole point.
-    expect(unparkOutcome(A(-2), A(3), true)).toBe('elsewhere')
-    expect(unparkOutcome(A(-2), A(3), false)).toBe('elsewhere')
+    expect(unparkOutcome({ dayOffset: -2, storeParam: A }, 3, A, true)).toBe('elsewhere')
+    expect(unparkOutcome({ dayOffset: -2, storeParam: A }, 3, A, false)).toBe('elsewhere')
     // Origin day on screen and the booking is NOT on it — the fixture world
     // re-based under the shelf (a board left open across JST midnight).
-    expect(unparkOutcome(A(4), A(4), false)).toBe('gone')
+    expect(unparkOutcome({ dayOffset: 4, storeParam: A }, 4, A, false)).toBe('gone')
+    // ⚖ flag 46 — A FOREIGN STORE IS `elsewhere`, NEVER `gone`. The origin can
+    // never be on this board, so the honest reading of a missing origin is "it
+    // is on the other store's board", not "it has been lost". Same day, same
+    // offset, different store: the × still restores and the toast names where.
+    expect(unparkOutcome({ dayOffset: 0, storeParam: A }, 0, 'store-b', false)).toBe('elsewhere')
+    expect(unparkOutcome({ dayOffset: 0, storeParam: A }, 0, 'store-b', true)).toBe('elsewhere')
+    // …and the day rule still bites inside the chip's own store.
+    expect(unparkOutcome({ dayOffset: 1, storeParam: A }, 0, A, true)).toBe('elsewhere')
   })
 
   it('the soft failure keeps the chip: nothing is removed before the outcome is known', () => {
     const body = SRC.slice(SRC.indexOf('function unpark('), SRC.indexOf('function onChipPointerDown'))
-    // RENEGOTIATED (⚖ 46 forerunner): `board` is the day AND the store on screen.
-    expect(body).toContain('const outcome = unparkOutcome(chip.home, board, originHere)')
+    expect(body).toContain('const outcome = unparkOutcome(chip.home, props.dayOffset, props.storeParam, originHere)')
     expect(body).toContain('仮置きエリアに残しています')
     // The ORDERING is the guarantee: the refusal returns ahead of every removal,
     // so a chip that cannot be restored is still a chip that can be placed.
@@ -1643,9 +1649,10 @@ describe('the session’s edits outlive the day flip, and the × knows which day
     // The restore takes its span from the RECORD, and the off-day toast says
     // which board it went back to — the hold bar's day-pin habit.
     expect(body).toContain('setMoves((was) => ({ ...was, [id]: { laneKey: chip.home.laneKey, x: chip.home.x, w: chip.home.w } }))')
-    // RENEGOTIATED (⚖ 46 forerunner): the off-board toast names the store too
-    // when that is what differs — a bare day label would read as this store's.
-    expect(body).toContain('`${name}を${backTo}の元の枠に戻しました`')
+    // ⚖ flag 46 — the off-board toast now has two shapes, and both are built
+    // from the RECORD: the day alone inside the chip's own store, the store AND
+    // the day when the operator is standing somewhere else entirely.
+    expect(body).toContain('`${name}を${away}の元の枠に戻しました`')
     expect(body).toContain('`${chip.home.storeLabel} ${chip.home.dayLabel}`')
   })
 })
@@ -1658,10 +1665,22 @@ describe('the session’s edits outlive the day flip, and the × knows which day
  *  case is a staff member who works at BOTH stores: the two boards then share
  *  that person's lane key, and a card added on one painted onto the other.
  *
- *  FORWARD SUPERSESSION: slice F (batch 7, feat/business-transplant-today) ships
- *  the fuller ⚖ 46 design — storeParam + storeLabel on ParkHome/PlacingIntent and
- *  a named `foreignStoreRefusal`. On replay the LATER slice wins this whole
- *  family; every "⚖ 46 forerunner" here is the thing being replaced.
+ *  FORWARD SUPERSESSION — SETTLED AT CYCLE 7 (2026-08-22). Batch 7 landed and
+ *  won the part of this family it actually rebuilt: `storeParam` + `storeLabel`
+ *  on ParkHome/PlacingIntent, the named `foreignStoreRefusal`, the one-door
+ *  `refuse()`, and its own 4-argument `unparkOutcome`. The three tests that
+ *  pinned the forerunner spelling of exactly those things (the chip refusal, the
+ *  配置モード refusal, and the × from a foreign store) are GONE from this block —
+ *  batch 7's own tests above pin the replacements.
+ *
+ *  WHAT DID NOT GET SUPERSEDED, and is therefore still pinned below: batch 7's
+ *  ⚖ 46 never reached the `added` / `pending` family — its AddedRow and its
+ *  PendingChange carry no store at all, and its `pendingOffDay` is day-only. So
+ *  `sameStore` / `onShownBoard` remain the one predicate for those two, and the
+ *  Greptile #737 P1 bug they fix (a staged edit evaluated against another
+ *  store's board whenever the day happened to match) stays fixed. Same story for
+ *  the board-stamped nextvisit id: batch 7 still builds `nextvisit-${seq}`, which
+ *  is the collision slice C root-caused, so main's id is the one that survives.
  *
  *  ⚖ 46 SHAPE, held to here: parked chips stay VISIBLE on every board (the shelf
  *  is the operator's hand, not the board's content), a placement on a foreign
@@ -1737,42 +1756,6 @@ describe('a session edit belongs to ONE board — the day and the store it was m
     // navigation, so the counter alone made EVERY board's first placement
     // `nextvisit-1` — colliding in `moves` and in revertPending's caseId lookup.
     expect(PLACE_NEXT).toContain('const id = `nextvisit-${props.storeParam ?? \'all\'}-${props.dayOffset}-${createSeq.current}`')
-  })
-
-  it('placing a chip on a foreign store is REFUSED, and the refusal destroys nothing', () => {
-    expect(PLACE_SHELF).toContain('if (!sameStore(chip.home.store, props.storeParam)) {')
-    // The toast names the chip's OWN store — ⚖ 46's wording rule.
-    expect(PLACE_SHELF).toContain('${chip.home.storeLabel}の予約です')
-    // ORDERING IS THE GUARANTEE (the unpark habit): the refusal returns ahead of
-    // every setter, so nothing is placed, the chip stays on the shelf, and the ×
-    // still works. A guard placed after `setParkChips` would read as a refusal
-    // and behave as a deletion.
-    const refusal = PLACE_SHELF.indexOf('if (!sameStore(chip.home.store, props.storeParam)) {')
-    for (const setter of ['setParkChips(', 'setAdded(', 'setMoves(', 'setPending(']) {
-      expect(PLACE_SHELF.indexOf(setter)).toBeGreaterThan(refusal)
-    }
-  })
-
-  it('配置モード armed on store A is refused on store B, and stays in hand', () => {
-    expect(PLACE_NEXT).toContain('if (!sameStore(p.store, props.storeParam)) {')
-    expect(PLACE_NEXT).toContain('${p.storeLabel}で始めた配置です')
-    // Ahead of `setPlacing(null)` — a refusal that disarmed the intent would
-    // make the operator re-arm it, which is the state destruction ⚖ 46 forbids.
-    expect(PLACE_NEXT.indexOf('setPlacing(null)')).toBeGreaterThan(PLACE_NEXT.indexOf('if (!sameStore(p.store, props.storeParam)) {'))
-  })
-
-  it('the × restores from a FOREIGN store — it is never the `gone` refusal', () => {
-    const homeA = { dayOffset: 0, store: STORE_A }
-    // Standing on store B, same day. The booking is not on the board in front of
-    // the operator and never can be, so asking "is it here?" can only answer no
-    // — which without the store check meant `gone`, i.e. every cross-store ×
-    // refused. The origin store answers first, and the restore happens.
-    expect(unparkOutcome(homeA, boardB, false)).toBe('elsewhere')
-    expect(unparkOutcome(homeA, boardB, true)).toBe('elsewhere')
-    // Another store AND another day is still just "elsewhere".
-    expect(unparkOutcome(homeA, { dayOffset: 3, store: STORE_B }, false)).toBe('elsewhere')
-    // `gone` survives for the one case it was written for: the SAME board.
-    expect(unparkOutcome(homeA, boardA, false)).toBe('gone')
   })
 
   it('the 仮押さえ bar stops answering off-board, and its way back carries the right store', () => {
@@ -2378,8 +2361,10 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // The check strip keeps its name: the create dialog's ticket renders the
     // same marks through `.holdbar-checks.cc-ticket-checks`.
     expect(CSS).toContain('.biz .holdbar-checks {')
-    expect(SRC).toContain('<div className={`hold-pop${holdPinned ? \' pinned\' : \'\'}`} ref={holdPopRef} role="region" aria-label="仮押さえの確認">')
-    expect(SRC).toContain('const at = box && anchorOnScreen(box, viewport) ? holdPopAnchor(box, self.width, self.height, viewport) : null')
+    expect(SRC).toContain('className={`hold-pop${holdPinned ? \' pinned\' : \'\'}`}')
+    expect(SRC).toContain('aria-label="仮押さえの確認"')
+    // ⚖ flag 48 — same call, same laws, plus the rail chip it prefers to clear.
+    expect(SRC).toContain('const at = box && anchorOnScreen(box, viewport) ? holdPopAnchor(box, self.width, self.height, viewport, 8, 8, railBox) : null')
     // …and the fallback pill, which is what actually retires the scrolling bar
     expect(SRC).toContain('      if (!at) {\n        setHoldPinned(true)')
     expect(CSS).toContain('.biz .hold-pop.pinned { left: 50%; bottom: 18px; top: auto; transform: translateX(-50%); }')
@@ -2390,9 +2375,11 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     expect(SRC).toContain('const coarse = () => { clearTimeout(t); t = setTimeout(pin, 120) }')
     expect(SRC).toContain("window.addEventListener('scroll', coarse, true)")
     // The effect keys on the ID, not the object it is rebuilt in every render.
-    // RENEGOTIATED (Greptile #738 P1): the dep array gained the two gates that
-    // can unmount the anchor card — see the collapse test below.
-    expect(SRC).toContain('}, [holdAnchorId, holdPinned, collapsed, view, moves, props.dayOffset])')
+    // RENEGOTIATED (Greptile #738 P1, re-renegotiated cycle 7): the dep array
+    // carries BOTH the two gates that can unmount the anchor card and batch-7's
+    // `holdRailSel` (⚖ 48 reads it inside `pin`). Neither half supersedes the
+    // other — see the collapse test below.
+    expect(SRC).toContain('}, [holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])')
     // A standing 仮押さえ this session did not stage is ALWAYS the pill: anchored,
     // it sat on the board indefinitely and swallowed the pointerdown of a card in
     // the lane below (measured, 2026-08-21).
@@ -2414,7 +2401,9 @@ describe('the confirm comes to the card, and the consult goes back to the placem
   it('an anchor that leaves the DOM — collapse included — falls back to the pill', () => {
     // BOTH gates `renderLane` returns null on, so a view switch cannot silently
     // reintroduce the same bug the collapse did.
-    expect(SRC).toContain('}, [holdAnchorId, holdPinned, collapsed, view, moves, props.dayOffset])')
+    // RENEGOTIATED (cycle 7): batch-7 adds `holdRailSel` to this array for ⚖ 48's
+    // avoid-rect. The two unmount gates this test exists for are still both here.
+    expect(SRC).toContain('}, [holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])')
     expect(SRC).toContain('if (collapsed.includes(lane.group)) return null')
     // The rule is about the NODE, not about any one reason it went away.
     expect(SRC).toContain('const card = anchorId ? cardNodes(boardRef.current, anchorId)[0] : null')
@@ -2806,5 +2795,245 @@ describe('the pair keeps both its lanes, and no ending turns a release into a bo
     // that the cap is what suppressed it.
     const twoBeds = [...oneBedTaken, lane({ key: 'bed-02', group: 'beds' })]
     expect(sellLayerFor(twoBeds, HOURS, opts).cells.some((c) => c.group === 'staff' && c.h === 720)).toBe(true)
+  })
+})
+
+/** ══ BATCH-7 ══ flags 46 · 47 · 48.
+ *
+ *  ⚖ THE LANE INVARIANT (Liam, flag 47, 2026-08-21): *a refusal changes
+ *  NOTHING.* Whatever the reason — a foreign store (⚖ 46), no free room, a
+ *  locked shift, a release over nothing, a 仮押さえ still open — the chip stays
+ *  in the shelf, 配置モード stays armed, the board stays as it was, and the
+ *  message NAMES the reason and stays up long enough to be read. His own repro
+ *  is the bar: 「it flashed too fast to read」 and the chip vanished.
+ *
+ *  These are ordering and shape proofs read off the source, in this file's own
+ *  established style: territory's import fence forbids a DOM renderer here, and
+ *  the ordering of a `return` against a state writer is exactly what a rendered
+ *  test could not see anyway. The behaviour itself is proven in a real browser
+ *  in the round's evidence folder. */
+describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const CHIP_HOME = { storeParam: 'store-test-ginza', storeLabel: 'テスト銀座店' }
+
+  it('⚖ 46 — the chip may be CARRIED to another store, and refused there by name', () => {
+    // Its own board: nothing to say, place it.
+    expect(foreignStoreRefusal(CHIP_HOME, 'store-test-ginza')).toBeNull()
+    // A foreign board: refused, and the sentence names the chip's OWN store —
+    // the operator is looking at 代官山 and has to be told where to go.
+    const msg = foreignStoreRefusal(CHIP_HOME, 'store-test-daikanyama')
+    expect(msg).toContain('テスト銀座店')
+    expect(msg).not.toContain('代官山')
+    // …and it names the way out, because the × still works from anywhere.
+    expect(msg).toContain('×')
+    // A board with no ?store= at all is still a different board. Deny by
+    // default: the one thing that must never happen is a silent placement onto
+    // whatever lanes happen to be drawn.
+    expect(foreignStoreRefusal(CHIP_HOME, null)).not.toBeNull()
+    expect(foreignStoreRefusal({ storeParam: null, storeLabel: '全店舗' }, 'store-test-ginza')).not.toBeNull()
+    expect(foreignStoreRefusal({ storeParam: null, storeLabel: '全店舗' }, null)).toBeNull()
+  })
+
+  it('⚖ 46 — the shelf drop refuses BEFORE the guard is consulted, and before any write', () => {
+    const body = SRC.slice(SRC.indexOf('function onChipPointerUp('), SRC.indexOf('// ── 配置モード'))
+    expect(body).toContain('const foreign = foreignStoreRefusal(chip.home, props.storeParam)')
+    // Ordering IS the invariant. The refusal returns ahead of the guard consult
+    // — offering 「より良い開始」 on a board the booking may not be placed on is
+    // advice about an impossible placement — and ahead of every writer.
+    const at = (needle: string) => {
+      const i = body.indexOf(needle)
+      expect(i).toBeGreaterThan(-1)
+      return i
+    }
+    expect(at('refuse(foreign)')).toBeLessThan(at('askGuard('))
+    expect(at('refuse(foreign)')).toBeLessThan(at('placeFromShelf('))
+  })
+
+  it('⚖ 46 — 配置モード carries its store too, and is refused by the same rule', () => {
+    const armed = SRC.slice(SRC.indexOf('function armNextVisit('), SRC.indexOf('function placeNextVisit('))
+    expect(armed).toContain('storeParam: props.storeParam,')
+    expect(armed).toContain('storeLabel: props.lensLabel,')
+    const place_ = SRC.slice(SRC.indexOf('function placeNextVisit('), SRC.indexOf('⚖ Liam 2026-08-20 (flag 22)'))
+    // Checked at the placement as well as at the click, so the consult popup's
+    // 「この開始に配置」 cannot walk around the click-side check.
+    expect(place_).toContain('const foreign = foreignStoreRefusal(p, props.storeParam)')
+    expect(place_.indexOf('refuse(foreign)')).toBeLessThan(place_.indexOf('setPlacing(null)'))
+    expect(place_.indexOf('refuse(foreign)')).toBeLessThan(place_.indexOf('setAdded('))
+  })
+
+  it('⚖ 47 — every refusal in the placement family returns ahead of every write', () => {
+    const place_ = SRC.slice(SRC.indexOf('function placeNextVisit('), SRC.indexOf('⚖ Liam 2026-08-20 (flag 22)'))
+    // No free room: 配置モード SURVIVES, so the operator can try another slot
+    // instead of walking back to 次回予約 to re-arm it.
+    expect(place_.indexOf("refuse('この時間帯に空いているベッドがいません')")).toBeLessThan(place_.indexOf('setPlacing(null)'))
+    const shelf = SRC.slice(SRC.indexOf('function placeFromShelf('), SRC.indexOf('const monthCells'))
+    // Same for the chip: the shelf entry is removed only after the room is found.
+    expect(shelf.indexOf("refuse('この時間帯に空いているベッドがいません')")).toBeLessThan(shelf.indexOf('setParkChips('))
+  })
+
+  it('⚖ 47 — the silent refusals now speak: a bed row, and a release over nothing', () => {
+    // A person lands in a STAFF row; the room is chosen for them. While 配置モード
+    // is armed a bare `return` on a bed row reads as a dead board.
+    expect(SRC).toContain("if (placing) refuse('次回予約は担当スタッフの行に置いてください（ベッドは自動で選ばれます）')")
+    // A chip carried across the board and let go over the shelf/header/gap: the
+    // card drag has said this since flag 19, the shelf gesture says it now too,
+    // in the same words — one sentence for one situation.
+    const up = SRC.slice(SRC.indexOf('function onChipPointerUp('), SRC.indexOf('// ── 配置モード'))
+    expect(up).toContain("if (chip) refuse('予約を置く行の中で離してください')")
+    // …and it is still a refusal. The handler holds no writer of its own at all
+    // — every landing it accepts is delegated to `placeFromShelf` through the
+    // guard — so a refusal branch here cannot mutate anything by construction.
+    for (const writer of ['setParkChips(', 'setAdded(', 'setMoves(', 'setPending(', 'setPlacing(']) {
+      expect(up).not.toContain(writer)
+    }
+  })
+
+  it('⚖ 47 — a refusal outlives the glance that missed it, and re-arms when repeated', () => {
+    // Liam's words: it flashed too fast to read. A confirmation may be brief —
+    // the operator can see the result — a refusal is the ONLY record that a
+    // thing did not happen.
+    expect(SRC).toContain('const TOAST_MS = 3200')
+    expect(SRC).toContain('const REFUSAL_MS = 7000')
+    expect(SRC).toContain('function refuse(message: string) {\n    show(message, REFUSAL_MS)\n  }')
+    // The dwell comes off the message, not off a constant baked into the timer.
+    expect(SRC).toContain('const t = setTimeout(() => setToast(EMPTY_TOAST), toast.ms)')
+    // `n` re-arms the timer for an identical refusal earned twice: pressing the
+    // same illegal slot again used to change no state and so say nothing.
+    expect(SRC).toContain('setToast((was) => ({ text: message, ms, n: was.n + 1 }))')
+    // ONE door for refusals — every one of them, greppable by name. If a future
+    // round adds a refusal through `show(` it will not carry the dwell, so the
+    // known refusal sentences are pinned to the door here.
+    for (const sentence of [
+      'この時間帯に空いているベッドがいません',
+      'シフトロック中: このスタッフには新しい予約を置けません',
+      '予約を置く行の中で離してください',
+      '予定を置く行の中で離してください',
+      '他の予定と重なるため元の位置に戻しました',
+      '仮押さえ中の変更を確定するか、元に戻してから操作してください',
+      '状況が変わったため、この内容では確定できません',
+      'これ以上は時間を変更できません',
+    ]) {
+      expect(SRC).toContain(`refuse('${sentence}')`)
+      expect(SRC).not.toContain(`show('${sentence}')`)
+    }
+  })
+
+  it('⚖ 47 — cross-day placement is what canon promises, and nothing gates on the day', () => {
+    // 配置モード's own toast says 「日付を移動してもそのまま」 and canon says
+    // 「置きたい日へ移動して、空き枠をクリック」. The landing therefore writes the
+    // VIEWED day and asks no question about which day that is.
+    const place_ = SRC.slice(SRC.indexOf('function placeNextVisit('), SRC.indexOf('⚖ Liam 2026-08-20 (flag 22)'))
+    // RENEGOTIATED (cycle 7): the viewed day still goes on the record, but it is
+    // spelled `{ ...board, … }` — main's ⚖ 46 forerunner stamps the day and the
+    // store from one const, and batch-7's ⚖ 46 never reached AddedRow. The claim
+    // this test makes is unchanged and the two `not` assertions below are what
+    // actually guard it: nothing gates on WHICH day.
+    expect(place_).toContain('{ ...board, laneKey: lane.key')
+    expect(SRC).toContain('() => ({ dayOffset: props.dayOffset, store: props.storeParam }),')
+    expect(place_).not.toContain('props.isToday')
+    expect(place_).not.toMatch(/dayOffset\s*[!=]==?\s*0/)
+    expect(SRC).toContain('置きたい日へ移動して、空き枠をクリック')
+  })
+})
+
+describe('BATCH-7 ⚖ 48 — the confirm prefers to leave the landing’s rail chip visible', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const CARD = { left: 400, right: 600, top: 300, bottom: 340 }
+  const VIEW = { width: 1440, height: 1100 }
+  const POP = { w: 380, h: 120 }
+
+  it('with nothing to avoid, the ruled position is unchanged', () => {
+    expect(holdPopAnchor(CARD, POP.w, POP.h, VIEW)).toEqual({ left: 310, top: 348 })
+  })
+
+  it('the rail chip under the card pushes the confirm ABOVE — when above is legal', () => {
+    // The strip sits in the 18px under the lane, which is exactly where "below
+    // the card" lands. Liam: the purple ✓ for the landing was 「kind of covered
+    // up… you can slightly see it pointing out above the box」.
+    const rail = { left: 470, right: 510, top: 344, bottom: 362 }
+    const at = holdPopAnchor(CARD, POP.w, POP.h, VIEW, 8, 8, rail)
+    expect(at).toEqual({ left: 310, top: 172 })
+    // …and above is still ABOVE: the anchor card is never covered.
+    expect(at!.top + POP.h).toBeLessThanOrEqual(CARD.top)
+  })
+
+  it('a rail chip the confirm was never going to touch changes nothing', () => {
+    // Another lane's strip, far down the board.
+    const far = { left: 470, right: 510, top: 900, bottom: 918 }
+    expect(holdPopAnchor(CARD, POP.w, POP.h, VIEW, 8, 8, far)).toEqual({ left: 310, top: 348 })
+    // Same row, but horizontally clear of the popover (a wide board, an early
+    // start): an overlap test that ignored x would flip for nothing.
+    const beside = { left: 1200, right: 1240, top: 344, bottom: 362 }
+    expect(holdPopAnchor(CARD, POP.w, POP.h, VIEW, 8, 8, beside)).toEqual({ left: 310, top: 348 })
+  })
+
+  it('PREFERENCE, NEVER A LAW — when no allowed side clears it, the law’s answer stands', () => {
+    // A card near the top: above cannot hold the surface, so below is the only
+    // legal position. The preference has no say and does not invent a third.
+    const highCard = { left: 400, right: 600, top: 20, bottom: 60 }
+    const rail = { left: 470, right: 510, top: 64, bottom: 82 }
+    expect(holdPopAnchor(highCard, POP.w, POP.h, VIEW, 8, 8, rail)).toEqual({ left: 310, top: 68 })
+    // A card with no room on EITHER side is still the pill (`null`) — the
+    // never-cover-the-anchor law, untouched by the new argument.
+    const tight = { width: 1440, height: 200 }
+    expect(holdPopAnchor({ left: 400, right: 600, top: 60, bottom: 140 }, POP.w, POP.h, tight, 8, 8, rail)).toBeNull()
+  })
+
+  it('the chip it avoids is the LANDING’s own, on the lane the card landed in', () => {
+    // 30-minute lattice: an off-lattice landing (canon's dual lattice can put a
+    // card on 14:05) belongs to the cell it starts inside, so the start is
+    // floored — never rounded, which would name the next chip along.
+    expect(SRC).toContain('const start = Math.floor(minuteOf(at.x, hours) / 30) * 30')
+    expect(SRC).toContain('`.guard-placement-rail[data-lane="${at.laneKey}"] .guard-rail-cell[data-start="${start}"]`')
+    // Measured in the same frame as the popover's own box, never cached.
+    expect(SRC).toContain('boardRef.current?.querySelector(holdRailSel)?.getBoundingClientRect() ?? null')
+    // Absent (strip hidden by 表示設定, lane collapsed, jsdom) → the laws decide
+    // alone. `null`, not a zero rect that would overlap everything at the origin.
+    expect(SRC).toContain('const railBox = holdRailSel')
+  })
+})
+
+describe('BATCH-7 — FLAGS 25c backlog: the three unregistered surfaces join the tour', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  // The lane rule (⚖ Liam, flag 25c): every new section registers a
+  // data-guide + data-guide-title pair. Batches 4/5/6 added three and none of
+  // them did, which is how the count sat at 14 for three rounds.
+  it('the confirm popover, the block advisor and the 60分配置 strip all declare themselves', () => {
+    // The two popovers declare themselves as plain JSX attributes…
+    for (const [title, body] of [
+      ['仮押さえの確認', '動かした予約はまず仮押さえになります。ここで内容を確認して確定するか、元に戻せます。再読み込みでも元に戻ります。'],
+      ['予定の位置の提案', '休憩や清掃を置いた位置が新規のお客様の枠を分けてしまうとき、より良い位置を提案します。そのまま置くこともできます。'],
+    ]) {
+      expect(SRC).toContain(`data-guide-title="${title}"`)
+      expect(SRC).toContain(`data-guide="${body}"`)
+    }
+    // …and the strip through a conditional spread, because it renders per lane
+    // and only the first one may carry the pair (next test).
+    expect(SRC).toContain("'data-guide-title': '60分配置',")
+    expect(SRC).toContain('このスタッフの各30分に、そこから60分の施術を始めた場合の判定が並びます。✓は空きを減らさない、△は減らすが置ける、—は置けません。')
+  })
+
+  it('the strip registers ONCE, not once per staff member', () => {
+    // The registry is a document walk (`spotTargets`), so a pair on every strip
+    // would put the same step on the tour once per lane. The first strip in DOM
+    // order carries it; the sentence is true of all of them.
+    expect(SRC).toContain('rails[0]?.laneKey === rail.laneKey')
+    const host = document.createElement('div')
+    host.innerHTML = `
+      <div class="guard-placement-rail" data-guide-title="60分配置" data-guide="x"></div>
+      <div class="guard-placement-rail"></div>
+      <div class="guard-placement-rail"></div>`
+    for (const el of Array.from(host.querySelectorAll('[data-guide]'))) rect(el, { left: 0, top: 0, width: 200, height: 18 })
+    expect(spotTargets(host)).toHaveLength(1)
+  })
+
+  it('a popover explains itself exactly while it is open — the registry drops what has no box', () => {
+    const host = document.createElement('div')
+    host.innerHTML = `<div class="hold-pop" data-guide-title="仮押さえの確認" data-guide="y"></div>`
+    const pop = host.querySelector('[data-guide]')!
+    rect(pop, { left: 0, top: 0, width: 0, height: 0 })
+    expect(spotTargets(host)).toHaveLength(0)
+    rect(pop, { left: 0, top: 0, width: 380, height: 120 })
+    expect(spotTargets(host)).toHaveLength(1)
   })
 })

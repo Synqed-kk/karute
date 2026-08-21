@@ -244,7 +244,16 @@ export function anchorOnScreen(rect: AnchorRect, viewport: { width: number; heig
  *  which is the one thing it must not do. `null` is the caller's signal to use
  *  the fixed pill, which is always visible and covers nothing on the board.
  *  Horizontally it is centred on the card and clamped by `pinInViewport` (⚖ 35)
- *  — that axis cannot hide the card, it only slides along it. */
+ *  — that axis cannot hide the card, it only slides along it.
+ *
+ *  ⚖ Liam flag 48 (2026-08-21) — AND A PREFERENCE ON TOP, never a law. Under
+ *  the card is the ruled home, but under the card is also where that lane's
+ *  60分配置 strip lives, so the confirm sat on the purple ✓ chip for the very
+ *  slot it was confirming ("you can slightly see it pointing out above the
+ *  box"). `avoid` is that one chip's box: among the tops the LAWS already allow
+ *  — fits whole, never over the anchor, viewport-clamped — the first that also
+ *  clears it wins. When no allowed side clears it the law's own answer stands
+ *  unchanged, which is what keeps this a preference. */
 export function holdPopAnchor(
   rect: AnchorRect,
   popWidth: number,
@@ -252,15 +261,28 @@ export function holdPopAnchor(
   viewport: { width: number; height: number },
   gap = 8,
   margin = 8,
+  avoid: AnchorRect | null = null,
 ): { left: number; top: number } | null {
   const below = rect.bottom + gap
   const above = rect.top - popHeight - gap
-  const top = below + popHeight <= viewport.height - margin ? below : above >= margin ? above : null
-  if (top === null) return null
-  return {
+  // Law order first: below is the ruled home, above is the ruled flip.
+  const tops = [
+    below + popHeight <= viewport.height - margin ? below : null,
+    above >= margin ? above : null,
+  ].filter((t): t is number => t !== null)
+  if (tops.length === 0) return null
+  const at = (top: number) => ({
     left: pinInViewport({ left: (rect.left + rect.right) / 2 - popWidth / 2, top }, { width: popWidth, height: popHeight }, viewport, margin).left,
     top: Math.floor(top),
-  }
+  })
+  const spots = tops.map(at)
+  const clears = (p: { left: number; top: number }) =>
+    avoid == null ||
+    p.left + popWidth <= avoid.left ||
+    p.left >= avoid.right ||
+    p.top + popHeight <= avoid.top ||
+    p.top >= avoid.bottom
+  return spots.find(clears) ?? spots[0]
 }
 
 /** ⚖ Liam flag 31b — the guard's verdict as ONE row for the confirm surface.
@@ -739,19 +761,40 @@ export function onShownBoard(
  *                   chip, so nothing is dropped in silence and the booking can
  *                   still be placed from what the chip itself records.
  *
- *  ⚖ 46 forerunner: the ORIGIN STORE is checked first and answers `elsewhere` on
- *  its own. ⚖ 46 keeps the × working from anywhere, and a foreign store is a
- *  board this browser cannot see at all — asking "is the booking on the board in
- *  front of me?" about it can only ever answer no, which would have turned every
- *  cross-store × into the `gone` refusal. */
+ *   ⚖ Liam flag 46 (2026-08-21) — THE STORE IS THE SECOND COORDINATE. `?store=`
+ *   is a Link like `?day=` is, so the shelf now survives a store switch too, and
+ *   a chip from 銀座 standing on the 代官山 board has an origin this board cannot
+ *   contain: `originOnShownDay` is false there for the same reason it is false on
+ *   another day, and reading that as `gone` would have stranded the chip with
+ *   「元の枠が見つかりません」 on a board that was never asked about it. A foreign
+ *   store is `elsewhere` — the restore is still right, and the toast names where
+ *   it went, exactly as the day case does. */
 export function unparkOutcome(
-  home: { dayOffset: number; store: string | null },
-  shown: { dayOffset: number; store: string | null },
-  originOnShownBoard: boolean,
+  home: { dayOffset: number; storeParam: string | null },
+  shownDayOffset: number,
+  shownStoreParam: string | null,
+  originOnShownDay: boolean,
 ): 'here' | 'elsewhere' | 'gone' {
-  if (!sameStore(home.store, shown.store)) return 'elsewhere'
-  if (home.dayOffset !== shown.dayOffset) return 'elsewhere'
-  return originOnShownBoard ? 'here' : 'gone'
+  if (home.storeParam !== shownStoreParam) return 'elsewhere'
+  if (home.dayOffset !== shownDayOffset) return 'elsewhere'
+  return originOnShownDay ? 'here' : 'gone'
+}
+
+/** ⚖ Liam flag 46 (2026-08-21) — VISIBLE BUT REFUSED. Liam's ruling on the
+ *  parked chip that outlives a store switch: "keep this store isolation clean".
+ *  The chip STAYS in the shelf on a foreign store's board — it is the only
+ *  record of what is being carried, and hiding it would be the vanish flag 47
+ *  forbids — but it cannot be PLACED there, because a booking belongs to the
+ *  store whose staff and rooms it was taken from and this board has neither.
+ *
+ *  The message names the chip's OWN store twice over: which store it is from,
+ *  and where to go to put it down. `null` = the boards agree, place it. */
+export function foreignStoreRefusal(
+  home: { storeParam: string | null; storeLabel: string },
+  shownStoreParam: string | null,
+): string | null {
+  if (home.storeParam === shownStoreParam) return null
+  return `${home.storeLabel}の予約です。${home.storeLabel}のボードに切り替えてから置いてください（×で元の枠に戻せます）`
 }
 
 /** canon `createAtCell` (:6005) via the F25 empty-slot click: the half hour the

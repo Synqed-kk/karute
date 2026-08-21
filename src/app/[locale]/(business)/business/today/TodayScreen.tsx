@@ -101,6 +101,7 @@ import {
   spotHitIndex,
   spotTargets,
   unparkOutcome,
+  foreignStoreRefusal,
   wrapStep,
   type GuardRail,
   type Move,
@@ -111,6 +112,14 @@ import {
 } from './today-interactions'
 
 const HINT = '見本データのため実行できません'
+
+/** ⚖ Liam flag 47 — how long the board's own voice stays on screen. The shipped
+ *  3.2s is right for a message that CONFIRMS something the operator can already
+ *  see; a refusal is the only evidence that a thing did not happen, and it has
+ *  to outlive the glance that missed it. Twice the dwell, no new surface. */
+const TOAST_MS = 3200
+const REFUSAL_MS = 7000
+const EMPTY_TOAST = { text: '', ms: TOAST_MS, n: 0 }
 
 export interface DecisionCard {
   id: string
@@ -481,7 +490,15 @@ export function TodayScreen(props: TodayProps) {
   const [resolved, setResolved] = useState<string[]>([])
   const [proposalSent, setProposalSent] = useState(false)
   const [calMonth, setCalMonth] = useState(0)
-  const [toast, setToast] = useState('')
+  /** ⚖ Liam flag 47 (2026-08-21) — A REFUSAL HAS TO BE READABLE. Every message
+   *  on this board dwelt for the same 3.2s, which is right for 「置きました」 —
+   *  the operator can see the result and the sentence only confirms it — and
+   *  wrong for a refusal, which is the ONLY record that a thing did not happen.
+   *  Liam's own repro: 「it flashed too fast to read」. So a refusal carries its
+   *  own dwell, and `n` re-arms the timer when the SAME refusal is earned twice
+   *  in a row (pressing the same illegal slot again used to say nothing at all,
+   *  because the state never changed). */
+  const [toast, setToast] = useState<{ text: string; ms: number; n: number }>(EMPTY_TOAST)
   const [blockInfo, setBlockInfo] = useState<{ kind: string; who: string; whoLabel: string; time: string; note: string } | null>(null)
   const [seed, setSeed] = useState<{ staffId: string; start: number; nonce: number } | null>(null)
 
@@ -624,8 +641,8 @@ export function TodayScreen(props: TodayProps) {
   useTopbarAction('予約を作成', openCreate)
 
   useEffect(() => {
-    if (!toast) return
-    const t = setTimeout(() => setToast(''), 3200)
+    if (!toast.text) return
+    const t = setTimeout(() => setToast(EMPTY_TOAST), toast.ms)
     return () => clearTimeout(t)
   }, [toast])
 
@@ -910,8 +927,22 @@ export function TodayScreen(props: TodayProps) {
 
   const currentCase = selected ? (props.cases[selected] ?? null) : null
 
-  function show(message: string) {
-    setToast(message)
+  function show(message: string, ms = TOAST_MS) {
+    setToast((was) => ({ text: message, ms, n: was.n + 1 }))
+  }
+
+  /** ⚖ Liam flag 47 — THE LANE INVARIANT, IN ONE FUNCTION: *a refusal changes
+   *  NOTHING*. Every path that declines a placement — a foreign store (⚖ 46), no
+   *  free room, a locked shift, a release over nothing, a staged 仮押さえ still
+   *  open — announces itself through here and through here alone, and leaves the
+   *  chip, the 配置モード and the board exactly as it found them. Two things
+   *  follow from having one door: the refusal always dwells long enough to be
+   *  READ, and a reader of this file can find every refusal by grepping one
+   *  name. A refusal that also mutated state would be a bug this name makes
+   *  visible; a silent refusal (the placing click on a bed row, the chip
+   *  released over nothing) was the same bug with no name at all. */
+  function refuse(message: string) {
+    show(message, REFUSAL_MS)
   }
 
   /** ⚖ 46 forerunner — `store` defaults to the board on screen and is overridden
@@ -1113,6 +1144,22 @@ export function TodayScreen(props: TodayProps) {
   // The ID alone, never the object: `holdPop` is rebuilt on every render, and an
   // effect keyed on it would re-measure the DOM on every frame of a drag.
   const holdAnchorId = holdPop?.anchorId ?? null
+  /** ⚖ Liam flag 48 — WHICH 60分配置 chip the confirm should try not to sit on:
+   *  the one for the START THE CARD LANDED ON, in the lane it landed in. The
+   *  rail draws a cell every 30 minutes, so an off-lattice landing (canon's dual
+   *  lattice can put a card on 14:05) belongs to the cell it starts inside. Read
+   *  as a selector rather than a rect, because the rect has to be measured in
+   *  the same frame as the popover's own. */
+  const holdRailSel = useMemo(() => {
+    // ⚖ 46 forerunner: `pendingOffBoard`, not batch-7's day-only test — this
+    // builds a selector into the board ON SCREEN, so a 仮押さえ staged in another
+    // STORE would aim ⚖ 48's avoid-rect at this store's rail cell.
+    if (!pending || pendingOffBoard) return null
+    const at = moves[pending.id]
+    if (!at) return null
+    const start = Math.floor(minuteOf(at.x, hours) / 30) * 30
+    return `.guard-placement-rail[data-lane="${at.laneKey}"] .guard-rail-cell[data-start="${start}"]`
+  }, [pending, pendingOffBoard, moves, hours])
   useLayoutEffect(() => {
     const anchorId = holdAnchorId
     const pin = () => {
@@ -1122,6 +1169,13 @@ export function TodayScreen(props: TodayProps) {
       const viewport = { width: window.innerWidth, height: window.innerHeight }
       const box = card?.getBoundingClientRect()
       const self = el.getBoundingClientRect()
+      // ⚖ flag 48 — the landing's own rail chip, as a box to prefer to clear.
+      // `null` whenever it is not on screen (the strip is hidden by the 表示設定
+      // guide mode, the lane is collapsed, jsdom): the preference simply has
+      // nothing to say then, and the laws below decide alone.
+      const railBox = holdRailSel
+        ? (boardRef.current?.querySelector(holdRailSel)?.getBoundingClientRect() ?? null)
+        : null
       // ANCHOR NOT IN THE DOM → the pill, whatever unmounted it. `cardNodes`
       // returns nothing, so `box` is undefined and this falls to `!at` below by
       // the same road as an off-screen card. The rule is deliberately about the
@@ -1129,7 +1183,7 @@ export function TodayScreen(props: TodayProps) {
       //
       // Off screen, or no side of the card can hold the whole surface without
       // covering it (⚖ Liam 8/21: he has to SEE what he moved) → the pill.
-      const at = box && anchorOnScreen(box, viewport) ? holdPopAnchor(box, self.width, self.height, viewport) : null
+      const at = box && anchorOnScreen(box, viewport) ? holdPopAnchor(box, self.width, self.height, viewport, 8, 8, railBox) : null
       if (!at) {
         setHoldPinned(true)
         el.style.left = ''
@@ -1164,7 +1218,11 @@ export function TodayScreen(props: TodayProps) {
     // ponytail: enumerated because `renderLane`'s gates are enumerable and this
     // suite cannot render. A board-level ResizeObserver feeding `coarse` would
     // cover unmount paths generically — take it if a third gate ever appears.
-  }, [holdAnchorId, holdPinned, collapsed, view, moves, props.dayOffset])
+    //
+    // UNION at cycle 7: batch-7 adds `holdRailSel` (⚖ 48's avoid-rect reads it
+    // inside `pin`), and predates the two unmount gates above. All four belong —
+    // dropping either half re-opens the bug the other half was written for.
+  }, [holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])
 
   /** ⚖ BATCH-6 flag 45 — ONE SIDE RETARGETS, BOTH RE-TIME (canon `stageChange`
    *  :4648-4674). `at` is the landing as `sidesAt` resolved it: the grabbed
@@ -1244,8 +1302,11 @@ export function TodayScreen(props: TodayProps) {
     // canon R11-7 (:5461): the checks are re-run at the moment of confirm, so a
     // lane locked after staging cannot be confirmed through.
     const at = moves[pending.id]
+    // ⚖ 47 `refuse()` (batch-7's one door) with `pendingOffBoard` (main's store
+    // scoping, which batch-7 predates): batch-7 changed HOW a refusal speaks,
+    // not WHAT counts as off-board.
     if (pendingOffBoard || !at || !confirmCaption(checksFor(pending.id, at)).enabled) {
-      show('状況が変わったため、この内容では確定できません')
+      refuse('状況が変わったため、この内容では確定できません')
       return
     }
     setPending(null)
@@ -1456,7 +1517,7 @@ export function TodayScreen(props: TodayProps) {
   function onCardPointerDown(e: React.PointerEvent<HTMLButtonElement>, item: BoardItem, lane: BoardLane) {
     if (e.button !== 0 || dragRef.current || !item.caseId) return
     if (pending && pending.id !== item.caseId) {
-      show('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')
       return
     }
     const track = e.currentTarget.closest('.track')
@@ -1532,7 +1593,7 @@ export function TodayScreen(props: TodayProps) {
       if (!laneKey) {
         clearDrag()
         restoreSides(ctx.id, from)
-        show('予約を置く行の中で離してください')
+        refuse('予約を置く行の中で離してください')
         return
       }
       targetLane = laneKey
@@ -1767,7 +1828,7 @@ export function TodayScreen(props: TodayProps) {
 
   function onBlockPointerDown(e: React.PointerEvent<HTMLButtonElement>, item: BoardItem, lane: BoardLane) {
     if (e.button !== 0 || dragRef.current || blockDragRef.current) return
-    if (pending) { show('仮押さえ中の変更を確定するか、元に戻してから操作してください'); return }
+    if (pending) { refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください'); return }
     const track = e.currentTarget.closest('.track')
     if (!track) return
     const rect = e.currentTarget.getBoundingClientRect()
@@ -1804,7 +1865,7 @@ export function TodayScreen(props: TodayProps) {
       const laneKey = laneKeyAtY(boardRef.current, null, e.clientY)
       if (!laneKey || locked.includes(laneKey)) {
         clearBlockDrag()
-        show('予定を置く行の中で離してください')
+        refuse('予定を置く行の中で離してください')
         return
       }
       targetLane = laneKey
@@ -1813,7 +1874,7 @@ export function TodayScreen(props: TodayProps) {
     }
     clearBlockDrag()
     if (blockClash(placedLanes.find((l) => l.key === targetLane), ctx.key, span)) {
-      show('他の予定と重なるため元の位置に戻しました')
+      refuse('他の予定と重なるため元の位置に戻しました')
       return
     }
     if (span.x === ctx.origin.x && span.w === ctx.origin.w && targetLane === ctx.homeLane) return
@@ -2004,7 +2065,7 @@ export function TodayScreen(props: TodayProps) {
     e.stopPropagation()
     if (!item.caseId || dragRef.current) return
     if (pending && pending.id !== item.caseId) {
-      show('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')
       return
     }
     // ⚖ BATCH-6 flag 45 — the keyboard nudge is the same landing as a drag and
@@ -2014,7 +2075,7 @@ export function TodayScreen(props: TodayProps) {
     const from = pairLanesOf(boardLanes, item.caseId, { x: item.x, w: item.w })
     const next = keyboardNudge(item.x, item.w, leftEdge ? 'resizeL' : 'resize', e.key === 'ArrowLeft' ? -1 : 1, STEP)
     if (!next) {
-      show('これ以上は時間を変更できません')
+      refuse('これ以上は時間を変更できません')
       return
     }
     stage(
@@ -2037,7 +2098,16 @@ export function TodayScreen(props: TodayProps) {
     setParked((was) => (was.includes(id) ? was : [...was, id]))
     setParkChips((was) => [...was.filter((c) => c.id !== id), {
       id, ...text, category: item.category,
-      home: { ...from, ...boardStamp },
+      // ⚖ Liam flag 46 — and the STORE it was taken from, stamped at the same
+      // moment and for the same reason: the board that can restore it, and the
+      // only board it may be placed on.
+      home: {
+        ...from,
+        dayOffset: props.dayOffset,
+        dayLabel: props.dayLabel,
+        storeParam: props.storeParam,
+        storeLabel: props.lensLabel,
+      },
       lenMin: item.endMin - item.startMin, item,
     }])
     setPending(null)
@@ -2057,23 +2127,28 @@ export function TodayScreen(props: TodayProps) {
     // for today, plus anything this session added to them.
     const originHere =
       props.lanes.some((l) => l.items.some((i) => i.caseId === id)) ||
+      // `onShownBoard` (main): batch-7 scoped this by day alone because its
+      // AddedRow has no store — the merged one does, and a row that leaked
+      // across stores was Greptile #737 P1.
       added.some((a) => onShownBoard(a, board) && a.item.caseId === id)
-    const outcome = unparkOutcome(chip.home, board, originHere)
+    const outcome = unparkOutcome(chip.home, props.dayOffset, props.storeParam, originHere)
     if (outcome === 'gone') {
-      show(`${name}の元の枠が見つかりません。仮置きエリアに残しています`)
+      refuse(`${name}の元の枠が見つかりません。仮置きエリアに残しています`)
       return
     }
     setParked((was) => was.filter((x) => x !== id))
     setParkChips((was) => was.filter((c) => c.id !== id))
     setAdded((was) => was.filter((a) => a.item.caseId !== id))
     setMoves((was) => ({ ...was, [id]: { laneKey: chip.home.laneKey, x: chip.home.x, w: chip.home.w } }))
-    // ⚖ 46 forerunner — the × works from ANY board, and the toast says which one
-    // the booking went back to. A foreign store is named as well as the day: the
-    // day alone would read as this store's, which is the one thing it is not.
-    const backTo = sameStore(chip.home.store, props.storeParam)
-      ? chip.home.dayLabel
-      : `${chip.home.storeLabel} ${chip.home.dayLabel}`
-    show(outcome === 'here' ? `${name}を元の枠に戻しました` : `${name}を${backTo}の元の枠に戻しました`)
+    // ⚖ Liam flag 46 — the × works from ANY board, so 'elsewhere' now has two
+    // reasons and the toast has to name the one that applies: another day, or
+    // another store's board entirely. Saying 「8月22日(土)の元の枠に戻しました」
+    // to someone standing on 代官山 would send them looking on the wrong board.
+    const away =
+      chip.home.storeParam !== props.storeParam
+        ? `${chip.home.storeLabel} ${chip.home.dayLabel}`
+        : chip.home.dayLabel
+    show(outcome === 'here' ? `${name}を元の枠に戻しました` : `${name}を${away}の元の枠に戻しました`)
   }
 
   function onChipPointerDown(e: React.PointerEvent<HTMLElement>, id: string) {
@@ -2083,7 +2158,7 @@ export function TodayScreen(props: TodayProps) {
     if (e.button !== 0 || dragRef.current || (e.target as Element).closest('.park-x')) return
     closeAdvice()
     if (pending) {
-      show('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')
       return
     }
     const box = e.currentTarget.getBoundingClientRect()
@@ -2150,10 +2225,31 @@ export function TodayScreen(props: TodayProps) {
   function onChipPointerUp(e: React.PointerEvent<HTMLElement>) {
     const ctx = chipDragRef.current
     clearChipDrag(e)
-    if (!ctx || !ctx.moved || !ctx.laneKey) return
+    if (!ctx || !ctx.moved) return
     const chip = parkChips.find((c) => c.id === ctx.id)
+    // ⚖ Liam flag 47 — A REFUSAL THAT SAYS NOTHING IS THE WORST ONE. A chip
+    // carried across the board and released over the shelf, the header or the
+    // gap between groups used to end in a bare `return`: the chip stayed (the
+    // invariant held) but nothing on screen said why the drop did nothing, so
+    // the operator's only reading was that the board had ignored them. The card
+    // drag has said this since flag 19; the shelf gesture now says it too, in
+    // the same words.
+    if (!ctx.laneKey) {
+      if (chip) refuse('予約を置く行の中で離してください')
+      return
+    }
     const track = boardRef.current?.querySelector(`.lane[data-lane="${ctx.laneKey}"] .track`)
     if (!chip || !track) return
+    // ⚖ Liam flag 46 — VISIBLE BUT REFUSED. The chip survived a store switch and
+    // is still in the shelf; this board's staff and rooms are another store's,
+    // so the landing is declined here, BEFORE the guard is consulted — offering
+    // 「より良い開始」 on a board the booking may not be placed on at all would
+    // be advice about an impossible placement.
+    const foreign = foreignStoreRefusal(chip.home, props.storeParam)
+    if (foreign) {
+      refuse(foreign)
+      return
+    }
     const w = chip.home.w
     const laneKey = ctx.laneKey
     const span = { x: shelfLanding(fractionIn(track, e.clientX), w, chip.home.x, STEP), w }
@@ -2183,16 +2279,16 @@ export function TodayScreen(props: TodayProps) {
   function armNextVisit() {
     if (!props.inStore) return
     if (pending) {
-      show('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')
       return
     }
     setPlacing({
       label: `${props.inStore.name}様の次回予約（${props.guard.standardSessionMin}分・単発）— お客様情報は自動入力`,
       name: props.inStore.name,
-      // ⚖ 46 forerunner — the STORE only. ⚖ 21 already says the intent is
-      // day-agnostic on purpose ("日付を移動してもそのまま"), so stamping a day
-      // onto it would be a field nothing may read.
-      store: props.storeParam,
+      // ⚖ Liam flag 46 rider — the ご来店中 customer is in THIS store. 配置モード
+      // survives a store switch exactly as the shelf chip does, so it carries
+      // the same two fields and is refused by the same rule.
+      storeParam: props.storeParam,
       storeLabel: props.lensLabel,
     })
     show('配置モード: 置きたい空き枠をクリック（日付を移動してもそのまま）')
@@ -2206,19 +2302,18 @@ export function TodayScreen(props: TodayProps) {
   function placeNextVisit(lane: BoardLane, start: number) {
     const p = placing
     if (!p) return
-    // ⚖ 46 forerunner — 配置モード survives `?store=` the way it survives `?day=`
-    // (⚖ 21), so it can be armed on 銀座 and clicked on 新宿. ⚖ 46's shape: the
-    // intent is not destroyed, it is REFUSED, and the toast names the store it
-    // was armed on. Ahead of every setter, so nothing is placed and nothing
-    // cleared — the operator switches back and the intent is still in hand.
-    if (!sameStore(p.store, props.storeParam)) {
-      show(`${p.storeLabel}で始めた配置です。${p.storeLabel}に切り替えてから置いてください`)
+    // ⚖ Liam flag 46 rider — the same store rule as the shelf chip's, in the
+    // same shape. Checked here as well as at the click so the guard popup's
+    // 「この開始に配置」 cannot walk around it.
+    const foreign = foreignStoreRefusal(p, props.storeParam)
+    if (foreign) {
+      refuse(foreign)
       return
     }
     const end = Math.min(start + props.guard.standardSessionMin, hours.close)
     const partner = freePartnerLane(boardLanes, 'staff', start, end)
     if (!partner) {
-      show('この時間帯に空いているベッドがいません')
+      refuse('この時間帯に空いているベッドがいません')
       return
     }
     setPlacing(null)
@@ -2274,15 +2369,23 @@ export function TodayScreen(props: TodayProps) {
    *  `moves` is still written because the 仮押さえ bar's checks read the span
    *  from there; it never draws the card. */
   function placeFromShelf(chip: ParkChip, laneKey: string, span: { x: number; w: number }) {
-    // ⚖ 46 forerunner — THE CHIP GOES TO ANY DAY, BUT ONLY TO ITS OWN STORE. The
-    // shelf survives `?store=`, and ⚖ 46 keeps every chip VISIBLE on every board
-    // (it is the operator's hand, not the board's content). What a foreign board
-    // cannot do is take it: this board's lanes are other people and other rooms,
-    // and the booking's own store would lose it. So the drop is REFUSED and the
-    // toast names the chip's store — ahead of every setter, so the chip is still
-    // on the shelf and the × still works, exactly as ⚖ 46 requires.
-    if (!sameStore(chip.home.store, props.storeParam)) {
-      show(`${chip.item.title}様は${chip.home.storeLabel}の予約です。${chip.home.storeLabel}に切り替えてから置いてください`)
+    // THE CHIP GOES TO ANY DAY, BUT ONLY TO ITS OWN STORE. The shelf survives
+    // `?store=`, and ⚖ 46 keeps every chip VISIBLE on every board (it is the
+    // operator's hand, not the board's content). What a foreign board cannot do
+    // is take it: this board's lanes are other people and other rooms, and the
+    // booking's own store would lose it. Refused ahead of every setter, so the
+    // chip is still on the shelf and the × still works.
+    //
+    // KEPT AT CYCLE 7, in batch-7's vocabulary. `onChipPointerUp` already refuses
+    // — but this function is ALSO the guard popup's callback (`askGuard`, just
+    // above), and that popup outlives a `?store=` switch, so 「この開始に配置」
+    // can re-enter here on a board the drop never passed the check on. That is
+    // exactly the hole batch-7 closes for `placeNextVisit` in its own words:
+    // "checked here as well as at the click so the guard popup's 「この開始に配置」
+    // cannot walk around it". The shelf path needs the same second door.
+    const foreign = foreignStoreRefusal(chip.home, props.storeParam)
+    if (foreign) {
+      refuse(foreign)
       return
     }
     const start = minuteOf(span.x, hours)
@@ -2301,7 +2404,7 @@ export function TodayScreen(props: TodayProps) {
     const home = boardLanes.find((l) => l.group === 'beds' && l.label === chip.item.tag.replace(/[【】]/g, ''))
     const bed = dropped?.group === 'beds' ? dropped : free(home) ? home : freePartnerLane(boardLanes, 'staff', start, end)
     if (!bed || !staff) {
-      show('この時間帯に空いているベッドがいません')
+      refuse('この時間帯に空いているベッドがいません')
       return
     }
     const staffLabel = staff.label
@@ -2437,10 +2540,26 @@ export function TodayScreen(props: TodayProps) {
             // itself — a release that fell through to the track is stopped here.
             if (e.target !== e.currentTarget || dragRef.current || blockDragRef.current) return
             if (e.timeStamp < suppressClickUntil.current) return
-            if (lane.group !== 'staff') return
-            if (isLocked) {
-              if (placing) show('シフトロック中: このスタッフには新しい予約を置けません')
+            // ⚖ Liam flag 47 — the bed rows are not a landing for a person, and
+            // while 配置モード is armed that has to be SAID. It used to be a bare
+            // `return`, which reads as a dead board to the one operator who is
+            // actively looking for somewhere to click.
+            if (lane.group !== 'staff') {
+              if (placing) refuse('次回予約は担当スタッフの行に置いてください（ベッドは自動で選ばれます）')
               return
+            }
+            if (isLocked) {
+              if (placing) refuse('シフトロック中: このスタッフには新しい予約を置けません')
+              return
+            }
+            // ⚖ Liam flag 46 rider — a foreign store's board is refused before
+            // the guard is asked, for the shelf chip's own reason.
+            if (placing) {
+              const foreign = foreignStoreRefusal(placing, props.storeParam)
+              if (foreign) {
+                refuse(foreign)
+                return
+              }
             }
             const start = slotStartAt(e.currentTarget, e.clientX, hours)
             const at = { x: e.clientX, y: e.clientY, t: e.timeStamp }
@@ -2526,7 +2645,26 @@ export function TodayScreen(props: TodayProps) {
    *  sentence as its accessible name and nothing here can move a booking. */
   function renderRail(rail: GuardRail) {
     return (
-      <div className="guard-placement-rail" data-lane={rail.laneKey} role="group" aria-label={`${rail.laneLabel}の60分配置ガイド`}>
+      <div
+        className="guard-placement-rail"
+        data-lane={rail.laneKey}
+        role="group"
+        aria-label={`${rail.laneLabel}の60分配置ガイド`}
+        // ⚖ FLAGS 25c, backlog — the strip is a section of this board and joins
+        // the tour like every other one. It arrived in the rail round without a
+        // registration and three batches added to it without noticing, which is
+        // the miss this round closes. ONE entry, not one per lane: the registry
+        // is a document walk, so a pair on every strip would put the same step
+        // on the tour once per staff member. The first strip in DOM order
+        // carries it and the sentence is true of all of them.
+        {...(rails[0]?.laneKey === rail.laneKey
+          ? {
+              'data-guide-title': '60分配置',
+              'data-guide':
+                'このスタッフの各30分に、そこから60分の施術を始めた場合の判定が並びます。✓は空きを減らさない、△は減らすが置ける、—は置けません。',
+            }
+          : {})}
+      >
         <span className="guard-rail-label">60分配置</span>
         <div className="guard-rail-track">
           {rail.cells.map((c) => (
@@ -3602,6 +3740,12 @@ export function TodayScreen(props: TodayProps) {
           role="dialog"
           aria-label="予定の位置の提案"
           ref={blockAdvicePopRef}
+          // ⚖ FLAGS 25c, backlog — batch-5 shipped this surface without its
+          // registration. A popover only exists while it is open, and the
+          // registry is a live-document walk that drops what has no box, so it
+          // explains itself exactly when the operator is looking at it.
+          data-guide-title="予定の位置の提案"
+          data-guide="休憩や清掃を置いた位置が新規のお客様の枠を分けてしまうとき、より良い位置を提案します。そのまま置くこともできます。"
         >
           <div className="gp-reason">{blockAdvice.cell.sentence}</div>
           {/* The consult's own two lines, with 開始 → 位置: this surface is
@@ -3634,7 +3778,18 @@ export function TodayScreen(props: TodayProps) {
           always-visible pill when that card is not on screen. Same fixed layer,
           same fits-whole rule and the same clamp as the consult popup above. */}
       {holdPop && (
-        <div className={`hold-pop${holdPinned ? ' pinned' : ''}`} ref={holdPopRef} role="region" aria-label="仮押さえの確認">
+        <div
+          className={`hold-pop${holdPinned ? ' pinned' : ''}`}
+          ref={holdPopRef}
+          role="region"
+          aria-label="仮押さえの確認"
+          // ⚖ FLAGS 25c, backlog — batch-4 moved the confirm from the bottom bar
+          // to this popover and the registration did not come with it. The bar
+          // it replaced was never a tour step either, which is how three rounds
+          // went by with the count stuck at 14.
+          data-guide-title="仮押さえの確認"
+          data-guide="動かした予約はまず仮押さえになります。ここで内容を確認して確定するか、元に戻せます。再読み込みでも元に戻ります。"
+        >
           <div className="hp-head">
             <span className={`status ${holdPop.tone}`}>{holdPop.status}</span>
             <strong>{holdPop.summary}</strong>
@@ -3749,7 +3904,11 @@ export function TodayScreen(props: TodayProps) {
         </>
       )}
 
-      <div className={`toast${toast ? ' show' : ''}`} role="status" aria-live="polite" aria-atomic="true">{toast}</div>
+      {/* ⚖ Liam flag 47 — the same one node. `n` lives in the state object so a
+          refusal earned twice in a row is a NEW value and re-arms the dwell
+          timer; the node itself is never remounted, because remounting it would
+          cost the fade the rest of this board's surfaces all have. */}
+      <div className={`toast${toast.text ? ' show' : ''}`} role="status" aria-live="polite" aria-atomic="true">{toast.text}</div>
     </div>
   )
 }

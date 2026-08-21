@@ -73,15 +73,17 @@ import type { BoardItem } from '@/business/lib/today-board'
  *  open across JST midnight re-bases every one of them and yesterday's `0` is
  *  today's `-1`. The shelf fails SOFT when that happens (see `unparkOutcome`):
  *  the chip stays put rather than vanishing. Real-data reconnect will key the
- *  restore on an absolute date instead, and this comment can go with it. */
+ *  restore on an absolute date instead, and this comment can go with it.
+ *
+ *  ⚖ Liam flag 46 (2026-08-21) — AND THE STORE, for the same reason and by the
+ *  same mechanism. `?store=` is a Link too, so the shelf survives a store switch
+ *  and the chip can end up on a board whose staff and rooms it has nothing to do
+ *  with. `storeParam` is what the placement is checked against; `storeLabel` is
+ *  what the refusal SAYS, because the operator thinks in 銀座店, not in an id. */
 export interface ParkHome extends Move {
   dayOffset: number
   dayLabel: string
-  /** ⚖ 46 forerunner — the store this card was taken from, and its name. The
-   *  pair is the day pair's twin and for the same two reasons: the code has to
-   *  be able to ACT on the origin board (the × restores to it) and the toast has
-   *  to be able to NAME it when it is not the one on screen. */
-  store: string | null
+  storeParam: string | null
   storeLabel: string
 }
 
@@ -140,14 +142,16 @@ export interface PendingChange {
 /** canon's 配置モード (`placing`, :6826). Armed by 次回予約を作成, disarmed by the
  *  ×, by Escape, or by the placement itself. ⚖ Liam 21: it survives day
  *  navigation — which is exactly what its own toast promises out loud
- *  (「日付を移動してもそのまま」), and what the remount was quietly breaking. */
+ *  (「日付を移動してもそのまま」), and what the remount was quietly breaking.
+ *
+ *  ⚖ Liam flag 46 rider — and it carries the store it was armed on, because it
+ *  survives a store switch as well as a day flip and the customer it names is
+ *  ご来店中 at ONE store. Same two fields, same check, same refusal as the shelf
+ *  chip's: one store-isolation rule, not two that can drift. */
 export interface PlacingIntent {
   label: string
   name: string
-  /** ⚖ 46 forerunner — the store the intent was armed on. It survives `?store=`
-   *  like everything else here, so the click has to be able to refuse a foreign
-   *  board and name the store the operator armed it from. */
-  store: string | null
+  storeParam: string | null
   storeLabel: string
 }
 
