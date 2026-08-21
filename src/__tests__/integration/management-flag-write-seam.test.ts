@@ -73,7 +73,13 @@ jest.mock('@/lib/supabase/service', () => ({
   },
 }))
 
-const mockCapabilities = jest.fn(async () => new Set(['staff.manage']))
+// The actor a real 経営メンバー toggle is driven by. `stores.viewAll` rides
+// along with `staff.manage` because BOTH shipped presets that manage staff
+// (owner, manager) carry it (ROLE_PRESETS, src/lib/auth/permissions.ts) — and
+// the facade's own clamp (ensureStaffWriteInScope, #715) takes its documented
+// cross-store free pass on exactly that capability. A bare `staff.manage` set
+// is a custom grant no salon ships, and it 403s here for a reason.
+const mockCapabilities = jest.fn(async () => new Set(['staff.manage', 'stores.viewAll']))
 jest.mock('@/lib/auth/require-permission', () => {
   const actual = jest.requireActual('@/lib/auth/require-permission')
   return {
@@ -87,6 +93,13 @@ jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'business-1'),
   businessIdForUser: jest.fn(async () => 'business-1'),
   staffListByBusinessOrThrow: jest.fn(async () => [{ id: 'auth-user-1' }]),
+}))
+// The WEB actor's store clamp (#715, merged after this file was written) —
+// stubbed to a switch, the same division of labour staff-actions-store-scope
+// .test.ts uses: that file pins the WIRING and store-scope.test.ts pins the
+// RULE. This file is about what reaches the COLUMN, so the clamp is a pass.
+jest.mock('@/lib/auth/store-scope', () => ({
+  staffWriteInScope: jest.fn(async () => true),
 }))
 jest.mock('@/lib/audit-web', () => ({
   resolveWebActorId: jest.fn(async () => 'auth-user-1'),
@@ -140,7 +153,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   updatePayloads = []
   profileRow = { id: 'p-kitano' }
-  mockCapabilities.mockResolvedValue(new Set(['staff.manage']))
+  mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'stores.viewAll']))
 })
 
 describe('A2(i) — the roster cache is invalidated on a toggle write', () => {
