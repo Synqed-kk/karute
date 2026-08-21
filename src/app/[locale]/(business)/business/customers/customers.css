@@ -1,0 +1,328 @@
+/* 顧客 screen CSS — LIFTED from fable-store-customers.html (its own <style>,
+   lines 105-264) plus the three w2-bookings-customers.css rules its markup
+   uses (.w2-provenance / .w2-off-list / .w2-cross-store-group). Scoped under
+   `.biz` for the same reason business-shell.css is: canon owns a document,
+   this owns a route segment. Class names, sizes and colours are canon's.
+
+   Canon's long Japanese engineering notes about column-width arithmetic are
+   kept where they explain a value, because the values are the ones being
+   preserved.
+
+   ONE STRUCTURAL CHANGE: canon's `#customerPanel { --fx-cols: … }` is a fixed
+   4-column track list that fable-shared.js rewrites when the optional columns
+   are toggled. Here the screen owns its own column state, so it hands the
+   panel BOTH track lists as custom properties and the media query below picks
+   between them — same widths, same 1320px breakpoint, no shared harness. */
+
+/* ⚖ BUTTON-WEIGHT RULING (PACKET-PARITY-WAVE-2026-08-19, ADDENDUM 2): canon's
+   .btn weight disagrees per page (customers 600 / today 500 / settings 700) —
+   parity is each screen matching ITS OWN canon, so the shared shell sheet's
+   today-sourced 500 base is overridden back to 600 here, scoped to `.page`
+   (this screen's own root, holding every button incl. the dialog) so it
+   never reaches the shared sidebar/topbar chrome. */
+.biz .page .btn { font-weight: 600; }
+
+.biz .page { padding: 24px 28px 40px; }
+.biz .page-head { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 16px; }
+.biz .eyebrow { margin-bottom: 4px; color: var(--indigo); font-size: 12px; font-weight: 800; letter-spacing: .05em; }
+.biz .page h1 { margin: 0; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
+.biz .subtitle { margin: 5px 0 0; color: var(--muted); font-size: 14px; line-height: 1.55; }
+.biz .head-actions { display: flex; align-items: center; gap: 8px; }
+
+.biz .summary {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.5fr) repeat(4, minmax(112px, .55fr));
+  margin-bottom: 14px;
+  border: 1px solid #dfe5fb;
+  border-radius: 11px;
+  background: #fafbff;
+  overflow: hidden;
+}
+.biz .summary-main { padding: 13px 15px; border-left: 3px solid var(--indigo); }
+.biz .summary-main strong { display: block; font-size: 15px; }
+.biz .summary-main span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.biz .summary-stat { display: grid; align-content: center; padding: 10px 13px; border-left: 1px solid #e5e9f7; }
+.biz .summary-stat span { color: var(--muted); font-size: 12px; }
+.biz .summary-stat b { display: block; margin-top: 2px; font-size: 20px; font-variant-numeric: tabular-nums; }
+.biz .summary-stat b.attention { color: var(--red); }
+
+.biz .identity-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 0 0 14px;
+  padding: 13px 14px;
+  border: 1px solid #f0c9c5;
+  border-left: 3px solid var(--red);
+  border-radius: 10px;
+  background: var(--red-soft);
+}
+.biz .identity-alert strong { display: block; color: var(--red); font-size: 15px; }
+.biz .identity-alert > div > span { display: block; margin-top: 3px; color: var(--ink-3); font-size: 13px; line-height: 1.45; }
+
+.biz .workspace { display: grid; grid-template-columns: minmax(570px, 1fr) 400px; gap: 14px; align-items: start; }
+.biz .panel { border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
+.biz .panel-head {
+  min-height: 62px;
+  padding: 10px 15px;
+  border-bottom: 1px solid var(--line-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  background: #fafafb;
+}
+.biz .panel-head strong { display: block; font-size: 15px; }
+.biz .panel-head span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+.biz .panel-actions { display: flex; align-items: center; gap: 8px; }
+.biz .search-row { display: grid; grid-template-columns: minmax(220px, 1fr) auto; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line-2); }
+.biz .search { min-height: 42px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); }
+.biz .filters { display: flex; gap: 7px; padding: 10px 12px; border-bottom: 1px solid var(--line-2); overflow-x: auto; }
+.biz .filter { min-height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink-3); font-size: 13px; white-space: nowrap; }
+.biz .filter[aria-pressed="true"] { border-color: var(--select-line); background: var(--select-bg); color: var(--select-ink); }
+
+.biz .list-head {
+  display: grid;
+  grid-template-columns: var(--fx-cols);
+  gap: 10px;
+  padding: 9px 13px;
+  border-bottom: 1px solid var(--line-2);
+  color: var(--quiet);
+  font-size: 12px;
+  font-weight: 800;
+}
+/* 列幅の正本はカスタムプロパティ1本。下限の合計は .workspace の 570px フロアに
+   収める必要がある（170+126+120+92 ＋隙間30＋余白26 = 564 ≤ 568）。 */
+.biz #customerPanel { --fx-cols: var(--fx-wide); }
+
+.biz .customer-row .num { font-variant-numeric: tabular-nums; }
+.biz .customer-list { min-height: 410px; }
+.biz .customer-row {
+  display: grid;
+  grid-template-columns: var(--fx-cols);
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-height: 82px;
+  padding: 10px 13px;
+  border: 0;
+  border-bottom: 1px solid var(--row);
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+}
+.biz .customer-row:hover { background: #fafafb; }
+.biz .customer-row.selected { background: var(--indigo-soft); box-shadow: inset 3px 0 0 var(--indigo); }
+.biz .person { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.biz .person-mark {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border-radius: 50%;
+  background: #f0f0f3;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 800;
+}
+.biz .person-mark.long { font-size: 10px; letter-spacing: -0.5px; }
+/* 名前は識別子で、折るところが無い。nowrap にするとこの列の min-content ＝
+   「その名前が折れずに収まる幅」そのものになり、列を足しても引いても
+   ブラウザが測り直す。補足行（顧客番号・電話）は「 / 」で素直に折れる。 */
+.biz .person strong { display: block; font-size: 14px; white-space: nowrap; }
+.biz .person .person-sub { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+.biz .cell strong { display: block; font-size: 13px; }
+.biz .cell span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.biz .pill.alert { background: var(--red-soft); color: var(--red); }
+.biz .empty { min-height: 300px; display: grid; place-content: center; padding: 28px; text-align: center; }
+.biz .empty strong { font-size: 16px; }
+.biz .empty span { margin-top: 6px; color: var(--muted); font-size: 13px; }
+
+.biz .w2-provenance {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 700;
+}
+.biz .w2-provenance::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #64748b; }
+.biz .w2-cross-store-group {
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 800;
+}
+.biz .w2-off-list {
+  margin: 0 0 9px;
+  padding: 8px 9px;
+  border-left: 3px solid #2563eb;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* ═══ 表示設定 (列の出し入れ) — fable-shared.css §4 ═══ */
+.biz .fx-cols-pop {
+  position: absolute;
+  z-index: 60;
+  right: 12px;
+  min-width: 244px;
+  max-width: 320px;
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 14px 38px rgba(24, 24, 27, .14);
+}
+.biz .fx-cols-pop h3 { margin: 2px 6px 6px; color: var(--quiet); font-size: 11.5px; font-weight: 800; letter-spacing: .06em; }
+.biz .fx-cols-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 8px;
+  border-radius: 8px;
+  color: var(--ink-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+.biz .fx-cols-opt:hover { background: var(--row); }
+.biz .fx-cols-opt input { width: 18px; height: 18px; flex: 0 0 18px; accent-color: var(--indigo); }
+.biz .fx-cols-opt input:disabled { opacity: .45; cursor: not-allowed; }
+.biz .fx-cols-note { margin: 7px 6px 2px; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+
+/* ═══ 詳細 aside ═══ */
+.biz .detail { position: sticky; top: 80px; max-height: calc(100vh - 96px); overflow-y: auto; }
+.biz .detail-head { padding: 15px; border-bottom: 1px solid var(--line-2); background: #fafafb; }
+.biz .detail-kicker { color: var(--indigo); font-size: 12px; font-weight: 800; }
+.biz .detail-head h2 { margin: 6px 0 3px; font-size: 21px; }
+.biz .detail-head p { margin: 0; color: var(--muted); font-size: 13px; }
+.biz .detail-body { padding: 14px 15px 17px; }
+.biz .identity { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.biz .identity-item { padding: 9px 10px; border-right: 1px solid var(--row); border-bottom: 1px solid var(--row); }
+.biz .identity-item:nth-child(even) { border-right: 0; }
+.biz .identity-item:nth-last-child(-n+2) { border-bottom: 0; }
+.biz .identity-item span { display: block; color: var(--muted); font-size: 12px; }
+.biz .identity-item b { display: block; margin-top: 3px; font-size: 13px; word-break: break-word; }
+.biz .merge-warning { margin-top: 10px; padding: 11px 12px; border-left: 3px solid var(--red); background: var(--red-soft); }
+.biz .merge-warning strong { display: block; color: var(--red); font-size: 13px; }
+.biz .merge-warning span { display: block; margin-top: 3px; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
+.biz .merge-warning .btn { width: 100%; margin-top: 9px; }
+.biz .section-title { margin: 15px 0 7px; color: var(--ink-3); font-size: 12px; font-weight: 800; letter-spacing: .04em; }
+.biz .metric-strip { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid #dfe5fb; border-radius: 9px; background: #fafbff; overflow: hidden; }
+.biz .metric { padding: 9px 8px; border-right: 1px solid #e5e9f7; }
+.biz .metric:last-child { border-right: 0; }
+.biz .metric span { display: block; color: var(--muted); font-size: 12px; }
+.biz .metric b { display: block; margin-top: 3px; font-size: 15px; line-height: 1.35; }
+.biz .fact-list { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.biz .fact { display: grid; grid-template-columns: 98px 1fr; gap: 10px; padding: 9px 10px; border-bottom: 1px solid var(--row); font-size: 13px; line-height: 1.45; }
+.biz .fact:last-child { border-bottom: 0; }
+.biz .fact span { color: var(--muted); }
+.biz .fact b { text-align: right; font-weight: 600; }
+.biz .consent-box { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.biz .consent-row { display: flex; align-items: center; gap: 9px; min-height: 44px; padding: 7px 10px; border-bottom: 1px solid var(--row); }
+.biz .consent-row:last-child { border-bottom: 0; }
+.biz .consent-row strong { font-size: 13px; }
+.biz .consent-row span { margin-left: auto; color: var(--muted); font-size: 12px; }
+.biz .history { border-top: 1px solid var(--line-2); }
+.biz .history-row { display: grid; grid-template-columns: 66px 1fr; gap: 9px; padding: 9px 0; border-bottom: 1px solid var(--row); }
+.biz .history-row time { color: var(--quiet); font-size: 12px; }
+.biz .history-row strong { display: block; font-size: 13px; }
+.biz .history-row > span > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.biz .record-boundary { margin-top: 13px; padding: 11px 12px; border-left: 3px solid var(--indigo); background: #fafbff; color: var(--ink-3); font-size: 12px; line-height: 1.55; }
+.biz .record-boundary strong { color: var(--indigo); }
+.biz .detail-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 13px; }
+
+/* ═══ 本人関係 — COLLAPSED (⚖ cut #7: the five-party box never renders
+   exploded). One line per party, detail on click, and a chip only where the
+   fixture deviates from "the customer is all four parties". ═══ */
+.biz .party-list { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.biz .party-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 42px;
+  padding: 7px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--row);
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+  font-size: 13px;
+}
+.biz .party-row:last-of-type { border-bottom: 0; }
+.biz .party-row span:first-child { color: var(--muted); font-size: 12px; min-width: 72px; }
+.biz .party-row b { font-weight: 600; }
+.biz .party-row .pill { margin-left: auto; }
+.biz .party-note { padding: 8px 10px; border-top: 1px solid var(--row); background: #fafbff; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
+
+/* ═══ dialog ═══ */
+.biz dialog {
+  width: min(700px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 20px 55px rgba(24, 24, 27, .18);
+}
+.biz dialog::backdrop { background: rgba(24, 24, 27, .46); }
+.biz .dialog-head {
+  min-height: 66px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.biz .dialog-head h2 { margin: 0; font-size: 20px; }
+.biz .dialog-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.biz .close { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink-2); }
+.biz .dialog-body { padding: 16px; }
+.biz .merge-proof { margin-top: 12px; padding: 11px 12px; border-left: 3px solid var(--amber); background: var(--amber-soft); color: var(--ink-3); font-size: 12px; line-height: 1.55; }
+.biz .consent-form { display: grid; gap: 13px; }
+.biz .consent-field { display: grid; gap: 6px; font-size: 13px; font-weight: 800; }
+.biz .consent-field input, .biz .consent-field select { min-height: 42px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.biz .consent-field input[aria-invalid="true"], .biz .consent-field select[aria-invalid="true"] { border-color: var(--red); }
+.biz .dialog-foot { padding: 12px 16px; border-top: 1px solid var(--line-2); display: flex; justify-content: flex-end; gap: 8px; background: #fafafb; }
+
+.biz .toast {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 50;
+  max-width: 430px;
+  padding: 12px 15px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--green);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.45;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition: opacity .16s ease, transform .16s ease;
+}
+.biz .toast.show { opacity: 1; transform: translateY(0); }
+
+@media (max-width: 1320px) {
+  .biz .page { padding-left: 20px; padding-right: 20px; }
+  .biz .workspace { grid-template-columns: minmax(520px, 1fr) 366px; gap: 10px; }
+  /* 1180 の内寸(518px)に4列＋隙間＋余白が入るところまで下限を下げてある。
+     下限は「名前が nowrap で収まる幅」から決めている（顧客 140 = 印38 + 間10 + 氏名）。 */
+  .biz #customerPanel { --fx-cols: var(--fx-narrow); }
+  .biz .summary-stat { padding-left: 8px; padding-right: 8px; }
+}

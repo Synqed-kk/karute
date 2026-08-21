@@ -1,0 +1,495 @@
+/* SYNQED Business shell — LIFTED from the canon mock
+   (codex-design-round-2026-08-03/fable-store-customers.html, sections A/B/E/G,
+   identical across the three canon store pages) under ⚖ Liam's transplant
+   ruling: same look, same layout, same wording. Class names are canon's on
+   purpose — fidelity beats a Tailwind rewrite (L-10).
+
+   TWO DELIBERATE REWRITES, everything else is byte-faithful:
+
+   1. `:root` → `.biz`, and `html`/`body` rules → `.biz`. The canon page owns a
+      whole document; this stylesheet rides a route segment inside an app whose
+      phone UI already defines --card / --muted / --border on :root. Canon
+      tokens declared at :root would repaint the phone app the moment the sheet
+      is in the bundle. Scoping to the shell root makes that impossible, and
+      because EVERY canon rule gains the same one class, their relative
+      specificity is unchanged.
+
+   2. `body.sidebar-open` → `.biz.sidebar-open`. <body> belongs to the root
+      layout, which is phone-owned territory this PR may not touch; the rail
+      state lives on the shell root instead. Same selectorial shape, same
+      cascade.
+
+   Canon's `html { min-width: 1180px }` becomes `.biz .app { min-width: 1180px }`
+   so the below-md desktop-only notice is not forced to 1180px behind a
+   horizontal scrollbar.
+
+   TOKEN HOME (parity-wave item 3, decided here so nothing duplicates it): the
+   canon token block stays on `.biz` and is NOT re-seated on `:root`. Canon's
+   `--card` / `--muted` are also globals.css `:root` names with different
+   values, and App Router keeps a segment's stylesheet in the document across a
+   client-side navigation — a `:root` copy would repaint the phone app's cards
+   and muted text the moment anyone walked out of /business. Every element the
+   fidelity sweeps measure sits inside `.biz` and already resolves canon's
+   tokens; the only node that differs is <html>/<body> itself, which globals.css
+   owns and paints correctly in the running app (the standalone evidence
+   snapshot's `Times` reading is a snapshot artifact — it inlines this sheet
+   without globals.css). Per-board washes (--beige/--beige-dark) therefore live
+   in the block below, at the shared level, and no screen sheet redeclares them. */
+
+.biz {
+  color-scheme: light;
+  --ink: #18181b;
+  --ink-2: #3f3f46;
+  --ink-3: #52525b;
+  --muted: #686871;
+  --quiet: #71717a;
+  --line: #e4e4e9;
+  --line-2: #ececf0;
+  --control: #e4e4e9;
+  --card: #e8e8ec;
+  --section: #ececf0;
+  --row: #f3f3f5;
+  --indigo: #3f5be8;
+  --indigo-soft: #eef2ff;
+  --select-bg: var(--indigo-soft);
+  --select-ink: var(--indigo);
+  --select-line: var(--indigo);
+  --commit-bg: var(--indigo);
+  --commit-ink: #fff;
+  --commit-hover: #3249c9;
+  --proof: #fafbff;
+  --proof-border: #dfe5fb;
+  --green: #2e9e63;
+  --green-dark: #1d5c39;
+  --green-soft: #dcf0e4;
+  --orange: #984506;
+  --orange-line: #e8823c;
+  --orange-soft: #fdf0e2;
+  --red: #c74237;
+  --red-dark: #8f3232;
+  --red-soft: #fadfdd;
+  --amber: #8a4c0f;
+  --amber-soft: #fbecd9;
+  --yellow: #6d5716;
+  --yellow-soft: #f7edcb;
+  /* 勤務不可 / 清掃 / micro / no-show washes. Canon declares them on its own
+     root and every page that draws a board reads them; the shell sheet owns the
+     token block, so they live HERE once and no screen sheet redeclares them. */
+  --beige: #ebe6e0;
+  --beige-dark: #66594f;
+  --font: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  background: #fff;
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.biz * { box-sizing: border-box; }
+.biz button, .biz input, .biz select, .biz textarea { font: inherit; }
+.biz button { cursor: pointer; }
+.biz button:disabled { cursor: not-allowed; opacity: .48; }
+.biz button:focus-visible, .biz a:focus-visible, .biz input:focus-visible,
+.biz select:focus-visible, .biz textarea:focus-visible, .biz [tabindex]:focus-visible {
+  outline: 3px solid var(--indigo);
+  outline-offset: 2px;
+}
+.biz [hidden] { display: none !important; }
+
+.biz .app { display: grid; min-height: 100vh; min-width: 1180px; }
+
+.biz .main { min-width: 0; }
+/* ⚖ #20 = B. The topbar is the SETTINGS-family bar
+   (fable-settings-store-hours.html:75-78), not the store-page one: 62px, sticky
+   at the top of the scroll with a near-opaque backing, compact 8px vertical
+   padding, 13.5px crumb with a 700 leaf. Class names stay `.crumb` /
+   `.top-actions` (canon B calls them `.crumbs` / `.top-right`) because the
+   shell markup is the store pages' — geometry is what #20 chose, not naming. */
+.biz .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  min-height: 62px;
+  padding: 8px 28px;
+  border-bottom: 1px solid var(--line-2);
+  background: rgba(255, 255, 255, .97);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.biz .crumb { color: var(--muted); font-size: 13.5px; }
+.biz .crumb b { color: var(--ink); font-weight: 700; }
+.biz .top-actions { display: flex; align-items: center; gap: 10px; }
+.biz .sample-note {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fafafb;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 700;
+}
+/* The honesty chip (canon fable-store-today.html:1265). ⚖ L-4 keeps it: it is
+   a truth surface, and it replaces #723's interim header chip. */
+.biz .honesty {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1.5px dashed #9d9da8;
+  border-radius: 7px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
+.biz .sync { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; }
+.biz .sync::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+
+.biz .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 15px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink-2);
+  font-size: 14px;
+  /* Canon's cascade-FINAL button values (fable-store-today.html:216-230 +
+     :1458), which is where the family's current .btn lives: base weight 500
+     with 600 kept on .primary, .text explicitly transparent, .primary:hover
+     darkening its border in step with its fill, and .danger on the later
+     #e6a09a / --red-dark pair rather than the superseded #efc6c1 / --red. */
+  font-weight: 500;
+  text-decoration: none;
+}
+.biz .btn:hover { border-color: #d1d1d8; background: #fafafb; }
+.biz .btn.primary { border-color: var(--commit-bg); background: var(--commit-bg); color: var(--commit-ink); font-weight: 600; }
+.biz .btn.primary:hover { border-color: var(--commit-hover); background: var(--commit-hover); }
+.biz .btn.danger { border-color: #e6a09a; color: var(--red-dark); }
+.biz .btn.text { border-color: transparent; background: transparent; color: var(--indigo); }
+.biz .btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+
+/* ═══ 家族共通プリミティブ (fable-shared.css §1–§3) ═══
+   The canon pages load these from one shared sheet; the transplant carries the
+   parts the 顧客 screen actually uses. `.pill.pill` / `.badge-col.badge-col`
+   keep canon's doubled selector — it is load-bearing specificity, not a typo. */
+.biz .pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 6px;
+  min-height: 27px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--row);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.biz .pill.good { background: var(--green-soft); color: var(--green-dark); }
+.biz .pill.warn { background: var(--orange-soft); color: var(--orange); }
+.biz .pill.indigo { background: var(--indigo-soft); color: var(--indigo); }
+.biz .pill.pill { display: inline-flex; }
+
+.biz .badge-col.badge-col {
+  text-align: center;
+  justify-items: center;
+  justify-content: center;
+  align-items: center;
+}
+.biz .badge-col.badge-col > * { justify-content: center; }
+.biz .badge-col.badge-col .pill { max-width: 100%; white-space: normal; }
+
+.biz .fx-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+.biz .fx-scroll > * { min-width: min-content; }
+
+/* ═══ SIDEBAR — canon .sidebar system ═══ */
+.biz .sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  min-height: 100vh;
+  border-right: 1px solid var(--section);
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 10px;
+  overflow: hidden;
+  transition: padding .26s cubic-bezier(.2, .7, .1, 1);
+}
+.biz .brand { padding: 0 0 14px; }
+.biz .brand strong { display: block; font-size: 21px; font-weight: 800; letter-spacing: .01em; }
+.biz .brand span { display: block; margin-top: 2px; color: var(--indigo); font-size: 12px; font-weight: 600; letter-spacing: .28em; }
+.biz .brand .word, .biz .brand > span { display: none; }
+.biz .brand .mark {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin: 0 auto;
+  border-radius: 10px;
+  background: var(--indigo);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.biz .rail-toggle {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 12px;
+  border: 1px solid var(--control);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink-2);
+  font-size: 14px;
+  font-weight: 700;
+  transition: width .26s cubic-bezier(.2, .7, .1, 1);
+}
+.biz .rail-toggle:hover { background: #f4f4f5; }
+
+.biz .business {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 4px 12px;
+  padding: 10px 12px;
+  min-height: 58px;
+  border: 1px solid var(--control);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+}
+.biz .business strong { display: block; font-size: 15px; }
+.biz .business small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+.biz .business > span:last-child { color: var(--quiet); }
+
+/* Store lens switcher (⚖ Liam 2026-08-20, store-switch-mock.html): the three
+   pills are gone and the canon store card IS the control. The wrapper carries
+   the card's old margin so the panel can anchor to it. */
+.biz .store-picker { position: relative; margin: 0 4px 20px; }
+.biz .store-context {
+  position: relative;
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 11px 30px 11px 12px;
+  border: 1px solid var(--control);
+  border-radius: 9px;
+  background: #fafafb;
+  color: var(--ink);
+  text-align: left;
+  font-size: 14px;
+  font-weight: 700;
+}
+.biz .store-context > span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; font-weight: 500; }
+/* Affordance = the same ⌄ glyph the .business card above already uses. */
+.biz .store-context .chev { position: absolute; right: 11px; top: 50%; transform: translateY(-58%); color: var(--quiet); font-size: 13px; line-height: 1; }
+.biz .store-context:hover { background: #f4f4f5; }
+/* Open state = the family's hover surface. Never a filled dark or accent
+   chip — a control's own open state is not a selection (R13). */
+.biz .store-context[aria-expanded="true"] { background: #f4f4f5; }
+.biz .store-context[aria-expanded="true"] .chev { transform: translateY(-42%) rotate(180deg); }
+
+/* The panel, cloned from the family popover primitive (fable-shared.css
+   .fx-cols-pop) with canon .fields-pop's anchor. */
+.biz .store-pop {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 40;
+  width: 100%;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 14px 38px rgba(24, 24, 27, .14);
+}
+.biz .store-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-2);
+  text-align: left;
+  text-decoration: none;
+}
+.biz .store-opt:hover { background: var(--row); }
+.biz .store-opt strong { display: block; font-size: 13.5px; font-weight: 700; }
+.biz .store-opt small { display: block; margin-top: 2px; color: var(--muted); font-size: 11.5px; font-weight: 500; }
+.biz .store-opt .tick { margin-left: auto; flex: 0 0 auto; color: var(--indigo); }
+.biz .store-opt .tick svg { display: block; width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+/* Current row = the light accent wash .nav a.active already uses (R13). */
+.biz .store-opt[aria-current="true"] { background: var(--select-bg); color: var(--select-ink); }
+.biz .store-opt[aria-current="true"] small { color: var(--select-ink); opacity: .8; }
+
+.biz .store-chip {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  width: 62px;
+  margin: 0 auto 12px;
+  padding: 7px 0 5px;
+  border: 1px solid var(--control);
+  border-radius: 11px;
+  background: #fff;
+}
+.biz .store-chip b {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: #f4f4f5;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 700;
+}
+.biz .store-chip .mini { font-size: 9.5px; font-weight: 600; color: var(--ink-2); line-height: 1; }
+.biz.sidebar-open .store-chip { display: none; }
+
+.biz .nav-label { padding: 0 12px 8px; color: var(--quiet); font-size: 12px; font-weight: 700; letter-spacing: .12em; }
+.biz .nav { display: grid; gap: 3px; }
+.biz .nav .badge {
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--orange-soft);
+  color: var(--orange);
+  font-size: 12px;
+  font-weight: 700;
+}
+/* 準備中 flags — canon's current nav v3 tokens (fable-store-today.html:1639). */
+.biz .nav .badge.flag { background: var(--control); color: var(--quiet); font-weight: 600; }
+.biz .sidebar .business, .biz .sidebar .store-picker, .biz .sidebar .nav-label { display: none; }
+
+.biz .nav a {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  width: 62px;
+  margin: 0 auto;
+  padding: 7px 0 5px;
+  min-height: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--ink-2);
+  text-align: left;
+  font-size: 15px;
+  text-decoration: none;
+}
+.biz .nav a .lbl { display: none; }
+.biz .nav a .mini { display: block; font-size: 9.5px; font-weight: 600; letter-spacing: .02em; line-height: 1; }
+.biz .nav a .glyph { display: grid; place-items: center; color: inherit; }
+.biz .nav a .glyph svg { width: 20px; height: 20px; stroke: currentColor; stroke-width: 1.7; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.biz .nav a:hover { background: #f4f4f5; color: var(--ink); }
+.biz .nav a.active { background: var(--indigo-soft); color: var(--indigo); font-weight: 700; }
+.biz .nav a.active::before { display: none; }
+.biz .nav .badge { position: absolute; right: 4px; top: 2px; }
+.biz .nav a[aria-disabled="true"] { opacity: .55; cursor: default; }
+
+.biz .operator {
+  display: grid;
+  place-items: center;
+  gap: 0;
+  margin-top: auto;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--section);
+}
+.biz .avatar {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--indigo);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.biz .operator strong { display: block; font-size: 14px; }
+.biz .operator > span:last-child { display: none; }
+.biz .operator > span:last-child > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+
+/* ═══ RAIL COLLAPSE — canon icon-rail system ═══ */
+.biz .app { grid-template-columns: 76px minmax(0, 1fr); transition: grid-template-columns .26s cubic-bezier(.2, .7, .1, 1); }
+.biz.sidebar-open .app { grid-template-columns: 264px minmax(0, 1fr); }
+.biz.sidebar-open .sidebar { padding: 26px 16px 18px; }
+.biz.sidebar-open .brand { padding: 0 10px 22px; }
+.biz.sidebar-open .brand .word { display: block; }
+.biz.sidebar-open .brand > span { display: block; }
+.biz.sidebar-open .brand .mark { display: none; }
+.biz.sidebar-open .rail-toggle { width: 232px; margin: 0 auto 14px; }
+.biz.sidebar-open .sidebar .business { display: flex; }
+.biz.sidebar-open .sidebar .store-picker { display: block; }
+.biz.sidebar-open .sidebar .nav-label { display: block; }
+.biz.sidebar-open .nav { gap: 2px; }
+.biz.sidebar-open .nav a {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  margin: 0;
+  padding: 0 12px;
+  min-height: 44px;
+  border-radius: 10px;
+}
+.biz.sidebar-open .nav a .lbl { display: inline; }
+.biz.sidebar-open .nav a .mini { display: none; }
+.biz.sidebar-open .nav a .glyph { margin-right: 9px; }
+.biz.sidebar-open .nav a .glyph svg { width: 18px; height: 18px; }
+.biz.sidebar-open .nav a.active { background: var(--indigo-soft); }
+.biz.sidebar-open .nav a.active::before {
+  content: "";
+  display: block;
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--indigo);
+}
+.biz.sidebar-open .nav .badge { position: static; margin-left: auto; }
+.biz.sidebar-open .operator { display: flex; justify-content: flex-start; gap: 10px; padding: 14px 10px 0; }
+.biz.sidebar-open .operator > span:last-child { display: block; }
+.biz.sidebar-open .brand, .biz.sidebar-open .sidebar .business,
+.biz.sidebar-open .sidebar .store-context, .biz.sidebar-open .sidebar .nav-label,
+.biz.sidebar-open .nav a, .biz.sidebar-open .operator { min-width: 232px; }
+
+@keyframes bizSbFadeIn { from { opacity: 0; } }
+.biz.sidebar-open .brand .word, .biz.sidebar-open .brand > span,
+.biz.sidebar-open .sidebar .business, .biz.sidebar-open .sidebar .store-context,
+.biz.sidebar-open .sidebar .nav-label, .biz.sidebar-open .nav a .lbl,
+.biz.sidebar-open .operator > span:last-child { animation: bizSbFadeIn .16s ease .1s backwards; }
+.biz:not(.sidebar-open) .brand .mark, .biz:not(.sidebar-open) .store-chip,
+.biz:not(.sidebar-open) .nav a .mini { animation: bizSbFadeIn .14s ease .06s backwards; }
+
+@media (max-width: 1320px) {
+  .biz .topbar { padding-left: 20px; padding-right: 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .biz *, .biz *::before, .biz *::after { transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
