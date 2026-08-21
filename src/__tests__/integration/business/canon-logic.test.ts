@@ -720,6 +720,39 @@ describe('availability — canon deriveSellableCells :4868, mergeBands :5304, de
       expect(out.scraps).toEqual([])
     })
 
+    /** ⚖ BATCH-5 R5 (Liam 2026-08-21) — the ONE authorised engine line.
+     *
+     *  `fillableExactly` (knapsack DP) and `fillDecomposition` (largest-first
+     *  greedy, no backtracking) disagree about 40 minutes on the fixture store's
+     *  own menu: 40 = 20+20 is exact, the greedy takes 30 and jams on the last
+     *  10. deriveGapPackingCells used to THROW on that pair, and twelve legal
+     *  drags on the fixture board reached it — Liam's own 見本きり → p-05 16:00
+     *  among them (batch-4 FINDING-40min-residue-crash.txt).
+     *
+     *  The residue is now packed WHOLE at full price. Not discounted (that is
+     *  what the old message forbade), not dropped, not a crash. */
+    it('a first-class residue the greedy cannot break up is packed WHOLE, never a crash', () => {
+      const jams = createGapGuard({
+        services: [{ name: '20', dur: 20 }, { name: '30', dur: 30 }, { name: '60', dur: 60 }],
+        newClientSessionMin: 90,
+      })
+      // The contradiction, stated: exact by DP, null by greedy.
+      expect(jams.fillableExactly(40)).toBe(true)
+      expect(jams.fillDecomposition(40)).toBeNull()
+
+      const out = derive([staff({ from: 720, until: 760 })], {
+        fillableExactly: jams.fillableExactly,
+        fillDecomposition: jams.fillDecomposition,
+      })
+      // ONE full-price box over the whole 40 minutes — the same picture a
+      // decomposition that SUCCEEDS gets once the display layer coalesces it.
+      expect(out.packed.filter((c) => c.group === 'staff')).toEqual([
+        { laneKey: 's1', resourceKey: 'b1', group: 'staff', staff: '見本 はなこ', s: 720, e: 760, price: 40 },
+      ])
+      // Not the discounted layer: `gapFillPrice` here would have said 400.
+      expect(out.scraps).toEqual([])
+    })
+
     it('an end NO menu combination fills is the orange スキマ枠 offer', () => {
       // 35 minutes: not 45, not 60, not 90 — and ≥ the 30-minute dial.
       const out = derive([staff({ from: 720, until: 755 })])

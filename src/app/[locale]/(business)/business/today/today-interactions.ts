@@ -362,6 +362,46 @@ export function sellLayerFor(
   return buildSellLayer(cells, opts.showPrice)
 }
 
+/** ⚖ BATCH-5 R1 (Liam 2026-08-21) — WHICH BOXES ARE CRUMBS. A packed box the
+ *  length of the store's standard session IS the product and stands alone; any
+ *  other length is a leftover the engine broke off a residue. Residues are
+ *  shorter than one session by construction (`kPackCount` floors), so a crumb
+ *  can never be mistaken for a session and a session can never be combined
+ *  away. The palette rides the same answer — R6: crumbs orange, sessions blue. */
+export const isCrumbOffer = (c: { s: number; e: number }, sessionMin: number): boolean => c.e - c.s !== sessionMin
+
+/** ⚖ BATCH-5 R1 + R2 — the crumbs of ONE residue render as ONE offer.
+ *
+ *  The engine hands back a residue already broken into menu-sized pieces
+ *  (50 = 30 + 20 on the fixture store's menu) and canon drew a box per piece:
+ *  ¥3,860（30分）beside ¥2,690（20分）for a run nobody can book twice. They are
+ *  provably one span — piece B starts exactly where piece A ends, inside one
+ *  lane's own residue walk — so they combine into one box at the union length.
+ *
+ *  R2, and the reason this cannot be done by adding the pieces up: the price is
+ *  ONE `packedPrice` call over the union. Each piece is rounded to ¥10 on its
+ *  own, and summing rounded pieces charges the rounding remainder twice. */
+function combineCrumbs(cells: GapCell[], sessionMin: number, priceUnion: (laneKey: string, s: number, e: number) => number): GapCell[] {
+  const out: GapCell[] = []
+  // The engine emits a staff row and a bed row per piece, so the previous cell
+  // in the array is never the previous cell of the same run — each run is
+  // tracked by its own (group, staff lane, bed) identity. A piece that found no
+  // free bed is simply absent, which breaks the run exactly as it should.
+  const lastOfRun = new Map<string, number>()
+  for (const c of cells) {
+    const runKey = `${c.group}|${c.laneKey}|${c.resourceKey}`
+    const at = lastOfRun.get(runKey)
+    const prev = at == null ? null : out[at]
+    if (at != null && prev && prev.e === c.s && isCrumbOffer(prev, sessionMin) && isCrumbOffer(c, sessionMin)) {
+      out[at] = { ...prev, e: c.e, price: priceUnion(prev.laneKey, prev.s, c.e) }
+      continue
+    }
+    lastOfRun.set(runKey, out.length)
+    out.push(c)
+  }
+  return out
+}
+
 /** The スキマ枠 (orange, discounted) and 詰め込みセッション (blue, full price)
  *  layers, derived from the same board reading as everything else. Canon's own
  *  label carries the LENGTH beside the price on a packed cell — ¥8,650（60分）
@@ -378,12 +418,21 @@ export function gapLayerFor(
     frame: PriceFrame
     depth: number
     guard: GuardConfig
+    /** ⚖ BATCH-5 R3 (Liam 2026-08-21) — MINIMUM SELLABLE LENGTH. Below it the
+     *  board advertises nothing and the space stays plain: a 20-minute orphan is
+     *  not a product, and a shop that answers the phone for it loses the hour.
+     *  Applied AFTER the crumbs combine, so 20+30 is a 50-minute offer rather
+     *  than two things that each fall short. A store dial (the 店舗設定 control
+     *  ships with the settings batch); absent = no floor. */
+    minSellableMin?: number
   },
 ): { packed: GapCell[]; scraps: GapCell[] } {
   const engine = createGapGuard(opts.guard)
   const byKey = new Map(lanes.map((l) => [l.key, l]))
   const listOf = (lane: SellStaffLane) => byKey.get(lane.key)?.listPrice ?? 0
-  return deriveGapPackingCells({
+  const priceUnion = (laneKey: string, s: number, e: number) =>
+    packedPrice(byKey.get(laneKey)?.listPrice ?? 0, s, e, opts.frame, opts.depth)
+  const raw = deriveGapPackingCells({
     staffLanes: sellStaffLanes(lanes, opts.locked),
     resourceLanes: sellResourceLanes(lanes),
     gridMin: opts.gridMin,
@@ -395,6 +444,12 @@ export function gapLayerFor(
     packedPrice: (lane, s, e) => packedPrice(listOf(lane), s, e, opts.frame, opts.depth),
     gapFillPrice: (lane, s, e) => gapFillPrice(listOf(lane), s, e, opts.frame, opts.depth, opts.gapFillDiscountPct),
   })
+  const floor = opts.minSellableMin ?? 0
+  const sellable = (c: GapCell) => c.e - c.s >= floor
+  return {
+    packed: combineCrumbs(raw.packed, opts.sessionMin, priceUnion).filter(sellable),
+    scraps: raw.scraps.filter(sellable),
+  }
 }
 
 // ── スキマガードの配置ガイド ────────────────────────────────────────────────
@@ -729,6 +784,14 @@ export function liveTimeLabel(nodes: readonly Element[], text: string): void {
  *  and on a bed lane (canon's `pairOf`), and a gesture owns all of them. */
 export function cardNodes(board: Element | null, caseId: string): HTMLElement[] {
   return Array.from(board?.querySelectorAll<HTMLElement>(`.event[data-book="${caseId}"]`) ?? [])
+}
+
+/** ⚖ Liam flag 39 — the same lookup for a 予定ブロック, which has no `caseId`
+ *  because it is not a booking: a 記録 or a 準備 is keyed by its own `key`, and
+ *  it lands on exactly one lane. The advisor hangs under the box it is talking
+ *  about, so it has to be able to find it after React has repainted the move. */
+export function blockNode(board: Element | null, key: string): HTMLElement | null {
+  return board?.querySelector<HTMLElement>(`.event[data-block="${key}"]`) ?? null
 }
 
 /** canon `createAtCell`'s partner search (:6021–6027): a booking is a person AND

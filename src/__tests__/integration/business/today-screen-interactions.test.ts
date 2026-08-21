@@ -23,6 +23,7 @@ import {
   blockChrome,
   blockClash,
   blockDragModeAt,
+  blockNode,
   blockEdgeZones,
   blockStepPct,
   cardNodes,
@@ -47,6 +48,7 @@ import {
   gapLayerFor,
   guardRailsFor,
   guardVerdictAt,
+  isCrumbOffer,
   isOverShelf,
   laneKeyAtY,
   laneSpans,
@@ -69,7 +71,7 @@ import {
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { dragOrigin, stepPct } from '@/business/lib/canon-logic/drag-rules'
 import { buildSellLayer, type SellCell } from '@/business/lib/canon-logic/availability'
-import { DENSITY_CEILING } from '@/business/lib/canon-logic/pricing'
+import { DENSITY_CEILING, packedPrice } from '@/business/lib/canon-logic/pricing'
 import { minuteOf, place, type BoardItem, type BoardLane } from '@/business/lib/today-board'
 
 if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
@@ -877,6 +879,236 @@ describe('a free run that crosses the hour — when canon merges and when the gr
   })
 })
 
+/** ⚖ Liam flag 39 / BATCH-5 R4 (2026-08-21) — THE BLOCK-PLACEMENT ADVISOR.
+ *
+ *  A 記録/準備/レジ had no placement intelligence: the only landing constraint
+ *  was overlapping something real, so a block dropped into the middle of a free
+ *  run could destroy the day's last 新規90分 and the board said nothing. Canon
+ *  has no block guard either — this is a SURPASS.
+ *
+ *  v1 is ADVISE, NEVER REFUSE (Liam's ruling): the block lands, and the board
+ *  offers the better position as one click. The engine is consulted through its
+ *  exported surface only, with the board taken apart the way a booking's own
+ *  `excludeId` takes it apart. */
+describe('a block that damages the day says so, and offers the better position', () => {
+  const GUARD = {
+    services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
+    newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
+    mode: 'standard' as const,
+  }
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+  // 10:00–12:30 — 150 free minutes, which hold exactly one 新規90分 window.
+  const pocket = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 750 }, untilLabel: '12:30' })
+  const askAbout30At = (start: number) =>
+    guardVerdictAt([pocket], 'p-01', start, {
+      open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 30, protectedDur: 90,
+      nowMinute: null, locked: [], guard: GUARD,
+    })!
+
+  it('the engine answers about a BLOCK exactly as it answers about a booking', () => {
+    // 30 minutes at either END: the run stays whole behind it, the 新規90分
+    // survives, and the board has nothing to say.
+    expect(askAbout30At(600).state).toBe('safe')
+    expect(askAbout30At(690).state).toBe('safe')
+    // The same 30 minutes at 11:00 cuts the run into 60 + 60. The 新規90分 is
+    // gone and neither half can host one — said in the vocabulary the board
+    // already speaks everywhere else.
+    const mid = askAbout30At(660)
+    expect(mid.state).not.toBe('safe')
+    expect(mid.sentence).toBe('ここに置くと新規（90分）が入らなくなります')
+    // …it knows where the block should have gone…
+    expect(mid.alternatives[0]).toBe(600)
+    expect(mid.alternativeKind).toBe('safe')
+    // …which is also the test for whether the advisor has anything to say.
+    expect(askAbout30At(600).alternatives).toEqual([])
+    // …and it does not forbid it. ADVISE, NEVER REFUSE: canon's own ackAllowed
+    // is what makes そのまま置く an honest button rather than a bypass.
+    expect(mid.ackAllowed).toBe(true)
+    // A start that costs a plain 60分 menu slot rather than the protected
+    // window is the same shape, in that reason's own words.
+    expect(askAbout30At(630).sentence).toBe('ここに置くと整体60が入らなくなります')
+  })
+
+  it('the screen asks that question on the DROP, about the board without the block', () => {
+    const finish = SRC.slice(SRC.indexOf('function finishBlockDrag'), SRC.indexOf('function takeBlockSuggestion'))
+    // After the move commits — the block lands, then the board advises.
+    expect(finish.indexOf('setBlockMoves((was)')).toBeLessThan(finish.indexOf('const cell = verdictAt('))
+    // A block is not an obstacle to itself. It has no caseId, so the board is
+    // handed in without it rather than through `excludeId`.
+    expect(finish).toContain('boardLanes.map((l) => ({ ...l, items: l.items.filter((i) => i.key !== ctx.key) })),')
+    // A SAFE landing is silent — and so is one the engine has nothing better
+    // for. MEASURED, not argued (browser, 2026-08-21): a block already sitting
+    // at the least-loss start of its pocket comes back `degraded` with 0枠減
+    // and no alternatives, and a block dropped behind the day's own clock has
+    // no pocket at all. Both are normal operations; neither is a mistake.
+    expect(finish).toContain("if (!cell || cell.state === 'safe' || cell.alternatives.length === 0) return")
+    // The whole consult is one function of the DROP, never of a pointermove:
+    // the per-frame path stays a transform, exactly as WO-2d left it.
+    const perFrame = SRC.slice(SRC.indexOf('function beginBlockDrag'), SRC.indexOf('function finishBlockDrag'))
+    expect(perFrame).not.toContain('setBlockAdvice(')
+    expect(perFrame).not.toContain('verdictAt(')
+  })
+
+  it('all three buttons do the thing they are named, and none of them refuses', () => {
+    // 提案位置に置く MOVES the block, at its own length, on the lane it landed on.
+    const take = SRC.slice(SRC.indexOf('function takeBlockSuggestion'), SRC.indexOf('function undoBlockDrop'))
+    expect(take).toContain('const at = place(a.suggest, a.suggest + a.dur, hours)')
+    expect(take).toContain('setBlockMoves((was) => ({ ...was, [a.key]: { laneKey: a.laneKey, ...at } }))')
+    // やめる is the drop undone — back to the span it stood on before, which for
+    // an untouched block is no entry at all.
+    const undo = SRC.slice(SRC.indexOf('function undoBlockDrop'), SRC.indexOf('function undoBlockDrop') + 700)
+    expect(undo).toContain('if (a.home) next[a.key] = a.home')
+    expect(undo).toContain('else delete next[a.key]')
+    // そのまま置く only closes it: the block is already where it was dropped.
+    expect(SRC).toContain('<button className="gp-cancel" type="button" onClick={() => setBlockAdvice(null)}>そのまま置く</button>')
+    // …and 提案位置に置く is the default answer, and always acts: the surface
+    // does not open without an alternative to move to.
+    expect(SRC).toContain('              autoFocus')
+    expect(SRC).toContain('      suggest: cell.alternatives[0],')
+    // NEVER a refusal: the only thing that turns a block back is still an
+    // overlap with something real.
+    expect(SRC.slice(SRC.indexOf('function finishBlockDrag'), SRC.indexOf('function takeBlockSuggestion')))
+      .toContain('他の予定と重なるため元の位置に戻しました')
+  })
+
+  it('it obeys the same modality contract as every other transient surface', () => {
+    // Singleton: one new gesture on the board puts it down (flag 33's own hook).
+    const close = SRC.slice(SRC.indexOf('function closeAdvice'), SRC.indexOf('function closeAdvice') + 400)
+    expect(close).toContain('if (blockAdvice) setBlockAdvice(null)')
+    expect(SRC).toContain('onPointerDownCapture={closeAdvice}')
+    // Outside click, behind canon's own 80ms arrival window.
+    expect(SRC).toContain('if (e.timeStamp - blockAdviceOpenedAt.current < 80) return')
+    expect(SRC).toContain('if (clickClosesPopover(blockAdvicePopRef.current, e.target)) setBlockAdvice(null)')
+    // Escape, innermost first — before the consult, which is older on screen.
+    const esc = SRC.slice(SRC.indexOf("if (e.key !== 'Escape'"), SRC.indexOf('document.addEventListener(\'keydown\', onKey)'))
+    expect(esc.indexOf('setBlockAdvice(null)')).toBeLessThan(esc.indexOf('setAdvice(null)'))
+    // Under the block, NEVER over it, viewport-clamped — the confirm popover's
+    // own two helpers, not a second copy of the rule.
+    expect(SRC).toContain('const box = blockNode(boardRef.current, blockAdvice.key)?.getBoundingClientRect()')
+    expect(SRC).toContain('const at = box && anchorOnScreen(box, viewport) ? holdPopAnchor(box, self.width, self.height, viewport) : null')
+    expect(SRC).toContain('        setBlockAdvicePinned(true)')
+    // The block can be found at all: it has no caseId, so it carries its key.
+    expect(SRC).toContain('data-block={item.key}')
+    expect(CSS).toContain('.biz .guard-pop.pinned { left: 50%; bottom: 18px; top: auto; transform: translateX(-50%); }')
+    expect(CSS).toContain('.biz .guard-pop.block-advice { width: min(92vw, 380px); min-width: 0; max-width: none; }')
+  })
+
+  it('blockNode finds the box by its own key, and nothing else', () => {
+    const board = document.createElement('div')
+    for (const [cls, key] of [['event block', 'br-1'], ['event cleanup', 'cl-1']]) {
+      const el = document.createElement('button')
+      el.className = cls
+      el.dataset.block = key
+      board.appendChild(el)
+    }
+    const card = document.createElement('button')
+    card.className = 'event'
+    card.dataset.book = 'apt-1'
+    board.appendChild(card)
+    expect(blockNode(board, 'br-1')?.className).toBe('event block')
+    expect(blockNode(board, 'cl-1')?.className).toBe('event cleanup')
+    expect(blockNode(board, 'apt-1')).toBeNull()
+    expect(blockNode(null, 'br-1')).toBeNull()
+  })
+})
+
+/** ⚖ Liam flag 38 / BATCH-5 R1 · R2 · R3 · R6 (2026-08-21).
+ *
+ *  A leftover run the store's menu can only fill in several pieces used to draw
+ *  a box PER PIECE — ¥3,860（30分）beside ¥2,690（20分）over 50 minutes nobody
+ *  can book twice. Liam's ruling: the crumbs of one residue combine into ONE
+ *  offer at the union length, priced by ONE call over the union; full 60/90
+ *  sessions keep their own boxes because they are the actual product; and
+ *  nothing shorter than the store's minimum sellable length is advertised at
+ *  all. The colour then reports which of the two a box is. */
+describe('the crumbs of one leftover combine into one offer', () => {
+  // The fixture store's own menu shape: a 50-minute run has no single coin.
+  const MENU = {
+    services: [{ name: '20', dur: 20 }, { name: '30', dur: 30 }, { name: '60', dur: 60 }],
+    newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
+    mode: 'standard' as const,
+  }
+  const FRAME = { hi: 6600, lo: 4620, hqMin: 6600, hqMax: 7260 }
+  const DEPTH = 9
+  const run = (from: number, until: number, over: { minSellableMin?: number } = {}) =>
+    gapLayerFor(
+      [lane({ key: 'p-01', group: 'staff', window: { from, until }, untilLabel: '' }), lane({ key: 'bed-01', group: 'beds' })],
+      {
+        gridMin: 60, sessionMin: 60, gapFillMin: 30, gapFillDiscountPct: 10, nowMinute: null,
+        locked: [], frame: FRAME, depth: DEPTH, guard: MENU, ...over,
+      },
+    )
+  const staff = (o: ReturnType<typeof run>, k: 'packed' | 'scraps') => o[k].filter((c) => c.group === 'staff')
+  const spans = (o: ReturnType<typeof run>, k: 'packed' | 'scraps') => staff(o, k).map((c) => [c.s, c.e])
+
+  it('a 50-minute leftover is ONE 50分 offer, not 30分 beside 20分', () => {
+    // 10:20–11:10. The greedy breaks 50 into 30 + 20; the board shows one box.
+    const out = run(620, 670)
+    expect(spans(out, 'packed')).toEqual([[620, 670]])
+    expect(spans(out, 'scraps')).toEqual([])
+    // Both rows — a staff row and a bed row — combined, or the bed layer would
+    // still be advertising the pieces.
+    expect(out.packed.map((c) => [c.group, c.s, c.e])).toEqual([['staff', 620, 670], ['beds', 620, 670]])
+  })
+
+  it('…priced by ONE call over the union, never by adding the rounded pieces up', () => {
+    // Each piece is rounded to ¥10 on its own, so the sum charges the rounding
+    // remainder twice. Here that is a real ¥10 the customer would be overcharged
+    // for a run the shop is trying to salvage.
+    const union = packedPrice(7000, 620, 670, FRAME, DEPTH)
+    const sumOfPieces = packedPrice(7000, 620, 650, FRAME, DEPTH) + packedPrice(7000, 650, 670, FRAME, DEPTH)
+    expect(union).toBe(5330)
+    expect(sumOfPieces).toBe(5340)
+    expect(staff(run(620, 670), 'packed')[0].price).toBe(union)
+  })
+
+  it('full sessions are the product and keep their own boxes', () => {
+    // 15:50 + 120: packing fits two hours where the grid fits one, so two
+    // 60-minute sessions land back to back. Adjacent, and NOT combined.
+    expect(spans(run(950, 1070), 'packed')).toEqual([[950, 1010], [1010, 1070]])
+  })
+
+  it('a leftover under the minimum sellable length is not advertised at all', () => {
+    // 20 minutes: a real full-price offer by the menu, and still not stock.
+    expect(spans(run(720, 740), 'packed')).toEqual([[720, 740]])
+    expect(spans(run(720, 740, { minSellableMin: 30 }), 'packed')).toEqual([])
+    // …and the floor is applied AFTER the crumbs combine: run it before and the
+    // 30-minute piece would survive alone while its 20-minute other half died.
+    expect(spans(run(620, 670, { minSellableMin: 30 }), 'packed')).toEqual([[620, 670]])
+    expect(spans(run(620, 670, { minSellableMin: 60 }), 'packed')).toEqual([])
+  })
+
+  it('R5: a first-class leftover the greedy jams on renders instead of crashing', () => {
+    // 40 = 20 + 20 by the DP, null by the largest-first greedy. This is the
+    // exact pair that threw inside deriveGapPackingCells and took the board
+    // down on twelve legal landings, Liam's own 見本きり → p-05 16:00 included.
+    expect(() => run(720, 760)).not.toThrow()
+    expect(spans(run(720, 760), 'packed')).toEqual([[720, 760]])
+    // Full price over the whole 40 — one union call, not the discounted layer.
+    expect(staff(run(720, 760), 'packed')[0].price).toBe(packedPrice(7000, 720, 760, FRAME, DEPTH))
+    expect(spans(run(720, 760), 'scraps')).toEqual([])
+  })
+
+  it('the screen paints the meaning: orange for a leftover, blue for a session', () => {
+    const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+    const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+    // One answer drives both the combining and the colour.
+    expect(isCrumbOffer({ s: 620, e: 670 }, 60)).toBe(true)
+    expect(isCrumbOffer({ s: 950, e: 1010 }, 60)).toBe(false)
+    expect(SRC).toContain("const crumbHere = packedHere && isCrumbOffer(c, props.guard.standardSessionMin)")
+    expect(SRC).toContain("${crumbHere ? ' crumb' : ''}")
+    expect(SRC).toContain('minSellableMin: props.guard.minSellableMin')
+    // ⚖ R6 — NOTHING on this layer wears a border at rest. The ring is the
+    // drag's own signal and dies with it, which is the whole point: batch-4
+    // proved the resting ring and the emphasis were the same picture.
+    expect(CSS).not.toMatch(/\.biz \.cell-packed \{[^}]*border:/)
+    expect(CSS).toContain('.biz .cell-packed.crumb { background: rgba(232, 130, 60, .13); }')
+    expect(CSS).toContain('.biz .cell-packed.crumb i { color: var(--orange-line); opacity: .95; }')
+    expect(CSS).toContain('.biz .timeline.dragging-live .cell-packed.fits { box-shadow: inset 0 0 0 1.5px rgba(63, 91, 232, .55); }')
+  })
+})
+
 /** WO-2e ITEM 1 — ⚖ Liam 2026-08-20, length-matched drag emphasis.
  *
  *  Canon deepens every derived window for the length of a drag (:594–598).
@@ -969,12 +1201,18 @@ describe('the drag emphasis follows the dragged length, and nothing else', () =>
 
   it('the stylesheet emphasises only .fits, and calms a 詰め込み box that does not', () => {
     expect(CSS).toContain('.biz .timeline.dragging-live .cell-price.fits {')
-    expect(CSS).toContain('.biz .timeline.dragging-live .cell-packed:not(.fits) { background: rgba(130, 151, 233, .07); border-color: transparent; }')
+    expect(CSS).toContain('.biz .timeline.dragging-live .cell-packed:not(.fits) { background: rgba(130, 151, 233, .07); }')
     // The old uniform-deepen selectors are gone: no window rule is gated on a
     // card being on the board any more (comments about them are not rules).
     expect(CSS.split('\n').filter((l) => !l.trimStart().startsWith('`') && /:has\(/.test(l) && /cell-(price|packed)/.test(l))).toEqual([])
-    // At rest the border grammar is exactly canon's: 詰め込み keeps its border.
-    expect(CSS).toContain('border: 1.5px solid rgba(63, 91, 232, .55)')
+    // ⚖ Liam flag 39 / BATCH-5 R6 (2026-08-21) SUPERSEDES the line that used to
+    // stand here ("at rest 詰め込み keeps canon's border"). Batch-4 measured why:
+    // canon's resting ring and this emphasis are the same hue, weight and 1.5px,
+    // so a drop that freed a pocket grew boxes that read as emphasis stuck on
+    // the board. The ring now belongs to the drag alone — nothing on the window
+    // layer has a border at rest, and the emphasis is the box's own inset ring.
+    expect(CSS).not.toMatch(/\.biz \.cell-packed \{[^}]*border:/)
+    expect(CSS).toContain('.biz .timeline.dragging-live .cell-packed.fits { box-shadow: inset 0 0 0 1.5px rgba(63, 91, 232, .55); }')
   })
 })
 
@@ -2058,7 +2296,8 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     expect(SRC).toContain('      if (!at) {\n        setHoldPinned(true)')
     expect(CSS).toContain('.biz .hold-pop.pinned { left: 50%; bottom: 18px; top: auto; transform: translateX(-50%); }')
     // ONE width in both states: the surface never resizes as it moves.
-    expect(CSS).toContain('  width: min(92vw, 340px);')
+    // ⚖ flag 40 widened it — see the typography test below for why.
+    expect(CSS).toContain('  width: min(92vw, 380px);')
     // Re-anchoring is COARSE — never per frame (WO-2d's law).
     expect(SRC).toContain('const coarse = () => { clearTimeout(t); t = setTimeout(pin, 120) }')
     expect(SRC).toContain("window.addEventListener('scroll', coarse, true)")
@@ -2074,7 +2313,7 @@ describe('the confirm comes to the card, and the consult goes back to the placem
 
   /** Greptile #738 P1 — COLLAPSING THE GROUP UNMOUNTS THE ANCHOR.
    *
-   *  `renderLane` returns null for a collapsed group (:2004), so the staged
+   *  `renderLane` returns null for a collapsed group, so the staged
    *  card's node leaves the DOM while the 仮押さえ is still live. The positioning
    *  effect's anchor-missing branch already answers this correctly — but it
    *  never ran, because neither gate that can unmount a card was in its dep
@@ -2111,6 +2350,56 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // `card` null → `box` undefined → `at` null → the pill. Same branch an
     // off-screen or cross-store anchor takes.
     expect(cardNodes(board, 'bk-1')[0]?.getBoundingClientRect()).toBeUndefined()
+  })
+
+  // ── flag 40 — nothing in a popup is allowed to be unreadable ─────────────
+  it('the confirm surface reads whole: the chip on one line, the sentence wrapped', () => {
+    // 仮押さえ was breaking as 仮押さ / え. Fixed at the chip, not at this one
+    // surface: every 状態 chip on the screen is a glance-label and none of them
+    // survives a break.
+    expect(CSS).toContain('font-size: 12px; font-weight: 700; white-space: nowrap; }')
+    // The head WRAPS. The ellipsis was eating the bed name off the end of the
+    // sentence the surface exists to show.
+    expect(CSS).not.toContain('.biz .hp-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }')
+    expect(CSS).toContain('.biz .hp-head strong { min-width: 0; line-height: 1.5; overflow-wrap: anywhere; }')
+    expect(CSS).toContain('.biz .hp-head { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; }')
+    // And the width that holds the fixture's longest line in two of them — the
+    // SAME width anchored and pinned, which is the no-resize half of the law.
+    expect(CSS).toContain('  width: min(92vw, 380px);')
+    expect(CSS).toContain('.biz .hold-pop.pinned { left: 50%; bottom: 18px; top: auto; transform: translateX(-50%); }')
+    expect(CSS.match(/\.biz \.hold-pop(\.pinned)? \{[^}]*width:/g) ?? []).toHaveLength(1)
+  })
+
+  // ── flag 41 — a confirm surface exists only while its decision is open ────
+  it('an answered 仮押さえ is gone for the session, and a day flip cannot revive it', () => {
+    // The surface used to hang off the PROP being there, so 確定 turned it
+    // 確定済み and left it standing on every board change.
+    expect(SRC).toContain('    : props.hold && holdAnswer === null')
+    // The screen-local flag is gone entirely — it would have died on every day
+    // flip, and a surface that reopens on a flip is the bug wearing a hat.
+    expect(SRC).not.toContain('setHoldConfirmed')
+    expect(SRC).not.toContain('useState(false)\n  const [holdConfirmed')
+    // Both answers close it, and WHICH one is what the card's colour reads.
+    expect(SRC).toContain("              setHoldAnswer('confirmed')")
+    expect(SRC).toContain("revert: { enabled: true, run: () => { setHoldAnswer('reverted'); show('仮押さえのままにしました') } },")
+    expect(SRC).toContain("const holdConfirmed = holdAnswer === 'confirmed'")
+    expect(SRC).toContain('        : holdConfirmed && item.state === \'hold\'')
+    // Confirming a STAGED change answers the incident's hold too — otherwise
+    // the standing surface steps straight into the space this one just left,
+    // which is exactly what Liam saw.
+    const confirm = SRC.slice(SRC.indexOf('function confirmPending'), SRC.indexOf('function confirmPending') + 1200)
+    expect(confirm).toContain('setPending(null)')
+    expect(confirm).toContain("setHoldAnswer('confirmed')")
+    // …and reverting a staged change does NOT answer it: that decision is still
+    // open, so its surface is allowed back.
+    const revert = SRC.slice(SRC.indexOf('function revertPending'), SRC.indexOf('function confirmPending'))
+    expect(revert).toContain('setPending(null)')
+    expect(revert).not.toContain('setHoldAnswer')
+    // The flag lives in the session provider, above the screen's remount.
+    const PROVIDER = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/BusinessSessionEdits.tsx'), 'utf8')
+    expect(PROVIDER).toContain("export type HoldAnswer = 'confirmed' | 'reverted' | null")
+    expect(PROVIDER).toContain('const [holdAnswer, setHoldAnswer] = useState<HoldAnswer>(null)')
+    expect(PROVIDER).toContain('        holdAnswer, setHoldAnswer,')
   })
 
   it('anchorOnScreen: a card half in view is still a card the operator can see', () => {

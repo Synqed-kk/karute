@@ -377,13 +377,24 @@ export function deriveGapPackingCells(input: GapPackingInput): { packed: GapCell
    *  full price, never discounted. Returns true when it handled the residue. */
   function guardTier(lane: SellStaffLane, s: number, e: number): boolean {
     if (!input.fillableExactly(e - s)) return false
-    const pieces = input.fillDecomposition(e - s)
-    if (!pieces) {
-      throw new Error(
-        `deriveGapPackingCells: fillDecomposition(${e - s}) returned null while fillableExactly is true — ` +
-          'never silently discount a first-class residue',
-      )
-    }
+    /** ⚖ BATCH-5 R5 (Liam, 2026-08-21) — THE ONE AUTHORISED ENGINE LINE.
+     *
+     *  This pair used to throw: `fillableExactly` is a knapsack DP and says a
+     *  40-minute residue is first-class (20+20 from the store's own menu), while
+     *  `fillDecomposition` is a largest-first greedy WITHOUT backtracking — it
+     *  takes 30, jams on the remaining 10 and returns null. Twelve legal drags
+     *  on the fixture board hit it, including Liam's own 見本きり → p-05 16:00,
+     *  and it took the React tree down with it.
+     *
+     *  The throw's own words are the fix's brief: "never silently DISCOUNT a
+     *  first-class residue". So the residue is not discounted and not dropped —
+     *  it is packed WHOLE, at full price, as one offer over its own span. That
+     *  is byte-identical to what the display layer now does to a decomposition
+     *  that DOES succeed (batch-5 R1/R2 coalesce [30,20] into one 50-minute
+     *  offer priced by one `packedPrice` call), so both paths land on the same
+     *  picture instead of one of them crashing. Reachable only where the throw
+     *  was: a successful decomposition is untouched. */
+    const pieces = input.fillDecomposition(e - s) ?? [e - s]
     let cursor = s
     for (const d of pieces) {
       const bed = take(lane, cursor, cursor + d)

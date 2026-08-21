@@ -83,7 +83,9 @@ import {
   guardCheckRow,
   guardRailsFor,
   guardVerdictAt,
+  blockNode,
   holdPopAnchor,
+  isCrumbOffer,
   isOverShelf,
   laneKeyAtY,
   nextSpan,
@@ -163,6 +165,9 @@ export interface TodayProps {
     protectedLabel: string
     gapFillMinMin: number
     gapFillDiscountPct: number
+    /** ⚖ Liam 2026-08-21 — 販売可能な最小の長さ. Shorter than this and the space
+     *  is not advertised at all (see `gapLayerFor`). A store dial. */
+    minSellableMin: number
     config: GuardConfig
   }
   closedWeekdayLabel: string
@@ -417,6 +422,7 @@ export function TodayScreen(props: TodayProps) {
     parkChips, setParkChips,
     pending, setPending,
     placing, setPlacing,
+    holdAnswer, setHoldAnswer,
   } = useSessionEdits()
 
   /** ⚖ 46 forerunner — WHICH BOARD IS ON SCREEN, as data. Every session-edit
@@ -433,6 +439,11 @@ export function TodayScreen(props: TodayProps) {
   )
   const boardStamp = { ...board, dayLabel: props.dayLabel, storeLabel: props.lensLabel }
 
+  /** ⚖ Liam flag 41 — the day's own standing 仮押さえ, answered. `holdAnswer`
+   *  lives in the session provider so an answer survives a day flip; the card's
+   *  colour reads the 確定 half of it, the surface reads whether it is open. */
+  const holdConfirmed = holdAnswer === 'confirmed'
+
   const [view, setView] = useState<'both' | 'staff' | 'beds'>('both')
   const [density, setDensity] = useState<'std' | 'compact'>('std')
   const [collapsed, setCollapsed] = useState<string[]>([])
@@ -447,7 +458,6 @@ export function TodayScreen(props: TodayProps) {
   const [settled, setSettled] = useState<string[]>([])
   const [resolved, setResolved] = useState<string[]>([])
   const [proposalSent, setProposalSent] = useState(false)
-  const [holdConfirmed, setHoldConfirmed] = useState(false)
   const [calMonth, setCalMonth] = useState(0)
   const [toast, setToast] = useState('')
   const [blockInfo, setBlockInfo] = useState<{ kind: string; who: string; whoLabel: string; time: string; note: string } | null>(null)
@@ -479,12 +489,35 @@ export function TodayScreen(props: TodayProps) {
   const [proxy, setProxy] = useState<DragProxy | null>(null)
   const [chipTarget, setChipTarget] = useState<string | null>(null)
   const [advice, setAdvice] = useState<GuardAdvice | null>(null)
+  /** ⚖ Liam flag 39 — the BLOCK-PLACEMENT ADVISOR. A 記録/準備/レジ had no
+   *  placement intelligence at all: the only thing that could refuse it was
+   *  overlapping something real, so a block dropped in the middle of a free run
+   *  could quietly destroy the last 新規90分 of the day and nothing said a word.
+   *  Canon has no guard for blocks either — this is a surpass, not a carry.
+   *
+   *  ADVISE, NEVER REFUSE (⚖ Liam's v1 ruling): the manager may have a real
+   *  reason, so the block LANDS and the board offers the better position as one
+   *  click. `home` is what 元の位置 means for this drop. */
+  const [blockAdvice, setBlockAdvice] = useState<{
+    key: string
+    title: string
+    laneKey: string
+    laneLabel: string
+    dur: number
+    cell: RailCell
+    suggest: number
+    home: Move | undefined
+  } | null>(null)
   /** ⚖ Liam flag 34 — the 仮押さえ confirm has left the bottom of the page and
    *  hangs under the card it is answering for. `true` when that card is not on
    *  screen (scrolled away, another day, another store) and the same content
    *  becomes the fixed pill instead — which is also what retires the in-flow bar
    *  Liam had to scroll to find. */
   const [holdPinned, setHoldPinned] = useState(false)
+  /** ⚖ 39 — the advisor's own half of the same fallback: no side of the block
+   *  can hold the surface whole, so it pins to the viewport instead of sliding
+   *  back over the box it is talking about. */
+  const [blockAdvicePinned, setBlockAdvicePinned] = useState(false)
   /** ⚖ Liam flag 25 — 画面の説明. The step the tour is on, `-1` when it is
    *  closed. The STEPS themselves are never held in state: they are re-read from
    *  the DOM registry on every render of the overlay, which is what makes a
@@ -515,11 +548,13 @@ export function TodayScreen(props: TodayProps) {
   const fieldsPopRef = useRef<HTMLDivElement>(null)
   const fieldsBtnRef = useRef<HTMLButtonElement>(null)
   const advicePopRef = useRef<HTMLDivElement>(null)
+  const blockAdvicePopRef = useRef<HTMLDivElement>(null)
   const holdPopRef = useRef<HTMLDivElement>(null)
   /** canon's `popOpenedAt` (:7074): a popup opened from a pointerup is followed
    *  by one synthetic click on the thing underneath, and without this window the
    *  popup would close itself the instant it appeared. */
   const adviceOpenedAt = useRef(0)
+  const blockAdviceOpenedAt = useRef(0)
   const chipDragRef = useRef<{ id: string; startX: number; startY: number; moved: boolean; laneKey: string | null; grab: { dx: number; dy: number; w: number; h: number } } | null>(null)
 
   // ── the store's price levers (L3) ────────────────────────────────────────
@@ -599,6 +634,51 @@ export function TodayScreen(props: TodayProps) {
     document.addEventListener('click', onDoc)
     return () => document.removeEventListener('click', onDoc)
   }, [advice])
+
+  /** ⚖ Liam flag 39 — the block advisor obeys the SAME dismissal contract as the
+   *  consult (flag 33): outside click closes it, behind canon's own 80ms window
+   *  so the synthetic click that follows the drop's own pointerup cannot dismiss
+   *  it on arrival. */
+  useEffect(() => {
+    if (!blockAdvice) return
+    const onDoc = (e: MouseEvent) => {
+      if (e.timeStamp - blockAdviceOpenedAt.current < 80) return
+      if (clickClosesPopover(blockAdvicePopRef.current, e.target)) setBlockAdvice(null)
+    }
+    document.addEventListener('click', onDoc)
+    return () => document.removeEventListener('click', onDoc)
+  }, [blockAdvice])
+
+  /** ⚖ Liam flag 39 — and the same PLACEMENT rule as the 仮押さえ popover: under
+   *  the block it is talking about, never over it (`holdPopAnchor`), viewport-
+   *  clamped on all four edges (`pinInViewport`, ⚖ 35), measured after the block
+   *  has repainted at its landing rather than guessed from the drop event —
+   *  the node is still drawn at its ORIGIN when the pointerup fires (batch-4's
+   *  flag-33 finding). No side can hold it whole → the pill, exactly as the
+   *  confirm surface falls back. */
+  useLayoutEffect(() => {
+    if (!blockAdvice) return
+    const pin = () => {
+      const el = blockAdvicePopRef.current
+      if (!el) return
+      const box = blockNode(boardRef.current, blockAdvice.key)?.getBoundingClientRect()
+      const viewport = { width: window.innerWidth, height: window.innerHeight }
+      const self = el.getBoundingClientRect()
+      const at = box && anchorOnScreen(box, viewport) ? holdPopAnchor(box, self.width, self.height, viewport) : null
+      if (!at) {
+        setBlockAdvicePinned(true)
+        el.style.left = ''
+        el.style.top = ''
+        return
+      }
+      setBlockAdvicePinned(false)
+      el.style.left = `${at.left}px`
+      el.style.top = `${at.top}px`
+    }
+    pin()
+    window.addEventListener('resize', pin)
+    return () => window.removeEventListener('resize', pin)
+  }, [blockAdvice, blockAdvicePinned])
 
   /** ⚖ Liam flag 35 — the consult popup is pinned inside the viewport before it
    *  paints, through the SAME clamp the 仮押さえ popover uses. It used to sit at
@@ -756,6 +836,7 @@ export function TodayScreen(props: TodayProps) {
         sessionMin: props.guard.standardSessionMin,
         gapFillMin: props.guard.gapFillMinMin,
         gapFillDiscountPct: props.guard.gapFillDiscountPct,
+        minSellableMin: props.guard.minSellableMin,
         nowMinute: props.sell.nowMinute,
         locked,
         frame,
@@ -838,10 +919,15 @@ export function TodayScreen(props: TodayProps) {
    *  board; building the engine's input twice is how the two would drift apart.
    *  The card's OWN length, not the rail's 60 minutes: the rail answers "could a
    *  standard session start here", a placement asks about the booking in hand. */
+  /** ⚖ Liam flag 39 — `lanes` is the same question asked of a board the caller
+   *  has already taken something OUT of. A booking in hand excludes itself by
+   *  `caseId` (`excludeId`, canon's `guardPocketsForLane` :7196); a 予定ブロック
+   *  has no caseId, so the block advisor hands in the board without it instead.
+   *  Same engine, same input, one shape. */
   const verdictAt = useCallback(
-    (laneKey: string, start: number, dur: number, excludeId: string | null): RailCell | null =>
+    (laneKey: string, start: number, dur: number, excludeId: string | null, lanes: BoardLane[] = boardLanes): RailCell | null =>
       guardOn
-        ? guardVerdictAt(boardLanes, laneKey, start, {
+        ? guardVerdictAt(lanes, laneKey, start, {
             open: hours.open,
             close: hours.close,
             stepMin: 30,
@@ -928,7 +1014,18 @@ export function TodayScreen(props: TodayProps) {
    *  from the incident. Canon put both on a full-width bar at the bottom of the
    *  page; ours was IN FLOW there (today.css :784), so on a tall board the
    *  operator had to scroll away from the card to find the button that answers
-   *  for it — Liam's complaint, and structural rather than cosmetic. */
+   *  for it — Liam's complaint, and structural rather than cosmetic.
+   *
+   *  ⚖ Liam flag 41 (2026-08-21) — AND IT EXISTS ONLY WHILE ITS DECISION IS
+   *  OPEN. The standing 仮押さえ below had no answered state at all: its surface
+   *  hung off the PROP being there, so 確定 turned it 確定済み and left it
+   *  standing, and every other change on the board brought it back into view.
+   *  The old full-width bar was always on screen by design and hid that; a
+   *  floating popover cannot. Either answer now closes it for the session
+   *  (`holdAnswer`, in the session provider so a day flip cannot reopen it),
+   *  and the card's own state colour carries the result — which it already did.
+   *  A session-staged 仮押さえ was never stuck: `pending` clears on both its
+   *  answers. What Liam saw was this surface underneath, taking its place. */
   const holdPop: HoldPop | null = pending
     ? {
         anchorId: pending.id,
@@ -942,25 +1039,29 @@ export function TodayScreen(props: TodayProps) {
         confirm: { label: pendingConfirm.label, enabled: pendingConfirm.enabled, run: confirmPending },
         revert: { enabled: true, run: revertPending },
       }
-    : props.hold
+    : props.hold && holdAnswer === null
       ? {
           // The day's own standing 仮押さえ (the incident's) — the pill, always.
           anchorId: null,
-          status: holdConfirmed ? '確定済み' : '仮押さえ',
-          tone: holdConfirmed ? 'done' : 'waiting',
+          status: '仮押さえ',
+          tone: 'waiting',
           summary: props.hold.summary,
           checks: props.hold.checks.map((label) => ({ label, tone: '' })),
           guardRow: null,
           confirm: {
             label: 'この内容で確定',
-            enabled: !holdConfirmed,
+            enabled: true,
             run: () => {
-              setHoldConfirmed(true)
+              setHoldAnswer('confirmed')
               setResolved((was) => toggleOn(was, props.cards.find((c) => c.kind === '担当変更')?.id))
               show('仮押さえをこの画面の中だけで確定しました。再読み込みすると戻ります')
             },
           },
-          revert: { enabled: holdConfirmed, run: () => { setHoldConfirmed(false); show('仮押さえに戻しました') } },
+          // ⚖ 41 — the OTHER answer, not an undo of the first one. It used to be
+          // enabled only after 確定, because with no dismissal the only thing it
+          // could mean was "take that back"; now the question is open when the
+          // surface is up, so 元に戻す declines it and closes it just the same.
+          revert: { enabled: true, run: () => { setHoldAnswer('reverted'); show('仮押さえのままにしました') } },
         }
       : null
 
@@ -1018,8 +1119,10 @@ export function TodayScreen(props: TodayProps) {
     }
     // Greptile #738 P1 — the rule above only helps if this effect RE-RUNS when
     // the anchor leaves the DOM. Exactly two STATES unmount a card: `collapsed`
-    // (the group folded away, :2014) and `view` (the staff/beds segmented
-    // control, which gates both the lane :2013 and the whole group :2692).
+    // (the group folded away) and `view` (the staff/beds segmented control,
+    // which gates the lane and the whole group wrapper) — both are `renderLane`
+    // early returns, greppable by name; line numbers in THIS file are omitted on
+    // purpose, they go stale on every transplant slice.
     // Neither was here, so collapsing the group holding a staged 仮押さえ left the
     // popover floating at the coordinates of a card that no longer existed. Both
     // are listed now, so the pill engages on either, and expanding re-anchors by
@@ -1069,7 +1172,10 @@ export function TodayScreen(props: TodayProps) {
       return
     }
     setPending(null)
-    setHoldConfirmed(true)
+    // ⚖ 41 — a staged change confirmed IS the incident's 担当変更 answered, so
+    // the standing 仮押さえ's own surface closes with it rather than stepping
+    // back into the space this one just left.
+    setHoldAnswer('confirmed')
     setResolved((was) => toggleOn(was, props.cards.find((c) => c.kind === '担当変更')?.id))
     show('この画面の中だけで確定しました。再読み込みすると戻ります')
   }
@@ -1084,9 +1190,13 @@ export function TodayScreen(props: TodayProps) {
   // 確定 never happens implicitly, which is why canon gives the key to the
   // revert and not to the commit. A live drag holds the key (canon's `!dragCtx`).
   useEffect(() => {
-    if (!placing && !advice && !pop && !pending) return
+    if (!placing && !advice && !blockAdvice && !pop && !pending) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || document.querySelector('dialog[open]')) return
+      // ⚖ 39 — innermost first, and Escape is そのまま置く: the block has already
+      // landed and nothing is staged, so dismissing the advice leaves the board
+      // exactly as the operator dropped it. 元の位置に戻す is a deliberate press.
+      if (blockAdvice) { setBlockAdvice(null); return }
       if (advice) { setAdvice(null); return }
       if (pop) { setPop(''); return }
       if (placing) { setPlacing(null); return }
@@ -1094,7 +1204,7 @@ export function TodayScreen(props: TodayProps) {
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [placing, advice, pop, pending, revertPending])
+  }, [placing, advice, blockAdvice, pop, pending, revertPending])
 
   // ── card drag ────────────────────────────────────────────────────────────
 
@@ -1541,11 +1651,72 @@ export function TodayScreen(props: TodayProps) {
       return
     }
     if (span.x === ctx.origin.x && span.w === ctx.origin.w && targetLane === ctx.homeLane) return
+    const home = blockMoves[ctx.key]
     setBlockMoves((was) => ({ ...was, [ctx.key]: { laneKey: targetLane, x: span.x, w: span.w } }))
     const laneLabel = placedLanes.find((l) => l.key === targetLane)?.label ?? ''
     const from = minuteOf(span.x, hours)
     const to = minuteOf(span.x + span.w, hours)
     show(`${ctx.item.title}を${laneLabel}の${hhmm(from)}〜${hhmm(to)}に変更しました`)
+    // ⚖ Liam flag 39 — and THEN the advisor, on the drop only. The engine is
+    // asked the same question a booking asks it, about the board WITHOUT this
+    // block: `evaluate(pocket, {start, dur})` is fully generic, so a 記録 that
+    // strands dead minutes or eats the day's last 新規 window is knowable here
+    // and always was. Nothing is refused — a safe landing says nothing at all.
+    const cell = verdictAt(
+      targetLane,
+      from,
+      to - from,
+      null,
+      boardLanes.map((l) => ({ ...l, items: l.items.filter((i) => i.key !== ctx.key) })),
+    )
+    // ⚖ 39 — AND ONLY WHEN THERE IS SOMETHING BETTER TO OFFER. Measured in the
+    // browser, not argued: two landings are "not safe" and yet nothing is
+    // wrong with them. A block sitting at the least-loss start of its pocket
+    // comes back `degraded` with 0枠減 and no alternatives — it is already the
+    // best position, and telling the operator so is noise. A block dropped in
+    // the morning, behind the day's own clock, has no pocket at all and comes
+    // back 「この開始には15分の連続した空きがありません」 — true of every past
+    // minute, and 記録 for something that already happened is a normal thing to
+    // do. `alternatives` is the engine's own answer to "is there a better
+    // place", so it is also the honest test for whether this surface has
+    // anything to say — and it keeps 提案位置に置く a button that always acts.
+    if (!cell || cell.state === 'safe' || cell.alternatives.length === 0) return
+    blockAdviceOpenedAt.current = e.timeStamp
+    setBlockAdvice({
+      key: ctx.key,
+      title: ctx.item.title,
+      laneKey: targetLane,
+      laneLabel,
+      dur: to - from,
+      cell,
+      // The engine's own least-loss / safe start — the surface does not open
+      // without one, so this button always acts.
+      suggest: cell.alternatives[0],
+      home,
+    })
+  }
+
+  /** ⚖ Liam flag 39 — the one click. The block goes to the start the engine
+   *  named, on the lane it was dropped on, at its own length. */
+  function takeBlockSuggestion(a: NonNullable<typeof blockAdvice>) {
+    const at = place(a.suggest, a.suggest + a.dur, hours)
+    setBlockMoves((was) => ({ ...was, [a.key]: { laneKey: a.laneKey, ...at } }))
+    setBlockAdvice(null)
+    show(`${a.title}を${a.laneLabel}の${hhmm(a.suggest)}〜${hhmm(a.suggest + a.dur)}に移しました`)
+  }
+
+  /** …and やめる, which is the drop itself undone: back to wherever this block
+   *  stood before the gesture, which for an untouched block is the span the
+   *  server drew and therefore no entry at all. */
+  function undoBlockDrop(a: NonNullable<typeof blockAdvice>) {
+    setBlockMoves((was) => {
+      const next = { ...was }
+      if (a.home) next[a.key] = a.home
+      else delete next[a.key]
+      return next
+    })
+    setBlockAdvice(null)
+    show(`${a.title}を元の位置に戻しました`)
   }
 
   function cancelBlockDrag() {
@@ -1642,6 +1813,9 @@ export function TodayScreen(props: TodayProps) {
    *  and track gesture passes through, plus the shelf chip's own press. */
   function closeAdvice() {
     if (advice) setAdvice(null)
+    // ⚖ 39 rides the same invariant: the block advisor is a transient surface on
+    // the same board, so a new gesture puts it down too. Never both at once.
+    if (blockAdvice) setBlockAdvice(null)
   }
 
   /** canon `keyboardResizeBooking` (:3889). */
@@ -2106,12 +2280,19 @@ export function TodayScreen(props: TodayProps) {
             gapHere.map((c) => {
               const span = place(c.s, c.e, hours)
               const packedHere = gap.packed.includes(c)
+              // ⚖ Liam flag 38 / BATCH-5 R6 — COLOUR CARRIES MEANING, BORDERS
+              // CARRY DRAG STATE. A full-length session is the product: blue.
+              // Anything shorter is a leftover the residue broke off — the same
+              // salvage the スキマ枠 layer sells, so it wears the same quiet
+              // orange, even though it is priced at full value. Nothing on this
+              // layer has a border at rest; the ring belongs to the drag alone.
+              const crumbHere = packedHere && isCrumbOffer(c, props.guard.standardSessionMin)
               return (
                 <span
                   // A 詰め込み box advertises the length on its own label; a
                   // スキマ枠 advertises a discount, not a session, so canon gives
                   // it no drag emphasis at all and neither do we.
-                  className={`${packedHere ? 'cell-packed' : 'cell-gapfill'}${packedHere && fitsDrag(c.e - c.s, dragLen) ? ' fits' : ''}`}
+                  className={`${packedHere ? 'cell-packed' : 'cell-gapfill'}${crumbHere ? ' crumb' : ''}${packedHere && fitsDrag(c.e - c.s, dragLen) ? ' fits' : ''}`}
                   key={`${lane.key}-${c.group}-${packedHere ? 'p' : 's'}-${c.s}`}
                   aria-hidden="true"
                   style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
@@ -2197,6 +2378,7 @@ export function TodayScreen(props: TodayProps) {
           className={`event ${cls}${item.micro ? ' micro' : ''}${blockLive?.key === item.key ? (blockLive.mode === 'move' ? ' dragging' : ' resizing') : ''}`}
           type="button"
           key={item.key}
+          data-block={item.key}
           style={style}
           // No `title` while it is draggable — the browser's black tooltip over
           // a live drag is the same complaint the cards answered (flag 8).
@@ -3202,6 +3384,46 @@ export function TodayScreen(props: TodayProps) {
                 この開始に配置
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ⚖ Liam flag 39 — THE BLOCK-PLACEMENT ADVISOR. The block has already
+          landed (advise, never refuse), so this asks about improving it, not
+          about allowing it: the engine's own sentence, then the one click that
+          takes its suggestion. Same surface grammar as the consult above and
+          the same dismissal contract; positioned under the block by the layout
+          effect, never over it. */}
+      {blockAdvice && (
+        <div
+          className={`guard-pop block-advice${blockAdvicePinned ? ' pinned' : ''}`}
+          role="dialog"
+          aria-label="予定の位置の提案"
+          ref={blockAdvicePopRef}
+        >
+          <div className="gp-reason">{blockAdvice.cell.sentence}</div>
+          {/* The consult's own two lines, with 開始 → 位置: this surface is
+              answering for a box that is already down, not for a start being
+              chosen. Nothing new is said — the verdict above is the engine's
+              sentence verbatim. */}
+          <div className="gp-offer">
+            {blockAdvice.cell.alternativeKind === 'least-loss'
+              ? '空きを完全には守れません。より損の少ない位置を選べます'
+              : `${blockAdvice.title}は${hhmm(blockAdvice.suggest)}なら空きを分けずに置けます`}
+          </div>
+          <div className="gp-actions">
+            <button className="gp-cancel" type="button" onClick={() => undoBlockDrop(blockAdvice)}>やめる</button>
+            <button className="gp-cancel" type="button" onClick={() => setBlockAdvice(null)}>そのまま置く</button>
+            <button
+              className="btn primary"
+              type="button"
+              // The default answer: the operator dropped it, the board has a
+              // better place for it, and one press is the whole correction.
+              autoFocus
+              onClick={() => takeBlockSuggestion(blockAdvice)}
+            >
+              提案位置に置く
+            </button>
           </div>
         </div>
       )}
