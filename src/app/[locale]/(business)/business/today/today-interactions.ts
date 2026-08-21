@@ -786,6 +786,14 @@ export function cardNodes(board: Element | null, caseId: string): HTMLElement[] 
   return Array.from(board?.querySelectorAll<HTMLElement>(`.event[data-book="${caseId}"]`) ?? [])
 }
 
+/** ⚖ Liam flag 39 — the same lookup for a 予定ブロック, which has no `caseId`
+ *  because it is not a booking: a 記録 or a 準備 is keyed by its own `key`, and
+ *  it lands on exactly one lane. The advisor hangs under the box it is talking
+ *  about, so it has to be able to find it after React has repainted the move. */
+export function blockNode(board: Element | null, key: string): HTMLElement | null {
+  return board?.querySelector<HTMLElement>(`.event[data-block="${key}"]`) ?? null
+}
+
 /** canon `createAtCell`'s partner search (:6021–6027): a booking is a person AND
  *  a room, so a card placed on a staff lane must find a free lane in the other
  *  group or the placement is refused outright. First free one wins, exactly as

@@ -23,6 +23,7 @@ import {
   blockChrome,
   blockClash,
   blockDragModeAt,
+  blockNode,
   blockEdgeZones,
   blockStepPct,
   cardNodes,
@@ -875,6 +876,134 @@ describe('a free run that crosses the hour — when canon merges and when the gr
     const out = run(950, 1055)
     expect(staff(out, 'packed')).toEqual([])
     expect(staff(out, 'scraps')).toEqual([[1020, 1055]])
+  })
+})
+
+/** ⚖ Liam flag 39 / BATCH-5 R4 (2026-08-21) — THE BLOCK-PLACEMENT ADVISOR.
+ *
+ *  A 記録/準備/レジ had no placement intelligence: the only landing constraint
+ *  was overlapping something real, so a block dropped into the middle of a free
+ *  run could destroy the day's last 新規90分 and the board said nothing. Canon
+ *  has no block guard either — this is a SURPASS.
+ *
+ *  v1 is ADVISE, NEVER REFUSE (Liam's ruling): the block lands, and the board
+ *  offers the better position as one click. The engine is consulted through its
+ *  exported surface only, with the board taken apart the way a booking's own
+ *  `excludeId` takes it apart. */
+describe('a block that damages the day says so, and offers the better position', () => {
+  const GUARD = {
+    services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
+    newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
+    mode: 'standard' as const,
+  }
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+  // 10:00–12:30 — 150 free minutes, which hold exactly one 新規90分 window.
+  const pocket = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 750 }, untilLabel: '12:30' })
+  const askAbout30At = (start: number) =>
+    guardVerdictAt([pocket], 'p-01', start, {
+      open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 30, protectedDur: 90,
+      nowMinute: null, locked: [], guard: GUARD,
+    })!
+
+  it('the engine answers about a BLOCK exactly as it answers about a booking', () => {
+    // 30 minutes at either END: the run stays whole behind it, the 新規90分
+    // survives, and the board has nothing to say.
+    expect(askAbout30At(600).state).toBe('safe')
+    expect(askAbout30At(690).state).toBe('safe')
+    // The same 30 minutes at 11:00 cuts the run into 60 + 60. The 新規90分 is
+    // gone and neither half can host one — said in the vocabulary the board
+    // already speaks everywhere else.
+    const mid = askAbout30At(660)
+    expect(mid.state).not.toBe('safe')
+    expect(mid.sentence).toBe('ここに置くと新規（90分）が入らなくなります')
+    // …it knows where the block should have gone…
+    expect(mid.alternatives[0]).toBe(600)
+    expect(mid.alternativeKind).toBe('safe')
+    // …and it does not forbid it. ADVISE, NEVER REFUSE: canon's own ackAllowed
+    // is what makes そのまま置く an honest button rather than a bypass.
+    expect(mid.ackAllowed).toBe(true)
+    // A start that costs a plain 60分 menu slot rather than the protected
+    // window is the same shape, in that reason's own words.
+    expect(askAbout30At(630).sentence).toBe('ここに置くと整体60が入らなくなります')
+  })
+
+  it('the screen asks that question on the DROP, about the board without the block', () => {
+    const finish = SRC.slice(SRC.indexOf('function finishBlockDrag'), SRC.indexOf('function takeBlockSuggestion'))
+    // After the move commits — the block lands, then the board advises.
+    expect(finish.indexOf('setBlockMoves((was)')).toBeLessThan(finish.indexOf('const cell = verdictAt('))
+    // A block is not an obstacle to itself. It has no caseId, so the board is
+    // handed in without it rather than through `excludeId`.
+    expect(finish).toContain('boardLanes.map((l) => ({ ...l, items: l.items.filter((i) => i.key !== ctx.key) })),')
+    // A SAFE landing is silent — no popover, no toast beyond the move's own.
+    expect(finish).toContain("if (!cell || cell.state === 'safe') return")
+    // The whole consult is one function of the DROP, never of a pointermove:
+    // the per-frame path stays a transform, exactly as WO-2d left it.
+    const perFrame = SRC.slice(SRC.indexOf('function beginBlockDrag'), SRC.indexOf('function finishBlockDrag'))
+    expect(perFrame).not.toContain('setBlockAdvice(')
+    expect(perFrame).not.toContain('verdictAt(')
+  })
+
+  it('all three buttons do the thing they are named, and none of them refuses', () => {
+    // 提案位置に置く MOVES the block, at its own length, on the lane it landed on.
+    const take = SRC.slice(SRC.indexOf('function takeBlockSuggestion'), SRC.indexOf('function undoBlockDrop'))
+    expect(take).toContain('const at = place(a.suggest, a.suggest + a.dur, hours)')
+    expect(take).toContain('setBlockMoves((was) => ({ ...was, [a.key]: { laneKey: a.laneKey, ...at } }))')
+    // やめる is the drop undone — back to the span it stood on before, which for
+    // an untouched block is no entry at all.
+    const undo = SRC.slice(SRC.indexOf('function undoBlockDrop'), SRC.indexOf('function undoBlockDrop') + 700)
+    expect(undo).toContain('if (a.home) next[a.key] = a.home')
+    expect(undo).toContain('else delete next[a.key]')
+    // そのまま置く only closes it: the block is already where it was dropped.
+    expect(SRC).toContain('<button className="gp-cancel" type="button" onClick={() => setBlockAdvice(null)}>そのまま置く</button>')
+    // …and 提案位置に置く is the default answer, and is not rendered at all when
+    // the engine has nothing better to offer.
+    expect(SRC).toContain('{blockAdvice.suggest != null && (')
+    expect(SRC).toContain('                autoFocus')
+    // NEVER a refusal: the only thing that turns a block back is still an
+    // overlap with something real.
+    expect(SRC.slice(SRC.indexOf('function finishBlockDrag'), SRC.indexOf('function takeBlockSuggestion')))
+      .toContain('他の予定と重なるため元の位置に戻しました')
+  })
+
+  it('it obeys the same modality contract as every other transient surface', () => {
+    // Singleton: one new gesture on the board puts it down (flag 33's own hook).
+    const close = SRC.slice(SRC.indexOf('function closeAdvice'), SRC.indexOf('function closeAdvice') + 400)
+    expect(close).toContain('if (blockAdvice) setBlockAdvice(null)')
+    expect(SRC).toContain('onPointerDownCapture={closeAdvice}')
+    // Outside click, behind canon's own 80ms arrival window.
+    expect(SRC).toContain('if (e.timeStamp - blockAdviceOpenedAt.current < 80) return')
+    expect(SRC).toContain('if (clickClosesPopover(blockAdvicePopRef.current, e.target)) setBlockAdvice(null)')
+    // Escape, innermost first — before the consult, which is older on screen.
+    const esc = SRC.slice(SRC.indexOf("if (e.key !== 'Escape'"), SRC.indexOf('document.addEventListener(\'keydown\', onKey)'))
+    expect(esc.indexOf('setBlockAdvice(null)')).toBeLessThan(esc.indexOf('setAdvice(null)'))
+    // Under the block, NEVER over it, viewport-clamped — the confirm popover's
+    // own two helpers, not a second copy of the rule.
+    expect(SRC).toContain('const box = blockNode(boardRef.current, blockAdvice.key)?.getBoundingClientRect()')
+    expect(SRC).toContain('const at = box && anchorOnScreen(box, viewport) ? holdPopAnchor(box, self.width, self.height, viewport) : null')
+    expect(SRC).toContain('        setBlockAdvicePinned(true)')
+    // The block can be found at all: it has no caseId, so it carries its key.
+    expect(SRC).toContain('data-block={item.key}')
+    expect(CSS).toContain('.biz .guard-pop.pinned { left: 50%; bottom: 18px; top: auto; transform: translateX(-50%); }')
+    expect(CSS).toContain('.biz .guard-pop.block-advice { width: min(92vw, 380px); min-width: 0; max-width: none; }')
+  })
+
+  it('blockNode finds the box by its own key, and nothing else', () => {
+    const board = document.createElement('div')
+    for (const [cls, key] of [['event block', 'br-1'], ['event cleanup', 'cl-1']]) {
+      const el = document.createElement('button')
+      el.className = cls
+      el.dataset.block = key
+      board.appendChild(el)
+    }
+    const card = document.createElement('button')
+    card.className = 'event'
+    card.dataset.book = 'apt-1'
+    board.appendChild(card)
+    expect(blockNode(board, 'br-1')?.className).toBe('event block')
+    expect(blockNode(board, 'cl-1')?.className).toBe('event cleanup')
+    expect(blockNode(board, 'apt-1')).toBeNull()
+    expect(blockNode(null, 'br-1')).toBeNull()
   })
 })
 

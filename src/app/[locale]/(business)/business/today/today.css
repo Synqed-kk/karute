@@ -710,7 +710,14 @@
 .biz .guard-pop .gp-alternatives { display: flex; flex-wrap: wrap; gap: 6px; }
 .biz .guard-pop .gp-alt { border: 1px solid var(--guard-dark); border-radius: 999px; padding: 5px 10px; background: var(--guard-soft); color: var(--guard-dark); font: inherit; font-weight: 800; cursor: pointer; }
 .biz .guard-pop .gp-alt:hover, .biz .guard-pop .gp-alt:focus-visible { background: var(--guard-dark); color: #fff; outline: 0; }
-.biz .guard-pop .gp-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 2px; }
+/* ⚖ Liam flag 39 — the block advisor wears the consult's grammar, one size
+   wider because its sentence is a full verdict rather than a refusal line, and
+   with the confirm popover's own fallback: when neither side of the block can
+   hold the surface whole it pins to the viewport instead of sliding back over
+   the box it is talking about. ONE width in both states (popup law). */
+.biz .guard-pop.block-advice { width: min(92vw, 380px); min-width: 0; max-width: none; }
+.biz .guard-pop.pinned { left: 50%; bottom: 18px; top: auto; transform: translateX(-50%); }
+.biz .guard-pop .gp-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 2px; }
 .biz .guard-pop .gp-cancel { border: 1px solid var(--control); border-radius: 7px; padding: 6px 12px; background: #fff; color: var(--ink-2); font-size: 12.5px; cursor: pointer; }
 
 .biz .elapsed-wash {
