@@ -56,6 +56,7 @@ import {
   reasonLine,
   sellLayerFor,
   slotStartAt,
+  unparkOutcome,
   type GuardRail,
   type Moves,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
@@ -1227,6 +1228,85 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
     expect(SRC).toContain('const placed = added.find((a) => a.item.caseId === id)')
     // The shelf's hint already advertises 日付またぎ — canon's own copy.
     expect(SRC).toContain('ドラッグでここへ（日付またぎ・置くと仮押さえ）')
+  })
+})
+
+/** ⚖ Liam flag 30 (2026-08-21). The bug, proven on the DEPLOYED app: the parked
+ *  chip did NOT survive day navigation. `?day=±N` is a real Link (today/page.tsx
+ *  :22-24), so TodayPage re-executes and TodayScreen REMOUNTS — and the whole
+ *  session-edit family sat in TodayScreen's own useState.
+ *
+ *  THIS HARNESS IS WHERE THAT HID, and it still cannot see it: these tests drive
+ *  the screen's functions and never the router, so nothing here proves SURVIVAL.
+ *  What is provable here is that the state is no longer anywhere a remount can
+ *  reach, and that the × is answered by a RECORDED day rather than by whichever
+ *  board is on screen. The survival itself is a deployed-preview acceptance. */
+describe('the session’s edits outlive the day flip, and the × knows which day it restores to', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const LAYOUT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/layout.tsx'), 'utf8')
+  const PROVIDER = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/BusinessSessionEdits.tsx'), 'utf8')
+  const FAMILY = ['added', 'moves', 'parked', 'parkChips', 'pending', 'placing']
+
+  it('the screen holds none of the family in its own useState — it reads them from the layout', () => {
+    for (const name of FAMILY) expect(SRC).not.toMatch(new RegExp(`const \\[${name}, set`))
+    expect(SRC).toContain('} = useSessionEdits()')
+    // The specifier itself is pinned by foundation.test.ts's import INVENTORY —
+    // spelling a relative `from '…'` inside a test file makes the isolation
+    // scanner resolve it against THIS folder and report a phantom offender.
+    expect(SRC).toContain('import { useSessionEdits, type ParkChip } from')
+    // What stays local is what dies WITH the gesture — the in-flight drag.
+    expect(SRC).toContain('const [live, setLive] = useState<LiveDrag | null>(null)')
+  })
+
+  it('the provider is mounted in the layout, which a ?day= navigation does not remount', () => {
+    expect(LAYOUT).toContain('import { BusinessSessionEdits } from')
+    expect(LAYOUT).toContain('<BusinessSessionEdits>{children}</BusinessSessionEdits>')
+    // All six really are state, in one place — a partial move would let a chip
+    // survive the flip while the booking it was placed as did not.
+    for (const name of FAMILY) expect(PROVIDER).toContain(`const [${name}, set`)
+    // Context, not a portal: react-dom is off territory's import allowlist and
+    // the topbar's ActionSlot (BusinessTopbar.tsx:23-26) says so out loud.
+    expect(PROVIDER).toContain("from 'react'")
+    expect(PROVIDER).not.toContain("'react-dom'")
+  })
+
+  it('park records the origin day as DATA, not only as the 元: sentence', () => {
+    const body = SRC.slice(SRC.indexOf('function park('), SRC.indexOf('function unpark('))
+    // canon's snapshot carries `day` per element (:5567-5570); ours carries it
+    // on the record, because our chip outlives the DOM it was taken from.
+    expect(body).toContain('home: { ...from, dayOffset: props.dayOffset, dayLabel: props.dayLabel }')
+    // …and the printed line is still the printed line.
+    expect(body).toContain('const text = parkChipText(item, hours, props.dayLabel)')
+  })
+
+  it('the × is answered by the recorded day, never by the board on screen', () => {
+    // Origin day on screen and the booking on it: straight home, canon's toast.
+    expect(unparkOutcome({ dayOffset: 0 }, 0, true)).toBe('here')
+    // Origin day elsewhere: the restore is still right — the booking lives on
+    // exactly one day — so it happens, and the caller names the day it went to.
+    // What is on THIS board is irrelevant, which is the whole point.
+    expect(unparkOutcome({ dayOffset: -2 }, 3, true)).toBe('elsewhere')
+    expect(unparkOutcome({ dayOffset: -2 }, 3, false)).toBe('elsewhere')
+    // Origin day on screen and the booking is NOT on it — the fixture world
+    // re-based under the shelf (a board left open across JST midnight).
+    expect(unparkOutcome({ dayOffset: 4 }, 4, false)).toBe('gone')
+  })
+
+  it('the soft failure keeps the chip: nothing is removed before the outcome is known', () => {
+    const body = SRC.slice(SRC.indexOf('function unpark('), SRC.indexOf('function onChipPointerDown'))
+    expect(body).toContain('const outcome = unparkOutcome(chip.home, props.dayOffset, originHere)')
+    expect(body).toContain('仮置きエリアに残しています')
+    // The ORDERING is the guarantee: the refusal returns ahead of every removal,
+    // so a chip that cannot be restored is still a chip that can be placed.
+    expect(body.indexOf("if (outcome === 'gone')")).toBeLessThan(body.indexOf('setParkChips((was) => was.filter'))
+    expect(body.indexOf("if (outcome === 'gone')")).toBeLessThan(body.indexOf('setParked((was) => was.filter'))
+    // A chip that is not there at all is a no-op, never a throw and never a
+    // toast claiming a booking went home.
+    expect(body).toContain('if (!chip) return')
+    // The restore takes its span from the RECORD, and the off-day toast says
+    // which board it went back to — the hold bar's day-pin habit.
+    expect(body).toContain('setMoves((was) => ({ ...was, [id]: { laneKey: chip.home.laneKey, x: chip.home.x, w: chip.home.w } }))')
+    expect(body).toContain('`${name}を${chip.home.dayLabel}の元の枠に戻しました`')
   })
 })
 

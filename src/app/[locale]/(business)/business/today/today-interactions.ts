@@ -481,6 +481,34 @@ export function parkChipText(item: BoardItem, hours: Hours, dayLabel: string): {
   }
 }
 
+/** ⚖ Liam 22 (2026-08-21) — THE CHIP'S ×, answered from the day on screen.
+ *
+ *  Canon's park snapshot holds the origin ELEMENTS, so `restoreSnap` (:5589)
+ *  puts the card back on its own track whatever day is showing. Ours holds a
+ *  record, and now that the shelf survives day navigation the × can be pressed
+ *  from a day that is not the origin — so the record's own `dayOffset` decides,
+ *  never the board that happens to be on screen:
+ *
+ *   · `here`      — the origin day IS on screen; the card comes back in front of
+ *                   the operator, and the toast can stay canon's.
+ *   · `elsewhere` — the origin day is another board. The restore is still right
+ *                   (the booking exists on exactly one day), so it happens — and
+ *                   the toast NAMES the day, the way the hold bar's day-pin does,
+ *                   rather than looking like the × did nothing.
+ *   · `gone`      — the origin day is on screen and the booking is NOT on it.
+ *                   The fixture world re-based underneath the shelf (a board left
+ *                   open across JST midnight). FAIL SOFT: the caller keeps the
+ *                   chip, so nothing is dropped in silence and the booking can
+ *                   still be placed from what the chip itself records. */
+export function unparkOutcome(
+  home: { dayOffset: number },
+  shownDayOffset: number,
+  originOnShownDay: boolean,
+): 'here' | 'elsewhere' | 'gone' {
+  if (home.dayOffset !== shownDayOffset) return 'elsewhere'
+  return originOnShownDay ? 'here' : 'gone'
+}
+
 /** canon `createAtCell` (:6005) via the F25 empty-slot click: the half hour the
  *  pointer landed on, clamped so a created booking cannot start after closing. */
 export function slotStartAt(track: Element, clientX: number, hours: Hours, stepMin = 30): number {

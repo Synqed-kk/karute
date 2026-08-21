@@ -18,6 +18,7 @@ import { Suspense } from 'react'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { businessStrings as s } from '@/business/i18n'
 import { listStoreOptions, readShellIdentity, readUnresolvedCounts } from '@/business/lib/data'
+import { BusinessSessionEdits } from './BusinessSessionEdits'
 import { BusinessSidebar } from './BusinessSidebar'
 import { BusinessTopbar, BusinessTopbarActionSlot } from './BusinessTopbar'
 import './business-shell.css'
@@ -74,7 +75,11 @@ export default async function BusinessLayout({
               <Suspense fallback={<header className="topbar" />}>
                 <BusinessTopbar stores={storeOptions} syncLabel={syncLabel} />
               </Suspense>
-              {children}
+              {/* ⚖ Liam 22: day navigation is a `?day=` LINK, so the screen
+                  remounts on every flip and the layout does not. The session's
+                  edits — the 仮置き chip, the cards it has been placed as, and
+                  the 仮押さえ standing over them — therefore live HERE. */}
+              <BusinessSessionEdits>{children}</BusinessSessionEdits>
             </main>
           </BusinessTopbarActionSlot>
         </div>

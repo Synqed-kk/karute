@@ -55,6 +55,7 @@ import {
 } from '@/business/lib/canon-logic/pricing'
 import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane } from '@/business/lib/today-board'
+import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
   applyBlockMoves,
@@ -89,6 +90,7 @@ import {
   spotCardAt,
   spotHitIndex,
   spotTargets,
+  unparkOutcome,
   wrapStep,
   type GuardRail,
   type Move,
@@ -293,19 +295,9 @@ interface DragCtx {
  *  React would put the board back in the render loop WO-2d took it out of. This
  *  element is mounted once per gesture, its transform is written straight to the
  *  node from the same coalesced rAF, and React never owns that transform. */
-/** A booking sitting in the 仮置きエリア. It carries the whole card, because the
- *  day it came from may not be the day on screen any more (⚖ Liam 22) and the
- *  chip is then the only record of what is being carried. */
-interface ParkChip {
-  id: string
-  title: string
-  line1: string
-  line2: string
-  category: string | null
-  home: Move
-  lenMin: number
-  item: BoardItem
-}
+/** `ParkChip` and the rest of the session-edit family now live in
+ *  ../../BusinessSessionEdits — the layout survives a `?day=` navigation and
+ *  this screen does not (⚖ Liam 22). */
 
 type DragProxy =
   | { kind: 'card'; item: BoardItem; state: string; w: number; h: number }
@@ -375,6 +367,20 @@ interface GuardAdvice {
 export function TodayScreen(props: TodayProps) {
   const { hours, ops, dialogs } = props
 
+  /** ⚖ Liam 22 — THE SESSION'S EDITS, read from the layout rather than held
+   *  here. `?day=` is a Link, so this component remounts on every day flip;
+   *  these six are the ones an operator would lose a booking to if they died
+   *  with it. Same setters, same shapes — see BusinessSessionEdits.tsx for what
+   *  each one is and why they are one family. */
+  const {
+    added, setAdded,
+    moves, setMoves,
+    parked, setParked,
+    parkChips, setParkChips,
+    pending, setPending,
+    placing, setPlacing,
+  } = useSessionEdits()
+
   const [view, setView] = useState<'both' | 'staff' | 'beds'>('both')
   const [density, setDensity] = useState<'std' | 'compact'>('std')
   const [collapsed, setCollapsed] = useState<string[]>([])
@@ -390,31 +396,14 @@ export function TodayScreen(props: TodayProps) {
   const [resolved, setResolved] = useState<string[]>([])
   const [proposalSent, setProposalSent] = useState(false)
   const [holdConfirmed, setHoldConfirmed] = useState(false)
-  /** ⚖ Liam 2026-08-20 (flag 22) — cards this session put on a board, and THE DAY
-   *  each one belongs to. Canon keeps every day in one DOM and stamps a card
-   *  `data-day`; our board is one day per server render, so the day travels with
-   *  the row instead. Without it a card placed from the shelf onto 8/22 would
-   *  reappear on every other day of the month. */
-  const [added, setAdded] = useState<Array<{ dayOffset: number; laneKey: string; item: BoardItem; fromChip?: ParkChip }>>([])
   const [calMonth, setCalMonth] = useState(0)
   const [toast, setToast] = useState('')
   const [blockInfo, setBlockInfo] = useState<{ kind: string; who: string; whoLabel: string; time: string; note: string } | null>(null)
   const [seed, setSeed] = useState<{ staffId: string; start: number; nonce: number } | null>(null)
 
   // ── the interaction plane ────────────────────────────────────────────────
-  const [moves, setMoves] = useState<Moves>({})
-  const [parked, setParked] = useState<string[]>([])
-  /** The staged change awaiting 確定 — canon's `pendingChange`. `origin` is
-   *  where the card came from, so 元に戻す has somewhere to go. */
-  /** canon's `pendingChange`, and — ⚖ R11-4 (:5686) — the DAY it is staged on.
-   *  A 仮押さえ survives day navigation, so the bar can outlive the board that
-   *  explains it; without the day it would compute its checks against whatever
-   *  board happened to be on screen and answer for a card that is not there. */
-  const [pending, setPending] = useState<{ id: string; origin: Move; dayOffset: number; dayLabel: string } | null>(null)
-  /** canon's 配置モード (`placing`, :6826). Armed by 次回予約を作成, disarmed by the
-   *  ×, by Escape, or by the placement itself. ⚖ Liam 21: it survives day
-   *  navigation, which is what its own toast promises. */
-  const [placing, setPlacing] = useState<{ label: string; name: string } | null>(null)
+  // `moves`, `parked`, `pending` and `placing` are read from the session-edit
+  // provider above; only what dies WITH the gesture is held here.
   const [live, setLive] = useState<LiveDrag | null>(null)
   /** ⚖ Liam 2026-08-20: the length of whatever is in flight, board card or shelf
    *  chip, and `null` the moment nothing is. It is the ONLY input to the
@@ -1360,29 +1349,47 @@ export function TodayScreen(props: TodayProps) {
 
   // ── 仮置きエリア ──────────────────────────────────────────────────────────
 
-  const [parkChips, setParkChips] = useState<ParkChip[]>([])
-
   function park(id: string, item: BoardItem, from: Move) {
     // ⚖ Liam 22: `parkChipText` stamps the ORIGIN day into the 元: line here, at
     // park time — so the line still names 8/20 12:00 after the operator has
-    // paged forward to 8/22, which is the whole point of the shelf.
+    // paged forward to 8/22, which is the whole point of the shelf. The same day
+    // goes onto `home` as DATA, because a printed sentence is not something the
+    // × can restore from (canon's snapshot carries `day`, :5567-5570).
     const text = parkChipText(item, hours, props.dayLabel)
     setParked((was) => (was.includes(id) ? was : [...was, id]))
-    setParkChips((was) => [...was.filter((c) => c.id !== id), { id, ...text, category: item.category, home: from, lenMin: item.endMin - item.startMin, item }])
+    setParkChips((was) => [...was.filter((c) => c.id !== id), {
+      id, ...text, category: item.category,
+      home: { ...from, dayOffset: props.dayOffset, dayLabel: props.dayLabel },
+      lenMin: item.endMin - item.startMin, item,
+    }])
     setPending(null)
     show(`${item.title}様を仮置きエリアへ移動しました（仮押さえ扱い）`)
   }
 
   /** The chip's ×. ⚖ Liam 22: it restores the booking to its ORIGIN day and slot
-   *  — `home` is the span it was taken from, and dropping it out of `parked` puts
-   *  the original card back on the day that owns it, whichever day is on screen. */
+   *  — `home` is the span AND the day it was taken from, so the restore is right
+   *  from ANY day the operator happens to be standing on. `unparkOutcome` owns
+   *  the three cases; the only one that does not restore is the soft failure. */
   function unpark(id: string) {
     const chip = parkChips.find((c) => c.id === id)
+    if (!chip) return
+    const name = chip.title.replace('（仮押さえ・未配置）', '')
+    // The only board this browser can see is the one on screen, so the origin is
+    // checkable exactly when the origin day IS on screen: the server's own lanes
+    // for today, plus anything this session added to them.
+    const originHere =
+      props.lanes.some((l) => l.items.some((i) => i.caseId === id)) ||
+      added.some((a) => a.dayOffset === props.dayOffset && a.item.caseId === id)
+    const outcome = unparkOutcome(chip.home, props.dayOffset, originHere)
+    if (outcome === 'gone') {
+      show(`${name}の元の枠が見つかりません。仮置きエリアに残しています`)
+      return
+    }
     setParked((was) => was.filter((x) => x !== id))
     setParkChips((was) => was.filter((c) => c.id !== id))
     setAdded((was) => was.filter((a) => a.item.caseId !== id))
-    if (chip) setMoves((was) => ({ ...was, [id]: chip.home }))
-    show(`${chip?.title.replace('（仮押さえ・未配置）', '') ?? '予約'}を元の枠に戻しました`)
+    setMoves((was) => ({ ...was, [id]: { laneKey: chip.home.laneKey, x: chip.home.x, w: chip.home.w } }))
+    show(outcome === 'here' ? `${name}を元の枠に戻しました` : `${name}を${chip.home.dayLabel}の元の枠に戻しました`)
   }
 
   function onChipPointerDown(e: React.PointerEvent<HTMLElement>, id: string) {
