@@ -84,7 +84,9 @@ import {
   isOverShelf,
   laneKeyAtY,
   nextSpan,
+  onShownBoard,
   parkChipText,
+  sameStore,
   sellLayerFor,
   slotStartAt,
   spotCardAt,
@@ -381,6 +383,20 @@ export function TodayScreen(props: TodayProps) {
     placing, setPlacing,
   } = useSessionEdits()
 
+  /** ⚖ 46 forerunner — WHICH BOARD IS ON SCREEN, as data. Every session-edit
+   *  element is stamped from these two and scoped back against them, so no site
+   *  can stamp the day and forget the store. `board` is what the predicates
+   *  compare; `boardStamp` adds the two LABELS, for the records that have to be
+   *  able to name the board they are answering for (the chip, the hold bar). */
+  //  `board` is memoised because the whole derivation chain hangs off it: a
+  //  fresh object every render would re-run `addedHere` → `boardLanes` → the
+  //  sell layer and the guard, on every keystroke this screen has.
+  const board = useMemo(
+    () => ({ dayOffset: props.dayOffset, store: props.storeParam }),
+    [props.dayOffset, props.storeParam],
+  )
+  const boardStamp = { ...board, dayLabel: props.dayLabel, storeLabel: props.lensLabel }
+
   const [view, setView] = useState<'both' | 'staff' | 'beds'>('both')
   const [density, setDensity] = useState<'std' | 'compact'>('std')
   const [collapsed, setCollapsed] = useState<string[]>([])
@@ -553,10 +569,13 @@ export function TodayScreen(props: TodayProps) {
     () => (live ? { ...moves, [live.id]: { laneKey: live.targetLane, x: live.x, w: live.w } } : moves),
     [moves, live],
   )
-  /** Only the cards this session put on the day currently on screen. */
+  /** Only the cards this session put on the BOARD currently on screen — the day
+   *  (⚖ 22) and, ⚖ 46 forerunner, the store. A row scoped by day alone painted
+   *  onto the other store's board wherever the two shared a lane key, which is
+   *  every staff member who works at both. */
   const addedHere = useMemo(
-    () => added.filter((a) => a.dayOffset === props.dayOffset),
-    [added, props.dayOffset],
+    () => added.filter((a) => onShownBoard(a, board)),
+    [added, board],
   )
   /** ⚖ Liam flag 26 — the server's board with this session's block moves on it.
    *  One pass, ahead of the booking passes, so both the live board and the
@@ -686,9 +705,11 @@ export function TodayScreen(props: TodayProps) {
     setToast(message)
   }
 
-  function dayHref(offset: number) {
+  /** ⚖ 46 forerunner — `store` defaults to the board on screen and is overridden
+   *  only by the hold bar's pin, which has to point at the pending's own board. */
+  function dayHref(offset: number, store: string | null = props.storeParam) {
     const q = new URLSearchParams()
-    if (props.storeParam) q.set('store', props.storeParam)
+    if (store) q.set('store', store)
     if (offset !== 0) q.set('day', String(offset))
     const s = q.toString()
     return `/${props.locale}/business/today${s ? `?${s}` : ''}`
@@ -755,16 +776,21 @@ export function TodayScreen(props: TodayProps) {
    *  answering. Its checks are computed from the board on screen, and that board
    *  does not contain the card; canon carries every day in one DOM and so never
    *  had to say this out loud. The pin says where the card is and takes the
-   *  operator back to it. */
-  const pendingOffDay = pending != null && pending.dayOffset !== props.dayOffset
-  const pendingChecks = pending && !pendingOffDay && moves[pending.id] ? checksFor(pending.id, moves[pending.id]) : []
-  const pendingConfirm = pendingOffDay
+   *  operator back to it.
+   *
+   *  ⚖ 46 forerunner: a different STORE is the same situation and was silently
+   *  worse — the day matched, so the bar went on computing, and it answered for
+   *  the other store's board with this store's cards. One predicate now, so the
+   *  two can never drift apart. */
+  const pendingOffBoard = pending != null && !onShownBoard(pending, board)
+  const pendingChecks = pending && !pendingOffBoard && moves[pending.id] ? checksFor(pending.id, moves[pending.id]) : []
+  const pendingConfirm = pendingOffBoard
     ? { enabled: false, label: 'この内容で確定' }
     : confirmCaption(pendingChecks)
 
   function stage(id: string, laneKey: string, span: { x: number; w: number }, from: Move) {
     setMoves((was) => ({ ...was, [id]: { laneKey, ...span } }))
-    setPending((was) => (was && was.id === id ? was : { id, origin: from, dayOffset: props.dayOffset, dayLabel: props.dayLabel }))
+    setPending((was) => (was && was.id === id ? was : { id, origin: from, ...boardStamp }))
     setSelected(null)
   }
 
@@ -797,7 +823,7 @@ export function TodayScreen(props: TodayProps) {
     // canon R11-7 (:5461): the checks are re-run at the moment of confirm, so a
     // lane locked after staging cannot be confirmed through.
     const at = moves[pending.id]
-    if (pendingOffDay || !at || !confirmCaption(checksFor(pending.id, at)).enabled) {
+    if (pendingOffBoard || !at || !confirmCaption(checksFor(pending.id, at)).enabled) {
       show('状況が変わったため、この内容では確定できません')
       return
     }
@@ -1359,7 +1385,7 @@ export function TodayScreen(props: TodayProps) {
     setParked((was) => (was.includes(id) ? was : [...was, id]))
     setParkChips((was) => [...was.filter((c) => c.id !== id), {
       id, ...text, category: item.category,
-      home: { ...from, dayOffset: props.dayOffset, dayLabel: props.dayLabel },
+      home: { ...from, ...boardStamp },
       lenMin: item.endMin - item.startMin, item,
     }])
     setPending(null)
@@ -1379,8 +1405,8 @@ export function TodayScreen(props: TodayProps) {
     // for today, plus anything this session added to them.
     const originHere =
       props.lanes.some((l) => l.items.some((i) => i.caseId === id)) ||
-      added.some((a) => a.dayOffset === props.dayOffset && a.item.caseId === id)
-    const outcome = unparkOutcome(chip.home, props.dayOffset, originHere)
+      added.some((a) => onShownBoard(a, board) && a.item.caseId === id)
+    const outcome = unparkOutcome(chip.home, board, originHere)
     if (outcome === 'gone') {
       show(`${name}の元の枠が見つかりません。仮置きエリアに残しています`)
       return
@@ -1389,7 +1415,13 @@ export function TodayScreen(props: TodayProps) {
     setParkChips((was) => was.filter((c) => c.id !== id))
     setAdded((was) => was.filter((a) => a.item.caseId !== id))
     setMoves((was) => ({ ...was, [id]: { laneKey: chip.home.laneKey, x: chip.home.x, w: chip.home.w } }))
-    show(outcome === 'here' ? `${name}を元の枠に戻しました` : `${name}を${chip.home.dayLabel}の元の枠に戻しました`)
+    // ⚖ 46 forerunner — the × works from ANY board, and the toast says which one
+    // the booking went back to. A foreign store is named as well as the day: the
+    // day alone would read as this store's, which is the one thing it is not.
+    const backTo = sameStore(chip.home.store, props.storeParam)
+      ? chip.home.dayLabel
+      : `${chip.home.storeLabel} ${chip.home.dayLabel}`
+    show(outcome === 'here' ? `${name}を元の枠に戻しました` : `${name}を${backTo}の元の枠に戻しました`)
   }
 
   function onChipPointerDown(e: React.PointerEvent<HTMLElement>, id: string) {
@@ -1481,6 +1513,11 @@ export function TodayScreen(props: TodayProps) {
     setPlacing({
       label: `${props.inStore.name}様の次回予約（${props.guard.standardSessionMin}分・単発）— お客様情報は自動入力`,
       name: props.inStore.name,
+      // ⚖ 46 forerunner — the STORE only. ⚖ 21 already says the intent is
+      // day-agnostic on purpose ("日付を移動してもそのまま"), so stamping a day
+      // onto it would be a field nothing may read.
+      store: props.storeParam,
+      storeLabel: props.lensLabel,
     })
     show('配置モード: 置きたい空き枠をクリック（日付を移動してもそのまま）')
   }
@@ -1493,6 +1530,15 @@ export function TodayScreen(props: TodayProps) {
   function placeNextVisit(lane: BoardLane, start: number) {
     const p = placing
     if (!p) return
+    // ⚖ 46 forerunner — 配置モード survives `?store=` the way it survives `?day=`
+    // (⚖ 21), so it can be armed on 銀座 and clicked on 新宿. ⚖ 46's shape: the
+    // intent is not destroyed, it is REFUSED, and the toast names the store it
+    // was armed on. Ahead of every setter, so nothing is placed and nothing
+    // cleared — the operator switches back and the intent is still in hand.
+    if (!sameStore(p.store, props.storeParam)) {
+      show(`${p.storeLabel}で始めた配置です。${p.storeLabel}に切り替えてから置いてください`)
+      return
+    }
     const end = Math.min(start + props.guard.standardSessionMin, hours.close)
     const partner = freePartnerLane(boardLanes, 'staff', start, end)
     if (!partner) {
@@ -1503,8 +1549,16 @@ export function TodayScreen(props: TodayProps) {
     // canon's `cellCreateSeq` (:6029): a counter, not a clock. Two placements in
     // the same millisecond would collide on a timestamp, and the id is a React
     // key here — the board would drop one of the two cards.
+    //
+    // ⚖ 46 forerunner — AND THE BOARD, because the counter alone is not unique.
+    // `createSeq` is a ref inside this screen and the screen remounts on every
+    // `?day=` / `?store=` navigation, so the first placement on EVERY board was
+    // `nextvisit-1`: two of them collided in `moves`, and `revertPending`'s
+    // caseId lookup would take the wrong one back. This is the reason `moves`
+    // needs no store stamp — every other id in it is a real booking's, which
+    // belongs to exactly one store (see BusinessSessionEdits.tsx).
     createSeq.current += 1
-    const id = `nextvisit-${createSeq.current}`
+    const id = `nextvisit-${props.storeParam ?? 'all'}-${props.dayOffset}-${createSeq.current}`
     const span = place(start, end, hours)
     const face = {
       kind: 'booking' as const,
@@ -1522,13 +1576,13 @@ export function TodayScreen(props: TodayProps) {
     }
     setAdded((was) => [
       ...was,
-      { dayOffset: props.dayOffset, laneKey: lane.key, item: { ...face, key: `${id}-staff`, tag: `【${partner.label}】` } },
-      { dayOffset: props.dayOffset, laneKey: partner.key, item: { ...face, key: `${id}-bed`, tag: `【${lane.label}】` } },
+      { ...board, laneKey: lane.key, item: { ...face, key: `${id}-staff`, tag: `【${partner.label}】` } },
+      { ...board, laneKey: partner.key, item: { ...face, key: `${id}-bed`, tag: `【${lane.label}】` } },
     ])
     setMoves((was) => ({ ...was, [id]: { laneKey: lane.key, ...span } }))
     // '' is `revertPending`'s "there is no earlier span" sentinel: 元に戻す on a
     // creation deletes it rather than moving it somewhere it has never been.
-    setPending({ id, origin: { laneKey: '', x: 0, w: 0 }, dayOffset: props.dayOffset, dayLabel: props.dayLabel })
+    setPending({ id, origin: { laneKey: '', x: 0, w: 0 }, ...boardStamp })
     setSelected(null)
     show(`${p.name}様の次回予約を${props.dayLabel} ${hhmm(start)}に仮押さえしました（お客様情報は自動入力）`)
   }
@@ -1544,6 +1598,17 @@ export function TodayScreen(props: TodayProps) {
    *  `moves` is still written because the 仮押さえ bar's checks read the span
    *  from there; it never draws the card. */
   function placeFromShelf(chip: ParkChip, laneKey: string, span: { x: number; w: number }) {
+    // ⚖ 46 forerunner — THE CHIP GOES TO ANY DAY, BUT ONLY TO ITS OWN STORE. The
+    // shelf survives `?store=`, and ⚖ 46 keeps every chip VISIBLE on every board
+    // (it is the operator's hand, not the board's content). What a foreign board
+    // cannot do is take it: this board's lanes are other people and other rooms,
+    // and the booking's own store would lose it. So the drop is REFUSED and the
+    // toast names the chip's store — ahead of every setter, so the chip is still
+    // on the shelf and the × still works, exactly as ⚖ 46 requires.
+    if (!sameStore(chip.home.store, props.storeParam)) {
+      show(`${chip.item.title}様は${chip.home.storeLabel}の予約です。${chip.home.storeLabel}に切り替えてから置いてください`)
+      return
+    }
     const start = minuteOf(span.x, hours)
     const end = minuteOf(span.x + span.w, hours)
     // canon :5629/:5666: the drop names ONE lane, and which group it belongs to
@@ -1579,11 +1644,11 @@ export function TodayScreen(props: TodayProps) {
     setParkChips((was) => was.filter((c) => c.id !== chip.id))
     setAdded((was) => [
       ...was.filter((a) => a.item.caseId !== chip.id),
-      { dayOffset: props.dayOffset, laneKey: staff.key, fromChip: chip, item: { ...landed, key: `${chip.id}-staff`, tag: `【${bed.label}】` } },
-      { dayOffset: props.dayOffset, laneKey: bed.key, item: { ...landed, key: `${chip.id}-bed`, tag: `【${staffLabel}】` } },
+      { ...board, laneKey: staff.key, fromChip: chip, item: { ...landed, key: `${chip.id}-staff`, tag: `【${bed.label}】` } },
+      { ...board, laneKey: bed.key, item: { ...landed, key: `${chip.id}-bed`, tag: `【${staffLabel}】` } },
     ])
     setMoves((was) => ({ ...was, [chip.id]: { laneKey: staff.key, ...span } }))
-    setPending({ id: chip.id, origin: chip.home, dayOffset: props.dayOffset, dayLabel: props.dayLabel })
+    setPending({ id: chip.id, origin: chip.home, ...boardStamp })
     setSelected(null)
     show(`${chip.item.title}様を${props.dayLabel} ${hhmm(start)}へ仮押さえしました`)
   }
@@ -2384,14 +2449,18 @@ export function TodayScreen(props: TodayProps) {
           <div className="holdbar" role="region" aria-label="仮押さえの確認">
             <div className="holdbar-head">
               <span className="status waiting">仮押さえ</span>
-              <strong>{pendingOffDay ? '' : holdSummary(boardLanes, pending.id, moves[pending.id], hours)}</strong>
+              <strong>{pendingOffBoard ? '' : holdSummary(boardLanes, pending.id, moves[pending.id], hours)}</strong>
               {/* canon's 日付ピン (:2048, :3675): the bar persists across days, so
                   when it is not this day's it says whose it is and offers the
-                  way back rather than sitting there answering for nothing. */}
-              {pendingOffDay && (
+                  way back rather than sitting there answering for nothing.
+                  ⚖ 46 forerunner: it persists across STORES too, so the pin names
+                  the store when that is what differs, and the way back carries
+                  the pending's OWN store — this store's `?store=` would land the
+                  operator on the right day of the wrong board. */}
+              {pendingOffBoard && (
                 <span className="hold-daypin">
-                  <span>確定待ち: {pending.dayLabel}</span>
-                  <Link href={dayHref(pending.dayOffset)}>{pending.dayLabel}へ戻る</Link>
+                  <span>確定待ち: {sameStore(pending.store, props.storeParam) ? pending.dayLabel : `${pending.storeLabel} ${pending.dayLabel}`}</span>
+                  <Link href={dayHref(pending.dayOffset, pending.store)}>{pending.dayLabel}へ戻る</Link>
                 </span>
               )}
             </div>
@@ -2664,7 +2733,7 @@ export function TodayScreen(props: TodayProps) {
         hours={hours}
         seed={seed}
         onCreate={(laneKey, item, message) => {
-          setAdded((was) => [...was, { dayOffset: props.dayOffset, laneKey, item }])
+          setAdded((was) => [...was, { ...board, laneKey, item }])
           show(message)
         }}
       />

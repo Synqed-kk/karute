@@ -25,6 +25,26 @@
 // NOTHING PERSISTS beyond the tab: this is component state, so a reload still
 // resets the board exactly as every toast on this screen promises.
 //
+// ⚖ 46 FORERUNNER (slice C, Greptile #737 P1) — EVERY ELEMENT IS STORE-STAMPED.
+// This provider survives `?store=` for the same reason it survives `?day=`: the
+// layout does not remount. So each element carries the store identity that was
+// on screen when it was made, and the screen renders/evaluates only its own —
+// see `onShownBoard` / `sameStore` in today-interactions.ts for the rule and the
+// SUPERSESSION NOTE: slice F (batch 7, feat/business-transplant-today) ships the
+// fuller ⚖ 46 design and REPLACES everything marked "⚖ 46 forerunner" here.
+//
+// `moves` takes no stamp, and that is a finding rather than an omission. It is
+// keyed by `caseId`, and `applyMoves` can only act on a key the board on screen
+// already carries: its `kept`/`moved` passes read `moves[item.caseId]` off that
+// board's own items, and its `arrivals` pass drops any id `homeStaffItem` (built
+// from the same board) does not know. A real booking id belongs to one store, so
+// neither path can reach across. The one id that WAS forgeable across boards is
+// the synthetic `nextvisit-N` — `createSeq` is a ref inside the screen and the
+// screen remounts on every navigation, so store B's first placement was also
+// `nextvisit-1`. That is fixed at the id (TodayScreen `placeNextVisit`), which is
+// the root cause, rather than by rippling a required `store` through `Move` — a
+// shape that also describes drag origins and block spans, where it means nothing.
+//
 // NOT CARRIED, deliberately: `blockMoves`. A 予定ブロック is keyed by `item.key`
 // and the same block is drawn on every day of the fixture world, so a surviving
 // block move would show up on all of them — day-scoping it is a separate
@@ -50,6 +70,12 @@ import type { BoardItem } from '@/business/lib/today-board'
 export interface ParkHome extends Move {
   dayOffset: number
   dayLabel: string
+  /** ⚖ 46 forerunner — the store this card was taken from, and its name. The
+   *  pair is the day pair's twin and for the same two reasons: the code has to
+   *  be able to ACT on the origin board (the × restores to it) and the toast has
+   *  to be able to NAME it when it is not the one on screen. */
+  store: string | null
+  storeLabel: string
 }
 
 /** A booking sitting in the 仮置きエリア. It carries the whole card, because the
@@ -73,6 +99,10 @@ export interface ParkChip {
  *  of the month. `fromChip` is what 元に戻す puts back on the shelf. */
 export interface AddedRow {
   dayOffset: number
+  /** ⚖ 46 forerunner — and THE STORE, for the same reason as the day. Two stores
+   *  that share a staff member share that staff member's lane key, so a row
+   *  scoped by day alone painted onto both boards. */
+  store: string | null
   laneKey: string
   item: BoardItem
   fromChip?: ParkChip
@@ -87,6 +117,11 @@ export interface PendingChange {
   origin: Move
   dayOffset: number
   dayLabel: string
+  /** ⚖ 46 forerunner — the board it is staged on. Without it the bar re-ran its
+   *  checks against whichever STORE was on screen and answered for a card that
+   *  board has never had; the day-pin now names the store too when it differs. */
+  store: string | null
+  storeLabel: string
 }
 
 /** canon's 配置モード (`placing`, :6826). Armed by 次回予約を作成, disarmed by the
@@ -96,6 +131,11 @@ export interface PendingChange {
 export interface PlacingIntent {
   label: string
   name: string
+  /** ⚖ 46 forerunner — the store the intent was armed on. It survives `?store=`
+   *  like everything else here, so the click has to be able to refuse a foreign
+   *  board and name the store the operator armed it from. */
+  store: string | null
+  storeLabel: string
 }
 
 interface SessionEdits {

@@ -56,6 +56,8 @@ import {
   reasonLine,
   sellLayerFor,
   slotStartAt,
+  onShownBoard,
+  sameStore,
   unparkOutcome,
   type GuardRail,
   type Moves,
@@ -1195,16 +1197,23 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
 
   it('the screen scopes every added row to a day, and both undo paths clear it', () => {
     expect(SRC).toContain('const addedHere = useMemo(')
-    expect(SRC).toContain('added.filter((a) => a.dayOffset === props.dayOffset)')
-    // All three boards read the day-scoped list — a card placed on 8/22 cannot
+    // RENEGOTIATED (⚖ 46 forerunner, Greptile #737 P1): the scope is the BOARD —
+    // the day AND the store — behind one predicate, so a row cannot be scoped to
+    // one and not the other. The day half is still pinned, in `onShownBoard`.
+    expect(SRC).toContain('added.filter((a) => onShownBoard(a, board))')
+    // All three boards read the board-scoped list — a card placed on 8/22 cannot
     // leak into 8/20's derivation, let alone its price layer.
     // (⚖ flag 26: `placedLanes` is props.lanes + this session's block moves —
     // the day-scoped `addedHere` argument is what this test is pinning.)
     expect(SRC).toContain('applyMoves(placedLanes, liveMoves, parked, addedHere, hours)')
     expect(SRC).toContain('applyMoves(placedLanes, moves, parked, addedHere, hours)')
-    // The shelf lands through `added`, stamped with the day on screen.
-    const body = SRC.slice(SRC.indexOf('function placeFromShelf'), SRC.indexOf('function placeFromShelf') + 3200)
-    expect(body).toContain('dayOffset: props.dayOffset')
+    // The shelf lands through `added`, stamped with the BOARD on screen —
+    // RENEGOTIATED (⚖ 46 forerunner): the day and the store together, from the
+    // one `board` const, so a landing cannot record half of where it landed.
+    const body = SRC.slice(SRC.indexOf('function placeFromShelf'), SRC.indexOf('function placeFromShelf') + 3600)
+    expect(body).toContain('{ ...board, laneKey: staff.key, fromChip: chip,')
+    expect(SRC).toContain('const board = useMemo(')
+    expect(SRC).toContain('() => ({ dayOffset: props.dayOffset, store: props.storeParam }),')
     expect(body).toContain('setParkChips((was) => was.filter((c) => c.id !== chip.id))')
     // The card's accessible name leads with its span, so the landing rewrites it
     // — a card drawn at 15:00 that still announces 14:05 is the one thing on the
@@ -1274,27 +1283,35 @@ describe('the session’s edits outlive the day flip, and the × knows which day
     const body = SRC.slice(SRC.indexOf('function park('), SRC.indexOf('function unpark('))
     // canon's snapshot carries `day` per element (:5567-5570); ours carries it
     // on the record, because our chip outlives the DOM it was taken from.
-    expect(body).toContain('home: { ...from, dayOffset: props.dayOffset, dayLabel: props.dayLabel }')
+    // RENEGOTIATED (⚖ 46 forerunner, Greptile #737 P1): the four stamp fields
+    // are spelled ONCE, in `boardStamp`, so no site can record the day and
+    // forget the store. The pin follows them there.
+    expect(body).toContain('home: { ...from, ...boardStamp }')
+    expect(SRC).toContain('const boardStamp = { ...board, dayLabel: props.dayLabel, storeLabel: props.lensLabel }')
     // …and the printed line is still the printed line.
     expect(body).toContain('const text = parkChipText(item, hours, props.dayLabel)')
   })
 
   it('the × is answered by the recorded day, never by the board on screen', () => {
+    // RENEGOTIATED (⚖ 46 forerunner): a board is a day AND a store, so both
+    // sides of the comparison are now boards. Same four day cases, one store.
+    const A = (dayOffset: number) => ({ dayOffset, store: 'store-a' })
     // Origin day on screen and the booking on it: straight home, canon's toast.
-    expect(unparkOutcome({ dayOffset: 0 }, 0, true)).toBe('here')
+    expect(unparkOutcome(A(0), A(0), true)).toBe('here')
     // Origin day elsewhere: the restore is still right — the booking lives on
     // exactly one day — so it happens, and the caller names the day it went to.
     // What is on THIS board is irrelevant, which is the whole point.
-    expect(unparkOutcome({ dayOffset: -2 }, 3, true)).toBe('elsewhere')
-    expect(unparkOutcome({ dayOffset: -2 }, 3, false)).toBe('elsewhere')
+    expect(unparkOutcome(A(-2), A(3), true)).toBe('elsewhere')
+    expect(unparkOutcome(A(-2), A(3), false)).toBe('elsewhere')
     // Origin day on screen and the booking is NOT on it — the fixture world
     // re-based under the shelf (a board left open across JST midnight).
-    expect(unparkOutcome({ dayOffset: 4 }, 4, false)).toBe('gone')
+    expect(unparkOutcome(A(4), A(4), false)).toBe('gone')
   })
 
   it('the soft failure keeps the chip: nothing is removed before the outcome is known', () => {
     const body = SRC.slice(SRC.indexOf('function unpark('), SRC.indexOf('function onChipPointerDown'))
-    expect(body).toContain('const outcome = unparkOutcome(chip.home, props.dayOffset, originHere)')
+    // RENEGOTIATED (⚖ 46 forerunner): `board` is the day AND the store on screen.
+    expect(body).toContain('const outcome = unparkOutcome(chip.home, board, originHere)')
     expect(body).toContain('仮置きエリアに残しています')
     // The ORDERING is the guarantee: the refusal returns ahead of every removal,
     // so a chip that cannot be restored is still a chip that can be placed.
@@ -1306,7 +1323,146 @@ describe('the session’s edits outlive the day flip, and the × knows which day
     // The restore takes its span from the RECORD, and the off-day toast says
     // which board it went back to — the hold bar's day-pin habit.
     expect(body).toContain('setMoves((was) => ({ ...was, [id]: { laneKey: chip.home.laneKey, x: chip.home.x, w: chip.home.w } }))')
-    expect(body).toContain('`${name}を${chip.home.dayLabel}の元の枠に戻しました`')
+    // RENEGOTIATED (⚖ 46 forerunner): the off-board toast names the store too
+    // when that is what differs — a bare day label would read as this store's.
+    expect(body).toContain('`${name}を${backTo}の元の枠に戻しました`')
+    expect(body).toContain('`${chip.home.storeLabel} ${chip.home.dayLabel}`')
+  })
+})
+
+/** ⚖ 46 FORERUNNER — GREPTILE #737 P1: A BOARD IS A DAY *AND* A STORE.
+ *
+ *  The provider lives in the layout, and `?store=` is a Link exactly like
+ *  `?day=` — so the session-edit family survived a store switch and was being
+ *  rendered on, and evaluated against, the other store's board. The sharpest
+ *  case is a staff member who works at BOTH stores: the two boards then share
+ *  that person's lane key, and a card added on one painted onto the other.
+ *
+ *  FORWARD SUPERSESSION: slice F (batch 7, feat/business-transplant-today) ships
+ *  the fuller ⚖ 46 design — storeParam + storeLabel on ParkHome/PlacingIntent and
+ *  a named `foreignStoreRefusal`. On replay the LATER slice wins this whole
+ *  family; every "⚖ 46 forerunner" here is the thing being replaced.
+ *
+ *  ⚖ 46 SHAPE, held to here: parked chips stay VISIBLE on every board (the shelf
+ *  is the operator's hand, not the board's content), a placement on a foreign
+ *  board is REFUSED rather than silently dropped or silently landed, the refusal
+ *  destroys NOTHING, and the × restores from anywhere. */
+describe('a session edit belongs to ONE board — the day and the store it was made on', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const PLACE_NEXT = SRC.slice(SRC.indexOf('function placeNextVisit('), SRC.indexOf('function placeFromShelf('))
+  const PLACE_SHELF = SRC.slice(SRC.indexOf('function placeFromShelf('), SRC.indexOf('const monthCells ='))
+  const STORE_A = 'store-a'
+  const STORE_B = 'store-b'
+  /** The shared staff member. Both stores draw her lane under the SAME key,
+   *  which is exactly why day-only scoping leaked. */
+  const SHARED = 'p-01'
+  const boardA = { dayOffset: 0, store: STORE_A }
+  const boardB = { dayOffset: 0, store: STORE_B }
+
+  it('“same store” is identity, and the all-stores lens is its own board', () => {
+    expect(sameStore(STORE_A, STORE_A)).toBe(true)
+    expect(sameStore(STORE_A, STORE_B)).toBe(false)
+    // null is the {viewAll:true} lens (defaultStoreId returns it only when the
+    // actor has no store at all). It is a THIRD board, never a wildcard: a
+    // wildcard here would paint one store's staged cards onto the merge.
+    expect(sameStore(null, STORE_A)).toBe(false)
+    expect(sameStore(STORE_A, null)).toBe(false)
+    expect(sameStore(null, null)).toBe(true)
+  })
+
+  it('an edit is on the shown board only when BOTH the day and the store match', () => {
+    expect(onShownBoard({ dayOffset: 0, store: STORE_A }, boardA)).toBe(true)
+    // Right store, wrong day — ⚖ 22's half of the rule.
+    expect(onShownBoard({ dayOffset: 1, store: STORE_A }, boardA)).toBe(false)
+    // Right day, wrong store — the half this fix adds, and the one that was
+    // silently absent: the day matched, so everything went on computing.
+    expect(onShownBoard({ dayOffset: 0, store: STORE_B }, boardA)).toBe(false)
+    expect(onShownBoard({ dayOffset: 1, store: STORE_B }, boardA)).toBe(false)
+  })
+
+  it('a booking added on store A does not paint on store B’s board — even on the SHARED staff lane', () => {
+    // Both stores render the shared staff member's lane under the same key.
+    const lanesB = [lane({ key: SHARED, group: 'staff' }), lane({ key: 'bed-01', group: 'beds' })]
+    const card = booking({ key: 'nextvisit-store-a-0-1-staff', caseId: 'nextvisit-store-a-0-1' }, 780, 840)
+    const added = [{ ...boardA, laneKey: SHARED, item: card }]
+
+    // Store A's board, same day: the card is there — the scoping must not have
+    // simply broken the feature it is guarding.
+    const onA = applyMoves(lanesB, {}, [], added.filter((a) => onShownBoard(a, boardA)), HOURS)
+    expect(onA[0].items.map((i) => i.caseId)).toEqual(['nextvisit-store-a-0-1'])
+
+    // Store B's board, same day, same lane key: nothing.
+    const onB = applyMoves(lanesB, {}, [], added.filter((a) => onShownBoard(a, boardB)), HOURS)
+    expect(onB.every((l) => l.items.length === 0)).toBe(true)
+  })
+
+  it('a move staged on store A cannot reach store B’s board', () => {
+    // `moves` carries no store stamp, and this is the evidence for why: it is
+    // keyed by caseId, and `applyMoves` can only act on a key the board on
+    // screen already has. Store B has no such booking, so the move finds no
+    // home to carry and no item to redraw — the arrivals pass drops it.
+    const lanesB = [
+      lane({ key: SHARED, group: 'staff', items: [booking({ key: 'b-staff', caseId: 'apt-b' }, 660, 720)] }),
+      lane({ key: 'p-09', group: 'staff' }),
+    ]
+    const stagedOnA: Moves = { 'apt-a': { laneKey: SHARED, x: 0, w: 100 / 9 } }
+    const out = applyMoves(lanesB, stagedOnA, [], [], HOURS)
+    expect(out.flatMap((l) => l.items.map((i) => i.caseId))).toEqual(['apt-b'])
+    // …and store B's own card is untouched by the foreign move.
+    expect(out[0].items[0].startMin).toBe(660)
+  })
+
+  it('the created id carries its board, so two boards’ first placements cannot collide', () => {
+    // `createSeq` is a ref inside the screen and the screen remounts on every
+    // navigation, so the counter alone made EVERY board's first placement
+    // `nextvisit-1` — colliding in `moves` and in revertPending's caseId lookup.
+    expect(PLACE_NEXT).toContain('const id = `nextvisit-${props.storeParam ?? \'all\'}-${props.dayOffset}-${createSeq.current}`')
+  })
+
+  it('placing a chip on a foreign store is REFUSED, and the refusal destroys nothing', () => {
+    expect(PLACE_SHELF).toContain('if (!sameStore(chip.home.store, props.storeParam)) {')
+    // The toast names the chip's OWN store — ⚖ 46's wording rule.
+    expect(PLACE_SHELF).toContain('${chip.home.storeLabel}の予約です')
+    // ORDERING IS THE GUARANTEE (the unpark habit): the refusal returns ahead of
+    // every setter, so nothing is placed, the chip stays on the shelf, and the ×
+    // still works. A guard placed after `setParkChips` would read as a refusal
+    // and behave as a deletion.
+    const refusal = PLACE_SHELF.indexOf('if (!sameStore(chip.home.store, props.storeParam)) {')
+    for (const setter of ['setParkChips(', 'setAdded(', 'setMoves(', 'setPending(']) {
+      expect(PLACE_SHELF.indexOf(setter)).toBeGreaterThan(refusal)
+    }
+  })
+
+  it('配置モード armed on store A is refused on store B, and stays in hand', () => {
+    expect(PLACE_NEXT).toContain('if (!sameStore(p.store, props.storeParam)) {')
+    expect(PLACE_NEXT).toContain('${p.storeLabel}で始めた配置です')
+    // Ahead of `setPlacing(null)` — a refusal that disarmed the intent would
+    // make the operator re-arm it, which is the state destruction ⚖ 46 forbids.
+    expect(PLACE_NEXT.indexOf('setPlacing(null)')).toBeGreaterThan(PLACE_NEXT.indexOf('if (!sameStore(p.store, props.storeParam)) {'))
+  })
+
+  it('the × restores from a FOREIGN store — it is never the `gone` refusal', () => {
+    const homeA = { dayOffset: 0, store: STORE_A }
+    // Standing on store B, same day. The booking is not on the board in front of
+    // the operator and never can be, so asking "is it here?" can only answer no
+    // — which without the store check meant `gone`, i.e. every cross-store ×
+    // refused. The origin store answers first, and the restore happens.
+    expect(unparkOutcome(homeA, boardB, false)).toBe('elsewhere')
+    expect(unparkOutcome(homeA, boardB, true)).toBe('elsewhere')
+    // Another store AND another day is still just "elsewhere".
+    expect(unparkOutcome(homeA, { dayOffset: 3, store: STORE_B }, false)).toBe('elsewhere')
+    // `gone` survives for the one case it was written for: the SAME board.
+    expect(unparkOutcome(homeA, boardA, false)).toBe('gone')
+  })
+
+  it('the 仮押さえ bar stops answering off-board, and its way back carries the right store', () => {
+    // One predicate for the day case and the store case, so they cannot drift.
+    expect(SRC).toContain('const pendingOffBoard = pending != null && !onShownBoard(pending, board)')
+    expect(SRC).not.toContain('pendingOffDay')
+    // The pin's link takes the pending's OWN store; this store's `?store=` would
+    // land the operator on the right day of the wrong board.
+    expect(SRC).toContain('dayHref(pending.dayOffset, pending.store)')
+    expect(SRC).toContain('function dayHref(offset: number, store: string | null = props.storeParam)')
   })
 })
 
@@ -1352,10 +1508,13 @@ describe('the shelf family, enumerated against canon rather than against the fla
   it('a 仮押さえ staged on another day says so, and cannot be confirmed from here', () => {
     // canon carries every day in one DOM, so its bar is always answering about a
     // card it can see. Ours renders one day, so the bar has to know its own.
-    expect(SRC).toContain('const pendingOffDay = pending != null && pending.dayOffset !== props.dayOffset')
+    // RENEGOTIATED (⚖ 46 forerunner, Greptile #737 P1): "another day" became
+    // "another BOARD" — a foreign store was the same situation and silently
+    // worse, because the day matched and the bar went on answering.
+    expect(SRC).toContain('const pendingOffBoard = pending != null && !onShownBoard(pending, board)')
     expect(SRC).toContain("? { enabled: false, label: 'この内容で確定' }")
-    expect(SRC).toContain('if (pendingOffDay || !at ||')
-    expect(SRC).toContain('確定待ち: {pending.dayLabel}')
+    expect(SRC).toContain('if (pendingOffBoard || !at ||')
+    expect(SRC).toContain('確定待ち: {sameStore(pending.store, props.storeParam) ? pending.dayLabel :')
     expect(SRC).toContain('{pending.dayLabel}へ戻る')
     expect(CSS).toContain('.biz .hold-daypin {')
   })
