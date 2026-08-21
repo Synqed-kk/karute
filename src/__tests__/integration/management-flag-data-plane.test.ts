@@ -160,6 +160,9 @@ describe('DTO carry — the key survives every screen parse', () => {
       selfStaffId: null,
       bookingDataAvailable: false,
       staffList: [{ id: 'p1', name: '北野', initials: '北', isManagement: true }],
+      // Required since #710 split the 指名 picker roster out of staffList —
+      // the assertion below is still on staffList's own carry of the flag.
+      assignableStaff: [],
       burnByCustomer: null,
       burnUnpricedIds: [],
     })
