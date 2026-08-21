@@ -212,6 +212,21 @@ describe('the board day is operationally possible (⚖ 8/9 demo-data-product-tru
     }
   })
 
+  // ⚖ Liam flag 51 (2026-08-21) — the bed auto-allocator reads the ROOM CLASS
+  // off the lane, so the lane has to carry what the store's resource row says.
+  // A 個室 that reaches the board as an ordinary 施術室 makes every allocation
+  // rule right about the wrong building.
+  it('every bed lane carries its store row’s room class, and no staff lane has one', async () => {
+    const lanes = await mergedLanes()
+    const beds = lanes.filter((l) => l.group === 'beds')
+    expect(beds.length).toBe(resources.length)
+    for (const l of beds) {
+      expect(l.roomClass).toBe(resources.find((r) => r.id === l.key)?.room_class)
+    }
+    expect(beds.filter((l) => l.roomClass === 'private').map((l) => l.key)).toEqual(['bed-03'])
+    expect(lanes.filter((l) => l.group === 'staff').every((l) => l.roomClass === null)).toBe(true)
+  })
+
   it('the derived 清掃 block never overlaps the next booking on the same bed', () => {
     for (const r of resources) {
       const on = today()

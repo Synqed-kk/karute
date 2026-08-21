@@ -27,7 +27,10 @@ import type {
   FixtureResource,
   FixtureSellSlot,
   FixtureShift,
+  RoomClass,
 } from './fixtures-today'
+
+export type { RoomClass }
 
 export type BookingCategory = 'new' | 'repeat' | 'ticket' | 'vip'
 
@@ -220,6 +223,11 @@ export interface BoardLane {
    *  own stores — under viewAll that would advertise a window no store can
    *  actually run. */
   stores: string[] | null
+  /** ⚖ Liam flag 51 — WHICH ROOMS ARE INTERCHANGEABLE, carried from the store's
+   *  own resource row (`FixtureResource.room_class`). `null` on a staff lane: a
+   *  person has no room class. The auto-allocator reads this and nothing else,
+   *  so a bed renamed 「個室」 in its label does not silently change policy. */
+  roomClass: RoomClass | null
 }
 
 export interface BoardBooking {
@@ -484,6 +492,7 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
       untilLabel: shift ? hhmm(shift.end) : null,
       listPrice: input.staffListPrice[member.id] ?? 0,
       stores: input.staffStores[member.id] ?? null,
+      roomClass: null,
     })
   }
 
@@ -530,6 +539,7 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
       untilLabel: null,
       listPrice: 0,
       stores: [resource.store_id],
+      roomClass: resource.room_class,
     })
   }
 

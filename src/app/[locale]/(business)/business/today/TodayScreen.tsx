@@ -58,6 +58,7 @@ import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane } from '@/bu
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
+  allocateBed,
   anchorOnScreen,
   applyBlockMoves,
   applyMoves,
@@ -74,7 +75,6 @@ import {
   fieldsPopAnchor,
   fitsDrag,
   fractionIn,
-  freePartnerLane,
   labelWidthOf,
   liveTimeLabel,
   proxyTransform,
@@ -85,29 +85,44 @@ import {
   guardVerdictAt,
   blockNode,
   holdPopAnchor,
+  holdSummary,
   isCrumbOffer,
   isOverShelf,
   laneKeyAtY,
   nextSpan,
   onShownBoard,
+  pairLanesOf,
   parkChipText,
   pinInViewport,
   sameStore,
+  sharesStore,
   sellLayerFor,
+  sidesAt,
   slotStartAt,
   spotCardAt,
   spotHitIndex,
   spotTargets,
   unparkOutcome,
+  foreignStoreRefusal,
   wrapStep,
   type GuardRail,
   type Move,
   type Moves,
+  type PairLanes,
   type RailCell,
+  type RoomPolicy,
   type SpotRect,
 } from './today-interactions'
 
 const HINT = '見本データのため実行できません'
+
+/** ⚖ Liam flag 47 — how long the board's own voice stays on screen. The shipped
+ *  3.2s is right for a message that CONFIRMS something the operator can already
+ *  see; a refusal is the only evidence that a thing did not happen, and it has
+ *  to outlive the glance that missed it. Twice the dwell, no new surface. */
+const TOAST_MS = 3200
+const REFUSAL_MS = 7000
+const EMPTY_TOAST = { text: '', ms: TOAST_MS, n: 0 }
 
 export interface DecisionCard {
   id: string
@@ -170,6 +185,9 @@ export interface TodayProps {
     minSellableMin: number
     config: GuardConfig
   }
+  /** ⚠SETTINGS-BATCH — ⚖ Liam flag 51. The store's room-allocation policy, the
+   *  only judgement in the bed solve. A store dial, never a component's opinion. */
+  rooms: RoomPolicy
   closedWeekdayLabel: string
   ops: {
     total: string
@@ -267,9 +285,20 @@ interface DragCtx {
   origin: DragOrigin
   startX: number
   startY: number
+  /** The GRABBED lane's group — 'staff' or 'beds'. ⚖ BATCH-6 flag 45: this is
+   *  the whole of what decides which half of the pair retargets, because a
+   *  booking is drawn twice and both drawings are draggable (canon binds every
+   *  `.event[data-book]`, :3887). It already leashed the lane hunt; it now also
+   *  says which record the landing is written into. */
   group: string
   homeLane: string
   targetLane: string
+  /** ⚖ BATCH-6 flag 45 — THE TWO-SIDED REVERT SNAPSHOT, taken at pointerdown
+   *  from the lanes the pair is ACTUALLY on (canon's per-element snap,
+   *  `stageChange` :4652-4661). The side that is not being dragged never moves
+   *  during the gesture, so this is also the live answer to "where is the other
+   *  half right now". */
+  home: PairLanes
   track: Element
   moved: boolean
   overShelf: boolean
@@ -355,6 +384,13 @@ interface LiveDrag {
   id: string
   homeLane: string
   targetLane: string
+  /** ⚖ BATCH-6 flag 45 — the pair's two memberships AS THIS FRAME WOULD LAND
+   *  THEM, so the guard, the drop target and the window layers answer for a
+   *  bed-side drag the same way they always answered for a staff-side one.
+   *  Feeding `targetLane` into the staff record is what made a bed-row drag
+   *  vanish the person's card the moment the pointer crossed a lane. */
+  staffLane: string | null
+  bedLane: string | null
   x: number
   w: number
   overShelf: boolean
@@ -383,7 +419,7 @@ interface HoldPop {
   summary: string
   checks: Array<{ label: string; tone: '' | 'bad' }>
   /** ⚖ 31b — the guard's own row, informational, never a gate. */
-  guardRow: { label: string; tone: 'warn' | 'bad' } | null
+  guardRow: { label: string; tone: 'warn' } | null
   confirm: { label: string; enabled: boolean; run: () => void }
   revert: { enabled: boolean; run: () => void }
 }
@@ -418,6 +454,7 @@ export function TodayScreen(props: TodayProps) {
   const {
     added, setAdded,
     moves, setMoves,
+    bedMoves, setBedMoves,
     parked, setParked,
     parkChips, setParkChips,
     pending, setPending,
@@ -459,7 +496,15 @@ export function TodayScreen(props: TodayProps) {
   const [resolved, setResolved] = useState<string[]>([])
   const [proposalSent, setProposalSent] = useState(false)
   const [calMonth, setCalMonth] = useState(0)
-  const [toast, setToast] = useState('')
+  /** ⚖ Liam flag 47 (2026-08-21) — A REFUSAL HAS TO BE READABLE. Every message
+   *  on this board dwelt for the same 3.2s, which is right for 「置きました」 —
+   *  the operator can see the result and the sentence only confirms it — and
+   *  wrong for a refusal, which is the ONLY record that a thing did not happen.
+   *  Liam's own repro: 「it flashed too fast to read」. So a refusal carries its
+   *  own dwell, and `n` re-arms the timer when the SAME refusal is earned twice
+   *  in a row (pressing the same illegal slot again used to say nothing at all,
+   *  because the state never changed). */
+  const [toast, setToast] = useState<{ text: string; ms: number; n: number }>(EMPTY_TOAST)
   const [blockInfo, setBlockInfo] = useState<{ kind: string; who: string; whoLabel: string; time: string; note: string } | null>(null)
   const [seed, setSeed] = useState<{ staffId: string; start: number; nonce: number } | null>(null)
 
@@ -543,6 +588,10 @@ export function TodayScreen(props: TodayProps) {
    *  timestamps rather than a clock call — same monotonic origin, and nothing
    *  in this component reads the wall clock during a render. */
   const suppressClickUntil = useRef(0)
+  /** ⚖ BATCH-6 flag 43 — canon's `suppressClickSource` (:4643): the element the
+   *  gesture was on, so the capture-phase interceptor below can tell the drag's
+   *  own trailing click from an unrelated one and swallow only the first. */
+  const suppressClickSource = useRef<Element | null>(null)
   const boardRef = useRef<HTMLDivElement>(null)
   const shelfRef = useRef<HTMLDivElement>(null)
   const fieldsPopRef = useRef<HTMLDivElement>(null)
@@ -598,8 +647,8 @@ export function TodayScreen(props: TodayProps) {
   useTopbarAction('予約を作成', openCreate)
 
   useEffect(() => {
-    if (!toast) return
-    const t = setTimeout(() => setToast(''), 3200)
+    if (!toast.text) return
+    const t = setTimeout(() => setToast(EMPTY_TOAST), toast.ms)
     return () => clearTimeout(t)
   }, [toast])
 
@@ -740,8 +789,16 @@ export function TodayScreen(props: TodayProps) {
    *  can we — re-parenting destroys the element the pointer stream is bound to
    *  and the drag dies on the first pixel of vertical travel. */
   const liveMoves = useMemo(
-    () => (live ? { ...moves, [live.id]: { laneKey: live.targetLane, x: live.x, w: live.w } } : moves),
+    () => (live?.staffLane ? { ...moves, [live.id]: { laneKey: live.staffLane, x: live.x, w: live.w } } : moves),
     [moves, live],
+  )
+  /** ⚖ BATCH-6 flag 45 — the bed side's half of the same in-flight board. A
+   *  staff-side drag writes the room's CURRENT lane here with the live span,
+   *  which is a no-op on membership and keeps the two drawings on one clock;
+   *  a bed-side drag writes the room it is heading for. */
+  const liveBedMoves = useMemo(
+    () => (live?.bedLane ? { ...bedMoves, [live.id]: { laneKey: live.bedLane, x: live.x, w: live.w } } : bedMoves),
+    [bedMoves, live],
   )
   /** Only the cards this session put on the BOARD currently on screen — the day
    *  (⚖ 22) and, ⚖ 46 forerunner, the store. A row scoped by day alone painted
@@ -761,8 +818,8 @@ export function TodayScreen(props: TodayProps) {
     [props.lanes, blockMoves, hours],
   )
   const boardLanes = useMemo(
-    () => applyMoves(placedLanes, liveMoves, parked, addedHere, hours),
-    [placedLanes, liveMoves, parked, addedHere, hours],
+    () => applyMoves(placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves),
+    [placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves],
   )
   /** The board WITHOUT the in-flight pointer — what the window layers price
    *  against. canon's `renderPublicLayer` (:5343) and `renderGapFillLayer`
@@ -777,8 +834,8 @@ export function TodayScreen(props: TodayProps) {
    *  1. `boardLanes` stays the truth for the guard and the drop target, which
    *  DO have to answer where the card is heading. */
   const committedLanes = useMemo(
-    () => applyMoves(placedLanes, moves, parked, addedHere, hours),
-    [placedLanes, moves, parked, addedHere, hours],
+    () => applyMoves(placedLanes, moves, parked, addedHere, hours, bedMoves),
+    [placedLanes, moves, parked, addedHere, hours, bedMoves],
   )
   /** WHAT THE DOM DRAWS while a card is in flight: the board as it stands. The
    *  card he grabbed is under his cursor now (the proxy), so the original stays
@@ -798,6 +855,17 @@ export function TodayScreen(props: TodayProps) {
     : live && !live.overShelf
       ? { laneKey: live.targetLane, x: live.x, w: live.w }
       : null
+  /** ⚖ Liam flag 50(c) — THE RAIL CHIP THE DRAG IS AIMED AT, highlighted in sync
+   *  with the landing preview. Canon's `updateAimedTarget` (:7599-7606) marks the
+   *  hovered start's cell `.aimed` and its CSS gives it the hover treatment
+   *  (:667); the transplant carried the rule but dropped the `.aimed` half of the
+   *  selector, so the label and the strip never agreed during a drag. The only
+   *  genuine parity gap study 50 found. Floored to the 30-minute rail lattice for
+   *  flag 48's reason: an off-lattice landing belongs to the cell it starts
+   *  INSIDE, and rounding would name the next chip along. */
+  const aimed = landing && landing.w > 0
+    ? { laneKey: landing.laneKey, start: Math.floor(minuteOf(landing.x, hours) / 30) * 30 }
+    : null
   const dropTarget = blockLive && blockLive.targetLane !== blockLive.homeLane
     ? { laneKey: blockLive.targetLane, x: blockLive.x, w: blockLive.w }
     : live && !live.overShelf && live.targetLane !== live.homeLane
@@ -876,8 +944,22 @@ export function TodayScreen(props: TodayProps) {
 
   const currentCase = selected ? (props.cases[selected] ?? null) : null
 
-  function show(message: string) {
-    setToast(message)
+  function show(message: string, ms = TOAST_MS) {
+    setToast((was) => ({ text: message, ms, n: was.n + 1 }))
+  }
+
+  /** ⚖ Liam flag 47 — THE LANE INVARIANT, IN ONE FUNCTION: *a refusal changes
+   *  NOTHING*. Every path that declines a placement — a foreign store (⚖ 46), no
+   *  free room, a locked shift, a release over nothing, a staged 仮押さえ still
+   *  open — announces itself through here and through here alone, and leaves the
+   *  chip, the 配置モード and the board exactly as it found them. Two things
+   *  follow from having one door: the refusal always dwells long enough to be
+   *  READ, and a reader of this file can find every refusal by grepping one
+   *  name. A refusal that also mutated state would be a bug this name makes
+   *  visible; a silent refusal (the placing click on a bed row, the chip
+   *  released over nothing) was the same bug with no name at all. */
+  function refuse(message: string) {
+    show(message, REFUSAL_MS)
   }
 
   /** ⚖ 46 forerunner — `store` defaults to the board on screen and is overridden
@@ -961,7 +1043,7 @@ export function TodayScreen(props: TodayProps) {
         }
       }
       const staffLane = boardLanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === id))
-      return computeChecks(at, {
+      const checks = computeChecks(at, {
         spans,
         bookingId: id,
         staffName: staffLane?.label ?? '—',
@@ -969,6 +1051,27 @@ export function TodayScreen(props: TodayProps) {
         laneLocked: staffLane != null && locked.includes(staffLane.key),
         minutesOf: (x) => minuteOf(x, hours),
       })
+      /** ⚖ STORE ISOLATION ON THE EXPLICIT ROOM CHOICE (Greptile #725).
+       *
+       *  `allocateBed` scopes the search to the booking's own store, but a
+       *  BED-ROW gesture never asks it — that is the operator naming the room
+       *  out loud, and batch-6 deliberately lets it stage. Under the all-stores
+       *  lens that meant a person and a room in two different stores could be
+       *  committed with nothing said. The lens is dormant in the UI today; the
+       *  law is system-wide, so this is closed by construction.
+       *
+       *  Said HERE rather than refused at the drop, for parity with how an
+       *  occupied room behaves on the same path: the change stages, 確定 goes
+       *  dead (`confirmCaption` is every-row-ok) and the reason is a × row in
+       *  the surface the operator is already reading. `confirmPending` re-runs
+       *  these at the moment of confirm, so the commit is closed too, and both
+       *  the pointer drop and the keyboard nudge land in the same ledgers this
+       *  reads — one place, not one per gesture. */
+      const bedLane = boardLanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === id))
+      if (staffLane && bedLane && !sharesStore(staffLane.stores, bedLane.stores)) {
+        checks.push({ ok: false, label: `担当と店舗が異なります: ${staffLane.label} / ${bedLane.label}` })
+      }
+      return checks
     },
     [boardLanes, sell.cells, hours, locked],
   )
@@ -1032,8 +1135,9 @@ export function TodayScreen(props: TodayProps) {
         status: '仮押さえ',
         tone: 'waiting',
         // ⚖ 46 forerunner: blank on ANOTHER STORE's board too — `holdSummary`
-        // reads `boardLanes`, which is this store's.
-        summary: pendingOffBoard ? '' : holdSummary(boardLanes, pending.id, moves[pending.id], hours),
+        // reads `boardLanes`, which is this store's. Batch-8's bed argument
+        // (⚖ 52's △-grammar) rides along; the two are orthogonal.
+        summary: pendingOffBoard ? '' : holdSummary(boardLanes, pending.id, moves[pending.id], hours, pending.bedOrigin?.laneKey ?? null),
         checks: pendingChecks.map((c) => ({ label: c.label, tone: c.ok ? '' : 'bad' })),
         guardRow: pendingGuardRow,
         confirm: { label: pendingConfirm.label, enabled: pendingConfirm.enabled, run: confirmPending },
@@ -1079,6 +1183,22 @@ export function TodayScreen(props: TodayProps) {
   // The ID alone, never the object: `holdPop` is rebuilt on every render, and an
   // effect keyed on it would re-measure the DOM on every frame of a drag.
   const holdAnchorId = holdPop?.anchorId ?? null
+  /** ⚖ Liam flag 48 — WHICH 60分配置 chip the confirm should try not to sit on:
+   *  the one for the START THE CARD LANDED ON, in the lane it landed in. The
+   *  rail draws a cell every 30 minutes, so an off-lattice landing (canon's dual
+   *  lattice can put a card on 14:05) belongs to the cell it starts inside. Read
+   *  as a selector rather than a rect, because the rect has to be measured in
+   *  the same frame as the popover's own. */
+  const holdRailSel = useMemo(() => {
+    // ⚖ 46 forerunner: `pendingOffBoard`, not batch-7's day-only test — this
+    // builds a selector into the board ON SCREEN, so a 仮押さえ staged in another
+    // STORE would aim ⚖ 48's avoid-rect at this store's rail cell.
+    if (!pending || pendingOffBoard) return null
+    const at = moves[pending.id]
+    if (!at) return null
+    const start = Math.floor(minuteOf(at.x, hours) / 30) * 30
+    return `.guard-placement-rail[data-lane="${at.laneKey}"] .guard-rail-cell[data-start="${start}"]`
+  }, [pending, pendingOffBoard, moves, hours])
   useLayoutEffect(() => {
     const anchorId = holdAnchorId
     const pin = () => {
@@ -1088,6 +1208,13 @@ export function TodayScreen(props: TodayProps) {
       const viewport = { width: window.innerWidth, height: window.innerHeight }
       const box = card?.getBoundingClientRect()
       const self = el.getBoundingClientRect()
+      // ⚖ flag 48 — the landing's own rail chip, as a box to prefer to clear.
+      // `null` whenever it is not on screen (the strip is hidden by the 表示設定
+      // guide mode, the lane is collapsed, jsdom): the preference simply has
+      // nothing to say then, and the laws below decide alone.
+      const railBox = holdRailSel
+        ? (boardRef.current?.querySelector(holdRailSel)?.getBoundingClientRect() ?? null)
+        : null
       // ANCHOR NOT IN THE DOM → the pill, whatever unmounted it. `cardNodes`
       // returns nothing, so `box` is undefined and this falls to `!at` below by
       // the same road as an off-screen card. The rule is deliberately about the
@@ -1095,7 +1222,7 @@ export function TodayScreen(props: TodayProps) {
       //
       // Off screen, or no side of the card can hold the whole surface without
       // covering it (⚖ Liam 8/21: he has to SEE what he moved) → the pill.
-      const at = box && anchorOnScreen(box, viewport) ? holdPopAnchor(box, self.width, self.height, viewport) : null
+      const at = box && anchorOnScreen(box, viewport) ? holdPopAnchor(box, self.width, self.height, viewport, 8, 8, railBox) : null
       if (!at) {
         setHoldPinned(true)
         el.style.left = ''
@@ -1130,17 +1257,95 @@ export function TodayScreen(props: TodayProps) {
     // ponytail: enumerated because `renderLane`'s gates are enumerable and this
     // suite cannot render. A board-level ResizeObserver feeding `coarse` would
     // cover unmount paths generically — take it if a third gate ever appears.
-  }, [holdAnchorId, holdPinned, collapsed, view, moves, props.dayOffset])
+    //
+    // UNION at cycle 7: batch-7 adds `holdRailSel` (⚖ 48's avoid-rect reads it
+    // inside `pin`), and predates the two unmount gates above. All four belong —
+    // dropping either half re-opens the bug the other half was written for.
+  }, [holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])
 
-  function stage(id: string, laneKey: string, span: { x: number; w: number }, from: Move) {
-    setMoves((was) => ({ ...was, [id]: { laneKey, ...span } }))
-    setPending((was) => (was && was.id === id ? was : { id, origin: from, ...boardStamp }))
+  /** ⚖ Liam flag 51 (LOCKED) — THE ROOM, RE-SOLVED AT THIS LANDING. Every path
+   *  that puts a booking down carrying a bed comes through here: the staff-lane
+   *  drag, the keyboard nudge, the shelf chip and 次回予約. `null` back means the
+   *  board is 満室 for this booking — the refusal has already been SAID, naming
+   *  the blocking room, and the caller must change nothing (⚖ 47).
+   *
+   *  A BED-ROW drag never calls this: that gesture is the operator choosing the
+   *  room out loud, and batch-6's stage-with-確定-disabled behaviour is the
+   *  deliberate-choice path, untouched.
+   *
+   *  Solved at the LANDING, not per frame. `boardLanes` already carries the card
+   *  in flight, and the allocator excludes the booking from its own search, so
+   *  the answer is the board as it will stand — but re-solving on every pointer
+   *  frame would re-parent a bed drawing mid-gesture (canon never does) and pay
+   *  for the whole bed ledger 60 times a second. */
+  //  `staffLaneKey` is the lane the booking is landing ON — the person whose
+  //  store owns this allocation. Every caller has it already; passing the key
+  //  rather than the stores keeps the store rule in the allocator, one home.
+  function solveBed(staffLaneKey: string | null, id: string | null, currentBed: string | null, vip: boolean, span: { x: number; w: number }): string | null {
+    const start = minuteOf(span.x, hours)
+    const solved = allocateBed(boardLanes, {
+      id,
+      currentBed,
+      stores: boardLanes.find((l) => l.key === staffLaneKey)?.stores ?? null,
+      vip,
+      start,
+      end: minuteOf(span.x + span.w, hours),
+      policy: props.rooms,
+    })
+    if (solved.refusal) {
+      refuse(solved.refusal)
+      return null
+    }
+    return solved.laneKey
+  }
+
+  /** ⚖ BATCH-6 flag 45 — ONE SIDE RETARGETS, BOTH RE-TIME (canon `stageChange`
+   *  :4648-4674). `at` is the landing as `sidesAt` resolved it: the grabbed
+   *  side's target, and the other side's current lane carried through unchanged.
+   *  Both records take the SAME span, which is what keeps the person and the
+   *  room on one clock — canon's `els.forEach(evSet)` said the same thing.
+   *
+   *  `from` is the two-sided origin, and it is what 元に戻す restores. */
+  function stage(id: string, at: { staffLane: string | null; bedLane: string | null }, span: { x: number; w: number }, from: PairLanes) {
+    const { staffLane, bedLane } = at
+    if (staffLane) setMoves((was) => ({ ...was, [id]: { laneKey: staffLane, ...span } }))
+    if (bedLane) setBedMoves((was) => ({ ...was, [id]: { laneKey: bedLane, ...span } }))
+    // ⚖ 46 forerunner kept under batch-6's two-sided rewrite: the stamp is
+    // `boardStamp`, not the day pair batch-6 was written against — it predates
+    // the store scoping, and `PendingChange` REQUIRES store + storeLabel.
+    //
+    // AND IT STAYS. Batch-7's ⚖ 46 rebuilt ParkHome and PlacingIntent, but never
+    // reached PendingChange — its own version of this type carries no store at
+    // all. So this is not a forerunner spelling waiting to be replaced: it is the
+    // only store scoping the 仮押さえ family has. Do not "finish the supersession"
+    // by reverting it to the day pair.
+    setPending((was) =>
+      was && was.id === id
+        ? was
+        : { id, origin: from.staff ?? { laneKey: '', x: 0, w: 0 }, bedOrigin: from.bed ?? undefined, ...boardStamp },
+    )
     setSelected(null)
+  }
+
+  /** ⚖ BATCH-6 flag 45 — put the pair back where a snapshot says it stood, BOTH
+   *  sides, whichever one was dragged. Every abandoned landing goes through here
+   *  — the shelf drop's write-back, the two refusals, the no-op release and the
+   *  cancel — because a restore that knows only the staff lane is the same
+   *  one-sided write that lost the card in the first place. */
+  function restoreSides(id: string, home: PairLanes) {
+    if (home.staff) setMoves((was) => ({ ...was, [id]: home.staff! }))
+    setBedMoves((was) => {
+      if (home.bed) return { ...was, [id]: home.bed }
+      if (!(id in was)) return was
+      const next = { ...was }
+      delete next[id]
+      return next
+    })
   }
 
   function revertPending() {
     if (!pending) return
-    const { id, origin } = pending
+    const { id, origin, bedOrigin } = pending
     // canon's `snap: [{ el, remove: true }]` (:6084): a placement's 元に戻す takes
     // the card back OFF the day it was put on. A shelf placement goes back to the
     // shelf it came from; anything else just returns to its own span.
@@ -1158,6 +1363,16 @@ export function TodayScreen(props: TodayProps) {
       else next[id] = origin
       return next
     })
+    // ⚖ BATCH-6 flag 45 — and the room comes back too. Without this, 元に戻す on
+    // a bed-side move put the person back and left the booking in the room it
+    // was dragged to, which is the half-undo the two-sided snapshot exists to
+    // stop. No bed origin (a creation, or a booking with no bed row) = no entry.
+    setBedMoves((was) => {
+      const next = { ...was }
+      if (bedOrigin) next[id] = bedOrigin
+      else delete next[id]
+      return next
+    })
     setPending(null)
     show('変更を元に戻しました')
   }
@@ -1167,8 +1382,11 @@ export function TodayScreen(props: TodayProps) {
     // canon R11-7 (:5461): the checks are re-run at the moment of confirm, so a
     // lane locked after staging cannot be confirmed through.
     const at = moves[pending.id]
+    // ⚖ 47 `refuse()` (batch-7's one door) with `pendingOffBoard` (main's store
+    // scoping, which batch-7 predates): batch-7 changed HOW a refusal speaks,
+    // not WHAT counts as off-board.
     if (pendingOffBoard || !at || !confirmCaption(checksFor(pending.id, at)).enabled) {
-      show('状況が変わったため、この内容では確定できません')
+      refuse('状況が変わったため、この内容では確定できません')
       return
     }
     setPending(null)
@@ -1208,9 +1426,59 @@ export function TodayScreen(props: TodayProps) {
 
   // ── card drag ────────────────────────────────────────────────────────────
 
-  function homeMoveFor(id: string, lane: BoardLane, item: BoardItem): Move {
-    return moves[id] ?? { laneKey: lane.key, x: item.x, w: item.w }
+  /** ⚖ BATCH-6 flag 43 — CANON'S CLICK WINDOW, OPENED FROM ONE PLACE.
+   *
+   *  A drag-release fires a synthetic click on whatever is under the pointer,
+   *  and on this board an empty-track click means 新規予約を作成 — a phantom
+   *  booking the operator cannot undo by hand. Canon opens the window on EVERY
+   *  ending a gesture can have: `finishNormalBookingDrag` (:4563), the forced
+   *  teardowns `forceDragCancel` (:4535-4546) and `forceBlockCancel`
+   *  (:4015-4028, whose own comment names this 「Liam bug #4」), `blockDrop`
+   *  (:4139-4140) and the chip's moved-only release (:5640). Batch-4 carried the
+   *  first of those and none of the rest, so a drag that died on a pointercancel,
+   *  on the lost-pointerup self-heal or on a window blur still opened the dialog.
+   *
+   *  `at` is the ENDING EVENT'S own timestamp — the same monotonic origin the
+   *  click will carry, and this component reads no clock outside an event.
+   *  `source` is canon's `suppressClickSource`, read by the capture interceptor. */
+  function openClickWindow(at: number, source: Element | null) {
+    suppressClickUntil.current = at + 400
+    suppressClickSource.current = source
   }
+
+  /** ⚖ BATCH-6 flag 43 — CANON'S SECOND NET (:4633-4645), carried whole.
+   *
+   *  The window above is a flag every click handler has to remember to read. The
+   *  interceptor is a document-level CAPTURE-phase listener, so it runs before
+   *  any element's own handler and swallows the release's trailing click outright
+   *  — canon's own comment says why it is not redundant: when a drag's release
+   *  lands somewhere other than the element the pointer was captured on, the old
+   *  single-net implementation had already consumed the window by the time the
+   *  slot handler read it. It consumes only its OWN click (inside the gesture's
+   *  source) and lets everything else ride the 400ms timeout, which is what stops
+   *  it from eating an unrelated one.
+   *
+   *  Plain DOM, no renderer: react-dom is off Business territory's allowlist and
+   *  a capture-phase document listener has no React equivalent that runs this
+   *  early. Mounted once; the return takes it. */
+  useEffect(() => {
+    const onClickCapture = (e: MouseEvent) => {
+      if (!suppressClickUntil.current) return
+      const within = e.timeStamp < suppressClickUntil.current
+      const source = suppressClickSource.current
+      const fromDragged = source != null && e.target instanceof Node && source.contains(e.target)
+      if (!within || fromDragged) {
+        suppressClickUntil.current = 0
+        suppressClickSource.current = null
+      }
+      if (within && fromDragged) {
+        e.stopPropagation()
+        e.preventDefault()
+      }
+    }
+    document.addEventListener('click', onClickCapture, true)
+    return () => document.removeEventListener('click', onClickCapture, true)
+  }, [])
 
   /** THE POINTER STREAM LIVES ON THE WINDOW, not on the card.
    *
@@ -1235,7 +1503,7 @@ export function TodayScreen(props: TodayProps) {
       e.preventDefault()
       // canon's self-heal (:4466): a move with no button down means the release
       // was lost, and the card would otherwise stay stuck to the cursor.
-      if (e.buttons === 0) { cancelDrag(); return }
+      if (e.buttons === 0) { cancelDrag(e); return }
       // One board update per animation frame. Chrome delivers pointer moves far
       // faster than it paints, and a derive-and-paint per raw event is the jank
       // Liam felt as "not snappy" — the newest position wins, the rest are free.
@@ -1251,7 +1519,7 @@ export function TodayScreen(props: TodayProps) {
     const onCancel = (e: PointerEvent) => {
       const c = dragRef.current
       if (!c || e.pointerId !== c.pointerId) return
-      cancelDrag()
+      cancelDrag(e)
     }
     window.addEventListener('pointermove', onMove, { passive: false })
     window.addEventListener('pointerup', onUp)
@@ -1312,13 +1580,24 @@ export function TodayScreen(props: TodayProps) {
     } else {
       liveTimeLabel(ctx.nodes, `${hhmm(minuteOf(span.x, hours))}〜${hhmm(minuteOf(span.x + span.w, hours))}`)
     }
-    setLive({ id: ctx.id, homeLane: ctx.homeLane, targetLane: ctx.targetLane, ...span, overShelf: ctx.overShelf, mode: ctx.origin.mode })
+    setLive({
+      id: ctx.id,
+      homeLane: ctx.homeLane,
+      targetLane: ctx.targetLane,
+      // ⚖ BATCH-6 flag 45 — the grabbed side goes where the pointer is, the
+      // other stays where it stands. One call, so the live board and the
+      // landing can never answer that question differently.
+      ...sidesAt(ctx.home, ctx.group, ctx.targetLane),
+      ...span,
+      overShelf: ctx.overShelf,
+      mode: ctx.origin.mode,
+    })
   }
 
   function onCardPointerDown(e: React.PointerEvent<HTMLButtonElement>, item: BoardItem, lane: BoardLane) {
     if (e.button !== 0 || dragRef.current || !item.caseId) return
     if (pending && pending.id !== item.caseId) {
-      show('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')
       return
     }
     const track = e.currentTarget.closest('.track')
@@ -1336,6 +1615,10 @@ export function TodayScreen(props: TodayProps) {
       group: lane.group,
       homeLane: lane.key,
       targetLane: lane.key,
+      // ⚖ BATCH-6 flag 45 — canon's per-element snap, taken HERE, before a
+      // pixel of travel: both lanes as they actually stand, at the span the card
+      // actually has. Nothing else in the gesture can lose a side after this.
+      home: pairLanesOf(boardLanes, item.caseId, { x: item.x, w: item.w }),
       track,
       moved: false,
       overShelf: false,
@@ -1349,7 +1632,11 @@ export function TodayScreen(props: TodayProps) {
     const ctx = dragRef.current
     if (!ctx) return
     const { item, lane } = ctx
-    const from: Move = { laneKey: ctx.homeLane, x: ctx.origin.x, w: ctx.origin.w }
+    // ⚖ BATCH-6 flag 45 — the origin is the PAIR's, snapped at pointerdown. It
+    // used to be `{ laneKey: ctx.homeLane, … }`, which for a card grabbed by its
+    // bed row was a bed key in the staff record: the person's card was evicted
+    // from every lane and the revert wrote the same key back.
+    const from = ctx.home
     if (!ctx.moved) {
       // A press that never travelled is a selection, not a drag.
       clearDrag()
@@ -1365,14 +1652,19 @@ export function TodayScreen(props: TodayProps) {
     // surface in Liam's screenshot, and it was one missing line. Every branch
     // below is covered because the window opens above all of them (canon's own
     // order), including the two refusals that put the card back.
-    suppressClickUntil.current = upAt + 400
+    // ⚖ BATCH-6 flag 43 — through the one helper now, because the window is only
+    // half of canon's defence: `suppressClickSource` is what the capture-phase
+    // interceptor reads, and without it the second net has nothing to match on.
+    openClickWindow(upAt, ctx.nodes[0] ?? null)
     // canon (:4567): the release position is authoritative — recompute once more
     // rather than trusting the last move Chrome delivered.
     const span = nextSpan(ctx.origin, ctx.track, clientX - ctx.startX, STEP)
     if (ctx.origin.mode === 'move' && isOverShelf(shelfRef.current, clientY)) {
       clearDrag()
-      setMoves((was) => ({ ...was, [ctx.id]: from }))
-      park(ctx.id, item, from)
+      restoreSides(ctx.id, from)
+      // The chip's `home` is the STAFF side: its × writes it straight back into
+      // `moves`, and a bed key there is the same collapse in the shelf's clothes.
+      park(ctx.id, item, from.staff ?? { laneKey: ctx.homeLane, x: ctx.origin.x, w: ctx.origin.w })
       return
     }
     let targetLane = ctx.targetLane
@@ -1380,8 +1672,8 @@ export function TodayScreen(props: TodayProps) {
       const laneKey = laneKeyAtY(boardRef.current, ctx.group, clientY)
       if (!laneKey) {
         clearDrag()
-        setMoves((was) => ({ ...was, [ctx.id]: from }))
-        show('予約を置く行の中で離してください')
+        restoreSides(ctx.id, from)
+        refuse('予約を置く行の中で離してください')
         return
       }
       targetLane = laneKey
@@ -1391,7 +1683,7 @@ export function TodayScreen(props: TodayProps) {
     const laneChanged = ctx.origin.mode === 'move' && targetLane !== ctx.homeLane
     clearDrag()
     if (span.x === ctx.origin.x && span.w === ctx.origin.w && !laneChanged) {
-      setMoves((was) => ({ ...was, [ctx.id]: from }))
+      restoreSides(ctx.id, from)
       return
     }
     // ⚖ Liam flag 31a — A MOVE NEVER OPENS THE CONSULT. It used to call
@@ -1400,13 +1692,41 @@ export function TodayScreen(props: TodayProps) {
     // 「このページだけのサンプル」 (guard-demo :1823), and canon's real drop
     // (`finishNormalBookingDrag` :4559-4626) shows no dialog whatsoever. What the
     // popup knew is not lost — it is a row on the confirm surface now (31b).
-    stage(ctx.id, targetLane, span, pending?.id === ctx.id ? pending.origin : from)
+    // ⚖ BATCH-6 flag 45 — `sidesAt` decides which half of the pair the landing
+    // belongs to; the origin stays the FIRST gesture's when one is already
+    // pending, both sides of it, so 元に戻す is still an undo of the whole change.
+    // ⚖ Liam flag 51 — and on a STAFF-side landing the room is re-solved rather
+    // than carried: the person and the time are what the operator just decided,
+    // the bed is what the board owes them. A 満室 refusal changes nothing — the
+    // pair goes back where it stood, exactly as the two refusals above do.
+    const sides = sidesAt(ctx.home, ctx.group, targetLane)
+    if (ctx.group !== 'beds' && sides.bedLane != null) {
+      const bed = solveBed(sides.staffLane, ctx.id, sides.bedLane, item.category === 'vip', span)
+      if (bed == null) {
+        restoreSides(ctx.id, from)
+        return
+      }
+      sides.bedLane = bed
+    }
+    stage(
+      ctx.id,
+      sides,
+      span,
+      pending?.id === ctx.id ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from,
+    )
   }
 
-  function cancelDrag() {
+  /** ⚖ BATCH-6 flag 43 — canon `forceDragCancel` (:4535-4546), which is the
+   *  revert AND the click window: pointercancel, the lost-pointerup self-heal and
+   *  the blur net all end a real gesture, and the release that gets lost with them
+   *  still lands its click on the empty track underneath. The event is required
+   *  rather than optional so no caller can drop the timestamp and reach for a
+   *  clock instead. (⚖ 45: the revert is now two-sided.) */
+  function cancelDrag(e: { timeStamp: number }) {
     const ctx = dragRef.current
     if (!ctx) return
-    setMoves((was) => ({ ...was, [ctx.id]: { laneKey: ctx.homeLane, x: ctx.origin.x, w: ctx.origin.w } }))
+    restoreSides(ctx.id, ctx.home)
+    openClickWindow(e.timeStamp, ctx.nodes[0] ?? null)
     clearDrag()
   }
 
@@ -1525,7 +1845,7 @@ export function TodayScreen(props: TodayProps) {
       const c = blockDragRef.current
       if (!c || e.pointerId !== c.pointerId) return
       e.preventDefault()
-      if (e.buttons === 0) { cancelBlockDrag(); return }
+      if (e.buttons === 0) { cancelBlockDrag(e); return }
       c.pending = { clientX: e.clientX, clientY: e.clientY }
       if (c.frame != null) return
       c.frame = requestAnimationFrame(() => { c.frame = null; applyBlockFrame() })
@@ -1538,7 +1858,7 @@ export function TodayScreen(props: TodayProps) {
     const onCancel = (e: PointerEvent) => {
       const c = blockDragRef.current
       if (!c || e.pointerId !== c.pointerId) return
-      cancelBlockDrag()
+      cancelBlockDrag(e)
     }
     window.addEventListener('pointermove', onMove, { passive: false })
     window.addEventListener('pointerup', onUp)
@@ -1601,7 +1921,7 @@ export function TodayScreen(props: TodayProps) {
 
   function onBlockPointerDown(e: React.PointerEvent<HTMLButtonElement>, item: BoardItem, lane: BoardLane) {
     if (e.button !== 0 || dragRef.current || blockDragRef.current) return
-    if (pending) { show('仮押さえ中の変更を確定するか、元に戻してから操作してください'); return }
+    if (pending) { refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください'); return }
     const track = e.currentTarget.closest('.track')
     if (!track) return
     const rect = e.currentTarget.getBoundingClientRect()
@@ -1631,14 +1951,14 @@ export function TodayScreen(props: TodayProps) {
     // canon (:4142): a drag-release is never also a click on the box.
     // Read off the event's own clock, the same monotonic origin the board's
     // click checks use — nothing in this component reads the wall clock.
-    suppressClickUntil.current = e.timeStamp + 400
+    openClickWindow(e.timeStamp, ctx.node)
     const span = nextSpan(ctx.origin, ctx.track, e.clientX - ctx.startX, BLOCK_STEP)
     let targetLane = ctx.targetLane
     if (ctx.origin.mode === 'move') {
       const laneKey = laneKeyAtY(boardRef.current, null, e.clientY)
       if (!laneKey || locked.includes(laneKey)) {
         clearBlockDrag()
-        show('予定を置く行の中で離してください')
+        refuse('予定を置く行の中で離してください')
         return
       }
       targetLane = laneKey
@@ -1647,7 +1967,7 @@ export function TodayScreen(props: TodayProps) {
     }
     clearBlockDrag()
     if (blockClash(placedLanes.find((l) => l.key === targetLane), ctx.key, span)) {
-      show('他の予定と重なるため元の位置に戻しました')
+      refuse('他の予定と重なるため元の位置に戻しました')
       return
     }
     if (span.x === ctx.origin.x && span.w === ctx.origin.w && targetLane === ctx.homeLane) return
@@ -1719,8 +2039,19 @@ export function TodayScreen(props: TodayProps) {
     show(`${a.title}を元の位置に戻しました`)
   }
 
-  function cancelBlockDrag() {
-    if (!blockDragRef.current) return
+  /** ⚖ BATCH-6 flag 43 — canon `forceBlockCancel` (:4015-4028). Its own comment
+   *  names this bug out loud: 「blockDrop を通らずに終わったドラッグの解放が、
+   *  そのままスロットのクリック＝新規予約作成として読まれていた（Liam bug #4）」.
+   *
+   *  The window belongs HERE and not in `clearBlockDrag`: that teardown is also
+   *  the one an unmoved press uses, and a block's plain click is what opens
+   *  ブロック情報 — canon's `blockDrop` returns on `!ctx.moved` BEFORE its own
+   *  write for exactly that reason. Deviation from the packet's letter, kept to
+   *  its intent; recorded in the build report. */
+  function cancelBlockDrag(e: { timeStamp: number }) {
+    const ctx = blockDragRef.current
+    if (!ctx) return
+    openClickWindow(e.timeStamp, ctx.node)
     clearBlockDrag()
   }
 
@@ -1827,16 +2158,33 @@ export function TodayScreen(props: TodayProps) {
     e.stopPropagation()
     if (!item.caseId || dragRef.current) return
     if (pending && pending.id !== item.caseId) {
-      show('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')
       return
     }
-    const from = homeMoveFor(item.caseId, lane, item)
+    // ⚖ BATCH-6 flag 45 — the keyboard nudge is the same landing as a drag and
+    // takes the same two-sided answer: a card focused on its BED row is resized
+    // in the room's lane, and the person keeps theirs. It used to write the
+    // focused lane into the staff record here too.
+    const from = pairLanesOf(boardLanes, item.caseId, { x: item.x, w: item.w })
     const next = keyboardNudge(item.x, item.w, leftEdge ? 'resizeL' : 'resize', e.key === 'ArrowLeft' ? -1 : 1, STEP)
     if (!next) {
-      show('これ以上は時間を変更できません')
+      refuse('これ以上は時間を変更できません')
       return
     }
-    stage(item.caseId, lane.key, next, pending?.id === item.caseId ? pending.origin : from)
+    // ⚖ Liam flag 51 — a keyboard nudge is a landing like any other: it changes
+    // the span the room is held for, so the room is re-solved against it.
+    const sides = sidesAt(from, lane.group, lane.key)
+    if (lane.group !== 'beds' && sides.bedLane != null) {
+      const bed = solveBed(sides.staffLane, item.caseId, sides.bedLane, item.category === 'vip', next)
+      if (bed == null) return
+      sides.bedLane = bed
+    }
+    stage(
+      item.caseId,
+      sides,
+      next,
+      pending?.id === item.caseId ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from,
+    )
   }
 
   // ── 仮置きエリア ──────────────────────────────────────────────────────────
@@ -1851,7 +2199,16 @@ export function TodayScreen(props: TodayProps) {
     setParked((was) => (was.includes(id) ? was : [...was, id]))
     setParkChips((was) => [...was.filter((c) => c.id !== id), {
       id, ...text, category: item.category,
-      home: { ...from, ...boardStamp },
+      // ⚖ Liam flag 46 — and the STORE it was taken from, stamped at the same
+      // moment and for the same reason: the board that can restore it, and the
+      // only board it may be placed on.
+      home: {
+        ...from,
+        dayOffset: props.dayOffset,
+        dayLabel: props.dayLabel,
+        storeParam: props.storeParam,
+        storeLabel: props.lensLabel,
+      },
       lenMin: item.endMin - item.startMin, item,
     }])
     setPending(null)
@@ -1871,23 +2228,28 @@ export function TodayScreen(props: TodayProps) {
     // for today, plus anything this session added to them.
     const originHere =
       props.lanes.some((l) => l.items.some((i) => i.caseId === id)) ||
+      // `onShownBoard` (main): batch-7 scoped this by day alone because its
+      // AddedRow has no store — the merged one does, and a row that leaked
+      // across stores was Greptile #737 P1.
       added.some((a) => onShownBoard(a, board) && a.item.caseId === id)
-    const outcome = unparkOutcome(chip.home, board, originHere)
+    const outcome = unparkOutcome(chip.home, props.dayOffset, props.storeParam, originHere)
     if (outcome === 'gone') {
-      show(`${name}の元の枠が見つかりません。仮置きエリアに残しています`)
+      refuse(`${name}の元の枠が見つかりません。仮置きエリアに残しています`)
       return
     }
     setParked((was) => was.filter((x) => x !== id))
     setParkChips((was) => was.filter((c) => c.id !== id))
     setAdded((was) => was.filter((a) => a.item.caseId !== id))
     setMoves((was) => ({ ...was, [id]: { laneKey: chip.home.laneKey, x: chip.home.x, w: chip.home.w } }))
-    // ⚖ 46 forerunner — the × works from ANY board, and the toast says which one
-    // the booking went back to. A foreign store is named as well as the day: the
-    // day alone would read as this store's, which is the one thing it is not.
-    const backTo = sameStore(chip.home.store, props.storeParam)
-      ? chip.home.dayLabel
-      : `${chip.home.storeLabel} ${chip.home.dayLabel}`
-    show(outcome === 'here' ? `${name}を元の枠に戻しました` : `${name}を${backTo}の元の枠に戻しました`)
+    // ⚖ Liam flag 46 — the × works from ANY board, so 'elsewhere' now has two
+    // reasons and the toast has to name the one that applies: another day, or
+    // another store's board entirely. Saying 「8月22日(土)の元の枠に戻しました」
+    // to someone standing on 代官山 would send them looking on the wrong board.
+    const away =
+      chip.home.storeParam !== props.storeParam
+        ? `${chip.home.storeLabel} ${chip.home.dayLabel}`
+        : chip.home.dayLabel
+    show(outcome === 'here' ? `${name}を元の枠に戻しました` : `${name}を${away}の元の枠に戻しました`)
   }
 
   function onChipPointerDown(e: React.PointerEvent<HTMLElement>, id: string) {
@@ -1897,7 +2259,7 @@ export function TodayScreen(props: TodayProps) {
     if (e.button !== 0 || dragRef.current || (e.target as Element).closest('.park-x')) return
     closeAdvice()
     if (pending) {
-      show('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')
       return
     }
     const box = e.currentTarget.getBoundingClientRect()
@@ -1911,8 +2273,18 @@ export function TodayScreen(props: TodayProps) {
 
   /** One teardown for the shelf gesture, so the pointer-up, the pointercancel and
    *  the `buttons === 0` self-heal cannot drift apart — a chip drag that ended on
-   *  any of the three used to leave the board's emphasis behind on one of them. */
-  function clearChipDrag() {
+   *  any of the three used to leave the board's emphasis behind on one of them.
+   *
+   *  ⚖ BATCH-6 flag 43 — and canon's click window opens here, on the SAME three
+   *  endings, so they cannot drift apart on that either. Canon's condition is
+   *  MOVED, not landed (:5640: `if (moved) { suppressClickUntil = …;
+   *  suppressClickSource = chip; }`): ours only opened it on a chip that found a
+   *  lane, so a chip carried across the board and released over nothing fired its
+   *  trailing click straight into the track underneath. An UNMOVED press keeps
+   *  its click — that click is the chip's own ×. */
+  function clearChipDrag(e?: { timeStamp: number; currentTarget: EventTarget | null }) {
+    const ctx = chipDragRef.current
+    if (e && ctx?.moved) openClickWindow(e.timeStamp, e.currentTarget instanceof Element ? e.currentTarget : null)
     chipDragRef.current = null
     setChipTarget(null)
     setDragLen(null)
@@ -1922,7 +2294,7 @@ export function TodayScreen(props: TodayProps) {
   function onChipPointerMove(e: React.PointerEvent<HTMLElement>) {
     const ctx = chipDragRef.current
     if (!ctx) return
-    if (e.buttons === 0) { clearChipDrag(); return }
+    if (e.buttons === 0) { clearChipDrag(e); return }
     if (!ctx.moved && Math.abs(e.clientX - ctx.startX) < 5 && Math.abs(e.clientY - ctx.startY) < 5) return
     const chip = parkChips.find((c) => c.id === ctx.id) ?? null
     if (!ctx.moved) {
@@ -1953,12 +2325,32 @@ export function TodayScreen(props: TodayProps) {
    *  centred on the pointer, and arrives as a 仮押さえ rather than a booking. */
   function onChipPointerUp(e: React.PointerEvent<HTMLElement>) {
     const ctx = chipDragRef.current
-    clearChipDrag()
-    if (!ctx || !ctx.moved || !ctx.laneKey) return
-    suppressClickUntil.current = e.timeStamp + 400
+    clearChipDrag(e)
+    if (!ctx || !ctx.moved) return
     const chip = parkChips.find((c) => c.id === ctx.id)
+    // ⚖ Liam flag 47 — A REFUSAL THAT SAYS NOTHING IS THE WORST ONE. A chip
+    // carried across the board and released over the shelf, the header or the
+    // gap between groups used to end in a bare `return`: the chip stayed (the
+    // invariant held) but nothing on screen said why the drop did nothing, so
+    // the operator's only reading was that the board had ignored them. The card
+    // drag has said this since flag 19; the shelf gesture now says it too, in
+    // the same words.
+    if (!ctx.laneKey) {
+      if (chip) refuse('予約を置く行の中で離してください')
+      return
+    }
     const track = boardRef.current?.querySelector(`.lane[data-lane="${ctx.laneKey}"] .track`)
     if (!chip || !track) return
+    // ⚖ Liam flag 46 — VISIBLE BUT REFUSED. The chip survived a store switch and
+    // is still in the shelf; this board's staff and rooms are another store's,
+    // so the landing is declined here, BEFORE the guard is consulted — offering
+    // 「より良い開始」 on a board the booking may not be placed on at all would
+    // be advice about an impossible placement.
+    const foreign = foreignStoreRefusal(chip.home, props.storeParam)
+    if (foreign) {
+      refuse(foreign)
+      return
+    }
     const w = chip.home.w
     const laneKey = ctx.laneKey
     const span = { x: shelfLanding(fractionIn(track, e.clientX), w, chip.home.x, STEP), w }
@@ -1988,16 +2380,16 @@ export function TodayScreen(props: TodayProps) {
   function armNextVisit() {
     if (!props.inStore) return
     if (pending) {
-      show('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')
       return
     }
     setPlacing({
       label: `${props.inStore.name}様の次回予約（${props.guard.standardSessionMin}分・単発）— お客様情報は自動入力`,
       name: props.inStore.name,
-      // ⚖ 46 forerunner — the STORE only. ⚖ 21 already says the intent is
-      // day-agnostic on purpose ("日付を移動してもそのまま"), so stamping a day
-      // onto it would be a field nothing may read.
-      store: props.storeParam,
+      // ⚖ Liam flag 46 rider — the ご来店中 customer is in THIS store. 配置モード
+      // survives a store switch exactly as the shelf chip does, so it carries
+      // the same two fields and is refused by the same rule.
+      storeParam: props.storeParam,
       storeLabel: props.lensLabel,
     })
     show('配置モード: 置きたい空き枠をクリック（日付を移動してもそのまま）')
@@ -2011,21 +2403,23 @@ export function TodayScreen(props: TodayProps) {
   function placeNextVisit(lane: BoardLane, start: number) {
     const p = placing
     if (!p) return
-    // ⚖ 46 forerunner — 配置モード survives `?store=` the way it survives `?day=`
-    // (⚖ 21), so it can be armed on 銀座 and clicked on 新宿. ⚖ 46's shape: the
-    // intent is not destroyed, it is REFUSED, and the toast names the store it
-    // was armed on. Ahead of every setter, so nothing is placed and nothing
-    // cleared — the operator switches back and the intent is still in hand.
-    if (!sameStore(p.store, props.storeParam)) {
-      show(`${p.storeLabel}で始めた配置です。${p.storeLabel}に切り替えてから置いてください`)
+    // ⚖ Liam flag 46 rider — the same store rule as the shelf chip's, in the
+    // same shape. Checked here as well as at the click so the guard popup's
+    // 「この開始に配置」 cannot walk around it.
+    const foreign = foreignStoreRefusal(p, props.storeParam)
+    if (foreign) {
+      refuse(foreign)
       return
     }
     const end = Math.min(start + props.guard.standardSessionMin, hours.close)
-    const partner = freePartnerLane(boardLanes, 'staff', start, end)
-    if (!partner) {
-      show('この時間帯に空いているベッドがいません')
-      return
-    }
+    // ⚖ Liam flag 51 — the same allocator every landing uses. A 次回予約 has no
+    // room yet, so there is nothing to keep and it takes the first free
+    // compatible one; when there is none the refusal NAMES the rooms that are
+    // busy instead of the old 「空いているベッドがいません」, which told the
+    // operator nothing they could act on.
+    const partnerKey = solveBed(lane.key, null, null, false, place(start, end, hours))
+    const partner = partnerKey == null ? null : boardLanes.find((l) => l.key === partnerKey)
+    if (!partner) return
     setPlacing(null)
     // canon's `cellCreateSeq` (:6029): a counter, not a clock. Two placements in
     // the same millisecond would collide on a timestamp, and the id is a React
@@ -2079,15 +2473,23 @@ export function TodayScreen(props: TodayProps) {
    *  `moves` is still written because the 仮押さえ bar's checks read the span
    *  from there; it never draws the card. */
   function placeFromShelf(chip: ParkChip, laneKey: string, span: { x: number; w: number }) {
-    // ⚖ 46 forerunner — THE CHIP GOES TO ANY DAY, BUT ONLY TO ITS OWN STORE. The
-    // shelf survives `?store=`, and ⚖ 46 keeps every chip VISIBLE on every board
-    // (it is the operator's hand, not the board's content). What a foreign board
-    // cannot do is take it: this board's lanes are other people and other rooms,
-    // and the booking's own store would lose it. So the drop is REFUSED and the
-    // toast names the chip's store — ahead of every setter, so the chip is still
-    // on the shelf and the × still works, exactly as ⚖ 46 requires.
-    if (!sameStore(chip.home.store, props.storeParam)) {
-      show(`${chip.item.title}様は${chip.home.storeLabel}の予約です。${chip.home.storeLabel}に切り替えてから置いてください`)
+    // THE CHIP GOES TO ANY DAY, BUT ONLY TO ITS OWN STORE. The shelf survives
+    // `?store=`, and ⚖ 46 keeps every chip VISIBLE on every board (it is the
+    // operator's hand, not the board's content). What a foreign board cannot do
+    // is take it: this board's lanes are other people and other rooms, and the
+    // booking's own store would lose it. Refused ahead of every setter, so the
+    // chip is still on the shelf and the × still works.
+    //
+    // KEPT AT CYCLE 7, in batch-7's vocabulary. `onChipPointerUp` already refuses
+    // — but this function is ALSO the guard popup's callback (`askGuard`, just
+    // above), and that popup outlives a `?store=` switch, so 「この開始に配置」
+    // can re-enter here on a board the drop never passed the check on. That is
+    // exactly the hole batch-7 closes for `placeNextVisit` in its own words:
+    // "checked here as well as at the click so the guard popup's 「この開始に配置」
+    // cannot walk around it". The shelf path needs the same second door.
+    const foreign = foreignStoreRefusal(chip.home, props.storeParam)
+    if (foreign) {
+      refuse(foreign)
       return
     }
     const start = minuteOf(span.x, hours)
@@ -2097,16 +2499,30 @@ export function TodayScreen(props: TodayProps) {
     // person stays whoever the chip left with; a staff lane means "this person"
     // and the room still has to be found.
     const dropped = boardLanes.find((l) => l.key === laneKey)
-    const free = (l: BoardLane | undefined) => l != null && l.items.every((i) => i.endMin <= start || i.startMin >= end)
     const staff = dropped?.group === 'beds' ? boardLanes.find((l) => l.key === chip.home.laneKey) : dropped
     // A booking is a person AND a room. canon puts the parked card's OWN bed
     // back, so that is the first candidate — but on another day it may be taken,
     // and a card labelled 【ベッド3】 over an occupied ベッド3 is the impossible
-    // state ⚖ 8/9 forbids, so a free one is found the way `createAtCell` does.
-    const home = boardLanes.find((l) => l.group === 'beds' && l.label === chip.item.tag.replace(/[【】]/g, ''))
-    const bed = dropped?.group === 'beds' ? dropped : free(home) ? home : freePartnerLane(boardLanes, 'staff', start, end)
-    if (!bed || !staff) {
-      show('この時間帯に空いているベッドがいません')
+    // state ⚖ 8/9 forbids.
+    // ⚖ Liam flag 51 — which is exactly the keep-if-free-else-retarget rule, so
+    // this now asks the one allocator instead of keeping its own copy of it: the
+    // chip's own room first, then any free compatible one, then 満室 with the
+    // busy rooms named. A drop ON a bed row stays the operator's explicit choice.
+    const bed =
+      dropped?.group === 'beds'
+        ? dropped
+        : (() => {
+            const home = boardLanes.find((l) => l.group === 'beds' && l.label === chip.item.tag.replace(/[【】]/g, ''))
+            const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)
+            return key == null ? null : boardLanes.find((l) => l.key === key)
+          })()
+    // `bed` null means `solveBed` has already said 満室 (⚖ 47: the refusal speaks
+    // and changes nothing). `staff` null is the other half — a room drop whose
+    // person is not on this board — and it gets its own sentence rather than the
+    // bare return that used to make a live board look dead.
+    if (!bed) return
+    if (!staff) {
+      refuse(`${chip.item.title}様の担当がこのボードにいません。担当スタッフの行に置いてください`)
       return
     }
     const staffLabel = staff.label
@@ -2177,6 +2593,14 @@ export function TodayScreen(props: TodayProps) {
     // is emphasised. The emphasis answers "where does this card FIT", and a card
     // that is not going anywhere is not asking.
     dragLen != null || live || blockLive ? 'dragging-live' : '',
+    // ⚖ flag 53 (builder-found, batch-7) — THE DEAD LEVER. today.css:689 hides
+    // the 配置ガイド in 「ドラッグ中のみ」 mode unless the board is AIMING, and
+    // nothing in the app ever set that class: the mode flipped the copy and
+    // rendered nothing, which is flag 3's disease exactly. Canon sets it from
+    // `SynqedGapGuardGuideDisplay.setAiming` (:5919-5920) while a gesture is in
+    // flight; ours is in flight for the same three gestures the reveal above
+    // answers to, so one condition serves both and they cannot drift.
+    dragLen != null || live || blockLive ? 'guard-guide-aiming' : '',
     placing ? 'placing' : '',
     `guard-guide-mode-${guideMode}`,
   ]
@@ -2233,12 +2657,35 @@ export function TodayScreen(props: TodayProps) {
         <div
           className={`track${dropTarget?.laneKey === lane.key ? ' drop-target' : ''}`}
           onClick={(e) => {
-            // canon :6811: a release, however it was caught, is never a create.
-            if (e.target !== e.currentTarget || e.timeStamp < suppressClickUntil.current) return
-            if (lane.group !== 'staff') return
-            if (isLocked) {
-              if (placing) show('シフトロック中: このスタッフには新しい予約を置けません')
+            // canon :6811: a release, however it was caught, is never a create —
+            // and ⚖ BATCH-6 flag 43 restores canon's first clause with it: a
+            // click dispatched while a gesture is still in hand is not a create
+            // either (`if (dragCtx || blockDragCtx || … ) return`). The window is
+            // this track's last line of defence, and the capture interceptor
+            // above can only swallow a release that landed on the dragged element
+            // itself — a release that fell through to the track is stopped here.
+            if (e.target !== e.currentTarget || dragRef.current || blockDragRef.current) return
+            if (e.timeStamp < suppressClickUntil.current) return
+            // ⚖ Liam flag 47 — the bed rows are not a landing for a person, and
+            // while 配置モード is armed that has to be SAID. It used to be a bare
+            // `return`, which reads as a dead board to the one operator who is
+            // actively looking for somewhere to click.
+            if (lane.group !== 'staff') {
+              if (placing) refuse('次回予約は担当スタッフの行に置いてください（ベッドは自動で選ばれます）')
               return
+            }
+            if (isLocked) {
+              if (placing) refuse('シフトロック中: このスタッフには新しい予約を置けません')
+              return
+            }
+            // ⚖ Liam flag 46 rider — a foreign store's board is refused before
+            // the guard is asked, for the shelf chip's own reason.
+            if (placing) {
+              const foreign = foreignStoreRefusal(placing, props.storeParam)
+              if (foreign) {
+                refuse(foreign)
+                return
+              }
             }
             const start = slotStartAt(e.currentTarget, e.clientX, hours)
             const at = { x: e.clientX, y: e.clientY, t: e.timeStamp }
@@ -2324,12 +2771,32 @@ export function TodayScreen(props: TodayProps) {
    *  sentence as its accessible name and nothing here can move a booking. */
   function renderRail(rail: GuardRail) {
     return (
-      <div className="guard-placement-rail" data-lane={rail.laneKey} role="group" aria-label={`${rail.laneLabel}の60分配置ガイド`}>
+      <div
+        className="guard-placement-rail"
+        data-lane={rail.laneKey}
+        role="group"
+        aria-label={`${rail.laneLabel}の60分配置ガイド`}
+        // ⚖ FLAGS 25c, backlog — the strip is a section of this board and joins
+        // the tour like every other one. It arrived in the rail round without a
+        // registration and three batches added to it without noticing, which is
+        // the miss this round closes. ONE entry, not one per lane: the registry
+        // is a document walk, so a pair on every strip would put the same step
+        // on the tour once per staff member. The first strip in DOM order
+        // carries it and the sentence is true of all of them.
+        {...(rails[0]?.laneKey === rail.laneKey
+          ? {
+              'data-guide-title': '60分配置',
+              'data-guide':
+                'このスタッフの各30分に、そこから60分の施術を始めた場合の判定が並びます。✓は空きを減らさない、△は減らすが置ける、—は置けません。',
+            }
+          : {})}
+      >
         <span className="guard-rail-label">60分配置</span>
         <div className="guard-rail-track">
           {rail.cells.map((c) => (
             <span
-              className={`guard-rail-cell ${c.state === 'safe' ? 'guard-slot safe' : c.state}`}
+              // ⚖ flag 50(c) — canon's `.aimed`, in sync with the dashed landing.
+              className={`guard-rail-cell ${c.state === 'safe' ? 'guard-slot safe' : c.state}${aimed?.laneKey === rail.laneKey && aimed.start === c.start ? ' aimed' : ''}`}
               key={c.start}
               data-start={c.start}
               data-state={c.state}
@@ -3400,6 +3867,12 @@ export function TodayScreen(props: TodayProps) {
           role="dialog"
           aria-label="予定の位置の提案"
           ref={blockAdvicePopRef}
+          // ⚖ FLAGS 25c, backlog — batch-5 shipped this surface without its
+          // registration. A popover only exists while it is open, and the
+          // registry is a live-document walk that drops what has no box, so it
+          // explains itself exactly when the operator is looking at it.
+          data-guide-title="予定の位置の提案"
+          data-guide="休憩や清掃を置いた位置が新規のお客様の枠を分けてしまうとき、より良い位置を提案します。そのまま置くこともできます。"
         >
           <div className="gp-reason">{blockAdvice.cell.sentence}</div>
           {/* The consult's own two lines, with 開始 → 位置: this surface is
@@ -3432,7 +3905,18 @@ export function TodayScreen(props: TodayProps) {
           always-visible pill when that card is not on screen. Same fixed layer,
           same fits-whole rule and the same clamp as the consult popup above. */}
       {holdPop && (
-        <div className={`hold-pop${holdPinned ? ' pinned' : ''}`} ref={holdPopRef} role="region" aria-label="仮押さえの確認">
+        <div
+          className={`hold-pop${holdPinned ? ' pinned' : ''}`}
+          ref={holdPopRef}
+          role="region"
+          aria-label="仮押さえの確認"
+          // ⚖ FLAGS 25c, backlog — batch-4 moved the confirm from the bottom bar
+          // to this popover and the registration did not come with it. The bar
+          // it replaced was never a tour step either, which is how three rounds
+          // went by with the count stuck at 14.
+          data-guide-title="仮押さえの確認"
+          data-guide="動かした予約はまず仮押さえになります。ここで内容を確認して確定するか、元に戻せます。再読み込みでも元に戻ります。"
+        >
           <div className="hp-head">
             <span className={`status ${holdPop.tone}`}>{holdPop.status}</span>
             <strong>{holdPop.summary}</strong>
@@ -3547,7 +4031,11 @@ export function TodayScreen(props: TodayProps) {
         </>
       )}
 
-      <div className={`toast${toast ? ' show' : ''}`} role="status" aria-live="polite" aria-atomic="true">{toast}</div>
+      {/* ⚖ Liam flag 47 — the same one node. `n` lives in the state object so a
+          refusal earned twice in a row is a NEW value and re-arms the dwell
+          timer; the node itself is never remounted, because remounting it would
+          cost the fade the rest of this board's surfaces all have. */}
+      <div className={`toast${toast.text ? ' show' : ''}`} role="status" aria-live="polite" aria-atomic="true">{toast.text}</div>
     </div>
   )
 }
@@ -3556,17 +4044,6 @@ export function TodayScreen(props: TodayProps) {
 const POLICY_WORD: Record<'off' | 'standard' | 'strict', string> = { off: 'オフ', standard: '標準', strict: '厳格' }
 
 const CAT_COLOR: Record<string, string> = { new: '#3d7ab8', repeat: '#8a63b8', ticket: '#2f8f8f', vip: '#3f3f46' }
-
-/** canon `renderHoldBar`'s summary line (:4769): who, when, on whom, on what. */
-function holdSummary(lanes: BoardLane[], id: string, at: Move | undefined, hours: { open: number; close: number }): string {
-  if (!at) return ''
-  const staffLane = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === id))
-  const bedLane = lanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === id))
-  const item = staffLane?.items.find((i) => i.caseId === id) ?? bedLane?.items.find((i) => i.caseId === id)
-  const from = minuteOf(at.x, hours)
-  const to = minuteOf(at.x + at.w, hours)
-  return `${item?.title ?? ''}様 → ${hhmm(from)}〜${hhmm(to)} / 担当 ${staffLane?.label ?? '—'} / ${bedLane?.label ?? '—'}`
-}
 
 /** L4 新規予約を作成 — canon's two-column dialog: the steps on the left, the
  *  ticket that assembles itself on the right. Confirming puts a real card on

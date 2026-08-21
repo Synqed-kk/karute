@@ -112,13 +112,23 @@ export interface FixtureResource {
   name: string
   note: string
   cleanup_minutes: number
+  /** ⚠SETTINGS-BATCH — 部屋クラス (⚖ Liam 2026-08-21, flag 51). The bed's own
+   *  class as DATA, because the auto-allocator has to know which rooms are
+   *  interchangeable and a board component may never decide that by reading a
+   *  room's display name. `note` is the sentence the operator reads; this is the
+   *  fact the allocator acts on, and the two are stated side by side so they can
+   *  never disagree. The 店舗設定 control ships with the settings batch. */
+  room_class: RoomClass
 }
 
+/** ⚠SETTINGS-BATCH — 施術室 (interchangeable) vs 個室/VIP (reserved). */
+export type RoomClass = 'standard' | 'private'
+
 export const resources: FixtureResource[] = [
-  { id: 'bed-01', store_id: STORE_A, name: 'ベッド1', note: '施術室A', cleanup_minutes: 30 },
-  { id: 'bed-02', store_id: STORE_A, name: 'ベッド2', note: '施術室A', cleanup_minutes: 30 },
-  { id: 'bed-03', store_id: STORE_A, name: 'ベッド3', note: '個室 / VIP対応', cleanup_minutes: 30 },
-  { id: 'bed-04', store_id: STORE_B, name: 'ベッド1', note: '施術室B', cleanup_minutes: 30 },
+  { id: 'bed-01', store_id: STORE_A, name: 'ベッド1', note: '施術室A', cleanup_minutes: 30, room_class: 'standard' },
+  { id: 'bed-02', store_id: STORE_A, name: 'ベッド2', note: '施術室A', cleanup_minutes: 30, room_class: 'standard' },
+  { id: 'bed-03', store_id: STORE_A, name: 'ベッド3', note: '個室 / VIP対応', cleanup_minutes: 30, room_class: 'private' },
+  { id: 'bed-04', store_id: STORE_B, name: 'ベッド1', note: '施術室B', cleanup_minutes: 30, room_class: 'standard' },
 ]
 
 /** Non-booking board blocks (ask T-05): not appointments (no customer), not
@@ -203,6 +213,20 @@ export const opsConfig = {
   gapGuardMode: 'standard' as 'off' | 'standard' | 'strict',
   newClientSessionMin: 90,
   leadTimeMin: 60,
+  /** ⚠SETTINGS-BATCH — 部屋の自動割り当てポリシー (⚖ Liam 2026-08-21, flag 51:
+   *  「people are chosen, rooms are solved」). The bed is re-solved at every
+   *  landing, and these two dials are the only judgements in that solve. Both
+   *  are Fable defaults and OVERTURNABLE: the 店舗設定 control ships with the
+   *  settings batch, with per-business-type defaults and the self-harm
+   *  guardrails the mistake-proofing law asks for. Stated here rather than in
+   *  the allocator so no component ever hardcodes a store's room policy. */
+  roomPolicy: {
+    /** VIP/個室クラスの予約は個室から自動で出さない — 個室が埋まっていれば、
+     *  その予約にとってはそこが満室. */
+    vipStaysPrivate: true,
+    /** 通常の予約が個室を取れるのは、施術室に空きがないときだけ. */
+    privateIsLastResort: true,
+  },
 }
 
 /** レジ (ask T-08). The aggregates the money band shows that no booking row

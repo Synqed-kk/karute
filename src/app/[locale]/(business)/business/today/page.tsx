@@ -432,6 +432,11 @@ export default async function TodayPage({
         mode: planes.opsConfig.gapGuardMode === 'strict' ? 'strict' : 'standard',
       },
     },
+    // ⚠SETTINGS-BATCH — ⚖ Liam flag 51. The bed the board hands a landing is an
+    // allocation, and these two dials are the whole of its judgement. They come
+    // from the store's own config for the same reason the guard's do: one place,
+    // read by everything, changed in 設定 rather than in code.
+    rooms: planes.opsConfig.roomPolicy,
     closedWeekdayLabel: WEEKDAY_WORD[planes.closedWeekday],
     ops: {
       total: yen(totals.total),

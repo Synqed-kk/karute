@@ -679,7 +679,14 @@
 .biz .guard-rail-cell.guard-slot { border: 1px solid #7656a8; background: var(--guard-soft); color: var(--guard-dark); cursor: pointer; }
 .biz .guard-rail-cell.degraded { border: 1px solid #cf8427; background: #fff0d9; color: #8b4e06; cursor: pointer; }
 .biz .guard-rail-cell.blocked { border: 1px solid #e0e0e5; background: #f2f2f4; color: #8a8a93; }
-.biz .guard-rail-cell:hover:not(.blocked), .biz .guard-rail-cell:focus-visible { outline: 0; filter: brightness(.94); box-shadow: inset 0 0 0 1px currentColor, 0 0 0 2px rgba(85, 60, 143, .18); }
+/* ⚖ Liam flag 50(c) — `.aimed` is canon's third selector on this exact rule
+   (:667): the chip the drag is pointing at wears the hover treatment, so the
+   dashed landing preview and the 60分配置 strip say the same thing at the same
+   moment. It was dropped in the transplant; the class is set by the drag frame
+   in TodayScreen. `.aimed` is NOT excluded on `.blocked` — canon does not
+   exclude it either, and a — chip that goes quiet under the cursor is the one
+   time the operator most needs to see which start they are on. */
+.biz .guard-rail-cell:hover:not(.blocked), .biz .guard-rail-cell:focus-visible, .biz .guard-rail-cell.aimed { outline: 0; filter: brightness(.94); box-shadow: inset 0 0 0 1px currentColor, 0 0 0 2px rgba(85, 60, 143, .18); }
 .biz button.guard-rail-cell:focus { z-index: 6; outline: 2px solid var(--select-line); outline-offset: 1px; filter: brightness(.94); box-shadow: inset 0 0 0 1px currentColor, 0 0 0 3px #fff; }
 @media (max-width: 1200px) {
   .biz .guard-rail-cell { font-size: 8px; letter-spacing: -.6px; }

@@ -22,6 +22,13 @@
 // booking it was placed as does not — the ⚖-ruled flow losing a booking in
 // silence, which is worse than the bug it was fixing.
 //
+// ⚖ BATCH-6 flag 45 (2026-08-21) — `bedMoves` JOINS THE FAMILY for exactly that
+// reason. A booking is a person AND a room, and the room's lane is a membership
+// of its own; it belongs beside `moves` and not below it, because a staff lane
+// that survives a day flip while its bed lane does not is the same half-a-
+// booking failure in a new place. Id-keyed is day-safe here on `moves`' own
+// argument: a booking id belongs to exactly one day.
+//
 // NOTHING PERSISTS beyond the tab: this is component state, so a reload still
 // resets the board exactly as every toast on this screen promises.
 //
@@ -66,15 +73,17 @@ import type { BoardItem } from '@/business/lib/today-board'
  *  open across JST midnight re-bases every one of them and yesterday's `0` is
  *  today's `-1`. The shelf fails SOFT when that happens (see `unparkOutcome`):
  *  the chip stays put rather than vanishing. Real-data reconnect will key the
- *  restore on an absolute date instead, and this comment can go with it. */
+ *  restore on an absolute date instead, and this comment can go with it.
+ *
+ *  ⚖ Liam flag 46 (2026-08-21) — AND THE STORE, for the same reason and by the
+ *  same mechanism. `?store=` is a Link too, so the shelf survives a store switch
+ *  and the chip can end up on a board whose staff and rooms it has nothing to do
+ *  with. `storeParam` is what the placement is checked against; `storeLabel` is
+ *  what the refusal SAYS, because the operator thinks in 銀座店, not in an id. */
 export interface ParkHome extends Move {
   dayOffset: number
   dayLabel: string
-  /** ⚖ 46 forerunner — the store this card was taken from, and its name. The
-   *  pair is the day pair's twin and for the same two reasons: the code has to
-   *  be able to ACT on the origin board (the × restores to it) and the toast has
-   *  to be able to NAME it when it is not the one on screen. */
-  store: string | null
+  storeParam: string | null
   storeLabel: string
 }
 
@@ -115,6 +124,12 @@ export interface AddedRow {
 export interface PendingChange {
   id: string
   origin: Move
+  /** ⚖ BATCH-6 flag 45 — THE OTHER HALF OF THE SNAPSHOT. canon's `stageChange`
+   *  snaps per element (:4652-4661), so its 元に戻す puts BOTH drawings back
+   *  whichever one was dragged. Ours held one Move and called it the origin,
+   *  which meant a bed-side move had nothing to revert the person to. Absent for
+   *  a booking with no bed row, and for a creation (whose 元に戻す deletes it). */
+  bedOrigin?: Move
   dayOffset: number
   dayLabel: string
   /** ⚖ 46 forerunner — the board it is staged on. Without it the bar re-ran its
@@ -127,14 +142,16 @@ export interface PendingChange {
 /** canon's 配置モード (`placing`, :6826). Armed by 次回予約を作成, disarmed by the
  *  ×, by Escape, or by the placement itself. ⚖ Liam 21: it survives day
  *  navigation — which is exactly what its own toast promises out loud
- *  (「日付を移動してもそのまま」), and what the remount was quietly breaking. */
+ *  (「日付を移動してもそのまま」), and what the remount was quietly breaking.
+ *
+ *  ⚖ Liam flag 46 rider — and it carries the store it was armed on, because it
+ *  survives a store switch as well as a day flip and the customer it names is
+ *  ご来店中 at ONE store. Same two fields, same check, same refusal as the shelf
+ *  chip's: one store-isolation rule, not two that can drift. */
 export interface PlacingIntent {
   label: string
   name: string
-  /** ⚖ 46 forerunner — the store the intent was armed on. It survives `?store=`
-   *  like everything else here, so the click has to be able to refuse a foreign
-   *  board and name the store the operator armed it from. */
-  store: string | null
+  storeParam: string | null
   storeLabel: string
 }
 
@@ -156,6 +173,11 @@ interface SessionEdits {
   setAdded: Dispatch<SetStateAction<AddedRow[]>>
   moves: Moves
   setMoves: Dispatch<SetStateAction<Moves>>
+  /** ⚖ BATCH-6 flag 45 — the BED lane each booking sits on, when this session
+   *  has moved it off the one the server drew. Same shape and same key as
+   *  `moves`; the span in it is the pair's, kept in step by the one writer. */
+  bedMoves: Moves
+  setBedMoves: Dispatch<SetStateAction<Moves>>
   parked: string[]
   setParked: Dispatch<SetStateAction<string[]>>
   parkChips: ParkChip[]
@@ -177,6 +199,7 @@ const SessionEditsContext = createContext<SessionEdits | null>(null)
 export function BusinessSessionEdits({ children }: { children: ReactNode }) {
   const [added, setAdded] = useState<AddedRow[]>([])
   const [moves, setMoves] = useState<Moves>({})
+  const [bedMoves, setBedMoves] = useState<Moves>({})
   const [parked, setParked] = useState<string[]>([])
   const [parkChips, setParkChips] = useState<ParkChip[]>([])
   const [pending, setPending] = useState<PendingChange | null>(null)
@@ -187,6 +210,7 @@ export function BusinessSessionEdits({ children }: { children: ReactNode }) {
       value={{
         added, setAdded,
         moves, setMoves,
+        bedMoves, setBedMoves,
         parked, setParked,
         parkChips, setParkChips,
         pending, setPending,
