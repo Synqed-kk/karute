@@ -22,6 +22,13 @@
 // booking it was placed as does not — the ⚖-ruled flow losing a booking in
 // silence, which is worse than the bug it was fixing.
 //
+// ⚖ BATCH-6 flag 45 (2026-08-21) — `bedMoves` JOINS THE FAMILY for exactly that
+// reason. A booking is a person AND a room, and the room's lane is a membership
+// of its own; it belongs beside `moves` and not below it, because a staff lane
+// that survives a day flip while its bed lane does not is the same half-a-
+// booking failure in a new place. Id-keyed is day-safe here on `moves`' own
+// argument: a booking id belongs to exactly one day.
+//
 // NOTHING PERSISTS beyond the tab: this is component state, so a reload still
 // resets the board exactly as every toast on this screen promises.
 //
@@ -115,6 +122,12 @@ export interface AddedRow {
 export interface PendingChange {
   id: string
   origin: Move
+  /** ⚖ BATCH-6 flag 45 — THE OTHER HALF OF THE SNAPSHOT. canon's `stageChange`
+   *  snaps per element (:4652-4661), so its 元に戻す puts BOTH drawings back
+   *  whichever one was dragged. Ours held one Move and called it the origin,
+   *  which meant a bed-side move had nothing to revert the person to. Absent for
+   *  a booking with no bed row, and for a creation (whose 元に戻す deletes it). */
+  bedOrigin?: Move
   dayOffset: number
   dayLabel: string
   /** ⚖ 46 forerunner — the board it is staged on. Without it the bar re-ran its
@@ -156,6 +169,11 @@ interface SessionEdits {
   setAdded: Dispatch<SetStateAction<AddedRow[]>>
   moves: Moves
   setMoves: Dispatch<SetStateAction<Moves>>
+  /** ⚖ BATCH-6 flag 45 — the BED lane each booking sits on, when this session
+   *  has moved it off the one the server drew. Same shape and same key as
+   *  `moves`; the span in it is the pair's, kept in step by the one writer. */
+  bedMoves: Moves
+  setBedMoves: Dispatch<SetStateAction<Moves>>
   parked: string[]
   setParked: Dispatch<SetStateAction<string[]>>
   parkChips: ParkChip[]
@@ -177,6 +195,7 @@ const SessionEditsContext = createContext<SessionEdits | null>(null)
 export function BusinessSessionEdits({ children }: { children: ReactNode }) {
   const [added, setAdded] = useState<AddedRow[]>([])
   const [moves, setMoves] = useState<Moves>({})
+  const [bedMoves, setBedMoves] = useState<Moves>({})
   const [parked, setParked] = useState<string[]>([])
   const [parkChips, setParkChips] = useState<ParkChip[]>([])
   const [pending, setPending] = useState<PendingChange | null>(null)
@@ -187,6 +206,7 @@ export function BusinessSessionEdits({ children }: { children: ReactNode }) {
       value={{
         added, setAdded,
         moves, setMoves,
+        bedMoves, setBedMoves,
         parked, setParked,
         parkChips, setParkChips,
         pending, setPending,

@@ -90,10 +90,12 @@ import {
   laneKeyAtY,
   nextSpan,
   onShownBoard,
+  pairLanesOf,
   parkChipText,
   pinInViewport,
   sameStore,
   sellLayerFor,
+  sidesAt,
   slotStartAt,
   spotCardAt,
   spotHitIndex,
@@ -103,6 +105,7 @@ import {
   type GuardRail,
   type Move,
   type Moves,
+  type PairLanes,
   type RailCell,
   type SpotRect,
 } from './today-interactions'
@@ -267,9 +270,20 @@ interface DragCtx {
   origin: DragOrigin
   startX: number
   startY: number
+  /** The GRABBED lane's group — 'staff' or 'beds'. ⚖ BATCH-6 flag 45: this is
+   *  the whole of what decides which half of the pair retargets, because a
+   *  booking is drawn twice and both drawings are draggable (canon binds every
+   *  `.event[data-book]`, :3887). It already leashed the lane hunt; it now also
+   *  says which record the landing is written into. */
   group: string
   homeLane: string
   targetLane: string
+  /** ⚖ BATCH-6 flag 45 — THE TWO-SIDED REVERT SNAPSHOT, taken at pointerdown
+   *  from the lanes the pair is ACTUALLY on (canon's per-element snap,
+   *  `stageChange` :4652-4661). The side that is not being dragged never moves
+   *  during the gesture, so this is also the live answer to "where is the other
+   *  half right now". */
+  home: PairLanes
   track: Element
   moved: boolean
   overShelf: boolean
@@ -355,6 +369,13 @@ interface LiveDrag {
   id: string
   homeLane: string
   targetLane: string
+  /** ⚖ BATCH-6 flag 45 — the pair's two memberships AS THIS FRAME WOULD LAND
+   *  THEM, so the guard, the drop target and the window layers answer for a
+   *  bed-side drag the same way they always answered for a staff-side one.
+   *  Feeding `targetLane` into the staff record is what made a bed-row drag
+   *  vanish the person's card the moment the pointer crossed a lane. */
+  staffLane: string | null
+  bedLane: string | null
   x: number
   w: number
   overShelf: boolean
@@ -418,6 +439,7 @@ export function TodayScreen(props: TodayProps) {
   const {
     added, setAdded,
     moves, setMoves,
+    bedMoves, setBedMoves,
     parked, setParked,
     parkChips, setParkChips,
     pending, setPending,
@@ -740,8 +762,16 @@ export function TodayScreen(props: TodayProps) {
    *  can we — re-parenting destroys the element the pointer stream is bound to
    *  and the drag dies on the first pixel of vertical travel. */
   const liveMoves = useMemo(
-    () => (live ? { ...moves, [live.id]: { laneKey: live.targetLane, x: live.x, w: live.w } } : moves),
+    () => (live?.staffLane ? { ...moves, [live.id]: { laneKey: live.staffLane, x: live.x, w: live.w } } : moves),
     [moves, live],
+  )
+  /** ⚖ BATCH-6 flag 45 — the bed side's half of the same in-flight board. A
+   *  staff-side drag writes the room's CURRENT lane here with the live span,
+   *  which is a no-op on membership and keeps the two drawings on one clock;
+   *  a bed-side drag writes the room it is heading for. */
+  const liveBedMoves = useMemo(
+    () => (live?.bedLane ? { ...bedMoves, [live.id]: { laneKey: live.bedLane, x: live.x, w: live.w } } : bedMoves),
+    [bedMoves, live],
   )
   /** Only the cards this session put on the BOARD currently on screen — the day
    *  (⚖ 22) and, ⚖ 46 forerunner, the store. A row scoped by day alone painted
@@ -761,8 +791,8 @@ export function TodayScreen(props: TodayProps) {
     [props.lanes, blockMoves, hours],
   )
   const boardLanes = useMemo(
-    () => applyMoves(placedLanes, liveMoves, parked, addedHere, hours),
-    [placedLanes, liveMoves, parked, addedHere, hours],
+    () => applyMoves(placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves),
+    [placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves],
   )
   /** The board WITHOUT the in-flight pointer — what the window layers price
    *  against. canon's `renderPublicLayer` (:5343) and `renderGapFillLayer`
@@ -777,8 +807,8 @@ export function TodayScreen(props: TodayProps) {
    *  1. `boardLanes` stays the truth for the guard and the drop target, which
    *  DO have to answer where the card is heading. */
   const committedLanes = useMemo(
-    () => applyMoves(placedLanes, moves, parked, addedHere, hours),
-    [placedLanes, moves, parked, addedHere, hours],
+    () => applyMoves(placedLanes, moves, parked, addedHere, hours, bedMoves),
+    [placedLanes, moves, parked, addedHere, hours, bedMoves],
   )
   /** WHAT THE DOM DRAWS while a card is in flight: the board as it stands. The
    *  card he grabbed is under his cursor now (the proxy), so the original stays
@@ -1132,15 +1162,48 @@ export function TodayScreen(props: TodayProps) {
     // cover unmount paths generically — take it if a third gate ever appears.
   }, [holdAnchorId, holdPinned, collapsed, view, moves, props.dayOffset])
 
-  function stage(id: string, laneKey: string, span: { x: number; w: number }, from: Move) {
-    setMoves((was) => ({ ...was, [id]: { laneKey, ...span } }))
-    setPending((was) => (was && was.id === id ? was : { id, origin: from, ...boardStamp }))
+  /** ⚖ BATCH-6 flag 45 — ONE SIDE RETARGETS, BOTH RE-TIME (canon `stageChange`
+   *  :4648-4674). `at` is the landing as `sidesAt` resolved it: the grabbed
+   *  side's target, and the other side's current lane carried through unchanged.
+   *  Both records take the SAME span, which is what keeps the person and the
+   *  room on one clock — canon's `els.forEach(evSet)` said the same thing.
+   *
+   *  `from` is the two-sided origin, and it is what 元に戻す restores. */
+  function stage(id: string, at: { staffLane: string | null; bedLane: string | null }, span: { x: number; w: number }, from: PairLanes) {
+    const { staffLane, bedLane } = at
+    if (staffLane) setMoves((was) => ({ ...was, [id]: { laneKey: staffLane, ...span } }))
+    if (bedLane) setBedMoves((was) => ({ ...was, [id]: { laneKey: bedLane, ...span } }))
+    // ⚖ 46 forerunner kept under batch-6's two-sided rewrite: the stamp is
+    // `boardStamp`, not the day pair batch-6 was written against — it predates
+    // the store scoping, and `PendingChange` now REQUIRES store + storeLabel.
+    // Batch-7's full ⚖ 46 supersedes this stamp when it replays.
+    setPending((was) =>
+      was && was.id === id
+        ? was
+        : { id, origin: from.staff ?? { laneKey: '', x: 0, w: 0 }, bedOrigin: from.bed ?? undefined, ...boardStamp },
+    )
     setSelected(null)
+  }
+
+  /** ⚖ BATCH-6 flag 45 — put the pair back where a snapshot says it stood, BOTH
+   *  sides, whichever one was dragged. Every abandoned landing goes through here
+   *  — the shelf drop's write-back, the two refusals, the no-op release and the
+   *  cancel — because a restore that knows only the staff lane is the same
+   *  one-sided write that lost the card in the first place. */
+  function restoreSides(id: string, home: PairLanes) {
+    if (home.staff) setMoves((was) => ({ ...was, [id]: home.staff! }))
+    setBedMoves((was) => {
+      if (home.bed) return { ...was, [id]: home.bed }
+      if (!(id in was)) return was
+      const next = { ...was }
+      delete next[id]
+      return next
+    })
   }
 
   function revertPending() {
     if (!pending) return
-    const { id, origin } = pending
+    const { id, origin, bedOrigin } = pending
     // canon's `snap: [{ el, remove: true }]` (:6084): a placement's 元に戻す takes
     // the card back OFF the day it was put on. A shelf placement goes back to the
     // shelf it came from; anything else just returns to its own span.
@@ -1156,6 +1219,16 @@ export function TodayScreen(props: TodayProps) {
       const next = { ...was }
       if (origin.laneKey === '' ) delete next[id]
       else next[id] = origin
+      return next
+    })
+    // ⚖ BATCH-6 flag 45 — and the room comes back too. Without this, 元に戻す on
+    // a bed-side move put the person back and left the booking in the room it
+    // was dragged to, which is the half-undo the two-sided snapshot exists to
+    // stop. No bed origin (a creation, or a booking with no bed row) = no entry.
+    setBedMoves((was) => {
+      const next = { ...was }
+      if (bedOrigin) next[id] = bedOrigin
+      else delete next[id]
       return next
     })
     setPending(null)
@@ -1207,10 +1280,6 @@ export function TodayScreen(props: TodayProps) {
   }, [placing, advice, blockAdvice, pop, pending, revertPending])
 
   // ── card drag ────────────────────────────────────────────────────────────
-
-  function homeMoveFor(id: string, lane: BoardLane, item: BoardItem): Move {
-    return moves[id] ?? { laneKey: lane.key, x: item.x, w: item.w }
-  }
 
   /** THE POINTER STREAM LIVES ON THE WINDOW, not on the card.
    *
@@ -1312,7 +1381,18 @@ export function TodayScreen(props: TodayProps) {
     } else {
       liveTimeLabel(ctx.nodes, `${hhmm(minuteOf(span.x, hours))}〜${hhmm(minuteOf(span.x + span.w, hours))}`)
     }
-    setLive({ id: ctx.id, homeLane: ctx.homeLane, targetLane: ctx.targetLane, ...span, overShelf: ctx.overShelf, mode: ctx.origin.mode })
+    setLive({
+      id: ctx.id,
+      homeLane: ctx.homeLane,
+      targetLane: ctx.targetLane,
+      // ⚖ BATCH-6 flag 45 — the grabbed side goes where the pointer is, the
+      // other stays where it stands. One call, so the live board and the
+      // landing can never answer that question differently.
+      ...sidesAt(ctx.home, ctx.group, ctx.targetLane),
+      ...span,
+      overShelf: ctx.overShelf,
+      mode: ctx.origin.mode,
+    })
   }
 
   function onCardPointerDown(e: React.PointerEvent<HTMLButtonElement>, item: BoardItem, lane: BoardLane) {
@@ -1336,6 +1416,10 @@ export function TodayScreen(props: TodayProps) {
       group: lane.group,
       homeLane: lane.key,
       targetLane: lane.key,
+      // ⚖ BATCH-6 flag 45 — canon's per-element snap, taken HERE, before a
+      // pixel of travel: both lanes as they actually stand, at the span the card
+      // actually has. Nothing else in the gesture can lose a side after this.
+      home: pairLanesOf(boardLanes, item.caseId, { x: item.x, w: item.w }),
       track,
       moved: false,
       overShelf: false,
@@ -1349,7 +1433,11 @@ export function TodayScreen(props: TodayProps) {
     const ctx = dragRef.current
     if (!ctx) return
     const { item, lane } = ctx
-    const from: Move = { laneKey: ctx.homeLane, x: ctx.origin.x, w: ctx.origin.w }
+    // ⚖ BATCH-6 flag 45 — the origin is the PAIR's, snapped at pointerdown. It
+    // used to be `{ laneKey: ctx.homeLane, … }`, which for a card grabbed by its
+    // bed row was a bed key in the staff record: the person's card was evicted
+    // from every lane and the revert wrote the same key back.
+    const from = ctx.home
     if (!ctx.moved) {
       // A press that never travelled is a selection, not a drag.
       clearDrag()
@@ -1371,8 +1459,10 @@ export function TodayScreen(props: TodayProps) {
     const span = nextSpan(ctx.origin, ctx.track, clientX - ctx.startX, STEP)
     if (ctx.origin.mode === 'move' && isOverShelf(shelfRef.current, clientY)) {
       clearDrag()
-      setMoves((was) => ({ ...was, [ctx.id]: from }))
-      park(ctx.id, item, from)
+      restoreSides(ctx.id, from)
+      // The chip's `home` is the STAFF side: its × writes it straight back into
+      // `moves`, and a bed key there is the same collapse in the shelf's clothes.
+      park(ctx.id, item, from.staff ?? { laneKey: ctx.homeLane, x: ctx.origin.x, w: ctx.origin.w })
       return
     }
     let targetLane = ctx.targetLane
@@ -1380,7 +1470,7 @@ export function TodayScreen(props: TodayProps) {
       const laneKey = laneKeyAtY(boardRef.current, ctx.group, clientY)
       if (!laneKey) {
         clearDrag()
-        setMoves((was) => ({ ...was, [ctx.id]: from }))
+        restoreSides(ctx.id, from)
         show('予約を置く行の中で離してください')
         return
       }
@@ -1391,7 +1481,7 @@ export function TodayScreen(props: TodayProps) {
     const laneChanged = ctx.origin.mode === 'move' && targetLane !== ctx.homeLane
     clearDrag()
     if (span.x === ctx.origin.x && span.w === ctx.origin.w && !laneChanged) {
-      setMoves((was) => ({ ...was, [ctx.id]: from }))
+      restoreSides(ctx.id, from)
       return
     }
     // ⚖ Liam flag 31a — A MOVE NEVER OPENS THE CONSULT. It used to call
@@ -1400,13 +1490,21 @@ export function TodayScreen(props: TodayProps) {
     // 「このページだけのサンプル」 (guard-demo :1823), and canon's real drop
     // (`finishNormalBookingDrag` :4559-4626) shows no dialog whatsoever. What the
     // popup knew is not lost — it is a row on the confirm surface now (31b).
-    stage(ctx.id, targetLane, span, pending?.id === ctx.id ? pending.origin : from)
+    // ⚖ BATCH-6 flag 45 — `sidesAt` decides which half of the pair the landing
+    // belongs to; the origin stays the FIRST gesture's when one is already
+    // pending, both sides of it, so 元に戻す is still an undo of the whole change.
+    stage(
+      ctx.id,
+      sidesAt(ctx.home, ctx.group, targetLane),
+      span,
+      pending?.id === ctx.id ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from,
+    )
   }
 
   function cancelDrag() {
     const ctx = dragRef.current
     if (!ctx) return
-    setMoves((was) => ({ ...was, [ctx.id]: { laneKey: ctx.homeLane, x: ctx.origin.x, w: ctx.origin.w } }))
+    restoreSides(ctx.id, ctx.home)
     clearDrag()
   }
 
@@ -1830,13 +1928,22 @@ export function TodayScreen(props: TodayProps) {
       show('仮押さえ中の変更を確定するか、元に戻してから操作してください')
       return
     }
-    const from = homeMoveFor(item.caseId, lane, item)
+    // ⚖ BATCH-6 flag 45 — the keyboard nudge is the same landing as a drag and
+    // takes the same two-sided answer: a card focused on its BED row is resized
+    // in the room's lane, and the person keeps theirs. It used to write the
+    // focused lane into the staff record here too.
+    const from = pairLanesOf(boardLanes, item.caseId, { x: item.x, w: item.w })
     const next = keyboardNudge(item.x, item.w, leftEdge ? 'resizeL' : 'resize', e.key === 'ArrowLeft' ? -1 : 1, STEP)
     if (!next) {
       show('これ以上は時間を変更できません')
       return
     }
-    stage(item.caseId, lane.key, next, pending?.id === item.caseId ? pending.origin : from)
+    stage(
+      item.caseId,
+      sidesAt(from, lane.group, lane.key),
+      next,
+      pending?.id === item.caseId ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from,
+    )
   }
 
   // ── 仮置きエリア ──────────────────────────────────────────────────────────

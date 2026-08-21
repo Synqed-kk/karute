@@ -53,10 +53,12 @@ import {
   laneKeyAtY,
   laneSpans,
   nextSpan,
+  pairLanesOf,
   parkChipText,
   proxyTransform,
   reasonLine,
   sellLayerFor,
+  sidesAt,
   slotStartAt,
   onShownBoard,
   sameStore,
@@ -215,6 +217,56 @@ describe('the board answers to its own moves', () => {
     expect(out[2].items[0].startMin).toBe(600)
     expect(out[2].items[0].endMin).toBe(660)
     expect(out[1].items[0].time).toBe('10:00〜11:00')
+  })
+
+  /** ⚖ BATCH-6 flag 45 (2026-08-21) — THE COUNTERPART OF THE TEST ABOVE, in the
+   *  other direction. A booking is drawn twice and canon binds the drag to BOTH
+   *  drawings (`document.querySelectorAll(".event[data-book]").forEach(bindDrag)`,
+   *  :3887), so a bed-row drag is a first-class gesture and says WHICH ROOM. It
+   *  used to be unrepresentable: one `laneKey` meant a bed key in the staff
+   *  record, which evicted the person's card from every staff lane with no path
+   *  back — and the revert wrote the same key again. */
+  const bed2 = lane({ key: 'bed-02', group: 'beds' })
+  const pairLanes = [staffA, staffB, bed, bed2]
+
+  it('a BED-side move retargets the room and leaves the person alone, re-spanned', () => {
+    // The staff record still names the staff lane; the bed record names the room.
+    const moves: Moves = { 'apt-1': { laneKey: 'p-01', x: 0, w: 100 / 9 } }
+    const bedMoves: Moves = { 'apt-1': { laneKey: 'bed-02', x: 0, w: 100 / 9 } }
+    const out = applyMoves(pairLanes, moves, [], [], HOURS, bedMoves)
+    // 担当 UNCHANGED — the card is exactly where it was, at the new time.
+    expect(out[0].items.map((i) => i.caseId)).toEqual(['apt-1'])
+    expect(out[0].items[0].startMin).toBe(600)
+    expect(out[0].items[0].endMin).toBe(660)
+    expect(out[1].items).toHaveLength(0)
+    // …and the ROOM moved, carrying the same span, so the pair share one clock.
+    expect(out[2].items).toHaveLength(0)
+    expect(out[3].items.map((i) => i.caseId)).toEqual(['apt-1'])
+    expect(out[3].items[0].key).toBe('a-bed')
+    expect(out[3].items[0].time).toBe('10:00〜11:00')
+  })
+
+  it('with no bed record at all, the bed row behaves exactly as it always did', () => {
+    // The default argument IS the old behaviour: the room keeps the lane the
+    // server drew it on and takes only the span.
+    const moves: Moves = { 'apt-1': { laneKey: 'p-04', x: 0, w: 100 / 9 } }
+    expect(applyMoves(pairLanes, moves, [], [], HOURS).map((l) => l.items.map((i) => i.caseId)))
+      .toEqual(applyMoves(pairLanes, moves, [], [], HOURS, {}).map((l) => l.items.map((i) => i.caseId)))
+    expect(applyMoves(pairLanes, moves, [], [], HOURS)[2].items.map((i) => i.caseId)).toEqual(['apt-1'])
+  })
+
+  it('a bed record cannot drag the person: the two memberships are independent', () => {
+    // Both sides moved at once — the staff-side drag's own case, where the room
+    // record is only carrying the span. Neither key leaks into the other lane.
+    const out = applyMoves(
+      pairLanes,
+      { 'apt-1': { laneKey: 'p-04', x: 0, w: 100 / 9 } },
+      [],
+      [],
+      HOURS,
+      { 'apt-1': { laneKey: 'bed-02', x: 0, w: 100 / 9 } },
+    )
+    expect(out.map((l) => l.items.map((i) => i.caseId))).toEqual([[], ['apt-1'], [], ['apt-1']])
   })
 
   it('a parked card leaves BOTH lanes, and returns to both', () => {
@@ -813,7 +865,11 @@ describe('the window layers price the committed board, never the card in flight'
     // ⚖ Liam flag 26 folded ONE pass in front of it — `placedLanes` is
     // props.lanes with this session's BLOCK moves applied — and nothing else
     // changed: the booking argument is still `moves`, never `liveMoves`.
-    const memo = /const committedLanes = useMemo\(\s*\(\) => applyMoves\(placedLanes, moves, parked, addedHere, hours\)/
+    // ⚖ BATCH-6 flag 45 (2026-08-21) — RENEGOTIATED: the committed board now
+    // takes the BED side's committed memberships too, and the same rule binds
+    // them — `bedMoves`, never `liveBedMoves`. The pin is what stops a future
+    // round from quietly feeding the priced layers the pointer's position.
+    const memo = /const committedLanes = useMemo\(\s*\(\) => applyMoves\(placedLanes, moves, parked, addedHere, hours, bedMoves\)/
     expect(memo.test(src)).toBe(true)
     expect(src).toContain('applyBlockMoves(props.lanes, blockMoves, hours)')
     expect(src).toContain('sellLayerFor(committedLanes')
@@ -1454,11 +1510,18 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
     // leak into 8/20's derivation, let alone its price layer.
     // (⚖ flag 26: `placedLanes` is props.lanes + this session's block moves —
     // the day-scoped `addedHere` argument is what this test is pinning.)
-    expect(SRC).toContain('applyMoves(placedLanes, liveMoves, parked, addedHere, hours)')
-    expect(SRC).toContain('applyMoves(placedLanes, moves, parked, addedHere, hours)')
+    // ⚖ BATCH-6 flag 45 — RENEGOTIATED: both boards now carry the bed side's
+    // memberships alongside the staff side's, and the live/committed split is
+    // mirrored exactly (`liveBedMoves` beside `liveMoves`).
+    expect(SRC).toContain('applyMoves(placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves)')
+    expect(SRC).toContain('applyMoves(placedLanes, moves, parked, addedHere, hours, bedMoves)')
     // The shelf lands through `added`, stamped with the BOARD on screen —
     // RENEGOTIATED (⚖ 46 forerunner): the day and the store together, from the
     // one `board` const, so a landing cannot record half of where it landed.
+    // RENEGOTIATED AGAIN (cycle 7): batch-6's `dayOffset: props.dayOffset` pin
+    // was the forerunner-era spelling of THIS assertion and no longer matches —
+    // the stamp is `{ ...board, … }`. The day half is still pinned, inside
+    // `board`, on the line below. Window widened for batch-6's longer body.
     const body = SRC.slice(SRC.indexOf('function placeFromShelf'), SRC.indexOf('function placeFromShelf') + 3600)
     expect(body).toContain('{ ...board, laneKey: staff.key, fromChip: chip,')
     expect(SRC).toContain('const board = useMemo(')
@@ -2184,7 +2247,9 @@ describe('the confirm comes to the card, and the consult goes back to the placem
   it('a MOVE never opens the consult — canon fires it from a teaching card only', () => {
     expect(finishDrag).not.toContain('askGuard(')
     // …and the drop still stages, which is the part canon's real drop DOES do.
-    expect(finishDrag).toContain('stage(ctx.id, targetLane, span, pending?.id === ctx.id ? pending.origin : from)')
+    // ⚖ BATCH-6 flag 45 — RENEGOTIATED: the landing is now the PAIR's, resolved
+    // by `sidesAt`, and a pending change's origin is carried on both sides.
+    expect(finishDrag).toContain('stage(\n      ctx.id,\n      sidesAt(ctx.home, ctx.group, targetLane),\n      span,\n      pending?.id === ctx.id ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from,\n    )')
   })
 
   // ── flag 33's root cause, found in the browser ────────────────────────────
@@ -2488,7 +2553,9 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // 同じ再計算で応答する（置けばそのセルは消え、戻せば戻る）」 — and it calls
     // renderPublicLayer() from renderHoldBar (:4789), from 確定 (:5515) and from
     // 元に戻す (:5527). Ours reads the staged `moves`, so the same is true.
-    expect(SRC).toContain('const committedLanes = useMemo(\n    () => applyMoves(placedLanes, moves, parked, addedHere, hours),')
+    // (⚖ BATCH-6 flag 45 — RENEGOTIATED: the bed side's committed memberships
+    // ride the same board, and the same "committed, never live" rule.)
+    expect(SRC).toContain('const committedLanes = useMemo(\n    () => applyMoves(placedLanes, moves, parked, addedHere, hours, bedMoves),')
     // What is frozen for the length of a GESTURE is `liveMoves`, and only that.
     expect(SRC).toContain('const drawnLanes = live || blockLive ? committedLanes : boardLanes')
     const sell = SRC.slice(SRC.indexOf('const sell = useMemo('), SRC.indexOf('const gap = useMemo('))
@@ -2503,5 +2570,129 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     ]
     const staged = applyMoves(lanes, { 'apt-9': { laneKey: 'p-01', ...place(1020, 1080, hours) } }, [], [], hours)
     expect(staged[0].items.map((i) => [i.startMin, i.endMin])).toEqual([[1020, 1080]])
+  })
+})
+
+/** ═══ BATCH-6 — Liam's flag 45 (8/21) ════════════════════════════════════
+ *
+ *  A booking is a person AND a room, and the board had one word for both. */
+describe('the pair keeps both its lanes', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const EDITS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/BusinessSessionEdits.tsx'), 'utf8')
+  const staffA = lane({ key: 'p-01', group: 'staff', items: [booking({ key: 'a-staff', caseId: 'apt-1' }, 660, 720)] })
+  const staffB = lane({ key: 'p-04', group: 'staff' })
+  const bed1 = lane({ key: 'bed-01', group: 'beds', items: [booking({ key: 'a-bed', caseId: 'apt-1' }, 660, 720)] })
+  const bed2 = lane({ key: 'bed-02', group: 'beds' })
+  const lanes = [staffA, staffB, bed1, bed2]
+  const SPAN = { x: 0, w: 100 / 9 }
+
+  it('the snapshot knows BOTH lanes the pair stands on, at the span it stands at', () => {
+    expect(pairLanesOf(lanes, 'apt-1', SPAN)).toEqual({
+      staff: { laneKey: 'p-01', ...SPAN },
+      bed: { laneKey: 'bed-01', ...SPAN },
+    })
+    // A booking with no drawing in a group answers null for that side rather
+    // than inventing a lane — a creation before its bed row exists, say.
+    expect(pairLanesOf([staffA, staffB], 'apt-1', SPAN).bed).toBeNull()
+    expect(pairLanesOf(lanes, 'nobody', SPAN)).toEqual({ staff: null, bed: null })
+  })
+
+  it('the side the operator has hold of retargets; the other only re-times', () => {
+    const now = pairLanesOf(lanes, 'apt-1', SPAN)
+    // canon `stageChange` :4665 — one element is re-parented, both are re-spanned.
+    expect(sidesAt(now, 'staff', 'p-04')).toEqual({ staffLane: 'p-04', bedLane: 'bed-01' })
+    expect(sidesAt(now, 'beds', 'bed-02')).toEqual({ staffLane: 'p-01', bedLane: 'bed-02' })
+    // A bed-side drag on a booking that has no staff row cannot invent one.
+    expect(sidesAt({ staff: null, bed: now.bed }, 'beds', 'bed-02').staffLane).toBeNull()
+  })
+
+  it('a two-sided revert puts BOTH drawings back, whichever twin was dragged', () => {
+    const origin = pairLanesOf(lanes, 'apt-1', SPAN)
+    // Bed-side move: room to bed-02, person re-timed only.
+    const movedSides = sidesAt(origin, 'beds', 'bed-02')
+    const staged = applyMoves(
+      lanes,
+      { 'apt-1': { laneKey: movedSides.staffLane!, ...place(900, 960, HOURS) } },
+      [], [], HOURS,
+      { 'apt-1': { laneKey: movedSides.bedLane!, ...place(900, 960, HOURS) } },
+    )
+    expect(staged.map((l) => l.items.map((i) => i.caseId))).toEqual([['apt-1'], [], [], ['apt-1']])
+    expect(staged[0].items[0].startMin).toBe(900)
+    // 元に戻す writes the snapshot back on both records — and the board is the
+    // server's again, both lanes, both spans.
+    const reverted = applyMoves(lanes, { 'apt-1': origin.staff! }, [], [], HOURS, { 'apt-1': origin.bed! })
+    expect(reverted.map((l) => l.items.map((i) => i.caseId))).toEqual([['apt-1'], [], ['apt-1'], []])
+    expect(reverted[0].items[0].startMin).toBe(600)
+    expect(reverted[2].items[0].startMin).toBe(600)
+  })
+
+  it('the screen stages, reverts and cancels through the two-sided pair, never one lane', () => {
+    // The staging rule and the snapshot are one call each, at every landing.
+    expect(SRC).toContain('home: pairLanesOf(boardLanes, item.caseId, { x: item.x, w: item.w })')
+    expect(SRC).toContain('...sidesAt(ctx.home, ctx.group, ctx.targetLane),')
+    expect(SRC).toContain('sidesAt(ctx.home, ctx.group, targetLane),')
+    // The keyboard nudge is the same landing and takes the same answer.
+    expect(SRC).toContain('sidesAt(from, lane.group, lane.key),')
+    // Every abandoned landing restores BOTH sides — and `from` is the pair.
+    expect(SRC).toContain('const from = ctx.home')
+    // ⚖ M2, found by the mutation round: the restore is TWO writes, and dropping
+    // either one is the half-undo the two-sided snapshot exists to stop — a
+    // person put back into a room the booking has already left, or the reverse.
+    const restore = SRC.slice(SRC.indexOf('function restoreSides('), SRC.indexOf('function revertPending()'))
+    expect(restore).toContain('if (home.staff) setMoves((was) => ({ ...was, [id]: home.staff! }))')
+    expect(restore).toContain('if (home.bed) return { ...was, [id]: home.bed }')
+    const finish = SRC.slice(SRC.indexOf('function finishDrag('), SRC.indexOf('function cancelDrag('))
+    expect(finish.match(/restoreSides\(ctx\.id, from\)/g)).toHaveLength(3)
+    expect(finish).not.toContain('setMoves(')
+    const cancel = SRC.slice(SRC.indexOf('function cancelDrag('), SRC.indexOf('function clearDrag()'))
+    expect(cancel).toContain('restoreSides(ctx.id, ctx.home)')
+    // …and 元に戻す answers for the room as well as the person.
+    const revert = SRC.slice(SRC.indexOf('function revertPending()'), SRC.indexOf('function confirmPending()'))
+    expect(revert).toContain('if (bedOrigin) next[id] = bedOrigin')
+    // The bed record survives a day flip exactly as `moves` does — same family,
+    // same provider, above the screen's `?day=` remount.
+    expect(EDITS).toContain('const [bedMoves, setBedMoves] = useState<Moves>({})')
+    expect(EDITS).toContain('bedMoves, setBedMoves,')
+    expect(EDITS).toContain('bedOrigin?: Move')
+    // …and `blockMoves` is still deliberately NOT in the family.
+    expect(EDITS).not.toContain('const [blockMoves')
+  })
+
+  it('the confirm surface names 担当 and the room after a bed-side move', () => {
+    // `holdSummary` reads the lanes the pair is ON, so the fix reaches it for
+    // free — but only because the staff record still holds a staff lane. This
+    // is the pin that fails if a bed key ever gets written there again.
+    const movedSides = sidesAt(pairLanesOf(lanes, 'apt-1', SPAN), 'beds', 'bed-02')
+    const board = applyMoves(
+      lanes,
+      { 'apt-1': { laneKey: movedSides.staffLane!, ...SPAN } },
+      [], [], HOURS,
+      { 'apt-1': { laneKey: movedSides.bedLane!, ...SPAN } },
+    )
+    expect(board.find((l) => l.key === 'p-01')!.items.map((i) => i.caseId)).toEqual(['apt-1'])
+    expect(board.find((l) => l.key === 'bed-02')!.items.map((i) => i.caseId)).toEqual(['apt-1'])
+    // The one thing the old code produced instead: 担当 —, on no lane at all.
+    const collapsed = applyMoves(lanes, { 'apt-1': { laneKey: 'bed-02', ...SPAN } }, [], [], HOURS)
+    expect(collapsed.find((l) => l.key === 'p-01')!.items).toHaveLength(0)
+  })
+
+  it('a bed retarget onto an occupied room is judged by the SAME checks a staff move is', () => {
+    // ⚖ BATCH-6 note: the staff path does not refuse a clash at the drop — it
+    // stages, and `computeChecks` turns 確定 off with the conflict named. The bed
+    // side is held to that same bar (see the build report's deviation §), and
+    // this is the proof it actually sees the clash: the target room's other
+    // booking joins the pool, because the card is genuinely on that lane now.
+    const busy = lane({ key: 'bed-02', group: 'beds', items: [booking({ key: 'other', caseId: 'apt-2' }, 600, 660)] })
+    const board = applyMoves(
+      [staffA, staffB, bed1, busy],
+      { 'apt-1': { laneKey: 'p-01', ...SPAN } },
+      [], [], HOURS,
+      { 'apt-1': { laneKey: 'bed-02', ...SPAN } },
+    )
+    const room = board.find((l) => l.key === 'bed-02')!
+    expect(room.items.map((i) => i.caseId).sort()).toEqual(['apt-1', 'apt-2'])
+    // Both spans are 10:00–11:00, so the overlap the confirm surface reads is
+    // there to be read.
+    expect(room.items.every((i) => i.startMin === 600 && i.endMin === 660)).toBe(true)
   })
 })

@@ -28,9 +28,19 @@ import { minuteOf, place, type BoardItem, type BoardLane, type Hours } from '@/b
 
 export type { DragMode, DragOrigin }
 
-/** A card that has been moved from where the server placed it. `laneKey` is the
- *  STAFF lane it now sits on; the bed copy keeps its own lane and takes only the
- *  span, exactly as canon moves a pair (`pairOf` + `evSet`). */
+/** A card that has been moved from where the server placed it: the lane it now
+ *  sits on, and the span it now covers.
+ *
+ *  ⚖ BATCH-6 flag 45 (2026-08-21) — `laneKey` IS THE LANE OF ITS OWN SIDE, and
+ *  that sentence used to read "the STAFF lane". A booking has TWO lane
+ *  memberships — a person and a room — and collapsing them into one key meant a
+ *  card grabbed by its BED drawing wrote a bed key where every staff-side reader
+ *  expected a staff key: `applyMoves` evicted the booking from every staff lane
+ *  and could never re-admit it, the revert wrote the same bed key back, and the
+ *  confirm surface lost its 担当. Canon keeps the memberships apart — its
+ *  `stageChange` (:4665) re-parents ONLY the element under the pointer and
+ *  re-spans BOTH (:4668) — so the staff side lives in `moves` and the bed side
+ *  in `bedMoves`, keyed the same way, sharing one span. */
 export interface Move {
   laneKey: string
   x: number
@@ -38,6 +48,52 @@ export interface Move {
 }
 
 export type Moves = Record<string, Move>
+
+/** ⚖ BATCH-6 flag 45 — BOTH LANE MEMBERSHIPS OF ONE BOOKING, as Moves. canon's
+ *  revert snapshot is PER ELEMENT (`stageChange` :4652-4661 maps over `pairOf`),
+ *  which is exactly why neither half of a pair can be lost there: the snapshot
+ *  knows where BOTH drawings stood. Ours is this. `null` on a side means the
+ *  booking has no drawing in that group on the board being read. */
+export interface PairLanes {
+  staff: Move | null
+  bed: Move | null
+}
+
+/** Where each half of one booking stands on the board as it currently is, at the
+ *  span given. The same lookup `holdSummary` does for its 担当/ベッド sentence,
+ *  so the surface and the staging can never disagree about which lanes a card is
+ *  on. */
+export function pairLanesOf(lanes: BoardLane[], id: string, span: { x: number; w: number }): PairLanes {
+  const laneOf = (group: 'staff' | 'beds') =>
+    lanes.find((l) => l.group === group && l.items.some((i) => i.caseId === id))?.key ?? null
+  const staff = laneOf('staff')
+  const bed = laneOf('beds')
+  return {
+    staff: staff === null ? null : { laneKey: staff, ...span },
+    bed: bed === null ? null : { laneKey: bed, ...span },
+  }
+}
+
+/** ⚖ BATCH-6 flag 45 — CANON'S RULE, IN ONE LINE: the side the operator has hold
+ *  of RETARGETS, the other side only RE-TIMES. `stageChange` (:4648-4674) moves
+ *  exactly one element between tracks (`if (laneChanged) ctx.targetTrack
+ *  .appendChild(ctx.el)`) and writes the new span onto every element of the pair
+ *  — so a bed-row drag says WHICH ROOM and leaves the person alone, and a staff
+ *  row drag says WHO and leaves the room alone. Both then agree on the time.
+ *
+ *  `now` is where the pair stands before this landing; `group` is the grabbed
+ *  lane's own group, which is the only thing that decides which side moves. */
+export function sidesAt(
+  now: PairLanes,
+  group: string,
+  target: string,
+): { staffLane: string | null; bedLane: string | null } {
+  const grabbedBed = group === 'beds'
+  return {
+    staffLane: grabbedBed ? (now.staff?.laneKey ?? null) : target,
+    bedLane: grabbedBed ? target : (now.bed?.laneKey ?? null),
+  }
+}
 
 // ── DOM readers ────────────────────────────────────────────────────────────
 
@@ -240,33 +296,46 @@ export function applyMoves(
   parked: string[],
   added: Array<{ laneKey: string; item: BoardItem }>,
   hours: Hours,
+  /** ⚖ BATCH-6 flag 45 — THE BED SIDE'S OWN MEMBERSHIP. Absent (the default) is
+   *  the behaviour this file shipped with and still the right one for every
+   *  booking nobody has grabbed by its bed row: the room keeps the lane the
+   *  server drew it on and takes only the span. */
+  bedMoves: Moves = {},
 ): BoardLane[] {
-  const homeStaffItem = new Map<string, BoardItem>()
+  // The row the SERVER drew, per group — what a lane re-admits when a booking
+  // arrives on it. Keyed by group as well as id, because a booking arriving on a
+  // bed lane must be re-admitted as its bed drawing (its own key, its own
+  // 【担当】 tag), not as the staff card wearing a room's name.
+  const home = new Map<string, BoardItem>()
   for (const lane of lanes) {
-    if (lane.group !== 'staff') continue
     for (const item of lane.items) {
-      if (item.kind === 'booking' && item.caseId) homeStaffItem.set(item.caseId, item)
+      if (item.kind === 'booking' && item.caseId) home.set(`${lane.group}|${item.caseId}`, item)
     }
   }
 
+  // ONE SPAN FOR THE PAIR, and it lives in `moves`: every writer sets both
+  // records from the same span, so a bed row and its staff twin can never show
+  // different times — which is the whole reason canon calls `evSet` on `pairOf`.
   const moved = (item: BoardItem): BoardItem => atSpan(item, item.caseId ? moves[item.caseId] : undefined, hours)
 
   return lanes.map((lane) => {
+    // ⚖ BATCH-6 flag 45 — ONE membership pass, and which record owns it is the
+    // lane's own group. The two branches this replaces were the same code with
+    // the bed half hard-wired to "never moves", which is what made a bed-side
+    // drag unrepresentable rather than merely unimplemented.
+    const membership = lane.group === 'staff' ? moves : bedMoves
     const extra = added.filter((a) => a.laneKey === lane.key).map((a) => a.item)
-    if (lane.group !== 'staff') {
-      return { ...lane, items: [...lane.items.filter((i) => !isParked(i, parked)).map(moved), ...extra].sort(byX) }
-    }
     const kept = lane.items.filter((item) => {
       if (isParked(item, parked)) return false
-      const m = item.caseId ? moves[item.caseId] : undefined
+      const m = item.caseId ? membership[item.caseId] : undefined
       return !m || m.laneKey === lane.key
     })
     const arrivals: BoardItem[] = []
-    for (const [id, m] of Object.entries(moves)) {
+    for (const [id, m] of Object.entries(membership)) {
       if (m.laneKey !== lane.key || parked.includes(id)) continue
-      const home = homeStaffItem.get(id)
-      if (!home || lane.items.some((i) => i.caseId === id)) continue
-      arrivals.push(home)
+      const row = home.get(`${lane.group}|${id}`)
+      if (!row || lane.items.some((i) => i.caseId === id)) continue
+      arrivals.push(row)
     }
     return { ...lane, items: [...kept, ...arrivals].map(moved).concat(extra).sort(byX) }
   })
