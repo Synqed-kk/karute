@@ -2313,7 +2313,7 @@ describe('the confirm comes to the card, and the consult goes back to the placem
 
   /** Greptile #738 P1 — COLLAPSING THE GROUP UNMOUNTS THE ANCHOR.
    *
-   *  `renderLane` returns null for a collapsed group (:2004), so the staged
+   *  `renderLane` returns null for a collapsed group, so the staged
    *  card's node leaves the DOM while the 仮押さえ is still live. The positioning
    *  effect's anchor-missing branch already answers this correctly — but it
    *  never ran, because neither gate that can unmount a card was in its dep

@@ -1119,8 +1119,10 @@ export function TodayScreen(props: TodayProps) {
     }
     // Greptile #738 P1 — the rule above only helps if this effect RE-RUNS when
     // the anchor leaves the DOM. Exactly two STATES unmount a card: `collapsed`
-    // (the group folded away, :2014) and `view` (the staff/beds segmented
-    // control, which gates both the lane :2013 and the whole group :2692).
+    // (the group folded away) and `view` (the staff/beds segmented control,
+    // which gates the lane and the whole group wrapper) — both are `renderLane`
+    // early returns, greppable by name; line numbers in THIS file are omitted on
+    // purpose, they go stale on every transplant slice.
     // Neither was here, so collapsing the group holding a staged 仮押さえ left the
     // popover floating at the coordinates of a card that no longer existed. Both
     // are listed now, so the pill engages on either, and expanding re-anchors by
