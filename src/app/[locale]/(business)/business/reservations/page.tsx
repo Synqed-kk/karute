@@ -34,6 +34,7 @@ import {
   listStaff,
   listStoreOptions,
   readReservationPlanes,
+  renderNow,
   type StoreLens,
 } from '@/business/lib/data'
 import {
@@ -91,7 +92,12 @@ export async function reservationsScreen(
   storeParam: string | undefined,
   storeOptions: Array<{ id: string; name: string }>,
 ) {
-  const now = new Date()
+  // ONE CLOCK ANCHOR PER RENDER (the #724 finding, and this page had the same
+  // exposure). The fixture calendar is RELATIVE, so a second bare clock read
+  // can straddle JST midnight: the read window, 表示日 and the 今日 filter would
+  // then be derived from two different days in one render. `renderNow()` is the
+  // request-pinned anchor, and every clock-defaulting helper below is handed it.
+  const now = renderNow()
   const from = jstSlot(0, 0, 0, now)
   const to = jstSlot(WINDOW_DAYS, 0, 0, now)
 

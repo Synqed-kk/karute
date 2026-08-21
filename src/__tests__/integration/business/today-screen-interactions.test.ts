@@ -15,7 +15,7 @@
  * span canon's lattice says it should, that a release outside a lane refuses,
  * that a park/place round trip returns the card where it came from.
  */
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { opsConfig, resources } from '@/business/lib/fixtures-today'
 import { confirmCaption } from '@/business/lib/canon-logic/drag-rules'
@@ -2380,10 +2380,46 @@ describe('the confirm comes to the card, and the consult goes back to the placem
   // ── flag 32 ──────────────────────────────────────────────────────────────
   it('every native dialog centres again — the preflight reset took the UA’s margin', () => {
     // Tailwind's preflight sets `margin: 0` on EVERY element, <dialog> included,
-    // which overrides the UA's `dialog:modal { margin: auto }`. Both stylesheets
-    // that dress a dialog in this territory put it back.
-    expect(CSS).toContain('  margin: auto;\n  width: min(650px, calc(100vw - 40px));')
-    expect(CUSTOMERS_CSS).toContain('  margin: auto;\n  width: min(700px, calc(100vw - 40px));')
+    // which overrides the UA's `dialog:modal { margin: auto }`, so every
+    // stylesheet that dresses a dialog in this territory has to put it back.
+    //
+    // DISCOVERED, not listed. This pin used to name the two stylesheets it knew
+    // about; 予約一覧 then shipped a third with the same selector and no margin,
+    // and the pin had nothing to say (Greptile P2 on #727). Walking the screens
+    // means the next one cannot ship un-centred either.
+    //
+    // ponytail: this proves the PROPERTY is there, not that the dialog lands in
+    // the middle of the viewport — jsdom does no layout and the fence keeps a
+    // renderer out of this folder, so actual centring is a browser-visual check.
+    // What CSS text can honestly pin is pinned: the declaration, inside the
+    // dialog rule, in every stylesheet that dresses one.
+    const screens = join(process.cwd(), 'src/app/[locale]/(business)/business')
+    const sheets = readdirSync(screens, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .flatMap((d) =>
+        readdirSync(join(screens, d.name))
+          .filter((f) => f.endsWith('.css'))
+          .map((f) => [`${d.name}/${f}`, readFileSync(join(screens, d.name, f), 'utf8')] as const),
+      )
+    // The scan is only worth anything if it is actually finding the screens.
+    expect(sheets.length).toBeGreaterThanOrEqual(3)
+
+    const dressers = sheets.filter(([, css]) => /^\.biz[ -]dialog\s*\{/m.test(css))
+    expect(dressers.map(([f]) => f).sort()).toEqual([
+      'customers/customers.css',
+      'reservations/reservations.css',
+      'today/today.css',
+    ])
+    for (const [file, raw] of dressers) {
+      // The margin must be inside the dialog rule itself, not merely somewhere
+      // in the file — `.pill { margin-left: auto }` must not answer for it.
+      // Comments are stripped FIRST: all three of these rules explain the fix by
+      // quoting `dialog:modal { margin: auto }`, and that brace would both end
+      // the slice early and let the prose stand in for the property.
+      const css = raw.replace(/\/\*[\s\S]*?\*\//g, '')
+      const body = css.slice(css.search(/^\.biz[ -]dialog\s*\{/m))
+      expect(`${file}: ${body.slice(0, body.indexOf('}'))}`).toContain('margin: auto;')
+    }
   })
 
   // ── flag 33 ──────────────────────────────────────────────────────────────
