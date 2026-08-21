@@ -182,9 +182,29 @@ jest.mock('@/lib/packs/store', () => ({
 const storeStaffIdSetForBusiness = jest.fn(
   async (..._a: unknown[]): Promise<Set<string> | null> => null,
 )
+// customerLensFor is a pure derivation of the clamp — the REAL one, since it
+// is the thing the fail-closed test below exercises.
 jest.mock('@/lib/auth/store-scope', () => ({
+  customerLensFor: jest.requireActual('@/lib/auth/store-scope').customerLensFor,
   storeStaffIdSetForBusiness: (...a: unknown[]) => storeStaffIdSetForBusiness(...a),
 }))
+
+// A-3 seam: "clamped ⇒ storeId non-null" is an invariant BOTH resolvers hold by
+// construction, so the broken case can only be stood up by handing the route a
+// corrupt clamp. Null override = every other test here runs the real resolver.
+const clampOverride: {
+  current: { storeId: string | null; allowedStoreIds: string[] | null } | null
+} = { current: null }
+jest.mock('@/lib/app-api/store-clamp', () => {
+  const actual = jest.requireActual('@/lib/app-api/store-clamp')
+  return {
+    ...actual,
+    resolveStoreForRequest: (...a: unknown[]) =>
+      clampOverride.current
+        ? Promise.resolve(clampOverride.current)
+        : actual.resolveStoreForRequest(...a),
+  }
+})
 
 // Business-scoped synqed client — day + range appointment reads, the store
 // clamp's assignment lookup, and the by-date helper's karute/staff joins.
@@ -286,6 +306,7 @@ beforeEach(() => {
   listAppointments.mockResolvedValue({ appointments: dayRows })
   storeStaffIdSetForBusiness.mockResolvedValue(null)
   getCachedMenuOptionsFor.mockResolvedValue(MENU_ROWS)
+  clampOverride.current = null
 })
 
 describe('GET /api/app/v1/screens/appointments', () => {
@@ -410,6 +431,19 @@ describe('GET /api/app/v1/screens/appointments', () => {
     const dto = await dtoOf(res)
     expect(getCachedCustomerListFor).toHaveBeenCalledWith('business-1', undefined)
     expect(dto.customers.map((c) => c.id)).toEqual(['cust-1', 'cust-2'])
+  })
+
+  // A-3 (2026-08-28 audit): the old inline `clamped ? storeId : undefined`
+  // collapsed to the BUSINESS-WIDE list if the clamp ever handed back a null
+  // store — the one direction an RBAC clamp must never fail. Empty is
+  // wrong-but-safe; another branch's customers are not.
+  it('a clamped clamp with NO store to name ships an EMPTY combobox, never business-wide', async () => {
+    clampOverride.current = { storeId: null, allowedStoreIds: ['store-A'] }
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(getCachedCustomerListFor).not.toHaveBeenCalled()
+    expect(dto.customers).toEqual([])
   })
 
   it('a failed pack-usage read degrades to pill-less rows, not an error', async () => {

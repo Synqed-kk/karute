@@ -3,7 +3,7 @@ import { renderStamp } from '@/lib/perf/render-stamp'
 import { startTiming } from '@/lib/perf/timing'
 import { createClient } from '@/lib/supabase/server'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
-import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
+import { customerLensFor, resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getAppointmentsInRange } from '@/actions/appointments'
@@ -76,10 +76,9 @@ export default async function AppointmentsPage({
   // client-side search is store-clamped by construction). viewAll, floating
   // and degraded stay business-wide: reads ignore `degraded` by the shipped
   // F-A convention — the fail-closed blindness the menu clamp below applies is
-  // a WRITE-offer posture, not the read plane's.
-  const customerStoreId = storeScope.allowedStoreIds
-    ? storeScope.storeId ?? undefined
-    : undefined
+  // a WRITE-offer posture, not the read plane's. `null` = clamped with no store
+  // to name: an EMPTY combobox, never the business-wide one (customerLensFor).
+  const customerLens = customerLensFor(storeScope)
 
   const [
     {
@@ -99,7 +98,9 @@ export default async function AppointmentsPage({
     t.phase('staffList', () => getStaffList()),
     t.phase('activeStaffId', () => getCurrentUserStaffId()),
     t.phase('orgSettings', () => getOrgSettings()),
-    t.phase('customerList', () => getCachedCustomerList(customerStoreId)),
+    t.phase('customerList', async () =>
+      customerLens === null ? [] : getCachedCustomerList(customerLens),
+    ),
     // The agenda is the ONE consumer that wants cancelled rows — rendered as
     // thin greyed キャンセル済み tombstones in their original slot. Every other
     // getAppointmentsByDate caller keeps the hidden-by-default contract.

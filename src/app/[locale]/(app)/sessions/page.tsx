@@ -3,7 +3,7 @@ import { renderStamp } from '@/lib/perf/render-stamp'
 import { getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList, getBusinessId } from '@/lib/staff'
 import { getCachedCustomerList } from '@/lib/customers/cached'
-import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { customerLensFor, resolveStoreScope } from '@/lib/auth/store-scope'
 import { getCustomer } from '@/lib/customers/queries'
 import { getCustomerConsent } from '@/actions/customers'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
@@ -53,10 +53,13 @@ export default async function SessionsPage({
   // narrowed array costs them nothing. The ONE exception is a crash-recovered
   // KaruteDraft, which holds an appointmentCustomerId and no name — see the
   // banner's coalesce in RecordPageView.
+  //
+  // `null` lens = clamped with no store to name: an EMPTY array, never the
+  // business-wide one (customerLensFor, lib/auth/store-scope.ts).
   const scope = await resolveStoreScope()
-  const customersPromise = getCachedCustomerList(
-    scope.allowedStoreIds ? scope.storeId ?? undefined : undefined,
-  )
+  const customerLens = customerLensFor(scope)
+  const customersPromise =
+    customerLens === null ? Promise.resolve([]) : getCachedCustomerList(customerLens)
 
   // Wave 1 — every read that needs nothing but the request itself, fired
   // together (staff id, staff list, status translations, customer list, today's

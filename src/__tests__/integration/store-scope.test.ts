@@ -19,7 +19,12 @@ jest.mock('@/actions/stores', () => ({
   getStaffStoresStrict: jest.fn(),
 }))
 
-import { resolveStoreScope, menuStoresForScope, staffWriteInScope } from '@/lib/auth/store-scope'
+import {
+  resolveStoreScope,
+  menuStoresForScope,
+  staffWriteInScope,
+  customerLensFor,
+} from '@/lib/auth/store-scope'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getActiveStoreId, getPrimaryStoreId, getStaffStoresStrict } from '@/actions/stores'
@@ -70,6 +75,28 @@ describe('resolveStoreScope — clamped ⇒ storeId non-null (fail-open invarian
     const scope = await resolveStoreScope()
     expect(scope.allowedStoreIds).not.toBeNull()
     expect(scope.storeId).toBe('store-B')
+  })
+})
+
+// A-3 (2026-08-28 audit) — the invariant above is what the three cached-list
+// call sites (予約 page, 録音 page, screens/appointments route) leaned on when
+// each spelled `clamped ? storeId : undefined` inline. They derive the lens
+// here now, so the broken case has ONE answer, and it fails CLOSED: blind, not
+// business-wide. Same posture as listAllCustomers' guard (list-all.ts:56).
+describe('customerLensFor — the cached-customer-list store lens', () => {
+  it('unclamped (viewAll / floating / degraded) → undefined = business-wide', () => {
+    expect(customerLensFor({ storeId: 'store-A', allowedStoreIds: null })).toBeUndefined()
+    expect(customerLensFor({ storeId: null, allowedStoreIds: null })).toBeUndefined()
+  })
+
+  it('clamped → that store’s server-filtered lens', () => {
+    expect(
+      customerLensFor({ storeId: 'store-B', allowedStoreIds: ['store-A', 'store-B'] }),
+    ).toBe('store-B')
+  })
+
+  it('clamped with a NULL storeId → null (BLIND), never business-wide', () => {
+    expect(customerLensFor({ storeId: null, allowedStoreIds: ['store-A'] })).toBeNull()
   })
 })
 
