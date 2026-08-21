@@ -94,7 +94,10 @@ async function fillCustomerNames(
   const nameById = new Map(list.map((c) => [c.id, c.name]))
   return rows.map((r) => {
     const name = r.customerId ? nameById.get(r.customerId) : undefined
-    return name ? { ...r, customerName: name } : r
+    // `!== undefined`, not truthy: a customer genuinely named '' is a resolved
+    // answer, and dropping it would send the row back to the client's map —
+    // which for a clamped caller answers 不明.
+    return name !== undefined ? { ...r, customerName: name } : r
   })
 }
 

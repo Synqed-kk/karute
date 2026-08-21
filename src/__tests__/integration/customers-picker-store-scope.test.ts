@@ -115,8 +115,9 @@ describe('予約 picker customer scope (web page)', () => {
       storeId: MINE, viewAll: true, allowedStoreIds: null, degraded: false,
     })
     expect(await pickerCustomers()).toEqual(ALL)
-    // No explicit undefined arg — that would fork a second cache entry for the
-    // same business-wide list (cached.ts arity guard).
+    // The page passes the undefined lens straight through; the arity guard that
+    // stops it forking a second cache entry lives one level down, inside
+    // getCachedCustomerListFor (cached.ts:123-125).
     expect(getCachedCustomerList).toHaveBeenCalledWith(undefined)
   })
 

@@ -47,11 +47,15 @@ function readLocale(ctx: FacadeContext): 'ja' | 'en' {
 /** Resolve an EXPLICIT non-today appointmentId → AppointmentRow on the business
  *  client (mirrors getAppointmentById's mapping). Cross-tenant/missing → the
  *  status-aware 404/502 split; a terminal booking → null (the web falls through
- *  to the default target — never a recording target). */
+ *  to the default target — never a recording target).
+ *
+ *  `allowedStoreIds` is the clamp the ROUTE already resolved (never a second
+ *  resolution): null = viewAll or floating, unchanged. */
 async function resolveExplicitAppointmentForClient(
   synqed: Pick<SynqedClient, 'appointments' | 'staff'>,
   id: string,
   nameById: Map<string, string>,
+  allowedStoreIds: string[] | null,
 ): Promise<AppointmentRow | null> {
   let a: Awaited<ReturnType<SynqedClient['appointments']['get']>>
   try {
@@ -66,6 +70,17 @@ async function resolveExplicitAppointmentForClient(
   }
   if (!a) throw new AppApiError('not_found', 'appointment not found in this business')
   if (isTerminalStatus(a.status)) return null
+  // Store clamp, the Bearer twin of getAppointmentById's (actions/appointments.ts):
+  // the list reads are store-filtered, but this per-id read would otherwise let a
+  // branch-restricted caller resolve ANY booking by deep link. Fail closed on a
+  // storeless row (a handful of pre-repair imports have no store) — hidden for
+  // clamped callers, still visible in cross-store views. Same NULL as a terminal
+  // booking, not a 403: the screen falls through to its default target, so the
+  // caller never learns the id exists (hide, never show-and-refuse).
+  if (allowedStoreIds) {
+    const rowStore = (a as { store_id?: string | null }).store_id ?? null
+    if (!rowStore || !allowedStoreIds.includes(rowStore)) return null
+  }
 
   const staffList = await synqed.staff.list({ page_size: 200 })
   const profileByStaffId = new Map(
@@ -108,7 +123,8 @@ export const GET = facadeHandler('screens.record', async (ctx) => {
 
   // Store clamp BEFORE any read — a store_forbidden throw must reach the
   // client as 403, so it stays OUTSIDE the 502 catch below. The clamp result
-  // scopes the recording-target set below and (for clamped actors) the
+  // scopes the recording-target set below, the explicit-appointmentId deep
+  // link (resolveExplicitAppointmentForClient) and, for clamped actors, the
   // customer combobox list; viewAll stays business-wide (#347 semantics).
   const clamp = await resolveStoreForRequest({
     synqed,
@@ -208,7 +224,7 @@ export const GET = facadeHandler('screens.record', async (ctx) => {
       },
       deps: {
         resolveExplicitAppointment: (id) =>
-          resolveExplicitAppointmentForClient(synqed, id, nameById),
+          resolveExplicitAppointmentForClient(synqed, id, nameById, clamp.allowedStoreIds),
         // Explicit walk-in customer → status-aware 404/502 (never a silent
         // fall-through on a cross-tenant id).
         resolveWalkInCustomer: async (id) =>

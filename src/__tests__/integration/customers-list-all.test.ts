@@ -132,6 +132,44 @@ describe('listAllCustomers (live, untouched)', () => {
     expect(total).toBe(2)
   })
 
+  // ⚖ 2026-08-17 fail-closed backstop. enforceStore is the RBAC clamp; without
+  // a store_id the store filter would simply be absent and the read would go
+  // BUSINESS-WIDE — the clamp failing open. Production never reaches this (both
+  // resolvers guarantee "clamped ⇒ storeId non-null", pinned in
+  // store-scope.test.ts + app-api-store-clamp.test.ts), so the guard is
+  // deliberately dead code; this is what proves it would catch the fall.
+  it('FAIL-CLOSED: enforceStore with no store_id returns empty, never business-wide', async () => {
+    const c = client([[mk('1'), mk('2')]], 2)
+    await expect(listAllCustomers(c as never, { enforceStore: true })).resolves.toEqual({
+      customers: [],
+      total: 0,
+    })
+    // The point is not the empty array — it is that core was never asked.
+    expect(c.customers.list).not.toHaveBeenCalled()
+  })
+
+  it('…and a null store_id is the same fall (the resolvers hand back null, not undefined)', async () => {
+    const c = client([[mk('1')]], 1)
+    await expect(
+      listAllCustomers(c as never, { store_id: null, enforceStore: true, search: 'あ' }),
+    ).resolves.toEqual({ customers: [], total: 0 })
+    expect(c.customers.list).not.toHaveBeenCalled()
+  })
+
+  it('the guard is inert for every real caller: store_id present, or enforceStore off', async () => {
+    const scoped = client([[mk('1')]], 1)
+    await listAllCustomers(scoped as never, { store_id: 'store-A', enforceStore: true })
+    expect(scoped.customers.list).toHaveBeenCalledTimes(1)
+    const wide = client([[mk('1')]], 1)
+    await listAllCustomers(wide as never, {})
+    expect(wide.customers.list).toHaveBeenCalledTimes(1)
+    // A viewAll caller pinned to nothing — enforceStore off, so business-wide
+    // stays exactly what it was.
+    const viewAll = client([[mk('1')]], 1)
+    await listAllCustomers(viewAll as never, { store_id: null, enforceStore: false })
+    expect(viewAll.customers.list).toHaveBeenCalledTimes(1)
+  })
+
   it('never memoizes — two identical calls are two live fetches (search + facade path)', async () => {
     const c = client([[mk('1')]], 1)
     await listAllCustomers(c as never, { search: 'tanaka', sort_by: 'name', sort_order: 'asc' })

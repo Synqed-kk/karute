@@ -37,6 +37,42 @@ beforeEach(() => {
   mockStaffId.mockResolvedValue('staff-1')
 })
 
+// The web twin of the facade clamp's invariant, and the thing every
+// store-scoped web read leans on: a CLAMPED viewer (allowedStoreIds non-null)
+// always resolves to a concrete storeId. The lens is derived everywhere as
+// `clamped ? scope.storeId ?? undefined : undefined`, so a clamped viewer with
+// a null storeId would silently read business-wide — the RBAC clamp failing
+// OPEN. `activeStore && allowed.includes(activeStore) ? activeStore :
+// allowed[0]` is the whole guarantee; drop the `allowed[0]` arm and these go red.
+describe('resolveStoreScope — clamped ⇒ storeId non-null (fail-open invariant)', () => {
+  it('holds when the cookie is UNSET', async () => {
+    mockCaps.mockResolvedValue(caps())
+    mockActive.mockResolvedValue(null)
+    mockStores.mockResolvedValue(['store-A', 'store-B'])
+    const scope = await resolveStoreScope()
+    expect(scope.allowedStoreIds).not.toBeNull()
+    expect(scope.storeId).toBe('store-A')
+  })
+
+  it('holds when the cookie points OUTSIDE the assignment', async () => {
+    mockCaps.mockResolvedValue(caps())
+    mockActive.mockResolvedValue('store-ZZZ')
+    mockStores.mockResolvedValue(['store-A'])
+    const scope = await resolveStoreScope()
+    expect(scope.allowedStoreIds).not.toBeNull()
+    expect(scope.storeId).toBe('store-A')
+  })
+
+  it('holds when the cookie names an assigned store', async () => {
+    mockCaps.mockResolvedValue(caps())
+    mockActive.mockResolvedValue('store-B')
+    mockStores.mockResolvedValue(['store-A', 'store-B'])
+    const scope = await resolveStoreScope()
+    expect(scope.allowedStoreIds).not.toBeNull()
+    expect(scope.storeId).toBe('store-B')
+  })
+})
+
 describe('resolveStoreScope', () => {
   it('viewAll: the active-store cookie is the lens, never clamped', async () => {
     mockCaps.mockResolvedValue(caps('stores.viewAll'))

@@ -102,6 +102,26 @@ describe('readRecordingsInbox — server-side customer name fill', () => {
     warn.mockRestore()
   })
 
+  // F7 — the edges never met in one batch, which is the shape a real inbox has.
+  it('a MIXED batch: resolvable, unresolvable and walk-in rows in one read', async () => {
+    recordings.current = [
+      { id: 'sess-out', customer_id: 'cust-other-branch', duration_seconds: 300, created_at: iso(10) },
+      { id: 'sess-gone', customer_id: 'cust-gone', duration_seconds: 300, created_at: iso(20) },
+      { id: 'sess-walkin', customer_id: null, duration_seconds: 300, created_at: iso(30) },
+      { id: 'sess-mine', customer_id: 'cust-1', duration_seconds: 300, created_at: iso(40) },
+    ]
+    const rows = await read()
+    // Rows sort newest first, so this is the batch as the card renders it.
+    expect(rows.map((r) => [r.recordingSessionId, r.customerName])).toEqual([
+      ['sess-out', '代官山 太郎'],
+      ['sess-gone', undefined],
+      ['sess-walkin', undefined],
+      ['sess-mine', '佐藤 美咲'],
+    ])
+    // One list read for the whole batch, not one per row.
+    expect(getCachedCustomerListFor).toHaveBeenCalledTimes(1)
+  })
+
   it('a walk-in row (no customer id) skips the read entirely', async () => {
     recordings.current = [
       { id: 'sess-walkin', customer_id: null, duration_seconds: 300, created_at: iso(30) },

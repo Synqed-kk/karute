@@ -45,6 +45,12 @@ const apptList = jest.fn(async () => {
   return { appointments: APPTS.current }
 })
 const apptGet = jest.fn(async (id: string) => {
+  // Same tenant, ANOTHER store, another customer — the deep-link path the
+  // store clamp governs (F1). Deliberately not in today's set, so it can only
+  // be reached through resolveExplicitAppointmentForClient.
+  if (id === 'appt-other-store') {
+    return { id, staff_id: 'auth-user-1', customer_id: 'cust-2', starts_at: '2026-07-13T02:00:00Z', duration_minutes: 60, title: 'x', notes: null, created_at: '2026-07-01T00:00:00Z', status: 'CONFIRMED', source: 'MANUAL', store_id: 'store-B' }
+  }
   if (id !== 'appt-today-other') throw Object.assign(new Error('nope'), { status: 404 })
   return { id, staff_id: 'auth-user-1', customer_id: 'cust-1', starts_at: '2026-07-13T02:00:00Z', duration_minutes: 60, title: 'x', notes: null, created_at: '2026-07-01T00:00:00Z', status: 'CONFIRMED', source: 'MANUAL' }
 })
@@ -222,6 +228,34 @@ describe('GET /api/app/v1/screens/record', () => {
     const res = await GET(req(), route)
     expect(res.status).toBe(200)
     expect((await res.json()).staffCanDeletePhotos).toBe(false)
+  })
+
+  // F1 — the explicit-appointmentId DEEP LINK is store-clamped, the Bearer twin
+  // of getAppointmentById's check (actions/appointments.ts:202-209). Without it
+  // a branch-restricted caller could bind ANY booking in the tenant by id, and
+  // read the customer's name off the resolved row.
+  it('a clamped caller cannot deep-link a booking in ANOTHER store — it behaves as not-found', async () => {
+    capabilities.current = new Set(['customers.view'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-A'] })
+    const res = await GET(
+      req('?appointmentId=appt-other-store', { ...auth, 'store-id': 'store-A' }),
+      route,
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    // Fell through to the default target (today's own booking) — never bound to
+    // the other store's row, and cust-2's name never reaches the caller.
+    expect(body.nextAppointment?.id).toBe('appt-1')
+    expect(body.nextAppointment?.customerId).toBe('cust-1')
+    expect(JSON.stringify(body)).not.toContain('佐藤 次郎')
+  })
+
+  it('a viewAll caller still resolves the same cross-store booking', async () => {
+    const res = await GET(req('?appointmentId=appt-other-store'), route)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.nextAppointment?.id).toBe('appt-other-store')
+    expect(body.nextAppointment?.customerId).toBe('cust-2')
   })
 
   // ⚖ Liam 2026-08-17 store isolation, record-picker half. Copies the sessions

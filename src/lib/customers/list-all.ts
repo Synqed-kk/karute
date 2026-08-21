@@ -43,6 +43,18 @@ export async function listAllCustomers(
   synqed: SynqedClient,
   { search, sort_by = 'created_at', sort_order = 'asc', store_id, enforceStore }: ListAllOpts = {},
 ) {
+  // ponytail: dead code in production, and it must stay that way — the guard
+  // backstops an invariant the two resolvers hold today ("clamped ⇒ storeId
+  // non-null": resolveStoreScope returns `activeStore ?? allowed[0]`,
+  // resolveStoreForRequest returns `requestedStoreId ?? assigned[0]`; both
+  // pinned by tests). If that ever breaks, enforceStore alone would silently
+  // collapse to a business-wide read — the RBAC clamp failing OPEN, which is
+  // the one direction it must never fail. An empty list is wrong-but-safe;
+  // another branch's customers are not. Upgrade path if a legitimate
+  // "enforce with no store" case ever appears: it doesn't — that combination
+  // means the caller asked for a clamp it could not name.
+  if (enforceStore && !store_id) return { customers: [], total: 0 }
+
   // Search is business-wide by default: drop the store lens whenever a term is
   // present so a customer from any store is findable. With no search, the active
   // store scopes the LIST (derived from events, server-side). enforceStore (RBAC

@@ -41,6 +41,51 @@ function synqedWith(opts: {
 const caps = (...c: Capability[]) => new Set<Capability>(c)
 const AUTH = 'staff-1'
 
+// ⚖ 2026-08-17 store isolation depends on an INVARIANT this resolver holds and
+// nothing downstream re-checks: a CLAMPED caller (allowedStoreIds non-null)
+// always comes back with a concrete storeId. Every store-scoped read derives
+// its lens as `clamped ? storeId : undefined`, so a clamped caller with a null
+// storeId would silently read business-wide — the RBAC clamp failing OPEN, the
+// one direction it must never fail. `?? assigned[0]` is the whole guarantee;
+// these cases go red the moment it is dropped.
+describe('store clamp — clamped ⇒ storeId non-null (fail-open invariant)', () => {
+  it('holds with NO store-id header — falls back to the first assigned store', async () => {
+    const synqed = synqedWith({ ownStores: ['store-A', 'store-B'], assignment: ['store-A', 'store-B'] })
+    const r = await resolveStoreForRequest({ synqed, authUserId: AUTH, capabilities: caps(), requestedStoreId: null })
+    expect(r.allowedStoreIds).not.toBeNull()
+    expect(r.storeId).toBe('store-A')
+  })
+
+  it('holds with a header naming an assigned store', async () => {
+    const synqed = synqedWith({ ownStores: ['store-A', 'store-B'], assignment: ['store-A', 'store-B'] })
+    const r = await resolveStoreForRequest({ synqed, authUserId: AUTH, capabilities: caps(), requestedStoreId: 'store-B' })
+    expect(r.allowedStoreIds).not.toBeNull()
+    expect(r.storeId).toBe('store-B')
+  })
+
+  it('the only null storeId is an UNCLAMPED caller (viewAll / floating, no header)', async () => {
+    const viewAll = await resolveStoreForRequest({
+      synqed: synqedWith({ ownStores: ['store-A'] }),
+      authUserId: AUTH,
+      capabilities: caps('stores.viewAll'),
+      requestedStoreId: null,
+    })
+    const floating = await resolveStoreForRequest({
+      synqed: synqedWith({ ownStores: ['store-A'], assignment: [] }),
+      authUserId: AUTH,
+      capabilities: caps(),
+      requestedStoreId: null,
+    })
+    for (const r of [viewAll, floating]) {
+      expect(r.storeId).toBeNull()
+      // …and null storeId is only ever paired with null allowedStoreIds, so
+      // `clamped ? storeId : undefined` can never yield an unclamped read for
+      // someone who IS clamped.
+      expect(r.allowedStoreIds).toBeNull()
+    }
+  })
+})
+
 describe('store clamp', () => {
   it('rejects a store-id that is NOT this business (wrong-tenant)', async () => {
     const synqed = synqedWith({ ownStores: ['store-A'], assignment: ['store-A'] })
