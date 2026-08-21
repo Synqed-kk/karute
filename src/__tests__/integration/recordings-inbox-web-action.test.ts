@@ -9,18 +9,15 @@ jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: (c: string) => requireCapability(c),
 }))
 const getCurrentUserStaffId = jest.fn(async (): Promise<string | null> => 'auth-user-1')
-jest.mock('@/lib/staff', () => ({ getCurrentUserStaffId: () => getCurrentUserStaffId() }))
+jest.mock('@/lib/staff', () => ({
+  getCurrentUserStaffId: () => getCurrentUserStaffId(),
+  getBusinessId: async () => 'business-1',
+}))
 const fakeClient = { marker: 'the business-scoped client' }
 jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: async () => fakeClient }))
 const readRecordingsInbox = jest.fn(async (_deps: unknown) => [] as unknown[])
 jest.mock('@/lib/recordings/inbox-read', () => ({
   readRecordingsInbox: (deps: unknown) => readRecordingsInbox(deps),
-}))
-// Business-wide, used strictly as a .get(id) lookup for the name fill. Mocked
-// because the real module value-imports the ESM-only SDK.
-const getCachedCustomerList = jest.fn(async () => [] as Array<{ id: string; name: string }>)
-jest.mock('@/lib/customers/cached', () => ({
-  getCachedCustomerList: () => getCachedCustomerList(),
 }))
 
 import { listRecordingsInbox } from '@/actions/recordings-inbox'
@@ -30,53 +27,36 @@ beforeEach(() => {
   requireCapability.mockImplementation(async () => {})
   getCurrentUserStaffId.mockImplementation(async () => 'auth-user-1')
   readRecordingsInbox.mockImplementation(async () => [])
-  getCachedCustomerList.mockImplementation(async () => [])
 })
 
-// ⚖ Liam 2026-08-17. These rows are STAFF-scoped, the record page's customer
-// array is STORE-scoped, so the name must be resolved here — on the server,
-// where the whole business is visible — or a staffer's own recording of an
-// out-of-store customer renders 不明. Business-wide list as a `.get(id)`
-// lookup only: the names these rows reference ship, the roster never does.
-describe('listRecordingsInbox — server-side customer name fill', () => {
-  const session = (customerId: string | null) => ({
-    recordingSessionId: `sess-${customerId ?? 'none'}`,
-    customerId,
-    createdAt: '2026-08-25T04:00:00.000Z',
-    durationSeconds: 60,
-    karuteRecordId: 'karute-1',
-    jobStatus: null,
-    jobProbeFailed: false,
-    jobLastError: null,
-  })
-
-  it('fills the name for a customer the caller’s scoped array could not resolve', async () => {
-    readRecordingsInbox.mockImplementation(async () => [session('cust-other-branch')])
-    getCachedCustomerList.mockImplementation(async () => [
-      { id: 'cust-other-branch', name: '代官山 太郎' },
-    ])
-    const [row] = (await listRecordingsInbox()) as Array<{ customerName?: string | null }>
-    expect(row.customerName).toBe('代官山 太郎')
-  })
-
-  it('an unknown id keeps customerName absent — never a wrong or invented name', async () => {
-    readRecordingsInbox.mockImplementation(async () => [session('cust-gone')])
-    getCachedCustomerList.mockImplementation(async () => [{ id: 'cust-1', name: '佐藤 美咲' }])
-    const [row] = (await listRecordingsInbox()) as Array<{ customerName?: string | null }>
-    expect(row.customerName).toBeUndefined()
-  })
-
-  it('a failed list read degrades to today’s behaviour, not a failed inbox', async () => {
-    readRecordingsInbox.mockImplementation(async () => [session('cust-1')])
-    getCachedCustomerList.mockRejectedValue(new Error('core down'))
-    const [row] = (await listRecordingsInbox()) as Array<{ customerName?: string | null }>
-    expect(row.customerName).toBeUndefined()
-  })
-
-  it('no row carries a customer id → the list is never read at all', async () => {
-    readRecordingsInbox.mockImplementation(async () => [session(null)])
+// ⚖ Liam 2026-08-17. The server-side customer name fill lives INSIDE the shared
+// read (lib/recordings/inbox-read.ts) so the cookie and Bearer arms cannot
+// disagree about a row's name; it is exercised for real in
+// app-api-recordings-inbox.test.ts. What this arm still owes is the tenant key
+// the fill runs on, and that it hands its consumers whatever the read returned.
+describe('listRecordingsInbox — the shared read’s name fill', () => {
+  it('threads businessId so the fill has a tenant to resolve against', async () => {
     await listRecordingsInbox()
-    expect(getCachedCustomerList).not.toHaveBeenCalled()
+    const deps = readRecordingsInbox.mock.calls[0][0] as { businessId: string }
+    expect(deps.businessId).toBe('business-1')
+  })
+
+  it('hands back the read’s rows verbatim — filled names included', async () => {
+    const filled = [
+      {
+        recordingSessionId: 'sess-out',
+        customerId: 'cust-other-branch',
+        customerName: '代官山 太郎',
+        createdAt: '2026-08-25T04:00:00.000Z',
+        durationSeconds: 60,
+        karuteRecordId: 'karute-1',
+        jobStatus: null,
+        jobProbeFailed: false,
+        jobLastError: null,
+      },
+    ]
+    readRecordingsInbox.mockImplementation(async () => filled)
+    await expect(listRecordingsInbox()).resolves.toEqual(filled)
   })
 })
 

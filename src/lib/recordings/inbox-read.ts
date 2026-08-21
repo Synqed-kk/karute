@@ -29,6 +29,7 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { paginateDedupe } from '@/lib/customers/paginate'
+import { getCachedCustomerListFor } from '@/lib/customers/cached'
 import { INBOX_WINDOW_MS, type InboxServerSession } from './inbox'
 
 /**
@@ -58,12 +59,49 @@ export interface InboxReadDeps {
   synqed: Pick<SynqedClient, 'recordings' | 'karuteRecords' | 'recordingJobs'>
   /** The AUTHENTICATED actor's staff id. Never a caller-supplied parameter. */
   staffId: string
+  /** Tenant key for the name fill below — the cookie arm resolves it with
+   *  getBusinessId(), the Bearer arm from its verified token identity. */
+  businessId: string
   now: Date
+}
+
+/**
+ * Fill each row's display name SERVER-SIDE (⚖ Liam 2026-08-17).
+ *
+ * These rows are STAFF-scoped (recordings.list({staff_id})) while the record
+ * screen's customer array is STORE-scoped, so a clamped staffer's own recording
+ * of an out-of-store customer has an id that array cannot resolve — it would
+ * render 不明. Resolving here is what keeps the roster off the wire: the
+ * business-wide list is used strictly as a `.get(id)` lookup, so only the names
+ * these rows actually reference ever ship (the maps rule, store-scope.ts
+ * ~:170-177 / ~:288-294 — a clamped client must never RECEIVE another branch's
+ * names, so filtering after shipping was never an option).
+ *
+ * Lives in this shared read so the cookie action and the Bearer facade route
+ * cannot disagree about a row's name — the same reason the read itself is here.
+ * Degrades to the pre-fill behaviour: a failed list read leaves the name absent
+ * and the client's own map answers.
+ */
+async function fillCustomerNames(
+  rows: InboxServerSession[],
+  businessId: string,
+): Promise<InboxServerSession[]> {
+  if (!rows.some((r) => r.customerId)) return rows
+  const list = await getCachedCustomerListFor(businessId).catch((err: unknown) => {
+    console.warn('[recordings-inbox] customer name fill degraded:', err)
+    return []
+  })
+  const nameById = new Map(list.map((c) => [c.id, c.name]))
+  return rows.map((r) => {
+    const name = r.customerId ? nameById.get(r.customerId) : undefined
+    return name ? { ...r, customerName: name } : r
+  })
 }
 
 export async function readRecordingsInbox({
   synqed,
   staffId,
+  businessId,
   now,
 }: InboxReadDeps): Promise<InboxServerSession[]> {
   const from = new Date(now.getTime() - INBOX_WINDOW_MS).toISOString()
@@ -149,5 +187,5 @@ export async function readRecordingsInbox({
     }),
   )
 
-  return rows
+  return fillCustomerNames(rows, businessId)
 }

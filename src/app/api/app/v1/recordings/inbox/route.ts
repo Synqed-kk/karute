@@ -48,7 +48,14 @@ export const GET = facadeHandler('recordings.inbox', async (ctx) => {
     // No staff identity → no sessions of your own (parity with the web action).
     if (!staffId) return ok(ctx, RecordingsInboxDTO.parse({ sessions: [] }))
 
-    const sessions = await readRecordingsInbox({ synqed, staffId, now: new Date() })
+    const sessions = await readRecordingsInbox({
+      synqed,
+      staffId,
+      // Tenant key for the shared read's server-side customer name fill
+      // (⚖ Liam 2026-08-17) — from the VERIFIED token identity, never a header.
+      businessId: ctx.identity.businessId,
+      now: new Date(),
+    })
     return ok(ctx, RecordingsInboxDTO.parse({ sessions }))
   } catch (err) {
     if (err instanceof AppApiError) throw err
