@@ -303,12 +303,20 @@ describe('the fixture data door', () => {
       'src/business/lib/canon-logic/availability.ts': ['./pricing'],
       'src/business/i18n/index.ts': ['./ja.json'],
       'src/app/[locale]/(business)/layout.tsx': [
+        './BusinessSessionEdits',
         './BusinessSidebar',
         './BusinessTopbar',
         './business-shell.css',
         '@/business/i18n',
         '@/business/lib/admission',
         '@/business/lib/data',
+        'react',
+      ],
+      // ⚖ Liam 22 — the session-edit provider. Type-only imports of the board's
+      // own shapes; nothing here reads data, and nothing here can reach core.
+      'src/app/[locale]/(business)/BusinessSessionEdits.tsx': [
+        './business/today/today-interactions',
+        '@/business/lib/today-board',
         'react',
       ],
       'src/app/[locale]/(business)/BusinessSidebar.tsx': ['next/link', 'next/navigation', 'react'],
@@ -333,6 +341,7 @@ describe('the fixture data door', () => {
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/today/TodayScreen.tsx': [
+        '../../BusinessSessionEdits',
         '../../BusinessTopbar',
         './today-interactions',
         '@/business/lib/canon-logic/drag-rules',

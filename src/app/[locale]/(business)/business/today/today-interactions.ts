@@ -481,6 +481,70 @@ export function parkChipText(item: BoardItem, hours: Hours, dayLabel: string): {
   }
 }
 
+/** ⚖ Liam 46 FORERUNNER (slice C, Greptile #737 P1) — A BOARD IS A DAY *AND* A
+ *  STORE. The session-edit family survives `?store=` exactly the way it survives
+ *  `?day=` (the provider sits in the layout, which neither navigation remounts),
+ *  so an edit staged on 銀座 was rendering on and being evaluated against 新宿's
+ *  board — sharpest where a staff member works at BOTH stores and the two boards
+ *  share a lane key, so a card added on one painted onto the other.
+ *
+ *  THIS IS THE MINIMAL FORERUNNER OF ⚖ 46, AND SLICE F SUPERSEDES IT. Batch 7 on
+ *  feat/business-transplant-today carries the fuller design (storeParam +
+ *  storeLabel on ParkHome/PlacingIntent + foreignStoreRefusal). On replay, the
+ *  LATER slice wins every conflict in this family — everything marked
+ *  "⚖ 46 forerunner" here is the thing being replaced, never the thing to keep.
+ *
+ *  ONE HOME for the comparison so "same store" cannot come to mean two things:
+ *  the board filter, the shelf's placement refusal and the × all read it. */
+export function sameStore(stamped: string | null, shown: string | null): boolean {
+  return stamped === shown
+}
+
+/** ⚖ 46 forerunner — does this stamped edit belong to the board on screen? Both
+ *  conjuncts are load-bearing: the day one is ⚖ 22's (an edit staged on 8/22 is
+ *  not 8/23's), the store one is this fix's. */
+export function onShownBoard(
+  stamp: { dayOffset: number; store: string | null },
+  shown: { dayOffset: number; store: string | null },
+): boolean {
+  return stamp.dayOffset === shown.dayOffset && sameStore(stamp.store, shown.store)
+}
+
+/** ⚖ Liam 22 (2026-08-21) — THE CHIP'S ×, answered from the board on screen.
+ *
+ *  Canon's park snapshot holds the origin ELEMENTS, so `restoreSnap` (:5589)
+ *  puts the card back on its own track whatever day is showing. Ours holds a
+ *  record, and now that the shelf survives day navigation the × can be pressed
+ *  from a day that is not the origin — so the record's own `dayOffset` decides,
+ *  never the board that happens to be on screen:
+ *
+ *   · `here`      — the origin day IS on screen; the card comes back in front of
+ *                   the operator, and the toast can stay canon's.
+ *   · `elsewhere` — the origin day is another board. The restore is still right
+ *                   (the booking exists on exactly one day), so it happens — and
+ *                   the toast NAMES the day, the way the hold bar's day-pin does,
+ *                   rather than looking like the × did nothing.
+ *   · `gone`      — the origin day is on screen and the booking is NOT on it.
+ *                   The fixture world re-based underneath the shelf (a board left
+ *                   open across JST midnight). FAIL SOFT: the caller keeps the
+ *                   chip, so nothing is dropped in silence and the booking can
+ *                   still be placed from what the chip itself records.
+ *
+ *  ⚖ 46 forerunner: the ORIGIN STORE is checked first and answers `elsewhere` on
+ *  its own. ⚖ 46 keeps the × working from anywhere, and a foreign store is a
+ *  board this browser cannot see at all — asking "is the booking on the board in
+ *  front of me?" about it can only ever answer no, which would have turned every
+ *  cross-store × into the `gone` refusal. */
+export function unparkOutcome(
+  home: { dayOffset: number; store: string | null },
+  shown: { dayOffset: number; store: string | null },
+  originOnShownBoard: boolean,
+): 'here' | 'elsewhere' | 'gone' {
+  if (!sameStore(home.store, shown.store)) return 'elsewhere'
+  if (home.dayOffset !== shown.dayOffset) return 'elsewhere'
+  return originOnShownBoard ? 'here' : 'gone'
+}
+
 /** canon `createAtCell` (:6005) via the F25 empty-slot click: the half hour the
  *  pointer landed on, clamped so a created booking cannot start after closing. */
 export function slotStartAt(track: Element, clientX: number, hours: Hours, stepMin = 30): number {
