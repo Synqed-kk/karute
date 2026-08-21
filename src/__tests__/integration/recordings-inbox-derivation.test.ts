@@ -213,6 +213,24 @@ describe('録音履歴 — walk-ins and orphan takes', () => {
     expect(row.state).toBe('saved')
   })
 
+  // ⚖ Liam 2026-08-17: the server may fill a name the caller's store-scoped
+  // customer array could not resolve. The take's bind-time snapshot still
+  // wins — it is what the staffer actually recorded against.
+  it('the server-filled name is used when this device holds no take', () => {
+    const [row] = fold([
+      session({ recordingSessionId: 's1', karuteRecordId: 'rec-1', customerName: '代官山 太郎' }),
+    ])
+    expect(row.customerName).toBe('代官山 太郎')
+  })
+
+  it('a take snapshot still beats the server fill', () => {
+    const [row] = fold(
+      [session({ recordingSessionId: 's1', customerName: '代官山 太郎' })],
+      [take({ takeId: 't1', recordingSessionId: 's1', customerName: '佐藤 美咲' })],
+    )
+    expect(row.customerName).toBe('佐藤 美咲')
+  })
+
   it('a take with NO session id gets a row of its own (no server row can carry it)', () => {
     const rows = fold([], [take({ takeId: 't-orphan', recordingSessionId: null })])
     expect(rows).toHaveLength(1)

@@ -8,7 +8,7 @@
  *
  * VERDICT: NO-OP. customerFacts is a `.map()` over the `customers` array the
  * CALLER injects, and both callers page to completion before handing it over:
- *   · web  — sessions/page.tsx → getCachedCustomerList() (cached.ts, paginateDedupe)
+ *   · web  — sessions/page.tsx → getCachedCustomerList(lens) (cached.ts, paginateDedupe)
  *   · thin — screens/record/route.ts → listAllCustomers() (list-all.ts, paginateDedupe)
  * There is no list read inside record-screen.ts to truncate, and no cap on the
  * map. Nothing was changed.
@@ -32,8 +32,10 @@ describe('R4 — customerFacts is fed an already-paged list', () => {
   })
 
   it('the WEB caller pages to completion (getCachedCustomerList → paginateDedupe)', () => {
+    // The store lens (⚖ 2026-08-17) rides as an argument; paging is inside the
+    // helper either way, so the guard is on the CALL, not on its arity.
     expect(read('src/app/[locale]/(app)/sessions/page.tsx')).toContain(
-      'getCachedCustomerList()',
+      'getCachedCustomerList(',
     )
     expect(read('src/lib/customers/cached.ts')).toContain('await paginateDedupe(')
   })

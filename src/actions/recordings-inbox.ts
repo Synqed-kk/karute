@@ -12,6 +12,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { requireCapability } from '@/lib/auth/require-permission'
 import { readRecordingsInbox } from '@/lib/recordings/inbox-read'
+import { getCachedCustomerList } from '@/lib/customers/cached'
 import type { InboxServerSession } from '@/lib/recordings/inbox'
 
 export async function listRecordingsInbox(): Promise<InboxServerSession[]> {
@@ -22,5 +23,23 @@ export async function listRecordingsInbox(): Promise<InboxServerSession[]> {
   // No staff identity → no sessions of your own. Empty, not an error: the
   // inbox still shows this device's recoverable takes.
   if (!staffId) return []
-  return readRecordingsInbox({ synqed, staffId, now: new Date() })
+  const sessions = await readRecordingsInbox({ synqed, staffId, now: new Date() })
+
+  // Names are filled HERE rather than on the client (⚖ Liam 2026-08-17): the
+  // record page's customer array is STORE-scoped for a clamped actor while
+  // these rows are STAFF-scoped, so a staffer's own recording of a customer
+  // outside their store would otherwise render 不明. The business-wide list is
+  // used strictly as a `.get(id)` lookup — only the names these rows reference
+  // ship, never the roster, which is what keeps the staff-roster rule (hide,
+  // never filter-after-ship) intact.
+  //
+  // Degrades to today's behaviour: a failed list read leaves customerName
+  // absent and the client's own map answers, exactly as before.
+  if (!sessions.some((s) => s.customerId)) return sessions
+  const list = await getCachedCustomerList().catch(() => [])
+  const nameById = new Map(list.map((c) => [c.id, c.name]))
+  return sessions.map((s) => {
+    const name = s.customerId ? nameById.get(s.customerId) : undefined
+    return name ? { ...s, customerName: name } : s
+  })
 }
