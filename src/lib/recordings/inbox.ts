@@ -64,8 +64,8 @@ export type InboxReason =
   | 'genericFailure'
   | 'localAudio'
 
-export type InboxJobStatus = 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED'
-
+/** The statuses this build knows how to read. Anything else on the wire is
+ *  narrowed to "unknown, still in flight" — see `jobStatus` below. */
 const KNOWN_JOB_STATUSES = new Set<string>(['QUEUED', 'RUNNING', 'DONE', 'FAILED'])
 
 /** One recording session as the SERVER can see it. */

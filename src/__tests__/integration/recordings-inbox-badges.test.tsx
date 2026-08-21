@@ -162,12 +162,20 @@ describe('要対応 badge — it has to be ANNOUNCED, not just drawn (FX-5)', ()
     }
   })
 
-  it('the sidebar badge labels itself', async () => {
+  it('the sidebar count reaches the accessible name of the 録音 link', async () => {
+    // NOT an attribute read: a bare <span> is role=generic, where aria-label is
+    // NAME-PROHIBITED — Chrome drops it, so the attribute can be present and the
+    // count still never announced. Resolve the real accessible name instead.
     serverSessions = [session({ recordingSessionId: 'f1', jobStatus: 'FAILED', jobLastError: 'x' })]
     render(<Sidebar />)
     await flush()
-    expect(screen.getByTestId('sidebar-needs-attention').getAttribute('aria-label')).toBe(
-      'needsAttention',
-    )
+    const badge = screen.getByTestId('sidebar-needs-attention')
+    const link = badge.closest('a')!
+    // jsdom's accname implementation HONOURS aria-label on a generic; Chrome
+    // does not. So the attribute check is the real discriminator: the name has
+    // to come from text in the DOM, not from a name-prohibited attribute.
+    expect(badge).not.toHaveAttribute('aria-label')
+    expect(link.textContent).toContain('needsAttention')
+    expect(link).toHaveAccessibleName(/needsAttention/)
   })
 })

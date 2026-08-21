@@ -214,9 +214,17 @@ export function Sidebar() {
                   <span
                     className="ml-auto flex h-[19px] min-w-[19px] items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-1.5 text-[11px] font-bold leading-none tabular-nums text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200"
                     data-testid="sidebar-needs-attention"
-                    aria-label={tInbox('needsAttention', { n: needsAttention })}
                   >
-                    {needsAttention}
+                    {/* The name is real TEXT, not an aria-label: this badge is
+                        a bare span (role=generic), where aria-label is
+                        name-prohibited and Chrome drops it — the count would
+                        have been drawn but never announced. The digits are
+                        hidden from the a11y tree and the sr-only phrase rides
+                        into the link's name-from-contents instead. */}
+                    <span aria-hidden="true">{needsAttention}</span>
+                    <span className="sr-only">
+                      {tInbox('needsAttention', { n: needsAttention })}
+                    </span>
                   </span>
                 )}
               </span>
