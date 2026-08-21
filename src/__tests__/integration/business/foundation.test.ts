@@ -205,16 +205,19 @@ describe('requireBusinessAdmission', () => {
 })
 
 describe('the fixture data door', () => {
-  it('a single-store lens drops the other store AND storeless bookings', async () => {
+  it('a single-store lens drops the other store AND any storeless booking', async () => {
+    // ⚖ 8/20 data-truth: the demo world no longer contains a storeless row (a
+    // booking no store owns is an impossible state), so the rule is asserted
+    // structurally — EVERY row that survives the clamp carries this store,
+    // which a null store_id can never satisfy. Stronger than naming one id.
     const got = await data.listAppointments(STORE_A)
     expect(got.length).toBeGreaterThan(0)
     expect(got.every((a) => a.store_id === STORE_A)).toBe(true)
-    expect(got.map((a) => a.id)).not.toContain('apt-09') // storeless
   })
-  it('viewAll keeps every store, storeless rows included', async () => {
-    const ids = (await data.listAppointments({ viewAll: true })).map((a) => a.id)
-    expect(ids).toContain('apt-09')
-    expect(ids.length).toBeGreaterThan((await data.listAppointments(STORE_A)).length)
+  it('viewAll keeps every store', async () => {
+    const all = await data.listAppointments({ viewAll: true })
+    expect(all.map((a) => a.store_id)).toEqual(expect.arrayContaining([STORE_A, STORE_B]))
+    expect(all.length).toBeGreaterThan((await data.listAppointments(STORE_A)).length)
   })
   it('a range narrows without breaking the clamp', async () => {
     const got = await data.listAppointments(STORE_A, { from: '2026-08-20T00:00:00Z' })
@@ -246,8 +249,10 @@ describe('the fixture data door', () => {
   })
   it('staff: a clamped lens keeps this store + floating, drops other stores and unknowns', async () => {
     // p-01 email-linked, c-03 floating, p-04 user_id-ONLY link, p-05 both
-    // stores; p-02 is STORE_B and p-09 has no card at all.
-    expect((await data.listStaff(STORE_A)).map((m) => m.id)).toEqual(['p-01', 'c-03', 'p-04', 'p-05'])
+    // stores, p-06 the operator's own roster row, p-09 the roster member with
+    // no shift today (⚖ 8/20: everyone on the roster has a card and a store);
+    // p-02 is STORE_B.
+    expect((await data.listStaff(STORE_A)).map((m) => m.id)).toEqual(['p-01', 'c-03', 'p-04', 'p-05', 'p-06', 'p-09'])
     expect((await data.listStaff(STORE_B)).map((m) => m.id)).toEqual(['p-02', 'c-03', 'p-05'])
   })
   it('the default lens is the FIRST store, never the business-wide merge', async () => {
@@ -284,8 +289,18 @@ describe('the fixture data door', () => {
     ]
     const INVENTORY: Record<string, string[]> = {
       'src/business/lib/clock.ts': [],
-      'src/business/lib/data.ts': ['./fixtures', 'react'],
+      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-today', 'react'],
       'src/business/lib/fixtures.ts': ['./clock'],
+      'src/business/lib/fixtures-today.ts': ['./fixtures'],
+      'src/business/lib/today-board.ts': ['./clock', './fixtures', './fixtures-today'],
+      // canon-logic — the lifted mock behaviour. These four are PURE by design
+      // (that is the whole point of lifting them out of canon's inline script),
+      // so an empty inventory is not laziness: any import at all here would
+      // mean the lift stopped being pure.
+      'src/business/lib/canon-logic/pricing.ts': [],
+      'src/business/lib/canon-logic/drag-rules.ts': [],
+      'src/business/lib/canon-logic/gap-guard.ts': [],
+      'src/business/lib/canon-logic/availability.ts': ['./pricing'],
       'src/business/i18n/index.ts': ['./ja.json'],
       'src/app/[locale]/(business)/layout.tsx': [
         './BusinessSidebar',
@@ -297,7 +312,7 @@ describe('the fixture data door', () => {
         'react',
       ],
       'src/app/[locale]/(business)/BusinessSidebar.tsx': ['next/link', 'next/navigation', 'react'],
-      'src/app/[locale]/(business)/BusinessTopbar.tsx': ['./BusinessSidebar', 'next/navigation'],
+      'src/app/[locale]/(business)/BusinessTopbar.tsx': ['./BusinessSidebar', 'next/navigation', 'react'],
       'src/business/lib/admission.ts': ['./grants', '@/lib/supabase/server', 'next/navigation'],
       'src/business/lib/grants.ts': ['@/lib/supabase/service'],
       'src/app/[locale]/(business)/business/page.tsx': ['next/navigation'],
@@ -309,6 +324,32 @@ describe('the fixture data door', () => {
       ],
       'src/app/[locale]/(business)/business/customers/CustomersScreen.tsx': ['react'],
       'src/app/[locale]/(business)/business/customers/loading.tsx': ['@/business/i18n'],
+      'src/app/[locale]/(business)/business/today/page.tsx': [
+        './TodayScreen',
+        './today.css',
+        '@/business/lib/admission',
+        '@/business/lib/clock',
+        '@/business/lib/data',
+        '@/business/lib/today-board',
+      ],
+      'src/app/[locale]/(business)/business/today/TodayScreen.tsx': [
+        '../../BusinessTopbar',
+        './today-interactions',
+        '@/business/lib/canon-logic/drag-rules',
+        '@/business/lib/canon-logic/gap-guard',
+        '@/business/lib/canon-logic/pricing',
+        '@/business/lib/today-board',
+        'next/link',
+        'react',
+      ],
+      'src/app/[locale]/(business)/business/today/today-interactions.ts': [
+        '@/business/lib/canon-logic/availability',
+        '@/business/lib/canon-logic/drag-rules',
+        '@/business/lib/canon-logic/gap-guard',
+        '@/business/lib/canon-logic/pricing',
+        '@/business/lib/today-board',
+      ],
+      'src/app/[locale]/(business)/business/today/loading.tsx': ['@/business/i18n'],
     }
     for (const [file, expected] of Object.entries(INVENTORY)) {
       const src = readFileSync(join(process.cwd(), file), 'utf8')
@@ -487,7 +528,10 @@ describe('顧客一覧 screen', () => {
   })
   it('renders every fixture customer, thin book-cast rows included', async () => {
     const rows = await render()
-    expect(rows).toHaveLength(12)
+    // 13 since the Today board arrived: 見本 さくら is the registered-but-never-
+    // visited customer the board's 新規 category needs (cus-10 must keep its
+    // never-booked-anywhere CM-9 shape, so it could not carry that case).
+    expect(rows).toHaveLength(13)
     expect(rows.map((r) => r.name)).toContain('見本 あかり')
     expect(rows.every((r) => r.no.startsWith('C-'))).toBe(true)
     expect(rows.filter((r) => r.thin).map((r) => r.id)).toEqual(['thin-01', 'thin-02'])

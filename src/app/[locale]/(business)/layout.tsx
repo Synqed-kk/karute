@@ -17,9 +17,9 @@
 import { Suspense } from 'react'
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { businessStrings as s } from '@/business/i18n'
-import { listStoreOptions, readShellIdentity } from '@/business/lib/data'
+import { listStoreOptions, readShellIdentity, readUnresolvedCounts } from '@/business/lib/data'
 import { BusinessSidebar } from './BusinessSidebar'
-import { BusinessTopbar } from './BusinessTopbar'
+import { BusinessTopbar, BusinessTopbarActionSlot } from './BusinessTopbar'
 import './business-shell.css'
 
 const fmtTime = new Intl.DateTimeFormat('ja-JP', {
@@ -37,10 +37,11 @@ export default async function BusinessLayout({
   params: Promise<{ locale: string }>
 }) {
   await requireBusinessAdmission()
-  const [{ locale }, storeOptions, shell] = await Promise.all([
+  const [{ locale }, storeOptions, shell, unresolved] = await Promise.all([
     params,
     listStoreOptions(),
     readShellIdentity(),
+    readUnresolvedCounts(),
   ])
 
   // Formatted on the server so the client renders one string and no clock or
@@ -63,14 +64,19 @@ export default async function BusinessLayout({
               operatorMark={shell.operator.mark}
               operatorRole={shell.operator.role}
               stores={storeOptions}
+              unresolved={unresolved}
             />
           </Suspense>
-          <main className="main">
-            <Suspense fallback={<header className="topbar" />}>
-              <BusinessTopbar stores={storeOptions} syncLabel={syncLabel} />
-            </Suspense>
-            {children}
-          </main>
+          {/* The topbar's primary action (canon: 予約を作成) is rendered by the
+              shell but owned by the screen, so both sit under one slot. */}
+          <BusinessTopbarActionSlot>
+            <main className="main">
+              <Suspense fallback={<header className="topbar" />}>
+                <BusinessTopbar stores={storeOptions} syncLabel={syncLabel} />
+              </Suspense>
+              {children}
+            </main>
+          </BusinessTopbarActionSlot>
         </div>
       </div>
     </div>
