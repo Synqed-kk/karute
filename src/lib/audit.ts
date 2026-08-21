@@ -567,10 +567,11 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   'customer.pack.create': { kind: 'mutation', category: 'customer', action: 'customer.pack_create', targetType: 'customer' },
   'customer.pack.redeem': { kind: 'mutation', category: 'customer', action: 'customer.pack_redeem', targetType: 'customer' },
   // undoRedemption's route param is the REDEMPTION id (packs/redemptions/[id]/
-  // undo/route.ts), NOT the customer id — logFacadeAudit stamps params.id
-  // verbatim as targetId, so a targetType:'customer' row here would wrongly
-  // stamp a redemption UUID as the customer target (breaks the per-customer
-  // dispute view — four-lens blind-round finding, 2026-07-27). No cheap fix
+  // undo/route.ts), NOT the customer id — logFacadeAudit stamps params.id as
+  // targetId when it is UUID-shaped (no route override here), so a
+  // targetType:'customer' row would still wrongly stamp the redemption UUID
+  // (it IS a UUID) as the customer target (breaks the per-customer dispute
+  // view — four-lens blind-round finding, 2026-07-27). No cheap fix
   // exists: PacksClient (node_modules/@synqed-kk/client) has no
   // getRedemption(id)-by-id lookup, and removeRedemption's own response is
   // just `{ ok: boolean }` — the customer id isn't derivable from anything
