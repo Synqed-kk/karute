@@ -336,9 +336,16 @@ export function applyMoves(
   // bed lane must be re-admitted as its bed drawing (its own key, its own
   // 【担当】 tag), not as the staff card wearing a room's name.
   const home = new Map<string, BoardItem>()
+  // …and each booking's own turnaround, by the booking it belongs to. Keyed
+  // `${id}-cleanup` at derivation (today-board :508), which is the only link
+  // back to its owner — the item itself carries no caseId.
+  const cleanupOf = new Map<string, BoardItem>()
   for (const lane of lanes) {
     for (const item of lane.items) {
       if (item.kind === 'booking' && item.caseId) home.set(`${lane.group}|${item.caseId}`, item)
+      if (item.kind === 'cleanup' && item.key.endsWith('-cleanup')) {
+        cleanupOf.set(item.key.slice(0, -'-cleanup'.length), item)
+      }
     }
   }
 
@@ -373,6 +380,14 @@ export function applyMoves(
     const extra = added.filter((a) => a.laneKey === lane.key).map((a) => a.item)
     const kept = lane.items.filter((item) => {
       if (isParked(item, parked)) return false
+      // ⚖ 51 second-order — A 清掃 IS NOT A THING ON THE BOARD, IT IS THE TAIL OF
+      // ITS BOOKING. It carries `caseId: null` (today-board :512), so the
+      // membership test below could never see it: the booking moved and its
+      // turnaround stayed behind, painting 清掃 over a span where nothing happens
+      // and leaving none where the session now ends. Dropped from the membership
+      // pass here and re-placed after the bookings settle, on whichever bed the
+      // pair ended up on.
+      if (item.kind === 'cleanup') return false
       const m = item.caseId ? membership[item.caseId] : undefined
       return !m || m.laneKey === lane.key
     })
@@ -383,8 +398,58 @@ export function applyMoves(
       if (!row || lane.items.some((i) => i.caseId === id)) continue
       arrivals.push(row)
     }
-    return { ...lane, items: [...kept, ...arrivals].map((i) => moved(i, lane.group)).concat(extra).sort(byX) }
+    const settled = [...kept, ...arrivals].map((i) => moved(i, lane.group)).concat(extra).sort(byX)
+    return { ...lane, items: lane.group === 'beds' ? withTrailingCleanup(lane, settled, cleanupOf, hours) : settled }
   })
+}
+
+/** ⚖ 51 second-order — THE BOOKING'S TRAILING 清掃 MOVES WITH IT.
+ *
+ *  Re-placed rather than translated, so a move, a resize and a bed retarget all
+ *  come out the same and 元に戻す needs no special case: the turnaround simply
+ *  starts where its booking now ends, on the lane its booking now sits on.
+ *
+ *  The clamp is `cleanupBlocks`' own (today-board :101-103): never past the next
+ *  booking on this bed, never past closing, and nothing drawn when that leaves
+ *  no room. With an empty `moves`/`bedMoves` this reproduces the server's rows
+ *  exactly, which is what makes it safe to run on every board.
+ *
+ *  ponytail: the LENGTH is the one the server drew, not the resource's
+ *  `cleanup_minutes` — BoardLane does not carry that policy and threading it
+ *  from page.tsx would be a wider change than this defect needs. It differs only
+ *  for a turnaround the server had already clipped short, and only ever
+ *  UNDER-draws, never blocking a minute the room is free. Carry
+ *  `cleanup_minutes` onto BoardLane if that case ever matters. */
+function withTrailingCleanup(
+  lane: BoardLane,
+  items: BoardItem[],
+  cleanupOf: Map<string, BoardItem>,
+  hours: Hours,
+): BoardItem[] {
+  const out = [...items]
+  for (const b of items) {
+    if (b.kind !== 'booking' || !b.caseId) continue
+    const orig = cleanupOf.get(b.caseId)
+    if (!orig) continue
+    const start = b.endMin
+    const ceiling = items.reduce(
+      (c, i) => (i.kind === 'booking' && i.startMin >= start && i.startMin < c ? i.startMin : c),
+      hours.close,
+    )
+    const end = Math.min(start + (orig.endMin - orig.startMin), ceiling)
+    if (end <= start) continue
+    out.push({
+      ...orig,
+      ...place(start, end, hours),
+      time: `${clock(start)}〜`,
+      micro: end - start <= 20,
+      // The room's name is in the sentence a screen reader reads out, so a
+      // retargeted turnaround that still says ベッド3 is the impossible state
+      // ⚖ 8/9 forbids — the same reason the card's 【tag】 is rebuilt above.
+      label: `${lane.label}、${clock(start)}から${clock(end)}、清掃・予約不可`,
+    })
+  }
+  return out.sort(byX)
 }
 
 /** An item redrawn at a staged span — the percent pair AND the minutes and the
@@ -969,6 +1034,19 @@ export function allocateBed(
     id: string | null
     /** The room it carries in — the first candidate, per the keep-if-free rule. */
     currentBed: string | null
+    /** ⚖ STORE ISOLATION — THE STORES THE BOOKING'S OWN STAFF LANE BELONGS TO.
+     *  `null` = a floating staff member, who pairs with any room; otherwise the
+     *  allocator may only hand out rooms this person's store actually has.
+     *
+     *  REQUIRED on purpose. Under the all-stores lens `lanes` carries every
+     *  store's beds, and a search that only asked "is it free?" could retarget a
+     *  booking into ANOTHER STORE's room — the board would draw a person in a
+     *  building they are not in. The viewAll lens is dormant in the UI today
+     *  (すべての店舗 was removed), so this is unreachable rather than fixed; the
+     *  store-isolation law is system-wide and the allocator has to be right by
+     *  construction. An optional field defaulting to "every store" would be
+     *  fail-open, which is the one thing this must not be. */
+    stores: string[] | null
     /** A VIP/個室クラス booking never silently leaves the 個室. */
     vip: boolean
     start: number
@@ -984,7 +1062,17 @@ export function allocateBed(
         i.endMin > start &&
         i.startMin < end,
     )
-  const beds = lanes.filter((l) => l.group === 'beds')
+  // ⚖ STORE ISOLATION, at the only place rooms are chosen. Same rule as canon's
+  // `canPair` (availability.ts:51) — a floating lane pairs with anything, and
+  // otherwise the two have to SHARE a store. It is spelled against BoardLane
+  // here because canPair reads the sell layer's flattened shapes, and that
+  // flattening is itself the known A-5 defect: `sellResourceLanes` collapses a
+  // bed to `stores?.[0] ?? ''`, so a multi-store room answers for one store and
+  // a floating room answers for none. Comparing the arrays directly means this
+  // allocator does not inherit that bug.
+  const sharesStore = (bed: BoardLane) =>
+    opts.stores === null || bed.stores === null || opts.stores.some((s) => bed.stores!.includes(s))
+  const beds = lanes.filter((l) => l.group === 'beds' && sharesStore(l))
   const needsPrivate = opts.vip && policy.vipStaysPrivate
   const compatible = (l: BoardLane) => (needsPrivate ? l.roomClass === 'private' : true)
   const free = (l: BoardLane) => blockersOn(l).length === 0

@@ -1256,11 +1256,15 @@ export function TodayScreen(props: TodayProps) {
    *  the answer is the board as it will stand — but re-solving on every pointer
    *  frame would re-parent a bed drawing mid-gesture (canon never does) and pay
    *  for the whole bed ledger 60 times a second. */
-  function solveBed(id: string | null, currentBed: string | null, vip: boolean, span: { x: number; w: number }): string | null {
+  //  `staffLaneKey` is the lane the booking is landing ON — the person whose
+  //  store owns this allocation. Every caller has it already; passing the key
+  //  rather than the stores keeps the store rule in the allocator, one home.
+  function solveBed(staffLaneKey: string | null, id: string | null, currentBed: string | null, vip: boolean, span: { x: number; w: number }): string | null {
     const start = minuteOf(span.x, hours)
     const solved = allocateBed(boardLanes, {
       id,
       currentBed,
+      stores: boardLanes.find((l) => l.key === staffLaneKey)?.stores ?? null,
       vip,
       start,
       end: minuteOf(span.x + span.w, hours),
@@ -1675,7 +1679,7 @@ export function TodayScreen(props: TodayProps) {
     // pair goes back where it stood, exactly as the two refusals above do.
     const sides = sidesAt(ctx.home, ctx.group, targetLane)
     if (ctx.group !== 'beds' && sides.bedLane != null) {
-      const bed = solveBed(ctx.id, sides.bedLane, item.category === 'vip', span)
+      const bed = solveBed(sides.staffLane, ctx.id, sides.bedLane, item.category === 'vip', span)
       if (bed == null) {
         restoreSides(ctx.id, from)
         return
@@ -2149,7 +2153,7 @@ export function TodayScreen(props: TodayProps) {
     // the span the room is held for, so the room is re-solved against it.
     const sides = sidesAt(from, lane.group, lane.key)
     if (lane.group !== 'beds' && sides.bedLane != null) {
-      const bed = solveBed(item.caseId, sides.bedLane, item.category === 'vip', next)
+      const bed = solveBed(sides.staffLane, item.caseId, sides.bedLane, item.category === 'vip', next)
       if (bed == null) return
       sides.bedLane = bed
     }
@@ -2391,7 +2395,7 @@ export function TodayScreen(props: TodayProps) {
     // compatible one; when there is none the refusal NAMES the rooms that are
     // busy instead of the old 「空いているベッドがいません」, which told the
     // operator nothing they could act on.
-    const partnerKey = solveBed(null, null, false, place(start, end, hours))
+    const partnerKey = solveBed(lane.key, null, null, false, place(start, end, hours))
     const partner = partnerKey == null ? null : boardLanes.find((l) => l.key === partnerKey)
     if (!partner) return
     setPlacing(null)
@@ -2487,7 +2491,7 @@ export function TodayScreen(props: TodayProps) {
         ? dropped
         : (() => {
             const home = boardLanes.find((l) => l.group === 'beds' && l.label === chip.item.tag.replace(/[【】]/g, ''))
-            const key = solveBed(chip.id, home?.key ?? null, chip.item.category === 'vip', span)
+            const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)
             return key == null ? null : boardLanes.find((l) => l.key === key)
           })()
     // `bed` null means `solveBed` has already said 満室 (⚖ 47: the refusal speaks

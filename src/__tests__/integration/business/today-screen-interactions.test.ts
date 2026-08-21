@@ -1428,7 +1428,7 @@ describe('次回予約を作成 arms the board, and the slot click makes the boo
     ]
     const staff = [lane({ key: 'p-01', group: 'staff' })]
     const solve = (start: number, end: number, lanes = [...staff, ...beds]) =>
-      allocateBed(lanes, { id: null, currentBed: null, vip: false, start, end, policy: POLICY })
+      allocateBed(lanes, { id: null, currentBed: null, stores: null, vip: false, start, end, policy: POLICY })
     // 15:00–16:00: both beds are busy → the placement is refused outright, and
     // the sentence names the window and both rooms with who is in them.
     expect(solve(900, 960)).toEqual({
@@ -1583,7 +1583,9 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
     // explicit room choice, and a staff-row drop still proves a room.
     expect(body).toContain("const staff = dropped?.group === 'beds' ? boardLanes.find((l) => l.key === chip.home.laneKey) : dropped")
     expect(body).toContain("dropped?.group === 'beds'\n        ? dropped")
-    expect(body).toContain("const key = solveBed(chip.id, home?.key ?? null, chip.item.category === 'vip', span)")
+    // RENEGOTIATED (Greptile #725 P1-A): `solveBed` leads with the STAFF lane it
+    // is allocating for, so the allocator can refuse another store's rooms.
+    expect(body).toContain("const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)")
     expect(body).toContain('laneKey: bed.key')
     // The × and the hold bar's 元に戻す both take the placed row back off.
     expect(SRC).toContain('setAdded((was) => was.filter((a) => a.item.caseId !== id))')
@@ -1873,7 +1875,7 @@ describe('the shelf family, enumerated against canon rather than against the fla
       lane({ key: 'bed-02', group: 'beds' }),
     ]
     const solve = (lanes: BoardLane[], currentBed: string | null = null) =>
-      allocateBed(lanes, { id: null, currentBed, vip: false, start: 900, end: 960, policy: POLICY })
+      allocateBed(lanes, { id: null, currentBed, stores: null, vip: false, start: 900, end: 960, policy: POLICY })
     expect(solve([lane({ key: 'p-01', group: 'staff' }), ...beds]).laneKey).toBe('bed-02')
     // A parked card holds no ground, so its own bed reads free and comes back.
     expect(solve([lane({ key: 'p-01', group: 'staff' }), lane({ key: 'bed-01', group: 'beds' })], 'bed-01').laneKey).toBe('bed-01')
@@ -3132,7 +3134,7 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     }),
   ]
   const solve = (lanes: BoardLane[], over: Partial<Parameters<typeof allocateBed>[1]> = {}) =>
-    allocateBed(lanes, { id: 'apt-nagi', currentBed: 'bed-03', vip: false, start: 960, end: 1020, policy: POLICY, ...over })
+    allocateBed(lanes, { id: 'apt-nagi', currentBed: 'bed-03', stores: null, vip: false, start: 960, end: 1020, policy: POLICY, ...over })
 
   it('keeps the booking’s own room when it is free at the landing time', () => {
     // 見本 かえる's case: carries ベッド2, and ベッド2 is free at 16:00 → nothing
@@ -3213,7 +3215,7 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
         ],
       }),
     ]
-    expect(allocateBed(own, { id: 'apt-nagi', currentBed: 'bed-02', vip: false, start: 960, end: 1020, policy: POLICY }))
+    expect(allocateBed(own, { id: 'apt-nagi', currentBed: 'bed-02', stores: null, vip: false, start: 960, end: 1020, policy: POLICY }))
       .toEqual({ laneKey: 'bed-02', refusal: null })
     // Somebody else's turnaround is the room being unavailable, exactly as the
     // board's own 「清掃を予約不可時間として表示」 says.
@@ -3223,8 +3225,110 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
         items: [{ ...booking({ key: 'apt-other-cleanup', caseId: null }, 960, 990), kind: 'cleanup' as const, title: '清掃' }],
       }),
     ]
-    expect(allocateBed(theirs, { id: 'apt-nagi', currentBed: 'bed-02', vip: false, start: 960, end: 1020, policy: POLICY }).laneKey)
+    expect(allocateBed(theirs, { id: 'apt-nagi', currentBed: 'bed-02', stores: null, vip: false, start: 960, end: 1020, policy: POLICY }).laneKey)
       .toBeNull()
+  })
+
+  /** ⚖ STORE ISOLATION — GREPTILE #725 P1-A. The allocator searched every bed
+   *  lane it was handed and compared only "is it free?". Under the all-stores
+   *  lens `lanes` carries every store's rooms, so a staff-side landing whose own
+   *  room was taken could be retargeted into ANOTHER STORE's bed — the board
+   *  drawing a person in a building they are not in. Dormant in the UI today
+   *  (すべての店舗 was removed); the law is system-wide, so the allocator is
+   *  correct by construction rather than by unreachability. */
+  it('the allocator never crosses a store: a foreign free bed is 満室, not a landing', () => {
+    // A viewAll board: store-a's only room is busy for this span, store-b's is
+    // free. The booking's own staff works at store-a.
+    const viewAll = [
+      lane({ key: 'bed-a1', group: 'beds', label: 'A・ベッド1', stores: ['store-a'],
+        items: [booking({ key: 'other', caseId: 'apt-other' }, 960, 1020)] }),
+      lane({ key: 'bed-b1', group: 'beds', label: 'B・ベッド1', stores: ['store-b'] }),
+    ]
+    const solved = allocateBed(viewAll, {
+      id: 'apt-nagi', currentBed: null, stores: ['store-a'],
+      vip: false, start: 960, end: 1020, policy: POLICY,
+    })
+    // 満室 — and the refusal names store-a's room, never offers store-b's.
+    expect(solved.laneKey).toBeNull()
+    expect(solved.refusal).not.toBeNull()
+    expect(solved.refusal).not.toContain('B・ベッド1')
+
+    // The store rule is a FILTER, not a freeze: a free room in the booking's own
+    // store is still retargeted to, on the same board.
+    const withOwnFree = [...viewAll, lane({ key: 'bed-a2', group: 'beds', label: 'A・ベッド2', stores: ['store-a'] })]
+    expect(allocateBed(withOwnFree, {
+      id: 'apt-nagi', currentBed: null, stores: ['store-a'],
+      vip: false, start: 960, end: 1020, policy: POLICY,
+    }).laneKey).toBe('bed-a2')
+
+    // A floating staff member (`stores: null`) pairs with any room, and a
+    // floating ROOM takes anyone — canon `canPair`'s two null cases, both ways.
+    expect(allocateBed(viewAll, {
+      id: 'apt-nagi', currentBed: null, stores: null,
+      vip: false, start: 960, end: 1020, policy: POLICY,
+    }).laneKey).toBe('bed-b1')
+    const floatingRoom = [lane({ key: 'bed-any', group: 'beds', label: 'どこでも', stores: null })]
+    expect(allocateBed(floatingRoom, {
+      id: 'apt-nagi', currentBed: null, stores: ['store-a'],
+      vip: false, start: 960, end: 1020, policy: POLICY,
+    }).laneKey).toBe('bed-any')
+
+    // A room shared by two stores is reachable from either — the array is
+    // compared whole, so this does NOT inherit the A-5 `stores?.[0]` collapse.
+    const shared = [lane({ key: 'bed-sh', group: 'beds', label: '共用', stores: ['store-b', 'store-a'] })]
+    expect(allocateBed(shared, {
+      id: 'apt-nagi', currentBed: null, stores: ['store-a'],
+      vip: false, start: 960, end: 1020, policy: POLICY,
+    }).laneKey).toBe('bed-sh')
+  })
+
+  /** ⚖ 51 second-order — GREPTILE #725 P1-B. A 清掃 carries `caseId: null`, so
+   *  `applyMoves`' membership pass could not see it: the booking moved and its
+   *  turnaround stayed on the original bed at the original span. Stale 清掃 where
+   *  nothing happens, and none where the session now ends. */
+  it('a booking’s trailing 清掃 follows it — in time, across beds, and back on revert', () => {
+    const hh = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+    const cleanup = (key: string, s: number, e: number) => ({
+      ...booking({ key, caseId: null }, s, e), kind: 'cleanup' as const, title: '清掃',
+      label: `ベッド1、${hh(s)}から${hh(e)}、清掃・予約不可`,
+    })
+    const board = () => [
+      lane({ key: 'p-01', group: 'staff', label: '見本 しろう',
+        items: [booking({ key: 'nagi-staff', caseId: 'apt-nagi' }, 900, 960)] }),
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1',
+        items: [booking({ key: 'nagi-bed', caseId: 'apt-nagi' }, 900, 960), cleanup('apt-nagi-cleanup', 960, 990)] }),
+      lane({ key: 'bed-02', group: 'beds', label: 'ベッド2' }),
+    ]
+    const cleanOn = (out: BoardLane[], key: string) =>
+      out.find((l) => l.key === key)!.items.find((i) => i.kind === 'cleanup') ?? null
+
+    // 1. A STAGED TIME MOVE: the turnaround starts where the session now ends.
+    const moved = applyMoves(board(), { 'apt-nagi': { laneKey: 'p-01', ...place(1020, 1080, HOURS) } }, [], [], HOURS,
+      { 'apt-nagi': { laneKey: 'bed-01', ...place(1020, 1080, HOURS) } })
+    expect([cleanOn(moved, 'bed-01')!.startMin, cleanOn(moved, 'bed-01')!.endMin]).toEqual([1080, 1110])
+    expect(cleanOn(moved, 'bed-02')).toBeNull()
+
+    // 2. A BED RETARGET: it lands on the NEW room, and the old one is left clean.
+    const retargeted = applyMoves(board(), { 'apt-nagi': { laneKey: 'p-01', ...place(900, 960, HOURS) } }, [], [], HOURS,
+      { 'apt-nagi': { laneKey: 'bed-02', ...place(900, 960, HOURS) } })
+    expect(cleanOn(retargeted, 'bed-01')).toBeNull()
+    expect([cleanOn(retargeted, 'bed-02')!.startMin, cleanOn(retargeted, 'bed-02')!.endMin]).toEqual([960, 990])
+    // …and it SAYS the room it is in — a turnaround still announcing ベッド1 over
+    // ベッド2 is the impossible state ⚖ 8/9 forbids.
+    expect(cleanOn(retargeted, 'bed-02')!.label).toContain('ベッド2')
+
+    // 3. REVERT — an empty ledger reproduces the server's own rows exactly.
+    const reverted = applyMoves(board(), {}, [], [], HOURS, {})
+    expect([cleanOn(reverted, 'bed-01')!.startMin, cleanOn(reverted, 'bed-01')!.endMin]).toEqual([960, 990])
+    expect(cleanOn(reverted, 'bed-02')).toBeNull()
+    expect(cleanOn(reverted, 'bed-01')!.label).toBe(cleanup('x', 960, 990).label)
+
+    // The clamp is `cleanupBlocks`' own: never into the next booking on the bed.
+    const tight = board()
+    tight[1].items.push(booking({ key: 'next-bed', caseId: 'apt-next' }, 1100, 1160))
+    const clamped = applyMoves(tight, { 'apt-nagi': { laneKey: 'p-01', ...place(1020, 1080, HOURS) } }, [], [], HOURS,
+      { 'apt-nagi': { laneKey: 'bed-01', ...place(1020, 1080, HOURS) } })
+    expect([cleanOn(clamped, 'bed-01')!.startMin, cleanOn(clamped, 'bed-01')!.endMin]).toEqual([1080, 1100])
   })
 
   it('the popover NAMES the final room, and shows the change when there was one', () => {
@@ -3275,10 +3379,13 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     // Every landing that carries a room goes through the ONE solver.
     expect(SRC.match(/solveBed\(/g)).toHaveLength(5)
     for (const call of [
-      "solveBed(ctx.id, sides.bedLane, item.category === 'vip', span)",
-      "solveBed(item.caseId, sides.bedLane, item.category === 'vip', next)",
-      'solveBed(null, null, false, place(start, end, hours))',
-      "solveBed(chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
+      // RENEGOTIATED (Greptile #725 P1-A): every landing now names the staff lane
+      // it is allocating for — the first argument — so the allocator can scope
+      // the room search to that person's own store.
+      "solveBed(sides.staffLane, ctx.id, sides.bedLane, item.category === 'vip', span)",
+      "solveBed(sides.staffLane, item.caseId, sides.bedLane, item.category === 'vip', next)",
+      'solveBed(lane.key, null, null, false, place(start, end, hours))',
+      "solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
     ]) {
       expect(SRC).toContain(call)
     }
