@@ -53,12 +53,26 @@ export type SessionCleanupResult = { ok: true } | { error: string }
  * row, compare staff_id to the signed-in staffer, refuse otherwise. A refusal
  * is silent-and-safe (`{ error }`), never a delete.
  *
+ * NEVER SEVERS A SAVED RECORD (fix round 4). "Deliberate discard" and "no
+ * karute exists" are NOT the same statement, and the gap between them is live
+ * on the WEB arm today: saveKaruteRecordInline COMMITS the record
+ * (actions/karute.ts:443) and can still error afterwards, which sends the run
+ * to failAutosaveToReview → ReviewScreen carrying the SAME recordingSessionId.
+ * A 破棄 there would reach this function for a session that already HAS a
+ * record, and core's delete nulls karute_records.recording_session_id (Prisma
+ * SetNull) — the karute survives but loses its provenance and drops out of
+ * 録音履歴 entirely. So the record probe below is a hard gate at the CHOKE
+ * POINT, covering both doors and every future call site rather than each
+ * caller remembering it.
+ *
  * FAILURE-TOLERANT BY CONTRACT: every non-success path returns `{ error }`
  * rather than throwing, and both callers fire-and-forget. A cleanup that fails
  * costs one stale 失敗 row for up to seven days — never a blocked discard.
+ * Unknowns always resolve toward KEEPING the row: a probe that cannot answer
+ * is never read as "no record".
  */
 export async function deleteRecordingSessionWithClient(
-  synqed: Pick<ReturnType<typeof newSynqedClient>, 'recordings'>,
+  synqed: Pick<ReturnType<typeof newSynqedClient>, 'recordings' | 'karuteRecords'>,
   actor: SessionCleanupActor,
   recordingSessionId: string,
 ): Promise<SessionCleanupResult> {
@@ -89,6 +103,35 @@ export async function deleteRecordingSessionWithClient(
       `[session-cleanup] refused ${recordingSessionId}: not owned by ${actor.staffId}`,
     )
     return { error: 'not_owned' }
+  }
+
+  // THE PROVENANCE GATE. A record for this session means the discard is not
+  // undoing an orphan — it is about to sever a saved karute from the recording
+  // it came from. Refuse, silently and without an audit row: nothing was
+  // removed, so there is nothing to log. getByRecordingSession is the cheapest
+  // real surface for the question (one lookup, no page) and is the SAME probe
+  // the karute upsert uses for it (actions/karute.ts) — structural 404 check
+  // included, so a partial test mock of the client can't break the detection.
+  try {
+    await synqed.karuteRecords.getByRecordingSession(recordingSessionId)
+    console.warn(
+      `[session-cleanup] refused ${recordingSessionId}: a karute record exists for it`,
+    )
+    return { error: 'has_record' }
+  } catch (err) {
+    const status =
+      err && typeof err === 'object' && 'status' in err
+        ? (err as { status: unknown }).status
+        : undefined
+    // ONLY a 404 proves "no record". Anything else is an unknown, and deleting
+    // on an unknown is exactly the severing this gate exists to prevent.
+    if (status !== 404) {
+      console.warn(
+        `[session-cleanup] record probe failed for ${recordingSessionId} (${String(status)}):`,
+        err,
+      )
+      return { error: 'read_failed' }
+    }
   }
 
   try {

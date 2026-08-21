@@ -61,6 +61,10 @@ const LITERAL_ONLY_CATEGORY = {
   // (facade key recordings.discard is a skip row — same doctrine as
   // karute.save/karute.entry_edit above). Recording-integrity PR A1.
   'recording.discard': 'recording',
+  // Choke emit: src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient
+  // (facade key recordings.session.delete is a skip row — same doctrine).
+  // INTERIM: goes away with P5's kept-discard build, and this line with it.
+  'recording.session_cleanup': 'recording',
   // Choke emit: src/lib/settings/recording-autostart.ts#setRecordingAutostartWithClient
   // (facade key orgSettings.recordingAutostart is a skip row — same doctrine).
   // The ONE audited settings-blob key, spec §8.1 fix C1. Recording-integrity PR A4.

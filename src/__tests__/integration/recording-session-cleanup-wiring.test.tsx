@@ -9,6 +9,18 @@
  * where the take survives or the record exists, and removing the session row
  * there would either erase a still-honest 処理中 row or orphan a saved karute
  * from the session it came from.
+ *
+ * WHY TWO OF THE FIVE NOT-WIRED PATHS HAVE NO TEST HERE (the TTL prune and the
+ * recovery banner): they are proven by CENSUS, not by exercise. The cleanup is
+ * reachable through exactly one funnel — `deleteRecordingSession` has ONE app
+ * call site (RecordPageView's `cleanUpDiscardedSession`), and that helper has
+ * exactly TWO call sites repo-wide, both asserted below. Nothing else in src
+ * or thin can reach it, so a path that never calls the funnel cannot be made
+ * to call it by a test; the two assertions here that DO exercise a not-wired
+ * path (the error card, settle-on-save) earn their place because they run
+ * through the same component and could plausibly regress into it. If the
+ * funnel ever gains a third call site, that census breaks and these two need
+ * real tests.
  */
 jest.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }))
 jest.mock('@/i18n/navigation', () => ({

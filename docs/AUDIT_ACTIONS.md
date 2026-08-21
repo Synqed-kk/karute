@@ -53,6 +53,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `privacy.voice_enroll` | privacy | live | `settings.auditLog.actions.privacy.voice_enroll` |
 | `privacy.voice_revoke` | privacy | live | `settings.auditLog.actions.privacy.voice_revoke` |
 | `recording.discard` | recording | live | `settings.auditLog.actions.recording.discard` |
+| `recording.session_cleanup` | recording | live | `settings.auditLog.actions.recording.session_cleanup` |
 | `recording.transcribe` | recording | live | `settings.auditLog.actions.recording.transcribe` |
 | `settings.menu_create` | settings | live | `settings.auditLog.actions.settings.menu_create` |
 | `settings.menu_reactivate` | settings | live | `settings.auditLog.actions.settings.menu_reactivate` |

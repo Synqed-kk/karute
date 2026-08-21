@@ -77,9 +77,15 @@ const recordingsGet = jest.fn(async (id: string) => ({
   audio_storage_path: null,
 }))
 const recordingsDelete = jest.fn(async (_id: string) => {})
+/** The cleanup's provenance probe. Default = 404: no karute for this session,
+ *  so it really is an orphan. */
+const karuteNotFound = () => Object.assign(new Error('no record'), { status: 404 })
+const getKaruteByRecordingSession = jest.fn(async (_id: string): Promise<unknown> => {
+  throw karuteNotFound()
+})
 const fakeClient = {
   recordings: { list: listRecordings, get: recordingsGet, delete: recordingsDelete },
-  karuteRecords: { list: listKarute },
+  karuteRecords: { list: listKarute, getByRecordingSession: getKaruteByRecordingSession },
   recordingJobs: { getByRecordingSession },
   stores: { get: storesGet },
   staffStores: { get: staffStoresGet },
@@ -123,6 +129,9 @@ beforeEach(() => {
     audio_storage_path: null,
   }))
   recordingsDelete.mockImplementation(async () => {})
+  getKaruteByRecordingSession.mockImplementation(async () => {
+    throw karuteNotFound()
+  })
   capabilities.current = new Set(['customers.view', 'records.write'])
   getUser.fn.mockResolvedValue({ data: { user: { id: 'auth-user-1' } }, error: null })
   staffStoresGet.mockResolvedValue({ store_ids: [] })
@@ -448,6 +457,14 @@ describe('DELETE recordings/session/[id] — the discard cleanup twin', () => {
     })
     const res = await SESSION_DELETE(delReq(idem), route())
     expect(await res.json()).toEqual({ error: 'not_owned' })
+    expect(recordingsDelete).not.toHaveBeenCalled()
+  })
+
+  it('refuses a session that already has a karute record (provenance gate)', async () => {
+    // Both doors share the choke point, so the gate is live here too.
+    getKaruteByRecordingSession.mockResolvedValue({ id: 'rec-1' })
+    const res = await SESSION_DELETE(delReq(idem), route())
+    expect(await res.json()).toEqual({ error: 'has_record' })
     expect(recordingsDelete).not.toHaveBeenCalled()
   })
 

@@ -36,12 +36,24 @@ const MY_ROW: Row = {
 
 const get = jest.fn(async (_id: string): Promise<Row> => MY_ROW)
 const del = jest.fn(async (_id: string): Promise<void> => {})
-const client = { recordings: { get, delete: del } } as never
+/** The provenance probe. Default = a definitive 404: no karute for this
+ *  session, so the row really is an orphan. */
+const notFound = () => Object.assign(new Error('no record'), { status: 404 })
+const getByRecordingSession = jest.fn(async (_id: string): Promise<unknown> => {
+  throw notFound()
+})
+const client = {
+  recordings: { get, delete: del },
+  karuteRecords: { getByRecordingSession },
+} as never
 
 beforeEach(() => {
   jest.clearAllMocks()
   get.mockImplementation(async () => MY_ROW)
   del.mockImplementation(async () => {})
+  getByRecordingSession.mockImplementation(async () => {
+    throw notFound()
+  })
 })
 
 describe('deleteRecordingSessionWithClient — ownership', () => {
@@ -118,5 +130,56 @@ describe('deleteRecordingSessionWithClient — failure tolerance', () => {
       error: 'validation',
     })
     expect(get).not.toHaveBeenCalled()
+  })
+})
+
+describe('deleteRecordingSessionWithClient — the provenance gate (fix round 4)', () => {
+  it('a session that ALREADY HAS a karute record is refused — no delete, no audit', async () => {
+    // The web-live seam: saveKaruteRecordInline commits the record and can
+    // still error afterwards → failAutosaveToReview → ReviewScreen with the
+    // SAME session id → 破棄. Deleting here nulls the record's
+    // recording_session_id (Prisma SetNull): the karute survives but loses its
+    // provenance and vanishes from 録音履歴.
+    getByRecordingSession.mockResolvedValue({ id: 'rec-1', recording_session_id: 'sess-1' })
+    await expect(deleteRecordingSessionWithClient(client, actor, 'sess-1')).resolves.toEqual({
+      error: 'has_record',
+    })
+    expect(del).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
+  })
+
+  it('the probe asks about THIS session, on the cheapest single-record surface', async () => {
+    await deleteRecordingSessionWithClient(client, actor, 'sess-1')
+    expect(getByRecordingSession).toHaveBeenCalledWith('sess-1')
+  })
+
+  it.each([500, 503, 429, undefined])(
+    'a probe failure (%s) is an UNKNOWN — read_failed, never a delete',
+    async (status) => {
+      getByRecordingSession.mockRejectedValue(
+        status === undefined ? new Error('network dark') : Object.assign(new Error('boom'), { status }),
+      )
+      await expect(deleteRecordingSessionWithClient(client, actor, 'sess-1')).resolves.toEqual({
+        error: 'read_failed',
+      })
+      expect(del).not.toHaveBeenCalled()
+      expect(auditSpy).not.toHaveBeenCalled()
+    },
+  )
+
+  it('ONLY a 404 proves "no record" — the happy path is unchanged', async () => {
+    await expect(deleteRecordingSessionWithClient(client, actor, 'sess-1')).resolves.toEqual({
+      ok: true,
+    })
+    expect(del).toHaveBeenCalledWith('sess-1')
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('the ownership gate still runs FIRST — a foreign session is never probed', async () => {
+    get.mockResolvedValue({ ...MY_ROW, staff_id: 'auth-user-2' })
+    await expect(deleteRecordingSessionWithClient(client, actor, 'sess-1')).resolves.toEqual({
+      error: 'not_owned',
+    })
+    expect(getByRecordingSession).not.toHaveBeenCalled()
   })
 })
