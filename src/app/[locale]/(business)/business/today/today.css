@@ -769,7 +769,12 @@
 .biz .inspector-head p { margin: 0; color: #5f5f69; font-size: 12px; }
 .biz .inspector-body { padding: 12px 14px 14px; }
 .biz .status-row { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
-.biz .status { padding: 3px 7px; border-radius: 5px; background: var(--orange-soft); color: var(--orange); font-size: 12px; font-weight: 700; }
+/* ⚖ Liam flag 40 (2026-08-21) — a status chip NEVER wraps. 仮押さえ broke across
+   two lines as 仮押さ / え inside the confirm popover the moment it was squeezed
+   by a long name beside it. Fixed at the chip itself rather than at that one
+   surface: every 状態 chip on this screen is a two-to-four-character label whose
+   whole job is to be read at a glance, and none of them survives being broken. */
+.biz .status { padding: 3px 7px; border-radius: 5px; background: var(--orange-soft); color: var(--orange); font-size: 12px; font-weight: 700; white-space: nowrap; }
 .biz .status.checkout { background: var(--red-soft); color: var(--red-dark); }
 .biz .status.public { background: var(--green-soft); color: var(--green); }
 .biz .status.waiting { background: var(--orange-soft); color: var(--orange); }
@@ -817,8 +822,13 @@
   display: grid;
   gap: 8px;
   /* ONE width in both states (popup law): the surface never resizes as it moves
-     between anchored and pinned, and never scrolls inside itself. */
-  width: min(92vw, 340px);
+     between anchored and pinned, and never scrolls inside itself.
+     ⚖ Liam flag 40 — 340px could not hold the fixture's longest line
+     (「見本 さくら様 → 14:30〜15:00 / 担当 テスト さぶろう / ベッド2」) beside the
+     status chip, and the head answered by ellipsizing the bed name away. The
+     popup law is FITS WHOLE, so the surface grew instead: this width holds that
+     line in two comfortable wrapped lines, in both states, at 1280 and up. */
+  width: min(92vw, 380px);
   padding: 11px 13px;
   border: 1px solid var(--card);
   border-top: 2px solid var(--orange);
@@ -829,8 +839,14 @@
 /* The fallback: the anchor card is not on screen, so the surface stops chasing
    it and pins itself where nothing can hide it. */
 .biz .hold-pop.pinned { left: 50%; bottom: 18px; top: auto; transform: translateX(-50%); }
-.biz .hp-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.biz .hp-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ⚖ Liam flag 40 — the head WRAPS, it does not truncate. It used to be one
+   nowrap line with `text-overflow: ellipsis`, which quietly ate the bed name —
+   「…担当 テスト さぶろう / ベ…」 — off the end of the sentence that is the whole
+   reason the surface is up. Nothing in a popup is allowed to be unreadable, so
+   the line breaks instead. `flex-start` keeps the chip on the sentence's FIRST
+   line rather than floating it against the middle of a two-line block. */
+.biz .hp-head { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; }
+.biz .hp-head strong { min-width: 0; line-height: 1.5; overflow-wrap: anywhere; }
 .biz .hp-actions { display: flex; gap: 7px; justify-content: flex-end; }
 .biz .hp-actions .btn { flex: 1; justify-content: center; }
 /* 日付ピン (canon :1521): the 仮押さえ bar outlives the day it was staged on, so

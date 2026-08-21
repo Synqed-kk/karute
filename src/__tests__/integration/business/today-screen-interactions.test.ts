@@ -2161,7 +2161,8 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     expect(SRC).toContain('      if (!at) {\n        setHoldPinned(true)')
     expect(CSS).toContain('.biz .hold-pop.pinned { left: 50%; bottom: 18px; top: auto; transform: translateX(-50%); }')
     // ONE width in both states: the surface never resizes as it moves.
-    expect(CSS).toContain('  width: min(92vw, 340px);')
+    // ⚖ flag 40 widened it — see the typography test below for why.
+    expect(CSS).toContain('  width: min(92vw, 380px);')
     // Re-anchoring is COARSE — never per frame (WO-2d's law).
     expect(SRC).toContain('const coarse = () => { clearTimeout(t); t = setTimeout(pin, 120) }')
     expect(SRC).toContain("window.addEventListener('scroll', coarse, true)")
@@ -2214,6 +2215,56 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // `card` null → `box` undefined → `at` null → the pill. Same branch an
     // off-screen or cross-store anchor takes.
     expect(cardNodes(board, 'bk-1')[0]?.getBoundingClientRect()).toBeUndefined()
+  })
+
+  // ── flag 40 — nothing in a popup is allowed to be unreadable ─────────────
+  it('the confirm surface reads whole: the chip on one line, the sentence wrapped', () => {
+    // 仮押さえ was breaking as 仮押さ / え. Fixed at the chip, not at this one
+    // surface: every 状態 chip on the screen is a glance-label and none of them
+    // survives a break.
+    expect(CSS).toContain('font-size: 12px; font-weight: 700; white-space: nowrap; }')
+    // The head WRAPS. The ellipsis was eating the bed name off the end of the
+    // sentence the surface exists to show.
+    expect(CSS).not.toContain('.biz .hp-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }')
+    expect(CSS).toContain('.biz .hp-head strong { min-width: 0; line-height: 1.5; overflow-wrap: anywhere; }')
+    expect(CSS).toContain('.biz .hp-head { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; }')
+    // And the width that holds the fixture's longest line in two of them — the
+    // SAME width anchored and pinned, which is the no-resize half of the law.
+    expect(CSS).toContain('  width: min(92vw, 380px);')
+    expect(CSS).toContain('.biz .hold-pop.pinned { left: 50%; bottom: 18px; top: auto; transform: translateX(-50%); }')
+    expect(CSS.match(/\.biz \.hold-pop(\.pinned)? \{[^}]*width:/g) ?? []).toHaveLength(1)
+  })
+
+  // ── flag 41 — a confirm surface exists only while its decision is open ────
+  it('an answered 仮押さえ is gone for the session, and a day flip cannot revive it', () => {
+    // The surface used to hang off the PROP being there, so 確定 turned it
+    // 確定済み and left it standing on every board change.
+    expect(SRC).toContain('    : props.hold && holdAnswer === null')
+    // The screen-local flag is gone entirely — it would have died on every day
+    // flip, and a surface that reopens on a flip is the bug wearing a hat.
+    expect(SRC).not.toContain('setHoldConfirmed')
+    expect(SRC).not.toContain('useState(false)\n  const [holdConfirmed')
+    // Both answers close it, and WHICH one is what the card's colour reads.
+    expect(SRC).toContain("              setHoldAnswer('confirmed')")
+    expect(SRC).toContain("revert: { enabled: true, run: () => { setHoldAnswer('reverted'); show('仮押さえのままにしました') } },")
+    expect(SRC).toContain("const holdConfirmed = holdAnswer === 'confirmed'")
+    expect(SRC).toContain('        : holdConfirmed && item.state === \'hold\'')
+    // Confirming a STAGED change answers the incident's hold too — otherwise
+    // the standing surface steps straight into the space this one just left,
+    // which is exactly what Liam saw.
+    const confirm = SRC.slice(SRC.indexOf('function confirmPending'), SRC.indexOf('function confirmPending') + 1200)
+    expect(confirm).toContain('setPending(null)')
+    expect(confirm).toContain("setHoldAnswer('confirmed')")
+    // …and reverting a staged change does NOT answer it: that decision is still
+    // open, so its surface is allowed back.
+    const revert = SRC.slice(SRC.indexOf('function revertPending'), SRC.indexOf('function confirmPending'))
+    expect(revert).toContain('setPending(null)')
+    expect(revert).not.toContain('setHoldAnswer')
+    // The flag lives in the session provider, above the screen's remount.
+    const PROVIDER = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/BusinessSessionEdits.tsx'), 'utf8')
+    expect(PROVIDER).toContain("export type HoldAnswer = 'confirmed' | 'reverted' | null")
+    expect(PROVIDER).toContain('const [holdAnswer, setHoldAnswer] = useState<HoldAnswer>(null)')
+    expect(PROVIDER).toContain('        holdAnswer, setHoldAnswer,')
   })
 
   it('anchorOnScreen: a card half in view is still a card the operator can see', () => {

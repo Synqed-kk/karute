@@ -421,6 +421,7 @@ export function TodayScreen(props: TodayProps) {
     parkChips, setParkChips,
     pending, setPending,
     placing, setPlacing,
+    holdAnswer, setHoldAnswer,
   } = useSessionEdits()
 
   /** ⚖ 46 forerunner — WHICH BOARD IS ON SCREEN, as data. Every session-edit
@@ -437,6 +438,11 @@ export function TodayScreen(props: TodayProps) {
   )
   const boardStamp = { ...board, dayLabel: props.dayLabel, storeLabel: props.lensLabel }
 
+  /** ⚖ Liam flag 41 — the day's own standing 仮押さえ, answered. `holdAnswer`
+   *  lives in the session provider so an answer survives a day flip; the card's
+   *  colour reads the 確定 half of it, the surface reads whether it is open. */
+  const holdConfirmed = holdAnswer === 'confirmed'
+
   const [view, setView] = useState<'both' | 'staff' | 'beds'>('both')
   const [density, setDensity] = useState<'std' | 'compact'>('std')
   const [collapsed, setCollapsed] = useState<string[]>([])
@@ -451,7 +457,6 @@ export function TodayScreen(props: TodayProps) {
   const [settled, setSettled] = useState<string[]>([])
   const [resolved, setResolved] = useState<string[]>([])
   const [proposalSent, setProposalSent] = useState(false)
-  const [holdConfirmed, setHoldConfirmed] = useState(false)
   const [calMonth, setCalMonth] = useState(0)
   const [toast, setToast] = useState('')
   const [blockInfo, setBlockInfo] = useState<{ kind: string; who: string; whoLabel: string; time: string; note: string } | null>(null)
@@ -933,7 +938,18 @@ export function TodayScreen(props: TodayProps) {
    *  from the incident. Canon put both on a full-width bar at the bottom of the
    *  page; ours was IN FLOW there (today.css :784), so on a tall board the
    *  operator had to scroll away from the card to find the button that answers
-   *  for it — Liam's complaint, and structural rather than cosmetic. */
+   *  for it — Liam's complaint, and structural rather than cosmetic.
+   *
+   *  ⚖ Liam flag 41 (2026-08-21) — AND IT EXISTS ONLY WHILE ITS DECISION IS
+   *  OPEN. The standing 仮押さえ below had no answered state at all: its surface
+   *  hung off the PROP being there, so 確定 turned it 確定済み and left it
+   *  standing, and every other change on the board brought it back into view.
+   *  The old full-width bar was always on screen by design and hid that; a
+   *  floating popover cannot. Either answer now closes it for the session
+   *  (`holdAnswer`, in the session provider so a day flip cannot reopen it),
+   *  and the card's own state colour carries the result — which it already did.
+   *  A session-staged 仮押さえ was never stuck: `pending` clears on both its
+   *  answers. What Liam saw was this surface underneath, taking its place. */
   const holdPop: HoldPop | null = pending
     ? {
         anchorId: pending.id,
@@ -947,25 +963,29 @@ export function TodayScreen(props: TodayProps) {
         confirm: { label: pendingConfirm.label, enabled: pendingConfirm.enabled, run: confirmPending },
         revert: { enabled: true, run: revertPending },
       }
-    : props.hold
+    : props.hold && holdAnswer === null
       ? {
           // The day's own standing 仮押さえ (the incident's) — the pill, always.
           anchorId: null,
-          status: holdConfirmed ? '確定済み' : '仮押さえ',
-          tone: holdConfirmed ? 'done' : 'waiting',
+          status: '仮押さえ',
+          tone: 'waiting',
           summary: props.hold.summary,
           checks: props.hold.checks.map((label) => ({ label, tone: '' })),
           guardRow: null,
           confirm: {
             label: 'この内容で確定',
-            enabled: !holdConfirmed,
+            enabled: true,
             run: () => {
-              setHoldConfirmed(true)
+              setHoldAnswer('confirmed')
               setResolved((was) => toggleOn(was, props.cards.find((c) => c.kind === '担当変更')?.id))
               show('仮押さえをこの画面の中だけで確定しました。再読み込みすると戻ります')
             },
           },
-          revert: { enabled: holdConfirmed, run: () => { setHoldConfirmed(false); show('仮押さえに戻しました') } },
+          // ⚖ 41 — the OTHER answer, not an undo of the first one. It used to be
+          // enabled only after 確定, because with no dismissal the only thing it
+          // could mean was "take that back"; now the question is open when the
+          // surface is up, so 元に戻す declines it and closes it just the same.
+          revert: { enabled: true, run: () => { setHoldAnswer('reverted'); show('仮押さえのままにしました') } },
         }
       : null
 
@@ -1074,7 +1094,10 @@ export function TodayScreen(props: TodayProps) {
       return
     }
     setPending(null)
-    setHoldConfirmed(true)
+    // ⚖ 41 — a staged change confirmed IS the incident's 担当変更 answered, so
+    // the standing 仮押さえ's own surface closes with it rather than stepping
+    // back into the space this one just left.
+    setHoldAnswer('confirmed')
     setResolved((was) => toggleOn(was, props.cards.find((c) => c.kind === '担当変更')?.id))
     show('この画面の中だけで確定しました。再読み込みすると戻ります')
   }

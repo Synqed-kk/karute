@@ -138,6 +138,19 @@ export interface PlacingIntent {
   storeLabel: string
 }
 
+/** ⚖ Liam flag 41 (2026-08-21) — A CONFIRM SURFACE EXISTS ONLY WHILE ITS
+ *  DECISION IS OPEN. The day's own standing 仮押さえ (the incident's) had no
+ *  answered state at all: its popover was tied to the PROP being there, so
+ *  答えても消えず、他のカードを動かすたびに戻ってきた. The old full-width bar hid
+ *  that — it was always on screen by design — and a floating popover cannot.
+ *
+ *  `null` = still open. Answering closes it for the session, and WHICH answer
+ *  is the other half of the state: 確定 turns the card's own colour, 元に戻す
+ *  leaves it 仮押さえ. Here rather than in the screen so a day flip cannot
+ *  resurrect a question the operator already answered — the screen remounts on
+ *  every `?day=` navigation, this provider does not. */
+export type HoldAnswer = 'confirmed' | 'reverted' | null
+
 interface SessionEdits {
   added: AddedRow[]
   setAdded: Dispatch<SetStateAction<AddedRow[]>>
@@ -151,12 +164,14 @@ interface SessionEdits {
   setPending: Dispatch<SetStateAction<PendingChange | null>>
   placing: PlacingIntent | null
   setPlacing: Dispatch<SetStateAction<PlacingIntent | null>>
+  holdAnswer: HoldAnswer
+  setHoldAnswer: Dispatch<SetStateAction<HoldAnswer>>
 }
 
 const SessionEditsContext = createContext<SessionEdits | null>(null)
 
 /** Wraps the screen under the persisting layout. No memo on the value: this
- *  component re-renders only when one of its own six states changes, which is
+ *  component re-renders only when one of its own states changes, which is
  *  exactly when the screen reading them has to re-render anyway. `children`
  *  keeps its element identity across those renders, so nothing else does. */
 export function BusinessSessionEdits({ children }: { children: ReactNode }) {
@@ -166,6 +181,7 @@ export function BusinessSessionEdits({ children }: { children: ReactNode }) {
   const [parkChips, setParkChips] = useState<ParkChip[]>([])
   const [pending, setPending] = useState<PendingChange | null>(null)
   const [placing, setPlacing] = useState<PlacingIntent | null>(null)
+  const [holdAnswer, setHoldAnswer] = useState<HoldAnswer>(null)
   return (
     <SessionEditsContext.Provider
       value={{
@@ -175,6 +191,7 @@ export function BusinessSessionEdits({ children }: { children: ReactNode }) {
         parkChips, setParkChips,
         pending, setPending,
         placing, setPlacing,
+        holdAnswer, setHoldAnswer,
       }}
     >
       {children}
