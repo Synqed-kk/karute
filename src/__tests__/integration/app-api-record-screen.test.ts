@@ -57,7 +57,9 @@ const apptGet = jest.fn(async (id: string) => {
 const CUSTOMER = { id: 'cust-1', name: '山田 花子', visit_count: 3, created_at: '2026-01-01T00:00:00Z', last_visit_at: '2026-05-01T00:00:00Z', is_existing_customer: true, notes: null }
 // The other branch's customer, readable PER ID (⚖ per-id customer reads are
 // unscoped) — the deep-link name fill below is the only path that asks for it.
-const CUSTOMER_B = { id: 'cust-2', name: '佐藤 次郎', visit_count: 0, created_at: '2026-02-01T00:00:00Z', last_visit_at: null, is_existing_customer: false, notes: null }
+// A 回数券 regular of that branch — the facts the bound card must keep when the
+// store-narrowed picker corpus doesn't carry them (Greptile finding, 8/28).
+const CUSTOMER_B = { id: 'cust-2', name: '佐藤 次郎', visit_count: 5, created_at: '2026-02-01T00:00:00Z', last_visit_at: '2026-06-01T00:00:00Z', is_existing_customer: true, has_ticket_pack: true, karute_number: 214, notes: null }
 const customersGet = jest.fn(async (id: string) => {
   if (id === 'cust-2') return CUSTOMER_B
   if (id !== 'cust-1') throw Object.assign(new Error('cross-tenant'), { status: 404 })
@@ -82,7 +84,7 @@ jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, get
 // stands in for core's server-side store filter, so a dropped clamp shows up
 // as the other branch's customer sitting in the record picker.
 const CUST_A = { id: 'cust-1', name: '山田 花子', created_at: '2026-01-01T00:00:00Z', is_existing_customer: true, visit_count: 3, has_ticket_pack: false, karute_number: 1 }
-const CUST_B = { id: 'cust-2', name: '佐藤 次郎', created_at: '2026-02-01T00:00:00Z', is_existing_customer: false, visit_count: 0, has_ticket_pack: false, karute_number: 2 }
+const CUST_B = { id: 'cust-2', name: '佐藤 次郎', created_at: '2026-02-01T00:00:00Z', is_existing_customer: true, visit_count: 5, has_ticket_pack: true, karute_number: 214 }
 const listAllCustomers = jest.fn(async (_client: unknown, opts?: { store_id?: string | null }) =>
   opts?.store_id === 'store-A'
     ? { customers: [CUST_A], total: 1 }
@@ -92,7 +94,9 @@ jest.mock('@/lib/customers/list-all', () => ({
   listAllCustomers: (client: unknown, opts?: { store_id?: string | null }) =>
     listAllCustomers(client, opts),
 }))
-jest.mock('@/lib/customers/queries', () => ({ getCustomerWithClient: jest.fn(async (_c: unknown, id: string) => { if (id !== 'cust-1') throw new Error('404'); return CUSTOMER }) }))
+// ⚖ ruling ②: per-id customer reads are UNSCOPED, so the other branch's
+// customer resolves here for the same tenant — only a cross-TENANT id throws.
+jest.mock('@/lib/customers/queries', () => ({ getCustomerWithClient: jest.fn(async (_c: unknown, id: string) => { if (id === 'cust-2') return CUSTOMER_B; if (id !== 'cust-1') throw new Error('404'); return CUSTOMER }) }))
 
 import { GET, OPTIONS } from '@/app/api/app/v1/screens/record/route'
 import { RecordScreenDTO } from '@/lib/app-api/record-screen-dto'
@@ -274,7 +278,14 @@ describe('GET /api/app/v1/screens/record', () => {
     expect(body.nextAppointment?.customerId).toBe('cust-2')
     // …and its name resolves even though the picker map covers store-A only.
     expect(body.nextAppointment?.customerName).toBe('佐藤 次郎')
-    // One referenced name, never a widened picker array.
+    // Greptile (8/28): the NAME alone left a stranger's card — the chart number
+    // and the returning signals derive from the same store-narrowed array, so a
+    // 回数券 regular rendered numberless and 初回. Both now fall back to the
+    // per-id record buildRecordScreen already fetches for the bound target. The
+    // pack ledger is empty here, so 回数券 can only be true via that record.
+    expect(body.nextAppointment?.karuteNumber).toBe('#00214')
+    expect(body.targetHasTicketPack).toBe(true)
+    // One referenced customer, never a widened picker array.
     expect(body.customers.map((c: { id: string }) => c.id)).toEqual(['cust-1'])
   })
 
