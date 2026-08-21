@@ -920,6 +920,8 @@ describe('a block that damages the day says so, and offers the better position',
     // …it knows where the block should have gone…
     expect(mid.alternatives[0]).toBe(600)
     expect(mid.alternativeKind).toBe('safe')
+    // …which is also the test for whether the advisor has anything to say.
+    expect(askAbout30At(600).alternatives).toEqual([])
     // …and it does not forbid it. ADVISE, NEVER REFUSE: canon's own ackAllowed
     // is what makes そのまま置く an honest button rather than a bypass.
     expect(mid.ackAllowed).toBe(true)
@@ -935,8 +937,12 @@ describe('a block that damages the day says so, and offers the better position',
     // A block is not an obstacle to itself. It has no caseId, so the board is
     // handed in without it rather than through `excludeId`.
     expect(finish).toContain('boardLanes.map((l) => ({ ...l, items: l.items.filter((i) => i.key !== ctx.key) })),')
-    // A SAFE landing is silent — no popover, no toast beyond the move's own.
-    expect(finish).toContain("if (!cell || cell.state === 'safe') return")
+    // A SAFE landing is silent — and so is one the engine has nothing better
+    // for. MEASURED, not argued (browser, 2026-08-21): a block already sitting
+    // at the least-loss start of its pocket comes back `degraded` with 0枠減
+    // and no alternatives, and a block dropped behind the day's own clock has
+    // no pocket at all. Both are normal operations; neither is a mistake.
+    expect(finish).toContain("if (!cell || cell.state === 'safe' || cell.alternatives.length === 0) return")
     // The whole consult is one function of the DROP, never of a pointermove:
     // the per-frame path stays a transform, exactly as WO-2d left it.
     const perFrame = SRC.slice(SRC.indexOf('function beginBlockDrag'), SRC.indexOf('function finishBlockDrag'))
@@ -956,10 +962,10 @@ describe('a block that damages the day says so, and offers the better position',
     expect(undo).toContain('else delete next[a.key]')
     // そのまま置く only closes it: the block is already where it was dropped.
     expect(SRC).toContain('<button className="gp-cancel" type="button" onClick={() => setBlockAdvice(null)}>そのまま置く</button>')
-    // …and 提案位置に置く is the default answer, and is not rendered at all when
-    // the engine has nothing better to offer.
-    expect(SRC).toContain('{blockAdvice.suggest != null && (')
-    expect(SRC).toContain('                autoFocus')
+    // …and 提案位置に置く is the default answer, and always acts: the surface
+    // does not open without an alternative to move to.
+    expect(SRC).toContain('              autoFocus')
+    expect(SRC).toContain('      suggest: cell.alternatives[0],')
     // NEVER a refusal: the only thing that turns a block back is still an
     // overlap with something real.
     expect(SRC.slice(SRC.indexOf('function finishBlockDrag'), SRC.indexOf('function takeBlockSuggestion')))

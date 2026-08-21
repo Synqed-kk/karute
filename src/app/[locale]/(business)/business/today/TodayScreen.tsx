@@ -505,7 +505,7 @@ export function TodayScreen(props: TodayProps) {
     laneLabel: string
     dur: number
     cell: RailCell
-    suggest: number | null
+    suggest: number
     home: Move | undefined
   } | null>(null)
   /** ⚖ Liam flag 34 — the 仮押さえ confirm has left the bottom of the page and
@@ -1667,7 +1667,18 @@ export function TodayScreen(props: TodayProps) {
       null,
       boardLanes.map((l) => ({ ...l, items: l.items.filter((i) => i.key !== ctx.key) })),
     )
-    if (!cell || cell.state === 'safe') return
+    // ⚖ 39 — AND ONLY WHEN THERE IS SOMETHING BETTER TO OFFER. Measured in the
+    // browser, not argued: two landings are "not safe" and yet nothing is
+    // wrong with them. A block sitting at the least-loss start of its pocket
+    // comes back `degraded` with 0枠減 and no alternatives — it is already the
+    // best position, and telling the operator so is noise. A block dropped in
+    // the morning, behind the day's own clock, has no pocket at all and comes
+    // back 「この開始には15分の連続した空きがありません」 — true of every past
+    // minute, and 記録 for something that already happened is a normal thing to
+    // do. `alternatives` is the engine's own answer to "is there a better
+    // place", so it is also the honest test for whether this surface has
+    // anything to say — and it keeps 提案位置に置く a button that always acts.
+    if (!cell || cell.state === 'safe' || cell.alternatives.length === 0) return
     blockAdviceOpenedAt.current = e.timeStamp
     setBlockAdvice({
       key: ctx.key,
@@ -1676,10 +1687,9 @@ export function TodayScreen(props: TodayProps) {
       laneLabel,
       dur: to - from,
       cell,
-      // The engine's own least-loss / safe start. `null` when it has nothing
-      // better to offer, and then the button that would move there is not
-      // rendered — batch-4's rule about buttons that lie about their own name.
-      suggest: cell.alternatives[0] ?? null,
+      // The engine's own least-loss / safe start — the surface does not open
+      // without one, so this button always acts.
+      suggest: cell.alternatives[0],
       home,
     })
   }
@@ -1687,7 +1697,6 @@ export function TodayScreen(props: TodayProps) {
   /** ⚖ Liam flag 39 — the one click. The block goes to the start the engine
    *  named, on the lane it was dropped on, at its own length. */
   function takeBlockSuggestion(a: NonNullable<typeof blockAdvice>) {
-    if (a.suggest == null) return
     const at = place(a.suggest, a.suggest + a.dur, hours)
     setBlockMoves((was) => ({ ...was, [a.key]: { laneKey: a.laneKey, ...at } }))
     setBlockAdvice(null)
@@ -3391,32 +3400,28 @@ export function TodayScreen(props: TodayProps) {
           ref={blockAdvicePopRef}
         >
           <div className="gp-reason">{blockAdvice.cell.sentence}</div>
-          {/* The consult's own three lines, with 開始 → 位置: this surface is
+          {/* The consult's own two lines, with 開始 → 位置: this surface is
               answering for a box that is already down, not for a start being
               chosen. Nothing new is said — the verdict above is the engine's
               sentence verbatim. */}
           <div className="gp-offer">
-            {blockAdvice.suggest == null
-              ? 'この区間に、より損の少ない位置はありません'
-              : blockAdvice.cell.alternativeKind === 'least-loss'
-                ? '空きを完全には守れません。より損の少ない位置を選べます'
-                : `${blockAdvice.title}は${hhmm(blockAdvice.suggest)}なら空きを分けずに置けます`}
+            {blockAdvice.cell.alternativeKind === 'least-loss'
+              ? '空きを完全には守れません。より損の少ない位置を選べます'
+              : `${blockAdvice.title}は${hhmm(blockAdvice.suggest)}なら空きを分けずに置けます`}
           </div>
           <div className="gp-actions">
             <button className="gp-cancel" type="button" onClick={() => undoBlockDrop(blockAdvice)}>やめる</button>
             <button className="gp-cancel" type="button" onClick={() => setBlockAdvice(null)}>そのまま置く</button>
-            {blockAdvice.suggest != null && (
-              <button
-                className="btn primary"
-                type="button"
-                // The default answer: the operator dropped it, the board has a
-                // better place for it, and one press is the whole correction.
-                autoFocus
-                onClick={() => takeBlockSuggestion(blockAdvice)}
-              >
-                提案位置に置く
-              </button>
-            )}
+            <button
+              className="btn primary"
+              type="button"
+              // The default answer: the operator dropped it, the board has a
+              // better place for it, and one press is the whole correction.
+              autoFocus
+              onClick={() => takeBlockSuggestion(blockAdvice)}
+            >
+              提案位置に置く
+            </button>
           </div>
         </div>
       )}
