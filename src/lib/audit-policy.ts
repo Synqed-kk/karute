@@ -54,7 +54,7 @@ export const AUDIT_ACTIONS = [
   'customer.photo_delete',
   'customer.photos_view',
   'customer.view',
-  'karute.entries_regenerate', // pending: Wave W
+  'karute.entries_regenerate',
   'karute.entry_edit',
   'karute.entry_edits_view',
   'karute.outcome_set',
@@ -260,6 +260,18 @@ export const AUDITED_CORES: {
     ],
   },
   { file: 'src/actions/karute-outcome.ts', symbols: ['updateKaruteOutcome'] },
+  // Lane 2026-08-30 (regen audit row): the two web wrappers now emit their own
+  // success-only karute.entries_regenerate row (facade auto-emits its own via
+  // logFacadeAudit — see FACADE_AUDIT_MAP['karute.regenerate']). Unlike
+  // customers.ts#updateCustomer/packs.ts#redeemSessionAction, the early-error
+  // return here is a FRESH `{ error: result.error }` object literal (not the
+  // shared `result` identifier), so the walker's shape-exempt check reads it
+  // and the auditWeb() call provably dominates the remaining success return —
+  // no `unproven` needed.
+  {
+    file: 'src/actions/regenerate-karute.ts',
+    symbols: ['regenerateKarute', 'regenerateKaruteEntries'],
+  },
 ]
 
 // ── SDK_WRITE_ALLOWLIST ──────────────────────────────────────────────────────
@@ -397,8 +409,8 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'karuteRecords.deleteEntry',
     symbols: ['rollback', 'regenerateKaruteEntriesWithClient'],
     justification:
-      "karute.regenerate — pendingWave (writer not wired to emit yet). FIX ROUND 1 #14 correction: the prior claim of TWO actions depending on a request-body mode was fabricated — the facade route (src/app/api/app/v1/karute/[id]/regenerate/route.ts) parses NO body at all (only `id` from params, `locale` from a query string), and only karute.entries_regenerate exists anywhere in this file. See FACADE_AUDIT_MAP['karute.regenerate'].",
-    dated: '2026-07-27',
+      "karute.regenerate — writer IS wired as of lane 2026-08-30: the facade route auto-emits via logFacadeAudit (FACADE_AUDIT_MAP row, no pendingWave now), and the web wrappers (regenerateKarute/regenerateKaruteEntries) emit their own success-only auditWeb() row (AUDITED_CORES). This SDK call site itself stays allowlisted — the emit lives at the wrapper level, not inline with the rollback delete. FIX ROUND 1 #14 correction (still true): the prior claim of TWO actions depending on a request-body mode was fabricated — the facade route (src/app/api/app/v1/karute/[id]/regenerate/route.ts) parses NO body at all (only `id` from params, `locale` from a query string), and only karute.entries_regenerate exists anywhere in this file. See FACADE_AUDIT_MAP['karute.regenerate'].",
+    dated: '2026-08-30',
     pendingWave: 'Wave W — 2026-07-27',
   },
   {
@@ -406,8 +418,8 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'karuteRecords.addEntry',
     symbols: ['regenerateKaruteEntriesWithClient'],
     justification:
-      "karute.regenerate — same pendingWave gap as karuteRecords.deleteEntry above in this file, same FIX ROUND 1 #14 correction (no request-body mode exists; only karute.entries_regenerate). See FACADE_AUDIT_MAP['karute.regenerate'].",
-    dated: '2026-07-27',
+      "karute.regenerate — same now-wired state as karuteRecords.deleteEntry above in this file (facade auto-emit live, web wrappers emit their own row — see AUDITED_CORES), same FIX ROUND 1 #14 correction (no request-body mode exists; only karute.entries_regenerate). See FACADE_AUDIT_MAP['karute.regenerate'].",
+    dated: '2026-08-30',
     pendingWave: 'Wave W — 2026-07-27',
   },
   {
@@ -415,8 +427,8 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'karuteRecords.update',
     symbols: ['updateKaruteSummaryWithClient'],
     justification:
-      "karute.regenerate — same pendingWave gap as the other regenerate-karute.ts write sites, same FIX ROUND 1 #14 correction (no request-body mode exists; only karute.entries_regenerate). See FACADE_AUDIT_MAP['karute.regenerate'].",
-    dated: '2026-07-27',
+      "karute.regenerate — same now-wired state as the other regenerate-karute.ts write sites (facade auto-emit live, web wrappers emit their own row — see AUDITED_CORES); updateKaruteSummaryWithClient itself stays audit-free by design (one emit per logical regenerate, not per SDK call — the wrapper's single row covers the whole entries+summary operation), same FIX ROUND 1 #14 correction (no request-body mode exists; only karute.entries_regenerate). See FACADE_AUDIT_MAP['karute.regenerate'].",
+    dated: '2026-08-30',
     pendingWave: 'Wave W — 2026-07-27',
   },
   {

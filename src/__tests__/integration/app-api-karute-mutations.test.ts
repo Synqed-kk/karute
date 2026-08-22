@@ -41,10 +41,16 @@ jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => 'business-1'),
   getBusinessId: jest.fn(async () => 'business-1'),
   staffListByBusinessOrThrow: jest.fn(async () => roster.current),
+  // regenerateKarute (the cookie web wrapper) resolves the viewer via this —
+  // the facade route never calls it (Bearer identity instead).
+  getCurrentUserStaffId: jest.fn(async () => 'auth-user-1'),
 }))
 jest.mock('@/lib/auth/require-permission', () => ({
   capabilitiesForUser: jest.fn(async () => capabilities.current),
   ensureCapability: jest.requireActual('@/lib/auth/require-permission').ensureCapability,
+  // regenerateKarute-only imports (the facade route never calls these).
+  requireCapability: jest.fn(async () => undefined),
+  can: jest.fn(async () => true),
 }))
 
 // The record drives the ACL (staff_id) + tenancy (get throws 404 for foreign id).
@@ -106,6 +112,7 @@ jest.mock('@/lib/subscription/feature-gate', () => ({
 
 import { POST as regenerate, OPTIONS as regenerateOptions } from '@/app/api/app/v1/karute/[id]/regenerate/route'
 import { POST as outcome, OPTIONS as outcomeOptions } from '@/app/api/app/v1/karute/[id]/outcome/route'
+import { regenerateKarute } from '@/actions/regenerate-karute'
 import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { auditLines } from './helpers/audit-lines'
 
@@ -273,6 +280,40 @@ describe('POST /karute/[id]/regenerate (Decision 2)', () => {
     const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(401)
     expect(addEntry).not.toHaveBeenCalled()
+  })
+})
+
+// ── regenerateKarute (web cookie wrapper twin, lane 2026-08-30) ────────────────
+// Same orchestration as the facade route above (regenerateKaruteWithClient),
+// through the cookie web action instead of the Bearer route — proves the
+// success-only karute.entries_regenerate auditWeb row (unproven walker ceiling,
+// see AUDITED_CORES's regenerate-karute.ts entry) actually fires on success and
+// never on a soft failure.
+describe('regenerateKarute — web wrapper twin (lane 2026-08-30)', () => {
+  it('success: exactly one karute.entries_regenerate audit line, detail = counts only', async () => {
+    const lines = await auditLines(async () => {
+      const result = await regenerateKarute('00000000-0000-4000-8000-000000000007')
+      expect(result.error).toBeUndefined()
+      expect(result.added).toBe(1)
+      expect(result.removed).toBe(1)
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      action: 'karute.entries_regenerate',
+      target_type: 'karute',
+      target_id: '00000000-0000-4000-8000-000000000007',
+      source: 'web',
+    })
+    expect(lines[0].detail).toMatchObject({ added: 1, removed: 1 })
+  })
+
+  it('soft failure (extract error): No changes applied, NO audit line', async () => {
+    runExtract.mockRejectedValueOnce(new Error('llm down'))
+    const lines = await auditLines(async () => {
+      const result = await regenerateKarute('00000000-0000-4000-8000-000000000007')
+      expect(result.error).toContain('No changes applied')
+    })
+    expect(lines).toHaveLength(0)
   })
 })
 

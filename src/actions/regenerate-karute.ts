@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { auditWeb } from '@/lib/audit-web'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { requireCapability, can } from '@/lib/auth/require-permission'
 import { getCurrentUserStaffId } from '@/lib/staff'
@@ -252,7 +253,11 @@ export async function regenerateKaruteEntriesWithClient(
 }
 
 /** Cookie web wrapper — records.write gate + business-scoped client + revalidate,
- *  then the shared integrity core. Web callers keep the same signature/behavior. */
+ *  then the shared integrity core. Web callers keep the same signature/behavior.
+ *  Success-only karute.entries_regenerate row (lane 2026-08-30): this is the
+ *  standalone bulk-regen surface (RegenerateAllForCustomerButton) — same
+ *  logical regenerate as regenerateKarute below, same auditWeb idiom, detail =
+ *  counts only (never entry text). */
 export async function regenerateKaruteEntries(
   karuteRecordId: string,
   newEntries: Entry[],
@@ -264,6 +269,19 @@ export async function regenerateKaruteEntries(
     const synqed = await getSynqedClient()
     const result = await regenerateKaruteEntriesWithClient(synqed, karuteRecordId, newEntries)
     revalidatePath('/[locale]/(app)/karute/[id]', 'page')
+    // Early error return is a fresh object literal (not `result` itself) so
+    // the emit below provably dominates every success return — same value on
+    // the wire either way, since an error result never also carries added/
+    // removed/warning.
+    if (result.error) return { error: result.error }
+    await auditWeb({
+      category: 'karute',
+      action: 'karute.entries_regenerate',
+      targetType: 'karute',
+      targetId: karuteRecordId,
+      detail: { added: result.added ?? 0, removed: result.removed ?? 0 },
+      requestId: crypto.randomUUID(),
+    })
     return result
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
@@ -466,7 +484,14 @@ export async function regenerateKaruteWithClient(
 
 /** Cookie web action (packet 07 Decision 2) — resolves the caller's identity
  *  server-side and runs the shared orchestration. Replaces the button's old
- *  client-orchestrated extract+summarize+apply round-trip. */
+ *  client-orchestrated extract+summarize+apply round-trip.
+ *  Success-only karute.entries_regenerate row (lane 2026-08-30): the web twin
+ *  of the facade route's auto-emit (same auditWeb idiom as karute-outcome.ts's
+ *  updateKaruteOutcome). customer_id is NOT cheaply in hand here —
+ *  regenerateKaruteWithClient reads it off the record internally but
+ *  RegenerateResult doesn't carry it back out, so adding it would mean either
+ *  a second fetch or widening the return type; the packet said never add a
+ *  fetch just for this, so detail stays ids/counts only (added/removed). */
 export async function regenerateKarute(karuteRecordId: string): Promise<RegenerateResult> {
   try {
     await requireCapability('records.write')
@@ -487,6 +512,19 @@ export async function regenerateKarute(karuteRecordId: string): Promise<Regenera
       locale,
     })
     revalidatePath('/[locale]/(app)/karute/[id]', 'page')
+    // Early error return is a fresh object literal (not `result` itself) so
+    // the emit below provably dominates every success return — same value on
+    // the wire either way, since an error result never also carries added/
+    // removed/warning.
+    if (result.error) return { error: result.error }
+    await auditWeb({
+      category: 'karute',
+      action: 'karute.entries_regenerate',
+      targetType: 'karute',
+      targetId: karuteRecordId,
+      detail: { added: result.added ?? 0, removed: result.removed ?? 0 },
+      requestId: crypto.randomUUID(),
+    })
     return result
   } catch (err) {
     if (err instanceof AppApiError) return { error: err.message }
