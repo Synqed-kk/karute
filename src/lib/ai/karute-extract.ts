@@ -1,6 +1,6 @@
 import 'server-only'
 import { zodResponseFormat } from 'openai/helpers/zod'
-import { ExtractionResultSchema, type ExtractionResult } from '@/types/ai'
+import { ExtractionResultSchema, type ExtractionResult, type Entry } from '@/types/ai'
 import { openai } from '@/lib/openai'
 import { getExtractionSystemPrompt } from '@/lib/prompts'
 import {
@@ -8,6 +8,79 @@ import {
   wrapUntrustedContent,
   MAX_TRANSCRIPT_CHARS,
 } from '@/lib/ai-safety'
+
+/** Acceptance-boundary net for degenerate model output (the 8/21 ×39
+ *  incident). Runs on the model's fresh parse only — human rows never pass
+ *  through. Three rails, in order:
+ *  1. Carbon copy (category + title + quote all match) → collapse to 1.
+ *  2. Same category + title, different quotes → keep up to
+ *     MAX_SAME_TITLE_PER_CATEGORY (unknown whether the real ×39 incident
+ *     shared one quote or carried 39 different ones — this rail covers both
+ *     shapes; a 7th byte-identical title in one category in one pass is a
+ *     loop, not information — staff still see six, content conveyed).
+ *  3. Per-category total after the above → cap MAX_ENTRIES_PER_CATEGORY. */
+export const MAX_ENTRIES_PER_CATEGORY = 30
+export const MAX_SAME_TITLE_PER_CATEGORY = 6
+
+// Shared by rail 1 (title + quote) and rail 2 (title only) so the two rails
+// can never drift onto different notions of "same title". Deliberately
+// narrow — trim + collapse whitespace + toLowerCase — the observed failure
+// was verbatim repetition, and aggressive merging is its own past bug (7/15).
+const normalize = (s: string): string => s.trim().replace(/\s+/g, ' ').toLowerCase()
+
+export function sanitizeExtractionEntries(entries: Entry[]): Entry[] {
+  // 1. Carbon-copy dedupe: same category + same normalized title + same
+  // normalized source_quote = same entry, keep the FIRST occurrence (array
+  // order preserved). The 7/15 dominant-topic design deliberately allows
+  // several same-aspect entries — two can legitimately share a title while
+  // quoting different moments; only a full carbon copy (same title AND same
+  // quote) is unquestionably broken.
+  // Key parts are NUL-joined (not space-joined) so title/quote boundaries
+  // can't collide.
+  const seen = new Set<string>()
+  const deduped: Entry[] = []
+  for (const entry of entries) {
+    const key = [entry.category, normalize(entry.title), normalize(entry.source_quote)].join('\0')
+    if (seen.has(key)) continue
+    seen.add(key)
+    deduped.push(entry)
+  }
+
+  // 2. Identical-title rail: same category + same normalized title (quote
+  // NOT in this key), capped at MAX_SAME_TITLE_PER_CATEGORY, keep-first,
+  // order preserved. The 7/15 dominant-topic design still legitimately
+  // allows same-title entries quoting different moments — 6 (⚖ Liam's 8/22
+  // dial, raised from 3: same-wording-different-referent entries must never
+  // be clipped in practice) preserves that (⚖ the versatility pin) while a
+  // runaway same-title loop still collapses to six.
+  const titleCounts = new Map<string, number>()
+  const titleRailed = deduped.filter((entry) => {
+    const key = [entry.category, normalize(entry.title)].join('\0')
+    const count = titleCounts.get(key) ?? 0
+    titleCounts.set(key, count + 1)
+    return count < MAX_SAME_TITLE_PER_CATEGORY
+  })
+
+  // 3. Per-category total cap, keep-first, after the above. Order otherwise
+  // preserved. 30 is a runaway-flood ceiling only — no legitimate session
+  // approaches it in one category.
+  const categoryCounts = new Map<string, number>()
+  const capped = titleRailed.filter((entry) => {
+    const count = categoryCounts.get(entry.category) ?? 0
+    categoryCounts.set(entry.category, count + 1)
+    return count < MAX_ENTRIES_PER_CATEGORY
+  })
+
+  if (capped.length < entries.length) {
+    // Counts only — transcript-derived entry text/titles never reach logs.
+    console.warn('[karute-extract] safety net trimmed entries', {
+      before: entries.length,
+      after: capped.length,
+    })
+  }
+
+  return capped
+}
 
 /** Token usage from the OpenAI completion — the caller reports it for the daily
  *  $-cap via its own (cookie- or client-threaded) accounting path. */
@@ -61,7 +134,8 @@ export async function runKaruteExtraction(params: {
     response_format: zodResponseFormat(ExtractionResultSchema, 'extraction_result'),
   })
 
-  const result = completion.choices[0].message.parsed as ExtractionResult
+  const parsed = completion.choices[0].message.parsed as ExtractionResult
+  const result = { ...parsed, entries: sanitizeExtractionEntries(parsed.entries) }
   const usage = completion.usage
     ? { tokensIn: completion.usage.prompt_tokens ?? 0, tokensOut: completion.usage.completion_tokens ?? 0 }
     : null
