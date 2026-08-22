@@ -131,12 +131,21 @@ export function availableMinutes(shift: FixtureShift): number {
  *  the cards render. A 来店なし produced no service, so it is out of the day's
  *  total — canon's own formula, and the reason its no-show is excluded there
  *  but still counted in 本日の予約件数. */
+/** Did this booking become a VISIT that earned? A cancellation never happened
+ *  and a 来店なし produced no service — canon's own formula for what is inside
+ *  the day's money. Exported because 売上分析 sums the same rows into the same
+ *  day, and two spellings of one predicate is how the board's 本日の売上 and the
+ *  日報's 本日 row would drift apart. */
+export function isEarningVisit(booking: Pick<FixtureAppointment, 'status' | 'board_state'>): boolean {
+  return booking.status !== 'cancelled' && booking.board_state !== 'noshow'
+}
+
 export function dayTotals(
   bookings: FixtureAppointment[],
   refunds: number,
 ): { total: number; settled: number; awaiting: number; revenue: number; count: number } {
   const live = bookings.filter((b) => b.status !== 'cancelled')
-  const earning = live.filter((b) => b.board_state !== 'noshow')
+  const earning = live.filter(isEarningVisit)
   return {
     total: earning.reduce((n, b) => n + (b.booked_price ?? 0), 0),
     settled: live.filter((b) => b.settlement === 'settled').length,
@@ -546,6 +555,15 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
   return lanes
 }
 
+/** Does this roster member take treatments? The 稼働率 denominator asks it (a
+ *  receptionist is not idle capacity) and so does 売上分析's staff ranking (a
+ *  receptionist is never a candidate in a treatment-revenue ranking). ONE
+ *  judgement, one home — reading it off 資格 in two places is how the board and
+ *  the analytics room would end up disagreeing about who treats. */
+export function treatsPatients(qualifications: string[] | undefined): boolean {
+  return (qualifications ?? []).some((q) => q !== '受付' && q !== '会計')
+}
+
 /** Per-lane minute sums — the one pair of numbers behind 稼働率 AND the
  *  calendar's free-slot count. */
 export function laneMinutes(input: BuildInput, bookings: BoardBooking[]) {
@@ -555,7 +573,7 @@ export function laneMinutes(input: BuildInput, bookings: BoardBooking[]) {
     const shift = raw ? effectiveShift(raw, input.absence) : null
     return {
       staffId: member.id,
-      treats: (input.qualifications[member.id] ?? []).some((q) => q !== '受付' && q !== '会計'),
+      treats: treatsPatients(input.qualifications[member.id]),
       availableMinutes: shift ? availableMinutes(shift) : 0,
       bookedMinutes: bookings
         .filter((b) => b.staffId === member.id && b.state !== 'noshow')

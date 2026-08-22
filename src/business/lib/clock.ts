@@ -38,6 +38,23 @@ export function jstDayKey(iso: string | Date): number {
   return Math.floor(((typeof iso === 'string' ? new Date(iso) : iso).getTime() + JST_OFFSET_MS) / DAY_MS)
 }
 
+/** Calendar coordinates of an instant, read in JST: year, 1-based month, day,
+ *  and `Date#getDay` weekday. The MONTH axis needs these — a month boundary is
+ *  a calendar fact, and `jstDayKey` counts days, not months.
+ *  Derived from the JST-midnight anchor rather than getMonth(), so the server's
+ *  own timezone can never shift a day into the neighbouring month. The three
+ *  getUTC* reads below are on a Date built from that anchor, so they are JST
+ *  values by construction. */
+export function jstYmd(at: Date = new Date()): { y: number; m: number; d: number; wd: number } {
+  const midnight = new Date(jstMidnight(at) + JST_OFFSET_MS)
+  return {
+    y: midnight.getUTCFullYear(),
+    m: midnight.getUTCMonth() + 1,
+    d: midnight.getUTCDate(),
+    wd: midnight.getUTCDay(),
+  }
+}
+
 /** Minutes since JST midnight — the board's own coordinate. The timeline is a
  *  minute axis, so every lane element (booking, shift, break, cleanup) is
  *  placed from this one number and nothing on the board parses a time string. */

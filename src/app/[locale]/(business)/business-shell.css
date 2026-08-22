@@ -76,6 +76,16 @@
   --guard-soft: #eee6fa;
   --yellow: #6d5716;
   --yellow-soft: #f7edcb;
+  /* 売上分析's chart series. --indigo already carries series 1 (総合売上);
+     --viz-new is series 2 (新規売上) and --comp-gold the third categorical slot
+     on the composition bars. Canon declares both on its own root, validated
+     against #3f5be8 for CVD separation, and 売上分析 reads them — so they live
+     in the token block with every other canon token rather than in the route
+     sheet. Orange/green/red/yellow are NOT reused as series colours: this
+     shell already spends them on status meaning, and a series wearing a status
+     colour impersonates a verdict. */
+  --viz-new: #e87ba4;
+  --comp-gold: #eda100;
   /* 勤務不可 / 清掃 / micro / no-show washes. Canon declares them on its own
      root and every page that draws a board reads them; the shell sheet owns the
      token block, so they live HERE once and no screen sheet redeclares them. */
@@ -213,6 +223,47 @@
    names for one pill is the second way of doing a thing that L-10 forbids. */
 .biz .pill.alert { background: var(--red-soft); color: var(--red); }
 .biz .pill.pill { display: inline-flex; }
+
+/* ═══ 注意ストリップ (fable-shared.css §5) ═══
+   Canon added this to the SHARED sheet after 売上分析's 「!」 escaped its
+   circle: the page had hand-written the strip and a broad `.attention span
+   { display: block }` rule beat the badge's own `display`. One definition, and
+   the badge is centred STRUCTURALLY (fixed box + both axes centred + flex:0 0)
+   so no page-level rule can knock it out of the circle. Tone is three custom
+   properties and nothing else; margins and wrapping stay with the page. */
+.biz .attn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--attn-line);
+  border-left: 3px solid var(--attn-accent);
+  border-radius: 10px;
+  background: var(--attn-wash);
+  --attn-line: #f1cba9;
+  --attn-accent: var(--orange-line);
+  --attn-wash: var(--orange-soft);
+}
+.biz .attn.amber { --attn-line: #f1cba9; --attn-accent: var(--orange-line); --attn-wash: var(--orange-soft); }
+.biz .attn.red { --attn-line: #eec4bf; --attn-accent: var(--red); --attn-wash: var(--red-soft); }
+.biz .attn.indigo { --attn-line: var(--proof-border); --attn-accent: var(--indigo); --attn-wash: var(--proof); }
+.biz .attn-icon.attn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--attn-accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+}
 
 .biz .badge-col.badge-col {
   text-align: center;

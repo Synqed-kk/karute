@@ -36,6 +36,15 @@ import {
   type FixtureStaff,
   type FixtureStore,
 } from './fixtures'
+import {
+  analyticsPolicy,
+  dowWeight,
+  menuMix,
+  salesLedger,
+  salesTargets,
+  sourceMix,
+  staffMix,
+} from './fixtures-analytics'
 import { auditTrail, reservations } from './fixtures-reservations'
 import {
   absence,
@@ -287,6 +296,47 @@ export async function readReservationPlanes(lens: StoreLens) {
     absence: inLens([absence], lens, false)[0] ?? null,
     sellSlots: inLens(sellSlots, lens, false),
     register,
+  }
+}
+
+/** The 売上分析 planes (canon's footnote: every figure derives from the 売上・
+ *  レジ settlement record, and 売上・レジ is 準備中). Read as ONE call for the
+ *  same reason `readDayPlanes` bundles its three: the ledger, the target it is
+ *  measured against and the shares it is broken down by are one scene, and a
+ *  target read a moment apart from the month it grades can contradict it.
+ *
+ *  Everything is clamped: a branch viewer must not learn another store's
+ *  takings, its people's shares, or even that the other store exists (⚖ 8/17
+ *  isolation law — hide, never show-and-refuse). Under the storeless
+ *  `{viewAll:true}` lens the rows come back unfiltered and the month rows are
+ *  merged by the caller; that branch is only reachable for an actor with no
+ *  store at all, which is what keeps it honest rather than dead.
+ *
+ *  ⚠ RECONNECT: every row is fixture-only. The real door reads the settlement
+ *  ledger BY month and the mixes disappear with the fixtures. */
+export async function readAnalyticsPlanes(lens: StoreLens) {
+  assertLens(lens)
+  const storeId = lensStoreId(lens)
+  return {
+    ledger: inLens(salesLedger, lens, false),
+    staffMix: inLens(staffMix, lens, false),
+    menuMix: inLens(menuMix, lens, false),
+    sourceMix: inLens(sourceMix, lens, false),
+    /** 月間売上目標. Business-wide is the sum of the stores being viewed. */
+    target: storeId
+      ? (salesTargets[storeId] ?? 0)
+      : Object.values(salesTargets).reduce((a, b) => a + b, 0),
+    policy: analyticsPolicy,
+    dowWeight,
+    closedWeekday,
+    /** 資格 — the roster's own signal for who takes treatments. A receptionist
+     *  is never a candidate in a treatment-revenue ranking, and that must come
+     *  from the roster rather than from a name list on the screen. */
+    staffQualifications,
+    /** 回数券1回あたりの評価額 — the store's 基準価格, so the outstanding
+     *  liability is the 顧客 screen's own 残数 valued at the price the room
+     *  actually sells at. */
+    ticketUnitPrice: pricingRule.base,
   }
 }
 
