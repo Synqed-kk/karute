@@ -49,6 +49,12 @@ type StaffComboboxProps = {
  * Selection resolves from the FULL `staff` array, never the rendered list, so
  * an already-assigned management member (or a stylist who has since left the
  * store roster and was merged back in by the caller) never blanks out.
+ *
+ * Two deliberate ceilings, both house-idiom parity with CustomerCombobox
+ * (which has neither either): no keyboard navigation — selection is
+ * onMouseDown-only — and the `role="option"` rows are not direct children of
+ * the `role="listbox"` container. Parked in the field-issues packet's
+ * §Out of scope; not an oversight.
  */
 export function StaffCombobox({
   staff,

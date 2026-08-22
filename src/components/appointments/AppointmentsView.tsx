@@ -65,8 +65,8 @@ interface AppointmentsViewProps {
   monthStartIso: string | null
   reservationViews: ReservationView[]
   reservationStaff: ReservationStaff[]
-  /** Business-wide staff ids — the grid's color palette source (a 経営メンバー
-   *  dropping out of the lanes must not repaint anyone). */
+  /** The ACTIVE STORE's staff ids — the grid's color palette source (a
+   *  経営メンバー dropping out of the lanes must not repaint anyone). */
   colorRosterIds?: readonly string[]
   businessHours: BusinessHours
   /** Active staff filter ('all' | 'self' | <staffId>) read from ?staff= URL

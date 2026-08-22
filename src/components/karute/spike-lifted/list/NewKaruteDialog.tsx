@@ -51,7 +51,6 @@ import { createManualKaruteRecord } from '@/actions/karute'
 const DURATION_OPTIONS = [30, 45, 60, 90] as const
 type Duration = (typeof DURATION_OPTIONS)[number]
 
-
 interface NewKaruteDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void

@@ -39,9 +39,9 @@ export function ReservationGrid({ staff, reservations, businessHours, colorRoste
   const ppm = HOUR_WIDTH / 60
   const totalWidth = (businessHours.end - businessHours.start) * HOUR_WIDTH
   const laneStackHeight = staff.length * STAFF_ROW_HEIGHT
-  // Distinct color per staff over the FULL business roster — same sorted-index
-  // assignment the adapter uses, so the column avatar and the appointment-card
-  // avatars line up on the same hue.
+  // Distinct color per staff over the ACTIVE STORE's roster (colorRosterIds) —
+  // same sorted-index assignment the adapter uses, so the column avatar and
+  // the appointment-card avatars line up on the same hue.
   const staffColors = useMemo(
     () => assignStaffColors(colorRosterIds?.length ? colorRosterIds : staff.map((s) => s.id)),
     [colorRosterIds, staff],
