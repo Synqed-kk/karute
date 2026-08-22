@@ -921,9 +921,11 @@ function Step({ step, label, aria }: { step: NavStep; label: string; aria: strin
 
 /** 直接指定 — canon's native date/month input (R-A: never a custom picker
  *  widget). It writes the SAME URL parameter the arrows write, so the two
- *  controls can never hold different periods. Navigation is a plain assignment
- *  rather than a router push so this file needs no router import; the value it
- *  submits is resolved and clamped on the server. */
+ *  controls can never hold different periods. Navigation goes through the
+ *  `go` callback, which the caller wires to `router.push` (deliberately, not
+ *  a plain assignment) so the layout stays mounted across the transition and
+ *  staged edits survive it; the value it submits is resolved and clamped on
+ *  the server. */
 function PeriodPicker({ picker, go }: { picker: PickerModel; go: (href: string) => void }) {
   return (
     <input
@@ -1020,7 +1022,7 @@ function monthCell(cell: Cell, day: DayModel, m: RosterModel) {
 
 function cellLabel(m: RosterModel, day: DayModel, cell: Cell): string {
   const who = `${m.name} ${day.monthCell}`
-  if (cell.kind === 'closed') return `${who} 定休日。クリックで編集`
+  if (cell.kind === 'closed') return `${who} 定休日`
   if (cell.kind === 'none') return `${who} 勤務予定なし。クリックで編集`
   if (cell.kind === 'partial') return `${who} ${hhmm(cell.start!)}〜${hhmm(cell.end!)} 勤務、${hhmm(cell.afterFrom!)}以降 勤務不可。クリックで編集`
   if (cell.kind === 'leave-pending') return `${who} 希望休・承認待ち。クリックで編集`
