@@ -160,7 +160,7 @@ export interface InspectorCase {
 
 export interface TodayProps {
   locale: string
-  storeParam: string | null
+  store: string | null
   lensLabel: string
   dayOffset: number
   dayLabel: string
@@ -519,8 +519,8 @@ export function TodayScreen(props: TodayProps) {
   //  fresh object every render would re-run `addedHere` → `boardLanes` → the
   //  sell layer and the guard, on every keystroke this screen has.
   const board = useMemo(
-    () => ({ dayOffset: props.dayOffset, store: props.storeParam }),
-    [props.dayOffset, props.storeParam],
+    () => ({ dayOffset: props.dayOffset, store: props.store }),
+    [props.dayOffset, props.store],
   )
   const boardStamp = { ...board, dayLabel: props.dayLabel, storeLabel: props.lensLabel }
 
@@ -1055,12 +1055,12 @@ export function TodayScreen(props: TodayProps) {
         solveRoom: true,
         id: chip.id,
         vip: chip.item.category === 'vip',
-        foreignRefusal: foreignStoreRefusal(chip.home, props.storeParam),
+        foreignRefusal: foreignStoreRefusal(chip.home, props.store),
         span: { x: 0, w: chip.home.w },
       }
     }
     return null
-  }, [live, proxy, parkChips, boardLanes, props.storeParam])
+  }, [live, proxy, parkChips, boardLanes, props.store])
 
   const openCards = props.cards.filter((c) => c.state === 'open' && !resolved.includes(c.id))
   const unresolved = openCards.length
@@ -1089,7 +1089,7 @@ export function TodayScreen(props: TodayProps) {
 
   /** ⚖ 46 forerunner — `store` defaults to the board on screen and is overridden
    *  only by the hold bar's pin, which has to point at the pending's own board. */
-  function dayHref(offset: number, store: string | null = props.storeParam) {
+  function dayHref(offset: number, store: string | null = props.store) {
     const q = new URLSearchParams()
     if (store) q.set('store', store)
     if (offset !== 0) q.set('day', String(offset))
@@ -2614,7 +2614,7 @@ export function TodayScreen(props: TodayProps) {
         ...from,
         dayOffset: props.dayOffset,
         dayLabel: props.dayLabel,
-        storeParam: props.storeParam,
+        store: props.store,
         storeLabel: props.lensLabel,
       },
       lenMin: item.endMin - item.startMin, item,
@@ -2640,7 +2640,7 @@ export function TodayScreen(props: TodayProps) {
       // AddedRow has no store — the merged one does, and a row that leaked
       // across stores was Greptile #737 P1.
       added.some((a) => onShownBoard(a, board) && a.item.caseId === id)
-    const outcome = unparkOutcome(chip.home, props.dayOffset, props.storeParam, originHere)
+    const outcome = unparkOutcome(chip.home, props.dayOffset, props.store, originHere)
     if (outcome === 'gone') {
       refuse(`${name}の元の枠が見つかりません。仮置きエリアに残しています`)
       return
@@ -2654,7 +2654,7 @@ export function TodayScreen(props: TodayProps) {
     // another store's board entirely. Saying 「8月22日(土)の元の枠に戻しました」
     // to someone standing on 代官山 would send them looking on the wrong board.
     const away =
-      chip.home.storeParam !== props.storeParam
+      chip.home.store !== props.store
         ? `${chip.home.storeLabel} ${chip.home.dayLabel}`
         : chip.home.dayLabel
     show(outcome === 'here' ? `${name}を元の枠に戻しました` : `${name}を${away}の元の枠に戻しました`)
@@ -2770,7 +2770,7 @@ export function TodayScreen(props: TodayProps) {
       solveRoom: !onBed,
       id: chip.id,
       vip: chip.item.category === 'vip',
-      foreignRefusal: foreignStoreRefusal(chip.home, props.storeParam),
+      foreignRefusal: foreignStoreRefusal(chip.home, props.store),
       span,
     }
   }
@@ -2800,7 +2800,7 @@ export function TodayScreen(props: TodayProps) {
     // so the landing is declined here, BEFORE the guard is consulted — offering
     // 「より良い開始」 on a board the booking may not be placed on at all would
     // be advice about an impossible placement.
-    const foreign = foreignStoreRefusal(chip.home, props.storeParam)
+    const foreign = foreignStoreRefusal(chip.home, props.store)
     if (foreign) {
       refuse(foreign)
       return
@@ -2848,7 +2848,7 @@ export function TodayScreen(props: TodayProps) {
       // ⚖ Liam flag 46 rider — the ご来店中 customer is in THIS store. 配置モード
       // survives a store switch exactly as the shelf chip does, so it carries
       // the same two fields and is refused by the same rule.
-      storeParam: props.storeParam,
+      store: props.store,
       storeLabel: props.lensLabel,
     })
     show('配置モード: 置きたい空き枠をクリック（日付を移動してもそのまま）')
@@ -2865,7 +2865,7 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ Liam flag 46 rider — the same store rule as the shelf chip's, in the
     // same shape. Checked here as well as at the click so the guard popup's
     // 「この開始に配置」 cannot walk around it.
-    const foreign = foreignStoreRefusal(p, props.storeParam)
+    const foreign = foreignStoreRefusal(p, props.store)
     if (foreign) {
       refuse(foreign)
       return
@@ -2892,7 +2892,7 @@ export function TodayScreen(props: TodayProps) {
     // needs no store stamp — every other id in it is a real booking's, which
     // belongs to exactly one store (see BusinessSessionEdits.tsx).
     createSeq.current += 1
-    const id = `nextvisit-${props.storeParam ?? 'all'}-${props.dayOffset}-${createSeq.current}`
+    const id = `nextvisit-${props.store ?? 'all'}-${props.dayOffset}-${createSeq.current}`
     const span = place(start, end, hours)
     const face = {
       kind: 'booking' as const,
@@ -2946,7 +2946,7 @@ export function TodayScreen(props: TodayProps) {
     // exactly the hole batch-7 closes for `placeNextVisit` in its own words:
     // "checked here as well as at the click so the guard popup's 「この開始に配置」
     // cannot walk around it". The shelf path needs the same second door.
-    const foreign = foreignStoreRefusal(chip.home, props.storeParam)
+    const foreign = foreignStoreRefusal(chip.home, props.store)
     if (foreign) {
       refuse(foreign)
       return
@@ -3140,7 +3140,7 @@ export function TodayScreen(props: TodayProps) {
             // ⚖ Liam flag 46 rider — a foreign store's board is refused before
             // the guard is asked, for the shelf chip's own reason.
             if (placing) {
-              const foreign = foreignStoreRefusal(placing, props.storeParam)
+              const foreign = foreignStoreRefusal(placing, props.store)
               if (foreign) {
                 refuse(foreign)
                 return
@@ -3163,7 +3163,7 @@ export function TodayScreen(props: TodayProps) {
               // rider — and a 配置モード armed in another store is refused by the
               // same predicate the chip is, through the one verdict.
               askGuard(
-                { staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: false, foreignRefusal: foreignStoreRefusal(placing, props.storeParam), span: slot },
+                { staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: false, foreignRefusal: foreignStoreRefusal(placing, props.store), span: slot },
                 at,
                 (s) => placeNextVisit(lane, s),
               )
@@ -4450,7 +4450,7 @@ export function TodayScreen(props: TodayProps) {
               operator on the right day of the wrong board. */}
           {pending && pendingOffBoard && (
             <span className="hold-daypin">
-              <span>確定待ち: {sameStore(pending.store, props.storeParam) ? pending.dayLabel : `${pending.storeLabel} ${pending.dayLabel}`}</span>
+              <span>確定待ち: {sameStore(pending.store, props.store) ? pending.dayLabel : `${pending.storeLabel} ${pending.dayLabel}`}</span>
               <Link href={dayHref(pending.dayOffset, pending.store)}>{pending.dayLabel}へ戻る</Link>
             </span>
           )}

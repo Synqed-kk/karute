@@ -820,7 +820,7 @@ export function parkChipText(item: BoardItem, hours: Hours, dayLabel: string): {
  *  share a lane key, so a card added on one painted onto the other.
  *
  *  THIS IS THE MINIMAL FORERUNNER OF ⚖ 46, AND SLICE F SUPERSEDES IT. Batch 7 on
- *  feat/business-transplant-today carries the fuller design (storeParam +
+ *  feat/business-transplant-today carries the fuller design (store +
  *  storeLabel on ParkHome/PlacingIntent + foreignStoreRefusal). On replay, the
  *  LATER slice wins every conflict in this family — everything marked
  *  "⚖ 46 forerunner" here is the thing being replaced, never the thing to keep.
@@ -870,12 +870,12 @@ export function onShownBoard(
  *   store is `elsewhere` — the restore is still right, and the toast names where
  *   it went, exactly as the day case does. */
 export function unparkOutcome(
-  home: { dayOffset: number; storeParam: string | null },
+  home: { dayOffset: number; store: string | null },
   shownDayOffset: number,
   shownStoreParam: string | null,
   originOnShownDay: boolean,
 ): 'here' | 'elsewhere' | 'gone' {
-  if (home.storeParam !== shownStoreParam) return 'elsewhere'
+  if (home.store !== shownStoreParam) return 'elsewhere'
   if (home.dayOffset !== shownDayOffset) return 'elsewhere'
   return originOnShownDay ? 'here' : 'gone'
 }
@@ -890,10 +890,10 @@ export function unparkOutcome(
  *  The message names the chip's OWN store twice over: which store it is from,
  *  and where to go to put it down. `null` = the boards agree, place it. */
 export function foreignStoreRefusal(
-  home: { storeParam: string | null; storeLabel: string },
+  home: { store: string | null; storeLabel: string },
   shownStoreParam: string | null,
 ): string | null {
-  if (home.storeParam === shownStoreParam) return null
+  if (home.store === shownStoreParam) return null
   return `${home.storeLabel}の予約です。${home.storeLabel}のボードに切り替えてから置いてください（×で元の枠に戻せます）`
 }
 

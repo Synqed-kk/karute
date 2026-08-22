@@ -186,8 +186,8 @@ export function BusinessSidebar(props: SidebarProps) {
   // ⚖ Liam 2026-08-20: すべての店舗 left the switcher, so a request WITHOUT
   // ?store= opens on the operator's own store — the first option — never the
   // business-wide merge. The no-store fallback below is unreachable depth.
-  const storeParam = search.get('store')
-  const current = stores.find((s) => s.id === storeParam) ?? stores[0] ?? null
+  const store = search.get('store')
+  const current = stores.find((s) => s.id === store) ?? stores[0] ?? null
   const currentIndex = current ? stores.findIndex((s) => s.id === current.id) + 1 : 0
   const lensLabel = current ? current.name : 'すべての店舗'
 

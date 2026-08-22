@@ -89,7 +89,7 @@ export async function reservationsScreen(
   locale: string,
   lens: StoreLens,
   clamped: boolean,
-  storeParam: string | undefined,
+  store: string | undefined,
   storeOptions: Array<{ id: string; name: string }>,
 ) {
   // ONE CLOCK ANCHOR PER RENDER (the #724 finding, and this page had the same
@@ -205,7 +205,7 @@ export async function reservationsScreen(
     resourceName: resourceName.get(s.resource_id) ?? '【未定】',
   }))
 
-  const lensLabel = clamped ? (storeName.get(storeParam!) ?? 'この店舗') : 'すべての店舗'
+  const lensLabel = clamped ? (storeName.get(store!) ?? 'この店舗') : 'すべての店舗'
   const spanLabel = `${fmtDay.format(now)}〜${fmtDay.format(new Date(jstSlot(WINDOW_DAYS - 1, 0, 0, now)))}`
   // Canon's date filter names the days it filters to (「本日 8月5日」/「8月6日以降」,
   // :405) rather than saying 「明日以降」 and leaving the reader to work out which
@@ -222,7 +222,7 @@ export async function reservationsScreen(
       spanLabel={spanLabel}
       todayLabel={todayLabel}
       tomorrowLabel={tomorrowLabel}
-      storeParam={clamped ? storeParam! : null}
+      store={clamped ? store! : null}
       boardNow={planes.boardNow}
       closeMinute={closeMinute}
     />
