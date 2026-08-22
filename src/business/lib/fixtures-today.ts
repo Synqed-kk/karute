@@ -227,6 +227,25 @@ export const opsConfig = {
     /** 通常の予約が個室を取れるのは、施術室に空きがないときだけ. */
     privateIsLastResort: true,
   },
+  /** ⚠SETTINGS-BATCH — 「置けない」場所への上書き権限 (⚖ Liam 2026-08-22, flag
+   *  50(d), his own words: 「設定で、権限によって上書きできる／できないを変えら
+   *  れるように。いつも変な場所に置いてしまうスタッフは上書き不可にできて、店長
+   *  なら上書きできる」).
+   *
+   *  Two dials, and they are DATA for the same reason the room policy is: who may
+   *  place over a refusal is a store's judgement about its own people, and a
+   *  component that hardcoded a role would make every store the same store. Both
+   *  are Fable defaults and OVERTURNABLE; the 店舗設定 control ships with the
+   *  settings batch (role dial + the per-staff list, with the mistake-proofing
+   *  law's guardrails — a store may not lock out everyone). */
+  overridePolicy: {
+    /** 上書きできる役職. His base sentence is that a person CAN override with a
+     *  warning, so plain スタッフ are in by default; the dial is what a store
+     *  reaches for when it wants the escalation to stop at 店長. */
+    roles: ['オーナー', '店舗管理者', 'スタッフ'] as readonly string[],
+    /** 個別ロックアウト — staff_id で名指し. His 「いつも変な場所に置くスタッフ」. */
+    lockedOut: [] as readonly string[],
+  },
 }
 
 /** レジ (ask T-08). The aggregates the money band shows that no booking row

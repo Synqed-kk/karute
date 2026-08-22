@@ -437,6 +437,13 @@ export default async function TodayPage({
     // from the store's own config for the same reason the guard's do: one place,
     // read by everything, changed in 設定 rather than in code.
     rooms: planes.opsConfig.roomPolicy,
+    // ⚠SETTINGS-BATCH — ⚖ Liam flag 50(d). WHO may place over a 置けない, decided
+    // ONCE, here, from the store's dial and this operator's own role/staff_id.
+    // The board is handed the answer, never the policy: a locked-out staff member
+    // is not shown a 「注意して配置」 they would only be refused for pressing.
+    canOverride:
+      planes.opsConfig.overridePolicy.roles.includes(shell.operator.role) &&
+      !planes.opsConfig.overridePolicy.lockedOut.includes(shell.operator.staff_id),
     closedWeekdayLabel: WEEKDAY_WORD[planes.closedWeekday],
     ops: {
       total: yen(totals.total),

@@ -53,12 +53,16 @@ import {
   isCrumbOffer,
   isOverShelf,
   laneKeyAtY,
+  landingVerdict,
   laneSpans,
+  overrideCaption,
+  VERDICT_WORD,
   nextSpan,
   pairLanesOf,
   parkChipText,
   proxyTransform,
   reasonLine,
+  roomFitsClass,
   sellLayerFor,
   sidesAt,
   slotStartAt,
@@ -395,7 +399,10 @@ describe('the chip in hand is a board card at the booking’s own length', () =>
   it('the screen sizes the travelling copy from the board, never from the chip it grabbed', () => {
     const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
     expect(SRC).toContain('const size = chipProxySize(boardRef.current, hours, chip.lenMin) ?? ctx.grab')
-    expect(SRC).toContain("setProxy({ kind: 'chip', title: chip.title, line1: chip.line1, category: chip.category, w: size.w, h: size.h })")
+    // RENEGOTIATED (batch-9, ⚖ 50): the proxy carries the parked booking's `id`
+    // as well, because the render pass has to know WHAT is in hand to judge a
+    // landing for it (the × marks). Shape only — the size claims are untouched.
+    expect(SRC).toContain("setProxy({ kind: 'chip', id: chip.id, title: chip.title, line1: chip.line1, category: chip.category, w: size.w, h: size.h })")
     // Centred on the pointer — because `shelfLanding` centres the landing on the
     // pointer, so the thing in hand and the dashed ghost describe one rectangle.
     expect(SRC).toContain('ctx.grab = { dx: size.w / 2, dy: size.h / 2, w: size.w, h: size.h }')
@@ -1463,7 +1470,9 @@ describe('次回予約を作成 arms the board, and the slot click makes the boo
     // ⚖ BATCH-4 flag 31c: the landing now goes through `askGuard`, which places
     // it outright when the guard has nothing to say and consults first when it
     // does. Still a landing, never a form — that is what this line protects.
-    expect(SRC).toContain('askGuard(lane.key, start, props.guard.standardSessionMin, null, at, (s) => placeNextVisit(lane, s))')
+    // RENEGOTIATED (batch-9, ⚖ 50): `askGuard` takes the WHOLE landing now — the
+    // one verdict's own question — rather than a lane and a start.
+    expect(SRC).toContain('(s) => placeNextVisit(lane, s),')
     // `prefilled` → the hold bar, never the create modal (:6076–6083).
     const body = SRC.slice(SRC.indexOf('function placeNextVisit'), SRC.indexOf('function placeFromShelf'))
     expect(body).toContain('setPending({ id, origin:')
@@ -1587,7 +1596,10 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
     expect(body).toContain("dropped?.group === 'beds'\n        ? dropped")
     // RENEGOTIATED (Greptile #725 P1-A): `solveBed` leads with the STAFF lane it
     // is allocating for, so the allocator can refuse another store's rooms.
-    expect(body).toContain("const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)")
+    // RENEGOTIATED (batch-9, ⚖ 50(d)): the solve carries whether this landing was
+    // placed THROUGH a 置けない — an override has to reach the room too, or the
+    // escalation is refused a second time behind a decision already made.
+    expect(body).toContain("const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span, override != null)")
     expect(body).toContain('laneKey: bed.key')
     // The × and the hold bar's 元に戻す both take the placed row back off.
     expect(SRC).toContain('setAdded((was) => was.filter((a) => a.item.caseId !== id))')
@@ -2298,7 +2310,11 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // stages. Both halves are pinned: the sides still come from `sidesAt`, and
     // the origin is still the first gesture's on both sides.
     expect(finishDrag).toContain('const sides = sidesAt(ctx.home, ctx.group, targetLane)')
-    expect(finishDrag).toContain('stage(\n      ctx.id,\n      sides,\n      span,\n      pending?.id === ctx.id ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from,\n    )')
+    // ⚖ BATCH-9 flag 50 — RENEGOTIATED AGAIN: the staging moved into `land`,
+    // which is the ONE thing both a clean release and a 「注意して配置」
+    // escalation run, and it carries the override sentence. `askGuard` is still
+    // absent from this function (pinned above) — a MOVE still never consults.
+    expect(finishDrag).toContain('stage(\n        ctx.id,\n        on,\n        at,\n        pending?.id === ctx.id ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from,\n        override,\n      )')
   })
 
   // ── flag 33's root cause, found in the browser ────────────────────────────
@@ -2322,7 +2338,10 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     expect(SRC).toContain('guardCheckRow(verdictAt(at.laneKey, start, minuteOf(at.x + at.w, hours) - start, pending.id))')
     expect(SRC).toContain('{holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}')
     // The gate is still `computeChecks` alone — the guard row is not in it.
-    expect(SRC).toContain(': confirmCaption(pendingChecks)')
+    // RENEGOTIATED (batch-9, ⚖ 50(d)): `overrideCaption` IS `confirmCaption` over
+    // the rows still blocking, so this claim is unchanged for every landing that
+    // was not explicitly escalated (`override` null → the same call, same array).
+    expect(SRC).toContain(': overrideCaption(pendingChecks, pending?.override ?? null)')
     const confirm = SRC.slice(SRC.indexOf('function confirmPending()'), SRC.indexOf('// ── card drag'))
     expect(confirm).not.toContain('guardRow')
     expect(confirm).not.toContain('verdictAt')
@@ -2361,15 +2380,18 @@ describe('the confirm comes to the card, and the consult goes back to the placem
   // ── flag 31c ─────────────────────────────────────────────────────────────
   it('the consult fires from the three NEW-placement flows, and its buttons perform the placement', () => {
     // One function asks AND places, so no caller can carry half the pair.
-    expect(SRC).toContain('const cell = verdictAt(laneKey, start, dur, excludeId)')
-    expect(SRC).toContain("if (!cell || cell.state === 'safe') {")
-    expect(SRC).toContain('      run(start)')
+    // RENEGOTIATED (batch-9, ⚖ 50): it asks the ONE verdict rather than the guard
+    // alone — the seam that let the strip advertise a start the drop then refused
+    // (flag 54) — and 'clean' is what places outright.
+    expect(SRC).toContain('const v = verdictAtLanding(ask)')
+    expect(SRC).toContain("if (v.kind === 'clean') {")
+    expect(SRC).toContain('      run(start, null)')
     // 1 · empty track → the create dialog, seeded at the start the popup names
-    expect(SRC).toContain('askGuard(lane.key, start, props.guard.standardSessionMin, null, at, (s) =>\n              openCreateAt({ staffId: lane.key, start: s }),')
+    expect(SRC).toContain('(s) => openCreateAt({ staffId: lane.key, start: s }),')
     // 2 · 配置モード (次回予約)
-    expect(SRC).toContain('askGuard(lane.key, start, props.guard.standardSessionMin, null, at, (s) => placeNextVisit(lane, s))')
+    expect(SRC).toContain('(s) => placeNextVisit(lane, s),')
     // 3 · the shelf chip
-    expect(SRC).toContain('askGuard(laneKey, start, dur, chip.id, { x: e.clientX, y: e.clientY, t: e.timeStamp }, (s) =>')
+    expect(SRC).toContain('      chipAsk(chip, laneKey, span),')
     // この開始に配置 PERFORMS it — it used to be a button that only closed itself.
     expect(SRC).toContain('                  setAdvice(null)\n                  advice.place(advice.start)')
     expect(SRC).toContain('                    setAdvice(null)\n                    advice.place(start)')
@@ -2560,11 +2582,21 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     const confirm = SRC.slice(SRC.indexOf('function confirmPending'), SRC.indexOf('function confirmPending') + 1200)
     expect(confirm).toContain('setPending(null)')
     expect(confirm).toContain("setHoldAnswer('confirmed')")
-    // …and reverting a staged change does NOT answer it: that decision is still
-    // open, so its surface is allowed back.
+    // RENEGOTIATED BY ⚖ LIAM FLAG 56 (2026-08-22). This used to read "reverting
+    // a staged change does NOT answer it: that decision is still open, so its
+    // surface is allowed back" — and "allowed back" turned out to mean IN THE
+    // SAME BEAT: 元に戻す cleared `pending`, the ternary fell through to the
+    // day's standing 仮押さえ, and a second 「この内容で確定」 appeared unasked.
+    // His report, verbatim: 「sometimes it asks me この内容で確定 box pops up
+    // like twice in a row」. ⚖ 41's rule applied symmetrically is the fix: an
+    // answered surface is a dismissed surface, whichever answer it was, and
+    // 'reverted' is the same value the day-hold's own 元に戻す writes. Nothing
+    // is agreed to — the incident card is untouched on this path.
     const revert = SRC.slice(SRC.indexOf('function revertPending'), SRC.indexOf('function confirmPending'))
     expect(revert).toContain('setPending(null)')
-    expect(revert).not.toContain('setHoldAnswer')
+    expect(revert).toContain("setHoldAnswer('reverted')")
+    expect(revert).not.toContain("setHoldAnswer('confirmed')")
+    expect(revert).not.toContain('setResolved(')
     // The flag lives in the session provider, above the screen's remount.
     const PROVIDER = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/BusinessSessionEdits.tsx'), 'utf8')
     expect(PROVIDER).toContain("export type HoldAnswer = 'confirmed' | 'reverted' | null")
@@ -2857,7 +2889,9 @@ describe('the pair keeps both its lanes, and no ending turns a release into a bo
     // the pointer drop and the keyboard nudge both stage into `moves`/`bedMoves`,
     // and `confirmPending` re-runs these at the moment of confirm.
     expect(SRC).toContain('const bedLane = boardLanes.find((l) => l.group === \'beds\' && l.items.some((i) => i.caseId === id))')
-    expect(SRC).toContain('if (pendingOffBoard || !at || !confirmCaption(checksFor(pending.id, at)).enabled) {')
+    // RENEGOTIATED (batch-9, ⚖ 50(d)): canon's R11-7 re-check runs through the
+    // same door, with the overridden row — and only that row — lifted out of it.
+    expect(SRC).toContain('if (pendingOffBoard || !at || !overrideCaption(checksFor(pending.id, at), pending.override ?? null).enabled) {')
   })
 
   it('sharesStore: floating pairs with anything, otherwise the two must share a store', () => {
@@ -3492,19 +3526,27 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
 
   it('an EXPLICIT bed-row drag is never auto-solved — batch-6’s choice path stands', () => {
     const finish = SRC.slice(SRC.indexOf('function finishDrag('), SRC.indexOf('function cancelDrag('))
-    expect(finish).toContain("if (ctx.group !== 'beds' && sides.bedLane != null) {")
-    // A 満室 landing changes NOTHING (⚖ 47) — the pair goes back, nothing stages.
-    expect(finish).toContain('      if (bed == null) {\n        restoreSides(ctx.id, from)\n        return\n      }')
+    // RENEGOTIATED (batch-9, ⚖ 50): the solve moved inside `land`, which both the
+    // clean release and the 「注意して配置」 escalation run. The EXEMPTION itself
+    // is untouched and still spelled by the same guard on the grabbed group.
+    expect(finish).toContain("if (ctx.group !== 'beds' && on.bedLane != null) {")
+    // A 満室 landing changes NOTHING (⚖ 47) — RENEGOTIATED (batch-9, ⚖ 50(d)):
+    // the refusal is now spoken by the ONE VERDICT before the solve runs, so the
+    // pair goes back and the explanation opens from `explainBlocked` rather than
+    // from a second `solveBed` null-check. Same invariant, one door earlier.
+    expect(finish).toContain("if (v.kind === 'blocked') {\n      restoreSides(ctx.id, from)\n      explainBlocked(")
     // Every landing that carries a room goes through the ONE solver.
     expect(SRC.match(/solveBed\(/g)).toHaveLength(5)
     for (const call of [
       // RENEGOTIATED (Greptile #725 P1-A): every landing now names the staff lane
       // it is allocating for — the first argument — so the allocator can scope
       // the room search to that person's own store.
-      "solveBed(sides.staffLane, ctx.id, sides.bedLane, item.category === 'vip', span)",
-      "solveBed(sides.staffLane, item.caseId, sides.bedLane, item.category === 'vip', next)",
-      'solveBed(lane.key, null, null, false, place(start, end, hours))',
-      "solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
+      // RENEGOTIATED AGAIN (batch-9, ⚖ 50(d)): and whether this landing was
+      // placed THROUGH a 置けない, because an override has to reach the room too.
+      "solveBed(on.staffLane, ctx.id, on.bedLane, item.category === 'vip', at, override != null)",
+      "solveBed(on.staffLane, id, on.bedLane, item.category === 'vip', next, override != null)",
+      'solveBed(lane.key, null, null, false, place(start, end, hours), override != null)',
+      "solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span, override != null)",
     ]) {
       expect(SRC).toContain(call)
     }
@@ -3540,5 +3582,495 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     // landing belongs to the cell it starts INSIDE (flag 48's rule).
     expect(SRC).toContain('start: Math.floor(minuteOf(landing.x, hours) / 30) * 30')
     expect(SRC).not.toContain('start: Math.round(minuteOf(landing.x, hours) / 30) * 30')
+  })
+})
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * ⚖ LIAM flag 50 (2026-08-22) — THE LIVE MID-DRAG VERDICT, AND ITS ONE HOME.
+ *
+ * The correctness property this whole batch exists for: the word at the cursor,
+ * the × on the 60分配置 strip and what the release actually DOES are one
+ * function, so the label can never promise something the release refuses. That
+ * disagreement has a name in this lane — flag 54, where the strip advertised
+ * ✓16:00 and the drop was refused by the bed allocator the strip never asked.
+ *
+ * Every case below drives the REAL `landingVerdict` on a real board.
+ * ──────────────────────────────────────────────────────────────────────────── */
+describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+  const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+  const GUARD = {
+    services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
+    newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
+    mode: 'standard' as const,
+  }
+  const railIn = (over: Partial<Parameters<typeof guardVerdictAt>[3]> = {}) => ({
+    open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
+    nowMinute: null, locked: [], guard: GUARD, ...over,
+  })
+
+  /** 見本 あずさ free all day · ベッド1 free · ベッド3 is the 個室. */
+  const board = (over: { staff?: Partial<BoardLane>; beds?: BoardLane[] } = {}): BoardLane[] => [
+    lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'], ...over.staff }),
+    ...(over.beds ?? [
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
+      lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private' }),
+    ]),
+  ]
+
+  /** One landing, asked the way the screen asks it. */
+  const ask = (over: Partial<Parameters<typeof landingVerdict>[1]> = {}) => ({
+    staffLane: 'p-01',
+    bedLane: 'bed-01',
+    solveRoom: true,
+    id: 'apt-1',
+    vip: false,
+    start: 960,
+    end: 1020,
+    span: place(960, 1020, HOURS),
+    foreignRefusal: null,
+    locked: [] as string[],
+    rooms: POLICY,
+    minutesOf: (x: number) => minuteOf(x, HOURS),
+    ...over,
+  })
+  const verdict = (lanes: BoardLane[], over = {}, cell: RailCell | null = null) =>
+    landingVerdict(lanes, ask(over), cell)
+
+  const cellOf = (state: RailCell['state'], sentence: string): RailCell => ({
+    start: 960, state, label: '', sentence, alternatives: [], alternativeKind: null, ackAllowed: state !== 'blocked',
+  })
+
+  // ── the three classes, and the word each one wears ───────────────────────
+  it('a clean landing is SILENT — ⚖ Liam’s own reading of his demo', () => {
+    const v = verdict(board(), {}, cellOf('safe', '新規90分の空きを守れます'))
+    expect(v.kind).toBe('clean')
+    // Canon's demo prints 「置ける」 here (updateGhost :7645). Liam's reading is
+    // silence: the dashed landing preview already says where it goes, and a word
+    // that is always true over open space is the noise ⚖ 44 rules against.
+    expect(v.label).toBe('')
+    expect(v.reason).toBeNull()
+    expect(VERDICT_WORD.clean).toBe('')
+  })
+
+  it('a costly-but-legal landing is 要確認, and carries the engine’s own sentence', () => {
+    const v = verdict(board(), {}, cellOf('degraded', '新規90分の空き2→1（1枠減・損を減らす）'))
+    expect(v.kind).toBe('caution')
+    expect(v.label).toBe('要確認')
+    expect(v.reason).toBe('新規90分の空き2→1（1枠減・損を減らす）')
+  })
+
+  it('a guard-refused landing is 置けない, in the engine’s own words', () => {
+    const v = verdict(board(), {}, cellOf('blocked', 'ここに置くと新規（90分）が入らなくなります'))
+    expect(v.kind).toBe('blocked')
+    expect(v.label).toBe('置けない')
+    expect(v.reason).toBe('ここに置くと新規（90分）が入らなくなります')
+  })
+
+  // ── every OTHER way a landing is inert, each in the board's own vocabulary ─
+  it('a double-booked PERSON is 置けない, and the sentence names who', () => {
+    const busy = board({ staff: { items: [booking({ key: 'a', caseId: 'apt-other', title: '見本 あかり' }, 960, 1020)] } })
+    const v = verdict(busy, {}, cellOf('safe', ''))
+    expect(v.kind).toBe('blocked')
+    // computeChecks' OWN sentence — the confirm surface and the cursor speak one
+    // vocabulary, which is what makes the label and the gate provably the same.
+    expect(v.reason).toBe('時間帯が重複: 見本 あかり')
+  })
+
+  it('a 満室 board is 置けない, and the sentence names every busy room', () => {
+    const full = board({
+      beds: [
+        lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 960, 1020)] }),
+        lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private', items: [booking({ key: 'b3', caseId: 'x3', title: '見本 さくら' }, 960, 1020)] }),
+      ],
+    })
+    const v = verdict(full, {}, cellOf('safe', ''))
+    expect(v.kind).toBe('blocked')
+    expect(v.reason).toContain('16:00〜17:00はベッドが満室です')
+    expect(v.reason).toContain('ベッド1が使用中（見本 かえる様）')
+  })
+
+  it('a landing past the shift end is 置けない, in computeChecks’ own words', () => {
+    const short = board({ staff: { untilLabel: '16:30', window: { from: 600, until: 990 } } })
+    const v = verdict(short, {}, cellOf('safe', ''))
+    expect(v.kind).toBe('blocked')
+    expect(v.reason).toBe('見本 あずさは16:30以降勤務不可')
+  })
+
+  it('a shift-locked lane is 置けない', () => {
+    const v = verdict(board(), { locked: ['p-01'] }, cellOf('safe', ''))
+    expect(v.kind).toBe('blocked')
+    expect(v.reason).toBe('見本 あずさはシフトロック中（新規配置不可）')
+  })
+
+  it('⚖ 46 — a chip from another store is 置けない before anything else is asked', () => {
+    const v = verdict(board(), { foreignRefusal: 'テスト銀座店の予約です。…' }, cellOf('blocked', 'なにか'))
+    expect(v.kind).toBe('blocked')
+    // FIRST, ahead of every other reason: the operator is on the wrong board, and
+    // telling them about a room on a board that may not take the booking at all
+    // is advice about an impossible placement.
+    expect(v.reason).toBe('テスト銀座店の予約です。…')
+  })
+
+  it('a release that found no lane is 置けない, not a silent no-op (⚖ 47)', () => {
+    const v = verdict(board(), { staffLane: null })
+    expect(v.kind).toBe('blocked')
+    expect(v.reason).toBe('予約を置く行の中で離してください')
+  })
+
+  it('⚖ 51 exemption — an EXPLICIT bed-row choice in another store is 置けない', () => {
+    const cross = [
+      lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'] }),
+      lane({ key: 'bed-09', group: 'beds', label: 'ベッド9', stores: ['store-b'] }),
+    ]
+    const v = landingVerdict(cross, ask({ solveRoom: false, bedLane: 'bed-09' }), cellOf('safe', ''))
+    expect(v.kind).toBe('blocked')
+    expect(v.reason).toBe('担当と店舗が異なります: 見本 あずさ / ベッド9')
+    // …and the allocator is NOT consulted on that path — the operator named the
+    // room out loud (⚖ 51's exemption, unchanged).
+    expect(INT).toContain('const solved = q.solveRoom')
+  })
+
+  it('⚖ 51 on the EXPLICIT bed row — a VIP hand-placed onto a standard bed is 置けない', () => {
+    // Greptile #744 P1. The exemption says the operator's own room choice is not
+    // re-solved; it never said the floors stop applying. The allocator refuses to
+    // put a 個室クラス booking anywhere but a 個室, and until now the bed-row drag
+    // walked straight past that — same store, so `sharesStore` waved it through,
+    // and nothing else on that path asked.
+    const v = verdict(board(), { solveRoom: false, bedLane: 'bed-01', vip: true }, cellOf('safe', ''))
+    expect(v.kind).toBe('blocked')
+    expect(v.label).toBe('置けない')
+    // The explanation names the POLICY, in the check rows' own voice — 「配置でき
+    // ません」 with no reason is the unreadable error of flag 54.
+    expect(v.reason).toBe('VIP・個室クラスのご予約です: ベッド1は個室ではありません')
+    // …and the 個室 itself is still a clean landing for the same booking, so the
+    // sentence is a floor and not a ban on bed-row drags.
+    expect(verdict(board(), { solveRoom: false, bedLane: 'bed-03', vip: true }, cellOf('safe', '')).kind).toBe('clean')
+  })
+
+  it('⚖ 51 — the floor is the policy’s, not the board’s: OFF, and a non-VIP, are silent', () => {
+    // The dial is store DATA (⚠SETTINGS-BATCH). A store that does not run its
+    // 個室 that way gets no verdict at all…
+    const off = { solveRoom: false, bedLane: 'bed-01', vip: true, rooms: { vipStaysPrivate: false, privateIsLastResort: true } }
+    expect(verdict(board(), off, cellOf('safe', '')).kind).toBe('clean')
+    // …and a regular booking on a standard bed never sees the sentence.
+    expect(verdict(board(), { solveRoom: false, bedLane: 'bed-01', vip: false }, cellOf('safe', '')).kind).toBe('clean')
+  })
+
+  it('⚖ 51 — ONE spelling of the rule: the allocator FILTERS with it, the bed row TESTS with it', () => {
+    const standard = lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })
+    const priv = lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private' })
+    expect(roomFitsClass(standard, true, POLICY)).toBe(false)
+    expect(roomFitsClass(priv, true, POLICY)).toBe(true)
+    expect(roomFitsClass(standard, false, POLICY)).toBe(true)
+    expect(roomFitsClass(standard, true, { vipStaysPrivate: false, privateIsLastResort: true })).toBe(true)
+    // The auto path is UNCHANGED and still routes through the same predicate —
+    // a VIP is solved into the 個室 and never into the free standard bed.
+    expect(allocateBed(board(), { id: null, currentBed: null, stores: ['store-a'], vip: true, start: 960, end: 1020, policy: POLICY }).laneKey).toBe('bed-03')
+    // Structurally one home: the allocator's filter IS this function, so the two
+    // paths cannot drift into two answers (the defect this test exists for).
+    expect(INT).toContain('const compatible = (l: BoardLane) => roomFitsClass(l, opts.vip, policy)')
+    expect(INT).toContain('if (!q.solveRoom && bed && !roomFitsClass(bed, q.vip, q.rooms)) {')
+    // Exactly two readings of `roomClass` survive in the whole file: this
+    // predicate, and the 個室-last ORDERING (a different rule about spending the
+    // room, not about needing it). A third is the rule re-spelled somewhere.
+    expect(INT.match(/roomClass === 'private'/g)).toHaveLength(2)
+  })
+
+  it('⚖ 50(d) — the VIP floor is a red like any other, so it carries the gated override', () => {
+    // Nothing special was built for it: it is `blocked`, and every blocked
+    // landing on every gesture ending goes to `explainBlocked`, whose 「注意して
+    // 配置」 exists only where the store's overridePolicy put it.
+    expect(SRC).toContain('override: props.canOverride ? () => { setAdvice(null); run.override() } : null,')
+    // On a BED-ROW gesture the override places on the room the operator named —
+    // `land` re-solves the bed only for the staff-side paths, so the escalation
+    // is the manager putting the VIP in that exact bed, stamped with the reason
+    // it walked past (`land(v.reason, span)` → `stage(..., override)`).
+    expect(SRC).toContain("if (ctx.group !== 'beds' && on.bedLane != null) {")
+    expect(SRC).toContain('override: () => land(v.reason, span),')
+  })
+
+  // ── the ORDER is the answer the operator can act on ──────────────────────
+  it('the person’s own clash outranks 満室 — one is about who, the other about where', () => {
+    const both = [
+      lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'], items: [booking({ key: 'a', caseId: 'apt-other', title: '見本 あかり' }, 960, 1020)] }),
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 960, 1020)] }),
+    ]
+    expect(verdict(both, {}, cellOf('safe', '')).reason).toBe('時間帯が重複: 見本 あかり')
+  })
+
+  it('満室 outranks the guard — a room that does not exist is not a pricing question', () => {
+    const full = board({
+      beds: [lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 960, 1020)] })],
+    })
+    expect(verdict(full, {}, cellOf('blocked', 'ここに置くと新規（90分）が入らなくなります')).reason).toContain('満室')
+  })
+
+  // ── ⚖ FLAG 54, THE REPRO ─────────────────────────────────────────────────
+  it('⚖ FLAG 54 — a ✓-advertised start whose ROOM is full now reads 置けない, not ✓', () => {
+    // Liam's scene, 8/22 03:51: テスト くらら dragged onto a ✓16:00 and refused
+    // with an error he could not identify. The chip and the checker disagreed
+    // because the strip asked the GUARD and the drop also asked the ALLOCATOR.
+    const roomsFull = board({
+      // A 16:00–17:00 shift: the booking fills the pocket exactly, so there is
+      // no protected 90 to lose and the guard is honestly SAFE at 16:00.
+      staff: { window: { from: 960, until: 1020 }, untilLabel: '17:00' },
+      beds: [
+        lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 960, 1020)] }),
+        lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private', items: [booking({ key: 'b3', caseId: 'x3', title: '見本 さくら' }, 960, 1020)] }),
+      ],
+    })
+    // The guard alone still says the start is safe — that is the ✓ he saw.
+    const guardSaysSafe = guardVerdictAt(roomsFull, 'p-01', 960, railIn({ excludeId: 'apt-1' }))!
+    expect(guardSaysSafe.state).toBe('safe')
+    expect(guardSaysSafe.label).toBe('✓16:00')
+    // The ONE verdict — the same one the strip's mark and the release both read
+    // — says 置けない, and says WHY in a sentence he can act on.
+    const v = verdict(roomsFull, {}, guardSaysSafe)
+    expect(v.kind).toBe('blocked')
+    expect(v.reason).toContain('満室')
+    // …and the strip's face comes from THAT, never from the guard cell alone.
+    expect(SRC).toContain('const v = inHand ? verdictFor({ ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }, c) : null')
+    expect(SRC).toContain("const state = v ? (v.kind === 'blocked' ? 'blocked' : v.kind === 'caution' ? 'degraded' : 'safe') : c.state")
+  })
+
+  it('⚖ FLAG 54, the other half — the strip answers for the CARD’S length, not canon’s 60', () => {
+    // A 150-minute pocket takes a 60 and refuses a 180, so a strip frozen at 60
+    // would advertise ✓ to an operator carrying a 3-hour booking.
+    const l = [lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'], window: { from: 600, until: 750 }, untilLabel: '12:30' })]
+    expect(guardVerdictAt(l, 'p-01', 600, railIn({ dur: 60 }))!.state).toBe('safe')
+    expect(guardVerdictAt(l, 'p-01', 600, railIn({ dur: 180 }))!.state).toBe('blocked')
+    expect(SRC).toContain('const railDur = aimDur ?? props.guard.standardSessionMin')
+    expect(SRC).toContain('dur: railDur,')
+    // …and the strip SAYS which length it is answering for, so a ✓ is never read
+    // as a promise about a different booking.
+    expect(SRC).toContain('<span className="guard-rail-label">{railDur}分配置</span>')
+  })
+
+  // ── item 4b — the × on the spot itself ───────────────────────────────────
+  it('⚖ item 4b — the × marks the inert spots, only mid-drag, only where release is inert', () => {
+    expect(SRC).toContain("? (v.kind === 'blocked' ? '×' : v.kind === 'caution' ? `△${hhmm(c.start)}` : `✓${hhmm(c.start)}`)")
+    // `inHand` is null with nothing in flight → the strip keeps canon's resting
+    // face (✓/△/—) and no × exists anywhere on the board (⚖ 37, no leak).
+    expect(SRC).toContain('const inHand = useMemo<LandingAsk | null>(() => {')
+    expect(SRC).toContain('    return null\n  }, [live, proxy, parkChips, boardLanes, props.storeParam])')
+    // ⚖ 52 — the mark that means "this stops you" appears exactly where release
+    // is inert, and its class comes off the blocked verdict alone.
+    expect(SRC).toContain("${v?.kind === 'blocked' ? ' inert' : ''}")
+    expect(CSS).toContain('.biz .guard-rail-cell.inert {')
+    // A block drag carries no booking, so it marks nothing (canon has no guard
+    // for 休憩 either) — and neither does a bed-row drag, which can never land
+    // on the staff strips these marks live on.
+    expect(SRC).toContain("if (live.group === 'beds' || live.overShelf || live.mode !== 'move') return null")
+  })
+
+  // ── (b) the cursor label, and the perf bar ───────────────────────────────
+  it('(b) the word rides the proxy, is written outside React, and is memoised per START', () => {
+    expect(SRC).toContain('<i className="proxy-verdict" ref={(el) => { proxyVerdictRef.current = el }} />')
+    // Written to the node, never through state — the board is not re-rendered
+    // for a word (the perf bar).
+    expect(SRC).toContain('node.dataset.verdict = kind')
+    expect(SRC).not.toContain('setProxyVerdict')
+    // …and the engine is not run per pixel: an unchanged (lane, span) re-uses
+    // the answer.
+    expect(SRC).toContain('const key = `${ctx.targetLane}|${span.x}|${span.w}`\n    if (key === ctx.aimKey) return')
+    expect(SRC).toContain('const key = `${ctx.laneKey}|${span.x}`\n    if (key === ctx.aimKey) return')
+    // The frame reads the CURRENT board through a ref: its listeners were bound
+    // at pointerdown and hold that render's closure.
+    expect(SRC).toContain('const verdictRef = useRef(verdictAtLanding)\n  verdictRef.current = verdictAtLanding')
+    // canon's two treatments: red dashed for refused, the guard family dotted
+    // for costly, and the BOX goes red with the word (his own complaint).
+    expect(CSS).toContain('.biz .proxy-verdict[data-verdict="blocked"] { border: 1px dashed var(--red);')
+    expect(CSS).toContain('.biz .proxy-verdict[data-verdict="caution"] { border: 1px dotted var(--guard-dark);')
+    expect(CSS).toContain('.biz .drag-proxy[data-verdict="blocked"] {')
+    // Nothing is painted on a clean landing.
+    expect(CSS).toContain('.biz .proxy-verdict {\n  position: absolute;')
+    expect(CSS).toContain('  display: none;')
+  })
+
+  // ── (a) the candidate lane ───────────────────────────────────────────────
+  it('(a) the candidate lane is outlined while the drag is over it, own lane included', () => {
+    // canon-production lights a lane only on a CHANGE (:4515-4517); canon's demo
+    // — the design Liam approved — lights whatever lane the pointer is over
+    // (:7817-7818). The flip is scoped to drag state by construction: every
+    // branch is gated on something being in flight.
+    expect(SRC).toContain('const dropTarget = blockLive\n    ? { laneKey: blockLive.targetLane, x: blockLive.x, w: blockLive.w }\n    : live && !live.overShelf')
+    expect(SRC).not.toContain('live.targetLane !== live.homeLane')
+    expect(SRC).not.toContain('blockLive.targetLane !== blockLive.homeLane')
+    // Border, not colour — ⚖ 38's law, and the CSS rule is untouched.
+    expect(CSS).toContain('.biz .track.drop-target {')
+  })
+
+  // ── (d) the sweep: EVERY gesture ending is inert over red ────────────────
+  it('(d) every gesture ending asks the ONE verdict and is inert over 置けない', () => {
+    for (const [name, from, to] of [
+      ['card drop / resize end', 'function finishDrag(', 'function explainBlocked('],
+      ['keyboard commit', 'function onCardKeyDown(', 'function park('],
+      ['chip place + 次回予約 + create', 'function askGuard(', 'function closeAdvice('],
+    ] as const) {
+      const body = SRC.slice(SRC.indexOf(from), SRC.indexOf(to))
+      expect([name, body.includes('const v = verdictAtLanding(ask)')]).toEqual([name, true])
+      // The EXACT gating line, not a substring: `kind === 'blocked'` also appears
+      // inside the alternative-start re-check, so a weaker pin survives a mutant
+      // that opens the gate (M10 of the batch-9 red-runs found this test, not
+      // the code — a mutant that lives is a test that is not doing its job).
+      expect([name, body.includes("if (v.kind === 'blocked') {")]).toEqual([name, true])
+      expect([name, body.includes('explainBlocked(')]).toEqual([name, true])
+    }
+    // The release path puts the pair back BEFORE it explains (⚖ 47: a refusal
+    // changes nothing), and nothing stages on that branch.
+    const finish = SRC.slice(SRC.indexOf('function finishDrag('), SRC.indexOf('function explainBlocked('))
+    expect(finish).toContain("if (v.kind === 'blocked') {\n      restoreSides(ctx.id, from)\n      explainBlocked(")
+    expect(finish.indexOf('restoreSides(ctx.id, from)\n      explainBlocked(')).toBeLessThan(finish.indexOf('land(null, span)'))
+  })
+
+  // ── (d) the explanation surface and its authority gate ───────────────────
+  it('(d) the explanation is a POPOVER, not a toast, and the override is store-gated', () => {
+    // ⚖ 50(d): 「a clear description on why you shouldn't place it there」. A
+    // 7-second toast is the flag-47 complaint in a different costume.
+    expect(SRC).toContain("kind: 'blocked',")
+    expect(SRC).toContain('reason: v.reason ?? \'配置できません\',')
+    expect(SRC).toContain('{advice.kind === \'blocked\' && <div className="gp-verdict">置けない</div>}')
+    expect(SRC).toContain('<div className="gp-reason">{advice.reason}</div>')
+    // The action exists ONLY where the store's own policy put it, and it is not
+    // the primary button — the surface advises against it.
+    expect(SRC).toContain('override: props.canOverride ? () => { setAdvice(null); run.override() } : null,')
+    expect(SRC).toContain('<button className="btn caution" type="button" onClick={advice.override}>注意して配置</button>')
+    expect(CSS).toContain('.biz .guard-pop .btn.caution { border: 1px solid var(--red); background: #fff;')
+    // ⚠SETTINGS-BATCH: the authority is DATA, decided on the server from the
+    // store's dial and this operator's role — never a literal in the board.
+    expect(opsConfig.overridePolicy.roles).toContain('店舗管理者')
+    expect(opsConfig.overridePolicy.lockedOut).toEqual([])
+    expect(SRC).not.toContain('店舗管理者')
+    expect(INT).not.toContain('店舗管理者')
+  })
+
+  // ── the override, and exactly what it buys ───────────────────────────────
+  it('⚖ 50(d) — an override lifts the ONE row it overrode, and nothing else', () => {
+    const overlap = { ok: false, label: '時間帯が重複: 見本 あかり' }
+    const locked = { ok: false, label: '見本 あずさはシフトロック中（新規配置不可）' }
+    const fine = { ok: true, label: '整体資格 一致' }
+    // No override → byte-for-byte `confirmCaption`.
+    expect(overrideCaption([overlap, fine], null)).toEqual(confirmCaption([overlap, fine]))
+    expect(overrideCaption([fine], null)).toEqual(confirmCaption([fine]))
+    // The overridden row stops blocking…
+    expect(overrideCaption([overlap, fine], overlap.label).enabled).toBe(true)
+    expect(overrideCaption([overlap, fine], overlap.label).label).toBe('この内容で確定')
+    // …and a SECOND blocker still stops the confirm (canon's R11-7, kept).
+    expect(overrideCaption([overlap, locked, fine], overlap.label).enabled).toBe(false)
+    // An override for a reason that is no longer on the board buys nothing.
+    expect(overrideCaption([locked, fine], overlap.label).enabled).toBe(false)
+    // ⚖ 52 — the row stays visible and wears △, never ×, because it no longer
+    // blocks: a × over a live 確定 is the broken check flag 52 killed.
+    expect(SRC).toContain("? { label: `注意して配置: ${c.label}`, tone: 'warn' as const }")
+    expect(CSS).toContain('.biz .holdbar-checks .ck.warn::before { content: "△";')
+  })
+
+  it('⚖ 50(d) — the escalation reaches the ROOM too, and the VIP floor still holds', () => {
+    const full = [
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 960, 1020)] }),
+      lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private', items: [booking({ key: 'b3', caseId: 'x3', title: '見本 さくら' }, 960, 1020)] }),
+    ]
+    const opts = { id: null, currentBed: null, stores: ['store-a'], start: 960, end: 1020, policy: POLICY }
+    // Without the escalation it is 満室, naming the rooms (⚖ 51, unchanged).
+    expect(allocateBed(full, { ...opts, vip: false }).laneKey).toBeNull()
+    // With it, the allocator names the room it WOULD have chosen — 個室 last for
+    // a regular booking, exactly as when the rooms are free.
+    expect(allocateBed(full, { ...opts, vip: false, allowBusy: true }).laneKey).toBe('bed-01')
+    expect(allocateBed(full, { ...opts, vip: false, allowBusy: true }).refusal).toBeNull()
+    // The VIP floor is a rule about what the treatment NEEDS, not about who is
+    // in the way: an escalation still may not walk a VIP out of the 個室.
+    expect(allocateBed(full, { ...opts, vip: true, allowBusy: true }).laneKey).toBe('bed-03')
+    // A move keeps the room it carries rather than being re-solved onto another.
+    expect(allocateBed(full, { ...opts, currentBed: 'bed-03', vip: false, allowBusy: true }).laneKey).toBe('bed-03')
+  })
+
+  // ── THE AGREEMENT PROPERTY, walked ───────────────────────────────────────
+  it('THE CORE PROPERTY — label, mark and release are ONE function, on every class', () => {
+    // Four boards, one per verdict class, each asked ONCE. The cursor writes
+    // `v.label`, the strip writes `v.kind`, the release gates on `v.kind` — so
+    // agreement is not a coincidence these tests check, it is the shape.
+    const cases: Array<[string, BoardLane[], RailCell | null, 'clean' | 'caution' | 'blocked', string]> = [
+      ['clean', board(), cellOf('safe', 'ok'), 'clean', ''],
+      ['costly', board(), cellOf('degraded', '減ります'), 'caution', '要確認'],
+      ['guard-refused', board(), cellOf('blocked', '入らなくなります'), 'blocked', '置けない'],
+      ['person busy', board({ staff: { items: [booking({ key: 'a', caseId: 'apt-other', title: '見本 あかり' }, 960, 1020)] } }), cellOf('safe', 'ok'), 'blocked', '置けない'],
+    ]
+    for (const [name, lanes, cell, kind, label] of cases) {
+      const v = landingVerdict(lanes, ask(), cell)
+      expect([name, v.kind, v.label]).toEqual([name, kind, VERDICT_WORD[kind]])
+      expect([name, v.label]).toEqual([name, label])
+      // Anything that is not silent ALWAYS carries a sentence the surface can
+      // print, and silence carries none. (An empty reason on a refusal is
+      // exactly the unreadable error of flag 54.)
+      expect([name, v.kind === 'clean' ? v.reason === null : typeof v.reason === 'string' && v.reason.length > 0])
+        .toEqual([name, true])
+    }
+    // ONE HOME, structurally: every consumer routes through `verdictFor`, and
+    // `verdictFor` is the only caller of `landingVerdict` in the screen.
+    expect(SRC.match(/landingVerdict\(/g)).toHaveLength(1)
+    expect(SRC).toContain('const verdictAtLanding = useCallback(')
+    expect(SRC).toContain('return verdictFor(q, q.staffLane ? verdictAt(q.staffLane, start, dur, q.id) : null)')
+  })
+
+  // ── ⚖ FLAG 55 — the silent guard row, answered ───────────────────────────
+  it('⚖ FLAG 55 — five ✓ and no guard line is SILENT-BECAUSE-CLEAN, not a missing row', () => {
+    // His scene: くらら → 16:00〜17:00 inside what looked like a protected 90.
+    // `guardCheckRow` returns null for a SAFE cell by design (⚖ 31b: a check
+    // that always passes is noise) — so the row's absence is the guard saying
+    // the landing costs nothing, and it is reachable on the real engine.
+    expect(guardCheckRow(cellOf('safe', '新規90分の空きを守れます'))).toBeNull()
+    // …and the engine really does judge a landing that SPLITS a long run clean:
+    // 10:00–13:00 with a 60 placed at 11:00 leaves 60 + 60, no 90 either side,
+    // so THAT one is refused — the difference is measurable, not a missing row.
+    const long = [lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 750 }, untilLabel: '12:30' })]
+    // 150 free minutes hold exactly one 新規90分. A 60 at the START leaves 90
+    // whole behind it — capacity 1 → 1, nothing lost, and the row is silent.
+    expect(guardVerdictAt(long, 'p-01', 600, railIn())!.state).toBe('safe')
+    expect(guardCheckRow(guardVerdictAt(long, 'p-01', 600, railIn()))).toBeNull()
+    // The SAME booking half an hour later breaks the run into 30 + 60 and the
+    // 90 is gone — refused, and it says so. The absence of a row is a MEASURED
+    // difference, not a missing surface.
+    expect(guardVerdictAt(long, 'p-01', 630, railIn())!.state).toBe('blocked')
+    expect(guardCheckRow(guardVerdictAt(long, 'p-01', 630, railIn()))?.tone).toBe('warn')
+    // The batch-4 row is present on the placement path — it is not missing.
+    expect(SRC).toContain('guardRow: pendingGuardRow,')
+    expect(SRC).toContain('{holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}')
+  })
+
+  // ── ⚖ FLAG 56 — the confirm that fires twice ─────────────────────────────
+  it('⚖ FLAG 56 — answering a staged change never hands back a SECOND confirm', () => {
+    // ROOT CAUSE, found by reading the surface's own ternary: `holdPop` falls
+    // through to the DAY's standing 仮押さえ the moment `pending` clears, and
+    // only `confirmPending` was closing that second question (it sets
+    // `holdAnswer`). 元に戻す cleared `pending` and left `holdAnswer` null — so
+    // the pill reappeared with 「この内容で確定」 in the same beat, which is
+    // exactly 「it asks me この内容で確定 box pops up like twice in a row」.
+    const revert = SRC.slice(SRC.indexOf('function revertPending()'), SRC.indexOf('function confirmPending()'))
+    expect(revert).toContain("setHoldAnswer('reverted')")
+    // …and ⚖ 41's own rule is what it obeys: the surface's OTHER answer closes
+    // it for the session, exactly as the day-hold's own 元に戻す already did.
+    expect(SRC).toContain("revert: { enabled: true, run: () => { setHoldAnswer('reverted'); show('仮押さえのままにしました') } },")
+    // The confirm half was already right and stays right.
+    const confirm = SRC.slice(SRC.indexOf('function confirmPending()'), SRC.indexOf('// canon (:6941-6947)'))
+    expect(confirm).toContain("setHoldAnswer('confirmed')")
+    // One question at a time: the surface is a ternary, so the two can never be
+    // on screen together — what was wrong was the SECOND one arriving unasked.
+    expect(SRC).toContain('const holdPop: HoldPop | null = pending')
+    expect(SRC).toContain("props.hold && holdAnswer === null")
+  })
+
+  // ── tour registration (FLAGS 25c) ────────────────────────────────────────
+  it('FLAGS 25c — the new grammar is explained where the grammar lives', () => {
+    // Nothing this round adds a SECTION: the marks and the label are new faces
+    // of the 60分配置 strip and of the drag itself, both already registered. So
+    // the delta is zero SECTIONS and one SENTENCE — the strip's own entry now
+    // teaches the mid-drag reading, which is where an operator meets it.
+    expect(SRC).toContain('ドラッグ中は、手に持っている予約に合わせて判定し直します')
+    expect(SRC).toContain('置けない場所には × が付き、離しても配置されません')
+    // ONE entry, still: a pair on every strip would put the same step on the
+    // tour once per staff member (batch-7's rule, unchanged).
+    expect(SRC).toContain("{...(rails[0]?.laneKey === rail.laneKey")
   })
 })

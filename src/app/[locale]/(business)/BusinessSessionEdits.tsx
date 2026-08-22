@@ -137,6 +137,13 @@ export interface PendingChange {
    *  board has never had; the day-pin now names the store too when it differs. */
   store: string | null
   storeLabel: string
+  /** ⚖ Liam flag 50(d) (2026-08-22) — THE RED REASON THIS LANDING OVERRODE.
+   *  A 置けない landing never places by itself; an authorised operator may place
+   *  through 「注意して配置」, and the change then carries the sentence it walked
+   *  past. The confirm surface shows it as a △ row and `overrideCaption` lets
+   *  that one row — and only that one — stop blocking 確定. Absent on every
+   *  ordinary landing. */
+  override?: string
 }
 
 /** canon's 配置モード (`placing`, :6826). Armed by 次回予約を作成, disarmed by the
