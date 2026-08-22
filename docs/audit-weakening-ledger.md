@@ -52,3 +52,15 @@
   facade rows; check-audit-weakening.mjs supersedes it with a vs-main diff
   that also tracks categories, decision rows, allowlists, registries, and the
   ledger itself · Liam (proof-suite PR kickoff)
+- 2026-08-23 · SDK_WRITE_ALLOWLIST:src/actions/karute.ts::karuteRecords.update ·
+  F4 reassign (PACKET-F4-REASSIGN-2026-09-02.md, gates cleared by Liam 8/23):
+  reassignKaruteCustomerWithClient is an audit-FREE Core/WithClient shared
+  core (D1-mirror doctrine — the web wrapper reassignKaruteCustomer emits
+  its own auditWeb row, the facade route's generic success hook emits
+  karute.customer_reassign off its LIVE FACADE_AUDIT_MAP row) — same shape
+  as the existing grantCustomerConsentWithClient/setCustomerLifecycleWithClient
+  entries above and the 2026-08-09 customer.photo.delete entry directly
+  above this one. Not a new silent write in practice (both surfaces audit
+  it independently); CP3 requires the raw karuteRecords.update call site's
+  own registration since it sits outside AUDITED_CORES by design · Liam
+  (F4 packet build-order clearance, 2026-08-23)
