@@ -422,6 +422,10 @@ export default async function TodayPage({
       gapFillMinMin: planes.opsConfig.gapFillMinMin,
       gapFillDiscountPct: planes.opsConfig.gapFillDiscountPct,
       minSellableMin: planes.opsConfig.minSellableMin,
+      // ⚠SETTINGS-BATCH — ⚖ Liam flag 65 rider. The booking lattice, handed to
+      // the board from the store's config instead of being the drag helper's
+      // default: the dial existed here and nothing read it.
+      bookingStepMin: planes.opsConfig.bookingStepMin,
       config: {
         services: menus.map((m) => ({ name: m.name, dur: m.duration_minutes })),
         newClientSessionMin: planes.opsConfig.newClientSessionMin,
@@ -576,10 +580,18 @@ export default async function TodayPage({
           .map((c) => ({ id: c.id, name: c.name, no: c.member_number, phone: c.phone ?? '電話未登録', furigana: c.furigana ?? '' })),
         sources: ['店頭', '電話', 'Reserve', '紹介'],
         blockKinds: ['休憩', '準備', '記録', '清掃', 'ミーティング'],
-        // canon's block flow is 種類 / 長さ / メモ. The lengths are multiples of
-        // the store's own block step, so a block cannot be created at a
-        // granularity the board would then refuse to move it at.
-        blockLengths: [1, 2, 3, 6, 12].map((n) => n * planes.opsConfig.blockStepMin * 2),
+        // canon's block flow is 種類 / 長さ / メモ.
+        //
+        // ⚖ Liam flag 65 (2026-08-22) — A PLAIN LIST, NOT A DERIVATION. These
+        // used to be `[1,2,3,6,12] × blockStepMin × 2`, which was fine only
+        // while the step was canon's 5. At the store's 15 the same multipliers
+        // give [30, 60, 90, 180, 360] — no sub-30-minute block at all and a
+        // six-hour 休憩 — so the menu was silently a hostage of the lattice.
+        // The two dials answer different questions (how finely a box MOVES vs
+        // which lengths a store creates), and every offered length is a
+        // multiple of the 15-minute step, so the board can still move whatever
+        // this dialog creates. ⚖ Liam default, overturnable.
+        blockLengths: [15, 30, 45, 60, 90, 120],
         openLabel: hhmm(planes.operatingHours.open),
         closeLabel: hhmm(planes.operatingHours.close),
       },

@@ -186,6 +186,14 @@ export interface TodayProps {
     /** ⚖ Liam 2026-08-21 — 販売可能な最小の長さ. Shorter than this and the space
      *  is not advertised at all (see `gapLayerFor`). A store dial. */
     minSellableMin: number
+    /** ⚠SETTINGS-BATCH — 予約のドラッグ刻み, the BOOKING lattice (⚖ Liam flag
+     *  65's rider). It sits here rather than inside `config` because `config` is
+     *  the frozen engine's own `GuardConfig` and the engine has no opinion about
+     *  how a card snaps; this is the board's dial, from `opsConfig`, exactly as
+     *  `minSellableMin` is. Until now the store carried the value and NOTHING
+     *  read it — `stepPct`'s default 30 was the real lattice — which is flag
+     *  53's dead-lever disease in the store config itself. */
+    bookingStepMin: number
     config: GuardConfig
   }
   /** ⚠SETTINGS-BATCH — ⚖ Liam flag 51. The store's room-allocation policy, the
@@ -677,7 +685,11 @@ export function TodayScreen(props: TodayProps) {
   useShellClass('drawer-open', selected !== null)
   useShellClass('board-compact', density === 'compact')
 
-  const STEP = stepPct(hours.count)
+  /** ⚖ Liam flag 65 rider — the BOOKING lattice, the store's own dial. It took
+   *  `stepPct`'s default 30 while `opsConfig.bookingStepMin` sat unread, so the
+   *  store could set the value and the board would ignore it. Same value today
+   *  (30), read from the one place that owns it. */
+  const STEP = stepPct(hours.count, props.guard.bookingStepMin)
   /** ⚖ Liam flag 26 — the BLOCK lattice, the store's own dial. Canon keeps this
    *  a second constant beside STEP_PCT rather than a mode of it (:3543). */
   const BLOCK_STEP = blockStepPct(hours.count, props.guard.config.blockStepMin)
@@ -1992,7 +2004,17 @@ export function TodayScreen(props: TodayProps) {
       // ⚖ 51 — the room is solved at the landing, exactly as before. The verdict
       // has already proven a room exists (or named the 満室 that stopped this),
       // so this solve cannot speak a second refusal over the first.
-      if (ctx.group !== 'beds' && on.bedLane != null) {
+      //
+      // ⚖ Liam flag 59 (2026-08-22) — AND «no room yet» IS THE CASE THAT NEEDS
+      // SOLVING. This used to test the carried room before asking, i.e. call the
+      // allocator only when a room already existed and skip it exactly when the
+      // booking had none: a `resource_id: null` booking staged with no bed row,
+      // so `holdSummary` printed 担当 … / — and ⚖ 51's "the popover NAMES the
+      // final bed" was silently false. `allocateBed` is written for a null
+      // `currentBed` (it is how `placeNextVisit` calls it), and `landingVerdict`
+      // has already run the same solve one frame earlier — this line was
+      // throwing that answer away, which is the ⚖ 51 breach itself.
+      if (ctx.group !== 'beds') {
         on.bedLane = solveBed(on.staffLane, ctx.id, on.bedLane, item.category === 'vip', at, override != null) ?? on.bedLane
       }
       stage(
@@ -2570,7 +2592,9 @@ export function TodayScreen(props: TodayProps) {
     }
     const land = (override: string | null) => {
       const on = { ...sides }
-      if (lane.group !== 'beds' && on.bedLane != null) {
+      // ⚖ Liam flag 59 — the same inverted guard stood here, so Shift/Alt+Arrow
+      // on a room-less booking reproduced the em-dash without a pointer.
+      if (lane.group !== 'beds') {
         on.bedLane = solveBed(on.staffLane, id, on.bedLane, item.category === 'vip', next, override != null) ?? on.bedLane
       }
       stage(id, on, next, pending?.id === id ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from, override)

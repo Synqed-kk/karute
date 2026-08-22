@@ -3529,7 +3529,13 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     // RENEGOTIATED (batch-9, ⚖ 50): the solve moved inside `land`, which both the
     // clean release and the 「注意して配置」 escalation run. The EXEMPTION itself
     // is untouched and still spelled by the same guard on the grabbed group.
-    expect(finish).toContain("if (ctx.group !== 'beds' && on.bedLane != null) {")
+    // RENEGOTIATED AGAIN (batch-10, ⚖ flag 59): the pin used to carry the whole
+    // line, `&& on.bedLane != null` included — and that conjunct was the flag-59
+    // bug, so the pin was ENSHRINING it. The exemption this test exists for is
+    // the group test and nothing else; a booking that arrives with no room is
+    // exactly the case that must reach the allocator.
+    expect(finish).toContain("if (ctx.group !== 'beds') {")
+    expect(finish).not.toContain("!== 'beds' && on.bedLane")
     // A 満室 landing changes NOTHING (⚖ 47) — RENEGOTIATED (batch-9, ⚖ 50(d)):
     // the refusal is now spoken by the ONE VERDICT before the solve runs, so the
     // pair goes back and the explanation opens from `explainBlocked` rather than
@@ -3787,7 +3793,9 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // `land` re-solves the bed only for the staff-side paths, so the escalation
     // is the manager putting the VIP in that exact bed, stamped with the reason
     // it walked past (`land(v.reason, span)` → `stage(..., override)`).
-    expect(SRC).toContain("if (ctx.group !== 'beds' && on.bedLane != null) {")
+    // (batch-10, ⚖ flag 59 — the group test is the whole exemption; the
+    // `on.bedLane != null` conjunct this pin used to carry was the bug.)
+    expect(SRC).toContain("if (ctx.group !== 'beds') {")
     expect(SRC).toContain('override: () => land(v.reason, span),')
   })
 
@@ -4072,5 +4080,131 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // ONE entry, still: a pair on every strip would put the same step on the
     // tour once per staff member (batch-7's rule, unchanged).
     expect(SRC).toContain("{...(rails[0]?.laneKey === rail.laneKey")
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BATCH-10 (2026-08-22) — flags 57-68 + the Fable sweep riders.
+// PACKET-BATCH10-2026-08-22.md / STUDY-BATCH10-2026-08-22.md.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('BATCH-10 W1 — the trivial trio: bed solve, proxy paint, block step', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+  const PAGE = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
+
+  // ── ⚖ flag 59 — 担当 … / — on a staged confirm ────────────────────────────
+  it('⚖ 59 — a booking that arrives with NO room reaches the allocator, on both landing paths', () => {
+    // ROOT (study §59): `land()` asked for a room only when one already existed
+    // — `&& on.bedLane != null` — so `resource_id: null` bookings staged with no
+    // bed row and `holdSummary` printed the em-dash. Both landing paths carried
+    // the same inverted guard: the pointer release and the keyboard nudge.
+    const land = SRC.slice(SRC.indexOf('const land = (override: string | null, at:'), SRC.indexOf('const v = verdictAtLanding(ask)'))
+    expect(land).toContain("if (ctx.group !== 'beds') {")
+    const nudge = SRC.slice(SRC.indexOf('const land = (override: string | null) => {'))
+    expect(nudge.slice(0, 400)).toContain("if (lane.group !== 'beds') {")
+    // …and NEITHER landing still tests the carried room before solving.
+    expect(SRC).not.toContain("!== 'beds' && on.bedLane")
+  })
+
+  it('⚖ 59 — the allocator is written for the null room, and the verdict already solved it', () => {
+    const staff = lane({ key: 'p-06', group: 'staff', label: '見本 あずさ', stores: ['store-a'] })
+    const free = lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })
+    const lanes = [staff, free]
+    // `currentBed: null` is the contract — it is how `placeNextVisit` calls it.
+    const solved = allocateBed(lanes, {
+      id: 'apt-akari', currentBed: null, stores: ['store-a'], vip: false,
+      start: 780, end: 840, policy: POLICY,
+    })
+    expect(solved.refusal).toBeNull()
+    expect(solved.laneKey).toBe('bed-01')
+    // The em-dash is `holdSummary` reading a board with no bed drawing at all —
+    // which is exactly what the skipped solve produced.
+    const at = { laneKey: 'p-06', ...place(780, 840, HOURS) }
+    const noBed = holdSummary(
+      [{ ...staff, items: [booking({ key: 's', caseId: 'apt-akari' }, 780, 840)] }, free],
+      'apt-akari', at, HOURS,
+    )
+    expect(noBed).toContain('/ —')
+    // …and with the room drawn, the confirm names it (⚖ 51's own law).
+    const withBed = holdSummary(
+      [
+        { ...staff, items: [booking({ key: 's', caseId: 'apt-akari' }, 780, 840)] },
+        { ...free, items: [booking({ key: 'b', caseId: 'apt-akari' }, 780, 840)] },
+      ],
+      'apt-akari', at, HOURS,
+    )
+    expect(withBed).toContain('ベッド1')
+    expect(withBed).not.toContain('/ —')
+  })
+
+  // ── ⚖ flag 60 — the proxy's paint ────────────────────────────────────────
+  it('⚖ 60 — the card in hand is opaque, and its verdict badge is off the card’s own words', () => {
+    const proxy = CSS.slice(CSS.indexOf('.biz .event.drag-proxy,'), CSS.indexOf('.biz .event.drag-proxy { box-sizing'))
+    // The 4% was the whole leak: every fill underneath is opaque hex, so the
+    // cell price read straight through the card AND through the 置けない badge.
+    expect(proxy).toContain('opacity: 1;')
+    expect(proxy).not.toContain('opacity: .96')
+    const badge = CSS.slice(CSS.indexOf('.biz .proxy-verdict {'), CSS.indexOf('.biz .proxy-verdict[data-verdict="blocked"],'))
+    // Dead centre put 置けない squarely on <strong>/<small>; the trailing edge
+    // is the one region a board card never writes into at either density.
+    expect(badge).not.toContain('translate(-50%, -50%)')
+    expect(badge).toContain('right: 3px;')
+    expect(badge).toContain('bottom: 3px;')
+    // It still paints only for the two refusal classes — silence over open
+    // space is ⚖ Liam's own reading of the demo, untouched.
+    expect(CSS).toContain('.biz .proxy-verdict[data-verdict="blocked"],\n.biz .proxy-verdict[data-verdict="caution"] { display: block; }')
+  })
+
+  // ── ⚖ flag 65 — the store's block step, and the dead booking dial ────────
+  it('⚖ 65 — the store’s block lattice is 15 minutes, at the one seam that owns it', () => {
+    expect(opsConfig.blockStepMin).toBe(15)
+    // The seam was already threaded end to end — this is a config edit, not a
+    // code change: page → guard.config → BLOCK_STEP → nextSpan.
+    expect(SRC).toContain('const BLOCK_STEP = blockStepPct(hours.count, props.guard.config.blockStepMin)')
+    expect(PAGE).toContain('blockStepMin: planes.opsConfig.blockStepMin,')
+    expect(blockStepPct(9, opsConfig.blockStepMin)).toBeCloseTo(stepPct(9, 15), 12)
+    // The on-screen hint prints the same value, so the copy cannot drift.
+    expect(SRC).toContain('（{props.guard.config.blockStepMin ?? 5}分きざみ）')
+  })
+
+  it('⚖ 65 — the create dialog’s lengths are a plain list, no longer hostage to the step', () => {
+    // Derived as [1,2,3,6,12] × step × 2, flipping the dial to 15 produced
+    // [30,60,90,180,360]: no sub-30 block and a six-hour 休憩.
+    expect(PAGE).toContain('blockLengths: [15, 30, 45, 60, 90, 120],')
+    expect(PAGE).not.toContain('[1, 2, 3, 6, 12].map')
+    // …and every offered length is still a whole number of block steps, so the
+    // board can move whatever this dialog creates (canon :4218-4231's lesson).
+    for (const n of [15, 30, 45, 60, 90, 120]) expect(n % opsConfig.blockStepMin).toBe(0)
+  })
+
+  it('⚖ 65 — bookingStepMin stops being a dead lever: the board reads the store’s own dial', () => {
+    // Study §65: `bookingStepMin` appeared in exactly two places — its own
+    // definition and a doc comment. NOTHING read it; `stepPct`'s default 30 was
+    // the real lattice. That is flag 53's disease inside the store config.
+    expect(SRC).toContain('const STEP = stepPct(hours.count, props.guard.bookingStepMin)')
+    expect(SRC).not.toContain('const STEP = stepPct(hours.count)\n')
+    expect(PAGE).toContain('bookingStepMin: planes.opsConfig.bookingStepMin,')
+    // Same value today, so the wiring is provably a no-op on behaviour…
+    expect(opsConfig.bookingStepMin).toBe(30)
+    expect(stepPct(9, opsConfig.bookingStepMin)).toBeCloseTo(stepPct(9), 12)
+    // …and it lives on the BOARD's prop, not inside the frozen engine's
+    // GuardConfig, which has no opinion about how a card snaps.
+    expect(SRC).toContain('bookingStepMin: number')
+  })
+
+  it('⚖ 65 — an off-grid fixture block keeps its own phase, which is canon, not a regression', () => {
+    // blk-03 レジ締め stands 17:30〜17:50 — a 20-minute box whose end is off any
+    // 15-minute grid. canon's dual lattice moves it in 15-minute jumps while
+    // PRESERVING that phase; silently rounding it would make 「現在値をプリセット」
+    // a lie (canon :4218-4231). Proven here so the :50 is not read as a bug.
+    const track = document.createElement('div')
+    rect(track, { left: 0, top: 0, width: 900, height: 40 })
+    const step15 = stepPct(9, 15)
+    const start = place(1050, 1070, HOURS) // 17:30〜17:50
+    const origin = dragOrigin(start.x, start.w, 'move', step15)
+    const moved = nextSpan(origin, track, 25, step15) // one 15-minute step right
+    expect(minuteOf(moved.x, HOURS)).toBeCloseTo(1065, 6)
+    expect(minuteOf(moved.x + moved.w, HOURS)).toBeCloseTo(1085, 6) // still :05 phase, still 20 long
   })
 })
