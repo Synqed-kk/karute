@@ -327,6 +327,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
           id: s.id,
           name: s.name,
           initials: s.avatarInitials,
+          isManagement: s.isManagement,
         }))}
         selfStaffId={props.activeStaffId}
         selected={props.staffFilter}

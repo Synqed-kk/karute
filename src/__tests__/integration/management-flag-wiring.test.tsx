@@ -18,6 +18,13 @@
  * NewKaruteDialog) are unconditionally present in the JSX regardless of
  * open state, so no click/interaction is needed to observe what they
  * receive — mocking them to capture their props is enough.
+ *
+ * F1 (fix round 1, 2026-09-01, blind-verify M3d): a THIRD, separate one-line
+ * map at AppointmentsView.tsx:330 (staff→ReservationStaffFilter's staffList)
+ * had zero coverage too — the mock here returned `() => null` and captured
+ * nothing. Deleting that mapping line leaves the full suite green with no
+ * red test; it's the 予約 tab's own 担当 filter, distinct from the
+ * NewBookingDialog map above. Same capture-mock treatment.
  */
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
@@ -54,8 +61,13 @@ jest.mock('@/components/reservation/ReservationGrid', () => ({ ReservationGrid: 
 jest.mock('@/components/karute/spike-lifted/reservation/ReservationMobileAgenda', () => ({
   ReservationMobileAgenda: () => null,
 }))
+type ReservationStaffFilterProps = { staffList?: { id: string; isManagement?: boolean }[] } | null
+let capturedReservationStaffFilterProps: ReservationStaffFilterProps = null
 jest.mock('@/components/karute/spike-lifted/reservation/ReservationStaffFilter', () => ({
-  ReservationStaffFilter: () => null,
+  ReservationStaffFilter: (props: unknown) => {
+    capturedReservationStaffFilterProps = props as ReservationStaffFilterProps
+    return null
+  },
 }))
 jest.mock('@/components/reservation/ReservationTotals', () => ({ ReservationTotals: () => null }))
 jest.mock('@/components/appointments/BookingActionSheetWrapper', () => ({
@@ -100,9 +112,10 @@ const KITANO = { id: 'p-kitano', name: '北野', avatarInitials: 'KI', isManagem
 beforeEach(() => {
   capturedBookingProps = null
   capturedKaruteProps = null
+  capturedReservationStaffFilterProps = null
 })
 
-describe('AppointmentsView → NewBookingDialog wiring (M26, M27)', () => {
+describe('AppointmentsView → NewBookingDialog / ReservationStaffFilter wiring (M26, M27, M3d/F1)', () => {
   it('threads authProfileId as selfStaffId and keeps isManagement on every staff row', () => {
     render(
       <AppointmentsView
@@ -131,6 +144,16 @@ describe('AppointmentsView → NewBookingDialog wiring (M26, M27)', () => {
     // M27
     expect(capturedBookingProps?.staff?.find((s) => s.id === KITANO.id)?.isManagement).toBe(true)
     expect(capturedBookingProps?.staff?.find((s) => s.id === SATO.id)?.isManagement).toBe(false)
+    // M3d / F1: the SAME AppointmentsView.tsx:330 map feeds ReservationStaffFilter
+    // (the 予約 tab's 担当 filter) — a separate line from the NewBookingDialog map
+    // above, and until now uncovered because the mock returned null.
+    expect(
+      capturedReservationStaffFilterProps?.staffList?.find((s) => s.id === KITANO.id)
+        ?.isManagement,
+    ).toBe(true)
+    expect(
+      capturedReservationStaffFilterProps?.staffList?.find((s) => s.id === SATO.id)?.isManagement,
+    ).toBe(false)
   })
 })
 

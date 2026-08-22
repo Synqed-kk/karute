@@ -49,8 +49,9 @@ export const SessionsScreenDTO = z.object({
       id: z.string(),
       name: z.string(),
       initials: z.string(),
-      /** 経営メンバー — for the 新規カルテ dialog's staff picker; the filter
-       *  pills built from the same list stay complete (Liam ruling Ⓒ). */
+      /** 経営メンバー — for the 新規カルテ dialog's staff picker, and for
+       *  StaffSelector's own default-list hiding (search reveals them;
+       *  ⚖ 2026-09-01 overturn of Ⓒ). This array itself stays complete. */
       isManagement: z.boolean().optional(),
     }),
   ),

@@ -8,9 +8,15 @@
  * from the grid, which is exactly when the salon needs to see it).
  *
  * Everything else must stay complete:
- *   - `staff` (the 担当 view filter + the booking picker's source) keeps every
- *     member — the combobox hides them client-side, the filter never does
- *     (Liam ruling Ⓒ).
+ *   - `staff` (the 担当 view filter + the booking picker's SOURCE ARRAY) keeps
+ *     every member — hiding 経営メンバー from the default view is a CLIENT-SIDE
+ *     display choice now made by both StaffSelector (the view filter) and
+ *     StaffCombobox (the assignment picker); this server-side array must stay
+ *     complete either way, or a search-revealed pick would resolve to nothing
+ *     (⚖ 2026-09-01 overturn of ruling Ⓒ, which had the filter never hide —
+ *     Liam reversed that call the same evening: a filter's default list
+ *     scrolling past a whole management roster to reach a stylist earns the
+ *     same hide-then-search treatment the picker already had).
  *   - the store lens is still the outer boundary: the lane rule is a FILTER on
  *     the already-store-scoped list, never a union back over the raw roster.
  *   - staff colors come from the store-scoped visibleStaff roster (one level
@@ -163,8 +169,8 @@ describe('store isolation still wins — filter, never union', () => {
   })
 })
 
-describe('view filters + pickers stay complete (ruling Ⓒ)', () => {
-  it('screen.staff lists 経営メンバー — the 担当 filter must still offer them', () => {
+describe('view filters + pickers keep a COMPLETE source array (⚖ 2026-09-01 overturn of Ⓒ)', () => {
+  it('screen.staff lists 経営メンバー — the SOURCE ARRAY the 担当 filter renders from must still carry them (display-hiding is client-side, not a server filter)', () => {
     const screen = build()
     expect(screen.staff.map((s) => s.id)).toEqual([SATO, KITANO])
     expect(screen.staff.find((s) => s.id === KITANO)?.isManagement).toBe(true)
@@ -185,10 +191,11 @@ describe('view filters + pickers stay complete (ruling Ⓒ)', () => {
 })
 
 // The 顧客 and カルテ screens have no lane rule at all — their rosters feed
-// both a view filter and an assignment picker, and only the picker (the
-// combobox, client-side) hides anyone. If a server filter ever creeps in here,
-// "show me just 北野's day" dies with it.
-describe('顧客 / カルテ rosters are never server-filtered (ruling Ⓒ)', () => {
+// both a view filter and an assignment picker, and BOTH now hide 経営メンバー
+// from their default list CLIENT-SIDE only (StaffSelector / StaffCombobox,
+// ⚖ 2026-09-01). If a server filter ever creeps in here, "show me just 北野's
+// day" (a search-then-select on either component) dies with it.
+describe('顧客 / カルテ rosters are never server-filtered (⚖ 2026-09-01 overturn of Ⓒ)', () => {
   it('customers list screen keeps 経営メンバー in its roster, flag attached', () => {
     const screen = buildCustomersListScreen({
       list: { customers: [], total: 0 } as unknown as Parameters<
@@ -260,8 +267,11 @@ describe('colors do not move when the toggle flips', () => {
   })
 })
 
-// Ⓒ says the 担当 view filter must keep OFFERING management members. Offering a
-// name that then renders an empty grid is the same dead end as not offering it.
+// The 担当 view filter still lets you EXPLICITLY reach a management member —
+// search-then-select on the client, ?staff=<id> on the server. Reaching a name
+// that then renders an empty grid is the same dead end as not being able to
+// reach it, so ?staff=<management id> must still resolve a (possibly empty)
+// lane regardless of whether that name showed up in the default list.
 describe('filtering 担当 to a management member shows their lane', () => {
   it('an idle 経営メンバー gets their (empty) lane back when explicitly filtered to', () => {
     const screen = build({ staffFilter: KITANO })

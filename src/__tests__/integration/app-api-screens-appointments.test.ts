@@ -503,8 +503,11 @@ describe('GET /api/app/v1/screens/appointments', () => {
     listAppointments.mockResolvedValue({ appointments: [] })
     dto = await dtoOf(await GET(req(), route))
     expect(dto.reservationStaff.map((s) => s.id)).toEqual(['auth-user-1'])
-    // …while the 担当 filter / booking-picker roster keeps everyone (ruling Ⓒ)
-    // and carries the flag for the combobox to hide client-side.
+    // …while the 担当 filter / booking-picker roster array keeps everyone
+    // (this DTO's own guarantee), carrying the flag so the client-side
+    // combobox AND StaffSelector's default list can each hide them
+    // (⚖ 2026-09-01 overturn of Ⓒ moved the "never hides" promise off the
+    // client filter itself; this array-completeness assertion is unchanged).
     expect(dto.staff.map((s) => s.id)).toEqual(['auth-user-1', 'profile-2'])
     expect(dto.staff.find((s) => s.id === 'profile-2')?.isManagement).toBe(true)
   })
