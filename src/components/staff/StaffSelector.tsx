@@ -316,9 +316,10 @@ function StaffRow({
   label: string
   selected: boolean
   onClick: () => void
-  /** 経営メンバー — only ever true on a row surfaced by the search reveal
-   *  (the default list never contains one). Same soft-wash chip recipe as
-   *  StaffCombobox / StaffForm — light blue, never a black/solid fill. */
+  /** 経営メンバー — true on rows surfaced by the search reveal, and also on
+   *  the currently-selected management member's row in the default list.
+   *  Same soft-wash chip recipe as StaffCombobox / StaffForm — light blue,
+   *  never a black/solid fill. */
   managementBadge?: boolean
 }) {
   const t = useTranslations('staff')
