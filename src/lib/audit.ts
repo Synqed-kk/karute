@@ -624,11 +624,20 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // params and `locale` from a query string — so there is no "mode" for a
   // second action to depend on; regenerateKaruteWithClient (src/actions/
   // regenerate-karute.ts) never mentions a summary-regenerate action either.
-  // Only karute.entries_regenerate exists. pendingWave stays: the writer
-  // (the three SDK calls inside regenerateKaruteEntriesWithClient/rollback/
-  // updateKaruteSummaryWithClient) isn't wired to emit this action yet — see
-  // SDK_WRITE_ALLOWLIST's regenerate-karute.ts entries.
-  'karute.regenerate': { kind: 'mutation', category: 'karute', action: 'karute.entries_regenerate', targetType: 'karute', pendingWave: 'Wave W — 2026-07-27' },
+  // Only karute.entries_regenerate exists. LIVE as of lane 2026-08-30, fixed
+  // in the FIX ROUND 1 follow-up (success-only audit law): the facade's
+  // generic success hook auto-emits this row on a 2xx SUCCESS body only, with
+  // counts detail (added/removed — parity with the web wrappers' rows,
+  // FacadeContext.auditDetail). The route's regenerateKaruteWithClient call
+  // also returns HTTP 200 for a SOFT failure ({error}, e.g. "No transcript to
+  // regenerate from.") — the route now suppresses that case via
+  // ctx.auditSuppress so no row is written for a no-op (no writer of its own
+  // on this route — logFacadeAudit IS the emitter, same as
+  // customer.photo.delete/sync.run). The two web wrappers
+  // (regenerateKarute/regenerateKaruteEntries, src/actions/
+  // regenerate-karute.ts) emit their own success-only auditWeb() row instead
+  // — see AUDITED_CORES's regenerate-karute.ts entry.
+  'karute.regenerate': { kind: 'mutation', category: 'karute', action: 'karute.entries_regenerate', targetType: 'karute' },
 
   // recordings.* (§3.1: "Inventory-verified; CP2 keeps the claim honest").
   // recordings.job.enqueue: the job-pipeline's OWN choke point is
