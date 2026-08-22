@@ -5108,3 +5108,65 @@ describe('BATCH-10b ⚖ flag 69 — route stylesheets stop competing', () => {
     expect(src).toContain('<span>営業時間 {hhmm(hours.open)}–{hhmm(hours.close)}・時間外は非表示</span>')
   })
 })
+
+// ── BATCH-10b X6 — ⚖ flag 71: the fixture's hold stops greeting Liam ─────────
+// 「the 仮押さえ popover appears on every fresh load. Why? Is it a bug?」 Yes —
+// and NOT in the fixture. canon ships the same held booking deliberately
+// (fable-store-today.html:1901/:2009, the 担当変更 incident's own candidate) but
+// its #holdBar is `hidden` at load and renderHoldBar is called only from
+// stageChange and 確定. The standing surface was our transplant's invention.
+// ⚖ Fable adjudication 8/22: cure (a) — the surface becomes gesture-born, the
+// fixture keeps its booking, and the incident keeps its evidence.
+describe('BATCH-10b ⚖ flag 71 — no uninvited confirm', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+
+  it('a fresh load shows NO standing 仮押さえ — the prop alone can no longer raise it', () => {
+    // THE FIX, in one clause. `holdOpen` is screen-local and starts false, so a
+    // fresh load and a day flip both begin with the question unasked.
+    expect(SRC).toContain(': props.hold && holdAnswer === null && holdOpen')
+    expect(SRC).toContain('const [holdOpen, setHoldOpen] = useState(false)')
+    // The surface can be reached ONLY through the open path — no other writer.
+    expect(SRC.match(/setHoldOpen\(/g)).toHaveLength(1)
+  })
+
+  it('the explicit re-open is the held booking itself, and any other card puts it down', () => {
+    // ⚖ 41's re-open clause, wired to the booking the hold is about. Opening a
+    // different card closes it, so the surface can never hang over a card it is
+    // not about — one expression, no second branch.
+    const press = SRC.slice(SRC.indexOf('if (!ctx.moved) {'), SRC.indexOf('openClickWindow(upAt'))
+    expect(press).toContain('setSelected(item.caseId)')
+    expect(press).toContain('setHoldOpen(props.hold != null && item.caseId === props.hold.bookingId)')
+    // The hold's id and a card's id are the same id space, which is what makes
+    // that comparison meaningful rather than always-false.
+    const board = readFileSync(join(process.cwd(), 'src/business/lib/today-board.ts'), 'utf8')
+    expect(board).toContain('caseId: b.id,')
+    const page = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
+    expect(page).toContain('bookingId: heldBooking.id,')
+  })
+
+  it('the answers are untouched, so ⚖ 56 and the 担当変更 card still resolve', () => {
+    // No new component and no new grammar: the SAME confirm surface, the same
+    // two answers, the same writes. `holdAnswer` still closes it for the
+    // session and still resolves the incident's decision card.
+    expect(SRC).toContain("              setHoldAnswer('confirmed')")
+    expect(SRC).toContain("setResolved((was) => toggleOn(was, props.cards.find((c) => c.kind === '担当変更')?.id))")
+    expect(SRC).toContain("revert: { enabled: true, run: () => { setHoldAnswer('reverted'); show('仮押さえのままにしました') } },")
+    // An ANSWERED hold is gone whether or not the card is opened again: the
+    // holdAnswer clause sits IN FRONT of holdOpen, so it decides first.
+    const arm = SRC.slice(SRC.indexOf(': props.hold && holdAnswer === null'), SRC.indexOf('anchorId: null,'))
+    expect(arm).toContain('holdAnswer === null && holdOpen')
+  })
+
+  it('the fixture keeps its held booking — the incident\'s evidence is not collateral', () => {
+    // The packet's letter was to delete the fixture's hold. It is canon-faithful
+    // demo data AND it feeds three other surfaces, so cure (a) leaves it alone.
+    const fixtures = readFileSync(join(process.cwd(), 'src/business/lib/fixtures.ts'), 'utf8')
+    expect(fixtures).toContain("board_state: 'hold'")
+    const page = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
+    // Still lifted, and still feeding the recovery dialog…
+    expect(page).toContain("const heldBooking = bookings.find((b) => b.state === 'hold') ?? null")
+    expect(page).toContain('新しい仮押さえ')
+    // …and the incident's 仮押さえ済 step still reads the prop, not the surface.
+    expect(SRC).toContain('(i === 1 && props.hold != null)')
+  })
+})

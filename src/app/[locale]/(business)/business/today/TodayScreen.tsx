@@ -593,6 +593,20 @@ export function TodayScreen(props: TodayProps) {
   /** canon's two-footer confirm strip (:4246-4250): 削除 swaps the footer for a
    *  sentence + やめる/削除する rather than opening a second surface. */
   const [blockDeleteAsk, setBlockDeleteAsk] = useState(false)
+  /** ⚖ Liam flag 71 (2026-08-22) — THE STANDING 仮押さえ IS OPENED, NEVER UNINVITED.
+   *
+   *  It used to hang off the PROP alone, so the day's own hold interrogated the
+   *  owner on every single load: 「この内容で確定？」 before he had touched
+   *  anything. canon does not do this — it ships the same held booking
+   *  (fable-store-today.html:1901/:2009) but its `#holdBar` is `hidden` at load
+   *  and `renderHoldBar` is only ever called from `stageChange` and 確定. The
+   *  surface was our transplant's own invention, not the fixture's fault, so the
+   *  fixture keeps its held booking and the incident keeps its evidence.
+   *
+   *  Screen-local ON PURPOSE, unlike `holdAnswer`: the ANSWER must outlive a day
+   *  flip (⚖ 41), but "is this popover open" must not — a flip should not carry
+   *  an open question onto another day's board. */
+  const [holdOpen, setHoldOpen] = useState(false)
   const [seed, setSeed] = useState<{ staffId: string; start: number; nonce: number } | null>(null)
 
   // ── the interaction plane ────────────────────────────────────────────────
@@ -1430,8 +1444,17 @@ export function TodayScreen(props: TodayProps) {
         confirm: { label: pendingConfirm.label, enabled: pendingConfirm.enabled, run: confirmPending },
         revert: { enabled: true, run: revertPending },
       }
-    : props.hold && holdAnswer === null
+    // ⚖ Liam flag 71 — `holdOpen` is the whole fix, and it is LAST on purpose:
+    // the two clauses before it are ⚖ 41/56's law, untouched. Unanswered is
+    // still the only state that HAS a question; opening is now how it gets
+    // asked. An answered hold stays gone for the session either way.
+    : props.hold && holdAnswer === null && holdOpen
       ? {
+          // ⚖ 71 does NOT change the line below: anchoring this surface to the
+          // card was measured on 2026-08-21 to sit over the board and swallow
+          // the pointerdown of a card in the lane below, and the operator's way
+          // out of that is the very click it eats. Opening it on demand shortens
+          // how long it is up; it does not make an anchored surface safe.
           // The day's own standing 仮押さえ (the incident's) — the pill, always.
           anchorId: null,
           status: '仮押さえ',
@@ -2053,6 +2076,13 @@ export function TodayScreen(props: TodayProps) {
       // A press that never travelled is a selection, not a drag.
       clearDrag()
       setSelected(item.caseId)
+      // ⚖ Liam flag 71 — THE EXPLICIT RE-OPEN, and the only way the day's own
+      // 仮押さえ is ever asked now. Opening the held booking opens its question;
+      // opening any other card puts it down again, so the surface can never be
+      // left hanging over a card it is not about. Same component, same answers,
+      // same 確定/元に戻す — `holdAnswer` still resolves the 担当変更 card and
+      // still serves ⚖ 56.
+      setHoldOpen(props.hold != null && item.caseId === props.hold.bookingId)
       return
     }
     // ⚖ Liam flag 33, ROOT CAUSE — canon `finishNormalBookingDrag` (:4563) opens
