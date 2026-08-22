@@ -35,8 +35,11 @@ export interface StaffFilterEntry {
   name: string
   initials: string
   /** 経営メンバー — carried for the assignment pickers fed from this same
-   *  roster. The FILTER itself never hides them (Liam ruling Ⓒ: narrowing the
-   *  view is not assigning work). */
+   *  roster, and for the shared StaffSelector's own default-list hiding
+   *  (⚖ 2026-09-01 overturn of ruling Ⓒ: the filter's default list now
+   *  hides them too; typing in its search box reveals them again). The
+   *  ARRAY passed to this component still stays complete — narrowing what's
+   *  offered is StaffSelector's job, not this component's. */
   isManagement?: boolean
 }
 

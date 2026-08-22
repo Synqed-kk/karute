@@ -240,8 +240,11 @@ describe('inertness — PR A changes no roster behavior', () => {
     })
   }
 
-  // The PICKER roster is the half that must never move — the 担当 view filter
-  // reads it and has to keep offering everyone (Liam ruling Ⓒ). The day-LANE
+  // The PICKER roster is the half that must never move — it's the complete
+  // array the 担当 view filter (StaffSelector) and the assignment pickers
+  // both read, hiding client-side on their own terms (⚖ 2026-09-01 overturn
+  // of Ⓒ: StaffSelector's default list now hides too; this array staying
+  // complete is what lets its search still reveal everyone). The day-LANE
   // half is the one PR B deliberately changes; its rules live in
   // management-flag-lanes.test.ts.
   it('flagged and unflagged builds produce the same picker roster', () => {

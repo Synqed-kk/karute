@@ -92,9 +92,10 @@ export interface AppointmentsScreen {
     name: string
     avatarInitials: string
     avatarUrl?: string
-    /** 経営メンバー — rides along so the booking picker can default-hide them
-     *  client-side. The LIST stays complete: the 担当 view filter must keep
-     *  offering everyone (Liam ruling Ⓒ). */
+    /** 経営メンバー — rides along so the booking picker AND the 担当 view
+     *  filter's own default list (StaffSelector) can both default-hide them
+     *  client-side, search reveals (⚖ 2026-09-01 overturn of Ⓒ). The LIST
+     *  itself stays complete — the server must keep offering everyone. */
     isManagement?: boolean
   }[]
   reservationStaff: ReservationStaff[]
@@ -187,8 +188,11 @@ export function buildAppointmentsScreen(
         s.id === activeStaffId ||
         // Explicitly filtering 担当 to this person is a direct request to see
         // THEIR day — returning an empty grid instead would make the 担当
-        // filter look broken on exactly the members the view filter is
-        // required to keep offering (ruling Ⓒ).
+        // filter look broken on exactly the members it's required to keep
+        // offering (this is the day-LANE list; the picker roster below is
+        // separate and always complete — ⚖ 2026-09-01 overturn of Ⓒ moved
+        // the "never hides" guarantee off the CLIENT filter, not off this
+        // server-side lane rule).
         s.id === staffFilter ||
         bookedToday.has(s.id),
     )

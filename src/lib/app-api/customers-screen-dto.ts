@@ -59,8 +59,10 @@ export const CustomersScreenDTO = z.object({
       id: z.string(),
       name: z.string(),
       initials: z.string(),
-      /** 経営メンバー — for the 指名スタッフ picker fed from this roster; the
-       *  filter pills themselves stay complete (Liam ruling Ⓒ). */
+      /** 経営メンバー — for the 指名スタッフ picker fed from this roster, and
+       *  for StaffSelector's own default-list hiding (search reveals them;
+       *  ⚖ 2026-09-01 overturn of Ⓒ). This array itself stays complete —
+       *  narrowing what's shown is the client component's job. */
       isManagement: z.boolean().optional(),
     }),
   ),

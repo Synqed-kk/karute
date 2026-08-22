@@ -37,8 +37,9 @@ export interface SessionsListScreen {
     id: string
     name: string
     initials: string
-    /** 経営メンバー — for the 新規カルテ dialog's staff picker. The filter
-     *  pills built from this same list stay complete (Liam ruling Ⓒ). */
+    /** 経営メンバー — for the 新規カルテ dialog's staff picker, and for
+     *  StaffSelector's own default-list hiding (search reveals them;
+     *  ⚖ 2026-09-01 overturn of Ⓒ). This list itself stays complete. */
     isManagement?: boolean
   }>
   /** The viewer's staff id, or null when the session has no active staff. */

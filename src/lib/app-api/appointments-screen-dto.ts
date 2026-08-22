@@ -79,9 +79,10 @@ export const AppointmentsScreenDTO = z.object({
       name: z.string(),
       avatarInitials: z.string(),
       avatarUrl: z.string().optional(),
-      /** 経営メンバー — the booking picker default-hides them client-side;
-       *  the list itself stays complete (担当 filter, Liam ruling Ⓒ).
-       *  Optional so an absent value fails OPEN (visible). */
+      /** 経営メンバー — the booking picker AND the 担当 view filter's own
+       *  default list (StaffSelector) both default-hide them client-side,
+       *  search reveals (⚖ 2026-09-01 overturn of Ⓒ). This array itself
+       *  stays complete. Optional so an absent value fails OPEN (visible). */
       isManagement: z.boolean().optional(),
     }),
   ),
