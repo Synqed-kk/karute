@@ -55,7 +55,7 @@ import {
   laneKeyAtY,
   landingVerdict,
   laneSpans,
-  offerableStarts,
+  offerableCell,
   overrideCaption,
   VERDICT_WORD,
   nextSpan,
@@ -1044,8 +1044,8 @@ describe('a block that damages the day says so, and offers the better position',
     // engine's own first alternative, but only after it has been snapped onto
     // the store's BLOCK lattice and put through the block's own landing gate —
     // an engine start is not yet an offer.
-    expect(SRC).toContain('      suggest: alts[0],')
-    expect(SRC).toContain('const alts = offerableStarts(cell.alternatives, props.guard.config.blockStepMin ?? BLOCK_STEP_MIN_DEFAULT, from, (s) =>')
+    expect(SRC).toContain('      suggest: better.alternatives[0],')
+    expect(SRC).toContain('const better = offerableCell(cell, props.guard.config.blockStepMin ?? BLOCK_STEP_MIN_DEFAULT, from, (s) =>')
     // NEVER a refusal: the only thing that turns a block back is still an
     // overlap with something real.
     expect(SRC.slice(SRC.indexOf('function finishBlockDrag'), SRC.indexOf('function takeBlockSuggestion')))
@@ -4326,6 +4326,9 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
   })
   const staff = (items: BoardItem[] = []) => lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'], items })
   const beds = [lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })]
+  const cellOf = (state: RailCell['state'], sentence: string): RailCell => ({
+    start: 630, state, label: '', sentence, alternatives: [], alternativeKind: null, ackAllowed: state !== 'blocked',
+  })
   const askAt = (start: number, dur = 60) => ({
     staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
     start, end: start + dur, span: place(start, start + dur, HOURS),
@@ -4411,21 +4414,33 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     // The engine walks a 5-minute lattice and a pocket starts where the last
     // booking ended, so 11:45 / 13:15 are honest engine answers and unreachable
     // board positions. 780 is the attempt.
-    expect(offerableStarts([705, 795], 30, 780, () => true)).toEqual([690, 810])
+    const offer = (alts: number[], attempted: number, ok: (s: number) => boolean = () => true) =>
+      offerableCell({ ...cellOf('blocked', 'x'), alternatives: alts }, 30, attempted, ok)!.alternatives
+    expect(offer([705, 795], 780)).toEqual([690, 810])
     // The caller's own gate decides: if 11:30 does not survive it, 12:00 does.
-    expect(offerableStarts([705], 30, 780, (s) => s !== 690)).toEqual([720])
+    expect(offer([705], 780, (s) => s !== 690)).toEqual([720])
     // A start already ON the lattice is offered as-is, never nudged.
-    expect(offerableStarts([690, 810], 30, 780, () => true)).toEqual([690, 810])
+    expect(offer([690, 810], 780)).toEqual([690, 810])
     // An alternative that IS the start the operator already tried is dropped —
     // they are looking at it, and 「780に置く」 beside この開始に配置 is noise.
-    expect(offerableStarts([780], 30, 780, () => true)).toEqual([])
+    expect(offer([780], 780)).toEqual([])
     // …and so is one that only reaches the lattice by landing on it: 795 floors
     // onto the attempt, so the offer becomes the step ABOVE instead.
-    expect(offerableStarts([795], 30, 780, () => true)).toEqual([810])
+    expect(offer([795], 780)).toEqual([810])
     // Nothing survivable → nothing offered, rather than an unreachable button.
-    expect(offerableStarts([705, 795], 30, 780, () => false)).toEqual([])
+    expect(offer([705, 795], 780, () => false)).toEqual([])
     // Dedupe: two engine starts that snap onto the same legal start are one offer.
-    expect(offerableStarts([695, 700], 30, 780, () => true)).toEqual([690])
+    expect(offer([695, 700], 780)).toEqual([690])
+    // The cell is returned WHOLE with only its offers replaced — the sentence,
+    // the state and the ack flag are what the surface prints and gates on.
+    const filtered = offerableCell({ ...cellOf('blocked', '入らなくなります'), ackAllowed: true, alternatives: [705] }, 30, 780, () => true)!
+    expect(filtered.alternatives).toEqual([690])
+    expect(filtered.sentence).toBe('入らなくなります')
+    expect(filtered.ackAllowed).toBe(true)
+    // A cell with nothing to offer is handed back untouched, and so is null.
+    const none = cellOf('degraded', 'y')
+    expect(offerableCell(none, 30, 780, () => true)).toBe(none)
+    expect(offerableCell(null, 30, 780, () => true)).toBeNull()
   })
 
   it('⚖ 58 RIDER — ONE filter, and BOTH offering surfaces go through it', () => {
@@ -4434,15 +4449,15 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     // branch, and both take the filter.
     expect(SRC).toContain('cell: offerable(v.cell, ask),')
     expect(SRC.match(/offerable\(v\.cell, ask\)/g)).toHaveLength(2)
-    expect(SRC).toContain('const alternatives = offerableStarts(cell.alternatives, props.guard.bookingStepMin, start, (s) =>')
+    expect(SRC).toContain('return offerableCell(cell, props.guard.bookingStepMin, start, (s) =>')
     // …gated by the release's OWN verdict, through `verdictRef` so a surface
     // built inside a gesture closure judges against the board as it stands.
     expect(SRC).toContain("verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind !== 'blocked'")
     // Block side: the same helper, on the BLOCK lattice, with the block's gate.
-    expect(SRC).toContain('const alts = offerableStarts(cell.alternatives, props.guard.config.blockStepMin ?? BLOCK_STEP_MIN_DEFAULT, from, (s) =>')
-    expect(SRC).toContain('suggest: alts[0],')
+    expect(SRC).toContain('const better = offerableCell(cell, props.guard.config.blockStepMin ?? BLOCK_STEP_MIN_DEFAULT, from, (s) =>')
+    expect(SRC).toContain('suggest: better.alternatives[0],')
     // Two spellings in the whole board, one per lattice — no third.
-    expect(SRC.match(/offerableStarts\(/g)).toHaveLength(2)
+    expect(SRC.match(/offerableCell\(/g)).toHaveLength(2)
   })
 })
 

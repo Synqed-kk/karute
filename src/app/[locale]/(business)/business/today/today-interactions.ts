@@ -853,14 +853,15 @@ function railCell(
  *  `blockClash` for a block — so nothing is ever offered that the release
  *  itself would refuse. An alternative that collapses onto the start the
  *  operator already tried is dropped: they are looking at it. */
-export function offerableStarts(
-  starts: readonly number[],
+export function offerableCell(
+  cell: RailCell | null,
   stepMin: number,
   attempted: number,
   ok: (start: number) => boolean,
-): number[] {
+): RailCell | null {
+  if (!cell || cell.alternatives.length === 0) return cell
   const out: number[] = []
-  for (const s of starts) {
+  for (const s of cell.alternatives) {
     const candidates = s % stepMin === 0 ? [s] : [Math.floor(s / stepMin) * stepMin, Math.ceil(s / stepMin) * stepMin]
     // Two engine starts that land on the same legal step are ONE offer, and the
     // duplicate is dropped rather than walked to its other neighbour: the
@@ -872,7 +873,7 @@ export function offerableStarts(
       if (ok(c)) { out.push(c); break }
     }
   }
-  return out
+  return { ...cell, alternatives: out }
 }
 
 /** One drag step: origin + pointer travel → the card's new span, on canon's

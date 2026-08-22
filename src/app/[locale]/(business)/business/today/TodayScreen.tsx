@@ -90,7 +90,7 @@ import {
   isOverShelf,
   laneKeyAtY,
   landingVerdict,
-  offerableStarts,
+  offerableCell,
   nextSpan,
   overrideCaption,
   onShownBoard,
@@ -1244,13 +1244,11 @@ export function TodayScreen(props: TodayProps) {
    *  block's own gate) is the only other spelling on the board. */
   const offerable = useCallback(
     (cell: RailCell | null, ask: LandingAsk): RailCell | null => {
-      if (!cell || cell.alternatives.length === 0) return cell
       const start = minuteOf(ask.span.x, hours)
       const dur = minuteOf(ask.span.x + ask.span.w, hours) - start
-      const alternatives = offerableStarts(cell.alternatives, props.guard.bookingStepMin, start, (s) =>
+      return offerableCell(cell, props.guard.bookingStepMin, start, (s) =>
         verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind !== 'blocked',
       )
-      return { ...cell, alternatives }
     },
     [hours, props.guard.bookingStepMin],
   )
@@ -2498,10 +2496,10 @@ export function TodayScreen(props: TodayProps) {
     // (⚖ 31c) — so the button cannot name a position the press would refuse.
     // Nothing left after the filter means there is nothing to say (⚖ 39: a
     // surface that cannot offer anything better is noise).
-    const alts = offerableStarts(cell.alternatives, props.guard.config.blockStepMin ?? BLOCK_STEP_MIN_DEFAULT, from, (s) =>
+    const better = offerableCell(cell, props.guard.config.blockStepMin ?? BLOCK_STEP_MIN_DEFAULT, from, (s) =>
       !locked.includes(targetLane) && !blockClash(placedLanes.find((l) => l.key === targetLane), ctx.key, place(s, s + (to - from), hours)),
     )
-    if (alts.length === 0) return
+    if (!better || better.alternatives.length === 0) return
     blockAdviceOpenedAt.current = e.timeStamp
     setBlockAdvice({
       key: ctx.key,
@@ -2513,7 +2511,7 @@ export function TodayScreen(props: TodayProps) {
       // The engine's own least-loss / safe start, on the board's own lattice
       // and through the block's own gate — the surface does not open without
       // one, so this button always acts (⚖ 58 RIDER + ⚖ 31c).
-      suggest: alts[0],
+      suggest: better.alternatives[0],
       home,
       // ⚖ flag 68 — the origin, both halves, snapped at pointerdown.
       originStart: minuteOf(ctx.origin.x, hours),
