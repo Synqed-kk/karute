@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { authErrorKey } from '@/lib/auth/error-key'
 import { safeNext } from '@/lib/auth/safe-next'
 
-export function LoginForm({ locale, next }: { locale: string; next?: string | null }) {
+export function LoginForm({ locale, next }: { locale: string; next?: string | string[] | null }) {
   const t = useTranslations('auth')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)

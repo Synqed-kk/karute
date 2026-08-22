@@ -9,7 +9,10 @@ export default async function LoginPage({
   searchParams,
 }: {
   params: Promise<{ locale: string }>
-  searchParams: Promise<{ error?: string; next?: string }>
+  // GREPTILE #754 P1 — the honest shape: a repeated query key (`?next=a&next=b`)
+  // arrives as an array, and typing it as a bare string only hid that from the
+  // compiler. `next` is handed on unread, and `error` is compared, never called.
+  searchParams: Promise<{ error?: string | string[]; next?: string | string[] }>
 }) {
   const { locale } = await params
   // ⚖ Liam flag 70 — forwarded raw; `LoginForm` owns the gate (one home for

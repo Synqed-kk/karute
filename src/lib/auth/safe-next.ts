@@ -13,8 +13,14 @@
  * browser could read as another host is dropped and the caller falls back to
  * its own default.
  */
-export function safeNext(value: string | null | undefined): string | null {
-  if (!value) return null
+export function safeNext(value: string | string[] | null | undefined): string | null {
+  // GREPTILE #754 P1 — AND A QUERY STRING CAN SAY A THING TWICE. `?next=a&next=b`
+  // reaches a page as `string[]`, not `string`; the old signature said otherwise,
+  // so `.startsWith` threw on the array — AFTER the password had been accepted.
+  // The operator was signed in and standing on a dead page. The parameter type is
+  // now the shape Next.js actually delivers, which makes this gate the only way
+  // to turn one into a path anywhere in the app.
+  if (typeof value !== 'string' || !value) return null
   // Must be rooted here. Absolute URLs ("https://evil.test"), scheme-relative
   // paths and bare words all fail this.
   if (!value.startsWith('/')) return null
