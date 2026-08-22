@@ -28,6 +28,7 @@ import { getCustomerWithClient } from '@/lib/customers/queries'
 import { getKaruteOutcomeWithClient, OLD_SHELL_OUTCOMES } from '@/lib/karute/outcome'
 import { mapSynqedKaruteRecord } from '@/lib/supabase/karute'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
+import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { scopeKarutePhotos } from '@/lib/karute/scoped-photos'
 
 // Node runtime: the synqed SDK + node:crypto verifier are server-only.
@@ -108,6 +109,17 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       : null
     const karute = mapSynqedKaruteRecord(raw, customerName)
 
+    // Recorder-lock fix (⚖ Liam 8/22): translate a synqed-core staff CARD id
+    // (not a Supabase profile id) into its profile id before the ACL compare
+    // in buildKaruteDetailScreen — `?? original` keeps profile-id-stamped
+    // rows and unlinked card ids unchanged. Same translation as the web page.
+    const ownerProfileId = karute.staff_profile_id
+      ? ((await lookupProfileIdForSynqedStaffIdForBusiness(
+          karute.staff_profile_id,
+          businessId,
+        )) ?? karute.staff_profile_id)
+      : null
+
     // Merge→shell-update window gate (#689 P1). Fielded shells (iOS ≤4.6,
     // Android ≤code 12) parse this screen with a BAKED strict outcome enum
     // that predates 'revisit' — one such row hard-fails their ENTIRE detail
@@ -131,7 +143,7 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
     const outcomeForClient = outcomeMasked ? null : outcome
 
     const built = buildKaruteDetailScreen({
-      karute,
+      karute: { ...karute, staff_profile_id: ownerProfileId },
       allCustomers,
       outcome: outcomeForClient,
       viewerStaffId,

@@ -23,6 +23,17 @@ jest.mock('@supabase/supabase-js', () => ({
   }),
 }))
 jest.mock('@synqed-kk/client', () => ({ SynqedClient: jest.fn(), SynqedError: class extends Error {} }))
+// Recorder-lock fix (2026-08-30 packet): regenerateKaruteWithClient now
+// calls staff-map's card-id→profile-id lookup on every non-null staff_id.
+// Defaults to null, which `?? original` in the caller resolves back to the
+// raw id — preserving every other test's existing ACL behavior (this
+// suite's fixtures stamp staff_id with a profile id already). One
+// dedicated case below overrides the mock per-call (mockResolvedValueOnce)
+// to pin the Change-4 translation wiring itself.
+jest.mock('@/lib/synqed/staff-map', () => ({
+  lookupProfileIdForSynqedStaffId: jest.fn(async () => null),
+  lookupProfileIdForSynqedStaffIdForBusiness: jest.fn(async () => null),
+}))
 
 const capabilities = { current: new Set<string>(['records.write']) }
 const roster = { current: [{ id: 'auth-user-1', full_name: '田中' }] as Array<{ id: string; full_name: string }> }
@@ -95,6 +106,7 @@ jest.mock('@/lib/subscription/feature-gate', () => ({
 
 import { POST as regenerate, OPTIONS as regenerateOptions } from '@/app/api/app/v1/karute/[id]/regenerate/route'
 import { POST as outcome, OPTIONS as outcomeOptions } from '@/app/api/app/v1/karute/[id]/outcome/route'
+import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { auditLines } from './helpers/audit-lines'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
@@ -159,6 +171,15 @@ describe('POST /karute/[id]/regenerate (Decision 2)', () => {
     capabilities.current = new Set(['records.write', 'recordings.viewAll'])
     const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(200)
+    expect(addEntry).toHaveBeenCalled()
+  })
+
+  it('recorder-lock fix: a CARD-id owner translates to the caller’s profile id → 200 (Change 4 pin)', async () => {
+    REC.current = { ...REC.current, staff_id: 'card-101' }
+    ;(lookupProfileIdForSynqedStaffIdForBusiness as jest.Mock).mockResolvedValueOnce('auth-user-1')
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
+    expect(res.status).toBe(200)
+    expect(lookupProfileIdForSynqedStaffIdForBusiness).toHaveBeenCalledWith('card-101', 'business-1')
     expect(addEntry).toHaveBeenCalled()
   })
 

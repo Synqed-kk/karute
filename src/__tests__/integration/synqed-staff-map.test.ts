@@ -35,6 +35,10 @@ function mockDeps(opts: {
   withEnv?: boolean
   /** Force the self-heal update() to throw. */
   updateThrows?: boolean
+  /** Force staff.list() to reject (models a roster-fetch/core-outage failure). */
+  listRejects?: boolean
+  /** Force getBusinessId() to reject (models a broken cookie session). */
+  businessIdThrows?: boolean
 }) {
   mockStaff = opts.staff
   mockProfileEmail = opts.profileEmail
@@ -52,7 +56,10 @@ function mockDeps(opts: {
     if (opts.updateThrows) throw new Error('patch failed')
     return {}
   })
-  staffListMock = jest.fn(async () => ({ staff: mockStaff }))
+  staffListMock = jest.fn(async () => {
+    if (opts.listRejects) throw new Error('roster fetch failed')
+    return { staff: mockStaff }
+  })
   staffCreate = jest.fn(async () => ({ id: 'staff-created' }))
 
   jest.doMock('@synqed-kk/client', () => ({
@@ -62,7 +69,10 @@ function mockDeps(opts: {
   }))
 
   jest.doMock('@/lib/staff', () => ({
-    getBusinessId: jest.fn(async () => BIZ),
+    getBusinessId: jest.fn(async () => {
+      if (opts.businessIdThrows) throw new Error('session broken')
+      return BIZ
+    }),
   }))
 
   jest.doMock('@/lib/supabase/service', () => ({
@@ -101,6 +111,22 @@ async function loadLookupFn() {
   let fn!: typeof import('@/lib/synqed/staff-map').lookupSynqedStaffId
   await jest.isolateModulesAsync(async () => {
     fn = (await import('@/lib/synqed/staff-map')).lookupSynqedStaffId
+  })
+  return fn
+}
+
+async function loadForwardLookupFn() {
+  let fn!: typeof import('@/lib/synqed/staff-map').lookupProfileIdForSynqedStaffId
+  await jest.isolateModulesAsync(async () => {
+    fn = (await import('@/lib/synqed/staff-map')).lookupProfileIdForSynqedStaffId
+  })
+  return fn
+}
+
+async function loadForwardLookupForBusinessFn() {
+  let fn!: typeof import('@/lib/synqed/staff-map').lookupProfileIdForSynqedStaffIdForBusiness
+  await jest.isolateModulesAsync(async () => {
+    fn = (await import('@/lib/synqed/staff-map')).lookupProfileIdForSynqedStaffIdForBusiness
   })
   return fn
 }
@@ -292,6 +318,67 @@ describe('lookupSynqedStaffId — pure lookup, no create', () => {
     const lookup = await loadLookupFn()
     await expect(lookup('profile-missing')).resolves.toBeNull()
     expect(staffCreate).not.toHaveBeenCalled()
+  })
+})
+
+// Forward translation (recorder-lock fix, 2026-08-30 packet): synqed-core
+// staff CARD id → Supabase profile id (staff.user_id). Read-only — no
+// self-heal, no create, reuses the same cached roster as the reverse lookups
+// above (never a raw staff.list() re-fetch of its own).
+describe('lookupProfileIdForSynqedStaffId — forward (card id → profile id) lookup', () => {
+  it('returns the linked profile id for a known card id', async () => {
+    mockDeps({
+      staff: [{ id: 'card-101', user_id: 'profile-1', email: 'a@x.com' }],
+    })
+    const lookup = await loadForwardLookupFn()
+    await expect(lookup('card-101')).resolves.toBe('profile-1')
+  })
+
+  it('returns null when the id is not a known card id', async () => {
+    mockDeps({
+      staff: [{ id: 'card-101', user_id: 'profile-1', email: 'a@x.com' }],
+    })
+    const lookup = await loadForwardLookupFn()
+    await expect(lookup('not-a-card-id')).resolves.toBeNull()
+  })
+
+  it('returns null when the matched card has no linked profile (user_id null)', async () => {
+    mockDeps({
+      staff: [{ id: 'card-201', user_id: null, email: 'b@x.com' }],
+    })
+    const lookup = await loadForwardLookupFn()
+    await expect(lookup('card-201')).resolves.toBeNull()
+  })
+
+  it('reuses the cached roster — a single lookup makes exactly one staff.list call', async () => {
+    mockDeps({
+      staff: [{ id: 'card-101', user_id: 'profile-1', email: 'a@x.com' }],
+    })
+    const lookup = await loadForwardLookupFn()
+    await lookup('card-101')
+    expect(staffListMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+// Fail-open (FIX ROUND 2, post-Greptile P1): this lookup runs BEFORE the
+// existing owner/viewAll checks at every call site, so a roster-fetch/core
+// outage must never bubble up as a throw — it must resolve null so callers'
+// `?? original` fallback keeps pre-fix behavior instead of breaking reads
+// that never needed the translation.
+describe('lookupProfileIdForSynqedStaffId(ForBusiness) — fail-open on lookup failure', () => {
+  it('resolves null (never throws) when the roster fetch rejects', async () => {
+    mockDeps({ staff: [], listRejects: true })
+    const lookup = await loadForwardLookupForBusinessFn()
+    await expect(lookup('card-101', BIZ)).resolves.toBeNull()
+  })
+
+  it('cookie twin resolves null (never throws) when getBusinessId rejects', async () => {
+    mockDeps({
+      staff: [{ id: 'card-101', user_id: 'profile-1', email: 'a@x.com' }],
+      businessIdThrows: true,
+    })
+    const lookup = await loadForwardLookupFn()
+    await expect(lookup('card-101')).resolves.toBeNull()
   })
 })
 

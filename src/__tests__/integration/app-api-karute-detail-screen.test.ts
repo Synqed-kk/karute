@@ -17,7 +17,28 @@ process.env.AUTH_SUPABASE_URL ??= 'https://test-auth.supabase.co'
 jest.mock('@supabase/supabase-js', () => ({
   createClient: () => ({ auth: { getUser: async () => ({ data: { user: { id: 'auth-user-1' } }, error: null }) } }),
 }))
-jest.mock('@synqed-kk/client', () => ({ SynqedClient: jest.fn(), SynqedError: class extends Error {} }))
+process.env.SYNQED_CORE_URL ??= 'https://synqed-core.test'
+process.env.SYNQED_CORE_API_KEY ??= 'test-synqed-core-key'
+// staff-map's card-id→profile-id forward lookup (recorder-lock fix) reads
+// this same roster via `new SynqedClient(...).staff.list()` — mocked here
+// rather than via '@/lib/synqed/client' (staff-map imports the SDK class
+// directly). Default empty: existing profile-id-stamped owner rows resolve
+// via the `?? original` fallback (no card-id match), unaffected.
+const synqedStaffRoster = { current: [] as Array<{ id: string; user_id: string | null; email: string | null }> }
+// FIX ROUND 2 (post-Greptile P1): models a roster-fetch/core-outage failure
+// so the staff-map forward lookup's fail-open contract can be pinned here.
+const synqedStaffRosterRejects = { current: false }
+jest.mock('@synqed-kk/client', () => ({
+  SynqedClient: jest.fn().mockImplementation(() => ({
+    staff: {
+      list: async () => {
+        if (synqedStaffRosterRejects.current) throw new Error('roster fetch failed')
+        return { staff: synqedStaffRoster.current }
+      },
+    },
+  })),
+  SynqedError: class extends Error {},
+}))
 
 const capabilities = { current: new Set<string>(['customers.view']) }
 const roster = { current: [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }] as Array<{ id: string; full_name: string; display_role: string }> }
@@ -93,6 +114,8 @@ beforeEach(() => {
   jest.clearAllMocks()
   capabilities.current = new Set(['customers.view'])
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
+  synqedStaffRoster.current = []
+  synqedStaffRosterRejects.current = false
   KAR.current = { id: '00000000-0000-4000-8000-000000000008', created_at: '2026-06-01T03:00:00Z', ai_summary: '・肩こり改善傾向', transcript: 'RAW TRANSCRIPT TEXT', business_id: 'business-1', customer_id: 'cust-1', staff_id: 'other-staff', recording_session_id: 'sess-1', entries: [{ id: 'e1', category: 'SYMPTOM', content: '肩こり', original_quote: null, confidence: 0.9, is_manual: false, created_at: '2026-06-01T03:05:00Z' }] }
   getConsent.mockResolvedValue({ consent: { policy_version: 'v0' } })
   listPhotos.mockResolvedValue({ photos: [{ id: 'p1', signed_url: 'https://x/p1', category: 'before', caption: null, recording_session_id: 'sess-1' }] })
@@ -136,6 +159,86 @@ describe('GET /api/app/v1/screens/karute/[id] (packet 07 §Build 2)', () => {
     const dto = await res.json()
     expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
     expect(dto.transcriptRestricted).toBe(false)
+  })
+
+  // Recorder-lock fix (⚖ Liam 8/22, packet 2026-08-30): the karute's staff_id
+  // sometimes carries a synqed-core staff CARD id (whose user_id holds the
+  // recorder's auth uid) instead of the profile id. This is the bug's exact
+  // shape — without the card→profile translation the recorder was locked
+  // out of her OWN transcript.
+  it('ACL: a card-id-stamped owner row resolves via staff-map — the recorder (card user_id) sees her own raw transcript', async () => {
+    synqedStaffRoster.current = [{ id: 'card-101', user_id: 'auth-user-1', email: null }]
+    KAR.current = { ...KAR.current, staff_id: 'card-101' }
+    const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+    const dto = await res.json()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.transcriptRestricted).toBe(false)
+  })
+
+  // Three-way access pin (⚖ Liam 8/22, verbatim packet requirement) — with a
+  // CARD-ID-stamped owner row, all three ACL outcomes hold simultaneously:
+  // viewAll sees everyone's, the card's own user_id sees her own, and any
+  // other staff without viewAll sees none.
+  describe('ACL: card-id-stamped owner — three-way access pin', () => {
+    beforeEach(() => {
+      synqedStaffRoster.current = [{ id: 'card-101', user_id: 'auth-user-1', email: null }]
+      KAR.current = { ...KAR.current, staff_id: 'card-101' }
+      roster.current = [
+        { id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' },
+        { id: 'auth-manager', full_name: '店長', display_role: 'manager' },
+        { id: 'auth-user-2', full_name: '鈴木', display_role: 'practitioner' },
+      ]
+    })
+
+    it('owner/viewAll viewer sees ALL transcripts (viewAll branch untouched)', async () => {
+      capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+      const headers = { authorization: `Bearer ${bearer('auth-manager')}` }
+      const res = await GET(req({ headers }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+      expect(dto.transcriptRestricted).toBe(false)
+    })
+
+    it('the recorder (the card’s user_id) sees her OWN transcript', async () => {
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+      expect(dto.transcriptRestricted).toBe(false)
+    })
+
+    it('any other staff without viewAll sees NONE (transcript null + transcriptRestricted true)', async () => {
+      const headers = { authorization: `Bearer ${bearer('auth-user-2')}` }
+      const res = await GET(req({ headers }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.transcript).toBeNull()
+      expect(dto.transcriptRestricted).toBe(true)
+    })
+  })
+
+  // Fail-open (FIX ROUND 2, post-Greptile P1): the forward lookup runs
+  // BEFORE the owner/viewAll checks, so a roster-fetch/core outage must
+  // never break a read path that never needed the translation.
+  describe('ACL: staff-map roster fetch failure — fail-open', () => {
+    it('profile-id-stamped owner still sees her own raw transcript (translation never needed)', async () => {
+      synqedStaffRosterRejects.current = true
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      expect(res.status).toBe(200)
+      const dto = await res.json()
+      expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+      expect(dto.transcriptRestricted).toBe(false)
+    })
+
+    it('card-id-stamped owner row + viewAll viewer still sees the transcript (viewAll never needed the translation)', async () => {
+      synqedStaffRosterRejects.current = true
+      KAR.current = { ...KAR.current, staff_id: 'card-101' }
+      capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      expect(res.status).toBe(200)
+      const dto = await res.json()
+      expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+      expect(dto.transcriptRestricted).toBe(false)
+    })
   })
 
   it('cross-tenant / missing karute id → 404, BEFORE any wave read', async () => {
