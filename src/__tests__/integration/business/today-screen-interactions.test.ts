@@ -1460,7 +1460,11 @@ describe('the drag proxy: mounted on the gesture, moved by transform, gone on ev
     // WO-2c's architecture is intact: the DRAWN board during a drag is the
     // committed one, so the real node is never moved between lanes.
     // (⚖ flag 26: a block drag holds the same freeze, for the same reason.)
-    expect(SRC).toContain('const drawnLanes = live || blockLive ? committedLanes : boardLanes')
+    // ⚖ flag 57 — RENEGOTIATED: a third case joined, and only as a PAINT. The
+    // pending-override ghost is `attemptLanes`, folded in here and nowhere
+    // else; `moves` is untouched, so every judge of the board still sees the
+    // board the operator has not changed.
+    expect(SRC).toContain('const drawnLanes = live || blockLive ? committedLanes : (attemptLanes ?? boardLanes)')
     // WO-2d's is intact too: the window layers still read committedLanes.
     expect(SRC).toContain('sellLayerFor(committedLanes')
     expect(SRC).toContain('gapLayerFor(committedLanes')
@@ -2843,7 +2847,11 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // ride the same board, and the same "committed, never live" rule.)
     expect(SRC).toContain('const committedLanes = useMemo(\n    () => applyMoves(placedLanes, moves, parked, addedHere, hours, bedMoves),')
     // What is frozen for the length of a GESTURE is `liveMoves`, and only that.
-    expect(SRC).toContain('const drawnLanes = live || blockLive ? committedLanes : boardLanes')
+    // ⚖ flag 57 — RENEGOTIATED: a third case joined, and only as a PAINT. The
+    // pending-override ghost is `attemptLanes`, folded in here and nowhere
+    // else; `moves` is untouched, so every judge of the board still sees the
+    // board the operator has not changed.
+    expect(SRC).toContain('const drawnLanes = live || blockLive ? committedLanes : (attemptLanes ?? boardLanes)')
     const sell = SRC.slice(SRC.indexOf('const sell = useMemo('), SRC.indexOf('const gap = useMemo('))
     expect(sell).toContain('sellLayerFor(committedLanes, hours, {')
     expect(sell).not.toContain('boardLanes')
@@ -2940,8 +2948,16 @@ describe('the pair keeps both its lanes, and no ending turns a release into a bo
     // ⚖ BATCH-8 flag 51 — RENEGOTIATED: 3 → 4. The 満室 refusal is a fourth
     // abandoned landing and restores the pair for the same reason the other
     // three do (⚖ 47: a refusal changes NOTHING).
-    expect(finish.match(/restoreSides\(ctx\.id, from\)/g)).toHaveLength(4)
+    // ⚖ flag 57 (batch-10b) — RENEGOTIATED BACK: 4 → 3. The blocked branch's
+    // restore is GONE, and it strengthens ⚖47 rather than weakening it. A drag
+    // writes `live`, never `moves`, so that call wrote the pointerdown snapshot
+    // back over the identical values — except on an UNTOUCHED card, where it
+    // ADDED a no-op `moves` entry that then survived a day flip. A refusal now
+    // writes nothing at all. The card is still drawn at its origin the moment
+    // the advice clears, because `moves` is where it is drawn from.
+    expect(finish.match(/restoreSides\(ctx\.id, from\)/g)).toHaveLength(3)
     expect(finish).not.toContain('setMoves(')
+    expect(finish).not.toContain('setBedMoves(')
     const cancel = SRC.slice(SRC.indexOf('function cancelDrag('), SRC.indexOf('function clearDrag()'))
     expect(cancel).toContain('restoreSides(ctx.id, ctx.home)')
     // …and 元に戻す answers for the room as well as the person.
@@ -3692,7 +3708,15 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     // the refusal is now spoken by the ONE VERDICT before the solve runs, so the
     // pair goes back and the explanation opens from `explainBlocked` rather than
     // from a second `solveBed` null-check. Same invariant, one door earlier.
-    expect(finish).toContain("if (v.kind === 'blocked') {\n      restoreSides(ctx.id, from)\n      explainBlocked(")
+    // ⚖ flag 57 — RENEGOTIATED AGAIN: the restore is gone (it was a no-op write
+    // that ⚖47 is better off without) and the branch explains straight away,
+    // carrying the attempted landing so the card can SIT there while it asks.
+    // The invariant that matters is unchanged and pinned here: this branch does
+    // not stage, and `land(` is not reachable from it.
+    const blockedBranch = finish.slice(finish.indexOf("if (v.kind === 'blocked') {"), finish.indexOf('land(null, span)'))
+    expect(blockedBranch).toContain('explainBlocked(')
+    expect(blockedBranch).not.toContain('restoreSides(')
+    expect(blockedBranch).not.toContain('stage(')
     // Every landing that carries a room goes through the ONE solver.
     expect(SRC.match(/solveBed\(/g)).toHaveLength(5)
     for (const call of [
@@ -4101,11 +4125,15 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
       expect([name, body.includes("if (v.kind === 'blocked') {")]).toEqual([name, true])
       expect([name, body.includes('explainBlocked(')]).toEqual([name, true])
     }
-    // The release path puts the pair back BEFORE it explains (⚖ 47: a refusal
-    // changes nothing), and nothing stages on that branch.
+    // The release path explains and does NOT stage (⚖ 47: a refusal changes
+    // nothing). ⚖ flag 57 — RENEGOTIATED: it no longer writes the pair back
+    // either, because that write was the card's snap-back and was redundant
+    // besides; the branch explains, and it hands over the attempted landing so
+    // the card stays visible at the spot the question is about.
     const finish = SRC.slice(SRC.indexOf('function finishDrag('), SRC.indexOf('function explainBlocked('))
-    expect(finish).toContain("if (v.kind === 'blocked') {\n      restoreSides(ctx.id, from)\n      explainBlocked(")
-    expect(finish.indexOf('restoreSides(ctx.id, from)\n      explainBlocked(')).toBeLessThan(finish.indexOf('land(null, span)'))
+    expect(finish).toContain("if (v.kind === 'blocked') {")
+    expect(finish.indexOf("if (v.kind === 'blocked') {")).toBeLessThan(finish.indexOf('land(null, span)'))
+    expect(finish).toContain('}, { id: ctx.id, staffLane: sides.staffLane, bedLane: sides.bedLane, span })')
   })
 
   // ── (d) the explanation surface and its authority gate ───────────────────
@@ -4531,9 +4559,13 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     expect(state).toBe('degraded')
     expect(SRC).toContain("const state = v ? (v.kind === 'blocked' ? 'blocked' : v.kind === 'caution' ? 'degraded' : 'safe') : c.state")
     expect(SRC).toContain("${v?.kind === 'blocked' ? ' inert' : ''}")
-    // Release: only `blocked` is inert, so this landing STAGES — and the ⚖ 47
-    // restore + the explain popover are the blocked branch's, unchanged.
-    expect(SRC).toContain("    if (v.kind === 'blocked') {\n      restoreSides(ctx.id, from)\n      explainBlocked(")
+    // Release: only `blocked` is inert, so this landing STAGES — and the
+    // explain popover is the blocked branch's, unchanged. (⚖ flag 57: the
+    // branch's ⚖47 restore is gone; it was a no-op write and it was the
+    // snap-back. Nothing on that branch stages, which is the invariant.)
+    const inertBranch = SRC.slice(SRC.indexOf("    if (v.kind === 'blocked') {"), SRC.indexOf('    land(null, span)'))
+    expect(inertBranch).toContain('explainBlocked(')
+    expect(inertBranch).not.toContain('stage(')
   })
 
   it('ROOT C fell out — it was not built separately, and it could not have been', () => {
@@ -4813,5 +4845,104 @@ describe('BATCH-10 W4 — ROOT B: drops stop dying silently', () => {
     const out = applyMoves(lanes, { 'apt-1': { laneKey: 'p-04', ...place(900, 960, HOURS) } }, ['apt-1'], added, HOURS)
     expect(out[0].items).toHaveLength(0)
     expect(out[1].items.map((i) => i.caseId)).toEqual(['apt-1'])
+  })
+})
+
+// ── BATCH-10b ⚖ flag 57 — the card stays where it was dropped, in ghost dress ──
+// Liam: 「it snaps back the instant the question appears」. Two calls did that,
+// in this order, before the popover was built: the drag teardown destroyed the
+// travelling proxy, and `restoreSides` wrote the pointerdown pair back. The fix
+// is a DISPLAY overlay in place of the second one — flag 68's commit-then-advise
+// shape, with a paint where 68 has a write, so ⚖47 still holds literally.
+describe('BATCH-10b ⚖ flag 57 — the pending-override ghost', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const finish = SRC.slice(SRC.indexOf('function finishDrag('), SRC.indexOf('function cancelDrag('))
+
+  it('the ghost is a PAINT: it reaches drawnLanes and nothing else', () => {
+    // `moves` is the source of truth a refusal may not touch. The overlay is
+    // built from it, never into it.
+    const memo = SRC.slice(SRC.indexOf('const attemptLanes = useMemo('), SRC.indexOf('const drawnLanes ='))
+    expect(memo).toContain('const a = advice?.attempt')
+    expect(memo).toContain('if (!a) return null')
+    expect(memo).not.toContain('setMoves(')
+    expect(memo).not.toContain('setBedMoves(')
+    expect(SRC).toContain('const drawnLanes = live || blockLive ? committedLanes : (attemptLanes ?? boardLanes)')
+    // Every judge of the board still reads the UN-overlaid one. If a future
+    // round feeds any of them `drawnLanes`, a refusal starts changing things.
+    expect(SRC).toContain('guardRailsFor(boardLanes')
+    expect(SRC).toContain('sellLayerFor(committedLanes')
+    expect(SRC).toContain('gapLayerFor(committedLanes')
+    expect(SRC).not.toContain('sellLayerFor(drawnLanes')
+    expect(SRC).not.toContain('guardRailsFor(drawnLanes')
+    expect(SRC).not.toContain('checksFor(drawnLanes')
+  })
+
+  it('the blocked release explains and leaves the card at the attempted landing', () => {
+    // No rewind on the branch, and the attempted landing is handed over.
+    const branch = finish.slice(finish.indexOf("if (v.kind === 'blocked') {"), finish.indexOf('land(null, span)'))
+    expect(branch).not.toContain('restoreSides(')
+    expect(branch).toContain('explainBlocked(')
+    expect(branch).toContain('{ id: ctx.id, staffLane: sides.staffLane, bedLane: sides.bedLane, span }')
+    // …and the ghost's span IS the span 注意して配置 stages, so the card cannot
+    // visibly jump when the operator escalates.
+    expect(branch).toContain('override: () => land(v.reason, span)')
+  })
+
+  it('the off-lane release grows NO ghost — there is no lane for one to sit on', () => {
+    // ⚖ 50(d)'s explanation-only popover: no row was named, so there is nothing
+    // to place and nothing to paint. It keeps its own ⚖47 restore.
+    const off = finish.slice(finish.indexOf('const off: LandingAsk'), finish.indexOf('targetLane = laneKey'))
+    expect(off).toContain('explainBlocked(')
+    expect(off).not.toContain('staffLane: sides.staffLane')
+    // Its restore runs BEFORE it explains, exactly as it did.
+    expect(finish.indexOf('restoreSides(ctx.id, from)')).toBeLessThan(finish.indexOf('const off: LandingAsk'))
+    // The default is null, so a caller that says nothing gets no ghost — the
+    // create / 次回予約 consult included (no card exists there yet).
+    expect(SRC).toContain("attempt: GuardAdvice['attempt'] = null,")
+    expect(SRC).toContain('attempt: null,')
+  })
+
+  it('every ending clears it, because it lives on the advice — flag 41 for free', () => {
+    // やめる, an alternative, 注意して配置, Escape and any new gesture all clear
+    // `advice`, and the ghost is a field ON it: there is no second lifetime to
+    // get wrong, and no new teardown path was added.
+    expect(SRC).toContain('<button className="btn" type="button" onClick={() => setAdvice(null)}>やめる</button>')
+    expect(SRC).toContain('place: (s) => { setAdvice(null); run.placeAt(s) },')
+    expect(SRC).toContain('override: props.canOverride && escalate ? () => { setAdvice(null); escalate() } : null,')
+    expect(SRC).toContain('if (advice) { setAdvice(null); return }')
+    const close = SRC.slice(SRC.indexOf('function closeAdvice()'), SRC.indexOf('function closeAdvice()') + 400)
+    expect(close).toContain('setAdvice(null)')
+  })
+
+  it('the ghost wears the proxy\'s blocked dress, not a placed card\'s', () => {
+    // With `live` cleared it would otherwise render as an ordinary card. ⚖ Q4
+    // default (overturnable): the proxy's own red dashed outline, so it reads
+    // as a proposal.
+    expect(SRC).toContain("${advice?.attempt?.id === item.caseId ? ' attempting' : ''}")
+    const css = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+    expect(css).toContain('.biz .event.attempting { outline: 2px dashed var(--red);')
+    // …and it is NOT the 仮押さえ dress, which means something else entirely.
+    expect(css).toContain('.biz .event.pending { outline: 2px dashed var(--orange);')
+  })
+
+  it('the overlay really does redraw the card at the attempt, arithmetically', () => {
+    // The memo's own arithmetic, run directly: `moves` untouched, the overlay
+    // map carrying the attempted landing, applyMoves doing the rest.
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', items: [booking({ key: 'a', caseId: 'apt-1' }, 660, 720)] }),
+      lane({ key: 'p-04', group: 'staff' }),
+    ]
+    const moves: Moves = {}
+    const attempt = { id: 'apt-1', staffLane: 'p-04', span: place(840, 900, HOURS) }
+    const overlay = { ...moves, [attempt.id]: { laneKey: attempt.staffLane, x: attempt.span.x, w: attempt.span.w } }
+    const ghost = applyMoves(lanes, overlay, [], [], HOURS)
+    expect(ghost[0].items).toHaveLength(0)
+    expect(ghost[1].items[0].caseId).toBe('apt-1')
+    expect(ghost[1].items[0].startMin).toBe(840)
+    // …and the board everything else judges is untouched: same lane, same span.
+    const real = applyMoves(lanes, moves, [], [], HOURS)
+    expect(real[0].items[0].startMin).toBe(660)
+    expect(real[1].items).toHaveLength(0)
+    expect(moves).toEqual({})
   })
 })

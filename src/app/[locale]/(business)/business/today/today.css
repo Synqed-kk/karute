@@ -429,6 +429,12 @@
    say so. Canon's .88-and-a-shadow belonged to a card that WAS the traveller. */
 .biz .event.dragging { opacity: .32; cursor: grabbing; box-shadow: none; }
 .biz .event.pending { outline: 2px dashed var(--orange); outline-offset: 1px; z-index: 6; }
+/* ⚖ Liam flag 57 (2026-08-22) — THE PENDING-OVERRIDE GHOST. The card sits at
+   the landing it is asking about while the popover is open, wearing the proxy's
+   own blocked dress (:535) so it reads as a PROPOSAL and can never be mistaken
+   for a booking that was placed. It is display state: nothing is staged, and
+   answering the question — either way — takes the dress off with it. */
+.biz .event.attempting { outline: 2px dashed var(--red); outline-offset: -1px; opacity: .78; z-index: 6; }
 .biz .event.parked { display: none !important; }
 .biz .track.drop-target { background-color: var(--indigo-soft); background-image: linear-gradient(to right, rgba(63, 91, 232, .22) 1px, transparent 1px); box-shadow: inset 0 0 0 2px var(--select-line); }
 /* 着地プレビュー — 実寸・スナップ済みの破線ゴースト。⚖ Liam 19: 行またぎだけでなく

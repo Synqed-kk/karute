@@ -508,6 +508,20 @@ interface GuardAdvice {
    *  surface is an explanation with no place-anyway action at all (his ruling:
    *  the state is untouched and there is nothing to press). */
   override: (() => void) | null
+  /** ⚖ Liam flag 57 (2026-08-22) — THE LANDING THE CARD IS ASKING ABOUT.
+   *
+   *  His complaint: the card snaps home the instant the question appears, so
+   *  the popover asks about a spot nothing is standing on. This carries that
+   *  spot, and it is DISPLAY STATE ONLY — folded into `drawnLanes` and nothing
+   *  else, so ⚖47's 「a refusal changes NOTHING」 still holds literally:
+   *  `moves` is untouched and every reader of the real board (`checksFor`,
+   *  `pendingConfirm`, `holdSummary`, the guard rails) sees the un-mutated one.
+   *
+   *  `null` wherever there is no attempted landing to sit on — the create /
+   *  次回予約 consult (no card exists yet) and the off-lane release (no row was
+   *  named, so there is no lane to sit on either). Its lifetime is the advice's
+   *  own, which is exactly flag 41's: it dies with every ending. */
+  attempt: { id: string; staffLane: string | null; bedLane: string | null; span: { x: number; w: number } } | null
 }
 
 export function TodayScreen(props: TodayProps) {
@@ -936,7 +950,21 @@ export function TodayScreen(props: TodayProps) {
    *  card he grabbed is under his cursor now (the proxy), so the original stays
    *  at its origin and dims — it is the "you took this from here" marker, and a
    *  card that both dims AND slides is two travelling things at once. */
-  const drawnLanes = live || blockLive ? committedLanes : boardLanes
+  /** ⚖ Liam flag 57 — THE PENDING-OVERRIDE GHOST, and nothing more than a paint.
+   *
+   *  Shaped exactly like `liveMoves` / `liveBedMoves` above and fed into
+   *  `drawnLanes` alone. `moves` never learns about it, so the confirm surface,
+   *  the checks, the sell layer and the guard rails all keep judging the board
+   *  the operator has NOT changed — which is what makes this legal under ⚖47
+   *  rather than a staged placement wearing a costume. */
+  const attemptLanes = useMemo(() => {
+    const a = advice?.attempt
+    if (!a) return null
+    const staff = a.staffLane ? { ...moves, [a.id]: { laneKey: a.staffLane, x: a.span.x, w: a.span.w } } : moves
+    const bed = a.bedLane ? { ...bedMoves, [a.id]: { laneKey: a.bedLane, x: a.span.x, w: a.span.w } } : bedMoves
+    return applyMoves(placedLanes, staff, parked, addedHere, hours, bed)
+  }, [advice, moves, bedMoves, placedLanes, parked, addedHere, hours])
+  const drawnLanes = live || blockLive ? committedLanes : (attemptLanes ?? boardLanes)
   /** ⚖ Liam 2026-08-20: the dashed outline is now the SNAPPED LANDING PREVIEW and
    *  is drawn for every live drag, same lane or not — with the card off travelling
    *  it is the only thing on the board saying where the release will actually put
@@ -2146,7 +2174,16 @@ export function TodayScreen(props: TodayProps) {
     // it removes an entire class of hover/release disagreement.
     const v = verdictRef.current(ask)
     if (v.kind === 'blocked') {
-      restoreSides(ctx.id, from)
+      // ⚖ Liam flag 57 (2026-08-22) — NO REWIND WHILE THE QUESTION IS OPEN.
+      //
+      // `restoreSides` used to run here, one line before the popover was built,
+      // and with the drag teardown already past it the operator was answering
+      // about a spot nothing was standing on. It was also redundant: a drag
+      // writes `live`, never `moves`, so the pointerdown snapshot this wrote
+      // back was the values already there. The card returns to its origin the
+      // moment the advice clears, from `moves` — the source of truth a refusal
+      // is not allowed to touch (⚖47). What is added instead is the DISPLAY
+      // overlay below, so the card is visibly still asking.
       explainBlocked(v, ask, targetLane, span, { x: clientX, y: clientY, t: upAt }, {
         // 「注意して配置」 — the same staging the clean path runs, carrying the
         // sentence it walked past so the confirm surface can show it.
@@ -2165,7 +2202,7 @@ export function TodayScreen(props: TodayProps) {
           }
           land(null, at)
         },
-      })
+      }, { id: ctx.id, staffLane: sides.staffLane, bedLane: sides.bedLane, span })
       return
     }
     land(null, span)
@@ -2192,6 +2229,7 @@ export function TodayScreen(props: TodayProps) {
     span: { x: number; w: number },
     at: { x: number; y: number; t: number },
     run: { override: (() => void) | null; placeAt: (start: number) => void },
+    attempt: GuardAdvice['attempt'] = null,
   ) {
     // ⚖ 50(d) — the escalation exists where the STORE granted it AND where
     // there is something to escalate onto. A release over no row at all has
@@ -2213,6 +2251,11 @@ export function TodayScreen(props: TodayProps) {
       anchor: at,
       place: (s) => { setAdvice(null); run.placeAt(s) },
       override: props.canOverride && escalate ? () => { setAdvice(null); escalate() } : null,
+      // ⚖ 57 — the card sits where it was dropped while the question is open.
+      // 注意して配置 stages the SAME span, so it never visibly jumps; やめる and
+      // every other ending clear the advice and the card is drawn from `moves`
+      // again, i.e. its origin. No new teardown path exists or is needed.
+      attempt,
     })
   }
 
@@ -2729,6 +2772,10 @@ export function TodayScreen(props: TodayProps) {
       anchor: at,
       place: (s) => run(s, null),
       override: null,
+      // ⚖ 57 — no ghost here: a 要確認 landing PLACES (this branch is reached
+      // from `askGuard`, where nothing is on the board yet), so there is no
+      // attempted card to leave sitting.
+      attempt: null,
     })
   }
 
@@ -3616,7 +3663,11 @@ export function TodayScreen(props: TodayProps) {
         // ⚖ Liam flag 29 — `dragging` is the ORIGIN MARKER of a card that left
         // (opacity .32); a card being stretched never left, so it wears canon's
         // live resize look instead of dimming to a husk.
-        className={`event ${state}${selected === item.caseId ? ' selected' : ''}${live?.id === item.caseId ? (live.mode === 'move' ? ' dragging' : ' resizing') : ''}${isPending ? ' pending' : ''}`}
+        // ⚖ Liam flag 57 — a card sitting at a landing the board has REFUSED is
+        // a proposal, not a placement, so it wears the proxy's own blocked
+        // dress (red dashed) rather than an ordinary card's. Without it, with
+        // `live` cleared, it would read as a booking that had been placed.
+        className={`event ${state}${selected === item.caseId ? ' selected' : ''}${live?.id === item.caseId ? (live.mode === 'move' ? ' dragging' : ' resizing') : ''}${isPending ? ' pending' : ''}${advice?.attempt?.id === item.caseId ? ' attempting' : ''}`}
         type="button"
         key={item.key}
         data-book={item.caseId ?? undefined}
