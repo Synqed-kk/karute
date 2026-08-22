@@ -608,6 +608,15 @@ export function TodayScreen(props: TodayProps) {
     cell: RailCell
     suggest: number
     home: Move | undefined
+    /** ⚖ Liam flag 68 (2026-08-22) — WHERE THE BLOCK CAME FROM, so the surface
+     *  can tell "a better place" apart from "back where you took it from".
+     *  `nearestBestAlternatives` returns the nearest best start BEFORE the drop
+     *  first, computed on a board with this block removed — so the origin is
+     *  always a first-class candidate and `alternatives[0]` IS the origin
+     *  whenever the operator dragged rightwards out of a good spot. Both halves
+     *  were already in scope at the call site and neither was compared. */
+    originStart: number
+    homeLane: string
   } | null>(null)
   /** ⚖ Liam flag 34 — the 仮押さえ confirm has left the bottom of the page and
    *  hangs under the card it is answering for. `true` when that card is not on
@@ -2383,16 +2392,59 @@ export function TodayScreen(props: TodayProps) {
       // without one, so this button always acts.
       suggest: cell.alternatives[0],
       home,
+      // ⚖ flag 68 — the origin, both halves, snapped at pointerdown.
+      originStart: minuteOf(ctx.origin.x, hours),
+      homeLane: ctx.homeLane,
     })
   }
 
   /** ⚖ Liam flag 39 — the one click. The block goes to the start the engine
-   *  named, on the lane it was dropped on, at its own length. */
+   *  named, on the lane it was dropped on, at its own length.
+   *
+   *  ⚖ Liam flag 68 (2026-08-22) — AND IT IS JUDGED FIRST, like every other
+   *  placement on this board. This used to write `blockMoves` outright: no
+   *  `blockClash`, no lock test, nothing — so 提案位置に置く could lay a block
+   *  over a real booking, or onto a lane locked since the drop, and say nothing.
+   *  `blockClash` had exactly ONE call site in the tree (the drop), and both
+   *  booking-side alternative buttons already re-verify for this stated reason:
+   *  an alternative the guard offered is a NEW landing, so the popup may not
+   *  place a thing the release would have refused (⚖ 31c — the buttons perform,
+   *  or they do not exist). The block path was the one that skipped it.
+   *
+   *  A refusal here changes NOTHING (⚖ 47): the block stays where the drop put
+   *  it, the surface stays open with its reason and its other two exits, and
+   *  the toast says which floor stopped it. */
   function takeBlockSuggestion(a: NonNullable<typeof blockAdvice>) {
     const at = place(a.suggest, a.suggest + a.dur, hours)
+    if (locked.includes(a.laneKey)) {
+      refuse('シフトロック中: この行には予定を置けません')
+      return
+    }
+    if (blockClash(placedLanes.find((l) => l.key === a.laneKey), a.key, at)) {
+      refuse('他の予定と重なるため提案位置には置けません')
+      return
+    }
     setBlockMoves((was) => ({ ...was, [a.key]: { laneKey: a.laneKey, ...at } }))
     setBlockAdvice(null)
     show(`${a.title}を${a.laneLabel}の${hhmm(a.suggest)}〜${hhmm(a.suggest + a.dur)}に移しました`)
+  }
+
+  /** ⚖ Liam flag 68 — IS THE PROPOSAL JUST THE ORIGIN? The engine will keep
+   *  naming the spot the block was dragged away from, because with the block
+   *  lifted out of the board that spot is genuinely the best start again. It
+   *  only looks like nonsense because the operator just left it. Two comparisons
+   *  against values the advice already carries, and they decide BOTH the word on
+   *  the button and what pressing it does:
+   *
+   *    · same start, same row → this is 元に戻す, and `undoBlockDrop` already IS
+   *      that action (it is what やめる runs), so there is no second path.
+   *    · a different row → the button NAMES the row, because 「11:45に置く」 on a
+   *      lane the block never stood on reads as "back where it was" and is the
+   *      half that surprised Liam.
+   *
+   *  ⚖ Q8 ruling (a)+(c), Fable default, overturnable. */
+  function blockSuggestionIsOrigin(a: NonNullable<typeof blockAdvice>): boolean {
+    return a.suggest === a.originStart && a.laneKey === a.homeLane
   }
 
   /** …and やめる, which is the drop itself undone: back to wherever this block
@@ -4423,10 +4475,17 @@ export function TodayScreen(props: TodayProps) {
               answering for a box that is already down, not for a start being
               chosen. Nothing new is said — the verdict above is the engine's
               sentence verbatim. */}
+          {/* ⚖ flag 68 — and the OFFER line names the row too when the
+              suggestion is on one the block never stood on: a bare clock time
+              there is the sentence that read as "back where it was". */}
           <div className="gp-offer">
             {blockAdvice.cell.alternativeKind === 'least-loss'
               ? '空きを完全には守れません。より損の少ない位置を選べます'
-              : `${blockAdvice.title}は${hhmm(blockAdvice.suggest)}なら空きを分けずに置けます`}
+              : blockSuggestionIsOrigin(blockAdvice)
+                ? `${blockAdvice.title}は元の${hhmm(blockAdvice.suggest)}が空きを分けない位置です`
+                : blockAdvice.laneKey !== blockAdvice.homeLane
+                  ? `${blockAdvice.title}は${blockAdvice.laneLabel}の${hhmm(blockAdvice.suggest)}なら空きを分けずに置けます`
+                  : `${blockAdvice.title}は${hhmm(blockAdvice.suggest)}なら空きを分けずに置けます`}
           </div>
           <div className="gp-actions">
             <button className="gp-cancel" type="button" onClick={() => undoBlockDrop(blockAdvice)}>やめる</button>
@@ -4437,9 +4496,16 @@ export function TodayScreen(props: TodayProps) {
               // The default answer: the operator dropped it, the board has a
               // better place for it, and one press is the whole correction.
               autoFocus
-              onClick={() => takeBlockSuggestion(blockAdvice)}
+              // ⚖ flag 68 — when the "proposal" IS the origin the action is the
+              // undo, not a second write of the same span: one path, and the
+              // button's word matches it.
+              onClick={() => (blockSuggestionIsOrigin(blockAdvice) ? undoBlockDrop(blockAdvice) : takeBlockSuggestion(blockAdvice))}
             >
-              提案位置に置く
+              {blockSuggestionIsOrigin(blockAdvice)
+                ? '元の位置に戻す'
+                : blockAdvice.laneKey !== blockAdvice.homeLane
+                  ? `${blockAdvice.laneLabel}の${hhmm(blockAdvice.suggest)}に置く`
+                  : '提案位置に置く'}
             </button>
           </div>
         </div>

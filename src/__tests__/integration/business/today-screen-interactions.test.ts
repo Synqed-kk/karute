@@ -4208,3 +4208,64 @@ describe('BATCH-10 W1 — the trivial trio: bed solve, proxy paint, block step',
     expect(minuteOf(moved.x + moved.w, HOURS)).toBeCloseTo(1085, 6) // still :05 phase, still 20 long
   })
 })
+
+describe('BATCH-10 W2 — ⚖ flag 68: the block advisor stops lying', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+
+  it('⚖ 31c — 提案位置に置く is judged by the SAME gate the drop is, and a refusal changes nothing', () => {
+    // ROOT (study §68): `takeBlockSuggestion` wrote `blockMoves` outright —
+    // `blockClash` had exactly one call site in the whole tree (the drop), so
+    // the advisor could lay a block over a real booking and say nothing, while
+    // both booking-side alternative buttons re-verify on purpose.
+    const take = SRC.slice(SRC.indexOf('function takeBlockSuggestion('), SRC.indexOf('function blockSuggestionIsOrigin('))
+    expect(take).toContain("if (locked.includes(a.laneKey)) {")
+    expect(take).toContain("if (blockClash(placedLanes.find((l) => l.key === a.laneKey), a.key, at)) {")
+    // Both refusals speak through the ONE door and return before any write.
+    expect(take.indexOf('refuse(')).toBeLessThan(take.indexOf('setBlockMoves('))
+    expect(take.match(/refuse\(/g)).toHaveLength(2)
+    // …and `blockClash` now has TWO call sites: the drop, and the offer.
+    expect(SRC.match(/blockClash\(/g)).toHaveLength(2)
+  })
+
+  it('⚖ 31c — the gate is the real predicate, not a copy of it', () => {
+    // The same function the drop calls, on real lanes: a suggestion that lands
+    // on a booking is a clash; the block never clashes with ITSELF (the drop
+    // has already written it, so it is standing on the board when this runs).
+    const at = place(705, 765, HOURS) // 11:45〜12:45
+    const occupied = lane({
+      key: 'c-03', group: 'staff',
+      items: [booking({ key: 'other', caseId: 'apt-x' }, 720, 780)],
+    })
+    expect(blockClash(occupied, 'blk-04', at)).toBe(true)
+    const itself = lane({
+      key: 'c-03', group: 'staff',
+      items: [{ ...booking({ key: 'blk-04', caseId: null }, 780, 840), kind: 'block' }],
+    })
+    expect(blockClash(itself, 'blk-04', place(780, 840, HOURS))).toBe(false)
+  })
+
+  it('⚖ Q8 (a) — when the "proposal" IS the origin, the button is 元に戻す and runs the undo', () => {
+    // The engine keeps naming the origin because `nearestBestAlternatives`
+    // returns the nearest best start BEFORE the drop first, on a board with the
+    // block lifted out — so the spot the operator just left is a candidate and
+    // was never compared against.
+    expect(SRC).toContain('function blockSuggestionIsOrigin(a: NonNullable<typeof blockAdvice>): boolean {')
+    expect(SRC).toContain('return a.suggest === a.originStart && a.laneKey === a.homeLane')
+    // Both halves are snapped at the drop, from values already in scope.
+    expect(SRC).toContain('originStart: minuteOf(ctx.origin.x, hours),')
+    expect(SRC).toContain('homeLane: ctx.homeLane,')
+    // ONE path: 元に戻す is `undoBlockDrop`, which is what やめる already runs.
+    expect(SRC).toContain('onClick={() => (blockSuggestionIsOrigin(blockAdvice) ? undoBlockDrop(blockAdvice) : takeBlockSuggestion(blockAdvice))}')
+    expect(SRC).toContain("? '元の位置に戻す'")
+  })
+
+  it('⚖ Q8 (c) — a suggestion on ANOTHER row NAMES that row, on the button and in the offer', () => {
+    // `takeBlockSuggestion` commits onto `a.laneKey` — the DROP lane, not the
+    // block's home — so 「11:45に置く」 after a cross-row drag reads as "put it
+    // back" while it actually lands on a row the block never stood on.
+    expect(SRC).toContain('? `${blockAdvice.laneLabel}の${hhmm(blockAdvice.suggest)}に置く`')
+    expect(SRC).toContain('? `${blockAdvice.title}は${blockAdvice.laneLabel}の${hhmm(blockAdvice.suggest)}なら空きを分けずに置けます`')
+    // The same-row, non-origin case keeps canon's plain wording.
+    expect(SRC).toContain("'提案位置に置く'")
+  })
+})
