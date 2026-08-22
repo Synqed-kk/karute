@@ -4946,3 +4946,49 @@ describe('BATCH-10b ⚖ flag 57 — the pending-override ghost', () => {
     expect(moves).toEqual({})
   })
 })
+
+// ── BATCH-10b X4 — copy: flag 66(a) + the Fable sweep rider (ii) ──────────────
+describe('BATCH-10b X4 — the two copy items', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+
+  it('⚖ 66(a) — the 保護ルール row names the room the control ships in', () => {
+    // Liam: 「It should already be working or I should be able to change the
+    // settings on this page. It shouldn't be 準備中」. The guard IS live on this
+    // profile; what is unbuilt is the per-store control, and by the one-home law
+    // it belongs in the 設定 room. The badge says so instead of saying nothing.
+    expect(SRC).toContain('<span className="chip">変更は「設定」ルームで（準備中）</span>')
+    expect(SRC).not.toContain('<span className="chip">店舗設定は準備中</span>')
+    // The policy word itself is still the STORE's, read-only, unchanged.
+    expect(SRC).toContain('<span>保護ルール: {POLICY_WORD[props.guard.mode]}</span>')
+  })
+
+  it('sweep rider (ii) — the two advisory grammars are two engine FACTS, not one in two voices', () => {
+    // Investigated before touching either, per the packet. They come from
+    // different engine verdicts, and the difference is the whole point:
+    //
+    //   R-REP   → verdict 'refuse'   — the loss is AVOIDABLE; a strictly better
+    //             start exists in this pocket, which is why the surface offers
+    //             alternatives at all.
+    //   DEGRADED→ verdict 'degraded' — 「Nowhere wins — the loss is unavoidable」
+    //             (gap-guard.ts's own words), so the sentence prices the loss
+    //             and names the least-loss start instead of pointing elsewhere.
+    //
+    // Unifying them to the count form would delete the only signal that says
+    // "you can avoid this by moving". They stay two sentences, and this pins it.
+    const engine = readFileSync(join(process.cwd(), 'src/business/lib/canon-logic/gap-guard.ts'), 'utf8')
+    expect(engine).toContain("result.verdict = 'refuse'")
+    expect(engine).toContain("result.verdict = 'degraded'")
+    expect(engine).toContain('/** Nowhere wins — the loss is unavoidable. Log it, do not refuse. */')
+
+    const guard = { services: [{ name: '整体60', dur: 60 }], newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0, mode: 'standard' as const }
+    const railIn = (over = {}) => ({ open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90, nowMinute: null, locked: [], guard, ...over })
+    // 10:00–11:30 holds exactly one 新規90; a 60 anywhere in it costs that one
+    // window and NOWHERE in the pocket avoids it → degraded, the count form.
+    const unavoidable = guardVerdictAt([lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 690 } })], 'p-01', 600, railIn())!
+    expect(unavoidable.state).toBe('degraded')
+    expect(unavoidable.sentence).toContain('枠減')
+    expect(unavoidable.sentence).not.toContain('入らなくなります')
+    // …and the avoidable case keeps its own sentence, pointing away from here.
+    expect(reasonLine({ code: 'R-REP', params: { label: '新規（90分）' } }, 90)).toBe('ここに置くと新規（90分）が入らなくなります')
+  })
+})

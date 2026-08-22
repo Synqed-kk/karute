@@ -3990,8 +3990,14 @@ export function TodayScreen(props: TodayProps) {
                       {/* canon `renderGapGuardPolicySummary` (:5931): the STORE's
                           policy, read-only. The segment above is the operator's
                           own display preference and cannot move this line. */}
+                      {/* ⚖ Liam flag 66(a) (2026-08-22) — SAY WHERE THE CONTROL
+                          LIVES. The bare 準備中 badge read as breakage: the guard
+                          IS live on this profile, and what is unbuilt is the
+                          per-store CONTROL, which by the one-home law belongs in
+                          the 設定 room. Naming the room turns a broken-looking
+                          badge into a signpost. */}
                       <span>保護ルール: {POLICY_WORD[props.guard.mode]}</span>
-                      <span className="chip">店舗設定は準備中</span>
+                      <span className="chip">変更は「設定」ルームで（準備中）</span>
                     </div>
 
                     <div className="pop-divider" role="presentation" />
