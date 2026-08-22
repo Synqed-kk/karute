@@ -520,6 +520,46 @@ describe('the store isolation law binds every list on this board', () => {
     const staged = lib.slice(lib.indexOf('export interface StagedShift'), lib.indexOf('export interface StagedLeave'))
     expect(staged).not.toContain('store:')
   })
+
+  it('⚖ D-11 = A — ONE PERSON, ONE ANSWER, and the cell says so under both lenses', () => {
+    // ⚖ LIAM 8/22, ruling A locked: an answer given under one store lens is
+    // THE answer under the other, for a person both stores share. The browser
+    // scene proved it across a real store switch; this drives the same claim
+    // end to end through the derivation both boards run.
+    const restore = pin('2026-08-22T04:00:00.000Z')
+    try {
+      const todayKey = todayKeyNow()
+      // 見本 ごろう (p-05) is on BOTH rosters; 見本 はなこ (p-01) is 銀座-only.
+      const ginza = rosterFor(todayKey, ['p-01', 'p-05'])
+      const daikanyama = rosterFor(todayKey, ['p-05'])
+      const shared = ginza.find((m) => m.id === 'p-05')!
+      const alsoShared = daikanyama.find((m) => m.id === 'p-05')!
+      const day = todayKey + 4
+      const ctx = contextFor(ginza, todayKey)
+      // The answer is given ONCE, in the session both lenses read.
+      ctx.shiftEdits.set(editKey('p-05', day), {
+        staffId: 'p-05', dayKey: day, kind: 'work', start: 12 * 60, end: 16 * 60,
+      })
+      const underGinza = cellFor(shared, day, ctx)
+      const underDaikanyama = cellFor(alsoShared, day, ctx)
+      expect(underGinza).toEqual(underDaikanyama)
+      expect(underGinza.start).toBe(12 * 60)
+      expect(underGinza.end).toBe(16 * 60)
+      expect(underGinza.staged).toBe(true)
+      // NOT true for two reasons: the SAME session also holds an edit for a
+      // person 代官山 cannot see, and the roster clamp is what keeps it out —
+      // she simply has no cell there, so nothing had to filter by store.
+      ctx.shiftEdits.set(editKey('p-01', day), {
+        staffId: 'p-01', dayKey: day, kind: 'work', start: 9 * 60, end: 11 * 60,
+      })
+      expect(cellFor(ginza.find((m) => m.id === 'p-01')!, day, ctx).start).toBe(9 * 60)
+      expect(daikanyama.some((m) => m.id === 'p-01')).toBe(false)
+      // and the shared person's answer did not move when the other one landed
+      expect(cellFor(alsoShared, day, ctx)).toEqual(underGinza)
+    } finally {
+      restore()
+    }
+  })
 })
 
 // ── 4. the role boundary ────────────────────────────────────────────────────
