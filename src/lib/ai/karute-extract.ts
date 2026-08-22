@@ -22,23 +22,25 @@ import {
 export const MAX_ENTRIES_PER_CATEGORY = 30
 export const MAX_SAME_TITLE_PER_CATEGORY = 3
 
+// Shared by rail 1 (title + quote) and rail 2 (title only) so the two rails
+// can never drift onto different notions of "same title". Deliberately
+// narrow — trim + collapse whitespace + toLowerCase — the observed failure
+// was verbatim repetition, and aggressive merging is its own past bug (7/15).
+const normalize = (s: string): string => s.trim().replace(/\s+/g, ' ').toLowerCase()
+
 export function sanitizeExtractionEntries(entries: Entry[]): Entry[] {
   // 1. Carbon-copy dedupe: same category + same normalized title + same
   // normalized source_quote = same entry, keep the FIRST occurrence (array
   // order preserved). The 7/15 dominant-topic design deliberately allows
   // several same-aspect entries — two can legitimately share a title while
   // quoting different moments; only a full carbon copy (same title AND same
-  // quote) is unquestionably broken. Normalization is deliberately narrow —
-  // trim + collapse whitespace + toLowerCase — the observed failure was
-  // verbatim repetition, and aggressive merging is its own past bug (7/15).
+  // quote) is unquestionably broken.
   // Key parts are NUL-joined (not space-joined) so title/quote boundaries
   // can't collide.
   const seen = new Set<string>()
   const deduped: Entry[] = []
   for (const entry of entries) {
-    const normTitle = entry.title.trim().replace(/\s+/g, ' ').toLowerCase()
-    const normQuote = entry.source_quote.trim().replace(/\s+/g, ' ').toLowerCase()
-    const key = [entry.category, normTitle, normQuote].join('\0')
+    const key = [entry.category, normalize(entry.title), normalize(entry.source_quote)].join('\0')
     if (seen.has(key)) continue
     seen.add(key)
     deduped.push(entry)
@@ -52,8 +54,7 @@ export function sanitizeExtractionEntries(entries: Entry[]): Entry[] {
   // carbon-copy dedupe above can't touch on its own.
   const titleCounts = new Map<string, number>()
   const titleRailed = deduped.filter((entry) => {
-    const normTitle = entry.title.trim().replace(/\s+/g, ' ').toLowerCase()
-    const key = [entry.category, normTitle].join('\0')
+    const key = [entry.category, normalize(entry.title)].join('\0')
     const count = titleCounts.get(key) ?? 0
     titleCounts.set(key, count + 1)
     return count < MAX_SAME_TITLE_PER_CATEGORY
