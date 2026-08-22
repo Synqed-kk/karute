@@ -1638,7 +1638,20 @@ describe('the session’s edits outlive the day flip, and the × knows which day
 
   it('the provider is mounted in the layout, which a ?day= navigation does not remount', () => {
     expect(LAYOUT).toContain('import { BusinessSessionEdits } from')
-    expect(LAYOUT).toContain('<BusinessSessionEdits>{children}</BusinessSessionEdits>')
+    // The board's provider wraps `children`. スタッフ・シフト added a second
+    // provider INSIDE it (same reason, its own state), so the pin names the
+    // whole chain instead of one line of JSX — and names it EXACTLY. A loose
+    // `<BusinessSessionEdits>…{children}…</BusinessSessionEdits>` match is not
+    // this claim: it passes with a remounting boundary (a Suspense, a keyed
+    // wrapper, a `?day=`-dependent element) sitting between the provider and
+    // the children, which is precisely the bug the provider exists to stop.
+    // Whitespace is collapsed so re-indenting the file is not a failure.
+    const OPEN = '<BusinessSessionEdits>'
+    const CLOSE = '</BusinessSessionEdits>'
+    const chain = LAYOUT.slice(LAYOUT.indexOf(OPEN), LAYOUT.lastIndexOf(CLOSE) + CLOSE.length)
+    expect(chain.replace(/\s+/g, '')).toBe(
+      `${OPEN}<ShiftsSessionEdits>{children}</ShiftsSessionEdits>${CLOSE}`,
+    )
     // All six really are state, in one place — a partial move would let a chip
     // survive the flip while the booking it was placed as did not.
     for (const name of FAMILY) expect(PROVIDER).toContain(`const [${name}, set`)

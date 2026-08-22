@@ -21,6 +21,7 @@ import { listStoreOptions, readShellIdentity, readUnresolvedCounts } from '@/bus
 import { BusinessSessionEdits } from './BusinessSessionEdits'
 import { BusinessSidebar } from './BusinessSidebar'
 import { BusinessTopbar, BusinessTopbarActionSlot } from './BusinessTopbar'
+import { ShiftsSessionEdits } from './ShiftsSessionEdits'
 import './business-shell.css'
 
 const fmtTime = new Intl.DateTimeFormat('ja-JP', {
@@ -79,7 +80,12 @@ export default async function BusinessLayout({
                   remounts on every flip and the layout does not. The session's
                   edits — the 仮置き chip, the cards it has been placed as, and
                   the 仮押さえ standing over them — therefore live HERE. */}
-              <BusinessSessionEdits>{children}</BusinessSessionEdits>
+              {/* スタッフ・シフト navigates the same way (`?view=`/`?week=`/
+                  `?ym=` are Links), so the shifts it has staged live above the
+                  screen for the same reason. */}
+              <BusinessSessionEdits>
+                <ShiftsSessionEdits>{children}</ShiftsSessionEdits>
+              </BusinessSessionEdits>
             </main>
           </BusinessTopbarActionSlot>
         </div>
