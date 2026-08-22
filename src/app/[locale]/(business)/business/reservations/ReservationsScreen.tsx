@@ -110,7 +110,7 @@ export interface ReservationsProps {
    *  off the server's clock so no second calendar exists on the client. */
   todayLabel: string
   tomorrowLabel: string
-  storeParam: string | null
+  store: string | null
   /** JST minutes from midnight — the one pinned world clock (13:24), shared
    *  with the Today board's now-line and the topbar's Reserve同期 stamp. */
   boardNow: number
@@ -944,7 +944,7 @@ function Screen(props: ReservationsProps) {
 }
 
 function href(props: ReservationsProps, segment: string): string {
-  return `/${props.locale}/business/${segment}${props.storeParam ? `?store=${props.storeParam}` : ''}`
+  return `/${props.locale}/business/${segment}${props.store ? `?store=${props.store}` : ''}`
 }
 
 /** canon `focusResult` (:541): after a commit or a queue jump, focus lands on

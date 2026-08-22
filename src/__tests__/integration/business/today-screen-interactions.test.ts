@@ -1572,7 +1572,7 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
     const body = SRC.slice(SRC.indexOf('function placeFromShelf'), SRC.indexOf('const monthCells ='))
     expect(body).toContain('{ ...board, laneKey: staff.key, fromChip: chip,')
     expect(SRC).toContain('const board = useMemo(')
-    expect(SRC).toContain('() => ({ dayOffset: props.dayOffset, store: props.storeParam }),')
+    expect(SRC).toContain('() => ({ dayOffset: props.dayOffset, store: props.store }),')
     expect(body).toContain('setParkChips((was) => was.filter((c) => c.id !== chip.id))')
     // The card's accessible name leads with its span, so the landing rewrites it
     // — a card drawn at 15:00 that still announces 14:05 is the one thing on the
@@ -1655,7 +1655,7 @@ describe('the session’s edits outlive the day flip, and the × knows which day
     expect(body).toContain('dayOffset: props.dayOffset,')
     expect(body).toContain('dayLabel: props.dayLabel,')
     // ⚖ flag 46 — and the STORE, on the same record for the same reason.
-    expect(body).toContain('storeParam: props.storeParam,')
+    expect(body).toContain('store: props.store,')
     expect(body).toContain('storeLabel: props.lensLabel,')
     // …and the printed line is still the printed line.
     expect(body).toContain('const text = parkChipText(item, hours, props.dayLabel)')
@@ -1664,28 +1664,28 @@ describe('the session’s edits outlive the day flip, and the × knows which day
   it('the × is answered by the recorded day, never by the board on screen', () => {
     const A = 'store-a'
     // Origin day on screen and the booking on it: straight home, canon's toast.
-    expect(unparkOutcome({ dayOffset: 0, storeParam: A }, 0, A, true)).toBe('here')
+    expect(unparkOutcome({ dayOffset: 0, store: A }, 0, A, true)).toBe('here')
     // Origin day elsewhere: the restore is still right — the booking lives on
     // exactly one day — so it happens, and the caller names the day it went to.
     // What is on THIS board is irrelevant, which is the whole point.
-    expect(unparkOutcome({ dayOffset: -2, storeParam: A }, 3, A, true)).toBe('elsewhere')
-    expect(unparkOutcome({ dayOffset: -2, storeParam: A }, 3, A, false)).toBe('elsewhere')
+    expect(unparkOutcome({ dayOffset: -2, store: A }, 3, A, true)).toBe('elsewhere')
+    expect(unparkOutcome({ dayOffset: -2, store: A }, 3, A, false)).toBe('elsewhere')
     // Origin day on screen and the booking is NOT on it — the fixture world
     // re-based under the shelf (a board left open across JST midnight).
-    expect(unparkOutcome({ dayOffset: 4, storeParam: A }, 4, A, false)).toBe('gone')
+    expect(unparkOutcome({ dayOffset: 4, store: A }, 4, A, false)).toBe('gone')
     // ⚖ flag 46 — A FOREIGN STORE IS `elsewhere`, NEVER `gone`. The origin can
     // never be on this board, so the honest reading of a missing origin is "it
     // is on the other store's board", not "it has been lost". Same day, same
     // offset, different store: the × still restores and the toast names where.
-    expect(unparkOutcome({ dayOffset: 0, storeParam: A }, 0, 'store-b', false)).toBe('elsewhere')
-    expect(unparkOutcome({ dayOffset: 0, storeParam: A }, 0, 'store-b', true)).toBe('elsewhere')
+    expect(unparkOutcome({ dayOffset: 0, store: A }, 0, 'store-b', false)).toBe('elsewhere')
+    expect(unparkOutcome({ dayOffset: 0, store: A }, 0, 'store-b', true)).toBe('elsewhere')
     // …and the day rule still bites inside the chip's own store.
-    expect(unparkOutcome({ dayOffset: 1, storeParam: A }, 0, A, true)).toBe('elsewhere')
+    expect(unparkOutcome({ dayOffset: 1, store: A }, 0, A, true)).toBe('elsewhere')
   })
 
   it('the soft failure keeps the chip: nothing is removed before the outcome is known', () => {
     const body = SRC.slice(SRC.indexOf('function unpark('), SRC.indexOf('function onChipPointerDown'))
-    expect(body).toContain('const outcome = unparkOutcome(chip.home, props.dayOffset, props.storeParam, originHere)')
+    expect(body).toContain('const outcome = unparkOutcome(chip.home, props.dayOffset, props.store, originHere)')
     expect(body).toContain('仮置きエリアに残しています')
     // The ORDERING is the guarantee: the refusal returns ahead of every removal,
     // so a chip that cannot be restored is still a chip that can be placed.
@@ -1714,7 +1714,7 @@ describe('the session’s edits outlive the day flip, and the × knows which day
  *  that person's lane key, and a card added on one painted onto the other.
  *
  *  FORWARD SUPERSESSION — SETTLED AT CYCLE 7 (2026-08-22). Batch 7 landed and
- *  won the part of this family it actually rebuilt: `storeParam` + `storeLabel`
+ *  won the part of this family it actually rebuilt: `store` + `storeLabel`
  *  on ParkHome/PlacingIntent, the named `foreignStoreRefusal`, the one-door
  *  `refuse()`, and its own 4-argument `unparkOutcome`. The three tests that
  *  pinned the forerunner spelling of exactly those things (the chip refusal, the
@@ -1803,7 +1803,7 @@ describe('a session edit belongs to ONE board — the day and the store it was m
     // `createSeq` is a ref inside the screen and the screen remounts on every
     // navigation, so the counter alone made EVERY board's first placement
     // `nextvisit-1` — colliding in `moves` and in revertPending's caseId lookup.
-    expect(PLACE_NEXT).toContain('const id = `nextvisit-${props.storeParam ?? \'all\'}-${props.dayOffset}-${createSeq.current}`')
+    expect(PLACE_NEXT).toContain('const id = `nextvisit-${props.store ?? \'all\'}-${props.dayOffset}-${createSeq.current}`')
   })
 
   it('the 仮押さえ bar stops answering off-board, and its way back carries the right store', () => {
@@ -1813,7 +1813,7 @@ describe('a session edit belongs to ONE board — the day and the store it was m
     // The pin's link takes the pending's OWN store; this store's `?store=` would
     // land the operator on the right day of the wrong board.
     expect(SRC).toContain('dayHref(pending.dayOffset, pending.store)')
-    expect(SRC).toContain('function dayHref(offset: number, store: string | null = props.storeParam)')
+    expect(SRC).toContain('function dayHref(offset: number, store: string | null = props.store)')
   })
 })
 
@@ -1875,7 +1875,7 @@ describe('the shelf family, enumerated against canon rather than against the fla
     expect(SRC).toContain('const pendingOffBoard = pending != null && !onShownBoard(pending, board)')
     expect(SRC).toContain("? { enabled: false, label: 'この内容で確定' }")
     expect(SRC).toContain('if (pendingOffBoard || !at ||')
-    expect(SRC).toContain('確定待ち: {sameStore(pending.store, props.storeParam) ? pending.dayLabel :')
+    expect(SRC).toContain('確定待ち: {sameStore(pending.store, props.store) ? pending.dayLabel :')
     expect(SRC).toContain('{pending.dayLabel}へ戻る')
     expect(CSS).toContain('.biz .hold-daypin {')
   })
@@ -3028,7 +3028,7 @@ describe('the pair keeps both its lanes, and no ending turns a release into a bo
  *  in the round's evidence folder. */
 describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => {
   const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
-  const CHIP_HOME = { storeParam: 'store-test-ginza', storeLabel: 'テスト銀座店' }
+  const CHIP_HOME = { store: 'store-test-ginza', storeLabel: 'テスト銀座店' }
 
   it('⚖ 46 — the chip may be CARRIED to another store, and refused there by name', () => {
     // Its own board: nothing to say, place it.
@@ -3044,13 +3044,13 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     // default: the one thing that must never happen is a silent placement onto
     // whatever lanes happen to be drawn.
     expect(foreignStoreRefusal(CHIP_HOME, null)).not.toBeNull()
-    expect(foreignStoreRefusal({ storeParam: null, storeLabel: '全店舗' }, 'store-test-ginza')).not.toBeNull()
-    expect(foreignStoreRefusal({ storeParam: null, storeLabel: '全店舗' }, null)).toBeNull()
+    expect(foreignStoreRefusal({ store: null, storeLabel: '全店舗' }, 'store-test-ginza')).not.toBeNull()
+    expect(foreignStoreRefusal({ store: null, storeLabel: '全店舗' }, null)).toBeNull()
   })
 
   it('⚖ 46 — the shelf drop refuses BEFORE the guard is consulted, and before any write', () => {
     const body = SRC.slice(SRC.indexOf('function onChipPointerUp('), SRC.indexOf('// ── 配置モード'))
-    expect(body).toContain('const foreign = foreignStoreRefusal(chip.home, props.storeParam)')
+    expect(body).toContain('const foreign = foreignStoreRefusal(chip.home, props.store)')
     // Ordering IS the invariant. The refusal returns ahead of the guard consult
     // — offering 「より良い開始」 on a board the booking may not be placed on is
     // advice about an impossible placement — and ahead of every writer.
@@ -3065,12 +3065,12 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
 
   it('⚖ 46 — 配置モード carries its store too, and is refused by the same rule', () => {
     const armed = SRC.slice(SRC.indexOf('function armNextVisit('), SRC.indexOf('function placeNextVisit('))
-    expect(armed).toContain('storeParam: props.storeParam,')
+    expect(armed).toContain('store: props.store,')
     expect(armed).toContain('storeLabel: props.lensLabel,')
     const place_ = SRC.slice(SRC.indexOf('function placeNextVisit('), SRC.indexOf('⚖ Liam 2026-08-20 (flag 22)'))
     // Checked at the placement as well as at the click, so the consult popup's
     // 「この開始に配置」 cannot walk around the click-side check.
-    expect(place_).toContain('const foreign = foreignStoreRefusal(p, props.storeParam)')
+    expect(place_).toContain('const foreign = foreignStoreRefusal(p, props.store)')
     expect(place_.indexOf('refuse(foreign)')).toBeLessThan(place_.indexOf('setPlacing(null)'))
     expect(place_.indexOf('refuse(foreign)')).toBeLessThan(place_.indexOf('setAdded('))
   })
@@ -3151,7 +3151,7 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     // this test makes is unchanged and the two `not` assertions below are what
     // actually guard it: nothing gates on WHICH day.
     expect(place_).toContain('{ ...board, laneKey: lane.key')
-    expect(SRC).toContain('() => ({ dayOffset: props.dayOffset, store: props.storeParam }),')
+    expect(SRC).toContain('() => ({ dayOffset: props.dayOffset, store: props.store }),')
     expect(place_).not.toContain('props.isToday')
     expect(place_).not.toMatch(/dayOffset\s*[!=]==?\s*0/)
     expect(SRC).toContain('置きたい日へ移動して、空き枠をクリック')
@@ -3854,7 +3854,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // `inHand` is null with nothing in flight → the strip keeps canon's resting
     // face (✓/△/—) and no × exists anywhere on the board (⚖ 37, no leak).
     expect(SRC).toContain('const inHand = useMemo<LandingAsk | null>(() => {')
-    expect(SRC).toContain('    return null\n  }, [live, proxy, parkChips, boardLanes, props.storeParam])')
+    expect(SRC).toContain('    return null\n  }, [live, proxy, parkChips, boardLanes, props.store])')
     // ⚖ 52 — the mark that means "this stops you" appears exactly where release
     // is inert, and its class comes off the blocked verdict alone.
     expect(SRC).toContain("${v?.kind === 'blocked' ? ' inert' : ''}")

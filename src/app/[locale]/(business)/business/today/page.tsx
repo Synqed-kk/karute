@@ -388,7 +388,7 @@ export default async function TodayPage({
 
   const props: TodayProps = {
     locale,
-    storeParam: storeId,
+    store: storeId,
     lensLabel: clamped ? (storeNames.get(storeId!) ?? 'この店舗') : 'すべての店舗',
     dayOffset,
     dayLabel: fmtDayFull.format(shownAt),

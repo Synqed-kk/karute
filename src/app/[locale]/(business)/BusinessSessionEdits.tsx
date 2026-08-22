@@ -78,12 +78,12 @@ import type { BoardItem } from '@/business/lib/today-board'
  *  ⚖ Liam flag 46 (2026-08-21) — AND THE STORE, for the same reason and by the
  *  same mechanism. `?store=` is a Link too, so the shelf survives a store switch
  *  and the chip can end up on a board whose staff and rooms it has nothing to do
- *  with. `storeParam` is what the placement is checked against; `storeLabel` is
+ *  with. `store` is what the placement is checked against; `storeLabel` is
  *  what the refusal SAYS, because the operator thinks in 銀座店, not in an id. */
 export interface ParkHome extends Move {
   dayOffset: number
   dayLabel: string
-  storeParam: string | null
+  store: string | null
   storeLabel: string
 }
 
@@ -158,7 +158,7 @@ export interface PendingChange {
 export interface PlacingIntent {
   label: string
   name: string
-  storeParam: string | null
+  store: string | null
   storeLabel: string
 }
 
