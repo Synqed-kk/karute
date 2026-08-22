@@ -11,9 +11,10 @@
  *   6. Revalidation: both customer paths + the karute path + the dashboard
  *      tag + the customers tag, on success only.
  *   9. Same-customer no-op is refused.
- * Audit (pin 5, web half) is pinned separately by
- * reassign-karute-customer-audit.test.ts — this file spies on auditWeb only
- * to prove it fires on success and never on preview/refusal.
+ * Audit (pin 5, web half) is pinned in THIS file — "auditWeb — success-only"
+ * below asserts the row's exact shape, not just that it fired.
+ * listReassignCustomerOptions (the picker roster, fix round 2 items B/C) is
+ * pinned in its own describe block below.
  */
 jest.mock('next/cache', () => ({
   revalidatePath: jest.fn(),
@@ -49,9 +50,11 @@ import { requireCapability as requireCapabilityImport } from '@/lib/auth/require
 import { auditWeb as auditWebImport } from '@/lib/audit-web'
 import { resolveStoreScope as resolveStoreScopeImport } from '@/lib/auth/store-scope'
 import { getSynqedClient as getSynqedClientImport } from '@/lib/synqed/client'
+import { getCachedCustomerList as getCachedCustomerListImport } from '@/lib/customers/cached'
 import {
   reassignKaruteCustomer,
   reassignKaruteCustomerWithClient,
+  listReassignCustomerOptions,
 } from '@/actions/karute'
 
 jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn(), newSynqedClient: jest.fn() }))
@@ -63,6 +66,7 @@ const requireCapability = requireCapabilityImport as jest.Mock
 const auditWeb = auditWebImport as jest.Mock
 const resolveStoreScope = resolveStoreScopeImport as jest.Mock
 const getSynqedClient = getSynqedClientImport as jest.Mock
+const getCachedCustomerList = getCachedCustomerListImport as jest.Mock
 
 const KARUTE = { current: { id: 'kar-1', customer_id: 'cust-FROM', appointment_id: null, recording_session_id: null } as Record<string, unknown> }
 const CUSTOMERS: Record<string, { id: string; name: string }> = {
@@ -105,6 +109,18 @@ function fakeClient() {
 
 const VIEW_ALL = { viewAll: true, allowedStoreIds: null, degraded: false }
 
+// Roster data for listReassignCustomerOptions (fix round 2, item B): distinct
+// from CUSTOMERS' store-A/store-B split above so a store-scoped vs
+// business-wide fetch is trivially distinguishable by exact id list.
+const ROSTER_BY_STORE: Record<string, Array<{ id: string; name: string }>> = {
+  'store-A': [
+    { id: 'cust-TO', name: '佐藤 花子' },
+    { id: 'cust-FROM', name: '田中 美咲' },
+  ],
+  'store-B': [{ id: 'cust-OTHER-STORE', name: '他店 太郎' }],
+}
+const BUSINESS_WIDE_ROSTER = Object.values(CUSTOMERS)
+
 beforeEach(() => {
   jest.clearAllMocks()
   KARUTE.current = { id: 'kar-1', customer_id: 'cust-FROM', appointment_id: null, recording_session_id: null }
@@ -112,6 +128,9 @@ beforeEach(() => {
   getSynqedClient.mockImplementation(async () => fakeClient())
   resolveStoreScope.mockImplementation(async () => VIEW_ALL)
   requireCapability.mockImplementation(async () => undefined)
+  getCachedCustomerList.mockImplementation(async (storeId?: string) =>
+    storeId === undefined ? BUSINESS_WIDE_ROSTER : (ROSTER_BY_STORE[storeId] ?? []),
+  )
 })
 
 // ── Pin 1: RBAC ──────────────────────────────────────────────────────────
@@ -233,23 +252,20 @@ describe('pin 4 — write shape', () => {
 // ── Pin 6: revalidation ──────────────────────────────────────────────────
 
 describe('pin 6 — revalidation', () => {
-  it('success revalidates BOTH customer paths + the karute path + dashboard tag + customers tag', async () => {
+  it('success revalidates the customer profile route (locale-pattern, item F) + the karute path + dashboard tag + customers tag', async () => {
     const result = await reassignKaruteCustomer('kar-1', 'cust-TO', { confirmed: true })
     expect(result).toEqual({ success: true, burnCount: 0, photoCount: 0 })
-    expect(revalidatePath).toHaveBeenCalledWith('/customers/cust-FROM')
-    expect(revalidatePath).toHaveBeenCalledWith('/customers/cust-TO')
+    // Locale-pattern form, not the bare '/customers/{id}' literal: routing.ts
+    // has no localePrefix override (next-intl defaults to 'always'), and the
+    // only customer page route is [locale]/(app)/customers/[id] — a bare
+    // path matches nothing. One 'page'-type call covers BOTH the from- and
+    // to-customer profile (same broad-revalidation convention packs.ts's
+    // revalidateProfile() already uses for this exact route, and the same
+    // convention the karute path below already followed pre-fix).
+    expect(revalidatePath).toHaveBeenCalledWith('/[locale]/(app)/customers/[id]', 'page')
     expect(revalidatePath).toHaveBeenCalledWith('/[locale]/(app)/karute/[id]', 'page')
     expect(updateTag).toHaveBeenCalledWith('dashboard')
     expect(revalidateTag).toHaveBeenCalledWith('customers', 'max')
-  })
-
-  it('drop the old-customer revalidate ⇒ this test flips (red-run proof of the pin, documented not executed)', () => {
-    // Structural proof, not a live mutation: revalidatePath('/customers/cust-FROM')
-    // is asserted independently above (pin 6's first test) — removing that
-    // ONE call from the action while leaving '/customers/cust-TO' in place
-    // fails that exact toHaveBeenCalledWith assertion. Recorded here as the
-    // pin's own red-run description per the mutation-proof convention.
-    expect(true).toBe(true)
   })
 
   it('the preview phase (confirmed:false) revalidates nothing', async () => {
@@ -295,8 +311,71 @@ describe('auditWeb — success-only', () => {
     expect(auditWeb).not.toHaveBeenCalled()
   })
 
-  it('emits exactly once on a successful confirmed write', async () => {
+  it('emits the row EXACT-SHAPE on a successful confirmed write — packet §5 pin 5, web half', async () => {
     await reassignKaruteCustomer('kar-1', 'cust-TO', { confirmed: true })
     expect(auditWeb).toHaveBeenCalledTimes(1)
+    // Full-argument toEqual (via toHaveBeenCalledWith): a wrong action, wrong
+    // targetType/targetId, or a dropped detail key each fail this — the
+    // verifier's exact corruption set (action:'karute.entry_edit',
+    // targetType:'customer', targetId:'WRONG-ID', detail reduced to
+    // {to_customer_id}) all flip it.
+    expect(auditWeb).toHaveBeenCalledWith({
+      category: 'karute',
+      action: 'karute.customer_reassign',
+      targetType: 'karute',
+      targetId: 'kar-1',
+      detail: {
+        from_customer_id: 'cust-FROM',
+        to_customer_id: 'cust-TO',
+        burn_count: 0,
+        photo_count: 0,
+      },
+      requestId: expect.any(String),
+    })
+  })
+})
+
+// ── listReassignCustomerOptions — the picker roster (fix round 2 items B/C) ─
+
+describe('listReassignCustomerOptions — roster', () => {
+  it('a denied records.reassign capability blocks the roster read entirely', async () => {
+    requireCapability.mockRejectedValueOnce(new Error('forbidden'))
+    const result = await listReassignCustomerOptions('kar-1')
+    expect(result).toEqual({ error: 'forbidden' })
+    expect(getCachedCustomerList).not.toHaveBeenCalled()
+  })
+
+  it('a clamped actor reaches getCachedCustomerList with THEIR store id — exact store-scoped list, current customer excluded', async () => {
+    resolveStoreScope.mockResolvedValue({
+      viewAll: false,
+      allowedStoreIds: ['store-A'],
+      storeId: 'store-A',
+      degraded: false,
+    })
+    const result = await listReassignCustomerOptions('kar-1')
+    expect(getCachedCustomerList).toHaveBeenCalledWith('store-A')
+    if (!('customers' in result)) throw new Error(`expected customers, got ${JSON.stringify(result)}`)
+    // cust-FROM is in store-A's roster too (current customer) — excluded.
+    expect(result.customers.map((c) => c.id)).toEqual(['cust-TO'])
+  })
+
+  it('a viewAll actor gets the business-wide roster (getCachedCustomerList called with undefined)', async () => {
+    resolveStoreScope.mockResolvedValue(VIEW_ALL)
+    const result = await listReassignCustomerOptions('kar-1')
+    expect(getCachedCustomerList).toHaveBeenCalledWith(undefined)
+    if (!('customers' in result)) throw new Error(`expected customers, got ${JSON.stringify(result)}`)
+    expect(result.customers.map((c) => c.id).sort()).toEqual(['cust-OTHER-STORE', 'cust-TO'])
+  })
+
+  it('a degraded lookup fails closed BEFORE any list fetch — no business-wide leak, no doomed picker', async () => {
+    resolveStoreScope.mockResolvedValue({
+      viewAll: false,
+      allowedStoreIds: ['store-A'],
+      storeId: 'store-A',
+      degraded: true,
+    })
+    const result = await listReassignCustomerOptions('kar-1')
+    expect(result).toEqual({ error: expect.any(String) })
+    expect(getCachedCustomerList).not.toHaveBeenCalled()
   })
 })

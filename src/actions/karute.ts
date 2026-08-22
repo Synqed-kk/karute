@@ -763,9 +763,16 @@ export async function reassignKaruteCustomer(
 
     // First write to ever touch two customer profile pages at once — every
     // sibling write only ever revalidates the ONE customer_id it wrote
-    // (census B §Q5).
-    revalidatePath(`/customers/${result.fromCustomerId}`)
-    revalidatePath(`/customers/${result.toCustomerId}`)
+    // (census B §Q5). Locale-pattern form (fix round 2, item F): routing.ts
+    // has no localePrefix override, so next-intl defaults to 'always' (its
+    // own receiveRoutingConfig source: `mode: a || "always"`) and the ONLY
+    // customer page route is [locale]/(app)/customers/[id] — a bare
+    // '/customers/{id}' matches no page and is a no-op. packs.ts:34-35
+    // already carries the correct idiom for this exact route
+    // (revalidateProfile); src/actions/customers.ts's 10 call sites still use
+    // the bare (broken) form — a pre-existing sibling bug, queued, not fixed
+    // here (scope discipline).
+    revalidatePath('/[locale]/(app)/customers/[id]', 'page')
     revalidatePath('/[locale]/(app)/karute/[id]', 'page')
     updateTag('dashboard')
     // 未保存カルテ rollup dedupes by customer_id (60s TTL otherwise) —
@@ -783,7 +790,16 @@ export async function reassignKaruteCustomer(
  *  detail page's own `listAllCustomers` numbering fetch (that one is
  *  business-wide, census A §Q3 — reusing it for a picker would leak another
  *  branch's customers to a clamped actor). Current customer excluded
- *  server-side (hide, never filter-after-ship). */
+ *  server-side (hide, never filter-after-ship).
+ *
+ *  A degraded scope (the actor's own store assignment lookup failed) is
+ *  refused BEFORE any list fetch — customerLensFor's read-plane convention
+ *  would otherwise ship this actor the BUSINESS-WIDE roster (it ignores
+ *  `degraded` by design), and ensureReassignStoreScope then refuses every
+ *  pick from it anyway. Showing a roster full of other branches' customers
+ *  behind a doomed picker is show-and-refuse — this file's own
+ *  menuStoresForScope (store-scope.ts) names the same rule for the store
+ *  picker (isolation law: hide, never show-and-refuse; Greptile P1 on #707). */
 export async function listReassignCustomerOptions(
   karuteId: string,
 ): Promise<{ customers: ReassignCustomerOption[] } | { error: string }> {
@@ -792,6 +808,9 @@ export async function listReassignCustomerOptions(
     const synqed = await getSynqedClient()
     const record = await readKaruteRaw(synqed, karuteId)
     const scope = await resolveStoreScope()
+    if (scope.degraded) {
+      return { error: 'could not verify your store assignment (fail-closed)' }
+    }
     const lens = customerLensFor(scope)
     // Lazy import — cached.ts value-imports @synqed-kk/client at module scope
     // (constructs its own SynqedClient inside the unstable_cache callback),

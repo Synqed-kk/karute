@@ -31,6 +31,19 @@ import { listReassignCustomerOptions, reassignKaruteCustomer } from '@/actions/k
 // RecordCustomerPickerDialog's LIST_ID.
 const PICKER_LIST_ID = 'reassign-picker-results'
 
+/** Server `{ error }` strings → the matching translated copy (fix round 2,
+ *  item E). The store-scope refusal is a backstop only — the picker roster
+ *  is already store-scoped, so a staffer shouldn't be able to reach it — but
+ *  the errorStoreScope key shipped in both locales and was dead until this
+ *  match. Same string-match idiom errorSameCustomer already used. Anything
+ *  unrecognized (including the picker's own "could not verify your store
+ *  assignment" refusal, surfaced earlier by openPicker) falls to errorGeneric. */
+function reassignErrorMessage(error: string, t: (key: string) => string): string {
+  if (error === 'already this customer') return t('errorSameCustomer')
+  if (error === 'that customer is outside your assigned store') return t('errorStoreScope')
+  return t('errorGeneric')
+}
+
 interface ReassignCustomerActionProps {
   karuteId: string
   customerName: string
@@ -97,8 +110,7 @@ export function ReassignCustomerAction({
     const result = await reassignKaruteCustomer(karuteId, selectedId, { confirmed: false })
     setBusy(false)
     if (!('requiresConfirm' in result)) {
-      const message = 'error' in result && result.error === 'already this customer' ? t('errorSameCustomer') : t('errorGeneric')
-      setError(message)
+      setError('error' in result ? reassignErrorMessage(result.error, t) : t('errorGeneric'))
       return
     }
     setPreview({
@@ -116,7 +128,7 @@ export function ReassignCustomerAction({
     const result = await reassignKaruteCustomer(karuteId, selectedId, { confirmed: true })
     setBusy(false)
     if ('error' in result) {
-      setError(t('errorGeneric'))
+      setError(reassignErrorMessage(result.error, t))
       return
     }
     reset()
