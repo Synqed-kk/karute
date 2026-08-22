@@ -1631,20 +1631,36 @@ describe('E-2 · the boards scale to any roster size', () => {
     }
   })
 
-  it('the WEEK board keeps its people and its days on screen at any height', () => {
-    // Rows scale, so the wrap owns both axes with a cap — a sticky header
-    // inside a scroller as tall as its content has nowhere to stick.
-    expect(CSS).toContain('.biz .pg-shifts .week-wrap { overflow: auto; max-height:')
+  it('the WEEK board pans sideways only — the PAGE owns the vertical scroll', () => {
+    // ⚖ Liam 8/22 (page-scroll flag): a capped wrap made a nested vertical
+    // scroller that trapped the wheel mid-screen. The wrap pans horizontally
+    // and nothing else — the ABSENCE is the pin, so the trap cannot return.
+    expect(CSS).toContain('.biz .pg-shifts .week-wrap { overflow-x: auto; }')
+    const wrap = CSS.slice(CSS.indexOf('.biz .pg-shifts .week-wrap {'))
+    const wrapRule = wrap.slice(0, wrap.indexOf('}'))
+    expect(wrapRule).not.toContain('max-height')
+    expect(wrapRule).not.toContain('overscroll-behavior')
     const th = CSS.slice(CSS.indexOf('.biz .pg-shifts .week-table th {'))
-    expect(th.slice(0, th.indexOf('}'))).toContain('position: sticky; top: 0;')
+    const thRule = th.slice(0, th.indexOf('}'))
+    // No sticky-TOP: with no vertical scroller there is nothing to stick to.
+    expect(thRule).not.toContain('top:')
+    // The LEFT freeze survives — it works against the horizontal pan, which is
+    // the axis the wrap still owns. WHO a row is stays on screen while panning.
+    expect(thRule).toContain('position: sticky;')
     expect(CSS).toContain('.biz .pg-shifts .week-table th:first-child { width: 180px; left: 0;')
     expect(CSS).toContain('.biz .pg-shifts .staff-cell { position: sticky; left: 0;')
   })
 
-  it('the MONTH board keeps its dates and its header while the operator pans', () => {
-    expect(CSS).toContain('.biz .pg-shifts .month-wrap { overflow: auto; max-height:')
+  it('the MONTH board keeps its dates frozen while the operator pans', () => {
+    expect(CSS).toContain('.biz .pg-shifts .month-wrap { overflow-x: auto; }')
+    const wrap = CSS.slice(CSS.indexOf('.biz .pg-shifts .month-wrap {'))
+    const wrapRule = wrap.slice(0, wrap.indexOf('}'))
+    expect(wrapRule).not.toContain('max-height')
+    expect(wrapRule).not.toContain('overscroll-behavior')
     const th = CSS.slice(CSS.indexOf('.biz .pg-shifts .month-table th {'))
-    expect(th.slice(0, th.indexOf('}'))).toContain('position: sticky; top: 0;')
+    const thRule = th.slice(0, th.indexOf('}'))
+    expect(thRule).not.toContain('top:')
+    expect(thRule).toContain('position: sticky;')
     expect(CSS).toContain('.biz .pg-shifts .month-table th:nth-child(1) { left: 0;')
     expect(CSS).toContain('.biz .pg-shifts .month-table th:nth-child(2) { left: 148px;')
     expect(CSS).toContain('.biz .pg-shifts .month-table .booking-cell { position: sticky; z-index: 1;')
@@ -1679,7 +1695,10 @@ describe('E-2 · the boards scale to any roster size', () => {
     // sheet ever puts an overflow on the room's root.
     const root = CSS.slice(CSS.indexOf('.biz .page.pg-shifts {'))
     expect(root.slice(0, root.indexOf('}'))).not.toContain('overflow')
-    expect((CSS.match(/overflow: auto; max-height:/g) ?? []).length).toBe(2)
-    expect(CSS).toContain('overscroll-behavior: contain')
+    expect((CSS.match(/-wrap \{ overflow-x: auto; \}/g) ?? []).length).toBe(2)
+    // ⚖ Liam 8/22: and SIDEWAYS is all they own. Neither board may re-grow a
+    // nested vertical scroller — that is what trapped the wheel mid-screen.
+    expect(CSS).not.toContain('overflow: auto; max-height:')
+    expect(CSS).not.toContain('overscroll-behavior: contain')
   })
 })

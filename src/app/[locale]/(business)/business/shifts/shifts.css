@@ -134,21 +134,26 @@
 
 /* ── week grid ─────────────────────────────────────────────────────────── */
 /* ⚖ E-2 (Liam 8/22): 「20〜30人、店舗によって違う。どの規模でも構造的に成り立つこと」.
-   The week board scales in ROWS, so the wrap owns BOTH axes and the two things
-   a reader needs to keep — WHO a row is and WHICH DAY a column is — are stuck
-   to the edges of that scroller instead of scrolling off it. The height cap is
-   what makes sticky-top mean anything: a `position: sticky` header inside a
-   scroller as tall as its own content never has anywhere to stick.
+   ⚖ Liam 8/22 (page-scroll flag): THE PAGE OWNS VERTICAL SCROLL. The wrap pans
+   HORIZONTALLY only — no height cap, no `overscroll-behavior` — so the board
+   grows down the page and one wheel gesture reaches the bottom of the room
+   instead of dying inside a nested scroller mid-screen. A vertical cap here is
+   the bug, not a feature: never re-add one.
+
+   That is also why the header row is NOT sticky-top: with no vertical scroller
+   around it there is nothing to stick to. `position: sticky` stays on the th
+   because the FIRST header cell pins LEFT against the horizontal pan, the same
+   way `.staff-cell` does in the body.
 
    `border-collapse: separate` is not a style choice — collapsed borders belong
    to the TABLE, not to the cell, so they stay behind while a sticky cell
    travels and the frozen column arrives with no edge. Every rule below states
    its own border on the cell, and `border-spacing: 0` keeps the grid identical
    to the collapsed one it replaces. */
-.biz .pg-shifts .week-wrap { overflow: auto; max-height: calc(100vh - 232px); overscroll-behavior: contain; }
+.biz .pg-shifts .week-wrap { overflow-x: auto; }
 .biz .pg-shifts .week-table { width: 100%; min-width: 930px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
 .biz .pg-shifts .week-table th {
-  position: sticky; top: 0; z-index: 2;
+  position: sticky; z-index: 2;
   height: 44px; padding: 7px 8px; border-right: 1px solid var(--section); border-bottom: 1px solid var(--section);
   background: #fafafb; color: var(--ink-3); font-size: 12px; text-align: left;
 }
@@ -282,16 +287,20 @@
 
 /* ⚖ E-2 — THE MONTH BOARD SCALES IN COLUMNS. 30 people is a wide table the
    operator pans inside this scroller; the page body never scrolls sideways (the
-   gate law), the 日付 and 予約 columns stay frozen at the left so a cell in
-   column 28 still says which day it belongs to, and the header row stays on top
-   so it still says whose column it is.
+   gate law), and the 日付 and 予約 columns stay frozen at the left so a cell in
+   column 28 still says which day it belongs to.
+
+   ⚖ Liam 8/22 (page-scroll flag): HORIZONTAL ONLY. The page owns vertical
+   scroll — no height cap, no `overscroll-behavior`, and no sticky-top header,
+   which would have nothing to stick to. `position: sticky` stays on the th for
+   the two LEFT-frozen header cells.
 
    THE WIDTH IS A FUNCTION OF THE ROSTER, not a fixed number: `--cols` is the
    headcount the screen renders, so the table simply gets wider as people are
    added. A fixed `min-width` would divide itself among 30 columns and squash
    every one of them past the point of reading — which is the failure mode this
    whole item exists to remove. */
-.biz .pg-shifts .month-wrap { overflow: auto; max-height: calc(100vh - 232px); overscroll-behavior: contain; }
+.biz .pg-shifts .month-wrap { overflow-x: auto; }
 .biz .pg-shifts .month-table {
   width: 100%;
   min-width: max(860px, calc(288px + var(--cols, 6) * 132px));
@@ -300,7 +309,7 @@
 .biz .pg-shifts .month-table col.date-col { width: 148px; }
 .biz .pg-shifts .month-table col.booking-col { width: 140px; }
 .biz .pg-shifts .month-table th {
-  position: sticky; top: 0; z-index: 2;
+  position: sticky; z-index: 2;
   padding: 8px 10px; border-right: 1px solid var(--section); border-bottom: 1px solid var(--section);
   background: #fafafb; color: var(--ink-3); font-size: 12px; text-align: left; vertical-align: bottom;
 }
