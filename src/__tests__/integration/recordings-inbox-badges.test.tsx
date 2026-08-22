@@ -34,8 +34,10 @@ jest.mock('@/lib/global-recorder', () => ({
 jest.mock('@/lib/global-pipeline', () => ({
   globalPipeline: { state: 'idle', context: null, subscribe: () => () => {} },
 }))
+type StoredTake = { takeId: string; recordingSessionId: string | null; startedAt: number; updatedAt: number }
+let storedTakes: StoredTake[] = []
 jest.mock('@/lib/karute/take-store', () => ({
-  listOwnTakes: jest.fn(async () => []),
+  listOwnTakes: jest.fn(async () => storedTakes),
 }))
 jest.mock('@/lib/sidebar-style/hooks', () => ({ useSidebarStyle: () => 'light' }))
 jest.mock('@/providers/session-provider', () => ({
@@ -79,6 +81,18 @@ function session(over: Partial<ServerSession> & { recordingSessionId: string }):
   }
 }
 
+/** A FAILED row only counts toward 要対応 when it has a retryable take (see
+ *  needsAttention in lib/recordings/inbox.ts) — badge tests that mean to
+ *  exercise a counted 失敗 row need one on the device. */
+function take(over: Partial<StoredTake> & { takeId: string }): StoredTake {
+  return {
+    recordingSessionId: null,
+    startedAt: NOW - 60 * 60_000,
+    updatedAt: NOW - 40 * 60_000,
+    ...over,
+  }
+}
+
 async function flush() {
   await act(async () => {
     for (let i = 0; i < 10; i++) await Promise.resolve()
@@ -89,6 +103,7 @@ beforeEach(() => {
   jest.useFakeTimers({ now: NOW, doNotFake: ['queueMicrotask'] })
   resetInbox()
   serverSessions = []
+  storedTakes = []
   mockPathname = '/dashboard'
 })
 
@@ -99,12 +114,16 @@ afterEach(() => {
 })
 
 describe('要対応 badge — mic FAB', () => {
-  it('counts 失敗 + 復元可能 + 確認待ち, from any screen', async () => {
+  it('counts 失敗(再試行可能) rows, not 保存済み/処理中, from any screen', async () => {
     serverSessions = [
       session({ recordingSessionId: 'f1', jobStatus: 'FAILED', jobLastError: 'x' }),
       session({ recordingSessionId: 'f2', jobStatus: 'FAILED', jobLastError: 'y' }),
       session({ recordingSessionId: 'ok', karuteRecordId: 'rec-1' }),
       session({ recordingSessionId: 'run', jobStatus: 'RUNNING' }),
+    ]
+    storedTakes = [
+      take({ takeId: 't-f1', recordingSessionId: 'f1' }),
+      take({ takeId: 't-f2', recordingSessionId: 'f2' }),
     ]
     render(<BottomNav />)
     await flush()
@@ -117,6 +136,15 @@ describe('要対応 badge — mic FAB', () => {
     await flush()
     expect(screen.queryByTestId('mic-needs-attention')).toBeNull()
   })
+
+  it('再試行できない失敗 does not light the badge — FAILED with no local take', async () => {
+    serverSessions = [
+      session({ recordingSessionId: 'f1', jobStatus: 'FAILED', jobLastError: 'x' }),
+    ]
+    render(<BottomNav />)
+    await flush()
+    expect(screen.queryByTestId('mic-needs-attention')).toBeNull()
+  })
 })
 
 describe('要対応 badge — desktop sidebar', () => {
@@ -124,6 +152,7 @@ describe('要対応 badge — desktop sidebar', () => {
     serverSessions = [
       session({ recordingSessionId: 'f1', jobStatus: 'FAILED', jobLastError: 'x' }),
     ]
+    storedTakes = [take({ takeId: 't-f1', recordingSessionId: 'f1' })]
     render(<Sidebar />)
     await flush()
     const badge = screen.getByTestId('sidebar-needs-attention')
@@ -147,6 +176,10 @@ describe('要対応 badge — it has to be ANNOUNCED, not just drawn (FX-5)', ()
       session({ recordingSessionId: 'f1', jobStatus: 'FAILED', jobLastError: 'x' }),
       session({ recordingSessionId: 'f2', jobStatus: 'FAILED', jobLastError: 'y' }),
     ]
+    storedTakes = [
+      take({ takeId: 't-f1', recordingSessionId: 'f1' }),
+      take({ takeId: 't-f2', recordingSessionId: 'f2' }),
+    ]
     render(<BottomNav />)
     await flush()
     const link = screen.getByTestId('mic-needs-attention').closest('a')!
@@ -167,6 +200,7 @@ describe('要対応 badge — it has to be ANNOUNCED, not just drawn (FX-5)', ()
     // NAME-PROHIBITED — Chrome drops it, so the attribute can be present and the
     // count still never announced. Resolve the real accessible name instead.
     serverSessions = [session({ recordingSessionId: 'f1', jobStatus: 'FAILED', jobLastError: 'x' })]
+    storedTakes = [take({ takeId: 't-f1', recordingSessionId: 'f1' })]
     render(<Sidebar />)
     await flush()
     const badge = screen.getByTestId('sidebar-needs-attention')
