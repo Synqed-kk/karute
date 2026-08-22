@@ -268,13 +268,19 @@ describe('StaffSelector — 経営メンバー search-reveal', () => {
   // viewports, so this pins the class strings: a dvh term must be present on
   // the PANEL, and the list scroller must flex inside it — same house
   // pattern as StaffCombobox's 35dvh cap.
-  it('the panel caps with a dvh term and the list scroller flexes inside it', () => {
+  // Greptile fix round 3: the 55dvh ceiling alone could shrink to under one
+  // usable list row on a badly squeezed visual viewport (keyboard open on a
+  // short phone). max(180px, …) floors the panel so ~2.2 list rows always
+  // stay usable — pin that the floor term is present alongside the dvh
+  // ceiling.
+  it('the panel caps with a dvh term and a usable floor, and the list scroller flexes inside it', () => {
     const { container } = render(
       <StaffSelector staffList={STAFF} selected="all" onChange={() => {}} />,
     )
     fireEvent.click(screen.getByText('担当'))
     const panel = container.querySelector('[role="listbox"]')
     expect(panel?.className).toContain('dvh')
+    expect(panel?.className).toContain('max(180px')
     expect(panel?.className).toContain('flex-col')
     const scroller = container.querySelector('.overscroll-contain')
     expect(scroller?.className).toContain('min-h-0')

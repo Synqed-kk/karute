@@ -222,22 +222,32 @@ export function StaffSelector({
           // menu is always fully on-screen.
           // Internal scroll keeps the panel usable at any roster size — the
           // page never scrolls behind a giant menu. The keyboard-aware
-          // max-h-[min(55vh,55dvh)] cap bounds the WHOLE panel (title +
-          // search + list), not just the list — the dvh-vs-vh term itself is
-          // desktop-neutral (nothing to shrink without a keyboard), but
-          // capping the whole panel vs. just the list means desktop's
-          // visible list is now ~80px (title+search) shorter than the
-          // pre-fix build — deliberate, bounded-panel trade. The Android
+          // max-h-[max(180px,min(55vh,55dvh))] cap bounds the WHOLE panel
+          // (title + search + list), not just the list — the dvh-vs-vh term
+          // itself is desktop-neutral (nothing to shrink without a
+          // keyboard), but capping the whole panel vs. just the list means
+          // desktop's visible list is now ~80px (title+search) shorter than
+          // the pre-fix build — deliberate, bounded-panel trade. The Android
           // keyboard shrinks dvh, so once it's open the entire panel caps to
           // the room actually left, same house pattern as StaffCombobox's
-          // 35dvh cap. Ceiling: this doesn't reposition the panel's TOP
-          // anchor — a trigger positioned low on the page can still push the
-          // panel past the keyboard/bottom edge. Acceptable today because
-          // every shipped surface renders this filter in the page header
-          // near the top; if a low-trigger surface ever appears, upgrade to
-          // measuring available space and repositioning.
+          // 35dvh cap. Greptile round 3: at a badly shrunk visual viewport
+          // (~250px, e.g. keyboard open on a short phone) 55dvh minus the
+          // fixed title+search rows left under one usable list row — the
+          // max(180px, …) floor guarantees ~2.2 rows of list no matter how
+          // small the ceiling computes. Ceiling: this doesn't reposition the
+          // panel's TOP anchor — a trigger positioned low on the page can
+          // still push the panel past the keyboard/bottom edge, and on
+          // viewports so short the 180px floor itself exceeds the
+          // keyboard-visible area, the panel's tail (not its title/search/
+          // top rows, which stay visible near the top anchor) sits under the
+          // keyboard — worse than nothing scrolling behind it, but still
+          // strictly better than a collapsed list or the unbounded pre-fix
+          // panel. Acceptable today because every shipped surface renders
+          // this filter in the page header near the top; if a low-trigger
+          // surface ever appears, upgrade to measuring available space and
+          // repositioning.
           className={cn(
-            'absolute top-full z-50 mt-1 flex max-h-[min(55vh,55dvh)] w-64 flex-col overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-neutral-900',
+            'absolute top-full z-50 mt-1 flex max-h-[max(180px,min(55vh,55dvh))] w-64 flex-col overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-neutral-900',
             alignLeft ? 'left-0' : 'right-0',
           )}
         >
