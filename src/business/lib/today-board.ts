@@ -140,6 +140,31 @@ export function isEarningVisit(booking: Pick<FixtureAppointment, 'status' | 'boa
   return booking.status !== 'cancelled' && booking.board_state !== 'noshow'
 }
 
+/**
+ * 顧客の店舗所属 — WHERE a customer belongs, derived from where she books.
+ *
+ * Customers carry no `store_id` (CM-9: real ones do not either), so every
+ * screen that has to decide whether a customer-shaped row belongs to the store
+ * being viewed answers it the same way: her MOST RECENT booking's store. This
+ * used to be spelled inline inside 売上分析's `ticketLiability`; 受信トレイ needs
+ * the same answer for a thread that has no booking behind it yet, and two
+ * spellings of one affiliation is exactly the class the A8 rule forbids — so it
+ * moved here, beside every other truth both rooms borrow.
+ *
+ * The rows handed in are already store-CLAMPED by `listAppointments(lens)`, so
+ * under a branch lens this returns "the most recent booking she made HERE" and
+ * a customer who has never booked here is simply absent from the map. That is
+ * the isolation the callers want (hide, never show-and-refuse) and it is why no
+ * caller needs an unclamped read to get it.
+ */
+export function customerStoreAffiliation(bookings: FixtureAppointment[]): Map<string, string> {
+  const affiliation = new Map<string, string>()
+  for (const a of [...bookings].sort((x, y) => y.starts_at.localeCompare(x.starts_at))) {
+    if (a.store_id && !affiliation.has(a.customer_id)) affiliation.set(a.customer_id, a.store_id)
+  }
+  return affiliation
+}
+
 export function dayTotals(
   bookings: FixtureAppointment[],
   refunds: number,
