@@ -222,7 +222,10 @@
 .biz .pg-analytics .metrics-table td, .biz .pg-analytics .rank-table td { padding: 10px; border-bottom: 1px solid var(--row); color: var(--ink-2); font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .biz .pg-analytics .metrics-table td:first-child, .biz .pg-analytics .rank-table td:nth-child(-n+2) { text-align: left; }
 .biz .pg-analytics .metrics-table tbody tr:last-child td, .biz .pg-analytics .rank-table tbody tr:last-child td { border-bottom: 0; }
-.biz .pg-analytics .metrics-table tr.stat-row td { background: #fafbff; color: var(--indigo); font-weight: 700; border-top: 1px solid var(--proof-border); }
+/* Canon deviation (overturnable, P2): canon prints this row in the accent
+   (fable-store-sales-analytics.html:304-305); here the accent is reserved
+   for selected/actionable state, worn by tr.selected-row right below. */
+.biz .pg-analytics .metrics-table tr.stat-row td { background: #fafbff; color: var(--ink-2); font-weight: 700; border-top: 1px solid var(--proof-border); }
 /* The month the period nav is standing on. The family's SELECTED treatment —
    a light accent wash (R13: selected is a wash, never a dark fill; and a row
    is not a control, so it never takes the solid accent). It has to be legible
