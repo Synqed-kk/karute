@@ -1313,10 +1313,10 @@ describe('E-1 · dragging a shift bar’s end', () => {
     // 16px of hit target each, on the narrowest day column this board is drawn
     // in — below that the two handles would sit on top of each other, and two
     // controls nobody can tell apart is the fiddly control the amendment bans.
-    expect(dragSafeMinutes(WIN)).toBe(120)
+    expect(dragSafeMinutes(WIN)).toBe(150)
     // It is derived from the WINDOW, not typed: a wider day needs more minutes
     // to buy the same 16 pixels.
-    expect(dragSafeMinutes(trackWindow(8 * 60, 22 * 60))).toBe(180)
+    expect(dragSafeMinutes(trackWindow(8 * 60, 22 * 60))).toBe(210)
     const cell = SRC.slice(SRC.indexOf('function WeekCell('), SRC.indexOf('function monthCell('))
     expect(cell).toContain('cell.end! - cell.start! >= bar.minDragMinutes')
     expect(cell).toContain('短い勤務の時間はダイアログで変えます')
@@ -1372,6 +1372,23 @@ describe('E-1 · dragging a shift bar’s end', () => {
     expect(end).toContain('paintEdge(d, { start: d.origin.start, end: d.origin.end, clamp: null })')
     expect(end.indexOf('paintEdge(d,')).toBeLessThan(end.indexOf('bookingRefusal('))
     expect(end).not.toContain(".style.left = ''")
+  })
+
+  it('THE LIVE LABEL IS ONE TEXT NODE — or React stops updating it', () => {
+    // Found in the deployed browser on the first real drag: the bar committed
+    // 19:30 and its own label went on saying 18:00. Rendered as `{a}–{b}` React
+    // tracks THREE text nodes; `textContent` replaces all three with one, and
+    // every later React update aims at nodes no longer in the document. A
+    // single interpolated child makes React write the parent's text — the same
+    // thing the drag writes. The board's own `.e-time` is single for exactly
+    // this reason, and that is the line the transplant had missed.
+    const cell = SRC.slice(SRC.indexOf('function WeekCell('), SRC.indexOf('function monthCell('))
+    expect(cell).toContain('<b className="bar-time">{`${hhmm(cell.start!)}–${hhmm(cell.end!)}`}</b>')
+    expect(cell).not.toContain('<b className="bar-time">{hhmm(cell.start!)}–{hhmm(cell.end!)}</b>')
+    // and the drag writes THAT node, not some second surface of its own
+    const paint = SRC.slice(SRC.indexOf('const paintEdge ='), SRC.indexOf('const endEdgeDrag ='))
+    expect(paint).toContain('d.label.textContent = edgeLabel(span)')
+    expect(SRC).toContain(".querySelector('.bar-time')")
   })
 
   it('no React render per pointermove — the frame writes to the node', () => {

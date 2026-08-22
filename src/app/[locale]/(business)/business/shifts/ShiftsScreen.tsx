@@ -1209,7 +1209,16 @@ function WeekCell({ cell, day, m, bar }: { cell: Cell; day: DayModel; m: RosterM
   return (
     <>
       <div className="shift">
-        <b className="bar-time">{hhmm(cell.start!)}–{hhmm(cell.end!)}</b>
+        {/* ONE TEXT CHILD, deliberately — this is the node the drag writes its
+            live label into. Rendered as three children (`{a}–{b}`) React tracks
+            three text nodes, `textContent` replaces all three with one, and
+            every later React update aims at nodes that are no longer in the
+            document: the bar committed 19:30 and its own label went on saying
+            18:00. Found in the deployed browser, first real drag. A single
+            interpolated child makes React write the PARENT's text, which is the
+            same thing the drag writes — the board's own `.e-time` is single for
+            exactly this reason. */}
+        <b className="bar-time">{`${hhmm(cell.start!)}–${hhmm(cell.end!)}`}</b>
         {brk && <span>休憩 {hhmm(brk.start)}–{hhmm(brk.end)}</span>}
       </div>
       <div className="shift-track">

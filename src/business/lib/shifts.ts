@@ -537,12 +537,17 @@ export function trackPct(minute: number, win: TrackWindow): number {
 export const DRAG_PX_PER_STEP = 18
 
 /** The hit target each handle needs, and the narrowest day track this board is
- *  drawn in (the week table's day column at the shell's own 1180px floor).
- *  Together they say how short a bar may be before its two handles would sit on
- *  top of each other — below that the cell keeps its dialog and drops the
- *  handles, rather than shipping two controls nobody can tell apart. */
+ *  drawn in. Together they say how short a bar may be before its two handles
+ *  would sit on top of each other — below that the cell keeps its dialog and
+ *  drops the handles, rather than shipping two controls nobody can tell apart.
+ *
+ *  79px is measured, not guessed: at the shell's own 1180px floor the week
+ *  table is at its 930px min-width, the staff column takes 165px, so a day
+ *  column is (930−165)/7 = 109px, less 7px of cell padding each side and the
+ *  8px the track is inset by on each side to keep a centred handle inside its
+ *  own cell. */
 export const GRIP_PX = 16
-export const NARROW_TRACK_PX = 95
+export const NARROW_TRACK_PX = 79
 
 export function dragSafeMinutes(win: TrackWindow): number {
   const raw = ((win.to - win.from) * GRIP_PX) / NARROW_TRACK_PX
