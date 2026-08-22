@@ -9,10 +9,12 @@ export default async function LoginPage({
   searchParams,
 }: {
   params: Promise<{ locale: string }>
-  searchParams: Promise<{ error?: string }>
+  searchParams: Promise<{ error?: string; next?: string }>
 }) {
   const { locale } = await params
-  const { error } = await searchParams
+  // ⚖ Liam flag 70 — forwarded raw; `LoginForm` owns the gate (one home for
+  // the rule, and the component stays safe whoever renders it).
+  const { error, next } = await searchParams
   const t = await getTranslations('auth')
   return (
     <NextIntlClientProvider
@@ -30,7 +32,7 @@ export default async function LoginPage({
           {error === 'confirm' && (
             <p role="alert" className="text-sm text-red-400">{t('confirmError')}</p>
           )}
-          <LoginForm locale={locale} />
+          <LoginForm locale={locale} next={next} />
         </div>
       </div>
     </NextIntlClientProvider>
