@@ -101,6 +101,7 @@ import {
   sharesStore,
   sellLayerFor,
   sidesAt,
+  seedSpanIn,
   slotStartAt,
   spotCardAt,
   spotHitIndex,
@@ -3069,7 +3070,13 @@ export function TodayScreen(props: TodayProps) {
       refuse(foreign)
       return
     }
-    const end = Math.min(start + props.guard.standardSessionMin, hours.close)
+    // ⚖ Liam flag 62 — the SAME clamp the seed got, so a landing the guard
+    // approved for a shortened span is not re-expanded on the way to the board.
+    // The START is never moved here: by this point it is either the clamped
+    // seed, an engine alternative (where the full session fits by construction)
+    // or a deliberate override — and silently sliding an operator's chosen start
+    // would be a second decision nobody asked for.
+    const end = seedSpanIn(lane, start, props.guard.standardSessionMin, hours, props.sell.nowMinute).end
     // ⚖ Liam flag 51 — the same allocator every landing uses. A 次回予約 has no
     // room yet, so there is nothing to keep and it takes the first free
     // compatible one; when there is none the refusal NAMES the rooms that are
@@ -3356,7 +3363,11 @@ export function TodayScreen(props: TodayProps) {
             //
             // canon (:6820): while 配置モード is armed the empty slot is a LANDING,
             // not an invitation to fill a form — the customer is already known.
-            const slot = place(start, start + props.guard.standardSessionMin, hours)
+            // ⚖ Liam flag 62 — the seed is clamped into the pocket under the
+            // click before anyone is asked about it, so the guard hears a
+            // question the operator could actually mean.
+            const seed = seedSpanIn(lane, start, props.guard.standardSessionMin, hours, props.sell.nowMinute)
+            const slot = place(seed.start, seed.end, hours)
             if (placing) {
               // ⚖ 51 — 次回予約 has no room yet, so the landing solves one; ⚖ 46
               // rider — and a 配置モード armed in another store is refused by the

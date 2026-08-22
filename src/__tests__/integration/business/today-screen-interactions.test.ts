@@ -65,6 +65,7 @@ import {
   reasonLine,
   roomFitsClass,
   sellLayerFor,
+  seedSpanIn,
   sidesAt,
   slotStartAt,
   onShownBoard,
@@ -207,6 +208,43 @@ describe('drag wiring — a pointer event becomes canon geometry', () => {
     expect(slotStartAt(track, 460, HOURS)).toBe(870) // still 14:30 — snapped
     // A click on the far right cannot create a booking that starts at closing.
     expect(slotStartAt(track, 899, HOURS)).toBe(1110) // 18:30
+  })
+
+  it('⚖ 62 — the whole half hour floors to its own start, canon-style', () => {
+    const track = document.createElement('div')
+    // 900px over 9 hours: one hour is 100px, one 30-minute step is 50px.
+    rect(track, { left: 0, top: 0, width: 900, height: 40 })
+    // 11:00 is 100px; the RIGHT half of that half hour used to round FORWARD to
+    // 11:30 and seed a session that ran into the neighbour (Liam's 「the left
+    // half works, the right half fires 時間帯が重複」). Canon floors.
+    expect(slotStartAt(track, 100, HOURS)).toBe(660) // 11:00
+    expect(slotStartAt(track, 125, HOURS)).toBe(660) // 11:15 — still 11:00
+    expect(slotStartAt(track, 149, HOURS)).toBe(660) // 11:29 — still 11:00
+    expect(slotStartAt(track, 150, HOURS)).toBe(690) // 11:30 — the next step
+    expect(slotStartAt(track, 175, HOURS)).toBe(690) // 11:45 — still 11:30
+  })
+
+  it('⚖ 62 — the seed is clamped into the pocket under the click, shortened not overflowed', () => {
+    // A staff lane free 10:00–19:00 except a booking at 12:00–13:00, so the
+    // pocket under an 11:xx click is 10:00–12:00.
+    const staff = lane({ key: 'p-01', group: 'staff', items: [booking({ key: 'a', caseId: 'apt-1' }, 720, 780)] })
+    // 11:30 + 60 would run to 12:30, into the booking → slides back to 11:00.
+    expect(seedSpanIn(staff, 690, 60, HOURS, null)).toEqual({ start: 660, end: 720 })
+    // 11:00 + 60 fits exactly; nothing moves.
+    expect(seedSpanIn(staff, 660, 60, HOURS, null)).toEqual({ start: 660, end: 720 })
+    // A pocket SHORTER than the session shortens rather than overflows: the
+    // 13:00–13:45 pocket below cannot hold 60.
+    const tight = lane({
+      key: 'p-02',
+      group: 'staff',
+      items: [booking({ key: 'b', caseId: 'apt-2' }, 600, 780), booking({ key: 'c', caseId: 'apt-3' }, 825, 900)],
+    })
+    expect(seedSpanIn(tight, 780, 60, HOURS, null)).toEqual({ start: 780, end: 825 })
+    // A click that lands on top of an existing booking is left alone — the
+    // guard owns that refusal and must keep hearing the honest ask.
+    expect(seedSpanIn(staff, 720, 60, HOURS, null)).toEqual({ start: 720, end: 780 })
+    // A lane with no shift window has no pockets; today's behaviour, unchanged.
+    expect(seedSpanIn(lane({ key: 'bed-01', group: 'beds' }), 660, 60, HOURS, null)).toEqual({ start: 660, end: 720 })
   })
 })
 
@@ -786,6 +824,29 @@ describe('the 配置ガイド rail', () => {
     expect(cell.state).toBe('blocked')
     expect(cell.label).toBe('—')
     expect(cell.sentence).toBe('この開始には60分の連続した空きがありません')
+  })
+
+  it('⚖ 62 — a pocket that cannot hold the session AT THIS START still offers its own starts', () => {
+    // 10:00–14:00 free. A 60 starting at 13:30 runs past the shift end, so no
+    // pocket "fits" it — but the pocket the operator clicked into plainly has
+    // room earlier. It used to answer with alternatives: [], which is what made
+    // 「この区間に、より損の少ない開始はありません」 a lie.
+    const l = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 840 }, untilLabel: '14:00' })
+    const cell = at(guardRailsFor([l], railInput())[0], 810)
+    expect(cell.state).toBe('blocked')
+    expect(cell.sentence).toBe('この開始には60分の連続した空きがありません')
+    expect(cell.alternativeKind).toBe('safe')
+    expect(cell.alternatives.length).toBeGreaterThan(0)
+    // Every offer is inside the pocket it came from and holds the whole session.
+    for (const s of cell.alternatives) {
+      expect(s).toBeGreaterThanOrEqual(600)
+      expect(s + 60).toBeLessThanOrEqual(840)
+    }
+    // A start with no pocket under it at all keeps the honest empty answer —
+    // there is nothing in this section to offer.
+    const outside = at(guardRailsFor([l], railInput())[0], 900)
+    expect(outside.alternatives).toEqual([])
+    expect(outside.alternativeKind).toBeNull()
   })
 
   it('the card in hand is not an obstacle to itself', () => {

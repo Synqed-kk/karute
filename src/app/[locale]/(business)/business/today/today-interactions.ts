@@ -819,7 +819,31 @@ function railCell(
     start, state: 'blocked', label: '—', sentence, alternatives: [], alternativeKind: null, ackAllowed: false,
   })
   const pocket = pockets.find((p) => start >= p.s && start + input.dur <= p.e)
-  if (!pocket) return blocked(`この開始には${input.dur}分の連続した空きがありません`)
+  if (!pocket) {
+    // ⚖ Liam flag 62 (2026-08-22) — A POCKET THAT CANNOT HOLD THE SESSION AT
+    // THIS START STILL HAS STARTS IN IT.
+    //
+    // This branch used to return `alternatives: []` for every non-fit, and the
+    // popover picks its line purely by `alternatives.length` — so it read
+    // 「この区間に、より損の少ない開始はありません」 for the one case where a
+    // better start certainly exists: earlier in the very pocket the operator
+    // clicked into. Ask the pocket before saying there is nothing.
+    //
+    // The offers stay engine truth: `safeStarts` is the engine's own public
+    // surface, and the presentation seam (`offerableCell`) still snaps each one
+    // onto the store's booking lattice and re-verifies it through the caller's
+    // gate before any button names it.
+    const here = pockets.find((p) => start >= p.s && start < p.e)
+    const alternatives = here ? engine.safeStarts(here, input.dur, { now: input.nowMinute ?? undefined }) : []
+    return {
+      ...blocked(`この開始には${input.dur}分の連続した空きがありません`),
+      alternatives,
+      // ponytail: zero-loss starts only. A pocket whose every feasible start is
+      // lossy still answers 「ありません」 — upgrade to the engine's own
+      // least-loss ranking if that case ever reaches Liam's eyes.
+      alternativeKind: alternatives.length > 0 ? 'safe' : null,
+    }
+  }
   const v = engine.evaluate(pocket, { start, dur: input.dur }, { now: input.nowMinute ?? undefined })
   if (v.verdict === 'ok' || v.verdict === 'exempt') {
     // canon `exactAimConsequence` (:7570): a pocket that never held a protected
@@ -998,10 +1022,49 @@ export function foreignStoreRefusal(
 }
 
 /** canon `createAtCell` (:6005) via the F25 empty-slot click: the half hour the
- *  pointer landed on, clamped so a created booking cannot start after closing. */
+ *  pointer landed on, clamped so a created booking cannot start after closing.
+ *
+ *  ⚖ Liam flag 62 (2026-08-22) — FLOOR, NOT ROUND. Canon's `ghostCellX`
+ *  (:5989-5993) floors: a click anywhere in [11:00, 11:30) seeds 11:00. We
+ *  rounded, so [11:15, 11:45) jumped FORWARD to 11:30 and a standard session
+ *  seeded there ran into the next booking — Liam's 「the left half works, the
+ *  right half fires 時間帯が重複」. One token, canon parity. */
 export function slotStartAt(track: Element, clientX: number, hours: Hours, stepMin = 30): number {
   const minute = hours.open + fractionIn(track, clientX) * (hours.close - hours.open)
-  return Math.max(hours.open, Math.min(hours.close - stepMin, Math.round(minute / stepMin) * stepMin))
+  return Math.max(hours.open, Math.min(hours.close - stepMin, Math.floor(minute / stepMin) * stepMin))
+}
+
+/** ⚖ Liam flag 62 (2026-08-22) — THE SEED IS CLAMPED INTO THE POCKET IT LANDED IN.
+ *
+ *  Flooring doubles the working area but a click at 11:40 in an 11:00–12:00
+ *  pocket still seeds 11:30〜12:30 and collides. Canon does not clamp either —
+ *  it checks only the PARTNER lane (`laneFreeAt` :6022-6028) and never its own —
+ *  so this is one of the places copying canon exactly is not enough.
+ *
+ *  SHORTEN, NEVER OVERFLOW: the start slides back to the last position where the
+ *  full session fits; if the pocket itself is shorter than the session, the seed
+ *  takes the pocket's own length. A click outside every pocket is left alone —
+ *  the guard owns that refusal and it must keep hearing the honest ask. */
+export function seedSpanIn(
+  lane: BoardLane,
+  start: number,
+  sessionMin: number,
+  hours: Hours,
+  nowMinute: number | null,
+): { start: number; end: number } {
+  const plain = { start, end: Math.min(start + sessionMin, hours.close) }
+  if (lane.window == null) return plain
+  const pockets = freePockets({
+    from: lane.window.from,
+    until: lane.window.until,
+    close: hours.close,
+    now: nowMinute,
+    occupied: laneSpans(lane),
+  })
+  const pocket = pockets.find((p) => start >= p.s && start < p.e)
+  if (!pocket) return plain
+  const clamped = Math.max(pocket.s, Math.min(start, pocket.e - sessionMin))
+  return { start: clamped, end: Math.min(clamped + sessionMin, pocket.e) }
 }
 
 /** A created card's span, so the create dialog and the board agree. */
