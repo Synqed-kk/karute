@@ -56,6 +56,7 @@ export function StaffSelector({
   compact?: boolean
 }) {
   const t = useTranslations('staffSelector')
+  const tc = useTranslations('common')
   const [open, setOpen] = useState(false)
   // Search box inside the panel (mock §①-④). Empty = the default list; a
   // query searches the WHOLE roster (management included, the reveal) —
@@ -85,7 +86,12 @@ export function StaffSelector({
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key !== 'Escape') return
+      // A key delivered mid-conversion belongs to the IME, not this panel —
+      // same guard as MenuCombobox.tsx's Escape handler. Without it, the
+      // search box's 変換-cancel Escape also closes the whole dropdown.
+      if (e.isComposing || e.keyCode === 229) return
+      setOpen(false)
     }
     document.addEventListener('pointerdown', onDown)
     document.addEventListener('keydown', onKey)
@@ -136,14 +142,18 @@ export function StaffSelector({
 
   // '' until they type. Typing searches the WHOLE roster (management
   // included — the reveal); an untouched box shows the default list, which
-  // hides 経営メンバー outright — no self/selected exception (⚖ overturn:
-  // the 自分 pill covers self-filtering, so there is no misfile risk in a
-  // view filter the way there is in an assignment picker). fail-open:
-  // `!s.isManagement` treats a missing/undefined flag as visible.
+  // hides 経営メンバー — except the CURRENT selection (F7, 2026-09-01:
+  // combobox-parity with StaffCombobox's own `!isManagement || id ===
+  // selfId || id === selectedId` leg — this component has no separate self
+  // id to carry, so only the selected leg applies). Without it, picking a
+  // flagged member from a search reveal left the reopened default list
+  // showing nobody selected, even though the trigger chip named them
+  // correctly. fail-open: `!s.isManagement` treats a missing/undefined flag
+  // as visible.
   const trimmedQuery = query.trim()
   const visible = trimmedQuery
     ? staffList.filter((s) => s.name.toLowerCase().includes(trimmedQuery.toLowerCase()))
-    : staffList.filter((s) => !s.isManagement)
+    : staffList.filter((s) => !s.isManagement || s.id === selected)
 
   return (
     <div ref={ref} className="relative inline-block">
@@ -232,7 +242,7 @@ export function StaffSelector({
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={t('searchPlaceholder')}
                 aria-label={t('searchPlaceholder')}
-                className="w-full min-w-0 border-none bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+                className="w-full min-w-0 rounded border-none bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
               />
             </div>
           </div>
@@ -282,6 +292,12 @@ export function StaffSelector({
                 />
               )
             })}
+            {/* Zero-hit search — same 該当なし recipe as StaffCombobox
+             *  (common.noResults), so the panel never renders a bare
+             *  "スタッフで絞り込み" header over an empty listbox. */}
+            {trimmedQuery && visible.length === 0 && (
+              <div className="px-3 py-2 text-[13px] text-muted-foreground">{tc('noResults')}</div>
+            )}
           </div>
         </div>
       )}
