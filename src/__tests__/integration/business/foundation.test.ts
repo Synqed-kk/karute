@@ -322,12 +322,17 @@ describe('the fixture data door', () => {
         './BusinessSessionEdits',
         './BusinessSidebar',
         './BusinessTopbar',
+        './ShiftsSessionEdits',
         './business-shell.css',
         '@/business/i18n',
         '@/business/lib/admission',
         '@/business/lib/data',
         'react',
       ],
+      // スタッフ・シフト's staged edits, above the screen for the same reason
+      // the board's are. Type-only import of the room's own shapes; no data,
+      // no clock, nothing that can reach core.
+      'src/app/[locale]/(business)/ShiftsSessionEdits.tsx': ['@/business/lib/shifts', 'react'],
       // ⚖ Liam 22 — the session-edit provider. Type-only imports of the board's
       // own shapes; nothing here reads data, and nothing here can reach core.
       'src/app/[locale]/(business)/BusinessSessionEdits.tsx': [
@@ -410,6 +415,38 @@ describe('the fixture data door', () => {
         'react',
       ],
       'src/app/[locale]/(business)/business/analytics/loading.tsx': ['@/business/i18n'],
+      // スタッフ・シフト. The room's own plane and derivations, plus the BOARD's
+      // own `hhmm`/`yen`/`effectiveShift`/`dayTotals` — borrowed on purpose, so
+      // the shift board and 今日の運営 cannot state the same day differently.
+      'src/business/lib/fixtures-shifts.ts': [],
+      'src/business/lib/shifts.ts': [
+        './clock',
+        './fixtures',
+        './fixtures-shifts',
+        './fixtures-today',
+        './today-board',
+      ],
+      'src/app/[locale]/(business)/business/shifts/page.tsx': [
+        './ShiftsScreen',
+        './shifts.css',
+        '@/business/lib/admission',
+        '@/business/lib/clock',
+        '@/business/lib/data',
+        '@/business/lib/fixtures-shifts',
+        '@/business/lib/shifts',
+        '@/business/lib/today-board',
+      ],
+      'src/app/[locale]/(business)/business/shifts/ShiftsScreen.tsx': [
+        '../../BusinessTopbar',
+        '../../ShiftsSessionEdits',
+        '@/business/lib/fixtures-today',
+        '@/business/lib/shifts',
+        '@/business/lib/today-board',
+        'next/link',
+        'next/navigation',
+        'react',
+      ],
+      'src/app/[locale]/(business)/business/shifts/loading.tsx': ['@/business/i18n'],
     }
     for (const [file, expected] of Object.entries(INVENTORY)) {
       const src = readFileSync(join(process.cwd(), file), 'utf8')

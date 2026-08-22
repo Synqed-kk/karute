@@ -45,6 +45,14 @@ export function BusinessTopbarActionSlot({ children }: { children: ReactNode }) 
 export function useTopbarAction(label: string, onClick: () => void) {
   const { set } = useContext(ActionSlot)
   useEffect(() => {
+    // An EMPTY label leaves the slot empty. A screen whose primary action only
+    // exists in some states (スタッフ・シフト's 欠勤内容を確認, which needs an
+    // absence to open) can then say so without a conditional hook, and the
+    // topbar never renders a button with no words on it.
+    if (!label) {
+      set(null)
+      return
+    }
     set({ label, onClick })
     return () => set(null)
   }, [set, label, onClick])
@@ -57,6 +65,7 @@ const CRUMB: Record<string, string> = {
   reservations: '予約一覧',
   customers: '顧客',
   analytics: '売上分析',
+  shifts: 'スタッフ・シフト',
 }
 
 export function BusinessTopbar({ stores, syncLabel }: { stores: ShellStore[]; syncLabel: string }) {

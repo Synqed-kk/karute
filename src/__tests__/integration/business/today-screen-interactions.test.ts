@@ -1638,7 +1638,11 @@ describe('the session’s edits outlive the day flip, and the × knows which day
 
   it('the provider is mounted in the layout, which a ?day= navigation does not remount', () => {
     expect(LAYOUT).toContain('import { BusinessSessionEdits } from')
-    expect(LAYOUT).toContain('<BusinessSessionEdits>{children}</BusinessSessionEdits>')
+    // The board's provider wraps `children`. スタッフ・シフト added a second
+    // provider INSIDE it (same reason, its own state), so the assertion pins
+    // that the board's one is still there and still above the children rather
+    // than one exact line of JSX.
+    expect(LAYOUT).toMatch(/<BusinessSessionEdits>[\s\S]*\{children\}[\s\S]*<\/BusinessSessionEdits>/)
     // All six really are state, in one place — a partial move would let a chip
     // survive the flip while the booking it was placed as did not.
     for (const name of FAMILY) expect(PROVIDER).toContain(`const [${name}, set`)

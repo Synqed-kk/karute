@@ -1,0 +1,341 @@
+/* スタッフ・シフト screen CSS — LIFTED from fable-store-team-shifts.html (its
+   own <style>: the week board's section A and the month board's section H, the
+   R-A merge of 2026-08-19). Class names, sizes and colours are canon's.
+
+   EVERY RULE IS SCOPED UNDER `.pg-shifts`, FROM DAY ONE. App Router keeps a
+   route segment's stylesheet in the document after a client-side navigation and
+   the last sheet inserted wins the cascade, so a route sheet that states a bare
+   family-shared selector (`.panel`, `.page`, `.legend`, `dialog`) goes on
+   restyling whichever room the reader walks into next. Room 1 measured that
+   (D-C: 顧客 reached through 売上分析 rendered 14px taller than 顧客 reached
+   directly) and the fix is this wrapper. `.pg-shifts` is carried by exactly one
+   node — ShiftsScreen's root div — and a source-scan test pins that every rule
+   in this file sits under it.
+
+   Canon's own tokens that no other Business sheet declares (`--red-hatch`,
+   `--blue-row`, `--red-row`) are declared HERE, on the route class, for the
+   same reason: the shared token block belongs to business-shell.css and a
+   route sheet may not grow it. */
+
+.biz .page.pg-shifts {
+  /* TWO classes on the root, deliberately. A neighbour room's sheet still
+     states a bare `.biz .page` (today / 顧客 / 予約 are not scoped yet — the
+     family sweep is its own PR), and `.biz .page` and `.biz .pg-shifts` have
+     the SAME specificity, so whichever sheet App Router inserted last would
+     win. `.biz .page.pg-shifts` outranks it, so this room keeps its own
+     padding down any click path. Room 1 measured that bleed; this is the half
+     a room can fix from inside itself. */
+  --red-hatch: #f5cac5;
+  --blue-row: #f5f7fe;
+  --red-row: #fdf4f3;
+  padding: 20px 28px 38px;
+}
+
+/* ── page head ─────────────────────────────────────────────────────────── */
+.biz .pg-shifts .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 14px; }
+.biz .pg-shifts .date-line { margin-bottom: 4px; color: var(--ink-3); font-size: 13px; font-weight: 700; }
+.biz .pg-shifts h1 { margin: 0; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
+.biz .pg-shifts .subtitle { margin: 4px 0 0; color: var(--muted); font-size: 14px; line-height: 1.55; }
+.biz .pg-shifts .health { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.biz .pg-shifts .chip {
+  display: inline-flex; align-items: center; min-height: 30px; padding: 0 10px;
+  border-radius: 8px; background: #f4f4f5; color: var(--ink-3); font-size: 12px; white-space: nowrap;
+}
+.biz .pg-shifts .chip.context { background: var(--indigo-soft); color: var(--indigo); font-weight: 700; }
+.biz .pg-shifts .chip.warn { background: var(--orange-soft); color: var(--orange); }
+
+/* ── 週/月 switch + period stepper ─────────────────────────────────────── */
+/* R13: the selected segment is a light accent WASH with accent text, never a
+   fill. Canon's own treatment, and the law's recipe. */
+.biz .pg-shifts .view-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.biz .pg-shifts .toggle-group { display: inline-flex; padding: 3px; border: 1px solid var(--control); border-radius: 10px; background: #fafafb; gap: 2px; }
+.biz .pg-shifts .toggle-seg {
+  min-height: 34px; padding: 0 16px; border: 0; border-radius: 7px; background: transparent;
+  color: var(--ink-3); font-size: 13px; font-weight: 700; text-decoration: none;
+  display: inline-flex; align-items: center;
+}
+.biz .pg-shifts .toggle-seg:hover { color: var(--ink); }
+.biz .pg-shifts .toggle-seg.active { background: var(--indigo-soft); color: var(--indigo); }
+
+.biz .pg-shifts .period-nav { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.biz .pg-shifts .period-nav .btn { min-height: 36px; padding: 0 12px; display: inline-flex; align-items: center; text-decoration: none; }
+.biz .pg-shifts .period-nav strong { min-width: 118px; text-align: center; font-size: 15px; }
+.biz .pg-shifts .period-nav strong.range { min-width: 210px; }
+/* Native month/date input (R-A ruling: never a custom picker widget). Same skin
+   as the stepper buttons, 36px so the row never grows. `width: auto` cancels
+   the form-wide `input { width: 100% }` below, which would otherwise make the
+   input claim the row and wrap the whole nav. */
+.biz .pg-shifts .period-nav input[type="month"],
+.biz .pg-shifts .period-nav input[type="date"] {
+  width: auto; min-height: 36px; padding: 0 10px;
+  border: 1px solid var(--control); border-radius: 8px;
+  background: #fff; color: var(--ink-2);
+  font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.biz .pg-shifts .period-nav input[type="month"]:hover,
+.biz .pg-shifts .period-nav input[type="date"]:hover { border-color: #d4d4db; background: #fafafb; }
+
+/* ── incident band (week) ──────────────────────────────────────────────── */
+.biz .pg-shifts .incident {
+  display: grid; grid-template-columns: minmax(320px, 1fr) repeat(3, auto) auto;
+  margin-bottom: 12px; border: 1px solid var(--proof-border); border-radius: 12px;
+  background: var(--proof); overflow: hidden;
+}
+.biz .pg-shifts .incident-main { display: flex; align-items: center; gap: 11px; min-width: 0; padding: 12px 14px; border-left: 3px solid var(--orange-line); }
+.biz .pg-shifts .incident-icon {
+  display: grid; place-items: center; width: 30px; height: 30px; flex: 0 0 30px;
+  border-radius: 50%; background: var(--orange-line); color: #fff; font-size: 14px; font-weight: 800;
+}
+.biz .pg-shifts .incident-main strong { display: block; font-size: 15px; }
+.biz .pg-shifts .incident-main span span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+.biz .pg-shifts .incident-stat { display: grid; align-content: center; min-width: 82px; padding: 9px 12px; border-left: 1px solid #e9edfb; }
+.biz .pg-shifts .incident-stat span { color: var(--muted); font-size: 12px; }
+.biz .pg-shifts .incident-stat b { margin-top: 2px; font-size: 18px; font-variant-numeric: tabular-nums; }
+.biz .pg-shifts .incident-stat b.warn { color: var(--orange); }
+.biz .pg-shifts .incident-action { display: flex; align-items: center; padding: 9px 12px; border-left: 1px solid #e9edfb; }
+
+/* ── week summary strip ────────────────────────────────────────────────── */
+.biz .pg-shifts .summary {
+  display: grid; grid-template-columns: minmax(260px, 1.2fr) repeat(4, .72fr);
+  margin-bottom: 12px; border: 1px solid var(--card); border-radius: 11px; overflow: hidden;
+}
+.biz .pg-shifts .summary-main { padding: 12px 14px; background: #fafafb; }
+.biz .pg-shifts .summary-main strong { display: block; font-size: 15px; }
+.biz .pg-shifts .summary-main span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+.biz .pg-shifts .summary-cell { display: grid; align-content: center; padding: 9px 12px; border-left: 1px solid var(--section); }
+.biz .pg-shifts .summary-cell span { color: var(--muted); font-size: 12px; }
+.biz .pg-shifts .summary-cell b { margin-top: 3px; font-size: 18px; font-variant-numeric: tabular-nums; }
+.biz .pg-shifts .summary-cell b.warn { color: var(--orange); }
+
+/* ── panels + legend ───────────────────────────────────────────────────── */
+.biz .pg-shifts .panel { border: 1px solid var(--card); border-radius: 12px; background: #fff; overflow: hidden; }
+.biz .pg-shifts .panel + .panel { margin-top: 12px; }
+.biz .pg-shifts .panel-head {
+  min-height: 60px; padding: 10px 14px; border-bottom: 1px solid var(--section);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; background: #fafafb;
+}
+.biz .pg-shifts .panel-head strong { display: block; font-size: 15px; }
+.biz .pg-shifts .panel-head span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+.biz .pg-shifts .legend { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; flex-wrap: wrap; }
+.biz .pg-shifts .legend span { display: inline-flex; align-items: center; gap: 5px; margin-top: 0; }
+.biz .pg-shifts .legend i { width: 10px; height: 10px; border-radius: 3px; background: var(--indigo-soft); border: 1px solid #b8c5f3; }
+.biz .pg-shifts .legend .break i { background: #f1f1f3; border-color: #d4d4d8; }
+/* The two boards carry different vocabularies for the same word, and canon
+   scopes them apart (its month sheet re-states `.legend .off i` under
+   #monthView). Collapsing them into one rule painted the WEEK's 欠勤・休暇
+   swatch the MONTH's grey while the cell it explains is red — a legend lying
+   about the colour it exists to name. */
+.biz .pg-shifts .legend.week .off i { background: var(--red-soft); border-color: #e6a09a; }
+.biz .pg-shifts .legend.week .rest i { background: #f4f4f5; border-color: var(--control); }
+.biz .pg-shifts .legend.month .off i { background: #f4f4f5; border-color: var(--control); }
+.biz .pg-shifts .legend .absence i { background: repeating-linear-gradient(135deg, var(--red-soft), var(--red-soft) 3px, var(--red-hatch) 3px, var(--red-hatch) 6px); border-color: #e6a09a; }
+.biz .pg-shifts .legend .closed i { background: var(--section); border-color: var(--control); }
+.biz .pg-shifts .panel-foot { padding: 10px 12px; border-top: 1px solid var(--section); background: #fafafb; color: var(--muted); font-size: 12px; line-height: 1.55; }
+
+/* ── week grid ─────────────────────────────────────────────────────────── */
+.biz .pg-shifts .week-wrap { overflow-x: auto; }
+.biz .pg-shifts .week-table { width: 100%; min-width: 930px; border-collapse: collapse; table-layout: fixed; }
+.biz .pg-shifts .week-table th {
+  height: 44px; padding: 7px 8px; border-right: 1px solid var(--section); border-bottom: 1px solid var(--section);
+  background: #fafafb; color: var(--ink-3); font-size: 12px; text-align: left;
+}
+.biz .pg-shifts .week-table th:first-child { width: 180px; }
+.biz .pg-shifts .week-table th:last-child, .biz .pg-shifts .week-table td:last-child { border-right: 0; }
+.biz .pg-shifts .week-table td {
+  height: 88px; padding: 7px; border-right: 1px solid var(--section); border-bottom: 1px solid var(--row);
+  vertical-align: top; font-size: 12px;
+}
+.biz .pg-shifts .week-table tbody tr:last-child td { border-bottom: 0; }
+.biz .pg-shifts .staff-cell { background: #fafafb; }
+.biz .pg-shifts .staff-cell strong { display: block; color: var(--ink); font-size: 14px; }
+.biz .pg-shifts .staff-cell span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.biz .pg-shifts .qualification-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.biz .pg-shifts .qualification {
+  display: inline-flex; align-items: center; min-height: 22px; padding: 0 6px;
+  border: 1px solid var(--proof-border); border-radius: 5px; background: #fff;
+  color: var(--indigo); font-size: 12px; font-weight: 700; margin-top: 0;
+}
+.biz .pg-shifts .shift { padding: 6px 7px; border: 1px solid #b8c5f3; border-radius: 7px; background: var(--indigo-soft); color: var(--ink-2); line-height: 1.35; }
+.biz .pg-shifts .shift b, .biz .pg-shifts .shift span { display: block; }
+.biz .pg-shifts .shift span { margin-top: 2px; color: var(--muted); }
+.biz .pg-shifts .shift.off { border-color: #e6a09a; background: var(--red-soft); color: var(--red-dark); }
+.biz .pg-shifts .shift.leave { border-color: #e5d5ae; background: var(--yellow-soft); color: var(--yellow); }
+.biz .pg-shifts .shift.closed { border-color: var(--control); background: var(--section); color: var(--quiet); }
+/* 休み — quiet, and distinct from BOTH 勤務 (indigo) and 欠勤 (red), so the
+   week board can say "off" instead of leaving a blank nobody can read. */
+.biz .pg-shifts .shift.rest { border-color: var(--control); background: #f4f4f5; color: var(--ink-3); }
+.biz .pg-shifts .cell-note { display: block; margin-top: 5px; color: var(--quiet); font-size: 12px; }
+.biz .pg-shifts .cell-note.staged { color: var(--indigo); font-weight: 700; }
+.biz .pg-shifts .today-head { color: var(--indigo) !important; box-shadow: inset 0 -3px 0 var(--indigo); }
+
+/* ── recovery pair (week) ──────────────────────────────────────────────── */
+.biz .pg-shifts .recovery { display: grid; grid-template-columns: minmax(520px, 1fr) 360px; gap: 12px; align-items: start; margin-top: 12px; }
+.biz .pg-shifts .booking-table { width: 100%; border-collapse: collapse; }
+.biz .pg-shifts .booking-table th { padding: 9px 11px; border-bottom: 1px solid var(--section); color: var(--quiet); font-size: 12px; text-align: left; }
+.biz .pg-shifts .booking-table td { padding: 11px; border-bottom: 1px solid var(--row); font-size: 13px; }
+.biz .pg-shifts .booking-table tbody tr:last-child td { border-bottom: 0; }
+.biz .pg-shifts .booking-table tbody tr { cursor: pointer; }
+.biz .pg-shifts .booking-table tbody tr:hover { background: #fafafb; }
+.biz .pg-shifts .booking-table tbody tr.selected { background: var(--indigo-soft); box-shadow: inset 3px 0 0 var(--indigo); }
+.biz .pg-shifts .booking-main strong { display: block; font-size: 14px; }
+.biz .pg-shifts .booking-main span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+.biz .pg-shifts .status {
+  display: inline-flex; align-items: center; min-height: 26px; padding: 0 8px; border-radius: 6px;
+  background: var(--yellow-soft); color: var(--yellow); font-size: 12px; font-weight: 700; white-space: nowrap;
+}
+.biz .pg-shifts .status.info { background: var(--indigo-soft); color: var(--indigo); }
+.biz .pg-shifts .status.danger { background: var(--red-soft); color: var(--red-dark); }
+.biz .pg-shifts .status.done { background: var(--green-soft); color: var(--green-dark); }
+
+.biz .pg-shifts .inspector { position: sticky; top: 78px; }
+.biz .pg-shifts .inspector-head { padding: 13px 14px 11px; border-bottom: 1px solid var(--section); background: #fafafb; }
+.biz .pg-shifts .inspector-kicker { color: var(--indigo); font-size: 12px; font-weight: 700; }
+.biz .pg-shifts .inspector-head h2 { margin: 5px 0 2px; font-size: 20px; }
+.biz .pg-shifts .inspector-head p { margin: 0; color: var(--muted); font-size: 12px; }
+.biz .pg-shifts .inspector-body { padding: 12px 14px 14px; }
+.biz .pg-shifts .proof-grid { border: 1px solid var(--card); border-radius: 9px; overflow: hidden; }
+.biz .pg-shifts .proof-row { display: grid; grid-template-columns: 92px 1fr; gap: 10px; padding: 9px 10px; border-bottom: 1px solid var(--row); font-size: 12px; }
+.biz .pg-shifts .proof-row:last-child { border-bottom: 0; }
+.biz .pg-shifts .proof-row span { color: var(--muted); }
+.biz .pg-shifts .proof-row b { text-align: right; font-weight: 600; }
+.biz .pg-shifts .warning { margin-top: 10px; padding: 10px 11px; border-left: 3px solid var(--orange-line); background: var(--orange-soft); color: var(--ink-3); font-size: 12px; line-height: 1.55; }
+.biz .pg-shifts .safe-note { margin-top: 10px; padding: 10px 11px; border: 1px solid var(--proof-border); border-radius: 9px; background: var(--proof); color: var(--ink-3); font-size: 12px; line-height: 1.55; }
+.biz .pg-shifts .inspector-actions { display: grid; gap: 8px; margin-top: 11px; }
+.biz .pg-shifts .inspector-actions .btn { width: 100%; display: grid; place-items: center; text-decoration: none; }
+.biz .pg-shifts .empty-recovery { padding: 30px 18px; color: var(--muted); text-align: center; font-size: 13px; }
+
+/* ── month board ───────────────────────────────────────────────────────── */
+.biz .pg-shifts .exception {
+  display: flex; align-items: center; gap: 11px; margin-bottom: 12px; padding: 12px 14px;
+  border: 1px solid var(--proof-border); border-left: 3px solid var(--orange-line);
+  border-radius: 12px; background: var(--proof);
+}
+.biz .pg-shifts .exception-icon {
+  display: grid; place-items: center; width: 30px; height: 30px; flex: 0 0 30px;
+  border-radius: 50%; background: var(--orange-line); color: #fff; font-size: 14px; font-weight: 800;
+}
+.biz .pg-shifts .exception-body strong { display: block; font-size: 14px; }
+.biz .pg-shifts .exception-body span { display: block; margin-top: 3px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+
+.biz .pg-shifts .info-card {
+  display: flex; align-items: flex-start; gap: 8px; margin-bottom: 12px; padding: 11px 14px;
+  border: 1px solid var(--card); border-radius: 10px; background: #fafafb; color: var(--ink-2); font-size: 13px; line-height: 1.55;
+}
+.biz .pg-shifts .info-card b { font-variant-numeric: tabular-nums; }
+.biz .pg-shifts .info-sub { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+
+.biz .pg-shifts .approval-strip {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px;
+  padding: 11px 14px; border: 1px solid var(--proof-border); border-radius: 10px; background: var(--proof);
+}
+.biz .pg-shifts .approval-strip strong { font-size: 14px; font-weight: 700; }
+.biz .pg-shifts .approval-strip .btn { min-height: 36px; }
+.biz .pg-shifts .strip-note { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+
+.biz .pg-shifts .month-wrap { overflow-x: auto; }
+.biz .pg-shifts .month-table { width: 100%; min-width: 860px; border-collapse: collapse; table-layout: fixed; }
+.biz .pg-shifts .month-table col.date-col { width: 148px; }
+.biz .pg-shifts .month-table col.booking-col { width: 140px; }
+.biz .pg-shifts .month-table th {
+  padding: 8px 10px; border-right: 1px solid var(--section); border-bottom: 1px solid var(--section);
+  background: #fafafb; color: var(--ink-3); font-size: 12px; text-align: left; vertical-align: bottom;
+}
+.biz .pg-shifts .month-table th:last-child, .biz .pg-shifts .month-table td:last-child { border-right: 0; }
+.biz .pg-shifts .col-name { display: block; font-size: 13px; font-weight: 700; color: var(--ink); }
+.biz .pg-shifts .col-total { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.biz .pg-shifts .col-pattern { display: inline-block; margin-top: 4px; padding: 1px 6px; border-radius: 5px; background: var(--section); color: var(--ink-3); font-size: 10.5px; font-weight: 600; }
+.biz .pg-shifts .month-table td { padding: 0; border-right: 1px solid var(--section); border-bottom: 1px solid var(--row); vertical-align: middle; font-size: 12px; }
+.biz .pg-shifts .month-table tbody tr:last-child td { border-bottom: 0; }
+.biz .pg-shifts .month-table tbody tr.row-sat { background: var(--blue-row); }
+.biz .pg-shifts .month-table tbody tr.row-sun { background: var(--red-row); }
+.biz .pg-shifts .month-table tbody tr.row-closed { background: var(--section); }
+.biz .pg-shifts .month-table tbody tr.row-today { background: var(--proof); box-shadow: inset 3px 0 0 var(--indigo); }
+.biz .pg-shifts .row-closed .day-label { color: var(--quiet); }
+.biz .pg-shifts .day-label { padding: 0 12px; font-size: 13px; font-weight: 700; color: var(--ink-2); white-space: nowrap; }
+.biz .pg-shifts .row-sat .day-label { color: #33449b; }
+.biz .pg-shifts .row-sun .day-label { color: var(--red-dark); }
+.biz .pg-shifts .today-tag { margin-left: 6px; padding: 1px 6px; border-radius: 5px; background: var(--indigo-soft); color: var(--indigo); font-size: 10.5px; font-weight: 700; }
+.biz .pg-shifts .cell-btn { display: block; width: 100%; min-height: 54px; padding: 6px 8px; border: 0; background: transparent; text-align: left; border-radius: 8px; }
+.biz .pg-shifts .cell-btn:hover { background: rgba(24, 24, 27, .035); }
+.biz .pg-shifts .cell-btn:focus-visible { outline: 3px solid var(--indigo); outline-offset: -2px; }
+.biz .pg-shifts .cell-quiet { display: block; min-height: 54px; }
+.biz .pg-shifts .chip-shift {
+  display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border-radius: 6px;
+  border: 1px solid #b8c5f3; background: var(--indigo-soft); color: var(--ink-2);
+  font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+.biz .pg-shifts .chip-shift.absence { border-color: #e6a09a; color: var(--red-dark); background: repeating-linear-gradient(135deg, var(--red-soft), var(--red-soft) 4px, var(--red-hatch) 4px, var(--red-hatch) 8px); }
+.biz .pg-shifts .chip-shift.small { min-height: 20px; padding: 0 6px; font-size: 11.5px; }
+.biz .pg-shifts .chip-shift.warn { border-color: #e8b88a; background: var(--orange-soft); color: var(--orange); white-space: normal; line-height: 1.3; }
+.biz .pg-shifts .chip-shift.quiet { border-color: var(--control); background: #f4f4f5; color: var(--ink-3); white-space: normal; line-height: 1.3; }
+.biz .pg-shifts .chip-shift.request { border-style: dashed; }
+.biz .pg-shifts .chip-shift.staged { border-color: var(--indigo); box-shadow: inset 0 0 0 1px var(--indigo); }
+.biz .pg-shifts .cell-btn > .chip-shift + .chip-shift { margin-top: 4px; }
+.biz .pg-shifts .booking-cell { padding: 8px 10px !important; vertical-align: middle; }
+.biz .pg-shifts .booking-plain { color: var(--muted); font-size: 12px; }
+.biz .pg-shifts .booking-mark { display: block; margin-top: 3px; color: var(--indigo); font-size: 11px; font-weight: 600; }
+
+/* ── dialogs ───────────────────────────────────────────────────────────── */
+.biz .pg-shifts dialog {
+  /* ⚖ Liam flag 32 — THIS LINE IS THE CENTERING. Tailwind's preflight sets
+     `margin: 0` on every element, <dialog> included, which overrides the UA's
+     own `dialog:modal { margin: auto }` and pins every native dialog to the
+     top-left corner. Canon has no CSS reset and never had to say it. Every
+     native dialog in Business territory needs the rule back. */
+  margin: auto;
+  width: min(620px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  padding: 0;
+  border: 1px solid var(--control);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  font-family: var(--font);
+  box-shadow: 0 18px 50px rgba(24, 24, 27, .16);
+}
+.biz .pg-shifts dialog::backdrop { background: rgba(24, 24, 27, .48); }
+.biz .pg-shifts dialog.small { width: min(360px, calc(100vw - 40px)); }
+.biz .pg-shifts .dialog-head { min-height: 62px; padding: 12px 16px; border-bottom: 1px solid var(--section); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.biz .pg-shifts .dialog-head h2 { margin: 0; font-size: 20px; }
+.biz .pg-shifts .dialog-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.biz .pg-shifts .close { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid var(--control); border-radius: 8px; background: #fff; color: var(--ink-2); }
+.biz .pg-shifts .dialog-body { padding: 16px; overflow: auto; }
+.biz .pg-shifts .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+.biz .pg-shifts label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+.biz .pg-shifts .dialog-body input {
+  width: 100%; min-height: 42px; padding: 8px 10px;
+  border: 1px solid var(--control); border-radius: 8px; background: #fff; color: var(--ink);
+}
+.biz .pg-shifts .dialog-body input[aria-invalid="true"] { border-color: var(--red); }
+.biz .pg-shifts .dialog-note { margin-top: 12px; padding: 10px 11px; border-left: 3px solid var(--control); background: #fafafb; color: var(--ink-3); font-size: 12px; line-height: 1.6; }
+/* The refusal. It sits inside the surface that asked and stays until the
+   operator closes it — never a toast that flashes past (⚖ lane invariant). */
+.biz .pg-shifts .dialog-block { margin-top: 12px; padding: 10px 11px; border-left: 3px solid var(--orange-line); background: var(--orange-soft); color: var(--ink-3); font-size: 12px; line-height: 1.6; }
+.biz .pg-shifts .dialog-foot { padding: 12px 16px; border-top: 1px solid var(--section); background: #fafafb; display: flex; justify-content: space-between; gap: 8px; }
+.biz .pg-shifts .dialog-foot .foot-right { display: flex; gap: 8px; }
+.biz .pg-shifts .leave-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--row); }
+.biz .pg-shifts .leave-row:last-child { border-bottom: 0; }
+.biz .pg-shifts .leave-row strong { display: block; font-size: 13px; }
+.biz .pg-shifts .leave-row span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.biz .pg-shifts .leave-refusal { color: var(--orange); }
+.biz .pg-shifts .leave-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* ── toast ─────────────────────────────────────────────────────────────── */
+/* Canon's honest fixture-world message. It carries a × because a message the
+   reader has to outrun is a message they did not read (⚖ 47). */
+.biz .pg-shifts .toast {
+  position: fixed; right: 20px; bottom: 20px; z-index: 50; max-width: 420px;
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px 15px; border-radius: 8px; background: #fff;
+  border: 1px solid var(--control); border-left: 3px solid var(--green);
+  color: var(--ink); font-size: 13px; line-height: 1.5;
+  box-shadow: 0 12px 30px rgba(24, 24, 27, .12);
+}
+.biz .pg-shifts .toast-close { border: 0; background: transparent; color: var(--quiet); font-size: 14px; line-height: 1; padding: 2px; }
+
+@media (max-width: 1320px) {
+  .biz .pg-shifts { padding-left: 18px; padding-right: 18px; }
+  .biz .pg-shifts .recovery { grid-template-columns: minmax(470px, 1fr) 330px; gap: 10px; }
+  .biz .pg-shifts .incident-stat { min-width: 72px; padding-left: 8px; padding-right: 8px; }
+  .biz .pg-shifts .week-table th:first-child { width: 165px; }
+}
