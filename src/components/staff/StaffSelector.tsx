@@ -220,20 +220,33 @@ export function StaffSelector({
           // edge (narrow phone), right-0 would push the panel off-screen left;
           // the useLayoutEffect above detects that and flips to left-0 so the
           // menu is always fully on-screen.
+          // Internal scroll keeps the panel usable at any roster size — the
+          // page never scrolls behind a giant menu. The keyboard-aware
+          // max-h-[min(55vh,55dvh)] cap bounds the WHOLE panel (title +
+          // search + list), not just the list — 55dvh mirrors the 55vh term
+          // (desktop/no-keyboard: identical, unchanged), but the Android
+          // keyboard shrinks dvh, so once it's open the entire panel caps to
+          // the room actually left, same house pattern as StaffCombobox's
+          // 35dvh cap. Ceiling: this doesn't reposition the panel's TOP
+          // anchor — a trigger positioned low on the page can still push the
+          // panel past the keyboard/bottom edge. Acceptable today because
+          // every shipped surface renders this filter in the page header
+          // near the top; if a low-trigger surface ever appears, upgrade to
+          // measuring available space and repositioning.
           className={cn(
-            'absolute top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-neutral-900',
+            'absolute top-full z-50 mt-1 flex max-h-[min(55vh,55dvh)] w-64 flex-col overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-neutral-900',
             alignLeft ? 'left-0' : 'right-0',
           )}
         >
           <div
             id={labelId}
-            className="border-b border-black/5 px-3 py-2 text-[11px] text-muted-foreground dark:border-white/10"
+            className="shrink-0 border-b border-black/5 px-3 py-2 text-[11px] text-muted-foreground dark:border-white/10"
           >
             {t('title')}
           </div>
           {/* Search box (mock §①): filters the list below. Typing reveals
            *  経営メンバー — hidden from the default (empty-query) list above. */}
-          <div className="border-b border-black/5 px-2.5 py-2 dark:border-white/10">
+          <div className="shrink-0 border-b border-black/5 px-2.5 py-2 dark:border-white/10">
             <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 px-2.5 py-1.5">
               <Search size={14} className="shrink-0 text-muted-foreground" aria-hidden />
               <input
@@ -246,14 +259,8 @@ export function StaffSelector({
               />
             </div>
           </div>
-          {/* Internal scroll keeps the panel usable at any roster size —
-           *  the page never scrolls behind a giant menu. 55dvh mirrors the
-           *  55vh term (desktop/no-keyboard: identical, unchanged), but the
-           *  Android keyboard shrinks dvh, so once it's open the list caps
-           *  to the room actually left below the fixed search header
-           *  instead of clipping behind the keyboard — same house pattern
-           *  as StaffCombobox's 35dvh cap. */}
-          <div className="max-h-[min(55vh,55dvh)] overflow-y-auto overscroll-contain">
+          {/* Takes whatever room remains inside the capped panel above. */}
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {/* 全スタッフ is pinned only on the DEFAULT list, same rule as
              *  StaffCombobox's 指名なし row — once typing starts this is a
              *  search result, and 全スタッフ isn't something the query matched. */}

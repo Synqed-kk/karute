@@ -256,18 +256,27 @@ describe('StaffSelector — 経営メンバー search-reveal', () => {
     })
   })
 
-  // Greptile fix (PR #756, 2026-09-01): the panel's list scroller was capped
-  // at a static 55vh beneath the fixed search header, so an on-screen
+  // Greptile fix round 1 (PR #756, 2026-09-01): the panel's list scroller was
+  // capped at a static 55vh beneath the fixed search header, so an on-screen
   // keyboard on mobile — which shrinks the visible area but not vh — could
-  // clip rows behind it. jsdom can't lay out real viewports, so this pins
-  // the class string itself: a dvh term must be present so the cap shrinks
-  // with the keyboard, same house pattern as StaffCombobox's 35dvh cap.
-  it('the panel scroller caps with a dvh term, not just a static vh', () => {
+  // clip rows behind it.
+  // Greptile fix round 2: the dvh cap lived on the list scroller alone, so
+  // the fixed title + search rows sat OUTSIDE the keyboard-aware bound and
+  // could still push list results behind the keyboard/screen edge. The cap
+  // now bounds the whole panel (title + search + list); the list scroller
+  // just flexes to fill whatever room remains. jsdom can't lay out real
+  // viewports, so this pins the class strings: a dvh term must be present on
+  // the PANEL, and the list scroller must flex inside it — same house
+  // pattern as StaffCombobox's 35dvh cap.
+  it('the panel caps with a dvh term and the list scroller flexes inside it', () => {
     const { container } = render(
       <StaffSelector staffList={STAFF} selected="all" onChange={() => {}} />,
     )
     fireEvent.click(screen.getByText('担当'))
+    const panel = container.querySelector('[role="listbox"]')
+    expect(panel?.className).toContain('dvh')
     const scroller = container.querySelector('.overscroll-contain')
-    expect(scroller?.className).toContain('dvh')
+    expect(scroller?.className).toContain('min-h-0')
+    expect(scroller?.className).toContain('flex-1')
   })
 })
