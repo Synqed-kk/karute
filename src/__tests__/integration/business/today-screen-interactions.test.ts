@@ -5101,20 +5101,13 @@ describe('BATCH-10b ⚖ flag 69 — route stylesheets stop competing', () => {
     }
   })
 
-  it('the recurrence guard globs the family — a room shipped tomorrow is covered the day it lands', () => {
-    // The 売上分析 room merged onto main while this branch was open. A guard
-    // that named three files would have missed it, and every room after it.
-    const guard = read('scripts/audit/check-route-css-collisions.mjs')
-    expect(guard).toContain('readdirSync')
-    expect(guard).not.toMatch(/'today\.css'|"today\.css"/)
-    expect(guard).not.toMatch(/'reservations\.css'|"reservations\.css"/)
-    // The shell sheet is the ONE shared home and is excluded on purpose:
-    // a route sheet overriding it is the intended layering.
-    expect(guard).toContain("dir !== BIZ")
-    // Wired where the other machine-diff gates run, and reachable by hand.
-    expect(read('.github/workflows/ci.yml')).toContain('node scripts/audit/check-route-css-collisions.mjs')
-    expect(read('package.json')).toContain('"audit:route-css"')
-  })
+  // The recurrence guard itself (`scripts/audit/check-route-css-collisions.mjs`,
+  // its CI step and its npm script) is a SHARED-FILE change, so the isolation
+  // gate sends it to its own non-Business PR — and its pins go with it, because
+  // a test that reads those three files cannot live on a branch that does not
+  // carry them. `chore/route-css-tripwire` owns them now. What stays here is the
+  // in-territory truth the guard automates: the collision test directly above,
+  // which is the one that would go red if these sheets ever competed again.
 
   it('nothing about the board is measured or cached — the study\'s other hypothesis, re-checked here', () => {
     // If geometry were cached the remount would have to clear it, and the fix
