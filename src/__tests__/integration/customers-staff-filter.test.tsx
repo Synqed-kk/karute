@@ -149,4 +149,66 @@ describe('CustomersStaffFilter', () => {
     expect(screen.getByText('佐藤')).toBeInTheDocument()
     expect(screen.queryByText('Jon Chan')).toBeNull()
   })
+
+  // P-G (census surfaces 顧客 / カルテ — KaruteRecordListView renders this
+  // same component verbatim, no per-surface transform): isManagement carried
+  // on StaffFilterEntry reaches the shared StaffSelector's search-reveal
+  // (⚖ 2026-09-01 overturn of ruling Ⓒ).
+  describe('経営メンバー search-reveal (P-A/P-B/P-E)', () => {
+    const mgmtStaff: StaffFilterEntry[] = [
+      { id: 's-1', name: 'Jon Chan', initials: 'JC' },
+      { id: 's-2', name: '佐藤', initials: '佐', isManagement: true },
+    ]
+
+    it('P-A: default sheet list hides the flagged member', () => {
+      render(
+        <CustomersStaffFilter
+          staffList={mgmtStaff}
+          selfStaffId="s-3"
+          selected="all"
+          onChange={jest.fn()}
+        />,
+      )
+      fireEvent.click(screen.getByText('trigger'))
+      expect(screen.getByText('Jon Chan')).toBeInTheDocument()
+      expect(screen.queryByText('佐藤')).toBeNull()
+    })
+
+    it('P-B: typing reveals the flagged member with the management badge', () => {
+      render(
+        <CustomersStaffFilter
+          staffList={mgmtStaff}
+          selfStaffId="s-3"
+          selected="all"
+          onChange={jest.fn()}
+        />,
+      )
+      fireEvent.click(screen.getByText('trigger'))
+      fireEvent.change(screen.getByPlaceholderText('searchPlaceholder'), {
+        target: { value: '佐' },
+      })
+      expect(screen.getByText('佐藤')).toBeInTheDocument()
+      expect(screen.getByText('managementBadge')).toBeInTheDocument()
+    })
+
+    it('P-E: a flagged VIEWER is hidden from the default list too (no self-exception — the 自分 segment covers it), and the 自分 toggle is unaffected', () => {
+      const onChange = jest.fn()
+      render(
+        <CustomersStaffFilter
+          staffList={mgmtStaff}
+          selfStaffId="s-2"
+          selected="all"
+          onChange={onChange}
+        />,
+      )
+      // 自分 still renders and still works — the flag never touches it.
+      expect(screen.getByText('self')).toBeInTheDocument()
+      fireEvent.click(screen.getByText('self'))
+      expect(onChange).toHaveBeenLastCalledWith('self')
+      // But the viewer's OWN name is absent from the default staff-picker list.
+      fireEvent.click(screen.getByText('trigger'))
+      expect(screen.getByText('Jon Chan')).toBeInTheDocument()
+      expect(screen.queryByText('佐藤')).toBeNull()
+    })
+  })
 })

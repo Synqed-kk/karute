@@ -25,6 +25,9 @@ export interface ReservationStaffEntry {
   id: string
   name: string
   initials: string
+  /** 経営メンバー — carried through so the shared StaffSelector can hide them
+   *  from its default list (⚖ 2026-09-01 overturn of ruling Ⓒ). */
+  isManagement?: boolean
 }
 
 interface Props {

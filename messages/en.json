@@ -3308,7 +3308,8 @@
   "staffSelector": {
     "trigger": "Staff",
     "title": "Filter by staff",
-    "all": "All staff"
+    "all": "All staff",
+    "searchPlaceholder": "Search staff…"
   },
   "visits": {
     "segment": {

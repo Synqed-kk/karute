@@ -140,4 +140,30 @@ describe('ReservationStaffFilter (予約 chrome)', () => {
     fireEvent.click(screen.getByText('自分'))
     expect(push).toHaveBeenCalledWith('/ja/reservations?staff=self')
   })
+
+  // P-G (census surface 予約): isManagement threads from ReservationStaffEntry
+  // through to the shared StaffSelector's search-reveal (⚖ 2026-09-01).
+  describe('経営メンバー search-reveal (P-A/P-B)', () => {
+    const MGMT_STAFF = [
+      { id: 's1', name: '原田 かなみ', initials: '原' },
+      { id: 's2', name: '浜野', initials: '浜', isManagement: true },
+    ]
+
+    it('P-A: default dropdown list hides the flagged member', () => {
+      render(<ReservationStaffFilter staffList={MGMT_STAFF} selfStaffId="s3" selected="all" />)
+      fireEvent.click(screen.getByText('担当'))
+      const listbox = screen.getByRole('listbox')
+      expect(within(listbox).getByText('原田 かなみ')).toBeInTheDocument()
+      expect(within(listbox).queryByText('浜野')).toBeNull()
+    })
+
+    it('P-B: typing reveals the flagged member with the 経営 chip', () => {
+      render(<ReservationStaffFilter staffList={MGMT_STAFF} selfStaffId="s3" selected="all" />)
+      fireEvent.click(screen.getByText('担当'))
+      fireEvent.change(screen.getByPlaceholderText('スタッフを検索…'), { target: { value: '浜' } })
+      const listbox = screen.getByRole('listbox')
+      expect(within(listbox).getByText('浜野')).toBeInTheDocument()
+      expect(within(listbox).getByText('経営')).toBeInTheDocument()
+    })
+  })
 })

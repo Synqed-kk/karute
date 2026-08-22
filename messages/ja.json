@@ -3308,7 +3308,8 @@
   "staffSelector": {
     "trigger": "担当",
     "title": "スタッフで絞り込み",
-    "all": "全スタッフ"
+    "all": "全スタッフ",
+    "searchPlaceholder": "スタッフを検索…"
   },
   "visits": {
     "segment": {
