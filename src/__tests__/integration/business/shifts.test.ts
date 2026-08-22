@@ -916,6 +916,51 @@ describe('the period navigation', () => {
     expect(junkView.view).toBe('week')
   })
 
+  it('a date the calendar does not HAVE takes that same fallback', async () => {
+    // The one junk a range test cannot see. `dayKeyOf` is `Date.UTC`, which
+    // normalises rather than refuses: 2026-02-31 is well formed, month 2 and
+    // day 31 are both in range, and it came back as March 3rd — so the room
+    // answered with a week nobody asked for while the documented fallback
+    // never fired. Only the round trip separates 2/31 from 3/31.
+    for (const week of [
+      '2026-02-31', // the report's own case
+      '2026-02-29', // 2026 is not a leap year
+      '2026-04-31', // April has 30
+      '2026-13-01', // month 13 rolls into next January
+      '2026-00-10', // month 0 rolls into last December
+      '2026-01-00', // day 0 rolls into last December
+      '0026-05-01', // Date.UTC(26, …) is 1926
+    ]) {
+      const props = await room({ store: STORE_A, week })
+      expect(props.plane.days[0].dayKey).toBe(mondayOf(props.plane.todayKey))
+    }
+  })
+
+  it('…and a real leap day is still a real date', async () => {
+    // The other half of the round trip: it must refuse only what the calendar
+    // refuses. 2028-02-29 exists, so the week board opens on ITS week (Monday
+    // the 28th), not on the fallback.
+    const restore = pin('2028-02-14T06:00:00Z')
+    try {
+      const props = await room({ store: STORE_A, week: '2028-02-29' })
+      expect(props.plane.days[0].dayKey).toBe(mondayOf(dayKeyOf(2028, 2, 29)))
+      expect(props.plane.days[0].dayKey).not.toBe(mondayOf(props.plane.todayKey))
+      expect(props.plane.days.map((d) => ymdOf(d.dayKey).d)).toContain(29)
+    } finally {
+      restore()
+    }
+  })
+
+  it('?ym= has no twin of that hole — its one component is range-checked', async () => {
+    // The month is the only thing `?ym=` carries and nothing normalises it, so
+    // 2026-13 falls back the way `banana` does rather than becoming 2027-01.
+    for (const ym of ['2026-13', '2026-00']) {
+      const props = await room({ store: STORE_A, view: 'month', ym })
+      const here = ymdOf(props.plane.todayKey)
+      expect(props.period.label).toBe(`${here.y}年${here.m}月`)
+    }
+  })
+
   it('a date anywhere in a week selects that WHOLE week, Monday first', async () => {
     const props = await room({ store: STORE_A })
     const todayKey = props.plane.todayKey
@@ -1231,6 +1276,47 @@ describe('shifts.css is scoped from day one (room 1’s D-C)', () => {
     // The narrow layout too — all three siblings narrow `.biz .page` in their
     // own 1320 block, and 顧客's is 20px where this room's is 18.
     expect(CSS).toContain('.biz .page.pg-shifts { padding-left: 18px; padding-right: 18px; }')
+  })
+
+  it('the one-way accent law, as this room adjudicated it', () => {
+    // The law has no sound automated gate (CLAUDE.md: pressability is
+    // semantic), so the enforceable half is a class contract. THE LIST IS THE
+    // ADJUDICATION: a bare accent TEXT colour on any other selector has to be
+    // argued in here rather than slipped in, and the three the batched
+    // Greptile round neutralised (.qualification, .inspector-kicker,
+    // .booking-mark) are absent because they are neutral now.
+    const stripped = CSS.replace(/\/\*[\s\S]*?\*\//g, '')
+    const wearing: string[] = []
+    for (const block of stripped.split('}')) {
+      const head = block.split('{')[0].trim()
+      const body = block.slice(block.indexOf('{') + 1)
+      if (!head || head.startsWith('@') || !block.includes('{')) continue
+      if (/(^|;)\s*color:\s*(var\(--indigo\)|#3f5be8)/i.test(body)) {
+        wearing.push(...head.split(',').map((s) => s.trim()))
+      }
+    }
+    expect(wearing.sort()).toEqual([
+      '.biz .pg-shifts .cell-note.staged', // state marker — semantic tier
+      '.biz .pg-shifts .chip.context', // accent text on an accent WASH
+      '.biz .pg-shifts .status.info', // ditto
+      '.biz .pg-shifts .today-head', // 本日 — the board's temporal anchor
+      '.biz .pg-shifts .today-tag', // ditto, wash chip
+      '.biz .pg-shifts .toggle-seg.active', // R13 selected state of a control
+    ])
+    // Neutralised, and pinned so they stay that way.
+    expect(CSS).toContain('.biz .pg-shifts .inspector-kicker { color: var(--muted);')
+    expect(CSS).toContain('.biz .pg-shifts .booking-mark { display: block; margin-top: 3px; color: var(--muted);')
+    // The badge's accent was already dead: it is a <span> inside .staff-cell,
+    // and `.staff-cell span` outranks it (three classes AND a tag), so --muted
+    // is what the browser has always painted. Both rules are pinned together,
+    // because the fix is that they now AGREE.
+    const badge = CSS.slice(CSS.indexOf('.biz .pg-shifts .qualification {'))
+    expect(badge.slice(0, badge.indexOf('}'))).toContain('color: var(--muted)')
+    expect(CSS).toContain('.biz .pg-shifts .staff-cell span { display: block; margin-top: 3px; color: var(--muted);')
+    // KEPT, and pinned too: 土 blue / 日 red is the Japanese calendar's own
+    // weekday semantics, the same tier as red-destructive — not decoration.
+    expect(CSS).toContain('.biz .pg-shifts .row-sat .day-label { color: #33449b; }')
+    expect(CSS).toContain('.biz .pg-shifts .row-sun .day-label { color: var(--red-dark); }')
   })
 
   it('the native dialog gets its centering back (⚖ 32)', () => {

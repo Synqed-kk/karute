@@ -94,6 +94,11 @@
   display: inline-flex; align-items: center; min-height: 30px; padding: 0 10px;
   border-radius: 8px; background: #f4f4f5; color: var(--ink-3); font-size: 12px; white-space: nowrap;
 }
+/* Accent text on an accent WASH — the law's own approved chip treatment
+   (`bg-blue-100 text-blue-700`), legal on a non-pressable and adjudicated as
+   such for all three of this room's wash chips: `.chip.context` here,
+   `.status.info` and `.today-tag`. The saturated tier the law reserves is a
+   solid fill / a bare accent text colour, which none of them wears. */
 .biz .pg-shifts .chip.context { background: var(--indigo-soft); color: var(--indigo); font-weight: 700; }
 .biz .pg-shifts .chip.warn { background: var(--orange-soft); color: var(--orange); }
 
@@ -232,10 +237,19 @@
 .biz .pg-shifts .staff-cell strong { display: block; color: var(--ink); font-size: 14px; }
 .biz .pg-shifts .staff-cell span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.4; }
 .biz .pg-shifts .qualification-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+/* Canon deviation (overturnable, P2): canon prints the badge in the accent
+   (fable-store-team-shifts.html:297-301); the one-way accent law reserves the
+   saturated accent for pressables, and a qualification is a fact about a
+   person sitting inside a table cell, not a control.
+   --muted, not a quieter neutral, because canon's accent was ALREADY DEAD
+   HERE: the badge is a <span> inside .staff-cell, so `.staff-cell span`
+   (three classes AND a tag) outranks this rule and has been painting --muted
+   all along — measured, not reasoned. This states the colour that actually
+   lands rather than one that never did. */
 .biz .pg-shifts .qualification {
   display: inline-flex; align-items: center; min-height: 22px; padding: 0 6px;
   border: 1px solid var(--proof-border); border-radius: 5px; background: #fff;
-  color: var(--indigo); font-size: 12px; font-weight: 700; margin-top: 0;
+  color: var(--muted); font-size: 12px; font-weight: 700; margin-top: 0;
 }
 .biz .pg-shifts .shift { padding: 6px 7px; border: 1px solid #b8c5f3; border-radius: 7px; background: var(--indigo-soft); color: var(--ink-2); line-height: 1.35; }
 .biz .pg-shifts .shift b, .biz .pg-shifts .shift span { display: block; }
@@ -257,7 +271,18 @@
 .biz .pg-shifts .shift-open:focus-visible { outline: 3px solid var(--indigo); outline-offset: 3px; }
 
 .biz .pg-shifts .cell-note { display: block; margin-top: 5px; color: var(--quiet); font-size: 12px; }
+/* KEPT accent, adjudicated — NOT an accent-law violation, please do not
+   re-flag. 「この画面での変更」 is a STATE marker, the semantic tier: it says
+   this one cell differs from the stored shift right now. Neutral would sink it
+   into the plain `.cell-note` it sits beside, which is the one thing it must
+   never look like. (Room-original — canon has no staging, so no deviation.) */
 .biz .pg-shifts .cell-note.staged { color: var(--indigo); font-weight: 700; }
+/* KEPT accent, adjudicated — NOT an accent-law violation, please do not
+   re-flag (fable-store-team-shifts.html:322, and its month twin below). 本日
+   is the board's temporal anchor, the same semantic tier as the 土/日 colours
+   further down, and the only neutrals this board has left already mean
+   something else on it: --section and --quiet are 定休日. Neutralising the
+   anchor would not quiet it, it would make it name the wrong day. */
 .biz .pg-shifts .today-head { color: var(--indigo) !important; box-shadow: inset 0 -3px 0 var(--indigo); }
 
 /* ── recovery pair (week) ──────────────────────────────────────────────── */
@@ -281,7 +306,11 @@
 
 .biz .pg-shifts .inspector { position: sticky; top: 78px; }
 .biz .pg-shifts .inspector-head { padding: 13px 14px 11px; border-bottom: 1px solid var(--section); background: #fafafb; }
-.biz .pg-shifts .inspector-kicker { color: var(--indigo); font-size: 12px; font-weight: 700; }
+/* Canon deviation (overturnable, P2): canon's kicker is the accent
+   (fable-store-team-shifts.html:359). A kicker over a heading is a section
+   label — informational, unpressable — which the one-way accent law keeps
+   neutral, and --muted is what every other label in this aside already wears. */
+.biz .pg-shifts .inspector-kicker { color: var(--muted); font-size: 12px; font-weight: 700; }
 .biz .pg-shifts .inspector-head h2 { margin: 5px 0 2px; font-size: 20px; }
 .biz .pg-shifts .inspector-head p { margin: 0; color: var(--muted); font-size: 12px; }
 .biz .pg-shifts .inspector-body { padding: 12px 14px 14px; }
@@ -429,6 +458,12 @@
    drops under it rather than forcing every other row's column to carry its
    width. That is what lets the 日付 floor be the date's own width. */
 .biz .pg-shifts .day-label { padding: 0 8px; font-size: 13px; font-weight: 700; color: var(--ink-2); word-break: keep-all; }
+/* KEPT, adjudicated — NOT an accent-law violation, please do not re-flag.
+   土 blue and 日 red are the Japanese calendar's own weekday semantics
+   (fable-store-team-shifts.html:668-669), the same legal tier as
+   red-destructive and green-success: the colour IS the day's meaning, not
+   decoration on informational text. A
+   日本の勤務表 whose Sunday reads grey has stopped speaking Japanese. */
 .biz .pg-shifts .row-sat .day-label { color: #33449b; }
 .biz .pg-shifts .row-sun .day-label { color: var(--red-dark); }
 .biz .pg-shifts .today-tag { margin-left: 6px; padding: 1px 6px; border-radius: 5px; background: var(--indigo-soft); color: var(--indigo); font-size: 10.5px; font-weight: 700; }
@@ -458,11 +493,20 @@
 .biz .pg-shifts .chip-shift.warn { border-color: #e8b88a; background: var(--orange-soft); color: var(--orange); white-space: normal; line-height: 1.3; }
 .biz .pg-shifts .chip-shift.quiet { border-color: var(--control); background: #f4f4f5; color: var(--ink-3); white-space: normal; line-height: 1.3; }
 .biz .pg-shifts .chip-shift.request { border-style: dashed; white-space: normal; line-height: 1.3; }
+/* KEPT accent — the month twin of `.cell-note.staged` above (same state
+   marker, same adjudication), and it rides inside `.cell-btn`, so the law
+   allows it twice over. */
 .biz .pg-shifts .chip-shift.staged { border-color: var(--indigo); box-shadow: inset 0 0 0 1px var(--indigo); }
 .biz .pg-shifts .cell-btn > .chip-shift + .chip-shift { margin-top: 4px; }
 .biz .pg-shifts .booking-cell { padding: 8px 10px !important; vertical-align: middle; }
 .biz .pg-shifts .booking-plain { color: var(--muted); font-size: 12px; }
-.biz .pg-shifts .booking-mark { display: block; margin-top: 3px; color: var(--indigo); font-size: 11px; font-weight: 600; }
+/* Canon deviation (overturnable, P2): canon prints the ● mark in the accent
+   (fable-store-team-shifts.html:682). It is a READOUT of the very same 予約件数
+   the frozen 予約 column prints in --muted one rule above, so the two now agree.
+   It renders inside `.cell-btn`, where the law would allow the accent as part
+   of the pressable — but what it carries is information either way, and the
+   button itself is styled to nothing. */
+.biz .pg-shifts .booking-mark { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; font-weight: 600; }
 
 /* ── dialogs ───────────────────────────────────────────────────────────── */
 .biz .pg-shifts dialog {

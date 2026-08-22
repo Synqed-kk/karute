@@ -513,16 +513,32 @@ export default async function ShiftsPage({
   return <ShiftsScreen {...props} />
 }
 
-/** `?week=YYYY-MM-DD` → its JST day index. Anything else is not a date. */
+/** `?week=YYYY-MM-DD` → its JST day index. Anything else is not a date.
+ *
+ *  A ROUND TRIP, not a component range test, because `dayKeyOf` is `Date.UTC`
+ *  and `Date.UTC` NORMALISES. `2026-02-31` is well formed, passes every range
+ *  a component check can state (month 2, day 31), and comes back as March 3rd
+ *  — so the URL quietly answered with a week nobody asked for instead of
+ *  taking the fallback every malformed string takes. Nothing but building the
+ *  day and reading its coordinates back can tell 2/31 from 3/31: a date the
+ *  calendar HAS survives the trip unchanged, an invented one does not. The
+ *  same trip subsumes the old range test (month 0 and 13 roll into the
+ *  neighbouring year, day 0 into the previous month) and catches the
+ *  two-digit-year normalisation on top — `Date.UTC(26, …)` is 1926. */
 function parseDate(value: string | undefined): number | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value ?? '')
   if (!m) return null
   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])]
-  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null
-  return dayKeyOf(y, mo, d)
+  const dayKey = dayKeyOf(y, mo, d)
+  const back = ymdOf(dayKey)
+  if (back.y !== y || back.m !== mo || back.d !== d) return null
+  return dayKey
 }
 
-/** `?ym=YYYY-MM` → its year and month. */
+/** `?ym=YYYY-MM` → its year and month. No round trip here, and the hole above
+ *  has no twin: the month is the only component that can be out of range, this
+ *  states that range outright, and the pair is never handed to a `Date` — it
+ *  goes into offset arithmetic the month window clamps. */
 function parseMonth(value: string | undefined): { y: number; m: number } | null {
   const m = /^(\d{4})-(\d{2})$/.exec(value ?? '')
   if (!m) return null
