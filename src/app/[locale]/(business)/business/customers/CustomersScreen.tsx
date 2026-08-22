@@ -256,7 +256,7 @@ export function CustomersScreen({
   }
 
   return (
-    <div className="page">
+    <div className="page page-customers">
       <header className="page-head">
         <div>
           <div className="eyebrow">{lensLabel} / 運営情報</div>

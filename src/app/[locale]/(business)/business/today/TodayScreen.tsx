@@ -3739,7 +3739,14 @@ export function TodayScreen(props: TodayProps) {
   const liveChanged = liveClamp.hi !== appliedPrice.hi || liveClamp.lo !== appliedPrice.lo
 
   return (
-    <div className="page">
+    /* ⚖ Liam flag 69 (2026-08-22) — THE ROUTE'S OWN NAME, so its stylesheet can
+       stop competing with its neighbours'. Next keeps every visited segment's
+       CSS in the document, so `.biz .workspace` in today.css, reservations.css
+       and customers.css tie on specificity and break on VISIT ORDER: after
+       今日の運営 → 予約 → back, reservations wins and the board gets a phantom
+       390px second column. Scoped selectors do not compete — they simply do not
+       match on the other route. See scripts/audit/check-route-css-collisions.mjs. */
+    <div className="page page-today">
       {/* ── C: 本日の店舗状態 ─────────────────────────────────────────── */}
       <header
         className="ops-strip"

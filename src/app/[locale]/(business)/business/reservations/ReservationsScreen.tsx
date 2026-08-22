@@ -310,7 +310,7 @@ export function ReservationsScreen(
  *  that looks like normal operation. Every number goes to 「—」. */
 function LoadFailure() {
   return (
-    <div className="page">
+    <div className="page page-reservations">
       <header className="page-head">
         <div>
           <div className="eyebrow">予約管理</div>
@@ -478,7 +478,7 @@ function Screen(props: ReservationsProps) {
   }
 
   return (
-    <div className="page">
+    <div className="page page-reservations">
       <header className="page-head">
         <div>
           <div className="eyebrow">{props.lensLabel} / 予約管理</div>

@@ -2577,7 +2577,11 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // The scan is only worth anything if it is actually finding the screens.
     expect(sheets.length).toBeGreaterThanOrEqual(3)
 
-    const dressers = sheets.filter(([, css]) => /^\.biz[ -]dialog\s*\{/m.test(css))
+    // ⚖ flag 69 — the page scope may sit between `.biz` and `dialog` now
+    // (`.biz .page-customers dialog`). The pin still DISCOVERS its dressers by
+    // walking; it just knows the scoped spelling.
+    const DRESSER = /^\.biz(?:[ -])(?:\.page-[\w-]+ )?dialog\s*\{/m
+    const dressers = sheets.filter(([, css]) => DRESSER.test(css))
     expect(dressers.map(([f]) => f).sort()).toEqual([
       'customers/customers.css',
       'reservations/reservations.css',
@@ -2590,7 +2594,7 @@ describe('the confirm comes to the card, and the consult goes back to the placem
       // quoting `dialog:modal { margin: auto }`, and that brace would both end
       // the slice early and let the prose stand in for the property.
       const css = raw.replace(/\/\*[\s\S]*?\*\//g, '')
-      const body = css.slice(css.search(/^\.biz[ -]dialog\s*\{/m))
+      const body = css.slice(css.search(DRESSER))
       expect(`${file}: ${body.slice(0, body.indexOf('}'))}`).toContain('margin: auto;')
     }
   })
@@ -4990,5 +4994,117 @@ describe('BATCH-10b X4 — the two copy items', () => {
     expect(unavoidable.sentence).not.toContain('入らなくなります')
     // …and the avoidable case keeps its own sentence, pointing away from here.
     expect(reasonLine({ code: 'R-REP', params: { label: '新規（90分）' } }, 90)).toBe('ここに置くと新規（90分）が入らなくなります')
+  })
+})
+
+// ── BATCH-10b X5 — ⚖ flag 69: the dead blank column ──────────────────────────
+// ROOT CAUSE (study-confirmed, then re-verified here): nothing on the today
+// screen is measured or cached, and the hours track's right edge is honest. The
+// board narrowed because a DIFFERENT ROUTE'S STYLESHEET won the tie on
+// `.biz .workspace` once that route had been visited — Next keeps every visited
+// segment's CSS in the document, so equal-specificity selectors break on VISIT
+// ORDER. Liam's repro (今日の運営 → 予約 → back) is exactly that insertion order.
+describe('BATCH-10b ⚖ flag 69 — route stylesheets stop competing', () => {
+  const SHEETS = {
+    today: 'src/app/[locale]/(business)/business/today/today.css',
+    reservations: 'src/app/[locale]/(business)/business/reservations/reservations.css',
+    customers: 'src/app/[locale]/(business)/business/customers/customers.css',
+  }
+  const SCREENS = {
+    today: 'src/app/[locale]/(business)/business/today/TodayScreen.tsx',
+    reservations: 'src/app/[locale]/(business)/business/reservations/ReservationsScreen.tsx',
+    customers: 'src/app/[locale]/(business)/business/customers/CustomersScreen.tsx',
+  }
+  const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
+  /** Selector heads of every rule, at any depth. @media is transparent. */
+  function selectorsOf(css: string): Set<string> {
+    const clean = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    const found = new Set<string>()
+    let head = ''
+    for (const ch of clean) {
+      if (ch === '{') {
+        const text = head.trim()
+        head = ''
+        if (!text || text.startsWith('@')) continue
+        for (const sel of text.split(',')) {
+          const one = sel.replace(/\s+/g, ' ').trim()
+          if (one) found.add(one)
+        }
+      } else if (ch === '}' || ch === ';') head = ''
+      else head += ch
+    }
+    return found
+  }
+
+  it('every screen roots itself with its own page class', () => {
+    // The hook the scoping hangs on. One token per screen, and the CI guard
+    // below is what stops the next room from forgetting it.
+    expect(read(SCREENS.today)).toContain('<div className="page page-today">')
+    expect(read(SCREENS.reservations)).toContain('<div className="page page-reservations">')
+    expect(read(SCREENS.customers)).toContain('<div className="page page-customers">')
+    // The LoadFailure fallback is a page too — a broken screen that keeps the
+    // neighbour's grid is still the bug.
+    expect(read(SCREENS.reservations).match(/<div className="page page-reservations">/g)).toHaveLength(2)
+  })
+
+  it('no selector is defined in two route stylesheets — the whole family, not just .workspace', () => {
+    // ⚖ the root-cause directive: one disease, one cure. Patching `.workspace`
+    // alone would leave `.panel` and `.page` already wrong on the same gesture
+    // (borders, radii and the top gap all swap after a round-trip) and
+    // `.inspector` armed behind them.
+    const owners = new Map<string, string[]>()
+    for (const [name, path] of Object.entries(SHEETS)) {
+      for (const sel of selectorsOf(read(path))) {
+        if (!owners.has(sel)) owners.set(sel, [])
+        owners.get(sel)!.push(name)
+      }
+    }
+    const clashes = [...owners].filter(([, files]) => files.length > 1)
+    expect(clashes.map(([sel, files]) => `${sel} [${files.join('|')}]`)).toEqual([])
+  })
+
+  it('the board card is told ONE column on 今日の運営, whichever tab was visited first', () => {
+    // The pixel Liam pointed at. today.css keeps canon's single-column answer
+    // (canon :1411-1414, its own winning late override), and the sibling grids
+    // that used to outrank it can no longer match this page at all.
+    const today = read(SHEETS.today)
+    expect(today).toContain('.biz .page-today .workspace { display: grid; grid-template-columns: minmax(0, 1fr);')
+    for (const [name, path] of Object.entries(SHEETS)) {
+      if (name === 'today') continue
+      const sheet = read(path)
+      // The sibling's two-column grid still exists — scoped to its own page.
+      expect(sheet).toMatch(/\.biz \.page-(reservations|customers) \.workspace \{[^}]*grid-template-columns/)
+      // …and it can never name today's page.
+      expect(sheet).not.toContain('.page-today')
+    }
+  })
+
+  it('the recurrence guard globs the family — a room shipped tomorrow is covered the day it lands', () => {
+    // The 売上分析 room merged onto main while this branch was open. A guard
+    // that named three files would have missed it, and every room after it.
+    const guard = read('scripts/audit/check-route-css-collisions.mjs')
+    expect(guard).toContain('readdirSync')
+    expect(guard).not.toMatch(/'today\.css'|"today\.css"/)
+    expect(guard).not.toMatch(/'reservations\.css'|"reservations\.css"/)
+    // The shell sheet is the ONE shared home and is excluded on purpose:
+    // a route sheet overriding it is the intended layering.
+    expect(guard).toContain("dir !== BIZ")
+    // Wired where the other machine-diff gates run, and reachable by hand.
+    expect(read('.github/workflows/ci.yml')).toContain('node scripts/audit/check-route-css-collisions.mjs')
+    expect(read('package.json')).toContain('"audit:route-css"')
+  })
+
+  it('nothing about the board is measured or cached — the study\'s other hypothesis, re-checked here', () => {
+    // If geometry were cached the remount would have to clear it, and the fix
+    // would live in the screen. It does not: the only board geometry written to
+    // the DOM is `--label`, during a drag, never persisted.
+    const src = read(SCREENS.today)
+    expect(src).not.toContain('new ResizeObserver')
+    expect(src).toContain("board.style.setProperty('--label'")
+    // …and the hours track's right edge is the fixture's own closing time, not
+    // a truncation: 10:00–19:00 is nine columns, and the head says so in words.
+    const fixtures = read('src/business/lib/fixtures-today.ts')
+    expect(fixtures).toContain('export const operatingHours = { open: 10 * 60, close: 19 * 60 }')
+    expect(src).toContain('<span>営業時間 {hhmm(hours.open)}–{hhmm(hours.close)}・時間外は非表示</span>')
   })
 })
