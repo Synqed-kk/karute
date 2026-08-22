@@ -245,6 +245,25 @@ describe('facadeHandler audit hook', () => {
     expect(lines).toHaveLength(0)
   })
 
+  it('ctx.auditSuppress = "" (falsy but SET) still suppresses — presence-based, not truthiness (fix round F-4)', async () => {
+    // Mirrors the pendingWave gate's presence-based contract just above: a
+    // route deciding to suppress with an empty-string reason must not fall
+    // through a truthiness check (`if (routeSuppress) return` would emit here).
+    const handler = facadeHandler(
+      'customer.update',
+      async (ctx) => {
+        ctx.auditSuppress = ''
+        return ok(ctx, { ok: true })
+      },
+      { config: HS_CONFIG, getUser: async () => ({ id: 'u1' }) },
+    )
+    const lines = await auditLines(async () => {
+      const res = await handler(authedReq(), route({ id: CUSTOMER_ID }))
+      expect(res.status).toBe(200)
+    })
+    expect(lines).toHaveLength(0)
+  })
+
   it('a redirect emits nothing — only 2xx reads as a completed action', async () => {
     const handler = facadeHandler(
       'customer.read',

@@ -178,8 +178,11 @@ async function logFacadeAudit(
     // action (Greptile round: redirects counted as actions under `< 400`).
     if (res.status < 200 || res.status >= 300) return
     // Success-only audit law: a route can mark its own 2xx body a soft
-    // failure — see FacadeContext.auditSuppress.
-    if (routeSuppress) return
+    // failure — see FacadeContext.auditSuppress. Presence-based
+    // (`!== undefined`), same as this function's pendingWave gate below —
+    // an empty-string reason is still a route DECIDING to suppress, so
+    // truthiness (which would let '' fall through and emit) is wrong here.
+    if (routeSuppress !== undefined) return
     // FACADE_AUDIT_MAP is a TOTAL Record<FacadeEndpointKey,...> — `rule` can
     // only be undefined here if a bogus key reached this function past the
     // compile-time union (a JS-boundary caller, e.g. `as FacadeEndpointKey`,

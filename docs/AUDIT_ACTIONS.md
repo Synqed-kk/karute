@@ -39,7 +39,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `customer.photo_delete` | customer | live | `settings.auditLog.actions.customer.photo_delete` |
 | `customer.photos_view` | customer | live | `settings.auditLog.actions.customer.photos_view` |
 | `customer.view` | customer | live | `settings.auditLog.actions.customer.view` |
-| `karute.entries_regenerate` | karute | pending | `settings.auditLog.actions.karute.entries_regenerate` |
+| `karute.entries_regenerate` | karute | live | `settings.auditLog.actions.karute.entries_regenerate` |
 | `karute.entry_edit` | karute | live | `settings.auditLog.actions.karute.entry_edit` |
 | `karute.entry_edits_view` | karute | live | `settings.auditLog.actions.karute.entry_edits_view` |
 | `karute.outcome_set` | karute | live | `settings.auditLog.actions.karute.outcome_set` |
