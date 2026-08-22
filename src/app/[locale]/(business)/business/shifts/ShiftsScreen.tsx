@@ -43,7 +43,6 @@ import {
   type Cell,
   type DayContext,
   type RosterMember,
-  type TrackWindow,
 } from '@/business/lib/shifts'
 import { hhmm, yen } from '@/business/lib/today-board'
 
@@ -162,10 +161,6 @@ export interface ShiftsProps {
     todayKey: number
     closedWd: number
     absence: FixtureAbsence | null
-    /** The store's open hours plus the prep margin (`trackWindow`) — the window
-     *  a day's shifts live inside. Resolved by the page for every surface that
-     *  needs to bound a shift. */
-    track: TrackWindow
     roster: RosterModel[]
     leaves: LeaveModel[]
     days: DayModel[]
@@ -329,11 +324,17 @@ export function ShiftsScreen(props: ShiftsProps) {
     return `${day.short}は${clash.map((b) => b.label).join('・')}を担当しています。この時間ではその予約が勤務時間の外に出ます。先に予約一覧で担当か時間を変更してください。`
   }
 
-  /** THE ONE STAGING SEAM — the cell dialog's 保存, and nothing else. ⚖ Liam
-   *  8/22 removed the chip's edge drag ('unnecessary stupid function'), so the
-   *  dialog is the only way a shift's hours change, and `cellFor` folds the
-   *  result for every surface that reads it (the cell, the column total, the
-   *  week summary, the 人件費 estimate) in one pass. */
+  /** THE ONE SEAM FOR WORK-HOURS STAGING — the cell dialog's 保存, and nothing
+   *  else. ⚖ Liam 8/22 removed the chip's edge drag ('unnecessary stupid
+   *  function'), so the dialog is the only way a shift's HOURS change, and
+   *  `cellFor` folds the result for every surface that reads it (the cell, the
+   *  column total, the week summary, the 人件費 estimate) in one pass.
+   *
+   *  `offCell` above stages `kind: 'off'` straight onto the same list without
+   *  coming through here, deliberately: it carries no hours to stage (0/0) and
+   *  its own refusal is a different one (a booking this person is 担当 for at
+   *  all, not a booking that fell outside typed hours). Two writers, one list,
+   *  one fold — the seam this comment names is the hours one. */
   const stageShift = useCallback(
     (staffId: string, dayKey: number, start: number, end: number) => {
       setShiftEdits((was) => [...was, { staffId, dayKey, kind: 'work', start, end }])
@@ -390,6 +391,14 @@ export function ShiftsScreen(props: ShiftsProps) {
   // want them」. THIS IS DIRECT MANIPULATION, not a dial: no setting, no
   // registry entry, nothing to save. The board's own drag laws still bind:
   //
+  //  · ⚖ POINTER-ONLY, BY RULING. This is a display-comfort control — it moves
+  //    a border line and nothing else. The defaults are fully usable without it
+  //    (every string in every column fits at them; that is what the measured
+  //    floors are), and a shift's actual DATA is edited in the cell dialog,
+  //    which a keyboard reaches. So there is no arrow-key resize and no ARIA
+  //    separator role, and the grip is `aria-hidden`. Overturnable: if Liam
+  //    wants the widths reachable without a pointer, the shape is a focusable
+  //    separator with arrow-key steps, not a settings dial.
   //  · 1:1 WITH THE POINTER. A column width is a distance on screen, so the
   //    line goes exactly where the finger goes — no gearing (which E-1's shift
   //    edges needed only because minutes are not pixels).
@@ -404,20 +413,49 @@ export function ShiftsScreen(props: ShiftsProps) {
   //  · THE RELEASE IS WHAT THE SESSION KEEPS, and it keeps it above the screen
   //    (ShiftsSessionEdits) because `?view=` and `?ym=` remount this component.
   const tableRef = useRef<HTMLTableElement>(null)
-  const sizeRef = useRef<
-    { pointerId: number; handle: HTMLElement; key: MonthColKey; startX: number; startW: number; width: number } | null
-  >(null)
+  const sizeRef = useRef<{
+    pointerId: number
+    handle: HTMLElement
+    key: MonthColKey
+    startX: number
+    startW: number
+    width: number
+    /** What the session held before this gesture, so a CANCEL can put it back
+     *  exactly — `undefined` means it held nothing and the sheet's default was
+     *  showing. */
+    prev: number | undefined
+    /** Whether the pointer ever actually moved. A bare click is not a resize. */
+    moved: boolean
+  } | null>(null)
 
   /** The clamp, and the only place a width is decided. */
   const colWidth = (key: MonthColKey, px: number) =>
     Math.round(Math.min(COL_MAX, Math.max(COL_MIN[key], px)))
 
-  const endSizing = useCallback(() => {
+  /** THE GESTURE ENDS. `commit: false` is the CANCEL path (the OS took the
+   *  pointer away mid-drag), and this room's invariant is that a canceled
+   *  gesture changes NOTHING — the frames written straight onto the node are
+   *  put back to what the session held, and the session itself is not touched.
+   *  A release with no movement is not a resize either, so it releases the
+   *  capture and writes nothing rather than storing the default as an override.
+   *  `e` is passed by the DOM wire-ups so a second pointer's release cannot end
+   *  a gesture it never started; the internal lost-release call has no event
+   *  and has already matched the id. A normal pointerup releases the capture
+   *  itself, so the `lostpointercapture` that follows lands here with the ref
+   *  already null and does nothing — that ordering is what makes the third
+   *  wire-up safe rather than a second commit. */
+  const endSizing = useCallback((e?: React.PointerEvent<HTMLElement>, commit = true) => {
     const d = sizeRef.current
-    if (!d) return
+    if (!d || (e && e.pointerId !== d.pointerId)) return
     sizeRef.current = null
     try { d.handle.releasePointerCapture(d.pointerId) } catch { /* already gone */ }
     delete d.handle.dataset.sizing
+    if (!commit) {
+      if (d.prev === undefined) tableRef.current?.style.removeProperty(COL_VAR[d.key])
+      else tableRef.current?.style.setProperty(COL_VAR[d.key], `${d.prev}px`)
+      return
+    }
+    if (!d.moved) return
     // The frames were written straight to the node; this is what puts the
     // width somewhere a remount can still read it.
     setColWidths((was) => ({ ...was, [d.key]: d.width }))
@@ -428,10 +466,19 @@ export function ShiftsScreen(props: ShiftsProps) {
     const handle = e.currentTarget
     const th = handle.parentElement
     if (!th) return
-    try { handle.setPointerCapture(e.pointerId) } catch { /* capture is an assist */ }
+    // Capture is what keeps the line tracking a pointer that has left the 10px
+    // grab strip — without it the divider stops following a few px outside it.
+    // The throw is still swallowed: capture can legitimately fail (the pointer
+    // is already gone), and the drag degrades to tracking inside the strip
+    // rather than not starting at all.
+    try { handle.setPointerCapture(e.pointerId) } catch { /* see above */ }
     handle.dataset.sizing = key
     const startW = th.getBoundingClientRect().width
-    sizeRef.current = { pointerId: e.pointerId, handle, key, startX: e.clientX, startW, width: colWidth(key, startW) }
+    sizeRef.current = {
+      pointerId: e.pointerId, handle, key,
+      startX: e.clientX, startW, width: colWidth(key, startW),
+      prev: colWidths[key], moved: false,
+    }
     // Stops the header row being selected out from under the gesture.
     e.preventDefault()
   }
@@ -442,6 +489,7 @@ export function ShiftsScreen(props: ShiftsProps) {
     // A move with no button down means the release was lost, and the divider
     // would otherwise stay stuck to the cursor.
     if (e.buttons === 0) { endSizing(); return }
+    d.moved = true
     d.width = colWidth(d.key, d.startW + (e.clientX - d.startX))
     tableRef.current?.style.setProperty(COL_VAR[d.key], `${d.width}px`)
   }
@@ -464,7 +512,7 @@ export function ShiftsScreen(props: ShiftsProps) {
       onPointerDown={(e) => onDividerDown(e, key)}
       onPointerMove={onDividerMove}
       onPointerUp={endSizing}
-      onPointerCancel={endSizing}
+      onPointerCancel={(e) => endSizing(e, false)}
       onLostPointerCapture={endSizing}
       onDoubleClick={() => resetDivider(key)}
     />

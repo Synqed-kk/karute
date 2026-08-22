@@ -148,6 +148,11 @@ const CSS = readFileSync(
   'utf8',
 )
 const LAYOUT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/layout.tsx'), 'utf8')
+const LIB = readFileSync(join(process.cwd(), 'src/business/lib/shifts.ts'), 'utf8')
+const PAGE_SRC = readFileSync(
+  join(process.cwd(), 'src/app/[locale]/(business)/business/shifts/page.tsx'),
+  'utf8',
+)
 
 const todayKeyNow = () => jstDayKey(new Date())
 const numberOf = (s: string) => Number(s.replace(/[^0-9-]/g, ''))
@@ -1204,6 +1209,30 @@ describe('shifts.css is scoped from day one (room 1’s D-C)', () => {
     expect(CSS).not.toMatch(/^\.biz \.pg-shifts \{/m)
   })
 
+  it('and the room is fenced against the NEIGHBOURS’ bare rules coming the other way', () => {
+    // Scoping is one-way. today.css states `.biz .inspector { display: none }`
+    // for its own drawer and App Router leaves that sheet in the document, so
+    // the week board's whole 候補の確認 aside vanished on a soft navigation from
+    // 今日の運営 while rendering perfectly on a hard load. The fence states this
+    // room's own value for every property a sibling declares on a shared name.
+    for (const stated of [
+      '.biz .page.pg-shifts .inspector { display: block; margin: 0; max-height: none;',
+      '.biz .page.pg-shifts .summary { background: transparent; }',
+      '.biz .page.pg-shifts .summary-main { border-left: 0; }',
+      '.biz .page.pg-shifts .toast { opacity: 1; transform: none; transition: none; pointer-events: auto; }',
+      '.biz .page.pg-shifts .inspector-actions { grid-template-columns: none; }',
+    ]) {
+      expect(CSS).toContain(stated)
+    }
+    // FOUR levels, not three: a sibling's `.biz .toast.show` is three too, and
+    // a tie is decided by whichever sheet was inserted last.
+    const fence = CSS.slice(CSS.indexOf('.biz .page.pg-shifts .inspector {'))
+    expect(fence.slice(0, fence.indexOf('/* ── page head'))).not.toMatch(/^\.biz \.pg-shifts /m)
+    // The narrow layout too — all three siblings narrow `.biz .page` in their
+    // own 1320 block, and 顧客's is 20px where this room's is 18.
+    expect(CSS).toContain('.biz .page.pg-shifts { padding-left: 18px; padding-right: 18px; }')
+  })
+
   it('the native dialog gets its centering back (⚖ 32)', () => {
     const dialogRule = CSS.slice(CSS.indexOf('.biz .pg-shifts dialog {'))
     expect(dialogRule.slice(0, dialogRule.indexOf('}'))).toContain('margin: auto')
@@ -1406,12 +1435,15 @@ describe('E-2 · the boards scale to any roster size', () => {
     expect(wrapRule).not.toContain('overscroll-behavior')
     const th = CSS.slice(CSS.indexOf('.biz .pg-shifts .week-table th {'))
     const thRule = th.slice(0, th.indexOf('}'))
-    // No sticky-TOP: with no vertical scroller there is nothing to stick to.
+    // No sticky-TOP: a sticky-top th would bind to the WRAP (which is a scroll
+    // container on both axes) rather than to the page the operator scrolls.
     expect(thRule).not.toContain('top:')
-    // The LEFT freeze survives — it works against the horizontal pan, which is
-    // the axis the wrap still owns. WHO a row is stays on screen while panning.
-    expect(thRule).toContain('position: sticky;')
-    expect(CSS).toContain('.biz .pg-shifts .week-table th:first-child { width: 180px; left: 0;')
+    // …and no sticky at all on a header cell with no inset, where it is inert.
+    // The LEFT freeze lives on the FROZEN cell: it works against the horizontal
+    // pan, which is the axis the wrap still owns, so WHO a row is stays on
+    // screen while panning.
+    expect(thRule).not.toContain('position:')
+    expect(CSS).toContain('.biz .pg-shifts .week-table th:first-child { width: 180px; position: sticky; left: 0;')
     expect(CSS).toContain('.biz .pg-shifts .staff-cell { position: sticky; left: 0;')
   })
 
@@ -1424,12 +1456,14 @@ describe('E-2 · the boards scale to any roster size', () => {
     const th = CSS.slice(CSS.indexOf('.biz .pg-shifts .month-table th {'))
     const thRule = th.slice(0, th.indexOf('}'))
     expect(thRule).not.toContain('top:')
-    expect(thRule).toContain('position: sticky;')
-    expect(CSS).toContain('.biz .pg-shifts .month-table th:nth-child(1) { left: 0;')
+    // Sticky is stated on the two FROZEN header cells, not on every th — on a
+    // header cell with no inset it does nothing but add a stacking context.
+    expect(thRule).not.toContain('position:')
+    expect(CSS).toContain('.biz .pg-shifts .month-table th:nth-child(1) { position: sticky; left: 0;')
     // ⚖ Liam 8/22 — THE FROZEN PAIR IS COUPLED. 予約 starts where 日付 ends, so
     // its sticky offset IS the 日付 column's width; a literal there is the pair
     // coming apart the first time a divider moves. Header and body both.
-    expect(CSS).toContain('.biz .pg-shifts .month-table th:nth-child(2) { left: var(--date-w);')
+    expect(CSS).toContain('.biz .pg-shifts .month-table th:nth-child(2) { position: sticky; left: var(--date-w);')
     expect(CSS).toContain('.biz .pg-shifts .month-table .booking-cell { position: sticky; z-index: 1;')
     expect(CSS).toContain('.biz .pg-shifts .month-table .booking-cell { left: var(--date-w); }')
     // NOT true for a reason: the old hard-coded offset is gone from the sheet
@@ -1499,6 +1533,29 @@ describe('⚖ the shift-time edge drag is GONE — the dialog is the one editor'
     for (const dead of ['.grip', 'data-dragging', '.shift.draggable']) {
       expect(CSS).not.toContain(dead)
     }
+  })
+
+  it('and the ARITHMETIC went with it — the library keeps no orphaned drag maths', () => {
+    // The screen losing its handles left the whole minutes-arithmetic block in
+    // shifts.ts with no caller: exported, compiling, tested by nothing, and
+    // exactly the kind of thing a later reader mistakes for a live rule. The
+    // absence is pinned on the LIBRARY as well as the screen, because that is
+    // where it actually survived the removal.
+    for (const dead of [
+      'resizeShift', 'edgeLabel', 'EdgeSpan', 'EdgeClamp',
+      'DRAG_PX_PER_STEP', 'SHIFT_STEP_MIN', 'TRACK_PAD_MIN',
+      'TrackWindow', 'trackWindow',
+    ]) {
+      expect(LIB).not.toContain(dead)
+      expect(SRC).not.toContain(dead)
+      expect(PAGE_SRC).not.toContain(dead)
+    }
+    // …and the prop the page built for it is gone from the contract too, so no
+    // caller can go on paying to compute a window nothing reads.
+    expect(SRC).not.toMatch(/^\s*track:/m)
+    expect(PAGE_SRC).not.toMatch(/^\s*track:/m)
+    // The one import it was the last user of went with it.
+    expect(LIB).toContain("import { availableMinutes, dayTotals, effectiveShift } from './today-board'")
   })
 
   it('the chip still OPENS the dialog, and its label no longer promises a drag', () => {
@@ -1611,9 +1668,42 @@ describe('⚖ the month board’s columns are tighter, and the operator sets the
     // Capture rides the handle, and every ENDING tears the gesture down.
     const down = SRC.slice(SRC.indexOf('function onDividerDown('), SRC.indexOf('function onDividerMove('))
     expect(down).toContain('handle.setPointerCapture(e.pointerId)')
-    for (const ending of ['onPointerUp={endSizing}', 'onPointerCancel={endSizing}', 'onLostPointerCapture={endSizing}']) {
+    for (const ending of [
+      'onPointerUp={endSizing}',
+      'onPointerCancel={(e) => endSizing(e, false)}',
+      'onLostPointerCapture={endSizing}',
+    ]) {
       expect(SRC).toContain(ending)
     }
+  })
+
+  it('a CANCELED gesture changes nothing, and a bare click is not a resize', () => {
+    const end = SRC.slice(SRC.indexOf('const endSizing = useCallback('), SRC.indexOf('function onDividerDown('))
+    // (1) Only the pointer that STARTED the gesture may end it. A second finger
+    // lifting elsewhere used to commit somebody else's drag.
+    expect(end).toContain('if (!d || (e && e.pointerId !== d.pointerId)) return')
+    expect(SRC).toContain('const endSizing = useCallback((e?: React.PointerEvent<HTMLElement>, commit = true)')
+    // (2) CANCEL REVERTS. pointercancel is the OS taking the gesture away, and
+    // the room's invariant is that a canceled gesture leaves nothing behind:
+    // the inline variable goes back to what the session held — REMOVED when it
+    // held nothing, so shifts.css stays the one place a default is written.
+    expect(end).toContain('if (!commit) {')
+    expect(end).toContain('if (d.prev === undefined) tableRef.current?.style.removeProperty(COL_VAR[d.key])')
+    expect(end).toContain("else tableRef.current?.style.setProperty(COL_VAR[d.key], `${d.prev}px`)")
+    // the revert reads what was CAPTURED at pointerdown, not live state, so a
+    // remount between down and cancel cannot make it restore the wrong number
+    const down = SRC.slice(SRC.indexOf('function onDividerDown('), SRC.indexOf('function onDividerMove('))
+    expect(down).toContain('prev: colWidths[key], moved: false,')
+    // (3) A DOWN+UP WITH NO MOVE IS NOT A RESIZE. It used to write the sheet's
+    // own default into session state as an explicit override — a column the
+    // operator never dragged, pinned by a click, and silently immune to a later
+    // change of the default. The capture still releases and the lit line still
+    // goes out; only the write is skipped.
+    expect(end).toContain('if (!d.moved) return')
+    expect(end.indexOf('delete d.handle.dataset.sizing')).toBeLessThan(end.indexOf('if (!commit) {'))
+    expect(end.indexOf('releasePointerCapture')).toBeLessThan(end.indexOf('if (!d.moved) return'))
+    const move = SRC.slice(SRC.indexOf('function onDividerMove('), SRC.indexOf('function resetDivider('))
+    expect(move).toContain('d.moved = true')
   })
 
   it('a width survives the remount every 週/月 flip and every month arrow causes', () => {

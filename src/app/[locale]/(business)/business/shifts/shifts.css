@@ -31,6 +31,59 @@
   padding: 20px 28px 38px;
 }
 
+/* ── the sibling-sheet fence ───────────────────────────────────────────── */
+/* THE OTHER HALF OF THE SCOPING LAW, and the half `.pg-shifts` cannot do on its
+   own. Scoping keeps THIS room's rules off the neighbours; it does nothing to
+   keep the NEIGHBOURS' rules off this room. App Router leaves today.css /
+   customers.css / reservations.css in the document after a client-side
+   navigation, all three state bare family selectors (`.biz .inspector`,
+   `.biz .toast`, `.biz .summary`, `.biz .btn`) on names this room also renders,
+   and any property they declare that this sheet does NOT is simply inherited
+   from whichever room the operator walked in from.
+
+   That is a real bug, not a theory: today.css:832 states `.biz .inspector
+   { display: none }` for its own drawer, this sheet stated only `position` and
+   `top`, and so the week board's whole 候補の確認 aside DISAPPEARED on the way
+   in from 今日の運営 while rendering perfectly on a hard load. The 予約 sheet's
+   `max-height` clipped it; the 今日/顧客/予約 toasts' `pointer-events: none`
+   made its × dead and passed the click through to the cell button underneath.
+
+   So the fence STATES the room's own value for every property a sibling sheet
+   declares on a shared name. `.biz .page.pg-shifts` (four levels) rather than
+   `.biz .pg-shifts` (three) because a sibling's `.biz .toast.show` is three
+   too, and a tie is decided by whichever sheet App Router happened to insert
+   last — which is exactly the coin-flip this fence exists to remove.
+
+   The list is derived, not guessed: every bare `.biz .<name>` rule in the three
+   sibling sheets whose name this room renders, minus the properties this room
+   already states on that element (`.panel` covers most of `.inspector`, for
+   one) — and rules ending in a TAG count, which is how 顧客's `.biz
+   .summary-main span { line-height: 1.45 }` was found shortening the summary
+   strip by a pixel. Three rules survive that sweep and are NOT fenced, because
+   the room never renders their shape: `.biz .inspector-actions .primary` (the
+   aside's buttons are `btn` and `btn text`), `.biz .page-head .btn` (the head
+   has no button) and `.biz .legend b` (the legend is spans with <i> swatches).
+
+   The PROBE is what proves this in a real cascade — it measures the room with
+   this sheet alone and with all four sheets in both insertion orders, and every
+   measurement has to match. Re-run both when a sibling sheet grows a rule. */
+.biz .page.pg-shifts .inspector { display: block; margin: 0; max-height: none; align-self: auto; }
+.biz .page.pg-shifts .inspector-head { position: static; }
+.biz .page.pg-shifts .inspector-actions { grid-template-columns: none; }
+.biz .page.pg-shifts .incident { align-items: stretch; }
+.biz .page.pg-shifts .summary { background: transparent; }
+.biz .page.pg-shifts .summary-main { border-left: 0; }
+/* `inherit`, not a number: this room never stated one, so its own value is
+   whatever the shell's body line-height gives — 顧客's 1.45 made the whole
+   summary strip render a pixel shorter after a walk through 顧客. */
+.biz .page.pg-shifts .summary-main span { line-height: inherit; }
+.biz .page.pg-shifts .toast { opacity: 1; transform: none; transition: none; pointer-events: auto; }
+/* business-shell.css owns the button; the 顧客 and 予約 sheets each restate its
+   weight for their own room, so this room restates the shell's. */
+.biz .page.pg-shifts .btn { font-weight: 500; }
+.biz .page.pg-shifts .btn.primary { font-weight: 600; }
+.biz .page.pg-shifts .page-head > div { min-width: auto; }
+
 /* ── page head ─────────────────────────────────────────────────────────── */
 .biz .pg-shifts .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 14px; }
 .biz .pg-shifts .date-line { margin-bottom: 4px; color: var(--ink-3); font-size: 13px; font-weight: 700; }
@@ -140,10 +193,20 @@
    instead of dying inside a nested scroller mid-screen. A vertical cap here is
    the bug, not a feature: never re-add one.
 
-   That is also why the header row is NOT sticky-top: with no vertical scroller
-   around it there is nothing to stick to. `position: sticky` stays on the th
-   because the FIRST header cell pins LEFT against the horizontal pan, the same
-   way `.staff-cell` does in the body.
+   The wrap IS a scroll container on both axes — `overflow-x: auto` forces the
+   computed `overflow-y` to `auto` too, CSS cannot give one axis a scroller and
+   leave the other visible — it simply never overflows vertically, because
+   nothing caps its height. So the header row is not sticky-TOP for a sharper
+   reason than "nothing to stick to": while the wrap owns an axis, a sticky-top
+   th would bind to THE WRAP rather than to the page the operator is actually
+   scrolling, and stick to a box whose top never leaves the viewport. The header
+   scrolling away with the board is ⚖ Liam's page-scroll ruling working as
+   ruled; giving it back would be a structural change (the board would have to
+   leave this wrap), not a property.
+
+   `position: sticky` is stated on the FROZEN header cells only — the ones that
+   pin LEFT against the horizontal pan, the same way `.staff-cell` does in the
+   body. On a header cell with no inset it is inert, so it is not stated there.
 
    `border-collapse: separate` is not a style choice — collapsed borders belong
    to the TABLE, not to the cell, so they stay behind while a sticky cell
@@ -153,11 +216,10 @@
 .biz .pg-shifts .week-wrap { overflow-x: auto; }
 .biz .pg-shifts .week-table { width: 100%; min-width: 930px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
 .biz .pg-shifts .week-table th {
-  position: sticky; z-index: 2;
   height: 44px; padding: 7px 8px; border-right: 1px solid var(--section); border-bottom: 1px solid var(--section);
   background: #fafafb; color: var(--ink-3); font-size: 12px; text-align: left;
 }
-.biz .pg-shifts .week-table th:first-child { width: 180px; left: 0; z-index: 3; }
+.biz .pg-shifts .week-table th:first-child { width: 180px; position: sticky; left: 0; z-index: 3; }
 .biz .pg-shifts .week-table th:last-child, .biz .pg-shifts .week-table td:last-child { border-right: 0; }
 .biz .pg-shifts .week-table td {
   height: 88px; padding: 7px; border-right: 1px solid var(--section); border-bottom: 1px solid var(--row);
@@ -268,9 +330,13 @@
    column 28 still says which day it belongs to.
 
    ⚖ Liam 8/22 (page-scroll flag): HORIZONTAL ONLY. The page owns vertical
-   scroll — no height cap, no `overscroll-behavior`, and no sticky-top header,
-   which would have nothing to stick to. `position: sticky` stays on the th for
-   the two LEFT-frozen header cells.
+   scroll — no height cap, no `overscroll-behavior`, and no sticky-top header.
+   Same reasoning as the week board's: this wrap is a scroll container on both
+   axes (`overflow-x: auto` computes `overflow-y` to `auto`) that simply never
+   overflows vertically, so a sticky-top th would bind to the WRAP instead of to
+   the page, and stick to a box whose top never leaves the viewport. The header
+   scrolling away is the ruling working; changing it is structural.
+   `position: sticky` is stated on the two LEFT-frozen header cells only.
 
    THE WIDTH IS A FUNCTION OF THE ROSTER, not a fixed number: `--cols` is the
    headcount the screen renders, so the table simply gets wider as people are
@@ -284,9 +350,17 @@
    VARIABLES, not literals, because the drag writes them and every dependent
    number has to follow: the 予約 column's sticky `left` IS the 日付 column's
    width, and a hard-coded 148px there is the frozen pair coming apart the
-   moment a divider moves. Measured floors (real Chromium, this sheet, the
-   room's own strings) live in ShiftsScreen's MIN — a width below them is a
-   string that truncates, so the clamp is the truncation guard. */
+   moment a divider moves. THE `left == --date-w` INVARIANT HOLDS ONLY WHILE THE
+   TABLE STILL HAS AT LEAST ONE AUTO-SIZED STAFF COLUMN TO ABSORB THE SLACK
+   (roster ≥ 1) — with a zero-person roster `table-layout: fixed` would spread
+   `width: 100%` across the two fixed columns and the rendered 日付 width would
+   stop matching the variable the offset reads. Every board this room can reach
+   has a roster, so the pair is frozen in practice; the condition is written
+   down so a future empty-state does not quietly break it.
+
+   Measured floors (real Chromium, this sheet, the room's own strings) live in
+   ShiftsScreen's MIN — a width below them is a string that truncates, so the
+   clamp is the truncation guard. */
 .biz .pg-shifts .month-wrap { overflow-x: auto; }
 .biz .pg-shifts .month-table {
   /* Defaults, and the ONE place they are written. The screen overrides these
@@ -301,15 +375,14 @@
 .biz .pg-shifts .month-table col.date-col { width: var(--date-w); }
 .biz .pg-shifts .month-table col.booking-col { width: var(--booking-w); }
 .biz .pg-shifts .month-table th {
-  position: sticky; z-index: 2;
   padding: 8px 10px; border-right: 1px solid var(--section); border-bottom: 1px solid var(--section);
   background: #fafafb; color: var(--ink-3); font-size: 12px; text-align: left; vertical-align: bottom;
 }
 /* 日付 outranks 予約 so its divider's outer half paints over the 予約 header
    instead of under it. The two never overlap — 予約 starts where 日付 ends —
    so the order costs nothing else. */
-.biz .pg-shifts .month-table th:nth-child(1) { left: 0; z-index: 4; }
-.biz .pg-shifts .month-table th:nth-child(2) { left: var(--date-w); z-index: 3; }
+.biz .pg-shifts .month-table th:nth-child(1) { position: sticky; left: 0; z-index: 4; }
+.biz .pg-shifts .month-table th:nth-child(2) { position: sticky; left: var(--date-w); z-index: 3; }
 /* ── the column border lines, dragged (⚖ Liam 8/22) ─────────────────────── */
 /* A grab zone straddling the boundary in the header row: 10px wide, the full
    height of the header, and a col-resize cursor so the affordance is the
@@ -438,7 +511,16 @@
 
 /* ── toast ─────────────────────────────────────────────────────────────── */
 /* Canon's honest fixture-world message. It carries a × because a message the
-   reader has to outrun is a message they did not read (⚖ 47). */
+   reader has to outrun is a message they did not read (⚖ 47).
+
+   THIS ROOM'S TOAST DOES NOT FADE. It is rendered only while there is something
+   to say and removed when the × is pressed, so there is no hidden resting state
+   and nothing for a `.show` class to reveal — the `show` in the markup is
+   canon's own class name, kept so the family reads alike, not a switch this
+   sheet acts on. The neighbours' toasts DO fade (`opacity: 0; pointer-events:
+   none`, lifted by their `.show`), and their bare `.biz .toast` reaches this
+   room, so the fence above states this room's resting values outright rather
+   than depending on a class-name tie the cascade decides by insertion order. */
 .biz .pg-shifts .toast {
   position: fixed; right: 20px; bottom: 20px; z-index: 50; max-width: 420px;
   display: flex; align-items: flex-start; gap: 10px;
@@ -450,7 +532,10 @@
 .biz .pg-shifts .toast-close { border: 0; background: transparent; color: var(--quiet); font-size: 14px; line-height: 1; padding: 2px; }
 
 @media (max-width: 1320px) {
-  .biz .pg-shifts { padding-left: 18px; padding-right: 18px; }
+  /* `.page.pg-shifts` here too: all three sibling sheets narrow `.biz .page` in
+     their own 1320 block at the SAME specificity a bare `.pg-shifts` would
+     have, and 顧客's is 20px, not this room's 18. See the fence above. */
+  .biz .page.pg-shifts { padding-left: 18px; padding-right: 18px; }
   .biz .pg-shifts .recovery { grid-template-columns: minmax(470px, 1fr) 330px; gap: 10px; }
   .biz .pg-shifts .incident-stat { min-width: 72px; padding-left: 8px; padding-right: 8px; }
   .biz .pg-shifts .week-table th:first-child { width: 165px; }
