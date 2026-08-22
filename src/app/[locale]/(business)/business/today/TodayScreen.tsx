@@ -125,7 +125,15 @@ const HINT = '見本データのため実行できません'
 /** ⚖ Liam flag 47 — how long the board's own voice stays on screen. The shipped
  *  3.2s is right for a message that CONFIRMS something the operator can already
  *  see; a refusal is the only evidence that a thing did not happen, and it has
- *  to outlive the glance that missed it. Twice the dwell, no new surface. */
+ *  to outlive the glance that missed it. Twice the dwell, no new surface.
+ *
+ *  ⚖ 47's class has TWO members, the second measured live on 2026-08-22: a
+ *  toast carrying an UNDO is the only way back from a destructive act, so it
+ *  is read to be ACTED ON, not glanced at. At 3.2s the block-delete undo
+ *  expired mid-reach and the click landed on the empty track underneath,
+ *  opening 新規予約を作成 — 「it flashed too fast to read」 in a new costume.
+ *  Same dwell, same reason, one constant; the name is the class, not the
+ *  wording. An ordinary confirmation is unchanged at 3.2s. */
 const TOAST_MS = 3200
 const REFUSAL_MS = 7000
 const EMPTY_TOAST = { text: '', ms: TOAST_MS, n: 0, undo: null as (() => void) | null }
@@ -1493,6 +1501,24 @@ export function TodayScreen(props: TodayProps) {
   // The ID alone, never the object: `holdPop` is rebuilt on every render, and an
   // effect keyed on it would re-measure the DOM on every frame of a drag.
   const holdAnchorId = holdPop?.anchorId ?? null
+  /** ⚖ Liam flag 71 FOLLOW-UP (measured in a real browser, 2026-08-22) — THE
+   *  SURFACE'S OWN EXISTENCE is a dep, because the anchor is not one for every
+   *  arm. The standing hold's `anchorId` is deliberately `null` (see above), so
+   *  `holdAnchorId` reads `null` while the popover is CLOSED *and* while it is
+   *  OPEN: nothing in the array below moved when the surface appeared, `pin()`
+   *  never ran for its first appearance, `setHoldPinned(true)` never fired —
+   *  and `.hold-pop` is `position: fixed` with no `top` of its own, so it kept
+   *  its STATIC FLOW POSITION: 1659px down a 935px viewport, invisible and
+   *  unreachable. (A later open looked right only because the scroll/resize
+   *  listeners below call the same `pin()` on whatever element is mounted, so
+   *  any scroll in between corrected it. A first open has had no such luck.)
+   *  X6 built that case: before it, the standing hold was mounted from the
+   *  first render, so the mount-run of this effect always caught it.
+   *
+   *  Keyed on the MOUNT — the same expression the render gates on — every path
+   *  that brings this surface into being pins it, including paths nobody has
+   *  written yet. No first-open special case exists or is needed. */
+  const holdPopMounted = holdPop !== null
   /** ⚖ Liam flag 48 — WHICH 60分配置 chip the confirm should try not to sit on:
    *  the one for the START THE CARD LANDED ON, in the lane it landed in. The
    *  rail draws a cell every 30 minutes, so an off-lattice landing (canon's dual
@@ -1571,7 +1597,11 @@ export function TodayScreen(props: TodayProps) {
     // UNION at cycle 7: batch-7 adds `holdRailSel` (⚖ 48's avoid-rect reads it
     // inside `pin`), and predates the two unmount gates above. All four belong —
     // dropping either half re-opens the bug the other half was written for.
-  }, [holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])
+    //
+    // `holdPopMounted` leads at batch-10b: it is the only member that moves for
+    // an arm with no anchor, and it covers the MOUNT the other six only cover
+    // by accident. See its comment above for the measurement.
+  }, [holdPopMounted, holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])
 
   /** ⚖ Liam flag 51 (LOCKED) — THE ROOM, RE-SOLVED AT THIS LANDING. Every path
    *  that puts a booking down carrying a bed comes through here: the staff-lane
@@ -3755,7 +3785,10 @@ export function TodayScreen(props: TodayProps) {
     setBlockDeleteAsk(false)
     setBlockInfo(null)
     blockRef.current?.close()
-    show(`${info.title}を削除しました`, TOAST_MS, () => {
+    // ⚖ 47's long dwell, second member of the class: this toast is the only way
+    // back, so it lives long enough to be REACHED (see REFUSAL_MS above). The
+    // restore confirmation that follows is an ordinary one and stays brief.
+    show(`${info.title}を削除しました`, REFUSAL_MS, () => {
       setBlockDeleted((was) => was.filter((k) => k !== info.key))
       show(`${info.title}を元に戻しました`)
     })

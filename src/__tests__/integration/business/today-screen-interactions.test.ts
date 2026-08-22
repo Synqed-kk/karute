@@ -2649,7 +2649,10 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // carries BOTH the two gates that can unmount the anchor card and batch-7's
     // `holdRailSel` (⚖ 48 reads it inside `pin`). Neither half supersedes the
     // other — see the collapse test below.
-    expect(SRC).toContain('}, [holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])')
+    // RENEGOTIATED AGAIN (batch-10b, ⚖ 71 follow-up): `holdPopMounted` joins in
+    // front. Same intent, one member wider — the ID cannot speak for an arm
+    // whose anchor is `null` by design. Proof in the ⚖ 71 describe.
+    expect(SRC).toContain('}, [holdPopMounted, holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])')
     // A standing 仮押さえ this session did not stage is ALWAYS the pill: anchored,
     // it sat on the board indefinitely and swallowed the pointerdown of a card in
     // the lane below (measured, 2026-08-21).
@@ -2673,7 +2676,8 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // reintroduce the same bug the collapse did.
     // RENEGOTIATED (cycle 7): batch-7 adds `holdRailSel` to this array for ⚖ 48's
     // avoid-rect. The two unmount gates this test exists for are still both here.
-    expect(SRC).toContain('}, [holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])')
+    // RENEGOTIATED (batch-10b): `holdPopMounted` leads. Both gates still here.
+    expect(SRC).toContain('}, [holdPopMounted, holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])')
     expect(SRC).toContain('if (collapsed.includes(lane.group)) return null')
     // The rule is about the NODE, not about any one reason it went away.
     expect(SRC).toContain('const card = anchorId ? cardNodes(boardRef.current, anchorId)[0] : null')
@@ -3310,6 +3314,24 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     // sentence and the chip landing's missing-person one.
     expect(SRC).toContain('if (solved.refusal) {\n      refuse(solved.refusal)')
     expect(SRC).toContain('refuse(`${chip.item.title}様の担当がこのボードにいません')
+  })
+
+  /** ⚖ 47's class, SECOND MEMBER (batch-10b, measured in a real browser
+   *  2026-08-22): at 3.2s the block-delete undo expired mid-reach and the click
+   *  landed on the empty track underneath, opening 新規予約を作成. A destructive
+   *  act whose way back must be FOUND inside 3.2s is the same complaint that
+   *  bought refusals their 7s. Only the undo-carrying toast joins the class. */
+  it('⚖ 47 — the toast that carries a way back lives as long as a refusal', () => {
+    expect(SRC).toContain('show(`${info.title}を削除しました`, REFUSAL_MS, () => {')
+    // The value has ONE home — the delete does not mint a dwell of its own.
+    expect(SRC).not.toMatch(/show\([^\n]*,\s*7000/)
+    // …and ORDINARY toasts are untouched: the restore confirmation that follows
+    // the undo takes the default, and nothing else in the file asks for the
+    // long dwell except `refuse` and this one line.
+    expect(SRC).toContain('show(`${info.title}を元に戻しました`)')
+    // Exactly TWO callers ask for the long dwell: the refusal door and this one
+    // undo. A third would mean the class quietly grew.
+    expect(SRC.match(/, REFUSAL_MS/g)).toHaveLength(2)
   })
 
   it('⚖ 47 — cross-day placement is what canon promises, and nothing gates on the day', () => {
@@ -5155,6 +5177,30 @@ describe('BATCH-10b ⚖ flag 71 — no uninvited confirm', () => {
     // holdAnswer clause sits IN FRONT of holdOpen, so it decides first.
     const arm = SRC.slice(SRC.indexOf(': props.hold && holdAnswer === null'), SRC.indexOf('anchorId: null,'))
     expect(arm).toContain('holdAnswer === null && holdOpen')
+  })
+
+  /** THE FIRST OPEN AFTER A LOAD PUT THE CONFIRM OFF SCREEN (real browser,
+   *  2026-08-22): `.hold-pop` with no `.pinned` at `top: 1659px` in a 935px
+   *  viewport — `position: fixed` with no `top` of its own, i.e. its static
+   *  flow position. Root cause: `holdAnchorId` is `null` both closed and open
+   *  for this arm (its `anchorId: null` is a MEASURED 8/21 ruling, not an
+   *  oversight), so no dep of the pinning effect moved when the surface
+   *  appeared and `setHoldPinned(true)` never fired. X6 created the case; the
+   *  cure is to key the effect on the surface's existence, so EVERY path that
+   *  mounts it pins it. */
+  it('the pinning effect keys on the SURFACE existing, not on an anchor this arm has not got', () => {
+    expect(SRC).toContain('const holdPopMounted = holdPop !== null')
+    expect(SRC).toContain('}, [holdPopMounted, holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])')
+    // The dep is the SAME expression the render gates on, so the two can never
+    // disagree about whether the element is in the DOM.
+    expect(SRC).toContain('{holdPop && (')
+    // The arm that needs it still has no anchor of its own — the fix is not a
+    // quiet re-anchoring of the standing hold (⚖ 8/21: anchored, this surface
+    // swallows the pointerdown of the card below).
+    expect(SRC).toContain('          anchorId: null,')
+    // …and what the effect does for an anchorless surface is pin it, which is
+    // the branch that was never reached on a first open.
+    expect(SRC).toContain('      if (!at) {\n        setHoldPinned(true)')
   })
 
   it('the fixture keeps its held booking — the incident\'s evidence is not collateral', () => {
