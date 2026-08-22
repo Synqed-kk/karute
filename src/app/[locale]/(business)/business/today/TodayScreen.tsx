@@ -66,6 +66,7 @@ import {
   blockDragModeAt,
   blockEdgeZones,
   blockStepPct,
+  BLOCK_STEP_MIN_DEFAULT,
   cardNodes,
   chipProxySize,
   clampLabelWidth,
@@ -89,6 +90,7 @@ import {
   isOverShelf,
   laneKeyAtY,
   landingVerdict,
+  offerableStarts,
   nextSpan,
   overrideCaption,
   onShownBoard,
@@ -609,7 +611,7 @@ export function TodayScreen(props: TodayProps) {
     suggest: number
     home: Move | undefined
     /** ⚖ Liam flag 68 (2026-08-22) — WHERE THE BLOCK CAME FROM, so the surface
-     *  can tell "a better place" apart from "back where you took it from".
+     *  can tell 「より良い位置」 apart from 「元の位置に戻すだけ」.
      *  `nearestBestAlternatives` returns the nearest best start BEFORE the drop
      *  first, computed on a board with this block removed — so the origin is
      *  always a first-class candidate and `alternatives[0]` IS the origin
@@ -1211,6 +1213,28 @@ export function TodayScreen(props: TodayProps) {
    *  CURRENT board rather than the one that existed at pointerdown. */
   const verdictRef = useRef(verdictAtLanding)
   verdictRef.current = verdictAtLanding
+
+  /** ⚖ Liam flag 58 RIDER — THE ONE PLACE AN ENGINE START BECOMES AN OFFER.
+   *
+   *  `offerableStarts` is the rule (see its header); this is the board's inputs
+   *  to it — the store's own booking lattice, and the release's own verdict as
+   *  the gate, asked through `verdictRef` so a surface built from a gesture's
+   *  pointerdown closure still judges against the board as it stands now.
+   *  Every booking-side surface that shows alternatives goes through here, so
+   *  the block advisor's own filter (which runs on the BLOCK lattice, with the
+   *  block's own gate) is the only other spelling on the board. */
+  const offerable = useCallback(
+    (cell: RailCell | null, ask: LandingAsk): RailCell | null => {
+      if (!cell || cell.alternatives.length === 0) return cell
+      const start = minuteOf(ask.span.x, hours)
+      const dur = minuteOf(ask.span.x + ask.span.w, hours) - start
+      const alternatives = offerableStarts(cell.alternatives, props.guard.bookingStepMin, start, (s) =>
+        verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind !== 'blocked',
+      )
+      return { ...cell, alternatives }
+    },
+    [hours, props.guard.bookingStepMin],
+  )
 
   /** canon `computeChecks` fed from the board as it currently stands. The sell
    *  layer's own windows join the pool as DERIVED inventory, exactly as canon's
@@ -2037,7 +2061,7 @@ export function TodayScreen(props: TodayProps) {
     const v = verdictAtLanding(ask)
     if (v.kind === 'blocked') {
       restoreSides(ctx.id, from)
-      explainBlocked(v, targetLane, span, { x: clientX, y: clientY, t: upAt }, {
+      explainBlocked(v, ask, targetLane, span, { x: clientX, y: clientY, t: upAt }, {
         // 「注意して配置」 — the same staging the clean path runs, carrying the
         // sentence it walked past so the confirm surface can show it.
         override: () => land(v.reason, span),
@@ -2077,6 +2101,7 @@ export function TodayScreen(props: TodayProps) {
    *  not be given the chance to run. */
   function explainBlocked(
     v: LandingVerdict,
+    ask: LandingAsk,
     laneKey: string,
     span: { x: number; w: number },
     at: { x: number; y: number; t: number },
@@ -2086,7 +2111,12 @@ export function TodayScreen(props: TodayProps) {
     setAdvice({
       laneKey,
       start: minuteOf(span.x, hours),
-      cell: v.cell,
+      // ⚖ 58 RIDER — every start this surface offers is on the board's own
+      // lattice and has been re-verified. One filter, and it covers the
+      // release's consult and 新規/次回's askGuard alike, because both arrive
+      // here. The keyboard nudge passes `cell: null` (Shift/Alt cannot change a
+      // start), so it is unaffected by construction.
+      cell: offerable(v.cell, ask),
       kind: 'blocked',
       reason: v.reason ?? '配置できません',
       anchor: at,
@@ -2380,6 +2410,16 @@ export function TodayScreen(props: TodayProps) {
     // place", so it is also the honest test for whether this surface has
     // anything to say — and it keeps 提案位置に置く a button that always acts.
     if (!cell || cell.state === 'safe' || cell.alternatives.length === 0) return
+    // ⚖ Liam flag 58 RIDER — the block advisor's half of the same fix. The
+    // engine's 5-minute starts are snapped onto the store's BLOCK lattice and
+    // put through the block's own gate — the very gate 提案位置に置く now runs
+    // (⚖ 31c) — so the button cannot name a position the press would refuse.
+    // Nothing left after the filter means there is nothing to say (⚖ 39: a
+    // surface that cannot offer anything better is noise).
+    const alts = offerableStarts(cell.alternatives, props.guard.config.blockStepMin ?? BLOCK_STEP_MIN_DEFAULT, from, (s) =>
+      !locked.includes(targetLane) && !blockClash(placedLanes.find((l) => l.key === targetLane), ctx.key, place(s, s + (to - from), hours)),
+    )
+    if (alts.length === 0) return
     blockAdviceOpenedAt.current = e.timeStamp
     setBlockAdvice({
       key: ctx.key,
@@ -2388,9 +2428,10 @@ export function TodayScreen(props: TodayProps) {
       laneLabel,
       dur: to - from,
       cell,
-      // The engine's own least-loss / safe start — the surface does not open
-      // without one, so this button always acts.
-      suggest: cell.alternatives[0],
+      // The engine's own least-loss / safe start, on the board's own lattice
+      // and through the block's own gate — the surface does not open without
+      // one, so this button always acts (⚖ 58 RIDER + ⚖ 31c).
+      suggest: alts[0],
       home,
       // ⚖ flag 68 — the origin, both halves, snapped at pointerdown.
       originStart: minuteOf(ctx.origin.x, hours),
@@ -2559,7 +2600,7 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ 50(d) — release over red never places; it explains, and it escalates
     // only where the store's own policy put the action.
     if (v.kind === 'blocked') {
-      explainBlocked(v, ask.staffLane ?? '', ask.span, at, {
+      explainBlocked(v, ask, ask.staffLane ?? '', ask.span, at, {
         override: () => run(start, v.reason),
         placeAt: (s) => {
           const dur = minuteOf(ask.span.x + ask.span.w, hours) - start
@@ -2583,7 +2624,9 @@ export function TodayScreen(props: TodayProps) {
     setAdvice({
       laneKey: ask.staffLane ?? '',
       start,
-      cell: v.cell,
+      // ⚖ 58 RIDER — the caution surface offers starts too, so it takes the
+      // same filter. It is the ONLY other booking-side spelling.
+      cell: offerable(v.cell, ask),
       kind: 'caution',
       reason: v.reason ?? '',
       anchor: at,
@@ -2662,7 +2705,7 @@ export function TodayScreen(props: TodayProps) {
       // defect ⚖ 31c closed. `cell: null` is how the surface is told there is
       // nothing to offer — explanation and, if the store allows it, escalation.
       const box = e.currentTarget.getBoundingClientRect()
-      explainBlocked({ ...v, cell: null }, lane.key, next, { x: box.left, y: box.bottom, t: e.timeStamp }, {
+      explainBlocked({ ...v, cell: null }, ask, lane.key, next, { x: box.left, y: box.bottom, t: e.timeStamp }, {
         override: () => land(v.reason),
         placeAt: () => {},
       })

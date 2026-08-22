@@ -793,6 +793,49 @@ function railCell(
   }
 }
 
+/** ⚖ LIAM flag 58 RIDER (2026-08-22) — AN ENGINE START IS NOT YET AN OFFER.
+ *
+ *  The guard walks a FIVE-minute lattice (`LATTICE_STEP_MIN`, gap-guard :28) and
+ *  a pocket begins wherever the previous booking ended, so
+ *  `nearestBestAlternatives` legitimately answers 11:45 or 13:15. The board does
+ *  not: a booking snaps on the store's `bookingStepMin` and a 予定ブロック on its
+ *  `blockStepMin`. Offering 「11:45に置く」 therefore created a placement the
+ *  drag lattice can never reproduce and the rail can never mark — Liam's own
+ *  reading of his canon shots, whose advice offers :00/:30 starts.
+ *
+ *  Canon does not filter; its demo pockets simply start on the half hour. So
+ *  this is our board's own grammar gap, and it is closed at the PRESENTATION
+ *  seam rather than in the engine (frozen) or per button (⚖ 31c's disease: a
+ *  button that can lie about what it will do).
+ *
+ *  SNAP, THEN RE-VERIFY — never blind-snap: an off-lattice start becomes the
+ *  legal start below it, or the one above if that one does not survive the
+ *  caller's own gate. `ok` IS that gate — `verdictAtLanding` for a booking,
+ *  `blockClash` for a block — so nothing is ever offered that the release
+ *  itself would refuse. An alternative that collapses onto the start the
+ *  operator already tried is dropped: they are looking at it. */
+export function offerableStarts(
+  starts: readonly number[],
+  stepMin: number,
+  attempted: number,
+  ok: (start: number) => boolean,
+): number[] {
+  const out: number[] = []
+  for (const s of starts) {
+    const candidates = s % stepMin === 0 ? [s] : [Math.floor(s / stepMin) * stepMin, Math.ceil(s / stepMin) * stepMin]
+    // Two engine starts that land on the same legal step are ONE offer, and the
+    // duplicate is dropped rather than walked to its other neighbour: the
+    // neighbour was never scored as a better start, so offering it would put
+    // 「より損の少ない開始」 on a start the engine never said that about.
+    if (candidates.some((c) => out.includes(c))) continue
+    for (const c of candidates) {
+      if (c === attempted) continue
+      if (ok(c)) { out.push(c); break }
+    }
+  }
+  return out
+}
+
 /** One drag step: origin + pointer travel → the card's new span, on canon's
  *  dual lattice. Separated from the event so the test can drive it directly. */
 export function nextSpan(origin: DragOrigin, track: Element, dx: number, step: number): { x: number; w: number } {
@@ -1317,8 +1360,38 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   }).find((c) => !c.ok)
   if (failed) return stop(failed.label)
   if (solved.refusal) return stop(solved.refusal)
-  if (cell?.state === 'blocked') return stop(cell.sentence)
-  if (cell?.state === 'degraded') return { kind: 'caution', label: VERDICT_WORD.caution, reason: cell.sentence, cell }
+  // ⚖ LIAM flag 58 (2026-08-22) — ROOT A: AN ACK-ALLOWED REFUSAL IS 要確認,
+  // NOT 置けない. His words: 「even the triangle ones are going into red
+  // crosses, which it shouldn't」.
+  //
+  // The frozen engine has three outcomes above "ok" and it labels them itself.
+  // A `refuse` verdict in STANDARD mode — which is what this store runs — comes
+  // back `ackAllowed: true` (gap-guard :398), and the engine's own words for
+  // that state are 「some other start in the same pocket has a strictly smaller
+  // key」: *there is a better start here*, not *this is illegal*. Only
+  // `R-UNAVAILABLE` — a physically impossible placement — is `ackAllowed: false`.
+  // `railCell` carried the flag faithfully and this line threw it away, so
+  // 「ここに置くと新規(90分)が入らなくなります」 — an advisory the engine
+  // explicitly permits the operator to place through — painted the proxy red,
+  // put × on the rail, made the release inert, and hid the only way past it
+  // behind `canOverride`, a right most operators do not have. Canon agrees with
+  // the engine, not with us: its popover offers a plain 「この開始に配置」 to
+  // ANYONE whenever `allowAttempt` is set (canon :7154-7161).
+  //
+  // ⚖ 50(b) reserves 置けない for landings that are actually illegal and ⚖ 52
+  // reserves × for release-is-inert, so this predicate is what makes both true
+  // again — and it makes them true BY CONSTRUCTION, in the one verdict home:
+  // the cursor word, the rail's × and what the release does are this one call
+  // rendered three times, so they move together or not at all. ROOT C (the
+  // confirm row's forced △) dissolves with it — an ack-allowed cell is now a
+  // caution, so its △ is TRUE, and a genuinely blocked cell never reaches the
+  // confirm surface because the release never staged.
+  //
+  // 「注意して配置」 stays exactly where it is, for the floors that ARE illegal:
+  // 店舗 / 重複 / 勤務 / ロック / 満室 / VIP・個室 — all of which are `stop`s
+  // above this line — plus `R-UNAVAILABLE` here.
+  if (cell?.state === 'blocked' && !cell.ackAllowed) return stop(cell.sentence)
+  if (cell && cell.state !== 'safe') return { kind: 'caution', label: VERDICT_WORD.caution, reason: cell.sentence, cell }
   return { kind: 'clean', label: VERDICT_WORD.clean, reason: null, cell }
 }
 

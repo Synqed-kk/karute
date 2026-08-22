@@ -55,6 +55,7 @@ import {
   laneKeyAtY,
   landingVerdict,
   laneSpans,
+  offerableStarts,
   overrideCaption,
   VERDICT_WORD,
   nextSpan,
@@ -1039,7 +1040,12 @@ describe('a block that damages the day says so, and offers the better position',
     // …and 提案位置に置く is the default answer, and always acts: the surface
     // does not open without an alternative to move to.
     expect(SRC).toContain('              autoFocus')
-    expect(SRC).toContain('      suggest: cell.alternatives[0],')
+    // RENEGOTIATED (batch-10, ⚖ 58 RIDER + ⚖ 31c): the suggestion is still the
+    // engine's own first alternative, but only after it has been snapped onto
+    // the store's BLOCK lattice and put through the block's own landing gate —
+    // an engine start is not yet an offer.
+    expect(SRC).toContain('      suggest: alts[0],')
+    expect(SRC).toContain('const alts = offerableStarts(cell.alternatives, props.guard.config.blockStepMin ?? BLOCK_STEP_MIN_DEFAULT, from, (s) =>')
     // NEVER a refusal: the only thing that turns a block back is still an
     // overlap with something real.
     expect(SRC.slice(SRC.indexOf('function finishBlockDrag'), SRC.indexOf('function takeBlockSuggestion')))
@@ -3667,11 +3673,24 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     expect(v.reason).toBe('新規90分の空き2→1（1枠減・損を減らす）')
   })
 
-  it('a guard-refused landing is 置けない, in the engine’s own words', () => {
-    const v = verdict(board(), {}, cellOf('blocked', 'ここに置くと新規（90分）が入らなくなります'))
+  // RENEGOTIATED (batch-10, ⚖ flag 58 ROOT A). This used to read 「a
+  // guard-refused landing is 置けない」 and it was wrong about which refusals:
+  // the engine marks a standard-mode refusal `ackAllowed: true` — 「there is a
+  // better start in this pocket」, not 「this is illegal」 — and only
+  // R-UNAVAILABLE (and the no-pocket branch) is a real floor. The cell's own
+  // flag is now the predicate, so the sentence alone no longer decides.
+  it('an ACK-ALLOWED guard refusal is 要確認 — the engine says it may be placed', () => {
+    const v = verdict(board(), {}, { ...cellOf('blocked', 'ここに置くと新規（90分）が入らなくなります'), ackAllowed: true })
+    expect(v.kind).toBe('caution')
+    expect(v.label).toBe('要確認')
+    expect(v.reason).toBe('ここに置くと新規（90分）が入らなくなります')
+  })
+
+  it('a guard refusal the engine will NOT let through is 置けない, in its own words', () => {
+    const v = verdict(board(), {}, cellOf('blocked', 'この開始には既存90分を配置できません'))
     expect(v.kind).toBe('blocked')
     expect(v.label).toBe('置けない')
-    expect(v.reason).toBe('ここに置くと新規（90分）が入らなくなります')
+    expect(v.reason).toBe('この開始には既存90分を配置できません')
   })
 
   // ── every OTHER way a landing is inert, each in the board's own vocabulary ─
@@ -4002,7 +4021,11 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     const cases: Array<[string, BoardLane[], RailCell | null, 'clean' | 'caution' | 'blocked', string]> = [
       ['clean', board(), cellOf('safe', 'ok'), 'clean', ''],
       ['costly', board(), cellOf('degraded', '減ります'), 'caution', '要確認'],
-      ['guard-refused', board(), cellOf('blocked', '入らなくなります'), 'blocked', '置けない'],
+      // RENEGOTIATED (batch-10, ⚖ 58 ROOT A): a guard refusal is TWO classes,
+      // and the engine's own `ackAllowed` is which. Both are pinned here so the
+      // agreement property is walked on the class that actually changed.
+      ['guard-refused (ack-allowed)', board(), { ...cellOf('blocked', '入らなくなります'), ackAllowed: true }, 'caution', '要確認'],
+      ['guard-refused (floor)', board(), cellOf('blocked', '既存90分を配置できません'), 'blocked', '置けない'],
       ['person busy', board({ staff: { items: [booking({ key: 'a', caseId: 'apt-other', title: '見本 あかり' }, 960, 1020)] } }), cellOf('safe', 'ok'), 'blocked', '置けない'],
     ]
     for (const [name, lanes, cell, kind, label] of cases) {
@@ -4223,8 +4246,10 @@ describe('BATCH-10 W2 — ⚖ flag 68: the block advisor stops lying', () => {
     // Both refusals speak through the ONE door and return before any write.
     expect(take.indexOf('refuse(')).toBeLessThan(take.indexOf('setBlockMoves('))
     expect(take.match(/refuse\(/g)).toHaveLength(2)
-    // …and `blockClash` now has TWO call sites: the drop, and the offer.
-    expect(SRC.match(/blockClash\(/g)).toHaveLength(2)
+    // …and `blockClash` now has THREE call sites, all of them landing gates:
+    // the drop, the advisor's own suggestion filter (⚖ 58 RIDER) and this
+    // button. It had exactly ONE before this round.
+    expect(SRC.match(/blockClash\(/g)).toHaveLength(3)
   })
 
   it('⚖ 31c — the gate is the real predicate, not a copy of it', () => {
@@ -4267,5 +4292,139 @@ describe('BATCH-10 W2 — ⚖ flag 68: the block advisor stops lying', () => {
     expect(SRC).toContain('? `${blockAdvice.title}は${blockAdvice.laneLabel}の${hhmm(blockAdvice.suggest)}なら空きを分けずに置けます`')
     // The same-row, non-origin case keeps canon's plain wording.
     expect(SRC).toContain("'提案位置に置く'")
+  })
+})
+
+describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+  const GUARD = {
+    services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
+    newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
+    mode: 'standard' as const,
+  }
+  const railIn = (over: Record<string, unknown> = {}) => ({
+    open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
+    nowMinute: null, locked: [] as string[], guard: GUARD, ...over,
+  })
+  const staff = (items: BoardItem[] = []) => lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'], items })
+  const beds = [lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })]
+  const askAt = (start: number, dur = 60) => ({
+    staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
+    start, end: start + dur, span: place(start, start + dur, HOURS),
+    foreignRefusal: null, locked: [] as string[], rooms: POLICY,
+    minutesOf: (x: number) => minuteOf(x, HOURS),
+  })
+
+  /** The REAL engine on a real lane: 10:30 on a free 10:00–19:00 day costs the
+   *  protected 90 window, so the engine refuses it — and marks the refusal
+   *  ack-allowed, because standard mode lets the operator place anyway. */
+  const ackAllowedCell = () => {
+    const cell = guardVerdictAt([staff(), ...beds], 'p-01', 630, railIn())
+    expect(cell).not.toBeNull()
+    return cell!
+  }
+
+  it('the engine really does mark this refusal placeable — not a synthetic fixture', () => {
+    const cell = ackAllowedCell()
+    expect(cell.state).toBe('blocked')
+    expect(cell.ackAllowed).toBe(true)
+    expect(cell.sentence).toBe('ここに置くと新規（90分）が入らなくなります')
+    // …and the physically-impossible one is NOT: a start with no pocket that
+    // can hold the span is `ackAllowed: false` and stays a floor.
+    const noPocket = guardVerdictAt([staff([booking({ key: 'x', caseId: 'apt-x' }, 660, 720)]), ...beds], 'p-01', 630, railIn())
+    expect(noPocket!.state).toBe('blocked')
+    expect(noPocket!.ackAllowed).toBe(false)
+  })
+
+  it('ROOT A — the SAME sentence Liam photographed now reads 要確認, and the floor still reads 置けない', () => {
+    const cell = ackAllowedCell()
+    const v = landingVerdict([staff(), ...beds], askAt(630), cell)
+    expect(v.kind).toBe('caution')
+    expect(v.label).toBe('要確認')
+    expect(v.reason).toBe('ここに置くと新規（90分）が入らなくなります')
+    // R-UNAVAILABLE and the no-pocket branch are `ackAllowed: false` and keep
+    // 置けない — this is not "the guard stopped blocking", it is the guard's own
+    // two tiers finally being told apart.
+    const floor = { ...cell, ackAllowed: false }
+    expect(landingVerdict([staff(), ...beds], askAt(630), floor).kind).toBe('blocked')
+    // ONE predicate, in the ONE home.
+    expect(INT).toContain("if (cell?.state === 'blocked' && !cell.ackAllowed) return stop(cell.sentence)")
+    expect(INT).toContain("if (cell && cell.state !== 'safe') return { kind: 'caution', label: VERDICT_WORD.caution, reason: cell.sentence, cell }")
+  })
+
+  it('ROOT A — the cursor word, the rail mark and the release are the same call, on this class too', () => {
+    const cell = ackAllowedCell()
+    const v = landingVerdict([staff(), ...beds], askAt(630), cell)
+    // Cursor: `wearVerdict` writes `v.label` and `v.kind`.
+    expect(v.label).toBe(VERDICT_WORD[v.kind])
+    // Rail mid-drag: `renderRail` maps the SAME `v.kind` — blocked → ×,
+    // caution → △, else ✓ (TodayScreen renderRail).
+    const mark = v.kind === 'blocked' ? '×' : v.kind === 'caution' ? '△' : '✓'
+    expect(mark).toBe('△')
+    // …and its cell class, which is what `.inert` and the grey/amber fills key
+    // off, moves with it.
+    const state = v.kind === 'blocked' ? 'blocked' : v.kind === 'caution' ? 'degraded' : 'safe'
+    expect(state).toBe('degraded')
+    expect(SRC).toContain("const state = v ? (v.kind === 'blocked' ? 'blocked' : v.kind === 'caution' ? 'degraded' : 'safe') : c.state")
+    expect(SRC).toContain("${v?.kind === 'blocked' ? ' inert' : ''}")
+    // Release: only `blocked` is inert, so this landing STAGES — and the ⚖ 47
+    // restore + the explain popover are the blocked branch's, unchanged.
+    expect(SRC).toContain("    if (v.kind === 'blocked') {\n      restoreSides(ctx.id, from)\n      explainBlocked(")
+  })
+
+  it('ROOT C fell out — it was not built separately, and it could not have been', () => {
+    const cell = ackAllowedCell()
+    // The confirm row is ALWAYS △ by type (⚖ 52 written into the signature).
+    const row = guardCheckRow(cell)
+    expect(row?.tone).toBe('warn')
+    // Before ROOT A that △ contradicted a red 置けない on the same cell in the
+    // same frame — two laws, one cell, opposite marks. Now the verdict for that
+    // same cell IS caution, so the △ is TRUE rather than merely forced…
+    expect(landingVerdict([staff(), ...beds], askAt(630), cell).kind).toBe('caution')
+    // …and a cell that is genuinely a floor never reaches the confirm surface
+    // at all, because the release refused before anything staged.
+    expect(landingVerdict([staff(), ...beds], askAt(630), { ...cell, ackAllowed: false }).kind).toBe('blocked')
+    // `guardCheckRow` itself is UNTOUCHED — the type still forbids ×.
+    expect(INT).toContain("export function guardCheckRow(cell: RailCell | null): { label: string; tone: 'warn' } | null {")
+  })
+
+  // ── 58-RIDER — an engine start is not yet an offer ────────────────────────
+  it('⚖ 58 RIDER — off-lattice engine starts are snapped onto the board’s own step and re-verified', () => {
+    // The engine walks a 5-minute lattice and a pocket starts where the last
+    // booking ended, so 11:45 / 13:15 are honest engine answers and unreachable
+    // board positions. 780 is the attempt.
+    expect(offerableStarts([705, 795], 30, 780, () => true)).toEqual([690, 810])
+    // The caller's own gate decides: if 11:30 does not survive it, 12:00 does.
+    expect(offerableStarts([705], 30, 780, (s) => s !== 690)).toEqual([720])
+    // A start already ON the lattice is offered as-is, never nudged.
+    expect(offerableStarts([690, 810], 30, 780, () => true)).toEqual([690, 810])
+    // An alternative that IS the start the operator already tried is dropped —
+    // they are looking at it, and 「780に置く」 beside この開始に配置 is noise.
+    expect(offerableStarts([780], 30, 780, () => true)).toEqual([])
+    // …and so is one that only reaches the lattice by landing on it: 795 floors
+    // onto the attempt, so the offer becomes the step ABOVE instead.
+    expect(offerableStarts([795], 30, 780, () => true)).toEqual([810])
+    // Nothing survivable → nothing offered, rather than an unreachable button.
+    expect(offerableStarts([705, 795], 30, 780, () => false)).toEqual([])
+    // Dedupe: two engine starts that snap onto the same legal start are one offer.
+    expect(offerableStarts([695, 700], 30, 780, () => true)).toEqual([690])
+  })
+
+  it('⚖ 58 RIDER — ONE filter, and BOTH offering surfaces go through it', () => {
+    // Booking side: every alternative surface is fed by `explainBlocked` (the
+    // release's consult AND askGuard's blocked branch) or by askGuard's caution
+    // branch, and both take the filter.
+    expect(SRC).toContain('cell: offerable(v.cell, ask),')
+    expect(SRC.match(/offerable\(v\.cell, ask\)/g)).toHaveLength(2)
+    expect(SRC).toContain('const alternatives = offerableStarts(cell.alternatives, props.guard.bookingStepMin, start, (s) =>')
+    // …gated by the release's OWN verdict, through `verdictRef` so a surface
+    // built inside a gesture closure judges against the board as it stands.
+    expect(SRC).toContain("verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind !== 'blocked'")
+    // Block side: the same helper, on the BLOCK lattice, with the block's gate.
+    expect(SRC).toContain('const alts = offerableStarts(cell.alternatives, props.guard.config.blockStepMin ?? BLOCK_STEP_MIN_DEFAULT, from, (s) =>')
+    expect(SRC).toContain('suggest: alts[0],')
+    // Two spellings in the whole board, one per lattice — no third.
+    expect(SRC.match(/offerableStarts\(/g)).toHaveLength(2)
   })
 })
