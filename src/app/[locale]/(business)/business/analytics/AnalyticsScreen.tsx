@@ -32,6 +32,17 @@ import {
 const TOOLTIP_W = 210
 const TOOLTIP_H = 84
 
+/** THE ROUTE WRAPPER. App Router keeps a segment's stylesheet in the document
+ *  after a client-side navigation, so a route sheet that states a bare
+ *  family-shared selector (`.panel`, `.page`) keeps restyling the room the
+ *  reader walked into next. Every rule in analytics.css is scoped under this
+ *  class, and this is the only node that carries it — so nothing this sheet
+ *  says can reach another room, and none of it depends on being the last sheet
+ *  inserted. (The other direction — another room's sheet reaching THIS one —
+ *  is the same defect in every route sheet in the family and is fixed by the
+ *  family-wide scoping sweep, not from here.) */
+const ROOT = 'page pg-analytics'
+
 /** One ranking table per 指標, all five resolved on the server — the 指標
  *  switch is a display choice, never a second read. */
 export type RankingByMetric = Record<
@@ -70,7 +81,7 @@ export interface AnalyticsProps {
     paceText: string
     trace: string
   }
-  attention?: { headline: string; line: string; comparison: string; whyRows: string[] }
+  attention?: { tone: 'amber' | 'indigo'; headline: string; line: string; comparison: string; whyRows: string[] }
   trend?: {
     chartSub: string
     chart: ChartModel
@@ -205,7 +216,7 @@ export function AnalyticsScreen(props: AnalyticsProps) {
 
   if (props.denied) {
     return (
-      <div className="page">
+      <div className={ROOT}>
         <section id="boundaryPanel">
           <h1 tabIndex={-1}>{props.denied.title}</h1>
           <p className="subtitle">{props.denied.message}</p>
@@ -224,7 +235,7 @@ export function AnalyticsScreen(props: AnalyticsProps) {
   const hovered = tip === null ? null : trend.chartMonths[tip.index]
 
   return (
-    <div className="page">
+    <div className={ROOT}>
       <header className="page-head">
         <div>
           <p className="dateline-note">{dateline}</p>
@@ -296,7 +307,10 @@ export function AnalyticsScreen(props: AnalyticsProps) {
         <p className="target-trace">{target.trace}</p>
       </section>
 
-      <section className={`attn indigo attention${whyOpen ? ' expanded' : ''}`} aria-label="対象月の状況">
+      {/* The tone is the month's STATE, resolved on the server: amber while the
+          month is still running, indigo once it is finished (canon's own amber
+          emphasis, which a single indigo strip had flattened away). */}
+      <section className={`attn ${attention.tone} attention${whyOpen ? ' expanded' : ''}`} aria-label="対象月の状況">
         <span className="attn-icon" aria-hidden="true">i</span>
         <span className="attention-body">
           <strong>{attention.headline}</strong>

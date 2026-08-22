@@ -3,6 +3,19 @@
    reason business-shell.css is: canon owns a document, this owns a route
    segment. Class names, sizes and colours are canon's.
 
+   AND SCOPED AGAIN, under `.pg-analytics`. App Router keeps a segment's sheet
+   in the document after a client-side navigation and the last sheet inserted
+   wins the cascade, so a route sheet that states a bare family-shared selector
+   (`.panel`, `.page`, `.panel-head`, `.subtitle`, `.attention`) goes on
+   restyling whichever room the reader walks into next — measured, not
+   theorised: 顧客 reached from here rendered with this sheet's `.panel` margin.
+   Every rule below is therefore under `.pg-analytics`, a class only this
+   screen's root div carries (AnalyticsScreen `ROOT`). Nothing this sheet says
+   can reach another room, and nothing it says depends on winning by insertion
+   order. The other direction — another room's bare `.page` reaching THIS root
+   — is the same defect in every route sheet in the family and belongs to the
+   family-wide scoping sweep, not here.
+
    WHAT IS NOT HERE, because the shell sheet already owns it: the token block
    (--viz-new / --comp-gold live there beside every other canon token), the
    sidebar and topbar, `.btn`, `.pill`, and the 注意ストリップ primitive
@@ -12,7 +25,8 @@
 
    1. `.page-content` → `.page`. The family's screens all root on `.page` and
       each route sheet states its own padding; canon's 20/28/60 is kept, only
-      the class name follows the family.
+      the class name follows the family (and the rule addresses the scope class,
+      per the note above).
 
    2. `.period-nav button` → `.period-nav .period-step`. The month nav is a
       LINK here (`?month=`, the board's `?day=` pattern), not a button, so the
@@ -28,18 +42,18 @@
       measurement pass. WIDTH AND HEIGHT MUST MATCH `TOOLTIP_W` / `TOOLTIP_H`
       in AnalyticsScreen.tsx. */
 
-.biz .page { padding: 20px 28px 60px; }
-.biz .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 14px; }
-.biz .page h1 { margin: 0; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
-.biz .subtitle { margin: 5px 0 0; max-width: 46em; color: var(--muted); font-size: 14px; line-height: 1.55; }
-.biz .head-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.biz .pg-analytics { padding: 20px 28px 60px; }
+.biz .pg-analytics .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 14px; }
+.biz .pg-analytics h1 { margin: 0; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
+.biz .pg-analytics .subtitle { margin: 5px 0 0; max-width: 46em; color: var(--muted); font-size: 14px; line-height: 1.55; }
+.biz .pg-analytics .head-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 /* canon: the date line sits ABOVE h1, the family's context-line position. */
-.biz .dateline-note { margin: 0 0 4px; color: var(--quiet); font-size: 12px; }
-.biz .footnote { margin-top: 4px; padding: 0 2px; color: var(--quiet); font-size: 12px; }
+.biz .pg-analytics .dateline-note { margin: 0 0 4px; color: var(--quiet); font-size: 12px; }
+.biz .pg-analytics .footnote { margin-top: 4px; padding: 0 2px; color: var(--quiet); font-size: 12px; }
 
-.biz .period-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.biz .period-nav { display: flex; align-items: center; border: 1px solid var(--control); border-radius: 8px; background: #fff; overflow: hidden; }
-.biz .period-nav .period-step {
+.biz .pg-analytics .period-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.biz .pg-analytics .period-nav { display: flex; align-items: center; border: 1px solid var(--control); border-radius: 8px; background: #fff; overflow: hidden; }
+.biz .pg-analytics .period-nav .period-step {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -53,9 +67,9 @@
   font-weight: 700;
   text-decoration: none;
 }
-.biz .period-nav .period-step:hover:not([aria-disabled="true"]) { background: #f4f4f5; }
-.biz .period-nav .period-step[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
-.biz .period-nav .label {
+.biz .pg-analytics .period-nav .period-step:hover:not([aria-disabled="true"]) { background: #f4f4f5; }
+.biz .pg-analytics .period-nav .period-step[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
+.biz .pg-analytics .period-nav .label {
   min-width: 108px;
   padding: 0 4px;
   text-align: center;
@@ -66,8 +80,8 @@
   border-right: 1px solid var(--section);
 }
 
-.biz .seg { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
-.biz .seg button {
+.biz .pg-analytics .seg { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+.biz .pg-analytics .seg button {
   min-height: 36px;
   padding: 0 12px;
   border: 1px solid var(--control);
@@ -78,41 +92,50 @@
   font-weight: 700;
   white-space: nowrap;
 }
-.biz .seg button:hover:not([aria-disabled="true"]) { background: #f4f4f5; }
+.biz .pg-analytics .seg button:hover:not([aria-disabled="true"]) { background: #f4f4f5; }
 /* A scope this world cannot serve: visibly refused, reason on the control,
    still reachable by keyboard (aria-disabled, never the `disabled` attribute,
    which would put the reason out of a keyboard's reach). */
-.biz .seg button[aria-disabled="true"] { opacity: .48; cursor: not-allowed; }
+.biz .pg-analytics .seg button[aria-disabled="true"] { opacity: .48; cursor: not-allowed; }
 /* R13: a pressed control is an accent WASH, never a filled dark chip. */
-.biz .seg button[aria-pressed="true"] { background: var(--select-bg); color: var(--select-ink); border-color: var(--select-line); }
+.biz .pg-analytics .seg button[aria-pressed="true"] { background: var(--select-bg); color: var(--select-ink); border-color: var(--select-line); }
 
 /* ── #1 target/pace strip ─────────────────────────────────────── */
-.biz .target-strip { border: 1px solid var(--card); border-radius: 10px; background: #fff; padding: 12px 14px; margin-bottom: 14px; }
-.biz .target-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.biz .target-figures { font-size: 14px; color: var(--ink-2); }
-.biz .target-figures b { color: var(--ink); font-weight: 700; }
-.biz .target-pace { font-size: 13px; font-weight: 700; color: var(--ink-3); white-space: nowrap; }
-.biz .target-bar { margin-top: 8px; height: 8px; border-radius: 999px; background: var(--section); overflow: hidden; }
+.biz .pg-analytics .target-strip { border: 1px solid var(--card); border-radius: 10px; background: #fff; padding: 12px 14px; margin-bottom: 14px; }
+.biz .pg-analytics .target-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.biz .pg-analytics .target-figures { font-size: 14px; color: var(--ink-2); }
+.biz .pg-analytics .target-figures b { color: var(--ink); font-weight: 700; }
+.biz .pg-analytics .target-pace { font-size: 13px; font-weight: 700; color: var(--ink-3); white-space: nowrap; }
+.biz .pg-analytics .target-bar { margin-top: 8px; height: 8px; border-radius: 999px; background: var(--section); overflow: hidden; }
 /* A translucent tint, not the solid --commit-bg indigo: R13 reserves the solid
    accent fill for commit actions, and a progress bar is not one. */
-.biz .target-bar-fill { height: 100%; border-radius: 999px; background: rgba(63, 91, 232, .35); }
-.biz .target-trace { margin: 7px 0 0; color: var(--quiet); font-size: 11.5px; }
+.biz .pg-analytics .target-bar-fill { height: 100%; border-radius: 999px; background: rgba(63, 91, 232, .35); }
+.biz .pg-analytics .target-trace { margin: 7px 0 0; color: var(--quiet); font-size: 11.5px; }
 
 /* ── #2 attention strip + 内訳 ─────────────────────────────────── */
 /* The text rules stay INSIDE .attention-body on purpose: a broad
    `.attention span` rule is what once stole the badge's own display and put
    canon's 「!」 outside its circle. */
-.biz .attention { margin-bottom: 16px; flex-wrap: wrap; }
-.biz .attention-body { flex: 1; min-width: 260px; }
-.biz .attention-body strong { display: block; font-size: 14px; color: var(--indigo); }
-.biz .attention-body span { display: block; margin-top: 2px; color: var(--ink-3); font-size: 13px; line-height: 1.5; }
-.biz .attention-body .attention-compare { color: var(--muted); font-size: 12.5px; }
-.biz .attention.expanded { border-radius: 10px 10px 0 0; }
-.biz .btn-why {
+.biz .pg-analytics .attention { margin-bottom: 16px; flex-wrap: wrap; }
+.biz .pg-analytics .attention-body { flex: 1; min-width: 260px; }
+/* THE HEADING FOLLOWS THE MONTH'S STATE. Canon writes this line in --orange
+   while the month is still running (its one visual "careful, this is partial"
+   cue) and the room had flattened both states to indigo. The tone class is
+   decided on the server from `selected.partial`; the strip's ground, rule and
+   badge come from the shared `.attn` primitive's own amber/indigo variables. */
+.biz .pg-analytics .attention-body strong { display: block; font-size: 14px; color: var(--indigo); }
+.biz .pg-analytics .attention.amber .attention-body strong { color: var(--orange); }
+.biz .pg-analytics .attention-body span { display: block; margin-top: 2px; color: var(--ink-3); font-size: 13px; line-height: 1.5; }
+.biz .pg-analytics .attention-body .attention-compare { color: var(--muted); font-size: 12.5px; }
+.biz .pg-analytics .attention.expanded { border-radius: 10px 10px 0 0; }
+.biz .pg-analytics .btn-why {
   margin-left: auto;
   min-height: 34px;
   padding: 0 12px;
-  border: 1px solid var(--proof-border);
+  /* canon's peach border on the amber strip, the indigo one when finished —
+     both read straight off the primitive's tone, so the button can never
+     disagree with the strip it sits in. */
+  border: 1px solid var(--attn-line);
   border-radius: 8px;
   background: #fff;
   color: var(--indigo);
@@ -120,14 +143,14 @@
   font-weight: 700;
   white-space: nowrap;
 }
-.biz .btn-why:hover { background: var(--proof); }
-.biz .why-panel { margin: -1px 0 16px; padding: 12px 14px; border: 1px solid var(--proof-border); border-radius: 0 0 10px 10px; background: var(--proof); display: grid; gap: 7px; }
-.biz .why-row { display: flex; align-items: center; gap: 8px; color: var(--ink-3); font-size: 13px; line-height: 1.5; }
-.biz .why-row::before { content: ""; width: 5px; height: 5px; flex: 0 0 5px; border-radius: 50%; background: var(--indigo); }
+.biz .pg-analytics .btn-why:hover { background: var(--attn-wash); }
+.biz .pg-analytics .why-panel { margin: -1px 0 16px; padding: 12px 14px; border: 1px solid var(--proof-border); border-radius: 0 0 10px 10px; background: var(--proof); display: grid; gap: 7px; }
+.biz .pg-analytics .why-row { display: flex; align-items: center; gap: 8px; color: var(--ink-3); font-size: 13px; line-height: 1.5; }
+.biz .pg-analytics .why-row::before { content: ""; width: 5px; height: 5px; flex: 0 0 5px; border-radius: 50%; background: var(--indigo); }
 
 /* ── tabs + panels ────────────────────────────────────────────── */
-.biz .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--section); margin-bottom: 16px; }
-.biz .tab {
+.biz .pg-analytics .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--section); margin-bottom: 16px; }
+.biz .pg-analytics .tab {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -141,31 +164,31 @@
   font-size: 14.5px;
   font-weight: 700;
 }
-.biz .tab:hover { color: var(--ink); }
+.biz .pg-analytics .tab:hover { color: var(--ink); }
 /* R13: the selected tab is accent TEXT + an accent rule, never a filled tab. */
-.biz .tab[aria-selected="true"] { color: var(--indigo); border-bottom-color: var(--indigo); }
+.biz .pg-analytics .tab[aria-selected="true"] { color: var(--indigo); border-bottom-color: var(--indigo); }
 
-.biz .panel { border: 1px solid var(--card); border-radius: 12px; background: #fff; overflow: hidden; margin-bottom: 14px; }
-.biz .panel-head { min-height: 60px; padding: 10px 14px; border-bottom: 1px solid var(--section); display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #fafafb; flex-wrap: wrap; }
-.biz .panel-head strong { display: block; font-size: 15px; }
-.biz .panel-head span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
-.biz .panel-foot { padding: 10px 14px; border-top: 1px solid var(--section); background: #fafafb; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.biz .pg-analytics .panel { border: 1px solid var(--card); border-radius: 12px; background: #fff; overflow: hidden; margin-bottom: 14px; }
+.biz .pg-analytics .panel-head { min-height: 60px; padding: 10px 14px; border-bottom: 1px solid var(--section); display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #fafafb; flex-wrap: wrap; }
+.biz .pg-analytics .panel-head strong { display: block; font-size: 15px; }
+.biz .pg-analytics .panel-head span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+.biz .pg-analytics .panel-foot { padding: 10px 14px; border-top: 1px solid var(--section); background: #fafafb; color: var(--muted); font-size: 12px; line-height: 1.55; }
 
-.biz .permission { margin: 14px 16px 0; padding: 11px 12px; border: 1px solid var(--proof-border); border-radius: 9px; background: var(--proof); color: var(--ink-3); font-size: 12px; line-height: 1.6; }
-.biz .permission strong { color: var(--indigo); }
-.biz .store-rank-note { margin: 12px 16px 16px; padding: 11px 12px; border: 1px solid var(--card); border-radius: 9px; background: #fafafb; color: var(--muted); font-size: 12px; line-height: 1.6; }
-.biz .rank-empty { margin: 16px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.biz .pg-analytics .permission { margin: 14px 16px 0; padding: 11px 12px; border: 1px solid var(--proof-border); border-radius: 9px; background: var(--proof); color: var(--ink-3); font-size: 12px; line-height: 1.6; }
+.biz .pg-analytics .permission strong { color: var(--indigo); }
+.biz .pg-analytics .store-rank-note { margin: 12px 16px 16px; padding: 11px 12px; border: 1px solid var(--card); border-radius: 9px; background: #fafafb; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.biz .pg-analytics .rank-empty { margin: 16px; color: var(--muted); font-size: 13px; line-height: 1.6; }
 
 /* ── the 推移 chart ───────────────────────────────────────────── */
-.biz .viz-legend { display: flex; gap: 16px; padding: 0 16px; margin-bottom: 6px; }
-.biz .viz-legend-item { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
-.biz .viz-swatch { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 12px; }
-.biz .chart-wrap { position: relative; padding: 4px 16px 0; }
-.biz .chart-wrap svg { width: 100%; height: auto; display: block; }
-.biz .bar { cursor: pointer; }
-.biz .bar:hover, .biz .bar:focus { filter: brightness(1.08); outline: none; }
-.biz .bar:focus-visible { outline: 3px solid var(--indigo); outline-offset: 2px; }
-.biz .viz-tooltip {
+.biz .pg-analytics .viz-legend { display: flex; gap: 16px; padding: 0 16px; margin-bottom: 6px; }
+.biz .pg-analytics .viz-legend-item { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
+.biz .pg-analytics .viz-swatch { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 12px; }
+.biz .pg-analytics .chart-wrap { position: relative; padding: 4px 16px 0; }
+.biz .pg-analytics .chart-wrap svg { width: 100%; height: auto; display: block; }
+.biz .pg-analytics .bar { cursor: pointer; }
+.biz .pg-analytics .bar:hover, .biz .pg-analytics .bar:focus { filter: brightness(1.08); outline: none; }
+.biz .pg-analytics .bar:focus-visible { outline: 3px solid var(--indigo); outline-offset: 2px; }
+.biz .pg-analytics .viz-tooltip {
   position: absolute;
   z-index: 5;
   /* FIXED box — see the header note 3. Must match TOOLTIP_W / TOOLTIP_H. */
@@ -182,71 +205,74 @@
   transform: translateY(-100%);
   transition: opacity .1s ease;
 }
-.biz .viz-tooltip.show { opacity: 1; }
-.biz .viz-tooltip .tt-month { color: var(--muted); font-size: 11px; margin-bottom: 5px; white-space: nowrap; }
-.biz .viz-tooltip .tt-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
-.biz .viz-tooltip .tt-key { width: 10px; height: 2px; flex: 0 0 10px; border-radius: 1px; }
-.biz .viz-tooltip .tt-name { color: var(--ink-3); flex: 1; white-space: nowrap; }
-.biz .viz-tooltip .tt-val { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.biz .pg-analytics .viz-tooltip.show { opacity: 1; }
+.biz .pg-analytics .viz-tooltip .tt-month { color: var(--muted); font-size: 11px; margin-bottom: 5px; white-space: nowrap; }
+.biz .pg-analytics .viz-tooltip .tt-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.biz .pg-analytics .viz-tooltip .tt-key { width: 10px; height: 2px; flex: 0 0 10px; border-radius: 1px; }
+.biz .pg-analytics .viz-tooltip .tt-name { color: var(--ink-3); flex: 1; white-space: nowrap; }
+.biz .pg-analytics .viz-tooltip .tt-val { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-.biz .reading { margin: 10px 16px 4px; padding: 10px 11px; border-left: 3px solid var(--indigo); background: var(--proof); border-radius: 0 8px 8px 0; color: var(--ink-3); font-size: 13px; line-height: 1.6; }
+.biz .pg-analytics .reading { margin: 10px 16px 4px; padding: 10px 11px; border-left: 3px solid var(--indigo); background: var(--proof); border-radius: 0 8px 8px 0; color: var(--ink-3); font-size: 13px; line-height: 1.6; }
 
 /* ── tables ───────────────────────────────────────────────────── */
-.biz .table-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
-.biz .metrics-table, .biz .rank-table { width: 100%; min-width: 1120px; border-collapse: collapse; }
-.biz .metrics-table th, .biz .rank-table th { padding: 9px 10px; border-bottom: 1px solid var(--section); color: var(--quiet); font-size: 11.5px; font-weight: 700; text-align: right; white-space: nowrap; position: sticky; top: 0; background: #fff; }
-.biz .metrics-table th:first-child, .biz .rank-table th:nth-child(-n+2) { text-align: left; }
-.biz .metrics-table td, .biz .rank-table td { padding: 10px; border-bottom: 1px solid var(--row); color: var(--ink-2); font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.biz .metrics-table td:first-child, .biz .rank-table td:nth-child(-n+2) { text-align: left; }
-.biz .metrics-table tbody tr:last-child td, .biz .rank-table tbody tr:last-child td { border-bottom: 0; }
-.biz .metrics-table tr.stat-row td { background: #fafbff; color: var(--indigo); font-weight: 700; border-top: 1px solid var(--proof-border); }
-/* The month the period nav is standing on. A quiet wash on a NON-interactive
-   row, so the nav's effect is legible in the table too (never an accent fill —
-   a row is not a control). */
-.biz .metrics-table tr.selected-row td { background: var(--proof); }
-.biz .metrics-table tr.board-row td { background: #fafafb; }
-.biz .quiet-row td { padding: 9px 10px; border-bottom: 1px solid var(--row); background: #fafafb; color: var(--quiet); font-size: 12px; text-align: center; font-weight: 500; }
-.biz .quiet-row td:first-child { text-align: left; }
-.biz .month-tag { font-size: 10.5px; font-weight: 700; color: var(--muted); background: var(--section); border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: 1px; }
+.biz .pg-analytics .table-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+.biz .pg-analytics .metrics-table, .biz .pg-analytics .rank-table { width: 100%; min-width: 1120px; border-collapse: collapse; }
+.biz .pg-analytics .metrics-table th, .biz .pg-analytics .rank-table th { padding: 9px 10px; border-bottom: 1px solid var(--section); color: var(--quiet); font-size: 11.5px; font-weight: 700; text-align: right; white-space: nowrap; position: sticky; top: 0; background: #fff; }
+.biz .pg-analytics .metrics-table th:first-child, .biz .pg-analytics .rank-table th:nth-child(-n+2) { text-align: left; }
+.biz .pg-analytics .metrics-table td, .biz .pg-analytics .rank-table td { padding: 10px; border-bottom: 1px solid var(--row); color: var(--ink-2); font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.biz .pg-analytics .metrics-table td:first-child, .biz .pg-analytics .rank-table td:nth-child(-n+2) { text-align: left; }
+.biz .pg-analytics .metrics-table tbody tr:last-child td, .biz .pg-analytics .rank-table tbody tr:last-child td { border-bottom: 0; }
+.biz .pg-analytics .metrics-table tr.stat-row td { background: #fafbff; color: var(--indigo); font-weight: 700; border-top: 1px solid var(--proof-border); }
+/* The month the period nav is standing on. The family's SELECTED treatment —
+   a light accent wash (R13: selected is a wash, never a dark fill; and a row
+   is not a control, so it never takes the solid accent). It has to be legible
+   as selected against BOTH the white rows and the 統計 row's #fafbff, which
+   the earlier --proof wash was not: at 2% off white the nav's effect on this
+   table was invisible. */
+.biz .pg-analytics .metrics-table tr.selected-row td { background: var(--select-bg); }
+.biz .pg-analytics .metrics-table tr.board-row td { background: #fafafb; }
+.biz .pg-analytics .quiet-row td { padding: 9px 10px; border-bottom: 1px solid var(--row); background: #fafafb; color: var(--quiet); font-size: 12px; text-align: center; font-weight: 500; }
+.biz .pg-analytics .quiet-row td:first-child { text-align: left; }
+.biz .pg-analytics .month-tag { font-size: 10.5px; font-weight: 700; color: var(--muted); background: var(--section); border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: 1px; }
 
-.biz .rank-table th:nth-child(-n+4), .biz .rank-table td:nth-child(-n+4) { position: sticky; background: #fff; }
-.biz .rank-table th:nth-child(1), .biz .rank-table td:nth-child(1) { left: 0; min-width: 40px; }
-.biz .rank-table th:nth-child(2), .biz .rank-table td:nth-child(2) { left: 40px; min-width: 96px; z-index: 2; }
-.biz .rank-cell { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 12px; font-weight: 800; background: var(--section); color: var(--ink-3); }
-.biz .rank-cell.r1 { background: var(--indigo-soft); color: var(--indigo); }
-.biz .month-badge { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; font-size: 9.5px; font-weight: 800; margin-right: 4px; background: var(--section); color: var(--ink-3); vertical-align: 1px; }
-.biz .month-badge.b1 { background: var(--indigo-soft); color: var(--indigo); }
-.biz .month-badge.b2 { background: var(--row); color: var(--ink-3); }
-.biz .month-badge.b3 { background: #fafafb; color: var(--muted); border: 1px solid var(--row); }
-.biz .gap-leader { color: var(--muted); font-weight: 600; }
+.biz .pg-analytics .rank-table th:nth-child(-n+4), .biz .pg-analytics .rank-table td:nth-child(-n+4) { position: sticky; background: #fff; }
+.biz .pg-analytics .rank-table th:nth-child(1), .biz .pg-analytics .rank-table td:nth-child(1) { left: 0; min-width: 40px; }
+.biz .pg-analytics .rank-table th:nth-child(2), .biz .pg-analytics .rank-table td:nth-child(2) { left: 40px; min-width: 96px; z-index: 2; }
+.biz .pg-analytics .rank-cell { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 12px; font-weight: 800; background: var(--section); color: var(--ink-3); }
+.biz .pg-analytics .rank-cell.r1 { background: var(--indigo-soft); color: var(--indigo); }
+.biz .pg-analytics .month-badge { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; font-size: 9.5px; font-weight: 800; margin-right: 4px; background: var(--section); color: var(--ink-3); vertical-align: 1px; }
+.biz .pg-analytics .month-badge.b1 { background: var(--indigo-soft); color: var(--indigo); }
+.biz .pg-analytics .month-badge.b2 { background: var(--row); color: var(--ink-3); }
+.biz .pg-analytics .month-badge.b3 { background: #fafafb; color: var(--muted); border: 1px solid var(--row); }
+.biz .pg-analytics .gap-leader { color: var(--muted); font-weight: 600; }
 
 /* ── #3 staff own-lane preview ────────────────────────────────── */
-.biz .own-lane-card { margin: 14px 16px 16px; padding: 14px; border: 1px solid var(--card); border-radius: 10px; background: #fafafb; }
-.biz .own-lane-card > strong { display: block; font-size: 14px; }
-.biz .own-lane-sub { margin: 3px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
-.biz .own-lane-stats { display: flex; gap: 26px; margin-top: 12px; flex-wrap: wrap; }
-.biz .own-lane-stat span { display: block; color: var(--muted); font-size: 12px; }
-.biz .own-lane-stat b { display: block; margin-top: 3px; font-size: 18px; font-variant-numeric: tabular-nums; color: var(--ink); }
-.biz .own-lane-stat i { margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: var(--green-soft); color: var(--green-dark); font-size: 10.5px; font-weight: 700; font-style: normal; vertical-align: 2px; }
-.biz .own-lane-note { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--section); color: var(--quiet); font-size: 12px; }
+.biz .pg-analytics .own-lane-card { margin: 14px 16px 16px; padding: 14px; border: 1px solid var(--card); border-radius: 10px; background: #fafafb; }
+.biz .pg-analytics .own-lane-card > strong { display: block; font-size: 14px; }
+.biz .pg-analytics .own-lane-sub { margin: 3px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.biz .pg-analytics .own-lane-stats { display: flex; gap: 26px; margin-top: 12px; flex-wrap: wrap; }
+.biz .pg-analytics .own-lane-stat span { display: block; color: var(--muted); font-size: 12px; }
+.biz .pg-analytics .own-lane-stat b { display: block; margin-top: 3px; font-size: 18px; font-variant-numeric: tabular-nums; color: var(--ink); }
+.biz .pg-analytics .own-lane-stat i { margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: var(--green-soft); color: var(--green-dark); font-size: 10.5px; font-weight: 700; font-style: normal; vertical-align: 2px; }
+.biz .pg-analytics .own-lane-note { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--section); color: var(--quiet); font-size: 12px; }
 
 /* ── #4 composition ───────────────────────────────────────────── */
-.biz .comp-body { padding: 16px 16px 4px; display: grid; gap: 20px; }
-.biz .comp-label { margin-bottom: 7px; font-size: 12.5px; font-weight: 700; color: var(--ink-3); }
-.biz .comp-bar { display: flex; height: 30px; border-radius: 7px; overflow: hidden; background: var(--section); }
-.biz .comp-seg { display: flex; align-items: center; justify-content: center; min-width: 2px; border-right: 2px solid #fff; font-size: 11.5px; font-weight: 700; white-space: nowrap; overflow: hidden; }
-.biz .comp-seg:last-child { border-right: 0; }
-.biz .comp-legend { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 9px; }
-.biz .comp-legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); }
-.biz .comp-swatch { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 10px; }
-.biz .comp-empty { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
-.biz .comp-liability { margin: 4px 16px 16px; padding: 10px 12px; border: 1px solid var(--card); border-radius: 9px; background: #fafafb; color: var(--ink-3); font-size: 12.5px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.biz .pg-analytics .comp-body { padding: 16px 16px 4px; display: grid; gap: 20px; }
+.biz .pg-analytics .comp-label { margin-bottom: 7px; font-size: 12.5px; font-weight: 700; color: var(--ink-3); }
+.biz .pg-analytics .comp-bar { display: flex; height: 30px; border-radius: 7px; overflow: hidden; background: var(--section); }
+.biz .pg-analytics .comp-seg { display: flex; align-items: center; justify-content: center; min-width: 2px; border-right: 2px solid #fff; font-size: 11.5px; font-weight: 700; white-space: nowrap; overflow: hidden; }
+.biz .pg-analytics .comp-seg:last-child { border-right: 0; }
+.biz .pg-analytics .comp-legend { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 9px; }
+.biz .pg-analytics .comp-legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); }
+.biz .pg-analytics .comp-swatch { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 10px; }
+.biz .pg-analytics .comp-empty { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.biz .pg-analytics .comp-liability { margin: 4px 16px 16px; padding: 10px 12px; border: 1px solid var(--card); border-radius: 9px; background: #fafafb; color: var(--ink-3); font-size: 12.5px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* ── the boundary (denied) presentation ───────────────────────── */
-.biz #boundaryPanel { max-width: 46em; }
-.biz #boundaryPanel h1 { margin: 0 0 8px; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
-.biz #boundaryPanel .subtitle { margin-bottom: 16px; }
-.biz .boundary-link {
+.biz .pg-analytics #boundaryPanel { max-width: 46em; }
+.biz .pg-analytics #boundaryPanel h1 { margin: 0 0 8px; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
+.biz .pg-analytics #boundaryPanel .subtitle { margin-bottom: 16px; }
+.biz .pg-analytics .boundary-link {
   display: inline-flex;
   align-items: center;
   min-height: 44px;
@@ -259,8 +285,8 @@
   font-weight: 700;
   text-decoration: none;
 }
-.biz .boundary-link:hover { background: #f4f4f5; }
+.biz .pg-analytics .boundary-link:hover { background: #f4f4f5; }
 
 @media (max-width: 1320px) {
-  .biz .page { padding-left: 18px; padding-right: 18px; }
+  .biz .pg-analytics { padding-left: 18px; padding-right: 18px; }
 }

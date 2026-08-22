@@ -331,7 +331,12 @@ export function staffRanking(
       mixIndex: si,
       staffId: m.staff_id,
       name: nameOf(m.staff_id),
-      aggregate: RANK_AGGREGATE[metric] === 'avg' ? sum / Math.max(months.length, 1) : sum,
+      // The average is rounded HERE, not at the formatter, so the gap below is
+      // the difference between the two figures the table actually prints. Two
+      // independently-rounded numbers can disagree by a yen, and a 上位との差
+      // that does not equal the subtraction the reader can do in their head is
+      // the same defect as a column that does not sum.
+      aggregate: RANK_AGGREGATE[metric] === 'avg' ? Math.round(sum / Math.max(months.length, 1)) : sum,
       values,
     }
   })

@@ -180,7 +180,15 @@ export function hhmm(minute: number): string {
   return `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`
 }
 
-export const yen = (n: number) => `¥${n.toLocaleString('ja-JP')}`
+/** THE ONE MONEY FORMATTER, and it ROUNDS — canon's own `yen()` does
+ *  (`"¥" + Math.round(n).toLocaleString("ja-JP")`) and the yen has no sub-unit,
+ *  so ¥44,317.5 is not a smaller number, it is a broken one. Rounding lives
+ *  here rather than at each caller because every derived figure that is an
+ *  average (a 12か月平均 LTV, a money-weighted merge across two stores) reaches
+ *  the screen through this function and would otherwise print a fraction from
+ *  whichever seam nobody thought of. A caller that already holds an integer is
+ *  unaffected. */
+export const yen = (n: number) => `¥${Math.round(n).toLocaleString('ja-JP')}`
 
 // ── the board model ────────────────────────────────────────────────────────
 

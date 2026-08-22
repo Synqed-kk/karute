@@ -232,10 +232,20 @@ export default async function AnalyticsPage({
     : null
   const priorLabelShort = fmtMonthShort.format(monthAt(priorCoords.y, priorCoords.m))
   const spanDelta = prior ? deltaLabel(shown.total, prior.figures.total) : null
+  // WHICH SENTENCE IS TRUE HERE. 「同じ経過日数どうし」 and 「月全体どうしの
+  // 比較」 are different claims and only one of them can hold at a time, so the
+  // copy is chosen by the state rather than printed unconditionally: it is
+  // whole-month-to-whole-month only when the month being viewed is FINISHED and
+  // the previous month was not clamped. A finished 31-day month beside a 30-day
+  // one IS whole-to-whole; a finished 30-day month beside a 31-day one is NOT —
+  // its comparand stops at day 30 — and a month in progress never is.
+  const wholeMonths = !selected.partial && prior !== null && prior.span === priorCoords.daysInMonth
   const comparison = !priorRow
     ? `${LEDGER_MONTHS}か月より前の実績がないため、前月と並べていません。`
     : prior && prior.figures.total > 0 && spanDelta
-      ? `比較は同じ経過日数どうし — ${priorLabelShort}1日〜${prior.span}日の ${yen(prior.figures.total)} に対して ${spanDelta}（月全体どうしの比較ではありません）。`
+      ? wholeMonths
+        ? `${selected.short}全体は前月（${priorLabelShort}全体 ${yen(prior.figures.total)}）との比較で ${spanDelta} — 月全体どうしの比較です。`
+        : `比較は同じ経過日数どうし — ${priorLabelShort}1日〜${prior.span}日の ${yen(prior.figures.total)} に対して ${spanDelta}（月全体どうしの比較ではありません）。`
       : `${priorLabelShort}の同じ期間に実績がないため、比較できません。`
 
   const spanWord = `${selected.short}1日〜${spanDays}日`
@@ -442,6 +452,11 @@ export default async function AnalyticsPage({
       trace: '目標は設定で店舗・スタッフ別に変更',
     },
     attention: {
+      // Canon paints this strip's heading amber while the month is still
+      // running — the one VISUAL cue that says "careful, this is partial",
+      // which is the whole point of the room's honesty rule. A finished month
+      // has nothing to be careful about, so it takes the indigo info tone.
+      tone: selected.partial ? 'amber' : 'indigo',
       headline: selected.partial
         ? `${selected.short}は月の途中です（${spanWord}）`
         : `${selected.short}は完了した月です（${spanWord}）`,
