@@ -80,7 +80,7 @@ describe('sanitizeExtractionEntries (via runKaruteExtraction seam)', () => {
     expect(result.entries).toHaveLength(1)
   })
 
-  it('2b. 39 same-title entries with DIFFERENT quotes: identical-title rail caps to the first 3', async () => {
+  it('2b. 39 same-title entries with DIFFERENT quotes: identical-title rail caps to the first 6', async () => {
     const entries = Array.from({ length: 39 }, (_, i) =>
       entry({ category: 'lifestyle', title: '散歩', source_quote: `quote ${i}` })
     )
@@ -88,9 +88,16 @@ describe('sanitizeExtractionEntries (via runKaruteExtraction seam)', () => {
     const { result } = await extractWith(entries)
 
     expect(result.entries).toHaveLength(MAX_SAME_TITLE_PER_CATEGORY)
-    expect(result.entries.map((e) => e.source_quote)).toEqual(['quote 0', 'quote 1', 'quote 2'])
+    expect(result.entries.map((e) => e.source_quote)).toEqual([
+      'quote 0',
+      'quote 1',
+      'quote 2',
+      'quote 3',
+      'quote 4',
+      'quote 5',
+    ])
     expect(warnSpy).toHaveBeenCalledTimes(1)
-    expect(warnSpy.mock.calls[0][1]).toEqual({ before: 39, after: 3 })
+    expect(warnSpy.mock.calls[0][1]).toEqual({ before: 39, after: 6 })
   })
 
   it('3. dedupes whitespace/case title variants (same source_quote) in the same category, keeping the first', async () => {

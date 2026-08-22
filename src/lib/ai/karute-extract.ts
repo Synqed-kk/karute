@@ -16,11 +16,11 @@ import {
  *  2. Same category + title, different quotes → keep up to
  *     MAX_SAME_TITLE_PER_CATEGORY (unknown whether the real ×39 incident
  *     shared one quote or carried 39 different ones — this rail covers both
- *     shapes; a 4th byte-identical title in one category in one pass is a
- *     loop, not information — staff still see 3, content conveyed).
+ *     shapes; a 7th byte-identical title in one category in one pass is a
+ *     loop, not information — staff still see six, content conveyed).
  *  3. Per-category total after the above → cap MAX_ENTRIES_PER_CATEGORY. */
 export const MAX_ENTRIES_PER_CATEGORY = 30
-export const MAX_SAME_TITLE_PER_CATEGORY = 3
+export const MAX_SAME_TITLE_PER_CATEGORY = 6
 
 // Shared by rail 1 (title + quote) and rail 2 (title only) so the two rails
 // can never drift onto different notions of "same title". Deliberately
@@ -49,9 +49,10 @@ export function sanitizeExtractionEntries(entries: Entry[]): Entry[] {
   // 2. Identical-title rail: same category + same normalized title (quote
   // NOT in this key), capped at MAX_SAME_TITLE_PER_CATEGORY, keep-first,
   // order preserved. The 7/15 dominant-topic design still legitimately
-  // allows a FEW same-title entries quoting different moments — 3 preserves
-  // that (⚖ the versatility pin) while stopping a same-title flood the
-  // carbon-copy dedupe above can't touch on its own.
+  // allows same-title entries quoting different moments — 6 (⚖ Liam's 8/22
+  // dial, raised from 3: same-wording-different-referent entries must never
+  // be clipped in practice) preserves that (⚖ the versatility pin) while a
+  // runaway same-title loop still collapses to six.
   const titleCounts = new Map<string, number>()
   const titleRailed = deduped.filter((entry) => {
     const key = [entry.category, normalize(entry.title)].join('\0')
