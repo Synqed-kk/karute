@@ -186,7 +186,13 @@ export function DiscreetRecordingIndicator() {
                 {t('customerLabel')}
               </span>
               <span className="text-[14px] font-semibold leading-tight text-foreground">
-                {t('customerName', { name: target.customerName })}
+                {/* Rider (F4 §2h): a whitespace-only customerName (root cause:
+                 *  CustomerFormSchema's missing .trim(), src/actions/
+                 *  customers.ts) must never interpolate blank into this
+                 *  template — render the generic fallback label instead. */}
+                {(target.customerName ?? '').trim() === ''
+                  ? t('customerNameFallback')
+                  : t('customerName', { name: target.customerName })}
               </span>
             </div>
           )}

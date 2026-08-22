@@ -30,6 +30,7 @@ const buildArgs = (karute: ReturnType<typeof mapSynqedKaruteRecord>) => ({
   outcome: null,
   viewerStaffId: 'staff-1',
   canViewAllRecordings: false,
+  staffCanReassignRecords: false,
   contact: null,
   consentResult: null,
   customer: null,

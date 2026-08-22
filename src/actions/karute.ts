@@ -1,22 +1,42 @@
 'use server'
 
-import { revalidatePath, updateTag } from 'next/cache'
+import { revalidatePath, revalidateTag, updateTag } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { getLocale } from 'next-intl/server'
 import { getCurrentUserStaffId, getBusinessId, staffListByBusinessOrThrow, type StaffMember } from '@/lib/staff'
 import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
-import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { resolveStoreScope, customerLensFor } from '@/lib/auth/store-scope'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import { audit } from '@/lib/audit'
-import { resolveWebAuditContext } from '@/lib/audit-web'
+import { resolveWebAuditContext, auditWeb } from '@/lib/audit-web'
 import { SESSION_CATEGORY_TO_ENTRY_CATEGORY, summaryTextToBullets } from '@/lib/adapters/karute-detail'
 import { ENTRY_CONTENT_INVALID_ERROR, type SaveKaruteInput } from '@/types/karute'
 import type { KaruteRecord, SynqedClient, Appointment, EntryEditAction, KaruteEntryEdit } from '@synqed-kk/client'
 import type { SessionCategory } from '@/components/karute/redesign/detail/CurrentSessionCard'
+import { AppApiError } from '@/lib/app-api/errors'
+import { readKaruteRaw } from '@/lib/app-api/karute-facade'
+import { reassignFacts } from '@/lib/karute/reassign-facts'
+
+/** Redeclared, not imported (same "redeclare the shape" convention
+ *  thin/ports/actions.vite.ts uses for StoreRow/AuditLogEvent, and for the
+ *  identical reason): CustomerCombobox.tsx is a 'use client' component that
+ *  resolves a next-intl namespace at its own module scope — even a
+ *  type-only import of its CustomerOption type makes that namespace
+ *  reachable from every entry point that imports this 'use server' file
+ *  (the i18n client-message closure walker matches on the raw import
+ *  clause text, not import kind — this exact shape tripped it; fixed by
+ *  never importing the component file here at all). Keep in sync with
+ *  CustomerOption's real shape if that ever changes. */
+export interface ReassignCustomerOption {
+  id: string
+  name: string
+  furigana?: string | null
+  phone?: string | null
+}
 
 /**
  * Resolve which store a karute record write should be stamped with. Reads are
@@ -516,6 +536,273 @@ export async function deleteKaruteRecord(karuteId: string): Promise<{ success: t
     revalidatePath('/dashboard')
     updateTag('dashboard')
     return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// reassignKaruteCustomer (F4 — re-point a saved karute to another customer)
+// ---------------------------------------------------------------------------
+
+export type ReassignPreview = {
+  requiresConfirm: true
+  fromCustomerId: string
+  fromName: string
+  toName: string
+  burnCount: number
+  photoCount: number
+}
+
+export type ReassignSuccess = {
+  success: true
+  fromCustomerId: string
+  toCustomerId: string
+  burnCount: number
+  photoCount: number
+}
+
+type ReassignScope = {
+  viewAll: boolean
+  /** null = unrestricted (viewAll, or a floating actor). */
+  allowedStoreIds: string[] | null
+  /** Web-only: a clamped actor whose assignment lookup itself failed
+   *  (resolveStoreScope's F-A convention) — refuse, never widen. Facade
+   *  callers pass false (resolveStoreForRequest already fails closed on this
+   *  case by throwing before the caller ever gets a scope back). */
+  degraded?: boolean
+}
+
+type ReassignClient = Pick<SynqedClient, 'karuteRecords' | 'customers' | 'packs'>
+
+/** Tenancy proof + name, for BOTH the from- and to-customer — the
+ *  business-scoped client reads a cross-tenant/missing id as 404, same proof
+ *  strength as proveCustomerInBusiness (src/lib/app-api/customer-facade.ts);
+ *  inlined here (rather than calling that helper + a second getCustomer) so
+ *  the one call that proves tenancy is the SAME call that gets the name the
+ *  preview panel needs. */
+async function reassignCustomerOrThrow(
+  synqed: Pick<SynqedClient, 'customers'>,
+  id: string,
+): Promise<{ id: string; name: string }> {
+  try {
+    const c = await synqed.customers.get(id)
+    return { id: c.id, name: c.name }
+  } catch (err) {
+    const status =
+      err && typeof err === 'object' && 'status' in err
+        ? (err as { status: unknown }).status
+        : undefined
+    if (status === 404) throw new AppApiError('not_found', 'customer not found in this business')
+    throw new AppApiError('upstream_unavailable', 'customer read failed')
+  }
+}
+
+/** Does the to-customer belong to ANY of the actor's assigned stores?
+ *  Customers carry no store_id of their own (list-all.ts's own header:
+ *  "customers have no store_id — identity is business-wide"; membership is
+ *  DERIVED server-side from events) — so the only live proof is the same
+ *  store-scoped roster the picker itself resolves through. Bounded by the
+ *  actor's own store count (almost always 1-2), one full-store page-sweep
+ *  each — same pagination primitive every other store-scoped list already
+ *  pays for a picker roster. */
+async function toCustomerInScope(
+  synqed: Pick<SynqedClient, 'customers'>,
+  toCustomerId: string,
+  allowedStoreIds: string[],
+): Promise<boolean> {
+  // Lazy import: list-all.ts's own module scope mints an unstable_cache(...)
+  // instance on load (a real, pre-existing coupling, not something this file
+  // can avoid via a static import) — same "keep a heavy graph out of modules
+  // that don't need it" rule deleteCustomerPhoto's dynamic import of
+  // customer-facade.ts already documents in this file's neighborhood.
+  const { listAllCustomers } = await import('@/lib/customers/list-all')
+  for (const storeId of allowedStoreIds) {
+    // Bounded by the actor's own (small) store count; the first hit
+    // short-circuits the rest — a plain sequential await is fine here.
+    const { customers } = await listAllCustomers(synqed as SynqedClient, {
+      store_id: storeId,
+      enforceStore: true,
+    })
+    if (customers.some((c) => c.id === toCustomerId)) return true
+  }
+  return false
+}
+
+/** The store-scope clamp (mirrors menus.ts's storeScopeError shape, packet
+ *  §2b): viewAll passes; a degraded lookup fails closed (never widens); a
+ *  floating actor (allowedStoreIds null, not degraded) is unclamped; a
+ *  clamped actor's to-customer must resolve inside one of their stores. No
+ *  business-wide roster ever reaches a clamped actor — this is the SERVER
+ *  refusal backstopping the store-scoped picker (hide, never show-and-refuse). */
+async function ensureReassignStoreScope(
+  synqed: Pick<SynqedClient, 'customers'>,
+  toCustomerId: string,
+  scope: ReassignScope,
+): Promise<void> {
+  if (scope.viewAll) return
+  if (scope.degraded) {
+    throw new AppApiError('store_forbidden', 'could not verify your store assignment (fail-closed)')
+  }
+  if (!scope.allowedStoreIds) return // floating — unclamped
+  if (await toCustomerInScope(synqed, toCustomerId, scope.allowedStoreIds)) return
+  throw new AppApiError('store_forbidden', 'that customer is outside your assigned store')
+}
+
+/**
+ * Reassign core — audit-FREE (Core/WithClient split, same convention as
+ * grantCustomerConsentWithClient/setCustomerLifecycleWithClient): capability
+ * gating and the audit emit are the CALLER's job. The web wrapper below and
+ * the facade route each emit their OWN row (D1-mirror doctrine — facade's
+ * generic success hook off FACADE_AUDIT_MAP, web's own auditWeb call) —
+ * never a shared choke-point single emit, so this core stays audit-free.
+ *
+ * TWO-PHASE, stateless (packet §2b): `confirmed:false` returns the honesty
+ * preview and performs NO write; `confirmed:true` RE-RUNS every proof (a
+ * fresh, independent check — nothing from the preview call is trusted) then
+ * writes EXACTLY `{ customer_id: toCustomerId }`. ⚠ NEVER add `entries` (or
+ * any other field) to that update call — the SDK atomically REPLACES every
+ * entry when `entries` rides an update (census B, karute.ts:190's own
+ * comment on the sibling recovery-repoint call).
+ *
+ * Money (回数券 redemptions) and photos are NEVER moved, deleted, or
+ * re-pointed — reassignFacts is COUNTS ONLY.
+ */
+export async function reassignKaruteCustomerWithClient(
+  synqed: ReassignClient,
+  karuteId: string,
+  toCustomerId: string,
+  opts: { confirmed: boolean },
+  scope: ReassignScope,
+): Promise<ReassignPreview | ReassignSuccess> {
+  const record = await readKaruteRaw(synqed, karuteId)
+  const fromCustomerId = record.customer_id
+  if (!fromCustomerId) {
+    throw new AppApiError('validation', 'this karute has no customer to reassign from')
+  }
+  if (toCustomerId === fromCustomerId) {
+    throw new AppApiError('validation', 'already this customer')
+  }
+
+  const [fromCustomer, toCustomer] = await Promise.all([
+    reassignCustomerOrThrow(synqed, fromCustomerId),
+    reassignCustomerOrThrow(synqed, toCustomerId),
+  ])
+
+  await ensureReassignStoreScope(synqed, toCustomerId, scope)
+
+  const facts = await reassignFacts(synqed, fromCustomerId, {
+    id: karuteId,
+    appointment_id: record.appointment_id,
+    recording_session_id: record.recording_session_id,
+  })
+
+  if (!opts.confirmed) {
+    return {
+      requiresConfirm: true,
+      fromCustomerId,
+      fromName: fromCustomer.name,
+      toName: toCustomer.name,
+      burnCount: facts.burnCount,
+      photoCount: facts.photoCount,
+    }
+  }
+
+  // ⚠ EXACTLY this one key — see the header note above.
+  await synqed.karuteRecords.update(karuteId, { customer_id: toCustomerId })
+
+  return {
+    success: true,
+    fromCustomerId,
+    toCustomerId,
+    burnCount: facts.burnCount,
+    photoCount: facts.photoCount,
+  }
+}
+
+export type ReassignKaruteCustomerResult =
+  | ReassignPreview
+  | { success: true; burnCount: number; photoCount: number }
+  | { error: string }
+
+/** Cookie web wrapper — records.reassign gate + business-scoped client +
+ *  cookie store scope, then the core (which owns neither). Success-only
+ *  audit emit (⚖ HELD): nothing is written on the preview phase or on any
+ *  refusal. First action in the codebase to touch TWO customer profile
+ *  pages in one write (census B §Q5) — both are revalidated, never just one. */
+export async function reassignKaruteCustomer(
+  karuteId: string,
+  toCustomerId: string,
+  opts: { confirmed: boolean },
+): Promise<ReassignKaruteCustomerResult> {
+  try {
+    await requireCapability('records.reassign')
+    const synqed = await getSynqedClient()
+    const { viewAll, allowedStoreIds, degraded } = await resolveStoreScope()
+    const result = await reassignKaruteCustomerWithClient(synqed, karuteId, toCustomerId, opts, {
+      viewAll,
+      allowedStoreIds,
+      degraded,
+    })
+    if ('requiresConfirm' in result) return result
+
+    await auditWeb({
+      category: 'karute',
+      action: 'karute.customer_reassign',
+      targetType: 'karute',
+      targetId: karuteId,
+      detail: {
+        from_customer_id: result.fromCustomerId,
+        to_customer_id: result.toCustomerId,
+        burn_count: result.burnCount,
+        photo_count: result.photoCount,
+      },
+      requestId: crypto.randomUUID(),
+    })
+
+    // First write to ever touch two customer profile pages at once — every
+    // sibling write only ever revalidates the ONE customer_id it wrote
+    // (census B §Q5).
+    revalidatePath(`/customers/${result.fromCustomerId}`)
+    revalidatePath(`/customers/${result.toCustomerId}`)
+    revalidatePath('/[locale]/(app)/karute/[id]', 'page')
+    updateTag('dashboard')
+    // 未保存カルテ rollup dedupes by customer_id (60s TTL otherwise) —
+    // census B §Q5. 'max' profile = immediate invalidation, same convention
+    // as staff/[id]/route.ts's revalidateTag('staff-list', 'max').
+    revalidateTag('customers', 'max')
+
+    return { success: true, burnCount: result.burnCount, photoCount: result.photoCount }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
+/** The reassign picker's roster (packet §2g) — STORE-SCOPED, never the
+ *  detail page's own `listAllCustomers` numbering fetch (that one is
+ *  business-wide, census A §Q3 — reusing it for a picker would leak another
+ *  branch's customers to a clamped actor). Current customer excluded
+ *  server-side (hide, never filter-after-ship). */
+export async function listReassignCustomerOptions(
+  karuteId: string,
+): Promise<{ customers: ReassignCustomerOption[] } | { error: string }> {
+  try {
+    await requireCapability('records.reassign')
+    const synqed = await getSynqedClient()
+    const record = await readKaruteRaw(synqed, karuteId)
+    const scope = await resolveStoreScope()
+    const lens = customerLensFor(scope)
+    // Lazy import — cached.ts value-imports @synqed-kk/client at module scope
+    // (constructs its own SynqedClient inside the unstable_cache callback),
+    // the same module-graph-pollution concern the toCustomerInScope helper's
+    // lazy list-all.ts import documents above.
+    const { getCachedCustomerList } = await import('@/lib/customers/cached')
+    const list = lens === null ? [] : await getCachedCustomerList(lens)
+    return {
+      customers: list
+        .filter((c) => c.id !== record.customer_id)
+        .map((c) => ({ id: c.id, name: c.name, furigana: c.furigana, phone: c.phone })),
+    }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }

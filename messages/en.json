@@ -369,6 +369,24 @@
       "share": "Share",
       "edit": "Edit"
     },
+    "reassign": {
+      "action": "Change customer",
+      "pickerSubtitle": "Move this karute to a different customer",
+      "noResults": "No matching customers found",
+      "confirmTitle": "Confirm the change?",
+      "confirmButton": "Confirm change",
+      "staysTitle": "Stays with the original customer",
+      "burnTitle": "Ticket redemptions: {n}",
+      "burnNote": "The money record does not move (fix it through the existing reconciliation flow)",
+      "photoTitle": "Photos: {n}",
+      "photoNote": "Photos can't be moved yet — they stay on {name}'s page",
+      "memoryTitle": "AI memory",
+      "memoryNote": "Neither customer's AI memory updates until a manual relearn",
+      "auditNote": "This action is recorded in the audit log.",
+      "errorSameCustomer": "This karute is already filed under that customer.",
+      "errorStoreScope": "That customer is outside your assigned store.",
+      "errorGeneric": "Couldn't change the customer. Try again."
+    },
     "header": {
       "openCustomer": "Open customer profile",
       "staff": "Staff",
@@ -2299,7 +2317,8 @@
           "entry_edits_view": "Viewed karute edit history",
           "entries_regenerate": "Regenerated karute entries",
           "summary_edit": "Edited detailed record",
-          "outcome_set": "Recorded session outcome"
+          "outcome_set": "Recorded session outcome",
+          "customer_reassign": "Reassigned karute customer"
         },
         "staff": {
           "add": "Added staff",
@@ -2987,6 +3006,7 @@
     "recordingActive": "Recording",
     "customerLabel": "Customer",
     "customerName": "{name}",
+    "customerNameFallback": "Not set",
     "close": "Close",
     "modeHint": "Intentionally subtle so the customer doesn't notice. Recording proceeds normally.",
     "privacyNote": "Relies on your store's privacy policy disclosing AI recording as a purpose of use.",
@@ -3297,6 +3317,7 @@
     "cap_sync_view": "Booking sync",
     "cap_data_export": "Export / import data",
     "cap_records_delete": "Delete records",
+    "cap_records_reassign": "Reassign karute customer",
     "cap_records_write": "Record sessions & edit karute",
     "cap_recordings_viewAll": "View every staff's recordings",
     "cap_analytics_viewAll": "Whole-salon analytics",

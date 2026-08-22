@@ -77,6 +77,7 @@ function renderView() {
       bodyPredictionSlot={null}
       suggestedMessageSlot={<div data-testid="suggested-message" />}
       outcome={null}
+      staffCanReassignRecords={false}
     />,
   )
 }

@@ -70,6 +70,9 @@ export interface KaruteDetailScreen {
   consentOnFile: boolean
   transcriptDurationLabel: string | null
   transcriptRestricted: boolean
+  /** F4: records.reassign gate — the 顧客を変更 entry point. Additive field,
+   *  same staffCanDeletePhotos threading pattern (RecordPageView.tsx). */
+  staffCanReassignRecords: boolean
 }
 
 export interface BuildKaruteDetailScreenArgs {
@@ -80,6 +83,10 @@ export interface BuildKaruteDetailScreenArgs {
   /** Recording-privacy ACL inputs (#4). */
   viewerStaffId: string | null
   canViewAllRecordings: boolean
+  /** F4: records.reassign gate, resolved by the caller (web: can(); facade:
+   *  ctx.identity.capabilities.has()) — same threading chokepoint as the
+   *  recording-privacy inputs above. */
+  staffCanReassignRecords: boolean
   /** customerId-gated wave-2 results — null when the karute has no linked client. */
   contact: Contact | null
   consentResult: { consent: unknown } | null
@@ -96,6 +103,7 @@ export function buildKaruteDetailScreen(
     outcome,
     viewerStaffId,
     canViewAllRecordings,
+    staffCanReassignRecords,
     contact,
     consentResult,
     customer,
@@ -177,5 +185,6 @@ export function buildKaruteDetailScreen(
     consentOnFile,
     transcriptDurationLabel: null,
     transcriptRestricted,
+    staffCanReassignRecords,
   }
 }

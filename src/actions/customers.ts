@@ -45,7 +45,16 @@ async function translateBackendError(err: unknown): Promise<string> {
 // ---------------------------------------------------------------------------
 
 const CustomerFormSchema = z.object({
-  name: z.string().min(1, 'Name is required').max(100),
+  // Rider (F4 §2h): .min(1) alone checks LENGTH, not non-whitespace — a
+  // three-space name passed validation untouched (no .trim() anywhere on
+  // this path) and rode into a recording target's customerName, landing
+  // blank in the DiscreetRecordingIndicator popover (that display seam is
+  // hardened separately). Trim BEFORE the length check, same as
+  // createQuickCustomer's trim+reject below.
+  name: z
+    .string()
+    .transform((s) => s.trim())
+    .pipe(z.string().min(1, 'Name is required').max(100)),
   furigana: z.string().max(100).optional().or(z.literal('')),
   phone: z.string().max(20).optional().or(z.literal('')),
   email: z.string().email('Invalid email address').optional().or(z.literal('')),

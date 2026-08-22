@@ -65,6 +65,11 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // just-terminated staffer must not keep editing karute entries on the
   // local fast-path.
   'karute.entry.update',
+  // F4 (2026-08-23): re-pointing a saved karute to another customer — a
+  // customer-data write with a money/photo honesty disclosure and an audit
+  // receipt. A just-terminated staffer must not keep reassigning records on
+  // the local fast-path.
+  'karute.reassign',
   // whole-summary edit (edit-layer W2 summary half — same customer-data
   // PATCH class): same rule, no local fast-path.
   'karute.summary.update',

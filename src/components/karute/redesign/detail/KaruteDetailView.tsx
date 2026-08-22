@@ -17,6 +17,7 @@ import {
 } from './CustomerMemoryCard'
 import { KaruteCoachingPanel } from '@/components/coaching/redesign/KaruteCoachingPanel'
 import { OutcomeCard } from './OutcomeCard'
+import { ReassignCustomerAction } from './ReassignCustomerAction'
 import type { KaruteOutcomeRow } from '@/lib/karute/outcome'
 
 export interface KaruteDetailViewProps {
@@ -50,6 +51,9 @@ export interface KaruteDetailViewProps {
   bodyPredictionSlot: ReactNode
   suggestedMessageSlot: ReactNode
   outcome: KaruteOutcomeRow | null
+  /** F4: records.reassign gate — hides the 顧客を変更 entry point entirely
+   *  for staff without the capability (hide, never show-and-refuse). */
+  staffCanReassignRecords: boolean
 }
 
 export function KaruteDetailView({
@@ -70,6 +74,7 @@ export function KaruteDetailView({
   bodyPredictionSlot,
   suggestedMessageSlot,
   outcome,
+  staffCanReassignRecords,
 }: KaruteDetailViewProps) {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
@@ -84,6 +89,10 @@ export function KaruteDetailView({
         {...header}
         customerHref={customerId ? `/customers/${customerId}` : undefined}
       />
+
+      {staffCanReassignRecords && customerId && (
+        <ReassignCustomerAction karuteId={karuteId} customerName={header.customerName} />
+      )}
 
       <OutcomeCard
         karuteRecordId={karuteId}
