@@ -223,8 +223,11 @@ export function StaffSelector({
           // Internal scroll keeps the panel usable at any roster size — the
           // page never scrolls behind a giant menu. The keyboard-aware
           // max-h-[min(55vh,55dvh)] cap bounds the WHOLE panel (title +
-          // search + list), not just the list — 55dvh mirrors the 55vh term
-          // (desktop/no-keyboard: identical, unchanged), but the Android
+          // search + list), not just the list — the dvh-vs-vh term itself is
+          // desktop-neutral (nothing to shrink without a keyboard), but
+          // capping the whole panel vs. just the list means desktop's
+          // visible list is now ~80px (title+search) shorter than the
+          // pre-fix build — deliberate, bounded-panel trade. The Android
           // keyboard shrinks dvh, so once it's open the entire panel caps to
           // the room actually left, same house pattern as StaffCombobox's
           // 35dvh cap. Ceiling: this doesn't reposition the panel's TOP

@@ -275,6 +275,7 @@ describe('StaffSelector — 経営メンバー search-reveal', () => {
     fireEvent.click(screen.getByText('担当'))
     const panel = container.querySelector('[role="listbox"]')
     expect(panel?.className).toContain('dvh')
+    expect(panel?.className).toContain('flex-col')
     const scroller = container.querySelector('.overscroll-contain')
     expect(scroller?.className).toContain('min-h-0')
     expect(scroller?.className).toContain('flex-1')
