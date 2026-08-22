@@ -1122,6 +1122,10 @@
 .biz-dialog .change-row:last-child { border-bottom: 0; }
 .biz-dialog .change-row span { color: var(--muted); }
 .biz-dialog .guardrail { margin-top: 12px; padding: 10px 12px; border-left: 2px solid #d5d5dc; border-radius: 0 8px 8px 0; background: #f7f7f9; color: var(--ink-3); font-size: 12px; line-height: 1.6; }
+/* ⚖ Liam flag 64 — canon :1112, the delete confirm strip's own dress. */
+.biz-dialog .guardrail.danger { border-left-color: var(--red); background: var(--red-soft); color: var(--red-dark); }
+/* canon puts 削除 on the LEFT of the footer and everything else on the right. */
+.biz-dialog .dialog-foot .foot-left { margin-right: auto; }
 .biz-dialog .close-check { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--section); font-size: 12px; }
 .biz-dialog .close-check span { color: var(--muted); }
 .biz-dialog .close-check b.blocked { color: var(--orange); }
@@ -1208,6 +1212,22 @@
   transition: opacity .16s ease, transform .16s ease;
 }
 .biz .toast.show { opacity: 1; transform: translateY(0); }
+/* ⚖ Liam flag 64 — canon's delete toast carries an undo. Only the BUTTON takes
+   pointer events back: the card itself stays transparent to the pointer so a
+   drag that ends in the bottom-right corner can never be swallowed by a toast
+   that happens to be up. R13: a text button on the accent, never a dark fill. */
+.biz .toast-undo {
+  pointer-events: auto;
+  margin-left: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--select-ink);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
 
 @media (max-width: 1320px) {
   .biz .page { padding-left: 18px; padding-right: 18px; }

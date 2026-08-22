@@ -128,7 +128,7 @@ const HINT = '見本データのため実行できません'
  *  to outlive the glance that missed it. Twice the dwell, no new surface. */
 const TOAST_MS = 3200
 const REFUSAL_MS = 7000
-const EMPTY_TOAST = { text: '', ms: TOAST_MS, n: 0 }
+const EMPTY_TOAST = { text: '', ms: TOAST_MS, n: 0, undo: null as (() => void) | null }
 
 export interface DecisionCard {
   id: string
@@ -571,8 +571,14 @@ export function TodayScreen(props: TodayProps) {
    *  own dwell, and `n` re-arms the timer when the SAME refusal is earned twice
    *  in a row (pressing the same illegal slot again used to say nothing at all,
    *  because the state never changed). */
-  const [toast, setToast] = useState<{ text: string; ms: number; n: number }>(EMPTY_TOAST)
-  const [blockInfo, setBlockInfo] = useState<{ kind: string; who: string; whoLabel: string; time: string; note: string } | null>(null)
+  const [toast, setToast] = useState<{ text: string; ms: number; n: number; undo: (() => void) | null }>(EMPTY_TOAST)
+  /** ⚖ Liam flag 64 — the dialog now carries a HANDLE on the block, not only
+   *  strings about it. Without `key` there was nothing for 削除 to name, which
+   *  is the second half of why the button was dead. */
+  const [blockInfo, setBlockInfo] = useState<{ key: string; laneKey: string; itemKind: BoardItem['kind']; title: string; kind: string; who: string; whoLabel: string; time: string; note: string } | null>(null)
+  /** canon's two-footer confirm strip (:4246-4250): 削除 swaps the footer for a
+   *  sentence + やめる/削除する rather than opening a second surface. */
+  const [blockDeleteAsk, setBlockDeleteAsk] = useState(false)
   const [seed, setSeed] = useState<{ staffId: string; start: number; nonce: number } | null>(null)
 
   // ── the interaction plane ────────────────────────────────────────────────
@@ -592,6 +598,11 @@ export function TodayScreen(props: TodayProps) {
    *  shelf or the guard's conflict ledger, and canon keeps `bindBlockDrag` a
    *  separate pipeline from `bindDrag` for exactly that reason. */
   const [blockMoves, setBlockMoves] = useState<Moves>({})
+  /** ⚖ Liam flag 64 — blocks removed by hand this session, keyed by `item.key`
+   *  for the same reason `blockMoves` is (a block has no `caseId`). It lives
+   *  HERE, beside `blockMoves`, and inherits its constraint: see the note in
+   *  `applyBlockMoves`, and BusinessSessionEdits.tsx's own comment above it. */
+  const [blockDeleted, setBlockDeleted] = useState<string[]>([])
   /** The block in flight, and its snapped landing — the block twin of `live`.
    *  It is NOT folded into the lanes any derivation reads: canon repaints the
    *  window layers on a block DROP (`renderPublicLayer()` at the end of
@@ -898,8 +909,8 @@ export function TodayScreen(props: TodayProps) {
    *  it was dragged to for the guard, the sell layer and the next block's
    *  overlap check alike. */
   const placedLanes = useMemo(
-    () => applyBlockMoves(props.lanes, blockMoves, hours),
-    [props.lanes, blockMoves, hours],
+    () => applyBlockMoves(props.lanes, blockMoves, hours, blockDeleted),
+    [props.lanes, blockMoves, hours, blockDeleted],
   )
   const boardLanes = useMemo(
     () => applyMoves(placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves),
@@ -1103,8 +1114,13 @@ export function TodayScreen(props: TodayProps) {
 
   const currentCase = selected ? (props.cases[selected] ?? null) : null
 
-  function show(message: string, ms = TOAST_MS) {
-    setToast((was) => ({ text: message, ms, n: was.n + 1 }))
+  /** ⚖ Liam flag 64 — canon's delete toast carries an UNDO (`showToast(… ,
+   *  "undo")`, :4338), so the one door grew an optional action rather than the
+   *  delete growing a second surface. Every existing caller passes nothing and
+   *  is byte-identical; a refusal never carries one, because there is nothing
+   *  to take back. */
+  function show(message: string, ms = TOAST_MS, undo: (() => void) | null = null) {
+    setToast((was) => ({ text: message, ms, n: was.n + 1, undo }))
   }
 
   /** ⚖ Liam flag 47 — THE LANE INVARIANT, IN ONE FUNCTION: *a refusal changes
@@ -3563,7 +3579,8 @@ export function TodayScreen(props: TodayProps) {
           onPointerMove={onBlockPointerMove}
           onClick={(e) => {
             if (e.timeStamp < suppressClickUntil.current) return
-            setBlockInfo({ kind: item.title, who: lane.label, whoLabel: lane.group === 'staff' ? '担当' : '設備', time: item.time, note: blockNote(item.title) })
+            setBlockInfo({ key: item.key, laneKey: lane.key, itemKind: item.kind, title: item.title, kind: item.title, who: lane.label, whoLabel: lane.group === 'staff' ? '担当' : '設備', time: item.time, note: blockNote(item.title) })
+            setBlockDeleteAsk(false)
             blockRef.current?.showModal()
           }}
         >
@@ -3643,6 +3660,29 @@ export function TodayScreen(props: TodayProps) {
   function blockNote(kind: string) {
     return dialogs.blocks.find((b) => b.kind === kind)?.note ?? 'この時間は予約を入れられません。'
   }
+
+  /** ⚖ Liam flag 64 — canon `blockDeleteYes` (:4331-4340), ported: the block
+   *  leaves the board, the sell layer re-derives from the same lanes so the
+   *  freed minutes become sellable in the same frame, and the toast says it
+   *  through the one door with the undo canon's own toast carries.
+   *
+   *  Canon's own ruling on the weight of the gesture (:4245-4246): a block
+   *  delete does NOT go through the 仮押さえ/確定 bar — a 予定ブロック is a
+   *  placeholder, not a booking — so the gate is the light confirm strip above. */
+  function deleteBlock(info: NonNullable<typeof blockInfo>) {
+    setBlockDeleted((was) => (was.includes(info.key) ? was : [...was, info.key]))
+    setBlockDeleteAsk(false)
+    setBlockInfo(null)
+    blockRef.current?.close()
+    show(`${info.title}を削除しました`, TOAST_MS, () => {
+      setBlockDeleted((was) => was.filter((k) => k !== info.key))
+      show(`${info.title}を元に戻しました`)
+    })
+  }
+
+  /** ⚖ Q6 — read once, so the sentence in the body and the missing button in
+   *  the footer can never disagree about the same block. */
+  const blockNotDeletable = blockInfo ? blockChrome(blockInfo.itemKind).notDeletable : null
 
   const liveClamp = clampPriceInputs(hiInput, loInput, dialogs.pricing)
   const liveChanged = liveClamp.hi !== appliedPrice.hi || liveClamp.lo !== appliedPrice.lo
@@ -4438,12 +4478,32 @@ export function TodayScreen(props: TodayProps) {
             <div className="change-row"><span>{blockInfo?.whoLabel ?? '担当'}</span><b>{blockInfo?.who ?? '—'}</b></div>
           </div>
           <div className="guardrail">{blockInfo?.note ?? ''}</div>
+          {/* ⚖ Q6 — a 清掃 reads its facts like any other block and is told,
+              in words, why it has no 削除: it belongs to the booking in front
+              of it. The sentence stands exactly where the button would. */}
+          {blockNotDeletable && <div className="guardrail">{blockNotDeletable}</div>}
+          {blockDeleteAsk && (
+            <div className="guardrail danger">この予定ブロックを削除します — その時間の予約枠が開きます。</div>
+          )}
         </div>
-        <div className="dialog-foot">
-          <button className="btn danger" type="button" disabled title={HINT}>削除</button>
-          <button className="btn" type="button" onClick={() => blockRef.current?.close()}>閉じる</button>
-          <button className="btn primary" type="button" disabled title={HINT}>保存</button>
-        </div>
+        {/* canon's two-footer design (:2341-2346, :4325-4340), ported. 保存 is
+            GONE: this dialog has no editable field, so the button could never
+            have done anything (Fable sweep rider i — every control visibly
+            does its job or doesn't ship). Making the times editable here is a
+            settings / board-editing decision, not this fix. */}
+        {blockDeleteAsk && blockInfo ? (
+          <div className="dialog-foot">
+            <button className="btn" type="button" onClick={() => setBlockDeleteAsk(false)}>やめる</button>
+            <button className="btn danger" type="button" onClick={() => deleteBlock(blockInfo)}>削除する</button>
+          </div>
+        ) : (
+          <div className="dialog-foot">
+            {blockInfo && !blockNotDeletable && (
+              <button className="btn danger foot-left" type="button" onClick={() => setBlockDeleteAsk(true)}>削除</button>
+            )}
+            <button className="btn" type="button" onClick={() => blockRef.current?.close()}>閉じる</button>
+          </div>
+        )}
       </dialog>
 
       <dialog className="biz-dialog" ref={closingRef} aria-labelledby="closingTitle">
@@ -4787,7 +4847,12 @@ export function TodayScreen(props: TodayProps) {
           refusal earned twice in a row is a NEW value and re-arms the dwell
           timer; the node itself is never remounted, because remounting it would
           cost the fade the rest of this board's surfaces all have. */}
-      <div className={`toast${toast.text ? ' show' : ''}`} role="status" aria-live="polite" aria-atomic="true">{toast.text}</div>
+      <div className={`toast${toast.text ? ' show' : ''}`} role="status" aria-live="polite" aria-atomic="true">
+        {toast.text}
+        {toast.undo && (
+          <button className="toast-undo" type="button" onClick={toast.undo}>元に戻す</button>
+        )}
+      </div>
     </div>
   )
 }

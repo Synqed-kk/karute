@@ -951,7 +951,10 @@ describe('the window layers price the committed board, never the card in flight'
     // round from quietly feeding the priced layers the pointer's position.
     const memo = /const committedLanes = useMemo\(\s*\(\) => applyMoves\(placedLanes, moves, parked, addedHere, hours, bedMoves\)/
     expect(memo.test(src)).toBe(true)
-    expect(src).toContain('applyBlockMoves(props.lanes, blockMoves, hours)')
+    // ⚖ flag 64 — the delete ledger joined that SAME pass, deliberately: the
+    // board, the sell layer, blockClash and the guard's occupancy all read the
+    // lanes it returns, so they cannot disagree about a deleted block.
+    expect(src).toContain('applyBlockMoves(props.lanes, blockMoves, hours, blockDeleted)')
     expect(src).toContain('sellLayerFor(committedLanes')
     expect(src).toContain('gapLayerFor(committedLanes')
     expect(src).not.toContain('sellLayerFor(boardLanes')
@@ -2270,6 +2273,67 @@ describe('予定ブロック move, resize and open — canon’s second pipeline
     expect(applyBlockMoves(lanes, {}, HOURS)).toBe(lanes)
   })
 
+  it('⚖ 64 — a deleted block leaves the board, and the SAME pass frees its minutes', () => {
+    const lanes = [lane({ key: 'p-01', group: 'staff', items: [block('br-1', 780, 810), block('br-2', 900, 930)] })]
+    const out = applyBlockMoves(lanes, {}, HOURS, ['br-1'])
+    expect(out[0].items.map((i) => i.key)).toEqual(['br-2'])
+    // Everything that judges the board reads THESE lanes, so the freed minutes
+    // are sellable and clash-free in the same frame — no second pass to forget.
+    expect(laneSpans(out[0])).toEqual([{ start: 900, end: 930, isBreak: true }])
+    expect(blockClash(out[0], 'br-9', place(780, 810, HOURS))).toBe(false)
+    expect(blockClash(lanes[0], 'br-9', place(780, 810, HOURS))).toBe(true)
+    // Undo is the ledger shrinking: nothing else has to be put back.
+    expect(applyBlockMoves(lanes, {}, HOURS, [])).toBe(lanes)
+    expect(applyBlockMoves(lanes, {}, HOURS)).toBe(lanes)
+  })
+
+  it('⚖ 64 — a delete and a move land in one pass, and a key nobody has is a no-op', () => {
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', items: [block('br-1', 780, 810), block('br-2', 900, 930)] }),
+      lane({ key: 'bed-01', group: 'beds', items: [] }),
+    ]
+    const out = applyBlockMoves(lanes, { 'br-2': { laneKey: 'bed-01', ...place(840, 870, HOURS) } }, HOURS, ['br-1'])
+    expect(out.find((l) => l.key === 'p-01')!.items).toHaveLength(0)
+    expect(out.find((l) => l.key === 'bed-01')!.items.map((i) => i.key)).toEqual(['br-2'])
+    // A stale key deletes nothing and clones nothing.
+    expect(applyBlockMoves(lanes, {}, HOURS, ['nope'])[0].items).toHaveLength(2)
+  })
+
+  it('⚖ Q6 — a 清掃 opens and reads, but carries no 削除, and says why', () => {
+    // The rule lives where the paint and the openability already do, so it is
+    // provable without a renderer — the point of blockChrome having a header.
+    const cleanup = blockChrome('cleanup')
+    expect(cleanup.opens).toBe(true)
+    expect(cleanup.notDeletable).toContain('直前の予約')
+    // Every ordinary block IS deletable…
+    for (const k of ['break', 'admin', 'closing'] as Array<BoardItem['kind']>) {
+      expect(blockChrome(k).notDeletable).toBeNull()
+      expect(blockChrome(k).opens).toBe(true)
+    }
+    // …and 勤務不可 never opened in the first place, so the question never
+    // reaches it: its refusal is one level up, unchanged.
+    expect(blockChrome('absence').opens).toBe(false)
+    expect(blockChrome('absence').locked).toContain('シフト管理')
+  })
+
+  it('⚖ 64 + sweep rider (i) — ブロック情報 is honest: one live 削除, no dead 保存', () => {
+    const src = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+    const dialog = src.slice(src.indexOf('ref={blockRef}'), src.indexOf('ref={closingRef}'))
+    // The dead stub is gone from this footer entirely — the dialog has no
+    // editable field, so 保存 could never have done anything.
+    expect(dialog).not.toMatch(/<button[^>]*>保存</)
+    expect(dialog).not.toContain('disabled title={HINT}')
+    // 削除 is wired to the confirm strip, and the strip commits through deleteBlock.
+    expect(dialog).toContain('onClick={() => setBlockDeleteAsk(true)}')
+    expect(dialog).toContain('onClick={() => deleteBlock(blockInfo)}')
+    // canon's light gate, not the 仮押さえ/確定 bar (:4245-4246 — a block is a
+    // placeholder, not a booking).
+    expect(dialog).toContain('この予定ブロックを削除します')
+    expect(dialog).toContain('やめる')
+    // …and the dialog holds a HANDLE on the block, which is what it never had.
+    expect(src).toContain('setBlockInfo({ key: item.key, laneKey: lane.key, itemKind: item.kind')
+  })
+
   it('a block resized in place stays put and keeps its lane', () => {
     const lanes = [lane({ key: 'p-01', group: 'staff', items: [block('br-1', 780, 810)] })]
     const out = applyBlockMoves(lanes, { 'br-1': { laneKey: 'p-01', ...place(780, 815, HOURS) } }, HOURS)
@@ -3196,7 +3260,12 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     expect(SRC).toContain('const t = setTimeout(() => setToast(EMPTY_TOAST), toast.ms)')
     // `n` re-arms the timer for an identical refusal earned twice: pressing the
     // same illegal slot again used to change no state and so say nothing.
-    expect(SRC).toContain('setToast((was) => ({ text: message, ms, n: was.n + 1 }))')
+    // ⚖ flag 64 — the door grew an optional undo (canon's delete toast carries
+    // one). `n` is untouched, and a REFUSAL never carries one: `refuse` passes
+    // no third argument, so there is nothing to take back on a refusal by
+    // construction, not by convention.
+    expect(SRC).toContain('setToast((was) => ({ text: message, ms, n: was.n + 1, undo }))')
+    expect(SRC).toContain('function show(message: string, ms = TOAST_MS, undo: (() => void) | null = null) {')
     // ONE door for refusals — every one of them, greppable by name. If a future
     // round adds a refusal through `show(` it will not carry the dwell, so the
     // known refusal sentences are pinned to the door here.

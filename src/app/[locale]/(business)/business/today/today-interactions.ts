@@ -548,10 +548,33 @@ const clock = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${S
  *  シフト管理 instead of watching nothing happen. The sentence rides with the
  *  decision rather than sitting in the JSX so it is provable without a
  *  renderer: null here and the board goes silent again. */
-export function blockChrome(kind: BoardItem['kind']): { cls: 'cleanup' | 'absence' | 'block'; opens: boolean; locked: string | null } {
+export function blockChrome(kind: BoardItem['kind']): {
+  cls: 'cleanup' | 'absence' | 'block'
+  opens: boolean
+  locked: string | null
+  /** ⚖ Liam Q6 (flag 64, 2026-08-22) — WHY THIS BLOCK CANNOT BE HAND-DELETED.
+   *
+   *  Same shape as `locked` directly above: `null` means allowed, and a string
+   *  is always the REFUSAL — the sentence the dialog shows in place of the 削除
+   *  button. (The packet calls this field `deletable`; it is named for what a
+   *  non-null value says, so it cannot be read backwards.)
+   *
+   *  A 清掃 is the only one. It is not stored: `applyMoves` drops every cleanup
+   *  from the membership pass and `withTrailingCleanup` re-derives it after the
+   *  bookings settle, so a hand-delete would look like it worked and then undo
+   *  itself on the next render. The dialog still OPENS — the operator came to
+   *  read the facts and canon lets them — it just cannot offer a button that
+   *  would lie. Same precedent as 勤務不可's spoken refusal, one level down. */
+  notDeletable: string | null
+} {
   const cls = kind === 'cleanup' ? 'cleanup' : kind === 'absence' ? 'absence' : 'block'
   const opens = cls !== 'absence'
-  return { cls, opens, locked: opens ? null : '勤務不可はシフト管理で変更します — ボード上では動かせません' }
+  return {
+    cls,
+    opens,
+    locked: opens ? null : '勤務不可はシフト管理で変更します — ボード上では動かせません',
+    notDeletable: cls === 'cleanup' ? 'この清掃は直前の予約に付いています。予約を動かせば一緒に動き、予約が消えれば一緒に消えます。' : null,
+  }
 }
 
 /** Everything standing on a lane, as minute spans — the sell layer's occupancy
@@ -1629,7 +1652,21 @@ export function blockStepPct(boardHours: number, blockStepMin: number | undefine
  *  differs: a booking is mirrored on a staff lane AND a bed lane, so it may not
  *  be evicted from its partner; a block lives on exactly one lane, so the plain
  *  "drop from every lane but the target" rule is the correct one. */
-export function applyBlockMoves(lanes: BoardLane[], blockMoves: Moves, hours: Hours): BoardLane[] {
+export function applyBlockMoves(lanes: BoardLane[], blockMoves: Moves, hours: Hours, deleted: string[] = []): BoardLane[] {
+  // ⚖ Liam flag 64 (2026-08-22) — THE DELETE IS APPLIED IN THE SAME PASS AS THE
+  // MOVE, so the board, the sell layer, `blockClash` and the guard's occupancy
+  // all stop seeing the block in the SAME frame: they all read the lanes this
+  // function returns. One filter, and there is nowhere for them to disagree.
+  //
+  // Deliberately NOT day-nav-surviving, for the reason BusinessSessionEdits.tsx
+  // already states about `blockMoves`: a 予定ブロック is keyed by `item.key` and
+  // the fixture world draws the same block on every day, so a deletion that
+  // survived a `?day=` flip would erase it from every day at once. Dying on the
+  // flip is the safe default until that is a made decision.
+  if (deleted.length > 0) {
+    const gone = new Set(deleted)
+    lanes = lanes.map((lane) => (lane.items.some((i) => gone.has(i.key)) ? { ...lane, items: lane.items.filter((i) => !gone.has(i.key)) } : lane))
+  }
   if (Object.keys(blockMoves).length === 0) return lanes
   const home = new Map<string, BoardItem>()
   for (const lane of lanes) for (const i of lane.items) if (blockMoves[i.key]) home.set(i.key, i)
