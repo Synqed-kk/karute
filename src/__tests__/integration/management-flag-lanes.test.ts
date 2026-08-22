@@ -13,8 +13,10 @@
  *     (Liam ruling Ⓒ).
  *   - the store lens is still the outer boundary: the lane rule is a FILTER on
  *     the already-store-scoped list, never a union back over the raw roster.
- *   - staff colors come from the FULL business roster, so flipping the toggle
- *     never repaints the salon.
+ *   - staff colors come from the store-scoped visibleStaff roster (one level
+ *     up from the lane list, NOT the business-wide roster — see screen.ts's
+ *     own colorRosterIds comment), so flipping the toggle never repaints the
+ *     store.
  */
 
 // list-enrich (pulled in by the customers builder) imports @synqed-kk/client
