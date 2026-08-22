@@ -10,21 +10,29 @@ import {
 } from '@/lib/ai-safety'
 
 /** Acceptance-boundary net for degenerate model output (the 8/21 ×39
- *  incident): dedupe near-identical entries, then cap each category.
- *  Runs on the model's fresh parse only — human rows never pass through. */
+ *  incident). Runs on the model's fresh parse only — human rows never pass
+ *  through. Three rails, in order:
+ *  1. Carbon copy (category + title + quote all match) → collapse to 1.
+ *  2. Same category + title, different quotes → keep up to
+ *     MAX_SAME_TITLE_PER_CATEGORY (unknown whether the real ×39 incident
+ *     shared one quote or carried 39 different ones — this rail covers both
+ *     shapes; a 4th byte-identical title in one category in one pass is a
+ *     loop, not information — staff still see 3, content conveyed).
+ *  3. Per-category total after the above → cap MAX_ENTRIES_PER_CATEGORY. */
 export const MAX_ENTRIES_PER_CATEGORY = 30
+export const MAX_SAME_TITLE_PER_CATEGORY = 3
 
 export function sanitizeExtractionEntries(entries: Entry[]): Entry[] {
-  // Dedupe: same category + same normalized title + same normalized
-  // source_quote = same entry, keep the FIRST occurrence (array order
-  // preserved). The 7/15 dominant-topic design deliberately allows several
-  // same-aspect entries — two can legitimately share a title while quoting
-  // different moments; only a full carbon copy (same title AND same quote)
-  // is unquestionably broken. Normalization is deliberately narrow — trim +
-  // collapse whitespace + toLowerCase — the observed failure was verbatim
-  // repetition, and aggressive merging is its own past bug (7/15). Key parts
-  // are NUL-joined (not space-joined) so title/quote boundaries can't
-  // collide.
+  // 1. Carbon-copy dedupe: same category + same normalized title + same
+  // normalized source_quote = same entry, keep the FIRST occurrence (array
+  // order preserved). The 7/15 dominant-topic design deliberately allows
+  // several same-aspect entries — two can legitimately share a title while
+  // quoting different moments; only a full carbon copy (same title AND same
+  // quote) is unquestionably broken. Normalization is deliberately narrow —
+  // trim + collapse whitespace + toLowerCase — the observed failure was
+  // verbatim repetition, and aggressive merging is its own past bug (7/15).
+  // Key parts are NUL-joined (not space-joined) so title/quote boundaries
+  // can't collide.
   const seen = new Set<string>()
   const deduped: Entry[] = []
   for (const entry of entries) {
@@ -36,11 +44,26 @@ export function sanitizeExtractionEntries(entries: Entry[]): Entry[] {
     deduped.push(entry)
   }
 
-  // Cap: per-category, keep-first, after dedupe. Order otherwise preserved.
-  // 30 is a runaway-flood ceiling only — no legitimate session approaches it
-  // in one category.
+  // 2. Identical-title rail: same category + same normalized title (quote
+  // NOT in this key), capped at MAX_SAME_TITLE_PER_CATEGORY, keep-first,
+  // order preserved. The 7/15 dominant-topic design still legitimately
+  // allows a FEW same-title entries quoting different moments — 3 preserves
+  // that (⚖ the versatility pin) while stopping a same-title flood the
+  // carbon-copy dedupe above can't touch on its own.
+  const titleCounts = new Map<string, number>()
+  const titleRailed = deduped.filter((entry) => {
+    const normTitle = entry.title.trim().replace(/\s+/g, ' ').toLowerCase()
+    const key = [entry.category, normTitle].join('\0')
+    const count = titleCounts.get(key) ?? 0
+    titleCounts.set(key, count + 1)
+    return count < MAX_SAME_TITLE_PER_CATEGORY
+  })
+
+  // 3. Per-category total cap, keep-first, after the above. Order otherwise
+  // preserved. 30 is a runaway-flood ceiling only — no legitimate session
+  // approaches it in one category.
   const categoryCounts = new Map<string, number>()
-  const capped = deduped.filter((entry) => {
+  const capped = titleRailed.filter((entry) => {
     const count = categoryCounts.get(entry.category) ?? 0
     categoryCounts.set(entry.category, count + 1)
     return count < MAX_ENTRIES_PER_CATEGORY

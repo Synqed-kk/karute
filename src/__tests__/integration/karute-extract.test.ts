@@ -10,7 +10,12 @@ jest.mock('@/lib/openai', () => ({
 }))
 
 import { openai } from '@/lib/openai'
-import { runKaruteExtraction, sanitizeExtractionEntries, MAX_ENTRIES_PER_CATEGORY } from '@/lib/ai/karute-extract'
+import {
+  runKaruteExtraction,
+  sanitizeExtractionEntries,
+  MAX_ENTRIES_PER_CATEGORY,
+  MAX_SAME_TITLE_PER_CATEGORY,
+} from '@/lib/ai/karute-extract'
 
 function entry(overrides: Partial<Entry> = {}): Entry {
   return {
@@ -65,14 +70,27 @@ describe('sanitizeExtractionEntries (via runKaruteExtraction seam)', () => {
     expect(warnSpy).not.toHaveBeenCalled()
   })
 
-  it('2. collapses 39 identical (same category, same title) entries to 1', async () => {
+  it('2. collapses 39 carbon copies (same category, same title, same quote) to 1', async () => {
     const entries = Array.from({ length: 39 }, () =>
-      entry({ category: 'lifestyle', title: '散歩' })
+      entry({ category: 'lifestyle', title: '散歩', source_quote: 'same quote' })
     )
 
     const { result } = await extractWith(entries)
 
     expect(result.entries).toHaveLength(1)
+  })
+
+  it('2b. 39 same-title entries with DIFFERENT quotes: identical-title rail caps to the first 3', async () => {
+    const entries = Array.from({ length: 39 }, (_, i) =>
+      entry({ category: 'lifestyle', title: '散歩', source_quote: `quote ${i}` })
+    )
+
+    const { result } = await extractWith(entries)
+
+    expect(result.entries).toHaveLength(MAX_SAME_TITLE_PER_CATEGORY)
+    expect(result.entries.map((e) => e.source_quote)).toEqual(['quote 0', 'quote 1', 'quote 2'])
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy.mock.calls[0][1]).toEqual({ before: 39, after: 3 })
   })
 
   it('3. dedupes whitespace/case title variants (same source_quote) in the same category, keeping the first', async () => {
