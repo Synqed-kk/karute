@@ -255,4 +255,19 @@ describe('StaffSelector — 経営メンバー search-reveal', () => {
       expect(screen.getByText('鈴木 友梨佳')).toBeInTheDocument()
     })
   })
+
+  // Greptile fix (PR #756, 2026-09-01): the panel's list scroller was capped
+  // at a static 55vh beneath the fixed search header, so an on-screen
+  // keyboard on mobile — which shrinks the visible area but not vh — could
+  // clip rows behind it. jsdom can't lay out real viewports, so this pins
+  // the class string itself: a dvh term must be present so the cap shrinks
+  // with the keyboard, same house pattern as StaffCombobox's 35dvh cap.
+  it('the panel scroller caps with a dvh term, not just a static vh', () => {
+    const { container } = render(
+      <StaffSelector staffList={STAFF} selected="all" onChange={() => {}} />,
+    )
+    fireEvent.click(screen.getByText('担当'))
+    const scroller = container.querySelector('.overscroll-contain')
+    expect(scroller?.className).toContain('dvh')
+  })
 })

@@ -247,8 +247,13 @@ export function StaffSelector({
             </div>
           </div>
           {/* Internal scroll keeps the panel usable at any roster size —
-           *  the page never scrolls behind a giant menu. */}
-          <div className="max-h-[55vh] overflow-y-auto overscroll-contain">
+           *  the page never scrolls behind a giant menu. 55dvh mirrors the
+           *  55vh term (desktop/no-keyboard: identical, unchanged), but the
+           *  Android keyboard shrinks dvh, so once it's open the list caps
+           *  to the room actually left below the fixed search header
+           *  instead of clipping behind the keyboard — same house pattern
+           *  as StaffCombobox's 35dvh cap. */}
+          <div className="max-h-[min(55vh,55dvh)] overflow-y-auto overscroll-contain">
             {/* 全スタッフ is pinned only on the DEFAULT list, same rule as
              *  StaffCombobox's 指名なし row — once typing starts this is a
              *  search result, and 全スタッフ isn't something the query matched. */}
