@@ -169,6 +169,13 @@ describe('DTO carry — the key survives every screen parse', () => {
     expect(parsed.staffList[0].isManagement).toBe(true)
   })
 
+  it('customers screen assignableStaff (指名スタッフ picker source, D1)', () => {
+    const shape = CustomersScreenDTO.shape.assignableStaff
+    expect(shape.parse([{ id: 'p1', name: '北野', isManagement: true }])[0].isManagement).toBe(
+      true,
+    )
+  })
+
   it('sessions screen staffList (新規カルテ picker source)', () => {
     const parsed = SessionsScreenDTO.parse({
       items: [],
