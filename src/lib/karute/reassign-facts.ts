@@ -5,6 +5,7 @@
 // see the identical count.
 
 import type { SynqedClient } from '@synqed-kk/client'
+import { isSameJstDay } from '@/lib/date/jst'
 import { scopeKarutePhotos } from './scoped-photos'
 
 export interface ReassignFacts {
@@ -21,6 +22,10 @@ interface ReassignFactsRecord {
   id: string
   appointment_id: string | null
   recording_session_id: string | null
+  /** YYYY-MM-DD business date (KaruteRecord.session_date). null → the
+   *  same-day arm below is skipped (link arms only) — a fix-round-1 ceiling
+   *  stated honestly, not hidden. */
+  session_date: string | null
 }
 
 /** The redemption fields census B's write-side (AddRedemptionInput) accepts
@@ -31,8 +36,13 @@ interface ReassignFactsRecord {
  *  these two fields, every optional read below resolves to undefined and the
  *  count safely UNDERcounts to 0 (never crashes, never over-claims money that
  *  isn't there). Flagged in the builder report: verify against live core
- *  before trusting a non-zero burnCount in production. */
-type RedemptionReadSkew = { karute_record_id?: string | null; appointment_id?: string | null }
+ *  before trusting a non-zero burnCount in production. redeemed_on IS on the
+ *  declared read shape (not part of the skew) — kept non-optional here. */
+type RedemptionReadSkew = {
+  redeemed_on: string
+  karute_record_id?: string | null
+  appointment_id?: string | null
+}
 
 /**
  * Money + photo counts for a reassign confirm panel / audit detail.
@@ -43,6 +53,14 @@ type RedemptionReadSkew = { karute_record_id?: string | null; appointment_id?: s
  * web-created burn carries ONLY appointment_id (no karute_record_id on that
  * path); a phone-created burn carries karute_record_id. Both link shapes are
  * counted so the panel is honest regardless of which surface recorded it.
+ *
+ * Fix round 1 (F-1): the installed SDK's listRedemptions() rows don't
+ * actually carry karute_record_id/appointment_id at runtime (RedemptionReadSkew
+ * above), so the two link arms alone left burnCount always 0. A third arm
+ * counts a redemption whose redeemed_on falls on the SAME JST calendar day as
+ * the record's session_date — isSameJstDay, the recovery-burn guard's own
+ * idiom (src/actions/packs.ts), reused here rather than a second hand-rolled
+ * JST rule. record.session_date === null skips this arm (link arms only).
  *
  * Photos: customers.listPhotos(fromCustomerId) filtered to this karute's
  * recording_session_id via the shared scopeKarutePhotos helper — a manual
@@ -62,6 +80,7 @@ export async function reassignFacts(
   const burnCount = (redemptions as unknown as RedemptionReadSkew[]).filter((r) => {
     if (r.karute_record_id && r.karute_record_id === record.id) return true
     if (record.appointment_id && r.appointment_id === record.appointment_id) return true
+    if (record.session_date && isSameJstDay(r.redeemed_on, record.session_date)) return true
     return false
   }).length
 

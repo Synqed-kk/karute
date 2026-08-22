@@ -81,6 +81,15 @@ export function ymdInJst(d: Date = new Date()): string {
   return `${p.year}-${pad2(p.month)}-${pad2(p.day)}`
 }
 
+/** Same-JST-calendar-day compare for a stored `redeemed_on` value against a
+ *  YYYY-MM-DD business date. This is the exact idiom packs.ts's recovery-burn
+ *  guard uses (`r.redeemed_on.slice(0, 10) === redeemedOn`) — extracted so a
+ *  second call site (reassign-facts.ts) reuses the one JST-day rule instead
+ *  of hand-rolling its own. */
+export function isSameJstDay(redeemedOn: string, ymd: string): boolean {
+  return redeemedOn.slice(0, 10) === ymd
+}
+
 /** HH:MM (24h) of `d` rendered in JST. */
 export function hmInJst(d: Date): string {
   const p = partsInJst(d)

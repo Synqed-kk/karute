@@ -1,5 +1,6 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import { useTranslations, useLocale } from 'next-intl'
 import { Edit3, Mail, Phone, ChevronRight } from 'lucide-react'
 import { Link } from '@/i18n/navigation'
@@ -24,6 +25,10 @@ export interface CustomerHeaderProps {
   customerHref?: string
   /** Optional click handler for the Edit button. */
   onEdit?: () => void
+  /** F4 (fix round 1, F-2): additive slot rendered under the name row, inside
+   *  the card — per the signed-off mock. Renders nothing when absent, so
+   *  every other caller of this card is visually unchanged. */
+  actions?: ReactNode
 }
 
 function ordinal(n: number, locale: 'en' | 'ja' = 'en'): string {
@@ -50,6 +55,7 @@ export function CustomerHeaderCard({
   lastVisitAgo,
   customerHref,
   onEdit,
+  actions,
 }: CustomerHeaderProps) {
   const t = useTranslations('karuteDetail')
   const ja = useLocale() === 'ja'
@@ -73,95 +79,98 @@ export function CustomerHeaderCard({
     metaParts.push(<span key="lva">{lastVisitAgo}</span>)
 
   return (
-    <section className="flex items-start gap-5 rounded-2xl border border-border bg-card p-5 shadow-sm md:gap-6 md:p-6">
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-base font-bold text-foreground md:h-16 md:w-16 md:text-lg">
-        {initials}
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <div className="flex flex-wrap items-baseline gap-2.5">
-          {/* Always an <h2> so the heading survives in both branches (a11y);
-              the Link sits INSIDE it when a customer profile exists. */}
-          <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
-            {customerHref ? (
-              <Link
-                href={customerHref as Parameters<typeof Link>[0]['href']}
-                className="group inline-flex items-center gap-1 transition-colors hover:text-sky-600"
-                aria-label={`${customerName} — ${t('header.openCustomer')}`}
-                title={t('header.openCustomer')}
-              >
-                <span>{customerName}</span>
-                <ChevronRight
-                  size={18}
-                  className="shrink-0 text-muted-foreground transition-[transform,color] group-hover:translate-x-0.5 group-hover:text-sky-600"
-                />
-              </Link>
-            ) : (
-              customerName
-            )}
-          </h2>
-          <span className="text-sm font-medium text-muted-foreground tabular-nums">
-            {karuteNumber}
-          </span>
+    <section className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
+      <div className="flex items-start gap-5 md:gap-6">
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-base font-bold text-foreground md:h-16 md:w-16 md:text-lg">
+          {initials}
         </div>
-        {metaParts.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground">
-            {metaParts.map((part, i) => (
-              <span key={i} className="inline-flex items-center gap-1.5">
-                {i > 0 && (
-                  <span aria-hidden className="text-muted-foreground">
-                    ·
-                  </span>
-                )}
-                {part}
-              </span>
-            ))}
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <div className="flex flex-wrap items-baseline gap-2.5">
+            {/* Always an <h2> so the heading survives in both branches (a11y);
+                the Link sits INSIDE it when a customer profile exists. */}
+            <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
+              {customerHref ? (
+                <Link
+                  href={customerHref as Parameters<typeof Link>[0]['href']}
+                  className="group inline-flex items-center gap-1 transition-colors hover:text-sky-600"
+                  aria-label={`${customerName} — ${t('header.openCustomer')}`}
+                  title={t('header.openCustomer')}
+                >
+                  <span>{customerName}</span>
+                  <ChevronRight
+                    size={18}
+                    className="shrink-0 text-muted-foreground transition-[transform,color] group-hover:translate-x-0.5 group-hover:text-sky-600"
+                  />
+                </Link>
+              ) : (
+                customerName
+              )}
+            </h2>
+            <span className="text-sm font-medium text-muted-foreground tabular-nums">
+              {karuteNumber}
+            </span>
           </div>
-        )}
-        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-sm">
-          {service && (
-            <>
-              <span className="font-medium text-foreground">{service}</span>
-              <span aria-hidden className="text-muted-foreground">·</span>
-            </>
+          {metaParts.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground">
+              {metaParts.map((part, i) => (
+                <span key={i} className="inline-flex items-center gap-1.5">
+                  {i > 0 && (
+                    <span aria-hidden className="text-muted-foreground">
+                      ·
+                    </span>
+                  )}
+                  {part}
+                </span>
+              ))}
+            </div>
           )}
-          <span className="text-muted-foreground">{sessionDateLong}</span>
-          {staffName && (
-            <>
-              <span aria-hidden className="text-muted-foreground">·</span>
-              <span className="text-muted-foreground">
-                {t('header.staff')}{' '}
-                <span className="text-foreground">{staffName}</span>
-              </span>
-            </>
-          )}
-        </div>
-        {(phone || email) && (
-          <div className="mt-1 flex flex-wrap items-center gap-4 text-[13px] text-muted-foreground">
-            {phone && (
-              <span className="inline-flex items-center gap-1.5">
-                <Phone size={13} className="opacity-70" />
-                <span className="tabular-nums">{phone}</span>
-              </span>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-sm">
+            {service && (
+              <>
+                <span className="font-medium text-foreground">{service}</span>
+                <span aria-hidden className="text-muted-foreground">·</span>
+              </>
             )}
-            {email && (
-              <span className="inline-flex items-center gap-1.5">
-                <Mail size={13} className="opacity-70" />
-                <span>{email}</span>
-              </span>
+            <span className="text-muted-foreground">{sessionDateLong}</span>
+            {staffName && (
+              <>
+                <span aria-hidden className="text-muted-foreground">·</span>
+                <span className="text-muted-foreground">
+                  {t('header.staff')}{' '}
+                  <span className="text-foreground">{staffName}</span>
+                </span>
+              </>
             )}
           </div>
+          {(phone || email) && (
+            <div className="mt-1 flex flex-wrap items-center gap-4 text-[13px] text-muted-foreground">
+              {phone && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Phone size={13} className="opacity-70" />
+                  <span className="tabular-nums">{phone}</span>
+                </span>
+              )}
+              {email && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Mail size={13} className="opacity-70" />
+                  <span>{email}</span>
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        {onEdit && (
+          <button
+            type="button"
+            onClick={onEdit}
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 self-start rounded-lg border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-muted"
+          >
+            <Edit3 size={13} />
+            <span>{t('actions.edit')}</span>
+          </button>
         )}
       </div>
-      {onEdit && (
-        <button
-          type="button"
-          onClick={onEdit}
-          className="inline-flex h-8 shrink-0 items-center gap-1.5 self-start rounded-lg border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-muted"
-        >
-          <Edit3 size={13} />
-          <span>{t('actions.edit')}</span>
-        </button>
-      )}
+      {actions}
     </section>
   )
 }

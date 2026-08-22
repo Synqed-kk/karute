@@ -18,7 +18,7 @@ import {
   type ContactChannel,
   type CreatePackInput,
 } from '@/lib/packs/store'
-import { ymdInJst } from '@/lib/date/jst'
+import { isSameJstDay, ymdInJst } from '@/lib/date/jst'
 import type { SynqedClient } from '@synqed-kk/client'
 import {
   nextPurchaseRound,
@@ -216,7 +216,7 @@ export async function redeemSessionActionWithClient(
       .listRecentRedemptions(since)
       .then((rows) =>
         rows.some(
-          (r) => r.customer_id === input.customerId && r.redeemed_on.slice(0, 10) === redeemedOn,
+          (r) => r.customer_id === input.customerId && isSameJstDay(r.redeemed_on, redeemedOn),
         ),
       )
       // Fail CLOSED on an unreadable history — we cannot prove this burn safe.

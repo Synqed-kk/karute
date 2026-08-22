@@ -88,11 +88,12 @@ export function KaruteDetailView({
       <CustomerHeaderCard
         {...header}
         customerHref={customerId ? `/customers/${customerId}` : undefined}
+        actions={
+          staffCanReassignRecords && customerId ? (
+            <ReassignCustomerAction karuteId={karuteId} customerName={header.customerName} />
+          ) : undefined
+        }
       />
-
-      {staffCanReassignRecords && customerId && (
-        <ReassignCustomerAction karuteId={karuteId} customerName={header.customerName} />
-      )}
 
       <OutcomeCard
         karuteRecordId={karuteId}

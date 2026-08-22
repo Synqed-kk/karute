@@ -24,7 +24,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { deriveFamilyInitials } from '@/lib/customers/identity'
-import { filterCustomers, type CustomerOption } from '@/components/karute/CustomerCombobox'
+import { CUSTOMER_SEARCH_LIMIT, filterCustomers, type CustomerOption } from '@/components/karute/CustomerCombobox'
 import { listReassignCustomerOptions, reassignKaruteCustomer } from '@/actions/karute'
 
 // The search box owns the results region (aria-controls) — same idiom as
@@ -87,7 +87,7 @@ export function ReassignCustomerAction({
 
   const visible = useMemo(() => {
     const trimmed = query.trim()
-    return trimmed ? filterCustomers(customers ?? [], trimmed, Infinity) : (customers ?? [])
+    return trimmed ? filterCustomers(customers ?? [], trimmed, CUSTOMER_SEARCH_LIMIT) : (customers ?? [])
   }, [customers, query])
 
   async function goToConfirm() {
@@ -154,7 +154,7 @@ export function ReassignCustomerAction({
               autoComplete="off"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={t('pickerSubtitle')}
+              placeholder={t('pickerSearchPlaceholder')}
               className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
             />
           </div>

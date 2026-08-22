@@ -695,6 +695,7 @@ export async function reassignKaruteCustomerWithClient(
     id: karuteId,
     appointment_id: record.appointment_id,
     recording_session_id: record.recording_session_id,
+    session_date: record.session_date,
   })
 
   if (!opts.confirmed) {
