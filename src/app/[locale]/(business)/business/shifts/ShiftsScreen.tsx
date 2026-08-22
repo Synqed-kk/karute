@@ -37,13 +37,11 @@ import {
   DRAG_PX_PER_STEP,
   bookedKeysOf,
   cellFor,
-  dragSafeMinutes,
   edgeLabel,
   editKey,
   hours,
   laborCost,
   resizeShift,
-  trackPct,
   type Cell,
   type DayContext,
   type EdgeSpan,
@@ -193,15 +191,10 @@ export interface ShiftsProps {
   } | null
 }
 
-/** What a week cell needs to draw its bar and let the operator pull its ends.
- *  Handed down rather than hoisted into a component so `weekCell` stays the one
- *  function that decides what a cell looks like. */
+/** What a week cell needs to let the operator pull its chip's ends. Handed
+ *  down rather than hoisted so `WeekCell` stays the one place that decides what
+ *  a cell looks like. */
 interface BarWiring {
-  track: TrackWindow
-  /** Below this many minutes the two handles would sit on top of each other, so
-   *  the bar ships without them and says the dialog is the way (⚖ 8/22
-   *  amendment: no fiddly controls). */
-  minDragMinutes: number
   open: (m: RosterModel, day: DayModel) => void
   down: (e: React.PointerEvent<HTMLSpanElement>, m: RosterModel, day: DayModel, edge: 'start' | 'end') => void
   move: (e: React.PointerEvent<HTMLSpanElement>) => void
@@ -385,11 +378,15 @@ export function ShiftsScreen(props: ShiftsProps) {
     say('この画面の中だけ休みにしました。実際の勤務予定と予約は変わりません。')
   }
 
-  // ── E-1 · dragging a week bar's ends ──────────────────────────────────────
+  // ── E-1 · dragging a shift chip's ends ────────────────────────────────────
   //
   // ⚖ LIAM 8/22: 「slide each box left or right to shrink them, make them
-  // longer」. THE BOARD'S OWN DRAG LAWS BIND, and they were paid for in nine
-  // flag rounds:
+  // longer」, then 「what are those weird boxes, the bars that are under the
+  // shifts?」 — THE CHIP IS THE BOX. One element, canon's own, with grab zones
+  // on its two edges; see WeekCell for what that costs and what it does not
+  // deliver.
+  //
+  // THE BOARD'S OWN DRAG LAWS BIND, and they were paid for in nine flag rounds:
   //
   //  · POINTER CAPTURE ON THE HANDLE, and nothing re-parents while it is held.
   //    The board had to move its stream to `window` because a moving card was
@@ -398,28 +395,29 @@ export function ShiftsScreen(props: ShiftsProps) {
   //    changes no state until release, so the node the capture is bound to
   //    cannot go away — capture is the right tool HERE and window listeners
   //    would be cargo.
-  //  · NO REACT RENDER PER POINTERMOVE. The frame writes geometry straight to
-  //    the bar and the would-be hours straight to the chip's own time text,
-  //    coalesced by rAF — Chrome delivers moves faster than it paints, and a
-  //    board of 7 × N cells re-rendering per raw event is the jank Liam felt as
-  //    「not snappy」.
+  //  · NO REACT RENDER PER POINTERMOVE. The frame writes the would-be hours
+  //    straight to the chip's own time text, coalesced by rAF — Chrome delivers
+  //    moves faster than it paints, and a board of 7 × N cells re-rendering per
+  //    raw event is the jank Liam felt as 「not snappy」.
   //  · THE RELEASE POSITION IS AUTHORITATIVE (canon `finishNormalBookingDrag`):
   //    recomputed once at pointerup rather than trusting the last frame.
   //  · A REFUSAL CHANGES NOTHING AND STAYS READABLE (⚖ 47 + the lane
-  //    invariant): the bar goes back to the hours it had and the reason sits in
-  //    the room's persistent message with its ×.
+  //    invariant): the chip goes back to the hours it had and the reason sits
+  //    in the room's persistent message with its ×.
   //  · ONE STAGING SEAM — `stageShift`, the dialog's own.
   const track = plane.track
-  const minDragMinutes = dragSafeMinutes(track)
 
   interface EdgeDrag {
     pointerId: number
     handle: HTMLElement
-    bar: HTMLElement
+    /** The chip. It carries `data-dragging` for the life of the gesture and
+     *  nothing else — the chip's width is not the shift's length, so there is
+     *  no geometry to write. */
+    chip: HTMLElement
     /** The chip's own 開始–終了 text. The live label is not a second surface
      *  floating at the cursor — it is the number the operator already reads,
-     *  updated in place, which is also the only place it can go in a cell this
-     *  size without covering the row underneath. */
+     *  rewritten in place, and it is the SINGLE TRUTH of what release will
+     *  commit (the geared pointer travels further than any pixel does). */
     label: HTMLElement
     staffId: string
     dayKey: number
@@ -431,15 +429,9 @@ export function ShiftsScreen(props: ShiftsProps) {
   }
   const dragRef = useRef<EdgeDrag | null>(null)
 
-  const paintEdge = useCallback(
-    (d: EdgeDrag, span: EdgeSpan) => {
-      const left = trackPct(span.start, track)
-      d.bar.style.left = `${left}%`
-      d.bar.style.width = `${trackPct(span.end, track) - left}%`
-      d.label.textContent = edgeLabel(span)
-    },
-    [track],
-  )
+  const paintEdge = useCallback((d: EdgeDrag, span: EdgeSpan) => {
+    d.label.textContent = edgeLabel(span)
+  }, [])
 
   const endEdgeDrag = useCallback(
     (span: EdgeSpan | null) => {
@@ -448,13 +440,12 @@ export function ShiftsScreen(props: ShiftsProps) {
       dragRef.current = null
       if (d.frame !== null) cancelAnimationFrame(d.frame)
       try { d.handle.releasePointerCapture(d.pointerId) } catch { /* already gone */ }
-      delete d.bar.dataset.dragging
-      // EVERY RELEASE PUTS THE NODE BACK WHERE REACT LEFT IT, FIRST. The frames
+      delete d.chip.dataset.dragging
+      // EVERY RELEASE PUTS THE TEXT BACK WHERE REACT LEFT IT, FIRST. The frames
       // were written outside React and React never saw them; if a commit
-      // follows, it diffs from the geometry it believes in and repaints both
-      // halves. Clearing the inline styles instead would drop the bar to 0%
-      // whenever the release changes nothing, because React has no reason to
-      // re-render a board that did not change.
+      // follows, React diffs from the text it believes in and rewrites it. A
+      // release that changes nothing re-renders nothing at all, so this restore
+      // is the only thing that takes the mid-drag hours back off the chip.
       paintEdge(d, { start: d.origin.start, end: d.origin.end, clamp: null })
       if (!span || (span.start === d.origin.start && span.end === d.origin.end)) return
       const day = plane.days.find((x) => x.dayKey === d.dayKey)
@@ -483,18 +474,19 @@ export function ShiftsScreen(props: ShiftsProps) {
     const cell = at(m.id, day.dayKey)
     if (cell.kind !== 'work' || cell.start === null || cell.end === null) return
     const handle = e.currentTarget
-    const bar = handle.closest('.shift-bar') as HTMLElement | null
-    const label = handle.closest('td')?.querySelector('.bar-time') as HTMLElement | null
-    if (!bar || !label) return
+    const chip = handle.closest('.shift') as HTMLElement | null
+    const label = chip?.querySelector('.bar-time') as HTMLElement | null
+    if (!chip || !label) return
     try { handle.setPointerCapture(e.pointerId) } catch { /* capture is an assist */ }
     // `data-dragging` and not a class: React owns `className` on this node and
     // would fight an imperative class on its next pass; it renders no
     // `data-dragging` at all, so the attribute is the gesture's for its life.
-    bar.dataset.dragging = edge
+    // It is what keeps the handles lit while the pointer is off the chip.
+    chip.dataset.dragging = edge
     dragRef.current = {
       pointerId: e.pointerId,
       handle,
-      bar,
+      chip,
       label,
       staffId: m.id,
       dayKey: day.dayKey,
@@ -511,7 +503,7 @@ export function ShiftsScreen(props: ShiftsProps) {
     const d = dragRef.current
     if (!d || e.pointerId !== d.pointerId) return
     // canon's self-heal: a move with no button down means the release was lost,
-    // and the bar would otherwise stay stuck to the cursor.
+    // and the chip would otherwise stay stuck to the cursor.
     if (e.buttons === 0) { endEdgeDrag(null); return }
     d.pending = e.clientX
     if (d.frame !== null) return
@@ -532,8 +524,6 @@ export function ShiftsScreen(props: ShiftsProps) {
   }
 
   const bar: BarWiring = {
-    track,
-    minDragMinutes,
     open: openCell,
     down: onGripDown,
     move: onGripMove,
@@ -1194,63 +1184,60 @@ function WeekCell({ cell, day, m, bar }: { cell: Cell; day: DayModel; m: RosterM
     if (cell.staged) return <><div className="shift rest"><b>休み</b></div>{stagedNote(cell)}</>
     return <div className="shift rest"><b>休み</b></div>
   }
-  // 勤務 — the chip is canon's, unchanged at rest, and under it sits the day's
-  // own track with the shift drawn TIME-TRUE inside it. The chip's 開始–終了 is
-  // the drag's live label (`.bar-time`): a floating label in an 88px cell would
-  // cover the row it is explaining, and the operator is already reading that
-  // number.
+  // 勤務 — ⚖ LIAM 8/22, SECOND RULING: 「what are those weird boxes, the bars
+  // that are under the shifts?」. The first build drew a second, time-true bar
+  // in its own track under the chip; two elements for one shift read as
+  // clutter and he rejected it on sight. THE CHIP IS THE THING. Canon's chip,
+  // unchanged at rest — same box, same text, same break line, nothing added —
+  // and its own left and right EDGES are the grab zones. The handles are
+  // invisible until the pointer is on the chip or the keyboard is in it, so
+  // the affordance appears on interaction and never as standing furniture.
+  //
+  // The chip does NOT change width with the hours. It cannot: at the shell's
+  // 1180px floor a day column gives the chip about 95px, and 「10:00–19:00」
+  // alone needs ~66px of that before the 休憩 line — a chip drawn to eight
+  // hours of an eleven-hour day is 69px and the numbers it exists to carry
+  // stop fitting. So the length is in the TEXT, which the drag rewrites live,
+  // and the visible-length half of ⚖ Liam's sentence goes back to him rather
+  // than being solved with another widget (see the report).
   const brk = cell.breaks[0]
-  const left = trackPct(cell.start!, bar.track)
-  const width = trackPct(cell.end!, bar.track) - left
-  const draggable = cell.end! - cell.start! >= bar.minDragMinutes
-  const label = draggable
-    ? `${cellLabel(m, day, cell)}。端をドラッグすると開始・終了を30分単位で変えられます`
-    : `${cellLabel(m, day, cell)}。短い勤務の時間はダイアログで変えます`
   return (
     <>
-      <div className="shift">
-        {/* ONE TEXT CHILD, deliberately — this is the node the drag writes its
-            live label into. Rendered as three children (`{a}–{b}`) React tracks
-            three text nodes, `textContent` replaces all three with one, and
-            every later React update aims at nodes that are no longer in the
-            document: the bar committed 19:30 and its own label went on saying
-            18:00. Found in the deployed browser, first real drag. A single
-            interpolated child makes React write the PARENT's text, which is the
-            same thing the drag writes — the board's own `.e-time` is single for
-            exactly this reason. */}
-        <b className="bar-time">{`${hhmm(cell.start!)}–${hhmm(cell.end!)}`}</b>
-        {brk && <span>休憩 {hhmm(brk.start)}–{hhmm(brk.end)}</span>}
-      </div>
-      <div className="shift-track">
-        <div
-          className={cell.staged ? 'shift-bar staged' : 'shift-bar'}
-          style={{ left: `${left}%`, width: `${width}%` }}
+      <div className="shift draggable">
+        <button
+          className="shift-open"
+          type="button"
+          aria-label={`${cellLabel(m, day, cell)}。端をドラッグすると開始・終了を30分単位で変えられます`}
+          onClick={() => bar.open(m, day)}
         >
-          <button className="bar-body" type="button" aria-label={label} onClick={() => bar.open(m, day)} />
-          {brk && (
-            <span
-              className="bar-break"
-              aria-hidden="true"
-              style={{
-                left: `${((brk.start - cell.start!) / (cell.end! - cell.start!)) * 100}%`,
-                width: `${((brk.end - brk.start) / (cell.end! - cell.start!)) * 100}%`,
-              }}
-            />
-          )}
-          {draggable &&
-            (['start', 'end'] as const).map((edge) => (
-              <span
-                key={edge}
-                className={`grip ${edge}`}
-                aria-hidden="true"
-                onPointerDown={(e) => bar.down(e, m, day, edge)}
-                onPointerMove={bar.move}
-                onPointerUp={bar.up}
-                onPointerCancel={bar.cancel}
-                onLostPointerCapture={bar.cancel}
-              />
-            ))}
-        </div>
+          {/* ONE TEXT CHILD, deliberately — this is the node the drag writes
+              its live label into. Rendered as three children (`{a}–{b}`) React
+              tracks three text nodes, `textContent` replaces all three with
+              one, and every later React update aims at nodes that are no
+              longer in the document: the drag committed 19:30 and the label
+              went on saying 18:00. Found in the deployed browser, first real
+              drag. A single interpolated child makes React write the PARENT's
+              text, which is the same thing the drag writes — the board's own
+              `.e-time` is single for exactly this reason. */}
+          <b className="bar-time">{`${hhmm(cell.start!)}–${hhmm(cell.end!)}`}</b>
+          {brk && <span>休憩 {hhmm(brk.start)}–{hhmm(brk.end)}</span>}
+        </button>
+        {/* Siblings of the button, never inside it: a release on a handle would
+            otherwise fire the button's click and open the dialog on top of
+            every drag (the board's flag-33 class). Nothing to suppress if the
+            handle is not in the button's subtree. */}
+        {(['start', 'end'] as const).map((edge) => (
+          <span
+            key={edge}
+            className={`grip ${edge}`}
+            aria-hidden="true"
+            onPointerDown={(e) => bar.down(e, m, day, edge)}
+            onPointerMove={bar.move}
+            onPointerUp={bar.up}
+            onPointerCancel={bar.cancel}
+            onLostPointerCapture={bar.cancel}
+          />
+        ))}
       </div>
       {stagedNote(cell)}
     </>

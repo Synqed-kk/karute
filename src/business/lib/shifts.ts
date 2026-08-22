@@ -486,26 +486,26 @@ export function hours(minutes: number): string {
   return `${Number.isInteger(h) ? h : h.toFixed(1)}時間`
 }
 
-// ── the week bar's track, and dragging its ends ─────────────────────────────
+// ── dragging a shift chip's ends ────────────────────────────────────────────
 //
 // ⚖ LIAM 8/22 (E-1): 「slide each box left or right to shrink them, make them
-// longer」. The week cell's shift gains a TIME-TRUE bar in a per-day track, and
-// the bar's two ends are draggable. Everything the drag decides is decided
-// here, as pure arithmetic on minutes — the screen writes geometry to a node
-// and this file says what that geometry MEANS, so the frame in flight and the
-// value that gets committed cannot come from two different rules.
+// longer」 — and, after seeing the first build, 「what are those weird boxes,
+// the bars that are under the shifts?」. The box is CANON'S OWN CHIP, and its
+// two edges are draggable. Everything the drag decides is decided here, as
+// pure arithmetic on minutes: the screen writes the answer to a node and this
+// file says what the answer IS, so the frame in flight and the value that gets
+// committed cannot come from two different rules.
 
 /** ⚠SETTINGS-BATCH — シフトの調整単位. Every edge drag lands on a 30-minute
  *  lattice; a store that books in 15s or 20s will want its own step. Canon's
  *  own board steps in 30 too (`STEP`), so the two rooms agree today. */
 export const SHIFT_STEP_MIN = 30
 
-/** ⚠SETTINGS-BATCH — シフト調整の時間帯. The track is the store's open hours
- *  plus one hour either side: staff open up before the door and close after
- *  it, and a 10:00–19:00 person inside a 10:00–19:00 track would have a bar
- *  pinned to both ends with nowhere to grow — a control that can only shrink.
- *  The margin is a store judgement (some businesses give two hours, some
- *  none), so it is a dial, not a fact. */
+/** ⚠SETTINGS-BATCH — シフト調整の時間帯. How far outside the store's open hours
+ *  an edge may be dragged: staff open up before the door and close after it, so
+ *  a 10:00–19:00 person inside a 10:00–19:00 window could only ever shorten
+ *  their day. The margin is a store judgement (some businesses give two hours,
+ *  some none), so it is a dial, not a fact. */
 export const TRACK_PAD_MIN = 60
 
 export interface TrackWindow {
@@ -517,42 +517,15 @@ export function trackWindow(open: number, close: number): TrackWindow {
   return { from: open - TRACK_PAD_MIN, to: close + TRACK_PAD_MIN }
 }
 
-/** A minute as a percentage across the track, clamped to it. The bar, its
- *  break and the drag's live geometry all go through this one reader. */
-export function trackPct(minute: number, win: TrackWindow): number {
-  const span = win.to - win.from
-  if (span <= 0) return 0
-  return clamp(((minute - win.from) / span) * 100, 0, 100)
-}
-
 /** ⚖ LIAM 8/22 AMENDMENT — THE DRAG IS GEARED, AND THIS IS WHY.
  *
- *  A week cell is about 110px wide and the track spans eleven hours, so an
- *  edge that simply followed the pointer would buy a 30-minute step every ~5
- *  pixels. That is not a control anybody can hit; it is a lottery. So the
- *  pointer's TRAVEL buys steps at a fixed price instead — 18px of movement per
- *  30 minutes — and the bar redraws at the time it bought. The pointer and the
- *  edge therefore separate during a long drag, which is exactly why the live
- *  label is the single truth of what release will commit. */
+ *  A week cell is about 110px wide and a day is eleven hours, so an edge mapped
+ *  to position would buy a 30-minute step every ~5 pixels. That is not a
+ *  control anybody can hit; it is a lottery. So the pointer's TRAVEL buys steps
+ *  at a fixed price instead — 18px of movement per 30 minutes — and the chip's
+ *  own time text counts them off. Which is exactly why that text, and not any
+ *  pixel, is the single truth of what release will commit. */
 export const DRAG_PX_PER_STEP = 18
-
-/** The hit target each handle needs, and the narrowest day track this board is
- *  drawn in. Together they say how short a bar may be before its two handles
- *  would sit on top of each other — below that the cell keeps its dialog and
- *  drops the handles, rather than shipping two controls nobody can tell apart.
- *
- *  79px is measured, not guessed: at the shell's own 1180px floor the week
- *  table is at its 930px min-width, the staff column takes 165px, so a day
- *  column is (930−165)/7 = 109px, less 7px of cell padding each side and the
- *  8px the track is inset by on each side to keep a centred handle inside its
- *  own cell. */
-export const GRIP_PX = 16
-export const NARROW_TRACK_PX = 79
-
-export function dragSafeMinutes(win: TrackWindow): number {
-  const raw = ((win.to - win.from) * GRIP_PX) / NARROW_TRACK_PX
-  return Math.ceil(raw / SHIFT_STEP_MIN) * SHIFT_STEP_MIN
-}
 
 /** Why an edge stopped where it did, when it was not the pointer that decided:
  *  the break it may not cross, the end of the track, or the one-step minimum a

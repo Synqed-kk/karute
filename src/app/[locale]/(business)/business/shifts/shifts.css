@@ -179,54 +179,38 @@
 /* 休み — quiet, and distinct from BOTH 勤務 (indigo) and 欠勤 (red), so the
    week board can say "off" instead of leaving a blank nobody can read. */
 .biz .pg-shifts .shift.rest { border-color: var(--control); background: #f4f4f5; color: var(--ink-3); }
-/* ── the week bar and its handles (⚖ E-1) ──────────────────────────────── */
-/* The chip above stays canon's. THIS is the shift drawn time-true: the track is
-   the store's open hours plus the prep margin, the bar is the hours themselves,
-   and its two ends are grabbable.
-
-   The track is inset 8px so a handle CENTRED on an edge still has its whole hit
-   area inside the cell — a bar sitting at either end of the day would otherwise
-   have half its handle clipped away. */
-.biz .pg-shifts .shift-track {
-  position: relative; height: 16px; margin: 5px 8px 0;
-  border-radius: 4px; background: #f4f4f5; border: 1px solid var(--section);
+/* ── the shift chip's own edges (⚖ E-1, Liam's second ruling) ──────────── */
+/* THE CHIP IS THE BOX. The first build put a second, time-true bar in its own
+   track under the chip and he rejected it on sight — 「what are those weird
+   boxes, the bars that are under the shifts?」. Canon's chip is unchanged at
+   rest: same box, same text, same break line, nothing added. What it gains is
+   two grab zones on its own edges, INVISIBLE until the pointer is on the chip
+   or the keyboard is in it, so the affordance is a response and never
+   furniture. */
+.biz .pg-shifts .shift.draggable { position: relative; }
+/* The dialog's door, and the whole cell's a11y contract: the drag is a pointer
+   convenience and this button is its single-pointer alternative (WCAG 2.5.7)
+   and its keyboard path. Styled to nothing — the chip around it is canon's. */
+.biz .pg-shifts .shift-open {
+  display: block; width: 100%; padding: 0; border: 0;
+  background: transparent; color: inherit; font: inherit; text-align: left;
 }
-.biz .pg-shifts .shift-bar {
-  position: absolute; top: -1px; bottom: -1px;
-  border: 1px solid #b8c5f3; border-radius: 4px; background: var(--indigo-soft);
-}
-.biz .pg-shifts .shift-bar.staged { border-color: var(--indigo); box-shadow: inset 0 0 0 1px var(--indigo); }
-.biz .pg-shifts .shift-bar[data-dragging] { border-color: var(--indigo); background: #dde5fb; }
-/* 休憩, drawn INSIDE the bar and never moved by an edge — an edge that would
-   swallow it stops at its boundary instead (see resizeShift). */
-.biz .pg-shifts .bar-break {
-  position: absolute; top: 2px; bottom: 2px; border-radius: 2px;
-  background: repeating-linear-gradient(135deg, #d9d9de, #d9d9de 2px, #f1f1f3 2px, #f1f1f3 4px);
-}
-/* The body is the dialog's door and the whole cell's a11y contract: the drag is
-   a pointer convenience, and the keyboard path is this button (WCAG 2.5.7 — a
-   dragging gesture needs a single-pointer alternative, and this is it). */
-.biz .pg-shifts .bar-body {
-  position: absolute; inset: 0; width: 100%; border: 0; border-radius: 3px;
-  background: transparent; padding: 0;
-}
-.biz .pg-shifts .bar-body:hover { background: rgba(52, 76, 183, .10); }
-.biz .pg-shifts .bar-body:focus-visible { outline: 3px solid var(--indigo); outline-offset: 1px; }
-/* 16px of hit target regardless of how long the bar is, centred on the edge.
-   The visible grab rule is 4px; the rest is target. Below `dragSafeMinutes` the
-   two would overlap, so the cell ships without them. */
+.biz .pg-shifts .shift-open:focus-visible { outline: 3px solid var(--indigo); outline-offset: 3px; }
 .biz .pg-shifts .grip {
-  position: absolute; top: -3px; bottom: -3px; width: 16px;
+  position: absolute; top: -1px; bottom: -1px; width: 16px;
+  opacity: 0; transition: opacity .12s ease;
   cursor: ew-resize; touch-action: none;
 }
-.biz .pg-shifts .grip.start { left: -8px; }
-.biz .pg-shifts .grip.end { right: -8px; }
+.biz .pg-shifts .grip.start { left: -1px; }
+.biz .pg-shifts .grip.end { right: -1px; }
 .biz .pg-shifts .grip::after {
-  content: ""; position: absolute; top: 3px; bottom: 3px; left: 6px; width: 4px;
-  border-radius: 2px; background: var(--indigo); opacity: .55;
+  content: ""; position: absolute; top: 4px; bottom: 4px; left: 6px; width: 4px;
+  border-radius: 2px; background: var(--indigo);
 }
-.biz .pg-shifts .grip:hover::after,
-.biz .pg-shifts .shift-bar[data-dragging] .grip::after { opacity: 1; }
+.biz .pg-shifts .shift.draggable:hover .grip,
+.biz .pg-shifts .shift.draggable:focus-within .grip,
+.biz .pg-shifts .shift[data-dragging] .grip { opacity: 1; }
+.biz .pg-shifts .shift[data-dragging] { border-color: var(--indigo); }
 
 .biz .pg-shifts .cell-note { display: block; margin-top: 5px; color: var(--quiet); font-size: 12px; }
 .biz .pg-shifts .cell-note.staged { color: var(--indigo); font-weight: 700; }

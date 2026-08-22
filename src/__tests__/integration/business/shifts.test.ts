@@ -57,7 +57,6 @@ import {
   cellFor,
   conflictsOn,
   dayKeyOf,
-  dragSafeMinutes,
   edgeLabel,
   editKey,
   hours,
@@ -69,7 +68,6 @@ import {
   resolveLeaveRequests,
   restWeekday,
   seatOf,
-  trackPct,
   trackWindow,
   weekCoords,
   weekOffsetBounds,
@@ -1229,14 +1227,14 @@ describe('the room borrows the board, and touches nothing it borrows', () => {
 // the pixels are proven by the deployed real-browser pass in the evidence
 // folder, which is the only place a drag can be proven at all.
 
-describe('E-1 · dragging a shift bar’s end', () => {
+describe('E-1 · dragging a shift chip’s end', () => {
   const WIN = trackWindow(10 * 60, 19 * 60) // 09:00–20:00, the fixture store's
   const CELL = { start: 10 * 60, end: 18 * 60, breaks: [{ start: 13 * 60, end: 14 * 60 }] }
 
   it('the window is the store’s open hours plus the prep margin, both sides', () => {
     expect(WIN).toEqual({ from: 9 * 60, to: 20 * 60 })
     // and it is the STORE'S hours it opens from, not a number typed here: a
-    // store open 08:00–22:00 gets its own track.
+    // store open 08:00–22:00 gets its own window.
     expect(trackWindow(8 * 60, 22 * 60)).toEqual({ from: 7 * 60, to: 23 * 60 })
   })
 
@@ -1259,7 +1257,7 @@ describe('E-1 · dragging a shift bar’s end', () => {
 
   it('AN EDGE NEVER MOVES THE BREAK — it stops at its boundary and says so', () => {
     // Pulling the end back through 13:00–14:00 stops at 14:00, and the label
-    // names the break rather than the bar just refusing to move.
+    // names the break rather than the chip just refusing to move.
     const clamped = resizeShift(CELL, 'end', -10, WIN)
     expect(clamped).toEqual({ start: 10 * 60, end: 14 * 60, clamp: 'break' })
     expect(edgeLabel(clamped)).toBe('10:00–14:00（休憩まで）')
@@ -1273,7 +1271,7 @@ describe('E-1 · dragging a shift bar’s end', () => {
     expect(edgeLabel(noBreak)).toBe('10:00–10:30（最短30分）')
   })
 
-  it('neither end leaves the track, and the label says which wall it hit', () => {
+  it('neither end leaves the window, and the label says which wall it hit', () => {
     const late = resizeShift(CELL, 'end', 20, WIN)
     expect(late).toEqual({ start: 10 * 60, end: 20 * 60, clamp: 'window' })
     expect(edgeLabel(late)).toBe('10:00–20:00（営業時間まで）')
@@ -1283,62 +1281,60 @@ describe('E-1 · dragging a shift bar’s end', () => {
     expect(edgeLabel(resizeShift(CELL, 'end', 1, WIN))).toBe('10:00–18:30')
   })
 
-  it('the bar is drawn TIME-TRUE inside the track, and clamped to it', () => {
-    expect(trackPct(9 * 60, WIN)).toBe(0)
-    expect(trackPct(20 * 60, WIN)).toBe(100)
-    // 10:00 is one hour into an eleven-hour track.
-    expect(trackPct(10 * 60, WIN)).toBeCloseTo(100 / 11, 6)
-    // Midpoint, and anything outside is held at the wall rather than drawn off
-    // the end of its own cell.
-    expect(trackPct(14 * 60 + 30, WIN)).toBe(50)
-    expect(trackPct(6 * 60, WIN)).toBe(0)
-    expect(trackPct(23 * 60, WIN)).toBe(100)
-  })
-
   it('THE DRAG IS GEARED — pointer travel buys steps, position does not', () => {
-    // ⚖ 8/22 amendment. A day column is ~110px over an eleven-hour track: an
-    // edge that followed the pointer would buy a step every ~5px, which is a
-    // lottery, not a control. The gate is the amendment's own floor.
+    // ⚖ 8/22 amendment. A day column is ~110px and a day is eleven hours: an
+    // edge mapped to position would buy a step every ~5px, which is a lottery,
+    // not a control. The gate is the amendment's own floor.
     expect(DRAG_PX_PER_STEP).toBeGreaterThanOrEqual(14)
     // And the screen actually divides TRAVEL by it. `Math.round(dx / px)` is
-    // the whole gearing; a track-width percentage anywhere in the drag path is
-    // the raw mapping the amendment forbids.
+    // the whole gearing; any width-derived percentage in the drag path is the
+    // raw mapping the amendment forbids.
     const drag = SRC.slice(SRC.indexOf('const spanAt ='), SRC.indexOf('function onGripUp('))
     expect(drag).toContain('/ DRAG_PX_PER_STEP')
     expect(drag).not.toContain('getBoundingClientRect')
     expect(SRC).not.toContain('deltaPctIn')
   })
 
-  it('a bar too short for two handles ships WITHOUT them, and says so', () => {
-    // 16px of hit target each, on the narrowest day column this board is drawn
-    // in — below that the two handles would sit on top of each other, and two
-    // controls nobody can tell apart is the fiddly control the amendment bans.
-    expect(dragSafeMinutes(WIN)).toBe(150)
-    // It is derived from the WINDOW, not typed: a wider day needs more minutes
-    // to buy the same 16 pixels.
-    expect(dragSafeMinutes(trackWindow(8 * 60, 22 * 60))).toBe(210)
-    const cell = SRC.slice(SRC.indexOf('function WeekCell('), SRC.indexOf('function monthCell('))
-    expect(cell).toContain('cell.end! - cell.start! >= bar.minDragMinutes')
-    expect(cell).toContain('短い勤務の時間はダイアログで変えます')
-    expect(cell).toContain('{draggable &&')
-  })
-
   it('ONLY a 勤務 cell has handles — nothing else has hours to pull', () => {
-    // 定休日, 休み, 希望休, 勤務不可 and 勤務予定なし all return before the bar.
+    // 定休日, 休み, 希望休, 勤務不可 and 勤務予定なし all return before the chip.
     const cell = SRC.slice(SRC.indexOf('function WeekCell('), SRC.indexOf('function monthCell('))
-    const beforeBar = cell.slice(0, cell.indexOf('shift-track'))
-    expect(beforeBar).toContain("cell.kind === 'closed'")
-    expect(beforeBar).toContain("cell.kind === 'none'")
-    expect(beforeBar).toContain("cell.kind === 'partial'")
-    expect(beforeBar).toContain("cell.kind === 'leave-pending'")
-    expect(beforeBar).toContain("cell.kind === 'rest'")
-    expect(beforeBar).not.toContain('grip')
+    const beforeChip = cell.slice(0, cell.indexOf('shift draggable'))
+    expect(beforeChip).toContain("cell.kind === 'closed'")
+    expect(beforeChip).toContain("cell.kind === 'none'")
+    expect(beforeChip).toContain("cell.kind === 'partial'")
+    expect(beforeChip).toContain("cell.kind === 'leave-pending'")
+    expect(beforeChip).toContain("cell.kind === 'rest'")
+    expect(beforeChip).not.toContain('grip')
     // and the handler refuses a non-work cell even if one were reached
     expect(SRC).toContain("if (cell.kind !== 'work' || cell.start === null || cell.end === null) return")
     // MONTH cells stay dialog-only (too small to hold a handle at all).
     const month = SRC.slice(SRC.indexOf('function monthCell('))
     expect(month).not.toContain('grip')
     expect(CSS).not.toContain('.month-table .grip')
+  })
+
+  it('⚖ THE CHIP IS THE BOX — no second element under it, nothing at rest', () => {
+    // Liam saw the first build on the viewing channel: 「what are those weird
+    // boxes, the bars that are under the shifts?」. The under-chip track is
+    // gone from every cell, and the handles are INVISIBLE until the pointer is
+    // on the chip or the keyboard is in it — an affordance that answers, never
+    // furniture that stands there.
+    for (const dead of ['shift-track', 'shift-bar', 'bar-break', 'bar-body']) {
+      expect(SRC).not.toContain(dead)
+      expect(CSS).not.toContain(dead)
+    }
+    // ONE element carries the shift: canon's own chip.
+    const cell = SRC.slice(SRC.indexOf('function WeekCell('), SRC.indexOf('function monthCell('))
+    expect((cell.match(/className="shift draggable"/g) ?? []).length).toBe(1)
+    // At rest the handles have no opacity at all…
+    const grip = CSS.slice(CSS.indexOf('.biz .pg-shifts .grip {'))
+    expect(grip.slice(0, grip.indexOf('}'))).toContain('opacity: 0')
+    // …and they come back on the three interactions, and only those.
+    expect(CSS).toContain('.biz .pg-shifts .shift.draggable:hover .grip,\n.biz .pg-shifts .shift.draggable:focus-within .grip,\n.biz .pg-shifts .shift[data-dragging] .grip { opacity: 1; }')
+    // NOT true for two reasons: a `display: none` handle would also be absent
+    // at rest and would never come back, so the zones have to be THERE.
+    expect(grip.slice(0, grip.indexOf('}'))).not.toContain('display: none')
+    expect(grip.slice(0, grip.indexOf('}'))).toContain('cursor: ew-resize')
   })
 
   it('the release commits through the DIALOG’S OWN staging seam, once', () => {
@@ -1363,15 +1359,14 @@ describe('E-1 · dragging a shift bar’s end', () => {
     expect(CSS).toContain('.biz .pg-shifts .toast.warn { border-left-color: var(--orange-line); }')
   })
 
-  it('EVERY release puts the node back where React left it, first', () => {
+  it('EVERY release puts the text back where React left it, first', () => {
     // The frames were written outside React. If a commit follows, React diffs
-    // from the geometry it believes in; if nothing is committed there is no
-    // re-render at all, so the restore is the only thing that puts the bar
-    // back. Clearing the inline styles instead would drop it to 0%.
+    // from the text it believes in and rewrites it; if nothing is committed
+    // there is no re-render at all, so this restore is the only thing that
+    // takes the mid-drag hours back off the chip.
     const end = SRC.slice(SRC.indexOf('const endEdgeDrag ='), SRC.indexOf('const spanAt ='))
     expect(end).toContain('paintEdge(d, { start: d.origin.start, end: d.origin.end, clamp: null })')
     expect(end.indexOf('paintEdge(d,')).toBeLessThan(end.indexOf('bookingRefusal('))
-    expect(end).not.toContain(".style.left = ''")
   })
 
   it('THE LIVE LABEL IS ONE TEXT NODE — or React stops updating it', () => {
@@ -1397,7 +1392,6 @@ describe('E-1 · dragging a shift bar’s end', () => {
     expect(move).toContain('if (d.frame !== null) return') // coalesced: newest wins
     expect(move).not.toMatch(/\bset[A-Z]/) // no state setter of any kind
     const paint = SRC.slice(SRC.indexOf('const paintEdge ='), SRC.indexOf('const endEdgeDrag ='))
-    expect(paint).toContain('d.bar.style.left')
     expect(paint).toContain('d.label.textContent = edgeLabel(span)')
     expect(paint).not.toMatch(/\bset[A-Z]/)
   })
@@ -1406,7 +1400,7 @@ describe('E-1 · dragging a shift bar’s end', () => {
     const down = SRC.slice(SRC.indexOf('function onGripDown('), SRC.indexOf('function onGripMove('))
     expect(down).toContain('handle.setPointerCapture(e.pointerId)')
     // canon's own self-heal: a move with no button down means the release was
-    // lost, and the bar would otherwise stay stuck to the cursor.
+    // lost, and the chip would otherwise stay stuck to the cursor.
     expect(SRC).toContain('if (e.buttons === 0) { endEdgeDrag(null); return }')
     // Recomputed at pointerup rather than trusting the last frame Chrome sent.
     const up = SRC.slice(SRC.indexOf('function onGripUp('), SRC.indexOf('const bar: BarWiring'))
@@ -1418,22 +1412,25 @@ describe('E-1 · dragging a shift bar’s end', () => {
   })
 
   it('the drag has a single-pointer alternative, which is the dialog (WCAG 2.5.7)', () => {
-    // The handles are pointer sugar; the bar's BODY opens the same dialog the
+    // The handles are pointer sugar; the CHIP'S BODY opens the same dialog the
     // month board uses, and that dialog is the keyboard path.
     const cell = SRC.slice(SRC.indexOf('function WeekCell('), SRC.indexOf('function monthCell('))
-    expect(cell).toContain('className="bar-body" type="button"')
+    expect(cell).toContain('className="shift-open"')
     expect(cell).toContain('onClick={() => bar.open(m, day)}')
+    expect(CSS).toContain('.biz .pg-shifts .shift-open:focus-visible')
     expect(cell).toContain('端をドラッグすると開始・終了を30分単位で変えられます')
     // The handles carry no a11y contract of their own — the button states it.
     expect(cell).toMatch(/className=\{`grip \$\{edge\}`\}[\s\S]*?aria-hidden="true"/)
   })
 
-  it('a staged bar wears the staged marker, and a drag on it edits the staged hours', () => {
+  it('a staged cell keeps canon’s own marker, and a drag on it edits the staged hours', () => {
     // Last write wins per (person, day) — the Map the screen builds does that
     // for free, so a second drag on the same cell is simply another append.
+    // The chip itself gains NOTHING when staged (⚖ nothing added at rest); the
+    // 「この画面での変更」 note under the cell is the marker, as it was.
     const cell = SRC.slice(SRC.indexOf('function WeekCell('), SRC.indexOf('function monthCell('))
-    expect(cell).toContain("cell.staged ? 'shift-bar staged' : 'shift-bar'")
-    expect(CSS).toContain('.biz .pg-shifts .shift-bar.staged')
+    expect(cell).toContain('{stagedNote(cell)}')
+    expect(cell).not.toMatch(/className=\{cell\.staged \?/)
     // The drag reads the CELL, which is `cellFor`'s answer — staged or not.
     expect(SRC).toContain('const cell = at(m.id, day.dayKey)')
     // And a staged cell has no break to protect, so its whole span is draggable.
