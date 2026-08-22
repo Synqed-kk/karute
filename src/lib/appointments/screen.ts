@@ -98,6 +98,22 @@ export interface AppointmentsScreen {
     isManagement?: boolean
   }[]
   reservationStaff: ReservationStaff[]
+  /** The palette source for the day grid: every staff id in the ACTIVE STORE
+   *  (the same store-scoped list the lanes are filtered from), NOT the business
+   *  roster. assignStaffColors hands out colors by sorted position, so feeding
+   *  it the lane list — which the management rule now shortens — would re-hue
+   *  everyone after a hidden member on the days that member is idle. Taking the
+   *  store list one level up fixes that: hues are stable across a toggle flip
+   *  because the store roster doesn't move when the flag does.
+   *
+   *  Deliberately NOT the business roster: under the store-isolation law a
+   *  branch's staff must not receive other stores' ids at all, and this array
+   *  ships to the client. The residual cost is that appointment CARDS are still
+   *  colored business-wide (appointmentsToReservationViews), so in a
+   *  multi-store tenant a lane avatar and a card avatar can pick different hues
+   *  for the same person — the pre-existing #496 mismatch, unchanged by this
+   *  PR rather than fixed by it. */
+  colorRosterIds: string[]
   visibleActiveStaffId: string | null
   reservationViews: ReservationView[]
   businessHours: { start: number; end: number }
@@ -155,16 +171,37 @@ export function buildAppointmentsScreen(
     isManagement: s.isManagement ?? false,
   }))
 
-  const reservationStaff: ReservationStaff[] = visibleStaff.map((s) => ({
-    id: s.id,
-    name: s.full_name ?? 'Unknown',
-    // The person's own 役職 first; else the authority code mapped to Japanese
-    // (never the raw enum — the grid was leaking "STYLIST" under every name).
-    role: s.position ?? staffRoleLabel(s.display_role),
-    // TODO(phase-1.5): wire synqed-core role to derive takesBookings
-    takesBookings: true,
-    initials: (s.full_name ?? '?').trim().slice(0, 1) || '?',
-  }))
+  // 経営メンバー drop OUT of the day grid — but only on days they have nothing
+  // on. Counting ALL of today's rows, cancelled and no-show included, is
+  // deliberate (Liam ruling Ⓑ): hiding the lane would make a same-day
+  // cancellation vanish from the grid entirely, which is exactly when the
+  // salon needs to see it. The viewer always keeps their own lane.
+  //
+  // A FILTER on the already-store-scoped list, never a union back over the
+  // raw roster — a union would re-admit another branch's staff.
+  const bookedToday = new Set(dayAppointments.map((a) => a.staff_profile_id))
+  const reservationStaff: ReservationStaff[] = visibleStaff
+    .filter(
+      (s) =>
+        !(s.isManagement ?? false) ||
+        s.id === activeStaffId ||
+        // Explicitly filtering 担当 to this person is a direct request to see
+        // THEIR day — returning an empty grid instead would make the 担当
+        // filter look broken on exactly the members the view filter is
+        // required to keep offering (ruling Ⓒ).
+        s.id === staffFilter ||
+        bookedToday.has(s.id),
+    )
+    .map((s) => ({
+      id: s.id,
+      name: s.full_name ?? 'Unknown',
+      // The person's own 役職 first; else the authority code mapped to Japanese
+      // (never the raw enum — the grid was leaking "STYLIST" under every name).
+      role: s.position ?? staffRoleLabel(s.display_role),
+      // TODO(phase-1.5): wire synqed-core role to derive takesBookings
+      takesBookings: true,
+      initials: (s.full_name ?? '?').trim().slice(0, 1) || '?',
+    }))
 
   // QR "returning customer" flag per client (cached customer list). A known
   // existing customer is NEVER 新規 — even with no karute/past appointment yet
@@ -293,6 +330,7 @@ export function buildAppointmentsScreen(
   return {
     staff,
     reservationStaff,
+    colorRosterIds: visibleStaff.map((s) => s.id),
     visibleActiveStaffId,
     reservationViews,
     businessHours,

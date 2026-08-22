@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { CustomerCombobox } from '@/components/karute/CustomerCombobox'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
+import { StaffCombobox, type StaffComboboxOption } from '@/components/karute/StaffCombobox'
 import { QuickCreateCustomer } from '@/components/karute/QuickCreateCustomer'
 import { MenuCombobox, formatYen } from '@/components/appointments/MenuCombobox'
 import { createAppointment } from '@/actions/appointments'
@@ -27,7 +28,10 @@ interface NewBookingDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   customers: CustomerOption[]
-  staff: { id: string; name: string }[]
+  staff: StaffComboboxOption[]
+  /** The signed-in user's own staff id — never hidden from the picker, even
+   *  when they are a 経営メンバー (they must be able to book themselves). */
+  selfStaffId?: string | null
   /** Pre-filled date (YYYY-MM-DD) when opening from a specific calendar day. */
   initialDate?: string
   /** Pre-filled time (HH:MM) when opening from a slot tap. */
@@ -66,6 +70,7 @@ export function NewBookingDialog({
   onOpenChange,
   customers,
   staff,
+  selfStaffId,
   initialDate,
   initialTime,
   initialStaffId,
@@ -363,17 +368,15 @@ export function NewBookingDialog({
               )}
             </div>
             <Field label={t('newBookingDialog.staff')}>
-              <select
-                value={staffId}
-                onChange={(e) => setStaffId(e.target.value)}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              >
-                {staff.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+              {/* Searchable: 経営メンバー are out of the default list but stay
+               *  bookable by typing. selfId keeps the seeded viewer visible
+               *  even when they are one (the #496 misfile class). */}
+              <StaffCombobox
+                staff={staff}
+                selectedId={staffId || null}
+                onSelect={setStaffId}
+                selfId={selfStaffId ?? null}
+              />
             </Field>
           </div>
 

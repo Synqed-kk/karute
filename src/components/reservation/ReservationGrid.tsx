@@ -24,20 +24,27 @@ interface ReservationGridProps {
   staff: ReservationStaff[]
   reservations: ReservationView[]
   businessHours: BusinessHours
+  /** Every staff id in the ACTIVE STORE. assignStaffColors assigns by sorted
+   *  position, so the palette must come from the store roster, not from the
+   *  lanes actually drawn — otherwise hiding one member re-hues everyone after
+   *  them. Omitted OR EMPTY → today's behavior (colored over the lanes): the
+   *  facade DTO defaults this to [] so a skewed bundle can't blank the screen,
+   *  and [] must degrade to the old look, not paint every lane neutral. */
+  colorRosterIds?: readonly string[]
   onSelect?: (view: ReservationView) => void
 }
 
-export function ReservationGrid({ staff, reservations, businessHours, onSelect }: ReservationGridProps) {
+export function ReservationGrid({ staff, reservations, businessHours, colorRosterIds, onSelect }: ReservationGridProps) {
   const t = useTranslations('reservation')
   const ppm = HOUR_WIDTH / 60
   const totalWidth = (businessHours.end - businessHours.start) * HOUR_WIDTH
   const laneStackHeight = staff.length * STAFF_ROW_HEIGHT
-  // Distinct color per staff over the FULL roster shown in the grid — same
-  // sorted-index assignment the adapter uses, so the column avatar and the
-  // appointment-card avatars line up on the same hue.
+  // Distinct color per staff over the ACTIVE STORE's roster (colorRosterIds) —
+  // same sorted-index assignment the adapter uses, so the column avatar and
+  // the appointment-card avatars line up on the same hue.
   const staffColors = useMemo(
-    () => assignStaffColors(staff.map((s) => s.id)),
-    [staff],
+    () => assignStaffColors(colorRosterIds?.length ? colorRosterIds : staff.map((s) => s.id)),
+    [colorRosterIds, staff],
   )
 
   return (

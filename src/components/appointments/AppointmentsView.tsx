@@ -47,6 +47,9 @@ interface AppointmentsViewProps {
     name: string
     avatarInitials: string
     avatarUrl?: string
+    /** 経営メンバー — hidden from the booking picker's default list (the 担当
+     *  view filter below keeps offering everyone). */
+    isManagement?: boolean
   }[]
   activeStaffId: string | null
   authProfileId: string | null
@@ -62,6 +65,9 @@ interface AppointmentsViewProps {
   monthStartIso: string | null
   reservationViews: ReservationView[]
   reservationStaff: ReservationStaff[]
+  /** The ACTIVE STORE's staff ids — the grid's color palette source (a
+   *  経営メンバー dropping out of the lanes must not repaint anyone). */
+  colorRosterIds?: readonly string[]
   businessHours: BusinessHours
   /** Active staff filter ('all' | 'self' | <staffId>) read from ?staff= URL
    *  param by the server. The ReservationStaffFilter widget mutates the URL
@@ -396,6 +402,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
                *  them as tombstones. */}
               <ReservationGrid
                 staff={props.reservationStaff}
+                colorRosterIds={props.colorRosterIds}
                 reservations={props.reservationViews.filter((r) => !r.isCancelled && !r.isNoShow)}
                 businessHours={props.businessHours}
                 onSelect={setSelected}
@@ -447,7 +454,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         customers={props.customers}
-        staff={props.staff.map((s) => ({ id: s.id, name: s.name }))}
+        staff={props.staff.map((s) => ({
+          id: s.id,
+          name: s.name,
+          isManagement: s.isManagement,
+        }))}
+        selfStaffId={props.authProfileId}
         menus={props.menus}
         initialDate={ymdInJst(selectedDate)}
         initialStaffId={props.activeStaffId}

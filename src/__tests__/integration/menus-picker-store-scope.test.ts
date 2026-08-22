@@ -31,7 +31,12 @@ jest.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: 'auth-1' } } }) } }),
 }))
 jest.mock('@/lib/staff', () => ({
-  getStaffList: async () => [],
+  // F-5/M22 (fix round 2026-09-01): a non-empty roster so colorRosterIds
+  // isn't trivially [] either way — the existing menu-scope tests below
+  // don't read staffList's content, only `menus`, so this stays safe for them.
+  getStaffList: async () => [
+    { id: 'staff-1', full_name: 'Staff One', has_pin: false, created_at: '2026-01-01T00:00:00.000Z' },
+  ],
   getCurrentUserStaffId: async () => 'staff-1',
   getBusinessId: async () => 'biz-1',
 }))
@@ -97,6 +102,18 @@ async function pickerMenus(): Promise<CachedMenuOption[]> {
   return view.props.menus as CachedMenuOption[]
 }
 
+/** F-5/M22: colorRosterIds prop the page hands the grid, same read-the-tree
+ *  idiom as pickerMenus() above. */
+async function pickerColorRosterIds(): Promise<readonly string[]> {
+  const tree = (await AppointmentsPage({
+    params: Promise.resolve({ locale: 'ja' }),
+    searchParams: Promise.resolve({}),
+  })) as ReactElement<{ children: ReactElement<{ colorRosterIds?: readonly string[] }>[] }>
+  const view = tree.props.children.find((c) => c?.props && 'colorRosterIds' in c.props)
+  if (!view) throw new Error('AppointmentsView (the colorRosterIds consumer) is not in the page tree')
+  return view.props.colorRosterIds ?? []
+}
+
 beforeEach(() => {
   jest.clearAllMocks()
   getCachedMenuOptions.mockResolvedValue(CATALOG)
@@ -142,5 +159,14 @@ describe('予約 picker menu scope (web page)', () => {
       storeId: MINE, viewAll: false, allowedStoreIds: null, degraded: true,
     })
     expect(await pickerMenus()).toEqual([ALL_STORE])
+  })
+})
+
+describe('予約 day-grid colorRosterIds transport (F-5/M22, web page)', () => {
+  it('the page threads the built roster ids to AppointmentsView, not an empty/dropped prop', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: MINE, viewAll: true, allowedStoreIds: null, degraded: false,
+    })
+    expect(await pickerColorRosterIds()).toEqual(['staff-1'])
   })
 })

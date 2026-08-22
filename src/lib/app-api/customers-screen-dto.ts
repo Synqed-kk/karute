@@ -69,7 +69,15 @@ export const CustomersScreenDTO = z.object({
    *  Deliberately NOT the same list as staffList above: 指名 stays tenant-wide
    *  pending the owner's ruling on whether it should also scope to store
    *  (P-2, 2026-08-17 fix round). */
-  assignableStaff: z.array(z.object({ id: z.string(), name: z.string() })),
+  assignableStaff: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      /** 経営メンバー — rides through so the 指名スタッフ combobox can hide
+       *  management members from its default list (search reveals). */
+      isManagement: z.boolean().optional(),
+    }),
+  ),
   /** Per-customer 今月消化 yen (mtd + prev-month same window), keyed by
    *  customer id. null = burn source unavailable (honesty gate). */
   burnByCustomer: z

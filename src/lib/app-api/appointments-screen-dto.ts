@@ -134,6 +134,16 @@ export const AppointmentsScreenDTO = z.object({
       initials: z.string(),
     }),
   ),
+  /** Palette source for the day grid — the active store's staff ids. Without
+   *  it the phone falls back to coloring over the LANE list, which the
+   *  management rule shortens, so an idle 経営メンバー re-hues everyone after
+   *  them for that day only.
+   *
+   *  .default([]) for the same bundle-skew reason as `menus` above: the thin
+   *  bundle parses this schema from a baked copy, so a required key would blank
+   *  the whole 予約 screen on any bundle/server skew. Empty → ReservationGrid's
+   *  own `?? staff.map(...)` fallback, i.e. today's behavior. */
+  colorRosterIds: z.array(z.string()).default([]),
   businessHours: z.object({ start: z.number(), end: z.number() }),
   weekData: z.array(WeekDayCardDataDTO).nullable(),
   weekStartIso: z.string().nullable(),

@@ -8,6 +8,7 @@
 // last visit · usual course · joined date — the at-a-glance facts
 // staff scans before a session.
 
+import type { StaffComboboxOption } from '@/components/karute/StaffCombobox'
 import {
   Briefcase,
   Cake,
@@ -31,7 +32,7 @@ interface CustomerIdentityCardProps {
   c: CustomerProfileData
   /** Passed through to the edit dialog's staff picker (thin app threads the
    *  roster from the screen DTO; web leaves it undefined → self-fetch). */
-  assignableStaff?: { id: string; name: string }[]
+  assignableStaff?: StaffComboboxOption[]
 }
 
 export function CustomerIdentityCard({ c, assignableStaff }: CustomerIdentityCardProps) {

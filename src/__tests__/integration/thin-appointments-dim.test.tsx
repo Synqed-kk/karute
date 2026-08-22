@@ -13,9 +13,14 @@ jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
 }))
 // Screen internals are pinned elsewhere (app-api-screens-appointments) — this
-// suite pins the WRAPPER's dim derivation only.
+// suite pins the WRAPPER's dim derivation, plus (F-5/M24) that colorRosterIds
+// actually survives the thin transport hop into AppointmentsView's props.
+let capturedThinProps: { colorRosterIds?: readonly string[] } | null = null
 jest.mock('@/components/appointments/AppointmentsView', () => ({
-  AppointmentsView: () => <div data-testid="appointments-view">VIEW</div>,
+  AppointmentsView: (props: { colorRosterIds?: readonly string[] }) => {
+    capturedThinProps = props
+    return <div data-testid="appointments-view">VIEW</div>
+  },
 }))
 // AppointmentsScreen → screen-prefetch.ts now statically imports
 // global-recorder.ts (blind-round fix, recorder guard) — same two
@@ -47,6 +52,7 @@ const DTO = {
   customers: [],
   reservationViews: [],
   reservationStaff: [],
+  colorRosterIds: ['staff-1'],
   businessHours: { start: 9, end: 20 },
   weekData: null,
   weekStartIso: null,
@@ -63,6 +69,16 @@ const dimmed = (container: HTMLElement) =>
 beforeEach(() => {
   dtoCache.clear()
   history.replaceState({}, '', '/appointments?date=2026-07-23')
+  capturedThinProps = null
+})
+
+it('F-5/M24: colorRosterIds survives the thin transport hop into AppointmentsView', async () => {
+  const apiFetch = jest.fn<Promise<Response>, unknown[]>().mockResolvedValueOnce(jsonResponse(DTO))
+  setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+  render(<AppointmentsScreen />)
+  await waitFor(() => expect(screen.getByTestId('appointments-view')).toBeTruthy())
+  expect(capturedThinProps?.colorRosterIds).toEqual(['staff-1'])
 })
 
 it('same-path background revalidate does NOT dim or input-block the screen', async () => {
