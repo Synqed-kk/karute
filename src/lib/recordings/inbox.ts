@@ -142,10 +142,17 @@ export interface InboxRow {
   canRetry: boolean
 }
 
-/** The states that mean a human still owes this recording something. 処理中 and
- *  保存済み are deliberately NOT counted — nothing to do. */
+/** The states that mean a human still owes this recording something AND can
+ *  actually act on it. 処理中 and 保存済み are deliberately NOT counted —
+ *  nothing to do. A failed row with no retryable take is also excluded — no
+ *  再試行 button renders for it (see canRetry), so counting it would demand
+ *  an action the staff member cannot perform. */
 export function needsAttention(row: InboxRow): boolean {
-  return row.state === 'awaiting-check' || row.state === 'failed' || row.state === 'recoverable'
+  return (
+    row.state === 'awaiting-check' ||
+    (row.state === 'failed' && row.canRetry) ||
+    row.state === 'recoverable'
+  )
 }
 
 export function countNeedsAttention(rows: readonly InboxRow[]): number {

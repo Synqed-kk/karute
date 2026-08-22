@@ -173,6 +173,7 @@ describe('録音履歴 — the cases where we do NOT know', () => {
     expect(row.state).toBe('failed')
     expect(row.reason).toBe('genericFailure')
     expect(row.canRetry).toBe(false)
+    expect(needsAttention(row)).toBe(false)
   })
 })
 
@@ -192,6 +193,7 @@ describe('録音履歴 — 再試行 is offered only when the audio is here', ()
     ])
     expect(row.canRetry).toBe(false)
     expect(row.takeId).toBeNull()
+    expect(needsAttention(row)).toBe(false)
   })
 
   it('DONE-with-no-record offers retry only with the audio', () => {
@@ -202,6 +204,7 @@ describe('録音履歴 — 再試行 is offered only when the audio is here', ()
     const without = fold([session({ recordingSessionId: 's2', jobStatus: 'DONE' })])[0]
     expect(withAudio.canRetry).toBe(true)
     expect(without.canRetry).toBe(false)
+    expect(needsAttention(without)).toBe(false)
   })
 })
 
@@ -285,7 +288,7 @@ describe('録音履歴 — window, ordering and the count', () => {
     expect(rows.map((r) => r.recordingSessionId)).toEqual(['a', 'b', 'c'])
   })
 
-  it('要対応 counts 確認待ち + 失敗 + 復元可能 — never 処理中 or 保存済み', () => {
+  it('要対応 counts 確認待ち + 失敗(再試行可能のみ) + 復元可能 — never 処理中 or 保存済み', () => {
     const rows = fold(
       [
         session({ recordingSessionId: 'saved', karuteRecordId: 'r1' }),
@@ -299,7 +302,17 @@ describe('録音履歴 — window, ordering and the count', () => {
         take({ takeId: 'tr', recordingSessionId: 'recover' }),
       ],
     )
-    expect(countNeedsAttention(rows)).toBe(3)
+    // 'failed' has no matching take here → canRetry false → excluded from the count.
+    expect(countNeedsAttention(rows)).toBe(2)
+  })
+
+  it('a 失敗 row WITH a retryable take IS counted (the surviving half of the rule)', () => {
+    const rows = fold(
+      [session({ recordingSessionId: 'failed', jobStatus: 'FAILED', jobLastError: 'x' })],
+      [take({ takeId: 't1', recordingSessionId: 'failed' })],
+    )
+    expect(rows[0].canRetry).toBe(true)
+    expect(countNeedsAttention(rows)).toBe(1)
   })
 
   it('the count decays to zero once every row is settled (the badge disappears)', () => {
