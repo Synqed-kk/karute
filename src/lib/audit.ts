@@ -624,9 +624,15 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // params and `locale` from a query string — so there is no "mode" for a
   // second action to depend on; regenerateKaruteWithClient (src/actions/
   // regenerate-karute.ts) never mentions a summary-regenerate action either.
-  // Only karute.entries_regenerate exists. LIVE as of lane 2026-08-30: the
-  // facade's generic success hook now auto-emits this row on every 2xx (no
-  // writer of its own on this route — logFacadeAudit IS the emitter, same as
+  // Only karute.entries_regenerate exists. LIVE as of lane 2026-08-30, fixed
+  // in the FIX ROUND 1 follow-up (success-only audit law): the facade's
+  // generic success hook auto-emits this row on a 2xx SUCCESS body only, with
+  // counts detail (added/removed — parity with the web wrappers' rows,
+  // FacadeContext.auditDetail). The route's regenerateKaruteWithClient call
+  // also returns HTTP 200 for a SOFT failure ({error}, e.g. "No transcript to
+  // regenerate from.") — the route now suppresses that case via
+  // ctx.auditSuppress so no row is written for a no-op (no writer of its own
+  // on this route — logFacadeAudit IS the emitter, same as
   // customer.photo.delete/sync.run). The two web wrappers
   // (regenerateKarute/regenerateKaruteEntries, src/actions/
   // regenerate-karute.ts) emit their own success-only auditWeb() row instead

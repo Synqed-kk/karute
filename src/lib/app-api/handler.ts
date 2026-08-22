@@ -66,6 +66,13 @@ export interface FacadeContext<P = Record<string, string>> {
    *  auditStoreId. Unset falls back to params.id, but ONLY when it's
    *  UUID-shaped — see logFacadeAudit. */
   auditTargetId?: string
+  /** Per-request opt-out from the success-hook emit (success-only audit law):
+   *  a route that returns a 2xx whose BODY is a soft FAILURE (e.g. karute
+   *  regenerate's `{error}` result — no transcript, extraction failed) sets a
+   *  short reason here and the hook then writes nothing for this request.
+   *  Same additive-only contract as auditDetail/auditStoreId/auditTargetId —
+   *  additive per-request opt-out, never set on a real success. */
+  auditSuppress?: string
 }
 
 type FacadeFn<P> = (ctx: FacadeContext<P>) => Promise<Response>
@@ -134,6 +141,7 @@ export function facadeHandler<P = Record<string, string>>(
         ctx.auditDetail,
         ctx.auditStoreId,
         ctx.auditTargetId,
+        ctx.auditSuppress,
       )
       return res
     } catch (err) {
@@ -163,11 +171,15 @@ async function logFacadeAudit(
   routeDetail?: FacadeContext['auditDetail'],
   routeStoreId?: string,
   routeTargetId?: string,
+  routeSuppress?: string,
 ): Promise<void> {
   try {
     // 2xx only — a redirect or other non-success must not read as a completed
     // action (Greptile round: redirects counted as actions under `< 400`).
     if (res.status < 200 || res.status >= 300) return
+    // Success-only audit law: a route can mark its own 2xx body a soft
+    // failure — see FacadeContext.auditSuppress.
+    if (routeSuppress) return
     // FACADE_AUDIT_MAP is a TOTAL Record<FacadeEndpointKey,...> — `rule` can
     // only be undefined here if a bogus key reached this function past the
     // compile-time union (a JS-boundary caller, e.g. `as FacadeEndpointKey`,

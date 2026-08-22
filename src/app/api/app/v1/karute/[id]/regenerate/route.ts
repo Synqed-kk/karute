@@ -46,6 +46,16 @@ export const POST = facadeHandler<Params>('karute.regenerate', async (ctx) => {
     locale: readLocale(ctx),
     businessId: ctx.identity.businessId,
   })
+  // Success-only audit law (FacadeContext.auditSuppress): this route returns
+  // HTTP 200 even for a soft failure ({error}, e.g. "No transcript to
+  // regenerate from.") — suppress so the facade hook never writes a
+  // karute.entries_regenerate row for a no-op. On real success, mirror the
+  // web wrapper's counts-only detail (regenerateKarute, regenerate-karute.ts).
+  if (result.error) {
+    ctx.auditSuppress = 'soft_failure'
+  } else {
+    ctx.auditDetail = { added: result.added ?? 0, removed: result.removed ?? 0 }
+  }
   return ok(ctx, result)
 })
 

@@ -157,6 +157,34 @@ describe('POST /karute/[id]/regenerate (Decision 2)', () => {
     expect(update).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000007', { ai_summary: '・肩こり改善傾向' })
   })
 
+  // Fix round (success-only audit law): the facade hook auto-emits from
+  // ctx.auditDetail/ctx.auditSuppress set by the route itself — see
+  // handler.ts's FacadeContext + regenerate/route.ts.
+  it('facade audit: SUCCESS → exactly ONE karute.entries_regenerate line with counts detail', async () => {
+    const lines = await auditLines(async () => {
+      const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
+      expect(res.status).toBe(200)
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      action: 'karute.entries_regenerate',
+      target_type: 'karute',
+      target_id: '00000000-0000-4000-8000-000000000007',
+      source: 'facade',
+    })
+    expect(lines[0].detail).toMatchObject({ added: 1, removed: 1 })
+  })
+
+  it('facade audit: SOFT FAILURE (no transcript, HTTP 200 {error}) → ZERO karute.entries_regenerate lines', async () => {
+    REC.current = { ...REC.current, transcript: '' }
+    const lines = await auditLines(async () => {
+      const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
+      expect(res.status).toBe(200)
+      expect((await res.json()).error).toContain('No transcript')
+    })
+    expect(lines).toHaveLength(0)
+  })
+
   it('missing Idempotency-Key → 400, no LLM/no write', async () => {
     const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: auth }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(400)
