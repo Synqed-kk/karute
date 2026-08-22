@@ -12,23 +12,33 @@ import {
 /** Acceptance-boundary net for degenerate model output (the 8/21 ×39
  *  incident): dedupe near-identical entries, then cap each category.
  *  Runs on the model's fresh parse only — human rows never pass through. */
-export const MAX_ENTRIES_PER_CATEGORY = 15
+export const MAX_ENTRIES_PER_CATEGORY = 30
 
 export function sanitizeExtractionEntries(entries: Entry[]): Entry[] {
-  // Dedupe: same category + same normalized title = same entry, keep the
-  // FIRST occurrence (array order preserved). Normalization is deliberately
-  // narrow — trim + collapse whitespace + toLowerCase — the observed failure
-  // was verbatim repetition, and aggressive merging is its own past bug (7/15).
+  // Dedupe: same category + same normalized title + same normalized
+  // source_quote = same entry, keep the FIRST occurrence (array order
+  // preserved). The 7/15 dominant-topic design deliberately allows several
+  // same-aspect entries — two can legitimately share a title while quoting
+  // different moments; only a full carbon copy (same title AND same quote)
+  // is unquestionably broken. Normalization is deliberately narrow — trim +
+  // collapse whitespace + toLowerCase — the observed failure was verbatim
+  // repetition, and aggressive merging is its own past bug (7/15). Key parts
+  // are NUL-joined (not space-joined) so title/quote boundaries can't
+  // collide.
   const seen = new Set<string>()
   const deduped: Entry[] = []
   for (const entry of entries) {
-    const key = `${entry.category} ${entry.title.trim().replace(/\s+/g, ' ').toLowerCase()}`
+    const normTitle = entry.title.trim().replace(/\s+/g, ' ').toLowerCase()
+    const normQuote = entry.source_quote.trim().replace(/\s+/g, ' ').toLowerCase()
+    const key = [entry.category, normTitle, normQuote].join('\0')
     if (seen.has(key)) continue
     seen.add(key)
     deduped.push(entry)
   }
 
   // Cap: per-category, keep-first, after dedupe. Order otherwise preserved.
+  // 30 is a runaway-flood ceiling only — no legitimate session approaches it
+  // in one category.
   const categoryCounts = new Map<string, number>()
   const capped = deduped.filter((entry) => {
     const count = categoryCounts.get(entry.category) ?? 0

@@ -75,9 +75,9 @@ describe('sanitizeExtractionEntries (via runKaruteExtraction seam)', () => {
     expect(result.entries).toHaveLength(1)
   })
 
-  it('3. dedupes whitespace/case title variants in the same category, keeping the first', async () => {
-    const first = entry({ category: 'lifestyle', title: '散歩 ' })
-    const entries = [first, entry({ category: 'lifestyle', title: '散歩' })]
+  it('3. dedupes whitespace/case title variants (same source_quote) in the same category, keeping the first', async () => {
+    const first = entry({ category: 'lifestyle', title: '散歩 ', source_quote: 'same quote' })
+    const entries = [first, entry({ category: 'lifestyle', title: '散歩', source_quote: 'same quote' })]
 
     const { result } = await extractWith(entries)
 
@@ -96,9 +96,20 @@ describe('sanitizeExtractionEntries (via runKaruteExtraction seam)', () => {
     expect(result.entries).toHaveLength(2)
   })
 
-  it('5. caps a category at 15 (first 15 survive) while leaving another category untouched', async () => {
-    const capped = Array.from({ length: 20 }, (_, i) =>
-      entry({ category: 'lifestyle', title: `topic ${i}` })
+  it('4b. (⚖ versatility pin) same category + same title + DIFFERENT source_quote: BOTH survive', async () => {
+    const entries = [
+      entry({ category: 'lifestyle', title: '散歩', source_quote: 'quote one' }),
+      entry({ category: 'lifestyle', title: '散歩', source_quote: 'quote two' }),
+    ]
+
+    const { result } = await extractWith(entries)
+
+    expect(result.entries).toHaveLength(2)
+  })
+
+  it('5. caps a category at 30 (first 30 survive) while leaving another category untouched', async () => {
+    const capped = Array.from({ length: 35 }, (_, i) =>
+      entry({ category: 'lifestyle', title: `topic ${i}`, source_quote: `quote ${i}` })
     )
     const other = [entry({ category: 'preference', title: 'unrelated' })]
     const entries = [...capped, ...other]
@@ -107,7 +118,7 @@ describe('sanitizeExtractionEntries (via runKaruteExtraction seam)', () => {
 
     const lifestyleEntries = result.entries.filter((e) => e.category === 'lifestyle')
     expect(lifestyleEntries).toHaveLength(MAX_ENTRIES_PER_CATEGORY)
-    expect(lifestyleEntries.map((e) => e.title)).toEqual(capped.slice(0, 15).map((e) => e.title))
+    expect(lifestyleEntries.map((e) => e.title)).toEqual(capped.slice(0, 30).map((e) => e.title))
     expect(result.entries).toContainEqual(other[0])
   })
 

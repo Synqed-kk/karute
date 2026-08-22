@@ -1,0 +1,45 @@
+  console.log
+    Integration test environment ready
+
+      at Object.<anonymous> (src/__tests__/integration/setup/jest.setup.ts:34:9)
+
+  console.log
+      Supabase URL: https://test-dummy.supabase.co
+
+      at Object.<anonymous> (src/__tests__/integration/setup/jest.setup.ts:35:9)
+
+FAIL src/__tests__/integration/karute-extract.test.ts
+  sanitizeExtractionEntries (via runKaruteExtraction seam)
+    ✓ 1. leaves a normal result unchanged (distinct titles across categories), order preserved, usage passthrough intact (3 ms)
+    ✓ 2. collapses 39 identical (same category, same title) entries to 1 (1 ms)
+    ✓ 3. dedupes whitespace/case title variants (same source_quote) in the same category, keeping the first (1 ms)
+    ✓ 4. does NOT cross-dedupe the same title across different categories
+    ✕ 4b. (⚖ versatility pin) same category + same title + DIFFERENT source_quote: BOTH survive (1 ms)
+    ✓ 5. caps a category at 30 (first 30 survive) while leaving another category untouched (1 ms)
+    ✓ 6. console.warn fires with before/after counts (no title text) when trimming happened, and does not fire on a clean result (1 ms)
+  sanitizeExtractionEntries (pure)
+    ✓ is a no-op on an empty array
+
+  ● sanitizeExtractionEntries (via runKaruteExtraction seam) › 4b. (⚖ versatility pin) same category + same title + DIFFERENT source_quote: BOTH survive
+
+    expect(received).toHaveLength(expected)
+
+    Expected length: 2
+    Received length: 1
+    Received array:  [{"category": "lifestyle", "confidence_score": 0.8, "source_quote": "quote one", "title": "散歩"}]
+
+      105 |     const { result } = await extractWith(entries)
+      106 |
+    > 107 |     expect(result.entries).toHaveLength(2)
+          |                            ^
+      108 |   })
+      109 |
+      110 |   it('5. caps a category at 30 (first 30 survive) while leaving another category untouched', async () => {
+
+      at Object.<anonymous> (src/__tests__/integration/karute-extract.test.ts:107:28)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 7 passed, 8 total
+Snapshots:   0 total
+Time:        0.24 s, estimated 1 s
+Ran all test suites matching /src\/__tests__\/integration\/karute-extract.test.ts/i.
