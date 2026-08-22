@@ -110,21 +110,35 @@ export async function lookupSynqedStaffIdForBusiness(
 /** Reverse translation: synqed-core staff (card) id → Supabase profile id
  *  (staff.user_id). Read-only — no self-heal, no create, no extra fetch
  *  (reuses the cached roster). Returns null when the id isn't a known card
- *  id or the card has no linked profile (user_id null) — callers keep their
- *  original id via `?? original`. */
+ *  id, the card has no linked profile (user_id null), OR the lookup itself
+ *  failed (roster fetch threw) — callers keep their original id via
+ *  `?? original` either way. Best-effort by contract: this runs ahead of the
+ *  owner/viewAll checks at every call site, so a translation failure must
+ *  never take down a read path that worked before this lookup existed. */
 export async function lookupProfileIdForSynqedStaffIdForBusiness(
   synqedStaffId: string,
   businessId: string,
 ): Promise<string | null> {
-  const staff = await synqedStaffListByBusiness(businessId)
-  return staff.find((s) => s.id === synqedStaffId)?.user_id ?? null
+  try {
+    const staff = await synqedStaffListByBusiness(businessId)
+    return staff.find((s) => s.id === synqedStaffId)?.user_id ?? null
+  } catch (err) {
+    console.warn('[staff-map] forward lookup failed — keeping original staff id', err)
+    return null
+  }
 }
 
-/** Cookie path twin — resolves businessId via getBusinessId(). */
+/** Cookie path twin — resolves businessId via getBusinessId(). Guards that
+ *  await too (a broken session can throw) so this twin never throws either. */
 export async function lookupProfileIdForSynqedStaffId(
   synqedStaffId: string,
 ): Promise<string | null> {
-  return lookupProfileIdForSynqedStaffIdForBusiness(synqedStaffId, await getBusinessId())
+  try {
+    return await lookupProfileIdForSynqedStaffIdForBusiness(synqedStaffId, await getBusinessId())
+  } catch (err) {
+    console.warn('[staff-map] forward lookup failed — keeping original staff id', err)
+    return null
+  }
 }
 
 /**

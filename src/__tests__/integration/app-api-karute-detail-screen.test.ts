@@ -25,9 +25,17 @@ process.env.SYNQED_CORE_API_KEY ??= 'test-synqed-core-key'
 // directly). Default empty: existing profile-id-stamped owner rows resolve
 // via the `?? original` fallback (no card-id match), unaffected.
 const synqedStaffRoster = { current: [] as Array<{ id: string; user_id: string | null; email: string | null }> }
+// FIX ROUND 2 (post-Greptile P1): models a roster-fetch/core-outage failure
+// so the staff-map forward lookup's fail-open contract can be pinned here.
+const synqedStaffRosterRejects = { current: false }
 jest.mock('@synqed-kk/client', () => ({
   SynqedClient: jest.fn().mockImplementation(() => ({
-    staff: { list: async () => ({ staff: synqedStaffRoster.current }) },
+    staff: {
+      list: async () => {
+        if (synqedStaffRosterRejects.current) throw new Error('roster fetch failed')
+        return { staff: synqedStaffRoster.current }
+      },
+    },
   })),
   SynqedError: class extends Error {},
 }))
@@ -107,6 +115,7 @@ beforeEach(() => {
   capabilities.current = new Set(['customers.view'])
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
   synqedStaffRoster.current = []
+  synqedStaffRosterRejects.current = false
   KAR.current = { id: '00000000-0000-4000-8000-000000000008', created_at: '2026-06-01T03:00:00Z', ai_summary: '・肩こり改善傾向', transcript: 'RAW TRANSCRIPT TEXT', business_id: 'business-1', customer_id: 'cust-1', staff_id: 'other-staff', recording_session_id: 'sess-1', entries: [{ id: 'e1', category: 'SYMPTOM', content: '肩こり', original_quote: null, confidence: 0.9, is_manual: false, created_at: '2026-06-01T03:05:00Z' }] }
   getConsent.mockResolvedValue({ consent: { policy_version: 'v0' } })
   listPhotos.mockResolvedValue({ photos: [{ id: 'p1', signed_url: 'https://x/p1', category: 'before', caption: null, recording_session_id: 'sess-1' }] })
@@ -203,6 +212,32 @@ describe('GET /api/app/v1/screens/karute/[id] (packet 07 §Build 2)', () => {
       const dto = await res.json()
       expect(dto.transcript).toBeNull()
       expect(dto.transcriptRestricted).toBe(true)
+    })
+  })
+
+  // Fail-open (FIX ROUND 2, post-Greptile P1): the forward lookup runs
+  // BEFORE the owner/viewAll checks, so a roster-fetch/core outage must
+  // never break a read path that never needed the translation.
+  describe('ACL: staff-map roster fetch failure — fail-open', () => {
+    it('profile-id-stamped owner still sees her own raw transcript (translation never needed)', async () => {
+      synqedStaffRosterRejects.current = true
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      expect(res.status).toBe(200)
+      const dto = await res.json()
+      expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+      expect(dto.transcriptRestricted).toBe(false)
+    })
+
+    it('card-id-stamped owner row + viewAll viewer still sees the transcript (viewAll never needed the translation)', async () => {
+      synqedStaffRosterRejects.current = true
+      KAR.current = { ...KAR.current, staff_id: 'card-101' }
+      capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      expect(res.status).toBe(200)
+      const dto = await res.json()
+      expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+      expect(dto.transcriptRestricted).toBe(false)
     })
   })
 
