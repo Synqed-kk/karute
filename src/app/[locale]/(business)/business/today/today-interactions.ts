@@ -386,6 +386,10 @@ export function applyMoves(
   // nothing" for the operator. Its home row joins the same map every server row
   // uses, so from here down there is one kind of row.
   const placedIds = new Set<string>()
+  // …and THESE EXACT ROWS are the placements — see the exemption below, which is
+  // object identity because neither `caseId` nor `key` can tell a placement from
+  // the server original it replaces.
+  const placedRows = new Set(added.map((a) => a.item))
   for (const a of added) {
     const g = groupOf.get(a.laneKey)
     if (a.item.caseId) placedIds.add(a.item.caseId)
@@ -425,11 +429,24 @@ export function applyMoves(
     // day stays in `parked` on purpose, because that is what keeps the ORIGIN
     // day hiding it. The row this session placed is the placement itself, so it
     // is never hidden by the flag that hides its origin.
+    //
+    // GREPTILE #749 P1 — AND THE EXEMPTION IS THE ROW, NOT THE CASE. Keyed by
+    // `caseId` it un-hid every row wearing that id, and a park-then-place-back
+    // ON THE DISPLAYED DAY has two of them: the server's original, still standing
+    // in `lane.items` because `parked` is the only thing that was hiding it, and
+    // the replacement in `added`. One booking, two cards — on the staff row AND
+    // on the bed row — and every layer downstream (the sell layer, guard
+    // occupancy, the 清掃 tail) counted the booking twice. `key` cannot separate
+    // them either: `placeFromShelf` mints `${id}-staff`/`${id}-bed`, which is
+    // byte-for-byte what the server drew (today-board :357). So the exemption is
+    // the row itself — the exact objects `own` concatenates a line below. The
+    // server's original stays hidden, which is what `parked` said all along, and
+    // ⚖ 22's cross-day placement is still the one row that shows.
     const own = added.some((a) => a.laneKey === lane.key)
       ? [...lane.items, ...added.filter((a) => a.laneKey === lane.key).map((a) => a.item)]
       : lane.items
     const kept = own.filter((item) => {
-      if (isParked(item, parked) && !(item.caseId != null && placedIds.has(item.caseId))) return false
+      if (isParked(item, parked) && !placedRows.has(item)) return false
       // ⚖ 51 second-order — A 清掃 IS NOT A THING ON THE BOARD, IT IS THE TAIL OF
       // ITS BOOKING. It carries `caseId: null` (today-board :512), so the
       // membership test below could never see it: the booking moved and its

@@ -4623,4 +4623,52 @@ describe('BATCH-10 W4 — ROOT B: drops stop dying silently', () => {
     const origin = [lane({ key: 'p-01', group: 'staff', items: [booking({ key: 'a', caseId: 'apt-1' }, 720, 780)] }), lane({ key: 'p-04', group: 'staff' })]
     expect(applyMoves(origin, {}, ['apt-1'], [], HOURS).flatMap((l) => l.items)).toHaveLength(0)
   })
+
+  /** GREPTILE #749 P1 — the other half of that exemption, which was un-hiding
+   *  the wrong row. Park a booking and place it back ON THE DAY IT CAME FROM
+   *  (canon's own flow: the chip lands wherever the operator drops it, and that
+   *  is very often the same board). `parked` still carries the id — that is what
+   *  hides the server's original — but `added` now carries the replacement, and
+   *  the two rows are indistinguishable by id AND by key, because
+   *  `placeFromShelf` mints exactly the key today-board :357 draws. Keyed by
+   *  `caseId`, the exemption un-hid both: one booking, two cards, on the staff
+   *  row and on the bed row at once. */
+  it('GREPTILE #749 — parked and placed back on the SAME day is ONE card, not two', () => {
+    const staffKey = 'apt-1-staff'
+    const bedKey = 'apt-1-bed'
+    // The board the server drew: the booking at 12:00, on both of its rows.
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', items: [booking({ key: staffKey, caseId: 'apt-1' }, 720, 780)] }),
+      lane({ key: 'bed-01', group: 'beds', items: [booking({ key: bedKey, caseId: 'apt-1' }, 720, 780)] }),
+    ]
+    // …and what `placeFromShelf` stages when the chip goes back down at 15:00 on
+    // this same board: two rows, the SAME keys, plus the staff-side membership.
+    const added = [
+      { laneKey: 'p-01', item: booking({ key: staffKey, caseId: 'apt-1' }, 900, 960) },
+      { laneKey: 'bed-01', item: booking({ key: bedKey, caseId: 'apt-1' }, 900, 960) },
+    ]
+    const out = applyMoves(lanes, { 'apt-1': { laneKey: 'p-01', ...place(900, 960, HOURS) } }, ['apt-1'], added, HOURS)
+
+    const staff = out[0].items.filter((i) => i.caseId === 'apt-1')
+    const bed = out[1].items.filter((i) => i.caseId === 'apt-1')
+    expect(staff).toHaveLength(1)
+    expect(bed).toHaveLength(1)
+    // …and it is the PLACEMENT that survives, at the span the operator dropped
+    // it on — not the origin the park was hiding.
+    expect([staff[0].startMin, staff[0].endMin]).toEqual([900, 960])
+    expect([bed[0].startMin, bed[0].endMin]).toEqual([900, 960])
+  })
+
+  it('GREPTILE #749 — …and the same-day place-back onto ANOTHER row empties the origin', () => {
+    // The chip can come back down on a different person. The server's original
+    // must still go, or the booking is on two lanes at the same minute.
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', items: [booking({ key: 'apt-1-staff', caseId: 'apt-1' }, 720, 780)] }),
+      lane({ key: 'p-04', group: 'staff' }),
+    ]
+    const added = [{ laneKey: 'p-04', item: booking({ key: 'apt-1-staff', caseId: 'apt-1' }, 900, 960) }]
+    const out = applyMoves(lanes, { 'apt-1': { laneKey: 'p-04', ...place(900, 960, HOURS) } }, ['apt-1'], added, HOURS)
+    expect(out[0].items).toHaveLength(0)
+    expect(out[1].items.map((i) => i.caseId)).toEqual(['apt-1'])
+  })
 })
