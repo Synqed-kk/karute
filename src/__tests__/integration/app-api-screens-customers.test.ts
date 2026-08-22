@@ -253,9 +253,11 @@ describe('store clamp (#441 leak class) — REAL resolveStoreForRequest', () => 
     expect(res.status).toBe(200)
     const dto = await res.json()
     expect(dto.staffList.map((s: { id: string }) => s.id)).toEqual(['auth-user-1'])
+    // D1: assignableStaff now carries isManagement (fail-open false — this
+    // mock roster has no is_management column, so the flag defaults false).
     expect(dto.assignableStaff).toEqual([
-      { id: 'auth-user-1', name: '佐藤 美咲' },
-      { id: 'staff-2', name: '田中 太郎' },
+      { id: 'auth-user-1', name: '佐藤 美咲', isManagement: false },
+      { id: 'staff-2', name: '田中 太郎', isManagement: false },
     ])
   })
 
