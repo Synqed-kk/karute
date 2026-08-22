@@ -114,7 +114,7 @@ afterEach(() => {
 })
 
 describe('要対応 badge — mic FAB', () => {
-  it('counts 失敗 + 復元可能 + 確認待ち, from any screen', async () => {
+  it('counts 失敗(再試行可能) rows, not 保存済み/処理中, from any screen', async () => {
     serverSessions = [
       session({ recordingSessionId: 'f1', jobStatus: 'FAILED', jobLastError: 'x' }),
       session({ recordingSessionId: 'f2', jobStatus: 'FAILED', jobLastError: 'y' }),
@@ -132,6 +132,15 @@ describe('要対応 badge — mic FAB', () => {
 
   it('is ABSENT — not a zero — when nothing is waiting', async () => {
     serverSessions = [session({ recordingSessionId: 'ok', karuteRecordId: 'rec-1' })]
+    render(<BottomNav />)
+    await flush()
+    expect(screen.queryByTestId('mic-needs-attention')).toBeNull()
+  })
+
+  it('再試行できない失敗 does not light the badge — FAILED with no local take', async () => {
+    serverSessions = [
+      session({ recordingSessionId: 'f1', jobStatus: 'FAILED', jobLastError: 'x' }),
+    ]
     render(<BottomNav />)
     await flush()
     expect(screen.queryByTestId('mic-needs-attention')).toBeNull()
