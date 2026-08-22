@@ -294,10 +294,16 @@ describe('the fixture data door', () => {
       // brought `./fixtures-reservations`. Verified against the file, not
       // reconciled by taking a side — the inventory mirrors reality or it is
       // worth nothing.
-      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-reservations', './fixtures-today', 'react'],
+      'src/business/lib/data.ts': ['./clock', './fixtures', './fixtures-analytics', './fixtures-reservations', './fixtures-today', 'react'],
       'src/business/lib/fixtures.ts': ['./clock'],
       'src/business/lib/fixtures-today.ts': ['./fixtures'],
       'src/business/lib/fixtures-reservations.ts': [],
+      'src/business/lib/fixtures-analytics.ts': ['./fixtures'],
+      // 売上分析's derivations. It reads the board's OWN predicates
+      // (`isEarningVisit`, `bookingCategory`) rather than restating them —
+      // that shared import is the reconciliation between 日報's 本日 row and
+      // the board's 本日の売上.
+      'src/business/lib/analytics.ts': ['./clock', './fixtures', './fixtures-analytics', './today-board'],
       'src/business/lib/today-board.ts': ['./clock', './fixtures', './fixtures-today'],
       'src/business/lib/reservations.ts': ['./fixtures', './fixtures-reservations', './fixtures-today', './today-board'],
       // The 表示する列 primitive canon keeps in fable-shared.js. Pure DOM +
@@ -389,6 +395,21 @@ describe('the fixture data door', () => {
         'react',
       ],
       'src/app/[locale]/(business)/business/reservations/loading.tsx': ['@/business/i18n'],
+      'src/app/[locale]/(business)/business/analytics/page.tsx': [
+        './AnalyticsScreen',
+        './analytics.css',
+        '@/business/lib/admission',
+        '@/business/lib/analytics',
+        '@/business/lib/clock',
+        '@/business/lib/data',
+        '@/business/lib/today-board',
+      ],
+      'src/app/[locale]/(business)/business/analytics/AnalyticsScreen.tsx': [
+        '@/business/lib/analytics',
+        'next/link',
+        'react',
+      ],
+      'src/app/[locale]/(business)/business/analytics/loading.tsx': ['@/business/i18n'],
     }
     for (const [file, expected] of Object.entries(INVENTORY)) {
       const src = readFileSync(join(process.cwd(), file), 'utf8')

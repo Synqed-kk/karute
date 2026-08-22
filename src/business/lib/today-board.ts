@@ -131,12 +131,21 @@ export function availableMinutes(shift: FixtureShift): number {
  *  the cards render. A 来店なし produced no service, so it is out of the day's
  *  total — canon's own formula, and the reason its no-show is excluded there
  *  but still counted in 本日の予約件数. */
+/** Did this booking become a VISIT that earned? A cancellation never happened
+ *  and a 来店なし produced no service — canon's own formula for what is inside
+ *  the day's money. Exported because 売上分析 sums the same rows into the same
+ *  day, and two spellings of one predicate is how the board's 本日の売上 and the
+ *  日報's 本日 row would drift apart. */
+export function isEarningVisit(booking: Pick<FixtureAppointment, 'status' | 'board_state'>): boolean {
+  return booking.status !== 'cancelled' && booking.board_state !== 'noshow'
+}
+
 export function dayTotals(
   bookings: FixtureAppointment[],
   refunds: number,
 ): { total: number; settled: number; awaiting: number; revenue: number; count: number } {
   const live = bookings.filter((b) => b.status !== 'cancelled')
-  const earning = live.filter((b) => b.board_state !== 'noshow')
+  const earning = live.filter(isEarningVisit)
   return {
     total: earning.reduce((n, b) => n + (b.booked_price ?? 0), 0),
     settled: live.filter((b) => b.settlement === 'settled').length,
@@ -171,7 +180,15 @@ export function hhmm(minute: number): string {
   return `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`
 }
 
-export const yen = (n: number) => `¥${n.toLocaleString('ja-JP')}`
+/** THE ONE MONEY FORMATTER, and it ROUNDS — canon's own `yen()` does
+ *  (`"¥" + Math.round(n).toLocaleString("ja-JP")`) and the yen has no sub-unit,
+ *  so ¥44,317.5 is not a smaller number, it is a broken one. Rounding lives
+ *  here rather than at each caller because every derived figure that is an
+ *  average (a 12か月平均 LTV, a money-weighted merge across two stores) reaches
+ *  the screen through this function and would otherwise print a fraction from
+ *  whichever seam nobody thought of. A caller that already holds an integer is
+ *  unaffected. */
+export const yen = (n: number) => `¥${Math.round(n).toLocaleString('ja-JP')}`
 
 // ── the board model ────────────────────────────────────────────────────────
 
@@ -546,6 +563,15 @@ export function buildLanes(input: BuildInput, bookings: BoardBooking[]): BoardLa
   return lanes
 }
 
+/** Does this roster member take treatments? The 稼働率 denominator asks it (a
+ *  receptionist is not idle capacity) and so does 売上分析's staff ranking (a
+ *  receptionist is never a candidate in a treatment-revenue ranking). ONE
+ *  judgement, one home — reading it off 資格 in two places is how the board and
+ *  the analytics room would end up disagreeing about who treats. */
+export function treatsPatients(qualifications: string[] | undefined): boolean {
+  return (qualifications ?? []).some((q) => q !== '受付' && q !== '会計')
+}
+
 /** Per-lane minute sums — the one pair of numbers behind 稼働率 AND the
  *  calendar's free-slot count. */
 export function laneMinutes(input: BuildInput, bookings: BoardBooking[]) {
@@ -555,7 +581,7 @@ export function laneMinutes(input: BuildInput, bookings: BoardBooking[]) {
     const shift = raw ? effectiveShift(raw, input.absence) : null
     return {
       staffId: member.id,
-      treats: (input.qualifications[member.id] ?? []).some((q) => q !== '受付' && q !== '会計'),
+      treats: treatsPatients(input.qualifications[member.id]),
       availableMinutes: shift ? availableMinutes(shift) : 0,
       bookedMinutes: bookings
         .filter((b) => b.staffId === member.id && b.state !== 'noshow')
