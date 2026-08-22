@@ -34,14 +34,21 @@ import { useShiftEdits } from '../../ShiftsSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import type { FixtureAbsence, FixtureShift } from '@/business/lib/fixtures-today'
 import {
+  DRAG_PX_PER_STEP,
   bookedKeysOf,
   cellFor,
+  dragSafeMinutes,
+  edgeLabel,
   editKey,
   hours,
   laborCost,
+  resizeShift,
+  trackPct,
   type Cell,
   type DayContext,
+  type EdgeSpan,
   type RosterMember,
+  type TrackWindow,
 } from '@/business/lib/shifts'
 import { hhmm, yen } from '@/business/lib/today-board'
 
@@ -160,6 +167,9 @@ export interface ShiftsProps {
     todayKey: number
     closedWd: number
     absence: FixtureAbsence | null
+    /** The window a week bar is drawn in and dragged inside — the store's open
+     *  hours plus the prep margin (`trackWindow`). */
+    track: TrackWindow
     roster: RosterModel[]
     leaves: LeaveModel[]
     days: DayModel[]
@@ -183,6 +193,22 @@ export interface ShiftsProps {
   } | null
 }
 
+/** What a week cell needs to draw its bar and let the operator pull its ends.
+ *  Handed down rather than hoisted into a component so `weekCell` stays the one
+ *  function that decides what a cell looks like. */
+interface BarWiring {
+  track: TrackWindow
+  /** Below this many minutes the two handles would sit on top of each other, so
+   *  the bar ships without them and says the dialog is the way (⚖ 8/22
+   *  amendment: no fiddly controls). */
+  minDragMinutes: number
+  open: (m: RosterModel, day: DayModel) => void
+  down: (e: React.PointerEvent<HTMLSpanElement>, m: RosterModel, day: DayModel, edge: 'start' | 'end') => void
+  move: (e: React.PointerEvent<HTMLSpanElement>) => void
+  up: (e: React.PointerEvent<HTMLSpanElement>) => void
+  cancel: () => void
+}
+
 const toMinutes = (hhmmText: string): number | null => {
   const m = /^(\d{2}):(\d{2})$/.exec(hhmmText)
   if (!m) return null
@@ -201,7 +227,13 @@ export function ShiftsScreen(props: ShiftsProps) {
   const [endText, setEndText] = useState('19:00')
   const [refusal, setRefusal] = useState<string | null>(null)
   const [invalid, setInvalid] = useState(false)
-  const [toast, setToast] = useState('')
+  // The room's persistent message (⚖ 47 — it carries a × instead of outrunning
+  // its reader). `warn` is the same surface in its refusal clothes: a drag
+  // released over a booking it would strand has no dialog to answer inside, and
+  // a refusal that looked like a success line would be a check lying about
+  // state.
+  const [toast, setToast] = useState<{ text: string; warn: boolean } | null>(null)
+  const say = useCallback((text: string) => setToast({ text, warn: false }), [])
   const cellRef = useRef<HTMLDialogElement>(null)
   const leaveRef = useRef<HTMLDialogElement>(null)
   const absenceRef = useRef<HTMLDialogElement>(null)
@@ -301,6 +333,17 @@ export function ShiftsScreen(props: ShiftsProps) {
     return `${day.short}は${clash.map((b) => b.label).join('・')}を担当しています。この時間ではその予約が勤務時間の外に出ます。先に予約一覧で担当か時間を変更してください。`
   }
 
+  /** THE ONE STAGING SEAM. The dialog's 保存 and a released edge drag both land
+   *  here, so the two ways of changing a shift cannot stage different things —
+   *  and `cellFor` folds the result for every surface that reads it (the cell,
+   *  the column total, the week summary, the 人件費 estimate) in one pass. */
+  const stageShift = useCallback(
+    (staffId: string, dayKey: number, start: number, end: number) => {
+      setShiftEdits((was) => [...was, { staffId, dayKey, kind: 'work', start, end }])
+    },
+    [setShiftEdits],
+  )
+
   function saveCell() {
     if (!editing) return
     const day = plane.days.find((d) => d.dayKey === editing.dayKey)!
@@ -317,12 +360,9 @@ export function ShiftsScreen(props: ShiftsProps) {
       setRefusal(clash)
       return
     }
-    setShiftEdits((was) => [
-      ...was,
-      { staffId: editing.staffId, dayKey: editing.dayKey, kind: 'work', start, end },
-    ])
+    stageShift(editing.staffId, editing.dayKey, start, end)
     cellRef.current?.close()
-    setToast('この画面の中だけシフトを変更しました。実際の勤務予定と予約は変わりません。')
+    say('この画面の中だけシフトを変更しました。実際の勤務予定と予約は変わりません。')
   }
 
   function offCell() {
@@ -342,7 +382,163 @@ export function ShiftsScreen(props: ShiftsProps) {
       { staffId: editing.staffId, dayKey: editing.dayKey, kind: 'off', start: 0, end: 0 },
     ])
     cellRef.current?.close()
-    setToast('この画面の中だけ休みにしました。実際の勤務予定と予約は変わりません。')
+    say('この画面の中だけ休みにしました。実際の勤務予定と予約は変わりません。')
+  }
+
+  // ── E-1 · dragging a week bar's ends ──────────────────────────────────────
+  //
+  // ⚖ LIAM 8/22: 「slide each box left or right to shrink them, make them
+  // longer」. THE BOARD'S OWN DRAG LAWS BIND, and they were paid for in nine
+  // flag rounds:
+  //
+  //  · POINTER CAPTURE ON THE HANDLE, and nothing re-parents while it is held.
+  //    The board had to move its stream to `window` because a moving card was
+  //    re-parented into another lane mid-drag and Chrome dropped the capture
+  //    (flag 23, reproduced 8/20). An edge drag never leaves its own cell and
+  //    changes no state until release, so the node the capture is bound to
+  //    cannot go away — capture is the right tool HERE and window listeners
+  //    would be cargo.
+  //  · NO REACT RENDER PER POINTERMOVE. The frame writes geometry straight to
+  //    the bar and the would-be hours straight to the chip's own time text,
+  //    coalesced by rAF — Chrome delivers moves faster than it paints, and a
+  //    board of 7 × N cells re-rendering per raw event is the jank Liam felt as
+  //    「not snappy」.
+  //  · THE RELEASE POSITION IS AUTHORITATIVE (canon `finishNormalBookingDrag`):
+  //    recomputed once at pointerup rather than trusting the last frame.
+  //  · A REFUSAL CHANGES NOTHING AND STAYS READABLE (⚖ 47 + the lane
+  //    invariant): the bar goes back to the hours it had and the reason sits in
+  //    the room's persistent message with its ×.
+  //  · ONE STAGING SEAM — `stageShift`, the dialog's own.
+  const track = plane.track
+  const minDragMinutes = dragSafeMinutes(track)
+
+  interface EdgeDrag {
+    pointerId: number
+    handle: HTMLElement
+    bar: HTMLElement
+    /** The chip's own 開始–終了 text. The live label is not a second surface
+     *  floating at the cursor — it is the number the operator already reads,
+     *  updated in place, which is also the only place it can go in a cell this
+     *  size without covering the row underneath. */
+    label: HTMLElement
+    staffId: string
+    dayKey: number
+    edge: 'start' | 'end'
+    origin: { start: number; end: number; breaks: Cell['breaks'] }
+    startX: number
+    pending: number | null
+    frame: number | null
+  }
+  const dragRef = useRef<EdgeDrag | null>(null)
+
+  const paintEdge = useCallback(
+    (d: EdgeDrag, span: EdgeSpan) => {
+      const left = trackPct(span.start, track)
+      d.bar.style.left = `${left}%`
+      d.bar.style.width = `${trackPct(span.end, track) - left}%`
+      d.label.textContent = edgeLabel(span)
+    },
+    [track],
+  )
+
+  const endEdgeDrag = useCallback(
+    (span: EdgeSpan | null) => {
+      const d = dragRef.current
+      if (!d) return
+      dragRef.current = null
+      if (d.frame !== null) cancelAnimationFrame(d.frame)
+      try { d.handle.releasePointerCapture(d.pointerId) } catch { /* already gone */ }
+      delete d.bar.dataset.dragging
+      // EVERY RELEASE PUTS THE NODE BACK WHERE REACT LEFT IT, FIRST. The frames
+      // were written outside React and React never saw them; if a commit
+      // follows, it diffs from the geometry it believes in and repaints both
+      // halves. Clearing the inline styles instead would drop the bar to 0%
+      // whenever the release changes nothing, because React has no reason to
+      // re-render a board that did not change.
+      paintEdge(d, { start: d.origin.start, end: d.origin.end, clamp: null })
+      if (!span || (span.start === d.origin.start && span.end === d.origin.end)) return
+      const day = plane.days.find((x) => x.dayKey === d.dayKey)
+      if (!day) return
+      const clash = bookingRefusal(d.staffId, day, span.start, span.end)
+      if (clash) {
+        setToast({ text: clash, warn: true })
+        return
+      }
+      stageShift(d.staffId, d.dayKey, span.start, span.end)
+      say('この画面の中だけシフトを変更しました。実際の勤務予定と予約は変わりません。')
+    },
+    [paintEdge, plane.days, stageShift, say],
+  )
+
+  const spanAt = (d: EdgeDrag, clientX: number) =>
+    resizeShift(d.origin, d.edge, Math.round((clientX - d.startX) / DRAG_PX_PER_STEP), track)
+
+  function onGripDown(
+    e: React.PointerEvent<HTMLSpanElement>,
+    m: RosterModel,
+    day: DayModel,
+    edge: 'start' | 'end',
+  ) {
+    if (e.button !== 0 || dragRef.current) return
+    const cell = at(m.id, day.dayKey)
+    if (cell.kind !== 'work' || cell.start === null || cell.end === null) return
+    const handle = e.currentTarget
+    const bar = handle.closest('.shift-bar') as HTMLElement | null
+    const label = handle.closest('td')?.querySelector('.bar-time') as HTMLElement | null
+    if (!bar || !label) return
+    try { handle.setPointerCapture(e.pointerId) } catch { /* capture is an assist */ }
+    // `data-dragging` and not a class: React owns `className` on this node and
+    // would fight an imperative class on its next pass; it renders no
+    // `data-dragging` at all, so the attribute is the gesture's for its life.
+    bar.dataset.dragging = edge
+    dragRef.current = {
+      pointerId: e.pointerId,
+      handle,
+      bar,
+      label,
+      staffId: m.id,
+      dayKey: day.dayKey,
+      edge,
+      origin: { start: cell.start, end: cell.end, breaks: cell.breaks },
+      startX: e.clientX,
+      pending: null,
+      frame: null,
+    }
+    e.preventDefault()
+  }
+
+  function onGripMove(e: React.PointerEvent<HTMLSpanElement>) {
+    const d = dragRef.current
+    if (!d || e.pointerId !== d.pointerId) return
+    // canon's self-heal: a move with no button down means the release was lost,
+    // and the bar would otherwise stay stuck to the cursor.
+    if (e.buttons === 0) { endEdgeDrag(null); return }
+    d.pending = e.clientX
+    if (d.frame !== null) return
+    d.frame = requestAnimationFrame(() => {
+      const c = dragRef.current
+      if (!c || c.pending === null) return
+      c.frame = null
+      const x = c.pending
+      c.pending = null
+      paintEdge(c, spanAt(c, x))
+    })
+  }
+
+  function onGripUp(e: React.PointerEvent<HTMLSpanElement>) {
+    const d = dragRef.current
+    if (!d || e.pointerId !== d.pointerId) return
+    endEdgeDrag(spanAt(d, e.clientX))
+  }
+
+  const bar: BarWiring = {
+    track,
+    minDragMinutes,
+    open: openCell,
+    down: onGripDown,
+    move: onGripMove,
+    up: onGripUp,
+    cancel: () => endEdgeDrag(null),
   }
 
   function answerLeave(leave: LeaveModel, answer: 'approved' | 'rejected') {
@@ -353,7 +549,7 @@ export function ShiftsScreen(props: ShiftsProps) {
     // ⚖ 41 — the surface exists only while its decision is open. This was the
     // last one, so it goes.
     if (pendingLeaves.length <= 1) leaveRef.current?.close()
-    setToast(
+    say(
       answer === 'approved'
         ? `${leave.staffName}さんの希望休をこの画面の中だけ承認しました。実際の勤務予定は変わりません。`
         : `${leave.staffName}さんの希望休をこの画面の中だけ却下しました。元の勤務予定のままです。`,
@@ -514,7 +710,9 @@ export function ShiftsScreen(props: ShiftsProps) {
                         </span>
                       </td>
                       {plane.days.map((d) => (
-                        <td key={d.dayKey}>{weekCell(at(m.id, d.dayKey), d, m)}</td>
+                        <td key={d.dayKey}>
+                          <WeekCell cell={at(m.id, d.dayKey)} day={d} m={m} bar={bar} />
+                        </td>
                       ))}
                     </tr>
                   ))}
@@ -691,7 +889,14 @@ export function ShiftsScreen(props: ShiftsProps) {
                 ))}
               </div>
             </div>
-            <div className="month-wrap">
+            {/* ⚖ E-2 — the table's width is a function of the ROSTER, so the
+                board is honest at 6 people and at 30 without a second layout.
+                A fixed width divided among 30 columns squashes every one of
+                them; this one simply gets wider and the operator pans it. */}
+            <div
+              className="month-wrap"
+              style={{ '--cols': String(plane.roster.length) } as React.CSSProperties}
+            >
               <table className="month-table">
                 <colgroup>
                   <col className="date-col" />
@@ -892,9 +1097,14 @@ export function ShiftsScreen(props: ShiftsProps) {
       </dialog>
 
       {toast && (
-        <div className="toast show" role="status" aria-live="polite" aria-atomic="true">
-          {toast}
-          <button className="toast-close" type="button" aria-label="閉じる" onClick={() => setToast('')}>×</button>
+        <div
+          className={toast.warn ? 'toast show warn' : 'toast show'}
+          role={toast.warn ? 'alert' : 'status'}
+          aria-live={toast.warn ? 'assertive' : 'polite'}
+          aria-atomic="true"
+        >
+          {toast.text}
+          <button className="toast-close" type="button" aria-label="閉じる" onClick={() => setToast(null)}>×</button>
         </div>
       )}
     </div>
@@ -954,7 +1164,12 @@ function stagedNote(cell: Cell) {
   return cell.staged ? <span className="cell-note staged">この画面での変更</span> : null
 }
 
-function weekCell(cell: Cell, day: DayModel, m: RosterModel) {
+/** ONE CELL OF THE WEEK BOARD. A component rather than the plain function it
+ *  used to be, because the 勤務 branch now hands the drag's handlers to two
+ *  handles: inside a component those read as the event handlers they are, where
+ *  a helper CALLED during render makes the same code look like a ref read at
+ *  render time (React's `react-hooks/refs`, and it is right to ask). */
+function WeekCell({ cell, day, m, bar }: { cell: Cell; day: DayModel; m: RosterModel; bar: BarWiring }) {
   if (cell.kind === 'closed') return <div className="shift closed"><b>{day.closedLabel}</b></div>
   // A blank cell cannot say whether somebody is off or simply unknown. The week
   // board has the room to say it, so it does (the month grid stays blank —
@@ -979,12 +1194,54 @@ function weekCell(cell: Cell, day: DayModel, m: RosterModel) {
     if (cell.staged) return <><div className="shift rest"><b>休み</b></div>{stagedNote(cell)}</>
     return <div className="shift rest"><b>休み</b></div>
   }
+  // 勤務 — the chip is canon's, unchanged at rest, and under it sits the day's
+  // own track with the shift drawn TIME-TRUE inside it. The chip's 開始–終了 is
+  // the drag's live label (`.bar-time`): a floating label in an 88px cell would
+  // cover the row it is explaining, and the operator is already reading that
+  // number.
   const brk = cell.breaks[0]
+  const left = trackPct(cell.start!, bar.track)
+  const width = trackPct(cell.end!, bar.track) - left
+  const draggable = cell.end! - cell.start! >= bar.minDragMinutes
+  const label = draggable
+    ? `${cellLabel(m, day, cell)}。端をドラッグすると開始・終了を30分単位で変えられます`
+    : `${cellLabel(m, day, cell)}。短い勤務の時間はダイアログで変えます`
   return (
     <>
       <div className="shift">
-        <b>{hhmm(cell.start!)}–{hhmm(cell.end!)}</b>
+        <b className="bar-time">{hhmm(cell.start!)}–{hhmm(cell.end!)}</b>
         {brk && <span>休憩 {hhmm(brk.start)}–{hhmm(brk.end)}</span>}
+      </div>
+      <div className="shift-track">
+        <div
+          className={cell.staged ? 'shift-bar staged' : 'shift-bar'}
+          style={{ left: `${left}%`, width: `${width}%` }}
+        >
+          <button className="bar-body" type="button" aria-label={label} onClick={() => bar.open(m, day)} />
+          {brk && (
+            <span
+              className="bar-break"
+              aria-hidden="true"
+              style={{
+                left: `${((brk.start - cell.start!) / (cell.end! - cell.start!)) * 100}%`,
+                width: `${((brk.end - brk.start) / (cell.end! - cell.start!)) * 100}%`,
+              }}
+            />
+          )}
+          {draggable &&
+            (['start', 'end'] as const).map((edge) => (
+              <span
+                key={edge}
+                className={`grip ${edge}`}
+                aria-hidden="true"
+                onPointerDown={(e) => bar.down(e, m, day, edge)}
+                onPointerMove={bar.move}
+                onPointerUp={bar.up}
+                onPointerCancel={bar.cancel}
+                onLostPointerCapture={bar.cancel}
+              />
+            ))}
+        </div>
       </div>
       {stagedNote(cell)}
     </>

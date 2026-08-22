@@ -16,7 +16,7 @@
 import { jstDayKey, jstMidnight, jstYmd } from './clock'
 import type { FixtureAppointment, FixtureStaff } from './fixtures'
 import type { FixtureAbsence, FixtureShift } from './fixtures-today'
-import { availableMinutes, dayTotals, effectiveShift } from './today-board'
+import { availableMinutes, dayTotals, effectiveShift, hhmm } from './today-board'
 import type { FixtureLeaveRequest } from './fixtures-shifts'
 
 const DAY_MS = 86_400_000
@@ -484,4 +484,126 @@ export function laborCost(
 export function hours(minutes: number): string {
   const h = minutes / 60
   return `${Number.isInteger(h) ? h : h.toFixed(1)}時間`
+}
+
+// ── the week bar's track, and dragging its ends ─────────────────────────────
+//
+// ⚖ LIAM 8/22 (E-1): 「slide each box left or right to shrink them, make them
+// longer」. The week cell's shift gains a TIME-TRUE bar in a per-day track, and
+// the bar's two ends are draggable. Everything the drag decides is decided
+// here, as pure arithmetic on minutes — the screen writes geometry to a node
+// and this file says what that geometry MEANS, so the frame in flight and the
+// value that gets committed cannot come from two different rules.
+
+/** ⚠SETTINGS-BATCH — シフトの調整単位. Every edge drag lands on a 30-minute
+ *  lattice; a store that books in 15s or 20s will want its own step. Canon's
+ *  own board steps in 30 too (`STEP`), so the two rooms agree today. */
+export const SHIFT_STEP_MIN = 30
+
+/** ⚠SETTINGS-BATCH — シフト調整の時間帯. The track is the store's open hours
+ *  plus one hour either side: staff open up before the door and close after
+ *  it, and a 10:00–19:00 person inside a 10:00–19:00 track would have a bar
+ *  pinned to both ends with nowhere to grow — a control that can only shrink.
+ *  The margin is a store judgement (some businesses give two hours, some
+ *  none), so it is a dial, not a fact. */
+export const TRACK_PAD_MIN = 60
+
+export interface TrackWindow {
+  from: number
+  to: number
+}
+
+export function trackWindow(open: number, close: number): TrackWindow {
+  return { from: open - TRACK_PAD_MIN, to: close + TRACK_PAD_MIN }
+}
+
+/** A minute as a percentage across the track, clamped to it. The bar, its
+ *  break and the drag's live geometry all go through this one reader. */
+export function trackPct(minute: number, win: TrackWindow): number {
+  const span = win.to - win.from
+  if (span <= 0) return 0
+  return clamp(((minute - win.from) / span) * 100, 0, 100)
+}
+
+/** ⚖ LIAM 8/22 AMENDMENT — THE DRAG IS GEARED, AND THIS IS WHY.
+ *
+ *  A week cell is about 110px wide and the track spans eleven hours, so an
+ *  edge that simply followed the pointer would buy a 30-minute step every ~5
+ *  pixels. That is not a control anybody can hit; it is a lottery. So the
+ *  pointer's TRAVEL buys steps at a fixed price instead — 18px of movement per
+ *  30 minutes — and the bar redraws at the time it bought. The pointer and the
+ *  edge therefore separate during a long drag, which is exactly why the live
+ *  label is the single truth of what release will commit. */
+export const DRAG_PX_PER_STEP = 18
+
+/** The hit target each handle needs, and the narrowest day track this board is
+ *  drawn in (the week table's day column at the shell's own 1180px floor).
+ *  Together they say how short a bar may be before its two handles would sit on
+ *  top of each other — below that the cell keeps its dialog and drops the
+ *  handles, rather than shipping two controls nobody can tell apart. */
+export const GRIP_PX = 16
+export const NARROW_TRACK_PX = 95
+
+export function dragSafeMinutes(win: TrackWindow): number {
+  const raw = ((win.to - win.from) * GRIP_PX) / NARROW_TRACK_PX
+  return Math.ceil(raw / SHIFT_STEP_MIN) * SHIFT_STEP_MIN
+}
+
+/** Why an edge stopped where it did, when it was not the pointer that decided:
+ *  the break it may not cross, the end of the track, or the one-step minimum a
+ *  shift has to keep. The live label says it out loud — a bar that stops moving
+ *  and does not explain itself reads as a broken control. */
+export type EdgeClamp = 'break' | 'window' | 'min' | null
+
+export interface EdgeSpan {
+  start: number
+  end: number
+  clamp: EdgeClamp
+}
+
+/** ONE EDGE, MOVED. `steps` is what the geared pointer bought (negative =
+ *  earlier). The other edge does not move, and NEITHER DOES THE BREAK: an edge
+ *  drag is start/end only, so a break that the edge would swallow stops the
+ *  edge at its boundary instead of being dragged along or silently eaten.
+ *
+ *  Stated on the cell's OWN minutes rather than on a snapped absolute, so a
+ *  shift that genuinely starts at 10:20 steps to 10:50 — canon's own
+ *  preserve-the-phase rule (`dragGeometry`'s dual lattice), which for a geared
+ *  drag needs no second lattice: whole steps from where the edge stands can
+ *  never land off its own phase. */
+export function resizeShift(
+  cell: { start: number; end: number; breaks: ReadonlyArray<{ start: number; end: number }> },
+  edge: 'start' | 'end',
+  steps: number,
+  win: TrackWindow,
+): EdgeSpan {
+  const breaks = [...cell.breaks].sort((a, b) => a.start - b.start)
+  if (edge === 'start') {
+    const raw = cell.start + steps * SHIFT_STEP_MIN
+    const byMin = cell.end - SHIFT_STEP_MIN
+    const byBreak = breaks.length > 0 ? breaks[0].start : Infinity
+    const hi = Math.min(byMin, byBreak)
+    if (raw > hi) return { start: hi, end: cell.end, clamp: hi === byBreak ? 'break' : 'min' }
+    if (raw < win.from) return { start: win.from, end: cell.end, clamp: 'window' }
+    return { start: raw, end: cell.end, clamp: null }
+  }
+  const raw = cell.end + steps * SHIFT_STEP_MIN
+  const byMin = cell.start + SHIFT_STEP_MIN
+  const byBreak = breaks.length > 0 ? breaks[breaks.length - 1].end : -Infinity
+  const lo = Math.max(byMin, byBreak)
+  if (raw < lo) return { start: cell.start, end: lo, clamp: lo === byBreak ? 'break' : 'min' }
+  if (raw > win.to) return { start: cell.start, end: win.to, clamp: 'window' }
+  return { start: cell.start, end: raw, clamp: null }
+}
+
+/** WHAT THE DRAG SAYS OUT LOUD, and the single truth of what release will
+ *  commit — the geared bar moves less than the pointer does, so the numbers,
+ *  not the pixels, are the contract. A clamped edge names what stopped it. */
+export function edgeLabel(span: EdgeSpan): string {
+  const reason =
+    span.clamp === 'break' ? '（休憩まで）'
+      : span.clamp === 'window' ? '（営業時間まで）'
+        : span.clamp === 'min' ? '（最短30分）'
+          : ''
+  return `${hhmm(span.start)}–${hhmm(span.end)}${reason}`
 }

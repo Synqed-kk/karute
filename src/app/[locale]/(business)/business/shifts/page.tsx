@@ -59,6 +59,7 @@ import {
   monthCoords,
   resolveLeaveRequests,
   todayKeyOf,
+  trackWindow,
   weekCoords,
   weekOffsetBounds,
   ymdOf,
@@ -435,6 +436,10 @@ export default async function ShiftsPage({
       todayKey,
       closedWd: planes.closedWeekday,
       absence: planes.absence,
+      // The week bar's track. The store's own open hours (the board's, one
+      // world) plus the prep margin, so a full-day shift still has somewhere to
+      // grow — a bar pinned to both ends could only ever shrink.
+      track: trackWindow(planes.operatingHours.open, planes.operatingHours.close),
       roster: roster.map((m) => ({
         id: m.id,
         name: m.name,

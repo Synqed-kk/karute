@@ -48,6 +48,7 @@ import { appointments, operator, staff, STORE_A, STORE_B } from '@/business/lib/
 import { hourlyWage, leaveRequests, shiftsPolicy } from '@/business/lib/fixtures-shifts'
 import { absence, closedWeekday, shifts, staffQualifications } from '@/business/lib/fixtures-today'
 import {
+  DRAG_PX_PER_STEP,
   MONTH_OFFSETS,
   absenceImpact,
   bookedKeysOf,
@@ -56,15 +57,20 @@ import {
   cellFor,
   conflictsOn,
   dayKeyOf,
+  dragSafeMinutes,
+  edgeLabel,
   editKey,
   hours,
   laborCost,
   minuteOfDay,
   mondayOf,
   monthCoords,
+  resizeShift,
   resolveLeaveRequests,
   restWeekday,
   seatOf,
+  trackPct,
+  trackWindow,
   weekCoords,
   weekOffsetBounds,
   ymdOf,
@@ -686,7 +692,7 @@ describe('one cell, one precedence — and a staged edit that survives a page fl
     // M10 discipline: the plain rest day and the STAGED one print the same
     // markup, so asserting the string alone stays true when the plain branch is
     // deleted. The whole function is read instead — it may return no blanks.
-    const body = SRC.slice(SRC.indexOf('function weekCell('), SRC.indexOf('function monthCell('))
+    const body = SRC.slice(SRC.indexOf('function WeekCell('), SRC.indexOf('function monthCell('))
     expect(body).not.toContain('return null')
     expect((body.match(/shift rest/g) ?? []).length).toBe(3) // 未設定 · staged 休み · 休み
     expect(SRC).toContain('勤務予定なし</span></div>')
@@ -790,7 +796,9 @@ describe('a refusal changes nothing and stays readable', () => {
     // inside the dialog rather than a toast that flashes past (⚖ 47).
     const save = SRC.slice(SRC.indexOf('function saveCell()'), SRC.indexOf('function offCell()'))
     expect(save).toContain('setRefusal(clash)')
-    expect(save.indexOf('setRefusal(clash)')).toBeLessThan(save.indexOf('setShiftEdits'))
+    // `stageShift` is the ONE staging seam both the dialog and a released edge
+    // drag write through (E-1); the refusal has to beat it to the punch.
+    expect(save.indexOf('setRefusal(clash)')).toBeLessThan(save.indexOf('stageShift('))
     expect(save).toMatch(/if \(clash\) \{[\s\S]*return/)
     expect(SRC).toContain('{refusal && <div className="dialog-block" role="alert">{refusal}</div>}')
   })
@@ -1210,5 +1218,414 @@ describe('the room borrows the board, and touches nothing it borrows', () => {
   it('minuteOfDay agrees with the board’s own reading of the same instant', () => {
     const apt = appointments().find((a) => a.id === 'apt-12')!
     expect(hhmm(minuteOfDay(apt.starts_at))).toBe('10:00')
+  })
+})
+
+// ── 13. E-1 · the week bar's ends are draggable ─────────────────────────────
+//
+// ⚖ LIAM 8/22: 「slide each box left or right to shrink them, make them longer」
+// plus his practicality amendment (a control that is fiddly is not shipped).
+// Everything the drag DECIDES is `resizeShift`, and it is driven directly here;
+// the pixels are proven by the deployed real-browser pass in the evidence
+// folder, which is the only place a drag can be proven at all.
+
+describe('E-1 · dragging a shift bar’s end', () => {
+  const WIN = trackWindow(10 * 60, 19 * 60) // 09:00–20:00, the fixture store's
+  const CELL = { start: 10 * 60, end: 18 * 60, breaks: [{ start: 13 * 60, end: 14 * 60 }] }
+
+  it('the window is the store’s open hours plus the prep margin, both sides', () => {
+    expect(WIN).toEqual({ from: 9 * 60, to: 20 * 60 })
+    // and it is the STORE'S hours it opens from, not a number typed here: a
+    // store open 08:00–22:00 gets its own track.
+    expect(trackWindow(8 * 60, 22 * 60)).toEqual({ from: 7 * 60, to: 23 * 60 })
+  })
+
+  it('ONE edge moves and the other stands, in whole 30-minute steps', () => {
+    const later = resizeShift(CELL, 'end', 2, WIN)
+    expect(later).toEqual({ start: 10 * 60, end: 19 * 60, clamp: null })
+    const earlier = resizeShift(CELL, 'start', -2, WIN)
+    expect(earlier).toEqual({ start: 9 * 60, end: 18 * 60, clamp: null })
+    // A drag that buys nothing changes nothing — the release then stages
+    // nothing at all (see the commit pin below).
+    expect(resizeShift(CELL, 'end', 0, WIN)).toEqual({ start: 10 * 60, end: 18 * 60, clamp: null })
+  })
+
+  it('an off-lattice shift keeps its own phase (canon’s preserve-by-default)', () => {
+    // A 10:20 start steps to 10:50, not to a lie about 11:00. Whole steps FROM
+    // the edge where it stands is what makes a second lattice unnecessary.
+    const odd = { start: 10 * 60 + 20, end: 18 * 60, breaks: [] }
+    expect(resizeShift(odd, 'start', 1, WIN).start).toBe(10 * 60 + 50)
+  })
+
+  it('AN EDGE NEVER MOVES THE BREAK — it stops at its boundary and says so', () => {
+    // Pulling the end back through 13:00–14:00 stops at 14:00, and the label
+    // names the break rather than the bar just refusing to move.
+    const clamped = resizeShift(CELL, 'end', -10, WIN)
+    expect(clamped).toEqual({ start: 10 * 60, end: 14 * 60, clamp: 'break' })
+    expect(edgeLabel(clamped)).toBe('10:00–14:00（休憩まで）')
+    // Same on the other end: the start stops at 13:00, not past it.
+    const front = resizeShift(CELL, 'start', 10, WIN)
+    expect(front).toEqual({ start: 13 * 60, end: 18 * 60, clamp: 'break' })
+    // NOT true for two reasons: a cell with no break (a staged one) is stopped
+    // by the one-step minimum instead, and says THAT.
+    const noBreak = resizeShift({ start: 10 * 60, end: 18 * 60, breaks: [] }, 'end', -20, WIN)
+    expect(noBreak).toEqual({ start: 10 * 60, end: 10 * 60 + 30, clamp: 'min' })
+    expect(edgeLabel(noBreak)).toBe('10:00–10:30（最短30分）')
+  })
+
+  it('neither end leaves the track, and the label says which wall it hit', () => {
+    const late = resizeShift(CELL, 'end', 20, WIN)
+    expect(late).toEqual({ start: 10 * 60, end: 20 * 60, clamp: 'window' })
+    expect(edgeLabel(late)).toBe('10:00–20:00（営業時間まで）')
+    const early = resizeShift(CELL, 'start', -20, WIN)
+    expect(early).toEqual({ start: 9 * 60, end: 18 * 60, clamp: 'window' })
+    // An unclamped span says only the hours — the reason is not always printed.
+    expect(edgeLabel(resizeShift(CELL, 'end', 1, WIN))).toBe('10:00–18:30')
+  })
+
+  it('the bar is drawn TIME-TRUE inside the track, and clamped to it', () => {
+    expect(trackPct(9 * 60, WIN)).toBe(0)
+    expect(trackPct(20 * 60, WIN)).toBe(100)
+    // 10:00 is one hour into an eleven-hour track.
+    expect(trackPct(10 * 60, WIN)).toBeCloseTo(100 / 11, 6)
+    // Midpoint, and anything outside is held at the wall rather than drawn off
+    // the end of its own cell.
+    expect(trackPct(14 * 60 + 30, WIN)).toBe(50)
+    expect(trackPct(6 * 60, WIN)).toBe(0)
+    expect(trackPct(23 * 60, WIN)).toBe(100)
+  })
+
+  it('THE DRAG IS GEARED — pointer travel buys steps, position does not', () => {
+    // ⚖ 8/22 amendment. A day column is ~110px over an eleven-hour track: an
+    // edge that followed the pointer would buy a step every ~5px, which is a
+    // lottery, not a control. The gate is the amendment's own floor.
+    expect(DRAG_PX_PER_STEP).toBeGreaterThanOrEqual(14)
+    // And the screen actually divides TRAVEL by it. `Math.round(dx / px)` is
+    // the whole gearing; a track-width percentage anywhere in the drag path is
+    // the raw mapping the amendment forbids.
+    const drag = SRC.slice(SRC.indexOf('const spanAt ='), SRC.indexOf('function onGripUp('))
+    expect(drag).toContain('/ DRAG_PX_PER_STEP')
+    expect(drag).not.toContain('getBoundingClientRect')
+    expect(SRC).not.toContain('deltaPctIn')
+  })
+
+  it('a bar too short for two handles ships WITHOUT them, and says so', () => {
+    // 16px of hit target each, on the narrowest day column this board is drawn
+    // in — below that the two handles would sit on top of each other, and two
+    // controls nobody can tell apart is the fiddly control the amendment bans.
+    expect(dragSafeMinutes(WIN)).toBe(120)
+    // It is derived from the WINDOW, not typed: a wider day needs more minutes
+    // to buy the same 16 pixels.
+    expect(dragSafeMinutes(trackWindow(8 * 60, 22 * 60))).toBe(180)
+    const cell = SRC.slice(SRC.indexOf('function WeekCell('), SRC.indexOf('function monthCell('))
+    expect(cell).toContain('cell.end! - cell.start! >= bar.minDragMinutes')
+    expect(cell).toContain('短い勤務の時間はダイアログで変えます')
+    expect(cell).toContain('{draggable &&')
+  })
+
+  it('ONLY a 勤務 cell has handles — nothing else has hours to pull', () => {
+    // 定休日, 休み, 希望休, 勤務不可 and 勤務予定なし all return before the bar.
+    const cell = SRC.slice(SRC.indexOf('function WeekCell('), SRC.indexOf('function monthCell('))
+    const beforeBar = cell.slice(0, cell.indexOf('shift-track'))
+    expect(beforeBar).toContain("cell.kind === 'closed'")
+    expect(beforeBar).toContain("cell.kind === 'none'")
+    expect(beforeBar).toContain("cell.kind === 'partial'")
+    expect(beforeBar).toContain("cell.kind === 'leave-pending'")
+    expect(beforeBar).toContain("cell.kind === 'rest'")
+    expect(beforeBar).not.toContain('grip')
+    // and the handler refuses a non-work cell even if one were reached
+    expect(SRC).toContain("if (cell.kind !== 'work' || cell.start === null || cell.end === null) return")
+    // MONTH cells stay dialog-only (too small to hold a handle at all).
+    const month = SRC.slice(SRC.indexOf('function monthCell('))
+    expect(month).not.toContain('grip')
+    expect(CSS).not.toContain('.month-table .grip')
+  })
+
+  it('the release commits through the DIALOG’S OWN staging seam, once', () => {
+    // One write path: `stageShift` is the only thing that appends a work edit,
+    // and both the dialog's 保存 and a released drag call it. Two seams would
+    // be two chances to stage different arithmetic.
+    expect(SRC.match(/function stageShift|const stageShift/g)!.length).toBe(1)
+    expect((SRC.match(/stageShift\(/g) ?? []).length).toBe(2) // saveCell, and the release
+    expect((SRC.match(/kind: 'work'/g) ?? []).length).toBe(1)
+  })
+
+  it('a release over a booking it would strand COMMITS NOTHING and stays readable', () => {
+    const end = SRC.slice(SRC.indexOf('const endEdgeDrag ='), SRC.indexOf('const spanAt ='))
+    // The same `bookingRefusal` the dialog asks, asked before anything stages.
+    expect(end).toContain('bookingRefusal(')
+    expect(end.indexOf('bookingRefusal(')).toBeLessThan(end.indexOf('stageShift('))
+    expect(end).toMatch(/if \(clash\) \{[\s\S]*?return[\s\S]*?\}/)
+    // and the reason lands in the persistent message with its × (⚖ 47), wearing
+    // the refusal's own colour and role — never the success line's.
+    expect(end).toContain('setToast({ text: clash, warn: true })')
+    expect(SRC).toContain("role={toast.warn ? 'alert' : 'status'}")
+    expect(CSS).toContain('.biz .pg-shifts .toast.warn { border-left-color: var(--orange-line); }')
+  })
+
+  it('EVERY release puts the node back where React left it, first', () => {
+    // The frames were written outside React. If a commit follows, React diffs
+    // from the geometry it believes in; if nothing is committed there is no
+    // re-render at all, so the restore is the only thing that puts the bar
+    // back. Clearing the inline styles instead would drop it to 0%.
+    const end = SRC.slice(SRC.indexOf('const endEdgeDrag ='), SRC.indexOf('const spanAt ='))
+    expect(end).toContain('paintEdge(d, { start: d.origin.start, end: d.origin.end, clamp: null })')
+    expect(end.indexOf('paintEdge(d,')).toBeLessThan(end.indexOf('bookingRefusal('))
+    expect(end).not.toContain(".style.left = ''")
+  })
+
+  it('no React render per pointermove — the frame writes to the node', () => {
+    const move = SRC.slice(SRC.indexOf('function onGripMove('), SRC.indexOf('function onGripUp('))
+    expect(move).toContain('requestAnimationFrame')
+    expect(move).toContain('if (d.frame !== null) return') // coalesced: newest wins
+    expect(move).not.toMatch(/\bset[A-Z]/) // no state setter of any kind
+    const paint = SRC.slice(SRC.indexOf('const paintEdge ='), SRC.indexOf('const endEdgeDrag ='))
+    expect(paint).toContain('d.bar.style.left')
+    expect(paint).toContain('d.label.textContent = edgeLabel(span)')
+    expect(paint).not.toMatch(/\bset[A-Z]/)
+  })
+
+  it('pointer capture rides the HANDLE, and the release position is authoritative', () => {
+    const down = SRC.slice(SRC.indexOf('function onGripDown('), SRC.indexOf('function onGripMove('))
+    expect(down).toContain('handle.setPointerCapture(e.pointerId)')
+    // canon's own self-heal: a move with no button down means the release was
+    // lost, and the bar would otherwise stay stuck to the cursor.
+    expect(SRC).toContain('if (e.buttons === 0) { endEdgeDrag(null); return }')
+    // Recomputed at pointerup rather than trusting the last frame Chrome sent.
+    const up = SRC.slice(SRC.indexOf('function onGripUp('), SRC.indexOf('const bar: BarWiring'))
+    expect(up).toContain('endEdgeDrag(spanAt(d, e.clientX))')
+    // Both cancel paths tear the gesture down (⚖ A9 — every ENDING, not just
+    // the happy one).
+    expect(SRC).toContain('onPointerCancel={bar.cancel}')
+    expect(SRC).toContain('onLostPointerCapture={bar.cancel}')
+  })
+
+  it('the drag has a single-pointer alternative, which is the dialog (WCAG 2.5.7)', () => {
+    // The handles are pointer sugar; the bar's BODY opens the same dialog the
+    // month board uses, and that dialog is the keyboard path.
+    const cell = SRC.slice(SRC.indexOf('function WeekCell('), SRC.indexOf('function monthCell('))
+    expect(cell).toContain('className="bar-body" type="button"')
+    expect(cell).toContain('onClick={() => bar.open(m, day)}')
+    expect(cell).toContain('端をドラッグすると開始・終了を30分単位で変えられます')
+    // The handles carry no a11y contract of their own — the button states it.
+    expect(cell).toMatch(/className=\{`grip \$\{edge\}`\}[\s\S]*?aria-hidden="true"/)
+  })
+
+  it('a staged bar wears the staged marker, and a drag on it edits the staged hours', () => {
+    // Last write wins per (person, day) — the Map the screen builds does that
+    // for free, so a second drag on the same cell is simply another append.
+    const cell = SRC.slice(SRC.indexOf('function WeekCell('), SRC.indexOf('function monthCell('))
+    expect(cell).toContain("cell.staged ? 'shift-bar staged' : 'shift-bar'")
+    expect(CSS).toContain('.biz .pg-shifts .shift-bar.staged')
+    // The drag reads the CELL, which is `cellFor`'s answer — staged or not.
+    expect(SRC).toContain('const cell = at(m.id, day.dayKey)')
+    // And a staged cell has no break to protect, so its whole span is draggable.
+    const todayKey = todayKeyNow()
+    const roster = rosterFor(todayKey, ['p-01'])
+    const ctx = contextFor(roster, todayKey)
+    const day = todayKey + 3
+    ctx.shiftEdits.set(editKey('p-01', day), {
+      staffId: 'p-01', dayKey: day, kind: 'work', start: 11 * 60, end: 17 * 60,
+    })
+    const staged = cellFor(roster[0], day, ctx)
+    expect(staged.staged).toBe(true)
+    expect(staged.breaks).toEqual([])
+    expect(resizeShift(
+      { start: staged.start!, end: staged.end!, breaks: staged.breaks },
+      'end', 2, WIN,
+    )).toEqual({ start: 11 * 60, end: 18 * 60, clamp: null })
+  })
+})
+
+// ── 14. E-2 · the boards hold ANY roster size ───────────────────────────────
+//
+// ⚖ LIAM 8/22: 「20〜30人、店舗によって違う。どの規模でも構造的に成り立つこと」.
+// The DEMO WORLD STAYS SIX PEOPLE — the roster below is built here, in the
+// test, and never reaches the fixtures.
+
+describe('E-2 · the boards scale to any roster size', () => {
+  /** A synthetic store of `n` people, all with real shifts, wages and one
+   *  qualification. Test-local by construction: nothing here is exported and
+   *  nothing writes to `fixtures-*` — the demo world stays six people.
+   *
+   *  THE WAGES AND THE BREAK ARE DELIBERATELY AWKWARD. A roster of round hours
+   *  on a round wage prices every cell to a whole yen, and a total that rounds
+   *  ONCE and a total that rounds every cell agree — which would make the
+   *  exactness pin below true for a reason that has nothing to do with the
+   *  arithmetic it is guarding (M33 survived exactly that, first run). A
+   *  45-minute break and a 130-yen wage ladder put a half-yen on most cells. */
+  function syntheticRoster(n: number, todayKey: number): RosterMember[] {
+    const people = Array.from({ length: n }, (_, i) => ({
+      id: `syn-${String(i).padStart(2, '0')}`,
+      full_name: `合成 ${i}`,
+    }))
+    const rows = people.map((p, i) => ({
+      staff_id: p.id,
+      start: (9 + (i % 3)) * 60,
+      end: (17 + (i % 3)) * 60,
+      breaks: [{ start: 13 * 60, end: 13 * 60 + 45 }],
+    }))
+    return buildRoster(
+      people as unknown as typeof staff,
+      rows,
+      Object.fromEntries(people.map((p) => [p.id, ['整体']])),
+      Object.fromEntries(people.map((p, i) => [p.id, 1500 + (i % 7) * 130])),
+      closedWeekday,
+      todayKey,
+    )
+  }
+
+  /** The screen's own commit work, run outside React: every cell of the period
+   *  through `cellFor`, then `laborCost` over the lot. This is the half that
+   *  grows with the roster.
+   *
+   *  `exact` and `perCell` are the SAME money added up two ways — rounded once
+   *  at the end, and rounded at every cell. They differ by construction on this
+   *  roster, which is what lets the pin below say which one the code does. */
+  function monthPass(roster: RosterMember[], days: number[], ctx: DayContext) {
+    const wage = new Map(roster.map((m) => [m.id, m.wage]))
+    let cells = 0
+    let worked = 0
+    let exact = 0
+    let perCell = 0
+    const priced: Array<{ staffId: string; workedMinutes: number }> = []
+    for (const dayKey of days) {
+      for (const m of roster) {
+        const cell = cellFor(m, dayKey, ctx)
+        cells += 1
+        worked += cell.workedMinutes
+        const yen = (cell.workedMinutes / 60) * (wage.get(m.id) ?? 0)
+        exact += yen
+        perCell += Math.floor(yen)
+        priced.push({ staffId: m.id, workedMinutes: cell.workedMinutes })
+      }
+    }
+    return { cells, worked, exact, perCell, cost: laborCost(priced, roster) }
+  }
+
+  it('28 people over a whole month is exact arithmetic, not an approximation', () => {
+    const restore = pin('2026-08-22T04:00:00.000Z')
+    try {
+      const todayKey = todayKeyNow()
+      const roster = syntheticRoster(28, todayKey)
+      const month = monthCoords(todayKey, 0)
+      const ctx: DayContext = {
+        closedWd: closedWeekday,
+        todayKey,
+        absence: null,
+        leaveKeys: new Set(),
+        bookedKeys: new Set(),
+        shiftEdits: new Map(),
+        leaveAnswers: new Map(),
+      }
+      const pass = monthPass(roster, month.days, ctx)
+      // Every person × every day of August 2026 — one cell each, no more.
+      expect(month.days).toHaveLength(31)
+      expect(pass.cells).toBe(28 * 31)
+      // The month costs what its 868 cells cost, rounded ONCE, to the yen.
+      expect(pass.cost.yen).toBe(Math.round(pass.exact))
+      expect(pass.cost.missingRate).toEqual([])
+      // NOT true for two reasons: on this roster the same money rounded at
+      // every cell lands somewhere else, so the pin can tell the two apart.
+      expect(pass.perCell).not.toBe(Math.round(pass.exact))
+      // and the number is real: nobody is costed at zero and nobody is dropped.
+      expect(pass.worked).toBeGreaterThan(0)
+      expect(pass.cost.yen).toBeGreaterThan(0)
+    } finally {
+      restore()
+    }
+  })
+
+  it('the pricing pass builds its index ONCE — no quadratic hiding in the join', () => {
+    // A timing ratio is not a pin: it passed a real O(n²) `laborCost` on this
+    // box, because the quadratic half was small next to the rest. So COUNT the
+    // work instead. `laborCost` indexes the roster by id; reading that id
+    // through a counter says exactly how many times the index was built —
+    // once for a linear pass, once per cell for a quadratic one.
+    const restore = pin('2026-08-22T04:00:00.000Z')
+    try {
+      const todayKey = todayKeyNow()
+      const roster = syntheticRoster(28, todayKey)
+      const month = monthCoords(todayKey, 0).days
+      const ctx: DayContext = {
+        closedWd: closedWeekday, todayKey, absence: null,
+        leaveKeys: new Set(), bookedKeys: new Set(),
+        shiftEdits: new Map(), leaveAnswers: new Map(),
+      }
+      const pass = monthPass(roster, month, ctx)
+      const priced = month.flatMap((dayKey) =>
+        roster.map((m) => ({ staffId: m.id, workedMinutes: cellFor(m, dayKey, ctx).workedMinutes })),
+      )
+      expect(priced).toHaveLength(28 * 31)
+
+      let idReads = 0
+      const counted = roster.map((m) => {
+        const o = { ...m }
+        Object.defineProperty(o, 'id', { get: () => { idReads += 1; return m.id }, enumerable: true })
+        return o as RosterMember
+      })
+      const cost = laborCost(priced, counted)
+      // ONE index for 868 cells. A per-cell rebuild reads it 868 × 28 times.
+      expect(idReads).toBe(28)
+      // NOT true for two reasons: a pass that read nothing because it priced
+      // nothing would also read the id once per person and then stop, so the
+      // money has to be the same money the honest pass produced.
+      expect(cost.yen).toBe(pass.cost.yen)
+      expect(cost.yen).toBe(Math.round(pass.exact))
+    } finally {
+      restore()
+    }
+  })
+
+  it('the WEEK board keeps its people and its days on screen at any height', () => {
+    // Rows scale, so the wrap owns both axes with a cap — a sticky header
+    // inside a scroller as tall as its content has nowhere to stick.
+    expect(CSS).toContain('.biz .pg-shifts .week-wrap { overflow: auto; max-height:')
+    const th = CSS.slice(CSS.indexOf('.biz .pg-shifts .week-table th {'))
+    expect(th.slice(0, th.indexOf('}'))).toContain('position: sticky; top: 0;')
+    expect(CSS).toContain('.biz .pg-shifts .week-table th:first-child { width: 180px; left: 0;')
+    expect(CSS).toContain('.biz .pg-shifts .staff-cell { position: sticky; left: 0;')
+  })
+
+  it('the MONTH board keeps its dates and its header while the operator pans', () => {
+    expect(CSS).toContain('.biz .pg-shifts .month-wrap { overflow: auto; max-height:')
+    const th = CSS.slice(CSS.indexOf('.biz .pg-shifts .month-table th {'))
+    expect(th.slice(0, th.indexOf('}'))).toContain('position: sticky; top: 0;')
+    expect(CSS).toContain('.biz .pg-shifts .month-table th:nth-child(1) { left: 0;')
+    expect(CSS).toContain('.biz .pg-shifts .month-table th:nth-child(2) { left: 148px;')
+    expect(CSS).toContain('.biz .pg-shifts .month-table .booking-cell { position: sticky; z-index: 1;')
+    expect(CSS).toContain('.biz .pg-shifts .month-table .booking-cell { left: 148px; }')
+    // The frozen cells carry the ROW's colour, or a Saturday would turn white
+    // as it passed under them.
+    for (const row of ['row-sat', 'row-sun', 'row-closed', 'row-today']) {
+      expect(CSS).toContain(`.biz .pg-shifts .${row} .day-label, .biz .pg-shifts .${row} .booking-cell`)
+    }
+    // and the today rail rides the frozen cell, not the row behind it
+    expect(CSS).toContain('tbody tr.row-today .day-label { box-shadow: inset 3px 0 0 var(--indigo); }')
+    expect(CSS).not.toContain('tbody tr.row-today { background: var(--proof); box-shadow')
+  })
+
+  it('the month table’s WIDTH is a function of the roster, not a fixed number', () => {
+    // A fixed min-width divided among 30 columns squashes every one of them —
+    // the exact failure this item exists to remove.
+    expect(CSS).toContain('min-width: max(860px, calc(288px + var(--cols, 6) * 132px));')
+    expect(SRC).toContain("'--cols': String(plane.roster.length)")
+  })
+
+  it('the sticky columns need SEPARATED borders, and the grid is unchanged', () => {
+    // Collapsed borders belong to the table, not the cell: a frozen column
+    // would travel and leave its edge behind. Every cell states its own.
+    expect(CSS).toContain('.biz .pg-shifts .week-table { width: 100%; min-width: 930px; border-collapse: separate; border-spacing: 0;')
+    expect(CSS).toContain('border-collapse: separate; border-spacing: 0; table-layout: fixed;')
+    expect(CSS).not.toContain('border-collapse: collapse; table-layout: fixed')
+  })
+
+  it('the scrollers are the room’s own — the page body never scrolls sideways', () => {
+    // The gate law. Both boards pan INSIDE their wrap, and no rule in this
+    // sheet ever puts an overflow on the room's root.
+    const root = CSS.slice(CSS.indexOf('.biz .page.pg-shifts {'))
+    expect(root.slice(0, root.indexOf('}'))).not.toContain('overflow')
+    expect((CSS.match(/overflow: auto; max-height:/g) ?? []).length).toBe(2)
+    expect(CSS).toContain('overscroll-behavior: contain')
   })
 })
