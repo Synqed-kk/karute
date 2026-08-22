@@ -320,6 +320,11 @@ interface DragCtx {
   track: Element
   moved: boolean
   overShelf: boolean
+  /** ⚖ Liam flag 61 / 63(a) — DID THE RESOLVER ANSWER THIS FRAME? `targetLane`
+   *  keeps the last row the pointer was genuinely inside, which is what the
+   *  proxy needs to stay coherent; this is the other half of that answer, and
+   *  it is what stops the board promising a landing the release will refuse. */
+  offLane: boolean
   /** The card and the lane the drag started on. The pointer stream no longer
    *  arrives through the card's own JSX handlers, so the release has to carry
    *  them rather than read them off an event target that may not be the card. */
@@ -427,6 +432,9 @@ interface LiveDrag {
   x: number
   w: number
   overShelf: boolean
+  /** ⚖ Liam flag 61 — the pointer is over no row at all: no dashed landing, no
+   *  lit row, and the cursor is already wearing the release's own refusal. */
+  offLane: boolean
   /** ⚖ Liam flag 29 — which gesture is in flight, so the origin card can wear
    *  the right face: a MOVE dims to .32 (the card is in the hand, this is the
    *  marker it was taken from), a RESIZE wears canon's live look (:1444) because
@@ -925,9 +933,11 @@ export function TodayScreen(props: TodayProps) {
   // ⚖ Liam flag 26: a block in flight gets the same landing preview and the
   // same foreign-lane highlight — one gesture grammar for everything on the
   // board, so a 休憩 says where it will land exactly as a booking does.
+  // ⚖ Liam flag 61 — …and it is NOT drawn when the pointer is over no row: a
+  // dashed preview there was the board promising a landing the release refuses.
   const landing = blockLive
     ? { laneKey: blockLive.targetLane, x: blockLive.x, w: blockLive.w }
-    : live && !live.overShelf
+    : live && !live.overShelf && !live.offLane
       ? { laneKey: live.targetLane, x: live.x, w: live.w }
       : null
   /** ⚖ Liam flag 50(c) — THE RAIL CHIP THE DRAG IS AIMED AT, highlighted in sync
@@ -959,7 +969,7 @@ export function TodayScreen(props: TodayProps) {
    *  it is paint, and ⚖ 38's law puts borders on the drag and colour on meaning. */
   const dropTarget = blockLive
     ? { laneKey: blockLive.targetLane, x: blockLive.x, w: blockLive.w }
-    : live && !live.overShelf
+    : live && !live.overShelf && !live.offLane
       ? { laneKey: live.targetLane, x: live.x, w: live.w }
       : chipTarget
         ? { laneKey: chipTarget, x: 0, w: 0 }
@@ -1213,6 +1223,15 @@ export function TodayScreen(props: TodayProps) {
    *  CURRENT board rather than the one that existed at pointerdown. */
   const verdictRef = useRef(verdictAtLanding)
   verdictRef.current = verdictAtLanding
+  /** ⚖ Liam flag 63 §4 — THE SAME ESCAPE HATCH FOR THE BED SOLVE. `finishDrag`
+   *  runs inside listeners bound once at pointerdown, so everything it reaches
+   *  through the closure is the board as it stood when the gesture STARTED.
+   *  `verdictRef` was built for exactly that and the release did not use it;
+   *  `solveBed` has the identical problem, and a release that asked the current
+   *  board for its verdict and the pointerdown board for its room would be two
+   *  homes for one landing all over again. */
+  const boardLanesRef = useRef(boardLanes)
+  boardLanesRef.current = boardLanes
 
   /** ⚖ Liam flag 58 RIDER — THE ONE PLACE AN ENGINE START BECOMES AN OFFER.
    *
@@ -1512,10 +1531,11 @@ export function TodayScreen(props: TodayProps) {
   //  refusing a second time behind a decision that has already been made.
   function solveBed(staffLaneKey: string | null, id: string | null, currentBed: string | null, vip: boolean, span: { x: number; w: number }, allowBusy = false): string | null {
     const start = minuteOf(span.x, hours)
-    const solved = allocateBed(boardLanes, {
+    const board = boardLanesRef.current
+    const solved = allocateBed(board, {
       id,
       currentBed,
-      stores: boardLanes.find((l) => l.key === staffLaneKey)?.stores ?? null,
+      stores: board.find((l) => l.key === staffLaneKey)?.stores ?? null,
       vip,
       start,
       end: minuteOf(span.x + span.w, hours),
@@ -1755,11 +1775,24 @@ export function TodayScreen(props: TodayProps) {
   function beginDrag(ctx: Omit<DragCtx, 'detach' | 'pending' | 'frame' | 'aimKey'>) {
     const onMove = (e: PointerEvent) => {
       const c = dragRef.current
-      if (!c || e.pointerId !== c.pointerId) return
-      e.preventDefault()
-      // canon's self-heal (:4466): a move with no button down means the release
-      // was lost, and the card would otherwise stay stuck to the cursor.
+      if (!c) return
+      // ⚖ LIAM flag 61 (2026-08-22) — THE SELF-HEAL RUNS FIRST, AND IT IS
+      // POINTER-AGNOSTIC ON PURPOSE. canon's net (:4372-4376) has no pointerId
+      // test and no target test, and its comment says why, from a CDP repro:
+      // once a drag's real pointerup never reaches the page (the window loses
+      // focus mid-drag, the OS hands the release to another app, a rapid
+      // direction flip races), the very next move Chrome delivers reports
+      // `buttons === 0` AND pointer capture is by then already silently gone —
+      // so that event hit-tests normally and can arrive under ANY id. Ours
+      // gated the heal behind the id test, so on a stray id it never fired,
+      // `dragRef.current` stayed set, and `onCardPointerDown` then returned
+      // immediately on every later press: the board went dead to card drags
+      // until an event happened to match the stale id. That is Liam's
+      // 「I have to try multiple times and then it will finally go」, and
+      // canon's own comment quotes his 「after more attempts it self-resolved」.
       if (e.buttons === 0) { cancelDrag(e); return }
+      if (e.pointerId !== c.pointerId) return
+      e.preventDefault()
       // One board update per animation frame. Chrome delivers pointer moves far
       // faster than it paints, and a derive-and-paint per raw event is the jank
       // Liam felt as "not snappy" — the newest position wins, the rest are free.
@@ -1825,12 +1858,17 @@ export function TodayScreen(props: TodayProps) {
       ctx.aimKey = ''
       return
     }
-    const key = `${ctx.targetLane}|${span.x}|${span.w}`
+    // ⚖ flag 61 — over a strip that belongs to no lane the answer is the
+    // release's own sentence, said live at the cursor. `landingVerdict` already
+    // owns it (`if (!staff) return stop('予約を置く行の中で離してください')`),
+    // so this is the one verdict answering a lane of `null`, not a second
+    // opinion about it.
+    const key = `${ctx.offLane ? '' : ctx.targetLane}|${span.x}|${span.w}`
     if (key === ctx.aimKey) return
     ctx.aimKey = key
     const sides = sidesAt(ctx.home, ctx.group, ctx.targetLane)
     const v = verdictRef.current({
-      staffLane: sides.staffLane,
+      staffLane: ctx.offLane ? null : sides.staffLane,
       bedLane: sides.bedLane,
       // ⚖ 51 — the room is SOLVED on a staff-side landing and NAMED on a bed
       // row, and the mid-drag word has to answer under the same rule the
@@ -1887,7 +1925,18 @@ export function TodayScreen(props: TodayProps) {
     if (inHand) {
       moveProxy(clientX, clientY, ctx.grab)
       ctx.overShelf = isOverShelf(shelfRef.current, clientY)
+      // ⚖ LIAM flag 61 / 63(a) — THE HOVER AND THE RELEASE ANSWER THE SAME
+      // QUESTION. One resolver, and the two call sites used to handle its `null`
+      // in opposite ways: the hover silently KEPT the previous lane while the
+      // release REFUSED. So over a strip that belongs to no lane the board went
+      // on drawing a confident dashed landing and a lit row for a lane the
+      // cursor had already left, and then the release refused it — the board
+      // promising a landing it would not honour. With the rail adopted above
+      // most of that band is gone; for the residue (the group gap, the headers,
+      // off-board) the hover now says the same thing the release will, at the
+      // cursor, before the operator lets go.
       const laneKey = laneKeyAtY(boardRef.current, ctx.group, clientY)
+      ctx.offLane = laneKey == null
       if (laneKey) ctx.targetLane = laneKey
     } else {
       liveTimeLabel(ctx.nodes, `${hhmm(minuteOf(span.x, hours))}〜${hhmm(minuteOf(span.x + span.w, hours))}`)
@@ -1903,6 +1952,7 @@ export function TodayScreen(props: TodayProps) {
       group: ctx.group,
       ...span,
       overShelf: ctx.overShelf,
+      offLane: ctx.offLane,
       mode: ctx.origin.mode,
     })
     // ⚖ Liam flag 50 — AND THE WORD AT THE CURSOR, written straight to the node.
@@ -1940,6 +1990,7 @@ export function TodayScreen(props: TodayProps) {
       track,
       moved: false,
       overShelf: false,
+      offLane: false,
       item,
       lane,
     })
@@ -1991,7 +2042,24 @@ export function TodayScreen(props: TodayProps) {
       if (!laneKey) {
         clearDrag()
         restoreSides(ctx.id, from)
-        refuse('予約を置く行の中で離してください')
+        // ⚖ LIAM flag 50(d) + flag 61 — AND THIS ONE EXPLAINS ITSELF AT THE
+        // CURSOR TOO. A bottom toast, on a dense board, while the operator's
+        // eye is on the card they are holding, is functionally silence — the
+        // ⚖ 47 complaint in another costume, and it is what made a release into
+        // the guard rail read as 「it just failed」. The sentence is not written
+        // here: `landingVerdict` already owns it for a lane of `null`, so the
+        // surface, the cursor a frame earlier and the release are one call.
+        // There is nothing to escalate — no row was named — so the popover
+        // carries its reason and やめる, and no 「注意して配置」 (⚖ 31c: a
+        // button that cannot perform what it names does not exist).
+        const off: LandingAsk = {
+          staffLane: null, bedLane: null, solveRoom: ctx.group !== 'beds',
+          id: ctx.id, vip: item.category === 'vip', foreignRefusal: null, span,
+        }
+        explainBlocked(verdictRef.current(off), off, ctx.homeLane, span, { x: clientX, y: clientY, t: upAt }, {
+          override: null,
+          placeAt: () => {},
+        })
         return
       }
       targetLane = laneKey
@@ -2058,7 +2126,10 @@ export function TodayScreen(props: TodayProps) {
         override,
       )
     }
-    const v = verdictAtLanding(ask)
+    // ⚖ Liam flag 63 §4 — through the REF, so the release judges the board as
+    // it stands rather than the one that existed at pointerdown. One line, and
+    // it removes an entire class of hover/release disagreement.
+    const v = verdictRef.current(ask)
     if (v.kind === 'blocked') {
       restoreSides(ctx.id, from)
       explainBlocked(v, ask, targetLane, span, { x: clientX, y: clientY, t: upAt }, {
@@ -2072,7 +2143,7 @@ export function TodayScreen(props: TodayProps) {
         placeAt: (s) => {
           const dur = minuteOf(span.x + span.w, hours) - minuteOf(span.x, hours)
           const at = place(s, s + dur, hours)
-          const again = verdictAtLanding({ ...ask, span: at })
+          const again = verdictRef.current({ ...ask, span: at })
           if (again.kind === 'blocked') {
             refuse(again.reason ?? '配置できません')
             return
@@ -2105,8 +2176,13 @@ export function TodayScreen(props: TodayProps) {
     laneKey: string,
     span: { x: number; w: number },
     at: { x: number; y: number; t: number },
-    run: { override: () => void; placeAt: (start: number) => void },
+    run: { override: (() => void) | null; placeAt: (start: number) => void },
   ) {
+    // ⚖ 50(d) — the escalation exists where the STORE granted it AND where
+    // there is something to escalate onto. A release over no row at all has
+    // neither a lane nor a span to place, so it passes `null` and the surface
+    // is explanation only.
+    const escalate = run.override
     adviceOpenedAt.current = at.t
     setAdvice({
       laneKey,
@@ -2121,7 +2197,7 @@ export function TodayScreen(props: TodayProps) {
       reason: v.reason ?? '配置できません',
       anchor: at,
       place: (s) => { setAdvice(null); run.placeAt(s) },
-      override: props.canOverride ? () => { setAdvice(null); run.override() } : null,
+      override: props.canOverride && escalate ? () => { setAdvice(null); escalate() } : null,
     })
   }
 
@@ -2252,9 +2328,15 @@ export function TodayScreen(props: TodayProps) {
   function beginBlockDrag(ctx: Omit<BlockDragCtx, 'detach' | 'pending' | 'frame'>) {
     const onMove = (e: PointerEvent) => {
       const c = blockDragRef.current
-      if (!c || e.pointerId !== c.pointerId) return
-      e.preventDefault()
+      if (!c) return
+      // ⚖ Liam flag 61 — the block pipeline had the SAME inversion, and canon's
+      // net covers both in one listener (`if (dragCtx) forceDragCancel(); if
+      // (blockDragCtx) forceBlockCancel();`, :4372-4376). A stale
+      // `blockDragRef` makes `onBlockPointerDown` return on every later press,
+      // which is the board going dead to block drags for the same reason.
       if (e.buttons === 0) { cancelBlockDrag(e); return }
+      if (e.pointerId !== c.pointerId) return
+      e.preventDefault()
       c.pending = { clientX: e.clientX, clientY: e.clientY }
       if (c.frame != null) return
       c.frame = requestAnimationFrame(() => { c.frame = null; applyBlockFrame() })

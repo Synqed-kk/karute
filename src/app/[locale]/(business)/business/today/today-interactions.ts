@@ -142,10 +142,27 @@ export function fractionIn(track: Element, clientX: number): number {
 export function laneKeyAtY(root: Element | null, group: string | null, clientY: number): string | null {
   if (!root) return null
   let found: string | null = null
-  for (const lane of Array.from(root.querySelectorAll('.lane'))) {
-    if (group !== null && (lane as HTMLElement).dataset.group !== group) continue
-    const r = lane.getBoundingClientRect()
-    if (clientY >= r.top && clientY <= r.bottom) found = (lane as HTMLElement).dataset.lane ?? null
+  for (const el of Array.from(root.querySelectorAll('.lane')) as HTMLElement[]) {
+    if (group !== null && el.dataset.group !== group) continue
+    const r = el.getBoundingClientRect()
+    if (clientY >= r.top && clientY <= r.bottom) {
+      found = el.dataset.lane ?? null
+      continue
+    }
+    // ⚖ LIAM flag 61 (2026-08-22) — THE RAIL BELONGS TO THE LANE ABOVE IT, and
+    // this is canon's own clause (`semanticLaneAt` :3828-3833), which the
+    // transplant did not carry. The 60分配置 strip is rendered as a SIBLING of
+    // its lane (TodayScreen's Fragment, canon's rule quoted there), 18px tall
+    // against a 72px row — so a fifth of every staff row's pitch belonged to no
+    // `.lane` at all and every release inside it died with a bottom toast while
+    // the operator's eye was on the cursor. The doc comment above has described
+    // this rule since the function was written; the code did not implement it.
+    // Rendering ≠ working, inside one function.
+    if (el.dataset.group !== 'staff') continue
+    const rail = el.nextElementSibling
+    if (!rail || !rail.classList.contains('guard-placement-rail')) continue
+    const rr = rail.getBoundingClientRect()
+    if (clientY >= rr.top && clientY <= rr.bottom) found = el.dataset.lane ?? null
   }
   return found
 }
@@ -347,6 +364,7 @@ export function applyMoves(
   // bed lane must be re-admitted as its bed drawing (its own key, its own
   // 【担当】 tag), not as the staff card wearing a room's name.
   const home = new Map<string, BoardItem>()
+  const groupOf = new Map(lanes.map((l) => [l.key, l.group]))
   // …and each booking's own turnaround, by the booking it belongs to. Keyed
   // `${id}-cleanup` at derivation (today-board :508), which is the only link
   // back to its owner — the item itself carries no caseId.
@@ -358,6 +376,20 @@ export function applyMoves(
         cleanupOf.set(item.key.slice(0, -'-cleanup'.length), item)
       }
     }
+  }
+  // ⚖ Liam flag 61, second-order (study §61 bonus) — A ROW THIS SESSION CREATED
+  // IS A BOARD ROW. `added` used to bypass everything below: it was filtered by
+  // the lane it was BORN on and concatenated AFTER the `moved` pass, so a
+  // 次回予約 or a shelf placement could never be redrawn at a staged span and
+  // could never change lane. Drag one and the 仮押さえ line reported the new
+  // time while the card did not move — deterministic, and another "the drop did
+  // nothing" for the operator. Its home row joins the same map every server row
+  // uses, so from here down there is one kind of row.
+  const placedIds = new Set<string>()
+  for (const a of added) {
+    const g = groupOf.get(a.laneKey)
+    if (a.item.caseId) placedIds.add(a.item.caseId)
+    if (g && a.item.kind === 'booking' && a.item.caseId) home.set(`${g}|${a.item.caseId}`, a.item)
   }
 
   // ONE SPAN FOR THE PAIR, and it lives in `moves`: every writer sets both
@@ -388,9 +420,16 @@ export function applyMoves(
     // the bed half hard-wired to "never moves", which is what made a bed-side
     // drag unrepresentable rather than merely unimplemented.
     const membership = lane.group === 'staff' ? moves : bedMoves
-    const extra = added.filter((a) => a.laneKey === lane.key).map((a) => a.item)
-    const kept = lane.items.filter((item) => {
-      if (isParked(item, parked)) return false
+    // …and it is filtered, moved and re-admitted exactly like one — with ONE
+    // exemption, which is ⚖ 22's cross-day park: a booking placed on another
+    // day stays in `parked` on purpose, because that is what keeps the ORIGIN
+    // day hiding it. The row this session placed is the placement itself, so it
+    // is never hidden by the flag that hides its origin.
+    const own = added.some((a) => a.laneKey === lane.key)
+      ? [...lane.items, ...added.filter((a) => a.laneKey === lane.key).map((a) => a.item)]
+      : lane.items
+    const kept = own.filter((item) => {
+      if (isParked(item, parked) && !(item.caseId != null && placedIds.has(item.caseId))) return false
       // ⚖ 51 second-order — A 清掃 IS NOT A THING ON THE BOARD, IT IS THE TAIL OF
       // ITS BOOKING. It carries `caseId: null` (today-board :512), so the
       // membership test below could never see it: the booking moved and its
@@ -404,12 +443,12 @@ export function applyMoves(
     })
     const arrivals: BoardItem[] = []
     for (const [id, m] of Object.entries(membership)) {
-      if (m.laneKey !== lane.key || parked.includes(id)) continue
+      if (m.laneKey !== lane.key || (parked.includes(id) && !placedIds.has(id))) continue
       const row = home.get(`${lane.group}|${id}`)
-      if (!row || lane.items.some((i) => i.caseId === id)) continue
+      if (!row || own.some((i) => i.caseId === id)) continue
       arrivals.push(row)
     }
-    const settled = [...kept, ...arrivals].map((i) => moved(i, lane.group)).concat(extra).sort(byX)
+    const settled = [...kept, ...arrivals].map((i) => moved(i, lane.group)).sort(byX)
     return { ...lane, items: lane.group === 'beds' ? withTrailingCleanup(lane, settled, cleanupOf, hours) : settled }
   })
 }
