@@ -25,6 +25,14 @@
 import { createContext, useContext, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import type { StagedLeave, StagedShift } from '@/business/lib/shifts'
 
+/** The month board's two frozen columns, by the name their CSS variable uses. */
+export type MonthColKey = 'date' | 'booking'
+
+/** Column widths the operator dragged, in px. ABSENT means「the sheet's own
+ *  default」— a reset deletes the key rather than writing the default back, so
+ *  the default lives in exactly one place (shifts.css). */
+export type MonthColWidths = Partial<Record<MonthColKey, number>>
+
 interface ShiftEdits {
   /** Shifts the operator changed in this session, newest wins per (staff, day). */
   shiftEdits: StagedShift[]
@@ -32,6 +40,12 @@ interface ShiftEdits {
   /** 希望休 answered in this session. */
   leaveAnswers: StagedLeave[]
   setLeaveAnswers: Dispatch<SetStateAction<StagedLeave[]>>
+  /** ⚖ Liam 8/22 — a dragged column width is a SETTING OF THIS SESSION, and it
+   *  rides here for the same reason a staged shift does: `?view=`, `?week=` and
+   *  `?ym=` remount the screen, and a column that snapped back to 136px every
+   *  time the operator changed month would be a control that undoes itself. */
+  colWidths: MonthColWidths
+  setColWidths: Dispatch<SetStateAction<MonthColWidths>>
 }
 
 const ShiftEditsContext = createContext<ShiftEdits | null>(null)
@@ -39,8 +53,11 @@ const ShiftEditsContext = createContext<ShiftEdits | null>(null)
 export function ShiftsSessionEdits({ children }: { children: ReactNode }) {
   const [shiftEdits, setShiftEdits] = useState<StagedShift[]>([])
   const [leaveAnswers, setLeaveAnswers] = useState<StagedLeave[]>([])
+  const [colWidths, setColWidths] = useState<MonthColWidths>({})
   return (
-    <ShiftEditsContext.Provider value={{ shiftEdits, setShiftEdits, leaveAnswers, setLeaveAnswers }}>
+    <ShiftEditsContext.Provider
+      value={{ shiftEdits, setShiftEdits, leaveAnswers, setLeaveAnswers, colWidths, setColWidths }}
+    >
       {children}
     </ShiftEditsContext.Provider>
   )

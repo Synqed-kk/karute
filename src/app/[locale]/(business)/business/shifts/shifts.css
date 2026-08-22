@@ -184,38 +184,15 @@
 /* 休み — quiet, and distinct from BOTH 勤務 (indigo) and 欠勤 (red), so the
    week board can say "off" instead of leaving a blank nobody can read. */
 .biz .pg-shifts .shift.rest { border-color: var(--control); background: #f4f4f5; color: var(--ink-3); }
-/* ── the shift chip's own edges (⚖ E-1, Liam's second ruling) ──────────── */
-/* THE CHIP IS THE BOX. The first build put a second, time-true bar in its own
-   track under the chip and he rejected it on sight — 「what are those weird
-   boxes, the bars that are under the shifts?」. Canon's chip is unchanged at
-   rest: same box, same text, same break line, nothing added. What it gains is
-   two grab zones on its own edges, INVISIBLE until the pointer is on the chip
-   or the keyboard is in it, so the affordance is a response and never
-   furniture. */
-.biz .pg-shifts .shift.draggable { position: relative; }
-/* The dialog's door, and the whole cell's a11y contract: the drag is a pointer
-   convenience and this button is its single-pointer alternative (WCAG 2.5.7)
-   and its keyboard path. Styled to nothing — the chip around it is canon's. */
+/* The dialog's door, and the whole cell's a11y contract: a shift's hours are
+   changed in ONE place, the cell dialog, and this button is how the chip opens
+   it with a pointer or a keyboard. Styled to nothing — the chip around it is
+   canon's. */
 .biz .pg-shifts .shift-open {
   display: block; width: 100%; padding: 0; border: 0;
   background: transparent; color: inherit; font: inherit; text-align: left;
 }
 .biz .pg-shifts .shift-open:focus-visible { outline: 3px solid var(--indigo); outline-offset: 3px; }
-.biz .pg-shifts .grip {
-  position: absolute; top: -1px; bottom: -1px; width: 16px;
-  opacity: 0; transition: opacity .12s ease;
-  cursor: ew-resize; touch-action: none;
-}
-.biz .pg-shifts .grip.start { left: -1px; }
-.biz .pg-shifts .grip.end { right: -1px; }
-.biz .pg-shifts .grip::after {
-  content: ""; position: absolute; top: 4px; bottom: 4px; left: 6px; width: 4px;
-  border-radius: 2px; background: var(--indigo);
-}
-.biz .pg-shifts .shift.draggable:hover .grip,
-.biz .pg-shifts .shift.draggable:focus-within .grip,
-.biz .pg-shifts .shift[data-dragging] .grip { opacity: 1; }
-.biz .pg-shifts .shift[data-dragging] { border-color: var(--indigo); }
 
 .biz .pg-shifts .cell-note { display: block; margin-top: 5px; color: var(--quiet); font-size: 12px; }
 .biz .pg-shifts .cell-note.staged { color: var(--indigo); font-weight: 700; }
@@ -299,29 +276,62 @@
    headcount the screen renders, so the table simply gets wider as people are
    added. A fixed `min-width` would divide itself among 30 columns and squash
    every one of them past the point of reading — which is the failure mode this
-   whole item exists to remove. */
+   whole item exists to remove.
+
+   ⚖ LIAM 8/22 (COLUMN SIZING): 「日付 and 予約 are far wider than their tiny
+   content — I want them tighter so more staff fit, and I want to drag the
+   column border lines to set the widths myself」. THE THREE WIDTHS ARE
+   VARIABLES, not literals, because the drag writes them and every dependent
+   number has to follow: the 予約 column's sticky `left` IS the 日付 column's
+   width, and a hard-coded 148px there is the frozen pair coming apart the
+   moment a divider moves. Measured floors (real Chromium, this sheet, the
+   room's own strings) live in ShiftsScreen's MIN — a width below them is a
+   string that truncates, so the clamp is the truncation guard. */
 .biz .pg-shifts .month-wrap { overflow-x: auto; }
 .biz .pg-shifts .month-table {
+  /* Defaults, and the ONE place they are written. The screen overrides these
+     three inline while a divider is being dragged and after it is released. */
+  --date-w: 112px;
+  --booking-w: 100px;
+  --staff-w: 116px;
   width: 100%;
-  min-width: max(860px, calc(288px + var(--cols, 6) * 132px));
+  min-width: max(860px, calc(var(--date-w) + var(--booking-w) + var(--cols, 6) * var(--staff-w)));
   border-collapse: separate; border-spacing: 0; table-layout: fixed;
 }
-.biz .pg-shifts .month-table col.date-col { width: 148px; }
-.biz .pg-shifts .month-table col.booking-col { width: 140px; }
+.biz .pg-shifts .month-table col.date-col { width: var(--date-w); }
+.biz .pg-shifts .month-table col.booking-col { width: var(--booking-w); }
 .biz .pg-shifts .month-table th {
   position: sticky; z-index: 2;
   padding: 8px 10px; border-right: 1px solid var(--section); border-bottom: 1px solid var(--section);
   background: #fafafb; color: var(--ink-3); font-size: 12px; text-align: left; vertical-align: bottom;
 }
-.biz .pg-shifts .month-table th:nth-child(1) { left: 0; z-index: 3; }
-.biz .pg-shifts .month-table th:nth-child(2) { left: 148px; z-index: 3; }
+/* 日付 outranks 予約 so its divider's outer half paints over the 予約 header
+   instead of under it. The two never overlap — 予約 starts where 日付 ends —
+   so the order costs nothing else. */
+.biz .pg-shifts .month-table th:nth-child(1) { left: 0; z-index: 4; }
+.biz .pg-shifts .month-table th:nth-child(2) { left: var(--date-w); z-index: 3; }
+/* ── the column border lines, dragged (⚖ Liam 8/22) ─────────────────────── */
+/* A grab zone straddling the boundary in the header row: 10px wide, the full
+   height of the header, and a col-resize cursor so the affordance is the
+   pointer itself. The line only LIGHTS under the pointer or while it is being
+   dragged — R13's accent, and never a fill. */
+.biz .pg-shifts .col-grip {
+  position: absolute; top: 0; right: -5px; bottom: -1px; width: 10px; z-index: 1;
+  cursor: col-resize; touch-action: none; user-select: none;
+}
+.biz .pg-shifts .col-grip::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 4px; width: 2px;
+  background: transparent; transition: background .12s ease;
+}
+.biz .pg-shifts .col-grip:hover::after,
+.biz .pg-shifts .col-grip[data-sizing]::after { background: var(--indigo); }
 /* The two frozen body columns. They carry the ROW's colour rather than a flat
    one — a Saturday row that turned white the moment it passed under the frozen
    column would be the row lying about which day it is. */
 .biz .pg-shifts .month-table .day-label,
 .biz .pg-shifts .month-table .booking-cell { position: sticky; z-index: 1; background: #fff; }
 .biz .pg-shifts .month-table .day-label { left: 0; }
-.biz .pg-shifts .month-table .booking-cell { left: 148px; }
+.biz .pg-shifts .month-table .booking-cell { left: var(--date-w); }
 .biz .pg-shifts .row-sat .day-label, .biz .pg-shifts .row-sat .booking-cell { background: var(--blue-row); }
 .biz .pg-shifts .row-sun .day-label, .biz .pg-shifts .row-sun .booking-cell { background: var(--red-row); }
 .biz .pg-shifts .row-closed .day-label, .biz .pg-shifts .row-closed .booking-cell { background: var(--section); }
@@ -341,24 +351,40 @@
    one marker that says which row is today. */
 .biz .pg-shifts .month-table tbody tr.row-today .day-label { box-shadow: inset 3px 0 0 var(--indigo); }
 .biz .pg-shifts .row-closed .day-label { color: var(--quiet); }
-.biz .pg-shifts .day-label { padding: 0 12px; font-size: 13px; font-weight: 700; color: var(--ink-2); white-space: nowrap; }
+/* The date itself never breaks (`keep-all` — it holds no space, so there is no
+   break opportunity inside it); the 本日 tag, which rides ONE row of the month,
+   drops under it rather than forcing every other row's column to carry its
+   width. That is what lets the 日付 floor be the date's own width. */
+.biz .pg-shifts .day-label { padding: 0 8px; font-size: 13px; font-weight: 700; color: var(--ink-2); word-break: keep-all; }
 .biz .pg-shifts .row-sat .day-label { color: #33449b; }
 .biz .pg-shifts .row-sun .day-label { color: var(--red-dark); }
 .biz .pg-shifts .today-tag { margin-left: 6px; padding: 1px 6px; border-radius: 5px; background: var(--indigo-soft); color: var(--indigo); font-size: 10.5px; font-weight: 700; }
-.biz .pg-shifts .cell-btn { display: block; width: 100%; min-height: 54px; padding: 6px 8px; border: 0; background: transparent; text-align: left; border-radius: 8px; }
+/* 50px and 4/6px of padding, not 54 and 6/8: the tallest ordinary cell is a
+   chip (24) over a 予約 mark (18) inside 4px, which is exactly 50 — so every row
+   of the month keeps ONE height and the board loses 4px × 31 rows of nothing.
+   The 6px sides are what let a staff column be 116px: the 10:00–19:00 chip is
+   98.9px wide, and the padding is the rest of the floor. */
+.biz .pg-shifts .cell-btn { display: block; width: 100%; min-height: 50px; padding: 4px 6px; border: 0; background: transparent; text-align: left; border-radius: 8px; }
 .biz .pg-shifts .cell-btn:hover { background: rgba(24, 24, 27, .035); }
 .biz .pg-shifts .cell-btn:focus-visible { outline: 3px solid var(--indigo); outline-offset: -2px; }
-.biz .pg-shifts .cell-quiet { display: block; min-height: 54px; }
+.biz .pg-shifts .cell-quiet { display: block; min-height: 50px; }
 .biz .pg-shifts .chip-shift {
   display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border-radius: 6px;
   border: 1px solid #b8c5f3; background: var(--indigo-soft); color: var(--ink-2);
   font-size: 12px; font-weight: 600; white-space: nowrap;
 }
-.biz .pg-shifts .chip-shift.absence { border-color: #e6a09a; color: var(--red-dark); background: repeating-linear-gradient(135deg, var(--red-soft), var(--red-soft) 4px, var(--red-hatch) 4px, var(--red-hatch) 8px); }
+/* 勤務不可 and 希望休 are EXCEPTION chips — one person, one day. They carry the
+   room's longest strings, and a column sized to hold them on one line would be
+   ~20px wider on all 28 of them for a chip most months never show. So they
+   wrap, the way 予約's own warn chip already does; the ordinary 10:00–19:00
+   chip is what the column is sized for. 勤務不可 wraps at ITS OWN SPACE
+   (`keep-all`) — 「13:00以降 / 勤務不可」 rather than a break in the middle of
+   a word. 希望休・承認待ち holds no space, so it takes the break it can get. */
+.biz .pg-shifts .chip-shift.absence { border-color: #e6a09a; color: var(--red-dark); background: repeating-linear-gradient(135deg, var(--red-soft), var(--red-soft) 4px, var(--red-hatch) 4px, var(--red-hatch) 8px); white-space: normal; word-break: keep-all; line-height: 1.3; }
 .biz .pg-shifts .chip-shift.small { min-height: 20px; padding: 0 6px; font-size: 11.5px; }
 .biz .pg-shifts .chip-shift.warn { border-color: #e8b88a; background: var(--orange-soft); color: var(--orange); white-space: normal; line-height: 1.3; }
 .biz .pg-shifts .chip-shift.quiet { border-color: var(--control); background: #f4f4f5; color: var(--ink-3); white-space: normal; line-height: 1.3; }
-.biz .pg-shifts .chip-shift.request { border-style: dashed; }
+.biz .pg-shifts .chip-shift.request { border-style: dashed; white-space: normal; line-height: 1.3; }
 .biz .pg-shifts .chip-shift.staged { border-color: var(--indigo); box-shadow: inset 0 0 0 1px var(--indigo); }
 .biz .pg-shifts .cell-btn > .chip-shift + .chip-shift { margin-top: 4px; }
 .biz .pg-shifts .booking-cell { padding: 8px 10px !important; vertical-align: middle; }
@@ -421,10 +447,6 @@
   color: var(--ink); font-size: 13px; line-height: 1.5;
   box-shadow: 0 12px 30px rgba(24, 24, 27, .12);
 }
-/* The same surface in its refusal clothes. A drag released over a booking it
-   would strand has no dialog to answer inside, and a refusal wearing the green
-   rule of a success line is a check lying about state (⚖ A10). */
-.biz .pg-shifts .toast.warn { border-left-color: var(--orange-line); }
 .biz .pg-shifts .toast-close { border: 0; background: transparent; color: var(--quiet); font-size: 14px; line-height: 1; padding: 2px; }
 
 @media (max-width: 1320px) {
