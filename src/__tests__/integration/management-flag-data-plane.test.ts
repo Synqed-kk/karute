@@ -170,10 +170,12 @@ describe('DTO carry — the key survives every screen parse', () => {
   })
 
   it('customers screen assignableStaff (指名スタッフ picker source, D1)', () => {
+    // F-9: toEqual the whole parsed row, not a single probed field — a
+    // response-shape assertion should catch a stray/dropped sibling key too.
     const shape = CustomersScreenDTO.shape.assignableStaff
-    expect(shape.parse([{ id: 'p1', name: '北野', isManagement: true }])[0].isManagement).toBe(
-      true,
-    )
+    expect(shape.parse([{ id: 'p1', name: '北野', isManagement: true }])).toEqual([
+      { id: 'p1', name: '北野', isManagement: true },
+    ])
   })
 
   it('sessions screen staffList (新規カルテ picker source)', () => {

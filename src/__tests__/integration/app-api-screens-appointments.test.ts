@@ -307,6 +307,35 @@ beforeEach(() => {
   storeStaffIdSetForBusiness.mockResolvedValue(null)
   getCachedMenuOptionsFor.mockResolvedValue(MENU_ROWS)
   clampOverride.current = null
+  // Re-seed every beforeEach: jest.clearAllMocks() clears call records but NOT
+  // a persistent mockResolvedValue() set by an earlier test (F-6) — without
+  // this, a test that flags profile-2 as 経営メンバー (below) leaves every
+  // later test in the file reading a polluted roster.
+  const staffMock = jest.requireMock('@/lib/staff') as {
+    staffListByBusinessOrThrow: jest.Mock
+  }
+  staffMock.staffListByBusinessOrThrow.mockResolvedValue([
+    {
+      id: 'auth-user-1',
+      full_name: 'Mika Tanaka',
+      display_role: 'STYLIST',
+      position: '店長',
+      email: 'mika@example.com',
+      avatar_url: null,
+      has_pin: false,
+      created_at: '2026-01-01T00:00:00.000Z',
+    },
+    {
+      id: 'profile-2',
+      full_name: 'Yuko Sato',
+      display_role: 'STYLIST',
+      position: null,
+      email: 'yuko@example.com',
+      avatar_url: null,
+      has_pin: false,
+      created_at: '2026-01-02T00:00:00.000Z',
+    },
+  ])
 })
 
 describe('GET /api/app/v1/screens/appointments', () => {
@@ -331,6 +360,9 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(dto.authProfileId).toBe('auth-user-1')
     expect(dto.activeStaffId).toBe('auth-user-1')
     expect(dto.staff.map((s) => s.id)).toEqual(['auth-user-1', 'profile-2'])
+    // F-5/M23: colorRosterIds must survive the facade transport, not just get
+    // computed correctly server-side (screen.ts already pins the rule itself).
+    expect(dto.colorRosterIds).toEqual(['auth-user-1', 'profile-2'])
     expect(dto.customers).toEqual([
       { id: 'cust-1', name: '田中', phone: null, furigana: null },
       { id: 'cust-2', name: '佐藤', phone: null, furigana: null },
@@ -457,6 +489,9 @@ describe('GET /api/app/v1/screens/appointments', () => {
     const flagged = roster.map((s: { id: string }) =>
       s.id === 'profile-2' ? { ...s, isManagement: true } : s,
     )
+    // F-6 fix: this mockResolvedValue (not -Once) used to leak into every
+    // later test in the file — beforeEach now re-seeds the unflagged roster
+    // before each test runs, so this stays scoped to this test only.
     staffMock.staffListByBusinessOrThrow.mockResolvedValue(flagged)
 
     // Yuko's only row today is the CANCELLED tombstone — the lane stays, so a

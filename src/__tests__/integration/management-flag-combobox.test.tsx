@@ -32,14 +32,22 @@ jest.mock('next-intl', () => {
 })
 jest.mock('sonner', () => ({ toast: { error: jest.fn(), success: jest.fn(), warning: jest.fn() } }))
 jest.mock('@/i18n/navigation', () => ({ useRouter: () => ({ refresh: jest.fn() }) }))
-jest.mock('@/actions/customers', () => ({ createQuickCustomer: jest.fn() }))
+const createCustomer: jest.Mock = jest.fn(async () => ({ success: true }))
+jest.mock('@/actions/customers', () => ({
+  createQuickCustomer: jest.fn(),
+  createCustomer: (input: unknown) => createCustomer(input),
+  updateCustomer: jest.fn(async () => ({ success: true })),
+}))
 const createAppointment: jest.Mock = jest.fn(async () => ({ id: 'appt-1' }))
 jest.mock('@/actions/appointments', () => ({
   createAppointment: (input: unknown) => createAppointment(input),
 }))
+jest.mock('@/actions/karute', () => ({ createManualKaruteRecord: jest.fn() }))
 
 import { StaffCombobox } from '@/components/karute/StaffCombobox'
 import { NewBookingDialog } from '@/components/appointments/NewBookingDialog'
+import { CustomerForm } from '@/components/customers/CustomerForm'
+import { NewKaruteDialog } from '@/components/karute/spike-lifted/list/NewKaruteDialog'
 
 const SATO = { id: 'p-sato', name: '佐藤 美咲' }
 const TANAKA = { id: 'p-tanaka', name: '田中 花' }
@@ -272,8 +280,105 @@ describe('T1 misfile regression — NewBookingDialog with a management viewer', 
 
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => expect(createAppointment).toHaveBeenCalled())
-    expect(createAppointment.mock.calls[0][0]).toEqual(
-      expect.objectContaining({ staffProfileId: KITANO.id }),
+    // F-9: exact shape, not objectContaining — a stray/extra field on the
+    // real createAppointment payload must show up here too.
+    expect(createAppointment.mock.calls[0][0]).toEqual({
+      staffProfileId: KITANO.id,
+      clientId: 'cust-1',
+      startTime: '2026-08-18T02:00:00.000Z', // 11:00 JST
+      durationMinutes: 60,
+      tzOffsetMinutes: -540,
+      title: undefined,
+      menuId: undefined,
+    })
+  })
+})
+
+// F-4 — CustomerForm's 指名スタッフ save path was rewritten (register('select')
+// → useController + StaffCombobox) with zero behavioural coverage. Kills P1
+// (drop noneLabel), P2 (bypass staffChoices' currentStaff back-fill), P3
+// (onSelect wired as a no-op).
+describe('CustomerForm 指名スタッフ save path (F-4)', () => {
+  // Left the roster — merged back in by staffChoices (CustomerForm.tsx:96-103)
+  // so the field shows the right name instead of silently blanking.
+  const DEPARTED = { id: 'p-departed', name: '退職 花子' }
+
+  it('指名なし is pinned first, the departed currentStaff is back-filled, and picking a stylist submits the real assigned_staff_id', async () => {
+    createCustomer.mockClear()
+    const { container } = render(
+      <CustomerForm assignableStaff={ROSTER} currentStaff={DEPARTED} onSuccess={() => {}} />,
     )
+
+    // getByRole('combobox') alone also matches the plain <select> (性別) — a
+    // native <select> maps to role="combobox" too. Narrow to the <input>.
+    const staffInput = screen
+      .getAllByRole('combobox')
+      .find((el) => el.tagName === 'INPUT') as HTMLInputElement
+    fireEvent.focus(staffInput)
+    const optionRows = within(screen.getByRole('listbox')).getAllByRole('option')
+    // (a) 指名なし pinned first on pristine open.
+    expect(optionRows[0].textContent).toBe('指名なし')
+    // (b) the departed currentStaff is back-filled into the list (not lost).
+    expect(optionRows.some((r) => r.textContent === DEPARTED.name)).toBe(true)
+
+    // (c) pick a real stylist, fill the required name, submit — the picked
+    // id must reach the real createCustomer action.
+    fireEvent.mouseDown(optionRows.find((r) => r.textContent === SATO.name)!)
+    const familyNameInput = container.querySelector(
+      'input[autocomplete="family-name"]',
+    ) as HTMLInputElement
+    fireEvent.change(familyNameInput, { target: { value: '山田' } })
+    fireEvent.click(container.querySelector('button[type="submit"]')!)
+
+    await waitFor(() => expect(createCustomer).toHaveBeenCalled())
+    expect(createCustomer.mock.calls[0][0]).toMatchObject({ assigned_staff_id: SATO.id })
+  })
+})
+
+// F-7 — the two prop lines NewKaruteDialog feeds StaffCombobox (selfId,
+// staff) had zero coverage. Kills P4 (drop selfId) and P5 (pre-filter the
+// roster before the combobox — a client-side Ⓒ bypass on 新規カルテ).
+describe('NewKaruteDialog → StaffCombobox wiring (F-7, P4/P5)', () => {
+  function staffInput(): HTMLInputElement {
+    return screen.getByRole('combobox', { name: '担当スタッフ' }) as HTMLInputElement
+  }
+
+  it('P4: the viewer stays listed by default even after picking someone else (selfId, not just selectedId)', () => {
+    render(
+      <NewKaruteDialog
+        open
+        onOpenChange={() => {}}
+        staffList={ROSTER}
+        customers={[]}
+        defaultStaffId={KITANO.id}
+      />,
+    )
+    const input = staffInput()
+    // Pick Sato — selectedId moves away from Kitano, but selfId (from
+    // defaultStaffId, a static prop) does not.
+    fireEvent.focus(input)
+    fireEvent.mouseDown(within(screen.getByRole('listbox')).getByText(SATO.name))
+    expect(input.value).toBe(SATO.name)
+
+    fireEvent.focus(input)
+    const rows = within(screen.getByRole('listbox')).getAllByRole('option')
+    expect(rows.some((r) => r.textContent?.startsWith(KITANO.name))).toBe(true)
+  })
+
+  it('P5: the roster is not pre-filtered before the combobox — search still reveals a 経営メンバー', () => {
+    render(
+      <NewKaruteDialog
+        open
+        onOpenChange={() => {}}
+        staffList={ROSTER}
+        customers={[]}
+        defaultStaffId={SATO.id}
+      />,
+    )
+    const input = staffInput()
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: '北' } })
+    const rows = within(screen.getByRole('listbox')).getAllByRole('option')
+    expect(rows.some((r) => r.textContent?.startsWith(KITANO.name))).toBe(true)
   })
 })
