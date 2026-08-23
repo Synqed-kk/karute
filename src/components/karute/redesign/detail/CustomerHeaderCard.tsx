@@ -25,9 +25,11 @@ export interface CustomerHeaderProps {
   customerHref?: string
   /** Optional click handler for the Edit button. */
   onEdit?: () => void
-  /** F4 (fix round 1, F-2): additive slot rendered under the name row, inside
-   *  the card — per the signed-off mock. Renders nothing when absent, so
-   *  every other caller of this card is visually unchanged. */
+  /** F4 (fix round 1, F-2; repositioned fix round 8 — R8-1): trailing-inline
+   *  in the TITLE row (top-right corner, level with the name), never its own
+   *  full-width row — a lone small icon in a dedicated row read as dead
+   *  space (Liam's screenshots, 8/23). Renders nothing when absent, so every
+   *  other caller of this card is visually unchanged. */
   actions?: ReactNode
 }
 
@@ -109,6 +111,11 @@ export function CustomerHeaderCard({
             <span className="text-sm font-medium text-muted-foreground tabular-nums">
               {karuteNumber}
             </span>
+            {/* R8-1: trailing-inline, pushed to the row's right edge — the
+             *  quiet top-right corner, level with the name. Never a
+             *  dedicated full-width row (that's the dead-space bug this
+             *  fixes); absent when `actions` is absent, same as before. */}
+            {actions && <span className="ml-auto self-center">{actions}</span>}
           </div>
           {metaParts.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground">
@@ -170,7 +177,6 @@ export function CustomerHeaderCard({
           </button>
         )}
       </div>
-      {actions}
     </section>
   )
 }
