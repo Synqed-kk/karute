@@ -593,15 +593,18 @@ describe('auditWeb — success-only', () => {
   })
 
   it('emits the row EXACT-SHAPE on a successful confirmed write — packet §5 pin 5, web half (R11-1: detail keys are linked_burn_count + same_day_burn_count)', async () => {
-    // Distinct nonzero values in both buckets — one link-shaped burn, one
-    // same-day-only burn — so a swap between the two keys (not just a drop)
-    // would also flip this exact-shape pin, not just an equal-value blind
-    // spot. KARUTE.current carries no session_date by default, so this test
-    // sets one to exercise the same-day arm too.
+    // ASYMMETRIC nonzero values in both buckets (D-R11, fresh-verifier
+    // closing stamp: symmetric 1/1 made a linked_burn_count ↔
+    // same_day_burn_count key SWAP arithmetically invisible — L1 survived
+    // the full suite on this exact pin). One link-shaped burn, TWO
+    // same-day-only burns, so a swap between the two keys (not just a drop)
+    // flips this. KARUTE.current carries no session_date by default, so
+    // this test sets one to exercise the same-day arm too.
     KARUTE.current = { ...KARUTE.current, session_date: '2026-08-01' }
     packsListRedemptions.mockResolvedValueOnce([
       { pack_id: 'p1', redeemed_on: '2026-08-01', karute_record_id: 'kar-1' },
       { pack_id: 'p2', redeemed_on: '2026-08-01' },
+      { pack_id: 'p3', redeemed_on: '2026-08-01' },
     ])
     await reassignKaruteCustomer('kar-1', 'cust-TO', { confirmed: true })
     expect(auditWeb).toHaveBeenCalledTimes(1)
@@ -622,7 +625,7 @@ describe('auditWeb — success-only', () => {
         from_customer_id: 'cust-FROM',
         to_customer_id: 'cust-TO',
         linked_burn_count: 1,
-        same_day_burn_count: 1,
+        same_day_burn_count: 2,
         photo_count: 0,
       },
       requestId: expect.any(String),
