@@ -350,6 +350,19 @@ describe('the shift plane is operationally possible', () => {
 // ── 2. ONE FIXTURE WORLD — today is the board's today ───────────────────────
 
 describe('today on this board IS today on 今日の運営', () => {
+  // Every claim in this section is an equality about TODAY, and today's cells
+  // are cut by the store's closed weekday (closedWeekday = 1, 月): when the real
+  // clock lands on a Monday the room hands back the closed empty cell and the
+  // equality has nothing left to compare (2 failed / 101 passed on clean
+  // origin/main once the date rolled to 2026-08-24). The section reads the clock
+  // once per render, so it is pinned once here rather than per assertion — same
+  // pin()/restore() idiom, same anchor its sibling sections already use.
+  let restore = () => {}
+  beforeEach(() => {
+    restore = pin('2026-08-22T06:00:00Z')
+  })
+  afterEach(() => restore())
+
   it('every cell for today is the BOARD’s own shift row, cut by the BOARD’s own absence rule', async () => {
     const props = await room({ store: STORE_A })
     const todayKey = props.plane.todayKey
