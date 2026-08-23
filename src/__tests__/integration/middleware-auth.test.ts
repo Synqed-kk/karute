@@ -52,7 +52,12 @@ describe('proxy — session guard', () => {
   it('redirects an unauthenticated app-route request to /{locale}/login', async () => {
     asUnauth()
     const res = await proxy(reqFor('/ja/dashboard'))
-    expect(res.headers.get('location')).toMatch(/\/ja\/login$/)
+    // ⚖ flag 70 — RENEGOTIATED from a `$` anchor: the wall now carries WHERE
+    // the operator was going, so the redirect has a query. The invariant this
+    // pin exists for is the destination, and it is asserted exactly.
+    const to = new URL(res.headers.get('location')!)
+    expect(to.pathname).toBe('/ja/login')
+    expect(to.searchParams.get('next')).toBe('/ja/dashboard')
   })
 
   it('lets an unauthenticated request to the login page pass', async () => {

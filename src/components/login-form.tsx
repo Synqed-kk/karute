@@ -5,8 +5,9 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { authErrorKey } from '@/lib/auth/error-key'
+import { safeNext } from '@/lib/auth/safe-next'
 
-export function LoginForm({ locale }: { locale: string }) {
+export function LoginForm({ locale, next }: { locale: string; next?: string | string[] | null }) {
   const t = useTranslations('auth')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -26,7 +27,11 @@ export function LoginForm({ locale }: { locale: string }) {
       setError(t(authErrorKey(error)))
       setLoading(false)
     } else {
-      router.push(`/${locale}/dashboard`)
+      // ⚖ Liam flag 70 — land EXACTLY where the link pointed, once. The value
+      // arrives raw and is gated here rather than at the caller, so the form is
+      // safe by construction whoever renders it; anything that is not a
+      // relative same-origin path falls back to today's destination.
+      router.push(safeNext(next) ?? `/${locale}/dashboard`)
       router.refresh()
     }
   }

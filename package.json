@@ -15,6 +15,7 @@
     "test:e2e:ui": "playwright test --ui",
     "audit:weakening": "node scripts/audit/check-audit-weakening.mjs",
     "audit:dark-interactive": "node scripts/audit/check-dark-interactive.mjs",
+    "audit:route-css": "node scripts/audit/check-route-css-collisions.mjs",
     "audit:actions-doc": "node scripts/audit/generate-audit-actions-doc.mjs"
   },
   "dependencies": {

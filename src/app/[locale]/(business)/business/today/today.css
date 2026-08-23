@@ -25,7 +25,7 @@
    sample — and the two-day d1 machinery, which our `?day=` link replaces. */
 
 /* ═══ page ═══ */
-.biz .page { padding: 14px 28px 36px; }
+.biz .page.page-today { padding: 14px 28px 36px; }
 
 .biz .chip {
   display: inline-flex;
@@ -77,8 +77,8 @@
 .biz .ops-right .btn { min-height: 30px; padding: 0 10px; font-size: 12px; }
 
 /* ═══ E — board head ═══ */
-.biz .workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
-.biz .panel { border: 1px solid var(--card); border-radius: 12px; background: #fff; overflow: hidden; }
+.biz .page-today .workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
+.biz .page-today .panel { border: 1px solid var(--card); border-radius: 12px; background: #fff; overflow: hidden; }
 .biz .board-head {
   min-height: 48px;
   padding: 0 14px;
@@ -429,6 +429,12 @@
    say so. Canon's .88-and-a-shadow belonged to a card that WAS the traveller. */
 .biz .event.dragging { opacity: .32; cursor: grabbing; box-shadow: none; }
 .biz .event.pending { outline: 2px dashed var(--orange); outline-offset: 1px; z-index: 6; }
+/* ⚖ Liam flag 57 (2026-08-22) — THE PENDING-OVERRIDE GHOST. The card sits at
+   the landing it is asking about while the popover is open, wearing the proxy's
+   own blocked dress (:535) so it reads as a PROPOSAL and can never be mistaken
+   for a booking that was placed. It is display state: nothing is staged, and
+   answering the question — either way — takes the dress off with it. */
+.biz .event.attempting { outline: 2px dashed var(--red); outline-offset: -1px; opacity: .78; z-index: 6; }
 .biz .event.parked { display: none !important; }
 .biz .track.drop-target { background-color: var(--indigo-soft); background-image: linear-gradient(to right, rgba(63, 91, 232, .22) 1px, transparent 1px); box-shadow: inset 0 0 0 2px var(--select-line); }
 /* 着地プレビュー — 実寸・スナップ済みの破線ゴースト。⚖ Liam 19: 行またぎだけでなく
@@ -455,7 +461,14 @@
   z-index: 120;
   pointer-events: none;
   will-change: transform;
-  opacity: .96;
+  /* ⚖ Liam flag 60 (2026-08-22) — FULLY OPAQUE. At .96 the cell price under the
+     proxy (`.cell-price i`, which the drag deliberately darkens to 700/.95 on a
+     matching-length box) read straight through the card in hand, and through the
+     置けない badge with it, at exactly the moment the operator is being warned.
+     Every fill underneath is opaque hex, so 4% was the whole leak. Canon's own
+     ghost is a fully opaque panel (:688-711); the drop shadow below already does
+     the separating this was doing. */
+  opacity: 1;
   cursor: grabbing;
 }
 .biz .event.drag-proxy { box-sizing: border-box; box-shadow: inset 3px 0 0 currentColor, 0 10px 26px rgba(24, 24, 27, .26); }
@@ -494,11 +507,19 @@
    renders nothing into this attribute, so the drag can write it every frame
    without ever fighting a re-render. Empty (a clean landing) paints nothing at
    all — ⚖ his reading of the demo is SILENCE over open space. */
+/* ⚖ Liam flag 60 — AND IT SITS OFF THE CARD'S OWN WORDS. Centred, the badge
+   landed squarely on the card's <strong>/<small> (top-left aligned, ~31px of a
+   68px lane card), so 置けない overprinted the customer's name and the 回数券
+   line. The card's trailing edge — its lower-right corner — is the one region a
+   board card never writes into at either density, and `.event`'s own
+   `overflow: hidden` keeps the badge inside the footprint on a narrow card. */
 .biz .proxy-verdict {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  left: auto;
+  right: 3px;
+  top: auto;
+  bottom: 3px;
+  transform: none;
   display: none;
   padding: 2px 8px;
   border-radius: 6px;
@@ -829,7 +850,7 @@
 .biz.board-compact .group-label { position: sticky; top: 0; z-index: 6; }
 
 /* ═══ G — inspector drawer ═══ */
-.biz .inspector {
+.biz .page-today .inspector {
   display: none;
   align-self: start;
   margin: 8px 8px 8px 0;
@@ -839,13 +860,13 @@
   overflow: hidden;
 }
 .biz.drawer-open .inspector { display: block; }
-.biz .inspector-head { position: relative; padding: 13px 54px 12px 14px; border-bottom: 1px solid var(--section); background: #fafafb; }
+.biz .page-today .inspector-head { position: relative; padding: 13px 54px 12px 14px; border-bottom: 1px solid var(--section); background: #fafafb; }
 .biz .inspector-close { position: absolute; right: 10px; top: 10px; }
-.biz .inspector-kicker { color: #5f5f69; font-size: 12px; font-weight: 700; }
-.biz .inspector-head h2 { margin: 5px 0 2px; font-size: 17px; }
-.biz .inspector-head p { margin: 0; color: #5f5f69; font-size: 12px; }
-.biz .inspector-body { padding: 12px 14px 14px; }
-.biz .status-row { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.biz .page-today .inspector-kicker { color: #5f5f69; font-size: 12px; font-weight: 700; }
+.biz .page-today .inspector-head h2 { margin: 5px 0 2px; font-size: 17px; }
+.biz .page-today .inspector-head p { margin: 0; color: #5f5f69; font-size: 12px; }
+.biz .page-today .inspector-body { padding: 12px 14px 14px; }
+.biz .page-today .status-row { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
 /* ⚖ Liam flag 40 (2026-08-21) — a status chip NEVER wraps. 仮押さえ broke across
    two lines as 仮押さ / え inside the confirm popover the moment it was squeezed
    by a long name beside it. Fixed at the chip itself rather than at that one
@@ -856,11 +877,11 @@
 .biz .status.public { background: var(--green-soft); color: var(--green); }
 .biz .status.waiting { background: var(--orange-soft); color: var(--orange); }
 .biz .status.done { background: var(--green-soft); color: var(--green-dark); }
-.biz .source { margin-left: auto; color: #5f5f69; font-size: 12px; }
-.biz .facts { margin: 0 0 10px; }
-.biz .fact { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--row); font-size: 12px; }
-.biz .fact span { color: var(--muted); }
-.biz .fact b { text-align: right; font-weight: 600; font-size: 14px; font-variant-numeric: tabular-nums; }
+.biz .page-today .source { margin-left: auto; color: #5f5f69; font-size: 12px; }
+.biz .page-today .facts { margin: 0 0 10px; }
+.biz .page-today .fact { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--row); font-size: 12px; }
+.biz .page-today .fact span { color: var(--muted); }
+.biz .page-today .fact b { text-align: right; font-weight: 600; font-size: 14px; font-variant-numeric: tabular-nums; }
 .biz .proof-box { margin: 10px 0; padding: 10px; border: 1px solid var(--proof-border); border-radius: 9px; background: var(--proof); }
 .biz .proof-box > strong { display: block; margin-bottom: 6px; color: var(--ink-2); font-size: 12px; }
 .biz .proof-line { display: flex; align-items: flex-start; gap: 6px; margin-top: 5px; color: var(--ink-3); font-size: 12px; line-height: 1.45; }
@@ -1107,6 +1128,10 @@
 .biz-dialog .change-row:last-child { border-bottom: 0; }
 .biz-dialog .change-row span { color: var(--muted); }
 .biz-dialog .guardrail { margin-top: 12px; padding: 10px 12px; border-left: 2px solid #d5d5dc; border-radius: 0 8px 8px 0; background: #f7f7f9; color: var(--ink-3); font-size: 12px; line-height: 1.6; }
+/* ⚖ Liam flag 64 — canon :1112, the delete confirm strip's own dress. */
+.biz-dialog .guardrail.danger { border-left-color: var(--red); background: var(--red-soft); color: var(--red-dark); }
+/* canon puts 削除 on the LEFT of the footer and everything else on the right. */
+.biz-dialog .dialog-foot .foot-left { margin-right: auto; }
 .biz-dialog .close-check { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--section); font-size: 12px; }
 .biz-dialog .close-check span { color: var(--muted); }
 .biz-dialog .close-check b.blocked { color: var(--orange); }
@@ -1174,7 +1199,7 @@
 .biz-dialog .framing-sample { color: var(--muted); font-size: 11.5px; }
 .biz .park-chip .pc-line1, .biz .park-chip .pc-line2 { color: var(--orange); font-size: 11px; opacity: .82; }
 
-.biz .toast {
+.biz .page-today .toast {
   position: fixed;
   right: 20px;
   bottom: 20px;
@@ -1192,10 +1217,26 @@
   transform: translateY(8px);
   transition: opacity .16s ease, transform .16s ease;
 }
-.biz .toast.show { opacity: 1; transform: translateY(0); }
+.biz .page-today .toast.show { opacity: 1; transform: translateY(0); }
+/* ⚖ Liam flag 64 — canon's delete toast carries an undo. Only the BUTTON takes
+   pointer events back: the card itself stays transparent to the pointer so a
+   drag that ends in the bottom-right corner can never be swallowed by a toast
+   that happens to be up. R13: a text button on the accent, never a dark fill. */
+.biz .toast-undo {
+  pointer-events: auto;
+  margin-left: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--select-ink);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
 
 @media (max-width: 1320px) {
-  .biz .page { padding-left: 18px; padding-right: 18px; }
+  .biz .page.page-today { padding-left: 18px; padding-right: 18px; }
   .biz .incident-stat { min-width: 67px; padding-left: 8px; padding-right: 8px; }
   .biz .timeline { --label: 98px; }
   .biz .decision-card { padding-left: 10px; padding-right: 10px; }

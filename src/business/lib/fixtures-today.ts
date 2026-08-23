@@ -194,8 +194,22 @@ export const pricingRule = {
  *  advertises a start Reserve's own rules could not take, so the customer-facing
  *  grid lives here rather than in the board's own code. */
 export const opsConfig = {
+  /** ⚠SETTINGS-BATCH — 予約のドラッグ刻み. The booking lattice: what a card
+   *  snaps to on the board, and the grid an offered alternative start has to sit
+   *  on to be reachable by hand. */
   bookingStepMin: 30,
-  blockStepMin: 5,
+  /** ⚠SETTINGS-BATCH — 予定ブロックのドラッグ刻み (⚖ Liam flag 65, 2026-08-22,
+   *  his own words: 「I don't have access to the settings yet so I can't do it…
+   *  hoping that you can change that in the settings」). 15 for this store, from
+   *  canon's 5-minute default. The 店舗設定 control ships with the settings
+   *  batch and reads THIS value; nothing on the board hardcodes a step.
+   *
+   *  NOT a rounding of existing blocks: canon's dual lattice preserves each
+   *  box's own phase (`dragGeometry`, drag-rules :64-69), so a fixture block
+   *  standing at 18:12 keeps its :12 and moves in 15-minute jumps. Canon rules
+   *  that the honest behaviour — 「黙って一番近い刻みへ丸めて見せると『現在値を
+   *  プリセット』が嘘になる」 (:4218-4231). */
+  blockStepMin: 15,
   reserveStartGridMin: 60,
   gapFillMinMin: 30,
   gapFillDiscountPct: 10,

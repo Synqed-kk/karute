@@ -173,6 +173,13 @@ jobs:
       - name: Dark interactive fill guard (R13)
         run: node scripts/audit/check-dark-interactive.mjs
 
+      # ⚖ Liam flag 69 — a selector defined in two (business) route stylesheets
+      # is decided by VISIT ORDER, because Next keeps every visited segment's
+      # CSS in the document. That is invisible in review (each file reads
+      # perfectly on its own), so it needs a machine.
+      - name: Route CSS collision guard
+        run: node scripts/audit/check-route-css-collisions.mjs
+
       - name: Business data-access guard selftest (fixture red→green)
         # The live run below scans real territory files, but they exercise
         # only some of the rules — these fixtures pin all of them, in both

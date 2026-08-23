@@ -811,13 +811,18 @@ describe('one cell, one precedence — and a staged edit that survives a page fl
 
 describe('a refusal changes nothing and stays readable', () => {
   it('a 希望休 whose owner is already the 担当 that day is REFUSED with the reason', async () => {
-    const props = await room({ store: STORE_A, view: 'month' })
-    const refused = props.plane.leaves.filter((l) => l.refusal !== null)
-    expect(refused).toHaveLength(1)
-    expect(refused[0].refusal).toContain('担当')
-    expect(refused[0].refusal).toContain('予約一覧')
-    // The clean one carries no refusal, so the pin is not just "always refuse".
-    expect(props.plane.leaves.filter((l) => l.refusal === null)).toHaveLength(1)
+    const restore = pin('2026-08-22T06:00:00Z')
+    try {
+      const props = await room({ store: STORE_A, view: 'month' })
+      const refused = props.plane.leaves.filter((l) => l.refusal !== null)
+      expect(refused).toHaveLength(1)
+      expect(refused[0].refusal).toContain('担当')
+      expect(refused[0].refusal).toContain('予約一覧')
+      // The clean one carries no refusal, so the pin is not just "always refuse".
+      expect(props.plane.leaves.filter((l) => l.refusal === null)).toHaveLength(1)
+    } finally {
+      restore()
+    }
   })
 
   it('the refused approval is a reachable, explained control — never a silent no-op', () => {
