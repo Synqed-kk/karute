@@ -785,6 +785,12 @@
 .biz .guard-pop { position: fixed; z-index: 80; display: grid; gap: 8px; width: max-content; min-width: 260px; max-width: min(92vw, 340px); padding: 12px 13px; border: 1px solid var(--guard-dark); border-radius: 10px; background: #fff; box-shadow: 0 10px 30px rgba(24, 24, 27, .18); font-size: 12.5px; }
 .biz .guard-pop .gp-reason { font-weight: 800; color: var(--guard-dark); }
 .biz .guard-pop .gp-offer { color: var(--ink-2); }
+/* ⚖ Liam flag 74 — the confirm's facts, inside the question. Boxed so the
+   sentence the operator is being asked to accept reads as one thing and not as
+   more prose under the reason. The rows are `.holdbar-checks`, unchanged: ⚖ 52's
+   ×/△ glyphs have one home and both surfaces read it. */
+.biz .guard-pop .gp-facts { display: grid; gap: 6px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 8px; }
+.biz .guard-pop .gp-facts strong { color: var(--ink); font-weight: 800; }
 .biz .guard-pop .gp-alternatives { display: flex; flex-wrap: wrap; gap: 6px; }
 .biz .guard-pop .gp-alt { border: 1px solid var(--guard-dark); border-radius: 999px; padding: 5px 10px; background: var(--guard-soft); color: var(--guard-dark); font: inherit; font-weight: 800; cursor: pointer; }
 .biz .guard-pop .gp-alt:hover, .biz .guard-pop .gp-alt:focus-visible { background: var(--guard-dark); color: #fff; outline: 0; }

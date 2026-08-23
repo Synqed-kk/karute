@@ -396,6 +396,34 @@ export function applyMoves(
     if (g && a.item.kind === 'booking' && a.item.caseId) home.set(`${g}|${a.item.caseId}`, a.item)
   }
 
+  // ⚖ Liam flag 59, THE RESIDUE (batch-11) — A ROOM NOBODY DREW IS STILL A ROOM.
+  //
+  // `home` is the ONLY way a booking can be admitted to a lane it is not already
+  // drawn on, and it is built from drawings that exist. A booking whose server
+  // record carries no `resource_id` has no bed drawing anywhere — the bed lanes
+  // are `bookings.filter((b) => b.resourceId === resource.id)` (today-board
+  // :542) — so the room a landing solved was written into `bedMoves` and then
+  // silently dropped: the arrival below found no row, nothing was drawn, and
+  // `holdSummary` read the drawn board and printed 担当 … / —. That em-dash is
+  // Liam's 8/22 shot, and batch-10 only closed the half where the allocator was
+  // never asked; this is the half where its answer was thrown away.
+  //
+  // FIXED HERE, not in each writer. `stage`, the keyboard nudge and anything
+  // that ever writes `bedMoves` all pass through this one function, so the guard
+  // is one line rather than one mint per gesture — and a row minted into `added`
+  // by a caller would additionally be exempt from the park filter below
+  // (`placedRows`), i.e. a bed drawing that survives being put on the shelf.
+  //
+  // The bed row IS the booking's own staff row wearing the bed key, exactly as
+  // the server builds the pair (today-board :396-413 — one `bookingItem`, two
+  // key suffixes). `moved` re-tags it from the partner lane a few lines down,
+  // which is the same 【担当】 the server would have written.
+  for (const id of Object.keys(bedMoves)) {
+    if (home.has(`beds|${id}`)) continue
+    const staffRow = home.get(`staff|${id}`)
+    if (staffRow) home.set(`beds|${id}`, { ...staffRow, key: `${id}-bed` })
+  }
+
   // ONE SPAN FOR THE PAIR, and it lives in `moves`: every writer sets both
   // records from the same span, so a bed row and its staff twin can never show
   // different times — which is the whole reason canon calls `evSet` on `pairOf`.
@@ -940,6 +968,68 @@ export function offerableCell(
   return { ...cell, alternatives: out }
 }
 
+/** ⚖ LIAM flag 73 RIDER (2026-08-23) — A BED REFUSAL'S OWN CANDIDATE STARTS.
+ *
+ *  THE BILL THIS PAYS: `landingVerdict` carries the GUARD's cell through every
+ *  refusal class (`stop` keeps `cell` unchanged), so a 満室 board whose staff
+ *  lane happens to be guard-safe handed the popover a cell with no alternatives
+ *  in it, and the popover picks its line off `alternatives.length` alone — 「この
+ *  区間に、より損の少ない開始はありません」 printed over a full house. That is
+ *  the wrong question answered confidently, which is worse than silence. The
+ *  guard was never asked about rooms and has no opinion about them.
+ *
+ *  ⚖ 58's law is about the FILTER, and the filter is still one: these starts go
+ *  through `offerableCell` exactly as the engine's do, with the caller's own
+ *  gate. What is class-appropriate is the SOURCE — and `ok` is the whole search,
+ *  because the gate already runs `allocateBed` whenever the question solves a
+ *  room, so a start that survives it is room-free by construction.
+ *
+ *  CANON'S OWN OFFER GRAMMAR, deliberately: `nearestBestAlternatives` (gap-guard
+ *  :295-317) answers with the nearest better start BEFORE and the nearest AFTER,
+ *  never a list. Two offers is what this board's operators already read on every
+ *  guard refusal, so a room refusal that answered with six would be a second
+ *  grammar for the same box. */
+export function nearestFreeStarts(
+  attempted: number,
+  stepMin: number,
+  hours: Hours,
+  dur: number,
+  ok: (start: number) => boolean,
+): number[] {
+  const out: number[] = []
+  for (const dir of [-1, 1] as const) {
+    for (let s = attempted + dir * stepMin; s >= hours.open && s + dur <= hours.close; s += dir * stepMin) {
+      if (ok(s)) {
+        out.push(s)
+        break
+      }
+    }
+  }
+  return out.sort((a, b) => a - b)
+}
+
+/** ⚖ 73 RIDER — THE SOURCE SELECTOR (T4's one, keyed on the verdict's class).
+ *
+ *  Everything except a room refusal keeps the engine's own starts, untouched —
+ *  the guard ranked them and this has no better opinion. A room refusal swaps in
+ *  starts whose ROOM is free, because that is the question it was asked.
+ *
+ *  `starts` is a thunk so the sweep is not paid for on the eight classes that do
+ *  not use it. A null cell is the board's existing word for "nothing to offer"
+ *  (the keyboard nudge sets it deliberately — Shift/Alt cannot change a start,
+ *  ⚖ 31c) and it is honoured rather than grown a button those paths cannot
+ *  perform. `alternativeKind: null` because 「損を減らす」 is a RANKING and this
+ *  is not one: these starts are where a room exists. */
+export function bedClassCell(v: LandingVerdict, starts: () => number[]): RailCell | null {
+  if (v.floor !== 'hard-room' || !v.cell) return v.cell
+  return { ...v.cell, alternatives: starts(), alternativeKind: null }
+}
+
+/** ⚖ 51 — DOES THIS BOOKING NEED THE 個室, one spelling. The solve asks it to
+ *  pick the room and the refusal asks it to pick the WORD it says out loud; two
+ *  copies of the predicate is how a box comes to say ベッド over a 個室 hunt. */
+export const needsPrivateRoom = (vip: boolean, policy: RoomPolicy) => vip && policy.vipStaysPrivate
+
 /** One drag step: origin + pointer travel → the card's new span, on canon's
  *  dual lattice. Separated from the event so the test can drive it directly. */
 export function nextSpan(origin: DragOrigin, track: Element, dx: number, step: number): { x: number; w: number } {
@@ -1290,7 +1380,16 @@ export function allocateBed(
      *  room is free and names the one it would otherwise have chosen. The
      *  COMPATIBILITY rules are untouched — an escalation over a busy room is not
      *  permission to walk a VIP out of the 個室 (⚖ 51's floor is a rule about
-     *  what the treatment needs, not about who is in the way). */
+     *  what the treatment needs, not about who is in the way).
+     *
+     *  ⚖ LIAM flag 73 (2026-08-23) — UNREACHABLE FROM THE BOOKING SURFACES, and
+     *  left standing rather than removed. 満室 is now a `hard-room` floor, so no
+     *  booking gesture can produce an override on it and every `solveBed` caller
+     *  passes nothing here. The branch stays byte-untouched because it is the
+     *  allocator's own honest answer to "which room WOULD you have chosen", and
+     *  because 73 is a product ruling that Liam may overturn — deleting the
+     *  answer would make the overturn a rebuild. Nothing on the board reaches
+     *  it today; its unit facts are still pinned. */
     allowBusy?: boolean
   },
 ): { laneKey: string | null; refusal: string | null } {
@@ -1307,7 +1406,7 @@ export function allocateBed(
   // same predicate is applied to that landing as a confirm-blocking check row;
   // see `sharesStore` for why there is only one spelling of the rule.
   const beds = lanes.filter((l) => l.group === 'beds' && sharesStore(opts.stores, l.stores))
-  const needsPrivate = opts.vip && policy.vipStaysPrivate
+  const needsPrivate = needsPrivateRoom(opts.vip, policy)
   const compatible = (l: BoardLane) => roomFitsClass(l, opts.vip, policy)
   const free = (l: BoardLane) => opts.allowBusy === true || blockersOn(l).length === 0
   const current = beds.find((l) => l.key === opts.currentBed)
@@ -1343,11 +1442,24 @@ export function holdSummary(
   at: Move | undefined,
   hours: Hours,
   bedFrom: string | null = null,
+  /** ⚖ LIAM flag 74 (2026-08-23) — THE PAIR A LANDING IS PROPOSING, for the red
+   *  box, which asks about a landing that has NOT happened. Membership answers
+   *  for the lanes the booking is currently on — its ORIGIN — so without this
+   *  the one box would describe the spot the operator is trying to leave. Same
+   *  sentence, one home: the refusal and the confirm may not word the same
+   *  landing two ways. */
+  proposed: { staffLane: string | null; bedLane: string | null } | null = null,
 ): string {
   if (!at) return ''
-  const staffLane = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === id))
-  const bedLane = lanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === id))
-  const item = staffLane?.items.find((i) => i.caseId === id) ?? bedLane?.items.find((i) => i.caseId === id)
+  const staffLane = proposed
+    ? lanes.find((l) => l.key === proposed.staffLane && l.group === 'staff')
+    : lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === id))
+  const bedLane = proposed
+    ? lanes.find((l) => l.key === proposed.bedLane && l.group === 'beds')
+    : lanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === id))
+  // Board-wide: a PROPOSED pair names lanes the card is not standing on yet, and
+  // the customer's name has to come off the card wherever it actually is.
+  const item = lanes.flatMap((l) => l.items).find((i) => i.caseId === id)
   const from = minuteOf(at.x, hours)
   const to = minuteOf(at.x + at.w, hours)
   const moved =
@@ -1379,6 +1491,32 @@ function fullRoomsRefusal(
 /** 置けない (the landing is inert) · 要確認 (legal, costly) · clean (silence). */
 export type LandingClass = 'blocked' | 'caution' | 'clean'
 
+/** ⚖ LIAM flag 73 (2026-08-23) — WHICH KIND OF FLOOR REFUSED, and it is the
+ *  feature rather than a detail of it.
+ *
+ *  His ruling: a TRUE 満室 board has no room in it, and 「注意して配置」 over
+ *  that is a button offering to do a thing the world cannot do — ⚖ 31c at the
+ *  level of physics. So the escalation belongs to the floors that are a
+ *  JUDGEMENT (the VIP rule, 勤務時間外, シフトロック — the mistake-proofing
+ *  law's manager-judgement class, whose advise-vs-block level is the settings
+ *  batch's own dial) and never to the floors that are a FACT (a person already
+ *  in the room, a room that is full, a placement the engine calls impossible,
+ *  another store's board).
+ *
+ *  `hard-room` is `hard` — the override gate tests for `policy` and nothing
+ *  else — carrying the one extra thing the surface needs: a full house is a
+ *  question about ROOMS, so the starts it offers must be the ones whose room is
+ *  free, not the guard's loss ranking for a lane that was never the problem. */
+export type LandingFloor = 'hard' | 'hard-room' | 'policy'
+
+/** ⚖ 73 — the ONE hard row the frozen engine emits. `computeChecks`
+ *  (drag-rules :195-229) carries no class field and may not be edited, so the
+ *  class is read off the row that failed: a person cannot be in two places
+ *  (:210), while 「…以降勤務不可」 (:220) and 「…はシフトロック中」 (:224) are
+ *  the store deciding how it wants to work. This is the only row built with a
+ *  fixed PREFIX rather than a name, which is why the prefix is the test. */
+const CLASH_ROW = '時間帯が重複'
+
 /** canon's ghost glyphs (`updateGhost` :7619-7645). Canon prints 「置ける」 on a
  *  clean landing; ⚖ Liam's own reading of his demo is SILENCE there — a word
  *  that is always true while the operator is aiming at open space is noise, and
@@ -1393,6 +1531,10 @@ export const VERDICT_WORD: Record<LandingClass, string> = {
 
 export interface LandingVerdict {
   kind: LandingClass
+  /** ⚖ 73 — WHICH FLOOR refused, `null` when nothing did. Set at each `stop`,
+   *  so the classification is a literal at the site that knows the answer and
+   *  no consumer ever re-derives it from the sentence. */
+  floor: LandingFloor | null
   /** The word the cursor wears. Empty on a clean landing. */
   label: string
   /** WHY, in the board's existing vocabulary — `computeChecks`' own sentence for
@@ -1401,6 +1543,16 @@ export interface LandingVerdict {
   reason: string | null
   /** The guard's cell at this start, when a staff lane owned one. */
   cell: RailCell | null
+  /** ⚖ 74 — THE ROOM THIS LANDING SOLVED TO. It was computed here and thrown
+   *  away, so the surface that had to name it either re-ran the allocator (flag
+   *  54's disease: a second reading that can disagree with the first) or said
+   *  nothing. `null` before the solve is reached, and on a 満室. */
+  bedLane: string | null
+  /** ⚖ 74 — the rows against the ATTEMPTED landing. `checksFor` answers for the
+   *  lanes the booking is currently ON, which for a landing being asked about is
+   *  the ORIGIN — the wrong board. These are the right ones, from the same call
+   *  that judged the landing. Empty before the rows are reached. */
+  checks: Check[]
 }
 
 /** One landing, as a question. Every field is something the caller already has;
@@ -1450,10 +1602,20 @@ export interface LandingQuestion {
  *  ⚖ 52 holds by construction: `blocked` is exactly the set where release does
  *  nothing, which is exactly where red and × are allowed to appear. */
 export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: RailCell | null): LandingVerdict {
-  const stop = (reason: string): LandingVerdict => ({ kind: 'blocked', label: VERDICT_WORD.blocked, reason, cell })
-  if (q.foreignRefusal) return stop(q.foreignRefusal)
+  // ⚖ 74 — the two facts this function computes and used to discard. They are
+  // filled in as it walks, so a `stop` that fires before the walk reaches them
+  // honestly reports none: no room had been solved and no row had been read.
+  let bedLane: string | null = null
+  let checks: Check[] = []
+  const stop = (reason: string, floor: LandingFloor): LandingVerdict =>
+    ({ kind: 'blocked', floor, label: VERDICT_WORD.blocked, reason, cell, bedLane, checks })
+  // ⚖ 46 store isolation is LAW, never a judgement — there is no authority on
+  // this board that may place a person in another store's building.
+  if (q.foreignRefusal) return stop(q.foreignRefusal, 'hard')
   const staff = lanes.find((l) => l.key === q.staffLane && l.group === 'staff')
-  if (!staff) return stop('予約を置く行の中で離してください')
+  // No lane was named, so there is no landing to escalate ONTO — every caller
+  // already passes a null escalation here (⚖ 61). `hard` is what that means.
+  if (!staff) return stop('予約を置く行の中で離してください', 'hard')
 
   // The room, solved or named. A refusal is HELD rather than returned: a person
   // who is already busy at this time is the more useful sentence, and saying
@@ -1470,10 +1632,11 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
       })
     : { laneKey: q.bedLane, refusal: null }
   const bed = lanes.find((l) => l.key === solved.laneKey && l.group === 'beds') ?? null
+  bedLane = solved.laneKey
   // ⚖ STORE ISOLATION on the explicit room choice — `allocateBed` filters, this
   // tests, and `sharesStore` is the one spelling of the rule either way.
   if (!q.solveRoom && bed && !sharesStore(staff.stores, bed.stores)) {
-    return stop(`担当と店舗が異なります: ${staff.label} / ${bed.label}`)
+    return stop(`担当と店舗が異なります: ${staff.label} / ${bed.label}`, 'hard')
   }
   // ⚖ 51 on the explicit room choice — the store rule is not the only floor the
   // allocator applies, so it may not be the only one this path re-tests: a 個室
@@ -1482,8 +1645,12 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   // explanation names the policy, and the 「注意して配置」 escalation appears only
   // where the store's overridePolicy put it. The VIP leaves the 個室 out loud,
   // with a manager's name on it, or not at all.
+  // ⚖ 73 — POLICY. Liam named the VIP rules himself: this is the store's own
+  // judgement about what the treatment is owed, and the override is the manager
+  // walking the VIP out of the 個室 OUT LOUD, with their name on it, which is
+  // the un-silent path ⚖ 51 was written to protect.
   if (!q.solveRoom && bed && !roomFitsClass(bed, q.vip, q.rooms)) {
-    return stop(`VIP・個室クラスのご予約です: ${bed.label}は個室ではありません`)
+    return stop(`VIP・個室クラスのご予約です: ${bed.label}は個室ではありません`, 'policy')
   }
 
   const spans: CheckSpan[] = []
@@ -1493,16 +1660,22 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
       spans.push({ id: i.caseId ?? i.key, x: i.x, w: i.w, title: i.title, derived: i.kind === 'cleanup', parked: false })
     }
   }
-  const failed = computeChecks(q.span, {
+  checks = computeChecks(q.span, {
     spans,
     bookingId: q.id ?? '',
     staffName: staff.label,
     staffUntil: staff.untilLabel,
     laneLocked: q.locked.includes(staff.key),
     minutesOf: q.minutesOf,
-  }).find((c) => !c.ok)
-  if (failed) return stop(failed.label)
-  if (solved.refusal) return stop(solved.refusal)
+  })
+  const failed = checks.find((c) => !c.ok)
+  // ⚖ 73 — BY ROW, not by the fact that a row failed: 重複 is two people in one
+  // place and no authority makes that true, while 勤務時間外 and シフトロック are
+  // the store's own shape of its day.
+  if (failed) return stop(failed.label, failed.label.startsWith(CLASH_ROW) ? 'hard' : 'policy')
+  // ⚖ 73's core — the full house. There is no room, so there is nothing for an
+  // escalation to buy; the surface offers the starts whose room IS free instead.
+  if (solved.refusal) return stop(solved.refusal, 'hard-room')
   // ⚖ LIAM flag 58 (2026-08-22) — ROOT A: AN ACK-ALLOWED REFUSAL IS 要確認,
   // NOT 置けない. His words: 「even the triangle ones are going into red
   // crosses, which it shouldn't」.
@@ -1533,9 +1706,12 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   // 「注意して配置」 stays exactly where it is, for the floors that ARE illegal:
   // 店舗 / 重複 / 勤務 / ロック / 満室 / VIP・個室 — all of which are `stop`s
   // above this line — plus `R-UNAVAILABLE` here.
-  if (cell?.state === 'blocked' && !cell.ackAllowed) return stop(cell.sentence)
-  if (cell && cell.state !== 'safe') return { kind: 'caution', label: VERDICT_WORD.caution, reason: cell.sentence, cell }
-  return { kind: 'clean', label: VERDICT_WORD.clean, reason: null, cell }
+  // ⚖ 73 — `ackAllowed: false` is the engine's own word for physically
+  // impossible (gap-guard :371, `R-UNAVAILABLE`). A floor the engine calls
+  // impossible is not a floor a manager can be given authority over.
+  if (cell?.state === 'blocked' && !cell.ackAllowed) return stop(cell.sentence, 'hard')
+  if (cell && cell.state !== 'safe') return { kind: 'caution', floor: null, label: VERDICT_WORD.caution, reason: cell.sentence, cell, bedLane, checks }
+  return { kind: 'clean', floor: null, label: VERDICT_WORD.clean, reason: null, cell, bedLane, checks }
 }
 
 /** ⚖ LIAM flag 50(d) (2026-08-22) — WHAT AN OVERRIDE IS ALLOWED TO BUY.

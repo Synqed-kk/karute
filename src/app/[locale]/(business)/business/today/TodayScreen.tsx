@@ -90,6 +90,9 @@ import {
   isOverShelf,
   laneKeyAtY,
   landingVerdict,
+  bedClassCell,
+  nearestFreeStarts,
+  needsPrivateRoom,
   offerableCell,
   nextSpan,
   overrideCaption,
@@ -110,6 +113,7 @@ import {
   foreignStoreRefusal,
   wrapStep,
   type GuardRail,
+  type LandingFloor,
   type LandingQuestion,
   type LandingVerdict,
   type Move,
@@ -504,6 +508,20 @@ interface GuardAdvice {
    *  「より良い開始」 offer on a placeable-but-costly start, unchanged. `blocked`
    *  is the new one: the landing did NOT happen and this says why. */
   kind: 'blocked' | 'caution'
+  /** ⚖ Liam flag 73 — WHICH FLOOR, carried from the one verdict. It decides
+   *  three things at once and nothing re-derives it: whether 「注意して配置」
+   *  exists at all, which sentence the offer line speaks, and whether this box
+   *  carries the confirm's facts (only a landing that CAN be staged does). */
+  floor: LandingFloor | null
+  /** ⚖ 73 (T5) — ベッド or 個室, from `needsPrivateRoom`, so the offer line and
+   *  the 満室 sentence above it name the same room. */
+  roomWord: string
+  /** ⚖ LIAM flag 74 (2026-08-23) — THE ONE BOX. Liam had to say okay twice: the
+   *  red box asked, and pressing 注意して配置 closed it and opened a second
+   *  surface asking the same question with the facts in it. So the facts come
+   *  HERE, and the press is the decision. `null` where there is nothing to stage
+   *  (every hard floor, and the no-lane release). */
+  facts: { summary: string; checks: Check[]; guardRow: { label: string; tone: 'warn' } | null } | null
   /** The sentence the operator reads, from `landingVerdict` — one vocabulary
    *  with the cursor word and the confirm surface's rows. */
   reason: string
@@ -615,6 +633,23 @@ export function TodayScreen(props: TodayProps) {
    *  flip (⚖ 41), but "is this popover open" must not — a flip should not carry
    *  an open question onto another day's board. */
   const [holdOpen, setHoldOpen] = useState(false)
+  /** ⚖ LIAM flag 74 (2026-08-23) — AND A DIRECT-STAGED OVERRIDE IS NOT ASKED
+   *  ABOUT AGAIN. His words: 「I have to say okay twice」. The red box already
+   *  put the whole question on screen — the reason, the time, the person, the
+   *  room, the rows — so pressing 注意して配置 IS the decision, and a confirm
+   *  popping up in the same beat asks it a second time.
+   *
+   *  THE ID, not a boolean, and that is what makes the reset free: a new pending
+   *  is a new id, so nothing stale can auto-open it. ⚖ 71's own reason applies
+   *  for keeping it screen-local — a day flip must not carry an open question
+   *  onto another day's board.
+   *
+   *  SCOPED TO OVERRIDES (⚖ 71's kept behaviour, and Fable's T1 ruling): the
+   *  gate below reads `pending.override == null` FIRST, so a clean drop still
+   *  raises its confirm exactly as canon's `stageChange` → `renderHoldBar` does.
+   *  One grammar, stated as: every landing asks exactly one question — a clean
+   *  one asks it in the confirm, a red one asked it in the box. */
+  const [pendingOpen, setPendingOpen] = useState<string | null>(null)
   const [seed, setSeed] = useState<{ staffId: string; start: number; nonce: number } | null>(null)
 
   // ── the interaction plane ────────────────────────────────────────────────
@@ -1320,6 +1355,38 @@ export function TodayScreen(props: TodayProps) {
     [hours, props.guard.bookingStepMin],
   )
 
+  /** ⚖ LIAM flag 73 RIDER — THE SOURCE IS THE REFUSAL'S OWN CLASS, and the
+   *  filter is still exactly one.
+   *
+   *  `landingVerdict` hands every refusal class the GUARD's cell, because that
+   *  is the cell it was given. On a 満室 whose staff lane is guard-safe that
+   *  cell carries no alternatives, and the box picks its line off
+   *  `alternatives.length` alone — so a full house read 「この区間に、より損の
+   *  少ない開始はありません」, the guard's sentence about a lane that was never
+   *  the problem. Every other class keeps the engine's own starts, untouched.
+   *
+   *  ⚖ 58's law is the FILTER (`offerableCell`, one home, both offering
+   *  surfaces) and these starts go through it like any other. `ok` is the whole
+   *  search rather than a second sweep: the gate already runs the allocator
+   *  whenever the question solves a room, so a start that survives it has a free
+   *  room by construction — the same gate the release itself will ask.
+   *
+   *  A null cell is the board's existing word for "nothing to offer here" — the
+   *  keyboard nudge sets it deliberately (Shift/Alt cannot change a start, ⚖
+   *  31c) and a store with the guard off never has one. Sourcing behind it keeps
+   *  both true rather than growing a button those paths could not perform. */
+  const sourcedCell = useCallback(
+    (v: LandingVerdict, ask: LandingAsk): RailCell | null =>
+      bedClassCell(v, () => {
+        const start = minuteOf(ask.span.x, hours)
+        const dur = minuteOf(ask.span.x + ask.span.w, hours) - start
+        return nearestFreeStarts(start, props.guard.bookingStepMin, hours, dur, (s) =>
+          verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind !== 'blocked',
+        )
+      }),
+    [hours, props.guard.bookingStepMin],
+  )
+
   /** canon `computeChecks` fed from the board as it currently stands. The sell
    *  layer's own windows join the pool as DERIVED inventory, exactly as canon's
    *  `isDerivedInventory` treats `.public` cells — they yield to a real
@@ -1429,7 +1496,10 @@ export function TodayScreen(props: TodayProps) {
    *  and the card's own state colour carries the result — which it already did.
    *  A session-staged 仮押さえ was never stuck: `pending` clears on both its
    *  answers. What Liam saw was this surface underneath, taking its place. */
-  const holdPop: HoldPop | null = pending
+  // ⚖ 74 — the pending branch's own open/closed gate, patterned on ⚖ 71's. An
+  // ordinary stage has no override and is open on arrival; a stage that came
+  // through 注意して配置 waits to be opened by the card it belongs to.
+  const holdPop: HoldPop | null = pending && (pending.override == null || pendingOpen === pending.id)
     ? {
         anchorId: pending.id,
         status: '仮押さえ',
@@ -1443,11 +1513,26 @@ export function TodayScreen(props: TodayProps) {
         // walked past it, so the surface says so in the wording; and because it
         // no longer blocks 確定 it may not carry the mark that means "this line
         // stops you" (flag 52's law, the mirror of flag 7's).
-        checks: pendingChecks.map((c) =>
-          !c.ok && c.label === pending.override
-            ? { label: `注意して配置: ${c.label}`, tone: 'warn' as const }
-            : { label: c.label, tone: c.ok ? '' : 'bad' },
-        ),
+        // ⚖ LIAM flag 73/74 (T2) — AND IT IS NEVER INVISIBLE AGAIN. The △ used
+        // to be produced by matching `pending.override` against a check LABEL,
+        // and `computeChecks` (FROZEN) emits no row for a room, no row for the
+        // VIP floor and no row for a foreign store — so an escalation over any
+        // of those staged four green ticks and no trace at all. Liam's 8/22
+        // shot is exactly that: 満室 overridden, ✓✓✓✓, 担当 X / —. The append is
+        // the same sentence from the same field, for the classes the engine has
+        // no row for; `overrideCaption` is untouched, because a warn row is a
+        // record and not a gate (⚖ 52 — × is what stops you, △ is what you were
+        // told).
+        checks: [
+          ...pendingChecks.map((c) =>
+            !c.ok && c.label === pending.override
+              ? { label: `注意して配置: ${c.label}`, tone: 'warn' as const }
+              : { label: c.label, tone: c.ok ? ('' as const) : ('bad' as const) },
+          ),
+          ...(pending.override && !pendingChecks.some((c) => !c.ok && c.label === pending.override)
+            ? [{ label: `注意して配置: ${pending.override}`, tone: 'warn' as const }]
+            : []),
+        ],
         guardRow: pendingGuardRow,
         confirm: { label: pendingConfirm.label, enabled: pendingConfirm.enabled, run: confirmPending },
         revert: { enabled: true, run: revertPending },
@@ -1456,7 +1541,12 @@ export function TodayScreen(props: TodayProps) {
     // the two clauses before it are ⚖ 41/56's law, untouched. Unanswered is
     // still the only state that HAS a question; opening is now how it gets
     // asked. An answered hold stays gone for the session either way.
-    : props.hold && holdAnswer === null && holdOpen
+    // ⚖ 74 — `!pending` is the ⚖ 56/41 precedence, said out loud now that the
+    // branch above can decline. A staged change still stands IN FRONT of the
+    // day's own 仮押さえ; a CLOSED one must not let the older question step into
+    // the space it is holding — that is Liam's 「twice in a row」 from the other
+    // side, and without this word the gate above would have re-opened it.
+    : !pending && props.hold && holdAnswer === null && holdOpen
       ? {
           // ⚖ 71 does NOT change the line below: anchoring this surface to the
           // card was measured on 2026-08-21 to sit over the board and swallow
@@ -1621,11 +1711,15 @@ export function TodayScreen(props: TodayProps) {
   //  `staffLaneKey` is the lane the booking is landing ON — the person whose
   //  store owns this allocation. Every caller has it already; passing the key
   //  rather than the stores keeps the store rule in the allocator, one home.
-  //  ⚖ 50(d) — `allowBusy` is the 「注意して配置」 escalation reaching the room:
-  //  the operator has been shown the 満室 sentence and has the authority to place
-  //  anyway, so the allocator names the room it would have chosen rather than
-  //  refusing a second time behind a decision that has already been made.
-  function solveBed(staffLaneKey: string | null, id: string | null, currentBed: string | null, vip: boolean, span: { x: number; w: number }, allowBusy = false): string | null {
+  //  ⚖ LIAM flag 73 (2026-08-23) — AND THE ESCALATION NO LONGER REACHES THE
+  //  ROOM. ⚖ 50(d) let 「注意して配置」 pass `allowBusy` here, so a manager could
+  //  place into a full house and the board named a room somebody else was in.
+  //  73 rules that a full house is a FACT, not a judgement: it keeps no override
+  //  to thread, and a policy override (勤務/ロック/VIP) may not buy a room
+  //  either — TEST:4030's own law, 満室 outranks the guard, generalised. The
+  //  allocator answers exactly one question now, and a refusal is final on every
+  //  path (⚖ 47: it speaks, and the caller changes nothing).
+  function solveBed(staffLaneKey: string | null, id: string | null, currentBed: string | null, vip: boolean, span: { x: number; w: number }): string | null {
     const start = minuteOf(span.x, hours)
     const board = boardLanesRef.current
     const solved = allocateBed(board, {
@@ -1636,7 +1730,6 @@ export function TodayScreen(props: TodayProps) {
       start,
       end: minuteOf(span.x + span.w, hours),
       policy: props.rooms,
-      allowBusy,
     })
     if (solved.refusal) {
       refuse(solved.refusal)
@@ -1685,6 +1778,11 @@ export function TodayScreen(props: TodayProps) {
           (was.override === (override ?? undefined) ? was : { ...was, override: override ?? undefined })
         : { id, origin: from.staff ?? { laneKey: '', x: 0, w: 0 }, bedOrigin: from.bed ?? undefined, ...boardStamp, override: override ?? undefined },
     )
+    // ⚖ 74 — a fresh landing is a fresh question, so an id opened a moment ago
+    // may not answer for it. Dropping it here rather than at each caller is the
+    // whole reset: `placeNextVisit` and `placeFromShelf` mint ids that were
+    // never opened, and every board gesture ends in this one function.
+    setPendingOpen(null)
     setSelected(null)
   }
 
@@ -2113,6 +2211,12 @@ export function TodayScreen(props: TodayProps) {
       // same 確定/元に戻す — `holdAnswer` still resolves the 担当変更 card and
       // still serves ⚖ 56.
       setHoldOpen(props.hold != null && item.caseId === props.hold.bookingId)
+      // ⚖ LIAM flag 74 — THE WAY BACK IN. A directly-staged override does not
+      // raise its confirm, so the staged card IS the door: clicking it opens
+      // 確定/元に戻す, clicking any other card closes it again. Exactly ⚖ 71's
+      // shape one line up, for the surface ⚖ 71 could not reach — its gate hangs
+      // off `props.hold`, and a session pending is not the day's own hold.
+      setPendingOpen(pending != null && item.caseId === pending.id ? pending.id : null)
       return
     }
     // ⚖ Liam flag 33, ROOT CAUSE — canon `finishNormalBookingDrag` (:4563) opens
@@ -2218,8 +2322,18 @@ export function TodayScreen(props: TodayProps) {
       // `currentBed` (it is how `placeNextVisit` calls it), and `landingVerdict`
       // has already run the same solve one frame earlier — this line was
       // throwing that answer away, which is the ⚖ 51 breach itself.
+      // ⚖ LIAM flag 73 — AND A PHYSICS FLOOR OUTRANKS ANY OVERRIDE, including
+      // one already pressed. The verdict proved a room existed a frame ago, but
+      // the red box can stand open while another operator takes it; if the room
+      // is gone now, this landing IS a full house and no authority makes it
+      // otherwise. `solveBed` has already said so through ⚖ 47's one door, and
+      // nothing stages — the same answer `placeNextVisit` (:3210) and
+      // `placeFromShelf` (:3311) have always given, so all four paths obey one
+      // law rather than two. It used to keep the carried room and stage anyway.
       if (ctx.group !== 'beds') {
-        on.bedLane = solveBed(on.staffLane, ctx.id, on.bedLane, item.category === 'vip', at, override != null) ?? on.bedLane
+        const bed = solveBed(on.staffLane, ctx.id, on.bedLane, item.category === 'vip', at)
+        if (bed == null) return
+        on.bedLane = bed
       }
       stage(
         ctx.id,
@@ -2297,6 +2411,23 @@ export function TodayScreen(props: TodayProps) {
     // is explanation only.
     const escalate = run.override
     adviceOpenedAt.current = at.t
+    // ⚖ LIAM flag 74 — THE FACTS COME TO THE QUESTION. Only a POLICY landing can
+    // be staged from here, so only a policy landing describes one: on a hard
+    // floor these would be the details of a placement that is never going to
+    // happen. Everything is the verdict's own — the room it solved and the rows
+    // it read, against the ATTEMPTED landing rather than the lanes the card is
+    // still standing on (which is what `checksFor` would have answered).
+    const facts =
+      v.floor === 'policy' && attempt
+        ? {
+            summary: holdSummary(boardLanes, attempt.id, { laneKey, ...span }, hours, null, {
+              staffLane: attempt.staffLane,
+              bedLane: v.bedLane ?? attempt.bedLane,
+            }),
+            checks: v.checks,
+            guardRow: guardCheckRow(v.cell),
+          }
+        : null
     setAdvice({
       laneKey,
       start: minuteOf(span.x, hours),
@@ -2305,12 +2436,23 @@ export function TodayScreen(props: TodayProps) {
       // release's consult and 新規/次回's askGuard alike, because both arrive
       // here. The keyboard nudge passes `cell: null` (Shift/Alt cannot change a
       // start), so it is unaffected by construction.
-      cell: offerable(v.cell, ask),
+      cell: offerable(sourcedCell(v, ask), ask),
       kind: 'blocked',
+      // ⚖ 73 — carried, never re-derived. The box reads its own class off this.
+      floor: v.floor,
+      roomWord: needsPrivateRoom(ask.vip, props.rooms) ? '個室' : 'ベッド',
+      facts,
       reason: v.reason ?? '配置できません',
       anchor: at,
       place: (s) => { setAdvice(null); run.placeAt(s) },
-      override: props.canOverride && escalate ? () => { setAdvice(null); escalate() } : null,
+      // ⚖ LIAM flag 73 — AND THE FLOOR JOINS THE AUTHORITY, on this one line.
+      // 「注意して配置」 over a true 満室 is a button offering to do a thing the
+      // world will not do (⚖ 31c at the level of physics), so the store's grant
+      // is necessary and no longer sufficient: the landing must also be a
+      // JUDGEMENT rather than a fact. Both halves stay in one expression on
+      // purpose — a second gate elsewhere would split the authority across two
+      // lines, which is flag 54's disease arriving at the permission layer.
+      override: props.canOverride && escalate && v.floor === 'policy' ? () => { setAdvice(null); escalate() } : null,
       // ⚖ 57 — the card sits where it was dropped while the question is open.
       // 注意して配置 stages the SAME span, so it never visibly jumps; やめる and
       // every other ending clear the advice and the card is drawn from `moves`
@@ -2828,6 +2970,11 @@ export function TodayScreen(props: TodayProps) {
       // same filter. It is the ONLY other booking-side spelling.
       cell: offerable(v.cell, ask),
       kind: 'caution',
+      // A caution is nothing's floor — it PLACES. ⚖ 73 has no opinion here and
+      // ⚖ 74's facts belong to the confirm this landing is about to raise.
+      floor: null,
+      roomWord: needsPrivateRoom(ask.vip, props.rooms) ? '個室' : 'ベッド',
+      facts: null,
       reason: v.reason ?? '',
       anchor: at,
       place: (s) => run(s, null),
@@ -2893,8 +3040,12 @@ export function TodayScreen(props: TodayProps) {
       const on = { ...sides }
       // ⚖ Liam flag 59 — the same inverted guard stood here, so Shift/Alt+Arrow
       // on a room-less booking reproduced the em-dash without a pointer.
+      // ⚖ 73 — the same law as the drop's (`land`, :2222): a room that is gone
+      // is a full house, and nothing stages into one.
       if (lane.group !== 'beds') {
-        on.bedLane = solveBed(on.staffLane, id, on.bedLane, item.category === 'vip', next, override != null) ?? on.bedLane
+        const bed = solveBed(on.staffLane, id, on.bedLane, item.category === 'vip', next)
+        if (bed == null) return
+        on.bedLane = bed
       }
       stage(id, on, next, pending?.id === id ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from, override)
     }
@@ -3205,7 +3356,7 @@ export function TodayScreen(props: TodayProps) {
     // compatible one; when there is none the refusal NAMES the rooms that are
     // busy instead of the old 「空いているベッドがいません」, which told the
     // operator nothing they could act on.
-    const partnerKey = solveBed(lane.key, null, null, false, place(start, end, hours), override != null)
+    const partnerKey = solveBed(lane.key, null, null, false, place(start, end, hours))
     const partner = partnerKey == null ? null : boardLanes.find((l) => l.key === partnerKey)
     if (!partner) return
     setPlacing(null)
@@ -3301,7 +3452,7 @@ export function TodayScreen(props: TodayProps) {
         ? dropped
         : (() => {
             const home = boardLanes.find((l) => l.group === 'beds' && l.label === chip.item.tag.replace(/[【】]/g, ''))
-            const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span, override != null)
+            const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)
             return key == null ? null : boardLanes.find((l) => l.key === key)
           })()
     // `bed` null means `solveBed` has already said 満室 (⚖ 47: the refusal speaks
@@ -3498,7 +3649,15 @@ export function TodayScreen(props: TodayProps) {
               askGuard(
                 { staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: false, foreignRefusal: foreignStoreRefusal(placing, props.store), span: slot },
                 at,
-                (s) => placeNextVisit(lane, s),
+                // ⚖ 31c, LIVE BREACH (batch-11) — `askGuard` hands its `run` the
+                // sentence the operator walked past, and this callback dropped
+                // it: `placeNextVisit`'s `override` defaulted to null, so
+                // 注意して配置 on a 配置モード refusal closed the box, re-said the
+                // same refusal as a toast and placed NOTHING. A button that
+                // cannot perform what it names. Threaded exactly as the shelf
+                // chip threads it (:3150), which is where the correct spelling
+                // has been all along.
+                (s, override) => placeNextVisit(lane, s, override),
               )
               return
             }
@@ -4716,13 +4875,41 @@ export function TodayScreen(props: TodayProps) {
               reason from the real predicates — never a generic 「置けません」. */}
           {advice.kind === 'blocked' && <div className="gp-verdict">置けない</div>}
           <div className="gp-reason">{advice.reason}</div>
+          {/* ⚖ LIAM flag 74 — THE ONE BOX. The confirm's own facts, in the
+              surface that is asking: what time, on whom, in which room, and the
+              rows this landing earns. Only a POLICY floor gets them, because
+              only a policy floor has a 注意して配置 to press — describing a
+              placement that cannot happen is the wrong-question defect in
+              another costume. The rows wear ⚖ 52's glyphs from the confirm's own
+              stylesheet, so × and △ mean one thing on both surfaces. */}
+          {advice.facts && (
+            <div className="gp-facts">
+              <strong>{advice.facts.summary}</strong>
+              <div className="holdbar-checks">
+                {advice.facts.checks.map((c) => (
+                  <span className={`ck${c.ok ? '' : ' bad'}`} key={c.label}>{c.label}</span>
+                ))}
+                {advice.facts.guardRow && <span className={`ck ${advice.facts.guardRow.tone}`}>{advice.facts.guardRow.label}</span>}
+              </div>
+            </div>
+          )}
+          {/* ⚖ LIAM flag 73 RIDER — THE OFFER LINE ANSWERS THE REFUSAL'S OWN
+              QUESTION. A full house is about ROOMS, so it may not borrow the
+              guard's sentence about a lane that was never the problem — 「この
+              区間に、より損の少ない開始はありません」 over a 満室 was the box
+              answering confidently in the wrong vocabulary. Keyed off the same
+              class that chose the starts, so the two cannot drift. */}
           {advice.cell && (
             <div className="gp-offer">
-              {advice.cell.alternatives.length === 0
-                ? 'この区間に、より損の少ない開始はありません'
-                : advice.cell.alternativeKind === 'least-loss'
-                  ? '空きを完全には守れません。より損の少ない開始を選べます'
-                  : '安全な開始を選んでください'}
+              {advice.floor === 'hard-room'
+                ? advice.cell.alternatives.length === 0
+                  ? `この区間に、${advice.roomWord}の空く開始はありません`
+                  : `${advice.roomWord}の空く開始を選べます`
+                : advice.cell.alternatives.length === 0
+                  ? 'この区間に、より損の少ない開始はありません'
+                  : advice.cell.alternativeKind === 'least-loss'
+                    ? '空きを完全には守れません。より損の少ない開始を選べます'
+                    : '安全な開始を選んでください'}
             </div>
           )}
           {advice.cell && advice.cell.alternatives.length > 0 && (
