@@ -193,33 +193,68 @@ describe('POST /karute/[id]/reassign', () => {
 
   // R3-1 (fix round 3, Greptile issue 1 — REAL): the SOURCE karute record's
   // own store, proven regardless of what the request's to_customer_id is.
-  it('R3-1: clamped actor + an out-of-store SOURCE record → 403, no write, no audit (confirmed:true)', async () => {
+  // R9-2 (fix round 9, existence-oracle class): status CHANGED 403 → 404 —
+  // store_forbidden let a clamped actor distinguish this from a genuinely
+  // nonexistent karute id (both used to 404). Now byte-identical (see the
+  // comparison pin below).
+  it('R9-2 (was R3-1): clamped actor + an out-of-store SOURCE record → 404, no write, no audit (confirmed:true)', async () => {
     KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
     storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
     const res = await POST(postReq({ to_customer_id: 'cust-TO', confirmed: true }), routeFor('kar-1'))
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(404)
     expect(karuteUpdate).not.toHaveBeenCalled()
     expect(auditSpy).not.toHaveBeenCalled()
   })
 
-  it('R3-1: clamped actor + an out-of-store SOURCE record → 403 on the PREVIEW phase too (confirmed:false) — the leak-close half', async () => {
+  it('R9-2 (was R3-1): clamped actor + an out-of-store SOURCE record → 404 on the PREVIEW phase too (confirmed:false) — the leak-close half', async () => {
     KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
     storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
     const res = await POST(postReq({ to_customer_id: 'cust-TO', confirmed: false }), routeFor('kar-1'))
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(404)
     expect(karuteUpdate).not.toHaveBeenCalled()
     expect(auditSpy).not.toHaveBeenCalled()
   })
 
   // R5-1: flips the round-3 "ALLOWED" pin — null-store now fails closed for
-  // a clamped actor (membership unprovable).
-  it('R5-1: null-store SOURCE record + clamped actor is REFUSED → 403, no write, no audit', async () => {
+  // a clamped actor (membership unprovable). R9-2: status CHANGED 403 → 404,
+  // same reasoning as the two pins above.
+  it('R9-2 (was R5-1): null-store SOURCE record + clamped actor is REFUSED → 404, no write, no audit', async () => {
     KARUTE.current = { ...KARUTE.current, store_id: null }
     storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
     const res = await POST(postReq({ to_customer_id: 'cust-TO', confirmed: true }), routeFor('kar-1'))
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(404)
     expect(karuteUpdate).not.toHaveBeenCalled()
     expect(auditSpy).not.toHaveBeenCalled()
+  })
+
+  // R9-1/R9-2 (fix round 9, Greptile round-5 3/5) — existence-oracle class.
+  it('pin 3: clamped + out-of-store karute id vs clamped + nonexistent karute id → byte-identical response (facade POST)', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
+    storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
+    const outOfStore = await POST(postReq({ to_customer_id: 'cust-TO', confirmed: true }), routeFor('kar-1'))
+    const outOfStoreBody = await outOfStore.json()
+    const nonexistent = await POST(postReq({ to_customer_id: 'cust-TO', confirmed: true }), routeFor('kar-DOES-NOT-EXIST'))
+    const nonexistentBody = await nonexistent.json()
+    expect(outOfStore.status).toBe(404)
+    expect(nonexistent.status).toBe(404)
+    expect(outOfStoreBody).toEqual(nonexistentBody)
+  })
+
+  it('pin 1: clamped + nonexistent to-id vs clamped + exists-in-other-store to-id → byte-identical response (facade POST)', async () => {
+    storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
+    const nonexistent = await POST(postReq({ to_customer_id: 'cust-DOES-NOT-EXIST', confirmed: true }), routeFor('kar-1'))
+    const nonexistentBody = await nonexistent.json()
+    const existsElsewhere = await POST(postReq({ to_customer_id: 'cust-OTHER-STORE', confirmed: true }), routeFor('kar-1'))
+    const existsElsewhereBody = await existsElsewhere.json()
+    expect(nonexistent.status).toBe(403)
+    expect(existsElsewhere.status).toBe(403)
+    expect(nonexistentBody).toEqual(existsElsewhereBody)
+  })
+
+  it('pin 2: no customers.get for an out-of-scope destination — the clamp refuses before any lookup (facade POST)', async () => {
+    storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
+    await POST(postReq({ to_customer_id: 'cust-OTHER-STORE', confirmed: true }), routeFor('kar-1'))
+    expect(customersGet).not.toHaveBeenCalled()
   })
 
   it('R3-1: viewAll actor + an out-of-store SOURCE record is ALLOWED', async () => {

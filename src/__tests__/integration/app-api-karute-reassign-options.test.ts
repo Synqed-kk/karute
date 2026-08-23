@@ -144,22 +144,45 @@ describe('GET /karute/[id]/reassign-options', () => {
 
   // R3-1 (fix round 3, Greptile issue 1 — REAL): same source-store refusal
   // the write route enforces, mirrored here before any roster is built.
-  it('R3-1: clamped actor + an out-of-store SOURCE record → 403, no roster fetch', async () => {
+  // R9-2 (fix round 9, existence-oracle class): status CHANGED 403 → 404 —
+  // same reasoning as app-api-karute-reassign.test.ts's R9-2 pins (byte-
+  // identical to a genuinely nonexistent karute id — see the comparison
+  // pin below).
+  it('R9-2 (was R3-1): clamped actor + an out-of-store SOURCE record → 404, no roster fetch', async () => {
     KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
     storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
     const res = await GET(getReq(), routeFor('kar-1'))
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(404)
     expect(listAllCustomers).not.toHaveBeenCalled()
   })
 
   // R5-1: flips the round-3 "reaches the roster normally" pin — null-store
-  // now fails closed for a clamped actor.
-  it('R5-1: null-store SOURCE record + clamped actor is refused → 403, no roster fetch', async () => {
+  // now fails closed for a clamped actor. R9-2: status CHANGED 403 → 404.
+  it('R9-2 (was R5-1): null-store SOURCE record + clamped actor is refused → 404, no roster fetch', async () => {
     KARUTE.current = { ...KARUTE.current, store_id: null }
     storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
     const res = await GET(getReq(), routeFor('kar-1'))
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(404)
     expect(listAllCustomers).not.toHaveBeenCalled()
+  })
+
+  // R9-2 (fix round 9, Greptile round-5 3/5) — existence-oracle class.
+  it('pin 3: clamped + out-of-store karute id vs clamped + nonexistent karute id → byte-identical response (facade GET roster)', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
+    storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
+    const outOfStore = await GET(getReq(), routeFor('kar-1'))
+    const outOfStoreBody = await outOfStore.json()
+    const nonexistent = await GET(getReq(), routeFor('kar-DOES-NOT-EXIST'))
+    const nonexistentBody = await nonexistent.json()
+    expect(outOfStore.status).toBe(404)
+    expect(nonexistent.status).toBe(404)
+    expect(outOfStoreBody).toEqual(nonexistentBody)
+  })
+
+  it('pin 4: viewAll + a genuinely nonexistent karute id still gets the honest not_found (unaffected)', async () => {
+    storeClamp.current = { storeId: null, allowedStoreIds: null }
+    const res = await GET(getReq(), routeFor('kar-DOES-NOT-EXIST'))
+    expect(res.status).toBe(404)
   })
 
   it('R3-1: viewAll actor + an out-of-store SOURCE record still reaches the business-wide roster', async () => {

@@ -643,7 +643,18 @@ async function toCustomerInScope(
  *  with the pre-existing to-customer clamp — one function proves BOTH sides
  *  of the write, so neither caller (the web action, the facade route) can
  *  get one proof without the other. Runs before the preview return too, so
- *  a clamped actor can't even see an out-of-store record's honesty preview. */
+ *  a clamped actor can't even see an out-of-store record's honesty preview.
+ *
+ *  R9-2 (existence-oracle class, Greptile round-5 3/5): the source-store
+ *  refusal below is now SHAPED exactly like readKaruteRaw's not_found (same
+ *  code + message, karute-facade.ts's classifyGetError) — before, a clamped
+ *  actor got 404 for a genuinely nonexistent karute id but 403
+ *  store_forbidden for one that exists in another store, letting them probe
+ *  ids for existence across the whole business by error shape alone. The
+ *  karute read itself can't be reordered away (the store_id is only known
+ *  AFTER the fetch, unlike the to-customer side below), so the only way to
+ *  close the oracle is making the two outcomes byte-identical. viewAll is
+ *  unaffected — it never reaches this branch. */
 async function ensureReassignStoreScope(
   synqed: Pick<SynqedClient, 'customers'>,
   record: { store_id: string | null },
@@ -655,7 +666,7 @@ async function ensureReassignStoreScope(
     throw new AppApiError('store_forbidden', 'could not verify your store assignment (fail-closed)')
   }
   if (sourceStoreOutOfScope(record, scope)) {
-    throw new AppApiError('store_forbidden', 'this karute belongs to a store you are not assigned to')
+    throw new AppApiError('not_found', 'karute not found in this business')
   }
   if (!scope.allowedStoreIds) return // floating — unclamped
   if (await toCustomerInScope(synqed, toCustomerId, scope.allowedStoreIds)) return
@@ -697,12 +708,20 @@ export async function reassignKaruteCustomerWithClient(
     throw new AppApiError('validation', 'already this customer')
   }
 
+  // R9-1 (existence-oracle class, Greptile round-5 3/5): clamp BEFORE any
+  // to-customer lookup. toCustomerInScope proves membership by ROSTER
+  // presence only — it never distinguishes "exists in another store" from
+  // "doesn't exist at all" — so a clamped actor's out-of-roster to-id now
+  // refuses HERE, never reaching the customers.get below that would
+  // otherwise leak a not_found vs store_forbidden oracle. viewAll/floating
+  // actors pass straight through unaffected; their to-customer's honest
+  // existence is still proven by the fetch that follows.
+  await ensureReassignStoreScope(synqed, record, toCustomerId, scope)
+
   const [fromCustomer, toCustomer] = await Promise.all([
     reassignCustomerOrThrow(synqed, fromCustomerId),
     reassignCustomerOrThrow(synqed, toCustomerId),
   ])
-
-  await ensureReassignStoreScope(synqed, record, toCustomerId, scope)
 
   const facts = await reassignFacts(synqed, fromCustomerId, {
     id: karuteId,
@@ -823,7 +842,11 @@ export async function reassignKaruteCustomer(
  *  R3-1: the SAME source-store refusal ensureReassignStoreScope enforces on
  *  the write is run here too, before the roster is built — a clamped actor
  *  must not even see a picker for a karute record that itself sits outside
- *  their assignment. */
+ *  their assignment.
+ *
+ *  R9-2 (existence-oracle class): that refusal's message now matches
+ *  readKaruteRaw's not_found string exactly — same reasoning as
+ *  ensureReassignStoreScope's own R9-2 comment above. */
 export async function listReassignCustomerOptions(
   karuteId: string,
 ): Promise<{ customers: ReassignCustomerOption[] } | { error: string }> {
@@ -836,7 +859,7 @@ export async function listReassignCustomerOptions(
       return { error: 'could not verify your store assignment (fail-closed)' }
     }
     if (sourceStoreOutOfScope(record, scope)) {
-      return { error: 'this karute belongs to a store you are not assigned to' }
+      return { error: 'karute not found in this business' }
     }
     const lens = customerLensFor(scope)
     // Lazy import — cached.ts value-imports @synqed-kk/client at module scope

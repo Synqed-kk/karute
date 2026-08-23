@@ -229,7 +229,12 @@ describe('pin R3-1 — source-store clamp on the SOURCE record (web)', () => {
     )
       .then(() => ({ threw: false }))
       .catch((err: Error) => ({ threw: true, message: err.message }))
-    expect(result).toEqual({ threw: true, message: 'this karute belongs to a store you are not assigned to' })
+    // R9-2 (fix round 9, existence-oracle class): message CHANGED from
+    // 'this karute belongs to a store you are not assigned to' —
+    // store_forbidden let a clamped actor distinguish this from a
+    // genuinely nonexistent karute id. Now byte-identical to readKaruteRaw's
+    // own not_found (see the comparison pin below).
+    expect(result).toEqual({ threw: true, message: 'karute not found in this business' })
     expect(karuteRecordsUpdate).not.toHaveBeenCalled()
   })
 
@@ -244,7 +249,12 @@ describe('pin R3-1 — source-store clamp on the SOURCE record (web)', () => {
     )
       .then(() => ({ threw: false }))
       .catch((err: Error) => ({ threw: true, message: err.message }))
-    expect(result).toEqual({ threw: true, message: 'this karute belongs to a store you are not assigned to' })
+    // R9-2 (fix round 9, existence-oracle class): message CHANGED from
+    // 'this karute belongs to a store you are not assigned to' —
+    // store_forbidden let a clamped actor distinguish this from a
+    // genuinely nonexistent karute id. Now byte-identical to readKaruteRaw's
+    // own not_found (see the comparison pin below).
+    expect(result).toEqual({ threw: true, message: 'karute not found in this business' })
   })
 
   // R5-1 (Greptile round-2, #759): null-store now FAILS CLOSED for a
@@ -262,7 +272,12 @@ describe('pin R3-1 — source-store clamp on the SOURCE record (web)', () => {
     )
       .then(() => ({ threw: false }))
       .catch((err: Error) => ({ threw: true, message: err.message }))
-    expect(result).toEqual({ threw: true, message: 'this karute belongs to a store you are not assigned to' })
+    // R9-2 (fix round 9, existence-oracle class): message CHANGED from
+    // 'this karute belongs to a store you are not assigned to' —
+    // store_forbidden let a clamped actor distinguish this from a
+    // genuinely nonexistent karute id. Now byte-identical to readKaruteRaw's
+    // own not_found (see the comparison pin below).
+    expect(result).toEqual({ threw: true, message: 'karute not found in this business' })
     expect(karuteRecordsUpdate).not.toHaveBeenCalled()
   })
 
@@ -277,7 +292,12 @@ describe('pin R3-1 — source-store clamp on the SOURCE record (web)', () => {
     )
       .then(() => ({ threw: false }))
       .catch((err: Error) => ({ threw: true, message: err.message }))
-    expect(result).toEqual({ threw: true, message: 'this karute belongs to a store you are not assigned to' })
+    // R9-2 (fix round 9, existence-oracle class): message CHANGED from
+    // 'this karute belongs to a store you are not assigned to' —
+    // store_forbidden let a clamped actor distinguish this from a
+    // genuinely nonexistent karute id. Now byte-identical to readKaruteRaw's
+    // own not_found (see the comparison pin below).
+    expect(result).toEqual({ threw: true, message: 'karute not found in this business' })
   })
 
   it('viewAll actor + an out-of-store SOURCE record is ALLOWED', async () => {
@@ -290,6 +310,105 @@ describe('pin R3-1 — source-store clamp on the SOURCE record (web)', () => {
       { viewAll: true, allowedStoreIds: null },
     )
     expect(result).toMatchObject({ success: true })
+  })
+})
+
+// ── Pin R9-1/R9-2 (fix round 9, Greptile round-5 3/5) — existence-oracle
+// class, both sides ──────────────────────────────────────────────────────
+// Greptile: the core fetched the to-customer BEFORE the store clamp, so a
+// clamped actor could distinguish "id doesn't exist" (404 not_found) from
+// "id exists in another store" (403 store_forbidden) by error shape alone —
+// an existence oracle across the whole business, violating the isolation
+// law (other stores' existence must stay hidden). Fixed on both the
+// destination customer (R9-1: reorder — clamp before lookup) and the
+// source karute record (R9-2: reshape — the store-mismatch refusal now
+// matches not_found exactly, since the karute read itself can't be
+// reordered away).
+
+describe('pin R9-1 — destination clamp runs BEFORE the to-customer lookup', () => {
+  it('pin 1: clamped + nonexistent to-id vs clamped + exists-in-other-store to-id → byte-identical refusal', async () => {
+    const clamp = { viewAll: false, allowedStoreIds: ['store-A'] }
+    const nonexistent = await reassignKaruteCustomerWithClient(
+      fakeClient(),
+      'kar-1',
+      'cust-DOES-NOT-EXIST',
+      { confirmed: true },
+      clamp,
+    )
+      .then(() => ({ threw: false }))
+      .catch((err: Error) => ({ threw: true, message: err.message }))
+    const existsElsewhere = await reassignKaruteCustomerWithClient(
+      fakeClient(),
+      'kar-1',
+      'cust-OTHER-STORE', // real customer, but only in store-B's roster
+      { confirmed: true },
+      clamp,
+    )
+      .then(() => ({ threw: false }))
+      .catch((err: Error) => ({ threw: true, message: err.message }))
+    expect(nonexistent).toEqual({ threw: true, message: 'that customer is outside your assigned store' })
+    expect(existsElsewhere).toEqual(nonexistent)
+  })
+
+  it('pin 2: no customers.get call for an out-of-scope destination — the clamp refuses before any lookup', async () => {
+    await reassignKaruteCustomerWithClient(
+      fakeClient(),
+      'kar-1',
+      'cust-OTHER-STORE',
+      { confirmed: true },
+      { viewAll: false, allowedStoreIds: ['store-A'] },
+    ).catch(() => undefined)
+    // Neither side's customers.get fired — the clamp (roster-membership via
+    // customers.LIST, a separate mock) refused before reassignCustomerOrThrow
+    // ever ran for either id.
+    expect(customersGet).not.toHaveBeenCalled()
+  })
+
+  it('pin 4a: viewAll + a genuinely nonexistent to-id still gets the honest not_found (unaffected by the reorder)', async () => {
+    const result = await reassignKaruteCustomerWithClient(
+      fakeClient(),
+      'kar-1',
+      'cust-DOES-NOT-EXIST',
+      { confirmed: true },
+      { viewAll: true, allowedStoreIds: null },
+    )
+      .then(() => ({ threw: false }))
+      .catch((err: Error) => ({ threw: true, message: err.message }))
+    expect(result).toEqual({ threw: true, message: 'customer not found in this business' })
+  })
+})
+
+describe('pin R9-2 — source karute id: out-of-store vs nonexistent are indistinguishable', () => {
+  it('pin 3: clamped + out-of-store karute id vs clamped + nonexistent karute id → byte-identical refusal', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
+    const clamp = { viewAll: false, allowedStoreIds: ['store-A'] }
+    const outOfStore = await reassignKaruteCustomerWithClient(fakeClient(), 'kar-1', 'cust-TO', { confirmed: true }, clamp)
+      .then(() => ({ threw: false }))
+      .catch((err: Error) => ({ threw: true, message: err.message }))
+    const nonexistent = await reassignKaruteCustomerWithClient(
+      fakeClient(),
+      'kar-DOES-NOT-EXIST',
+      'cust-TO',
+      { confirmed: true },
+      clamp,
+    )
+      .then(() => ({ threw: false }))
+      .catch((err: Error) => ({ threw: true, message: err.message }))
+    expect(outOfStore).toEqual({ threw: true, message: 'karute not found in this business' })
+    expect(nonexistent).toEqual(outOfStore)
+  })
+
+  it('pin 4b: viewAll + a genuinely nonexistent karute id still gets the honest not_found', async () => {
+    const result = await reassignKaruteCustomerWithClient(
+      fakeClient(),
+      'kar-DOES-NOT-EXIST',
+      'cust-TO',
+      { confirmed: true },
+      { viewAll: true, allowedStoreIds: null },
+    )
+      .then(() => ({ threw: false }))
+      .catch((err: Error) => ({ threw: true, message: err.message }))
+    expect(result).toEqual({ threw: true, message: 'karute not found in this business' })
   })
 })
 
