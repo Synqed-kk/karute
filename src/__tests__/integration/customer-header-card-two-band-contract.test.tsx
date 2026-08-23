@@ -1,10 +1,11 @@
 /** @jest-environment jsdom */
-// 案D two-band contract (2026-09-03, PACKET-CARD-D): CustomerHeaderCard
-// renders exactly two bands — identity (band 1) and labeled session facts
-// (band 2). Band 2 is column-collapsing: each fact renders ONLY when its
-// value exists, in a fixed ruled order, and the whole band disappears when
-// nothing has a value (no dash, no orphan label — see CustomerHeaderCard.tsx
-// / mocks/mock-header-d.html).
+// ⚖ 2026-09-03 (PACKET-CARD-CLONE, v2 adjudicated): CustomerHeaderCard is
+// now an exact structural clone of the customer page's real header
+// (CustomerIdentityCard.tsx, e1a3f326) — flat chrome (bg-card + border-b
+// only), one flex row (avatar + body + trailing action slot), per-item
+// collapse-when-null throughout. The old two-band (identity row + labeled
+// facts row) shape this file used to pin is gone; filename kept to avoid
+// an unrequested rename (the packet never asked for one).
 import { render, screen } from '@testing-library/react'
 
 const useLocaleMock = jest.fn(() => 'ja')
@@ -45,46 +46,22 @@ const FULL_PROPS = {
   customerHref: '/customers/c1',
 }
 
-describe('CustomerHeaderCard — two-band contract (案D)', () => {
-  it('full props: section has exactly two children — identity row + facts row', () => {
+describe('CustomerHeaderCard — 顧客ページ clone contract (案D確定)', () => {
+  // ---- B-2 flat chrome pin ----------------------------------------------
+  it('section is FLAT: bg-card + border-b only, never rounded/shadow/a full border box', () => {
     const { container } = render(<CustomerHeaderCard {...FULL_PROPS} />)
-    expect(container.querySelector('section')?.children).toHaveLength(2)
+    const section = container.querySelector('section')!
+    expect(section.className).toMatch(/(^|\s)bg-card(\s|$)/)
+    expect(section.className).toMatch(/(^|\s)border-b(\s|$)/)
+    expect(section.className).not.toMatch(/rounded-/)
+    expect(section.className).not.toMatch(/shadow-/)
+    // "border " (a full-box border utility) — border-b / border-black-5 etc.
+    // never match this because the token right after "border" isn't a
+    // space or string end.
+    expect(section.className).not.toMatch(/(^|\s)border(\s|$)/)
   })
 
-  it('facts render label+value pairs in the ruled order, each label paired with its own value', () => {
-    const { container } = render(<CustomerHeaderCard {...FULL_PROPS} />)
-    const factsRow = container.querySelector('section')!.children[1]
-    const cols = Array.from(factsRow.children)
-    const labels = cols.map((col) => col.firstElementChild?.textContent)
-    expect(labels).toEqual([
-      'header.sessionDate',
-      'header.visitCount',
-      'header.lastVisit',
-      'header.menu',
-      'header.staff',
-      'header.phone',
-      'header.email',
-    ])
-    const values = cols.map((col) => col.children[1]?.textContent)
-    expect(values[0]).toBe('August 22, 2026')
-    expect(values[1]).toBe('4回目')
-    expect(values[2]).toContain('July 10, 2026')
-    expect(values[2]).toContain('(45日前)')
-    expect(values[3]).toBe('カット')
-    expect(values[4]).toBe('佐藤')
-    expect(values[5]).toBe('080-1111-2222')
-    expect(values[6]).toBe('x@y.jp')
-  })
-
-  it('email value is the lighter weight (500); other fact values stay semibold (600)', () => {
-    render(<CustomerHeaderCard {...FULL_PROPS} />)
-    const emailValue = screen.getByText('x@y.jp')
-    expect(emailValue.className).toMatch(/(^|\s)font-medium(\s|$)/)
-    expect(emailValue.className).not.toMatch(/(^|\s)font-semibold(\s|$)/)
-    const phoneValue = screen.getByText('080-1111-2222')
-    expect(phoneValue.className).toMatch(/(^|\s)font-semibold(\s|$)/)
-  })
-
+  // ---- chip / heading survive --------------------------------------------
   it('chip shows the karuteNumber verbatim', () => {
     render(<CustomerHeaderCard {...FULL_PROPS} />)
     expect(screen.getByText('#00042')).toBeInTheDocument()
@@ -98,91 +75,118 @@ describe('CustomerHeaderCard — two-band contract (案D)', () => {
     expect(link).toHaveAttribute('href', '/customers/c1')
   })
 
-  it('age+gender join renders the 歳・ shape in ja', () => {
-    render(<CustomerHeaderCard {...FULL_PROPS} />)
-    expect(screen.getByText('32歳・男性')).toBeInTheDocument()
-  })
-
-  it('age alone (no gender) renders bare, no dangling separator', () => {
-    render(<CustomerHeaderCard {...FULL_PROPS} gender={null} />)
-    expect(screen.getByText('32歳')).toBeInTheDocument()
-    expect(screen.queryByText(/・/)).toBeNull()
-  })
-
-  it('en locale: visitCount value is the bare count, no ordinal/visit suffix', () => {
-    useLocaleMock.mockReturnValue('en')
-    render(<CustomerHeaderCard {...FULL_PROPS} visitNumber={21} />)
-    const label = screen.getByText('header.visitCount')
-    expect(label.nextElementSibling?.textContent).toBe('21')
-  })
-
-  it('each nullable column collapses entirely when its value is null — no orphan label, no dash', () => {
-    const { container } = render(
-      <CustomerHeaderCard
-        {...FULL_PROPS}
-        service={null}
-        staffName={null}
-        phone={null}
-        email={null}
-        visitNumber={null}
-        lastVisitDate={null}
-        lastVisitAgo={null}
-      />,
-    )
-    for (const label of [
-      'header.menu',
-      'header.staff',
-      'header.phone',
-      'header.email',
-      'header.visitCount',
-      'header.lastVisit',
-    ]) {
-      expect(screen.queryByText(label)).toBeNull()
-    }
-    // Only sessionDate is left standing.
-    const factsRow = container.querySelector('section')!.children[1]
-    expect(factsRow.children).toHaveLength(1)
-    expect(container.textContent).not.toMatch(/—/)
-  })
-
-  // Fix round 1 pins (blind-verify coverage gaps V-M1/V-M2/V-M3/V-M6/V-M9 —
-  // each behavior already existed in the code; only the pin was missing).
-  it('border-t is present on the facts band when facts exist (kills V-M2)', () => {
-    const { container } = render(<CustomerHeaderCard {...FULL_PROPS} />)
-    expect(container.querySelector('.border-t')).not.toBeNull()
-  })
-
-  it('email Fact wrapper carries flex-[1_1_160px] + max-sm:flex-[1_1_100%] (kills V-M9)', () => {
-    render(<CustomerHeaderCard {...FULL_PROPS} />)
-    const emailWrapper = screen.getByText('x@y.jp').parentElement
-    expect(emailWrapper?.className).toMatch(/flex-\[1_1_160px\]/)
-    expect(emailWrapper?.className).toMatch(/max-sm:flex-\[1_1_100%\]/)
-  })
-
-  it('section carries tabular-nums (kills V-M1)', () => {
-    const { container } = render(<CustomerHeaderCard {...FULL_PROPS} />)
-    expect(container.querySelector('section')?.className).toMatch(/(^|\s)tabular-nums(\s|$)/)
-  })
-
-  it('avatar carries the three dark: variant classes (kills V-M6)', () => {
-    render(<CustomerHeaderCard {...FULL_PROPS} />)
-    const avatar = screen.getByText('CC')
-    expect(avatar.className).toMatch(/dark:border-blue-500\/25/)
-    expect(avatar.className).toMatch(/dark:bg-blue-500\/15/)
-    expect(avatar.className).toMatch(/dark:text-blue-300/)
-  })
-
   it('h2 carries min-w-0 for the truncation chain (kills V-M3)', () => {
     render(<CustomerHeaderCard {...FULL_PROPS} />)
     const heading = screen.getByRole('heading', { level: 2 })
     expect(heading.className).toMatch(/(^|\s)min-w-0(\s|$)/)
   })
 
-  it('all-null facts cell: section collapses to a single child, no stray border row', () => {
-    const { container } = render(
+  // ---- B-6 truncation: h2 itself never truncates a linked name ----------
+  it('h2 carries NO truncate class — only the linked span ellipsizes; Link/span/chevron chain intact', () => {
+    render(<CustomerHeaderCard {...FULL_PROPS} />)
+    const heading = screen.getByRole('heading', { level: 2 })
+    expect(heading.className).not.toMatch(/(^|\s)truncate(\s|$)/)
+    const link = screen.getByRole('link', { name: 'CHIANG CHIEH — header.openCustomer' })
+    expect(link.className).toMatch(/(^|\s)min-w-0(\s|$)/)
+    expect(link.className).toMatch(/max-w-full/)
+    const nameSpan = link.querySelector('span')!
+    expect(nameSpan.className).toMatch(/(^|\s)min-w-0(\s|$)/)
+    expect(nameSpan.className).toMatch(/(^|\s)truncate(\s|$)/)
+    const chevron = link.querySelector('svg')!
+    expect(chevron.getAttribute('class')).toMatch(/shrink-0/)
+  })
+
+  // ---- avatar: neutral, no accent, no dark: variants (clone fidelity) ---
+  it('avatar is neutral (bg-muted ring) — no blue, no dark: variant classes', () => {
+    render(<CustomerHeaderCard {...FULL_PROPS} />)
+    const avatar = screen.getByText('CC')
+    expect(avatar.className).toMatch(/(^|\s)bg-muted(\s|$)/)
+    expect(avatar.className).not.toMatch(/dark:/)
+    expect(avatar.className).not.toMatch(/blue/)
+  })
+
+  // ---- B-4 age/gender: real cross-namespace key, age THEN gender --------
+  it('age uses the real customers.profile.ageValue key (age THEN gender, ja separator)', () => {
+    render(<CustomerHeaderCard {...FULL_PROPS} />)
+    // Mock echoes the key verbatim (no interpolation) — this proves the
+    // RIGHT key fires, in the right order, with the branch's own ・ join.
+    expect(screen.getByText('ageValue・男性')).toBeInTheDocument()
+  })
+
+  it('age alone (no gender) renders bare via the same key, no dangling separator', () => {
+    render(<CustomerHeaderCard {...FULL_PROPS} gender={null} />)
+    expect(screen.getByText('ageValue')).toBeInTheDocument()
+    expect(screen.queryByText(/・/)).toBeNull()
+  })
+
+  it('en locale: age/gender separator switches to " · "', () => {
+    useLocaleMock.mockReturnValue('en')
+    render(<CustomerHeaderCard {...FULL_PROPS} />)
+    expect(screen.getByText('ageValue · 男性')).toBeInTheDocument()
+  })
+
+  // ---- B-4 visit count: bare item, no 来店 prefix, real suffix key ------
+  it('visit count is a bare item — no header.visitCount label, no 来店 prefix, real visitCountSuffix key', () => {
+    render(<CustomerHeaderCard {...FULL_PROPS} />)
+    expect(screen.queryByText('header.visitCount')).toBeNull()
+    expect(screen.queryByText(/来店/)).toBeNull()
+    const countEl = screen.getByText('4')
+    expect(countEl.nextElementSibling?.textContent).toBe('visitCountSuffix')
+  })
+
+  it('en locale: visit count keeps the real suffix key (not a bare-count assumption)', () => {
+    useLocaleMock.mockReturnValue('en')
+    render(<CustomerHeaderCard {...FULL_PROPS} visitNumber={21} />)
+    const countEl = screen.getByText('21')
+    expect(countEl.nextElementSibling?.textContent).toBe('visitCountSuffix')
+  })
+
+  // ---- lastVisit / sessionDate meta items --------------------------------
+  it('lastVisit renders label + value + muted ago suffix', () => {
+    render(<CustomerHeaderCard {...FULL_PROPS} />)
+    expect(screen.getByText('header.lastVisit')).toBeInTheDocument()
+    expect(screen.getByText('July 10, 2026')).toBeInTheDocument()
+    expect(screen.getByText('(45日前)')).toBeInTheDocument()
+  })
+
+  it('施術日 (sessionDate) rides the SAME meta row as age/gender/visit/lastVisit (density rule — never its own row)', () => {
+    render(<CustomerHeaderCard {...FULL_PROPS} />)
+    const sessionLabel = screen.getByText('header.sessionDate')
+    const ageEl = screen.getByText('ageValue・男性')
+    expect(sessionLabel.closest('div')).toBe(ageEl.closest('div'))
+  })
+
+  // ---- B-4/B-3 contact: real tel:/mailto: links, no `—` fallback --------
+  it('phone renders as a tel: link, email as a mailto: link (clone behavior)', () => {
+    render(<CustomerHeaderCard {...FULL_PROPS} />)
+    const phoneLink = screen.getByRole('link', { name: '080-1111-2222' })
+    expect(phoneLink).toHaveAttribute('href', 'tel:080-1111-2222')
+    const emailLink = screen.getByRole('link', { name: 'x@y.jp' })
+    expect(emailLink).toHaveAttribute('href', 'mailto:x@y.jp')
+  })
+
+  // ---- B-5 tabular-nums moved off the section, onto the phone value -----
+  it('tabular-nums lives on the phone value/tel link, not blanket on the section', () => {
+    const { container } = render(<CustomerHeaderCard {...FULL_PROPS} />)
+    const section = container.querySelector('section')!
+    expect(section.className).not.toMatch(/(^|\s)tabular-nums(\s|$)/)
+    const phoneLink = screen.getByRole('link', { name: '080-1111-2222' })
+    expect(phoneLink.className).toMatch(/(^|\s)tabular-nums(\s|$)/)
+  })
+
+  // ---- staff / service ----------------------------------------------------
+  it('担当 renders the real staffName; service rides as a plain unlabeled item', () => {
+    render(<CustomerHeaderCard {...FULL_PROPS} />)
+    expect(screen.getByText('header.staff')).toBeInTheDocument()
+    expect(screen.getByText('佐藤')).toBeInTheDocument()
+    expect(screen.getByText('カット')).toBeInTheDocument()
+  })
+
+  // ---- collapse-when-null: no orphan rows, no dashes ---------------------
+  it('each nullable item collapses entirely when its value is null — no orphan label, no dash', () => {
+    render(
       <CustomerHeaderCard
         {...FULL_PROPS}
-        sessionDateLong=""
         service={null}
         staffName={null}
         phone={null}
@@ -190,10 +194,44 @@ describe('CustomerHeaderCard — two-band contract (案D)', () => {
         visitNumber={null}
         lastVisitDate={null}
         lastVisitAgo={null}
+        age={null}
+        gender={null}
       />,
     )
+    for (const text of ['header.staff', 'header.lastVisit', 'ageValue', 'visitCountSuffix']) {
+      expect(screen.queryByText(text)).toBeNull()
+    }
+    expect(screen.queryByText(/—/)).toBeNull()
+  })
+
+  it('collapse-when-null reaches the ROW level too: absent contact/staff data renders no empty wrapper rows', () => {
+    const { container } = render(
+      <CustomerHeaderCard
+        {...FULL_PROPS}
+        service={null}
+        staffName={null}
+        phone={null}
+        email={null}
+        visitNumber={null}
+        lastVisitDate={null}
+        lastVisitAgo={null}
+        age={null}
+        gender={null}
+        sessionDateLong=""
+      />,
+    )
+    // Only the name row (avatar+body's first child) is left standing —
+    // the meta / contact / staff rows never mount at all (not just empty).
     const section = container.querySelector('section')!
-    expect(section.children).toHaveLength(1)
-    expect(container.querySelector('.border-t')).toBeNull()
+    const body = section.querySelector('h2')!.closest('div')!.parentElement!
+    expect(body.children).toHaveLength(1)
+  })
+
+  it('all-optional-data-present: no stray empty rows — body has exactly the four populated rows', () => {
+    const { container } = render(<CustomerHeaderCard {...FULL_PROPS} />)
+    const section = container.querySelector('section')!
+    const body = section.querySelector('h2')!.closest('div')!.parentElement!
+    // name row, meta row, contact row, staff row
+    expect(body.children).toHaveLength(4)
   })
 })

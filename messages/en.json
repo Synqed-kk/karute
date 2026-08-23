@@ -401,9 +401,7 @@
       "phone": "Phone",
       "email": "Email",
       "sessionDate": "Date",
-      "visitCount": "Visits",
-      "lastVisit": "Last visit",
-      "menu": "Menu"
+      "lastVisit": "Last visit"
     },
     "memory": {
       "title": "Customer Memory",

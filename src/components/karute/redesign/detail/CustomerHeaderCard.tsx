@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { useTranslations, useLocale } from 'next-intl'
-import { Edit3, ChevronRight } from 'lucide-react'
+import { Calendar, ChevronRight, Clipboard, Edit3, Heart, Mail, Phone, User } from 'lucide-react'
 import { Link } from '@/i18n/navigation'
 
 export interface CustomerHeaderProps {
@@ -33,33 +33,19 @@ export interface CustomerHeaderProps {
   actions?: ReactNode
 }
 
-// 案D (Liam ruling): two-band card — band 1 is identity, band 2 is labeled
-// session facts. Each fact column renders ONLY when its value exists; an
-// absent column disappears entirely (no dash, no orphan label) and the
-// remaining columns fill the row. Order below is the ruled order.
-const FACT_LABEL_CLS =
-  'text-[10.5px] font-semibold leading-[13px] tracking-[0.05em] text-muted-foreground/70'
-const FACT_VALUE_CLS =
-  'mt-0.5 truncate text-sm font-semibold leading-[18px] text-foreground max-sm:text-[13.5px]'
-const FACT_VALUE_LIGHT_CLS =
-  'mt-0.5 truncate text-sm font-medium leading-[18px] text-foreground max-sm:text-[13.5px]'
-
-function Fact({
-  label,
-  value,
-  className = 'min-w-0',
-  valueClassName = FACT_VALUE_CLS,
-}: {
-  label: string
-  value: ReactNode
-  className?: string
-  valueClassName?: string
-}) {
+// ⚖ 2026-09-03 (PACKET-CARD-CLONE): exact structural clone of the customer
+// page's real header — src/components/customers/redesign/profile/
+// CustomerIdentityCard.tsx (pinned e1a3f326). Three swaps only: edit pencil
+// -> the `actions` slot (⇆ reassign, same top-right position), no mic
+// button (no karute-side recording jump from this card), 登録 -> 施術日.
+// Chrome is FLAT — bg-card + one bottom hairline, no card box (matches the
+// customer page's real header, not the old bordered/rounded 案D card).
+function Meta({ icon, children }: { icon: ReactNode; children: ReactNode }) {
   return (
-    <div className={className}>
-      <div className={FACT_LABEL_CLS}>{label}</div>
-      <div className={valueClassName}>{value}</div>
-    </div>
+    <span className="inline-flex items-center gap-1">
+      <span className="text-muted-foreground/70">{icon}</span>
+      <span>{children}</span>
+    </span>
   )
 }
 
@@ -82,96 +68,135 @@ export function CustomerHeaderCard({
   actions,
 }: CustomerHeaderProps) {
   const t = useTranslations('karuteDetail')
+  // Cross-namespace reuse of the customer page's own age/visit-count keys
+  // (B-4, ⚖ sanctioned — both keys already ship live on the customer
+  // profile page, cite clone precedent).
+  const tProfile = useTranslations('customers.profile')
   const ja = useLocale() === 'ja'
 
-  const ageText = age != null ? (ja ? `${age}歳` : `${age}`) : null
+  const ageText = age != null ? tProfile('ageValue', { age }) : null
+  // Branch's own separator convention survives (B-4): full-width ・ in ja,
+  // spaced middle-dot in en.
   const ageGenderText =
     ageText && gender ? `${ageText}${ja ? '・' : ' · '}${gender}` : ageText || gender || null
+  const hasVisitCount = visitNumber != null && visitNumber > 0
 
-  const facts: ReactNode[] = []
-  if (sessionDateLong) {
-    facts.push(<Fact key="sessionDate" label={t('header.sessionDate')} value={sessionDateLong} />)
-  }
-  if (visitNumber != null && visitNumber > 0) {
-    facts.push(
-      <Fact
-        key="visitCount"
-        label={t('header.visitCount')}
-        value={ja ? `${visitNumber}回目` : visitNumber}
-      />,
-    )
-  }
-  if (lastVisitDate) {
-    facts.push(
-      <Fact
-        key="lastVisit"
-        label={t('header.lastVisit')}
-        value={
-          <>
-            {lastVisitDate}
-            {lastVisitAgo && (
-              <span className="font-medium text-muted-foreground"> {lastVisitAgo}</span>
-            )}
-          </>
-        }
-      />,
-    )
-  }
-  if (service) {
-    facts.push(<Fact key="menu" label={t('header.menu')} value={service} />)
-  }
-  if (staffName) {
-    facts.push(<Fact key="staff" label={t('header.staff')} value={staffName} />)
-  }
-  if (phone) {
-    facts.push(<Fact key="phone" label={t('header.phone')} value={phone} />)
-  }
-  if (email) {
-    facts.push(
-      <Fact
-        key="email"
-        label={t('header.email')}
-        value={email}
-        className="min-w-0 flex-[1_1_160px] max-sm:flex-[1_1_100%]"
-        valueClassName={FACT_VALUE_LIGHT_CLS}
-      />,
-    )
-  }
+  const hasMetaRow = Boolean(ageGenderText || hasVisitCount || lastVisitDate || sessionDateLong)
+  const hasContactRow = Boolean(phone || email)
+  const hasStaffRow = Boolean(staffName || service)
 
   return (
-    <section className="flex flex-col gap-1.5 rounded-[14px] border border-border bg-card px-4 py-1.5 shadow-sm tabular-nums">
-      <div className="flex min-h-[44px] items-center gap-2">
-        <div className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-blue-200 bg-blue-100 text-[15px] font-bold text-blue-700 dark:border-blue-500/25 dark:bg-blue-500/15 dark:text-blue-300">
+    <section className="relative border-b border-black/5 bg-card px-4 pb-4 pt-4 dark:border-white/5 md:px-6 md:pb-5 md:pt-6">
+      <div className="flex items-start gap-3 md:gap-4">
+        {/* Avatar — size-11 mobile / size-14 desktop, clone's bg-muted ring
+            (no blue, no dark: variants — the clone avatar is neutral). */}
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted text-[15px] font-semibold text-foreground ring-1 ring-black/5 md:h-14 md:w-14 md:text-lg">
           {initials}
         </div>
-        {/* Always an <h2> so the heading survives in both branches (a11y);
-            the Link sits INSIDE it when a customer profile exists. */}
-        <h2 className="min-w-0 text-base font-semibold text-foreground max-sm:text-[15.5px]">
-          {customerHref ? (
-            <Link
-              href={customerHref as Parameters<typeof Link>[0]['href']}
-              className="group inline-flex min-w-0 max-w-full items-center gap-1 transition-colors hover:text-sky-600"
-              aria-label={`${customerName} — ${t('header.openCustomer')}`}
-              title={t('header.openCustomer')}
-            >
-              <span className="min-w-0 truncate">{customerName}</span>
-              <ChevronRight
-                size={14}
-                className="shrink-0 text-muted-foreground transition-[transform,color] group-hover:translate-x-0.5 group-hover:text-sky-600"
-              />
-            </Link>
-          ) : (
-            <span className="block truncate">{customerName}</span>
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          {/* Always an <h2> so the heading survives in both branches (a11y);
+              the Link sits INSIDE it when a customer profile exists. */}
+          <div className="flex flex-wrap items-baseline gap-1.5">
+            <h2 className="min-w-0 text-[22px] font-semibold leading-tight tracking-tight text-foreground md:text-2xl">
+              {customerHref ? (
+                <Link
+                  href={customerHref as Parameters<typeof Link>[0]['href']}
+                  className="group inline-flex min-w-0 max-w-full items-center gap-1 transition-colors hover:text-sky-600"
+                  aria-label={`${customerName} — ${t('header.openCustomer')}`}
+                  title={t('header.openCustomer')}
+                >
+                  <span className="min-w-0 truncate">{customerName}</span>
+                  <ChevronRight
+                    size={14}
+                    className="shrink-0 text-muted-foreground transition-[transform,color] group-hover:translate-x-0.5 group-hover:text-sky-600"
+                  />
+                </Link>
+              ) : (
+                <span className="block truncate">{customerName}</span>
+              )}
+            </h2>
+            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{karuteNumber}</span>
+          </div>
+
+          {/* Meta — age/gender + visit count + last visit + 施術日 (the
+              clone's 登録 slot, repurposed). One flex-wrap row, density
+              rule: everything that fits shares the row. */}
+          {hasMetaRow && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              {ageGenderText && (
+                <Meta icon={<User size={12} />}>
+                  <span className="tabular-nums">{ageGenderText}</span>
+                </Meta>
+              )}
+              {hasVisitCount && (
+                <Meta icon={<Clipboard size={12} />}>
+                  <span className="tabular-nums">{visitNumber}</span>
+                  <span>{tProfile('visitCountSuffix')}</span>
+                </Meta>
+              )}
+              {lastVisitDate && (
+                <Meta icon={<Heart size={12} />}>
+                  <span className="text-muted-foreground/70">{t('header.lastVisit')}</span>{' '}
+                  <span className="tabular-nums">{lastVisitDate}</span>
+                  {lastVisitAgo && <span className="text-muted-foreground/70"> {lastVisitAgo}</span>}
+                </Meta>
+              )}
+              {sessionDateLong && (
+                <Meta icon={<Calendar size={12} />}>
+                  {t('header.sessionDate')} <span className="tabular-nums">{sessionDateLong}</span>
+                </Meta>
+              )}
+            </div>
           )}
-        </h2>
-        <span className="flex-none rounded-[5px] border border-border bg-muted px-1.5 py-px font-mono text-[11px] font-semibold tracking-[0.02em] text-muted-foreground">
-          {karuteNumber}
-        </span>
-        {ageGenderText && (
-          <span className="flex-none text-[12.5px] text-muted-foreground">{ageGenderText}</span>
-        )}
+
+          {/* Contact — phone + email, tel:/mailto: links (clone behavior:
+              both render as links when a value exists; B-3 carve-out drops
+              the clone's `—` fallback — an absent value collapses, no
+              orphan). */}
+          {hasContactRow && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              {phone && (
+                <Meta icon={<Phone size={12} />}>
+                  <a
+                    href={`tel:${phone}`}
+                    className="tabular-nums text-blue-600 underline decoration-blue-600/40 underline-offset-2 transition-transform active:scale-95 dark:text-blue-400"
+                  >
+                    {phone}
+                  </a>
+                </Meta>
+              )}
+              {email && (
+                <Meta icon={<Mail size={12} />}>
+                  <a
+                    href={`mailto:${email}`}
+                    className="text-blue-600 underline decoration-blue-600/40 underline-offset-2 dark:text-blue-400"
+                  >
+                    {email}
+                  </a>
+                </Meta>
+              )}
+            </div>
+          )}
+
+          {/* 担当 (staff line, clone's text-[11px] treatment) + メニュー —
+              service is production-dead (prop frozen); render support kept
+              as a plain unlabeled item per B-7. */}
+          {hasStaffRow && (
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+              {staffName && (
+                <span>
+                  {t('header.staff')} <span className="text-foreground">{staffName}</span>
+                </span>
+              )}
+              {service && <span>{service}</span>}
+            </div>
+          )}
+        </div>
+
+        {/* Top-right action slot — the clone's pencil position. onEdit stays
+            in the tail group when passed (frozen prop). */}
         {(onEdit || actions) && (
-          <div className="ml-auto flex flex-none items-center gap-1.5">
+          <div className="ml-auto flex flex-none items-center gap-1.5 self-start">
             {onEdit && (
               <button
                 type="button"
@@ -186,11 +211,6 @@ export function CustomerHeaderCard({
           </div>
         )}
       </div>
-      {facts.length > 0 && (
-        <div className="-mx-4 flex flex-wrap gap-x-[22px] gap-y-1.5 border-t border-border px-4 pt-1.5 max-sm:gap-x-4">
-          {facts}
-        </div>
-      )}
     </section>
   )
 }

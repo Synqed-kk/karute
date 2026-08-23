@@ -401,9 +401,7 @@
       "phone": "電話",
       "email": "メール",
       "sessionDate": "施術日",
-      "visitCount": "来店回数",
-      "lastVisit": "前回",
-      "menu": "メニュー"
+      "lastVisit": "前回"
     },
     "memory": {
       "title": "顧客メモリ",
