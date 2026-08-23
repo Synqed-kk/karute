@@ -58,10 +58,19 @@ export async function proxy(request: NextRequest) {
     // login; this used to throw the destination away and the login page had
     // nothing to honour, so a Business link put the operator on the Karute
     // dashboard. The intended path rides along and the login honours it once.
-    const next = `${request.nextUrl.pathname}${request.nextUrl.search}`
+    // `_rsc` is Next's internal cache-buster on client navigations, not part of
+    // where the operator was going — it must never ride into the destination.
+    const carried = new URLSearchParams(request.nextUrl.search)
+    carried.delete('_rsc')
+    const qs = carried.toString()
+    const next = `${request.nextUrl.pathname}${qs ? `?${qs}` : ''}`
     url.pathname = `/${locale}/login`
     url.search = ''
-    if (safeNext(next)) url.searchParams.set('next', next)
+    // Write what the GATE returns, never the raw value. They are identical
+    // today — the gate refuses and never repairs — but the moment it ever
+    // normalises, the carried value must be the normalised one.
+    const gated = safeNext(next)
+    if (gated) url.searchParams.set('next', gated)
     return NextResponse.redirect(url)
   }
 
