@@ -39,7 +39,11 @@ jest.mock('@/components/customers/redesign/list/CustomersListHeader', () => ({
   CustomersListHeader: () => <div data-testid="header" />,
 }))
 jest.mock('@/components/customers/redesign/list/CustomerSearchInput', () => ({
-  CustomerSearchInput: () => <div data-testid="search" />,
+  // Renders initialQuery (not swallowed like the other stubs) so the
+  // ?query= passthrough test below can assert the view actually received it.
+  CustomerSearchInput: ({ initialQuery }: { initialQuery: string }) => (
+    <div data-testid="search">{initialQuery}</div>
+  ),
 }))
 jest.mock('@/components/customers/redesign/list/CustomerRowDesktop', () => ({
   CustomerRowDesktop: () => <div data-testid="row-desktop" />,
@@ -107,6 +111,11 @@ function jsonResponse(body: unknown): Response {
 
 describe('CustomersScreen — wired mount (packet 26)', () => {
   beforeEach(() => dtoCache.clear())
+  // Bug fix (2026-08-25): reset the URL between tests so the ?query=
+  // passthrough test below doesn't leak location.search into its siblings.
+  afterEach(() => {
+    window.history.pushState({}, '', '/')
+  })
 
   it('threads dto.burnByCustomer through CustomersListView to the 今月消化 strip stat', async () => {
     const apiFetch = jest.fn(async (path: string) => {
@@ -134,5 +143,38 @@ describe('CustomersScreen — wired mount (packet 26)', () => {
     // so this isn't just catching the loading state.
     await screen.findByTestId('header')
     expect(screen.queryByText('今月消化')).not.toBeInTheDocument()
+  })
+
+  // Bug fix (2026-08-25): the URL's ?query= must pass through to the fetch
+  // path — see the packet's root-cause note. AppointmentsScreen's L112-122
+  // date/view/staff passthrough is the pattern this mirrors.
+  it('wires the URL ?query= param through to the fetch path and the view prop', async () => {
+    window.history.pushState({}, '', '/customers?query=%E3%83%AA%E3%82%A8%E3%83%A0')
+    const expectedPath =
+      '/api/app/v1/screens/customers?query=%E3%83%AA%E3%82%A8%E3%83%A0&locale=ja'
+    const apiFetch = jest.fn(async (path: string) => {
+      if (path === expectedPath) return jsonResponse(dto)
+      throw new Error(`unexpected apiFetch(${path})`)
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<CustomersScreen />)
+
+    await screen.findByTestId('header')
+    expect(apiFetch).toHaveBeenCalledWith(expectedPath)
+    expect(screen.getByTestId('search')).toHaveTextContent('リエム')
+  })
+
+  it('omits query= from the fetch path when the URL has no search term', async () => {
+    const apiFetch = jest.fn(async (path: string) => {
+      if (path === '/api/app/v1/screens/customers?locale=ja') return jsonResponse(dto)
+      throw new Error(`unexpected apiFetch(${path})`)
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<CustomersScreen />)
+
+    await screen.findByTestId('header')
+    expect(apiFetch).toHaveBeenCalledWith('/api/app/v1/screens/customers?locale=ja')
   })
 })

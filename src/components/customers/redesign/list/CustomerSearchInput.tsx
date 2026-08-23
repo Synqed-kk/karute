@@ -32,6 +32,7 @@ export function CustomerSearchInput({ initialQuery }: CustomerSearchInputProps) 
       <input
         type="text"
         value={value}
+        maxLength={200}
         onChange={(e) => {
           setValue(e.target.value)
           apply(e.target.value)
