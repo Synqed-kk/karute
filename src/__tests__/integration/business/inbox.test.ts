@@ -592,7 +592,15 @@ describe('reading and triage are buildable; sending is a write', () => {
     expect(SRC).toContain('aria-label={`${current.primaryLabel} — ${current.primaryRefusal}`}')
     expect(SRC).toContain('aria-label={`${current.resolveLabel} — ${current.resolveRefusal}`}')
     expect(SRC).toContain('aria-label={`最新状態を確認 — ${props.refreshRefusal}`}')
-    expect(SRC).not.toMatch(/<button[^>]*\sdisabled\b/)
+    // NO REFUSED CONTROL IS `disabled` — the rule is about refusals, which have
+    // a reason a keyboard has to be able to reach. Pinned as an exact census
+    // rather than an absence, because there IS exactly one hard `disabled` in
+    // this room now (⚖ Liam 8/23) and it is the tour card's 前へ on the first
+    // step: not an action being refused, just the first item of a list with
+    // nothing before it, and no reason to announce because there is none. A
+    // hard `disabled` appearing on any refusal fails this line.
+    expect(SRC.match(/(?<!aria-)\bdisabled=/g) ?? []).toHaveLength(1)
+    expect(SRC).toContain('className="ib-spot-prev" disabled={tourStep?.idx === 0}')
   })
 
   it('⚖ F4 — ALL FOUR refused controls carry their reason in the accessible name, not title alone', () => {
@@ -619,13 +627,16 @@ describe('reading and triage are buildable; sending is a write', () => {
   })
 
   it('a refusal changes NOTHING — the room holds no state a refusal could touch', () => {
-    // FOUR useState calls and no more: the filter, the open thread, the ≤743
-    // list-or-thread view flag and the ? disclosure. None is written by any
-    // action, and there is no setter for a sent reply or a completed thread
-    // because there is nothing to send or complete. The three refs beside them
-    // hold no state either — they are a DOM handle and two bookkeeping values
-    // for moving focus, and none of them is ever rendered.
-    expect(SRC.match(/useState/g) ?? []).toHaveLength(5) // 1 import + 4 calls
+    // EIGHT useState calls and no more, in two groups. BROWSING: the filter, the
+    // open thread, the ≤743 list-or-thread view flag. THE TOUR (⚖ Liam 8/23):
+    // the step it is on, a tick that forces a re-measure when the page moves
+    // under the spotlight, and the three MEASURED values it paints from — the
+    // step's copy, the hole's placement, the hovered region. Every one of them
+    // is a view value: none is written by any action, and there is no setter for
+    // a sent reply or a completed thread because there is nothing to send or
+    // complete. The refs beside them hold no state either — DOM handles and two
+    // bookkeeping values for moving focus, none of them ever rendered.
+    expect(SRC.match(/useState/g) ?? []).toHaveLength(9) // 1 import + 8 calls
     expect(SRC).not.toMatch(/setSent|setResolved|setThreads/)
     expect(SRC).not.toMatch(/onClick=\{\(\) => set(Sent|Resolved)/)
   })
@@ -1288,51 +1299,58 @@ describe('the shell knows this room is live', () => {
     expect(bogus.threads.map((t) => t.id)).toEqual(ginza.threads.map((t) => t.id))
   })
 
-  it('the two standing explainer paragraphs move into the ? disclosure, word for word', async () => {
+  it('the two standing explainer paragraphs live on as the tour’s first step', async () => {
     const props = await room({ store: STORE_A })
     expect(props.subtitle).toBe(
       '予約変更、来店なし、空き待ち、配信失敗を、期限と連絡許可の事実から処理します。',
     )
-    // Canon's head note AND the 対応状況 strip's own sentence — both removed
-    // from the page, both carried whole into the disclosure, ONE ENTRY EACH so
-    // the block prints them as the two paragraphs they were. Nothing the room
-    // used to say is gone; it is only no longer re-read every morning.
-    expect(props.helpText).toEqual([
-      'メッセージの数ではなく、店舗が次に行う対応を並べています。顧客カルテの施術内容はここには表示しません。',
-      '期限、予約への影響、同意済み連絡先、配信証跡を確認してから送信します。',
-    ])
-    // …and neither sentence is still printed as page furniture.
-    expect(SRC_CODE).not.toContain('メッセージの数ではなく')
-    expect(SRC_CODE).not.toContain('期限、予約への影響')
+    // ⚖ Liam 8/23 — canon's head note AND the 対応状況 strip's own sentence were
+    // removed from the page, then carried behind the ? as a disclosure; both
+    // now open the tour's FIRST STEP instead, declared on the page head. The
+    // facts they carried — this queue is 対応, not messages; カルテ content is
+    // not shown here; four things are checked before anything is sent — are all
+    // in that one declaration, and the room states them exactly once, which is
+    // why `helpText` is gone from the props rather than left as a second home.
+    expect(props).not.toHaveProperty('helpText')
+    expect(PROPS_CODE).not.toContain('helpText')
+    const head = SRC_CODE.slice(SRC_CODE.indexOf('className="ib-head"'))
+    const intro = head.slice(0, head.indexOf('</header>'))
+    expect(intro).toContain('data-guide-title="受信トレイ"')
+    for (const fact of [
+      'メッセージの数ではなく、店舗が次に行う対応を並べる画面です',
+      '顧客カルテの施術内容はここには表示しません',
+      '期限、予約への影響、同意済みの連絡先、配信の証跡を確認してから送信します',
+    ]) {
+      expect(intro).toContain(fact)
+    }
+    // …and none of it is printed as page furniture — the head still renders an
+    // eyebrow, a title, the ? and a subtitle, and nothing else.
     expect(SRC_CODE).not.toContain('ib-note')
     expect(CSS_CODE).not.toContain('ib-note')
+    expect(SRC_CODE).not.toContain('ib-help-block')
+    expect(CSS_CODE).not.toContain('ib-help-block')
     expect(CSS).toMatch(/\.ib-help \{[^}]*border: 1px solid/)
     expect(CSS).not.toMatch(/\.ib-help \{[^}]*background: var\(--indigo\)/)
   })
 
-  it('⚖ F3 — the ? is a DISCLOSURE, not a hover-only tooltip', () => {
-    // It used to carry its whole text in `title` + `aria-label` and DO nothing:
-    // a lever only a sighted mouse user could pull, at a 21px target. Pressing
-    // it now opens the paragraphs on the page.
-    expect(SRC_CODE).toContain('aria-expanded={helpOpen}')
-    expect(SRC_CODE).toContain('aria-controls="ibHelp"')
-    expect(SRC_CODE).toContain('onClick={() => setHelpOpen((open) => !open)}')
-    expect(SRC_CODE).toContain('id="ibHelp"')
-    expect(SRC_CODE).toContain('className="ib-help-block"')
-    // The block RENDERS the paragraphs — a disclosure that opens nothing is the
-    // dead lever it replaced.
-    expect(SRC_CODE).toContain('{props.helpText.map((paragraph) => (')
-    expect(SRC_CODE).toMatch(/\{helpOpen && \(/)
-    // The button's accessible name is now the SHORT one: the copy is on the
-    // page, and announcing two paragraphs as a button's name would be worse
-    // than the tooltip was.
-    expect(SRC_CODE).toContain('aria-label="このページの使い方"')
-    expect(SRC_CODE).not.toContain('title={props.helpText}')
-    // Second press closes it, and so does Escape while it is open.
-    expect(SRC_CODE).toContain('if (helpOpen) setHelpOpen(false)')
-    // No dialog (D-2) — it is a paragraph, not a decision.
+  it('⚖ Liam 8/23 — the ? OPENS THE GUIDED TOUR, and is still a real target', () => {
+    // It began as a hover-only tooltip (a lever only a sighted mouse user could
+    // pull), became a two-paragraph disclosure, and is now the trigger for the
+    // 今日の運営-style walk of the whole screen. The walk itself is pinned in
+    // inbox-screen-interactions.test.ts; what is pinned here is the trigger.
+    expect(SRC_CODE).toContain('onClick={() => setTourIdx(0)}')
+    expect(SRC_CODE).toContain('aria-haspopup="dialog"')
+    expect(SRC_CODE).toContain('aria-expanded={tourOpen}')
+    expect(SRC_CODE).toContain('aria-controls="ibTour"')
+    expect(SRC_CODE).toContain('id="ibTour"')
+    expect(SRC_CODE).toContain('aria-label="画面の説明"')
+    // The disclosure is GONE, state and all — no second way to read the same
+    // copy, and no dead branch left behind.
+    expect(SRC_CODE).not.toContain('helpOpen')
+    expect(SRC_CODE).not.toContain('ibHelp"')
+    // No <dialog> element (D-2) — the card is a positioned div with a role, so
+    // it cannot take the top layer away from the page it is explaining.
     expect(SRC_CODE).not.toContain('<dialog')
-    expect(CSS).toMatch(/\.ib-help-block \{[^}]*border: 1px solid/)
     // ≥44px on a thumb WITHOUT growing the 21px mark: the hit box is extended
     // past the paint in the phone band.
     const phone = CSS.slice(CSS.indexOf('@media (max-width: 743px)'))
@@ -1564,8 +1582,14 @@ describe('⚖ ALL-SCREEN ADAPTIVITY — the ladder the page owns', () => {
     // The screen's own half: a row tap opens the thread, ← and Escape close it.
     expect(SRC_CODE).toContain('setDetailOpen(true)')
     expect(SRC_CODE).toContain('← 一覧へ戻る')
-    expect(SRC_CODE).toContain("if (e.key !== 'Escape') return")
-    expect(SRC_CODE).toContain('else setDetailOpen(false)')
+    // ONE listener for both things that can be open, innermost first: while the
+    // tour is up it owns Escape, and only once it is closed does Escape reach
+    // the detail view (⚖ Liam 8/23). Two listeners would close both at once.
+    expect(SRC_CODE).toContain('if (!detailOpen && !tourOpen) return')
+    expect(SRC_CODE).toContain("if (e.key === 'Escape') setDetailOpen(false)")
+    expect(SRC_CODE.indexOf("if (e.key === 'Escape') setTourIdx(-1)")).toBeLessThan(
+      SRC_CODE.indexOf("if (e.key === 'Escape') setDetailOpen(false)"),
+    )
     expect(SRC_CODE).toContain("document.addEventListener('keydown', onKey)")
     expect(SRC_CODE).toContain("document.removeEventListener('keydown', onKey)")
     // Narrowing the list is also a way back to it.
@@ -1622,9 +1646,15 @@ describe('⚖ ALL-SCREEN ADAPTIVITY — the ladder the page owns', () => {
     )
   })
 
-  it('the one motion in the room is guarded', () => {
-    expect((CSS_CODE.match(/transition/g) ?? [])).toHaveLength(2)
-    expect(CSS).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.ib-row \{ transition: none; \}/)
+  it('both motions in the room are guarded', () => {
+    // TWO transitions, each with its own reduced-motion removal: the queue row's
+    // hover/selection fade, and the spotlight sliding from one section to the
+    // next (⚖ Liam 8/23). Four occurrences, and a new one that arrives without
+    // its guard makes this count odd — which is the point of counting.
+    expect((CSS_CODE.match(/transition/g) ?? [])).toHaveLength(4)
+    const quiet = CSS.slice(CSS.indexOf('@media (prefers-reduced-motion: reduce)'))
+    expect(quiet).toContain('.ib-row { transition: none; }')
+    expect(quiet).toContain('.ib-spot-hole { transition: none; }')
     expect(CSS_CODE).not.toMatch(/animation|@keyframes/)
   })
 })

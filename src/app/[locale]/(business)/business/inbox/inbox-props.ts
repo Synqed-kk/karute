@@ -150,14 +150,13 @@ export async function inboxProps({ locale, store, world }: InboxPropsInput): Pro
     summary: summarize(models),
     // Canon's own subtitle, unchanged.
     subtitle: '予約変更、来店なし、空き待ち、配信失敗を、期限と連絡許可の事実から処理します。',
-    // The two standing explainer paragraphs — canon's head note and the 対応
-    // 状況 strip's own sentence — word for word, now behind the ? disclosure
-    // instead of printed above the numbers every morning. One entry per
-    // paragraph, because the disclosure prints them as two.
-    helpText: [
-      'メッセージの数ではなく、店舗が次に行う対応を並べています。顧客カルテの施術内容はここには表示しません。',
-      '期限、予約への影響、同意済み連絡先、配信証跡を確認してから送信します。',
-    ],
+    // ⚖ Liam 8/23 — `helpText` IS GONE, and deliberately so. The two standing
+    // explainer paragraphs used to be printed above the numbers every morning,
+    // then moved behind the ? as a disclosure; both facts they carried (what
+    // this queue is, and what is checked before anything is sent) are now the
+    // FIRST STEP of the room's guided tour, declared on the page head in
+    // InboxScreen.tsx. Leaving the prop behind would be a second home for one
+    // piece of copy, so the room states it once, where the tour reads it.
     // ONE line where the room used to carry two refusal paragraphs. The
     // per-control reasons above are unchanged; this is the standing sentence.
     actionFootnote: '見本データのため送信・記録はできません — 実データ接続後に有効になります。',

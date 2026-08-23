@@ -77,15 +77,18 @@
 /* ── page head ────────────────────────────────────────────────────────────── */
 /* The standing page-description paragraph and the strip's explainer sentence
    were REMOVED from the page: they were permanent furniture every reader
-   re-read every morning to learn nothing new. Both now live behind the ?
-   affordance, so the top of the page is a title, a subtitle and the numbers —
-   nothing to re-read. The head is one block, not a two-column flex. */
+   re-read every morning to learn nothing new. Both facts are now the FIRST STEP
+   of the ? tour (⚖ Liam 8/23), declared on the head itself, so the top of the
+   page is a title, a subtitle and the numbers — nothing to re-read, and nothing
+   that opens a block of text in place. The head is one block, not a two-column
+   flex. */
 .biz .pg-inbox .ib-head { margin-bottom: 12px; }
 .biz .pg-inbox .ib-eyebrow { margin-bottom: 4px; color: var(--ink-3); font-size: 13px; font-weight: 700; }
 .biz .pg-inbox .ib-titleline { display: flex; align-items: center; gap: 9px; }
 .biz .pg-inbox .ib-subtitle { margin: 5px 0 0; color: var(--muted); font-size: 14px; line-height: 1.55; }
 /* A hairline circle, never a filled one — ⚖ R13, and a help mark that shouts is
-   worse than the paragraph it replaced. */
+   worse than the paragraph it replaced. `[aria-expanded="true"]` now means the
+   GUIDED TOUR is running, which is why the mark stays lit for the whole walk. */
 .biz .pg-inbox .ib-help {
   flex: 0 0 auto; width: 21px; height: 21px; display: grid; place-items: center;
   border: 1px solid #c9c9d2; border-radius: 50%; background: #fff;
@@ -93,16 +96,6 @@
 }
 .biz .pg-inbox .ib-help:hover { border-color: var(--indigo); color: var(--indigo); background: var(--indigo-soft); }
 .biz .pg-inbox .ib-help[aria-expanded="true"] { border-color: var(--indigo); color: var(--indigo); background: var(--indigo-soft); }
-/* The disclosure's own block. A hover tooltip is a lever only a sighted mouse
-   user can pull, so the two removed paragraphs open ON THE PAGE instead —
-   quiet, in the 証跡 tier's own paper, never a dialog (D-2). */
-.biz .pg-inbox .ib-help-block {
-  max-width: 78ch; margin: 9px 0 0; padding: 11px 13px;
-  border: 1px solid var(--line); border-radius: 9px; background: var(--proof);
-  color: var(--ink-3); font-size: 13px; line-height: 1.6;
-}
-.biz .pg-inbox .ib-help-block p { margin: 0; }
-.biz .pg-inbox .ib-help-block p + p { margin-top: 6px; }
 
 /* ── 対応状況 strip — the numbers ARE the filters ─────────────────────────── */
 /* Every counter is a real pressable that switches the filter below it. A number
@@ -342,6 +335,59 @@
 .biz .pg-inbox .ib-history-row > span > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .biz .pg-inbox .ib-none { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 
+/* ═══ ⚖ Liam 8/23 — 画面の説明 (the guided tour) ═══════════════════════════
+   A SPOTLIGHT, NOT A MODAL: the hole is one big box-shadow, so the section
+   being explained stays fully lit and the rest of the page dims behind it
+   without a single element being moved or re-rendered. `.ib-spot-catch` is the
+   click surface that makes every declared region jumpable, and it sits UNDER
+   the hole and the card so neither is swallowed by it.
+
+   Every name is `ib-`-prefixed like the rest of this room: 今日の運営 states
+   BARE `.biz .spot-*` rules on all five of these names, and App Router leaves
+   its sheet in the document after a soft-nav — so a shared name here would be
+   two rooms' overlays fighting over one paint (the ⚖ sibling-sheet fence, the
+   room-2 blocker class). Nothing else in the family renders an `ib-spot-*`
+   node, so there is nothing here to collide with.
+
+   NO SCROLLER, NO HEIGHT CAP, NO `overscroll-behavior` (⚖ page-scroll): the
+   overlay is four fixed-position layers over a page that still scrolls itself,
+   which is how the walk reaches a step below the fold. Colours are 今日の運営's
+   own — a neutral scrim (a non-interactive surface, R13's allowlist) and white
+   controls with hairline borders; no black fill on anything pressable. */
+.biz .pg-inbox .ib-spot-hole {
+  position: fixed;
+  z-index: 70;
+  pointer-events: none;
+  border-radius: 12px;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 9999px rgba(24, 24, 27, .42);
+  transition: top .24s cubic-bezier(.2, .7, .1, 1), left .24s cubic-bezier(.2, .7, .1, 1), width .24s cubic-bezier(.2, .7, .1, 1), height .24s cubic-bezier(.2, .7, .1, 1);
+}
+.biz .pg-inbox .ib-spot-catch { position: fixed; inset: 0; z-index: 69; cursor: pointer; }
+.biz .pg-inbox .ib-spot-hover { position: fixed; z-index: 70; pointer-events: none; border: 2px dashed rgba(255, 255, 255, .9); border-radius: 12px; }
+.biz .pg-inbox .ib-spot-card {
+  position: fixed;
+  z-index: 72;
+  width: 300px;
+  max-width: calc(100vw - 20px);
+  padding: 12px 14px 10px;
+  border: 1.5px solid var(--control);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 40px rgba(24, 24, 27, .3);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+.biz .pg-inbox .ib-spot-card b { display: block; margin-bottom: 2px; font-size: 13.5px; color: var(--ink); }
+.biz .pg-inbox .ib-spot-text { display: block; }
+.biz .pg-inbox .ib-spot-hint { margin-top: 6px; color: var(--quiet); font-size: 11px; }
+.biz .pg-inbox .ib-spot-foot { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--section); }
+.biz .pg-inbox .ib-spot-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.biz .pg-inbox .ib-spot-foot button { min-height: 30px; padding: 0 11px; border: 1px solid var(--control); border-radius: 7px; background: #fff; color: var(--ink-2); font-size: 12px; font-weight: 600; cursor: pointer; }
+.biz .pg-inbox .ib-spot-foot button:hover { background: #f4f4f5; }
+.biz .pg-inbox .ib-spot-foot button:disabled { opacity: .4; cursor: default; }
+.biz .pg-inbox .ib-spot-foot .ib-spot-done { margin-left: auto; }
+
 /* ⚖ ALL-SCREEN ADAPTIVITY (Liam 8/23) — the ladder, band by band. Only the
    PAGE's own rules live here; the shell's own bands (`.biz .app`'s 1180px
    floor, the rail, the topbar) are the family CSS sweep's, not this room's, and
@@ -497,8 +543,10 @@
   .biz .pg-inbox .ib-zero-card { margin: 28px auto 24px; padding: 36px 20px 38px; }
 }
 
-/* The one motion in the room, and it is the row's own hover/selection fade —
-   removed outright for a reader who asked for less. */
+/* The two motions in the room — the row's own hover/selection fade and the
+   spotlight sliding from one section to the next — both removed outright for a
+   reader who asked for less. The tour still walks; the hole simply arrives. */
 @media (prefers-reduced-motion: reduce) {
   .biz .pg-inbox .ib-row { transition: none; }
+  .biz .pg-inbox .ib-spot-hole { transition: none; }
 }
