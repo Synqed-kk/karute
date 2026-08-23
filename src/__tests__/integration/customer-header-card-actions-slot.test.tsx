@@ -2,10 +2,14 @@
 // R8-1 (fix round 8, micro): the actions slot moved from a dedicated
 // full-width row under the contact line to trailing-inline in the TITLE
 // row — a lone small icon rendered in its own row read as dead vertical
-// space (Liam's screenshots, 8/23 ~16:43). Pins: the card never grows an
-// extra <section> row whether the slot is present or absent, and when
-// present its content lives INSIDE the title row (same row as the
-// customer name), not as a sibling row after it.
+// space (Liam's screenshots, 8/23 ~16:43).
+// ⚖ 2026-09-03 (PACKET-CARD-CLONE, v2 adjudicated): the card is now an
+// exact structural clone of the customer page's real header (one flex row:
+// avatar + body + trailing action slot). The old two-band "section has
+// exactly two children" pins (3 sites total across this file and
+// customer-header-card-two-band-contract.test.tsx) are gone — that shape
+// no longer exists. SAME intent carried forward: actions never becomes a
+// dedicated row of its own, and stays trailing in the top identity row.
 import { render, screen } from '@testing-library/react'
 
 jest.mock('next-intl', () => ({
@@ -35,25 +39,56 @@ const BASE_PROPS = {
   email: null,
 }
 
-describe('CustomerHeaderCard — actions slot placement (fix round 8, R8-1)', () => {
-  it('actions absent: the card is a single row, no empty second row', () => {
-    const { container } = render(<CustomerHeaderCard {...BASE_PROPS} />)
-    const section = container.querySelector('section')
-    expect(section?.children).toHaveLength(1)
+describe('CustomerHeaderCard — actions slot placement (fix round 8, R8-1; reshaped for the 顧客ページ clone)', () => {
+  it('actions present: the marker sits trailing in the top identity row (sibling of avatar+body), never a dedicated row below it', () => {
+    render(
+      <CustomerHeaderCard
+        {...BASE_PROPS}
+        actions={<button data-testid="action-marker">⇆</button>}
+      />,
+    )
+    const marker = screen.getByTestId('action-marker')
+    const heading = screen.getByRole('heading', { level: 2 })
+    const section = heading.closest('section')!
+    const topRow = section.firstElementChild! // the flex row: avatar, body, actions
+    expect(topRow.contains(marker)).toBe(true)
+    expect(topRow.contains(heading)).toBe(true)
+    // The marker's own wrapper is a direct child of the top row (a
+    // trailing sibling of the avatar/body pair), not nested inside the
+    // body stack that holds the meta/contact/staff rows.
+    expect(Array.from(topRow.children)).toContain(marker.parentElement)
   })
 
-  // Red-run target: reverting to the round-4/7 shape (actions rendered as a
-  // second <section> child) makes section.children length 2 here.
-  it('actions present: STILL a single row — the icon lives inside the title row, not a dedicated row below it', () => {
-    const { container } = render(
-      <CustomerHeaderCard {...BASE_PROPS} actions={<button data-testid="action-marker">⇆</button>} />,
-    )
-    const section = container.querySelector('section')
-    expect(section?.children).toHaveLength(1)
+  it('actions absent: no action wrapper renders at all', () => {
+    const { container } = render(<CustomerHeaderCard {...BASE_PROPS} />)
+    expect(container.querySelector('[class*="ml-auto"]')).toBeNull()
+  })
 
+  it('actions slot uses ml-auto self-start (clone position: top-right, pinned to the top of the row)', () => {
+    render(
+      <CustomerHeaderCard
+        {...BASE_PROPS}
+        actions={<button data-testid="action-marker">⇆</button>}
+      />,
+    )
     const marker = screen.getByTestId('action-marker')
-    const titleRow = screen.getByText('田中 美咲').closest('h2')?.parentElement
-    expect(titleRow).not.toBeNull()
-    expect(titleRow?.contains(marker)).toBe(true)
+    const wrapper = marker.parentElement!
+    expect(wrapper.className).toMatch(/(^|\s)ml-auto(\s|$)/)
+    expect(wrapper.className).toMatch(/(^|\s)self-start(\s|$)/)
+  })
+
+  it('collapse-when-null still holds with actions present: absent fact values render no empty rows', () => {
+    const { container } = render(
+      <CustomerHeaderCard
+        {...BASE_PROPS}
+        sessionDateLong=""
+        actions={<button data-testid="action-marker">⇆</button>}
+      />,
+    )
+    const section = container.querySelector('section')!
+    const body = section.querySelector('h2')!.closest('div')!.parentElement!
+    // Only the name row stands — meta/contact/staff never mount, actions
+    // sits outside the body entirely (sibling in the top row).
+    expect(body.children).toHaveLength(1)
   })
 })

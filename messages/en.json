@@ -399,7 +399,9 @@
       "openCustomer": "Open customer profile",
       "staff": "Staff",
       "phone": "Phone",
-      "email": "Email"
+      "email": "Email",
+      "sessionDate": "Date",
+      "lastVisit": "Last visit"
     },
     "memory": {
       "title": "Customer Memory",

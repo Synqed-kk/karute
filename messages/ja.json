@@ -399,7 +399,9 @@
       "openCustomer": "顧客カルテを開く",
       "staff": "担当",
       "phone": "電話",
-      "email": "メール"
+      "email": "メール",
+      "sessionDate": "施術日",
+      "lastVisit": "前回"
     },
     "memory": {
       "title": "顧客メモリ",
