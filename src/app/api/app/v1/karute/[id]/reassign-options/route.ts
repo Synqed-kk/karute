@@ -8,6 +8,7 @@
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { sourceStoreOutOfScope } from '@/lib/auth/store-scope'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
@@ -32,15 +33,12 @@ export const GET = facadeHandler<Params>('karute.reassignOptions', async (ctx: F
     requestedStoreId: null,
   })
 
-  // R3-1 (fix round 3, Greptile issue 1 — REAL): same source-store refusal
-  // as src/actions/karute.ts's ensureReassignStoreScope/
-  // sourceStoreOutOfScope, run here before any roster is built — a clamped
+  // R3-1 (fix round 3, Greptile issue 1 — REAL; fix round 4: now the SAME
+  // shared predicate src/actions/karute.ts's ensureReassignStoreScope uses,
+  // not a local duplicate) — run before any roster is built: a clamped
   // actor must not reach a picker for a karute record that itself sits
-  // outside their assignment. allowedStoreIds === null covers BOTH viewAll
-  // and a floating actor (resolveStoreForRequest's own convention) —
-  // unclamped either way. A NULL-store record keeps today's behavior (the
-  // 全店舗/null-store convention).
-  if (allowedStoreIds && record.store_id && !allowedStoreIds.includes(record.store_id)) {
+  // outside their assignment.
+  if (sourceStoreOutOfScope(record, { viewAll: ctx.identity.capabilities.has('stores.viewAll'), allowedStoreIds })) {
     throw new AppApiError('store_forbidden', 'this karute belongs to a store you are not assigned to')
   }
 

@@ -7,7 +7,7 @@ import { getCurrentUserStaffId, getBusinessId, staffListByBusinessOrThrow, type 
 import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
-import { resolveStoreScope, customerLensFor } from '@/lib/auth/store-scope'
+import { resolveStoreScope, customerLensFor, sourceStoreOutOfScope } from '@/lib/auth/store-scope'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
@@ -629,26 +629,6 @@ async function toCustomerInScope(
   return false
 }
 
-/** R3-1 (fix round 3, Greptile issue 1 — REAL): does the SOURCE record's
- *  store fall outside the actor's clamp? Split out from
- *  ensureReassignStoreScope so listReassignCustomerOptions (no to-customer
- *  yet — it's building the roster) can run the identical refusal before
- *  shipping anything, without duplicating the viewAll/floating arms twice.
- *  viewAll passes; a degraded scope is refused by the caller before this
- *  ever runs; a floating actor (allowedStoreIds null) is unclamped; a
- *  NULL-store record keeps today's behavior — the SAME 全店舗/null-store
- *  convention resolveKaruteStoreId's appointment clamp uses earlier in this
- *  file ("A NULL-store appointment keeps today's behavior"). Mirrors that
- *  arm 1:1. */
-async function sourceStoreOutOfScope(
-  record: { store_id: string | null },
-  scope: ReassignScope,
-): Promise<boolean> {
-  if (scope.viewAll) return false
-  if (!scope.allowedStoreIds) return false // floating — unclamped
-  return record.store_id !== null && !scope.allowedStoreIds.includes(record.store_id)
-}
-
 /** The store-scope clamp (mirrors menus.ts's storeScopeError shape, packet
  *  §2b): viewAll passes; a degraded lookup fails closed (never widens); a
  *  floating actor (allowedStoreIds null, not degraded) is unclamped; a
@@ -656,7 +636,10 @@ async function sourceStoreOutOfScope(
  *  business-wide roster ever reaches a clamped actor — this is the SERVER
  *  refusal backstopping the store-scoped picker (hide, never show-and-refuse).
  *
- *  R3-1: composes the SOURCE record's store clamp (sourceStoreOutOfScope)
+ *  R3-1 (fix round 4: moved to src/lib/auth/store-scope.ts —
+ *  sourceStoreOutOfScope is a pure predicate, the same class as
+ *  customerLensFor/menuStoresForScope there, and shared with the
+ *  reassign-options facade route): composes the SOURCE record's store clamp
  *  with the pre-existing to-customer clamp — one function proves BOTH sides
  *  of the write, so neither caller (the web action, the facade route) can
  *  get one proof without the other. Runs before the preview return too, so
@@ -671,7 +654,7 @@ async function ensureReassignStoreScope(
   if (scope.degraded) {
     throw new AppApiError('store_forbidden', 'could not verify your store assignment (fail-closed)')
   }
-  if (await sourceStoreOutOfScope(record, scope)) {
+  if (sourceStoreOutOfScope(record, scope)) {
     throw new AppApiError('store_forbidden', 'this karute belongs to a store you are not assigned to')
   }
   if (!scope.allowedStoreIds) return // floating — unclamped
@@ -852,7 +835,7 @@ export async function listReassignCustomerOptions(
     if (scope.degraded) {
       return { error: 'could not verify your store assignment (fail-closed)' }
     }
-    if (await sourceStoreOutOfScope(record, scope)) {
+    if (sourceStoreOutOfScope(record, scope)) {
       return { error: 'this karute belongs to a store you are not assigned to' }
     }
     const lens = customerLensFor(scope)
