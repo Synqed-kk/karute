@@ -154,7 +154,9 @@ export interface ThreadModel {
   markTone: FixtureThread['mark_tone']
   status: ThreadStatus
   statusLabel: string
-  /** 期限超過 — derived from the pinned board clock, never stored. */
+  /** 期限超過 — derived from the pinned board clock, never stored; also false
+   *  on a resolved thread whatever the raw deadline says (the display gate at
+   *  its derivation site, buildThreads' `displayOverdue`). */
   overdue: boolean
   customerId: string
   customerName: string
