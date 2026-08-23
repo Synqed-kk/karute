@@ -276,6 +276,14 @@
 .biz .pg-inbox .ib-title-row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin: 15px 0 7px; }
 .biz .pg-inbox .ib-title-row:first-child { margin-top: 0; }
 .biz .pg-inbox .ib-title-row .ib-title { margin: 0; }
+/* ⚖ THE HEADING IS PART OF THE SECTION (Liam's rule, found live 8/23): the tour's
+   declaration rides a WRAPPER holding the 見出し and its box, so tapping the word
+   jumps to it instead of hitting the scrim. The wrapper paints nothing and adds
+   no box of its own — it only takes over the 15px the title above gives up on
+   becoming a first child, so the pixels are byte-for-byte the ones that shipped
+   and the gaps BETWEEN sections stay outside every declared rect. */
+.biz .pg-inbox .ib-sec { margin-top: 15px; }
+.biz .pg-inbox .ib-sec:first-child { margin-top: 0; }
 
 .biz .pg-inbox .ib-facts { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
 .biz .pg-inbox .ib-fact { display: grid; grid-template-columns: 104px 1fr; gap: 10px; padding: 9px 11px; border-bottom: 1px solid var(--row); font-size: 13px; line-height: 1.45; }

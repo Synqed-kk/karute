@@ -197,6 +197,48 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
     }
   })
 
+  /** ⚖ THE TAP TARGET IS THE HEADING — found live on the deployed page (1280,
+   *  8/23). A reader taps the WORD 連絡同意, because the word is the thing they
+   *  are asking about; the walk has to jump there. It did the opposite: four
+   *  sections declared themselves on the BOX and left their own 見出し a few
+   *  pixels above the declared rect, so the tap hit the scrim and CLOSED the
+   *  tour on the exact gesture the tour advertises.
+   *
+   *  A heading is inside its section's rect exactly when the declaration sits on
+   *  an ANCESTOR of it, and the only shape in this room's markup that breaks
+   *  that is the heading as a PREVIOUS SIBLING — which reads in source as the
+   *  heading appearing BEFORE its own declaration. That is the tripwire here.
+   *  The rects themselves are measured for real, in Chromium, by the room's
+   *  probe (PROBE G's heading-tap scene), which is where a heading that drifts
+   *  out of a rect for any OTHER reason would be caught.
+   *
+   *  Sections absent from this list print no heading of their own: 対応状況 /
+   *  この対応でできること / 対応キューの絞り込み are labelled for assistive tech
+   *  only, and 最新状態を確認 IS its own label — the declaration is on the
+   *  control the reader taps. すべて対応済み's card carries its heading inside
+   *  the declared section already. */
+  const HEADINGS: Array<[string, string]> = [
+    ['受信トレイ', '<h1>受信トレイ</h1>'],
+    ['店舗の対応キュー', '<strong id="ibQueueTitle">店舗の対応キュー</strong>'],
+    ['対応の事実', '<div className="ib-title">対応の事実</div>'],
+    ['連絡同意', '<div className="ib-title">連絡同意</div>'],
+    ['証跡', '<div className="ib-title">証跡</div>'],
+    ['返信の下書き', '<div className="ib-title">返信の下書き</div>'],
+    ['履歴', '<div className="ib-title">履歴</div>'],
+  ]
+
+  it('every section that PRINTS a heading declares from ABOVE it — the heading is IN the rect', () => {
+    for (const [title, heading] of HEADINGS) {
+      const headingAt = SRC_CODE.indexOf(heading)
+      const declaredAt = SRC_CODE.indexOf(`data-guide-title="${title}"`)
+      expect({ title, prints: headingAt >= 0 }).toEqual({ title, prints: true })
+      expect({ title, declaresFromAbove: declaredAt >= 0 && declaredAt < headingAt }).toEqual({
+        title,
+        declaresFromAbove: true,
+      })
+    }
+  })
+
   it('the facts the room owes the reader are IN the declarations', () => {
     const by = (title: string) => DECLARATIONS.find((d) => d.title === title)!.text
     // The two paragraphs this page used to print every morning, as step 0.

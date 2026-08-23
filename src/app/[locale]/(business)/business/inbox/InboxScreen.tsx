@@ -608,90 +608,105 @@ export function InboxScreen(props: InboxProps) {
               <div className="ib-body">
                 <div className="ib-grid">
                   <div>
-                    <div className="ib-title">対応の事実</div>
+                    {/* ⚖ THE HEADING IS PART OF THE SECTION (found live on the
+                        deployed page, 1280, 8/23). A reader taps the WORD 対応の
+                        事実 — it is the thing they are asking about — and the
+                        declaration used to sit on the box alone, a few pixels
+                        below the word, so the tap landed on the scrim and CLOSED
+                        the walk. The pair therefore rides a wrapper that holds
+                        the 見出し AND the box. The wrapper paints nothing: it
+                        carries only the between-sections margin that `.ib-title`
+                        gives up the moment it becomes a first child. */}
                     <div
-                      className="ib-facts"
+                      className="ib-sec"
                       data-guide-title="対応の事実"
                       data-guide="この対応について記録に残っている事実です。期限、対象の予約、どこから届いたか、送信できたかどうか、次に店舗が行うこと。ここに出るのは記録された内容だけで、推測は入りません。"
                     >
-                      <div className="ib-fact">
-                        <span>期限</span>
-                        <b className={current.overdue ? 'overdue' : undefined}>{current.dueLabel}</b>
-                      </div>
-                      <div className="ib-fact">
-                        <span>予約・候補</span>
-                        <b>
-                          {current.bookingNo ? `${current.bookingNo} · ` : ''}
-                          {current.bookingLabel}
-                        </b>
-                      </div>
-                      <div className="ib-fact">
-                        <span>受信元</span>
-                        <b>{current.source}</b>
-                      </div>
-                      <div className="ib-fact">
-                        <span>配信状態</span>
-                        <b>{current.deliveryLabel}</b>
-                      </div>
-                      <div className="ib-fact">
-                        <span>次の対応</span>
-                        <b>{current.next}</b>
+                      <div className="ib-title">対応の事実</div>
+                      <div className="ib-facts">
+                        <div className="ib-fact">
+                          <span>期限</span>
+                          <b className={current.overdue ? 'overdue' : undefined}>{current.dueLabel}</b>
+                        </div>
+                        <div className="ib-fact">
+                          <span>予約・候補</span>
+                          <b>
+                            {current.bookingNo ? `${current.bookingNo} · ` : ''}
+                            {current.bookingLabel}
+                          </b>
+                        </div>
+                        <div className="ib-fact">
+                          <span>受信元</span>
+                          <b>{current.source}</b>
+                        </div>
+                        <div className="ib-fact">
+                          <span>配信状態</span>
+                          <b>{current.deliveryLabel}</b>
+                        </div>
+                        <div className="ib-fact">
+                          <span>次の対応</span>
+                          <b>{current.next}</b>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="ib-title">連絡同意</div>
-                    {/* The 顧客台帳's own record, in the 顧客 screen's own words —
-                        one person's consent cannot read two ways in two rooms.
-                        「—」 is 「まだ記録していない」 and is NOT 「同意なし」. */}
                     <div
-                      className="ib-consent"
+                      className="ib-sec"
                       data-guide-title="連絡同意"
                       data-guide="この方に連絡してよい方法です。顧客台帳に記録された内容をそのまま出しています。緑は同意あり、赤は同意なし、グレーの「—」はまだ聞いていないという意味で、同意なしとは別です。"
                     >
-                      {current.channels.map((c) => (
-                        <div className="ib-channel" key={c.key}>
-                          <span>{c.key}</span>
-                          <b className={c.verdict}>{c.label}</b>
-                        </div>
-                      ))}
+                      <div className="ib-title">連絡同意</div>
+                      {/* The 顧客台帳's own record, in the 顧客 screen's own words —
+                          one person's consent cannot read two ways in two rooms.
+                          「—」 is 「まだ記録していない」 and is NOT 「同意なし」. */}
+                      <div className="ib-consent">
+                        {current.channels.map((c) => (
+                          <div className="ib-channel" key={c.key}>
+                            <span>{c.key}</span>
+                            <b className={c.verdict}>{c.label}</b>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                     <p className="ib-recommend">{current.recommendedReason}</p>
                   </div>
 
                   <div>
-                    <div className="ib-title">証跡</div>
                     <div
-                      className="ib-proof"
+                      className="ib-sec"
                       data-guide-title="証跡"
                       data-guide="この対応の根拠になった記録です。いつ、どの経路で、何が起きたかが残ります。同意のない方法へは送信しません。"
                     >
-                      <strong>{current.proofTitle}</strong>
-                      {current.proofLines.length === 0 ? (
-                        <span>この対応には記録された根拠がまだありません。</span>
-                      ) : (
-                        <ul>
-                          {current.proofLines.map((line, i) => (
-                            <li key={i}>{line}</li>
-                          ))}
-                        </ul>
-                      )}
-                      <span>同意のない方法へは送信しません。</span>
+                      <div className="ib-title">証跡</div>
+                      <div className="ib-proof">
+                        <strong>{current.proofTitle}</strong>
+                        {current.proofLines.length === 0 ? (
+                          <span>この対応には記録された根拠がまだありません。</span>
+                        ) : (
+                          <ul>
+                            {current.proofLines.map((line, i) => (
+                              <li key={i}>{line}</li>
+                            ))}
+                          </ul>
+                        )}
+                        <span>同意のない方法へは送信しません。</span>
+                      </div>
                     </div>
 
                     {current.reply !== '' && (
-                      <>
+                      <div
+                        className="ib-sec"
+                        data-guide-title="返信の下書き"
+                        data-guide="この対応で送ることになる文面です。送信は止めてありますが、何が送られるはずだったのかは隠さずに出します。"
+                      >
                         <div className="ib-title">返信の下書き</div>
                         {/* Shown, then refused. Hiding what the room WOULD send
                             would make the refusal unreadable — ⚖ 47 asks the
                             opposite. */}
-                        <p
-                          className="ib-draft"
-                          data-guide-title="返信の下書き"
-                          data-guide="この対応で送ることになる文面です。送信は止めてありますが、何が送られるはずだったのかは隠さずに出します。"
-                        >
+                        <p className="ib-draft">
                           {current.customerName}様、{current.reply}
                         </p>
-                      </>
+                      </div>
                     )}
                   </div>
                 </div>
