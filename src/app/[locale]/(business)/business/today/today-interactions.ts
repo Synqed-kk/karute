@@ -548,10 +548,33 @@ const clock = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${S
  *  シフト管理 instead of watching nothing happen. The sentence rides with the
  *  decision rather than sitting in the JSX so it is provable without a
  *  renderer: null here and the board goes silent again. */
-export function blockChrome(kind: BoardItem['kind']): { cls: 'cleanup' | 'absence' | 'block'; opens: boolean; locked: string | null } {
+export function blockChrome(kind: BoardItem['kind']): {
+  cls: 'cleanup' | 'absence' | 'block'
+  opens: boolean
+  locked: string | null
+  /** ⚖ Liam Q6 (flag 64, 2026-08-22) — WHY THIS BLOCK CANNOT BE HAND-DELETED.
+   *
+   *  Same shape as `locked` directly above: `null` means allowed, and a string
+   *  is always the REFUSAL — the sentence the dialog shows in place of the 削除
+   *  button. (The packet calls this field `deletable`; it is named for what a
+   *  non-null value says, so it cannot be read backwards.)
+   *
+   *  A 清掃 is the only one. It is not stored: `applyMoves` drops every cleanup
+   *  from the membership pass and `withTrailingCleanup` re-derives it after the
+   *  bookings settle, so a hand-delete would look like it worked and then undo
+   *  itself on the next render. The dialog still OPENS — the operator came to
+   *  read the facts and canon lets them — it just cannot offer a button that
+   *  would lie. Same precedent as 勤務不可's spoken refusal, one level down. */
+  notDeletable: string | null
+} {
   const cls = kind === 'cleanup' ? 'cleanup' : kind === 'absence' ? 'absence' : 'block'
   const opens = cls !== 'absence'
-  return { cls, opens, locked: opens ? null : '勤務不可はシフト管理で変更します — ボード上では動かせません' }
+  return {
+    cls,
+    opens,
+    locked: opens ? null : '勤務不可はシフト管理で変更します — ボード上では動かせません',
+    notDeletable: cls === 'cleanup' ? 'この清掃は直前の予約に付いています。予約を動かせば一緒に動き、予約が消えれば一緒に消えます。' : null,
+  }
 }
 
 /** Everything standing on a lane, as minute spans — the sell layer's occupancy
@@ -819,7 +842,31 @@ function railCell(
     start, state: 'blocked', label: '—', sentence, alternatives: [], alternativeKind: null, ackAllowed: false,
   })
   const pocket = pockets.find((p) => start >= p.s && start + input.dur <= p.e)
-  if (!pocket) return blocked(`この開始には${input.dur}分の連続した空きがありません`)
+  if (!pocket) {
+    // ⚖ Liam flag 62 (2026-08-22) — A POCKET THAT CANNOT HOLD THE SESSION AT
+    // THIS START STILL HAS STARTS IN IT.
+    //
+    // This branch used to return `alternatives: []` for every non-fit, and the
+    // popover picks its line purely by `alternatives.length` — so it read
+    // 「この区間に、より損の少ない開始はありません」 for the one case where a
+    // better start certainly exists: earlier in the very pocket the operator
+    // clicked into. Ask the pocket before saying there is nothing.
+    //
+    // The offers stay engine truth: `safeStarts` is the engine's own public
+    // surface, and the presentation seam (`offerableCell`) still snaps each one
+    // onto the store's booking lattice and re-verifies it through the caller's
+    // gate before any button names it.
+    const here = pockets.find((p) => start >= p.s && start < p.e)
+    const alternatives = here ? engine.safeStarts(here, input.dur, { now: input.nowMinute ?? undefined }) : []
+    return {
+      ...blocked(`この開始には${input.dur}分の連続した空きがありません`),
+      alternatives,
+      // ponytail: zero-loss starts only. A pocket whose every feasible start is
+      // lossy still answers 「ありません」 — upgrade to the engine's own
+      // least-loss ranking if that case ever reaches Liam's eyes.
+      alternativeKind: alternatives.length > 0 ? 'safe' : null,
+    }
+  }
   const v = engine.evaluate(pocket, { start, dur: input.dur }, { now: input.nowMinute ?? undefined })
   if (v.verdict === 'ok' || v.verdict === 'exempt') {
     // canon `exactAimConsequence` (:7570): a pocket that never held a protected
@@ -998,10 +1045,49 @@ export function foreignStoreRefusal(
 }
 
 /** canon `createAtCell` (:6005) via the F25 empty-slot click: the half hour the
- *  pointer landed on, clamped so a created booking cannot start after closing. */
+ *  pointer landed on, clamped so a created booking cannot start after closing.
+ *
+ *  ⚖ Liam flag 62 (2026-08-22) — FLOOR, NOT ROUND. Canon's `ghostCellX`
+ *  (:5989-5993) floors: a click anywhere in [11:00, 11:30) seeds 11:00. We
+ *  rounded, so [11:15, 11:45) jumped FORWARD to 11:30 and a standard session
+ *  seeded there ran into the next booking — Liam's 「the left half works, the
+ *  right half fires 時間帯が重複」. One token, canon parity. */
 export function slotStartAt(track: Element, clientX: number, hours: Hours, stepMin = 30): number {
   const minute = hours.open + fractionIn(track, clientX) * (hours.close - hours.open)
-  return Math.max(hours.open, Math.min(hours.close - stepMin, Math.round(minute / stepMin) * stepMin))
+  return Math.max(hours.open, Math.min(hours.close - stepMin, Math.floor(minute / stepMin) * stepMin))
+}
+
+/** ⚖ Liam flag 62 (2026-08-22) — THE SEED IS CLAMPED INTO THE POCKET IT LANDED IN.
+ *
+ *  Flooring doubles the working area but a click at 11:40 in an 11:00–12:00
+ *  pocket still seeds 11:30〜12:30 and collides. Canon does not clamp either —
+ *  it checks only the PARTNER lane (`laneFreeAt` :6022-6028) and never its own —
+ *  so this is one of the places copying canon exactly is not enough.
+ *
+ *  SHORTEN, NEVER OVERFLOW: the start slides back to the last position where the
+ *  full session fits; if the pocket itself is shorter than the session, the seed
+ *  takes the pocket's own length. A click outside every pocket is left alone —
+ *  the guard owns that refusal and it must keep hearing the honest ask. */
+export function seedSpanIn(
+  lane: BoardLane,
+  start: number,
+  sessionMin: number,
+  hours: Hours,
+  nowMinute: number | null,
+): { start: number; end: number } {
+  const plain = { start, end: Math.min(start + sessionMin, hours.close) }
+  if (lane.window == null) return plain
+  const pockets = freePockets({
+    from: lane.window.from,
+    until: lane.window.until,
+    close: hours.close,
+    now: nowMinute,
+    occupied: laneSpans(lane),
+  })
+  const pocket = pockets.find((p) => start >= p.s && start < p.e)
+  if (!pocket) return plain
+  const clamped = Math.max(pocket.s, Math.min(start, pocket.e - sessionMin))
+  return { start: clamped, end: Math.min(clamped + sessionMin, pocket.e) }
 }
 
 /** A created card's span, so the create dialog and the board agree. */
@@ -1566,7 +1652,21 @@ export function blockStepPct(boardHours: number, blockStepMin: number | undefine
  *  differs: a booking is mirrored on a staff lane AND a bed lane, so it may not
  *  be evicted from its partner; a block lives on exactly one lane, so the plain
  *  "drop from every lane but the target" rule is the correct one. */
-export function applyBlockMoves(lanes: BoardLane[], blockMoves: Moves, hours: Hours): BoardLane[] {
+export function applyBlockMoves(lanes: BoardLane[], blockMoves: Moves, hours: Hours, deleted: string[] = []): BoardLane[] {
+  // ⚖ Liam flag 64 (2026-08-22) — THE DELETE IS APPLIED IN THE SAME PASS AS THE
+  // MOVE, so the board, the sell layer, `blockClash` and the guard's occupancy
+  // all stop seeing the block in the SAME frame: they all read the lanes this
+  // function returns. One filter, and there is nowhere for them to disagree.
+  //
+  // Deliberately NOT day-nav-surviving, for the reason BusinessSessionEdits.tsx
+  // already states about `blockMoves`: a 予定ブロック is keyed by `item.key` and
+  // the fixture world draws the same block on every day, so a deletion that
+  // survived a `?day=` flip would erase it from every day at once. Dying on the
+  // flip is the safe default until that is a made decision.
+  if (deleted.length > 0) {
+    const gone = new Set(deleted)
+    lanes = lanes.map((lane) => (lane.items.some((i) => gone.has(i.key)) ? { ...lane, items: lane.items.filter((i) => !gone.has(i.key)) } : lane))
+  }
   if (Object.keys(blockMoves).length === 0) return lanes
   const home = new Map<string, BoardItem>()
   for (const lane of lanes) for (const i of lane.items) if (blockMoves[i.key]) home.set(i.key, i)

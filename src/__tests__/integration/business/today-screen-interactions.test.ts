@@ -65,6 +65,7 @@ import {
   reasonLine,
   roomFitsClass,
   sellLayerFor,
+  seedSpanIn,
   sidesAt,
   slotStartAt,
   onShownBoard,
@@ -207,6 +208,43 @@ describe('drag wiring — a pointer event becomes canon geometry', () => {
     expect(slotStartAt(track, 460, HOURS)).toBe(870) // still 14:30 — snapped
     // A click on the far right cannot create a booking that starts at closing.
     expect(slotStartAt(track, 899, HOURS)).toBe(1110) // 18:30
+  })
+
+  it('⚖ 62 — the whole half hour floors to its own start, canon-style', () => {
+    const track = document.createElement('div')
+    // 900px over 9 hours: one hour is 100px, one 30-minute step is 50px.
+    rect(track, { left: 0, top: 0, width: 900, height: 40 })
+    // 11:00 is 100px; the RIGHT half of that half hour used to round FORWARD to
+    // 11:30 and seed a session that ran into the neighbour (Liam's 「the left
+    // half works, the right half fires 時間帯が重複」). Canon floors.
+    expect(slotStartAt(track, 100, HOURS)).toBe(660) // 11:00
+    expect(slotStartAt(track, 125, HOURS)).toBe(660) // 11:15 — still 11:00
+    expect(slotStartAt(track, 149, HOURS)).toBe(660) // 11:29 — still 11:00
+    expect(slotStartAt(track, 150, HOURS)).toBe(690) // 11:30 — the next step
+    expect(slotStartAt(track, 175, HOURS)).toBe(690) // 11:45 — still 11:30
+  })
+
+  it('⚖ 62 — the seed is clamped into the pocket under the click, shortened not overflowed', () => {
+    // A staff lane free 10:00–19:00 except a booking at 12:00–13:00, so the
+    // pocket under an 11:xx click is 10:00–12:00.
+    const staff = lane({ key: 'p-01', group: 'staff', items: [booking({ key: 'a', caseId: 'apt-1' }, 720, 780)] })
+    // 11:30 + 60 would run to 12:30, into the booking → slides back to 11:00.
+    expect(seedSpanIn(staff, 690, 60, HOURS, null)).toEqual({ start: 660, end: 720 })
+    // 11:00 + 60 fits exactly; nothing moves.
+    expect(seedSpanIn(staff, 660, 60, HOURS, null)).toEqual({ start: 660, end: 720 })
+    // A pocket SHORTER than the session shortens rather than overflows: the
+    // 13:00–13:45 pocket below cannot hold 60.
+    const tight = lane({
+      key: 'p-02',
+      group: 'staff',
+      items: [booking({ key: 'b', caseId: 'apt-2' }, 600, 780), booking({ key: 'c', caseId: 'apt-3' }, 825, 900)],
+    })
+    expect(seedSpanIn(tight, 780, 60, HOURS, null)).toEqual({ start: 780, end: 825 })
+    // A click that lands on top of an existing booking is left alone — the
+    // guard owns that refusal and must keep hearing the honest ask.
+    expect(seedSpanIn(staff, 720, 60, HOURS, null)).toEqual({ start: 720, end: 780 })
+    // A lane with no shift window has no pockets; today's behaviour, unchanged.
+    expect(seedSpanIn(lane({ key: 'bed-01', group: 'beds' }), 660, 60, HOURS, null)).toEqual({ start: 660, end: 720 })
   })
 })
 
@@ -788,6 +826,29 @@ describe('the 配置ガイド rail', () => {
     expect(cell.sentence).toBe('この開始には60分の連続した空きがありません')
   })
 
+  it('⚖ 62 — a pocket that cannot hold the session AT THIS START still offers its own starts', () => {
+    // 10:00–14:00 free. A 60 starting at 13:30 runs past the shift end, so no
+    // pocket "fits" it — but the pocket the operator clicked into plainly has
+    // room earlier. It used to answer with alternatives: [], which is what made
+    // 「この区間に、より損の少ない開始はありません」 a lie.
+    const l = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 840 }, untilLabel: '14:00' })
+    const cell = at(guardRailsFor([l], railInput())[0], 810)
+    expect(cell.state).toBe('blocked')
+    expect(cell.sentence).toBe('この開始には60分の連続した空きがありません')
+    expect(cell.alternativeKind).toBe('safe')
+    expect(cell.alternatives.length).toBeGreaterThan(0)
+    // Every offer is inside the pocket it came from and holds the whole session.
+    for (const s of cell.alternatives) {
+      expect(s).toBeGreaterThanOrEqual(600)
+      expect(s + 60).toBeLessThanOrEqual(840)
+    }
+    // A start with no pocket under it at all keeps the honest empty answer —
+    // there is nothing in this section to offer.
+    const outside = at(guardRailsFor([l], railInput())[0], 900)
+    expect(outside.alternatives).toEqual([])
+    expect(outside.alternativeKind).toBeNull()
+  })
+
   it('the card in hand is not an obstacle to itself', () => {
     const held = booking({ key: 'k1', caseId: 'apt-1' }, 600, 660)
     const withCard = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 750 }, untilLabel: '12:30', items: [held] })
@@ -890,7 +951,10 @@ describe('the window layers price the committed board, never the card in flight'
     // round from quietly feeding the priced layers the pointer's position.
     const memo = /const committedLanes = useMemo\(\s*\(\) => applyMoves\(placedLanes, moves, parked, addedHere, hours, bedMoves\)/
     expect(memo.test(src)).toBe(true)
-    expect(src).toContain('applyBlockMoves(props.lanes, blockMoves, hours)')
+    // ⚖ flag 64 — the delete ledger joined that SAME pass, deliberately: the
+    // board, the sell layer, blockClash and the guard's occupancy all read the
+    // lanes it returns, so they cannot disagree about a deleted block.
+    expect(src).toContain('applyBlockMoves(props.lanes, blockMoves, hours, blockDeleted)')
     expect(src).toContain('sellLayerFor(committedLanes')
     expect(src).toContain('gapLayerFor(committedLanes')
     expect(src).not.toContain('sellLayerFor(boardLanes')
@@ -1396,7 +1460,11 @@ describe('the drag proxy: mounted on the gesture, moved by transform, gone on ev
     // WO-2c's architecture is intact: the DRAWN board during a drag is the
     // committed one, so the real node is never moved between lanes.
     // (⚖ flag 26: a block drag holds the same freeze, for the same reason.)
-    expect(SRC).toContain('const drawnLanes = live || blockLive ? committedLanes : boardLanes')
+    // ⚖ flag 57 — RENEGOTIATED: a third case joined, and only as a PAINT. The
+    // pending-override ghost is `attemptLanes`, folded in here and nowhere
+    // else; `moves` is untouched, so every judge of the board still sees the
+    // board the operator has not changed.
+    expect(SRC).toContain('const drawnLanes = live || blockLive ? committedLanes : (attemptLanes ?? boardLanes)')
     // WO-2d's is intact too: the window layers still read committedLanes.
     expect(SRC).toContain('sellLayerFor(committedLanes')
     expect(SRC).toContain('gapLayerFor(committedLanes')
@@ -2209,6 +2277,67 @@ describe('予定ブロック move, resize and open — canon’s second pipeline
     expect(applyBlockMoves(lanes, {}, HOURS)).toBe(lanes)
   })
 
+  it('⚖ 64 — a deleted block leaves the board, and the SAME pass frees its minutes', () => {
+    const lanes = [lane({ key: 'p-01', group: 'staff', items: [block('br-1', 780, 810), block('br-2', 900, 930)] })]
+    const out = applyBlockMoves(lanes, {}, HOURS, ['br-1'])
+    expect(out[0].items.map((i) => i.key)).toEqual(['br-2'])
+    // Everything that judges the board reads THESE lanes, so the freed minutes
+    // are sellable and clash-free in the same frame — no second pass to forget.
+    expect(laneSpans(out[0])).toEqual([{ start: 900, end: 930, isBreak: true }])
+    expect(blockClash(out[0], 'br-9', place(780, 810, HOURS))).toBe(false)
+    expect(blockClash(lanes[0], 'br-9', place(780, 810, HOURS))).toBe(true)
+    // Undo is the ledger shrinking: nothing else has to be put back.
+    expect(applyBlockMoves(lanes, {}, HOURS, [])).toBe(lanes)
+    expect(applyBlockMoves(lanes, {}, HOURS)).toBe(lanes)
+  })
+
+  it('⚖ 64 — a delete and a move land in one pass, and a key nobody has is a no-op', () => {
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', items: [block('br-1', 780, 810), block('br-2', 900, 930)] }),
+      lane({ key: 'bed-01', group: 'beds', items: [] }),
+    ]
+    const out = applyBlockMoves(lanes, { 'br-2': { laneKey: 'bed-01', ...place(840, 870, HOURS) } }, HOURS, ['br-1'])
+    expect(out.find((l) => l.key === 'p-01')!.items).toHaveLength(0)
+    expect(out.find((l) => l.key === 'bed-01')!.items.map((i) => i.key)).toEqual(['br-2'])
+    // A stale key deletes nothing and clones nothing.
+    expect(applyBlockMoves(lanes, {}, HOURS, ['nope'])[0].items).toHaveLength(2)
+  })
+
+  it('⚖ Q6 — a 清掃 opens and reads, but carries no 削除, and says why', () => {
+    // The rule lives where the paint and the openability already do, so it is
+    // provable without a renderer — the point of blockChrome having a header.
+    const cleanup = blockChrome('cleanup')
+    expect(cleanup.opens).toBe(true)
+    expect(cleanup.notDeletable).toContain('直前の予約')
+    // Every ordinary block IS deletable…
+    for (const k of ['break', 'admin', 'closing'] as Array<BoardItem['kind']>) {
+      expect(blockChrome(k).notDeletable).toBeNull()
+      expect(blockChrome(k).opens).toBe(true)
+    }
+    // …and 勤務不可 never opened in the first place, so the question never
+    // reaches it: its refusal is one level up, unchanged.
+    expect(blockChrome('absence').opens).toBe(false)
+    expect(blockChrome('absence').locked).toContain('シフト管理')
+  })
+
+  it('⚖ 64 + sweep rider (i) — ブロック情報 is honest: one live 削除, no dead 保存', () => {
+    const src = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+    const dialog = src.slice(src.indexOf('ref={blockRef}'), src.indexOf('ref={closingRef}'))
+    // The dead stub is gone from this footer entirely — the dialog has no
+    // editable field, so 保存 could never have done anything.
+    expect(dialog).not.toMatch(/<button[^>]*>保存</)
+    expect(dialog).not.toContain('disabled title={HINT}')
+    // 削除 is wired to the confirm strip, and the strip commits through deleteBlock.
+    expect(dialog).toContain('onClick={() => setBlockDeleteAsk(true)}')
+    expect(dialog).toContain('onClick={() => deleteBlock(blockInfo)}')
+    // canon's light gate, not the 仮押さえ/確定 bar (:4245-4246 — a block is a
+    // placeholder, not a booking).
+    expect(dialog).toContain('この予定ブロックを削除します')
+    expect(dialog).toContain('やめる')
+    // …and the dialog holds a HANDLE on the block, which is what it never had.
+    expect(src).toContain('setBlockInfo({ key: item.key, laneKey: lane.key, itemKind: item.kind')
+  })
+
   it('a block resized in place stays put and keeps its lane', () => {
     const lanes = [lane({ key: 'p-01', group: 'staff', items: [block('br-1', 780, 810)] })]
     const out = applyBlockMoves(lanes, { 'br-1': { laneKey: 'p-01', ...place(780, 815, HOURS) } }, HOURS)
@@ -2448,7 +2577,11 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // The scan is only worth anything if it is actually finding the screens.
     expect(sheets.length).toBeGreaterThanOrEqual(3)
 
-    const dressers = sheets.filter(([, css]) => /^\.biz[ -]dialog\s*\{/m.test(css))
+    // ⚖ flag 69 — the page scope may sit between `.biz` and `dialog` now
+    // (`.biz .page-customers dialog`). The pin still DISCOVERS its dressers by
+    // walking; it just knows the scoped spelling.
+    const DRESSER = /^\.biz(?:[ -])(?:\.page-[\w-]+ )?dialog\s*\{/m
+    const dressers = sheets.filter(([, css]) => DRESSER.test(css))
     expect(dressers.map(([f]) => f).sort()).toEqual([
       'customers/customers.css',
       'reservations/reservations.css',
@@ -2461,7 +2594,7 @@ describe('the confirm comes to the card, and the consult goes back to the placem
       // quoting `dialog:modal { margin: auto }`, and that brace would both end
       // the slice early and let the prose stand in for the property.
       const css = raw.replace(/\/\*[\s\S]*?\*\//g, '')
-      const body = css.slice(css.search(/^\.biz[ -]dialog\s*\{/m))
+      const body = css.slice(css.search(DRESSER))
       expect(`${file}: ${body.slice(0, body.indexOf('}'))}`).toContain('margin: auto;')
     }
   })
@@ -2516,7 +2649,10 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // carries BOTH the two gates that can unmount the anchor card and batch-7's
     // `holdRailSel` (⚖ 48 reads it inside `pin`). Neither half supersedes the
     // other — see the collapse test below.
-    expect(SRC).toContain('}, [holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])')
+    // RENEGOTIATED AGAIN (batch-10b, ⚖ 71 follow-up): `holdPopMounted` joins in
+    // front. Same intent, one member wider — the ID cannot speak for an arm
+    // whose anchor is `null` by design. Proof in the ⚖ 71 describe.
+    expect(SRC).toContain('}, [holdPopMounted, holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])')
     // A standing 仮押さえ this session did not stage is ALWAYS the pill: anchored,
     // it sat on the board indefinitely and swallowed the pointerdown of a card in
     // the lane below (measured, 2026-08-21).
@@ -2540,7 +2676,8 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // reintroduce the same bug the collapse did.
     // RENEGOTIATED (cycle 7): batch-7 adds `holdRailSel` to this array for ⚖ 48's
     // avoid-rect. The two unmount gates this test exists for are still both here.
-    expect(SRC).toContain('}, [holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])')
+    // RENEGOTIATED (batch-10b): `holdPopMounted` leads. Both gates still here.
+    expect(SRC).toContain('}, [holdPopMounted, holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])')
     expect(SRC).toContain('if (collapsed.includes(lane.group)) return null')
     // The rule is about the NODE, not about any one reason it went away.
     expect(SRC).toContain('const card = anchorId ? cardNodes(boardRef.current, anchorId)[0] : null')
@@ -2718,7 +2855,11 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // ride the same board, and the same "committed, never live" rule.)
     expect(SRC).toContain('const committedLanes = useMemo(\n    () => applyMoves(placedLanes, moves, parked, addedHere, hours, bedMoves),')
     // What is frozen for the length of a GESTURE is `liveMoves`, and only that.
-    expect(SRC).toContain('const drawnLanes = live || blockLive ? committedLanes : boardLanes')
+    // ⚖ flag 57 — RENEGOTIATED: a third case joined, and only as a PAINT. The
+    // pending-override ghost is `attemptLanes`, folded in here and nowhere
+    // else; `moves` is untouched, so every judge of the board still sees the
+    // board the operator has not changed.
+    expect(SRC).toContain('const drawnLanes = live || blockLive ? committedLanes : (attemptLanes ?? boardLanes)')
     const sell = SRC.slice(SRC.indexOf('const sell = useMemo('), SRC.indexOf('const gap = useMemo('))
     expect(sell).toContain('sellLayerFor(committedLanes, hours, {')
     expect(sell).not.toContain('boardLanes')
@@ -2815,8 +2956,16 @@ describe('the pair keeps both its lanes, and no ending turns a release into a bo
     // ⚖ BATCH-8 flag 51 — RENEGOTIATED: 3 → 4. The 満室 refusal is a fourth
     // abandoned landing and restores the pair for the same reason the other
     // three do (⚖ 47: a refusal changes NOTHING).
-    expect(finish.match(/restoreSides\(ctx\.id, from\)/g)).toHaveLength(4)
+    // ⚖ flag 57 (batch-10b) — RENEGOTIATED BACK: 4 → 3. The blocked branch's
+    // restore is GONE, and it strengthens ⚖47 rather than weakening it. A drag
+    // writes `live`, never `moves`, so that call wrote the pointerdown snapshot
+    // back over the identical values — except on an UNTOUCHED card, where it
+    // ADDED a no-op `moves` entry that then survived a day flip. A refusal now
+    // writes nothing at all. The card is still drawn at its origin the moment
+    // the advice clears, because `moves` is where it is drawn from.
+    expect(finish.match(/restoreSides\(ctx\.id, from\)/g)).toHaveLength(3)
     expect(finish).not.toContain('setMoves(')
+    expect(finish).not.toContain('setBedMoves(')
     const cancel = SRC.slice(SRC.indexOf('function cancelDrag('), SRC.indexOf('function clearDrag()'))
     expect(cancel).toContain('restoreSides(ctx.id, ctx.home)')
     // …and 元に戻す answers for the room as well as the person.
@@ -3135,7 +3284,12 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     expect(SRC).toContain('const t = setTimeout(() => setToast(EMPTY_TOAST), toast.ms)')
     // `n` re-arms the timer for an identical refusal earned twice: pressing the
     // same illegal slot again used to change no state and so say nothing.
-    expect(SRC).toContain('setToast((was) => ({ text: message, ms, n: was.n + 1 }))')
+    // ⚖ flag 64 — the door grew an optional undo (canon's delete toast carries
+    // one). `n` is untouched, and a REFUSAL never carries one: `refuse` passes
+    // no third argument, so there is nothing to take back on a refusal by
+    // construction, not by convention.
+    expect(SRC).toContain('setToast((was) => ({ text: message, ms, n: was.n + 1, undo }))')
+    expect(SRC).toContain('function show(message: string, ms = TOAST_MS, undo: (() => void) | null = null) {')
     // ONE door for refusals — every one of them, greppable by name. If a future
     // round adds a refusal through `show(` it will not carry the dwell, so the
     // known refusal sentences are pinned to the door here.
@@ -3160,6 +3314,24 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     // sentence and the chip landing's missing-person one.
     expect(SRC).toContain('if (solved.refusal) {\n      refuse(solved.refusal)')
     expect(SRC).toContain('refuse(`${chip.item.title}様の担当がこのボードにいません')
+  })
+
+  /** ⚖ 47's class, SECOND MEMBER (batch-10b, measured in a real browser
+   *  2026-08-22): at 3.2s the block-delete undo expired mid-reach and the click
+   *  landed on the empty track underneath, opening 新規予約を作成. A destructive
+   *  act whose way back must be FOUND inside 3.2s is the same complaint that
+   *  bought refusals their 7s. Only the undo-carrying toast joins the class. */
+  it('⚖ 47 — the toast that carries a way back lives as long as a refusal', () => {
+    expect(SRC).toContain('show(`${info.title}を削除しました`, REFUSAL_MS, () => {')
+    // The value has ONE home — the delete does not mint a dwell of its own.
+    expect(SRC).not.toMatch(/show\([^\n]*,\s*7000/)
+    // …and ORDINARY toasts are untouched: the restore confirmation that follows
+    // the undo takes the default, and nothing else in the file asks for the
+    // long dwell except `refuse` and this one line.
+    expect(SRC).toContain('show(`${info.title}を元に戻しました`)')
+    // Exactly TWO callers ask for the long dwell: the refusal door and this one
+    // undo. A third would mean the class quietly grew.
+    expect(SRC.match(/, REFUSAL_MS/g)).toHaveLength(2)
   })
 
   it('⚖ 47 — cross-day placement is what canon promises, and nothing gates on the day', () => {
@@ -3562,7 +3734,15 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     // the refusal is now spoken by the ONE VERDICT before the solve runs, so the
     // pair goes back and the explanation opens from `explainBlocked` rather than
     // from a second `solveBed` null-check. Same invariant, one door earlier.
-    expect(finish).toContain("if (v.kind === 'blocked') {\n      restoreSides(ctx.id, from)\n      explainBlocked(")
+    // ⚖ flag 57 — RENEGOTIATED AGAIN: the restore is gone (it was a no-op write
+    // that ⚖47 is better off without) and the branch explains straight away,
+    // carrying the attempted landing so the card can SIT there while it asks.
+    // The invariant that matters is unchanged and pinned here: this branch does
+    // not stage, and `land(` is not reachable from it.
+    const blockedBranch = finish.slice(finish.indexOf("if (v.kind === 'blocked') {"), finish.indexOf('land(null, span)'))
+    expect(blockedBranch).toContain('explainBlocked(')
+    expect(blockedBranch).not.toContain('restoreSides(')
+    expect(blockedBranch).not.toContain('stage(')
     // Every landing that carries a room goes through the ONE solver.
     expect(SRC.match(/solveBed\(/g)).toHaveLength(5)
     for (const call of [
@@ -3971,11 +4151,15 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
       expect([name, body.includes("if (v.kind === 'blocked') {")]).toEqual([name, true])
       expect([name, body.includes('explainBlocked(')]).toEqual([name, true])
     }
-    // The release path puts the pair back BEFORE it explains (⚖ 47: a refusal
-    // changes nothing), and nothing stages on that branch.
+    // The release path explains and does NOT stage (⚖ 47: a refusal changes
+    // nothing). ⚖ flag 57 — RENEGOTIATED: it no longer writes the pair back
+    // either, because that write was the card's snap-back and was redundant
+    // besides; the branch explains, and it hands over the attempted landing so
+    // the card stays visible at the spot the question is about.
     const finish = SRC.slice(SRC.indexOf('function finishDrag('), SRC.indexOf('function explainBlocked('))
-    expect(finish).toContain("if (v.kind === 'blocked') {\n      restoreSides(ctx.id, from)\n      explainBlocked(")
-    expect(finish.indexOf('restoreSides(ctx.id, from)\n      explainBlocked(')).toBeLessThan(finish.indexOf('land(null, span)'))
+    expect(finish).toContain("if (v.kind === 'blocked') {")
+    expect(finish.indexOf("if (v.kind === 'blocked') {")).toBeLessThan(finish.indexOf('land(null, span)'))
+    expect(finish).toContain('}, { id: ctx.id, staffLane: sides.staffLane, bedLane: sides.bedLane, span })')
   })
 
   // ── (d) the explanation surface and its authority gate ───────────────────
@@ -4401,9 +4585,13 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     expect(state).toBe('degraded')
     expect(SRC).toContain("const state = v ? (v.kind === 'blocked' ? 'blocked' : v.kind === 'caution' ? 'degraded' : 'safe') : c.state")
     expect(SRC).toContain("${v?.kind === 'blocked' ? ' inert' : ''}")
-    // Release: only `blocked` is inert, so this landing STAGES — and the ⚖ 47
-    // restore + the explain popover are the blocked branch's, unchanged.
-    expect(SRC).toContain("    if (v.kind === 'blocked') {\n      restoreSides(ctx.id, from)\n      explainBlocked(")
+    // Release: only `blocked` is inert, so this landing STAGES — and the
+    // explain popover is the blocked branch's, unchanged. (⚖ flag 57: the
+    // branch's ⚖47 restore is gone; it was a no-op write and it was the
+    // snap-back. Nothing on that branch stages, which is the invariant.)
+    const inertBranch = SRC.slice(SRC.indexOf("    if (v.kind === 'blocked') {"), SRC.indexOf('    land(null, span)'))
+    expect(inertBranch).toContain('explainBlocked(')
+    expect(inertBranch).not.toContain('stage(')
   })
 
   it('ROOT C fell out — it was not built separately, and it could not have been', () => {
@@ -4683,5 +4871,341 @@ describe('BATCH-10 W4 — ROOT B: drops stop dying silently', () => {
     const out = applyMoves(lanes, { 'apt-1': { laneKey: 'p-04', ...place(900, 960, HOURS) } }, ['apt-1'], added, HOURS)
     expect(out[0].items).toHaveLength(0)
     expect(out[1].items.map((i) => i.caseId)).toEqual(['apt-1'])
+  })
+})
+
+// ── BATCH-10b ⚖ flag 57 — the card stays where it was dropped, in ghost dress ──
+// Liam: 「it snaps back the instant the question appears」. Two calls did that,
+// in this order, before the popover was built: the drag teardown destroyed the
+// travelling proxy, and `restoreSides` wrote the pointerdown pair back. The fix
+// is a DISPLAY overlay in place of the second one — flag 68's commit-then-advise
+// shape, with a paint where 68 has a write, so ⚖47 still holds literally.
+describe('BATCH-10b ⚖ flag 57 — the pending-override ghost', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const finish = SRC.slice(SRC.indexOf('function finishDrag('), SRC.indexOf('function cancelDrag('))
+
+  it('the ghost is a PAINT: it reaches drawnLanes and nothing else', () => {
+    // `moves` is the source of truth a refusal may not touch. The overlay is
+    // built from it, never into it.
+    const memo = SRC.slice(SRC.indexOf('const attemptLanes = useMemo('), SRC.indexOf('const drawnLanes ='))
+    expect(memo).toContain('const a = advice?.attempt')
+    expect(memo).toContain('if (!a) return null')
+    expect(memo).not.toContain('setMoves(')
+    expect(memo).not.toContain('setBedMoves(')
+    expect(SRC).toContain('const drawnLanes = live || blockLive ? committedLanes : (attemptLanes ?? boardLanes)')
+    // Every judge of the board still reads the UN-overlaid one. If a future
+    // round feeds any of them `drawnLanes`, a refusal starts changing things.
+    expect(SRC).toContain('guardRailsFor(boardLanes')
+    expect(SRC).toContain('sellLayerFor(committedLanes')
+    expect(SRC).toContain('gapLayerFor(committedLanes')
+    expect(SRC).not.toContain('sellLayerFor(drawnLanes')
+    expect(SRC).not.toContain('guardRailsFor(drawnLanes')
+    expect(SRC).not.toContain('checksFor(drawnLanes')
+  })
+
+  it('the blocked release explains and leaves the card at the attempted landing', () => {
+    // No rewind on the branch, and the attempted landing is handed over.
+    const branch = finish.slice(finish.indexOf("if (v.kind === 'blocked') {"), finish.indexOf('land(null, span)'))
+    expect(branch).not.toContain('restoreSides(')
+    expect(branch).toContain('explainBlocked(')
+    expect(branch).toContain('{ id: ctx.id, staffLane: sides.staffLane, bedLane: sides.bedLane, span }')
+    // …and the ghost's span IS the span 注意して配置 stages, so the card cannot
+    // visibly jump when the operator escalates.
+    expect(branch).toContain('override: () => land(v.reason, span)')
+  })
+
+  it('the off-lane release grows NO ghost — there is no lane for one to sit on', () => {
+    // ⚖ 50(d)'s explanation-only popover: no row was named, so there is nothing
+    // to place and nothing to paint. It keeps its own ⚖47 restore.
+    const off = finish.slice(finish.indexOf('const off: LandingAsk'), finish.indexOf('targetLane = laneKey'))
+    expect(off).toContain('explainBlocked(')
+    expect(off).not.toContain('staffLane: sides.staffLane')
+    // Its restore runs BEFORE it explains, exactly as it did.
+    expect(finish.indexOf('restoreSides(ctx.id, from)')).toBeLessThan(finish.indexOf('const off: LandingAsk'))
+    // The default is null, so a caller that says nothing gets no ghost — the
+    // create / 次回予約 consult included (no card exists there yet).
+    expect(SRC).toContain("attempt: GuardAdvice['attempt'] = null,")
+    expect(SRC).toContain('attempt: null,')
+  })
+
+  it('every ending clears it, because it lives on the advice — flag 41 for free', () => {
+    // やめる, an alternative, 注意して配置, Escape and any new gesture all clear
+    // `advice`, and the ghost is a field ON it: there is no second lifetime to
+    // get wrong, and no new teardown path was added.
+    expect(SRC).toContain('<button className="btn" type="button" onClick={() => setAdvice(null)}>やめる</button>')
+    expect(SRC).toContain('place: (s) => { setAdvice(null); run.placeAt(s) },')
+    expect(SRC).toContain('override: props.canOverride && escalate ? () => { setAdvice(null); escalate() } : null,')
+    expect(SRC).toContain('if (advice) { setAdvice(null); return }')
+    const close = SRC.slice(SRC.indexOf('function closeAdvice()'), SRC.indexOf('function closeAdvice()') + 400)
+    expect(close).toContain('setAdvice(null)')
+  })
+
+  it('the ghost wears the proxy\'s blocked dress, not a placed card\'s', () => {
+    // With `live` cleared it would otherwise render as an ordinary card. ⚖ Q4
+    // default (overturnable): the proxy's own red dashed outline, so it reads
+    // as a proposal.
+    expect(SRC).toContain("${advice?.attempt?.id === item.caseId ? ' attempting' : ''}")
+    const css = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+    expect(css).toContain('.biz .event.attempting { outline: 2px dashed var(--red);')
+    // …and it is NOT the 仮押さえ dress, which means something else entirely.
+    expect(css).toContain('.biz .event.pending { outline: 2px dashed var(--orange);')
+  })
+
+  it('the overlay really does redraw the card at the attempt, arithmetically', () => {
+    // The memo's own arithmetic, run directly: `moves` untouched, the overlay
+    // map carrying the attempted landing, applyMoves doing the rest.
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', items: [booking({ key: 'a', caseId: 'apt-1' }, 660, 720)] }),
+      lane({ key: 'p-04', group: 'staff' }),
+    ]
+    const moves: Moves = {}
+    const attempt = { id: 'apt-1', staffLane: 'p-04', span: place(840, 900, HOURS) }
+    const overlay = { ...moves, [attempt.id]: { laneKey: attempt.staffLane, x: attempt.span.x, w: attempt.span.w } }
+    const ghost = applyMoves(lanes, overlay, [], [], HOURS)
+    expect(ghost[0].items).toHaveLength(0)
+    expect(ghost[1].items[0].caseId).toBe('apt-1')
+    expect(ghost[1].items[0].startMin).toBe(840)
+    // …and the board everything else judges is untouched: same lane, same span.
+    const real = applyMoves(lanes, moves, [], [], HOURS)
+    expect(real[0].items[0].startMin).toBe(660)
+    expect(real[1].items).toHaveLength(0)
+    expect(moves).toEqual({})
+  })
+})
+
+// ── BATCH-10b X4 — copy: flag 66(a) + the Fable sweep rider (ii) ──────────────
+describe('BATCH-10b X4 — the two copy items', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+
+  it('⚖ 66(a) — the 保護ルール row names the room the control ships in', () => {
+    // Liam: 「It should already be working or I should be able to change the
+    // settings on this page. It shouldn't be 準備中」. The guard IS live on this
+    // profile; what is unbuilt is the per-store control, and by the one-home law
+    // it belongs in the 設定 room. The badge says so instead of saying nothing.
+    expect(SRC).toContain('<span className="chip">変更は「設定」ルームで（準備中）</span>')
+    expect(SRC).not.toContain('<span className="chip">店舗設定は準備中</span>')
+    // The policy word itself is still the STORE's, read-only, unchanged.
+    expect(SRC).toContain('<span>保護ルール: {POLICY_WORD[props.guard.mode]}</span>')
+  })
+
+  it('sweep rider (ii) — the two advisory grammars are two engine FACTS, not one in two voices', () => {
+    // Investigated before touching either, per the packet. They come from
+    // different engine verdicts, and the difference is the whole point:
+    //
+    //   R-REP   → verdict 'refuse'   — the loss is AVOIDABLE; a strictly better
+    //             start exists in this pocket, which is why the surface offers
+    //             alternatives at all.
+    //   DEGRADED→ verdict 'degraded' — 「Nowhere wins — the loss is unavoidable」
+    //             (gap-guard.ts's own words), so the sentence prices the loss
+    //             and names the least-loss start instead of pointing elsewhere.
+    //
+    // Unifying them to the count form would delete the only signal that says
+    // "you can avoid this by moving". They stay two sentences, and this pins it.
+    const engine = readFileSync(join(process.cwd(), 'src/business/lib/canon-logic/gap-guard.ts'), 'utf8')
+    expect(engine).toContain("result.verdict = 'refuse'")
+    expect(engine).toContain("result.verdict = 'degraded'")
+    expect(engine).toContain('/** Nowhere wins — the loss is unavoidable. Log it, do not refuse. */')
+
+    const guard = { services: [{ name: '整体60', dur: 60 }], newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0, mode: 'standard' as const }
+    const railIn = (over = {}) => ({ open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90, nowMinute: null, locked: [], guard, ...over })
+    // 10:00–11:30 holds exactly one 新規90; a 60 anywhere in it costs that one
+    // window and NOWHERE in the pocket avoids it → degraded, the count form.
+    const unavoidable = guardVerdictAt([lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 690 } })], 'p-01', 600, railIn())!
+    expect(unavoidable.state).toBe('degraded')
+    expect(unavoidable.sentence).toContain('枠減')
+    expect(unavoidable.sentence).not.toContain('入らなくなります')
+    // …and the avoidable case keeps its own sentence, pointing away from here.
+    expect(reasonLine({ code: 'R-REP', params: { label: '新規（90分）' } }, 90)).toBe('ここに置くと新規（90分）が入らなくなります')
+  })
+})
+
+// ── BATCH-10b X5 — ⚖ flag 69: the dead blank column ──────────────────────────
+// ROOT CAUSE (study-confirmed, then re-verified here): nothing on the today
+// screen is measured or cached, and the hours track's right edge is honest. The
+// board narrowed because a DIFFERENT ROUTE'S STYLESHEET won the tie on
+// `.biz .workspace` once that route had been visited — Next keeps every visited
+// segment's CSS in the document, so equal-specificity selectors break on VISIT
+// ORDER. Liam's repro (今日の運営 → 予約 → back) is exactly that insertion order.
+describe('BATCH-10b ⚖ flag 69 — route stylesheets stop competing', () => {
+  const SHEETS = {
+    today: 'src/app/[locale]/(business)/business/today/today.css',
+    reservations: 'src/app/[locale]/(business)/business/reservations/reservations.css',
+    customers: 'src/app/[locale]/(business)/business/customers/customers.css',
+  }
+  const SCREENS = {
+    today: 'src/app/[locale]/(business)/business/today/TodayScreen.tsx',
+    reservations: 'src/app/[locale]/(business)/business/reservations/ReservationsScreen.tsx',
+    customers: 'src/app/[locale]/(business)/business/customers/CustomersScreen.tsx',
+  }
+  const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
+  /** Selector heads of every rule, at any depth. @media is transparent. */
+  function selectorsOf(css: string): Set<string> {
+    const clean = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    const found = new Set<string>()
+    let head = ''
+    for (const ch of clean) {
+      if (ch === '{') {
+        const text = head.trim()
+        head = ''
+        if (!text || text.startsWith('@')) continue
+        for (const sel of text.split(',')) {
+          const one = sel.replace(/\s+/g, ' ').trim()
+          if (one) found.add(one)
+        }
+      } else if (ch === '}' || ch === ';') head = ''
+      else head += ch
+    }
+    return found
+  }
+
+  it('every screen roots itself with its own page class', () => {
+    // The hook the scoping hangs on. One token per screen, and the CI guard
+    // below is what stops the next room from forgetting it.
+    expect(read(SCREENS.today)).toContain('<div className="page page-today">')
+    expect(read(SCREENS.reservations)).toContain('<div className="page page-reservations">')
+    expect(read(SCREENS.customers)).toContain('<div className="page page-customers">')
+    // The LoadFailure fallback is a page too — a broken screen that keeps the
+    // neighbour's grid is still the bug.
+    expect(read(SCREENS.reservations).match(/<div className="page page-reservations">/g)).toHaveLength(2)
+  })
+
+  it('no selector is defined in two route stylesheets — the whole family, not just .workspace', () => {
+    // ⚖ the root-cause directive: one disease, one cure. Patching `.workspace`
+    // alone would leave `.panel` and `.page` already wrong on the same gesture
+    // (borders, radii and the top gap all swap after a round-trip) and
+    // `.inspector` armed behind them.
+    const owners = new Map<string, string[]>()
+    for (const [name, path] of Object.entries(SHEETS)) {
+      for (const sel of selectorsOf(read(path))) {
+        if (!owners.has(sel)) owners.set(sel, [])
+        owners.get(sel)!.push(name)
+      }
+    }
+    const clashes = [...owners].filter(([, files]) => files.length > 1)
+    expect(clashes.map(([sel, files]) => `${sel} [${files.join('|')}]`)).toEqual([])
+  })
+
+  it('the board card is told ONE column on 今日の運営, whichever tab was visited first', () => {
+    // The pixel Liam pointed at. today.css keeps canon's single-column answer
+    // (canon :1411-1414, its own winning late override), and the sibling grids
+    // that used to outrank it can no longer match this page at all.
+    const today = read(SHEETS.today)
+    expect(today).toContain('.biz .page-today .workspace { display: grid; grid-template-columns: minmax(0, 1fr);')
+    for (const [name, path] of Object.entries(SHEETS)) {
+      if (name === 'today') continue
+      const sheet = read(path)
+      // The sibling's two-column grid still exists — scoped to its own page.
+      expect(sheet).toMatch(/\.biz \.page-(reservations|customers) \.workspace \{[^}]*grid-template-columns/)
+      // …and it can never name today's page.
+      expect(sheet).not.toContain('.page-today')
+    }
+  })
+
+  // The recurrence guard itself (`scripts/audit/check-route-css-collisions.mjs`,
+  // its CI step and its npm script) is a SHARED-FILE change, so the isolation
+  // gate sends it to its own non-Business PR — and its pins go with it, because
+  // a test that reads those three files cannot live on a branch that does not
+  // carry them. `chore/route-css-tripwire` owns them now. What stays here is the
+  // in-territory truth the guard automates: the collision test directly above,
+  // which is the one that would go red if these sheets ever competed again.
+
+  it('nothing about the board is measured or cached — the study\'s other hypothesis, re-checked here', () => {
+    // If geometry were cached the remount would have to clear it, and the fix
+    // would live in the screen. It does not: the only board geometry written to
+    // the DOM is `--label`, during a drag, never persisted.
+    const src = read(SCREENS.today)
+    expect(src).not.toContain('new ResizeObserver')
+    expect(src).toContain("board.style.setProperty('--label'")
+    // …and the hours track's right edge is the fixture's own closing time, not
+    // a truncation: 10:00–19:00 is nine columns, and the head says so in words.
+    const fixtures = read('src/business/lib/fixtures-today.ts')
+    expect(fixtures).toContain('export const operatingHours = { open: 10 * 60, close: 19 * 60 }')
+    expect(src).toContain('<span>営業時間 {hhmm(hours.open)}–{hhmm(hours.close)}・時間外は非表示</span>')
+  })
+})
+
+// ── BATCH-10b X6 — ⚖ flag 71: the fixture's hold stops greeting Liam ─────────
+// 「the 仮押さえ popover appears on every fresh load. Why? Is it a bug?」 Yes —
+// and NOT in the fixture. canon ships the same held booking deliberately
+// (fable-store-today.html:1901/:2009, the 担当変更 incident's own candidate) but
+// its #holdBar is `hidden` at load and renderHoldBar is called only from
+// stageChange and 確定. The standing surface was our transplant's invention.
+// ⚖ Fable adjudication 8/22: cure (a) — the surface becomes gesture-born, the
+// fixture keeps its booking, and the incident keeps its evidence.
+describe('BATCH-10b ⚖ flag 71 — no uninvited confirm', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+
+  it('a fresh load shows NO standing 仮押さえ — the prop alone can no longer raise it', () => {
+    // THE FIX, in one clause. `holdOpen` is screen-local and starts false, so a
+    // fresh load and a day flip both begin with the question unasked.
+    expect(SRC).toContain(': props.hold && holdAnswer === null && holdOpen')
+    expect(SRC).toContain('const [holdOpen, setHoldOpen] = useState(false)')
+    // The surface can be reached ONLY through the open path — no other writer.
+    expect(SRC.match(/setHoldOpen\(/g)).toHaveLength(1)
+  })
+
+  it('the explicit re-open is the held booking itself, and any other card puts it down', () => {
+    // ⚖ 41's re-open clause, wired to the booking the hold is about. Opening a
+    // different card closes it, so the surface can never hang over a card it is
+    // not about — one expression, no second branch.
+    const press = SRC.slice(SRC.indexOf('if (!ctx.moved) {'), SRC.indexOf('openClickWindow(upAt'))
+    expect(press).toContain('setSelected(item.caseId)')
+    expect(press).toContain('setHoldOpen(props.hold != null && item.caseId === props.hold.bookingId)')
+    // The hold's id and a card's id are the same id space, which is what makes
+    // that comparison meaningful rather than always-false.
+    const board = readFileSync(join(process.cwd(), 'src/business/lib/today-board.ts'), 'utf8')
+    expect(board).toContain('caseId: b.id,')
+    const page = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
+    expect(page).toContain('bookingId: heldBooking.id,')
+  })
+
+  it('the answers are untouched, so ⚖ 56 and the 担当変更 card still resolve', () => {
+    // No new component and no new grammar: the SAME confirm surface, the same
+    // two answers, the same writes. `holdAnswer` still closes it for the
+    // session and still resolves the incident's decision card.
+    expect(SRC).toContain("              setHoldAnswer('confirmed')")
+    expect(SRC).toContain("setResolved((was) => toggleOn(was, props.cards.find((c) => c.kind === '担当変更')?.id))")
+    expect(SRC).toContain("revert: { enabled: true, run: () => { setHoldAnswer('reverted'); show('仮押さえのままにしました') } },")
+    // An ANSWERED hold is gone whether or not the card is opened again: the
+    // holdAnswer clause sits IN FRONT of holdOpen, so it decides first.
+    const arm = SRC.slice(SRC.indexOf(': props.hold && holdAnswer === null'), SRC.indexOf('anchorId: null,'))
+    expect(arm).toContain('holdAnswer === null && holdOpen')
+  })
+
+  /** THE FIRST OPEN AFTER A LOAD PUT THE CONFIRM OFF SCREEN (real browser,
+   *  2026-08-22): `.hold-pop` with no `.pinned` at `top: 1659px` in a 935px
+   *  viewport — `position: fixed` with no `top` of its own, i.e. its static
+   *  flow position. Root cause: `holdAnchorId` is `null` both closed and open
+   *  for this arm (its `anchorId: null` is a MEASURED 8/21 ruling, not an
+   *  oversight), so no dep of the pinning effect moved when the surface
+   *  appeared and `setHoldPinned(true)` never fired. X6 created the case; the
+   *  cure is to key the effect on the surface's existence, so EVERY path that
+   *  mounts it pins it. */
+  it('the pinning effect keys on the SURFACE existing, not on an anchor this arm has not got', () => {
+    expect(SRC).toContain('const holdPopMounted = holdPop !== null')
+    expect(SRC).toContain('}, [holdPopMounted, holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])')
+    // The dep is the SAME expression the render gates on, so the two can never
+    // disagree about whether the element is in the DOM.
+    expect(SRC).toContain('{holdPop && (')
+    // The arm that needs it still has no anchor of its own — the fix is not a
+    // quiet re-anchoring of the standing hold (⚖ 8/21: anchored, this surface
+    // swallows the pointerdown of the card below).
+    expect(SRC).toContain('          anchorId: null,')
+    // …and what the effect does for an anchorless surface is pin it, which is
+    // the branch that was never reached on a first open.
+    expect(SRC).toContain('      if (!at) {\n        setHoldPinned(true)')
+  })
+
+  it('the fixture keeps its held booking — the incident\'s evidence is not collateral', () => {
+    // The packet's letter was to delete the fixture's hold. It is canon-faithful
+    // demo data AND it feeds three other surfaces, so cure (a) leaves it alone.
+    const fixtures = readFileSync(join(process.cwd(), 'src/business/lib/fixtures.ts'), 'utf8')
+    expect(fixtures).toContain("board_state: 'hold'")
+    const page = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
+    // Still lifted, and still feeding the recovery dialog…
+    expect(page).toContain("const heldBooking = bookings.find((b) => b.state === 'hold') ?? null")
+    expect(page).toContain('新しい仮押さえ')
+    // …and the incident's 仮押さえ済 step still reads the prop, not the surface.
+    expect(SRC).toContain('(i === 1 && props.hold != null)')
   })
 })

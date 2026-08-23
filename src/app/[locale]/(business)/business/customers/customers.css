@@ -22,14 +22,14 @@
    never reaches the shared sidebar/topbar chrome. */
 .biz .page .btn { font-weight: 600; }
 
-.biz .page { padding: 24px 28px 40px; }
-.biz .page-head { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 16px; }
-.biz .eyebrow { margin-bottom: 4px; color: var(--indigo); font-size: 12px; font-weight: 800; letter-spacing: .05em; }
-.biz .page h1 { margin: 0; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
-.biz .subtitle { margin: 5px 0 0; color: var(--muted); font-size: 14px; line-height: 1.55; }
+.biz .page.page-customers { padding: 24px 28px 40px; }
+.biz .page-customers .page-head { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 16px; }
+.biz .page-customers .eyebrow { margin-bottom: 4px; color: var(--indigo); font-size: 12px; font-weight: 800; letter-spacing: .05em; }
+.biz .page.page-customers h1 { margin: 0; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
+.biz .page-customers .subtitle { margin: 5px 0 0; color: var(--muted); font-size: 14px; line-height: 1.55; }
 .biz .head-actions { display: flex; align-items: center; gap: 8px; }
 
-.biz .summary {
+.biz .page-customers .summary {
   display: grid;
   grid-template-columns: minmax(280px, 1.5fr) repeat(4, minmax(112px, .55fr));
   margin-bottom: 14px;
@@ -38,12 +38,12 @@
   background: #fafbff;
   overflow: hidden;
 }
-.biz .summary-main { padding: 13px 15px; border-left: 3px solid var(--indigo); }
-.biz .summary-main strong { display: block; font-size: 15px; }
-.biz .summary-main span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.45; }
-.biz .summary-stat { display: grid; align-content: center; padding: 10px 13px; border-left: 1px solid #e5e9f7; }
-.biz .summary-stat span { color: var(--muted); font-size: 12px; }
-.biz .summary-stat b { display: block; margin-top: 2px; font-size: 20px; font-variant-numeric: tabular-nums; }
+.biz .page-customers .summary-main { padding: 13px 15px; border-left: 3px solid var(--indigo); }
+.biz .page-customers .summary-main strong { display: block; font-size: 15px; }
+.biz .page-customers .summary-main span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.biz .page-customers .summary-stat { display: grid; align-content: center; padding: 10px 13px; border-left: 1px solid #e5e9f7; }
+.biz .page-customers .summary-stat span { color: var(--muted); font-size: 12px; }
+.biz .page-customers .summary-stat b { display: block; margin-top: 2px; font-size: 20px; font-variant-numeric: tabular-nums; }
 .biz .summary-stat b.attention { color: var(--red); }
 
 .biz .identity-alert {
@@ -61,9 +61,9 @@
 .biz .identity-alert strong { display: block; color: var(--red); font-size: 15px; }
 .biz .identity-alert > div > span { display: block; margin-top: 3px; color: var(--ink-3); font-size: 13px; line-height: 1.45; }
 
-.biz .workspace { display: grid; grid-template-columns: minmax(570px, 1fr) 400px; gap: 14px; align-items: start; }
-.biz .panel { border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
-.biz .panel-head {
+.biz .page-customers .workspace { display: grid; grid-template-columns: minmax(570px, 1fr) 400px; gap: 14px; align-items: start; }
+.biz .page-customers .panel { border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
+.biz .page-customers .panel-head {
   min-height: 62px;
   padding: 10px 15px;
   border-bottom: 1px solid var(--line-2);
@@ -73,15 +73,15 @@
   gap: 14px;
   background: #fafafb;
 }
-.biz .panel-head strong { display: block; font-size: 15px; }
-.biz .panel-head span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+.biz .page-customers .panel-head strong { display: block; font-size: 15px; }
+.biz .page-customers .panel-head span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
 .biz .search-row { display: grid; grid-template-columns: minmax(220px, 1fr) auto; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line-2); }
 .biz .search { min-height: 42px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); }
-.biz .filters { display: flex; gap: 7px; padding: 10px 12px; border-bottom: 1px solid var(--line-2); overflow-x: auto; }
+.biz .page-customers .filters { display: flex; gap: 7px; padding: 10px 12px; border-bottom: 1px solid var(--line-2); overflow-x: auto; }
 .biz .filter { min-height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink-3); font-size: 13px; white-space: nowrap; }
 .biz .filter[aria-pressed="true"] { border-color: var(--select-line); background: var(--select-bg); color: var(--select-ink); }
 
-.biz .list-head {
+.biz .page-customers .list-head {
   display: grid;
   grid-template-columns: var(--fx-cols);
   gap: 10px;
@@ -132,15 +132,15 @@
    ブラウザが測り直す。補足行（顧客番号・電話）は「 / 」で素直に折れる。 */
 .biz .person strong { display: block; font-size: 14px; white-space: nowrap; }
 .biz .person .person-sub { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
-.biz .cell strong { display: block; font-size: 13px; }
-.biz .cell span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.biz .page-customers .cell strong { display: block; font-size: 13px; }
+.biz .page-customers .cell span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.4; }
 /* .pill.alert moved to business-shell.css — 予約 needs the same red pill, and
    the shell owns the .pill primitive. */
-.biz .empty { min-height: 300px; display: grid; place-content: center; padding: 28px; text-align: center; }
-.biz .empty strong { font-size: 16px; }
-.biz .empty span { margin-top: 6px; color: var(--muted); font-size: 13px; }
+.biz .page-customers .empty { min-height: 300px; display: grid; place-content: center; padding: 28px; text-align: center; }
+.biz .page-customers .empty strong { font-size: 16px; }
+.biz .page-customers .empty span { margin-top: 6px; color: var(--muted); font-size: 13px; }
 
-.biz .w2-provenance {
+.biz .page-customers .w2-provenance {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -158,7 +158,7 @@
   font-size: 11px;
   font-weight: 800;
 }
-.biz .w2-off-list {
+.biz .page-customers .w2-off-list {
   margin: 0 0 9px;
   padding: 8px 9px;
   border-left: 3px solid #2563eb;
@@ -185,27 +185,27 @@
 .biz .merge-warning strong { display: block; color: var(--red); font-size: 13px; }
 .biz .merge-warning span { display: block; margin-top: 3px; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
 .biz .merge-warning .btn { width: 100%; margin-top: 9px; }
-.biz .section-title { margin: 15px 0 7px; color: var(--ink-3); font-size: 12px; font-weight: 800; letter-spacing: .04em; }
+.biz .page-customers .section-title { margin: 15px 0 7px; color: var(--ink-3); font-size: 12px; font-weight: 800; letter-spacing: .04em; }
 .biz .metric-strip { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid #dfe5fb; border-radius: 9px; background: #fafbff; overflow: hidden; }
 .biz .metric { padding: 9px 8px; border-right: 1px solid #e5e9f7; }
 .biz .metric:last-child { border-right: 0; }
 .biz .metric span { display: block; color: var(--muted); font-size: 12px; }
 .biz .metric b { display: block; margin-top: 3px; font-size: 15px; line-height: 1.35; }
 .biz .fact-list { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-.biz .fact { display: grid; grid-template-columns: 98px 1fr; gap: 10px; padding: 9px 10px; border-bottom: 1px solid var(--row); font-size: 13px; line-height: 1.45; }
+.biz .page-customers .fact { display: grid; grid-template-columns: 98px 1fr; gap: 10px; padding: 9px 10px; border-bottom: 1px solid var(--row); font-size: 13px; line-height: 1.45; }
 .biz .fact:last-child { border-bottom: 0; }
-.biz .fact span { color: var(--muted); }
-.biz .fact b { text-align: right; font-weight: 600; }
+.biz .page-customers .fact span { color: var(--muted); }
+.biz .page-customers .fact b { text-align: right; font-weight: 600; }
 .biz .consent-box { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
 .biz .consent-row { display: flex; align-items: center; gap: 9px; min-height: 44px; padding: 7px 10px; border-bottom: 1px solid var(--row); }
 .biz .consent-row:last-child { border-bottom: 0; }
 .biz .consent-row strong { font-size: 13px; }
 .biz .consent-row span { margin-left: auto; color: var(--muted); font-size: 12px; }
-.biz .history { border-top: 1px solid var(--line-2); }
-.biz .history-row { display: grid; grid-template-columns: 66px 1fr; gap: 9px; padding: 9px 0; border-bottom: 1px solid var(--row); }
-.biz .history-row time { color: var(--quiet); font-size: 12px; }
-.biz .history-row strong { display: block; font-size: 13px; }
-.biz .history-row > span > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.biz .page-customers .history { border-top: 1px solid var(--line-2); }
+.biz .page-customers .history-row { display: grid; grid-template-columns: 66px 1fr; gap: 9px; padding: 9px 0; border-bottom: 1px solid var(--row); }
+.biz .page-customers .history-row time { color: var(--quiet); font-size: 12px; }
+.biz .page-customers .history-row strong { display: block; font-size: 13px; }
+.biz .page-customers .history-row > span > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .biz .record-boundary { margin-top: 13px; padding: 11px 12px; border-left: 3px solid var(--indigo); background: #fafbff; color: var(--ink-3); font-size: 12px; line-height: 1.55; }
 .biz .record-boundary strong { color: var(--indigo); }
 .biz .detail-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 13px; }
@@ -213,8 +213,8 @@
 /* ═══ 本人関係 — COLLAPSED (⚖ cut #7: the five-party box never renders
    exploded). One line per party, detail on click, and a chip only where the
    fixture deviates from "the customer is all four parties". ═══ */
-.biz .party-list { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-.biz .party-row {
+.biz .page-customers .party-list { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.biz .page-customers .party-row {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -228,14 +228,14 @@
   text-align: left;
   font-size: 13px;
 }
-.biz .party-row:last-of-type { border-bottom: 0; }
+.biz .page-customers .party-row:last-of-type { border-bottom: 0; }
 .biz .party-row span:first-child { color: var(--muted); font-size: 12px; min-width: 72px; }
-.biz .party-row b { font-weight: 600; }
-.biz .party-row .pill { margin-left: auto; }
-.biz .party-note { padding: 8px 10px; border-top: 1px solid var(--row); background: #fafbff; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
+.biz .page-customers .party-row b { font-weight: 600; }
+.biz .page-customers .party-row .pill { margin-left: auto; }
+.biz .page-customers .party-note { padding: 8px 10px; border-top: 1px solid var(--row); background: #fafbff; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
 
 /* ═══ dialog ═══ */
-.biz dialog {
+.biz .page-customers dialog {
   /* ⚖ Liam flag 32 — same fix, same cause as `.biz-dialog` in today.css:
      Tailwind's preflight zeroes the margin on every element, <dialog> included,
      which kills the UA's `dialog:modal { margin: auto }` centering. Every native
@@ -250,8 +250,8 @@
   color: var(--ink);
   box-shadow: 0 20px 55px rgba(24, 24, 27, .18);
 }
-.biz dialog::backdrop { background: rgba(24, 24, 27, .46); }
-.biz .dialog-head {
+.biz .page-customers dialog::backdrop { background: rgba(24, 24, 27, .46); }
+.biz .page-customers .dialog-head {
   min-height: 66px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--line-2);
@@ -260,18 +260,18 @@
   justify-content: space-between;
   gap: 12px;
 }
-.biz .dialog-head h2 { margin: 0; font-size: 20px; }
-.biz .dialog-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
-.biz .close { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink-2); }
-.biz .dialog-body { padding: 16px; }
+.biz .page-customers .dialog-head h2 { margin: 0; font-size: 20px; }
+.biz .page-customers .dialog-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.biz .page-customers .close { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink-2); }
+.biz .page-customers .dialog-body { padding: 16px; }
 .biz .merge-proof { margin-top: 12px; padding: 11px 12px; border-left: 3px solid var(--amber); background: var(--amber-soft); color: var(--ink-3); font-size: 12px; line-height: 1.55; }
 .biz .consent-form { display: grid; gap: 13px; }
 .biz .consent-field { display: grid; gap: 6px; font-size: 13px; font-weight: 800; }
 .biz .consent-field input, .biz .consent-field select { min-height: 42px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 .biz .consent-field input[aria-invalid="true"], .biz .consent-field select[aria-invalid="true"] { border-color: var(--red); }
-.biz .dialog-foot { padding: 12px 16px; border-top: 1px solid var(--line-2); display: flex; justify-content: flex-end; gap: 8px; background: #fafafb; }
+.biz .page-customers .dialog-foot { padding: 12px 16px; border-top: 1px solid var(--line-2); display: flex; justify-content: flex-end; gap: 8px; background: #fafafb; }
 
-.biz .toast {
+.biz .page-customers .toast {
   position: fixed;
   right: 22px;
   bottom: 22px;
@@ -290,13 +290,13 @@
   transform: translateY(8px);
   transition: opacity .16s ease, transform .16s ease;
 }
-.biz .toast.show { opacity: 1; transform: translateY(0); }
+.biz .page-customers .toast.show { opacity: 1; transform: translateY(0); }
 
 @media (max-width: 1320px) {
-  .biz .page { padding-left: 20px; padding-right: 20px; }
-  .biz .workspace { grid-template-columns: minmax(520px, 1fr) 366px; gap: 10px; }
+  .biz .page.page-customers { padding-left: 20px; padding-right: 20px; }
+  .biz .page-customers .workspace { grid-template-columns: minmax(520px, 1fr) 366px; gap: 10px; }
   /* 1180 の内寸(518px)に4列＋隙間＋余白が入るところまで下限を下げてある。
      下限は「名前が nowrap で収まる幅」から決めている（顧客 140 = 印38 + 間10 + 氏名）。 */
   .biz #customerPanel { --fx-cols: var(--fx-narrow); }
-  .biz .summary-stat { padding-left: 8px; padding-right: 8px; }
+  .biz .page-customers .summary-stat { padding-left: 8px; padding-right: 8px; }
 }

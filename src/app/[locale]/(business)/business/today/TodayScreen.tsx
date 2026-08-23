@@ -101,6 +101,7 @@ import {
   sharesStore,
   sellLayerFor,
   sidesAt,
+  seedSpanIn,
   slotStartAt,
   spotCardAt,
   spotHitIndex,
@@ -124,10 +125,18 @@ const HINT = '見本データのため実行できません'
 /** ⚖ Liam flag 47 — how long the board's own voice stays on screen. The shipped
  *  3.2s is right for a message that CONFIRMS something the operator can already
  *  see; a refusal is the only evidence that a thing did not happen, and it has
- *  to outlive the glance that missed it. Twice the dwell, no new surface. */
+ *  to outlive the glance that missed it. Twice the dwell, no new surface.
+ *
+ *  ⚖ 47's class has TWO members, the second measured live on 2026-08-22: a
+ *  toast carrying an UNDO is the only way back from a destructive act, so it
+ *  is read to be ACTED ON, not glanced at. At 3.2s the block-delete undo
+ *  expired mid-reach and the click landed on the empty track underneath,
+ *  opening 新規予約を作成 — 「it flashed too fast to read」 in a new costume.
+ *  Same dwell, same reason, one constant; the name is the class, not the
+ *  wording. An ordinary confirmation is unchanged at 3.2s. */
 const TOAST_MS = 3200
 const REFUSAL_MS = 7000
-const EMPTY_TOAST = { text: '', ms: TOAST_MS, n: 0 }
+const EMPTY_TOAST = { text: '', ms: TOAST_MS, n: 0, undo: null as (() => void) | null }
 
 export interface DecisionCard {
   id: string
@@ -507,6 +516,20 @@ interface GuardAdvice {
    *  surface is an explanation with no place-anyway action at all (his ruling:
    *  the state is untouched and there is nothing to press). */
   override: (() => void) | null
+  /** ⚖ Liam flag 57 (2026-08-22) — THE LANDING THE CARD IS ASKING ABOUT.
+   *
+   *  His complaint: the card snaps home the instant the question appears, so
+   *  the popover asks about a spot nothing is standing on. This carries that
+   *  spot, and it is DISPLAY STATE ONLY — folded into `drawnLanes` and nothing
+   *  else, so ⚖47's 「a refusal changes NOTHING」 still holds literally:
+   *  `moves` is untouched and every reader of the real board (`checksFor`,
+   *  `pendingConfirm`, `holdSummary`, the guard rails) sees the un-mutated one.
+   *
+   *  `null` wherever there is no attempted landing to sit on — the create /
+   *  次回予約 consult (no card exists yet) and the off-lane release (no row was
+   *  named, so there is no lane to sit on either). Its lifetime is the advice's
+   *  own, which is exactly flag 41's: it dies with every ending. */
+  attempt: { id: string; staffLane: string | null; bedLane: string | null; span: { x: number; w: number } } | null
 }
 
 export function TodayScreen(props: TodayProps) {
@@ -570,8 +593,28 @@ export function TodayScreen(props: TodayProps) {
    *  own dwell, and `n` re-arms the timer when the SAME refusal is earned twice
    *  in a row (pressing the same illegal slot again used to say nothing at all,
    *  because the state never changed). */
-  const [toast, setToast] = useState<{ text: string; ms: number; n: number }>(EMPTY_TOAST)
-  const [blockInfo, setBlockInfo] = useState<{ kind: string; who: string; whoLabel: string; time: string; note: string } | null>(null)
+  const [toast, setToast] = useState<{ text: string; ms: number; n: number; undo: (() => void) | null }>(EMPTY_TOAST)
+  /** ⚖ Liam flag 64 — the dialog now carries a HANDLE on the block, not only
+   *  strings about it. Without `key` there was nothing for 削除 to name, which
+   *  is the second half of why the button was dead. */
+  const [blockInfo, setBlockInfo] = useState<{ key: string; laneKey: string; itemKind: BoardItem['kind']; title: string; kind: string; who: string; whoLabel: string; time: string; note: string } | null>(null)
+  /** canon's two-footer confirm strip (:4246-4250): 削除 swaps the footer for a
+   *  sentence + やめる/削除する rather than opening a second surface. */
+  const [blockDeleteAsk, setBlockDeleteAsk] = useState(false)
+  /** ⚖ Liam flag 71 (2026-08-22) — THE STANDING 仮押さえ IS OPENED, NEVER UNINVITED.
+   *
+   *  It used to hang off the PROP alone, so the day's own hold interrogated the
+   *  owner on every single load: 「この内容で確定？」 before he had touched
+   *  anything. canon does not do this — it ships the same held booking
+   *  (fable-store-today.html:1901/:2009) but its `#holdBar` is `hidden` at load
+   *  and `renderHoldBar` is only ever called from `stageChange` and 確定. The
+   *  surface was our transplant's own invention, not the fixture's fault, so the
+   *  fixture keeps its held booking and the incident keeps its evidence.
+   *
+   *  Screen-local ON PURPOSE, unlike `holdAnswer`: the ANSWER must outlive a day
+   *  flip (⚖ 41), but "is this popover open" must not — a flip should not carry
+   *  an open question onto another day's board. */
+  const [holdOpen, setHoldOpen] = useState(false)
   const [seed, setSeed] = useState<{ staffId: string; start: number; nonce: number } | null>(null)
 
   // ── the interaction plane ────────────────────────────────────────────────
@@ -591,6 +634,11 @@ export function TodayScreen(props: TodayProps) {
    *  shelf or the guard's conflict ledger, and canon keeps `bindBlockDrag` a
    *  separate pipeline from `bindDrag` for exactly that reason. */
   const [blockMoves, setBlockMoves] = useState<Moves>({})
+  /** ⚖ Liam flag 64 — blocks removed by hand this session, keyed by `item.key`
+   *  for the same reason `blockMoves` is (a block has no `caseId`). It lives
+   *  HERE, beside `blockMoves`, and inherits its constraint: see the note in
+   *  `applyBlockMoves`, and BusinessSessionEdits.tsx's own comment above it. */
+  const [blockDeleted, setBlockDeleted] = useState<string[]>([])
   /** The block in flight, and its snapped landing — the block twin of `live`.
    *  It is NOT folded into the lanes any derivation reads: canon repaints the
    *  window layers on a block DROP (`renderPublicLayer()` at the end of
@@ -897,8 +945,8 @@ export function TodayScreen(props: TodayProps) {
    *  it was dragged to for the guard, the sell layer and the next block's
    *  overlap check alike. */
   const placedLanes = useMemo(
-    () => applyBlockMoves(props.lanes, blockMoves, hours),
-    [props.lanes, blockMoves, hours],
+    () => applyBlockMoves(props.lanes, blockMoves, hours, blockDeleted),
+    [props.lanes, blockMoves, hours, blockDeleted],
   )
   const boardLanes = useMemo(
     () => applyMoves(placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves),
@@ -924,7 +972,21 @@ export function TodayScreen(props: TodayProps) {
    *  card he grabbed is under his cursor now (the proxy), so the original stays
    *  at its origin and dims — it is the "you took this from here" marker, and a
    *  card that both dims AND slides is two travelling things at once. */
-  const drawnLanes = live || blockLive ? committedLanes : boardLanes
+  /** ⚖ Liam flag 57 — THE PENDING-OVERRIDE GHOST, and nothing more than a paint.
+   *
+   *  Shaped exactly like `liveMoves` / `liveBedMoves` above and fed into
+   *  `drawnLanes` alone. `moves` never learns about it, so the confirm surface,
+   *  the checks, the sell layer and the guard rails all keep judging the board
+   *  the operator has NOT changed — which is what makes this legal under ⚖47
+   *  rather than a staged placement wearing a costume. */
+  const attemptLanes = useMemo(() => {
+    const a = advice?.attempt
+    if (!a) return null
+    const staff = a.staffLane ? { ...moves, [a.id]: { laneKey: a.staffLane, x: a.span.x, w: a.span.w } } : moves
+    const bed = a.bedLane ? { ...bedMoves, [a.id]: { laneKey: a.bedLane, x: a.span.x, w: a.span.w } } : bedMoves
+    return applyMoves(placedLanes, staff, parked, addedHere, hours, bed)
+  }, [advice, moves, bedMoves, placedLanes, parked, addedHere, hours])
+  const drawnLanes = live || blockLive ? committedLanes : (attemptLanes ?? boardLanes)
   /** ⚖ Liam 2026-08-20: the dashed outline is now the SNAPPED LANDING PREVIEW and
    *  is drawn for every live drag, same lane or not — with the card off travelling
    *  it is the only thing on the board saying where the release will actually put
@@ -1102,8 +1164,13 @@ export function TodayScreen(props: TodayProps) {
 
   const currentCase = selected ? (props.cases[selected] ?? null) : null
 
-  function show(message: string, ms = TOAST_MS) {
-    setToast((was) => ({ text: message, ms, n: was.n + 1 }))
+  /** ⚖ Liam flag 64 — canon's delete toast carries an UNDO (`showToast(… ,
+   *  "undo")`, :4338), so the one door grew an optional action rather than the
+   *  delete growing a second surface. Every existing caller passes nothing and
+   *  is byte-identical; a refusal never carries one, because there is nothing
+   *  to take back. */
+  function show(message: string, ms = TOAST_MS, undo: (() => void) | null = null) {
+    setToast((was) => ({ text: message, ms, n: was.n + 1, undo }))
   }
 
   /** ⚖ Liam flag 47 — THE LANE INVARIANT, IN ONE FUNCTION: *a refusal changes
@@ -1385,8 +1452,17 @@ export function TodayScreen(props: TodayProps) {
         confirm: { label: pendingConfirm.label, enabled: pendingConfirm.enabled, run: confirmPending },
         revert: { enabled: true, run: revertPending },
       }
-    : props.hold && holdAnswer === null
+    // ⚖ Liam flag 71 — `holdOpen` is the whole fix, and it is LAST on purpose:
+    // the two clauses before it are ⚖ 41/56's law, untouched. Unanswered is
+    // still the only state that HAS a question; opening is now how it gets
+    // asked. An answered hold stays gone for the session either way.
+    : props.hold && holdAnswer === null && holdOpen
       ? {
+          // ⚖ 71 does NOT change the line below: anchoring this surface to the
+          // card was measured on 2026-08-21 to sit over the board and swallow
+          // the pointerdown of a card in the lane below, and the operator's way
+          // out of that is the very click it eats. Opening it on demand shortens
+          // how long it is up; it does not make an anchored surface safe.
           // The day's own standing 仮押さえ (the incident's) — the pill, always.
           anchorId: null,
           status: '仮押さえ',
@@ -1425,6 +1501,24 @@ export function TodayScreen(props: TodayProps) {
   // The ID alone, never the object: `holdPop` is rebuilt on every render, and an
   // effect keyed on it would re-measure the DOM on every frame of a drag.
   const holdAnchorId = holdPop?.anchorId ?? null
+  /** ⚖ Liam flag 71 FOLLOW-UP (measured in a real browser, 2026-08-22) — THE
+   *  SURFACE'S OWN EXISTENCE is a dep, because the anchor is not one for every
+   *  arm. The standing hold's `anchorId` is deliberately `null` (see above), so
+   *  `holdAnchorId` reads `null` while the popover is CLOSED *and* while it is
+   *  OPEN: nothing in the array below moved when the surface appeared, `pin()`
+   *  never ran for its first appearance, `setHoldPinned(true)` never fired —
+   *  and `.hold-pop` is `position: fixed` with no `top` of its own, so it kept
+   *  its STATIC FLOW POSITION: 1659px down a 935px viewport, invisible and
+   *  unreachable. (A later open looked right only because the scroll/resize
+   *  listeners below call the same `pin()` on whatever element is mounted, so
+   *  any scroll in between corrected it. A first open has had no such luck.)
+   *  X6 built that case: before it, the standing hold was mounted from the
+   *  first render, so the mount-run of this effect always caught it.
+   *
+   *  Keyed on the MOUNT — the same expression the render gates on — every path
+   *  that brings this surface into being pins it, including paths nobody has
+   *  written yet. No first-open special case exists or is needed. */
+  const holdPopMounted = holdPop !== null
   /** ⚖ Liam flag 48 — WHICH 60分配置 chip the confirm should try not to sit on:
    *  the one for the START THE CARD LANDED ON, in the lane it landed in. The
    *  rail draws a cell every 30 minutes, so an off-lattice landing (canon's dual
@@ -1503,7 +1597,11 @@ export function TodayScreen(props: TodayProps) {
     // UNION at cycle 7: batch-7 adds `holdRailSel` (⚖ 48's avoid-rect reads it
     // inside `pin`), and predates the two unmount gates above. All four belong —
     // dropping either half re-opens the bug the other half was written for.
-  }, [holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])
+    //
+    // `holdPopMounted` leads at batch-10b: it is the only member that moves for
+    // an arm with no anchor, and it covers the MOUNT the other six only cover
+    // by accident. See its comment above for the measurement.
+  }, [holdPopMounted, holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])
 
   /** ⚖ Liam flag 51 (LOCKED) — THE ROOM, RE-SOLVED AT THIS LANDING. Every path
    *  that puts a booking down carrying a bed comes through here: the staff-lane
@@ -2008,6 +2106,13 @@ export function TodayScreen(props: TodayProps) {
       // A press that never travelled is a selection, not a drag.
       clearDrag()
       setSelected(item.caseId)
+      // ⚖ Liam flag 71 — THE EXPLICIT RE-OPEN, and the only way the day's own
+      // 仮押さえ is ever asked now. Opening the held booking opens its question;
+      // opening any other card puts it down again, so the surface can never be
+      // left hanging over a card it is not about. Same component, same answers,
+      // same 確定/元に戻す — `holdAnswer` still resolves the 担当変更 card and
+      // still serves ⚖ 56.
+      setHoldOpen(props.hold != null && item.caseId === props.hold.bookingId)
       return
     }
     // ⚖ Liam flag 33, ROOT CAUSE — canon `finishNormalBookingDrag` (:4563) opens
@@ -2129,7 +2234,16 @@ export function TodayScreen(props: TodayProps) {
     // it removes an entire class of hover/release disagreement.
     const v = verdictRef.current(ask)
     if (v.kind === 'blocked') {
-      restoreSides(ctx.id, from)
+      // ⚖ Liam flag 57 (2026-08-22) — NO REWIND WHILE THE QUESTION IS OPEN.
+      //
+      // `restoreSides` used to run here, one line before the popover was built,
+      // and with the drag teardown already past it the operator was answering
+      // about a spot nothing was standing on. It was also redundant: a drag
+      // writes `live`, never `moves`, so the pointerdown snapshot this wrote
+      // back was the values already there. The card returns to its origin the
+      // moment the advice clears, from `moves` — the source of truth a refusal
+      // is not allowed to touch (⚖47). What is added instead is the DISPLAY
+      // overlay below, so the card is visibly still asking.
       explainBlocked(v, ask, targetLane, span, { x: clientX, y: clientY, t: upAt }, {
         // 「注意して配置」 — the same staging the clean path runs, carrying the
         // sentence it walked past so the confirm surface can show it.
@@ -2148,7 +2262,7 @@ export function TodayScreen(props: TodayProps) {
           }
           land(null, at)
         },
-      })
+      }, { id: ctx.id, staffLane: sides.staffLane, bedLane: sides.bedLane, span })
       return
     }
     land(null, span)
@@ -2175,6 +2289,7 @@ export function TodayScreen(props: TodayProps) {
     span: { x: number; w: number },
     at: { x: number; y: number; t: number },
     run: { override: (() => void) | null; placeAt: (start: number) => void },
+    attempt: GuardAdvice['attempt'] = null,
   ) {
     // ⚖ 50(d) — the escalation exists where the STORE granted it AND where
     // there is something to escalate onto. A release over no row at all has
@@ -2196,6 +2311,11 @@ export function TodayScreen(props: TodayProps) {
       anchor: at,
       place: (s) => { setAdvice(null); run.placeAt(s) },
       override: props.canOverride && escalate ? () => { setAdvice(null); escalate() } : null,
+      // ⚖ 57 — the card sits where it was dropped while the question is open.
+      // 注意して配置 stages the SAME span, so it never visibly jumps; やめる and
+      // every other ending clear the advice and the card is drawn from `moves`
+      // again, i.e. its origin. No new teardown path exists or is needed.
+      attempt,
     })
   }
 
@@ -2712,6 +2832,10 @@ export function TodayScreen(props: TodayProps) {
       anchor: at,
       place: (s) => run(s, null),
       override: null,
+      // ⚖ 57 — no ghost here: a 要確認 landing PLACES (this branch is reached
+      // from `askGuard`, where nothing is on the board yet), so there is no
+      // attempted card to leave sitting.
+      attempt: null,
     })
   }
 
@@ -3069,7 +3193,13 @@ export function TodayScreen(props: TodayProps) {
       refuse(foreign)
       return
     }
-    const end = Math.min(start + props.guard.standardSessionMin, hours.close)
+    // ⚖ Liam flag 62 — the SAME clamp the seed got, so a landing the guard
+    // approved for a shortened span is not re-expanded on the way to the board.
+    // The START is never moved here: by this point it is either the clamped
+    // seed, an engine alternative (where the full session fits by construction)
+    // or a deliberate override — and silently sliding an operator's chosen start
+    // would be a second decision nobody asked for.
+    const end = seedSpanIn(lane, start, props.guard.standardSessionMin, hours, props.sell.nowMinute).end
     // ⚖ Liam flag 51 — the same allocator every landing uses. A 次回予約 has no
     // room yet, so there is nothing to keep and it takes the first free
     // compatible one; when there is none the refusal NAMES the rooms that are
@@ -3356,7 +3486,11 @@ export function TodayScreen(props: TodayProps) {
             //
             // canon (:6820): while 配置モード is armed the empty slot is a LANDING,
             // not an invitation to fill a form — the customer is already known.
-            const slot = place(start, start + props.guard.standardSessionMin, hours)
+            // ⚖ Liam flag 62 — the seed is clamped into the pocket under the
+            // click before anyone is asked about it, so the guard hears a
+            // question the operator could actually mean.
+            const seed = seedSpanIn(lane, start, props.guard.standardSessionMin, hours, props.sell.nowMinute)
+            const slot = place(seed.start, seed.end, hours)
             if (placing) {
               // ⚖ 51 — 次回予約 has no room yet, so the landing solves one; ⚖ 46
               // rider — and a 配置モード armed in another store is refused by the
@@ -3552,7 +3686,8 @@ export function TodayScreen(props: TodayProps) {
           onPointerMove={onBlockPointerMove}
           onClick={(e) => {
             if (e.timeStamp < suppressClickUntil.current) return
-            setBlockInfo({ kind: item.title, who: lane.label, whoLabel: lane.group === 'staff' ? '担当' : '設備', time: item.time, note: blockNote(item.title) })
+            setBlockInfo({ key: item.key, laneKey: lane.key, itemKind: item.kind, title: item.title, kind: item.title, who: lane.label, whoLabel: lane.group === 'staff' ? '担当' : '設備', time: item.time, note: blockNote(item.title) })
+            setBlockDeleteAsk(false)
             blockRef.current?.showModal()
           }}
         >
@@ -3588,7 +3723,11 @@ export function TodayScreen(props: TodayProps) {
         // ⚖ Liam flag 29 — `dragging` is the ORIGIN MARKER of a card that left
         // (opacity .32); a card being stretched never left, so it wears canon's
         // live resize look instead of dimming to a husk.
-        className={`event ${state}${selected === item.caseId ? ' selected' : ''}${live?.id === item.caseId ? (live.mode === 'move' ? ' dragging' : ' resizing') : ''}${isPending ? ' pending' : ''}`}
+        // ⚖ Liam flag 57 — a card sitting at a landing the board has REFUSED is
+        // a proposal, not a placement, so it wears the proxy's own blocked
+        // dress (red dashed) rather than an ordinary card's. Without it, with
+        // `live` cleared, it would read as a booking that had been placed.
+        className={`event ${state}${selected === item.caseId ? ' selected' : ''}${live?.id === item.caseId ? (live.mode === 'move' ? ' dragging' : ' resizing') : ''}${isPending ? ' pending' : ''}${advice?.attempt?.id === item.caseId ? ' attempting' : ''}`}
         type="button"
         key={item.key}
         data-book={item.caseId ?? undefined}
@@ -3633,11 +3772,44 @@ export function TodayScreen(props: TodayProps) {
     return dialogs.blocks.find((b) => b.kind === kind)?.note ?? 'この時間は予約を入れられません。'
   }
 
+  /** ⚖ Liam flag 64 — canon `blockDeleteYes` (:4331-4340), ported: the block
+   *  leaves the board, the sell layer re-derives from the same lanes so the
+   *  freed minutes become sellable in the same frame, and the toast says it
+   *  through the one door with the undo canon's own toast carries.
+   *
+   *  Canon's own ruling on the weight of the gesture (:4245-4246): a block
+   *  delete does NOT go through the 仮押さえ/確定 bar — a 予定ブロック is a
+   *  placeholder, not a booking — so the gate is the light confirm strip above. */
+  function deleteBlock(info: NonNullable<typeof blockInfo>) {
+    setBlockDeleted((was) => (was.includes(info.key) ? was : [...was, info.key]))
+    setBlockDeleteAsk(false)
+    setBlockInfo(null)
+    blockRef.current?.close()
+    // ⚖ 47's long dwell, second member of the class: this toast is the only way
+    // back, so it lives long enough to be REACHED (see REFUSAL_MS above). The
+    // restore confirmation that follows is an ordinary one and stays brief.
+    show(`${info.title}を削除しました`, REFUSAL_MS, () => {
+      setBlockDeleted((was) => was.filter((k) => k !== info.key))
+      show(`${info.title}を元に戻しました`)
+    })
+  }
+
+  /** ⚖ Q6 — read once, so the sentence in the body and the missing button in
+   *  the footer can never disagree about the same block. */
+  const blockNotDeletable = blockInfo ? blockChrome(blockInfo.itemKind).notDeletable : null
+
   const liveClamp = clampPriceInputs(hiInput, loInput, dialogs.pricing)
   const liveChanged = liveClamp.hi !== appliedPrice.hi || liveClamp.lo !== appliedPrice.lo
 
   return (
-    <div className="page">
+    /* ⚖ Liam flag 69 (2026-08-22) — THE ROUTE'S OWN NAME, so its stylesheet can
+       stop competing with its neighbours'. Next keeps every visited segment's
+       CSS in the document, so `.biz .workspace` in today.css, reservations.css
+       and customers.css tie on specificity and break on VISIT ORDER: after
+       今日の運営 → 予約 → back, reservations wins and the board gets a phantom
+       390px second column. Scoped selectors do not compete — they simply do not
+       match on the other route. See scripts/audit/check-route-css-collisions.mjs. */
+    <div className="page page-today">
       {/* ── C: 本日の店舗状態 ─────────────────────────────────────────── */}
       <header
         className="ops-strip"
@@ -3888,8 +4060,14 @@ export function TodayScreen(props: TodayProps) {
                       {/* canon `renderGapGuardPolicySummary` (:5931): the STORE's
                           policy, read-only. The segment above is the operator's
                           own display preference and cannot move this line. */}
+                      {/* ⚖ Liam flag 66(a) (2026-08-22) — SAY WHERE THE CONTROL
+                          LIVES. The bare 準備中 badge read as breakage: the guard
+                          IS live on this profile, and what is unbuilt is the
+                          per-store CONTROL, which by the one-home law belongs in
+                          the 設定 room. Naming the room turns a broken-looking
+                          badge into a signpost. */}
                       <span>保護ルール: {POLICY_WORD[props.guard.mode]}</span>
-                      <span className="chip">店舗設定は準備中</span>
+                      <span className="chip">変更は「設定」ルームで（準備中）</span>
                     </div>
 
                     <div className="pop-divider" role="presentation" />
@@ -4427,12 +4605,32 @@ export function TodayScreen(props: TodayProps) {
             <div className="change-row"><span>{blockInfo?.whoLabel ?? '担当'}</span><b>{blockInfo?.who ?? '—'}</b></div>
           </div>
           <div className="guardrail">{blockInfo?.note ?? ''}</div>
+          {/* ⚖ Q6 — a 清掃 reads its facts like any other block and is told,
+              in words, why it has no 削除: it belongs to the booking in front
+              of it. The sentence stands exactly where the button would. */}
+          {blockNotDeletable && <div className="guardrail">{blockNotDeletable}</div>}
+          {blockDeleteAsk && (
+            <div className="guardrail danger">この予定ブロックを削除します — その時間の予約枠が開きます。</div>
+          )}
         </div>
-        <div className="dialog-foot">
-          <button className="btn danger" type="button" disabled title={HINT}>削除</button>
-          <button className="btn" type="button" onClick={() => blockRef.current?.close()}>閉じる</button>
-          <button className="btn primary" type="button" disabled title={HINT}>保存</button>
-        </div>
+        {/* canon's two-footer design (:2341-2346, :4325-4340), ported. 保存 is
+            GONE: this dialog has no editable field, so the button could never
+            have done anything (Fable sweep rider i — every control visibly
+            does its job or doesn't ship). Making the times editable here is a
+            settings / board-editing decision, not this fix. */}
+        {blockDeleteAsk && blockInfo ? (
+          <div className="dialog-foot">
+            <button className="btn" type="button" onClick={() => setBlockDeleteAsk(false)}>やめる</button>
+            <button className="btn danger" type="button" onClick={() => deleteBlock(blockInfo)}>削除する</button>
+          </div>
+        ) : (
+          <div className="dialog-foot">
+            {blockInfo && !blockNotDeletable && (
+              <button className="btn danger foot-left" type="button" onClick={() => setBlockDeleteAsk(true)}>削除</button>
+            )}
+            <button className="btn" type="button" onClick={() => blockRef.current?.close()}>閉じる</button>
+          </div>
+        )}
       </dialog>
 
       <dialog className="biz-dialog" ref={closingRef} aria-labelledby="closingTitle">
@@ -4776,7 +4974,12 @@ export function TodayScreen(props: TodayProps) {
           refusal earned twice in a row is a NEW value and re-arms the dwell
           timer; the node itself is never remounted, because remounting it would
           cost the fade the rest of this board's surfaces all have. */}
-      <div className={`toast${toast.text ? ' show' : ''}`} role="status" aria-live="polite" aria-atomic="true">{toast.text}</div>
+      <div className={`toast${toast.text ? ' show' : ''}`} role="status" aria-live="polite" aria-atomic="true">
+        {toast.text}
+        {toast.undo && (
+          <button className="toast-undo" type="button" onClick={toast.undo}>元に戻す</button>
+        )}
+      </div>
     </div>
   )
 }

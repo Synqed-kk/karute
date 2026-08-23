@@ -20,7 +20,7 @@
    source for both the header row and every booking row, so the two can never
    drift apart, and the 1320px media query swaps that one value. */
 
-.biz .page { padding: 24px 28px 42px; }
+.biz .page.page-reservations { padding: 24px 28px 42px; }
 
 /* ⚖ BUTTON-WEIGHT RULING (PACKET-PARITY-WAVE ADDENDUM 2): the canon pages
    disagree on button weight, and parity means each screen matches ITS OWN canon
@@ -36,15 +36,15 @@
 
 /* Canon section I / A3: the head's CTA stays on one line and the description is
    the side that shrinks — decided by wrap permission, not by width. */
-.biz .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 22px; margin-bottom: 15px; }
+.biz .page-reservations .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 22px; margin-bottom: 15px; }
 .biz .page-head > div { min-width: 0; }
 .biz .page-head .btn { white-space: nowrap; flex-shrink: 0; }
-.biz .eyebrow { margin-bottom: 4px; color: var(--indigo); font-size: 12px; font-weight: 800; letter-spacing: .06em; }
+.biz .page-reservations .eyebrow { margin-bottom: 4px; color: var(--indigo); font-size: 12px; font-weight: 800; letter-spacing: .06em; }
 /* Canon section I / A4: the same letter-spacing as the sibling screens. */
-.biz .page h1 { margin: 0; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
-.biz .subtitle { margin: 5px 0 0; color: var(--muted); font-size: 14px; }
+.biz .page.page-reservations h1 { margin: 0; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
+.biz .page-reservations .subtitle { margin: 5px 0 0; color: var(--muted); font-size: 14px; }
 
-.biz .summary {
+.biz .page-reservations .summary {
   display: grid;
   grid-template-columns: 1.45fr repeat(3, minmax(128px, .6fr));
   margin-bottom: 14px;
@@ -53,12 +53,12 @@
   background: var(--proof);
   overflow: hidden;
 }
-.biz .summary-main { padding: 13px 15px; border-left: 3px solid var(--indigo); }
-.biz .summary-main strong { display: block; font-size: 15px; }
-.biz .summary-main span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
-.biz .summary-stat { display: grid; align-content: center; padding: 10px 12px; border-left: 1px solid #e5e9f7; }
-.biz .summary-stat span { color: var(--muted); font-size: 12px; }
-.biz .summary-stat b { display: block; margin-top: 2px; font-size: 20px; font-variant-numeric: tabular-nums; }
+.biz .page-reservations .summary-main { padding: 13px 15px; border-left: 3px solid var(--indigo); }
+.biz .page-reservations .summary-main strong { display: block; font-size: 15px; }
+.biz .page-reservations .summary-main span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+.biz .page-reservations .summary-stat { display: grid; align-content: center; padding: 10px 12px; border-left: 1px solid #e5e9f7; }
+.biz .page-reservations .summary-stat span { color: var(--muted); font-size: 12px; }
+.biz .page-reservations .summary-stat b { display: block; margin-top: 2px; font-size: 20px; font-variant-numeric: tabular-nums; }
 .biz .summary-stat b.warn { color: var(--orange); }
 
 /* 保存した表示 (M-83). Criteria, never a cached row set: pressing one sets the
@@ -101,7 +101,7 @@
   box-shadow: inset 0 0 0 1px var(--select-line);
 }
 
-.biz .filters {
+.biz .page-reservations .filters {
   display: grid;
   grid-template-columns: minmax(230px, 1.4fr) repeat(3, minmax(150px, .6fr)) auto;
   gap: 8px;
@@ -118,9 +118,9 @@
   font-size: 14px;
 }
 
-.biz .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 14px; align-items: start; }
-.biz .panel { border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
-.biz .panel-head {
+.biz .page-reservations .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 14px; align-items: start; }
+.biz .page-reservations .panel { border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
+.biz .page-reservations .panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -130,8 +130,8 @@
   border-bottom: 1px solid var(--line-2);
   background: #fafafb;
 }
-.biz .panel-head strong { display: block; font-size: 15px; }
-.biz .panel-head span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+.biz .page-reservations .panel-head strong { display: block; font-size: 15px; }
+.biz .page-reservations .panel-head span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
 /* Scoped INSIDE .panel-head on purpose: the head's own `span` rule is one
    element-selector more specific than a bare `.result-count`, so the count was
    quietly inheriting the muted description colour. Canon defends the same spot
@@ -160,7 +160,7 @@
    only) and this media query still picks between them — one property, one
    source, canon's contract intact under a hidden column. */
 .biz #bookingPanel { --fx-cols: var(--fx-wide); }
-.biz .list-head {
+.biz .page-reservations .list-head {
   display: grid;
   grid-template-columns: var(--fx-cols);
   gap: 10px;
@@ -192,16 +192,16 @@
    slot 4. */
 .biz .booking-row .cell[data-col="who"] > strong, .biz .booking-row .cell[data-col="staff"] > strong { white-space: nowrap; }
 .biz .booking-row .cell[data-col="source"] > strong { overflow-wrap: anywhere; }
-.biz .cell strong { display: block; font-size: 14px; }
-.biz .cell span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.biz .page-reservations .cell strong { display: block; font-size: 14px; }
+.biz .page-reservations .cell span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.4; }
 
 /* 店舗ラベル — rendered only under viewAll. For a branch actor it would be a
    constant that advertises other stores exist (isolation law). */
-.biz .w2-provenance { display: block; margin-top: 3px; color: var(--quiet); font-size: 11px; }
+.biz .page-reservations .w2-provenance { display: block; margin-top: 3px; color: var(--quiet); font-size: 11px; }
 
-.biz .empty { min-height: 330px; display: grid; place-content: center; padding: 28px; text-align: center; }
-.biz .empty strong { font-size: 16px; }
-.biz .empty span { margin-top: 5px; color: var(--muted); font-size: 13px; }
+.biz .page-reservations .empty { min-height: 330px; display: grid; place-content: center; padding: 28px; text-align: center; }
+.biz .page-reservations .empty strong { font-size: 16px; }
+.biz .page-reservations .empty span { margin-top: 5px; color: var(--muted); font-size: 13px; }
 
 /* 状態列 = two axes. Top = the lifecycle pill (7 fixed words, longest
    予約元で管理); below = modifier flags, which wrap. Packing two facts into one
@@ -214,14 +214,14 @@
 .biz .state-flags .flag.over { color: var(--orange); font-weight: 700; }
 
 /* ── inspector ─────────────────────────────────────────────────────────── */
-.biz .inspector { position: sticky; top: 80px; max-height: calc(100vh - 96px); overflow: auto; }
-.biz .inspector-head { padding: 15px; border-bottom: 1px solid var(--line-2); background: #fafafb; }
-.biz .inspector-kicker { color: var(--indigo); font-size: 12px; font-weight: 800; }
-.biz .inspector-head h2 { margin: 5px 0 3px; font-size: 21px; }
-.biz .inspector-head p { margin: 0; color: var(--muted); font-size: 13px; }
-.biz .inspector-body { padding: 14px 15px 17px; }
-.biz .status-row { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-bottom: 10px; }
-.biz .source { color: var(--muted); font-size: 12px; }
+.biz .page-reservations .inspector { position: sticky; top: 80px; max-height: calc(100vh - 96px); overflow: auto; }
+.biz .page-reservations .inspector-head { padding: 15px; border-bottom: 1px solid var(--line-2); background: #fafafb; }
+.biz .page-reservations .inspector-kicker { color: var(--indigo); font-size: 12px; font-weight: 800; }
+.biz .page-reservations .inspector-head h2 { margin: 5px 0 3px; font-size: 21px; }
+.biz .page-reservations .inspector-head p { margin: 0; color: var(--muted); font-size: 13px; }
+.biz .page-reservations .inspector-body { padding: 14px 15px 17px; }
+.biz .page-reservations .status-row { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-bottom: 10px; }
+.biz .page-reservations .source { color: var(--muted); font-size: 12px; }
 
 /* 予約元で管理 の読み取り専用理由 — the same vocabulary as the page's other
    quiet notes, tinted on the external-source side. */
@@ -235,20 +235,20 @@
   line-height: 1.55;
 }
 
-.biz .facts { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-.biz .fact { padding: 9px 10px; border-right: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2); }
+.biz .page-reservations .facts { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.biz .page-reservations .fact { padding: 9px 10px; border-right: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2); }
 .biz .fact:nth-child(even) { border-right: 0; }
 .biz .fact:nth-last-child(-n+2) { border-bottom: 0; }
-.biz .fact span { display: block; color: var(--muted); font-size: 12px; }
-.biz .fact b { display: block; margin-top: 3px; font-size: 13px; }
+.biz .page-reservations .fact span { display: block; color: var(--muted); font-size: 12px; }
+.biz .page-reservations .fact b { display: block; margin-top: 3px; font-size: 13px; }
 
-.biz .section-title { margin: 14px 0 7px; color: var(--ink-3); font-size: 12px; font-weight: 800; letter-spacing: .04em; }
+.biz .page-reservations .section-title { margin: 14px 0 7px; color: var(--ink-3); font-size: 12px; font-weight: 800; letter-spacing: .04em; }
 
 /* 本人関係 (⚖ cut #7): one line per party, detail on click, a chip only where a
    party deviates. The exploded five-party box never renders. Same treatment the
    顧客 screen carries, so the two read as one product. */
-.biz .party-list { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-.biz .party-row {
+.biz .page-reservations .party-list { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.biz .page-reservations .party-row {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -262,11 +262,11 @@
   font-size: 13px;
 }
 .biz .party-row:hover { background: #fafafb; }
-.biz .party-row:last-of-type { border-bottom: 0; }
+.biz .page-reservations .party-row:last-of-type { border-bottom: 0; }
 .biz .party-row > span:first-child { min-width: 84px; color: var(--muted); font-size: 12px; }
-.biz .party-row b { font-size: 13px; }
-.biz .party-row .pill { margin-left: auto; }
-.biz .party-note { padding: 9px 10px; border-top: 1px solid var(--line-2); background: #fafafb; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.biz .page-reservations .party-row b { font-size: 13px; }
+.biz .page-reservations .party-row .pill { margin-left: auto; }
+.biz .page-reservations .party-note { padding: 9px 10px; border-top: 1px solid var(--line-2); background: #fafafb; color: var(--muted); font-size: 12px; line-height: 1.55; }
 
 .biz .price { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--proof-border); border-radius: 9px; background: var(--proof); overflow: hidden; }
 .biz .price div { padding: 10px; border-right: 1px solid var(--proof-border); }
@@ -275,11 +275,11 @@
 .biz .price b { display: block; margin-top: 3px; font-size: 16px; }
 .biz .proof { padding: 11px 12px; border-left: 3px solid var(--indigo); background: var(--proof); color: var(--ink-3); font-size: 12px; line-height: 1.55; }
 
-.biz .history { border-top: 1px solid var(--line-2); }
-.biz .history-row { display: grid; grid-template-columns: 58px 1fr; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--row); }
-.biz .history-row time { color: var(--quiet); font-size: 12px; }
-.biz .history-row strong { display: block; font-size: 13px; }
-.biz .history-row > span > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+.biz .page-reservations .history { border-top: 1px solid var(--line-2); }
+.biz .page-reservations .history-row { display: grid; grid-template-columns: 58px 1fr; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--row); }
+.biz .page-reservations .history-row time { color: var(--quiet); font-size: 12px; }
+.biz .page-reservations .history-row strong { display: block; font-size: 13px; }
+.biz .page-reservations .history-row > span > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
 
 .biz .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 13px; }
 .biz .actions .btn { width: 100%; }
@@ -289,7 +289,7 @@
    filters, the correct state is "no highlighted row" — a quiet line of body
    text saying why, with no surface and no colour added. It is an echo of the
    list, not an error. */
-.biz .w2-off-list { margin: 0 0 10px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.biz .page-reservations .w2-off-list { margin: 0 0 10px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 
 /* Canon section I / A2: a failed load is LOUD. A quiet blank with static
    placeholders is a broken screen that looks like normal operation, and the
@@ -347,7 +347,7 @@
 .biz .queue-empty span { color: var(--muted); font-size: 13px; }
 
 /* ── dialogs + toast ───────────────────────────────────────────────────── */
-.biz dialog {
+.biz .page-reservations dialog {
   /* ⚖ Liam flag 32 — same fix, same cause as `.biz-dialog` in today.css:
      Tailwind's preflight zeroes the margin on every element, <dialog> included,
      which kills the UA's `dialog:modal { margin: auto }` centering. Every native
@@ -362,12 +362,12 @@
   font-family: var(--font);
   box-shadow: 0 20px 55px rgba(24, 24, 27, .2);
 }
-.biz dialog::backdrop { background: rgba(24, 24, 27, .46); }
-.biz .dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line-2); }
-.biz .dialog-head h2 { margin: 0; font-size: 20px; }
-.biz .dialog-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
-.biz .close { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
-.biz .dialog-body { padding: 16px; }
+.biz .page-reservations dialog::backdrop { background: rgba(24, 24, 27, .46); }
+.biz .page-reservations .dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line-2); }
+.biz .page-reservations .dialog-head h2 { margin: 0; font-size: 20px; }
+.biz .page-reservations .dialog-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.biz .page-reservations .close { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.biz .page-reservations .dialog-body { padding: 16px; }
 .biz .dialog-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .biz .dialog-fact { padding: 11px; border: 1px solid var(--line); border-radius: 8px; }
 .biz .dialog-fact span { display: block; color: var(--muted); font-size: 12px; }
@@ -379,9 +379,9 @@
 .biz .field select { min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 .biz .confirm { display: flex; align-items: flex-start; gap: 9px; margin-top: 13px; padding: 11px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
 .biz .confirm input { width: 21px; height: 21px; accent-color: var(--indigo); }
-.biz .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line-2); background: #fafafb; }
+.biz .page-reservations .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line-2); background: #fafafb; }
 
-.biz .toast {
+.biz .page-reservations .toast {
   position: fixed;
   right: 22px;
   bottom: 22px;
@@ -399,11 +399,11 @@
   pointer-events: none;
   transition: .16s;
 }
-.biz .toast.show { opacity: 1; transform: none; }
+.biz .page-reservations .toast.show { opacity: 1; transform: none; }
 
 @media (max-width: 1320px) {
-  .biz .page { padding-left: 20px; padding-right: 20px; }
-  .biz .workspace { grid-template-columns: minmax(0, 1fr) 330px; gap: 10px; }
+  .biz .page.page-reservations { padding-left: 20px; padding-right: 20px; }
+  .biz .page-reservations .workspace { grid-template-columns: minmax(0, 1fr) 330px; gap: 10px; }
   .biz #bookingPanel { --fx-cols: var(--fx-narrow); }
   .biz .queue-card { grid-template-columns: 168px minmax(0, 1fr) 190px; gap: 11px; }
 }
