@@ -34,8 +34,23 @@ function deriveInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
-function formatLongDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
+function formatLongDate(iso: string, locale: string): string {
+  const d = new Date(iso)
+  // ja branch mirrors formatLongDateJst's (jst.ts:128) exact Intl options —
+  // not imported, its en shape differs (weekday+short-month vs the long-month
+  // en-US pin below). Both branches pin Asia/Tokyo: a created_at-fallback row
+  // in the 15:00-24:00 UTC window now displays its JST day, not its UTC day.
+  if (locale === 'ja') {
+    return new Intl.DateTimeFormat('ja-JP', {
+      timeZone: 'Asia/Tokyo',
+      weekday: 'short',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    }).format(d)
+  }
+  return d.toLocaleDateString('en-US', {
+    timeZone: 'Asia/Tokyo',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
@@ -58,7 +73,7 @@ export interface KaruteDetailHeader {
   sessionDateMedium: string
 }
 
-export function karuteToHeader(karute: KaruteWithRelations): KaruteDetailHeader {
+export function karuteToHeader(karute: KaruteWithRelations, locale: string): KaruteDetailHeader {
   const k = karute as unknown as {
     customers?: { name: string } | null
     profiles?: { full_name: string } | null
@@ -72,7 +87,7 @@ export function karuteToHeader(karute: KaruteWithRelations): KaruteDetailHeader 
     customerName,
     customerInitials: deriveInitials(customerName),
     staffName,
-    sessionDateLong: formatLongDate(dateSource),
+    sessionDateLong: formatLongDate(dateSource, locale),
     sessionDateMedium: formatMediumDate(dateSource),
   }
 }

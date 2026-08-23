@@ -1,6 +1,7 @@
 import { QuietRefresh } from '@/components/perf/QuietRefresh'
 import { renderStamp } from '@/lib/perf/render-stamp'
 import { notFound } from 'next/navigation'
+import { Suspense } from 'react'
 
 import { auditWeb } from '@/lib/audit-web'
 import { getCustomer } from '@/lib/customers/queries'
@@ -14,6 +15,7 @@ import { getCustomerMemory } from '@/lib/karute/customer-memory'
 import { getCachedPassport } from '@/lib/karute/ai-passport'
 import { getOrgSettings } from '@/actions/org-settings'
 import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
+import { CustomerReengagementSlot } from '@/components/customers/redesign/profile/CustomerReengagementSlot'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
 import { getCustomerLifecycleChecked, listCustomerPacks } from '@/lib/packs/store'
 import { buildCustomerProfileScreen } from '@/lib/customers/profile-screen'
@@ -142,7 +144,23 @@ export default async function CustomerProfilePage({
       {/* SWR delivery: stamp when the SERVER built this so a stale
           router-cache copy refreshes itself behind the paint. */}
       <QuietRefresh renderedAt={renderStamp()} />
-      <CustomerProfileView {...screen} />
+      <CustomerProfileView
+        {...screen}
+        reengagementSlot={
+          <Suspense fallback={null}>
+            <CustomerReengagementSlot
+              customerId={screen.customer.id}
+              customerName={screen.customer.name}
+              status={screen.customer.status}
+              visitCount={screen.customer.visitCount ?? 0}
+              lastVisitAgoDays={screen.customer.visitPace?.lastVisitAgoDays ?? null}
+              preferredStaffName={screen.customer.preferredStaffName}
+              hasUpcomingBooking={screen.hasNextBooking}
+              locale={locale}
+            />
+          </Suspense>
+        }
+      />
     </>
   )
 }

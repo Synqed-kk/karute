@@ -44,6 +44,14 @@ jest.mock('@/actions/org-settings', () => ({ getOrgSettings: jest.fn(async () =>
 jest.mock('@/components/customers/redesign/profile/CustomerProfileView', () => ({
   CustomerProfileView: () => null,
 }))
+// AI再エンゲージメント slot (reengagement packet): page.tsx now mounts this at
+// module scope alongside CustomerProfileView — same reason as that mock
+// above, its own import chain (ai-reengagement.ts → ai-cache.ts →
+// @synqed-kk/client's RUNTIME import) has nothing to do with the
+// customer.view pin this file tests.
+jest.mock('@/components/customers/redesign/profile/CustomerReengagementSlot', () => ({
+  CustomerReengagementSlot: () => null,
+}))
 jest.mock('@/lib/customers/list-enrich', () => ({ enrichCustomers: jest.fn(async () => ({})) }))
 jest.mock('@/lib/packs/store', () => ({
   getCustomerLifecycleChecked: jest.fn(async () => null),
@@ -52,7 +60,22 @@ jest.mock('@/lib/packs/store', () => ({
   listAllPackUsage: jest.fn(async () => []),
   listBurnRedemptions: jest.fn(async () => null),
 }))
-jest.mock('@/lib/customers/profile-screen', () => ({ buildCustomerProfileScreen: jest.fn(async () => ({})) }))
+jest.mock('@/lib/customers/profile-screen', () => ({
+  buildCustomerProfileScreen: jest.fn(async () => ({
+    // Minimal shape the page now reads directly (reengagement packet) to
+    // build CustomerReengagementSlot's props, not just spread into the
+    // (mocked, prop-ignoring) CustomerProfileView.
+    customer: {
+      id: 'cust-1',
+      name: 'Y',
+      status: 'on-track',
+      visitCount: 0,
+      preferredStaffName: null,
+      visitPace: null,
+    },
+    hasNextBooking: false,
+  })),
+}))
 
 // List page (customers/page.tsx) — the negative pin.
 jest.mock('@/components/customers/redesign/list/CustomersListView', () => ({

@@ -399,7 +399,9 @@
       "openCustomer": "Open customer profile",
       "staff": "Staff",
       "phone": "Phone",
-      "email": "Email"
+      "email": "Email",
+      "sessionDate": "Date",
+      "lastVisit": "Last visit"
     },
     "memory": {
       "title": "Customer Memory",
@@ -1215,7 +1217,15 @@
       },
       "reengagement": {
         "title": "AI Follow-up Message",
-        "description": "Drafts a personal re-engagement message from this customer's memory + session history. Sits above the tabs so staff catch it on profile open without a tab switch. Edit and send via LINE / SMS / email."
+        "description": "Drafts a personal re-engagement message from this customer's memory + session history. Sits above the tabs so staff catch it on profile open without a tab switch. Edit and send via LINE / SMS / email.",
+        "subtitle": "Drafts a personal follow-up from this customer's history. Edit it, copy it, and send it from your usual LINE, SMS, or email.",
+        "whyToggle": "Why this message?",
+        "daysAgo": "{n}d ago",
+        "sendButton": "Send this message",
+        "tier": {
+          "overdue": "Overdue",
+          "dormant": "Dormant risk"
+        }
       }
     }
   },
@@ -2310,6 +2320,7 @@
           "photos_view": "Viewed customer photos",
           "brief_view": "Viewed pre-session brief",
           "ai_prediction_view": "Viewed AI body prediction",
+          "reengagement_view": "Viewed re-engagement draft",
           "create": "Created customer",
           "consent_grant": "Consent granted",
           "consent_revoke": "Consent revoked",
@@ -2379,6 +2390,7 @@
         "ai": {
           "consult_session": "Used AI consult",
           "memory_extract": "Auto-extracted memory",
+          "reengagement_draft": "Generated AI re-engagement message",
           "summary_generate": "Generated AI summary",
           "suggested_message": "Generated AI suggested message",
           "suggested_message_view": "Viewed AI suggested message"

@@ -69,6 +69,14 @@ const LITERAL_ONLY_CATEGORY = {
   // (facade key orgSettings.recordingAutostart is a skip row — same doctrine).
   // The ONE audited settings-blob key, spec §8.1 fix C1. Recording-integrity PR A4.
   'settings.recording_autostart_toggle': 'settings',
+  // AI再エンゲージメント (§13, F9): success-only audit doctrine — the
+  // FACADE_AUDIT_MAP row for this surface (customer.ai.reengagement) is a
+  // `view` row carrying a DIFFERENT action (customer.reengagement_view);
+  // this 生成 action is emitted only by the two private auditLockout-pattern
+  // helpers in src/lib/karute/ai-reengagement.ts, never through a mapped
+  // endpoint — literal-only, same as ai.suggested_message's shape used to
+  // be before ai.suggestions picked it up.
+  'ai.reengagement_draft': 'ai',
 }
 
 function fail(msg) {

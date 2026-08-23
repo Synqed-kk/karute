@@ -24,6 +24,7 @@
 export const AUDIT_ACTIONS = [
   'ai.consult_session',
   'ai.memory_extract',
+  'ai.reengagement_draft',
   'ai.suggested_message',
   'ai.suggested_message_view',
   'ai.summary_generate',
@@ -53,6 +54,7 @@ export const AUDIT_ACTIONS = [
   'customer.photo_add',
   'customer.photo_delete',
   'customer.photos_view',
+  'customer.reengagement_view',
   'customer.view',
   'karute.customer_reassign',
   'karute.entries_regenerate',
@@ -249,6 +251,25 @@ export const AUDITED_CORES: {
       'auditSuggestedMessageGeneratedWeb',
       'auditSuggestedMessageGeneratedFacade',
     ],
+  },
+  // AI再エンゲージメント (§13, F9): success-only audit doctrine governs the
+  // 生成 row only (ai.reengagement_draft) — FIX ROUND 1 R3 corrected the
+  // FACADE_AUDIT_MAP row from a stale 'skip' to the real `kind: 'view'`
+  // customer.reengagement_view (same shape as its bodyPrediction/
+  // preSessionBrief siblings), emitted by the generic facade hook, not by
+  // this file. getReengagementDraft/getReengagementDraftWithClient
+  // themselves still carry no direct audit()/auditWeb() call (no web-side
+  // view row either, matching the two siblings) and are deliberately NOT
+  // listed here — only the two private auditLockout-pattern helpers below,
+  // each emitting unconditionally on its one return path, generation-branch
+  // only (computeReengagementDraft conditions the CALL). FIX ROUND 1 R4:
+  // both symbols are module-private, so CP7's registry-reality cross-check
+  // (exported-symbols only) can never require this entry on its own —
+  // ai-reengagement.test.ts pins the entry directly (red-run: delete it,
+  // the pin goes red).
+  {
+    file: 'src/lib/karute/ai-reengagement.ts',
+    symbols: ['auditReengagementDraftGeneratedWeb', 'auditReengagementDraftGeneratedFacade'],
   },
   // Wave W3 (D1 mirrors): the web twins of the facade lifecycle/outcome rows.
   // The WithClient cores they wrap stay audit-free (Core/WithClient split);
