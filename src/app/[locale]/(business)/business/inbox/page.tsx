@@ -122,6 +122,7 @@ export default async function InboxPage({
         proofLines: t.proofLines,
         bookingLabel: t.bookingLabel,
         bookingNo: t.bookingNo,
+        deliveryState: t.deliveryState,
         deliveryLabel: t.deliveryLabel,
         next: t.next,
         reply: t.reply,
@@ -145,9 +146,15 @@ export default async function InboxPage({
           '見本データのため記録できません。完了の記録は実行者と理由を残す操作のため、実データの接続後に有効になります。',
       }))}
       summary={summary}
-      // Canon's own subtitle and head note, unchanged.
+      // Canon's own subtitle, unchanged.
       subtitle="予約変更、来店なし、空き待ち、配信失敗を、期限と連絡許可の事実から処理します。"
-      headNote="メッセージの数ではなく、店舗が次に行う対応を並べています。顧客カルテの施術内容はここには表示しません。"
+      // The two standing explainer paragraphs — canon's head note and the 対応
+      // 状況 strip's own sentence — word for word, now behind the ? affordance
+      // instead of printed above the numbers every morning.
+      helpText="メッセージの数ではなく、店舗が次に行う対応を並べています。顧客カルテの施術内容はここには表示しません。期限、予約への影響、同意済み連絡先、配信証跡を確認してから送信します。"
+      // ONE line where the room used to carry two refusal paragraphs. The
+      // per-control reasons above are unchanged; this is the standing sentence.
+      actionFootnote="見本データのため送信・記録はできません — 実データ接続後に有効になります。"
       refreshRefusal="見本データのため、Reserve・配信状態の再取得はできません。"
     />
   )
