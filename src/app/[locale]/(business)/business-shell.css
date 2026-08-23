@@ -20,8 +20,8 @@
       cascade.
 
    Canon's `html { min-width: 1180px }` becomes `.biz .app { min-width: 1180px }`
-   so the below-md desktop-only notice is not forced to 1180px behind a
-   horizontal scrollbar.
+   — on the shell's own grid rather than the document, so the floor is a
+   per-render property the opt-in rule in the ≤1023 band can lift for one room.
 
    TOKEN HOME (parity-wave item 3, decided here so nothing duplicates it): the
    canon token block stays on `.biz` and is NOT re-seated on `:root`. Canon's
@@ -112,6 +112,29 @@
 .biz [hidden] { display: none !important; }
 
 .biz .app { display: grid; min-height: 100vh; min-width: 1180px; }
+/* ⚖ OPT-IN BY PROOF (Liam 2026-08-23/24). The floor above is the family
+   DEFAULT: a room without a measured narrow ladder keeps it and PANS below it
+   (the shell's own page h-scroll — never a blank). A room joins the list below
+   only when its own ladder is measured and approved; the selector is SHELL-owned,
+   so no route sheet can ever reach up and lift its own floor. One room per line,
+   added the round its proof lands.
+
+   ⚖ NO MEDIA SCOPE, RULED. The non-breaking retrofit guard protects rooms
+   WITHOUT a proven ladder; a room whose ladder Liam approved is exempt at every
+   width that ladder covers — the ladder IS the approved behaviour. Scoping this
+   to ≤1023 would leave 受信トレイ panning at iPad landscape (1024), a named
+   device class in the ALL-SCREEN law, which is the thing being fixed. The
+   room's ≤1279 band is measured against the deployed shell at 1024/1100/1180/
+   1279 instead of a pixel-parity diff (BUILD-REPORT §3(4b)).
+
+   BROWSER SUPPORT, verified: :has() (Safari 15.4+) sits INSIDE this bundle's
+   own CSS baseline — Tailwind v4's floor is Safari 16.4+ — so no supported
+   engine lacks it. Where an engine nonetheless drops the selector, the whole
+   rule is discarded and the 1180px floor above stays in force: horizontal
+   panning, byte-for-byte what main ships today. Degrades to the status quo,
+   never to a blank. (Business is the desktop web product; the iOS shell ships
+   the Karute routes and never navigates here.) */
+.biz .app:has(.page.pg-inbox) { min-width: 0; }
 
 .biz .main { min-width: 0; }
 /* ⚖ #20 = B. The topbar is the SETTINGS-family bar
@@ -586,6 +609,75 @@
 @media (max-width: 1320px) {
   .biz .topbar { padding-left: 20px; padding-right: 20px; }
 }
+
+/* ═══ ≤1023 — THE RAIL IS THE ONLY STATE ═══
+   ⚖ ALL-SCREEN ADAPTIVITY. Below 1024 a 264px sidebar is a quarter of the
+   canvas, so the open state stands down and the shell wears its own icon rail.
+   Every rule here restates the value the RAIL rule above already declares, at
+   the same specificity and later in the sheet, so the class simply stops
+   winning in this band — nothing new is invented and no width ≥1024 is touched.
+
+   MEASURED, NOT GUESSED. The set is exactly what makes `.biz.sidebar-open`
+   render IDENTICALLY to `.biz` at 390/412/480/743/744/768/800/820/940/1023 —
+   every box and computed value on every shell element, pseudo-elements included
+   (0 differences). Each rule was then deleted in turn and the equality
+   re-measured; all twenty broke it, the smallest by 10 differences (the active
+   item's 3px ::before rail) and the largest by 3510. One candidate — restoring
+   the rail's own fade-in keyframe — survived deletion at 0 and is NOT here.
+
+   The rail-toggle keeps its 40px box and its handler: pressing it below 1024
+   still flips the class, and the class now means the same thing either way. */
+@media (max-width: 1023px) {
+  .biz.sidebar-open .app { grid-template-columns: 76px minmax(0, 1fr); }
+  .biz.sidebar-open .sidebar { padding: 16px 10px; }
+  .biz.sidebar-open .brand { padding: 0 0 14px; }
+  .biz.sidebar-open .brand .word, .biz.sidebar-open .brand > span { display: none; }
+  .biz.sidebar-open .brand .mark { display: grid; }
+  .biz.sidebar-open .rail-toggle { width: 40px; margin: 0 auto 12px; }
+  .biz.sidebar-open .sidebar .business, .biz.sidebar-open .sidebar .store-picker,
+  .biz.sidebar-open .sidebar .nav-label { display: none; }
+  .biz.sidebar-open .store-chip { display: grid; }
+  .biz.sidebar-open .nav { gap: 3px; }
+  .biz.sidebar-open .nav a {
+    display: grid;
+    justify-items: center;
+    justify-content: normal;
+    align-items: normal;
+    width: 62px;
+    margin: 0 auto;
+    padding: 7px 0 5px;
+    min-height: 0;
+    border-radius: 11px;
+  }
+  .biz.sidebar-open .nav a .lbl { display: none; }
+  .biz.sidebar-open .nav a .mini { display: block; }
+  .biz.sidebar-open .nav a .glyph { margin-right: 0; }
+  .biz.sidebar-open .nav a .glyph svg { width: 20px; height: 20px; }
+  .biz.sidebar-open .nav a.active::before { display: none; }
+  .biz.sidebar-open .nav .badge { position: absolute; margin-left: 0; }
+  .biz.sidebar-open .operator { display: grid; justify-content: normal; gap: 0; padding: 14px 0 0; }
+  .biz.sidebar-open .operator > span:last-child { display: none; }
+  .biz.sidebar-open .brand, .biz.sidebar-open .sidebar .business,
+  .biz.sidebar-open .sidebar .store-context, .biz.sidebar-open .sidebar .nav-label,
+  .biz.sidebar-open .nav a, .biz.sidebar-open .operator { min-width: auto; }
+  .biz.sidebar-open .brand .word, .biz.sidebar-open .brand > span,
+  .biz.sidebar-open .sidebar .business, .biz.sidebar-open .sidebar .store-context,
+  .biz.sidebar-open .sidebar .nav-label, .biz.sidebar-open .nav a .lbl,
+  .biz.sidebar-open .operator > span:last-child { animation: none; }
+}
+
+/* ═══ ≤743 — phone / folded cover screen ═══
+   The approved restructure mock's own topbar band (MOCK-INBOX-RESTRUCTURE-
+   2026-08-23.html:517-518), carried verbatim: the bar tightens to 8/16, drops
+   to a 56px floor, is allowed to wrap, and the Reserve同期 line — a status the
+   operator reads, never acts on — gives up its width to the crumb. Measured:
+   62px → 59px tall, 8px 20px → 8px 16px, nowrap → wrap, sync flex → none, and
+   at 744 every one of those is back to the wide value. */
+@media (max-width: 743px) {
+  .biz .topbar { padding: 8px 16px; min-height: 56px; flex-wrap: wrap; gap: 8px; }
+  .biz .topbar .sync { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .biz *, .biz *::before, .biz *::after { transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
