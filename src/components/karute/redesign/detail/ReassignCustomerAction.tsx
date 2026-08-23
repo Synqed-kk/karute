@@ -55,7 +55,7 @@ type Preview = {
   photoCount: number
 }
 
-type Step = 'idle' | 'picking' | 'confirming'
+type Step = 'idle' | 'disclaimer' | 'picking' | 'confirming'
 
 export function ReassignCustomerAction({
   karuteId,
@@ -79,6 +79,13 @@ export function ReassignCustomerAction({
     setQuery('')
     setSelectedId(null)
     setPreview(null)
+    setError(null)
+  }
+
+  // R6-2: the entry point opens the disclaimer FIRST — pure client step, no
+  // roster fetch here (fetch stays deferred to 続ける/openPicker below).
+  function openDisclaimer() {
+    setStep('disclaimer')
     setError(null)
   }
 
@@ -151,14 +158,47 @@ export function ReassignCustomerAction({
 
   return (
     <>
+      {/* R6-1 (Liam in-chat amendment, 8/23): BARE glyph — no pill, no
+       *  border, no background. "doesn't even need to be a visible button…
+       *  only the staff that know about the function will actually bother
+       *  clicking on it… just no pill, just the blue arrow thing." Subtle
+       *  hover only (text-primary-hover, the same darken Button's solid
+       *  variant uses on hover) — nothing that says "look at me".
+       *  Accessible name reuses the 'action' key (house icon-button idiom —
+       *  AISummaryCard's edit-pencil button does the same: aria-label, no
+       *  visible text). */}
       <button
         type="button"
-        onClick={openPicker}
-        className="inline-flex w-fit items-center gap-1.5 self-start rounded-lg border border-primary/30 bg-card px-3 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/8"
+        onClick={openDisclaimer}
+        aria-label={t('action')}
+        className="inline-flex shrink-0 items-center justify-center self-start text-primary transition-colors hover:text-primary-hover"
       >
-        <ArrowLeftRight size={13} />
-        {t('action')}
+        <ArrowLeftRight size={14} />
       </button>
+
+      {/* R6-2: disclaimer/consent step BEFORE the picker — pure client
+       *  pre-step, server two-phase flow untouched. 続ける hands off to the
+       *  existing openPicker (which is where the roster fetch lives). */}
+      <Dialog open={step === 'disclaimer'} onOpenChange={(o) => !o && reset()}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('disclaimerTitle')}</DialogTitle>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-2 text-[13px] leading-relaxed text-muted-foreground">
+            <p>{t('disclaimerBody1')}</p>
+            <p>{t('disclaimerBody2')}</p>
+            <p>{t('auditNote')}</p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={reset}>
+              {tc('cancel')}
+            </Button>
+            <Button onClick={openPicker}>{t('disclaimerContinue')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Picker */}
       <Dialog open={step === 'picking'} onOpenChange={(o) => !o && reset()}>

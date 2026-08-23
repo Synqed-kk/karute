@@ -371,6 +371,10 @@
     },
     "reassign": {
       "action": "Change customer",
+      "disclaimerTitle": "Change this karute's customer",
+      "disclaimerBody1": "This karute (session record) will be re-attached to a different customer.",
+      "disclaimerBody2": "Use this only to fix a karute that was saved under the wrong customer.",
+      "disclaimerContinue": "Continue",
       "pickerSubtitle": "Move this karute to a different customer",
       "pickerSearchPlaceholder": "Search by name, furigana, or phone",
       "noResults": "No matching customers found",

@@ -15,6 +15,11 @@
  * behavior (R5-2) and the two-phase UI wiring — which {confirmed} value each
  * button actually sends (R5-3). Both live here because they need the same
  * render harness this file already built.
+ *
+ * Fix round 6 (Liam's live preview review): the entry is now icon-only
+ * (aria-label, no visible text — getByText(ja.action) no longer finds it)
+ * and opens a NEW disclaimer step before the picker, so every open-flow
+ * helper below clicks the icon by its accessible name, then clicks 続ける.
  */
 import { render, screen, fireEvent, act } from '@testing-library/react'
 
@@ -51,13 +56,22 @@ beforeEach(() => {
   karuteActions.listReassignCustomerOptions.mockResolvedValue({ customers: ROSTER })
 })
 
-// Common lead-in for both pins: open the picker, pick the one roster
-// customer, and submit the preview request (confirmed:false).
-async function openPickAndSubmit() {
+// R6-2: click the icon-only entry (by accessible name), through the new
+// disclaimer step's 続ける, into the picker.
+async function openThroughDisclaimer() {
   render(<ReassignCustomerAction karuteId="kar-1" customerName="田中 美咲" />)
   await act(async () => {
-    fireEvent.click(screen.getByText(ja.action))
+    fireEvent.click(screen.getByLabelText(ja.action))
   })
+  await act(async () => {
+    fireEvent.click(screen.getByText(ja.disclaimerContinue))
+  })
+}
+
+// Common lead-in for both pins: open through the disclaimer, pick the one
+// roster customer, and submit the preview request (confirmed:false).
+async function openPickAndSubmit() {
+  await openThroughDisclaimer()
   await act(async () => {
     fireEvent.click(await screen.findByText('佐藤 花子'))
   })
@@ -112,10 +126,7 @@ const MANY_SATO = Array.from({ length: 12 }, (_, i) => ({
 describe('ReassignCustomerAction — search overflow (fix round 5, R5-2)', () => {
   it('12 same-prefix customers → 8 rendered rows + a hidden-count line for the other 4', async () => {
     karuteActions.listReassignCustomerOptions.mockResolvedValue({ customers: MANY_SATO })
-    render(<ReassignCustomerAction karuteId="kar-1" customerName="田中 美咲" />)
-    await act(async () => {
-      fireEvent.click(screen.getByText(ja.action))
-    })
+    await openThroughDisclaimer()
     // Wait for the (uncapped, browse-mode) roster to land before searching.
     await screen.findAllByRole('option')
     await act(async () => {
@@ -166,5 +177,58 @@ describe('ReassignCustomerAction — two-phase wiring (fresh D2, R5-3)', () => {
     })
     expect(karuteActions.reassignKaruteCustomer).toHaveBeenCalledTimes(2)
     expect(karuteActions.reassignKaruteCustomer).toHaveBeenNthCalledWith(2, 'kar-1', 'cust-TO', { confirmed: true })
+  })
+})
+
+// ── R6-2 pins — disclaimer/consent step (fix round 6) ────────────────────
+// Liam's live preview review: a new client-only pre-step, roster fetch
+// deferred until 続ける. Server two-phase flow is untouched (no pin needed
+// here — that's the existing R3/R5 suites).
+
+describe('ReassignCustomerAction — disclaimer step (fix round 6, R6-2)', () => {
+  it('pin 1: clicking the icon shows the disclaimer and does NOT show the picker or fetch the roster yet', async () => {
+    render(<ReassignCustomerAction karuteId="kar-1" customerName="田中 美咲" />)
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText(ja.action))
+    })
+    // Literal pinned copy — same reason as the burnTitle/errorStoreScope
+    // pins above (asserting against ja.disclaimerTitle would be
+    // tautological against the same file this mock reads).
+    expect(screen.getByText('カルテを別の顧客へ変更')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox')).toBeNull()
+    expect(karuteActions.listReassignCustomerOptions).not.toHaveBeenCalled()
+  })
+
+  it('pin 2: 続ける moves to the picker (combobox visible, roster fetched)', async () => {
+    await openThroughDisclaimer()
+    expect(screen.getByRole('combobox')).toBeInTheDocument()
+    expect(karuteActions.listReassignCustomerOptions).toHaveBeenCalledWith('kar-1')
+  })
+
+  it('キャンセル on the disclaimer resets to idle — no picker, no roster fetch', async () => {
+    render(<ReassignCustomerAction karuteId="kar-1" customerName="田中 美咲" />)
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText(ja.action))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText(common.cancel))
+    })
+    expect(screen.queryByText('カルテを別の顧客へ変更')).toBeNull()
+    expect(screen.queryByRole('combobox')).toBeNull()
+    expect(karuteActions.listReassignCustomerOptions).not.toHaveBeenCalled()
+  })
+})
+
+describe('ReassignCustomerAction — icon-only entry a11y (fix round 6, R6-1, pin 5)', () => {
+  it('the icon-only control carries the accessible name (顧客を変更), no visible label', async () => {
+    render(<ReassignCustomerAction karuteId="kar-1" customerName="田中 美咲" />)
+    // getByRole with an accessible-name match is the house pattern for
+    // pinning an icon-only control's a11y name (AISummaryCard's edit
+    // button follows the same aria-label idiom).
+    const entry = screen.getByRole('button', { name: ja.action })
+    expect(entry).toBeInTheDocument()
+    // No visible text node reading 顧客を変更 — it's icon-only (an
+    // aria-label match alone doesn't prove that; getByText must fail).
+    expect(screen.queryByText(ja.action)).toBeNull()
   })
 })

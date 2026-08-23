@@ -371,6 +371,10 @@
     },
     "reassign": {
       "action": "顧客を変更",
+      "disclaimerTitle": "カルテを別の顧客へ変更",
+      "disclaimerBody1": "このカルテ（施術記録）を、別のお客様に付け替えます。",
+      "disclaimerBody2": "誤って別のお客様に保存してしまった場合の修正専用です。",
+      "disclaimerContinue": "続ける",
       "pickerSubtitle": "このカルテを別のお客様に付け替えます",
       "pickerSearchPlaceholder": "名前・フリガナ・電話番号で検索",
       "noResults": "該当するお客様が見つかりません",
