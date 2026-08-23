@@ -1217,7 +1217,15 @@
       },
       "reengagement": {
         "title": "AI再エンゲージメント",
-        "description": "お客様メモリーとセッション履歴から、パーソナルな再エンゲージメントメッセージを自動生成します。タブの上に表示されるため、プロフィールを開いた瞬間にスタッフが気付けます。編集してLINE／SMS／メールで送信できます。"
+        "description": "お客様メモリーとセッション履歴から、パーソナルな再エンゲージメントメッセージを自動生成します。タブの上に表示されるため、プロフィールを開いた瞬間にスタッフが気付けます。編集してLINE／SMS／メールで送信できます。",
+        "subtitle": "お客様の記録と来店履歴から、パーソナルな声かけメッセージを作成します。編集してコピーし、いつものLINE／SMS／メールからお送りください。",
+        "whyToggle": "このメッセージの根拠を見る",
+        "daysAgo": "{n}日前",
+        "sendButton": "このメッセージを送信",
+        "tier": {
+          "overdue": "来店遅れ",
+          "dormant": "休眠リスク"
+        }
       }
     }
   },
@@ -2312,6 +2320,7 @@
           "photos_view": "写真一覧を閲覧",
           "brief_view": "事前ブリーフを閲覧",
           "ai_prediction_view": "AI体調予測を閲覧",
+          "reengagement_view": "再エンゲージメント下書きを閲覧",
           "create": "顧客を登録",
           "consent_grant": "同意を登録",
           "consent_revoke": "同意を取り消し",
@@ -2381,6 +2390,7 @@
         "ai": {
           "consult_session": "AI相談を利用",
           "memory_extract": "メモリーを自動抽出",
+          "reengagement_draft": "AI再エンゲージメントメッセージを生成",
           "summary_generate": "AI要約を生成",
           "suggested_message": "AI提案メッセージを生成",
           "suggested_message_view": "AI提案メッセージを閲覧"

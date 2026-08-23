@@ -237,6 +237,7 @@ export type FacadeEndpointKey =
   | 'audit.list'
   | 'customer.ai.bodyPrediction'
   | 'customer.ai.preSessionBrief'
+  | 'customer.ai.reengagement'
   | 'customer.consent.grant'
   | 'customer.consent.read'
   | 'customer.consent.revoke'
@@ -519,6 +520,25 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   'karute.entryEdits.list': { kind: 'view', category: 'karute', action: 'karute.entry_edits_view', targetType: 'karute' },
   'customer.ai.preSessionBrief': { kind: 'view', category: 'customer', action: 'customer.brief_view', targetType: 'customer' },
   'customer.ai.bodyPrediction': { kind: 'view', category: 'customer', action: 'customer.ai_prediction_view', targetType: 'customer' },
+  // AI再エンゲージメント facade read (§13, F9 — reengagement packet).
+  // FIX ROUND 1 R3 correction: this row was wrongly built as 'skip' —
+  // reading the packet's F9 "⚖ success-only audit doctrine" as governing
+  // the FACADE ROW instead of what it actually governs, the 生成 row.
+  // Same shape as its two immediate siblings above (customer.ai.
+  // preSessionBrief / customer.ai.bodyPrediction, both `kind: 'view'`) and
+  // the 2026-07-29 honesty split karute.ai.suggestedMessage established
+  // (comment further below, "view row per open, 生成 only on real
+  // generation"): the view row fires on every open — cache hit, gated
+  // null, or real generation alike — while ai.reengagement_draft (the
+  // success-only 生成 row) fires ONLY from the private generation-branch
+  // helper in ai-reengagement.ts. A cache-served phone open would
+  // otherwise leave no facade row of its own.
+  'customer.ai.reengagement': {
+    kind: 'view',
+    category: 'customer',
+    action: 'customer.reengagement_view',
+    targetType: 'customer',
+  },
   // 監査ログ list (§3.1): the row is the TWIN'S OWN write — the facade GET
   // delegates to listAuditLogWithClient (src/actions/audit-log.ts), which is
   // meant to write privacy.audit_log.view unconditionally per invocation for

@@ -13,6 +13,7 @@ export type MessageSource =
   | 'karute_followup'
   | 'dashboard_ai_action'
   | 'manual'
+  | 'reengagement'
 
 export interface LogMessageInput {
   customerId: string

@@ -34,7 +34,7 @@
 //     other routes; inline edit on profile is a separate task.
 
 import type { StaffComboboxOption } from '@/components/karute/StaffCombobox'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { ChevronLeft } from 'lucide-react'
 import { useRouter } from '@/i18n/navigation'
 import type { CustomerProfileData } from '../types'
@@ -88,6 +88,14 @@ interface CustomerProfileViewProps {
    *  (page.tsx) and the thin app (profile-screen DTO) thread it from
    *  buildCustomerProfileScreen — CustomerForm has no fetch fallback. */
   assignableStaff?: StaffComboboxOption[]
+  /** Server-streamed AI re-engagement card (karute page.tsx:151-163 slot-prop
+   *  pattern — CustomerProfileView is 'use client', so it cannot render the
+   *  async server component itself). Web threads a real Suspense-wrapped
+   *  slot; thin passes none, so the `??` below falls back to the placeholder
+   *  — phones keep the coming-soon card until the bake rider wires the real
+   *  one. Never routed through profile-screen.ts/the DTO (a ReactNode can't
+   *  cross that boundary). */
+  reengagementSlot?: ReactNode
 }
 
 export function CustomerProfileView({
@@ -102,6 +110,7 @@ export function CustomerProfileView({
   consentGranted = false,
   consentGrantedAtLabel = null,
   assignableStaff,
+  reengagementSlot,
 }: CustomerProfileViewProps) {
   const router = useRouter()
   const [tab, setTab] = useState<CustomerProfileTab>('memory')
@@ -160,8 +169,10 @@ export function CustomerProfileView({
       />
 
       {/* 3c. AI re-engagement card — sits ABOVE tabs so staff catch
-       *     the draft message on profile open (spike pattern). */}
-      <CustomerReengagementPreview />
+       *     the draft message on profile open (spike pattern). Web threads
+       *     a real streamed slot (F2); thin/no-slot callers fall back to
+       *     the placeholder. */}
+      {reengagementSlot ?? <CustomerReengagementPreview />}
 
       {/* 4. Tabs */}
       <CustomerTabBar

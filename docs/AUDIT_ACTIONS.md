@@ -9,6 +9,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | --- | --- | --- | --- |
 | `ai.consult_session` | ai | live | `settings.auditLog.actions.ai.consult_session` |
 | `ai.memory_extract` | ai | live | `settings.auditLog.actions.ai.memory_extract` |
+| `ai.reengagement_draft` | ai | live | `settings.auditLog.actions.ai.reengagement_draft` |
 | `ai.suggested_message` | ai | live | `settings.auditLog.actions.ai.suggested_message` |
 | `ai.suggested_message_view` | ai | live | `settings.auditLog.actions.ai.suggested_message_view` |
 | `ai.summary_generate` | ai | live | `settings.auditLog.actions.ai.summary_generate` |
@@ -38,6 +39,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `customer.photo_add` | customer | live | `settings.auditLog.actions.customer.photo_add` |
 | `customer.photo_delete` | customer | live | `settings.auditLog.actions.customer.photo_delete` |
 | `customer.photos_view` | customer | live | `settings.auditLog.actions.customer.photos_view` |
+| `customer.reengagement_view` | customer | live | `settings.auditLog.actions.customer.reengagement_view` |
 | `customer.view` | customer | live | `settings.auditLog.actions.customer.view` |
 | `karute.customer_reassign` | karute | live | `settings.auditLog.actions.karute.customer_reassign` |
 | `karute.entries_regenerate` | karute | live | `settings.auditLog.actions.karute.entries_regenerate` |
