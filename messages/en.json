@@ -399,7 +399,11 @@
       "openCustomer": "Open customer profile",
       "staff": "Staff",
       "phone": "Phone",
-      "email": "Email"
+      "email": "Email",
+      "sessionDate": "Date",
+      "visitCount": "Visits",
+      "lastVisit": "Last visit",
+      "menu": "Menu"
     },
     "memory": {
       "title": "Customer Memory",

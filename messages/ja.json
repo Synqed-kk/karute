@@ -399,7 +399,11 @@
       "openCustomer": "顧客カルテを開く",
       "staff": "担当",
       "phone": "電話",
-      "email": "メール"
+      "email": "メール",
+      "sessionDate": "施術日",
+      "visitCount": "来店回数",
+      "lastVisit": "前回",
+      "menu": "メニュー"
     },
     "memory": {
       "title": "顧客メモリ",

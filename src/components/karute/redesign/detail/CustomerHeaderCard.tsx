@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { useTranslations, useLocale } from 'next-intl'
-import { Edit3, Mail, Phone, ChevronRight } from 'lucide-react'
+import { Edit3, ChevronRight } from 'lucide-react'
 import { Link } from '@/i18n/navigation'
 
 export interface CustomerHeaderProps {
@@ -33,12 +33,34 @@ export interface CustomerHeaderProps {
   actions?: ReactNode
 }
 
-function ordinal(n: number, locale: 'en' | 'ja' = 'en'): string {
-  if (locale === 'ja') return `${n}回目`
-  if (n === 1) return '1st'
-  if (n === 2) return '2nd'
-  if (n === 3) return '3rd'
-  return `${n}th`
+// 案D (Liam ruling): two-band card — band 1 is identity, band 2 is labeled
+// session facts. Each fact column renders ONLY when its value exists; an
+// absent column disappears entirely (no dash, no orphan label) and the
+// remaining columns fill the row. Order below is the ruled order.
+const FACT_LABEL_CLS =
+  'text-[10.5px] font-semibold leading-[13px] tracking-[0.05em] text-muted-foreground/70'
+const FACT_VALUE_CLS =
+  'mt-0.5 truncate text-sm font-semibold leading-[18px] text-foreground max-sm:text-[13.5px]'
+const FACT_VALUE_LIGHT_CLS =
+  'mt-0.5 truncate text-sm font-medium leading-[18px] text-foreground max-sm:text-[13.5px]'
+
+function Fact({
+  label,
+  value,
+  className = 'min-w-0',
+  valueClassName = FACT_VALUE_CLS,
+}: {
+  label: string
+  value: ReactNode
+  className?: string
+  valueClassName?: string
+}) {
+  return (
+    <div className={className}>
+      <div className={FACT_LABEL_CLS}>{label}</div>
+      <div className={valueClassName}>{value}</div>
+    </div>
+  )
 }
 
 export function CustomerHeaderCard({
@@ -61,122 +83,114 @@ export function CustomerHeaderCard({
 }: CustomerHeaderProps) {
   const t = useTranslations('karuteDetail')
   const ja = useLocale() === 'ja'
-  const metaParts: React.ReactNode[] = []
-  if (age != null)
-    metaParts.push(<span key="age">{ja ? `${age}歳` : age}</span>)
-  if (gender) metaParts.push(<span key="gender">{gender}</span>)
-  if (visitNumber != null && visitNumber > 0)
-    metaParts.push(
-      <span key="vn">
-        {ja ? ordinal(visitNumber, 'ja') : `${ordinal(visitNumber)} visit`}
-      </span>,
+
+  const ageText = age != null ? (ja ? `${age}歳` : `${age}`) : null
+  const ageGenderText =
+    ageText && gender ? `${ageText}${ja ? '・' : ' · '}${gender}` : ageText || gender || null
+
+  const facts: ReactNode[] = []
+  if (sessionDateLong) {
+    facts.push(<Fact key="sessionDate" label={t('header.sessionDate')} value={sessionDateLong} />)
+  }
+  if (visitNumber != null && visitNumber > 0) {
+    facts.push(
+      <Fact
+        key="visitCount"
+        label={t('header.visitCount')}
+        value={ja ? `${visitNumber}回目` : visitNumber}
+      />,
     )
-  if (lastVisitDate)
-    metaParts.push(
-      <span key="lvd">
-        {ja ? `前回 ${lastVisitDate}` : `Last ${lastVisitDate}`}
-      </span>,
+  }
+  if (lastVisitDate) {
+    facts.push(
+      <Fact
+        key="lastVisit"
+        label={t('header.lastVisit')}
+        value={
+          <>
+            {lastVisitDate}
+            {lastVisitAgo && (
+              <span className="font-normal text-muted-foreground"> {lastVisitAgo}</span>
+            )}
+          </>
+        }
+      />,
     )
-  if (lastVisitAgo)
-    metaParts.push(<span key="lva">{lastVisitAgo}</span>)
+  }
+  if (service) {
+    facts.push(<Fact key="menu" label={t('header.menu')} value={service} />)
+  }
+  if (staffName) {
+    facts.push(<Fact key="staff" label={t('header.staff')} value={staffName} />)
+  }
+  if (phone) {
+    facts.push(<Fact key="phone" label={t('header.phone')} value={phone} />)
+  }
+  if (email) {
+    facts.push(
+      <Fact
+        key="email"
+        label={t('header.email')}
+        value={email}
+        className="min-w-0 flex-[1_1_160px] max-sm:flex-[1_1_100%]"
+        valueClassName={FACT_VALUE_LIGHT_CLS}
+      />,
+    )
+  }
 
   return (
-    <section className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
-      <div className="flex items-start gap-5 md:gap-6">
-        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-base font-bold text-foreground md:h-16 md:w-16 md:text-lg">
+    <section className="flex flex-col gap-1.5 rounded-[14px] border border-border bg-card px-4 py-1.5 shadow-sm tabular-nums">
+      <div className="flex min-h-[44px] items-center gap-2">
+        <div className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-blue-200 bg-blue-100 text-[15px] font-bold text-blue-700 dark:border-blue-500/25 dark:bg-blue-500/15 dark:text-blue-300">
           {initials}
         </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <div className="flex flex-wrap items-baseline gap-2.5">
-            {/* Always an <h2> so the heading survives in both branches (a11y);
-                the Link sits INSIDE it when a customer profile exists. */}
-            <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
-              {customerHref ? (
-                <Link
-                  href={customerHref as Parameters<typeof Link>[0]['href']}
-                  className="group inline-flex items-center gap-1 transition-colors hover:text-sky-600"
-                  aria-label={`${customerName} — ${t('header.openCustomer')}`}
-                  title={t('header.openCustomer')}
-                >
-                  <span>{customerName}</span>
-                  <ChevronRight
-                    size={18}
-                    className="shrink-0 text-muted-foreground transition-[transform,color] group-hover:translate-x-0.5 group-hover:text-sky-600"
-                  />
-                </Link>
-              ) : (
-                customerName
-              )}
-            </h2>
-            <span className="text-sm font-medium text-muted-foreground tabular-nums">
-              {karuteNumber}
-            </span>
-            {/* R8-1: trailing-inline, pushed to the row's right edge — the
-             *  quiet top-right corner, level with the name. Never a
-             *  dedicated full-width row (that's the dead-space bug this
-             *  fixes); absent when `actions` is absent, same as before. */}
-            {actions && <span className="ml-auto self-center">{actions}</span>}
-          </div>
-          {metaParts.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground">
-              {metaParts.map((part, i) => (
-                <span key={i} className="inline-flex items-center gap-1.5">
-                  {i > 0 && (
-                    <span aria-hidden className="text-muted-foreground">
-                      ·
-                    </span>
-                  )}
-                  {part}
-                </span>
-              ))}
-            </div>
+        {/* Always an <h2> so the heading survives in both branches (a11y);
+            the Link sits INSIDE it when a customer profile exists. */}
+        <h2 className="min-w-0 text-base font-semibold text-foreground">
+          {customerHref ? (
+            <Link
+              href={customerHref as Parameters<typeof Link>[0]['href']}
+              className="group inline-flex min-w-0 max-w-full items-center gap-1 transition-colors hover:text-sky-600"
+              aria-label={`${customerName} — ${t('header.openCustomer')}`}
+              title={t('header.openCustomer')}
+            >
+              <span className="min-w-0 truncate">{customerName}</span>
+              <ChevronRight
+                size={16}
+                className="shrink-0 text-muted-foreground transition-[transform,color] group-hover:translate-x-0.5 group-hover:text-sky-600"
+              />
+            </Link>
+          ) : (
+            <span className="block truncate">{customerName}</span>
           )}
-          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-sm">
-            {service && (
-              <>
-                <span className="font-medium text-foreground">{service}</span>
-                <span aria-hidden className="text-muted-foreground">·</span>
-              </>
+        </h2>
+        <span className="flex-none rounded-[5px] border border-border bg-muted px-1.5 py-px font-mono text-[11px] font-semibold text-muted-foreground">
+          {karuteNumber}
+        </span>
+        {ageGenderText && (
+          <span className="flex-none text-[12.5px] text-muted-foreground">{ageGenderText}</span>
+        )}
+        {(onEdit || actions) && (
+          <div className="ml-auto flex flex-none items-center gap-1.5">
+            {onEdit && (
+              <button
+                type="button"
+                onClick={onEdit}
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-muted"
+              >
+                <Edit3 size={13} />
+                <span>{t('actions.edit')}</span>
+              </button>
             )}
-            <span className="text-muted-foreground">{sessionDateLong}</span>
-            {staffName && (
-              <>
-                <span aria-hidden className="text-muted-foreground">·</span>
-                <span className="text-muted-foreground">
-                  {t('header.staff')}{' '}
-                  <span className="text-foreground">{staffName}</span>
-                </span>
-              </>
-            )}
+            {actions}
           </div>
-          {(phone || email) && (
-            <div className="mt-1 flex flex-wrap items-center gap-4 text-[13px] text-muted-foreground">
-              {phone && (
-                <span className="inline-flex items-center gap-1.5">
-                  <Phone size={13} className="opacity-70" />
-                  <span className="tabular-nums">{phone}</span>
-                </span>
-              )}
-              {email && (
-                <span className="inline-flex items-center gap-1.5">
-                  <Mail size={13} className="opacity-70" />
-                  <span>{email}</span>
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-        {onEdit && (
-          <button
-            type="button"
-            onClick={onEdit}
-            className="inline-flex h-8 shrink-0 items-center gap-1.5 self-start rounded-lg border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-muted"
-          >
-            <Edit3 size={13} />
-            <span>{t('actions.edit')}</span>
-          </button>
         )}
       </div>
+      {facts.length > 0 && (
+        <div className="-mx-4 flex flex-wrap gap-x-[22px] gap-y-1.5 border-t border-border px-4 pt-1.5">
+          {facts}
+        </div>
+      )}
     </section>
   )
 }
