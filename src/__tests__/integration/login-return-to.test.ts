@@ -126,6 +126,33 @@ describe('safeNext — only a relative same-origin path survives', () => {
     expect(safeNext('/_nextdoor')).toBe('/_nextdoor')
   })
 
+  /** F3 — the boundary is judged on the PATH. A `?` or `#` must not be able to
+   *  spell the same route past a prefix check: `/api?x=1` IS the /api route. */
+  it('DROPS /api and /_next however the query or fragment spells them', () => {
+    expect(safeNext('/api?x=1')).toBeNull()
+    expect(safeNext('/api#x')).toBeNull()
+    expect(safeNext('/_next?x')).toBeNull()
+  })
+
+  /** F1 — `/{locale}/auth/callback` is the tree's only route handler outside
+   *  /api. A one-shot code-exchange URL is not a place to land, and this gate
+   *  does not lean on @supabase/ssr's PKCE default to say so. */
+  it('DROPS anything under an auth segment — no PAGE lives there', () => {
+    expect(safeNext('/ja/auth/callback?code=x')).toBeNull()
+    expect(safeNext('/ja/auth')).toBeNull()
+  })
+
+  /** F2 — the harm class in its plainest form: a file, not a screen. Mirrors
+   *  the middleware matcher's own `.*\..*` exclusion. */
+  it('DROPS a static file — a download is not a destination', () => {
+    expect(safeNext('/fonts/NotoSansJP-Regular.ttf')).toBeNull()
+    expect(safeNext('/icon.png')).toBeNull()
+  })
+
+  it('KEEPS a dot in the QUERY — the file check reads the path part only', () => {
+    expect(safeNext('/ja/business/today?v=1.2')).toBe('/ja/business/today?v=1.2')
+  })
+
   /** Browsers STRIP tabs out of URLs, so `/<tab>/evil.test` collapses toward
    *  `//evil.test` — the protocol-relative escape above, wearing a disguise.
    *  The control-character regex already catches it; this pins it so it can
