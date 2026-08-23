@@ -2729,7 +2729,7 @@ describe('the confirm comes to the card, and the consult goes back to the placem
   it('an answered 仮押さえ is gone for the session, and a day flip cannot revive it', () => {
     // The surface used to hang off the PROP being there, so 確定 turned it
     // 確定済み and left it standing on every board change.
-    expect(SRC).toContain('    : !pending && props.hold && holdAnswer === null')
+    expect(SRC).toContain('    : props.hold && holdAnswer === null')
     // The screen-local flag is gone entirely — it would have died on every day
     // flip, and a surface that reopens on a flip is the bug wearing a hat.
     expect(SRC).not.toContain('setHoldConfirmed')
@@ -5154,7 +5154,7 @@ describe('BATCH-10b ⚖ flag 71 — no uninvited confirm', () => {
   it('a fresh load shows NO standing 仮押さえ — the prop alone can no longer raise it', () => {
     // THE FIX, in one clause. `holdOpen` is screen-local and starts false, so a
     // fresh load and a day flip both begin with the question unasked.
-    expect(SRC).toContain(': !pending && props.hold && holdAnswer === null && holdOpen')
+    expect(SRC).toContain(': props.hold && holdAnswer === null && holdOpen')
     expect(SRC).toContain('const [holdOpen, setHoldOpen] = useState(false)')
     // The surface can be reached ONLY through the open path — no other writer.
     expect(SRC.match(/setHoldOpen\(/g)).toHaveLength(1)
@@ -5184,7 +5184,7 @@ describe('BATCH-10b ⚖ flag 71 — no uninvited confirm', () => {
     expect(SRC).toContain("revert: { enabled: true, run: () => { setHoldAnswer('reverted'); show('仮押さえのままにしました') } },")
     // An ANSWERED hold is gone whether or not the card is opened again: the
     // holdAnswer clause sits IN FRONT of holdOpen, so it decides first.
-    const arm = SRC.slice(SRC.indexOf(': !pending && props.hold && holdAnswer === null'), SRC.indexOf('anchorId: null,'))
+    const arm = SRC.slice(SRC.indexOf(': props.hold && holdAnswer === null'), SRC.indexOf('anchorId: null,'))
     expect(arm).toContain('holdAnswer === null && holdOpen')
   })
 
@@ -5313,7 +5313,8 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     expect(both.reason).toBe('時間帯が重複: 見本 あかり')
     expect(both.floor).toBe('hard')
     // ONE reading of the row, in the verdict home — never at a surface.
-    expect(INT).toContain("if (failed) return stop(failed.label, failed.label.startsWith(CLASH_ROW) ? 'hard' : 'policy')")
+    expect(INT).toContain("if (failed && failed.label.startsWith(CLASH_ROW)) return stop(failed.label, 'hard')")
+    expect(INT).toContain("if (failed) return stop(failed.label, 'policy')")
     expect(SRC).not.toContain('時間帯が重複')
   })
 
@@ -5531,7 +5532,8 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // lanes it is not standing on yet.
     expect(holdSummary(lanes, 'apt-1', at, HOURS, null, { staffLane: 'p-02', bedLane: 'bed-02' })).toContain('見本 きり様')
     // Wired from the verdict's own room, never re-solved at the surface.
-    expect(SRC).toContain('bedLane: v.bedLane ?? attempt.bedLane,')
+    expect(SRC).toContain('bedLane: v.bedLane,')
+    expect(SRC).not.toContain('v.bedLane ?? attempt.bedLane')
     expect(SRC).toContain('checks: v.checks,')
     expect(SRC).toContain('guardRow: guardCheckRow(v.cell),')
     expect(SRC.match(/checksFor\(/g)).toHaveLength(2) // the two confirm-side readers, and NOT the box
@@ -5541,7 +5543,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // A hard floor has no 注意して配置, so describing its time/person/room would
     // be the details of a placement that is never going to occur — the
     // wrong-question defect in another costume.
-    expect(SRC).toContain("const facts =\n      v.floor === 'policy' && attempt")
+    expect(SRC).toContain("const facts =\n      v.floor === 'policy'\n        ? {")
     expect(SRC).toContain('{advice.facts && (')
     expect(SRC).toContain('<div className="gp-facts">')
     // ⚖ 52's glyphs have ONE home, and the box reads it rather than minting a
@@ -5558,7 +5560,9 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // reason, the time, the person, the room and the rows in it — so the press
     // IS the decision and a confirm arriving in the same beat asks it again.
     expect(SRC).toContain('const [pendingOpen, setPendingOpen] = useState<string | null>(null)')
-    expect(SRC).toContain('const holdPop: HoldPop | null = pending && (pending.override == null || pendingOpen === pending.id)')
+    expect(SRC).toContain('const pendingAsking = pending != null && (pending.override == null || pendingOpen === pending.id)')
+    expect(SRC).toContain('const holdPop: HoldPop | null = pending')
+    expect(SRC).toContain('anchorId: pendingAsking ? pending.id : null,')
     // T1 — OVERRIDE-SCOPED. `pending.override == null` is read FIRST, so a clean
     // drop still raises its confirm exactly as canon's stageChange → renderHoldBar
     // does (⚖ 71's kept behaviour). One grammar: every landing asks exactly one
@@ -5569,11 +5573,21 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // The reset is free because the state is an ID: a fresh landing is a fresh
     // question, and `stage` is the one function every board gesture ends in.
     expect(SRC).toContain('setPendingOpen(null)')
-    expect(SRC.match(/setPendingOpen\(/g)).toHaveLength(2) // the reset, and the re-open
+    // ⚖ AMENDMENT 1 (lens-1 F6) — THREE resets, one per writer of `pending`,
+    // plus the re-open. `stage` is not the only door: `placeNextVisit` and
+    // `placeFromShelf` write `setPending` themselves, so a card opened, parked
+    // and placed back through an override kept the stale open id and auto-popped
+    // the confirm — the say-okay-twice, returned by the back door.
+    expect(SRC.match(/setPendingOpen\(null\)/g)).toHaveLength(3)
+    expect(SRC.match(/setPendingOpen\(/g)).toHaveLength(4)
+    for (const fn of ['function stage(', 'function placeNextVisit(', 'function placeFromShelf('] as const) {
+      const body = SRC.slice(SRC.indexOf(fn), SRC.indexOf('\n  }', SRC.indexOf(fn)))
+      expect([fn, body.includes('setPendingOpen(null)')]).toEqual([fn, true])
+    }
     // ⚖ 56/41 precedence, said out loud now that the branch above can decline:
     // a CLOSED staged change must not let the day's older question step into the
     // space it is holding.
-    expect(SRC).toContain(': !pending && props.hold && holdAnswer === null && holdOpen')
+    expect(SRC).toContain(': props.hold && holdAnswer === null && holdOpen')
     // Escape is untouched — it still reverts a pending, open or closed.
     expect(SRC).toContain('if (pending && !dragRef.current) revertPending()')
   })
@@ -5589,8 +5603,10 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // It is harmless, and this is WHY: the two surfaces are branches of one
     // ternary and the pending one takes it, so the same click can arm both flags
     // and only one question is ever on screen (canon's singleton contract).
-    expect(SRC).toContain('const holdPop: HoldPop | null = pending && (pending.override == null || pendingOpen === pending.id)')
-    expect(SRC).toContain(': !pending && props.hold && holdAnswer === null && holdOpen')
+    expect(SRC).toContain('const pendingAsking = pending != null && (pending.override == null || pendingOpen === pending.id)')
+    expect(SRC).toContain('const holdPop: HoldPop | null = pending')
+    expect(SRC).toContain('anchorId: pendingAsking ? pending.id : null,')
+    expect(SRC).toContain(': props.hold && holdAnswer === null && holdOpen')
     expect(SRC.match(/const holdPop: HoldPop \| null =/g)).toHaveLength(1)
   })
 
@@ -5658,13 +5674,239 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // not minted per gesture, which would also make the row exempt from the park
     // filter (a bed drawing that survives being put on the shelf).
     expect(INT).toContain('for (const id of Object.keys(bedMoves)) {')
-    expect(INT).toContain('if (staffRow) home.set(`beds|${id}`, { ...staffRow, key: `${id}-bed` })')
+    expect(INT).toContain('home.set(`beds|${id}`, { ...staffRow, key: `${id}-bed`, label })')
     // A booking that HAS its own bed drawing is untouched by it.
     const withBed = [
       lanes[0],
       lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'apt-9-bed', caseId: 'apt-9', title: '見本 きり', tag: '【見本 あずさ】' }, 960, 1020)] }),
     ]
     expect(applyMoves(withBed, moves, [], [], HOURS, bedMoves).find((l) => l.key === 'bed-01')!.items.filter((i) => i.caseId === 'apt-9')).toHaveLength(1)
+  })
+
+  // ── ⚖ AMENDMENT 1 (Fable, 8/23) — the four-lens blind round's fix list ────
+
+  it('⚖ A1-1 — a POLICY row over a FULL HOUSE is 満室, not a button that cannot fire', () => {
+    // LENS-1 F1. The checks were read before the room and any failing row
+    // returned immediately, so 勤務時間外 + 満室 came back `policy`: the box grew
+    // a 「注意して配置」, the press reached `solveBed`, the allocator refused a
+    // second time and the landing died in a toast with nothing staged. A button
+    // that cannot perform what it names — ⚖ 31c, on all four gesture paths.
+    const shiftEnds = { staff: { untilLabel: '16:30', window: { from: 600, until: 990 } } }
+    const v = verdict(board({ ...shiftEnds, beds: busyBeds }), {}, cellOf('safe', ''))
+    // 満室 outranks the judgement (TEST:4030's law), so the box is the ROOM's…
+    expect(v.floor).toBe('hard-room')
+    expect(v.reason).toContain('満室')
+    // …which means NO escalation, and the bed-free offers apply instead.
+    expect(v.kind).toBe('blocked')
+
+    // A HARD row still outranks the room — unchanged, and the reason the two
+    // were ordered this way in the first place: saying 満室 to someone whose
+    // staff member is double-booked answers the wrong half.
+    const clashToo = verdict(
+      board({ staff: { items: [booking({ key: 'a', caseId: 'apt-other', title: '見本 あかり' }, 960, 1020)] }, beds: busyBeds }),
+      {}, cellOf('safe', ''),
+    )
+    expect(clashToo.floor).toBe('hard')
+    expect(clashToo.reason).toBe('時間帯が重複: 見本 あかり')
+
+    // And with a room actually free, the policy row answers — WITH the solved
+    // room in hand, which is what makes its 注意して配置 honest.
+    const roomFree = verdict(board(shiftEnds), {}, cellOf('safe', ''))
+    expect(roomFree.floor).toBe('policy')
+    expect(roomFree.reason).toBe('見本 あずさは16:30以降勤務不可')
+    expect(roomFree.bedLane).toBe('bed-01')
+
+    // The ranking, in the one home, in the order the operator is answered.
+    const order = ['startsWith(CLASH_ROW)) return stop(failed.label, ', 'if (solved.refusal) return stop(solved.refusal', "if (failed) return stop(failed.label, 'policy')"]
+    expect(order.map((x) => INT.indexOf(x))).toEqual([...order.map((x) => INT.indexOf(x))].sort((a, b) => a - b))
+    expect(order.every((x) => INT.includes(x))).toBe(true)
+  })
+
+  it('⚖ A1-1 rider — the starts a full-house box offers pass the WHOLE gate', () => {
+    // The offers are filtered by the caller's own verdict, so a start that is
+    // free of the room is also free of the shift row — the box cannot recommend
+    // a start the release would refuse (flag 54's disease, at the new source).
+    const shiftEnds = { staff: { untilLabel: '16:30', window: { from: 600, until: 990 } } }
+    const lanes = board({ ...shiftEnds, beds: busyBeds })
+    const gate = (start: number) =>
+      landingVerdict(lanes, ask({ start, end: start + 60, span: place(start, start + 60, HOURS) }), cellOf('safe', '')).kind !== 'blocked'
+    // 15:00 is room-free (the busy beds end at 17:00… they START at 16:00) and
+    // inside the shift; 17:30 is room-free but PAST 16:30, so the gate refuses
+    // it and it is never offered.
+    expect(gate(900)).toBe(true)
+    expect(gate(1050)).toBe(false)
+    expect(nearestFreeStarts(960, 30, HOURS, 60, gate)).toEqual([900])
+  })
+
+  it('⚖ A1-2 — a closed override-stage still has a pill and a way back to its day', () => {
+    // LENS-1 F2. The gate decided whether the WHOLE surface was built, so an
+    // unopened override-stage had no pill and no 確定待ち day-pin — while still
+    // blocking every other gesture. `pendingOpen` is screen-local (⚖ 71 requires
+    // it), so a day flip remounted the screen and stranded the staged change
+    // with nothing on screen pointing back at it.
+    expect(SRC).toContain('const pendingAsking = pending != null && (pending.override == null || pendingOpen === pending.id)')
+    expect(SRC).toContain('const holdPop: HoldPop | null = pending')
+    // The gate moved onto the ANCHOR: closed → no anchor → the layout effect
+    // takes the same road the day's own standing hold has always taken and pins
+    // it as the pill (`anchorId: null` → `box` undefined → `setHoldPinned(true)`).
+    expect(SRC).toContain('anchorId: pendingAsking ? pending.id : null,')
+    expect(SRC).toContain('const at = box && anchorOnScreen(box, viewport) ? holdPopAnchor(')
+    expect(SRC).toContain('      if (!at) {\n        setHoldPinned(true)')
+    // The recall half renders unconditionally…
+    const surface = SRC.slice(SRC.indexOf('{holdPop && ('), SRC.indexOf('{/* ⚖ Liam 19/20'))
+    expect(surface.indexOf('className="hp-head"')).toBeLessThan(surface.indexOf('{holdPop.asking && ('))
+    expect(surface.indexOf('hold-daypin')).toBeLessThan(surface.indexOf('{holdPop.asking && ('))
+    expect(surface).toContain('{pending && pendingOffBoard && (')
+    expect(surface).toContain('へ戻る</Link>')
+    // …and the ASK — the rows and 確定/元に戻す — is what the gate withholds.
+    expect(surface).toContain('{holdPop.asking && (')
+    const asked = surface.slice(surface.indexOf('{holdPop.asking && ('))
+    expect(asked).toContain('holdbar-checks')
+    expect(asked).toContain('holdPop.confirm.run')
+    expect(asked).toContain('元に戻す')
+    // The day-hold arm is the question by definition (⚖ 71 opened it).
+    expect(SRC).toContain('          asking: true,')
+  })
+
+  it('⚖ A1-3 — the box names the room the landing SOLVED, and says when it changed', () => {
+    // LENS-1 F3+F10. `?? attempt.bedLane` named the room the booking carries IN
+    // — which on a retarget is the bed the allocator has just refused. The box
+    // promised a room the landing was never going to use.
+    expect(SRC).toContain('bedLane: v.bedLane,')
+    expect(SRC).not.toContain('v.bedLane ?? attempt.bedLane')
+    // `ask.bedLane` is passed as `bedFrom` instead — its honest job, and what
+    // makes a retarget PRINT rather than happen silently (⚖ 51's own law).
+    expect(SRC).toContain('hours, ask.bedLane, {')
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'], items: [booking({ key: 'a-staff', caseId: 'apt-1', title: '見本 きり' }, 960, 1020)] }),
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
+      lane({ key: 'bed-02', group: 'beds', label: 'ベッド2' }),
+    ]
+    const at = { laneKey: 'p-01', ...place(960, 1020, HOURS) }
+    // Carried ベッド1, solved ベッド2 → the arrow, exactly as the confirm prints it.
+    expect(holdSummary(lanes, 'apt-1', at, HOURS, 'bed-01', { staffLane: 'p-01', bedLane: 'bed-02' }))
+      .toBe('見本 きり様 → 16:00〜17:00 / 担当 見本 あずさ / ベッド1 → ベッド2')
+    // A landing that ends where it started says nothing.
+    expect(holdSummary(lanes, 'apt-1', at, HOURS, 'bed-01', { staffLane: 'p-01', bedLane: 'bed-01' }))
+      .toBe('見本 きり様 → 16:00〜17:00 / 担当 見本 あずさ / ベッド1')
+  })
+
+  it('⚖ A1-4 — the facts come from the QUESTION, so every staging path has them', () => {
+    // LENS-1 F4. They hung off `attempt`, which exists only where a CARD can sit
+    // at the landing (flag 57's paint) — so the keyboard nudge, 配置モード and the
+    // shelf all staged with no facts at all. `ask` is what every path has.
+    expect(SRC).toContain("const facts =\n      v.floor === 'policy'\n        ? {")
+    expect(SRC).toContain('summary: holdSummary(boardLanes, ask.id ?? \'\', { laneKey, ...span }, hours, ask.bedLane, {')
+    expect(SRC).toContain('staffLane: ask.staffLane,')
+    // …and it is decoupled from the ghost, so flag 57's own contract is untouched.
+    const explain = SRC.slice(SRC.indexOf('function explainBlocked('), SRC.indexOf('function cancelDrag('))
+    expect(explain).not.toContain('attempt.id')
+    expect(explain).not.toContain('attempt.staffLane')
+    // A landing whose card is not DRAWN anywhere (a 次回予約 that does not exist
+    // yet, a chip still on the shelf) has no name to read, and a bare 「様 →」 is
+    // a sentence about nobody — the rest of the facts are the same either way.
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'] }),
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
+    ]
+    const at = { laneKey: 'p-01', ...place(960, 1020, HOURS) }
+    expect(holdSummary(lanes, '', at, HOURS, null, { staffLane: 'p-01', bedLane: 'bed-01' }))
+      .toBe('16:00〜17:00 / 担当 見本 あずさ / ベッド1')
+    expect(holdSummary(lanes, '', at, HOURS, null, { staffLane: 'p-01', bedLane: 'bed-01' })).not.toContain('様')
+    // The no-lane release stays bare by construction: it is `hard`, so no facts.
+    expect(verdict(board(), { staffLane: null }).floor).toBe('hard')
+  })
+
+  it('⚖ A1-5 — the bed-row stops carry their rows, and an empty strip never renders', () => {
+    // LENS-1 F5. The two explicit-room stops returned before `computeChecks`, so
+    // a VIP box printed a row of NOTHING under its sentence — which reads as "no
+    // checks were run", the opposite of what the box is for.
+    const vip = verdict(board(), { solveRoom: false, bedLane: 'bed-01', vip: true }, cellOf('safe', ''))
+    expect(vip.floor).toBe('policy')
+    expect(vip.checks.length).toBeGreaterThan(0)
+    expect(vip.checks.some((c) => c.label === '整体資格 一致')).toBe(true)
+    // The store-mismatch stop too — same block, same reason.
+    const cross = landingVerdict(
+      [lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'] }), lane({ key: 'bed-09', group: 'beds', label: 'ベッド9', stores: ['store-b'] })],
+      ask({ solveRoom: false, bedLane: 'bed-09' }), cellOf('safe', ''),
+    )
+    expect(cross.checks.length).toBeGreaterThan(0)
+    // The stops that fire before there is a staff lane still honestly carry none…
+    expect(verdict(board(), { staffLane: null }).checks).toEqual([])
+    // …so the render refuses to draw the container for them.
+    expect(SRC).toContain('{(advice.facts.checks.length > 0 || advice.facts.guardRow) && (')
+    // Reading the rows early did not move the ANSWER: each stop still returns
+    // its own sentence, in the same order.
+    expect(vip.reason).toBe('VIP・個室クラスのご予約です: ベッド1は個室ではありません')
+    expect(cross.reason).toBe('担当と店舗が異なります: 見本 あずさ / ベッド9')
+  })
+
+  it('⚖ A1-7 — nearestFreeStarts cannot hang on an operator’s zero step', () => {
+    // LENS-1 F8. `bookingStepMin` is a queued operator dial (⚠SETTINGS-BATCH); a
+    // zero or negative step walked the loop forever and took the render thread
+    // with it. A refusal box is not where a store finds out it typed 0.
+    expect(nearestFreeStarts(960, 0, HOURS, 60, () => true)).toEqual([])
+    expect(nearestFreeStarts(960, -30, HOURS, 60, () => true)).toEqual([])
+    expect(INT).toContain('if (stepMin <= 0) return []')
+    // …and a sane dial is untouched.
+    expect(nearestFreeStarts(960, 30, HOURS, 60, () => true)).toEqual([930, 990])
+  })
+
+  it('⚖ A1-8 — park → place-back lands in the ALLOCATOR’s room, not the old one', () => {
+    // LENS-3 F1, the highest of that lens. `placeFromShelf` wrote `moves` and
+    // never `bedMoves`, so the stale entry `restoreSides` wrote at park time
+    // survived: the placed-back card drew into its OLD room on top of whoever
+    // was in it, while the room the allocator chose read free. Pre-existing —
+    // the synthesized bed row only removed the immunity room-less bookings had.
+    expect(SRC).toContain('setBedMoves((was) => ({ ...was, [chip.id]: { laneKey: bed.key, ...span } }))')
+    // ⚖ 45's law, machine-checked: this function writes BOTH sides from ONE span.
+    const shelf = SRC.slice(SRC.indexOf('function placeFromShelf('), SRC.indexOf('const monthCells ='))
+    expect(shelf).toContain('setMoves((was) => ({ ...was, [chip.id]: { laneKey: staff.key, ...span } }))')
+    expect(shelf).toContain('setBedMoves((was) => ({ ...was, [chip.id]: { laneKey: bed.key, ...span } }))')
+    // The board half of the same cycle: with both sides written, the pair draws
+    // where the placement says — and the old room is left to its own occupant.
+    const span = place(960, 1020, HOURS)
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'], items: [booking({ key: 'apt-1-staff', caseId: 'apt-1', title: '見本 きり' }, 960, 1020)] }),
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'apt-1-bed', caseId: 'apt-1', title: '見本 きり' }, 960, 1020)] }),
+      lane({ key: 'bed-02', group: 'beds', label: 'ベッド2' }),
+    ]
+    // The stale park-time origin says ベッド1; the placement solved ベッド2.
+    const after = applyMoves(lanes, { 'apt-1': { laneKey: 'p-01', ...span } }, [], [], HOURS, { 'apt-1': { laneKey: 'bed-02', ...span } })
+    expect(after.find((l) => l.key === 'bed-02')!.items.some((i) => i.caseId === 'apt-1')).toBe(true)
+    expect(after.find((l) => l.key === 'bed-01')!.items.some((i) => i.caseId === 'apt-1')).toBe(false)
+    // …and the card names the room it is actually in, on both rows.
+    expect(after.find((l) => l.key === 'p-01')!.items.find((i) => i.caseId === 'apt-1')!.tag).toBe('【ベッド2】')
+  })
+
+  it('⚖ A1-9 — the synthesized bed row announces the room it is SITTING in', () => {
+    // LENS-3 F3. It copied the staff row's accessible name verbatim, and that
+    // name carries the room the SERVER drew — 「未定」 for a `resource_id: null`
+    // booking. A screen reader heard 「未定」 from a card sitting in ベッド1. The
+    // codebase's own rule at its two sibling sites is: a row that moves rebuilds
+    // its sentence rather than carrying one that is no longer true.
+    const span = place(960, 1020, HOURS)
+    const staffRow = booking({ key: 'apt-9-staff', caseId: 'apt-9', title: '見本 きり' }, 960, 1020)
+    staffRow.label = '16:00–17:00 見本 きり様 / 再来 / 見本 あずさ / 未定 / 仮押さえ'
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'], items: [staffRow] }),
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
+    ]
+    const after = applyMoves(lanes, { 'apt-9': { laneKey: 'p-01', ...span } }, [], [], HOURS, { 'apt-9': { laneKey: 'bed-01', ...span } })
+    const drawn = after.find((l) => l.key === 'bed-01')!.items.find((i) => i.caseId === 'apt-9')!
+    expect(drawn.label).toBe('16:00–17:00 見本 きり様 / 再来 / 見本 あずさ / ベッド1 / 仮押さえ')
+    expect(drawn.label).not.toContain('未定')
+    // The staff row it was copied from is NOT rewritten — it names its partner
+    // through `tag`, and its own fourth segment is the server's business.
+    expect(after.find((l) => l.key === 'p-01')!.items.find((i) => i.caseId === 'apt-9')!.label).toContain('未定')
+    // A differently-shaped label is left alone rather than mangled.
+    const odd = booking({ key: 'apt-8-staff', caseId: 'apt-8', title: '見本 ごろう' }, 960, 1020)
+    odd.label = 'no slashes here'
+    const after2 = applyMoves(
+      [lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'], items: [odd] }), lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })],
+      { 'apt-8': { laneKey: 'p-01', ...span } }, [], [], HOURS, { 'apt-8': { laneKey: 'bed-01', ...span } },
+    )
+    expect(after2.find((l) => l.key === 'bed-01')!.items.find((i) => i.caseId === 'apt-8')!.label).toBe('no slashes here')
   })
 
   // ── E / T6: the button that could not perform what it named ──────────────

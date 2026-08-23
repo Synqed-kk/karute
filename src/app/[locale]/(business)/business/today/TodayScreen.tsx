@@ -468,6 +468,11 @@ interface HoldPop {
    *  argued: the anchored version swallowed the pointerdown of a card in the
    *  next lane down in the real-browser harness. */
   anchorId: string | null
+  /** ⚖ 74 — is this surface ASKING, or only recalling? A directly-staged
+   *  override has already been answered in the red box, so its surface carries
+   *  the status, the summary and the way back to it — and not the check rows or
+   *   確定/元に戻す, which are the question. Clicking the card sets this true. */
+  asking: boolean
   status: string
   tone: 'waiting' | 'done'
   summary: string
@@ -1499,9 +1504,26 @@ export function TodayScreen(props: TodayProps) {
   // ⚖ 74 — the pending branch's own open/closed gate, patterned on ⚖ 71's. An
   // ordinary stage has no override and is open on arrival; a stage that came
   // through 注意して配置 waits to be opened by the card it belongs to.
-  const holdPop: HoldPop | null = pending && (pending.override == null || pendingOpen === pending.id)
+  const pendingAsking = pending != null && (pending.override == null || pendingOpen === pending.id)
+  const holdPop: HoldPop | null = pending
     ? {
-        anchorId: pending.id,
+        // ⚖ AMENDMENT 1, lens-1 F2 — A CLOSED STAGE IS STILL A THING THAT EXISTS.
+        //
+        // The gate used to decide whether this whole object was built, and that
+        // took the PILL and the 確定待ち day-pin down with the question: an
+        // override-stage left unopened had no visible surface anywhere, while
+        // still blocking every other gesture — and because `pendingOpen` is
+        // screen-local (it must be, ⚖ 71), a day flip REMOUNTED the screen and
+        // stranded the staged change with no way back to it at all.
+        //
+        // So the gate moved onto the ANCHOR, which is the one thing that decides
+        // popover-or-pill (see `anchorId` and the layout effect): closed → no
+        // anchor → the surface is the pinned pill at the foot of the viewport,
+        // exactly the road the day's own standing 仮押さえ has always taken. The
+        // ASK — the check rows and 確定/元に戻す — is gated by `asking` below.
+        // Recall is not a second question; ⚖ 41's re-open door needs a frame.
+        anchorId: pendingAsking ? pending.id : null,
+        asking: pendingAsking,
         status: '仮押さえ',
         tone: 'waiting',
         // ⚖ 46 forerunner: blank on ANOTHER STORE's board too — `holdSummary`
@@ -1541,12 +1563,7 @@ export function TodayScreen(props: TodayProps) {
     // the two clauses before it are ⚖ 41/56's law, untouched. Unanswered is
     // still the only state that HAS a question; opening is now how it gets
     // asked. An answered hold stays gone for the session either way.
-    // ⚖ 74 — `!pending` is the ⚖ 56/41 precedence, said out loud now that the
-    // branch above can decline. A staged change still stands IN FRONT of the
-    // day's own 仮押さえ; a CLOSED one must not let the older question step into
-    // the space it is holding — that is Liam's 「twice in a row」 from the other
-    // side, and without this word the gate above would have re-opened it.
-    : !pending && props.hold && holdAnswer === null && holdOpen
+    : props.hold && holdAnswer === null && holdOpen
       ? {
           // ⚖ 71 does NOT change the line below: anchoring this surface to the
           // card was measured on 2026-08-21 to sit over the board and swallow
@@ -1555,6 +1572,8 @@ export function TodayScreen(props: TodayProps) {
           // how long it is up; it does not make an anchored surface safe.
           // The day's own standing 仮押さえ (the incident's) — the pill, always.
           anchorId: null,
+          // ⚖ 71 opened it deliberately, so it is always the question.
+          asking: true,
           status: '仮押さえ',
           tone: 'waiting',
           summary: props.hold.summary,
@@ -1779,9 +1798,14 @@ export function TodayScreen(props: TodayProps) {
         : { id, origin: from.staff ?? { laneKey: '', x: 0, w: 0 }, bedOrigin: from.bed ?? undefined, ...boardStamp, override: override ?? undefined },
     )
     // ⚖ 74 — a fresh landing is a fresh question, so an id opened a moment ago
-    // may not answer for it. Dropping it here rather than at each caller is the
-    // whole reset: `placeNextVisit` and `placeFromShelf` mint ids that were
-    // never opened, and every board gesture ends in this one function.
+    // may not answer for it.
+    //
+    // ⚖ AMENDMENT 1, lens-1 F6 — and the comment that used to sit here was
+    // WRONG: it claimed every gesture ends in this function, and `placeNextVisit`
+    // / `placeFromShelf` write `setPending` themselves. A card opened, parked and
+    // placed back through an override kept the stale open id and auto-popped the
+    // confirm — the say-okay-twice, returned by the back door. Those two reset it
+    // at their own `setPending` now, which is the rule stated where it is true.
     setPendingOpen(null)
     setSelected(null)
   }
@@ -2417,12 +2441,28 @@ export function TodayScreen(props: TodayProps) {
     // happen. Everything is the verdict's own — the room it solved and the rows
     // it read, against the ATTEMPTED landing rather than the lanes the card is
     // still standing on (which is what `checksFor` would have answered).
+    // ⚖ AMENDMENT 1, lens-1 F3+F4+F10 — BUILT FROM THE QUESTION, not from the
+    // ghost. It used to hang off `attempt`, which exists only where a CARD can
+    // sit at the landing (flag 57's paint) — so the keyboard nudge, 配置モード and
+    // the shelf all staged with no facts at all. `ask` is what every path has,
+    // and it carries the same four fields the ghost did.
+    //
+    // The room is `v.bedLane` ALONE. The old `?? attempt.bedLane` fallback named
+    // the room the booking is carrying IN — which on a retarget is the bed the
+    // allocator just refused, i.e. the box promised a room the landing was never
+    // going to use. After the F1 reordering every policy stop has a solved room,
+    // so there is nothing left for a fallback to cover.
+    //
+    // `ask.bedLane` is passed as `bedFrom` instead, which is its honest job: it
+    // is what makes a retarget PRINT — ベッド3 → ベッド2, the same sentence the
+    // confirm shows, from the same function (⚖ 51's own law about not letting a
+    // room change silently).
     const facts =
-      v.floor === 'policy' && attempt
+      v.floor === 'policy'
         ? {
-            summary: holdSummary(boardLanes, attempt.id, { laneKey, ...span }, hours, null, {
-              staffLane: attempt.staffLane,
-              bedLane: v.bedLane ?? attempt.bedLane,
+            summary: holdSummary(boardLanes, ask.id ?? '', { laneKey, ...span }, hours, ask.bedLane, {
+              staffLane: ask.staffLane,
+              bedLane: v.bedLane,
             }),
             checks: v.checks,
             guardRow: guardCheckRow(v.cell),
@@ -3397,6 +3437,9 @@ export function TodayScreen(props: TodayProps) {
     // '' is `revertPending`'s "there is no earlier span" sentinel: 元に戻す on a
     // creation deletes it rather than moving it somewhere it has never been.
     setPending({ id, origin: { laneKey: '', x: 0, w: 0 }, ...boardStamp, override: override ?? undefined })
+    // ⚖ 74 (lens-1 F6) — this path writes `pending` itself, so it owes the reset
+    // `stage` does; without it a previously-opened id could auto-pop this one.
+    setPendingOpen(null)
     setSelected(null)
     show(`${p.name}様の次回予約を${props.dayLabel} ${hhmm(start)}に仮押さえしました（お客様情報は自動入力）`)
   }
@@ -3484,7 +3527,22 @@ export function TodayScreen(props: TodayProps) {
       { ...board, laneKey: bed.key, item: { ...landed, key: `${chip.id}-bed`, tag: `【${staffLabel}】` } },
     ])
     setMoves((was) => ({ ...was, [chip.id]: { laneKey: staff.key, ...span } }))
+    // ⚖ AMENDMENT 1, lens-3 F1 — AND THE ROOM SIDE TOO. This wrote only `moves`,
+    // so a booking that had a bed at park time kept the STALE `bedMoves` entry
+    // `restoreSides` wrote on the way out: the placed-back card drew into its old
+    // room, on top of whoever was in it, while the room the allocator actually
+    // chose read free — and the card's label, the reader's sentence and the toast
+    // all disagreed. Pre-existing, and the synthesized bed row removed the
+    // accidental immunity that room-less bookings used to have.
+    //
+    // ⚖ 45's own law is the fix: one span, both sides, from every writer. `bed`
+    // here is the room this placement actually landed in — the operator's own
+    // choice on a bed-row drop, the allocator's answer otherwise.
+    setBedMoves((was) => ({ ...was, [chip.id]: { laneKey: bed.key, ...span } }))
     setPending({ id: chip.id, origin: chip.home, ...boardStamp, override: override ?? undefined })
+    // ⚖ 74 (lens-1 F6) — the same reset `stage` owes; this path writes `pending`
+    // itself, and the park→place-back cycle is exactly where a stale id survived.
+    setPendingOpen(null)
     setSelected(null)
     show(`${chip.item.title}様を${props.dayLabel} ${hhmm(start)}へ仮押さえしました`)
   }
@@ -4885,12 +4943,17 @@ export function TodayScreen(props: TodayProps) {
           {advice.facts && (
             <div className="gp-facts">
               <strong>{advice.facts.summary}</strong>
-              <div className="holdbar-checks">
-                {advice.facts.checks.map((c) => (
-                  <span className={`ck${c.ok ? '' : ' bad'}`} key={c.label}>{c.label}</span>
-                ))}
-                {advice.facts.guardRow && <span className={`ck ${advice.facts.guardRow.tone}`}>{advice.facts.guardRow.label}</span>}
-              </div>
+              {/* ⚖ AMENDMENT 1, lens-1 F5 — never an EMPTY strip. A row of
+                  nothing under the sentence reads as "no checks were run", which
+                  is the opposite of what this box is for. */}
+              {(advice.facts.checks.length > 0 || advice.facts.guardRow) && (
+                <div className="holdbar-checks">
+                  {advice.facts.checks.map((c) => (
+                    <span className={`ck${c.ok ? '' : ' bad'}`} key={c.label}>{c.label}</span>
+                  ))}
+                  {advice.facts.guardRow && <span className={`ck ${advice.facts.guardRow.tone}`}>{advice.facts.guardRow.label}</span>}
+                </div>
+              )}
             </div>
           )}
           {/* ⚖ LIAM flag 73 RIDER — THE OFFER LINE ANSWERS THE REFUSAL'S OWN
@@ -5052,16 +5115,24 @@ export function TodayScreen(props: TodayProps) {
               <Link href={dayHref(pending.dayOffset, pending.store)}>{pending.dayLabel}へ戻る</Link>
             </span>
           )}
-          <div className="holdbar-checks">
-            {holdPop.checks.map((c) => <span className={`ck${c.tone ? ` ${c.tone}` : ''}`} key={c.label}>{c.label}</span>)}
-            {/* ⚖ 31b — the guard's move-assessment, where the operator is already
-                reading. It reports; it never disables 確定. */}
-            {holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}
-          </div>
-          <div className="hp-actions">
-            <button className="btn primary" type="button" disabled={!holdPop.confirm.enabled} onClick={holdPop.confirm.run}>{holdPop.confirm.label}</button>
-            <button className="btn" type="button" disabled={!holdPop.revert.enabled} onClick={holdPop.revert.run}>元に戻す</button>
-          </div>
+          {/* ⚖ 74 (lens-1 F2) — THE ASK, and only when it is being asked. A
+              directly-staged override was answered in the red box; what stays on
+              screen above is the RECALL — what is staged, and the way back to the
+              day it is staged on. Clicking the card asks again, in full. */}
+          {holdPop.asking && (
+            <>
+              <div className="holdbar-checks">
+                {holdPop.checks.map((c) => <span className={`ck${c.tone ? ` ${c.tone}` : ''}`} key={c.label}>{c.label}</span>)}
+                {/* ⚖ 31b — the guard's move-assessment, where the operator is already
+                    reading. It reports; it never disables 確定. */}
+                {holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}
+              </div>
+              <div className="hp-actions">
+                <button className="btn primary" type="button" disabled={!holdPop.confirm.enabled} onClick={holdPop.confirm.run}>{holdPop.confirm.label}</button>
+                <button className="btn" type="button" disabled={!holdPop.revert.enabled} onClick={holdPop.revert.run}>元に戻す</button>
+              </div>
+            </>
+          )}
         </div>
       )}
 

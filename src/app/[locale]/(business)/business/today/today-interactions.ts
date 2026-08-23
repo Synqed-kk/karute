@@ -418,10 +418,24 @@ export function applyMoves(
   // the server builds the pair (today-board :396-413 — one `bookingItem`, two
   // key suffixes). `moved` re-tags it from the partner lane a few lines down,
   // which is the same 【担当】 the server would have written.
+  //
+  // ⚖ AMENDMENT 1, lens-3 F3 — AND IT SAYS WHICH ROOM IT IS IN. The staff row's
+  // accessible name carries the room the SERVER drew (today-board :412's fourth
+  // segment), which for a `resource_id: null` booking is 「未定」 — so the copy
+  // announced 「未定」 to a screen reader while sitting in ベッド1. The codebase's
+  // own rule at its two sibling sites (`placeFromShelf`, `withTrailingCleanup`)
+  // is that a row which moves REBUILDS its sentence rather than carrying one that
+  // is no longer true. Only the room segment is ours to correct here, and the
+  // length guard means a differently-shaped label is left alone rather than
+  // mangled. (The stale time-range half is `atSpan`'s, board-wide and queued.)
   for (const id of Object.keys(bedMoves)) {
     if (home.has(`beds|${id}`)) continue
     const staffRow = home.get(`staff|${id}`)
-    if (staffRow) home.set(`beds|${id}`, { ...staffRow, key: `${id}-bed` })
+    if (!staffRow) continue
+    const room = lanes.find((l) => l.key === bedMoves[id].laneKey)?.label
+    const parts = staffRow.label.split(' / ')
+    const label = room != null && parts.length === 5 ? [...parts.slice(0, 3), room, parts[4]].join(' / ') : staffRow.label
+    home.set(`beds|${id}`, { ...staffRow, key: `${id}-bed`, label })
   }
 
   // ONE SPAN FOR THE PAIR, and it lives in `moves`: every writer sets both
@@ -996,6 +1010,12 @@ export function nearestFreeStarts(
   dur: number,
   ok: (start: number) => boolean,
 ): number[] {
+  // ⚖ AMENDMENT 1, lens-1 F8 — `bookingStepMin` is an operator dial (⚠SETTINGS-
+  // BATCH) and a zero or negative step would walk this loop forever, taking the
+  // board's whole render thread with it. A refusal box is not the place to find
+  // out a store typed 0 into a settings field: no step means no lattice to walk,
+  // and no lattice means nothing to offer.
+  if (stepMin <= 0) return []
   const out: number[] = []
   for (const dir of [-1, 1] as const) {
     for (let s = attempted + dir * stepMin; s >= hours.open && s + dur <= hours.close; s += dir * stepMin) {
@@ -1466,7 +1486,11 @@ export function holdSummary(
     bedFrom != null && bedLane != null && bedFrom !== bedLane.key
       ? `${lanes.find((l) => l.key === bedFrom)?.label ?? bedFrom} → `
       : ''
-  return `${item?.title ?? ''}様 → ${clockOf(from)}〜${clockOf(to)} / 担当 ${staffLane?.label ?? '—'} / ${moved}${bedLane?.label ?? '—'}`
+  // ⚖ 74 — a landing whose card is not DRAWN anywhere (a 次回予約 that does not
+  // exist yet, a chip still on the shelf) has no customer name to read, and a
+  // bare 「様 →」 is a sentence about nobody. The rest of the line is the same
+  // facts either way, so the name is omitted rather than faked.
+  return `${item ? `${item.title}様 → ` : ''}${clockOf(from)}〜${clockOf(to)} / 担当 ${staffLane?.label ?? '—'} / ${moved}${bedLane?.label ?? '—'}`
 }
 
 /** ⚖ flags 44 + 51 — 満室, said the way the board says every other refusal: the
@@ -1633,6 +1657,29 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
     : { laneKey: q.bedLane, refusal: null }
   const bed = lanes.find((l) => l.key === solved.laneKey && l.group === 'beds') ?? null
   bedLane = solved.laneKey
+
+  // ⚖ 74 (lens-1 F5) — READ THE ROWS BEFORE THE EXPLICIT-ROOM STOPS, so the two
+  // bed-row refusals below carry them too. They used to return above this block
+  // and the one box rendered an EMPTY check strip under its sentence — a row of
+  // nothing, which reads as "no checks were run" rather than "this is why". The
+  // rows are display-only here; every `stop` below still returns its own
+  // sentence, and the order the OPERATOR is answered in is unchanged.
+  const spans: CheckSpan[] = []
+  for (const lane of [staff, bed]) {
+    if (!lane) continue
+    for (const i of lane.items) {
+      spans.push({ id: i.caseId ?? i.key, x: i.x, w: i.w, title: i.title, derived: i.kind === 'cleanup', parked: false })
+    }
+  }
+  checks = computeChecks(q.span, {
+    spans,
+    bookingId: q.id ?? '',
+    staffName: staff.label,
+    staffUntil: staff.untilLabel,
+    laneLocked: q.locked.includes(staff.key),
+    minutesOf: q.minutesOf,
+  })
+
   // ⚖ STORE ISOLATION on the explicit room choice — `allocateBed` filters, this
   // tests, and `sharesStore` is the one spelling of the rule either way.
   if (!q.solveRoom && bed && !sharesStore(staff.stores, bed.stores)) {
@@ -1653,29 +1700,33 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
     return stop(`VIP・個室クラスのご予約です: ${bed.label}は個室ではありません`, 'policy')
   }
 
-  const spans: CheckSpan[] = []
-  for (const lane of [staff, bed]) {
-    if (!lane) continue
-    for (const i of lane.items) {
-      spans.push({ id: i.caseId ?? i.key, x: i.x, w: i.w, title: i.title, derived: i.kind === 'cleanup', parked: false })
-    }
-  }
-  checks = computeChecks(q.span, {
-    spans,
-    bookingId: q.id ?? '',
-    staffName: staff.label,
-    staffUntil: staff.untilLabel,
-    laneLocked: q.locked.includes(staff.key),
-    minutesOf: q.minutesOf,
-  })
   const failed = checks.find((c) => !c.ok)
   // ⚖ 73 — BY ROW, not by the fact that a row failed: 重複 is two people in one
   // place and no authority makes that true, while 勤務時間外 and シフトロック are
   // the store's own shape of its day.
-  if (failed) return stop(failed.label, failed.label.startsWith(CLASH_ROW) ? 'hard' : 'policy')
+  //
+  // ⚖ AMENDMENT 1, lens-1 F1 — AND A POLICY ROW MAY NOT ANSWER BEFORE THE ROOM.
+  // The three lines below used to be two, with every failing row returning
+  // immediately. A 勤務時間外 landing on a FULL HOUSE was therefore stamped
+  // `policy`, the box grew a 「注意して配置」, and the press died inside `solveBed`
+  // with a 満室 toast and nothing staged — a button that cannot perform what it
+  // names, which is the ⚖ 31c defect this batch exists to remove, on all four
+  // gesture paths.
+  //
+  // So the order is the ANSWER'S order, and it is a strict ranking:
+  //   1. a HARD row first — the person's own clash outranks the room (unchanged:
+  //      saying 満室 to someone whose staff member is double-booked answers the
+  //      wrong half).
+  //   2. then the room — 満室 outranks any judgement (TEST:4030's own law), so a
+  //      full house is `hard-room` even when a policy row also failed, and it
+  //      gets the bed-free offers rather than a button that cannot fire.
+  //   3. only then the policy row, with a solved room already in hand for the
+  //      one box — which is exactly what makes its 「注意して配置」 honest.
+  if (failed && failed.label.startsWith(CLASH_ROW)) return stop(failed.label, 'hard')
   // ⚖ 73's core — the full house. There is no room, so there is nothing for an
   // escalation to buy; the surface offers the starts whose room IS free instead.
   if (solved.refusal) return stop(solved.refusal, 'hard-room')
+  if (failed) return stop(failed.label, 'policy')
   // ⚖ LIAM flag 58 (2026-08-22) — ROOT A: AN ACK-ALLOWED REFUSAL IS 要確認,
   // NOT 置けない. His words: 「even the triangle ones are going into red
   // crosses, which it shouldn't」.
