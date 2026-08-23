@@ -5817,6 +5817,52 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     expect(verdict(board(), { staffLane: null }).floor).toBe('hard')
   })
 
+  it('⚖ A3 — a blocked NEXT-VISIT and a blocked SHELF placement name their customer', () => {
+    // GREPTILE 4/5 on `2bed6632`, and the finding stands. The facts read identity
+    // off the DRAWN board, and neither of these two landings has anything drawn:
+    // a 次回予約 does not exist yet, and a chip is still on the shelf. So both
+    // boxes asked 「注意して配置しますか」 about nobody — while the armed 配置モード
+    // carried its customer and the chip carried its own title the whole time.
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'] }),
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
+    ]
+    const at = { laneKey: 'p-01', ...place(960, 1020, HOURS) }
+
+    // 配置モード — the armed intent's own `name`, for a landing with NO id.
+    expect(holdSummary(lanes, '', at, HOURS, null, { staffLane: 'p-01', bedLane: 'bed-01', title: '見本 きり' }))
+      .toBe('見本 きり様 → 16:00〜17:00 / 担当 見本 あずさ / ベッド1')
+    // Shelf — the chip's own `item.title`, same seam, same sentence.
+    expect(holdSummary(lanes, 'apt-parked', at, HOURS, null, { staffLane: 'p-01', bedLane: 'bed-01', title: '見本 ごろう' }))
+      .toBe('見本 ごろう様 → 16:00〜17:00 / 担当 見本 あずさ / ベッド1')
+
+    // THE LAW HOLDS: the board is asked FIRST, so a drawn card can never be
+    // overridden by a name from a hand that is holding something else.
+    const drawn = [
+      lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'], items: [booking({ key: 'a', caseId: 'apt-1', title: '見本 さくら' }, 960, 1020)] }),
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
+    ]
+    expect(holdSummary(drawn, 'apt-1', at, HOURS, null, { staffLane: 'p-01', bedLane: 'bed-01', title: '見本 きり' }))
+      .toContain('見本 さくら様')
+    // …and nothing is invented when nobody knows: a plain 新規予約 stages nothing
+    // and has no customer yet by definition, so the line simply omits the name.
+    expect(holdSummary(lanes, '', at, HOURS, null, { staffLane: 'p-01', bedLane: 'bed-01' }))
+      .toBe('16:00〜17:00 / 担当 見本 あずさ / ベッド1')
+
+    // The hand-along, and the key that makes a leak impossible: a shelf landing
+    // is the chip whose id this ask carries, and only an ask with NO id can be
+    // the armed 配置モード — a board drag's id is a real drawn booking and
+    // matches neither, so an armed 配置モード cannot put its customer's name on
+    // another booking's box.
+    expect(SRC).toContain("const heldName = parkChips.find((c) => c.id === ask.id)?.item.title ?? (ask.id == null ? placing?.name : undefined)")
+    expect(SRC).toContain('title: heldName,')
+    // Resolved HERE rather than threaded through `askGuard`, which serves a third
+    // caller (plain 新規予約) that has no customer to hand along.
+    const guard = SRC.slice(SRC.indexOf('function askGuard('), SRC.indexOf('function closeAdvice('))
+    expect(guard).not.toContain('heldName')
+    expect(SRC.match(/heldName/g)).toHaveLength(2)
+  })
+
   it('⚖ A1-5 — the bed-row stops carry their rows, and an empty strip never renders', () => {
     // LENS-1 F5. The two explicit-room stops returned before `computeChecks`, so
     // a VIP box printed a row of NOTHING under its sentence — which reads as "no

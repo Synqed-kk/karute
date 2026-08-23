@@ -2457,12 +2457,30 @@ export function TodayScreen(props: TodayProps) {
     // is what makes a retarget PRINT — ベッド3 → ベッド2, the same sentence the
     // confirm shows, from the same function (⚖ 51's own law about not letting a
     // room change silently).
+    // ⚖ AMENDMENT 3 (Greptile 4/5 on `2bed6632`) — THE NAME THE HAND ALREADY
+    // KNOWS. `holdSummary` reads identity off the DRAWN board, and the two
+    // placement landings have nothing drawn yet: a 次回予約 does not exist, and a
+    // chip is still on the shelf. So those two boxes asked an approval question
+    // about nobody — an absence rather than a lie, but the operator is being
+    // asked to place SOMEONE and the board would not say who.
+    //
+    // Both callers knew all along, and the answer is already in this component's
+    // own state — no threading through `askGuard`, which serves a third caller
+    // (plain 新規予約) that genuinely has no customer yet.
+    //
+    // Keyed so it CANNOT leak: a shelf landing is the chip whose id this ask
+    // carries, and only an ask with NO id can be the armed 配置モード. A board
+    // drag's id is a real drawn booking and matches neither, so an armed
+    // 配置モード can never put its customer's name on another booking's box —
+    // and `holdSummary` asks the board first regardless.
+    const heldName = parkChips.find((c) => c.id === ask.id)?.item.title ?? (ask.id == null ? placing?.name : undefined)
     const facts =
       v.floor === 'policy'
         ? {
             summary: holdSummary(boardLanes, ask.id ?? '', { laneKey, ...span }, hours, ask.bedLane, {
               staffLane: ask.staffLane,
               bedLane: v.bedLane,
+              title: heldName,
             }),
             checks: v.checks,
             guardRow: guardCheckRow(v.cell),

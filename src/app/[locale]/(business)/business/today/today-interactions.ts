@@ -1482,7 +1482,23 @@ export function holdSummary(
    *  the one box would describe the spot the operator is trying to leave. Same
    *  sentence, one home: the refusal and the confirm may not word the same
    *  landing two ways. */
-  proposed: { staffLane: string | null; bedLane: string | null } | null = null,
+  proposed: {
+    staffLane: string | null
+    bedLane: string | null
+    /** ⚖ AMENDMENT 3 (Greptile, 8/23) — THE NAME THE CALLER ALREADY KNOWS.
+     *
+     *  This function reads identity off the DRAWN board, which is right for
+     *  every landing whose card is on it. Two are not: a 次回予約 that does not
+     *  exist yet, and a chip still sitting on the shelf. Their refusal boxes
+     *  therefore asked an approval question about nobody — and both callers knew
+     *  the answer the whole time (the armed 配置モード carries its customer, the
+     *  chip carries its own title).
+     *
+     *  The law this does NOT break: never invent a name the board cannot show.
+     *  A name handed in by the hand that is holding the card is not invented,
+     *  and it is only ever consulted when the board itself has no card to read. */
+    title?: string
+  } | null = null,
 ): string {
   if (!at) return ''
   const staffLane = proposed
@@ -1492,19 +1508,22 @@ export function holdSummary(
     ? lanes.find((l) => l.key === proposed.bedLane && l.group === 'beds')
     : lanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === id))
   // Board-wide: a PROPOSED pair names lanes the card is not standing on yet, and
-  // the customer's name has to come off the card wherever it actually is.
-  const item = lanes.flatMap((l) => l.items).find((i) => i.caseId === id)
+  // the customer's name has to come off the card wherever it actually is — or,
+  // when there is no card anywhere, off the caller that is holding it (⚖ A3).
+  // The board is asked FIRST either way, so a drawn card can never be overridden
+  // by a stale name from a hand that is holding something else.
+  const title = lanes.flatMap((l) => l.items).find((i) => i.caseId === id)?.title ?? proposed?.title
   const from = minuteOf(at.x, hours)
   const to = minuteOf(at.x + at.w, hours)
   const moved =
     bedFrom != null && bedLane != null && bedFrom !== bedLane.key
       ? `${lanes.find((l) => l.key === bedFrom)?.label ?? bedFrom} → `
       : ''
-  // ⚖ 74 — a landing whose card is not DRAWN anywhere (a 次回予約 that does not
-  // exist yet, a chip still on the shelf) has no customer name to read, and a
-  // bare 「様 →」 is a sentence about nobody. The rest of the line is the same
-  // facts either way, so the name is omitted rather than faked.
-  return `${item ? `${item.title}様 → ` : ''}${clockOf(from)}〜${clockOf(to)} / 担当 ${staffLane?.label ?? '—'} / ${moved}${bedLane?.label ?? '—'}`
+  // ⚖ 74 / ⚖ A3 — a landing nothing can name still says the rest: a bare 「様 →」
+  // is a sentence about nobody, so the name is omitted rather than faked. With
+  // ⚖ A3 the only landing that reaches this is a plain 新規予約, which stages
+  // nothing and has no customer yet by definition.
+  return `${title ? `${title}様 → ` : ''}${clockOf(from)}〜${clockOf(to)} / 担当 ${staffLane?.label ?? '—'} / ${moved}${bedLane?.label ?? '—'}`
 }
 
 /** ⚖ flags 44 + 51 — 満室, said the way the board says every other refusal: the
