@@ -102,4 +102,36 @@ describe('CustomerSearchInput — URL-sync (echo vs external navigation)', () =>
     expect(replace).not.toHaveBeenCalled()
     expect(input.value).toBe('xyz')
   })
+
+  it('T-race2: popstate back-nav to a URL equal to lastWritten while a newer write is pending must cancel the pending write (prop-keyed effect alone cannot see this — same value never re-runs it)', () => {
+    const { rerender } = render(<CustomerSearchInput initialQuery="" />)
+    const input = screen.getByRole('textbox') as HTMLInputElement
+    input.focus()
+
+    fireEvent.change(input, { target: { value: 'ab' } })
+    jest.advanceTimersByTime(300)
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace.mock.calls[0][0]).toContain('query=ab')
+
+    rerender(<CustomerSearchInput initialQuery="ab" />)
+    expect(input.value).toBe('ab')
+    expect(replace).toHaveBeenCalledTimes(1)
+
+    fireEvent.change(input, { target: { value: 'abc' } })
+    jest.advanceTimersByTime(100)
+
+    // Real back/forward: the browser fires popstate at the same moment the
+    // URL lands back on ?query=ab — initialQuery ("ab") equals lastWritten
+    // ("ab"), so the prop-keyed effect above never re-runs and can't see
+    // this. The popstate effect is the only thing that cancels the pending
+    // "abc" write here.
+    window.history.pushState({}, '', '/customers?query=ab')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    rerender(<CustomerSearchInput initialQuery="ab" />)
+    jest.advanceTimersByTime(300)
+
+    expect(replace).toHaveBeenCalledTimes(1)
+    // Box text staying "abc" here (list/URL show "ab") is accepted cosmetic
+    // residue of this fix — out of scope; only the write race is closed.
+  })
 })

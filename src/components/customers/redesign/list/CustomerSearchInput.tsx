@@ -45,6 +45,16 @@ export function CustomerSearchInput({ initialQuery }: CustomerSearchInputProps) 
     }
   }, [initialQuery, apply])
 
+  // History navigation (back/forward) is an event, not a prop change: a URL
+  // that lands on the SAME query we last wrote would never re-run the effect
+  // above, so a still-pending typed write would fire on top of it. Cancel on
+  // the event itself. popstate fires on web and in the thin shell alike.
+  useEffect(() => {
+    const cancel = () => apply.cancel()
+    window.addEventListener('popstate', cancel)
+    return () => window.removeEventListener('popstate', cancel)
+  }, [apply])
+
   return (
     <label className="flex w-full items-center gap-2 rounded-[10px] border border-border bg-card px-3 focus-within:border-sky-500">
       <Search size={16} className="text-muted-foreground" />
