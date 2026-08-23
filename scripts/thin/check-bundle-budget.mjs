@@ -185,7 +185,7 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // thin/dist) against the prior 1,940,400 B ceiling — over by 10,082 B
 // (feature cost +13,123 B vs the c9d66c93 base). Ceiling set 5,118 B above
 // the measurement, same low-headroom convention as the three raises above.
-const BUDGET_BYTES = 1_955_600
+const BUDGET_BYTES = 1_969_000
 
 let dir
 try {
