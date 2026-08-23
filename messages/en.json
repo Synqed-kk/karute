@@ -374,6 +374,7 @@
       "pickerSubtitle": "Move this karute to a different customer",
       "pickerSearchPlaceholder": "Search by name, furigana, or phone",
       "noResults": "No matching customers found",
+      "hiddenMatches": "{n} more — keep typing to narrow",
       "confirmTitle": "Confirm the change?",
       "confirmButton": "Confirm change",
       "staysTitle": "Stays with the original customer",

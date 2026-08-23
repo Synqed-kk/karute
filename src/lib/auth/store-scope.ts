@@ -153,9 +153,19 @@ export const resolveStoreScope = cache(async (): Promise<StoreScope> => {
  *     pairing ever broke, this is the line that keeps a viewAll actor from
  *     being wrongly clamped.
  *   - `allowedStoreIds: null`  → false — floating actor, unclamped.
- *   - `record.store_id: null`  → false — the 全店舗/null-store convention
- *     (resolveKaruteStoreId's appointment clamp, src/actions/karute.ts,
- *     mirrors this arm 1:1).
+ *   - `record.store_id: null`  → true — R5-1 (Greptile #759 round-2
+ *     adjudication, 2026-08-23): a clamped actor's OWN membership in a
+ *     legacy unlabeled record is unprovable, so the write/roster proof
+ *     fails closed on it. This is deliberately STRICTER than the read
+ *     plane: resolveKaruteStoreId's appointment clamp (also in
+ *     src/actions/karute.ts) keeps null-store records unclamped for
+ *     reads — the 全店舗/null-store convention still holds there. The
+ *     write plane is allowed to be narrower than the read plane
+ *     (established precedent: the menus write clamp, `records.delete` not
+ *     being universal) and no ⚖ ruling requires clamped staff to be able
+ *     to reassign an unlabeled record — every DEFAULT `records.reassign`
+ *     holder (owner/manager/senior presets) also holds `stores.viewAll`,
+ *     so this arm only bites custom-granted clamped staff.
  *   - otherwise                → true iff the record's store isn't in
  *     `allowedStoreIds`.
  *
@@ -169,7 +179,7 @@ export function sourceStoreOutOfScope(
 ): boolean {
   if (scope.viewAll) return false
   if (!scope.allowedStoreIds) return false // floating — unclamped
-  return record.store_id !== null && !scope.allowedStoreIds.includes(record.store_id)
+  return record.store_id === null || !scope.allowedStoreIds.includes(record.store_id)
 }
 
 export function customerLensFor(scope: {

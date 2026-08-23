@@ -10,6 +10,11 @@
  * lookup against messages/ja.json (login-form.test.tsx / voice-
  * enrollment.test.tsx idiom), so editing the locale file changes what this
  * test renders — JA only, matching both sibling tests' convention.
+ *
+ * Fix round 5 additions (fresh-verify D1/D2): the picker's search-overflow
+ * behavior (R5-2) and the two-phase UI wiring — which {confirmed} value each
+ * button actually sends (R5-3). Both live here because they need the same
+ * render harness this file already built.
  */
 import { render, screen, fireEvent, act } from '@testing-library/react'
 
@@ -89,5 +94,77 @@ describe('ReassignCustomerAction — copy couplings (fix round 4, R4-2)', () => 
     // Literal pinned copy for the same reason as above.
     expect(await screen.findByText('そのお客様は担当店舗の対象外です。')).toBeInTheDocument()
     expect(screen.queryByText('顧客を変更できませんでした。もう一度お試しください。')).toBeNull()
+  })
+})
+
+// ── R5-2 (fresh D1) — picker search overflow ─────────────────────────────
+// D1: filterCustomers used to cap INSIDE the filter with no overflow signal.
+// Mirrors RecordCustomerPickerDialog's C-3 fix: match everything, cap the
+// display, name what's hidden.
+
+const MANY_SATO = Array.from({ length: 12 }, (_, i) => ({
+  id: `cust-sato-${i}`,
+  name: `佐藤${i}`,
+  furigana: null,
+  phone: null,
+}))
+
+describe('ReassignCustomerAction — search overflow (fix round 5, R5-2)', () => {
+  it('12 same-prefix customers → 8 rendered rows + a hidden-count line for the other 4', async () => {
+    karuteActions.listReassignCustomerOptions.mockResolvedValue({ customers: MANY_SATO })
+    render(<ReassignCustomerAction karuteId="kar-1" customerName="田中 美咲" />)
+    await act(async () => {
+      fireEvent.click(screen.getByText(ja.action))
+    })
+    // Wait for the (uncapped, browse-mode) roster to land before searching.
+    await screen.findAllByRole('option')
+    await act(async () => {
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '佐藤' } })
+    })
+    expect(screen.getAllByRole('option')).toHaveLength(8)
+    // Literal pinned copy — ja.hiddenMatches with {n} substituted to 4.
+    expect(screen.getByText('他4件 — さらに入力して絞り込み')).toBeInTheDocument()
+  })
+})
+
+// ── R5-3 (fresh D2) — two-phase UI wiring ────────────────────────────────
+// D2: nothing pinned WHICH {confirmed} value each button sends — a swapped
+// argument either writes on the first click or makes the commit button a
+// permanent no-op, both silently (M28/M29 survived the full 6,107-test
+// suite pre-round-5).
+
+describe('ReassignCustomerAction — two-phase wiring (fresh D2, R5-3)', () => {
+  it('次へ calls the action with confirmed:false and nothing else', async () => {
+    karuteActions.reassignKaruteCustomer.mockResolvedValueOnce({
+      requiresConfirm: true,
+      fromCustomerId: 'cust-FROM',
+      fromName: '田中 美咲',
+      toName: '佐藤 花子',
+      burnCount: 0,
+      photoCount: 0,
+    })
+    await openPickAndSubmit()
+    expect(karuteActions.reassignKaruteCustomer).toHaveBeenCalledTimes(1)
+    expect(karuteActions.reassignKaruteCustomer).toHaveBeenCalledWith('kar-1', 'cust-TO', { confirmed: false })
+  })
+
+  it('変更を確定 calls the action with confirmed:true and nothing else', async () => {
+    karuteActions.reassignKaruteCustomer
+      .mockResolvedValueOnce({
+        requiresConfirm: true,
+        fromCustomerId: 'cust-FROM',
+        fromName: '田中 美咲',
+        toName: '佐藤 花子',
+        burnCount: 0,
+        photoCount: 0,
+      })
+      .mockResolvedValueOnce({ success: true, burnCount: 0, photoCount: 0 })
+    await openPickAndSubmit()
+    await screen.findByText(ja.confirmTitle)
+    await act(async () => {
+      fireEvent.click(screen.getByText(ja.confirmButton))
+    })
+    expect(karuteActions.reassignKaruteCustomer).toHaveBeenCalledTimes(2)
+    expect(karuteActions.reassignKaruteCustomer).toHaveBeenNthCalledWith(2, 'kar-1', 'cust-TO', { confirmed: true })
   })
 })

@@ -98,10 +98,24 @@ export function ReassignCustomerAction({
     }
   }
 
-  const visible = useMemo(() => {
-    const trimmed = query.trim()
-    return trimmed ? filterCustomers(customers ?? [], trimmed, CUSTOMER_SEARCH_LIMIT) : (customers ?? [])
-  }, [customers, query])
+  // C-3 idiom (RecordCustomerPickerDialog.tsx:184-198's own lesson, R5-2 /
+  // fresh-verify D1): match EVERYTHING, then cap for the screen. Capping
+  // INSIDE filterCustomers left no overflow signal — a query matching 12
+  // customers silently rendered 8 with no sign more existed, on the one
+  // flow whose entire purpose is picking the *right* customer. Empty-query
+  // browse mode stays fully uncapped (deliberate, packet §2g) — the cap and
+  // its count line apply only while actively searching.
+  const trimmed = query.trim()
+  const searching = trimmed.length > 0
+  const matches = useMemo(
+    () => (searching ? filterCustomers(customers ?? [], trimmed, Infinity) : (customers ?? [])),
+    [customers, trimmed, searching],
+  )
+  const visible = useMemo(
+    () => (searching ? matches.slice(0, CUSTOMER_SEARCH_LIMIT) : matches),
+    [matches, searching],
+  )
+  const hiddenMatches = searching ? matches.length - visible.length : 0
 
   async function goToConfirm() {
     if (!selectedId) return
@@ -171,50 +185,67 @@ export function ReassignCustomerAction({
             />
           </div>
 
-          {loadingOptions ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">…</p>
-          ) : visible.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">{t('noResults')}</p>
-          ) : (
-            <ul
-              id={PICKER_LIST_ID}
-              role="listbox"
-              aria-label={t('action')}
-              className="flex max-h-[45dvh] flex-col gap-0.5 overflow-y-auto"
-            >
-              {visible.map((c) => {
-                const selected = c.id === selectedId
-                return (
-                  <li key={c.id}>
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={selected}
-                      onClick={() => setSelectedId(c.id)}
-                      className={cn(
-                        'flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors',
-                        selected ? 'border border-primary/30 bg-primary/8' : 'border border-transparent hover:bg-muted/60',
-                      )}
-                    >
-                      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/8 text-[11px] font-bold text-primary">
-                        {deriveFamilyInitials(c.name)}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13.5px] font-medium text-foreground">{c.name}</span>
-                        {c.furigana && (
-                          <span className="block truncate text-[11px] text-muted-foreground">{c.furigana}</span>
-                        )}
-                      </span>
-                      {c.phone && (
-                        <span className="shrink-0 text-[11.5px] text-muted-foreground">{c.phone}</span>
-                      )}
-                      {selected && <Check size={16} className="shrink-0 text-primary" />}
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
+          {/* N5 (fix round 5, house a11y idiom — RecordCustomerPickerDialog's
+           *  own id-on-the-wrapper pattern): the search input's aria-controls
+           *  must resolve in EVERY state, so the id lives on this always-
+           *  rendered wrapper, not on the <ul> that only exists once results
+           *  are loaded and non-empty. */}
+          <div id={PICKER_LIST_ID}>
+            {loadingOptions ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">…</p>
+            ) : visible.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">{t('noResults')}</p>
+            ) : (
+              <>
+                <ul
+                  role="listbox"
+                  aria-label={t('action')}
+                  className="flex max-h-[45dvh] flex-col gap-0.5 overflow-y-auto"
+                >
+                  {visible.map((c) => {
+                    const selected = c.id === selectedId
+                    return (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={selected}
+                          onClick={() => setSelectedId(c.id)}
+                          className={cn(
+                            'flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors',
+                            selected ? 'border border-primary/30 bg-primary/8' : 'border border-transparent hover:bg-muted/60',
+                          )}
+                        >
+                          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/8 text-[11px] font-bold text-primary">
+                            {deriveFamilyInitials(c.name)}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[13.5px] font-medium text-foreground">{c.name}</span>
+                            {c.furigana && (
+                              <span className="block truncate text-[11px] text-muted-foreground">{c.furigana}</span>
+                            )}
+                          </span>
+                          {c.phone && (
+                            <span className="shrink-0 text-[11.5px] text-muted-foreground">{c.phone}</span>
+                          )}
+                          {selected && <Check size={16} className="shrink-0 text-primary" />}
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+                {/* R5-2 / fresh-verify D1: the rest of the matches, named
+                 *  rather than dropped — outside the listbox, so it never
+                 *  counts as an option (mirrors RecordCustomerPickerDialog's
+                 *  own hiddenMatches line). */}
+                {hiddenMatches > 0 && (
+                  <p className="text-center text-[11px] text-muted-foreground">
+                    {t('hiddenMatches', { n: hiddenMatches })}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
 
           {error && <p className="text-xs text-destructive">{error}</p>}
 

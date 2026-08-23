@@ -185,6 +185,14 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // thin/dist) against the prior 1,940,400 B ceiling — over by 10,082 B
 // (feature cost +13,123 B vs the c9d66c93 base). Ceiling set 5,118 B above
 // the measurement, same low-headroom convention as the three raises above.
+// Raised 2026-09-02 (lane date) at F4 — 顧客を変更 (karute customer reassign,
+// end-to-end): the capability + i18n pair, the store-scoped picker dialog
+// and confirm panel (money/photo honesty disclosure), and the phone facade
+// port twin (facadeReassignKaruteCustomer + facadeListReassignCustomerOptions).
+// Measured 1,964,392 B ground-truth at tip 4a9ee3f4 (deterministic: identical
+// across two clean builds from an emptied thin/dist) against the prior
+// 1,955,600 B ceiling — over by 8,792 B. Ceiling set 4,608 B above the
+// measurement, same low-headroom convention as the four raises above.
 const BUDGET_BYTES = 1_969_000
 
 let dir

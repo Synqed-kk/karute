@@ -44,8 +44,15 @@ export const GET = facadeHandler<Params>('karute.reassignOptions', async (ctx: F
 
   // Unclamped (viewAll / floating): business-wide. Clamped: enforceStore
   // keeps the filter (never a business-wide leak to a branch-restricted
-  // actor) — the exact server-side roster the store clamp on the confirm
-  // write will itself accept.
+  // actor). N2 (fix round 5 nit sweep): this is NARROWER than what the
+  // confirm write accepts, not identical parity — resolveStoreForRequest
+  // resolves storeId to `assigned[0]` only, so a multi-store actor's roster
+  // here is their FIRST assigned store, while toCustomerInScope
+  // (src/actions/karute.ts) loops every entry in allowedStoreIds and accepts
+  // a to-customer from ANY of them. No leak (narrower, never wider) — a
+  // picker miss here just means the roster under-offers, never over-offers,
+  // for a staffer assigned to more than one store. The web path has the
+  // same asymmetry (customerLensFor → a single scope.storeId).
   const list = await listAllCustomers(synqed, {
     store_id: storeId ?? undefined,
     enforceStore: allowedStoreIds != null,

@@ -374,6 +374,7 @@
       "pickerSubtitle": "このカルテを別のお客様に付け替えます",
       "pickerSearchPlaceholder": "名前・フリガナ・電話番号で検索",
       "noResults": "該当するお客様が見つかりません",
+      "hiddenMatches": "他{n}件 — さらに入力して絞り込み",
       "confirmTitle": "変更を確定しますか？",
       "confirmButton": "変更を確定",
       "staysTitle": "元のお客様に残るもの",

@@ -53,8 +53,10 @@ jest.mock('@/lib/app-api/store-clamp', () => ({
   resolveStoreForRequest: () => resolveStoreForRequest(),
 }))
 
-// store_id: null (unclamped) by default — R3-1 tests override it per-case.
-const KARUTE = { current: { id: 'kar-1', customer_id: 'cust-FROM', store_id: null } as Record<string, unknown> }
+// store_id: 'store-A' by default — the clamped-actor fixture is assigned to
+// store-A. R3-1/R5-1 tests override per-case ('store-B' foreign, null
+// unlabeled — R5-1 fail-closed).
+const KARUTE = { current: { id: 'kar-1', customer_id: 'cust-FROM', store_id: 'store-A' } as Record<string, unknown> }
 const karuteGet = jest.fn(async (id: string) => {
   if (id !== 'kar-1') throw Object.assign(new Error('not found'), { status: 404 })
   return KARUTE.current
@@ -107,7 +109,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   capabilities.current = new Set(['records.reassign'])
   storeClamp.current = { storeId: null, allowedStoreIds: null } // viewAll-shaped by default
-  KARUTE.current = { id: 'kar-1', customer_id: 'cust-FROM', store_id: null }
+  KARUTE.current = { id: 'kar-1', customer_id: 'cust-FROM', store_id: 'store-A' }
 })
 
 describe('GET /karute/[id]/reassign-options', () => {
@@ -150,15 +152,14 @@ describe('GET /karute/[id]/reassign-options', () => {
     expect(listAllCustomers).not.toHaveBeenCalled()
   })
 
-  it('R3-1: null-store SOURCE record + clamped actor reaches the roster normally', async () => {
+  // R5-1: flips the round-3 "reaches the roster normally" pin — null-store
+  // now fails closed for a clamped actor.
+  it('R5-1: null-store SOURCE record + clamped actor is refused → 403, no roster fetch', async () => {
     KARUTE.current = { ...KARUTE.current, store_id: null }
     storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
     const res = await GET(getReq(), routeFor('kar-1'))
-    expect(res.status).toBe(200)
-    expect(listAllCustomers).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ store_id: 'store-A', enforceStore: true }),
-    )
+    expect(res.status).toBe(403)
+    expect(listAllCustomers).not.toHaveBeenCalled()
   })
 
   it('R3-1: viewAll actor + an out-of-store SOURCE record still reaches the business-wide roster', async () => {

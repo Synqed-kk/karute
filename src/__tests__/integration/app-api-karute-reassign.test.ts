@@ -58,9 +58,10 @@ jest.mock('@/lib/app-api/store-clamp', () => ({
   resolveStoreForRequest: () => resolveStoreForRequest(),
 }))
 
-// store_id: null (unclamped) by default — R3-1 tests override it per-case;
-// leaving it null keeps every pre-existing pin unaffected by the new arm.
-const KARUTE = { current: { id: 'kar-1', customer_id: 'cust-FROM', appointment_id: null, recording_session_id: null, store_id: null } as Record<string, unknown> }
+// store_id: 'store-A' by default — the clamped-actor fixtures below are
+// assigned to store-A, so pre-existing pins stay in scope. R3-1/R5-1 tests
+// override per-case ('store-B' foreign, null unlabeled — R5-1 fail-closed).
+const KARUTE = { current: { id: 'kar-1', customer_id: 'cust-FROM', appointment_id: null, recording_session_id: null, store_id: 'store-A' } as Record<string, unknown> }
 const CUSTOMERS: Record<string, { id: string; name: string }> = {
   'cust-FROM': { id: 'cust-FROM', name: '田中 美咲' },
   'cust-TO': { id: 'cust-TO', name: '佐藤 花子' },
@@ -115,7 +116,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   capabilities.current = new Set(['records.reassign'])
   storeClamp.current = { storeId: null, allowedStoreIds: null } // viewAll-shaped by default
-  KARUTE.current = { id: 'kar-1', customer_id: 'cust-FROM', appointment_id: null, recording_session_id: null, store_id: null }
+  KARUTE.current = { id: 'kar-1', customer_id: 'cust-FROM', appointment_id: null, recording_session_id: null, store_id: 'store-A' }
 })
 
 describe('POST /karute/[id]/reassign', () => {
@@ -210,12 +211,15 @@ describe('POST /karute/[id]/reassign', () => {
     expect(auditSpy).not.toHaveBeenCalled()
   })
 
-  it('R3-1: null-store SOURCE record + clamped actor is ALLOWED', async () => {
+  // R5-1: flips the round-3 "ALLOWED" pin — null-store now fails closed for
+  // a clamped actor (membership unprovable).
+  it('R5-1: null-store SOURCE record + clamped actor is REFUSED → 403, no write, no audit', async () => {
     KARUTE.current = { ...KARUTE.current, store_id: null }
     storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
     const res = await POST(postReq({ to_customer_id: 'cust-TO', confirmed: true }), routeFor('kar-1'))
-    expect(res.status).toBe(200)
-    expect(karuteUpdate).toHaveBeenCalledWith('kar-1', { customer_id: 'cust-TO' })
+    expect(res.status).toBe(403)
+    expect(karuteUpdate).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
   })
 
   it('R3-1: viewAll actor + an out-of-store SOURCE record is ALLOWED', async () => {
