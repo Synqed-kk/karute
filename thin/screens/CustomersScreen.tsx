@@ -24,7 +24,8 @@ const parse = (raw: unknown): CustomersScreenDTOType => CustomersScreenDTO.parse
 
 export function CustomersScreen() {
   const search = useSearchParams()
-  const query = search.get('query')?.trim() ?? ''
+  // Clamp to the facade's QuerySchema max(200) — an overlong deep-link query must not 400 into the error frame.
+  const query = (search.get('query')?.trim() ?? '').slice(0, 200)
   const qs = new URLSearchParams()
   if (query) qs.set('query', query)
   qs.set('locale', getThinLocale())

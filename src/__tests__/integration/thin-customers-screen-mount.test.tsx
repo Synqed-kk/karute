@@ -177,4 +177,29 @@ describe('CustomersScreen — wired mount (packet 26)', () => {
     await screen.findByTestId('header')
     expect(apiFetch).toHaveBeenCalledWith('/api/app/v1/screens/customers?locale=ja')
   })
+
+  // Bug fix (2026-08-25, Greptile r1 fix A): a deep link / preserved URL can
+  // carry an overlong ?query= — clamp to the facade's QuerySchema max(200)
+  // (src/app/api/app/v1/screens/customers/route.ts:44) so it can't 400 into
+  // the error frame.
+  it('clamps an overlong ?query= to the facade\'s 200-char limit before the fetch call and the view prop', async () => {
+    const overlong = 'あ'.repeat(250)
+    const clamped = 'あ'.repeat(200)
+    window.history.pushState({}, '', `/customers?query=${encodeURIComponent(overlong)}`)
+    const expectedPath = `/api/app/v1/screens/customers?query=${encodeURIComponent(clamped)}&locale=ja`
+    const apiFetch = jest.fn(async (path: string) => {
+      if (path === expectedPath) return jsonResponse(dto)
+      throw new Error(`unexpected apiFetch(${path})`)
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<CustomersScreen />)
+
+    await screen.findByTestId('header')
+    expect(apiFetch).toHaveBeenCalledWith(expectedPath)
+    const calledPath = apiFetch.mock.calls[0][0] as string
+    const decodedQuery = decodeURIComponent(calledPath.split('query=')[1].split('&')[0])
+    expect(decodedQuery).toHaveLength(200)
+    expect(screen.getByTestId('search')).toHaveTextContent(clamped)
+  })
 })
