@@ -54,6 +54,7 @@ export const AUDIT_ACTIONS = [
   'customer.photo_delete',
   'customer.photos_view',
   'customer.view',
+  'karute.customer_reassign',
   'karute.entries_regenerate',
   'karute.entry_edit',
   'karute.entry_edits_view',
@@ -196,6 +197,18 @@ export const AUDITED_CORES: {
       'createOrUpdateKaruteRecord',
       'updateKaruteDetailEntryWithClient',
       'updateKaruteDetailSummaryWithClient',
+      // F4 (2026-08-23): the web wrapper's own auditWeb() call — the
+      // audit-free WithClient core (reassignKaruteCustomerWithClient) is
+      // deliberately NOT listed here (Core/WithClient split, see its own
+      // SDK_WRITE_ALLOWLIST entry below).
+      'reassignKaruteCustomer',
+    ],
+    unproven: [
+      {
+        symbol: 'reassignKaruteCustomer',
+        reason:
+          "the requiresConfirm (preview) branch is `return result` — a plain identifier (discriminated-union variable), not an object literal or call — un-provable by the lexical/AST walker without type information, the SAME mechanical-proof ceiling as customers.ts#updateCustomer above. The preview phase deliberately emits NOTHING (success-only audit pin ⚖ HELD — only the confirmed:true write is audited); the success branch DOES lexically dominate its own return via the auditWeb() call that precedes it in the same block.",
+      },
     ],
   },
   {
@@ -371,6 +384,14 @@ export const SDK_WRITE_ALLOWLIST: {
     justification:
       'deleteKaruteRecord — no FacadeEndpointKey covers karute deletion and no audit() call exists on this path today. Genuinely untracked, not pendingWave (no wave has claimed it). Flagged here rather than silently passing.',
     dated: '2026-07-27',
+  },
+  {
+    file: 'src/actions/karute.ts',
+    call: 'karuteRecords.update',
+    symbols: ['reassignKaruteCustomerWithClient'],
+    justification:
+      "karute.customer_reassign is a LIVE FACADE_AUDIT_MAP row (facade auto-emit via ctx.auditDetail/auditTargetId) — this call site sits inside reassignKaruteCustomerWithClient, the audit-free Core/WithClient shared core (F4, 2026-08-23). The web wrapper reassignKaruteCustomer emits its own auditWeb (AUDITED_CORES, unproven-marked for the same return-shape reason as customers.ts#updateCustomer). reassignKaruteCustomerWithClient itself stays audit-free by design, matching the grantCustomerConsentWithClient/setCustomerLifecycleWithClient Core/WithClient convention elsewhere in this list.",
+    dated: '2026-08-23',
   },
   {
     file: 'src/actions/karute.ts',

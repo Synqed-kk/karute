@@ -369,6 +369,32 @@
       "share": "共有",
       "edit": "編集"
     },
+    "reassign": {
+      "action": "顧客を変更",
+      "disclaimerTitle": "カルテを別の顧客へ変更",
+      "disclaimerBody1": "このカルテ（施術記録）を、別のお客様に付け替えます。",
+      "disclaimerBody2": "誤って別のお客様に保存してしまった場合の修正専用です。",
+      "disclaimerContinue": "続ける",
+      "pickerSubtitle": "このカルテを別のお客様に付け替えます",
+      "pickerSearchPlaceholder": "名前・フリガナ・電話番号で検索",
+      "noResults": "該当するお客様が見つかりません",
+      "hiddenMatches": "他{n}件 — さらに入力して絞り込み",
+      "confirmTitle": "変更を確定しますか？",
+      "confirmButton": "変更を確定",
+      "staysTitle": "元のお客様に残るもの",
+      "burnTitleLinked": "回数券の消化 {n}件",
+      "burnTitleSameDay": "この日の回数券の消化 {n}件（この施術との紐付けは未確定）",
+      "burnTitleNone": "回数券の消化 なし",
+      "burnNote": "金額の記録は移動しません（修正は既存の照合フローで）",
+      "photoTitle": "写真 {n}枚",
+      "photoNote": "現在は移動できません（{name}様のページに残ります）",
+      "memoryTitle": "AIメモリ",
+      "memoryNote": "再学習を行うまで両方のお客様で更新されません",
+      "auditNote": "この操作は監査ログに記録されます。",
+      "errorSameCustomer": "このカルテは既にそのお客様に登録されています。",
+      "errorStoreScope": "そのお客様は担当店舗の対象外です。",
+      "errorGeneric": "顧客を変更できませんでした。もう一度お試しください。"
+    },
     "header": {
       "openCustomer": "顧客カルテを開く",
       "staff": "担当",
@@ -2299,7 +2325,8 @@
           "entry_edits_view": "カルテ編集履歴を閲覧",
           "entries_regenerate": "カルテを再生成",
           "summary_edit": "詳細記録を編集",
-          "outcome_set": "セッション結果を記録"
+          "outcome_set": "セッション結果を記録",
+          "customer_reassign": "カルテの顧客を変更"
         },
         "staff": {
           "add": "スタッフを追加",
@@ -2987,6 +3014,7 @@
     "recordingActive": "録音中",
     "customerLabel": "お客様",
     "customerName": "{name}様",
+    "customerNameFallback": "未設定",
     "close": "閉じる",
     "modeHint": "お客様の目に付かないよう、控えめな表示になっています。録音は通常通り進行しています。",
     "privacyNote": "店舗のプライバシーポリシーに「AI録音の利用目的」を明記している前提で機能します。",
@@ -3297,6 +3325,7 @@
     "cap_sync_view": "予約同期",
     "cap_data_export": "データの書き出し・取り込み",
     "cap_records_delete": "記録の削除",
+    "cap_records_reassign": "カルテの顧客変更",
     "cap_records_write": "録音・カルテ編集",
     "cap_recordings_viewAll": "全スタッフの録音を閲覧",
     "cap_analytics_viewAll": "全店舗の分析",

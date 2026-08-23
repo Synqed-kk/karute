@@ -269,6 +269,8 @@ export type FacadeEndpointKey =
   | 'karute.entryEdits.list'
   | 'karute.outcome.set'
   | 'karute.read'
+  | 'karute.reassign'
+  | 'karute.reassignOptions'
   | 'karute.regenerate'
   | 'karute.save'
   | 'karute.summary.update'
@@ -499,6 +501,21 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // (auditWeb — src/app/[locale]/(app)/karute/[id]/page.tsx, registered in
   // AUDITED_CORES).
   'karute.read': { kind: 'view', category: 'karute', action: 'karute.view', targetType: 'karute' },
+  // F4 (2026-08-23): the two-phase reassign write. The unconfirmed/preview
+  // phase sets ctx.auditSuppress = 'preview' on its own 200 body (no mutation
+  // happened — success-only audit pin ⚖ HELD, same precedent as
+  // regenerate/route.ts's 'soft_failure' suppress), so this row's generic
+  // hook only ever fires on the confirmed:true write — enriched via
+  // ctx.auditTargetId (the karute id) + ctx.auditDetail (from/to customer ids
+  // + burn/photo counts). D1-mirror doctrine (customer.consent.grant/
+  // karute.outcome.set): the web wrapper (reassignKaruteCustomer,
+  // src/actions/karute.ts) emits its OWN independent auditWeb row — never a
+  // shared choke-point single emit.
+  'karute.reassign': { kind: 'mutation', category: 'karute', action: 'karute.customer_reassign', targetType: 'karute' },
+  // The reassign picker's store-scoped customer roster (packet §2g phone
+  // path) — a list GET, same wayfinding skip every other list carries
+  // (customers.list above).
+  'karute.reassignOptions': { kind: 'skip', category: 'karute', action: '' },
   'karute.entryEdits.list': { kind: 'view', category: 'karute', action: 'karute.entry_edits_view', targetType: 'karute' },
   'customer.ai.preSessionBrief': { kind: 'view', category: 'customer', action: 'customer.brief_view', targetType: 'customer' },
   'customer.ai.bodyPrediction': { kind: 'view', category: 'customer', action: 'customer.ai_prediction_view', targetType: 'customer' },

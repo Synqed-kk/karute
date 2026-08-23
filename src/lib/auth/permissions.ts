@@ -26,6 +26,7 @@ export const CAPABILITIES = [
                        // as audit.view (Liam ruling 7/24, packet 31)
   'data.export',       // export / import customer + karute data
   'records.delete',    // delete customers / karute (destructive)
+  'records.reassign',  // re-point a saved karute to another customer (audited)
   'records.write',     // record sessions, create / edit karute
   'recordings.viewAll',// read EVERY staff's raw transcript/recording (vs. only
                        // your OWN). OWNER ONLY by default (Liam ruling 7/16:
@@ -79,7 +80,7 @@ export const ROLE_PRESETS: Record<PermissionRole, Capability[]> = {
   ),
   // Lead practitioner / SV (supervisor): does the work + sees whole-salon
   // analytics + exports + cross-store visibility; no settings/staff/billing.
-  senior: ['records.write', 'records.delete', 'data.export', 'analytics.viewAll', 'stores.viewAll', 'customers.view', 'bookings.manage', 'menus.manage'],
+  senior: ['records.write', 'records.delete', 'records.reassign', 'data.export', 'analytics.viewAll', 'stores.viewAll', 'customers.view', 'bookings.manage', 'menus.manage'],
   // Practitioner: the core service provider.
   practitioner: ['records.write', 'customers.view', 'bookings.manage'],
   // Front desk: books + views, no records, nothing destructive.

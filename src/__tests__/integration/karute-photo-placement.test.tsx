@@ -88,6 +88,7 @@ function renderView(photos: PhotoRecord[]) {
       bodyPredictionSlot={null}
       suggestedMessageSlot={<div data-testid="suggested-message" />}
       outcome={null}
+      staffCanReassignRecords={false}
     />,
   )
 }

@@ -28,6 +28,14 @@ const AuditLogEventSchema = z.object({
     .nullable()
     .optional()
     .transform((v) => v ?? null),
+  // R7-1 (Liam's phone review, 8/23): additive, karute.customer_reassign
+  // rows only — pre-resolved "<from-name> → <to-name>" display line, built
+  // server-side (src/actions/audit-log.ts, listAuditLogWithClient) off the
+  // SAME resolveTargetLabels() map both the web page and this DTO share.
+  // Plain optional (never emitted for other rows, so no null-normalization
+  // like actor_label needs) — an old baked phone ignores the unknown field;
+  // a new bake renders it once the screen catches up.
+  reassign_customer_line: z.string().optional(),
 })
 
 export const AuditLogListResultDTO = z.discriminatedUnion('ok', [

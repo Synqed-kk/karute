@@ -410,6 +410,89 @@ async function facadeUpdateKaruteDetailSummary(
   }
 }
 
+// -- session detail: reassign customer (F4, packet §2g phone path). Same
+// two-phase result shape as the web action (reassignKaruteCustomer) so
+// ReassignCustomerAction's requiresConfirm/success/error branches behave
+// identically on both platforms. Whole body try/caught — same
+// transport-rejection parity as facadeUpdateKaruteEntry above.
+async function facadeReassignKaruteCustomer(
+  karuteId: string,
+  toCustomerId: string,
+  opts: { confirmed: boolean },
+): Promise<
+  | {
+      requiresConfirm: true
+      fromCustomerId: string
+      fromName: string
+      toName: string
+      linkedBurnCount: number
+      sameDayBurnCount: number
+      photoCount: number
+    }
+  | { success: true; linkedBurnCount: number; sameDayBurnCount: number; photoCount: number }
+  | { error: string }
+> {
+  try {
+    const res = await getDataPort().apiFetch(
+      `/api/app/v1/karute/${enc(karuteId)}/reassign`,
+      jsonInit('POST', { to_customer_id: toCustomerId, confirmed: opts.confirmed }),
+    )
+    const body = (await res.json().catch(() => null)) as
+      | {
+          requires_confirm?: true
+          from_customer_id?: string
+          from_name?: string
+          to_name?: string
+          linked_burn_count?: number
+          same_day_burn_count?: number
+          photo_count?: number
+          error?: { message?: string }
+        }
+      | null
+    if (!res.ok || !body) {
+      return { error: body?.error?.message ?? `Request failed (${res.status})` }
+    }
+    if (body.requires_confirm) {
+      return {
+        requiresConfirm: true,
+        fromCustomerId: body.from_customer_id ?? '',
+        fromName: body.from_name ?? '',
+        toName: body.to_name ?? '',
+        linkedBurnCount: body.linked_burn_count ?? 0,
+        sameDayBurnCount: body.same_day_burn_count ?? 0,
+        photoCount: body.photo_count ?? 0,
+      }
+    }
+    return {
+      success: true,
+      linkedBurnCount: body.linked_burn_count ?? 0,
+      sameDayBurnCount: body.same_day_burn_count ?? 0,
+      photoCount: body.photo_count ?? 0,
+    }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
+// -- session detail: reassign picker roster (F4, packet §2g). READ, degrades
+// to an empty list on any failure (the picker just shows "no matches" rather
+// than throwing) — same graceful-list convention as getBurnablePackSummary
+// above.
+async function facadeListReassignCustomerOptions(
+  karuteId: string,
+): Promise<{ customers: import('@/components/karute/CustomerCombobox').CustomerOption[] } | { error: string }> {
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/karute/${enc(karuteId)}/reassign-options`)
+    const body = (await res.json().catch(() => null)) as
+      | { customers?: import('@/components/karute/CustomerCombobox').CustomerOption[]; error?: { message?: string } }
+      | null
+    if (!res.ok || !body) return { error: body?.error?.message ?? `Request failed (${res.status})` }
+    return { customers: body.customers ?? [] }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
 // -- session detail: per-entry edit history (edit-layer W2 history-sheet
 // packet). Local redeclaration of EntryEditHistoryRow (src/actions/karute.ts)
 // — same "redeclare the shape" convention as AuditLogEvent/StoreRow below.
@@ -1522,6 +1605,13 @@ export const updateKaruteDetailEntry = facadeUpdateKaruteEntry
 // would otherwise be invisible at both build gates.
 export const updateKaruteDetailSummary =
   facadeUpdateKaruteDetailSummary satisfies typeof import('@/actions/karute').updateKaruteDetailSummary
+// -- reassign customer (F4, packet §2g). Same type-only `satisfies` pin as
+// updateKaruteDetailSummary above — a signature drift between the web action
+// and this port would otherwise be invisible at both build gates.
+export const reassignKaruteCustomer =
+  facadeReassignKaruteCustomer satisfies typeof import('@/actions/karute').reassignKaruteCustomer
+export const listReassignCustomerOptions =
+  facadeListReassignCustomerOptions satisfies typeof import('@/actions/karute').listReassignCustomerOptions
 // -- entry edit history (edit-layer W2 history-sheet packet)
 export const listEntryEditHistory = facadeListEntryEditHistory
 export const listCustomerKaruteForRegen = notWired('listCustomerKaruteForRegen')

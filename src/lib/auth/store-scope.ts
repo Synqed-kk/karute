@@ -132,6 +132,56 @@ export const resolveStoreScope = cache(async (): Promise<StoreScope> => {
  * ever appears: it doesn't — that combination is a clamp the caller could not
  * name.
  */
+/**
+ * Does a store-scoped RECORD (its own `store_id`, not a roster the actor is
+ * picking from) fall outside the actor's clamp? Same predicate class as
+ * customerLensFor/menuStoresForScope above — pure, no I/O. Born as karute
+ * reassign's R3-1 source-store clamp (src/actions/karute.ts,
+ * PACKET-F4-FIXROUND3-2026-09-02.md): a clamped actor must be refused a
+ * WRITE (or a roster/picker) keyed off a record that itself sits in a store
+ * they're not assigned to, independent of whatever destination the caller
+ * supplied. Reused by that reassign core + roster AND the reassign-options
+ * facade route (both need the identical refusal).
+ *
+ *   - `viewAll: true`          → false (never clamped). ponytail: dead in
+ *     practice — every caller's scope already carries `allowedStoreIds:
+ *     null` whenever `viewAll` is true (resolveStoreScope's own contract;
+ *     callers that hand-build the scope object, e.g. the facade route,
+ *     preserve it), so the `!allowedStoreIds` arm below already returns
+ *     false first. Kept anyway as an invariant backstop — same house
+ *     pattern as customerLensFor's dead `null` arm just above: if that
+ *     pairing ever broke, this is the line that keeps a viewAll actor from
+ *     being wrongly clamped.
+ *   - `allowedStoreIds: null`  → false — floating actor, unclamped.
+ *   - `record.store_id: null`  → true — R5-1 (Greptile #759 round-2
+ *     adjudication, 2026-08-23): a clamped actor's OWN membership in a
+ *     legacy unlabeled record is unprovable, so the write/roster proof
+ *     fails closed on it. This is deliberately STRICTER than the read
+ *     plane: resolveKaruteStoreId's appointment clamp (also in
+ *     src/actions/karute.ts) keeps null-store records unclamped for
+ *     reads — the 全店舗/null-store convention still holds there. The
+ *     write plane is allowed to be narrower than the read plane
+ *     (established precedent: the menus write clamp, `records.delete` not
+ *     being universal) and no ⚖ ruling requires clamped staff to be able
+ *     to reassign an unlabeled record — every DEFAULT `records.reassign`
+ *     holder (owner/manager/senior presets) also holds `stores.viewAll`,
+ *     so this arm only bites custom-granted clamped staff.
+ *   - otherwise                → true iff the record's store isn't in
+ *     `allowedStoreIds`.
+ *
+ * A `degraded` scope is NOT handled here — every caller refuses on
+ * `degraded` before ever reaching this predicate, so it takes only the two
+ * fields it needs.
+ */
+export function sourceStoreOutOfScope(
+  record: { store_id: string | null },
+  scope: { viewAll: boolean; allowedStoreIds: string[] | null },
+): boolean {
+  if (scope.viewAll) return false
+  if (!scope.allowedStoreIds) return false // floating — unclamped
+  return record.store_id === null || !scope.allowedStoreIds.includes(record.store_id)
+}
+
 export function customerLensFor(scope: {
   storeId: string | null
   allowedStoreIds: string[] | null

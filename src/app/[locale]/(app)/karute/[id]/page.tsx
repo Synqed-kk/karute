@@ -40,7 +40,7 @@ export default async function KaruteDetailPage({
   // Fetch the karute and the tenant customer list in parallel — the list feeds
   // the sequential karute number (below) and doesn't depend on the karute.
   const synqedPromise = getSynqedClient()
-  const [karute, allCustomers, outcome, viewerStaffId, canViewAllRecordings] =
+  const [karute, allCustomers, outcome, viewerStaffId, canViewAllRecordings, canReassign] =
     await Promise.all([
       getKaruteRecord(id),
       // Page to completion so the karute number resolves for an overflow customer.
@@ -53,6 +53,8 @@ export default async function KaruteDetailPage({
       // of the karute, so fan them out in the same wave.
       getCurrentUserStaffId(),
       can('recordings.viewAll'),
+      // F4: records.reassign gate — the 顧客を変更 entry point.
+      can('records.reassign'),
     ])
   if (!karute) notFound()
 
@@ -87,6 +89,7 @@ export default async function KaruteDetailPage({
     outcome,
     viewerStaffId,
     canViewAllRecordings,
+    staffCanReassignRecords: canReassign,
     contact,
     consentResult,
     customer,
@@ -130,6 +133,7 @@ export default async function KaruteDetailPage({
       consentOnFile={built.consentOnFile}
       transcriptDurationLabel={built.transcriptDurationLabel}
       transcriptRestricted={built.transcriptRestricted}
+      staffCanReassignRecords={built.staffCanReassignRecords}
       // fallback=null, not a skeleton: the card is now only-when-photos, so a
       // photo-shaped placeholder would flash a box that then vanishes on every
       // karute with no linked photos (Liam 8/10, mock frame C).

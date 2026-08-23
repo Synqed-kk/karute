@@ -57,6 +57,14 @@ describe('RBAC permission model', () => {
     expect(p.has('records.delete')).toBe(false)
   })
 
+  it('F4: records.reassign — owner/manager/senior yes, practitioner/frontdesk no (mirrors records.delete)', () => {
+    expect(new Set(ROLE_PRESETS.owner).has('records.reassign')).toBe(true)
+    expect(new Set(ROLE_PRESETS.manager).has('records.reassign')).toBe(true)
+    expect(new Set(ROLE_PRESETS.senior).has('records.reassign')).toBe(true)
+    expect(new Set(ROLE_PRESETS.practitioner).has('records.reassign')).toBe(false)
+    expect(new Set(ROLE_PRESETS.frontdesk).has('records.reassign')).toBe(false)
+  })
+
   it('front desk views + books but never records or deletes', () => {
     const f = new Set(ROLE_PRESETS.frontdesk)
     expect(f.has('bookings.manage')).toBe(true)

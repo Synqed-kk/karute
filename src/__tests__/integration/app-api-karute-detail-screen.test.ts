@@ -138,6 +138,22 @@ describe('GET /api/app/v1/screens/karute/[id] (packet 07 §Build 2)', () => {
     expect(dto.consentOnFile).toBe(true)
   })
 
+  // F4 pin 8 (facade half) — staffCanReassignRecords tracks the
+  // records.reassign capability exactly, twin of the web-page test in
+  // reassign-flag-threading.test.ts.
+  it('F4: staffCanReassignRecords is false without records.reassign', async () => {
+    const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+    const dto = await res.json()
+    expect(dto.staffCanReassignRecords).toBe(false)
+  })
+
+  it('F4: staffCanReassignRecords is true when the caller holds records.reassign', async () => {
+    capabilities.current = new Set(['customers.view', 'records.reassign'])
+    const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+    const dto = await res.json()
+    expect(dto.staffCanReassignRecords).toBe(true)
+  })
+
   it('ACL: a non-owner viewer without recordings.viewAll → transcript:null + transcriptRestricted:true', async () => {
     const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
     const dto = await res.json()

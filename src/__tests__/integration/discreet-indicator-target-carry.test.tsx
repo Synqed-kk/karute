@@ -100,4 +100,24 @@ describe('DiscreetRecordingIndicator — the customer nameline', () => {
     expect(screen.queryByText('customerLabel')).not.toBeInTheDocument()
     expect(screen.queryByText(/^customerName/)).not.toBeInTheDocument()
   })
+
+  // F4 rider (§2h) — display seam: a bound target whose customerName is
+  // whitespace-only must never interpolate blank into the template.
+  it('renders the generic fallback for a whitespace-only customerName — never an empty interpolation', () => {
+    mockRecState = 'recording'
+    mockTarget = { customerId: 'cust-A', customerName: '   ' }
+    render(<DiscreetRecordingIndicator />)
+    fireEvent.click(screen.getByLabelText('dotAria'))
+    expect(screen.getByText('customerLabel')).toBeInTheDocument()
+    expect(screen.getByText('customerNameFallback')).toBeInTheDocument()
+    expect(screen.queryByText(/^customerName:/)).not.toBeInTheDocument()
+  })
+
+  it('renders the generic fallback for a truly empty customerName too', () => {
+    mockRecState = 'recording'
+    mockTarget = { customerId: 'cust-A', customerName: '' }
+    render(<DiscreetRecordingIndicator />)
+    fireEvent.click(screen.getByLabelText('dotAria'))
+    expect(screen.getByText('customerNameFallback')).toBeInTheDocument()
+  })
 })

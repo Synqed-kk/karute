@@ -108,6 +108,11 @@ export const KaruteDetailScreenDTO = z.object({
    *  owner-hides-it gate (the thin screen wraps the view in a SessionProvider so
    *  KaruteCoachingPanel's useSession() resolves; see the screen-provider trace). */
   viewerRole: z.string(),
+  /** F4: records.reassign gate — the 顧客を変更 entry point. Optional so a
+   *  cached facade payload minted before this field existed still parses
+   *  (same edit-layer Wave 2 compat rule as author/version above); an absent
+   *  value hides the action, never shows-and-refuses. */
+  staffCanReassignRecords: z.boolean().optional(),
 })
 
 export type KaruteDetailScreenDTOType = z.infer<typeof KaruteDetailScreenDTO>

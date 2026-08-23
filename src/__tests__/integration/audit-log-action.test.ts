@@ -951,6 +951,110 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
   })
 })
 
+// R7-1 (Liam's phone review, 8/23 — "extremely important"): the reassign
+// row's from_customer_id/to_customer_id widen the SAME batch resolver above
+// (never a second resolver, no new read pattern) and get composed into a
+// read-time-only reassign_customer_line field, shared by web AND facade
+// (both call listAuditLogWithClient). Same test shape as the menu_update
+// store_id_old/_new describe block above.
+describe('listAuditLog — R7-1 reassign from→to display line', () => {
+  const CUS_FROM = '00000000-0000-4000-8000-0000000000f1'
+  const CUS_TO = '00000000-0000-4000-8000-0000000000f2'
+
+  function reassignEvent(overrides: Record<string, unknown> = {}) {
+    return coreEvent({
+      id: 'e-reassign',
+      category: 'karute',
+      action: 'karute.customer_reassign',
+      target_type: 'karute',
+      target_id: 'kar-1',
+      detail: {
+        from_customer_id: CUS_FROM,
+        to_customer_id: CUS_TO,
+        same_day_burn_count: 0,
+        photo_count: 0,
+      },
+      ...overrides,
+    })
+  }
+
+  it("a reassign row's from/to ids resolve via the SAME customers.list() batch (pin 2), composed into reassign_customer_line (pin 1's data)", async () => {
+    const customersList = jest.fn(async () => ({
+      customers: [
+        { id: CUS_FROM, name: '田中 美咲' },
+        { id: CUS_TO, name: '佐藤 花子' },
+      ],
+    }))
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: customersList },
+    }))
+    list.mockImplementation(async () => ({ events: [reassignEvent()], total: 1, page: 1, page_size: 100 }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    // ONE batch call, not two separate lookups.
+    expect(customersList).toHaveBeenCalledTimes(1)
+    expect(customersList).toHaveBeenCalledWith({
+      ids: expect.arrayContaining([CUS_FROM, CUS_TO]),
+      include_deleted: true,
+    })
+    expect(res.events[0].reassign_customer_line).toBe('田中 美咲 → 佐藤 花子')
+    expect(res.targetLabels[CUS_FROM]).toBe('田中 美咲')
+    expect(res.targetLabels[CUS_TO]).toBe('佐藤 花子')
+  })
+
+  it('pin 3: a deleted/unknown to-customer id falls back to the raw id — no crash, honest state', async () => {
+    const customersList = jest.fn(async () => ({
+      customers: [{ id: CUS_FROM, name: '田中 美咲' }], // CUS_TO purged/unresolved
+    }))
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: customersList },
+    }))
+    list.mockImplementation(async () => ({ events: [reassignEvent()], total: 1, page: 1, page_size: 100 }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events[0].reassign_customer_line).toBe(`田中 美咲 → ${CUS_TO}`)
+  })
+
+  it('pin 5: a non-reassign row never gets reassign_customer_line set, even carrying the same detail key names', async () => {
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: jest.fn(async () => ({ customers: [] })) },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          action: 'customer.edit',
+          detail: { from_customer_id: CUS_FROM, to_customer_id: CUS_TO },
+        }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events[0].reassign_customer_line).toBeUndefined()
+  })
+
+  it('a reassign row missing either id in detail (malformed/historical) leaves the field undefined — no crash', async () => {
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: jest.fn(async () => ({ customers: [] })) },
+    }))
+    list.mockImplementation(async () => ({
+      events: [reassignEvent({ detail: { from_customer_id: CUS_FROM } })],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events[0].reassign_customer_line).toBeUndefined()
+  })
+})
+
 describe('listAuditLogWithClient — per-invocation privacy.audit_log.view (contract §3.1, PR-M1)', () => {
   // Direct calls against the twin — a minimal synqed client (audit only, same
   // ThisSensitiveAuditClient fidelity as every test above) and a manual actor,

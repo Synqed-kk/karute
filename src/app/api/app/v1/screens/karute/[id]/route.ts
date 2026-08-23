@@ -148,6 +148,7 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       outcome: outcomeForClient,
       viewerStaffId,
       canViewAllRecordings,
+      staffCanReassignRecords: ctx.identity.capabilities.has('records.reassign'),
       contact: customer ? { phone: customer.phone, email: customer.email } : null,
       consentResult: consent ? { consent: consent.consent ?? null } : null,
       customer,
