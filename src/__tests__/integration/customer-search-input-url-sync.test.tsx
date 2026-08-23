@@ -134,4 +134,31 @@ describe('CustomerSearchInput — URL-sync (echo vs external navigation)', () =>
     // Box text staying "abc" here (list/URL show "ab") is accepted cosmetic
     // residue of this fix — out of scope; only the write race is closed.
   })
+
+  it('T-lag: a lagging echo of an earlier write must not eat characters typed since', () => {
+    const { rerender } = render(<CustomerSearchInput initialQuery="" />)
+    const input = screen.getByRole('textbox') as HTMLInputElement
+    input.focus()
+
+    fireEvent.change(input, { target: { value: 'ab' } })
+    jest.advanceTimersByTime(300)
+
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace.mock.calls[0][0]).toContain('query=ab')
+
+    fireEvent.change(input, { target: { value: 'abc' } })
+    jest.advanceTimersByTime(100)
+
+    // The write for "ab" above finally echoes back through initialQuery here
+    // — late, after "abc" is already mid-debounce. It must not re-seed the
+    // box and eat the characters typed since.
+    rerender(<CustomerSearchInput initialQuery="ab" />)
+
+    expect(input.value).toBe('abc')
+
+    jest.advanceTimersByTime(300)
+
+    expect(replace).toHaveBeenCalledTimes(2)
+    expect(replace.mock.calls[1][0]).toContain('query=abc')
+  })
 })
