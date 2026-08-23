@@ -29,6 +29,7 @@ import { readCustomerRaw } from '@/lib/app-api/karute-facade'
 import { getCustomerKaruteRecordsWithClient } from '@/actions/karute'
 import { getReengagementDraftWithClient } from '@/lib/karute/ai-reengagement'
 import { enrichCustomers, effectiveLastVisitIso, effectiveFirstVisitIso } from '@/lib/customers/list-enrich'
+import { mergeKaruteRows } from '@/lib/karute/synqed-records'
 import { customerVisitCount, isReturningCustomer, resolveCustomerStatus } from '@/lib/customers/status-signals'
 import { computeVisitPace } from '@/lib/visits/pace'
 import { getCustomerLifecycleCheckedWithClient } from '@/lib/packs/store'
@@ -63,8 +64,15 @@ export const GET = facadeHandler<Params>('customer.ai.reengagement', async (ctx)
   ])
   const enr = enrichment.get(id)
   const lifecycle = lifecycleRead.ok ? lifecycleRead.lifecycle : null
+  // FIX ROUND 1 R2: getCustomerKaruteRecordsWithClient sorts by created_at
+  // DESC only (actions/karute.ts) — web's equivalent fallback (profile-
+  // screen.ts) reads records already sorted by mergeKaruteRows's
+  // `session_date ?? created_at` DESC. A back-dated karute (recent
+  // created_at, older session_date) could rank #1 here but not there,
+  // flipping which record's date feeds lastVisitIso — same comparator now.
+  const sortedRecords = mergeKaruteRows([], records)
   const lastVisitIso = effectiveLastVisitIso(
-    enr?.lastVisitIso ?? records[0]?.session_date ?? records[0]?.created_at ?? null,
+    enr?.lastVisitIso ?? sortedRecords[0]?.session_date ?? sortedRecords[0]?.created_at ?? null,
     customer.last_visit_at,
   )
   const statusSignals = {
@@ -72,7 +80,14 @@ export const GET = facadeHandler<Params>('customer.ai.reengagement', async (ctx)
     lastVisitIso,
     isExistingCustomer: customer.is_existing_customer,
     visitCount: customer.visit_count,
-    karuteCount: records.length,
+    // FIX ROUND 1 R1: `enr.totalKarute` is the enrichment aggregate's TRUE
+    // karute count (synqed-core SQL, uncapped) — the same source
+    // screen-rows.ts/appointments/screen.ts/record-screen.ts/dashboard/
+    // screen.ts/notifications/derive.ts all read for this exact field.
+    // `records.length` was the §1-sized 8-record fetch, undercounting any
+    // customer with more than 8 karute and diverging from web's ~200-cap
+    // profile-screen.ts count.
+    karuteCount: enr?.totalKarute ?? 0,
     pastAppointmentCount: enr?.pastAppointmentCount,
     hasTicketPack: customer.has_ticket_pack ?? false,
   }

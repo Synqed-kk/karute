@@ -2320,6 +2320,7 @@
           "photos_view": "Viewed customer photos",
           "brief_view": "Viewed pre-session brief",
           "ai_prediction_view": "Viewed AI body prediction",
+          "reengagement_view": "Viewed re-engagement draft",
           "create": "Created customer",
           "consent_grant": "Consent granted",
           "consent_revoke": "Consent revoked",

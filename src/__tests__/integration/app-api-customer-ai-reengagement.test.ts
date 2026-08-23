@@ -78,6 +78,8 @@ jest.mock('@/lib/karute/ai-reengagement', () => ({
 }))
 
 import { GET as reengagement, OPTIONS as reengagementOptions } from '@/app/api/app/v1/customers/[id]/ai/reengagement/route'
+import { jstDaysBetween } from '@/lib/date/jst'
+import { FACADE_AUDIT_MAP } from '@/lib/audit'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -105,6 +107,15 @@ beforeEach(() => {
 })
 
 describe('GET /customers/[id]/ai/reengagement', () => {
+  it('FIX ROUND 1 R3: FACADE_AUDIT_MAP row is a real `view` row (per-open), matching the preSessionBrief/bodyPrediction siblings — hardcoded pin, independent of the map itself (facade-audit.test.ts\'s parameterized suite is map-driven and cannot catch a revert to \'skip\' on its own)', () => {
+    expect(FACADE_AUDIT_MAP['customer.ai.reengagement']).toEqual({
+      kind: 'view',
+      category: 'customer',
+      action: 'customer.reengagement_view',
+      targetType: 'customer',
+    })
+  })
+
   it('happy path → 200 { draft }', async () => {
     const res = await reengagement(req({ headers: auth }), routeFor('cust-1'))
     expect(res.status).toBe(200)
@@ -208,5 +219,62 @@ describe('GET /customers/[id]/ai/reengagement', () => {
     await reengagement(req({ headers: auth }), routeFor('cust-1'))
     const [, , , , params] = getReengagementDraftWithClient.mock.calls[0]
     expect(params.hasUpcomingBooking).toBe(true)
+  })
+
+  it('FIX ROUND 1 R1(a): visitCount derives from enrichment.totalKarute (uncapped), not the capped 8-record fetch', async () => {
+    // customer.visit_count is 0 and only 1 record comes back from the
+    // capped-8 §1 fetch — but the enrichment aggregate (the SAME source
+    // screen-rows.ts/dashboard/screen.ts/etc. read) knows the TRUE count.
+    custGet.mockResolvedValueOnce({
+      id: 'cust-1',
+      name: '山田 花子',
+      created_at: '2025-01-01T00:00:00Z',
+      last_visit_at: '2026-06-01T00:00:00Z',
+      first_visit_at: '2025-01-05T00:00:00Z',
+      is_existing_customer: false,
+      visit_count: 0,
+      has_ticket_pack: false,
+      assigned_staff_id: 'staff-assigned',
+    })
+    getCustomerKaruteRecordsWithClient.mockResolvedValueOnce([
+      { id: 'k1', created_at: '2026-06-01T00:00:00Z', session_date: '2026-06-01' },
+    ])
+    enrichCustomers.mockResolvedValueOnce(
+      new Map([
+        [
+          'cust-1',
+          {
+            totalKarute: 30,
+            lastVisitIso: '2026-06-01T00:00:00Z',
+            pastAppointmentCount: 0,
+            lastVisitService: null,
+            bookingStaffId: null,
+            nextAppointmentIso: null,
+            firstVisitIso: '2025-01-05T00:00:00Z',
+            datedVisitCount: 30,
+            noShowCount: 0,
+          },
+        ],
+      ]),
+    )
+    await reengagement(req({ headers: auth }), routeFor('cust-1'))
+    const [, , , , params] = getReengagementDraftWithClient.mock.calls[0]
+    // Mutation red: reverting to `karuteCount: records.length` yields 1, not 30.
+    expect(params.visitCount).toBe(30)
+  })
+
+  it('FIX ROUND 1 R2: lastVisitIso fallback sorts by session_date ?? created_at (mergeKaruteRows semantics) — a back-dated karute cannot rank #1 over a genuinely more recent visit', async () => {
+    getCustomerKaruteRecordsWithClient.mockResolvedValueOnce([
+      // Entered most recently (highest created_at) but for an OLD, back-dated session.
+      { id: 'k-backdated', created_at: '2026-08-20T00:00:00Z', session_date: '2026-01-01' },
+      // Entered earlier but IS the genuinely most recent visit by session_date.
+      { id: 'k-recent', created_at: '2026-08-01T00:00:00Z', session_date: '2026-08-01' },
+    ])
+    // No enrichment lastVisitIso — forces the records[] fallback the fix touches.
+    await reengagement(req({ headers: auth }), routeFor('cust-1'))
+    const [, , , , params] = getReengagementDraftWithClient.mock.calls[0]
+    // Mutation red: a created_at-only sort picks k-backdated's 2026-01-01
+    // instead, which computes a materially different (much larger) days-ago.
+    expect(params.lastVisitAgoDays).toBe(jstDaysBetween('2026-08-01', new Date()))
   })
 })

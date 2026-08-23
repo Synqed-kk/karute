@@ -2320,6 +2320,7 @@
           "photos_view": "写真一覧を閲覧",
           "brief_view": "事前ブリーフを閲覧",
           "ai_prediction_view": "AI体調予測を閲覧",
+          "reengagement_view": "再エンゲージメント下書きを閲覧",
           "create": "顧客を登録",
           "consent_grant": "同意を登録",
           "consent_revoke": "同意を取り消し",

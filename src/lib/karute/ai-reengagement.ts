@@ -176,7 +176,7 @@ function buildSystemPrompt(opts: {
 - ${
       tier === 'dormant'
         ? '90日以上のご無沙汰向けの文面にする：罪悪感を与えず、温かく再接続する。'
-        : '46〜89日のご無沙汰向けの文面にする：季節の変わり目など自然な理由で、気にかけている旨を伝える。'
+        : '61〜89日のご無沙汰向けの文面にする：季節の変わり目など自然な理由で、気にかけている旨を伝える。'
     }
 - このメッセージはスタッフが電話で読み上げる場合がある。声に出して読んだときに自然に聞こえる文章にする。
 - 低圧的な一文で締め、次回来店を促す。命令形は使わない。
@@ -202,7 +202,7 @@ Rules:
 - ${
     tier === 'dormant'
       ? "90+ days since their last visit — warm reconnect, no guilt."
-      : '46-89 days since their last visit — a caring check-in (a seasonal shift or similar natural reason works well).'
+      : '61-89 days since their last visit — a caring check-in (a seasonal shift or similar natural reason works well).'
   }
 - This message may be read aloud by staff over the phone — write it so it sounds natural spoken aloud, not only when read silently.
 - Close with a low-pressure invitation to return. Never imperative.
@@ -253,6 +253,11 @@ async function computeReengagementDraft(
     v: REENGAGEMENT_PROMPT_VERSION,
     customerId: params.customerId,
     tier,
+    // FIX ROUND 1 R1(b): the prompt prints `Visit count: …` verbatim — without
+    // this key, two surfaces deriving a different visitCount for the same
+    // customer (the facade bug R1(a) fixed) would silently share one cache
+    // entry, seeding each other with a draft written against the wrong count.
+    visitCount,
     business_type: orgSettings?.business_type ?? null,
     locale,
     voiceStyle,
@@ -296,7 +301,7 @@ Business type: ${tok.businessNoun}
 Recency tier: ${tier}
 
 AI body-condition prediction (§1, primary signal — reference it when relevant):
-${predictionBlock ?? '(not available)'}
+${wrapUntrustedContent('body_prediction', predictionBlock ?? '(not available)')}
 
 Customer memory (pinned + body/goal prioritized):
 ${wrapUntrustedContent('customer_memory', formatMemoryForPrompt(items))}

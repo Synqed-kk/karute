@@ -182,6 +182,23 @@ describe('cache-key contract (Test #4, F10)', () => {
       expect(call[3]).toBe(1) // ttlDays EXPLICIT (default is 7)
     }
   })
+
+  it('FIX ROUND 1 R1(b): visitCount joins the cache key — two surfaces disagreeing on visitCount for the same customer can no longer share a cache entry', async () => {
+    const { getCachedAI } = jest.requireMock('@/lib/ai-cache')
+
+    mockDraftResolved()
+    await getReengagementDraft({ ...BASE_PARAMS, status: 'dormant', lastVisitAgoDays: 120, visitCount: 8 })
+    const eight = getCachedAI.mock.calls[0][1]
+    expect(eight.visitCount).toBe(8)
+
+    mockDraftResolved()
+    await getReengagementDraft({ ...BASE_PARAMS, status: 'dormant', lastVisitAgoDays: 120, visitCount: 30 })
+    const thirty = getCachedAI.mock.calls[1][1]
+    expect(thirty.visitCount).toBe(30)
+
+    // Mutation red: dropping `visitCount` from cacheInput makes these equal.
+    expect(eight).not.toEqual(thirty)
+  })
 })
 
 describe('prompt-safety pins (Test #5, F14/F15)', () => {
@@ -206,10 +223,42 @@ describe('prompt-safety pins (Test #5, F14/F15)', () => {
     expect(userContent).toContain('<<<UNTRUSTED:recent_sessions>>>')
     expect(userContent).toContain('<<<END:recent_sessions>>>')
     expect(userContent).toContain('INJECT-ME-MARKER')
+    // FIX ROUND 1 N2: the §1 prediction block gets the same defense-in-depth
+    // wrap (mutation red on removal — see the dedicated test below for the
+    // "present" case; this proves it fires even when absent).
+    expect(userContent).toContain('<<<UNTRUSTED:body_prediction>>>')
+    expect(userContent).toContain('<<<END:body_prediction>>>')
     // cleanNameToken strips control chars + angle brackets from the prompt anchor.
     expect(systemContent).not.toContain('<script>')
     expect(userContent).not.toContain('<script>')
     expect(systemContent).toContain('田中 花子')
+  })
+
+  it('FIX ROUND 1 N2: wraps a PRESENT §1 prediction block as untrusted too', async () => {
+    mockDraftResolved()
+    const { getBodyPrediction } = jest.requireMock('@/lib/karute/ai-body-prediction')
+    ;(getBodyPrediction as jest.Mock).mockResolvedValueOnce({
+      headline: 'INJECT-VIA-PREDICTION',
+      confidence: 0.8,
+      delta: 'stable',
+      recommended: 'in 3 weeks',
+    })
+    await getReengagementDraft({ ...BASE_PARAMS, status: 'dormant', lastVisitAgoDays: 120 })
+    const userContent = (openai.chat.completions.parse as jest.Mock).mock.calls[0][0].messages[1].content as string
+    expect(userContent).toContain('<<<UNTRUSTED:body_prediction>>>')
+    expect(userContent).toContain('<<<END:body_prediction>>>')
+    expect(userContent).toContain('INJECT-VIA-PREDICTION')
+  })
+
+  it('FIX ROUND 1 N3: overdue-tier prompt says "61〜89日"/"61-89 days" (the REENGAGE_NUDGE_MIN_DAYS gate), not the stale "46"', async () => {
+    for (const locale of ['ja', 'en'] as const) {
+      mockDraftResolved()
+      await getReengagementDraft({ ...BASE_PARAMS, locale, status: 'needs-followup', lastVisitAgoDays: 61 })
+      const calls = (openai.chat.completions.parse as jest.Mock).mock.calls
+      const systemContent = calls[calls.length - 1][0].messages[0].content as string
+      expect(systemContent).toContain(locale === 'ja' ? '61〜89日' : '61-89 days')
+      expect(systemContent).not.toContain('46')
+    }
   })
 
   it('REENGAGEMENT_PROMPT_VERSION (=1) is stamped in the cache key', async () => {
@@ -337,5 +386,22 @@ describe('audit pin (Test #7, F9) — generation branch only, never cache hit or
       })
     })
     expect(lines).toHaveLength(0)
+  })
+})
+
+describe('FIX ROUND 1 R4 — AUDITED_CORES registration is enforced directly', () => {
+  // The verifier's V15 mutation (dropping the entire ai-reengagement.ts
+  // AUDITED_CORES entry) left the full suite green: both generation-branch
+  // helpers are module-PRIVATE, so CP7's registry-reality cross-check (which
+  // enumerates exported symbols only) can never require this entry on its
+  // own. This test closes that gap directly — red-run proof: delete the
+  // entry (or either symbol) and this fails.
+  it('pins the ai-reengagement.ts entry + both generation-branch helper symbols', async () => {
+    const { AUDITED_CORES } = await import('@/lib/audit-policy')
+    const entry = AUDITED_CORES.find((e) => e.file === 'src/lib/karute/ai-reengagement.ts')
+    expect(entry).toBeDefined()
+    expect(entry!.symbols).toEqual(
+      expect.arrayContaining(['auditReengagementDraftGeneratedWeb', 'auditReengagementDraftGeneratedFacade']),
+    )
   })
 })
