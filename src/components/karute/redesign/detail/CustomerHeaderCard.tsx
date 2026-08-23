@@ -110,7 +110,7 @@ export function CustomerHeaderCard({
           <>
             {lastVisitDate}
             {lastVisitAgo && (
-              <span className="font-normal text-muted-foreground"> {lastVisitAgo}</span>
+              <span className="font-medium text-muted-foreground"> {lastVisitAgo}</span>
             )}
           </>
         }
@@ -146,7 +146,7 @@ export function CustomerHeaderCard({
         </div>
         {/* Always an <h2> so the heading survives in both branches (a11y);
             the Link sits INSIDE it when a customer profile exists. */}
-        <h2 className="min-w-0 text-base font-semibold text-foreground">
+        <h2 className="min-w-0 text-base font-semibold text-foreground max-sm:text-[15.5px]">
           {customerHref ? (
             <Link
               href={customerHref as Parameters<typeof Link>[0]['href']}
@@ -156,7 +156,7 @@ export function CustomerHeaderCard({
             >
               <span className="min-w-0 truncate">{customerName}</span>
               <ChevronRight
-                size={16}
+                size={14}
                 className="shrink-0 text-muted-foreground transition-[transform,color] group-hover:translate-x-0.5 group-hover:text-sky-600"
               />
             </Link>
@@ -164,7 +164,7 @@ export function CustomerHeaderCard({
             <span className="block truncate">{customerName}</span>
           )}
         </h2>
-        <span className="flex-none rounded-[5px] border border-border bg-muted px-1.5 py-px font-mono text-[11px] font-semibold text-muted-foreground">
+        <span className="flex-none rounded-[5px] border border-border bg-muted px-1.5 py-px font-mono text-[11px] font-semibold tracking-[0.02em] text-muted-foreground">
           {karuteNumber}
         </span>
         {ageGenderText && (
@@ -187,7 +187,7 @@ export function CustomerHeaderCard({
         )}
       </div>
       {facts.length > 0 && (
-        <div className="-mx-4 flex flex-wrap gap-x-[22px] gap-y-1.5 border-t border-border px-4 pt-1.5">
+        <div className="-mx-4 flex flex-wrap gap-x-[22px] gap-y-1.5 border-t border-border px-4 pt-1.5 max-sm:gap-x-4">
           {facts}
         </div>
       )}

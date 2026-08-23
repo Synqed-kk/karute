@@ -145,6 +145,39 @@ describe('CustomerHeaderCard — two-band contract (案D)', () => {
     expect(container.textContent).not.toMatch(/—/)
   })
 
+  // Fix round 1 pins (blind-verify coverage gaps V-M1/V-M2/V-M3/V-M6/V-M9 —
+  // each behavior already existed in the code; only the pin was missing).
+  it('border-t is present on the facts band when facts exist (kills V-M2)', () => {
+    const { container } = render(<CustomerHeaderCard {...FULL_PROPS} />)
+    expect(container.querySelector('.border-t')).not.toBeNull()
+  })
+
+  it('email Fact wrapper carries flex-[1_1_160px] + max-sm:flex-[1_1_100%] (kills V-M9)', () => {
+    render(<CustomerHeaderCard {...FULL_PROPS} />)
+    const emailWrapper = screen.getByText('x@y.jp').parentElement
+    expect(emailWrapper?.className).toMatch(/flex-\[1_1_160px\]/)
+    expect(emailWrapper?.className).toMatch(/max-sm:flex-\[1_1_100%\]/)
+  })
+
+  it('section carries tabular-nums (kills V-M1)', () => {
+    const { container } = render(<CustomerHeaderCard {...FULL_PROPS} />)
+    expect(container.querySelector('section')?.className).toMatch(/(^|\s)tabular-nums(\s|$)/)
+  })
+
+  it('avatar carries the three dark: variant classes (kills V-M6)', () => {
+    render(<CustomerHeaderCard {...FULL_PROPS} />)
+    const avatar = screen.getByText('CC')
+    expect(avatar.className).toMatch(/dark:border-blue-500\/25/)
+    expect(avatar.className).toMatch(/dark:bg-blue-500\/15/)
+    expect(avatar.className).toMatch(/dark:text-blue-300/)
+  })
+
+  it('h2 carries min-w-0 for the truncation chain (kills V-M3)', () => {
+    render(<CustomerHeaderCard {...FULL_PROPS} />)
+    const heading = screen.getByRole('heading', { level: 2 })
+    expect(heading.className).toMatch(/(^|\s)min-w-0(\s|$)/)
+  })
+
   it('all-null facts cell: section collapses to a single child, no stray border row', () => {
     const { container } = render(
       <CustomerHeaderCard
