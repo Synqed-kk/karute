@@ -34,5 +34,12 @@ export function safeNext(value: string | string[] | null | undefined): string | 
   // of them un-encoded.
   // eslint-disable-next-line no-control-regex
   if (/[\\\s]/.test(value) || /[\x00-\x1f\x7f]/.test(value)) return null
+  // A place to land after signing in is a PAGE. `/api/…` is data, not a
+  // destination, so a crafted link must not be able to spend a fresh session
+  // on one — the login would hand the operator a file download instead of a
+  // screen. `/_next/…` is Next's own asset plumbing and is never a place
+  // either. Refuse, like everything else here: no stripping, no rewriting.
+  if (value === '/api' || value.startsWith('/api/')) return null
+  if (value === '/_next' || value.startsWith('/_next/')) return null
   return value
 }

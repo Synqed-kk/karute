@@ -54,6 +54,21 @@ describe('the auth wall carries where the operator was going', () => {
     expect(to.searchParams.get('next')).toBe('/en/karute/cus-01')
   })
 
+  it("Next's internal `_rsc` cache-buster never rides along — it is plumbing, not a destination", async () => {
+    const to = await wall('https://karute.app/ja/business/today?store=a&_rsc=abc')
+    expect(to.searchParams.get('next')).toBe('/ja/business/today?store=a')
+  })
+
+  it('a destination whose ONLY param was `_rsc` carries no orphaned `?`', async () => {
+    const to = await wall('https://karute.app/ja/business/today?_rsc=abc')
+    expect(to.searchParams.get('next')).toBe('/ja/business/today')
+  })
+
+  it('a query-less destination is carried byte-identical to today — no trailing `?`', async () => {
+    const to = await wall('https://karute.app/ja/business/today')
+    expect(to.searchParams.get('next')).toBe('/ja/business/today')
+  })
+
   it('a public route is not walled at all, so it carries nothing', async () => {
     const res = await proxy(new NextRequest(new URL('https://karute.app/ja/signup')))
     expect(res.headers.get('location')).toBeNull()
@@ -92,6 +107,33 @@ describe('safeNext — only a relative same-origin path survives', () => {
     expect(safeNext('/ja/today\npath')).toBeNull()
     expect(safeNext('/ja/today path')).toBeNull()
     expect(safeNext('/ja/\x00today')).toBeNull()
+  })
+
+  it('DROPS /api/ — a place to land after signing in is a PAGE, not a data endpoint', () => {
+    expect(safeNext('/api/export.csv')).toBeNull()
+    expect(safeNext('/api/customers/export')).toBeNull()
+    expect(safeNext('/api')).toBeNull()
+  })
+
+  it('DROPS /_next/ — Next\'s own asset plumbing is not a place either', () => {
+    expect(safeNext('/_next/static/chunks/main.js')).toBeNull()
+    expect(safeNext('/_next')).toBeNull()
+  })
+
+  it('KEEPS a path that merely STARTS with those letters — the refusal is the segment, not the prefix', () => {
+    expect(safeNext('/apidocs')).toBe('/apidocs')
+    expect(safeNext('/ja/api/x')).toBe('/ja/api/x')
+    expect(safeNext('/_nextdoor')).toBe('/_nextdoor')
+  })
+
+  /** Browsers STRIP tabs out of URLs, so `/<tab>/evil.test` collapses toward
+   *  `//evil.test` — the protocol-relative escape above, wearing a disguise.
+   *  The control-character regex already catches it; this pins it so it can
+   *  never regress silently. The tab is written as the ESCAPE SEQUENCE on
+   *  purpose: a literal control byte got #754's test file classified as binary
+   *  and made it invisible to review. */
+  it('DROPS a tab after the leading slash — it collapses toward //evil.test', () => {
+    expect(safeNext('/\t/evil.test')).toBeNull()
   })
 
   it('absent or empty is null, which is what makes the fallback today\'s behaviour', () => {
