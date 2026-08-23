@@ -412,6 +412,47 @@ describe('pin R9-2 — source karute id: out-of-store vs nonexistent are indisti
   })
 })
 
+// ── Pin D-R9 (fix round 10) — the no-customer and same-customer guards ────
+// moved below the clamp too. Verifier finding (MICRO-STAMP-2, probe rows
+// C/D): both guards used to run BEFORE ensureReassignStoreScope, so a
+// clamped actor holding an out-of-store karute id got the VALIDATION shape
+// (leaking that the id exists, and for the same-customer case, WHICH
+// customer it's attached to) instead of the uniform not_found. Each pin
+// proves the leaking shape is now unreachable — the reordered clamp throws
+// first, identical to R9-2's not_found string.
+
+describe('pin D-R9 — pre-clamp guards moved below the clamp (fix round 10)', () => {
+  it('clamped actor + out-of-store record + NULL customer → the SAME not_found, never "no customer to reassign from"', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: 'store-B', customer_id: null }
+    const result = await reassignKaruteCustomerWithClient(
+      fakeClient(),
+      'kar-1',
+      'cust-TO',
+      { confirmed: true },
+      { viewAll: false, allowedStoreIds: ['store-A'] },
+    )
+      .then(() => ({ threw: false }))
+      .catch((err: Error) => ({ threw: true, message: err.message }))
+    expect(result).toEqual({ threw: true, message: 'karute not found in this business' })
+    expect(karuteRecordsUpdate).not.toHaveBeenCalled()
+  })
+
+  it('clamped actor + out-of-store record + exact-customer (to === from) → the SAME not_found, never "already this customer"', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: 'store-B', customer_id: 'cust-FROM' }
+    const result = await reassignKaruteCustomerWithClient(
+      fakeClient(),
+      'kar-1',
+      'cust-FROM',
+      { confirmed: true },
+      { viewAll: false, allowedStoreIds: ['store-A'] },
+    )
+      .then(() => ({ threw: false }))
+      .catch((err: Error) => ({ threw: true, message: err.message }))
+    expect(result).toEqual({ threw: true, message: 'karute not found in this business' })
+    expect(karuteRecordsUpdate).not.toHaveBeenCalled()
+  })
+})
+
 // ── Pin R5-7 (fresh O6) — multi-store clamped actor ───────────────────────
 // Every store-clamp fixture elsewhere in this file uses exactly ONE assigned
 // store, so neither sourceStoreOutOfScope's `.includes()` nor
@@ -630,7 +671,10 @@ describe('listReassignCustomerOptions — roster', () => {
       degraded: false,
     })
     const result = await listReassignCustomerOptions('kar-1')
-    expect(result).toEqual({ error: expect.any(String) })
+    // N9 (fix round 10): tightened from expect.any(String) — pins the exact
+    // not_found string so a future revert of R9-2's shaping is caught here,
+    // not just at the facade twins that already pin it.
+    expect(result).toEqual({ error: 'karute not found in this business' })
     expect(getCachedCustomerList).not.toHaveBeenCalled()
   })
 
@@ -645,7 +689,8 @@ describe('listReassignCustomerOptions — roster', () => {
       degraded: false,
     })
     const result = await listReassignCustomerOptions('kar-1')
-    expect(result).toEqual({ error: expect.any(String) })
+    // N9 (fix round 10): same tightening as the R3-1 pin above.
+    expect(result).toEqual({ error: 'karute not found in this business' })
     expect(getCachedCustomerList).not.toHaveBeenCalled()
   })
 

@@ -701,12 +701,6 @@ export async function reassignKaruteCustomerWithClient(
 ): Promise<ReassignPreview | ReassignSuccess> {
   const record = await readKaruteRaw(synqed, karuteId)
   const fromCustomerId = record.customer_id
-  if (!fromCustomerId) {
-    throw new AppApiError('validation', 'this karute has no customer to reassign from')
-  }
-  if (toCustomerId === fromCustomerId) {
-    throw new AppApiError('validation', 'already this customer')
-  }
 
   // R9-1 (existence-oracle class, Greptile round-5 3/5): clamp BEFORE any
   // to-customer lookup. toCustomerInScope proves membership by ROSTER
@@ -716,7 +710,26 @@ export async function reassignKaruteCustomerWithClient(
   // otherwise leak a not_found vs store_forbidden oracle. viewAll/floating
   // actors pass straight through unaffected; their to-customer's honest
   // existence is still proven by the fetch that follows.
+  //
+  // D-R9 (fix round 10): the no-customer and same-customer guards moved
+  // below this clamp too — they used to run first, so a clamped actor
+  // holding any out-of-store karute id could learn from the VALIDATION
+  // shape alone whether that id exists (no-customer: needs only one id) or
+  // even which customer it's attached to (same-customer: enumerate the
+  // actor's own roster against the id). Both are now unreachable for an
+  // out-of-store record — the clamp throws the identical not_found first.
+  // In-scope actors see no behavior change: toCustomerInScope proves
+  // membership by roster presence, and a record's own attached customer is
+  // always in that record's store roster (event-derived membership), so
+  // to === from still passes the clamp and reaches the guards below.
   await ensureReassignStoreScope(synqed, record, toCustomerId, scope)
+
+  if (!fromCustomerId) {
+    throw new AppApiError('validation', 'this karute has no customer to reassign from')
+  }
+  if (toCustomerId === fromCustomerId) {
+    throw new AppApiError('validation', 'already this customer')
+  }
 
   const [fromCustomer, toCustomer] = await Promise.all([
     reassignCustomerOrThrow(synqed, fromCustomerId),
