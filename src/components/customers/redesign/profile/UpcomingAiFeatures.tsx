@@ -90,20 +90,25 @@ export function CustomerReengagementPreview() {
 // ─────────────────────────────────────────────────────────────
 // AI体調予測 — AI Body Condition Prediction
 // ─────────────────────────────────────────────────────────────
-// ANTHONY: spike source —
-//   src/components/karute/AIBodyPredictionCard.tsx
-// Data shape (see src/mock/karute-detail.ts → aiPrediction):
+// TRUTH-FIX (F13, reengagement packet): §1 is LIVE, not a coming-soon
+// placeholder — this component now doubles as the real card's null-state
+// fallback (AiInsightSlots.tsx's AIBodyPredictionSlot renders it when
+// getBodyPrediction() returns null: <2 dated sessions, no OPENAI_API_KEY,
+// or any generation failure) on the KARUTE DETAIL page, never here.
+// Real implementation: src/lib/karute/ai-body-prediction.ts
+//   (getBodyPrediction/getBodyPredictionWithClient) +
+//   src/components/karute/redesign/detail/AIBodyPredictionCard.tsx.
+// Real data shape (BodyPrediction, AIBodyPredictionCard.tsx):
 //   { headline: string
-//   , confidence: number    // 0..1
-//   , trendLabel: string
-//   , trendDirection: 'up' | 'down' | 'stable'
-//   , recommendedVisit: { window: string; weeksOut: string }
-//   , rationale: string[] }
-// AI integration ref: AI_INTEGRATION_SPEC.md §1 (body prediction).
-// Generation cadence: nightly Sonnet pass over the customer's
-// karute history; result persisted on `ai_body_prediction` table
-// keyed by customer_id, with a fresh-by date so stale predictions
-// can be re-generated on demand.
+//   , confidence: number    // 20-90, clamped in code
+//   , delta: 'improving' | 'worsening' | 'stable' | null
+//   , recommended: string
+//   , recommendedSub: string | null
+//   , rationaleSummary: string | null }
+// AI prompt: docs/AI_PROMPTS.md §1. Generation: on-demand per profile open,
+// cached 1 day via the shared ai_cache table (getCachedAI/setCachedAI,
+// prefix 'body_prediction') — NOT a nightly batch, NOT a dedicated
+// ai_body_prediction table.
 // ─────────────────────────────────────────────────────────────
 export function AIBodyPredictionPreview() {
   const t = useTranslations('customers.profileUpcoming')

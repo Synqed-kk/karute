@@ -237,6 +237,7 @@ export type FacadeEndpointKey =
   | 'audit.list'
   | 'customer.ai.bodyPrediction'
   | 'customer.ai.preSessionBrief'
+  | 'customer.ai.reengagement'
   | 'customer.consent.grant'
   | 'customer.consent.read'
   | 'customer.consent.revoke'
@@ -519,6 +520,20 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   'karute.entryEdits.list': { kind: 'view', category: 'karute', action: 'karute.entry_edits_view', targetType: 'karute' },
   'customer.ai.preSessionBrief': { kind: 'view', category: 'customer', action: 'customer.brief_view', targetType: 'customer' },
   'customer.ai.bodyPrediction': { kind: 'view', category: 'customer', action: 'customer.ai_prediction_view', targetType: 'customer' },
+  // AI再エンゲージメント facade read (§13, F9 — reengagement packet). NOT a
+  // view row, unlike its two siblings directly above: the packet's audit
+  // section is explicit ("⚖ success-only audit doctrine") — this surface
+  // never logs a screen-open, only a real generation. That row lives at the
+  // real choke point, the private generation-branch helper in
+  // ai-reengagement.ts (mirrors the appointment.* skip rows' coveredBy
+  // idiom above — a live row here would double-log nothing since there IS
+  // no view emit, but the citation still proves the real writer exists).
+  'customer.ai.reengagement': {
+    kind: 'skip',
+    category: 'ai',
+    action: '',
+    coveredBy: 'src/lib/karute/ai-reengagement.ts#auditReengagementDraftGeneratedFacade',
+  },
   // 監査ログ list (§3.1): the row is the TWIN'S OWN write — the facade GET
   // delegates to listAuditLogWithClient (src/actions/audit-log.ts), which is
   // meant to write privacy.audit_log.view unconditionally per invocation for

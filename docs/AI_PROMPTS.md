@@ -13,8 +13,8 @@ This is the karute-side mirror of the design-spike's authoritative `AI_PROMPTS.m
 
 | § | Surface | Status | Karute hook / file |
 |---|---|---|---|
-| §1 | Condition prediction (karute detail) | 🟡 | `src/components/karute/redesign/detail/AIBodyPredictionCard.tsx` |
-| §2 | Outreach draft (post-session) | 🟡 | `src/components/karute/spike-lifted/outreach/AIOutreachCard.tsx` |
+| §1 | Condition prediction (karute detail) | ✅ | `src/lib/karute/ai-body-prediction.ts` |
+| §2 | Outreach draft (post-session) | ✅ | `src/lib/karute/ai-outreach.ts` |
 | §3 | Session summary | ✅ | `src/lib/prompts.ts:getSummarySystemPrompt`, `src/app/api/ai/summarize/route.ts` |
 | §4 | Entry categorization (real-time, low-latency) | ✅ (batch variant) | `src/lib/prompts.ts:getExtractionSystemPrompt`, `src/app/api/ai/extract/route.ts` — currently post-session; spike spec is per-keystroke debounced |
 | §5 | Dashboard recommendations | ❌ (route retired 2026-07-27, PR #629) | superseded by the daily attention lines (`src/lib/dashboard/daily-attention-ai.ts`); old `/api/ai/insights` implementation restorable from git `f4f85eee` |
@@ -25,7 +25,7 @@ This is the karute-side mirror of the design-spike's authoritative `AI_PROMPTS.m
 | §10 | Recording → karute pipeline | ✅ (partial) | `src/lib/ai-pipeline.ts` — transcribe + extract + summarize; missing prediction/outreach/memory |
 | §11 | Customer memory extractor (async batch) | 🟡 | `src/components/karute/spike-lifted/memory/CustomerMemoryCard.tsx` |
 | §12 | Speaker diarization (Deepgram, not Claude) | ✅ | `src/lib/deepgram.ts` |
-| §13 | Re-engagement draft | ❌ | `src/components/customers/redesign/profile/UpcomingAiFeatures.tsx` (placeholder card) |
+| §13 | Re-engagement draft | ✅ | `src/lib/karute/ai-reengagement.ts` |
 | §14 | Top-performer pattern extraction (weekly batch) | 📦 + scaffold | `src/components/coaching/redesign/PatternLibrary.tsx` |
 | §15 | Learning module generation (weekly + on-demand) | 📦 + scaffold | `src/components/coaching/redesign/AssignModulesCard.tsx`, `LearningModulesView.tsx` |
 | §16 | Per-staff focus area generation (monthly) | 📦 + scaffold | `src/components/coaching/redesign/GapAnalysisList.tsx`, `NextFocusCard.tsx` |

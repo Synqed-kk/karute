@@ -22,7 +22,7 @@
 //     staff_id      uuid fk staff(id),    -- who clicked send
 //     channel       text  -- 'line' | 'sms' | 'email' | 'other'
 //     body          text,
-//     source        text  -- 'karute_followup' | 'dashboard_ai_action' | 'manual'
+//     source        text  -- 'karute_followup' | 'dashboard_ai_action' | 'manual' | 'reengagement'
 //     ai_drafted    bool default false,
 //     ai_action_id  uuid null,  -- links to ai_actions(id)
 //     marked_sent_at timestamptz null,  -- null = copy-only draft

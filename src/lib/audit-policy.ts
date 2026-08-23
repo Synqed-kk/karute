@@ -24,6 +24,7 @@
 export const AUDIT_ACTIONS = [
   'ai.consult_session',
   'ai.memory_extract',
+  'ai.reengagement_draft',
   'ai.suggested_message',
   'ai.suggested_message_view',
   'ai.summary_generate',
@@ -249,6 +250,17 @@ export const AUDITED_CORES: {
       'auditSuggestedMessageGeneratedWeb',
       'auditSuggestedMessageGeneratedFacade',
     ],
+  },
+  // AI再エンゲージメント (§13, F9): success-only audit doctrine — unlike
+  // ai-outreach.ts's getSuggestedFollowUp, this surface has NO per-view row
+  // (⚖ 8/23 ruling), so getReengagementDraft/getReengagementDraftWithClient
+  // themselves carry no direct audit()/auditWeb() call and are deliberately
+  // NOT listed here — only the two private auditLockout-pattern helpers,
+  // each emitting unconditionally on its one return path, generation-branch
+  // only (computeReengagementDraft conditions the CALL).
+  {
+    file: 'src/lib/karute/ai-reengagement.ts',
+    symbols: ['auditReengagementDraftGeneratedWeb', 'auditReengagementDraftGeneratedFacade'],
   },
   // Wave W3 (D1 mirrors): the web twins of the facade lifecycle/outcome rows.
   // The WithClient cores they wrap stay audit-free (Core/WithClient split);
