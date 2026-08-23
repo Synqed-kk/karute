@@ -30,22 +30,13 @@ import type { FixtureAppointment, FixtureCustomer, FixtureMenu } from './fixture
 import type { FixtureClosing, FixtureTender, FixtureTransaction } from './fixtures-register'
 import { hhmm, yen } from './today-board'
 
-/** THE ROOM'S ONE MONEY FORMATTER. The board's `yen` is the family's home for
- *  the shape of a yen figure and this room does not grow a second one — it wraps
- *  it for the one case a money desk has that no other room does: a NEGATIVE
- *  line. `yen(-1100)` renders 「¥-1,100」 with an ASCII hyphen buried inside the
- *  number; canon prints 「−¥1,100」, sign first, minus sign proper
- *  (fable-store-sales-register.html:1163-1166). Reversals are the only figures
- *  in the family that go below zero, so the wrapper lives here and the sum of
- *  every positive figure still runs through exactly the rule every other room
- *  uses. */
-export const signedYen = (n: number): string =>
-  // `n === 0` catches NEGATIVE ZERO, and it has to: a day with no refunds
-  // reaches this through `signedYen(-0)`, `-0 < 0` is false, and
-  // `(-0).toLocaleString('ja-JP')` is the string 「-0」 — so the tile printed
-  // 「¥-0」 on the very first render. Caught before any test existed for it;
-  // the suite now pins both spellings of zero.
-  n === 0 ? yen(0) : n < 0 ? `−${yen(-n)}` : yen(n)
+// THE MONEY FORMATTER IS THE FAMILY'S, AND THERE IS ONLY ONE. This room used to
+// wrap `yen` in a `signedYen` of its own for the one case a money desk has that
+// no other room did — a NEGATIVE line — which left the family with two spellings
+// of a minus and seven call sites still on the unsigned one, each of them a
+// 「¥-1,100」 waiting for the first negative to reach it. The sign rule moved into
+// `today-board`'s `yen` itself, in canon's own shape (:1163-1166), and the
+// wrapper is gone: one formatter, one minus, every figure in the family.
 
 // ── capabilities ────────────────────────────────────────────────────────────
 
@@ -110,27 +101,53 @@ export const REDACTED = '権限がありません'
 
 // ── the transaction model ───────────────────────────────────────────────────
 
-/** FOUR states, and every one of them is a different job for the shop:
+/** SIX states, and every one of them is a different job for the shop:
  *  精算済み nothing left to do · 一部入金 money is owed · 端末保持 the money was
  *  taken but the record is stuck inside the terminal · 返金済み the sale was
- *  reversed. 端末保持 is NOT 未収: the customer has paid. */
-export type TransactionState = 'paid' | 'partial' | 'held' | 'refunded'
+ *  reversed in full · 取消済み the sale was VOIDED rather than refunded · 一部返金
+ *  some of the money went back and some of it stayed. 端末保持 is NOT 未収: the
+ *  customer has paid.
+ *
+ *  ⚖ MONEY THAT MOVED BACK IS NEVER 精算済み. A row with a reversal on it AND
+ *  money still received is the shape the first cut of this room called `paid` —
+ *  the drawer is short by the reversal, the day's close has to re-count, and the
+ *  ledger said 精算済み over it. 一部返金 is its own state, with its own pill and
+ *  its own place under 要確認, because canon's attention semantics are exactly
+ *  that: money moved back, so look at it.
+ *
+ *  返金 vs 取消 is canon's own distinction (`refundKind`, :832 / :1602-1603) —
+ *  「決済済み金額を返金」 against 「未締め売上を取消」 — and it survives here rather
+ *  than being flattened, because a shop reconciles the two differently. */
+export type TransactionState = 'paid' | 'partial' | 'held' | 'refunded' | 'voided' | 'partial-refund'
 
 export const STATE_LABEL: Record<TransactionState, string> = {
   paid: '精算済み',
   partial: '一部入金',
   held: '端末保持',
   refunded: '返金済み',
+  voided: '取消済み',
+  'partial-refund': '一部返金',
 }
 
 /** The pill each state wears. SEMANTIC (⚖ the one-way accent law): amber says
- *  somebody owes money, red says the money left again, green says finished. */
+ *  somebody owes money, red says the money left again, indigo says the money
+ *  went back in PART — a different job from a reversal that finished the sale —
+ *  and green says finished. */
 export const STATE_PILL: Record<TransactionState, string> = {
   paid: 'pill good',
   partial: 'pill warn',
   held: 'pill alert',
   refunded: 'pill alert',
+  voided: 'pill alert',
+  'partial-refund': 'pill indigo',
 }
+
+/** canon writes the reversal LINE from the dialog's kind (:1597-1599) —
+ *  「現金 返金」 for a 返金, 「現金 取消」 for a 取消 — so the kind is carried on the
+ *  line the register wrote, in exactly the place `tenderChannel` already reads
+ *  the channel from. Nothing else in the plane knows it, and inventing a second
+ *  field for it would be a second home for one fact. */
+const VOID_MARK = '取消'
 
 export type RegisterFilter = 'all' | 'paid' | 'partial' | 'attention'
 
@@ -170,7 +187,9 @@ export interface TransactionModel {
   atLabel: string
   /** 受付価格 for a booking, the sale price for a 店頭販売. */
   total: number
-  /** Money actually in, net of its own reversals. Never includes 未収. */
+  /** Money actually in, net of its own reversals. Never includes 未収. Goes
+   *  BELOW ZERO on an over-refund — more was given back than ever came in — and
+   *  the room prints that fact rather than clamping it away (⚖ A11). */
   received: number
   /** Still owed. */
   outstanding: number
@@ -194,10 +213,14 @@ export interface TransactionModel {
  *  cannot read yields `null` and the row is simply absent — ⚖ 8/17: hide, never
  *  show-and-refuse. Same shape as 受信トレイ's `threadStore`. */
 export function transactionStore(
-  tx: Pick<FixtureTransaction, 'appointment_id' | 'store_id'>,
+  tx: FixtureTransaction,
   byId: Map<string, FixtureAppointment>,
 ): string | null {
-  if (tx.appointment_id) return byId.get(tx.appointment_id)?.store_id ?? null
+  // `null` here means EXACTLY ONE THING — the booking this sale settles is not
+  // in the readable world — because the walk-in arm cannot produce it: the plane
+  // types a 店頭販売 as carrying a store, so a storeless walk-in never reaches
+  // this function to be silently dropped.
+  if (tx.appointment_id !== null) return byId.get(tx.appointment_id)?.store_id ?? null
   return tx.store_id
 }
 
@@ -235,9 +258,71 @@ export function tenderChannel(label: string, flag: FixtureTender['flag']): Tende
  *  writing a refund — 「元の決済手段と受領額が一致しないため、返金を実行できません」
  *  (:1593-1596) — and this room enforces it on every row it renders, which is
  *  what makes the strip's totals structurally unable to disagree with the ledger
- *  under them. */
-export function rowBalances(m: Pick<TransactionModel, 'total' | 'received' | 'outstanding' | 'reversed'>): boolean {
-  return m.received + m.outstanding + m.reversed === m.total
+ *  under them.
+ *
+ *  AND THE REVERSAL SIDE, which the sum alone cannot see: a channel may only
+ *  give back what that channel took in. 現金 ¥1,100 in and 現金 ¥3,000 back out
+ *  balances the addition perfectly and is still an impossible drawer, so the
+ *  per-channel guard canon applies before it writes (:1591-1593, its
+ *  `originalTenders` are the positive lines of the SAME payment) is applied here
+ *  before the room renders. An over-refund is an INVALID row, never a display
+ *  case (⚖ 8/9, demo data = product truth). */
+export function rowBalances(
+  m: Pick<TransactionModel, 'total' | 'received' | 'outstanding' | 'reversed' | 'tenders'>,
+): boolean {
+  if (m.received + m.outstanding + m.reversed !== m.total) return false
+  const inBy = new Map<TenderRow['channel'], number>()
+  const outBy = new Map<TenderRow['channel'], number>()
+  for (const t of m.tenders) {
+    if (t.flag === 'unpaid') continue
+    if (t.flag === 'refund') outBy.set(t.channel, (outBy.get(t.channel) ?? 0) - t.amount)
+    else if (t.amount > 0) inBy.set(t.channel, (inBy.get(t.channel) ?? 0) + t.amount)
+  }
+  for (const [channel, out] of outBy) if (out > (inBy.get(channel) ?? 0)) return false
+  return true
+}
+
+/** ⚠ canon's refusal, word for word (:1594). The guard that stops a refund from
+ *  being written is the same guard that decides whether this room may show a
+ *  preview of one, so the sentence has ONE home. */
+export const REFUND_MISMATCH = '元の決済手段と受領額が一致しないため、返金を実行できません'
+
+export interface RefundPreview {
+  /** Per-tender NET remaining — what a refund would actually reverse, positive
+   *  magnitudes, in the order the register wrote the lines. */
+  lines: Array<{ label: string; amount: number }>
+  /** canon's own refusal (:1593-1596), or `null` when the guard would pass. */
+  refusal: string | null
+}
+
+/** canon `applyRefund`'s guard and its reversal builder (:1591-1599), read as a
+ *  PREVIEW rather than as a write. The original lines are the positive,
+ *  non-reversal ones; each is NETTED against what its own channel has already
+ *  had taken back, because a second refund may only reverse what is still there.
+ *  Then canon's identity is checked on the netted figures — the original tenders
+ *  must account for 受領額 — and a row that fails it shows canon's refusal
+ *  instead of a list of lines the guard would never let through. A preview that
+ *  promised 「現金 −¥3,300」 on a part-paid sale would be advertising a refund the
+ *  product refuses. */
+export function refundPreview(m: Pick<TransactionModel, 'tenders' | 'received'>): RefundPreview {
+  const originals = m.tenders.filter((t) => t.amount > 0 && t.flag !== 'refund')
+  const backBy = new Map<TenderRow['channel'], number>()
+  for (const t of m.tenders) {
+    if (t.flag !== 'refund') continue
+    backBy.set(t.channel, (backBy.get(t.channel) ?? 0) - t.amount)
+  }
+  const lines: Array<{ label: string; amount: number }> = []
+  let net = 0
+  for (const t of originals) {
+    const alreadyBack = backBy.get(t.channel) ?? 0
+    const taken = Math.min(t.amount, alreadyBack)
+    backBy.set(t.channel, alreadyBack - taken)
+    const remaining = t.amount - taken
+    net += remaining
+    if (remaining > 0) lines.push({ label: t.label, amount: remaining })
+  }
+  if (originals.length === 0 || net !== m.received) return { lines: [], refusal: REFUND_MISMATCH }
+  return { lines, refusal: null }
 }
 
 export interface LedgerInput {
@@ -313,8 +398,24 @@ export function buildLedger(input: LedgerInput): TransactionModel[] {
         ? customerById.get(booking.customer_id)
         : undefined
 
+    // ⚖ A REVERSAL IS THE HEADLINE. It is read FIRST, before 端末保持, because
+    // money that went back out is the fact a money desk has to act on and the
+    // terminal's own hold is stated globally by the closing check. A row that is
+    // both keeps both: its state says 一部返金 and its 閉店への影響 still names the
+    // terminal, which it reads off the row's own pending line rather than off
+    // this word.
     const state: TransactionState =
-      reversed > 0 && received === 0 ? 'refunded' : held ? 'held' : outstanding > 0 ? 'partial' : 'paid'
+      reversed > 0
+        ? received > 0
+          ? 'partial-refund'
+          : tenders.some((t) => t.flag === 'refund' && t.label.includes(VOID_MARK))
+            ? 'voided'
+            : 'refunded'
+        : held
+          ? 'held'
+          : outstanding > 0
+            ? 'partial'
+            : 'paid'
 
     models.push({
       id: tx.id,
@@ -446,6 +547,26 @@ export function varianceRequiresApproval(saved: boolean, variance: number, toler
   return saved && Math.abs(variance) > tolerance
 }
 
+/** ⚖ THE DIAL SHIPS WITH ITS GUARDRAIL (the mistake-proofing law). The threshold
+ *  a store may set is clamped at the READ, in one place, so no settings control
+ *  — and no fixture world, and no future writer — can raise the amount a drawer
+ *  may be out by WITHOUT a reason to a figure that would hide a whole
+ *  transaction. A dial without its ceiling is a dial that lets a manager harm
+ *  their own shop, which is the exact shape the law forbids. */
+export function resolveTolerance(raw: number, ceiling: number): number {
+  return Math.min(raw, ceiling)
+}
+
+/** canon `cashClosingReady` (:1356-1358): saved, AND either inside the tolerance
+ *  or approved by a 店舗管理者. Both arms are carried — the approval is a FACT
+ *  the world records (`FixtureClosing.variance_approved`), even though the
+ *  control that writes it is a separate role context this slice does not build.
+ *  Dropping the arm would have made an approved difference permanently unable to
+ *  close a day. */
+export function cashClosingReady(saved: boolean, requiresApproval: boolean, approved: boolean): boolean {
+  return saved && (!requiresApproval || approved)
+}
+
 export interface ClosingCheckRow {
   key: 'terminal' | 'cash' | 'outstanding' | 'unsettled' | 'signoff'
   label: string
@@ -498,10 +619,11 @@ export function closingReadiness(input: ClosingInput): ClosingVerdict {
   const terminalDone = heldCount === 0
   const variance = cashVariance(closing.cash_counted, totals.cash)
   const requiresApproval = varianceRequiresApproval(closing.cash_saved, variance, tolerance)
-  // canon `cashClosingReady`: saved, and either inside the tolerance or approved.
-  // The approval itself is a WRITE this slice cannot make, so an unapproved
-  // difference stays open and says why.
-  const cashReady = closing.cash_saved && !requiresApproval
+  // canon `cashClosingReady`: saved, and either inside the tolerance or
+  // APPROVED. The approval itself is a WRITE this slice cannot make, so an
+  // unapproved difference stays open and says why — but the arm is read from the
+  // world, so a day whose difference HAS been signed for closes.
+  const cashReady = cashClosingReady(closing.cash_saved, requiresApproval, closing.variance_approved)
   const outstandingDone = totals.outstanding === 0 || closing.outstanding_decision !== null
   const unsettledDone = unsettledVisits.length === 0
   const managerSigned = closing.manager_signed_at !== null
@@ -519,9 +641,16 @@ export function closingReadiness(input: ClosingInput): ClosingVerdict {
     {
       key: 'cash',
       label: '現金計数と差異理由',
-      detail: `期待 ${yen(totals.cash)} / 実査 ${yen(closing.cash_counted)} / 差異 ${signedYen(variance)}`,
+      detail: `期待 ${yen(totals.cash)} / 実査 ${yen(closing.cash_counted)} / 差異 ${yen(variance)}`,
       done: cashReady,
-      status: !closing.cash_saved ? '未保存' : requiresApproval ? '差異承認待ち' : '保存済み',
+      // canon `renderClosing`'s own `cashLabel` (:1374), approval arm included.
+      status: !closing.cash_saved
+        ? '未保存'
+        : requiresApproval && !closing.variance_approved
+          ? '差異承認待ち'
+          : requiresApproval
+            ? '差異承認済み'
+            : '保存済み',
     },
     {
       key: 'outstanding',
@@ -593,10 +722,16 @@ const CHANNEL_LABEL: Record<TenderRow['channel'], string> = {
   other: 'その他',
 }
 
-export function tenderReconciliation(
-  models: TransactionModel[],
-  collected: number,
-): { rows: ReconciliationRow[]; received: number; reversed: number; net: number; balanced: boolean } {
+export function tenderReconciliation(models: TransactionModel[]): {
+  rows: ReconciliationRow[]
+  received: number
+  reversed: number
+  /** SIDE A — the tender records, summed by the channel each line arrived on. */
+  net: number
+  /** SIDE B — the ROW TOTALS, and it is computed a different way ON PURPOSE. */
+  fromRows: number
+  balanced: boolean
+} {
   const grouped = new Map<TenderRow['channel'], ReconciliationRow>()
   for (const m of models) {
     for (const t of m.tenders) {
@@ -620,5 +755,14 @@ export function tenderReconciliation(
   const received = rows.reduce((n, r) => n + r.received, 0)
   const reversed = rows.reduce((n, r) => n + r.reversed, 0)
   const net = rows.reduce((n, r) => n + r.net, 0)
-  return { rows, received, reversed, net, balanced: received + reversed === net && net === collected }
+  // ⚖ TWO SIDES, DERIVED INDEPENDENTLY, OR THE SENTENCE IS DECORATION. The first
+  // cut compared the grouped tenders against 受領済み — which is the SAME sum of
+  // the SAME lines by a different route, so 「一致しません」 could never print and
+  // the page carried a reassurance that could not fail. Side B reads each row's
+  // OWN 総額 instead: 総額 − 未収 − 返金 is what the row SAYS it received, and it
+  // comes from the booking's 受付価格 rather than from the tender lines. The two
+  // agree exactly when every row balances — so a row whose lines do not account
+  // for its total is what makes the sentence say so.
+  const fromRows = models.reduce((n, m) => n + (m.total - m.outstanding - m.reversed), 0)
+  return { rows, received, reversed, net, fromRows, balanced: net === fromRows }
 }

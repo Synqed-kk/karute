@@ -91,6 +91,9 @@ export interface RegisterRowProps {
   bookingRefusal: string
   canRefund: boolean
   showRefund: boolean
+  /** canon gates 未収として記録 on the CLOSE capability (:1305), like its four
+   *  siblings — a role without it gets no control at all. */
+  canOutstanding: boolean
   showOutstanding: boolean
 }
 
@@ -579,7 +582,12 @@ export function RegisterScreen(props: RegisterProps) {
           </section>
 
           {current && (
-            <section className="rg-panel rg-detail" aria-labelledby="rgDetailTitle">
+            <section
+              className="rg-panel rg-detail"
+              aria-labelledby="rgDetailTitle"
+              data-guide-title="開いている取引"
+              data-guide="台帳で選んだ1件の中身です。上に取引の見出しとできること、下に事実、決済手段、予約時価格、閉店への影響、そして操作の履歴が並びます。ここに出るのはこの取引のことだけで、台帳の他の行には影響しません。"
+            >
               <div className="rg-band">
                 <div className="rg-band-id">
                   {/* ≤743's way back to the ledger. Hidden at every wider width
@@ -619,7 +627,7 @@ export function RegisterScreen(props: RegisterProps) {
                         返金・取消
                       </button>
                     )}
-                    {current.showOutstanding && (
+                    {current.canOutstanding && current.showOutstanding && (
                       <button
                         className="btn"
                         type="button"
@@ -889,10 +897,13 @@ export function RegisterScreen(props: RegisterProps) {
           </section>
         </div>
 
-          <section
-            className="rg-panel rg-record"
-            aria-label="閉店で記録される内容"
-          >
+          {/* A PRESENTATIONAL BAND, and a `div` on purpose. It holds TWO
+              declared sections — 閉店で記録される内容 and 決済手段の内訳 — so a
+              `section aria-label="閉店で記録される内容"` around both was a landmark
+              named after one of its two halves. The halves carry their own
+              headings and their own tour declarations; the band carries the
+              layout. */}
+          <div className="rg-panel rg-record">
             <div className="rg-record-body">
             <div className="rg-grid rg-close-grid">
                 <div
@@ -946,7 +957,7 @@ export function RegisterScreen(props: RegisterProps) {
                 </div>
               </div>
             </div>
-          </section>
+          </div>
         </>
       ) : (
         <section

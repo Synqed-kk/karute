@@ -37,16 +37,9 @@ export interface FixtureTender {
   flag: '' | 'pending' | 'unpaid' | 'refund'
 }
 
-export interface FixtureTransaction {
+interface FixtureTransactionBase {
   /** 取引番号 — human-shaped, stable, and the register's own (⚖ L-6). */
   id: string
-  /** The booking this sale settles. `null` = 店頭販売, a sale with no booking. */
-  appointment_id: string | null
-  /** WHERE the money was taken. `null` on a booking-backed sale, because the
-   *  booking already says which store it belongs to and a second copy is a
-   *  second home (`transactionStore` reads the booking first). Only a 店頭販売
-   *  carries its own. */
-  store_id: string | null
   /** The person, where the register knows one. `null` = 予約なし・店頭販売 to
    *  someone the shop did not record. */
   customer_id: string | null
@@ -64,6 +57,27 @@ export interface FixtureTransaction {
    *  booking's own 操作履歴 is merged in from `auditTrail` at read time. */
   audit: Array<[string, string, string]>
 }
+
+/** 予約の会計. The BOOKING says which store this sale belongs to, so the sale
+ *  does not — a second copy is a second home, and `transactionStore` reads the
+ *  booking first. */
+export interface FixtureBookingTransaction extends FixtureTransactionBase {
+  appointment_id: string
+  store_id: null
+}
+
+/** 店頭販売 — a sale with no booking to ask, so the register that took it is the
+ *  only thing that knows where it happened. ⚖ 8/9, DEMO DATA IS PRODUCT TRUTH:
+ *  a walk-in with NO store is an impossible state — it would be a sale in no
+ *  building, taken by nobody's drawer — so the TYPE forbids it rather than the
+ *  ledger silently dropping the row at render time. The fix is at the data, not
+ *  at the display. */
+export interface FixtureWalkInTransaction extends FixtureTransactionBase {
+  appointment_id: null
+  store_id: string
+}
+
+export type FixtureTransaction = FixtureBookingTransaction | FixtureWalkInTransaction
 
 /** The day's transactions. Five, and every one of them is a state a real money
  *  desk has to be able to show: settled in cash, settled on a card, charged but
@@ -162,6 +176,12 @@ export interface FixtureClosing {
   cash_reason: string
   /** Whether the count above has been SAVED to the close, or is a draft. */
   cash_saved: boolean
+  /** 現金差異の店舗管理者承認 — canon's `state.varianceApproved` (:917), the arm
+   *  of `cashClosingReady` (:1356-1358) that lets a day close with a difference
+   *  the shop has looked at and signed for. Recorded here as a FACT the world
+   *  holds; the control that WRITES it is a 店舗管理者 approval this slice does
+   *  not build (registry ④). Default false: nothing has been approved. */
+  variance_approved: boolean
   /** 未収の扱い — `null` = 未判断. The string is the decision that was recorded. */
   outstanding_decision: string | null
   /** 店舗管理者の確認 — JST minute, or `null` while the close is still waiting
@@ -188,6 +208,7 @@ export const closing: Record<string, FixtureClosing> = {
     cash_counted: 8300,
     cash_reason: '',
     cash_saved: true,
+    variance_approved: false,
     outstanding_decision: null,
     manager_signed_at: null,
     closed_at: null,
@@ -199,6 +220,7 @@ export const closing: Record<string, FixtureClosing> = {
     cash_counted: 0,
     cash_reason: '',
     cash_saved: false,
+    variance_approved: false,
     outstanding_decision: null,
     manager_signed_at: null,
     closed_at: null,

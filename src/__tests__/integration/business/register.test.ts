@@ -67,14 +67,20 @@ import {
   matchesFilter,
   NO_ACCESS,
   permissionNotice,
+  cashClosingReady,
+  refundPreview,
+  REFUND_MISMATCH,
+  resolveTolerance,
   rowBalances,
   SALES_ACCESS_BY_ROLE,
-  signedYen,
+  STATE_LABEL,
+  STATE_PILL,
   tenderReconciliation,
   transactionStore,
   varianceRequiresApproval,
   type LedgerInput,
   type TransactionModel,
+  type TransactionState,
 } from '@/business/lib/register'
 import { yen } from '@/business/lib/today-board'
 import RegisterPage from '@/app/[locale]/(business)/business/register/page'
@@ -252,7 +258,7 @@ describe('the money plane borrows and never restates', () => {
     for (const tx of txPlane) {
       const row = rows.find((r) => r.id === tx.id)
       if (!row) continue
-      const legal = new Set(row.tenders.flatMap((t) => [yen(Math.abs(t.amount)), signedYen(t.amount)]))
+      const legal = new Set(row.tenders.flatMap((t) => [yen(Math.abs(t.amount)), yen(t.amount)]))
       legal.add(yen(row.total))
       for (const [, , detail] of tx.audit) {
         for (const figure of detail.match(/[−-]?¥[\d,]+/g) ?? []) {
@@ -340,14 +346,78 @@ describe('totals derive from rows, and each row’s tenders account for its tota
     })
   })
 
-  it('the money formatter prints a MINUS SIGN, and never a negative zero', () => {
-    expect(signedYen(-1100)).toBe('−¥1,100')
-    expect(signedYen(1100)).toBe('¥1,100')
+  it('THE FAMILY’S ONE formatter prints a MINUS SIGN, and never a negative zero', () => {
+    // ⚖ ONE FORMATTER, ONE MINUS. The room used to wrap `yen` in a `signedYen`
+    // of its own, which left the family with two spellings of a negative and
+    // seven call sites still on the unsigned one — every one of them a
+    // 「¥-1,100」 waiting for the first negative figure to reach it. The sign rule
+    // is canon's own (:1163-1166) and it now lives in the family's formatter, so
+    // there is nothing left to forget to call.
+    expect(yen(-1100)).toBe('−¥1,100')
+    expect(yen(1100)).toBe('¥1,100')
+    // The minus is the PROPER one, never the ASCII hyphen `toLocaleString`
+    // buries inside the digits — and it sits BEFORE the ¥, not inside the number.
+    expect(yen(-1100).startsWith('−¥')).toBe(true)
+    expect(yen(-1100)).not.toContain('-')
     // `-0 < 0` is false and `(-0).toLocaleString('ja-JP')` is 「-0」, so a day
     // with no refunds printed 「¥-0」 on the first render. Both spellings of zero
     // are pinned.
-    expect(signedYen(0)).toBe('¥0')
-    expect(signedYen(-0)).toBe('¥0')
+    expect(yen(0)).toBe('¥0')
+    expect(yen(-0)).toBe('¥0')
+    // The rounding the family already had is untouched by the sign rule, in
+    // both directions.
+    expect(yen(-0.4)).toBe('¥0')
+    expect(yen(-1100.6)).toBe('−¥1,101')
+  })
+
+  it('THE ROOM HAS NO SECOND FORMATTER — every ¥ on the page is the family’s', () => {
+    // The wrapper is gone rather than deprecated: a second spelling that still
+    // compiles is a second spelling somebody reaches for.
+    expect(LIB_CODE).not.toMatch(/signedYen/)
+    expect(PROPS_CODE).not.toMatch(/signedYen/)
+    // …and the props layer imports the formatter it uses from the board, not a
+    // local of its own.
+    expect(PROPS_CODE).toContain("import { hhmm, yen } from '@/business/lib/today-board'")
+  })
+
+  it('EVERY negative figure the room can print goes through it — no unsigned call site left', async () => {
+    // The seven call sites the wrapper never covered. Driven through a world
+    // where each one is genuinely negative, so a site still on an unsigned
+    // formatter prints an ASCII hyphen and this goes red.
+    const over: FixtureTransaction[] = [
+      {
+        id: 'TX-OVER',
+        appointment_id: null,
+        store_id: STORE_A,
+        customer_id: 'cus-05',
+        item: '過返金の検証',
+        amount: 1100,
+        at: 13 * 60,
+        tenders: [
+          { label: '現金', amount: 1100, flag: '' },
+          { label: '現金 返金', amount: -1100, flag: 'refund' },
+          { label: '現金 返金', amount: -400, flag: 'refund' },
+        ],
+        audit: [],
+      },
+    ]
+    const { props } = await registerProps({ locale: 'ja', store: STORE_A, world: { transactions: over } })
+    const row = props.rows[0]
+    const printed = [
+      row.receivedLabel,
+      row.subAmount?.value ?? '',
+      ...row.facts.map((f) => f.value),
+      ...row.tenders.map((t) => t.amount),
+      ...props.money.map((m) => m.value),
+      props.close!.cash.variance,
+      ...props.close!.record.map((r) => r.value),
+      ...props.close!.reconciliation.flatMap((r) => [r.received, r.reversed, r.net]),
+    ]
+    // Not one ASCII hyphen anywhere a yen figure is printed, and at least one
+    // real negative in the set — a pin that saw only positives would pass for
+    // the wrong reason.
+    expect(printed.filter((p) => p.includes('−¥')).length).toBeGreaterThan(0)
+    for (const p of printed) expect({ p, ascii: /¥-|-¥\d/.test(p) }).toEqual({ p, ascii: false })
   })
 
   it('NO literal money anywhere in the room’s code — every ¥ comes from ONE formatter', () => {
@@ -360,6 +430,162 @@ describe('totals derive from rows, and each row’s tenders account for its tota
     }
     // …and the screen holds no arithmetic at all: every figure arrives formatted.
     expect(SRC_CODE).not.toMatch(/toLocaleString/)
+  })
+})
+
+// ── 2b. the state machine covers MONEY GIVEN BACK ───────────────────────────
+
+/** One walk-in, built to order, so each shape can be driven through the REAL
+ *  derivations rather than argued about. */
+const walkIn = (id: string, amount: number, tenders: FixtureTransaction['tenders']): FixtureTransaction => ({
+  id,
+  appointment_id: null,
+  store_id: STORE_A,
+  customer_id: 'cus-05',
+  item: '状態の検証',
+  amount,
+  at: 13 * 60,
+  tenders,
+  audit: [],
+})
+
+describe('⚖ money that moved back is never 精算済み', () => {
+  const shapes: Array<[string, FixtureTransaction, TransactionState]> = [
+    ['settled in cash', walkIn('TX-S1', 1100, [{ label: '現金', amount: 1100, flag: '' }]), 'paid'],
+    [
+      'part-paid, the rest owed',
+      walkIn('TX-S2', 1100, [
+        { label: '現金', amount: 700, flag: '' },
+        { label: '未収', amount: 400, flag: 'unpaid' },
+      ]),
+      'partial',
+    ],
+    [
+      'reversed in FULL — canon’s 返金',
+      walkIn('TX-S3', 1100, [
+        { label: '現金', amount: 1100, flag: '' },
+        { label: '現金 返金', amount: -1100, flag: 'refund' },
+      ]),
+      'refunded',
+    ],
+    [
+      'reversed in FULL as a 取消 — canon’s other kind',
+      walkIn('TX-S4', 1100, [
+        { label: '現金', amount: 1100, flag: '' },
+        { label: '現金 取消', amount: -1100, flag: 'refund' },
+      ]),
+      'voided',
+    ],
+    [
+      'PART of the money went back and part of it stayed',
+      walkIn('TX-S5', 1100, [
+        { label: '現金', amount: 1100, flag: '' },
+        { label: '現金 返金', amount: -400, flag: 'refund' },
+      ]),
+      'partial-refund',
+    ],
+  ]
+
+  it.each(shapes)('%s → %s', (_what, tx, state) => {
+    const row = build(STORE_A, { transactions: [tx] })[0]
+    expect({ id: tx.id, state: row.state, label: row.stateLabel }).toEqual({
+      id: tx.id,
+      state,
+      label: STATE_LABEL[state],
+    })
+  })
+
+  it('一部返金 is its own state, its own pill and its own place under 要確認', () => {
+    // The shape the first cut called 精算済み: the drawer is short by the
+    // reversal, the close has to re-count, and the ledger said "nothing left to
+    // do" over it.
+    expect(STATE_LABEL['partial-refund']).toBe('一部返金')
+    expect(STATE_PILL['partial-refund']).not.toBe(STATE_PILL.paid)
+    expect(STATE_PILL['partial-refund']).not.toBe(STATE_PILL.refunded)
+    const row = build(STORE_A, { transactions: [shapes[4][1]] })[0]
+    expect(row.filter).toBe('attention')
+    expect({ received: row.received, reversed: row.reversed }).toEqual({ received: 700, reversed: 400 })
+  })
+
+  it('要確認 catches EVERY row with money moved back — none of them counts as 精算済み', () => {
+    const world = shapes.map(([, tx]) => tx)
+    const rows = build(STORE_A, { transactions: world })
+    const counts = countBy(rows)
+    expect(counts).toEqual({ all: 5, paid: 1, partial: 1, attention: 3 })
+    // Not one row with a reversal on it may sit in 精算済み — and each of them
+    // lands in 要確認 rather than merely somewhere else.
+    for (const r of rows.filter((x) => x.reversed > 0)) {
+      expect({ id: r.id, filter: r.filter }).toEqual({ id: r.id, filter: 'attention' })
+    }
+    expect(rows.filter((r) => r.reversed > 0)).toHaveLength(3)
+  })
+
+  it('返金 and 取消 stay TOLD APART, all the way to the screen', async () => {
+    const { props } = await registerProps({
+      locale: 'ja',
+      store: STORE_A,
+      world: { transactions: [shapes[2][1], shapes[3][1]] },
+    })
+    const label = (id: string) => props.rows.find((r) => r.id === id)!.stateLabel
+    expect({ refund: label('TX-S3'), voided: label('TX-S4') }).toEqual({ refund: '返金済み', voided: '取消済み' })
+    const impact = (id: string) => props.rows.find((r) => r.id === id)!.closingImpact
+    expect(impact('TX-S3')).toContain('返金済み')
+    expect(impact('TX-S4')).toContain('取消済み')
+  })
+
+  it('閉店への影響 tells a 一部返金 row what canon says a reversal costs the day', async () => {
+    const { props } = await registerProps({
+      locale: 'ja',
+      store: STORE_A,
+      world: { transactions: [shapes[4][1]] },
+    })
+    // canon's own consequence line, on the row that carries the consequence.
+    expect(props.rows[0].closingImpact).toContain('現金の返金は期待額を減らし、再計数の対象になります')
+    expect(props.rows[0].closingImpact).toContain('一部が返金されている')
+  })
+
+  it('⚖ A11 — an OVER-refund says so out loud, and is never silent', async () => {
+    const over = walkIn('TX-OVER', 1100, [
+      { label: '現金', amount: 1100, flag: '' },
+      { label: '現金 返金', amount: -1500, flag: 'refund' },
+    ])
+    const { props } = await registerProps({ locale: 'ja', store: STORE_A, world: { transactions: [over] } })
+    const row = props.rows[0]
+    const fact = row.facts.find((f) => f.label === '過返金')
+    expect(fact).toBeDefined()
+    expect(fact!.value).toContain('受領額を超える返金')
+    expect(fact!.tone).toBe('bad')
+    // …it lands under 要確認, and the close is told.
+    expect(row.filter).toBe('attention')
+    expect(row.closingImpact).toContain('受領額を超える返金')
+    // …and the received figure itself is printed NEGATIVE rather than hidden.
+    expect(row.receivedLabel).toBe('−¥400')
+  })
+
+  it('a row that is BOTH held and part-refunded keeps both facts', async () => {
+    // One state word can only say one thing, so the headline goes to the money
+    // that moved back — and the terminal is named off the row's own pending
+    // LINE rather than off that word, which is what keeps the second fact.
+    const held = registerPlane.terminal_held
+    const tx: FixtureTransaction = {
+      id: 'TX-4827',
+      appointment_id: 'apt-25',
+      store_id: null,
+      customer_id: null,
+      item: null,
+      amount: null,
+      at: 12 * 60 + 15,
+      tenders: [{ label: '現金 返金', amount: -600, flag: 'refund' }],
+      audit: [],
+    }
+    const { props } = await registerProps({
+      locale: 'ja',
+      store: STORE_A,
+      world: { transactions: [tx], terminalHeld: held },
+    })
+    const row = props.rows[0]
+    expect(row.state).toBe('partial-refund')
+    expect(row.closingImpact).toContain('決済端末の送信')
   })
 })
 
@@ -460,8 +686,12 @@ describe('現金差異 is derived, and its threshold is a named dial', () => {
   it('the difference is a count MINUS an expectation — neither is stored', () => {
     expect(cashVariance(8300, 8300)).toBe(0)
     expect(cashVariance(8200, 8300)).toBe(-100)
-    // The plane records what was counted, and nothing about a difference.
-    expect(PLANE_CODE).not.toMatch(/cash_difference|variance/)
+    // The plane records what was counted, and nothing about a difference. It
+    // DOES record `variance_approved` — that is a decision somebody made about a
+    // difference, not the difference itself — so the pin names the quantity
+    // rather than the word.
+    expect(PLANE_CODE).not.toMatch(/cash_difference|variance_amount|cash_variance/)
+    expect(PLANE_CODE).not.toMatch(/variance(?!_approved)/)
   })
 
   it('the threshold is the dial, never a constant in the derivation', () => {
@@ -501,6 +731,92 @@ describe('現金差異 is derived, and its threshold is a named dial', () => {
     })
     expect(props.close!.checks.find((c) => c.key === 'cash')!.done).toBe(true)
     expect(props.close!.cash.variance).toBe('¥300')
+  })
+
+  it('⚖ THE DIAL IS CLAMPED AT THE READ — a ceiling a store cannot raise past', async () => {
+    expect(resolveTolerance(0, MAX_CASH_TOLERANCE)).toBe(0)
+    expect(resolveTolerance(500, MAX_CASH_TOLERANCE)).toBe(500)
+    expect(resolveTolerance(50_000, MAX_CASH_TOLERANCE)).toBe(MAX_CASH_TOLERANCE)
+    // …and the clamp is where the ROOM reads the dial, so a world (or a settings
+    // control after reconnect) that sets an absurd allowance gets the ceiling.
+    // Without it, a drawer ¥40,000 short would close the day without a word —
+    // which is the exact self-harm the guardrail law forbids a dial to permit.
+    const short = { ...closingPlane[STORE_A], cash_counted: 8300 - 40_000 }
+    const { props } = await registerProps({
+      locale: 'ja',
+      store: STORE_A,
+      world: { closing: short, tolerance: 50_000 },
+    })
+    expect(props.close!.cash.tolerance).toContain(yen(MAX_CASH_TOLERANCE))
+    expect(props.close!.cash.varianceBad).toBe(true)
+    expect(props.close!.checks.find((c) => c.key === 'cash')!.status).toBe('差異承認待ち')
+  })
+
+  it('⚖ ONE VERDICT ON THE DIFFERENCE — the tone and the words read the SAME threshold', async () => {
+    // The tone used to key on `variance !== 0` while the status keyed on the
+    // tolerance, so inside an allowance the page painted a red difference beside
+    // 「保存済み」 — two answers to one question (canon `renderSummary` :1323).
+    const inside = { ...closingPlane[STORE_A], cash_counted: 8300 + 300, cash_reason: '' }
+    const ok = await registerProps({ locale: 'ja', store: STORE_A, world: { closing: inside, tolerance: 500 } })
+    expect({ bad: ok.props.close!.cash.varianceBad, status: ok.props.close!.cash.status })
+      .toEqual({ bad: false, status: '保存済み' })
+
+    // …and outside it, both say so.
+    const out = await registerProps({ locale: 'ja', store: STORE_A, world: { closing: inside, tolerance: 100 } })
+    expect({ bad: out.props.close!.cash.varianceBad, status: out.props.close!.cash.status })
+      .toEqual({ bad: true, status: '差異承認待ち' })
+  })
+
+  it('⚖ NEVER 「差異なし」 OVER A PRINTED DIFFERENCE — and a draft is not a verdict', async () => {
+    // The L1 scene: a ¥700 difference inside a large allowance printed
+    // 「差異なし — 理由の記録は不要です」 beside 「差異 ¥700」, because the fallback
+    // keyed on whether an APPROVAL was needed rather than on whether there WAS a
+    // difference.
+    const seven = { ...closingPlane[STORE_A], cash_counted: 8300 + 700, cash_reason: '' }
+    const wide = await registerProps({ locale: 'ja', store: STORE_A, world: { closing: seven, tolerance: 1000 } })
+    expect(wide.props.close!.cash.variance).toBe('¥700')
+    expect(wide.props.close!.cash.reason).not.toContain('差異なし')
+    expect(wide.props.close!.cash.reason).toContain('理由が記録されていません')
+
+    // A REAL zero, saved, is the only thing that may say 差異なし.
+    const zero = await room({ store: STORE_A })
+    expect(zero.close!.cash.variance).toBe('¥0')
+    expect(zero.close!.cash.reason).toContain('差異なし')
+
+    // A DRAFT count says 未保存 — it is not a verdict at all. 代官山 has counted
+    // nothing, so its drawer reads 「期待 ¥0 / 実査 ¥0」 with no judgement on it.
+    const draft = await room({ store: STORE_B })
+    expect(draft.close!.cash.status).toBe('未保存')
+    expect(draft.close!.cash.reason).toContain('未保存')
+    expect(draft.close!.cash.reason).not.toContain('差異なし')
+  })
+
+  it('⚖ F9 — canon’s APPROVAL arm is carried, and the control that writes it is not built', async () => {
+    // canon `cashClosingReady` (:1356-1358) has two arms and the room shipped
+    // one: an over-threshold difference could never close the day, however many
+    // people signed for it.
+    expect(cashClosingReady(true, false, false)).toBe(true)
+    expect(cashClosingReady(true, true, false)).toBe(false)
+    expect(cashClosingReady(true, true, true)).toBe(true)
+    expect(cashClosingReady(false, false, true)).toBe(false)
+
+    const over = { ...closingPlane[STORE_A], cash_counted: 8300 + 700 }
+    const unapproved = await registerProps({ locale: 'ja', store: STORE_A, world: { closing: over } })
+    expect(unapproved.props.close!.checks.find((c) => c.key === 'cash')!.status).toBe('差異承認待ち')
+
+    const approved = await registerProps({
+      locale: 'ja',
+      store: STORE_A,
+      world: { closing: { ...over, variance_approved: true } },
+    })
+    const cash = approved.props.close!.checks.find((c) => c.key === 'cash')!
+    expect({ done: cash.done, status: cash.status }).toEqual({ done: true, status: '差異承認済み' })
+    expect(approved.props.close!.closeRefusal).not.toContain('現金計数と差異理由')
+
+    // The default is FALSE — nothing has been approved — and the APPROVE control
+    // itself is not in this slice (registry ④ names the write).
+    for (const store of [STORE_A, STORE_B]) expect(closingPlane[store].variance_approved).toBe(false)
+    expect(SRC_CODE).not.toMatch(/差異を承認|varianceApproval/)
   })
 })
 
@@ -635,7 +951,32 @@ describe('the ledger hides, it never shows-and-refuses', () => {
       expect(transactionStore(tx, byId)).toBe(booking.store_id)
     }
     // With the booking out of reach the row resolves to nothing at all.
-    expect(transactionStore({ appointment_id: 'apt-12', store_id: null }, new Map())).toBeNull()
+    const booked = txPlane.find((t) => t.appointment_id !== null)!
+    expect(transactionStore(booked, new Map())).toBeNull()
+  })
+
+  it('⚖ A STORELESS WALK-IN IS AN IMPOSSIBLE STATE, and the TYPE says so', () => {
+    // The plane used to type `store_id` as `string | null` on every row, so a
+    // 店頭販売 with no store compiled — and the ledger answered it by silently
+    // dropping the row at render time. That is a display deciding what to do
+    // about broken data (⚖ 8/9). The plane now splits the two shapes: a booking
+    // sale carries `store_id: null` because the BOOKING says where it happened,
+    // and a walk-in carries a store because nothing else can.
+    expect(PLANE_CODE).toContain('export interface FixtureWalkInTransaction')
+    expect(PLANE_CODE).toMatch(/FixtureWalkInTransaction extends FixtureTransactionBase \{\s*appointment_id: null\s*store_id: string\s*\}/)
+    expect(PLANE_CODE).toMatch(/FixtureBookingTransaction extends FixtureTransactionBase \{\s*appointment_id: string\s*store_id: null\s*\}/)
+    expect(PLANE_CODE).toContain('export type FixtureTransaction = FixtureBookingTransaction | FixtureWalkInTransaction')
+    // …and every row in the demo plane really is one of the two shapes.
+    for (const tx of txPlane) {
+      expect({ id: tx.id, shaped: tx.appointment_id === null ? typeof tx.store_id === 'string' : tx.store_id === null })
+        .toEqual({ id: tx.id, shaped: true })
+    }
+    // So `transactionStore` returning null now means EXACTLY ONE thing: the
+    // booking is out of this lens's reach. The walk-in arm cannot produce it.
+    const byId = new Map(appointments().map((a) => [a.id, a]))
+    for (const tx of txPlane.filter((t) => t.appointment_id === null)) {
+      expect({ id: tx.id, store: transactionStore(tx, byId) }).toEqual({ id: tx.id, store: tx.store_id })
+    }
   })
 
   it('the TERMINAL’s held list is clamped through the bookings it names', () => {
@@ -713,6 +1054,71 @@ describe('capabilities are read, never invented', () => {
     expect(LIB_CODE).toContain('accessFor')
     expect(LIB_CODE).toContain('NO_ACCESS')
   })
+
+  it('⚖ F6 — the ENUMERATION: every write on this page is gated, 未収として記録 included', async () => {
+    // canon gates SIXTEEN controls on `close` and three on `refund`. This room
+    // carries five, and one of them shipped ungated: 未収として記録 records a
+    // decision against the day's close — an executor and a reason — and any role
+    // could reach it. The census is the pin, so a sixth control cannot land
+    // ungated either.
+    const staff = await registerProps({ locale: 'ja', store: STORE_A, world: { role: 'スタッフ' } })
+    const manager = await room({ store: STORE_A })
+    const partial = (p: RegisterProps) => p.rows.find((r) => r.id === 'TX-5501')!
+
+    const gates = (p: RegisterProps) => ({
+      refund: partial(p).canRefund,
+      outstanding: partial(p).canOutstanding,
+      terminal: p.terminal.canRecheck,
+      cash: p.close!.cash.canSave,
+      close: p.close!.canClose,
+    })
+    expect(gates(manager)).toEqual({ refund: true, outstanding: true, terminal: true, cash: true, close: true })
+    expect(gates(staff.props)).toEqual({
+      refund: false,
+      outstanding: false,
+      terminal: false,
+      cash: false,
+      close: false,
+    })
+    // canon :1305 — 未収として記録 reads the CLOSE capability, like its siblings,
+    // and the control is absent rather than present-and-dead.
+    expect(PROPS_CODE).toContain('canOutstanding: access.close,')
+    expect(SRC_CODE).toContain('{current.canOutstanding && current.showOutstanding && (')
+    // The row still KNOWS it has 未収 — the gate is about who may act, never
+    // about what is true.
+    expect(partial(staff.props).showOutstanding).toBe(true)
+  })
+
+  it('⚖ F5 — REDACTION IS STRUCTURAL: the 内訳 is 受領済み again, so it obeys the same gate', async () => {
+    // The strip hid 総売上・純売上・受領済み and the band underneath printed the
+    // same money channel by channel, with a sentence naming the total in words.
+    // One gate, one place: `redactMoney`.
+    const { props } = await registerProps({ locale: 'ja', store: STORE_A, world: { role: 'スタッフ' } })
+    const recon = props.close!.reconciliation
+    expect(recon.length).toBeGreaterThan(0)
+    for (const r of recon) {
+      expect({ label: r.label, received: r.received, net: r.net })
+        .toEqual({ label: r.label, received: '権限がありません', net: '権限がありません' })
+      // A dash is not a figure — 「返金なし」 stays readable.
+      expect(['—', '権限がありません']).toContain(r.reversed)
+    }
+    // The SENTENCE is the one that carried ¥21,500 in words.
+    expect(props.close!.reconciliationNote).not.toMatch(/¥/)
+    expect(props.close!.reconciliationNote).toContain('表示できません')
+    // …and the close record's three summary figures too.
+    const record = new Map(props.close!.record.map((r) => [r.label, r.value]))
+    for (const label of ['総売上', '純売上', '受領済み']) expect(record.get(label)).toBe('権限がありません')
+
+    // The gate has ONE home: no second `access.redactSummary ? …` ternary left
+    // beside a yen figure.
+    expect(PROPS_CODE).toContain('const redactMoney = (value: string) =>')
+    expect(PROPS_CODE).not.toMatch(/redactSummary \? REDACTED : yen\(/)
+
+    // …and the operator who passes the gate still sees all of it.
+    const open = await room({ store: STORE_A })
+    expect(open.close!.reconciliationNote).toContain('¥21,500')
+    for (const r of open.close!.reconciliation) expect(r.received).not.toBe('権限がありません')
+  })
 })
 
 // ── 9. every button here is a write, and every write is refused ─────────────
@@ -764,7 +1170,49 @@ describe('reading is buildable; every button on a money desk is a write', () => 
     // …and a sale with nothing to give back says that instead of an empty box.
     const refunded = props.rows.find((r) => r.id === 'TX-5502')!
     expect(refunded.refundPreview).toBeNull()
-    expect(refunded.refundNote).toContain('すでに返金済み')
+    expect(refunded.refundNote).toContain('すでに全額戻しています')
+  })
+
+  it('⚖ THE PREVIEW IS THE NET REMAINING, AND canon’s GUARD DECIDES WHETHER IT SHOWS AT ALL', async () => {
+    // (a) a part-refunded sale: the preview is what is STILL there, not the
+    // original line. The first cut listed the original lines, so a row that had
+    // already had ¥400 back advertised a ¥1,100 reversal the product refuses.
+    const partial: FixtureTransaction[] = [
+      {
+        id: 'TX-PART',
+        appointment_id: null,
+        store_id: STORE_A,
+        customer_id: 'cus-05',
+        item: '一部返金の検証',
+        amount: 1100,
+        at: 13 * 60,
+        tenders: [
+          { label: '現金', amount: 1100, flag: '' },
+          { label: '現金 返金', amount: -400, flag: 'refund' },
+        ],
+        audit: [],
+      },
+    ]
+    const row = build(STORE_A, { transactions: partial })[0]
+    expect(refundPreview(row)).toEqual({ lines: [{ label: '現金', amount: 700 }], refusal: null })
+
+    // (b) canon's own guard (:1593-1596): a part-PAID sale's original lines do
+    // not account for its 受領額, so canon refuses to write the refund — and the
+    // preview prints that refusal rather than a list of lines.
+    const partPaid = byTx(build(STORE_A), 'TX-5501')
+    expect(refundPreview(partPaid)).toEqual({ lines: [], refusal: REFUND_MISMATCH })
+    const props = await room({ store: STORE_A })
+    const shown = props.rows.find((r) => r.id === 'TX-5501')!
+    expect(shown.refundPreview).toContain(REFUND_MISMATCH)
+    expect(shown.refundNote).toContain('一致していません')
+
+    // (c) canon `renderInspector` (:1301): 返金・取消 is offered on `paid`, and on
+    // nothing else — never on the part-paid row whose own preview is a refusal.
+    expect(props.rows.find((r) => r.id === 'TX-4808')!.showRefund).toBe(true)
+    for (const id of ['TX-4827', 'TX-5501', 'TX-5502']) {
+      expect({ id, offered: props.rows.find((r) => r.id === id)!.showRefund }).toEqual({ id, offered: false })
+    }
+    expect(PROPS_CODE).toContain("showRefund: m.state === 'paid',")
   })
 
   it('what a CLOSE would record is shown too, and it is the same day’s figures', async () => {
@@ -779,10 +1227,78 @@ describe('reading is buildable; every button on a money desk is a write', () => 
     const props = await room({ store: STORE_A })
     expect(props.close!.reconciliationBalanced).toBe(true)
     expect(props.close!.reconciliationNote).toContain('¥21,500')
-    const recon = tenderReconciliation(build(STORE_A), ledgerTotals(build(STORE_A)).collected)
+    const recon = tenderReconciliation(build(STORE_A))
     expect(recon.received + recon.reversed).toBe(recon.net)
     // 未収 is not a tender — nothing arrived on it.
     expect(recon.rows.some((r) => r.channel === 'unpaid')).toBe(false)
+  })
+
+  it('⚖ THE TWO SIDES ARE DERIVED INDEPENDENTLY — 「一致しません」 is REACHABLE', async () => {
+    // The first cut compared the grouped tenders against 受領済み, which is the
+    // same sum of the same lines by a different route: the sentence could not
+    // fail, so it reassured about nothing. Side B now reads each row's own 総額
+    // — 総額 − 未収 − 返金 — which comes from the booking's 受付価格 rather than
+    // from the tender lines.
+    const clean = tenderReconciliation(build(STORE_A))
+    expect({ net: clean.net, fromRows: clean.fromRows, balanced: clean.balanced })
+      .toEqual({ net: 21500, fromRows: 21500, balanced: true })
+
+    // A CORRUPT WORLD: a walk-in whose 総額 does not match the lines under it.
+    // Side A sees ¥1,000 of tenders, side B sees a ¥3,000 sale with nothing owed
+    // and nothing reversed, and the page says so.
+    const corrupt: FixtureTransaction[] = [
+      {
+        id: 'TX-BAD',
+        appointment_id: null,
+        store_id: STORE_A,
+        customer_id: null,
+        item: '不整合の検証',
+        amount: 3000,
+        at: 12 * 60,
+        tenders: [{ label: '現金', amount: 1000, flag: '' }],
+        audit: [],
+      },
+    ]
+    const rows = build(STORE_A, { transactions: corrupt })
+    const broken = tenderReconciliation(rows)
+    expect({ net: broken.net, fromRows: broken.fromRows, balanced: broken.balanced })
+      .toEqual({ net: 1000, fromRows: 3000, balanced: false })
+    // …and the row itself is invalid, which is the fact underneath the sentence.
+    expect(rowBalances(rows[0])).toBe(false)
+
+    const { props } = await registerProps({ locale: 'ja', store: STORE_A, world: { transactions: corrupt } })
+    expect(props.close!.reconciliationBalanced).toBe(false)
+    expect(props.close!.reconciliationNote).toContain('一致しません')
+  })
+
+  it('⚖ A CHANNEL MAY ONLY GIVE BACK WHAT IT TOOK IN — the over-refund world is INVALID', () => {
+    // The addition alone cannot see this: 現金 ¥1,100 in and 現金 ¥1,500 back out
+    // still satisfies 受領 + 未収 + 返金 = 総額, and it is still an impossible
+    // drawer. canon applies the same per-channel identity before it will WRITE a
+    // refund (:1591-1593); the room applies it before it will RENDER one.
+    const over: FixtureTransaction[] = [
+      {
+        id: 'TX-OVER',
+        appointment_id: null,
+        store_id: STORE_A,
+        customer_id: null,
+        item: '過返金の検証',
+        amount: 1100,
+        at: 13 * 60,
+        tenders: [
+          { label: '現金', amount: 1100, flag: '' },
+          { label: '現金 返金', amount: -1500, flag: 'refund' },
+        ],
+        audit: [],
+      },
+    ]
+    const row = build(STORE_A, { transactions: over })[0]
+    // The sum half PASSES — which is exactly why the reversal half has to exist.
+    expect(row.received + row.outstanding + row.reversed).toBe(row.total)
+    expect(rowBalances(row)).toBe(false)
+    // …and a reversal on a channel that took money in, within its own amount,
+    // is fine.
+    expect(rowBalances(byTx(build(STORE_A), 'TX-5502'))).toBe(true)
   })
 
   it('予約一覧で事実を確認 is a LINK where there is a booking, and a refusal where there is not', async () => {

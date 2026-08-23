@@ -212,8 +212,25 @@ export function hhmm(minute: number): string {
  *  average (a 12か月平均 LTV, a money-weighted merge across two stores) reaches
  *  the screen through this function and would otherwise print a fraction from
  *  whichever seam nobody thought of. A caller that already holds an integer is
- *  unaffected. */
-export const yen = (n: number) => `¥${Math.round(n).toLocaleString('ja-JP')}`
+ *  unaffected.
+ *
+ *  IT IS ALSO SIGN-AWARE, IN CANON'S OWN SHAPE
+ *  (fable-store-sales-register.html:1163-1166): the sign goes BEFORE the ¥ and
+ *  it is the proper minus 「−」, never the ASCII hyphen `toLocaleString` buries
+ *  inside the digits. 売上・レジ is the first room in the family whose figures go
+ *  below zero (a 返金 line, a drawer counted short), and the family does not
+ *  grow a second formatter for it: `¥-1,100` and `−¥1,100` are the same money in
+ *  two spellings, and two spellings is how two rooms end up disagreeing about
+ *  what a minus looks like.
+ *
+ *  `Math.abs` also normalises NEGATIVE ZERO, and it has to: a day with no
+ *  refunds reaches this as `yen(-0)`, `-0 < 0` is false, and
+ *  `(-0).toLocaleString('ja-JP')` is the string 「-0」 — so the tile would print
+ *  「¥-0」. Both spellings of zero are pinned. */
+export const yen = (n: number) => {
+  const rounded = Math.round(n)
+  return `${rounded < 0 ? '−' : ''}¥${Math.abs(rounded).toLocaleString('ja-JP')}`
+}
 
 // ── the board model ────────────────────────────────────────────────────────
 

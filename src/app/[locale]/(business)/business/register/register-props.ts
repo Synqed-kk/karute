@@ -27,6 +27,7 @@ import { operator } from '@/business/lib/fixtures'
 import {
   cashTolerance,
   closing as closingPlane,
+  MAX_CASH_TOLERANCE,
   transactions as transactionPlane,
   type FixtureClosing,
   type FixtureTransaction,
@@ -41,7 +42,8 @@ import {
   ledgerTotals,
   permissionNotice,
   REDACTED,
-  signedYen,
+  refundPreview,
+  resolveTolerance,
   STATE_PILL,
   tenderReconciliation,
   type TransactionModel,
@@ -141,8 +143,17 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
   // close, so the room says so instead of merging two stores' closes into a
   // figure no shop could act on.
   const closing = world?.closing ?? (clamped ? (closingPlane[storeId!] ?? null) : null)
-  const tolerance = world?.tolerance ?? cashTolerance
+  // ⚖ THE DIAL SHIPS WITH ITS GUARDRAIL, AND THE CLAMP IS AT THE READ — one
+  // place, so the ceiling holds for the settings control, for this room's own
+  // worlds, and for whatever writes the dial after reconnect.
+  const tolerance = resolveTolerance(world?.tolerance ?? cashTolerance, MAX_CASH_TOLERANCE)
   const access = accessFor(world?.role ?? operator.role)
+  /** ⚖ REDACTION IS STRUCTURAL — ONE GATE, ONE PLACE. Every figure this role may
+   *  not see goes through here, so a new money surface cannot quietly ship
+   *  un-gated the way the 決済手段の内訳 did: the strip hid 受領済み and the band
+   *  underneath printed the same money again, channel by channel, with the
+   *  sentence naming the total in words. */
+  const redactMoney = (value: string) => (access.redactSummary ? REDACTED : value)
 
   const models = buildLedger({
     transactions: world?.transactions ?? transactionPlane,
@@ -185,7 +196,7 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
       })
     : null
 
-  const reconciliation = tenderReconciliation(models, totals.collected)
+  const reconciliation = tenderReconciliation(models)
 
   const storeName = new Map(storeOptions.map((s) => [s.id, s.name]))
   const lensLabel = clamped ? (storeName.get(storeId!) ?? 'この店舗') : 'すべての店舗'
@@ -201,7 +212,9 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
   const heldTerminals = [...new Set(terminalHeld.map((h) => h.terminal))]
   const duplicates = terminalHeld.length - new Set(terminalHeld.map((h) => h.idempotency_id)).size
 
-  const rows: RegisterRowProps[] = models.map((m) => ({
+  const rows: RegisterRowProps[] = models.map((m) => {
+    const preview = refundPreview(m)
+    return {
     id: m.id,
     state: m.state,
     stateLabel: m.stateLabel,
@@ -221,7 +234,7 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
       m.outstanding > 0
         ? { label: '未収', value: yen(m.outstanding), tone: 'warn' as const }
         : m.reversed > 0
-          ? { label: '返金', value: signedYen(-m.reversed), tone: 'bad' as const }
+          ? { label: '返金', value: yen(-m.reversed), tone: 'bad' as const }
           : null,
     tenderSummary: tenderSummary(m),
     // ── the inspector ──────────────────────────────────────────────────────
@@ -235,7 +248,18 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
         tone: m.outstanding > 0 ? ('warn' as const) : undefined,
       },
       ...(m.reversed > 0
-        ? [{ label: '返金・取消', value: signedYen(-m.reversed), tone: 'bad' as const }]
+        ? [{ label: '返金・取消', value: yen(-m.reversed), tone: 'bad' as const }]
+        : []),
+      // ⚖ A11 — NEVER SILENT. More money went back than ever came in. The row
+      // still balances by addition, which is exactly why it needs saying out
+      // loud: the drawer is short by the difference and nothing else on the page
+      // would tell the reader why.
+      ...(m.received < 0
+        ? [{
+            label: '過返金',
+            value: `${yen(-m.received)} 超過 — 受領額を超える返金が記録されています`,
+            tone: 'bad' as const,
+          }]
         : []),
     ],
     priceProof:
@@ -244,26 +268,29 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
         : `確定 ${yen(m.acceptedPrice)} / 現在の公開価格 ${m.publishedPrice === null ? '未設定' : yen(m.publishedPrice)}。売上・返金は確定 ${yen(m.acceptedPrice)} を正本とし、現在価格で再計算しません。`,
     tenders: m.tenders.map((t) => ({
       label: t.label + (t.flag === 'pending' ? ' / 送信待ち' : t.flag === 'unpaid' ? ' / 次回来店時' : ''),
-      amount: signedYen(t.amount),
+      amount: yen(t.amount),
       tone: t.flag === 'refund' ? ('refund' as const) : t.flag === 'unpaid' ? ('unpaid' as const) : undefined,
     })),
     // 返金・取消の内容 — canon opens a dialog for this; the dialog is not carried
     // (no <dialog> in this family's rooms), so what it WOULD reverse is shown as
     // read-only evidence beside the refused control. Refusing to act is honest;
-    // hiding what the action would have done is not.
+    // hiding what the action would have done is not — and neither is promising a
+    // reversal canon's own guard would refuse, which is why a row that fails the
+    // guard prints the REFUSAL here instead of a list of lines.
     refundPreview:
-      m.received > 0
-        ? m.tenders
-            .filter((t) => t.amount > 0 && t.flag !== 'unpaid')
-            .map((t) => `${t.label} ${signedYen(-t.amount)}`)
-            .join(' / ')
-        : null,
+      preview.refusal !== null
+        ? `${preview.refusal}。`
+        : preview.lines.length > 0
+          ? preview.lines.map((l) => `${l.label} ${yen(-l.amount)}`).join(' / ')
+          : null,
     refundNote:
-      m.received > 0
-        ? '元の決済行は書き換えず、反対仕訳と理由、承認者を新しい監査行として追加します。'
-        : m.reversed > 0
-          ? 'この取引はすでに返金済みです。反対仕訳と理由は下の監査履歴に残っています。'
-          : '受領した金額がないため、戻せる決済行がありません。',
+      preview.refusal !== null
+        ? '元の決済手段ごとの受領額と、この取引の受領済み合計が一致していません。金額の不一致を解消するまで返金は実行できません。'
+        : preview.lines.length > 0
+          ? '元の決済行は書き換えず、反対仕訳と理由、承認者を新しい監査行として追加します。'
+          : m.reversed > 0
+            ? 'この取引はすでに全額戻しています。反対仕訳と理由は下の監査履歴に残っています。'
+            : '受領した金額がないため、戻せる決済行がありません。',
     // 閉店への影響 — the SAME verdict the checklist below prints, aimed at this
     // one row. A transaction that blocks the close says so where the reader is
     // looking at it, and it cannot disagree with the panel at the bottom of the
@@ -275,13 +302,20 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
     outstandingRefusal: REFUSAL.outstanding,
     bookingRefusal: REFUSAL.booking,
     canRefund: access.refund,
-    // canon `renderInspector` (:1301) offers 返金・取消 only where there is money
-    // to give back — a refunded sale has none left and a held one has money the
-    // terminal has not confirmed. Offering the control there would be a lever
-    // whose own evidence box says it cannot do anything.
-    showRefund: m.received > 0 && m.state !== 'held',
+    // canon `renderInspector` (:1301) — `item.state === "paid"`, and nothing
+    // else. A 精算済み sale is the only shape whose original lines account for
+    // its 受領額, which is the identity canon's own refund guard requires before
+    // it will write (:1593). Offering the control on a part-paid or part-refunded
+    // row would be a lever whose own evidence box prints the refusal.
+    showRefund: m.state === 'paid',
+    // ⚠ canon gates 未収として記録 on the CLOSE capability (:1305) exactly like
+    // its siblings — it records a decision against the day's close, with an
+    // executor and a reason. A role without it gets no control at all, which is
+    // canon's own gating shape and this room's for the other four.
+    canOutstanding: access.close,
     showOutstanding: m.outstanding > 0,
-  }))
+    }
+  })
 
   const props: RegisterProps = {
     dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
@@ -289,10 +323,10 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
     subtitle: '取引、決済手段、未収、返金、現金差異、閉店承認を同じ台帳で照合します。',
     permissionNotice: permissionNotice(access),
     money: [
-      { key: 'gross', label: '総売上', value: access.redactSummary ? REDACTED : yen(totals.gross), redacted: access.redactSummary },
-      { key: 'refunds', label: '返金・取消', value: signedYen(-totals.refunds), tone: totals.refunds > 0 ? 'bad' : undefined },
-      { key: 'net', label: '純売上', value: access.redactSummary ? REDACTED : yen(totals.net), redacted: access.redactSummary },
-      { key: 'collected', label: '受領済み', value: access.redactSummary ? REDACTED : yen(totals.collected), redacted: access.redactSummary },
+      { key: 'gross', label: '総売上', value: redactMoney(yen(totals.gross)), redacted: access.redactSummary },
+      { key: 'refunds', label: '返金・取消', value: yen(-totals.refunds), tone: totals.refunds > 0 ? 'bad' : undefined },
+      { key: 'net', label: '純売上', value: redactMoney(yen(totals.net)), redacted: access.redactSummary },
+      { key: 'collected', label: '受領済み', value: redactMoney(yen(totals.collected)), redacted: access.redactSummary },
       { key: 'outstanding', label: '未収', value: yen(totals.outstanding), tone: totals.outstanding > 0 ? 'warn' : undefined },
     ],
     moneyScope: `取引${counts.all}件 / 返金を差し引いた営業日集計`,
@@ -328,14 +362,26 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
             cash: {
               expected: yen(totals.cash),
               counted: yen(closing.cash_counted),
-              variance: signedYen(verdict.variance),
-              varianceBad: verdict.variance !== 0,
+              variance: yen(verdict.variance),
+              // canon `renderSummary` (:1323) — the difference is BAD when it is
+              // outside the tolerance, which is the same threshold the approval
+              // rule reads. ONE verdict: a red figure and 「差異承認待ち」 can no
+              // longer disagree, and a difference inside an allowance is not
+              // painted as a fault.
+              varianceBad: Math.abs(verdict.variance) > tolerance,
+              // ⚖ NEVER A VERDICT OVER A NUMBER THAT CONTRADICTS IT. 「差異なし」
+              // used to print beside a printed ¥700 difference, because the
+              // fallback keyed on whether an APPROVAL was needed rather than on
+              // whether there WAS a difference. And a draft count is not a
+              // verdict at all — it says so.
               reason:
                 closing.cash_reason !== ''
                   ? closing.cash_reason
-                  : verdict.requiresApproval
-                    ? '差異の理由が記録されていません'
-                    : '差異なし — 理由の記録は不要です',
+                  : !closing.cash_saved
+                    ? '未保存 — 計数を保存すると差異理由がここに残ります'
+                    : verdict.variance === 0
+                      ? '差異なし — 理由の記録は不要です'
+                      : '差異の理由が記録されていません',
               status: verdict.checks.find((c) => c.key === 'cash')!.status,
               statusDone: verdict.cashReady,
               tolerance: `許容額 ${yen(tolerance)}（現金差異の承認しきい値）`,
@@ -363,24 +409,29 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
             // 閉店で記録される内容 — canon's close dialog's own content, read-only.
             recordLabel: '閉店で記録される内容',
             record: [
-              { label: '総売上', value: access.redactSummary ? REDACTED : yen(totals.gross) },
-              { label: '返金・取消', value: signedYen(-totals.refunds) },
-              { label: '純売上', value: access.redactSummary ? REDACTED : yen(totals.net) },
-              { label: '受領済み', value: access.redactSummary ? REDACTED : yen(totals.collected) },
+              { label: '総売上', value: redactMoney(yen(totals.gross)) },
+              { label: '返金・取消', value: yen(-totals.refunds) },
+              { label: '純売上', value: redactMoney(yen(totals.net)) },
+              { label: '受領済み', value: redactMoney(yen(totals.collected)) },
               { label: '未収', value: yen(totals.outstanding) },
-              { label: '現金差異', value: signedYen(verdict.variance) },
+              { label: '現金差異', value: yen(verdict.variance) },
               { label: '取引件数', value: `${counts.all}件` },
               { label: 'バージョン', value: `閉店 v${closing.close_version}` },
             ],
+            // ⚖ THE SAME GATE AS THE STRIP. 受領済み is redacted for this role
+            // and the 内訳 is that exact money again, split by the手段 it arrived
+            // on — a role that may not see the total may not see its parts.
             reconciliation: reconciliation.rows.map((r) => ({
               label: r.label,
-              received: yen(r.received),
-              reversed: r.reversed === 0 ? '—' : signedYen(r.reversed),
-              net: signedYen(r.net),
+              received: redactMoney(yen(r.received)),
+              reversed: r.reversed === 0 ? '—' : redactMoney(yen(r.reversed)),
+              net: redactMoney(yen(r.net)),
             })),
-            reconciliationNote: reconciliation.balanced
-              ? `決済手段の内訳は受領済み ${yen(totals.collected)} と一致しています。`
-              : '決済手段の内訳が受領済みと一致しません。閉店前に取引を確認してください。',
+            reconciliationNote: access.redactSummary
+              ? 'この役割では決済手段ごとの内訳と受領済みの照合結果を表示できません。'
+              : reconciliation.balanced
+                ? `決済手段の内訳は受領済み ${yen(totals.collected)} と一致しています。`
+                : '決済手段の内訳が受領済みと一致しません。閉店前に取引を確認してください。',
             reconciliationBalanced: reconciliation.balanced,
           }
         : null,
@@ -396,7 +447,11 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
  *  on this room's own states. */
 function tenderSummary(m: TransactionModel): string {
   if (m.state === 'held') return 'カード / 端末内'
-  if (m.state === 'refunded') return '元決済 + 反対仕訳'
+  // canon `tenderSummary` (:1204) reads 返金済み and 取消済み the same way — the
+  // original line is kept and a reversal sits beside it — and 一部返金 is that
+  // shape with money still on the sale, so it says which part is left.
+  if (m.state === 'refunded' || m.state === 'voided') return '元決済 + 反対仕訳'
+  if (m.state === 'partial-refund') return '元決済 + 反対仕訳（一部）'
   if (m.state === 'partial') return `${m.tenders.filter((t) => t.flag === '').map((t) => t.label).join(' + ')} + 未収`
   return m.tenders.map((t) => t.label).join(' + ')
 }
@@ -408,14 +463,27 @@ function closingImpact(
   checks: Array<{ key: string; done: boolean; label: string }>,
 ): string {
   const open = (key: string) => checks.some((c) => c.key === key && !c.done)
-  if (m.state === 'held' && open('terminal')) {
+  // Read off the row's own PENDING LINE, not off its state word: a row can be
+  // held by the terminal AND have money given back, and one word can only say
+  // one of those. The line is the fact; the state is a headline.
+  if (m.tenders.some((t) => t.flag === 'pending') && open('terminal')) {
     return 'この取引は端末内に保持されているため、閉店チェックの「決済端末の送信」が未完了です。'
+  }
+  if (m.received < 0) {
+    return '受領額を超える返金が記録されています。現金の返金は期待額を減らし、再計数の対象になります。閉店前にこの取引を確認してください。'
   }
   if (m.outstanding > 0 && open('outstanding')) {
     return 'この取引の未収があるため、閉店チェックの「未収の扱い」が未判断のままです。'
   }
-  if (m.state === 'refunded') {
-    return '返金済みのため純売上には含みません。現金の返金は期待額を減らし、再計数の対象になります。'
+  if (m.state === 'refunded' || m.state === 'voided') {
+    return `${m.state === 'voided' ? '取消済み' : '返金済み'}のため純売上には含みません。現金の返金は期待額を減らし、再計数の対象になります。`
+  }
+  // ⚖ MONEY THAT MOVED BACK IS LOOKED AT. A part-refunded row keeps part of its
+  // sale AND takes part of it back out of the drawer, so the same consequence
+  // canon states for a full reversal applies to it — which is the whole reason
+  // it is counted under 要確認 rather than sitting in 精算済み.
+  if (m.state === 'partial-refund') {
+    return '一部が返金されているため、返金分は純売上に含みません。現金の返金は期待額を減らし、再計数の対象になります。'
   }
   return 'この取引は閉店を妨げていません。'
 }

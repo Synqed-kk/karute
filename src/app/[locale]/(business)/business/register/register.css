@@ -507,6 +507,12 @@
    not size. */
 @media (min-width: 800px) and (max-width: 1023px) {
   .biz .pg-register .rg-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+  /* …and the CLOSING pair re-pairs on exactly the same reasoning. The band's
+     point is that a near-square canvas has width to spend and no height to
+     waste; leaving 現金ドロア and 閉店チェック stacked while the workspace beside
+     them ran two columns was the rule applied to one band and not its
+     neighbour. Same shape, same boundary, same reason. */
+  .biz .pg-register .rg-closing { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 18px; }
 }
 
 /* ═══ ≤743 — smartphones / folded cover screen: the Gmail phone pattern ═══
@@ -568,6 +574,10 @@
   .biz .pg-register .rg-band-id h2 { font-size: 20px; }
   .biz .pg-register .rg-act-row { flex-direction: column; }
   .biz .pg-register .rg-act-row .btn { flex: 1 1 auto; width: 100%; min-height: 46px; }
+  /* 計数を保存 is a thumb target like every other control in this band — it was
+     the one button left at its desktop height, sitting alone in its own row at
+     the bottom of 現金ドロア where nothing else pushed it up. */
+  .biz .pg-register .rg-cash-action .btn { width: 100%; min-height: 46px; }
   .biz .pg-register .rg-body, .biz .pg-register .rg-cash-body, .biz .pg-register .rg-close-body { padding: 12px 14px 16px; }
   .biz .pg-register .rg-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   /* facts read as label-above-value on a phone: a 104px label column plus a
