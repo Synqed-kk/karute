@@ -500,6 +500,35 @@ describe('the fixture data door', () => {
         'react',
       ],
       'src/app/[locale]/(business)/business/inbox/loading.tsx': ['@/business/i18n'],
+      // 売上・レジ. The room's own money plane plus the derivations that BORROW
+      // every other fact it shows: the booking's 受付価格 and store, the menu's
+      // name, the board's own `yen`/`hhmm`, the world's own terminal-held rows
+      // and 操作履歴. The plane imports the store ids and nothing else; the
+      // screen imports its own types and the shared tour engine.
+      'src/business/lib/fixtures-register.ts': ['./fixtures'],
+      'src/business/lib/register.ts': ['./fixtures', './fixtures-register', './today-board'],
+      'src/app/[locale]/(business)/business/register/page.tsx': [
+        './RegisterScreen',
+        './register-props',
+        './register.css',
+        '@/business/lib/admission',
+      ],
+      'src/app/[locale]/(business)/business/register/register-props.ts': [
+        './RegisterScreen',
+        '@/business/lib/clock',
+        '@/business/lib/data',
+        '@/business/lib/fixtures',
+        '@/business/lib/fixtures-register',
+        '@/business/lib/register',
+        '@/business/lib/today-board',
+      ],
+      'src/app/[locale]/(business)/business/register/RegisterScreen.tsx': [
+        '@/business/lib/guide',
+        '@/business/lib/register',
+        'next/link',
+        'react',
+      ],
+      'src/app/[locale]/(business)/business/register/loading.tsx': ['@/business/i18n'],
     }
     for (const [file, expected] of Object.entries(INVENTORY)) {
       const src = readFileSync(join(process.cwd(), file), 'utf8')

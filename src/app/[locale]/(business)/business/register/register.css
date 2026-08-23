@@ -1,0 +1,602 @@
+/* 売上・レジ — the room's sheet, built to the 受信トレイ TEMPLATE (mock
+   2026-08-23, Liam's three-pass GO) from day one. Tokens, type scale, chip
+   colours and Japanese copy are the shell's and canon's; what this sheet states
+   is the template's layout expressed in this room's bands — a facts strip and a
+   counter strip, a 380px ledger column beside a wide workspace, the actions
+   pinned to the top of that workspace's band, 事実/決済手段 beside 証跡/影響 with
+   監査履歴 full width beneath, and a responsive ladder that reaches every screen
+   the business runs on.
+
+   ── TWO SCOPING JOBS, AND THEY ARE DIFFERENT PROBLEMS ───────────────────────
+
+   OUTGOING (this sheet reaching another room). Every rule below is scoped under
+   `.pg-register`, and the screen puts that class on exactly one node — so
+   nothing here can restyle 今日の運営 / 顧客 / 予約一覧 / 売上分析 /
+   スタッフ・シフト / 受信トレイ after a client-side navigation leaves this sheet
+   in the document.
+
+   INCOMING (another room's sheet reaching THIS one) — the room-2 BLOCKER class.
+   `.pg-register` does nothing about it: App Router keeps every sibling sheet
+   loaded, and the neighbours state BARE `.biz .<name>` rules on the exact names
+   canon's register page uses — `.summary`, `.summary-main`, `.summary-stat`,
+   `.filters`, `.panel`, `.panel-head`, `.panel-foot`, `.inspector`,
+   `.inspector-head`, `.fact`, `.fact-grid`, `.price`, `.history-row`, `.empty`,
+   `.status`, `.check-row`, `.terminal`, `.cash-stat`, `.tender-row`,
+   `.proof-box`, `.spot-card`, `.spot-foot`… 今日の運営 even owns
+   `.register-cell` and `.biz .spot-*`, which is this room's own two subjects
+   spelled in the neighbour's words.
+
+   THE FENCE HERE IS STRUCTURAL RATHER THAN ENUMERATED: every element this room
+   owns carries an `rg-` name that exists nowhere else in the family, so there is
+   no rule to collide with — a fence that cannot rot as the neighbours grow.
+   `page` / `h1` / `btn` are the shell's AND restated here, so those three are
+   fenced below at four levels; `pill` is also the shell's, but this sheet never
+   restates a property on it, so there is nothing here to collide. The room's own
+   suite DERIVES the collision list from the sibling sheets and this screen's own
+   markup — freshly, on every run — and fails if a neighbour ever states a bare
+   rule on a name this room renders.
+
+   ⚖ FOCUS IS THE SHELL'S, AND IT IS ALREADY RIGHT (`business-shell.css:107-111`,
+   3px accent at 2px offset, `:focus-visible` only). Restating it here would be a
+   second home for one verdict and would make this room's focus differ from every
+   other room's, so it is deliberately NOT carried.
+
+   ⚠ …BUT A RING THE ROOM CLIPS IS NOT A RING (the room-3 F2 lesson, inherited
+   from day one). The shell paints 3px OUTSIDE the control at 2px offset, so a
+   container that clips at its own border-radius erases the ring on every
+   pressable sitting against its edge. NO container this room owns clips: the
+   rounded corners are stated on the CORNER CHILDREN instead, so the background
+   still ends at the radius and the ring is whole on all four sides. Never
+   introduce `overflow: hidden` on `.rg-counts`, `.rg-money`, `.rg-terminal` or
+   `.rg-panel`.
+
+   ⚖ PAGE-SCROLL (Liam 8/22, ruled twice): NO wrapper in this room caps a height,
+   owns overflow-y, or sets overscroll-behavior — and none owns overflow-x
+   either, because the filter row WRAPS instead of panning and the ledger is a
+   LIST rather than a table. The PAGE scrolls; nothing else does. Canon's own
+   `.inspector` is `position: sticky` + `max-height: calc(100vh - 94px)` +
+   `overflow-y: auto` and is not carried. */
+
+/* ── the fence: the three shared names this room still uses ────────────────── */
+/* Four levels (`.biz .page.pg-register …`) rather than three, because a
+   sibling's own three-level rule (`.biz .page .btn`, customers.css:23) ties at
+   three and a tie is decided by whichever sheet App Router happened to insert
+   last. Derived FRESH from today's six sibling sheets: `.biz .page .btn`
+   (customers) · `.biz .btn` and `.biz .btn.primary` (reservations). */
+.biz .page.pg-register { padding: 24px 28px 40px; }
+.biz .page.pg-register h1 { margin: 0; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
+.biz .page.pg-register .btn { font-weight: 500; }
+.biz .page.pg-register .btn.primary { font-weight: 600; }
+
+/* ── page head ────────────────────────────────────────────────────────────── */
+/* A title, a subtitle and the numbers. The standing explainer paragraph a money
+   desk would otherwise carry lives in the ? tour's first step instead — nothing
+   at the top of the page to re-read every morning. */
+.biz .pg-register .rg-head { margin-bottom: 12px; }
+.biz .pg-register .rg-eyebrow { margin-bottom: 4px; color: var(--ink-3); font-size: 13px; font-weight: 700; }
+.biz .pg-register .rg-titleline { display: flex; align-items: center; gap: 9px; }
+.biz .pg-register .rg-subtitle { margin: 5px 0 0; color: var(--muted); font-size: 14px; line-height: 1.55; }
+/* A hairline circle, never a filled one — ⚖ R13, and a help mark that shouts is
+   worse than the paragraph it replaced. `[aria-expanded="true"]` means the
+   GUIDED TOUR is running, which is why the mark stays lit for the whole walk. */
+.biz .pg-register .rg-help {
+  flex: 0 0 auto; width: 21px; height: 21px; display: grid; place-items: center;
+  border: 1px solid #c9c9d2; border-radius: 50%; background: #fff;
+  color: var(--muted); font-size: 12px; font-weight: 700; line-height: 1; padding: 0;
+}
+.biz .pg-register .rg-help:hover,
+.biz .pg-register .rg-help[aria-expanded="true"] { border-color: var(--indigo); color: var(--indigo); background: var(--indigo-soft); }
+
+/* canon's own 権限 note (:175-185), in the family's amber. Not pressable, so it
+   stays a wash rather than an accent (⚖ the one-way accent law). */
+.biz .pg-register .rg-permission {
+  margin-bottom: 12px; padding: 9px 12px; border: 1px solid #efd2b7; border-radius: 9px;
+  background: var(--orange-soft); color: var(--orange); font-size: 12.5px; font-weight: 700; line-height: 1.55;
+}
+
+/* ── 決済端末 — a recorded fact with its consequence ───────────────────────── */
+.biz .pg-register .rg-terminal {
+  display: grid; grid-template-columns: minmax(320px, 1fr) repeat(3, minmax(92px, auto)) auto;
+  margin-bottom: 12px; border: 1px solid var(--proof-border); border-radius: 12px; background: var(--proof);
+}
+.biz .pg-register .rg-terminal-main {
+  display: flex; align-items: center; gap: 11px; min-width: 0; padding: 12px 14px;
+  border-left: 3px solid var(--orange-line); border-radius: 11px 0 0 11px;
+}
+.biz .pg-register .rg-terminal.ok .rg-terminal-main { border-left-color: var(--green); }
+.biz .pg-register .rg-terminal-icon {
+  display: grid; place-items: center; width: 30px; height: 30px; flex: 0 0 30px; border-radius: 50%;
+  background: var(--orange-line); color: #fff; font-size: 14px; font-weight: 800;
+}
+.biz .pg-register .rg-terminal.ok .rg-terminal-icon { background: var(--green); }
+.biz .pg-register .rg-terminal-main strong { display: block; font-size: 15px; line-height: 1.4; }
+.biz .pg-register .rg-terminal-main > span > span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.biz .pg-register .rg-terminal-stat { display: grid; align-content: center; padding: 9px 12px; border-left: 1px solid #e9edfb; }
+.biz .pg-register .rg-terminal-stat span { color: var(--muted); font-size: 12px; }
+.biz .pg-register .rg-terminal-stat b { margin-top: 2px; font-size: 17px; font-variant-numeric: tabular-nums; }
+.biz .pg-register .rg-terminal-stat b.warn { color: var(--orange); }
+.biz .pg-register .rg-terminal-action { display: flex; align-items: center; padding: 9px 12px; border-left: 1px solid #e9edfb; }
+
+/* ── 本日の売上集計 — FACTS. Not pressable, and they must not look it. ─────── */
+/* The money band and the counter band are two BANDS rather than one mixed strip
+   (build report R-4). The template's law is that a number naming a slice must
+   open that slice — which is true of the counters and false of the totals, and a
+   row that put four buttons beside five identical-looking non-buttons would make
+   「distinguish by aria, not by guess」 the reader's problem. Separating them by
+   KIND says it before any aria has to. Same strip grammar, two bands. */
+.biz .pg-register .rg-money {
+  display: grid; grid-template-columns: minmax(200px, 1.15fr) repeat(5, minmax(96px, .72fr));
+  margin-bottom: 10px; border: 1px solid var(--card); border-radius: 11px; background: #fff;
+}
+.biz .pg-register .rg-money-main { display: grid; align-content: center; padding: 11px 15px; background: #fafafb; border-radius: 10px 0 0 10px; }
+.biz .pg-register .rg-money-main strong { display: block; font-size: 15px; }
+.biz .pg-register .rg-money-main span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.biz .pg-register .rg-money-cell { display: grid; align-content: center; padding: 10px 12px; border-left: 1px solid var(--section); }
+.biz .pg-register .rg-money-cell:last-child { border-radius: 0 10px 10px 0; }
+.biz .pg-register .rg-money-cell span { color: var(--muted); font-size: 12px; }
+.biz .pg-register .rg-money-cell b { margin-top: 3px; font-size: 18px; font-variant-numeric: tabular-nums; }
+/* SEMANTIC, not decoration (⚖ the one-way accent law): money that left the
+   business and money that has not arrived are states of the day's takings, and
+   the family's words for them are red and amber. */
+.biz .pg-register .rg-money-cell b.bad { color: var(--red-dark); }
+.biz .pg-register .rg-money-cell b.warn { color: var(--orange); }
+/* 権限がありません is a SENTENCE, not a figure — it must not wear the tabular
+   money type or it reads as a number that failed to load. */
+.biz .pg-register .rg-money-cell b.redacted { font-size: 12px; font-weight: 500; color: var(--muted); }
+
+/* ── 取引の件数 — the numbers ARE the filters ──────────────────────────────── */
+/* NO `overflow: hidden` HERE: it would clip the shell's offset focus ring off
+   the counters. The strip's corners are stated on the corner children. */
+.biz .pg-register .rg-counts {
+  display: grid; grid-template-columns: minmax(200px, 1.15fr) repeat(3, minmax(96px, .6fr));
+  margin-bottom: 14px; border: 1px solid var(--proof-border); border-radius: 11px; background: var(--proof);
+}
+.biz .pg-register .rg-counts button { border: 0; background: none; color: inherit; font: inherit; text-align: left; width: 100%; }
+.biz .pg-register .rg-count-main { display: grid; align-content: center; padding: 11px 15px; border-radius: 10px 0 0 10px; }
+.biz .pg-register .rg-count-main strong { display: block; font-size: 15px; }
+.biz .pg-register .rg-count { display: grid; align-content: center; padding: 10px 13px; }
+.biz .pg-register .rg-count:last-child { border-radius: 0 10px 10px 0; }
+.biz .pg-register .rg-count span { color: var(--muted); font-size: 12px; }
+.biz .pg-register .rg-count b { display: block; margin-top: 2px; font-size: 20px; font-variant-numeric: tabular-nums; }
+.biz .pg-register .rg-count b.attention { color: var(--red-dark); }
+/* hover is NEUTRAL and pressed is ACCENT, so the two can never be confused —
+   the same grammar the ledger rows use one band below. */
+.biz .pg-register .rg-counts button:hover { background: #f1f2f8; }
+.biz .pg-register .rg-counts button[aria-pressed="true"] { background: var(--indigo-soft); }
+.biz .pg-register .rg-counts button[aria-pressed="true"] span,
+.biz .pg-register .rg-counts button[aria-pressed="true"] strong { color: var(--select-ink); }
+.biz .pg-register .rg-count[aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--select-line); }
+
+/* ── 本日まだ取引なし — a designed moment, not an empty panel ──────────────── */
+.biz .pg-register .rg-zero-card {
+  max-width: 460px; margin: 52px auto 32px; padding: 44px 28px 46px;
+  border: 1px solid var(--line); border-radius: 14px; background: #fff; text-align: center;
+}
+.biz .pg-register .rg-zero-mark {
+  display: grid; place-items: center; width: 46px; height: 46px; margin: 0 auto 16px;
+  border-radius: 50%; background: var(--row); color: var(--ink-3);
+}
+.biz .pg-register .rg-zero-card strong { display: block; font-size: 17px; line-height: 1.45; }
+.biz .pg-register .rg-zero-card p { margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+
+/* ── the workspace ────────────────────────────────────────────────────────── */
+.biz .pg-register .rg-workspace { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 14px; align-items: start; }
+/* NO `overflow: hidden` HERE either — it cut the left and right of the focus
+   ring off every row. The children that reach a corner carry the radius. */
+.biz .pg-register .rg-panel { border: 1px solid var(--line); border-radius: 11px; background: #fff; }
+.biz .pg-register .rg-panel-head {
+  min-height: 62px; padding: 10px 14px; border-bottom: 1px solid var(--line-2);
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: #fafafb; border-radius: 10px 10px 0 0;
+}
+.biz .pg-register .rg-panel-head > div { min-width: 0; }
+.biz .pg-register .rg-panel-head strong { display: block; font-size: 15px; }
+.biz .pg-register .rg-panel-head span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.biz .pg-register .rg-panel-head .pill { flex: 0 0 auto; }
+
+/* filters — QUIET TEXT, not buttons. A filter narrows a view; it is not an
+   action, so it gets no border, no fill and no box. Selected = accent label plus
+   a 2px accent underline, the "current view" grammar tabs already use. The
+   underline is native text-decoration rather than a border-bottom, so it hugs
+   the TEXT no matter how much padding the ≤743 touch target adds underneath. */
+.biz .pg-register .rg-filters { display: flex; flex-wrap: wrap; gap: 2px 15px; padding: 9px 13px 8px; border-bottom: 1px solid var(--line-2); }
+.biz .pg-register .rg-filter {
+  display: inline-block; padding: 5px 0; border: 0; background: none;
+  color: var(--muted); font-size: 13px; line-height: 20px; white-space: nowrap;
+  text-decoration-line: underline; text-decoration-color: transparent;
+  text-decoration-thickness: 2px; text-underline-offset: 5px;
+}
+.biz .pg-register .rg-filter:hover { color: var(--ink); }
+.biz .pg-register .rg-filter[aria-pressed="true"] { color: var(--select-ink); font-weight: 700; text-decoration-color: var(--select-line); }
+
+/* ── the ledger: three lines, and the card ends with its content ───────────── */
+/* ⚖ CANON'S 5-COLUMN TABLE IS NOT CARRIED (build report R-3). The template's
+   list column is 380px and a five-column money table inside it is unreadable at
+   any width the family ships; as a LIST the same facts fit, the ≤743
+   list-is-the-page pattern becomes possible, and the room owns no horizontal
+   axis at all — which is what ⚖ ANY-ROSTER-SIZE asks a table to buy back with
+   sticky columns. Money keeps its right alignment and its tabular figures. */
+.biz .pg-register .rg-list { display: block; }
+.biz .pg-register .rg-row {
+  display: block; width: 100%; padding: 11px 13px; border: 0; border-bottom: 1px solid var(--row);
+  background: #fff; color: var(--ink); text-align: left; transition: background-color .12s ease;
+}
+.biz .pg-register .rg-row:hover { background: #fafafb; }
+/* R13: the selected row is a wash plus canon's accent rail, never a fill. */
+.biz .pg-register .rg-row.selected { background: var(--indigo-soft); box-shadow: inset 3px 0 0 var(--indigo); }
+.biz .pg-register .rg-copy { display: block; min-width: 0; }
+.biz .pg-register .rg-line1 { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.biz .pg-register .rg-line1 strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 取引番号 — informational, so it is NEUTRAL (the accent law's one-way rule). */
+.biz .pg-register .rg-no { color: var(--quiet); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.biz .pg-register .rg-line1 time { margin-left: auto; color: var(--quiet); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.biz .pg-register .rg-line2 { display: flex; align-items: center; gap: 8px; min-width: 0; margin-top: 3px; }
+.biz .pg-register .rg-what { min-width: 0; color: var(--ink-2); font-size: 13px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .pg-register .rg-line2 .pill { margin-left: auto; flex: 0 0 auto; min-height: 22px; padding: 0 7px; font-size: 11px; }
+.biz .pg-register .rg-line3 { display: flex; align-items: baseline; gap: 10px; min-width: 0; margin-top: 4px; }
+.biz .pg-register .rg-tender { min-width: 0; color: var(--muted); font-size: 12px; line-height: 1.45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .pg-register .rg-amounts { margin-left: auto; flex: 0 0 auto; text-align: right; white-space: nowrap; }
+.biz .pg-register .rg-amounts b { font-size: 13px; font-variant-numeric: tabular-nums; }
+/* SEMANTIC, and the two are different facts: amber says the shop is still owed
+   the money, red says it went back out again. */
+.biz .pg-register .rg-amounts em { display: block; margin-top: 2px; font-size: 11.5px; font-style: normal; font-variant-numeric: tabular-nums; }
+.biz .pg-register .rg-amounts em.warn { color: var(--orange); }
+.biz .pg-register .rg-amounts em.bad { color: var(--red-dark); }
+.biz .pg-register .rg-empty { min-height: 260px; display: grid; place-content: center; padding: 28px; text-align: center; }
+.biz .pg-register .rg-empty strong { font-size: 16px; }
+.biz .pg-register .rg-empty span { margin-top: 6px; color: var(--muted); font-size: 13px; }
+/* canon's own panel footer sentence (:770) — the standing rule about what a
+   refund does and does not rewrite. */
+.biz .pg-register .rg-foot {
+  margin: 0; padding: 10px 13px; border-top: 1px solid var(--line-2); background: #fafafb;
+  border-radius: 0 0 10px 10px; color: var(--muted); font-size: 12px; line-height: 1.55;
+}
+
+/* ── the workspace panel: header band with the actions pinned top-right ───── */
+/* ⚖ THE BAND SIZES FROM THE PANEL, NOT FROM THE VIEWPORT (the room-3 lesson):
+   a media query knows the WINDOW, and this band lives inside a panel whose width
+   also depends on the shell's sidebar, which the operator opens and closes
+   (76px collapsed, 264px open). So the band WRAPS: the two halves sit side by
+   side while both fit and the actions drop to their own full-width row when they
+   do not. `flex: 1 1 auto` with an AUTO basis, never a px one — the ≤1279 band
+   turns this row into a COLUMN, where a px basis is a HEIGHT. */
+.biz .pg-register .rg-band {
+  display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 18px;
+  padding: 14px 16px; border-bottom: 1px solid var(--line-2); background: #fafafb; border-radius: 10px 10px 0 0;
+}
+.biz .pg-register .rg-band-id { min-width: 0; flex: 1 1 auto; }
+.biz .pg-register .rg-kicker { color: var(--ink-3); font-size: 12px; font-weight: 800; letter-spacing: .04em; }
+.biz .pg-register .rg-band-id h2 { margin: 6px 0 3px; font-size: 21px; line-height: 1.35; }
+.biz .pg-register .rg-band-id p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.biz .pg-register .rg-act { flex: 0 1 auto; max-width: 470px; text-align: right; }
+.biz .pg-register .rg-act-row { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+/* The refusal lives on screen before anyone reaches for a control — nothing to
+   outrun, nothing that disappears (⚖ 47). */
+.biz .pg-register .rg-footnote { margin: 8px 0 0; color: var(--ink-3); font-size: 12px; line-height: 1.55; text-align: right; }
+/* ≤743 only — above that band the ledger never left. */
+.biz .pg-register .rg-back { display: none; }
+
+.biz .pg-register .rg-body { padding: 14px 16px 16px; }
+.biz .pg-register .rg-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.biz .pg-register .rg-title { margin: 0 0 7px; color: var(--ink-3); font-size: 12px; font-weight: 800; letter-spacing: .04em; }
+.biz .pg-register .rg-title-row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-bottom: 7px; }
+.biz .pg-register .rg-title-row .rg-title { margin: 0; }
+/* ⚖ THE HEADING IS PART OF THE SECTION (Liam's rule, found live on room 3 8/23):
+   the tour's declaration rides a WRAPPER holding the 見出し AND its box, so
+   tapping the word jumps to it instead of hitting the scrim and closing the
+   walk. The wrapper paints nothing — it carries only the between-sections
+   margin. */
+.biz .pg-register .rg-sec { margin-top: 15px; }
+.biz .pg-register .rg-sec:first-child { margin-top: 0; }
+
+.biz .pg-register .rg-facts { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.biz .pg-register .rg-fact { display: grid; grid-template-columns: 104px 1fr; gap: 10px; padding: 9px 11px; border-bottom: 1px solid var(--row); font-size: 13px; line-height: 1.45; }
+.biz .pg-register .rg-fact:last-child { border-bottom: 0; }
+.biz .pg-register .rg-fact span { color: var(--muted); }
+.biz .pg-register .rg-fact b { text-align: right; font-weight: 600; word-break: break-word; font-variant-numeric: tabular-nums; }
+.biz .pg-register .rg-fact b.warn { color: var(--orange); }
+.biz .pg-register .rg-fact b.bad { color: var(--red-dark); }
+
+.biz .pg-register .rg-tenders { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.biz .pg-register .rg-tender-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 9px 11px; border-bottom: 1px solid var(--row); font-size: 13px; }
+.biz .pg-register .rg-tender-row:last-child { border-bottom: 0; }
+.biz .pg-register .rg-tender-row span { color: var(--muted); }
+.biz .pg-register .rg-tender-row b { font-variant-numeric: tabular-nums; }
+/* SEMANTIC: a reversal is money that left again, and 未収 is money that never
+   arrived. Two different facts, two different words. */
+.biz .pg-register .rg-tender-row.refund b { color: var(--red-dark); }
+.biz .pg-register .rg-tender-row.unpaid b { color: var(--orange); }
+
+.biz .pg-register .rg-proof {
+  margin: 0; padding: 11px 12px; border-left: 3px solid var(--indigo); background: var(--proof);
+  color: var(--ink-3); font-size: 12px; line-height: 1.6;
+}
+.biz .pg-register .rg-preview {
+  padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: #fafafb;
+  color: var(--ink-2); font-size: 12.5px; line-height: 1.65;
+}
+.biz .pg-register .rg-preview b { display: block; color: var(--red-dark); font-variant-numeric: tabular-nums; }
+.biz .pg-register .rg-preview span { display: block; margin-top: 4px; color: var(--ink-3); }
+.biz .pg-register .rg-impact { margin: 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.6; }
+.biz .pg-register .rg-impact.bad { color: var(--red-dark); font-weight: 600; }
+
+/* ── 監査履歴 — full width under the pair, tight paired rows ───────────────── */
+.biz .pg-register .rg-hist { border-top: 1px solid var(--line-2); margin-top: 16px; padding-top: 12px; }
+/* ── chronology cue ────────────────────────────────────────────────────────
+   Two entries side by side read as a two-column TABLE unless something says they
+   are one sequence. The quietest thing that says it is a hairline drawn across
+   the gap, plus the 新しい順 label, which supplies the DIRECTION a bare line
+   cannot. No arrowhead on purpose: newest sits left and time runs BACKWARD to
+   the right. The column count is fixed at 2 (never auto-fill) so the connector
+   always has exactly one gap to cross. */
+.biz .pg-register .rg-hist-rows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 22px; }
+.biz .pg-register .rg-history-row { position: relative; display: grid; grid-template-columns: 52px 1fr; gap: 9px; padding: 8px 0; border-bottom: 1px solid var(--row); }
+/* pinned to the FIRST line of the entry, never to 50% of it: entries wrap to two
+   and three lines at narrow widths, and a centred connector then floats beside
+   the wrapped body text and reads as a stray dash. */
+.biz .pg-register .rg-history-row:nth-child(even)::before {
+  content: ""; position: absolute; top: 19px; left: -22px; width: 18px; border-top: 1px solid #d0d0da;
+}
+.biz .pg-register .rg-order { color: var(--quiet); font-size: 11.5px; font-weight: 600; }
+.biz .pg-register .rg-history-row time { color: var(--quiet); font-size: 12px; font-variant-numeric: tabular-nums; }
+.biz .pg-register .rg-history-row strong { display: block; font-size: 13px; }
+.biz .pg-register .rg-history-row > span > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.biz .pg-register .rg-none { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+/* ── 閉店 — the day's own end, full width beneath the workspace ────────────── */
+.biz .pg-register .rg-closing { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 14px; align-items: start; margin-top: 14px; }
+.biz .pg-register .rg-cash-body { padding: 14px; }
+.biz .pg-register .rg-cash-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.biz .pg-register .rg-cash-stat { padding: 10px 11px; border-right: 1px solid var(--section); }
+.biz .pg-register .rg-cash-stat:last-child { border-right: 0; }
+.biz .pg-register .rg-cash-stat span { display: block; color: var(--muted); font-size: 12px; }
+.biz .pg-register .rg-cash-stat b { display: block; margin-top: 3px; font-size: 18px; font-variant-numeric: tabular-nums; }
+.biz .pg-register .rg-cash-stat b.bad { color: var(--red-dark); }
+.biz .pg-register .rg-cash-facts { margin-top: 12px; }
+.biz .pg-register .rg-cash-action { display: flex; justify-content: flex-end; margin-top: 12px; }
+.biz .pg-register .rg-close-body { padding: 14px; }
+.biz .pg-register .rg-checks { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.biz .pg-register .rg-check { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; min-height: 48px; padding: 9px 11px; border-bottom: 1px solid var(--row); }
+.biz .pg-register .rg-check:last-child { border-bottom: 0; }
+.biz .pg-register .rg-check strong { display: block; font-size: 13px; }
+.biz .pg-register .rg-check > span > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+/* ⚖ THE PAIR ON TOP, THE EVIDENCE FULL WIDTH BENEATH — the template's own
+   workspace grammar, and the fix for a real gutter found in the pixel review:
+   with the record and the reconciliation inside the 閉店チェック panel, the
+   right column ran ~500px taller than 現金ドロア and the page grew an empty
+   column down its left. The two read-only evidence sections are the day's
+   RECORD rather than part of the checklist, so they get their own full-width
+   band under the pair. */
+.biz .pg-register .rg-record { margin-top: 14px; }
+.biz .pg-register .rg-record-body { padding: 14px; }
+.biz .pg-register .rg-close-grid { margin-top: 0; }
+.biz .pg-register .rg-recon { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.biz .pg-register .rg-recon-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(3, minmax(84px, auto)); gap: 4px 14px; align-items: baseline; padding: 9px 11px; border-bottom: 1px solid var(--row); font-size: 12.5px; }
+.biz .pg-register .rg-recon-row:last-child { border-bottom: 0; }
+.biz .pg-register .rg-recon-ch { color: var(--ink-2); font-weight: 600; }
+/* Each figure carries its own word rather than leaning on a header row, which
+   would vanish the moment the band stacks on a phone. */
+.biz .pg-register .rg-recon-cell { display: block; text-align: right; }
+.biz .pg-register .rg-recon-cell em { display: block; color: var(--quiet); font-size: 11px; font-style: normal; line-height: 1.3; }
+.biz .pg-register .rg-recon-cell b { font-variant-numeric: tabular-nums; font-weight: 600; }
+.biz .pg-register .rg-recon-cell b.rg-recon-rev { color: var(--red-dark); }
+.biz .pg-register .rg-close-actions { justify-content: flex-end; margin-top: 14px; }
+
+/* ═══ ⚖ Liam 8/23 — 画面の説明 (the guided tour) ═══════════════════════════
+   A SPOTLIGHT, NOT A MODAL: the hole is one big box-shadow, so the section being
+   explained stays fully lit and the rest of the page dims behind it without a
+   single element being moved. `.rg-spot-catch` is the click surface that makes
+   every declared region jumpable, and it sits UNDER the hole and the card.
+
+   Every name is `rg-`-prefixed like the rest of this room: 今日の運営 states
+   BARE `.biz .spot-*` rules on all five of these names and 受信トレイ owns the
+   `ib-` spelling, so a shared name here would be three rooms' overlays fighting
+   over one paint. NO SCROLLER, NO HEIGHT CAP, NO `overscroll-behavior`
+   (⚖ page-scroll). Colours are the family's own — a neutral scrim (a
+   non-interactive surface, R13's allowlist) and white controls with hairline
+   borders; no black fill on anything pressable. */
+.biz .pg-register .rg-spot-hole {
+  position: fixed; z-index: 70; pointer-events: none; border-radius: 12px;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 9999px rgba(24, 24, 27, .42);
+  transition: top .24s cubic-bezier(.2, .7, .1, 1), left .24s cubic-bezier(.2, .7, .1, 1), width .24s cubic-bezier(.2, .7, .1, 1), height .24s cubic-bezier(.2, .7, .1, 1);
+}
+.biz .pg-register .rg-spot-catch { position: fixed; inset: 0; z-index: 69; cursor: pointer; }
+.biz .pg-register .rg-spot-hover { position: fixed; z-index: 70; pointer-events: none; border: 2px dashed rgba(255, 255, 255, .9); border-radius: 12px; }
+.biz .pg-register .rg-spot-card {
+  position: fixed; z-index: 72; width: 300px; max-width: calc(100vw - 20px);
+  padding: 12px 14px 10px; border: 1.5px solid var(--control); border-radius: 12px; background: #fff;
+  box-shadow: 0 14px 40px rgba(24, 24, 27, .3); font-size: 12.5px; line-height: 1.65; color: var(--ink-2);
+}
+.biz .pg-register .rg-spot-card b { display: block; margin-bottom: 2px; font-size: 13.5px; color: var(--ink); }
+.biz .pg-register .rg-spot-text { display: block; }
+.biz .pg-register .rg-spot-hint { margin-top: 6px; color: var(--quiet); font-size: 11px; }
+.biz .pg-register .rg-spot-foot { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--section); }
+.biz .pg-register .rg-spot-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.biz .pg-register .rg-spot-foot button { min-height: 30px; padding: 0 11px; border: 1px solid var(--control); border-radius: 7px; background: #fff; color: var(--ink-2); font-size: 12px; font-weight: 600; cursor: pointer; }
+.biz .pg-register .rg-spot-foot button:hover { background: #f4f4f5; }
+.biz .pg-register .rg-spot-foot button:disabled { opacity: .4; cursor: default; }
+.biz .pg-register .rg-spot-foot .rg-spot-done { margin-left: auto; }
+
+/* ⚖ ALL-SCREEN ADAPTIVITY (Liam 8/23) — the ladder, band by band. Only the
+   PAGE's own rules live here; the shell's own bands (`.biz .app`'s 1180px floor,
+   the rail, the topbar) are the family CSS sweep's, not this room's. */
+
+/* ═══ ≥1400 — big external displays: comfort, with line lengths capped ═══ */
+@media (min-width: 1400px) {
+  .biz .page.pg-register { padding-left: 32px; padding-right: 32px; }
+  .biz .pg-register .rg-workspace, .biz .pg-register .rg-closing { gap: 18px; }
+  .biz .pg-register .rg-body { padding: 16px 18px 18px; }
+  .biz .pg-register .rg-grid { gap: 22px; }
+  /* ultra-wide must not mean unreadably long lines */
+  .biz .pg-register .rg-proof,
+  .biz .pg-register .rg-preview,
+  .biz .pg-register .rg-impact { max-width: 62ch; }
+  .biz .pg-register .rg-history-row > span > span { max-width: 56ch; }
+  .biz .pg-register .rg-terminal-main > span > span { max-width: 72ch; }
+  .biz .pg-register .rg-zero-card { margin-top: 64px; padding: 50px 32px 52px; }
+}
+
+/* ═══ 1024–1279 — iPad landscape / small laptop ═══
+   The workspace loses ~200px: the actions take their own full-width row rather
+   than fighting the name for the band, and the ledger column tightens to 300px.
+   ⚖ 1100–1279 KEEPS THE INNER PAIR SIDE BY SIDE (the room-3 finding): stacking
+   it here doubles the workspace's height while the short ledger card stays
+   short, and the page grows a tall empty gutter down the left. The pair costs
+   width, not height, and the width is still there. */
+@media (max-width: 1279px) {
+  .biz .page.pg-register { padding-left: 20px; padding-right: 20px; }
+  .biz .pg-register .rg-workspace { grid-template-columns: 300px minmax(0, 1fr); gap: 12px; }
+  .biz .pg-register .rg-closing { gap: 12px; }
+  .biz .pg-register .rg-money-cell, .biz .pg-register .rg-count { padding-left: 9px; padding-right: 9px; }
+  .biz .pg-register .rg-band { flex-direction: column; align-items: stretch; gap: 12px; }
+  .biz .pg-register .rg-act { max-width: none; text-align: left; }
+  .biz .pg-register .rg-act-row { justify-content: flex-start; }
+  .biz .pg-register .rg-footnote { text-align: left; }
+  /* fr-based, never fixed px: minmax(0, …) columns SHRINK past their ideal
+     rather than overflowing the panel, so a band can never clip or pan. */
+  .biz .pg-register .rg-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  /* the 104px label rail is generous for 予約/売上/受領 — 84 gives the value
+     column back 20px exactly where the band is tightest. */
+  .biz .pg-register .rg-fact { grid-template-columns: 84px 1fr; }
+}
+
+/* ── ≤1099 — the pair genuinely runs out of width: stack it ──────────────── */
+@media (max-width: 1099px) {
+  .biz .pg-register .rg-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  /* the terminal band's five cells stop fitting on one line long before this;
+     the stats wrap under the sentence rather than squeezing it to nothing. */
+  .biz .pg-register .rg-terminal { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .biz .pg-register .rg-terminal-main { grid-column: 1 / -1; border-radius: 11px 11px 0 0; }
+  .biz .pg-register .rg-terminal-stat { border-left: 0; border-top: 1px solid #e9edfb; }
+  .biz .pg-register .rg-terminal-stat:not(:first-of-type) { border-left: 1px solid #e9edfb; }
+  .biz .pg-register .rg-terminal-action { grid-column: 1 / -1; border-left: 0; border-top: 1px solid #e9edfb; }
+}
+
+/* ═══ 744–1023 — iPad portrait / iPad mini / foldable INNER display ═══
+   One column: the bands, then the ledger, then the open transaction's workspace
+   beneath it. The workspace has the FULL page width there, so its inner pair
+   pairs up again in the 800+ band below.
+
+   ⚖ VERIFIED DEVICE DATA (2026-08-23, carried from the approved mock): the
+   iPhone Fold's inner display is 4:3 landscape-leaning at roughly 930×655
+   logical, and a Galaxy Z Fold's inner is near-square at ~840–980. Those
+   interiors are iPad-grade canvases, so the two-column workspace treatment
+   reaches DOWN to 744 rather than stopping at 1024. Nothing in this band assumes
+   a TALL portrait viewport (no vh-based heights), so a 655px-high landscape
+   interior simply scrolls the page like any other. */
+@media (max-width: 1023px) {
+  .biz .pg-register .rg-money { grid-template-columns: 1fr 1fr; }
+  .biz .pg-register .rg-money-main { grid-column: 1 / -1; border-radius: 10px 10px 0 0; }
+  .biz .pg-register .rg-money-cell { border-left: 0; border-top: 1px solid var(--section); }
+  .biz .pg-register .rg-money-cell:nth-child(odd) { border-left: 1px solid var(--section); }
+  .biz .pg-register .rg-money-cell:last-child { grid-column: 1 / -1; border-left: 0; border-radius: 0 0 10px 10px; }
+  .biz .pg-register .rg-counts { grid-template-columns: 1fr 1fr; }
+  .biz .pg-register .rg-count-main { grid-column: 1 / -1; border-radius: 10px 10px 0 0; }
+  .biz .pg-register .rg-count:last-child { grid-column: 1 / -1; border-radius: 0 0 10px 10px; }
+  .biz .pg-register .rg-workspace,
+  .biz .pg-register .rg-closing { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .biz .pg-register .rg-act-row .btn { flex: 1 1 190px; }
+}
+
+/* ── 800–1023: the near-square canvases get the two-column workspace ─────── */
+/* ⚖ VERIFIED (2026-08-23): the boundary is 800, not 840, because the Galaxy Z
+   Fold 8 "Wide" inner panel (1848×2448, 4:3) resolves to ≈820 logical — a
+   near-square canvas that would waste its whole point on one stretched column.
+   Below 800 sits the genuinely 3:4 PORTRAIT tablet (iPad 768), and a portrait
+   tablet is the shape a single column was made for. The split is about SHAPE,
+   not size. */
+@media (min-width: 800px) and (max-width: 1023px) {
+  .biz .pg-register .rg-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+}
+
+/* ═══ ≤743 — smartphones / folded cover screen: the Gmail phone pattern ═══
+   The ledger IS the page: a row tap opens the transaction as its own screen and
+   the ← control brings the list back (Escape does the same from a keyboard).
+
+   ⚖ VERIFIED DEVICE DATA (2026-08-23): this band must stay comfortable up to
+   ~500px, not just 390–430 — the iPhone Fold's FOLDED cover screen is a 4:3
+   panel at roughly 470–490 logical. Every rule here sizes from the CONTENT
+   (flex/auto columns, wrapping filters, ellipsis on the two lines that can run
+   long) rather than from a 390px assumption. */
+@media (max-width: 743px) {
+  .biz .page.pg-register { padding: 16px 16px 32px; }
+  .biz .page.pg-register h1 { font-size: 23px; }
+  .biz .pg-register .rg-head { margin-bottom: 10px; }
+  /* ⚖ ≥44px on a thumb WITHOUT growing the mark: a 44px help circle beside a
+     23px title would shout louder than the title, so the hit box is extended
+     past the paint, which is what a touch target is for. */
+  .biz .pg-register .rg-help { position: relative; }
+  .biz .pg-register .rg-help::after {
+    content: ""; position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%);
+  }
+
+  /* ONE SCREEN AT A TIME. */
+  .biz .pg-register .rg-detail { display: none; }
+  .biz .pg-register.is-detail .rg-ledger { display: none; }
+  .biz .pg-register.is-detail .rg-detail { display: block; }
+  /* the closing panels belong to the LEDGER screen, not to one transaction —
+     a reader who opened a transaction should not have the day's close under it. */
+  .biz .pg-register.is-detail .rg-closing,
+  .biz .pg-register.is-detail .rg-noclose { display: none; }
+
+  .biz .pg-register .rg-money, .biz .pg-register .rg-counts { grid-template-columns: minmax(0, 1fr); }
+  .biz .pg-register .rg-money-cell, .biz .pg-register .rg-count { border-left: 0; border-top: 1px solid var(--section); border-radius: 0; }
+  .biz .pg-register .rg-money-cell:nth-child(odd) { border-left: 0; }
+  .biz .pg-register .rg-money-main, .biz .pg-register .rg-count-main { border-radius: 10px 10px 0 0; }
+  .biz .pg-register .rg-money-cell:last-child, .biz .pg-register .rg-count:last-child { border-radius: 0 0 10px 10px; }
+  .biz .pg-register .rg-terminal { grid-template-columns: minmax(0, 1fr); }
+  .biz .pg-register .rg-terminal-stat { border-left: 0 !important; border-top: 1px solid #e9edfb; }
+  .biz .pg-register .rg-terminal-action .btn { width: 100%; min-height: 46px; }
+
+  .biz .pg-register .rg-panel-head { flex-direction: column; align-items: flex-start; gap: 8px; }
+  /* the quiet text treatment stays; only the HIT BOX grows. 20px line + 12px top
+     + 12px bottom = a 44px target, and because the mark is native
+     text-decoration rather than a border-bottom, the underline stays pinned
+     under the label instead of drifting to the bottom of the padding. */
+  .biz .pg-register .rg-filters { gap: 2px 18px; padding: 4px 13px; }
+  .biz .pg-register .rg-filter { padding: 12px 0; }
+  .biz .pg-register .rg-row { padding: 12px 13px; min-height: 88px; }
+  .biz .pg-register .rg-line1 strong { font-size: 15px; }
+  .biz .pg-register .rg-what { font-size: 13.5px; }
+
+  .biz .pg-register .rg-back {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 44px; margin-bottom: 4px;
+    padding: 0 12px 0 8px; border: 1px solid var(--line); border-radius: 8px; background: #fff;
+    color: var(--ink-2); font-size: 14px; font-weight: 500; align-self: flex-start;
+  }
+  .biz .pg-register .rg-band { padding: 12px 14px; }
+  .biz .pg-register .rg-band-id h2 { font-size: 20px; }
+  .biz .pg-register .rg-act-row { flex-direction: column; }
+  .biz .pg-register .rg-act-row .btn { flex: 1 1 auto; width: 100%; min-height: 46px; }
+  .biz .pg-register .rg-body, .biz .pg-register .rg-cash-body, .biz .pg-register .rg-close-body { padding: 12px 14px 16px; }
+  .biz .pg-register .rg-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  /* facts read as label-above-value on a phone: a 104px label column plus a
+     right-aligned value turns 予約 into a four-line ragged block. */
+  .biz .pg-register .rg-fact { grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 10px 11px; }
+  .biz .pg-register .rg-fact b { text-align: left; }
+  .biz .pg-register .rg-cash-stats { grid-template-columns: minmax(0, 1fr); }
+  .biz .pg-register .rg-cash-stat { border-right: 0; border-bottom: 1px solid var(--section); }
+  .biz .pg-register .rg-cash-stat:last-child { border-bottom: 0; }
+  .biz .pg-register .rg-recon-row { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 10px; }
+  .biz .pg-register .rg-recon-ch { grid-column: 1 / -1; }
+  .biz .pg-register .rg-recon-cell { text-align: left; }
+  /* stacked, the rows' own separators + 新しい順 already carry the order; a
+     connector drawn into a gap that no longer exists would only be noise. */
+  .biz .pg-register .rg-hist-rows { grid-template-columns: minmax(0, 1fr); }
+  .biz .pg-register .rg-history-row { grid-template-columns: 46px 1fr; }
+  .biz .pg-register .rg-history-row:nth-child(even)::before { display: none; }
+  .biz .pg-register .rg-zero-card { margin: 28px auto 24px; padding: 36px 20px 38px; }
+}
+
+/* The two motions in the room — the row's own hover/selection fade and the
+   spotlight sliding from one section to the next — both removed outright for a
+   reader who asked for less. The tour still walks; the hole simply arrives. */
+@media (prefers-reduced-motion: reduce) {
+  .biz .pg-register .rg-row { transition: none; }
+  .biz .pg-register .rg-spot-hole { transition: none; }
+}
+
+/* ⚖ A CLOSE BELONGS TO ONE STORE — the storeless lens gets a stated reason
+   rather than two stores' drawers merged into a figure nobody can act on. */
+.biz .pg-register .rg-noclose { margin-top: 14px; }
+.biz .pg-register .rg-noclose-note { margin: 0; padding: 14px; color: var(--ink-3); font-size: 13px; line-height: 1.65; }
