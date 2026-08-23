@@ -550,7 +550,11 @@ export type ReassignPreview = {
   fromCustomerId: string
   fromName: string
   toName: string
-  burnCount: number
+  // R11-1: split from one burnCount — linked (provable) vs sameDay
+  // (presence-only, must be labeled unconfirmed by every surface). See
+  // reassign-facts.ts's own header comment for why.
+  linkedBurnCount: number
+  sameDayBurnCount: number
   photoCount: number
 }
 
@@ -558,7 +562,8 @@ export type ReassignSuccess = {
   success: true
   fromCustomerId: string
   toCustomerId: string
-  burnCount: number
+  linkedBurnCount: number
+  sameDayBurnCount: number
   photoCount: number
 }
 
@@ -749,7 +754,8 @@ export async function reassignKaruteCustomerWithClient(
       fromCustomerId,
       fromName: fromCustomer.name,
       toName: toCustomer.name,
-      burnCount: facts.burnCount,
+      linkedBurnCount: facts.linkedBurnCount,
+      sameDayBurnCount: facts.sameDayBurnCount,
       photoCount: facts.photoCount,
     }
   }
@@ -761,14 +767,15 @@ export async function reassignKaruteCustomerWithClient(
     success: true,
     fromCustomerId,
     toCustomerId,
-    burnCount: facts.burnCount,
+    linkedBurnCount: facts.linkedBurnCount,
+    sameDayBurnCount: facts.sameDayBurnCount,
     photoCount: facts.photoCount,
   }
 }
 
 export type ReassignKaruteCustomerResult =
   | ReassignPreview
-  | { success: true; burnCount: number; photoCount: number }
+  | { success: true; linkedBurnCount: number; sameDayBurnCount: number; photoCount: number }
   | { error: string }
 
 /** Cookie web wrapper — records.reassign gate + business-scoped client +
@@ -800,13 +807,15 @@ export async function reassignKaruteCustomer(
       detail: {
         from_customer_id: result.fromCustomerId,
         to_customer_id: result.toCustomerId,
-        // R3-2 (fix round 3, Greptile issue 2 — REAL): renamed from
-        // burn_count — the receipt now states exactly what it counted
-        // (same-JST-day redemptions, reassign-facts.ts's own ceiling
-        // comment), not an unqualified claim of every burn against this
-        // karute. The UI-facing burnCount field (result/response body)
-        // keeps its name — only the audit detail key renames.
-        same_day_burn_count: result.burnCount,
+        // R3-2 (fix round 3): renamed burn_count → same_day_burn_count so
+        // the receipt never overclaimed precision.
+        // R11-1 (fix round 11, Greptile round-6 closure): split further —
+        // linked_burn_count is the provable count, same_day_burn_count is
+        // presence-only. Conflating them into one key was exactly the
+        // attribution finding this round closes; the audit receipt must not
+        // re-introduce it.
+        linked_burn_count: result.linkedBurnCount,
+        same_day_burn_count: result.sameDayBurnCount,
         photo_count: result.photoCount,
       },
       requestId: crypto.randomUUID(),
@@ -831,7 +840,12 @@ export async function reassignKaruteCustomer(
     // as staff/[id]/route.ts's revalidateTag('staff-list', 'max').
     revalidateTag('customers', 'max')
 
-    return { success: true, burnCount: result.burnCount, photoCount: result.photoCount }
+    return {
+      success: true,
+      linkedBurnCount: result.linkedBurnCount,
+      sameDayBurnCount: result.sameDayBurnCount,
+      photoCount: result.photoCount,
+    }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }

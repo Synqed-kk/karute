@@ -420,8 +420,16 @@ async function facadeReassignKaruteCustomer(
   toCustomerId: string,
   opts: { confirmed: boolean },
 ): Promise<
-  | { requiresConfirm: true; fromCustomerId: string; fromName: string; toName: string; burnCount: number; photoCount: number }
-  | { success: true; burnCount: number; photoCount: number }
+  | {
+      requiresConfirm: true
+      fromCustomerId: string
+      fromName: string
+      toName: string
+      linkedBurnCount: number
+      sameDayBurnCount: number
+      photoCount: number
+    }
+  | { success: true; linkedBurnCount: number; sameDayBurnCount: number; photoCount: number }
   | { error: string }
 > {
   try {
@@ -435,7 +443,8 @@ async function facadeReassignKaruteCustomer(
           from_customer_id?: string
           from_name?: string
           to_name?: string
-          burn_count?: number
+          linked_burn_count?: number
+          same_day_burn_count?: number
           photo_count?: number
           error?: { message?: string }
         }
@@ -449,11 +458,17 @@ async function facadeReassignKaruteCustomer(
         fromCustomerId: body.from_customer_id ?? '',
         fromName: body.from_name ?? '',
         toName: body.to_name ?? '',
-        burnCount: body.burn_count ?? 0,
+        linkedBurnCount: body.linked_burn_count ?? 0,
+        sameDayBurnCount: body.same_day_burn_count ?? 0,
         photoCount: body.photo_count ?? 0,
       }
     }
-    return { success: true, burnCount: body.burn_count ?? 0, photoCount: body.photo_count ?? 0 }
+    return {
+      success: true,
+      linkedBurnCount: body.linked_burn_count ?? 0,
+      sameDayBurnCount: body.same_day_burn_count ?? 0,
+      photoCount: body.photo_count ?? 0,
+    }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Network error' }
   }

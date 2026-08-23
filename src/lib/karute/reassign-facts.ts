@@ -9,9 +9,22 @@ import { isSameJstDay } from '@/lib/date/jst'
 import { scopeKarutePhotos } from './scoped-photos'
 
 export interface ReassignFacts {
-  /** 回数券 redemptions linked to this karute (or its appointment) that stay
-   *  with the OLD customer — money never moves. */
-  burnCount: number
+  /** 回数券 redemptions PROVABLY linked to this karute or its appointment
+   *  (karute_record_id === record.id, or appointment_id match) — the only
+   *  count strong enough to attribute to THIS session. R11-1 (Greptile
+   *  round-6 closure): 0 today under core's narrow reads — the installed
+   *  SDK's listRedemptions() rows don't actually carry karute_record_id /
+   *  appointment_id at runtime (RedemptionReadSkew below, same F-1 skew) —
+   *  goes live automatically, no code change needed here, the moment
+   *  Anthony's SELECT widens to include them. */
+  linkedBurnCount: number
+  /** Redemptions landing on the SAME JST calendar day as this karute's
+   *  session, EXCLUDING any row already counted in linkedBurnCount —
+   *  presence information only, NEVER attribution: core gives no stronger
+   *  link than "happened the same day", which can span multiple sessions.
+   *  Every surface that shows this must label it explicitly as unconfirmed
+   *  (紐付けは未確定), never imply it belongs to this karute. */
+  sameDayBurnCount: number
   /** Session photos that stay in the OLD customer's gallery — SDK 1.28.0 has
    *  no photo re-point verb (census B, verified), so this is a day-1 ceiling,
    *  not a bug: the confirm panel discloses it rather than hiding it. */
@@ -36,8 +49,9 @@ interface ReassignFactsRecord {
  *  these two fields, every optional read below resolves to undefined and the
  *  count safely UNDERcounts to 0 (never crashes, never over-claims money that
  *  isn't there). Flagged in the builder report: verify against live core
- *  before trusting a non-zero burnCount in production. redeemed_on IS on the
- *  declared read shape (not part of the skew) — kept non-optional here. */
+ *  before trusting a non-zero linkedBurnCount in production. redeemed_on IS
+ *  on the declared read shape (not part of the skew) — kept non-optional
+ *  here. */
 type RedemptionReadSkew = {
   redeemed_on: string
   karute_record_id?: string | null
@@ -51,33 +65,29 @@ type RedemptionReadSkew = {
  * appointment-scoped query (census B §Q4) — client-filter, the same idiom
  * reconcile-core.ts already uses for the unrelated 未処理来店 feature. A
  * web-created burn carries ONLY appointment_id (no karute_record_id on that
- * path); a phone-created burn carries karute_record_id. Both link shapes are
- * counted so the panel is honest regardless of which surface recorded it.
+ * path); a phone-created burn carries karute_record_id. Both link shapes
+ * count toward linkedBurnCount, the only count strong enough to attribute to
+ * THIS session.
  *
  * Fix round 1 (F-1): the installed SDK's listRedemptions() rows don't
- * actually carry karute_record_id/appointment_id at runtime (RedemptionReadSkew
- * above), so the two link arms alone left burnCount always 0. A third arm
- * counts a redemption whose redeemed_on falls on the SAME JST calendar day as
- * the record's session_date — isSameJstDay, the recovery-burn guard's own
- * idiom (src/actions/packs.ts), reused here rather than a second hand-rolled
- * JST rule. record.session_date === null skips this arm (link arms only).
+ * actually carry karute_record_id/appointment_id at runtime
+ * (RedemptionReadSkew above), so the two link arms alone leave
+ * linkedBurnCount at 0 under today's reads. A third arm — same JST calendar
+ * day as the record's session_date, isSameJstDay, the recovery-burn guard's
+ * own idiom (src/actions/packs.ts) — catches what the link arms miss.
+ * record.session_date === null skips this arm.
  *
- * Photos: customers.listPhotos(fromCustomerId) filtered to this karute's
- * recording_session_id via the shared scopeKarutePhotos helper — a manual
- * karute (recording_session_id === null) resolves to photoCount 0 without a
- * listPhotos crash (scopeKarutePhotos's own null rule).
- *
- * R3-2 (fix round 3, Greptile issue 2 — REAL): the same-day arm above means
- * burnCount can attribute MULTIPLE same-day redemptions to this one karute —
- * core's narrow read gives no stronger link than "happened the same JST
- * calendar day". That's the honest attribution CEILING under today's data,
- * not a bug to hide: the confirm-panel copy and the audit detail key are
- * both scoped to the day claim on purpose (i18n `burnTitle` reads "this
- * day's ticket redemptions: {n}"; the audit detail key is
- * `same_day_burn_count`, not `burn_count`) so the receipt never claims more
- * precision than the count actually has. The link arms (karute_record_id /
- * appointment_id) tighten the claim automatically whenever a redemption
- * actually carries one — this ceiling only bites when neither link exists.
+ * R11-1 (fix round 11, Greptile round-6 closure — REAL, ⚖ Liam ordered
+ * 5/5): fix rounds 1-9 folded the same-day arm INTO one burnCount, so the
+ * receipt attributed day-scoped hits to this karute as if proven. It isn't —
+ * "same calendar day" can span multiple sessions. R3-2's honesty framing
+ * (day-scoped label, not "every burn") narrowed the CLAIM but the number
+ * itself still read as one attributed count. R11-1 stops conflating:
+ * linkedBurnCount is the confident, attributable count; sameDayBurnCount is
+ * presence-only and every surface showing it must label it unconfirmed. A
+ * row counted in linkedBurnCount is NEVER also counted in sameDayBurnCount —
+ * the two are mutually exclusive by construction below (if/else-if over one
+ * pass), not a set-difference computed after the fact.
  */
 export async function reassignFacts(
   synqed: Pick<SynqedClient, 'packs' | 'customers'>,
@@ -89,14 +99,20 @@ export async function reassignFacts(
     synqed.customers.listPhotos(fromCustomerId),
   ])
 
-  const burnCount = (redemptions as unknown as RedemptionReadSkew[]).filter((r) => {
-    if (r.karute_record_id && r.karute_record_id === record.id) return true
-    if (record.appointment_id && r.appointment_id === record.appointment_id) return true
-    if (record.session_date && isSameJstDay(r.redeemed_on, record.session_date)) return true
-    return false
-  }).length
+  let linkedBurnCount = 0
+  let sameDayBurnCount = 0
+  for (const r of redemptions as unknown as RedemptionReadSkew[]) {
+    const linked =
+      (!!r.karute_record_id && r.karute_record_id === record.id) ||
+      (!!record.appointment_id && r.appointment_id === record.appointment_id)
+    if (linked) {
+      linkedBurnCount++
+    } else if (record.session_date && isSameJstDay(r.redeemed_on, record.session_date)) {
+      sameDayBurnCount++
+    }
+  }
 
   const photoCount = scopeKarutePhotos(photosResult.photos, record.recording_session_id).length
 
-  return { burnCount, photoCount }
+  return { linkedBurnCount, sameDayBurnCount, photoCount }
 }

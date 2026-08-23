@@ -71,29 +71,34 @@ export const POST = facadeHandler<Params>('karute.reassign', async (ctx: FacadeC
       from_customer_id: result.fromCustomerId,
       from_name: result.fromName,
       to_name: result.toName,
-      burn_count: result.burnCount,
+      linked_burn_count: result.linkedBurnCount,
+      same_day_burn_count: result.sameDayBurnCount,
       photo_count: result.photoCount,
     })
   }
 
   ctx.auditTargetId = id
-  // R3-2 (fix round 3, Greptile issue 2 — REAL): audit detail key renamed
-  // burn_count → same_day_burn_count (reassignFacts counts same-JST-day
-  // redemptions, not every burn against this karute — see
-  // src/lib/karute/reassign-facts.ts). The response body below keeps
-  // burn_count — the UI contract is unchanged, only the audit receipt's key
-  // renames to state exactly what it counted.
+  // R3-2 (fix round 3): audit detail key renamed burn_count →
+  // same_day_burn_count (reassignFacts counts same-JST-day redemptions, not
+  // every burn against this karute).
+  // R11-1 (fix round 11, Greptile round-6 closure): split further into
+  // linked_burn_count (provable) + same_day_burn_count (presence-only) —
+  // both the audit detail AND the response body now carry both counts, since
+  // the confirm panel needs to render the right copy per bucket (packet
+  // R11-2). See src/lib/karute/reassign-facts.ts's header comment.
   ctx.auditDetail = {
     from_customer_id: result.fromCustomerId,
     to_customer_id: result.toCustomerId,
-    same_day_burn_count: result.burnCount,
+    linked_burn_count: result.linkedBurnCount,
+    same_day_burn_count: result.sameDayBurnCount,
     photo_count: result.photoCount,
   }
   return ok(ctx, {
     ok: true,
     from_customer_id: result.fromCustomerId,
     to_customer_id: result.toCustomerId,
-    burn_count: result.burnCount,
+    linked_burn_count: result.linkedBurnCount,
+    same_day_burn_count: result.sameDayBurnCount,
     photo_count: result.photoCount,
   })
 })

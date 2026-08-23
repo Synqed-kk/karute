@@ -51,7 +51,10 @@ interface ReassignCustomerActionProps {
 
 type Preview = {
   toName: string
-  burnCount: number
+  // R11-1: split from one burnCount — linked (provable) vs sameDay
+  // (presence-only, rendered with explicit unconfirmed labeling below).
+  linkedBurnCount: number
+  sameDayBurnCount: number
   photoCount: number
 }
 
@@ -136,7 +139,8 @@ export function ReassignCustomerAction({
     }
     setPreview({
       toName: result.toName,
-      burnCount: result.burnCount,
+      linkedBurnCount: result.linkedBurnCount,
+      sameDayBurnCount: result.sameDayBurnCount,
       photoCount: result.photoCount,
     })
     setStep('confirming')
@@ -325,10 +329,24 @@ export function ReassignCustomerAction({
                 <div className="flex items-start gap-2.5">
                   <Ticket size={16} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
                   <div>
+                    {/* R11-1 (fix round 11, Greptile round-6 closure): three
+                     *  branches, never conflated. linkedBurnCount > 0 is the
+                     *  confident claim (provable link); sameDayBurnCount > 0
+                     *  ALONE is presence-only and must say so explicitly
+                     *  (紐付けは未確定); both zero is an honesty row, not a
+                     *  hidden one — absence is also information. burnNote
+                     *  (the "money doesn't move" reconciliation note) only
+                     *  makes sense when there's a count to note. */}
                     <p className="text-[12.5px] font-medium text-foreground">
-                      {t('burnTitle', { n: preview.burnCount })}
+                      {preview.linkedBurnCount > 0
+                        ? t('burnTitleLinked', { n: preview.linkedBurnCount })
+                        : preview.sameDayBurnCount > 0
+                          ? t('burnTitleSameDay', { n: preview.sameDayBurnCount })
+                          : t('burnTitleNone')}
                     </p>
-                    <p className="text-[11.5px] leading-relaxed text-muted-foreground">{t('burnNote')}</p>
+                    {(preview.linkedBurnCount > 0 || preview.sameDayBurnCount > 0) && (
+                      <p className="text-[11.5px] leading-relaxed text-muted-foreground">{t('burnNote')}</p>
+                    )}
                   </div>
                 </div>
 

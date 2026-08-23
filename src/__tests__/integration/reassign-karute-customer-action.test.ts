@@ -496,7 +496,8 @@ describe('pin 3 — two-phase', () => {
       fromCustomerId: 'cust-FROM',
       fromName: '田中 美咲',
       toName: '佐藤 花子',
-      burnCount: 0,
+      linkedBurnCount: 0,
+      sameDayBurnCount: 0,
       photoCount: 0,
     })
     expect(karuteRecordsUpdate).not.toHaveBeenCalled()
@@ -505,7 +506,8 @@ describe('pin 3 — two-phase', () => {
   it('detection skipped ⇒ the preview test flips (red-run proof)', async () => {
     // Mutation: make the detection helper under-report a burn that's really
     // there — proves the preview test above is actually reading real counts,
-    // not a hardcoded shape.
+    // not a hardcoded shape. karute_record_id link → linkedBurnCount, not
+    // sameDayBurnCount (R11-1 split).
     packsListRedemptions.mockResolvedValueOnce([{ pack_id: 'p1', redeemed_on: '2026-08-01', karute_record_id: 'kar-1' }])
     const result = await reassignKaruteCustomerWithClient(
       fakeClient(),
@@ -514,7 +516,7 @@ describe('pin 3 — two-phase', () => {
       { confirmed: false },
       VIEW_ALL,
     )
-    expect(result).toMatchObject({ burnCount: 1 })
+    expect(result).toMatchObject({ linkedBurnCount: 1, sameDayBurnCount: 0 })
   })
 })
 
@@ -533,7 +535,7 @@ describe('pin 4 — write shape', () => {
 describe('pin 6 — revalidation', () => {
   it('success revalidates the customer profile route (locale-pattern, item F) + the karute path + dashboard tag + customers tag', async () => {
     const result = await reassignKaruteCustomer('kar-1', 'cust-TO', { confirmed: true })
-    expect(result).toEqual({ success: true, burnCount: 0, photoCount: 0 })
+    expect(result).toEqual({ success: true, linkedBurnCount: 0, sameDayBurnCount: 0, photoCount: 0 })
     // Locale-pattern form, not the bare '/customers/{id}' literal: routing.ts
     // has no localePrefix override (next-intl defaults to 'always'), and the
     // only customer page route is [locale]/(app)/customers/[id] — a bare
@@ -590,15 +592,27 @@ describe('auditWeb — success-only', () => {
     expect(auditWeb).not.toHaveBeenCalled()
   })
 
-  it('emits the row EXACT-SHAPE on a successful confirmed write — packet §5 pin 5, web half (R3-2: detail key is same_day_burn_count)', async () => {
+  it('emits the row EXACT-SHAPE on a successful confirmed write — packet §5 pin 5, web half (R11-1: detail keys are linked_burn_count + same_day_burn_count)', async () => {
+    // Distinct nonzero values in both buckets — one link-shaped burn, one
+    // same-day-only burn — so a swap between the two keys (not just a drop)
+    // would also flip this exact-shape pin, not just an equal-value blind
+    // spot. KARUTE.current carries no session_date by default, so this test
+    // sets one to exercise the same-day arm too.
+    KARUTE.current = { ...KARUTE.current, session_date: '2026-08-01' }
+    packsListRedemptions.mockResolvedValueOnce([
+      { pack_id: 'p1', redeemed_on: '2026-08-01', karute_record_id: 'kar-1' },
+      { pack_id: 'p2', redeemed_on: '2026-08-01' },
+    ])
     await reassignKaruteCustomer('kar-1', 'cust-TO', { confirmed: true })
     expect(auditWeb).toHaveBeenCalledTimes(1)
     // Full-argument toEqual (via toHaveBeenCalledWith): a wrong action, wrong
-    // targetType/targetId, or a dropped detail key each fail this — the
-    // verifier's exact corruption set (action:'karute.entry_edit',
+    // targetType/targetId, or a dropped/swapped detail key each fail this —
+    // the verifier's exact corruption set (action:'karute.entry_edit',
     // targetType:'customer', targetId:'WRONG-ID', detail reduced to
-    // {to_customer_id}) all flip it. R3-2: burn_count → same_day_burn_count
-    // (red-run: emit the old key → this pin goes red).
+    // {to_customer_id}) all flip it. R3-2: burn_count → same_day_burn_count.
+    // R11-1 (fix round 11, Greptile round-6 closure): split further into
+    // linked_burn_count + same_day_burn_count — reverting to the old
+    // single-key emit (or swapping the two) makes this go red.
     expect(auditWeb).toHaveBeenCalledWith({
       category: 'karute',
       action: 'karute.customer_reassign',
@@ -607,7 +621,8 @@ describe('auditWeb — success-only', () => {
       detail: {
         from_customer_id: 'cust-FROM',
         to_customer_id: 'cust-TO',
-        same_day_burn_count: 0,
+        linked_burn_count: 1,
+        same_day_burn_count: 1,
         photo_count: 0,
       },
       requestId: expect.any(String),

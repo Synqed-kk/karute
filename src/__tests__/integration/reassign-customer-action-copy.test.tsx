@@ -81,23 +81,57 @@ async function openPickAndSubmit() {
 }
 
 describe('ReassignCustomerAction — copy couplings (fix round 4, R4-2)', () => {
-  it('the confirm panel renders the DAY-SCOPED burn title, real locale copy (R3-2)', async () => {
+  // R11-1 (fix round 11, Greptile round-6 closure, packet pin 3): three
+  // branches, never conflated. Literal pinned copy throughout, NOT
+  // `ja.burnTitle*` — asserting against the same messages/ja.json the mock
+  // reads would make this tautological (a regression in the file would move
+  // both sides together and the test would stay green).
+  it('linkedBurnCount > 0 renders the CONFIDENT burn title (no day-scoped hedge), even when sameDayBurnCount is also > 0', async () => {
     karuteActions.reassignKaruteCustomer.mockResolvedValueOnce({
       requiresConfirm: true,
       fromCustomerId: 'cust-FROM',
       fromName: '田中 美咲',
       toName: '佐藤 花子',
-      burnCount: 2,
+      linkedBurnCount: 2,
+      sameDayBurnCount: 5,
       photoCount: 0,
     })
     await openPickAndSubmit()
     expect(await screen.findByText(ja.confirmTitle)).toBeInTheDocument()
-    // Literal pinned copy, NOT `ja.burnTitle` — asserting against the same
-    // messages/ja.json the mock reads would make this tautological (a
-    // regression in the file would move both sides together and the test
-    // would stay green). This is the actual R3-2 day-scoped string; the
-    // pre-R3-2 unscoped copy was "回数券の消化 2件" (no この日の prefix).
-    expect(screen.getByText('この日の回数券の消化 2件')).toBeInTheDocument()
+    expect(screen.getByText('回数券の消化 2件')).toBeInTheDocument()
+    expect(screen.queryByText(/この日の回数券の消化/)).toBeNull()
+  })
+
+  it('sameDayBurnCount > 0 ALONE (linkedBurnCount 0) renders the day-scoped, explicitly UNCONFIRMED title (R3-2 lineage, R11-1 split)', async () => {
+    karuteActions.reassignKaruteCustomer.mockResolvedValueOnce({
+      requiresConfirm: true,
+      fromCustomerId: 'cust-FROM',
+      fromName: '田中 美咲',
+      toName: '佐藤 花子',
+      linkedBurnCount: 0,
+      sameDayBurnCount: 2,
+      photoCount: 0,
+    })
+    await openPickAndSubmit()
+    expect(await screen.findByText(ja.confirmTitle)).toBeInTheDocument()
+    // This is the actual R11-1 day-scoped, unconfirmed string; the pre-R11-1
+    // copy was "この日の回数券の消化 2件" with no 紐付けは未確定 suffix.
+    expect(screen.getByText('この日の回数券の消化 2件（この施術との紐付けは未確定）')).toBeInTheDocument()
+  })
+
+  it('both counts 0 renders the honesty なし row, not a hidden row', async () => {
+    karuteActions.reassignKaruteCustomer.mockResolvedValueOnce({
+      requiresConfirm: true,
+      fromCustomerId: 'cust-FROM',
+      fromName: '田中 美咲',
+      toName: '佐藤 花子',
+      linkedBurnCount: 0,
+      sameDayBurnCount: 0,
+      photoCount: 0,
+    })
+    await openPickAndSubmit()
+    expect(await screen.findByText(ja.confirmTitle)).toBeInTheDocument()
+    expect(screen.getByText('回数券の消化 なし')).toBeInTheDocument()
   })
 
   it("the server's store-scope refusal maps to errorStoreScope, not errorGeneric", async () => {
@@ -151,7 +185,8 @@ describe('ReassignCustomerAction — two-phase wiring (fresh D2, R5-3)', () => {
       fromCustomerId: 'cust-FROM',
       fromName: '田中 美咲',
       toName: '佐藤 花子',
-      burnCount: 0,
+      linkedBurnCount: 0,
+      sameDayBurnCount: 0,
       photoCount: 0,
     })
     await openPickAndSubmit()
@@ -166,10 +201,11 @@ describe('ReassignCustomerAction — two-phase wiring (fresh D2, R5-3)', () => {
         fromCustomerId: 'cust-FROM',
         fromName: '田中 美咲',
         toName: '佐藤 花子',
-        burnCount: 0,
+        linkedBurnCount: 0,
+        sameDayBurnCount: 0,
         photoCount: 0,
       })
-      .mockResolvedValueOnce({ success: true, burnCount: 0, photoCount: 0 })
+      .mockResolvedValueOnce({ success: true, linkedBurnCount: 0, sameDayBurnCount: 0, photoCount: 0 })
     await openPickAndSubmit()
     await screen.findByText(ja.confirmTitle)
     await act(async () => {

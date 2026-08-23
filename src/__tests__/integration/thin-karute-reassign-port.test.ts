@@ -9,6 +9,11 @@
  * honesty surface F4 exists to provide. Pointing the roster fetch at a
  * nonexistent route also passed (silent empty-roster degrade). Mirrors
  * thin-karute-entry-edit-history-port.test.ts's style/idiom.
+ *
+ * R11-1 (fix round 11, Greptile round-6 closure — packet pin 5): burn_count
+ * split into linked_burn_count + same_day_burn_count on the wire. Every
+ * fixture below uses THREE distinct numbers (linked/sameDay/photo) so a
+ * swap among any pair — not just linked↔sameDay — flips the assertion.
  */
 import { setDataPort } from '@/lib/ports/data-port'
 
@@ -21,7 +26,10 @@ describe('thin actions port — reassign transport contract', () => {
     const apiFetch = jest.fn(async (path: string, init?: RequestInit) => {
       expect(path).toBe('/api/app/v1/karute/kar-1/reassign')
       expect(JSON.parse(init?.body as string)).toEqual({ to_customer_id: 'cust-TO', confirmed: true })
-      return new Response(JSON.stringify({ ok: true, burn_count: 0, photo_count: 0 }), { status: 200 })
+      return new Response(
+        JSON.stringify({ ok: true, linked_burn_count: 0, same_day_burn_count: 0, photo_count: 0 }),
+        { status: 200 },
+      )
     })
     setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
 
@@ -29,7 +37,7 @@ describe('thin actions port — reassign transport contract', () => {
     expect(apiFetch).toHaveBeenCalledTimes(1)
   })
 
-  it('requires_confirm response maps EXACTLY — burnCount/photoCount not swapped (D4)', async () => {
+  it('requires_confirm response maps EXACTLY — linkedBurnCount/sameDayBurnCount/photoCount not swapped (D4, R11-1)', async () => {
     const apiFetch = jest.fn(
       async () =>
         new Response(
@@ -38,7 +46,8 @@ describe('thin actions port — reassign transport contract', () => {
             from_customer_id: 'cust-FROM',
             from_name: '田中 美咲',
             to_name: '佐藤 花子',
-            burn_count: 2,
+            linked_burn_count: 2,
+            same_day_burn_count: 5,
             photo_count: 1,
           }),
           { status: 200 },
@@ -51,20 +60,26 @@ describe('thin actions port — reassign transport contract', () => {
       fromCustomerId: 'cust-FROM',
       fromName: '田中 美咲',
       toName: '佐藤 花子',
-      burnCount: 2,
+      linkedBurnCount: 2,
+      sameDayBurnCount: 5,
       photoCount: 1,
     })
   })
 
-  it('success response maps EXACTLY — burnCount/photoCount not swapped (D4, the mutation that survived)', async () => {
+  it('success response maps EXACTLY — linkedBurnCount/sameDayBurnCount/photoCount not swapped (D4, R11-1, the mutation that survived pre-R11)', async () => {
     const apiFetch = jest.fn(
-      async () => new Response(JSON.stringify({ ok: true, burn_count: 2, photo_count: 1 }), { status: 200 }),
+      async () =>
+        new Response(
+          JSON.stringify({ ok: true, linked_burn_count: 2, same_day_burn_count: 5, photo_count: 1 }),
+          { status: 200 },
+        ),
     )
     setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
 
     await expect(reassignKaruteCustomer('kar-1', 'cust-TO', { confirmed: true })).resolves.toEqual({
       success: true,
-      burnCount: 2,
+      linkedBurnCount: 2,
+      sameDayBurnCount: 5,
       photoCount: 1,
     })
   })

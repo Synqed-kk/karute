@@ -82,7 +82,7 @@ const customersList = jest.fn(async (opts: { store_id?: string }) => {
   const ids = opts.store_id ? (byStore[opts.store_id] ?? []) : Object.keys(CUSTOMERS)
   return { customers: ids.map((id) => ({ id, name: CUSTOMERS[id].name })), total: ids.length }
 })
-const packsListRedemptions = jest.fn(async () => [])
+const packsListRedemptions = jest.fn(async (): Promise<Array<Record<string, unknown>>> => [])
 const customersListPhotos = jest.fn(async () => ({ photos: [] }))
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: () => ({
@@ -137,25 +137,36 @@ describe('POST /karute/[id]/reassign', () => {
       from_customer_id: 'cust-FROM',
       from_name: '田中 美咲',
       to_name: '佐藤 花子',
-      burn_count: 0,
+      linked_burn_count: 0,
+      same_day_burn_count: 0,
       photo_count: 0,
     })
     expect(karuteUpdate).not.toHaveBeenCalled()
     expect(auditSpy).not.toHaveBeenCalled()
   })
 
-  it('confirmed:true → 200, writes EXACTLY { customer_id: toId }, emits karute.customer_reassign exactly once (R3-2: audit detail key is same_day_burn_count; response body keeps burn_count)', async () => {
+  it('confirmed:true → 200, writes EXACTLY { customer_id: toId }, emits karute.customer_reassign exactly once (R11-1: response body AND audit detail both carry linked_burn_count + same_day_burn_count)', async () => {
+    // Distinct nonzero values in both buckets — one link-shaped burn, one
+    // same-day-only burn — so a swap between the two keys, not just a drop,
+    // flips this exact-shape pin too.
+    KARUTE.current = { ...KARUTE.current, session_date: '2026-08-01' }
+    packsListRedemptions.mockResolvedValueOnce([
+      { pack_id: 'p1', redeemed_on: '2026-08-01', karute_record_id: 'kar-1' },
+      { pack_id: 'p2', redeemed_on: '2026-08-01' },
+    ])
     const res = await POST(postReq({ to_customer_id: 'cust-TO', confirmed: true }), routeFor('kar-1'))
     expect(res.status).toBe(200)
     const body = (await res.json()) as Record<string, unknown>
-    // Response body (UI contract) is UNCHANGED — only the audit detail key
-    // below renames.
-    expect(body).toMatchObject({ burn_count: 0, photo_count: 0 })
+    // R11-1 (fix round 11, Greptile round-6 closure): the response body
+    // (UI contract) now carries BOTH counts too — the confirm panel needs
+    // linkedBurnCount vs sameDayBurnCount to render the right copy branch.
+    expect(body).toMatchObject({ linked_burn_count: 1, same_day_burn_count: 1, photo_count: 0 })
     expect(karuteUpdate).toHaveBeenCalledTimes(1)
     expect(karuteUpdate).toHaveBeenCalledWith('kar-1', { customer_id: 'cust-TO' })
     expect(auditSpy).toHaveBeenCalledTimes(1)
-    // R3-2: burn_count → same_day_burn_count (red-run: emit the old key →
-    // this pin goes red).
+    // R3-2: burn_count → same_day_burn_count. R11-1: split further into
+    // linked_burn_count + same_day_burn_count (red-run: emit the old
+    // single-key shape, or swap the two → this pin goes red).
     expect(auditSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         category: 'karute',
@@ -168,7 +179,8 @@ describe('POST /karute/[id]/reassign', () => {
         detail: {
           from_customer_id: 'cust-FROM',
           to_customer_id: 'cust-TO',
-          same_day_burn_count: 0,
+          linked_burn_count: 1,
+          same_day_burn_count: 1,
           photo_count: 0,
         },
       }),
