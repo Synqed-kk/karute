@@ -53,12 +53,16 @@ export const CATEGORY_LABEL: Record<ThreadCategory, string> = {
   delivery: '配信失敗',
 }
 
-/** The queue's filter chips, canon's own set and order
- *  (fable-store-inbox.html:449-454). 未完了 and 解決済み are status filters; the
- *  four between them are the categories. */
-export type ThreadFilter = 'open' | ThreadCategory | 'resolved'
+/** The queue's filters — canon's own six plus the two the 対応状況 strip needs,
+ *  because the restructure makes every counter a real pressable and a counter
+ *  whose slice has no filter cannot press one. 未完了 / 要対応 / 返信待ち /
+ *  解決済み are status filters; the three categories sit between them; 配信失敗
+ *  is the delivery-failure filter (see `isFailedDelivery`). */
+export type ThreadFilter = 'open' | 'attention' | 'waiting' | ThreadCategory | 'resolved'
 export const FILTERS: Array<{ key: ThreadFilter; label: string }> = [
   { key: 'open', label: '未完了' },
+  { key: 'attention', label: STATUS_LABEL.attention },
+  { key: 'waiting', label: STATUS_LABEL.waiting },
   { key: 'change', label: CATEGORY_LABEL.change },
   { key: 'noshow', label: CATEGORY_LABEL.noshow },
   { key: 'waitlist', label: CATEGORY_LABEL.waitlist },
@@ -378,13 +382,26 @@ export function buildThreads(input: ThreadInput): ThreadModel[] {
   })
 }
 
-/** Narrowed to the two fields the rule actually needs (the reservations
- *  sibling's own pattern, `matchesFilters` in ./reservations) so the client
- *  screen's own thinner thread props satisfy it too — one function, one home,
- *  callable from both the tests and the render it was tested against. */
-export function matchesFilter(t: Pick<ThreadModel, 'status' | 'category'>, filter: ThreadFilter): boolean {
+/** 配信失敗 — ONE reading of the word, used by the counter and by the filter
+ *  that counter presses. D-8 already ruled that 配信失敗 names a delivery that
+ *  FAILED rather than canon's category chip; a filter that answered the chip
+ *  instead would make the strip's own number describe a different set of rows
+ *  from the one it opens. One reading, one home. */
+export const isFailedDelivery = (t: Pick<ThreadModel, 'deliveryState'>) => t.deliveryState === 'undelivered'
+
+/** Narrowed to the fields the rule actually needs (the reservations sibling's
+ *  own pattern, `matchesFilters` in ./reservations) so the client screen's own
+ *  thinner thread props satisfy it too — one function, one home, callable from
+ *  both the tests and the render it was tested against. */
+export function matchesFilter(
+  t: Pick<ThreadModel, 'status' | 'category' | 'deliveryState'>,
+  filter: ThreadFilter,
+): boolean {
   if (filter === 'open') return t.status !== 'resolved'
   if (filter === 'resolved') return t.status === 'resolved'
+  if (filter === 'attention') return t.status === 'attention'
+  if (filter === 'waiting') return t.status === 'waiting'
+  if (filter === 'delivery') return isFailedDelivery(t)
   return t.category === filter
 }
 
@@ -404,10 +421,37 @@ export interface InboxSummary {
  *  undelivered. One reading, one home. */
 export function summarize(threads: ThreadModel[]): InboxSummary {
   return {
-    open: threads.filter((t) => t.status !== 'resolved').length,
-    attention: threads.filter((t) => t.status === 'attention').length,
-    waiting: threads.filter((t) => t.status === 'waiting').length,
-    resolved: threads.filter((t) => t.status === 'resolved').length,
-    failures: threads.filter((t) => t.deliveryState === 'undelivered').length,
+    open: threads.filter((t) => matchesFilter(t, 'open')).length,
+    attention: threads.filter((t) => matchesFilter(t, 'attention')).length,
+    waiting: threads.filter((t) => matchesFilter(t, 'waiting')).length,
+    resolved: threads.filter((t) => matchesFilter(t, 'resolved')).length,
+    failures: threads.filter((t) => matchesFilter(t, 'delivery')).length,
   }
 }
+
+/** ⚖ THE STRIP IS THE FILTER ROW. Every counter is a pressable that switches
+ *  the filter below it, and this map is the only place the pairing is stated —
+ *  so the number a shop reads and the rows pressing it opens can never be two
+ *  different questions. A number that names a slice of the queue and then
+ *  refuses to show you that slice is a poster, not a tool (the mock's own law);
+ *  `summarize` counts through the SAME `matchesFilter` these keys point at, so
+ *  the equality is structural rather than a coincidence the suite has to watch. */
+export const COUNTER_FILTER: Record<keyof InboxSummary, ThreadFilter> = {
+  open: 'open',
+  attention: 'attention',
+  waiting: 'waiting',
+  resolved: 'resolved',
+  failures: 'delivery',
+}
+
+/** The four small counters, in the strip's own order. 本日解決 is the counter's
+ *  own word for the 解決済み filter — the strip counts today's finished work,
+ *  the filter names the state. `alarm` marks the two figures that change what
+ *  the shop does next; the red is applied only when they are non-zero (a
+ *  counter that is red at 0 is a warning about nothing). */
+export const SUMMARY_STATS: Array<{ key: keyof InboxSummary; label: string; alarm: boolean }> = [
+  { key: 'attention', label: STATUS_LABEL.attention, alarm: true },
+  { key: 'waiting', label: STATUS_LABEL.waiting, alarm: false },
+  { key: 'resolved', label: '本日解決', alarm: false },
+  { key: 'failures', label: CATEGORY_LABEL.delivery, alarm: true },
+]

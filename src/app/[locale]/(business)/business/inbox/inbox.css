@@ -1,5 +1,9 @@
-/* 受信トレイ — canon's own sheet (fable-store-inbox.html:11-168), carried under
-   ⚖ the transplant ruling and scoped to this route.
+/* 受信トレイ — the room's APPROVED LAYOUT (mock 2026-08-23, Liam's three-pass
+   GO). Tokens, type scale, chip colours and Japanese copy are canon's and the
+   shell's, unchanged; what this sheet states is the restructure — a 380px queue
+   column, the actions pinned to the top of the workspace band, 事実/同意 beside
+   証跡/下書き with 履歴 full width beneath them, and a responsive ladder that
+   reaches every screen the business runs on.
 
    ── TWO SCOPING JOBS, AND THEY ARE DIFFERENT PROBLEMS ────────────────────────
 
@@ -23,15 +27,41 @@
    is no rule to collide with — a fence that cannot rot as the neighbours grow.
    `page` / `h1` / `btn` are the shell's and restated here at four levels, but
    only `btn` (plus its `.page .btn` descendant shape, customers.css:23) is a
-   LIVE collision today — the route-CSS collision sweep (main, bc074069)
-   scoped every sibling's own `.page`/`.page h1` under its own `.page-<room>`
-   compound class, so this room's `.page.pg-inbox`/`.page.pg-inbox h1` rules
-   are its own styling now, not insurance against a bare sibling rule that no
-   longer exists. `pill` is also the shell's, but this sheet never restates a
-   property on it, so there is nothing to fence: nothing here to collide.
-   `src/__tests__/integration/business/inbox.test.ts` derives the list from the
-   sibling sheets and this screen's own markup and fails if a neighbour ever
-   states a bare rule on a name this room renders. */
+   LIVE collision today — the route-CSS collision sweep (main, bc074069) scoped
+   every sibling's own `.page`/`.page h1` under its own `.page-<room>` compound
+   class, so this room's `.page.pg-inbox`/`.page.pg-inbox h1` rules are its own
+   styling now, not insurance against a bare sibling rule that no longer exists.
+   `pill` is also the shell's, but this sheet never restates a property on it,
+   so there is nothing to fence: nothing here to collide.
+   `src/__tests__/integration/business/inbox.test.ts` DERIVES the list from the
+   sibling sheets and this screen's own markup — freshly, on every run — and
+   fails if a neighbour ever states a bare rule on a name this room renders.
+
+   ⚖ FOCUS IS THE SHELL'S, AND IT IS ALREADY RIGHT. The mock replaces the UA
+   focus ring with a 2px offset accent outline because a static mock has no
+   shell; the deployed shell already ships exactly that treatment for every
+   pressable in the family (`business-shell.css:107-111`, 3px accent at 2px
+   offset, `:focus-visible` only). Restating it here would be a second home for
+   one verdict AND would make this room's focus differ from every other room's,
+   so it is deliberately NOT carried — the mock's own law ("one rule at the
+   source, offset accent, never mistakable for selection") is honoured by the
+   rule that already exists.
+
+   ⚠ …BUT A RING THE ROOM CLIPS IS NOT A RING. The shell paints 3px OUTSIDE the
+   control at 2px offset, so a container that clips at its own border-radius
+   erases the ring on every pressable sitting against its edge — which was the
+   five counters (top and bottom strokes gone, corners worse) and the queue rows
+   (left and right gone). No container this room owns clips any more; the
+   rounded corners are stated on the CORNER CHILDREN instead, so the background
+   still ends at the radius and the ring is whole on all four sides. Never
+   reintroduce `overflow: hidden` on `.ib-summary` or `.ib-panel`.
+
+   ⚖ PAGE-SCROLL (Liam 8/22, ruled twice): NO wrapper in this room caps a
+   height, owns overflow-y, or sets overscroll-behavior — and after the
+   restructure not one owns overflow-x either, because the filter row WRAPS
+   instead of panning. The PAGE scrolls; nothing else does. Canon's own
+   `.inspector` is `position: sticky` + `max-height: calc(100vh - 96px)` +
+   `overflow-y: auto` and is not carried. */
 
 /* ── the fence: the three shared names this room still uses ───────────────── */
 /* Four levels (`.biz .page.pg-inbox …`) rather than three, because a sibling's
@@ -45,99 +75,218 @@
 .biz .page.pg-inbox .btn.primary { font-weight: 600; }
 
 /* ── page head ────────────────────────────────────────────────────────────── */
-.biz .pg-inbox .ib-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 16px; }
+/* The standing page-description paragraph and the strip's explainer sentence
+   were REMOVED from the page: they were permanent furniture every reader
+   re-read every morning to learn nothing new. Both facts are now the FIRST STEP
+   of the ? tour (⚖ Liam 8/23), declared on the head itself, so the top of the
+   page is a title, a subtitle and the numbers — nothing to re-read, and nothing
+   that opens a block of text in place. The head is one block, not a two-column
+   flex. */
+.biz .pg-inbox .ib-head { margin-bottom: 12px; }
 .biz .pg-inbox .ib-eyebrow { margin-bottom: 4px; color: var(--ink-3); font-size: 13px; font-weight: 700; }
+.biz .pg-inbox .ib-titleline { display: flex; align-items: center; gap: 9px; }
 .biz .pg-inbox .ib-subtitle { margin: 5px 0 0; color: var(--muted); font-size: 14px; line-height: 1.55; }
-.biz .pg-inbox .ib-note { max-width: 360px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; text-align: right; }
-
-/* ── 対応状況 strip ───────────────────────────────────────────────────────── */
-.biz .pg-inbox .ib-summary {
-  display: grid; grid-template-columns: minmax(280px, 1.5fr) repeat(4, minmax(112px, .55fr));
-  margin-bottom: 14px; border: 1px solid var(--proof-border); border-radius: 11px;
-  background: var(--proof); overflow: hidden;
+/* A hairline circle, never a filled one — ⚖ R13, and a help mark that shouts is
+   worse than the paragraph it replaced. `[aria-expanded="true"]` now means the
+   GUIDED TOUR is running, which is why the mark stays lit for the whole walk. */
+.biz .pg-inbox .ib-help {
+  flex: 0 0 auto; width: 21px; height: 21px; display: grid; place-items: center;
+  border: 1px solid #c9c9d2; border-radius: 50%; background: #fff;
+  color: var(--muted); font-size: 12px; font-weight: 700; line-height: 1; padding: 0;
 }
-.biz .pg-inbox .ib-summary-main { padding: 13px 15px; border-left: 3px solid var(--indigo); }
+.biz .pg-inbox .ib-help:hover { border-color: var(--indigo); color: var(--indigo); background: var(--indigo-soft); }
+.biz .pg-inbox .ib-help[aria-expanded="true"] { border-color: var(--indigo); color: var(--indigo); background: var(--indigo-soft); }
+
+/* ── 対応状況 strip — the numbers ARE the filters ─────────────────────────── */
+/* Every counter is a real pressable that switches the filter below it. A number
+   that names a slice of the queue and then refuses to show you that slice is a
+   poster, not a tool. The typography of the numbers is unchanged — only the
+   cursor, a hover wash and the pressed mark are new, so the strip still reads
+   as a strip and not as a row of buttons. */
+/* NO `overflow: hidden` HERE. It clipped the shell's offset focus ring off the
+   five counters; the strip's own corners are stated on the corner children
+   below, which clips the pressed/hover wash at the radius exactly as the
+   container did. */
+.biz .pg-inbox .ib-summary {
+  display: grid; grid-template-columns: minmax(240px, 1.3fr) repeat(4, minmax(112px, .55fr));
+  margin-bottom: 14px; border: 1px solid var(--proof-border); border-radius: 11px;
+  background: var(--proof);
+}
+/* `border: 0` at (0,3,1) — it beats every `.ib-summary-main` / `.ib-stat` rule
+   in this sheet, which is why NO border longhand is stated on either of them:
+   the rail and the dividers those rules used to declare never painted a pixel,
+   in this room or in the approved mock. Restoring one would not "fix a
+   specificity bug", it would change the look Liam signed off. */
+.biz .pg-inbox .ib-summary button {
+  border: 0; background: none; color: inherit; font: inherit; text-align: left; width: 100%;
+}
+.biz .pg-inbox .ib-summary-main {
+  display: grid; align-content: center; padding: 11px 15px; border-radius: 10px 0 0 10px;
+}
 .biz .pg-inbox .ib-summary-main strong { display: block; font-size: 15px; }
-.biz .pg-inbox .ib-summary-main span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.45; }
-.biz .pg-inbox .ib-stat { display: grid; align-content: center; padding: 10px 13px; border-left: 1px solid #e5e9f7; }
+.biz .pg-inbox .ib-stat { display: grid; align-content: center; padding: 10px 13px; }
+.biz .pg-inbox .ib-stat:last-child { border-radius: 0 10px 10px 0; }
 .biz .pg-inbox .ib-stat span { color: var(--muted); font-size: 12px; }
 .biz .pg-inbox .ib-stat b { display: block; margin-top: 2px; font-size: 20px; font-variant-numeric: tabular-nums; }
 /* SEMANTIC, not decoration (⚖ the one-way accent law): a non-zero 要対応 or
    配信失敗 is a state of the work that changes what the operator does next, and
-   red is the family's word for it. A zero takes the neutral ink — a counter
-   that is red at 0 is a warning about nothing. */
+   red is the family's word for it. A zero takes the neutral ink — the screen
+   applies the class only above zero, so 「a 0 is not an alarm」 is answered at
+   the source and stays answered in every state, including 全て対応済み. */
 .biz .pg-inbox .ib-stat b.attention { color: var(--red-dark); }
+/* hover is NEUTRAL and pressed is ACCENT, so the two can never be confused —
+   the same grammar the queue rows use one band below. */
+.biz .pg-inbox .ib-summary button:hover { background: #f1f2f8; }
+.biz .pg-inbox .ib-summary button[aria-pressed="true"] { background: var(--indigo-soft); }
+.biz .pg-inbox .ib-summary button[aria-pressed="true"] span,
+.biz .pg-inbox .ib-summary button[aria-pressed="true"] strong { color: var(--select-ink); }
+.biz .pg-inbox .ib-stat[aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--select-line); }
 
-/* ── workspace ────────────────────────────────────────────────────────────── */
-/* ⚖ THE PAGE-SCROLL RULING (Liam 8/22, ruled twice): NO wrapper in this room
-   caps a height, owns overflow-y, or sets overscroll-behavior. The PAGE scrolls
-   vertically; the only container that owns an axis is the filter strip, and it
-   owns X. Canon's own `.inspector` is `position: sticky` with
-   `max-height: calc(100vh - 96px); overflow-y: auto` — a nested vertical
-   scroller — and it is NOT carried: with the cap removed, sticky would pin a
-   panel taller than the viewport and put its own last rows out of reach. The
-   aside is a plain column that scrolls with the page. */
-.biz .pg-inbox .ib-workspace { display: grid; grid-template-columns: minmax(560px, 1fr) 368px; gap: 14px; align-items: start; }
-.biz .pg-inbox .ib-panel { border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
+/* ── 全て対応済みの朝 — the screen a solo shop sees most mornings ──────────── */
+/* Zero pending threads is the NORMAL state, not an error state, so it gets a
+   designed moment instead of an empty panel: one quiet card, a check, one line.
+   No illustration, no confetti — the reward is that there is nothing to do. The
+   workspace is not mounted at all in this state, so there is no hidden panel
+   behind the card for an acceptance read to trip over. */
+.biz .pg-inbox .ib-zero-card {
+  max-width: 460px; margin: 52px auto 32px; padding: 44px 28px 46px;
+  border: 1px solid var(--line); border-radius: 14px; background: #fff; text-align: center;
+}
+.biz .pg-inbox .ib-zero-check {
+  display: grid; place-items: center; width: 46px; height: 46px; margin: 0 auto 16px;
+  border-radius: 50%; background: var(--green-soft); color: var(--green-dark);
+}
+.biz .pg-inbox .ib-zero-card strong { display: block; font-size: 17px; line-height: 1.45; }
+.biz .pg-inbox .ib-zero-card p { margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+
+/* ── workspace: THE RESTRUCTURE ───────────────────────────────────────────── */
+.biz .pg-inbox .ib-workspace { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 14px; align-items: start; }
+/* NO `overflow: hidden` HERE either: it cut the left and right of the focus
+   ring off every queue row. The three children that reach a corner carry the
+   radius themselves. */
+.biz .pg-inbox .ib-panel { border: 1px solid var(--line); border-radius: 11px; background: #fff; }
 .biz .pg-inbox .ib-panel-head {
-  min-height: 62px; padding: 10px 15px; border-bottom: 1px solid var(--line-2);
-  display: flex; align-items: center; justify-content: space-between; gap: 14px; background: #fafafb;
+  min-height: 62px; padding: 10px 14px; border-bottom: 1px solid var(--line-2);
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #fafafb;
+  border-radius: 10px 10px 0 0;
 }
+.biz .pg-inbox .ib-panel-head > div { min-width: 0; }
 .biz .pg-inbox .ib-panel-head strong { display: block; font-size: 15px; }
-.biz .pg-inbox .ib-panel-head span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+.biz .pg-inbox .ib-panel-head span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.biz .pg-inbox .ib-panel-head .btn { flex: 0 0 auto; padding: 0 11px; font-size: 13px; }
 
-/* The one container with an axis, and it is the X axis — the page body never
-   scrolls sideways because the chips pan inside their own strip. */
-.biz .pg-inbox .ib-filters { display: flex; gap: 7px; padding: 10px 12px; border-bottom: 1px solid var(--line-2); overflow-x: auto; }
+/* filters — QUIET TEXT, not buttons (they wrap inside the narrow column; no
+   internal scroller, ⚖ page-scroll).
+   A filter narrows a view — it is not an action, so it gets no border, no fill
+   and no box. Only real actions get borders. Selected = accent label + a 2px
+   accent underline: the "current view" grammar tabs already use.
+
+   The #eef2ff wash was deliberately NOT used for the active state here. The
+   selected QUEUE ROW sits 40px below and already owns that wash; two indigo
+   washes stacked in one narrow column blunt the one signal that actually
+   matters (which THREAD is open). The underline is a different, lighter mark,
+   so the two states can never be read as the same kind of thing.
+
+   The underline is native text-decoration, not a border-bottom, so it hugs the
+   TEXT no matter how much padding the ≤743 touch target adds underneath. */
+.biz .pg-inbox .ib-filters { display: flex; flex-wrap: wrap; gap: 2px 15px; padding: 9px 13px 8px; border-bottom: 1px solid var(--line-2); }
 .biz .pg-inbox .ib-filter {
-  min-height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px;
-  background: #fff; color: var(--ink-3); font-size: 13px; white-space: nowrap;
+  display: inline-block; padding: 5px 0; border: 0; background: none;
+  color: var(--muted); font-size: 13px; line-height: 20px; white-space: nowrap;
+  text-decoration-line: underline; text-decoration-color: transparent;
+  text-decoration-thickness: 2px; text-underline-offset: 5px;
 }
-.biz .pg-inbox .ib-filter:hover { border-color: #d1d1d8; background: #fafafb; }
-/* R13: the pressed chip is a light accent WASH with accent text — never a fill. */
-.biz .pg-inbox .ib-filter[aria-pressed="true"] { border-color: var(--select-line); background: var(--select-bg); color: var(--select-ink); font-weight: 700; }
+.biz .pg-inbox .ib-filter:hover { color: var(--ink); }
+.biz .pg-inbox .ib-filter[aria-pressed="true"] {
+  color: var(--select-ink); font-weight: 700; text-decoration-color: var(--select-line);
+}
 
-/* ── the queue ────────────────────────────────────────────────────────────── */
+/* ── the queue: Gmail density, three lines, card ends with its content ────── */
 .biz .pg-inbox .ib-list { display: block; }
 .biz .pg-inbox .ib-row {
-  display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; gap: 11px; align-items: start;
-  width: 100%; min-height: 92px; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--row);
+  display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: start;
+  width: 100%; padding: 11px 13px; border: 0; border-bottom: 1px solid var(--row);
   background: #fff; color: var(--ink); text-align: left;
+  transition: background-color .12s ease;
 }
 .biz .pg-inbox .ib-row:hover { background: #fafafb; }
-/* R13 again: the selected row is a wash plus canon's accent rail, not a fill. */
+/* R13: the selected row is a wash plus canon's accent rail, never a fill. */
 .biz .pg-inbox .ib-row.selected { background: var(--indigo-soft); box-shadow: inset 3px 0 0 var(--indigo); }
-.biz .pg-inbox .ib-row:last-child { border-bottom: 0; }
-.biz .pg-inbox .ib-mark { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 9px; background: #f1f1f4; color: var(--ink-3); font-size: 12px; font-weight: 800; }
+.biz .pg-inbox .ib-row:last-child { border-bottom: 0; border-radius: 0 0 10px 10px; }
+.biz .pg-inbox .ib-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: #f1f1f4; color: var(--ink-3); font-size: 12px; font-weight: 800; }
 /* Category washes. Not a verdict and not pressable — the wash tier the accent
    law leaves legal, and the same three canon paints. */
 .biz .pg-inbox .ib-mark.indigo { background: var(--indigo-soft); color: var(--indigo); }
 .biz .pg-inbox .ib-mark.red { background: var(--red-soft); color: var(--red-dark); }
 .biz .pg-inbox .ib-mark.amber { background: var(--amber-soft); color: var(--amber); }
 .biz .pg-inbox .ib-copy { min-width: 0; }
-.biz .pg-inbox .ib-copy strong { display: flex; align-items: baseline; gap: 7px; font-size: 14px; }
+.biz .pg-inbox .ib-line1 { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.biz .pg-inbox .ib-line1 strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 顧客番号 — informational, so it is NEUTRAL (the accent law's one-way rule):
    this ledger holds a duplicate pair with the same name, and the number is how
    the reader tells them apart. */
-.biz .pg-inbox .ib-no { color: var(--quiet); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.biz .pg-inbox .ib-subject { display: block; margin-top: 2px; color: var(--ink-2); font-size: 13px; line-height: 1.4; }
-.biz .pg-inbox .ib-preview { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.biz .pg-inbox .ib-meta { display: grid; justify-items: end; gap: 7px; min-width: 96px; text-align: right; }
-.biz .pg-inbox .ib-meta time { display: block; color: var(--quiet); font-size: 12px; font-variant-numeric: tabular-nums; }
+.biz .pg-inbox .ib-no { color: var(--quiet); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.biz .pg-inbox .ib-line1 time { margin-left: auto; color: var(--quiet); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.biz .pg-inbox .ib-line2 { display: flex; align-items: center; gap: 8px; min-width: 0; margin-top: 2px; }
+.biz .pg-inbox .ib-subject { min-width: 0; color: var(--ink-2); font-size: 13px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .pg-inbox .ib-line2 .pill { margin-left: auto; flex: 0 0 auto; min-height: 22px; padding: 0 7px; font-size: 11px; }
+.biz .pg-inbox .ib-preview { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .biz .pg-inbox .ib-empty { min-height: 300px; display: grid; place-content: center; padding: 28px; text-align: center; }
 .biz .pg-inbox .ib-empty strong { font-size: 16px; }
 .biz .pg-inbox .ib-empty span { margin-top: 6px; color: var(--muted); font-size: 13px; }
 
-/* ── the inspector ────────────────────────────────────────────────────────── */
-.biz .pg-inbox .ib-inspector-head { padding: 15px; border-bottom: 1px solid var(--line-2); background: #fafafb; }
+/* ── the workspace panel: header band with the actions pinned top-right ───── */
+/* ⚖ THE BAND SIZES FROM THE PANEL, NOT FROM THE VIEWPORT. A media query knows
+   the WINDOW; this band lives inside a panel whose width also depends on the
+   shell's sidebar, which the operator opens and closes (76px collapsed, 264px
+   open — business-shell.css:533-534). Measured headless at 1280 with the
+   sidebar OPEN, a rigid row gave the name 46px and wrapped 「テスト えいた」
+   onto two lines while the actions kept their full 470px. So the band WRAPS:
+   the two halves sit side by side while both fit and the actions drop to their
+   own full-width row when they do not — the same shape the ≤1279 band states
+   explicitly, reached by measurement instead of by guessing which viewport
+   width the sidebar happens to be leaving. */
+.biz .pg-inbox .ib-band {
+  display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 18px;
+  padding: 14px 16px; border-bottom: 1px solid var(--line-2); background: #fafafb;
+  border-radius: 10px 10px 0 0;
+}
+/* `flex: 1 1 auto`, and the basis is deliberately AUTO rather than a px figure:
+   the ≤1279 band turns this row into a COLUMN, where a px basis is a HEIGHT —
+   a 260px basis there opened a 200px hole between the subject and the actions
+   at 768 (caught in the pixel review, not by any test). Auto sizes from the
+   content in both directions. */
+.biz .pg-inbox .ib-band-id { min-width: 0; flex: 1 1 auto; }
 .biz .pg-inbox .ib-kicker { color: var(--ink-3); font-size: 12px; font-weight: 800; letter-spacing: .04em; }
-.biz .pg-inbox .ib-inspector-head h2 { margin: 6px 0 3px; font-size: 21px; line-height: 1.35; }
-.biz .pg-inbox .ib-inspector-head p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
-.biz .pg-inbox .ib-inspector-body { padding: 14px 15px 16px; }
+.biz .pg-inbox .ib-band-id h2 { margin: 6px 0 3px; font-size: 21px; line-height: 1.35; }
+.biz .pg-inbox .ib-band-id p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.biz .pg-inbox .ib-act { flex: 0 1 auto; max-width: 470px; text-align: right; }
+.biz .pg-inbox .ib-act-row { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+/* The refusal lives on screen before anyone reaches for the control — nothing
+   to outrun, nothing that disappears (⚖ 47). */
+.biz .pg-inbox .ib-footnote { margin: 8px 0 0; color: var(--ink-3); font-size: 12px; line-height: 1.55; text-align: right; }
+/* ≤743 only — above that band the list never left, so there is nothing to go
+   back to. */
+.biz .pg-inbox .ib-back { display: none; }
+
+.biz .pg-inbox .ib-body { padding: 14px 16px 16px; }
+.biz .pg-inbox .ib-grid { display: grid; grid-template-columns: minmax(0, 1.02fr) minmax(0, .98fr); gap: 16px; align-items: start; }
 .biz .pg-inbox .ib-title { margin: 15px 0 7px; color: var(--ink-3); font-size: 12px; font-weight: 800; letter-spacing: .04em; }
 .biz .pg-inbox .ib-title:first-child { margin-top: 0; }
+.biz .pg-inbox .ib-title-row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin: 15px 0 7px; }
+.biz .pg-inbox .ib-title-row:first-child { margin-top: 0; }
+.biz .pg-inbox .ib-title-row .ib-title { margin: 0; }
+/* ⚖ THE HEADING IS PART OF THE SECTION (Liam's rule, found live 8/23): the tour's
+   declaration rides a WRAPPER holding the 見出し and its box, so tapping the word
+   jumps to it instead of hitting the scrim. The wrapper paints nothing and adds
+   no box of its own — it only takes over the 15px the title above gives up on
+   becoming a first child, so the pixels are byte-for-byte the ones that shipped
+   and the gaps BETWEEN sections stay outside every declared rect. */
+.biz .pg-inbox .ib-sec { margin-top: 15px; }
+.biz .pg-inbox .ib-sec:first-child { margin-top: 0; }
+
 .biz .pg-inbox .ib-facts { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-.biz .pg-inbox .ib-fact { display: grid; grid-template-columns: 104px 1fr; gap: 10px; padding: 9px 10px; border-bottom: 1px solid var(--row); font-size: 13px; line-height: 1.45; }
+.biz .pg-inbox .ib-fact { display: grid; grid-template-columns: 104px 1fr; gap: 10px; padding: 9px 11px; border-bottom: 1px solid var(--row); font-size: 13px; line-height: 1.45; }
 .biz .pg-inbox .ib-fact:last-child { border-bottom: 0; }
 .biz .pg-inbox .ib-fact span { color: var(--muted); }
 .biz .pg-inbox .ib-fact b { text-align: right; font-weight: 600; word-break: break-word; }
@@ -156,7 +305,7 @@
 .biz .pg-inbox .ib-channel b.allowed { color: var(--green-dark); }
 .biz .pg-inbox .ib-channel b.refused { color: var(--red-dark); }
 .biz .pg-inbox .ib-channel b.unrecorded { color: var(--quiet); }
-.biz .pg-inbox .ib-recommend { margin: 7px 0 0; color: var(--ink-3); font-size: 12px; line-height: 1.55; }
+.biz .pg-inbox .ib-recommend { margin: 7px 0 0; max-width: 60ch; color: var(--ink-3); font-size: 12px; line-height: 1.55; }
 
 .biz .pg-inbox .ib-proof { padding: 11px 12px; border-left: 3px solid var(--indigo); background: var(--proof); color: var(--ink-3); font-size: 12px; line-height: 1.6; }
 .biz .pg-inbox .ib-proof strong { display: block; color: var(--ink-2); }
@@ -165,27 +314,247 @@
 .biz .pg-inbox .ib-proof span { display: block; margin-top: 5px; }
 .biz .pg-inbox .ib-draft { margin: 0; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: #fafafb; color: var(--ink-2); font-size: 13px; line-height: 1.65; }
 
-.biz .pg-inbox .ib-history-row { display: grid; grid-template-columns: 52px 1fr; gap: 9px; padding: 9px 0; border-bottom: 1px solid var(--row); }
-.biz .pg-inbox .ib-history-row:last-child { border-bottom: 0; }
+/* ── 履歴 — full width under the two columns, tight paired rows ───────────── */
+.biz .pg-inbox .ib-hist { border-top: 1px solid var(--line-2); margin-top: 16px; padding-top: 4px; }
+/* ── chronology cue ───────────────────────────────────────────────────────
+   Two entries side by side read as a two-column TABLE unless something says
+   they are one sequence. The quietest thing that says it is a hairline drawn
+   across the gap, linking entry to entry like a chain — plus the 新しい順 label
+   in the header, which supplies the DIRECTION a bare line cannot.
+   No arrowhead on purpose: newest sits left and time runs BACKWARD to the
+   right, so an arrow would point the wrong way half the time it was read.
+   The column count is fixed at 2 (never auto-fill) so the connector always has
+   exactly one gap to cross — an auto-fill grid can silently become 1 or 3
+   columns and strand the line outside the panel. */
+.biz .pg-inbox .ib-hist-rows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 22px; }
+.biz .pg-inbox .ib-history-row { position: relative; display: grid; grid-template-columns: 52px 1fr; gap: 9px; padding: 8px 0; border-bottom: 1px solid var(--row); }
+/* pinned to the FIRST line of the entry, never to 50% of it: entries wrap to
+   two and three lines at narrow widths, and a centred connector then floats
+   beside the wrapped body text and reads as a stray dash instead of a link. */
+.biz .pg-inbox .ib-history-row:nth-child(even)::before {
+  /* stops 4px short of the time so it reads as a connector, not as an em-dash
+     glued to the front of 11:48. */
+  content: ""; position: absolute; top: 19px; left: -22px; width: 18px;
+  border-top: 1px solid #d0d0da;
+}
+.biz .pg-inbox .ib-order { color: var(--quiet); font-size: 11.5px; font-weight: 600; }
 .biz .pg-inbox .ib-history-row time { color: var(--quiet); font-size: 12px; font-variant-numeric: tabular-nums; }
 .biz .pg-inbox .ib-history-row strong { display: block; font-size: 13px; }
 .biz .pg-inbox .ib-history-row > span > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .biz .pg-inbox .ib-none { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 
-.biz .pg-inbox .ib-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
-.biz .pg-inbox .ib-actions .ib-wide { grid-column: 1 / -1; }
-/* The refusals live on screen before anyone reaches for the control — nothing
-   to outrun, nothing that disappears (⚖ 47). */
-.biz .pg-inbox .ib-refusal { margin: 8px 0 0; color: var(--ink-3); font-size: 12px; line-height: 1.55; }
+/* ═══ ⚖ Liam 8/23 — 画面の説明 (the guided tour) ═══════════════════════════
+   A SPOTLIGHT, NOT A MODAL: the hole is one big box-shadow, so the section
+   being explained stays fully lit and the rest of the page dims behind it
+   without a single element being moved or re-rendered. `.ib-spot-catch` is the
+   click surface that makes every declared region jumpable, and it sits UNDER
+   the hole and the card so neither is swallowed by it.
 
-/* ── responsive ───────────────────────────────────────────────────────────── */
-/* Canon's own breakpoint, and the shell's 1180px floor is what the media query
-   below is sized against — its OWN narrowed numbers, not the base sheet's:
-   1180 − 76 rail − 40 padding (this breakpoint's own, not the base 56) leaves
-   1064, and 520 + 340 + 10 (this breakpoint's own workspace minimum, not the
-   base 560/368/14) is 870. */
-@media (max-width: 1320px) {
+   Every name is `ib-`-prefixed like the rest of this room: 今日の運営 states
+   BARE `.biz .spot-*` rules on all five of these names, and App Router leaves
+   its sheet in the document after a soft-nav — so a shared name here would be
+   two rooms' overlays fighting over one paint (the ⚖ sibling-sheet fence, the
+   room-2 blocker class). Nothing else in the family renders an `ib-spot-*`
+   node, so there is nothing here to collide with.
+
+   NO SCROLLER, NO HEIGHT CAP, NO `overscroll-behavior` (⚖ page-scroll): the
+   overlay is four fixed-position layers over a page that still scrolls itself,
+   which is how the walk reaches a step below the fold. Colours are 今日の運営's
+   own — a neutral scrim (a non-interactive surface, R13's allowlist) and white
+   controls with hairline borders; no black fill on anything pressable. */
+.biz .pg-inbox .ib-spot-hole {
+  position: fixed;
+  z-index: 70;
+  pointer-events: none;
+  border-radius: 12px;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 9999px rgba(24, 24, 27, .42);
+  transition: top .24s cubic-bezier(.2, .7, .1, 1), left .24s cubic-bezier(.2, .7, .1, 1), width .24s cubic-bezier(.2, .7, .1, 1), height .24s cubic-bezier(.2, .7, .1, 1);
+}
+.biz .pg-inbox .ib-spot-catch { position: fixed; inset: 0; z-index: 69; cursor: pointer; }
+.biz .pg-inbox .ib-spot-hover { position: fixed; z-index: 70; pointer-events: none; border: 2px dashed rgba(255, 255, 255, .9); border-radius: 12px; }
+.biz .pg-inbox .ib-spot-card {
+  position: fixed;
+  z-index: 72;
+  width: 300px;
+  max-width: calc(100vw - 20px);
+  padding: 12px 14px 10px;
+  border: 1.5px solid var(--control);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 40px rgba(24, 24, 27, .3);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+.biz .pg-inbox .ib-spot-card b { display: block; margin-bottom: 2px; font-size: 13.5px; color: var(--ink); }
+.biz .pg-inbox .ib-spot-text { display: block; }
+.biz .pg-inbox .ib-spot-hint { margin-top: 6px; color: var(--quiet); font-size: 11px; }
+.biz .pg-inbox .ib-spot-foot { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--section); }
+.biz .pg-inbox .ib-spot-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.biz .pg-inbox .ib-spot-foot button { min-height: 30px; padding: 0 11px; border: 1px solid var(--control); border-radius: 7px; background: #fff; color: var(--ink-2); font-size: 12px; font-weight: 600; cursor: pointer; }
+.biz .pg-inbox .ib-spot-foot button:hover { background: #f4f4f5; }
+.biz .pg-inbox .ib-spot-foot button:disabled { opacity: .4; cursor: default; }
+.biz .pg-inbox .ib-spot-foot .ib-spot-done { margin-left: auto; }
+
+/* ⚖ ALL-SCREEN ADAPTIVITY (Liam 8/23) — the ladder, band by band. Only the
+   PAGE's own rules live here; the shell's own bands (`.biz .app`'s 1180px
+   floor, the rail, the topbar) are the family CSS sweep's, not this room's, and
+   are named in the build report rather than reached for from a route sheet. */
+
+/* ═══ ≥1400 — big external displays: comfort, with line lengths capped ═══ */
+@media (min-width: 1400px) {
+  .biz .page.pg-inbox { padding-left: 32px; padding-right: 32px; }
+  .biz .pg-inbox .ib-workspace { gap: 18px; }
+  .biz .pg-inbox .ib-body { padding: 16px 18px 18px; }
+  .biz .pg-inbox .ib-grid { gap: 22px; }
+  /* ultra-wide must not mean unreadably long lines */
+  .biz .pg-inbox .ib-draft,
+  .biz .pg-inbox .ib-proof { max-width: 62ch; }
+  .biz .pg-inbox .ib-history-row > span > span { max-width: 56ch; }
+  .biz .pg-inbox .ib-zero-card { margin-top: 64px; padding: 50px 32px 52px; }
+}
+
+/* ═══ 1024–1279 — iPad landscape / small laptop ═══
+   The workspace loses ~200px: the actions take their own full-width row rather
+   than fighting the name for the band.
+
+   ⚖ 1100–1279 KEEPS THE INNER PAIR SIDE BY SIDE. Stacking them here was the
+   wrong trade: it doubled the workspace's height while the short queue card
+   stayed short, so the page grew a tall empty gutter down the left. The pair
+   costs width, not height, and the width is still there — so the queue tightens
+   to 300px and the inner gap to 14px, buying the pair its ~330 / ~300 minimum
+   at 1100 and paying for it out of a column that was already truncating. */
+@media (max-width: 1279px) {
   .biz .page.pg-inbox { padding-left: 20px; padding-right: 20px; }
-  .biz .pg-inbox .ib-workspace { grid-template-columns: minmax(520px, 1fr) 340px; gap: 10px; }
-  .biz .pg-inbox .ib-stat { padding-left: 8px; padding-right: 8px; }
+  .biz .pg-inbox .ib-workspace { grid-template-columns: 300px minmax(0, 1fr); gap: 12px; }
+  .biz .pg-inbox .ib-stat { padding-left: 9px; padding-right: 9px; }
+  .biz .pg-inbox .ib-band { flex-direction: column; align-items: stretch; gap: 12px; }
+  .biz .pg-inbox .ib-act { max-width: none; text-align: left; }
+  .biz .pg-inbox .ib-act-row { justify-content: flex-start; }
+  .biz .pg-inbox .ib-footnote { text-align: left; }
+  /* fr-based, never fixed px: minmax(0, …) columns SHRINK past their ideal
+     rather than overflowing the panel, so the band can never clip or scroll
+     sideways however the browser rounds. */
+  .biz .pg-inbox .ib-grid { grid-template-columns: minmax(0, 1.02fr) minmax(0, .98fr); gap: 14px; }
+  /* the 104px label rail is generous for 期限/受信元/次の対応 — 84 gives the
+     value column back 20px exactly where the band is tightest. */
+  .biz .pg-inbox .ib-fact { grid-template-columns: 84px 1fr; }
+}
+
+/* ── ≤1099 — the pair genuinely runs out of width: stack it ──────────────── */
+@media (max-width: 1099px) {
+  /* the row gap does the work the stacked columns' own first-child margin
+     cannot: 証跡 must not butt against the consent note it now sits under. */
+  .biz .pg-inbox .ib-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+}
+
+/* ═══ 744–1023 — iPad portrait / iPad mini / foldable INNER display ═══
+   One column: strip → queue → the selected thread's workspace beneath it. The
+   workspace now has the FULL page width, so its inner pair pairs up again in
+   the 800+ band below.
+
+   ⚖ VERIFIED DEVICE DATA (2026-08-23): the iPhone Fold's inner display is
+   4:3 LANDSCAPE-leaning — roughly 930×655 logical — and a Galaxy Z Fold's
+   inner is near-square at ~840–980 logical. Samsung's July 2026 trio confirms
+   the class rather than adding to it: the Z Fold 8 inner went 4:3 at 7.6" and
+   the Fold 8 Ultra is 8", both landing in that same ~860–980 band. Those
+   interiors are iPad-grade canvases, so the two-column workspace treatment
+   reaches DOWN to 744 rather than stopping at 1024: a 940px-wide single
+   stretched column would waste the exact width the fold exists to give.
+   Nothing in this band assumes a TALL portrait viewport (no vh-based heights),
+   so a 655px-high landscape interior simply scrolls the page like any other. */
+@media (max-width: 1023px) {
+  .biz .pg-inbox .ib-summary { grid-template-columns: 1fr 1fr; }
+  /* the strip becomes three rows here, so the corners move: 未完了 owns the top
+     pair and the last two counters own the bottom pair. */
+  .biz .pg-inbox .ib-summary-main { grid-column: 1 / -1; border-radius: 10px 10px 0 0; }
+  .biz .pg-inbox .ib-stat:nth-last-child(2) { border-radius: 0 0 0 10px; }
+  .biz .pg-inbox .ib-stat:last-child { border-radius: 0 0 10px 0; }
+  .biz .pg-inbox .ib-workspace { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .biz .pg-inbox .ib-act-row .btn { flex: 1 1 190px; }
+}
+
+/* ── 800–1023: the near-square canvases get the two-column workspace ─────── */
+/* ⚖ VERIFIED (2026-08-23): the boundary is 800, not 840, because the Galaxy
+   Z Fold 8 "Wide" inner panel (1848×2448, 4:3) resolves to ≈820 logical — a
+   near-square canvas that would waste its whole point on one stretched column.
+   Below 800 sits the genuinely 3:4 PORTRAIT tablet (iPad 768), and a portrait
+   tablet is the shape a single column was made for, so it keeps one. The split
+   is about SHAPE, not size: near-square/landscape pairs up, tall stacks. */
+@media (min-width: 800px) and (max-width: 1023px) {
+  .biz .pg-inbox .ib-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+}
+
+/* ═══ ≤743 — smartphones / folded cover screen: the Gmail phone pattern ═══
+   The list IS the page: a row tap opens the thread as its own screen and the
+   ← control brings the list back (Escape does the same from a keyboard).
+   Nothing is unmounted by the swap — the room keeps one open thread either
+   way — so going back cannot lose a reader's place.
+
+   ⚖ VERIFIED DEVICE DATA (2026-08-23): this band must stay comfortable up to
+   ~500px, not just 390–430. The iPhone Fold's FOLDED cover screen is a 4:3
+   5.49" panel at roughly 470–490 logical — wider than any normal iPhone — and
+   a Galaxy S26 Ultra sits at ~412–448 and an opened Z Flip 8 at ~412. Every
+   rule here therefore sizes from the content (flex/auto columns, wrapping
+   filters, ellipsis on the queue lines that can run long) rather than from a
+   390px assumption, so 480 gains air instead of gaining truncation. */
+@media (max-width: 743px) {
+  .biz .page.pg-inbox { padding: 16px 16px 32px; }
+  .biz .page.pg-inbox h1 { font-size: 23px; }
+  .biz .pg-inbox .ib-head { margin-bottom: 10px; }
+  /* ⚖ ≥44px on a thumb WITHOUT growing the mark. A 44px help circle beside a
+     23px title would shout louder than the title; the hit box is extended past
+     the paint instead, which is what a touch target is for. */
+  .biz .pg-inbox .ib-help { position: relative; }
+  .biz .pg-inbox .ib-help::after {
+    content: ""; position: absolute; top: 50%; left: 50%; width: 44px; height: 44px;
+    transform: translate(-50%, -50%);
+  }
+
+  /* ONE SCREEN AT A TIME. */
+  .biz .pg-inbox .ib-detail { display: none; }
+  .biz .pg-inbox.is-detail .ib-queue { display: none; }
+  .biz .pg-inbox.is-detail .ib-detail { display: block; }
+
+  .biz .pg-inbox .ib-panel-head { flex-direction: column; align-items: stretch; gap: 8px; }
+  .biz .pg-inbox .ib-panel-head .btn { min-height: 44px; }
+  /* the quiet text treatment stays; only the HIT BOX grows. 20px line + 12px
+     top + 12px bottom = a 44px target, and because the mark is native
+     text-decoration rather than a border-bottom, the underline stays pinned
+     under the label instead of drifting to the bottom of the padding. */
+  .biz .pg-inbox .ib-filters { gap: 2px 18px; padding: 4px 13px; }
+  .biz .pg-inbox .ib-filter { padding: 12px 0; }
+  .biz .pg-inbox .ib-row { padding: 12px 13px; min-height: 76px; }
+  .biz .pg-inbox .ib-line1 strong { font-size: 15px; }
+  .biz .pg-inbox .ib-subject { font-size: 13.5px; }
+
+  .biz .pg-inbox .ib-back {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 44px; margin-bottom: 4px;
+    padding: 0 12px 0 8px; border: 1px solid var(--line); border-radius: 8px; background: #fff;
+    color: var(--ink-2); font-size: 14px; font-weight: 500; align-self: flex-start;
+  }
+  .biz .pg-inbox .ib-band { padding: 12px 14px; }
+  .biz .pg-inbox .ib-band-id h2 { font-size: 20px; }
+  .biz .pg-inbox .ib-act-row { flex-direction: column; }
+  .biz .pg-inbox .ib-act-row .btn { flex: 1 1 auto; width: 100%; min-height: 46px; }
+  .biz .pg-inbox .ib-body { padding: 12px 14px 16px; }
+  .biz .pg-inbox .ib-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  /* facts read as label-above-value on a phone: a 104px label column plus a
+     right-aligned value turns 予約・候補 into a four-line ragged block. */
+  .biz .pg-inbox .ib-fact { grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 10px 11px; }
+  .biz .pg-inbox .ib-fact b { text-align: left; }
+  /* stacked, the rows' own separators + 新しい順 already carry the order; a
+     connector drawn into a gap that no longer exists would only be noise. */
+  .biz .pg-inbox .ib-hist-rows { grid-template-columns: minmax(0, 1fr); }
+  .biz .pg-inbox .ib-history-row { grid-template-columns: 46px 1fr; }
+  .biz .pg-inbox .ib-history-row:nth-child(even)::before { display: none; }
+  .biz .pg-inbox .ib-zero-card { margin: 28px auto 24px; padding: 36px 20px 38px; }
+}
+
+/* The two motions in the room — the row's own hover/selection fade and the
+   spotlight sliding from one section to the next — both removed outright for a
+   reader who asked for less. The tour still walks; the hole simply arrives. */
+@media (prefers-reduced-motion: reduce) {
+  .biz .pg-inbox .ib-row { transition: none; }
+  .biz .pg-inbox .ib-spot-hole { transition: none; }
 }

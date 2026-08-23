@@ -53,6 +53,10 @@ import {
   money,
 } from '@/business/lib/canon-logic/pricing'
 import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
+// ⚖ Liam 8/23 — the guided tour is EVERY Business page's now, so the engine this
+// board was written against moved to one shared home. Same functions, same
+// behaviour, new address; nothing about this room's tour changed with it.
+import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane } from '@/business/lib/today-board'
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
@@ -106,12 +110,8 @@ import {
   sidesAt,
   seedSpanIn,
   slotStartAt,
-  spotCardAt,
-  spotHitIndex,
-  spotTargets,
   unparkOutcome,
   foreignStoreRefusal,
-  wrapStep,
   type GuardRail,
   type LandingFloor,
   type LandingQuestion,
@@ -121,7 +121,6 @@ import {
   type PairLanes,
   type RailCell,
   type RoomPolicy,
-  type SpotRect,
 } from './today-interactions'
 
 const HINT = '見本データのため実行できません'

@@ -34,10 +34,6 @@ import {
   labelWidthOf,
   liveTimeLabel,
   stretchOrCarry,
-  spotCardAt,
-  spotHitIndex,
-  spotTargets,
-  wrapStep,
   LABEL_MAX,
   LABEL_MIN,
   clickClosesPopover,
@@ -86,6 +82,10 @@ import {
   type Moves,
   type RailCell,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
+// ⚖ Liam 8/23 — the tour engine these tests drive now lives in the family's one
+// shared home (`@/business/lib/guide`); the board imports it from there too.
+// Same functions, carried verbatim, so every assertion below is unchanged.
+import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
 import { dragOrigin, stepPct } from '@/business/lib/canon-logic/drag-rules'
 import { buildSellLayer, type SellCell } from '@/business/lib/canon-logic/availability'
 import { DENSITY_CEILING, packedPrice } from '@/business/lib/canon-logic/pricing'

@@ -309,6 +309,12 @@ describe('the fixture data door', () => {
       // The 表示する列 primitive canon keeps in fable-shared.js. Pure DOM +
       // arrays, shared by 顧客 and 予約一覧, so it imports nothing at all.
       'src/business/lib/column-config.ts': [],
+      // ⚖ Liam 8/23 — the 画面の説明 tour's engine, one shared home for every
+      // Business page. Carried verbatim out of today-interactions.ts, and the
+      // empty inventory is the PIN on what it is: pure functions over rects and
+      // nodes. A room's step index, overlay and copy stay in the room; an
+      // import here would mean the engine started knowing about one of them.
+      'src/business/lib/guide.ts': [],
       // canon-logic — the lifted mock behaviour. These four are PURE by design
       // (that is the whole point of lifting them out of canon's inline script),
       // so an empty inventory is not laziness: any import at all here would
@@ -371,6 +377,9 @@ describe('the fixture data door', () => {
         '@/business/lib/canon-logic/drag-rules',
         '@/business/lib/canon-logic/gap-guard',
         '@/business/lib/canon-logic/pricing',
+        // The tour engine's new address (⚖ Liam 8/23). The board's own tour is
+        // unchanged; only where the four functions live moved.
+        '@/business/lib/guide',
         '@/business/lib/today-board',
         'next/link',
         'react',
@@ -461,16 +470,31 @@ describe('the fixture data door', () => {
         './reservations',
         './today-board',
       ],
+      // The route entry keeps the admission gate, the params and the render;
+      // the prop assembly — and therefore every fixture-door read — moved to
+      // `inbox-props.ts`, so the evidence harness runs the SAME function the
+      // route does instead of a hand-written replica of its output. The
+      // inventory follows the reads: the door list below is the page's old one,
+      // unchanged, at its new address.
       'src/app/[locale]/(business)/business/inbox/page.tsx': [
         './InboxScreen',
+        './inbox-props',
         './inbox.css',
         '@/business/lib/admission',
+      ],
+      'src/app/[locale]/(business)/business/inbox/inbox-props.ts': [
+        './InboxScreen',
         '@/business/lib/clock',
         '@/business/lib/data',
         '@/business/lib/fixtures-inbox',
+        '@/business/lib/fixtures-today',
         '@/business/lib/inbox',
       ],
       'src/app/[locale]/(business)/business/inbox/InboxScreen.tsx': [
+        // ⚖ Liam 8/23 — the room's ? opens the family's guided tour, so it wires
+        // its own trigger and overlay to the shared engine. Pure functions only:
+        // this room reads no data on the client and that is unchanged.
+        '@/business/lib/guide',
         '@/business/lib/inbox',
         'next/link',
         'react',
