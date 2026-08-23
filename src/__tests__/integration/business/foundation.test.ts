@@ -461,13 +461,24 @@ describe('the fixture data door', () => {
         './reservations',
         './today-board',
       ],
+      // The route entry keeps the admission gate, the params and the render;
+      // the prop assembly — and therefore every fixture-door read — moved to
+      // `inbox-props.ts`, so the evidence harness runs the SAME function the
+      // route does instead of a hand-written replica of its output. The
+      // inventory follows the reads: the door list below is the page's old one,
+      // unchanged, at its new address.
       'src/app/[locale]/(business)/business/inbox/page.tsx': [
         './InboxScreen',
+        './inbox-props',
         './inbox.css',
         '@/business/lib/admission',
+      ],
+      'src/app/[locale]/(business)/business/inbox/inbox-props.ts': [
+        './InboxScreen',
         '@/business/lib/clock',
         '@/business/lib/data',
         '@/business/lib/fixtures-inbox',
+        '@/business/lib/fixtures-today',
         '@/business/lib/inbox',
       ],
       'src/app/[locale]/(business)/business/inbox/InboxScreen.tsx': [

@@ -47,6 +47,15 @@
    source, offset accent, never mistakable for selection") is honoured by the
    rule that already exists.
 
+   ⚠ …BUT A RING THE ROOM CLIPS IS NOT A RING. The shell paints 3px OUTSIDE the
+   control at 2px offset, so a container that clips at its own border-radius
+   erases the ring on every pressable sitting against its edge — which was the
+   five counters (top and bottom strokes gone, corners worse) and the queue rows
+   (left and right gone). No container this room owns clips any more; the
+   rounded corners are stated on the CORNER CHILDREN instead, so the background
+   still ends at the radius and the ring is whole on all four sides. Never
+   reintroduce `overflow: hidden` on `.ib-summary` or `.ib-panel`.
+
    ⚖ PAGE-SCROLL (Liam 8/22, ruled twice): NO wrapper in this room caps a
    height, owns overflow-y, or sets overscroll-behavior — and after the
    restructure not one owns overflow-x either, because the filter row WRAPS
@@ -83,6 +92,17 @@
   color: var(--muted); font-size: 12px; font-weight: 700; line-height: 1; padding: 0;
 }
 .biz .pg-inbox .ib-help:hover { border-color: var(--indigo); color: var(--indigo); background: var(--indigo-soft); }
+.biz .pg-inbox .ib-help[aria-expanded="true"] { border-color: var(--indigo); color: var(--indigo); background: var(--indigo-soft); }
+/* The disclosure's own block. A hover tooltip is a lever only a sighted mouse
+   user can pull, so the two removed paragraphs open ON THE PAGE instead —
+   quiet, in the 証跡 tier's own paper, never a dialog (D-2). */
+.biz .pg-inbox .ib-help-block {
+  max-width: 78ch; margin: 9px 0 0; padding: 11px 13px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--proof);
+  color: var(--ink-3); font-size: 13px; line-height: 1.6;
+}
+.biz .pg-inbox .ib-help-block p { margin: 0; }
+.biz .pg-inbox .ib-help-block p + p { margin-top: 6px; }
 
 /* ── 対応状況 strip — the numbers ARE the filters ─────────────────────────── */
 /* Every counter is a real pressable that switches the filter below it. A number
@@ -90,19 +110,29 @@
    poster, not a tool. The typography of the numbers is unchanged — only the
    cursor, a hover wash and the pressed mark are new, so the strip still reads
    as a strip and not as a row of buttons. */
+/* NO `overflow: hidden` HERE. It clipped the shell's offset focus ring off the
+   five counters; the strip's own corners are stated on the corner children
+   below, which clips the pressed/hover wash at the radius exactly as the
+   container did. */
 .biz .pg-inbox .ib-summary {
   display: grid; grid-template-columns: minmax(240px, 1.3fr) repeat(4, minmax(112px, .55fr));
   margin-bottom: 14px; border: 1px solid var(--proof-border); border-radius: 11px;
-  background: var(--proof); overflow: hidden;
+  background: var(--proof);
 }
+/* `border: 0` at (0,3,1) — it beats every `.ib-summary-main` / `.ib-stat` rule
+   in this sheet, which is why NO border longhand is stated on either of them:
+   the rail and the dividers those rules used to declare never painted a pixel,
+   in this room or in the approved mock. Restoring one would not "fix a
+   specificity bug", it would change the look Liam signed off. */
 .biz .pg-inbox .ib-summary button {
   border: 0; background: none; color: inherit; font: inherit; text-align: left; width: 100%;
 }
 .biz .pg-inbox .ib-summary-main {
-  display: grid; align-content: center; padding: 11px 15px; border-left: 3px solid var(--indigo);
+  display: grid; align-content: center; padding: 11px 15px; border-radius: 10px 0 0 10px;
 }
 .biz .pg-inbox .ib-summary-main strong { display: block; font-size: 15px; }
-.biz .pg-inbox .ib-stat { display: grid; align-content: center; padding: 10px 13px; border-left: 1px solid #e5e9f7; }
+.biz .pg-inbox .ib-stat { display: grid; align-content: center; padding: 10px 13px; }
+.biz .pg-inbox .ib-stat:last-child { border-radius: 0 10px 10px 0; }
 .biz .pg-inbox .ib-stat span { color: var(--muted); font-size: 12px; }
 .biz .pg-inbox .ib-stat b { display: block; margin-top: 2px; font-size: 20px; font-variant-numeric: tabular-nums; }
 /* SEMANTIC, not decoration (⚖ the one-way accent law): a non-zero 要対応 or
@@ -138,10 +168,14 @@
 
 /* ── workspace: THE RESTRUCTURE ───────────────────────────────────────────── */
 .biz .pg-inbox .ib-workspace { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 14px; align-items: start; }
-.biz .pg-inbox .ib-panel { border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
+/* NO `overflow: hidden` HERE either: it cut the left and right of the focus
+   ring off every queue row. The three children that reach a corner carry the
+   radius themselves. */
+.biz .pg-inbox .ib-panel { border: 1px solid var(--line); border-radius: 11px; background: #fff; }
 .biz .pg-inbox .ib-panel-head {
   min-height: 62px; padding: 10px 14px; border-bottom: 1px solid var(--line-2);
   display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #fafafb;
+  border-radius: 10px 10px 0 0;
 }
 .biz .pg-inbox .ib-panel-head > div { min-width: 0; }
 .biz .pg-inbox .ib-panel-head strong { display: block; font-size: 15px; }
@@ -185,7 +219,7 @@
 .biz .pg-inbox .ib-row:hover { background: #fafafb; }
 /* R13: the selected row is a wash plus canon's accent rail, never a fill. */
 .biz .pg-inbox .ib-row.selected { background: var(--indigo-soft); box-shadow: inset 3px 0 0 var(--indigo); }
-.biz .pg-inbox .ib-row:last-child { border-bottom: 0; }
+.biz .pg-inbox .ib-row:last-child { border-bottom: 0; border-radius: 0 0 10px 10px; }
 .biz .pg-inbox .ib-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: #f1f1f4; color: var(--ink-3); font-size: 12px; font-weight: 800; }
 /* Category washes. Not a verdict and not pressable — the wash tier the accent
    law leaves legal, and the same three canon paints. */
@@ -222,6 +256,7 @@
 .biz .pg-inbox .ib-band {
   display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 18px;
   padding: 14px 16px; border-bottom: 1px solid var(--line-2); background: #fafafb;
+  border-radius: 10px 10px 0 0;
 }
 /* `flex: 1 1 auto`, and the basis is deliberately AUTO rather than a px figure:
    the ≤1279 band turns this row into a COLUMN, where a px basis is a HEIGHT —
@@ -376,9 +411,11 @@
    so a 655px-high landscape interior simply scrolls the page like any other. */
 @media (max-width: 1023px) {
   .biz .pg-inbox .ib-summary { grid-template-columns: 1fr 1fr; }
-  .biz .pg-inbox .ib-summary-main { grid-column: 1 / -1; }
-  .biz .pg-inbox .ib-stat { border-left: 0; border-top: 1px solid #e5e9f7; }
-  .biz .pg-inbox .ib-stat:nth-child(odd) { border-left: 1px solid #e5e9f7; }
+  /* the strip becomes three rows here, so the corners move: 未完了 owns the top
+     pair and the last two counters own the bottom pair. */
+  .biz .pg-inbox .ib-summary-main { grid-column: 1 / -1; border-radius: 10px 10px 0 0; }
+  .biz .pg-inbox .ib-stat:nth-last-child(2) { border-radius: 0 0 0 10px; }
+  .biz .pg-inbox .ib-stat:last-child { border-radius: 0 0 10px 0; }
   .biz .pg-inbox .ib-workspace { grid-template-columns: minmax(0, 1fr); gap: 14px; }
   .biz .pg-inbox .ib-act-row .btn { flex: 1 1 190px; }
 }
@@ -411,6 +448,14 @@
   .biz .page.pg-inbox { padding: 16px 16px 32px; }
   .biz .page.pg-inbox h1 { font-size: 23px; }
   .biz .pg-inbox .ib-head { margin-bottom: 10px; }
+  /* ⚖ ≥44px on a thumb WITHOUT growing the mark. A 44px help circle beside a
+     23px title would shout louder than the title; the hit box is extended past
+     the paint instead, which is what a touch target is for. */
+  .biz .pg-inbox .ib-help { position: relative; }
+  .biz .pg-inbox .ib-help::after {
+    content: ""; position: absolute; top: 50%; left: 50%; width: 44px; height: 44px;
+    transform: translate(-50%, -50%);
+  }
 
   /* ONE SCREEN AT A TIME. */
   .biz .pg-inbox .ib-detail { display: none; }

@@ -9,8 +9,9 @@
 // beneath them, and the 対応状況 counters are the filter row.
 //
 // WHAT IS CLIENT STATE HERE, AND NOTHING ELSE: which filter is pressed, which
-// thread is open, and — ≤743 only — whether the reader is looking at the list
-// or at the thread. All three are pure browsing. The two things canon keeps
+// thread is open, whether the ? help block is open, and — ≤743 only — whether
+// the reader is looking at the list or at the thread. All four are pure
+// browsing: none of them writes anything. The two things canon keeps
 // that would need to SURVIVE a real navigation (a sent reply, a completed
 // thread) are writes, and writes ship refused, so there is no staged state for
 // a provider to hold above the screen. That is stated rather than assumed: if
@@ -29,7 +30,7 @@
 // here to collide.
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   COUNTER_FILTER,
   matchesFilter,
@@ -91,13 +92,21 @@ export interface InboxProps {
   threads: InboxThreadProps[]
   summary: InboxSummary
   subtitle: string
-  /** The two standing explainer paragraphs, folded into the ? affordance. They
-   *  were permanent furniture every reader re-read every morning to learn
-   *  nothing new; on demand they are still the same words. */
-  helpText: string
+  /** The two standing explainer paragraphs, folded into the ? disclosure — one
+   *  entry per paragraph, verbatim. They were permanent furniture every reader
+   *  re-read every morning to learn nothing new; on demand they are still the
+   *  same words, and they open ON THE PAGE rather than in a hover tooltip only
+   *  a sighted mouse user can reach. */
+  helpText: string[]
   actionFootnote: string
   refreshRefusal: string
 }
+
+/** 予約一覧で事実を確認 — ONE label and ONE refusal reason, read by both the
+ *  link shape and the refused shape, so a thread with no booking cannot end up
+ *  describing itself differently from the one that has one (A8). */
+const BOOKING_LABEL = '予約一覧で事実を確認'
+const NO_BOOKING_REFUSAL = 'この空き待ちにはまだ予約がないため、予約一覧では確認できません。'
 
 /** Status → its pill. The shell's four pills are the family's own vocabulary,
  *  and the colours here are SEMANTIC (⚖ accent law): red says a deadline has
@@ -120,6 +129,16 @@ export function InboxScreen(props: InboxProps) {
   // survive a navigation, and above 743 both panels are on screen and this
   // flag styles nothing at all (inbox.css keeps its rules inside the band).
   const [detailOpen, setDetailOpen] = useState(false)
+  // The ? disclosure. Also view state: it opens two paragraphs of standing
+  // explanation and writes nothing.
+  const [helpOpen, setHelpOpen] = useState(false)
+
+  // ≤743's focus handover. `openedFrom` is the row the reader tapped, so ← can
+  // put focus back exactly where it came from; `phoneSwap` records whether the
+  // one-screen swap was actually in effect when the thread opened.
+  const backRef = useRef<HTMLButtonElement>(null)
+  const openedFrom = useRef<string | null>(null)
+  const phoneSwap = useRef(false)
 
   const visible = useMemo(() => props.threads.filter((t) => matchesFilter(t, filter)), [props.threads, filter])
   // The open thread follows the list: a selection the current filter no longer
@@ -127,15 +146,43 @@ export function InboxScreen(props: InboxProps) {
   // something the reader cannot see (⚖ A10 — a surface lying about state).
   const current = visible.find((t) => t.id === selected) ?? visible[0] ?? null
 
-  // The keyboard's own way back out of the phone detail view, alongside the
-  // ← control. Bound only while that view is open, and removed with it.
+  // The keyboard's own way back out of whichever thing is open — the phone
+  // detail view and the ? disclosure both close on Escape, innermost first.
+  // Bound only while something IS open, and removed with it.
   useEffect(() => {
-    if (!detailOpen) return
+    if (!detailOpen && !helpOpen) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setDetailOpen(false)
+      if (e.key !== 'Escape') return
+      if (helpOpen) setHelpOpen(false)
+      else setDetailOpen(false)
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
+  }, [detailOpen, helpOpen])
+
+  // ⚖ THE SWAP MUST NOT STRAND THE READER. At ≤743 opening a thread hides the
+  // queue — including the row that was focused — and going back hides the
+  // detail, so in both directions the browser drops focus to <body> and a
+  // keyboard reader restarts from the top of the document. Focus is therefore
+  // MOVED with the screen: into the ← control on open, back onto the row that
+  // opened it on close.
+  //
+  // The band test is the DOM's, not a restated 743: the ← control is rendered
+  // at every width and hidden by the sheet above the phone band, so
+  // "is ← on screen" IS "is the swap in effect" — and above 743 this effect
+  // does nothing at all, which is why pressing a filter there cannot yank
+  // focus out of the filter row.
+  useEffect(() => {
+    if (detailOpen) {
+      phoneSwap.current = backRef.current !== null && backRef.current.offsetParent !== null
+      if (phoneSwap.current) backRef.current!.focus()
+      return
+    }
+    if (!phoneSwap.current) return
+    phoneSwap.current = false
+    const row = openedFrom.current
+    openedFrom.current = null
+    if (row) document.getElementById(row)?.focus()
   }, [detailOpen])
 
   /** Pressing a counter or a filter narrows the list — so on a phone it also
@@ -166,20 +213,32 @@ export function InboxScreen(props: InboxProps) {
         <div className="ib-eyebrow">{props.dateline}</div>
         <div className="ib-titleline">
           <h1>受信トレイ</h1>
-          {/* The tour affordance. A hairline circle, never a filled one (⚖ R13),
-              and its text is in the control's own accessible name as well as
-              its title — the room's own standing-hint treatment, so a keyboard
-              or a screen reader gets the same words a hover does. */}
+          {/* The help affordance, and it is a DISCLOSURE rather than a tooltip.
+              A hairline circle, never a filled one (⚖ R13). Hover text alone is
+              a lever only a sighted mouse user can pull — a thumb and a keyboard
+              get nothing from it — so pressing it opens the two paragraphs on
+              the page, and pressing it again (or Escape) closes them. No
+              <dialog> (D-2): this is a paragraph, not a decision. */}
           <button
             className="ib-help"
             type="button"
-            title={props.helpText}
-            aria-label={`このページの使い方 — ${props.helpText}`}
+            title="このページの使い方"
+            aria-label="このページの使い方"
+            aria-expanded={helpOpen}
+            aria-controls="ibHelp"
+            onClick={() => setHelpOpen((open) => !open)}
           >
             ?
           </button>
         </div>
         <p className="ib-subtitle">{props.subtitle}</p>
+        {helpOpen && (
+          <div className="ib-help-block" id="ibHelp">
+            {props.helpText.map((paragraph) => (
+              <p key={paragraph}>{paragraph}</p>
+            ))}
+          </div>
+        )}
       </header>
 
       {/* 対応状況 — the numbers ARE the filters. Every counter presses the
@@ -283,10 +342,15 @@ export function InboxScreen(props: InboxProps) {
                 {visible.map((t) => (
                   <button
                     key={t.id}
+                    // The row's id is how ← finds its way back to it: at ≤743
+                    // the row is gone from the screen by the time focus has to
+                    // return, so the reference has to survive the swap.
+                    id={`ibRow-${t.id}`}
                     type="button"
                     className={`ib-row${t.id === current?.id ? ' selected' : ''}`}
                     aria-pressed={t.id === current?.id}
                     onClick={() => {
+                      openedFrom.current = `ibRow-${t.id}`
                       setSelected(t.id)
                       setDetailOpen(true)
                     }}
@@ -318,7 +382,7 @@ export function InboxScreen(props: InboxProps) {
                 <div className="ib-band-id">
                   {/* ≤743's way back to the list. Hidden at every wider width by
                       the sheet, because there the list never left. */}
-                  <button className="ib-back" type="button" onClick={() => setDetailOpen(false)}>
+                  <button className="ib-back" type="button" ref={backRef} onClick={() => setDetailOpen(false)}>
                     ← 一覧へ戻る
                   </button>
                   <div className="ib-kicker">
@@ -366,16 +430,22 @@ export function InboxScreen(props: InboxProps) {
                     )}
                     {current.bookingHref ? (
                       <Link className="btn" href={current.bookingHref}>
-                        予約一覧で事実を確認
+                        {BOOKING_LABEL}
                       </Link>
                     ) : (
+                      // The FOURTH refused control, and it gets the same
+                      // treatment as the other three: the reason rides its own
+                      // accessible name, not `title` alone. A title-only
+                      // refusal is invisible to exactly the reader who cannot
+                      // see the button is dead.
                       <button
                         className="btn"
                         type="button"
                         aria-disabled="true"
-                        title="この空き待ちにはまだ予約がないため、予約一覧では確認できません。"
+                        title={NO_BOOKING_REFUSAL}
+                        aria-label={`${BOOKING_LABEL} — ${NO_BOOKING_REFUSAL}`}
                       >
-                        予約一覧で事実を確認
+                        {BOOKING_LABEL}
                       </button>
                     )}
                   </div>

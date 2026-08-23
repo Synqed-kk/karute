@@ -120,6 +120,10 @@ const ROOM_DIR = 'src/app/[locale]/(business)/business/inbox'
 const SRC = readFileSync(join(process.cwd(), `${ROOM_DIR}/InboxScreen.tsx`), 'utf8')
 const CSS = readFileSync(join(process.cwd(), `${ROOM_DIR}/inbox.css`), 'utf8')
 const PAGE_SRC = readFileSync(join(process.cwd(), `${ROOM_DIR}/page.tsx`), 'utf8')
+/** The prop assembly, extracted out of the page so the evidence harness renders
+ *  the SAME assembly the route does (the replica-drift fix). Pins that used to
+ *  read the page's body read this file now. */
+const PROPS_SRC = readFileSync(join(process.cwd(), `${ROOM_DIR}/inbox-props.ts`), 'utf8')
 const LIB = readFileSync(join(process.cwd(), 'src/business/lib/inbox.ts'), 'utf8')
 const PLANE_SRC = readFileSync(join(process.cwd(), 'src/business/lib/fixtures-inbox.ts'), 'utf8')
 const CUSTOMERS_SRC = readFileSync(
@@ -137,6 +141,7 @@ const SRC_CODE = codeOf(SRC)
 const CSS_CODE = codeOf(CSS)
 const PLANE_CODE = codeOf(PLANE_SRC)
 const PAGE_CODE = codeOf(PAGE_SRC)
+const PROPS_CODE = codeOf(PROPS_SRC)
 
 const JST = { timeZone: 'Asia/Tokyo' } as const
 const fmtDay = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', ...JST })
@@ -590,12 +595,37 @@ describe('reading and triage are buildable; sending is a write', () => {
     expect(SRC).not.toMatch(/<button[^>]*\sdisabled\b/)
   })
 
+  it('⚖ F4 — ALL FOUR refused controls carry their reason in the accessible name, not title alone', () => {
+    // The storeless 予約一覧 button was title-only: with `aria-disabled` it
+    // stays focusable, so a screen-reader user reaches a dead control and is
+    // told nothing about why. It gets its three siblings' treatment.
+    const labels = [...SRC_CODE.matchAll(/aria-label=\{`([^`]*)`\}/g)].map((m) => m[1])
+    expect(labels).toEqual([
+      '最新状態を確認 — ${props.refreshRefusal}',
+      '${current.primaryLabel} — ${current.primaryRefusal}',
+      '${current.resolveLabel} — ${current.resolveRefusal}',
+      '${BOOKING_LABEL} — ${NO_BOOKING_REFUSAL}',
+    ])
+    // FOUR aria-disabled controls, FOUR reasons — the census the room claims.
+    expect((SRC_CODE.match(/aria-disabled="true"/g) ?? [])).toHaveLength(4)
+    // ONE home for the label and one for the reason, read by the link shape and
+    // the refused shape alike, so the two cannot describe the same lever two
+    // ways (A8).
+    expect(SRC_CODE).toContain("const BOOKING_LABEL = '予約一覧で事実を確認'")
+    expect(SRC_CODE).toContain(
+      "const NO_BOOKING_REFUSAL = 'この空き待ちにはまだ予約がないため、予約一覧では確認できません。'",
+    )
+    expect((SRC_CODE.match(/予約一覧で事実を確認/g) ?? [])).toHaveLength(1)
+  })
+
   it('a refusal changes NOTHING — the room holds no state a refusal could touch', () => {
-    // THREE useState calls and no more: the filter, the open thread, and the
-    // ≤743 list-or-thread view flag. None is written by any action, and there
-    // is no setter for a sent reply or a completed thread because there is
-    // nothing to send or complete.
-    expect(SRC.match(/useState/g) ?? []).toHaveLength(4) // 1 import + 3 calls
+    // FOUR useState calls and no more: the filter, the open thread, the ≤743
+    // list-or-thread view flag and the ? disclosure. None is written by any
+    // action, and there is no setter for a sent reply or a completed thread
+    // because there is nothing to send or complete. The three refs beside them
+    // hold no state either — they are a DOM handle and two bookkeeping values
+    // for moving focus, and none of them is ever rendered.
+    expect(SRC.match(/useState/g) ?? []).toHaveLength(5) // 1 import + 4 calls
     expect(SRC).not.toMatch(/setSent|setResolved|setThreads/)
     expect(SRC).not.toMatch(/onClick=\{\(\) => set(Sent|Resolved)/)
   })
@@ -1120,6 +1150,61 @@ describe('the sheet cannot reach another room, and no other room can reach it', 
     expect(shell).toMatch(/:focus-visible[\s\S]{0,200}outline:\s*3px solid var\(--indigo\)/)
     expect(shell).toContain('outline-offset: 2px')
   })
+
+  it('⚖ F2 — no container this room owns CLIPS the ring off its own pressables', () => {
+    // The shell paints 3px OUTSIDE the control at 2px offset, so a container
+    // that clips at its border-radius erases the ring on every pressable
+    // against its edge — which is what `overflow: hidden` on the strip and on
+    // the panels was doing to the five counters (top/bottom gone) and the queue
+    // rows (left/right gone). Borrowing a ring and then cutting it off is worse
+    // than not having one, because the room reads as if it were fixed.
+    const rule = (sel: string) => {
+      const at = CSS.indexOf(`${sel} {`)
+      expect({ sel, found: at }).not.toEqual({ sel, found: -1 })
+      return CSS.slice(at, CSS.indexOf('}', at))
+    }
+    expect(rule('.biz .pg-inbox .ib-summary')).not.toContain('overflow')
+    expect(rule('.biz .pg-inbox .ib-panel')).not.toContain('overflow')
+    // …and the look is unchanged, because the corners moved to the children
+    // that reach them rather than being dropped: a pressed counter and a
+    // hovered last row still end at the radius.
+    expect(rule('.biz .pg-inbox .ib-summary-main')).toContain('border-radius: 10px 0 0 10px')
+    expect(rule('.biz .pg-inbox .ib-stat:last-child')).toContain('border-radius: 0 10px 10px 0')
+    expect(rule('.biz .pg-inbox .ib-panel-head')).toContain('border-radius: 10px 10px 0 0')
+    expect(rule('.biz .pg-inbox .ib-band')).toContain('border-radius: 10px 10px 0 0')
+    expect(rule('.biz .pg-inbox .ib-row:last-child')).toContain('border-radius: 0 0 10px 10px')
+    // the 2×2 band moves the strip's corners to a different four children.
+    const tablet = CSS.slice(CSS.indexOf('@media (max-width: 1023px)'))
+    expect(tablet).toMatch(/\.ib-summary-main \{ grid-column: 1 \/ -1; border-radius: 10px 10px 0 0/)
+    expect(tablet).toMatch(/\.ib-stat:nth-last-child\(2\) \{ border-radius: 0 0 0 10px/)
+    expect(tablet).toMatch(/\.ib-stat:last-child \{ border-radius: 0 0 10px 0/)
+    // D-17 stands: the ring itself is still the shell's one rule, not restated.
+    expect(CSS_CODE).not.toMatch(/outline/)
+  })
+
+  it('⚖ F6 — the DEAD border declarations are gone, and the reason is written down', () => {
+    // `.ib-summary button { border: 0 }` is (0,3,1) and beats every
+    // `.ib-summary-main` / `.ib-stat` rule in this sheet at (0,3,0), so the
+    // indigo rail and the counter dividers those rules declared never painted a
+    // pixel — in the approved mock either. Keeping them invites a later
+    // "specificity fix" that would change the look Liam signed off.
+    expect(CSS_CODE).toMatch(/\.ib-summary button \{\s*border: 0;/)
+    // Neither counter states a border longhand anywhere in the sheet — base
+    // band or responsive. `border-radius` is not one: it is the corner the
+    // container stopped clipping (F2), and it paints.
+    const longhand = /border(-(top|right|bottom|left))?(-(width|style|color))?\s*:/
+    for (const sel of ['.biz .pg-inbox .ib-summary-main', '.biz .pg-inbox .ib-stat']) {
+      for (const at of [...CSS_CODE.matchAll(new RegExp(`${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{`, 'g'))]) {
+        const body = CSS_CODE.slice(at.index!, CSS_CODE.indexOf('}', at.index!))
+        expect({ sel, body, states: longhand.test(body) }).toEqual({ sel, body, states: false })
+      }
+    }
+    // …and the dead ≤1023 restatement is gone with them.
+    expect(CSS).not.toContain('.ib-stat:nth-child(odd)')
+    expect(CSS).not.toContain('#e5e9f7')
+    // …and the comment that says WHY, so the next reader does not "fix" it.
+    expect(CSS).toContain('never painted a pixel')
+  })
 })
 
 // ── 10. the room under the shell ────────────────────────────────────────────
@@ -1162,35 +1247,97 @@ describe('the shell knows this room is live', () => {
   })
 
   it('ONE clock read per render — the day, the deadlines and 期限超過 share an instant', () => {
-    expect(PAGE_SRC).toContain('const now = renderNow()')
+    // The assembly moved out of the page; the law did not. Both files are
+    // checked, so neither can grow a second clock read.
+    expect(PROPS_SRC).toContain('const now = renderNow()')
+    expect((PROPS_SRC.match(/new Date\(\)/g) ?? [])).toHaveLength(0)
+    expect((PROPS_SRC.match(/renderNow\(\)/g) ?? [])).toHaveLength(1)
     expect((PAGE_SRC.match(/new Date\(\)/g) ?? [])).toHaveLength(0)
-    expect((PAGE_SRC.match(/renderNow\(\)/g) ?? [])).toHaveLength(1)
+    expect((PAGE_SRC.match(/renderNow\(\)/g) ?? [])).toHaveLength(0)
   })
 
-  it('the two standing explainer paragraphs move into the ? affordance, word for word', async () => {
+  it('the page is the ROUTE ENTRY and the assembly is one shared function (the replica-drift fix)', () => {
+    // The isolated evidence used to be rendered from a hand-written copy of the
+    // markup, and the copy drifted from the product without any gate noticing.
+    // The harness imports `inboxProps` now, so page and probe cannot disagree
+    // about what the room shows — which means the page must not keep an
+    // assembly of its own for it to disagree WITH.
+    expect(PAGE_CODE).toContain("import { inboxProps } from './inbox-props'")
+    expect(PAGE_CODE).toContain('await inboxProps({ locale, store: query.store })')
+    expect(PAGE_CODE).toContain('requireBusinessAdmission')
+    // Nothing but the gate, the params and the render is left in the route.
+    expect(PAGE_CODE).not.toContain('buildThreads')
+    expect(PAGE_CODE).not.toContain('summarize')
+    expect(PAGE_CODE).not.toContain('listCustomers')
+    expect(PAGE_CODE).not.toContain('Intl.')
+    // …and the assembly holds no admission gate, so importing it can never
+    // become a way around one.
+    expect(PROPS_CODE).not.toContain('requireBusinessAdmission')
+  })
+
+  it('⚖ F7 — view state is STORE-SCOPED: a lens switch resets the screen', async () => {
+    // `?store=` navigation keeps the same component instance, so the filter,
+    // the selection and the ≤743 detail flag used to survive into a queue that
+    // no longer contains them. The screen is keyed by the RESOLVED lens.
+    expect(PAGE_CODE).toContain('<InboxScreen key={storeKey} {...props} />')
+    // The key is the resolved store, not the raw query — the clamp has one
+    // home, and an unknown ?store= lands on the same key the reads used.
+    expect(PROPS_CODE).toContain("return { props, storeKey: clamped ? storeId! : 'all-stores' }")
+    const ginza = await room({ store: STORE_A })
+    const bogus = await room({ store: 'store-does-not-exist' })
+    expect(bogus.threads.map((t) => t.id)).toEqual(ginza.threads.map((t) => t.id))
+  })
+
+  it('the two standing explainer paragraphs move into the ? disclosure, word for word', async () => {
     const props = await room({ store: STORE_A })
     expect(props.subtitle).toBe(
       '予約変更、来店なし、空き待ち、配信失敗を、期限と連絡許可の事実から処理します。',
     )
     // Canon's head note AND the 対応状況 strip's own sentence — both removed
-    // from the page, both carried whole into the one-time help text. Nothing
-    // the room used to say is gone; it is only no longer re-read every morning.
-    expect(props.helpText).toContain(
+    // from the page, both carried whole into the disclosure, ONE ENTRY EACH so
+    // the block prints them as the two paragraphs they were. Nothing the room
+    // used to say is gone; it is only no longer re-read every morning.
+    expect(props.helpText).toEqual([
       'メッセージの数ではなく、店舗が次に行う対応を並べています。顧客カルテの施術内容はここには表示しません。',
-    )
-    expect(props.helpText).toContain('期限、予約への影響、同意済み連絡先、配信証跡を確認してから送信します。')
+      '期限、予約への影響、同意済み連絡先、配信証跡を確認してから送信します。',
+    ])
     // …and neither sentence is still printed as page furniture.
     expect(SRC_CODE).not.toContain('メッセージの数ではなく')
     expect(SRC_CODE).not.toContain('期限、予約への影響')
     expect(SRC_CODE).not.toContain('ib-note')
     expect(CSS_CODE).not.toContain('ib-note')
-    // The affordance itself: a hairline circle, its text on the control's own
-    // accessible name as well as its title.
-    expect(SRC).toContain('className="ib-help"')
-    expect(SRC).toContain('title={props.helpText}')
-    expect(SRC).toContain('aria-label={`このページの使い方 — ${props.helpText}`}')
     expect(CSS).toMatch(/\.ib-help \{[^}]*border: 1px solid/)
     expect(CSS).not.toMatch(/\.ib-help \{[^}]*background: var\(--indigo\)/)
+  })
+
+  it('⚖ F3 — the ? is a DISCLOSURE, not a hover-only tooltip', () => {
+    // It used to carry its whole text in `title` + `aria-label` and DO nothing:
+    // a lever only a sighted mouse user could pull, at a 21px target. Pressing
+    // it now opens the paragraphs on the page.
+    expect(SRC_CODE).toContain('aria-expanded={helpOpen}')
+    expect(SRC_CODE).toContain('aria-controls="ibHelp"')
+    expect(SRC_CODE).toContain('onClick={() => setHelpOpen((open) => !open)}')
+    expect(SRC_CODE).toContain('id="ibHelp"')
+    expect(SRC_CODE).toContain('className="ib-help-block"')
+    // The block RENDERS the paragraphs — a disclosure that opens nothing is the
+    // dead lever it replaced.
+    expect(SRC_CODE).toContain('{props.helpText.map((paragraph) => (')
+    expect(SRC_CODE).toMatch(/\{helpOpen && \(/)
+    // The button's accessible name is now the SHORT one: the copy is on the
+    // page, and announcing two paragraphs as a button's name would be worse
+    // than the tooltip was.
+    expect(SRC_CODE).toContain('aria-label="このページの使い方"')
+    expect(SRC_CODE).not.toContain('title={props.helpText}')
+    // Second press closes it, and so does Escape while it is open.
+    expect(SRC_CODE).toContain('if (helpOpen) setHelpOpen(false)')
+    // No dialog (D-2) — it is a paragraph, not a decision.
+    expect(SRC_CODE).not.toContain('<dialog')
+    expect(CSS).toMatch(/\.ib-help-block \{[^}]*border: 1px solid/)
+    // ≥44px on a thumb WITHOUT growing the 21px mark: the hit box is extended
+    // past the paint in the phone band.
+    const phone = CSS.slice(CSS.indexOf('@media (max-width: 743px)'))
+    expect(phone).toMatch(/\.ib-help::after \{[^}]*width: 44px; height: 44px/)
+    expect(CSS).toMatch(/\.ib-help \{[^}]*width: 21px; height: 21px/)
   })
 
   it('the queue is ordered as the strip claims — 期限と影響順', async () => {
@@ -1417,11 +1564,36 @@ describe('⚖ ALL-SCREEN ADAPTIVITY — the ladder the page owns', () => {
     // The screen's own half: a row tap opens the thread, ← and Escape close it.
     expect(SRC_CODE).toContain('setDetailOpen(true)')
     expect(SRC_CODE).toContain('← 一覧へ戻る')
-    expect(SRC_CODE).toContain("if (e.key === 'Escape') setDetailOpen(false)")
+    expect(SRC_CODE).toContain("if (e.key !== 'Escape') return")
+    expect(SRC_CODE).toContain('else setDetailOpen(false)')
     expect(SRC_CODE).toContain("document.addEventListener('keydown', onKey)")
     expect(SRC_CODE).toContain("document.removeEventListener('keydown', onKey)")
     // Narrowing the list is also a way back to it.
     expect(SRC_CODE).toMatch(/const choose = \(next: ThreadFilter\) => \{\s*setFilter\(next\)\s*setDetailOpen\(false\)/)
+  })
+
+  it('⚖ F5 — the one-screen swap HANDS OVER focus, in both directions', () => {
+    // The swap hides whichever panel the reader was in, so the browser drops
+    // focus to <body> and a keyboard reader restarts from the top of the
+    // document — both on open (the focused ROW goes) and on back (the focused
+    // ← goes). Focus is moved with the screen instead.
+    expect(SRC_CODE).toContain('const backRef = useRef<HTMLButtonElement>(null)')
+    expect(SRC_CODE).toContain('ref={backRef}')
+    // On open: into the ← control.
+    expect(SRC_CODE).toContain('if (phoneSwap.current) backRef.current!.focus()')
+    // On close: back onto the row that opened the detail, which is why the row
+    // carries an id at all — it is off screen by the time focus has to return.
+    expect(SRC_CODE).toContain('id={`ibRow-${t.id}`}')
+    expect(SRC_CODE).toContain('openedFrom.current = `ibRow-${t.id}`')
+    expect(SRC_CODE).toContain('if (row) document.getElementById(row)?.focus()')
+    // ⚖ THE BAND TEST IS THE DOM'S, NOT A RESTATED 743. The ← control is
+    // rendered at every width and hidden by the sheet above the phone band, so
+    // "is ← on screen" IS "is the swap in effect" — one home for the boundary
+    // (the sheet), and above it this effect does nothing, which is why pressing
+    // a filter on a desktop cannot yank focus out of the filter row.
+    expect(SRC_CODE).toContain('backRef.current !== null && backRef.current.offsetParent !== null')
+    expect(SRC_CODE).not.toMatch(/matchMedia|743/)
+    expect(CSS).toMatch(/\.ib-back \{ display: none; \}/)
   })
 
   it('the restructure own geometry: 380px queue, actions in the band, 履歴 full width', () => {
