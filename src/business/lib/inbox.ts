@@ -255,6 +255,14 @@ export function buildThreads(input: ThreadInput): ThreadModel[] {
     const dueMinute = booking
       ? deadlineOf(lifecycleOf(booking, record), record, input.closeMinute)
       : t.due
+    // 期限 is the REPLY deadline — a same-day minute-of-day from 予約一覧's own
+    // deadlineOf (one home; ReservationsScreen's decorate() computes the
+    // identical verdict off the same function, and the suite pins the two
+    // equal on apt-31). It is deliberately independent of the booking's
+    // calendar date: a booking days out can still owe a reply TODAY, so
+    // comparing dueMinute against nowMinute alone — never the booking's own
+    // date — is correct, not a date bug. A date-aware deadline model would
+    // start in deadlineOf, never here.
     const overdue = dueMinute !== null && dueMinute < input.nowMinute
 
     // ── status — the board's own verdict where the board has one ─────────
