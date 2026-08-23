@@ -142,10 +142,27 @@ export function fractionIn(track: Element, clientX: number): number {
 export function laneKeyAtY(root: Element | null, group: string | null, clientY: number): string | null {
   if (!root) return null
   let found: string | null = null
-  for (const lane of Array.from(root.querySelectorAll('.lane'))) {
-    if (group !== null && (lane as HTMLElement).dataset.group !== group) continue
-    const r = lane.getBoundingClientRect()
-    if (clientY >= r.top && clientY <= r.bottom) found = (lane as HTMLElement).dataset.lane ?? null
+  for (const el of Array.from(root.querySelectorAll('.lane')) as HTMLElement[]) {
+    if (group !== null && el.dataset.group !== group) continue
+    const r = el.getBoundingClientRect()
+    if (clientY >= r.top && clientY <= r.bottom) {
+      found = el.dataset.lane ?? null
+      continue
+    }
+    // ⚖ LIAM flag 61 (2026-08-22) — THE RAIL BELONGS TO THE LANE ABOVE IT, and
+    // this is canon's own clause (`semanticLaneAt` :3828-3833), which the
+    // transplant did not carry. The 60分配置 strip is rendered as a SIBLING of
+    // its lane (TodayScreen's Fragment, canon's rule quoted there), 18px tall
+    // against a 72px row — so a fifth of every staff row's pitch belonged to no
+    // `.lane` at all and every release inside it died with a bottom toast while
+    // the operator's eye was on the cursor. The doc comment above has described
+    // this rule since the function was written; the code did not implement it.
+    // Rendering ≠ working, inside one function.
+    if (el.dataset.group !== 'staff') continue
+    const rail = el.nextElementSibling
+    if (!rail || !rail.classList.contains('guard-placement-rail')) continue
+    const rr = rail.getBoundingClientRect()
+    if (clientY >= rr.top && clientY <= rr.bottom) found = el.dataset.lane ?? null
   }
   return found
 }
@@ -347,6 +364,7 @@ export function applyMoves(
   // bed lane must be re-admitted as its bed drawing (its own key, its own
   // 【担当】 tag), not as the staff card wearing a room's name.
   const home = new Map<string, BoardItem>()
+  const groupOf = new Map(lanes.map((l) => [l.key, l.group]))
   // …and each booking's own turnaround, by the booking it belongs to. Keyed
   // `${id}-cleanup` at derivation (today-board :508), which is the only link
   // back to its owner — the item itself carries no caseId.
@@ -358,6 +376,24 @@ export function applyMoves(
         cleanupOf.set(item.key.slice(0, -'-cleanup'.length), item)
       }
     }
+  }
+  // ⚖ Liam flag 61, second-order (study §61 bonus) — A ROW THIS SESSION CREATED
+  // IS A BOARD ROW. `added` used to bypass everything below: it was filtered by
+  // the lane it was BORN on and concatenated AFTER the `moved` pass, so a
+  // 次回予約 or a shelf placement could never be redrawn at a staged span and
+  // could never change lane. Drag one and the 仮押さえ line reported the new
+  // time while the card did not move — deterministic, and another "the drop did
+  // nothing" for the operator. Its home row joins the same map every server row
+  // uses, so from here down there is one kind of row.
+  const placedIds = new Set<string>()
+  // …and THESE EXACT ROWS are the placements — see the exemption below, which is
+  // object identity because neither `caseId` nor `key` can tell a placement from
+  // the server original it replaces.
+  const placedRows = new Set(added.map((a) => a.item))
+  for (const a of added) {
+    const g = groupOf.get(a.laneKey)
+    if (a.item.caseId) placedIds.add(a.item.caseId)
+    if (g && a.item.kind === 'booking' && a.item.caseId) home.set(`${g}|${a.item.caseId}`, a.item)
   }
 
   // ONE SPAN FOR THE PAIR, and it lives in `moves`: every writer sets both
@@ -388,9 +424,29 @@ export function applyMoves(
     // the bed half hard-wired to "never moves", which is what made a bed-side
     // drag unrepresentable rather than merely unimplemented.
     const membership = lane.group === 'staff' ? moves : bedMoves
-    const extra = added.filter((a) => a.laneKey === lane.key).map((a) => a.item)
-    const kept = lane.items.filter((item) => {
-      if (isParked(item, parked)) return false
+    // …and it is filtered, moved and re-admitted exactly like one — with ONE
+    // exemption, which is ⚖ 22's cross-day park: a booking placed on another
+    // day stays in `parked` on purpose, because that is what keeps the ORIGIN
+    // day hiding it. The row this session placed is the placement itself, so it
+    // is never hidden by the flag that hides its origin.
+    //
+    // GREPTILE #749 P1 — AND THE EXEMPTION IS THE ROW, NOT THE CASE. Keyed by
+    // `caseId` it un-hid every row wearing that id, and a park-then-place-back
+    // ON THE DISPLAYED DAY has two of them: the server's original, still standing
+    // in `lane.items` because `parked` is the only thing that was hiding it, and
+    // the replacement in `added`. One booking, two cards — on the staff row AND
+    // on the bed row — and every layer downstream (the sell layer, guard
+    // occupancy, the 清掃 tail) counted the booking twice. `key` cannot separate
+    // them either: `placeFromShelf` mints `${id}-staff`/`${id}-bed`, which is
+    // byte-for-byte what the server drew (today-board :357). So the exemption is
+    // the row itself — the exact objects `own` concatenates a line below. The
+    // server's original stays hidden, which is what `parked` said all along, and
+    // ⚖ 22's cross-day placement is still the one row that shows.
+    const own = added.some((a) => a.laneKey === lane.key)
+      ? [...lane.items, ...added.filter((a) => a.laneKey === lane.key).map((a) => a.item)]
+      : lane.items
+    const kept = own.filter((item) => {
+      if (isParked(item, parked) && !placedRows.has(item)) return false
       // ⚖ 51 second-order — A 清掃 IS NOT A THING ON THE BOARD, IT IS THE TAIL OF
       // ITS BOOKING. It carries `caseId: null` (today-board :512), so the
       // membership test below could never see it: the booking moved and its
@@ -404,12 +460,12 @@ export function applyMoves(
     })
     const arrivals: BoardItem[] = []
     for (const [id, m] of Object.entries(membership)) {
-      if (m.laneKey !== lane.key || parked.includes(id)) continue
+      if (m.laneKey !== lane.key || (parked.includes(id) && !placedIds.has(id))) continue
       const row = home.get(`${lane.group}|${id}`)
-      if (!row || lane.items.some((i) => i.caseId === id)) continue
+      if (!row || own.some((i) => i.caseId === id)) continue
       arrivals.push(row)
     }
-    const settled = [...kept, ...arrivals].map((i) => moved(i, lane.group)).concat(extra).sort(byX)
+    const settled = [...kept, ...arrivals].map((i) => moved(i, lane.group)).sort(byX)
     return { ...lane, items: lane.group === 'beds' ? withTrailingCleanup(lane, settled, cleanupOf, hours) : settled }
   })
 }
@@ -791,6 +847,50 @@ function railCell(
     alternativeKind: v.alternativeKind,
     ackAllowed: v.reason?.ackAllowed === true,
   }
+}
+
+/** ⚖ LIAM flag 58 RIDER (2026-08-22) — AN ENGINE START IS NOT YET AN OFFER.
+ *
+ *  The guard walks a FIVE-minute lattice (`LATTICE_STEP_MIN`, gap-guard :28) and
+ *  a pocket begins wherever the previous booking ended, so
+ *  `nearestBestAlternatives` legitimately answers 11:45 or 13:15. The board does
+ *  not: a booking snaps on the store's `bookingStepMin` and a 予定ブロック on its
+ *  `blockStepMin`. Offering 「11:45に置く」 therefore created a placement the
+ *  drag lattice can never reproduce and the rail can never mark — Liam's own
+ *  reading of his canon shots, whose advice offers :00/:30 starts.
+ *
+ *  Canon does not filter; its demo pockets simply start on the half hour. So
+ *  this is our board's own grammar gap, and it is closed at the PRESENTATION
+ *  seam rather than in the engine (frozen) or per button (⚖ 31c's disease: a
+ *  button that can lie about what it will do).
+ *
+ *  SNAP, THEN RE-VERIFY — never blind-snap: an off-lattice start becomes the
+ *  legal start below it, or the one above if that one does not survive the
+ *  caller's own gate. `ok` IS that gate — `verdictAtLanding` for a booking,
+ *  `blockClash` for a block — so nothing is ever offered that the release
+ *  itself would refuse. An alternative that collapses onto the start the
+ *  operator already tried is dropped: they are looking at it. */
+export function offerableCell(
+  cell: RailCell | null,
+  stepMin: number,
+  attempted: number,
+  ok: (start: number) => boolean,
+): RailCell | null {
+  if (!cell || cell.alternatives.length === 0) return cell
+  const out: number[] = []
+  for (const s of cell.alternatives) {
+    const candidates = s % stepMin === 0 ? [s] : [Math.floor(s / stepMin) * stepMin, Math.ceil(s / stepMin) * stepMin]
+    // Two engine starts that land on the same legal step are ONE offer, and the
+    // duplicate is dropped rather than walked to its other neighbour: the
+    // neighbour was never scored as a better start, so offering it would put
+    // 「より損の少ない開始」 on a start the engine never said that about.
+    if (candidates.some((c) => out.includes(c))) continue
+    for (const c of candidates) {
+      if (c === attempted) continue
+      if (ok(c)) { out.push(c); break }
+    }
+  }
+  return { ...cell, alternatives: out }
 }
 
 /** One drag step: origin + pointer travel → the card's new span, on canon's
@@ -1317,8 +1417,38 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   }).find((c) => !c.ok)
   if (failed) return stop(failed.label)
   if (solved.refusal) return stop(solved.refusal)
-  if (cell?.state === 'blocked') return stop(cell.sentence)
-  if (cell?.state === 'degraded') return { kind: 'caution', label: VERDICT_WORD.caution, reason: cell.sentence, cell }
+  // ⚖ LIAM flag 58 (2026-08-22) — ROOT A: AN ACK-ALLOWED REFUSAL IS 要確認,
+  // NOT 置けない. His words: 「even the triangle ones are going into red
+  // crosses, which it shouldn't」.
+  //
+  // The frozen engine has three outcomes above "ok" and it labels them itself.
+  // A `refuse` verdict in STANDARD mode — which is what this store runs — comes
+  // back `ackAllowed: true` (gap-guard :398), and the engine's own words for
+  // that state are 「some other start in the same pocket has a strictly smaller
+  // key」: *there is a better start here*, not *this is illegal*. Only
+  // `R-UNAVAILABLE` — a physically impossible placement — is `ackAllowed: false`.
+  // `railCell` carried the flag faithfully and this line threw it away, so
+  // 「ここに置くと新規(90分)が入らなくなります」 — an advisory the engine
+  // explicitly permits the operator to place through — painted the proxy red,
+  // put × on the rail, made the release inert, and hid the only way past it
+  // behind `canOverride`, a right most operators do not have. Canon agrees with
+  // the engine, not with us: its popover offers a plain 「この開始に配置」 to
+  // ANYONE whenever `allowAttempt` is set (canon :7154-7161).
+  //
+  // ⚖ 50(b) reserves 置けない for landings that are actually illegal and ⚖ 52
+  // reserves × for release-is-inert, so this predicate is what makes both true
+  // again — and it makes them true BY CONSTRUCTION, in the one verdict home:
+  // the cursor word, the rail's × and what the release does are this one call
+  // rendered three times, so they move together or not at all. ROOT C (the
+  // confirm row's forced △) dissolves with it — an ack-allowed cell is now a
+  // caution, so its △ is TRUE, and a genuinely blocked cell never reaches the
+  // confirm surface because the release never staged.
+  //
+  // 「注意して配置」 stays exactly where it is, for the floors that ARE illegal:
+  // 店舗 / 重複 / 勤務 / ロック / 満室 / VIP・個室 — all of which are `stop`s
+  // above this line — plus `R-UNAVAILABLE` here.
+  if (cell?.state === 'blocked' && !cell.ackAllowed) return stop(cell.sentence)
+  if (cell && cell.state !== 'safe') return { kind: 'caution', label: VERDICT_WORD.caution, reason: cell.sentence, cell }
   return { kind: 'clean', label: VERDICT_WORD.clean, reason: null, cell }
 }
 
