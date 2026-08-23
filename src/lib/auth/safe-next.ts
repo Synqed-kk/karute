@@ -34,5 +34,32 @@ export function safeNext(value: string | string[] | null | undefined): string | 
   // of them un-encoded.
   // eslint-disable-next-line no-control-regex
   if (/[\\\s]/.test(value) || /[\x00-\x1f\x7f]/.test(value)) return null
+  // A place to land after signing in is a PAGE — never data, never a file.
+  // A crafted link must not be able to spend a fresh session on one, or the
+  // login hands the operator a download instead of a screen.
+  //
+  // Judged on the PATH, so `?`/`#` cannot smuggle a value past the boundary:
+  // `/api?x=1` and `/api#x` are the `/api` route however they are spelled.
+  const path = value.split(/[?#]/)[0]
+  const segments = path.split('/')
+  // `/api/…` is data and `/_next/…` is Next's own asset plumbing. Compared as
+  // a whole SEGMENT, not a prefix — `/apidocs` and `/_nextdoor` are ordinary
+  // pages and stay welcome.
+  if (segments[1] === 'api' || segments[1] === '_next') return null
+  // No page lives under an `auth` segment. `/{locale}/auth/callback` is the
+  // tree's only route handler outside /api, and a one-shot code-exchange URL
+  // is not somewhere to land — its only other backstop is @supabase/ssr's
+  // PKCE default, which is not this gate's to rely on.
+  if (segments.includes('auth')) return null
+  // A dot means a FILE (`/icon.png`, `/fonts/….ttf`, anything under public/),
+  // which is the stated harm class in its plainest form. This mirrors the
+  // middleware matcher's own `.*\..*` exclusion, so what the wall never guards
+  // is exactly what this refuses to carry. The QUERY is already off the table
+  // above, so `?v=1.2` on a real page survives.
+  if (path.includes('.')) return null
+  // Case-sensitivity (F4, recorded so it is not rediscovered as a defect):
+  // these comparisons are exact, matching Next's own case-sensitive routing —
+  // `/API/x` is not the api route, so it resolves to no page and dead-ends at
+  // a 404 rather than reaching data.
   return value
 }
