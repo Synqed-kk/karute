@@ -29,6 +29,16 @@ export interface AuditLogEvent {
    *  optional here so those keep parsing. Component prefers this over the
    *  live roster lookup. */
   actor_label?: string | null
+  /** R7-1 (Liam's phone review, 8/23: "extremely important"): read-time-only
+   *  display line for karute.customer_reassign rows — "<from-name> →
+   *  <to-name>", built ONCE here (not a core field, unlike actor_label
+   *  above) from the SAME extended resolveTargetLabels() map both the web
+   *  page and the facade DTO already carry. Set ONLY for reassign rows with
+   *  both ids present as strings — every other row leaves this undefined,
+   *  so it's additive and harmless everywhere else. Deleted/unknown
+   *  customer ids fall back to the raw id (resolveTargetLabels' existing
+   *  fallback), never a crash or a blank arrow. */
+  reassign_customer_line?: string
 }
 
 export interface AuditLogFilters {
@@ -233,6 +243,20 @@ export async function listAuditLogWithClient(
     // view-suffix exclusion — the #56 widen — matches isViewAction).
     const warnPair = filters.includeViews ? [warnAllRes, critAllRes] : [nvWarnRes, nvCritRes]
     const warnPairOk = warnPair.every((r) => r !== null)
+    const targetLabels = await resolveTargetLabels(synqed, events)
+    // R7-1: build the reassign display line ONCE here, off the SAME
+    // (now-extended) targetLabels map — shared by the web action AND the
+    // facade route (both call this twin), so neither needs its own copy of
+    // this template. Set only for karute.customer_reassign rows with both
+    // ids present; every other row leaves the field undefined.
+    for (const e of events) {
+      if (e.action !== 'karute.customer_reassign') continue
+      const d = e.detail as { from_customer_id?: unknown; to_customer_id?: unknown } | null
+      const fromId = d?.from_customer_id
+      const toId = d?.to_customer_id
+      if (typeof fromId !== 'string' || typeof toId !== 'string') continue
+      e.reassign_customer_line = `${targetLabels[fromId] ?? fromId} → ${targetLabels[toId] ?? toId}`
+    }
     return {
       ok: true,
       events,
@@ -260,7 +284,7 @@ export async function listAuditLogWithClient(
         nvAllRes !== null && nvWarnRes !== null && nvCritRes !== null
           ? Math.max(0, nvAllRes.total - nvWarnRes.total - nvCritRes.total)
           : null,
-      targetLabels: await resolveTargetLabels(synqed, events),
+      targetLabels,
     }
   } catch {
     return { ok: false, error: 'failed' }
@@ -372,11 +396,23 @@ async function resolveTargetLabels(
       }),
     )
   }
+  // R7-1 (Liam's phone review, 8/23): the reassign row's OWN two customer
+  // ids (from_customer_id/to_customer_id) — widening this SAME batch, never
+  // a second resolver. Keyed by the customer id itself (not the row's
+  // target_id, which is the KARUTE id) — same idiom as menu_update's
+  // store_id_old/store_id_new below.
+  const reassignCustomerIds = events
+    .filter((e) => e.action === 'karute.customer_reassign')
+    .flatMap((e) => {
+      const d = e.detail as { from_customer_id?: unknown; to_customer_id?: unknown } | null
+      return [d?.from_customer_id, d?.to_customer_id]
+    })
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
   // Non-UUID ids (the '-' sentinel; any other malformed id) simply never
   // resolve — their rows keep showing the raw value, same honest-state
   // fallback as a purged customer or a failed batch call below.
   const allCustomerIds = [
-    ...new Set([...customerIds, ...karuteCustomerIds, ...karuteCustomerById.values()]),
+    ...new Set([...customerIds, ...karuteCustomerIds, ...karuteCustomerById.values(), ...reassignCustomerIds]),
   ].filter((id) => UUID_RE.test(id))
   if (allCustomerIds.length > 0) {
     try {
@@ -386,6 +422,10 @@ async function resolveTargetLabels(
       })
       const nameById = new Map(customers.map((c) => [c.id, c.name]))
       for (const id of customerIds) {
+        const name = nameById.get(id)
+        if (name) labels[id] = name
+      }
+      for (const id of reassignCustomerIds) {
         const name = nameById.get(id)
         if (name) labels[id] = name
       }

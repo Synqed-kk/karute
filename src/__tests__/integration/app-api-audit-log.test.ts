@@ -77,7 +77,11 @@ class ThisSensitiveAuditClient {
     return this.impl(q)
   }
 }
-const fakeClient = { audit: new ThisSensitiveAuditClient(auditList) }
+// R7-1: customers.list backs resolveTargetLabels' batch — empty by default
+// (every OTHER test's coreEvent target_id is 'cus-1', non-UUID, so it never
+// reaches this call); the reassign DTO pins below override it.
+const customersList = jest.fn(async () => ({ customers: [] as { id: string; name: string }[] }))
+const fakeClient = { audit: new ThisSensitiveAuditClient(auditList), customers: { list: customersList } }
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: (businessId: string) => newSynqedClient(businessId),
@@ -288,5 +292,47 @@ describe('GET /api/app/v1/audit-log', () => {
     expect(body.breakGlassTotal).toBe(4)
     // nvAll (exclude_views, no severity → the mock's 9) minus the nv pair.
     expect(body.changesTotal).toBe(9 - 3 - 2)
+  })
+
+  // R7-1 (Liam's phone review, 8/23): the facade DTO gains the additive
+  // reassign_customer_line field, built by the SAME twin the web action
+  // calls — pin 4.
+  it('R7-1: reassign_customer_line rides the DTO for a karute.customer_reassign row', async () => {
+    customersList.mockResolvedValueOnce({
+      customers: [
+        { id: '00000000-0000-4000-8000-0000000000f1', name: '田中 美咲' },
+        { id: '00000000-0000-4000-8000-0000000000f2', name: '佐藤 花子' },
+      ],
+    })
+    auditList.mockResolvedValue({
+      events: [
+        coreEvent({
+          category: 'karute',
+          action: 'karute.customer_reassign',
+          target_type: 'karute',
+          target_id: 'kar-1',
+          detail: {
+            from_customer_id: '00000000-0000-4000-8000-0000000000f1',
+            to_customer_id: '00000000-0000-4000-8000-0000000000f2',
+            same_day_burn_count: 0,
+            photo_count: 0,
+          },
+        }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    })
+    const res = await GET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; events: { reassign_customer_line?: string }[] }
+    expect(body.events[0].reassign_customer_line).toBe('田中 美咲 → 佐藤 花子')
+  })
+
+  it('R7-1: a non-reassign row omits reassign_customer_line harmlessly — existing DTO parse pins stay green', async () => {
+    const res = await GET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; events: { reassign_customer_line?: string }[] }
+    expect(body.events[0].reassign_customer_line).toBeUndefined()
   })
 })

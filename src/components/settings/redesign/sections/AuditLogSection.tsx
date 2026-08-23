@@ -306,6 +306,15 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
         targetLabels[e.target_id] ??
         e.target_id
       : null
+    // R7-1 (Liam's phone review, 8/23: "extremely important"): the server
+    // already built this line (src/actions/audit-log.ts,
+    // listAuditLogWithClient) off the SAME extended targetLabels this page
+    // requests — a bare "<from-name> → <to-name>" with no targetName
+    // prefix, since the target IS the karute (a different id than either
+    // customer here) and prefixing it would just add noise to Liam's ask.
+    if (e.action === 'karute.customer_reassign' && e.reassign_customer_line) {
+      return e.reassign_customer_line
+    }
     if (typeof detail.before_role === 'string' && typeof detail.after_role === 'string') {
       const change = `${roleLabel(detail.before_role)} → ${roleLabel(detail.after_role)}`
       return targetName ? `${targetName} · ${change}` : change
