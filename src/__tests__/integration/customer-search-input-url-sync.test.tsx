@@ -87,4 +87,19 @@ describe('CustomerSearchInput — URL-sync (echo vs external navigation)', () =>
 
     expect(input.value).toBe('')
   })
+
+  it('T-race: a pending debounced write must not fire after external navigation restores a different URL', () => {
+    const { rerender } = render(<CustomerSearchInput initialQuery="" />)
+    const input = screen.getByRole('textbox') as HTMLInputElement
+    input.focus()
+
+    fireEvent.change(input, { target: { value: 'ab' } })
+    jest.advanceTimersByTime(100)
+
+    rerender(<CustomerSearchInput initialQuery="xyz" />)
+    jest.advanceTimersByTime(300)
+
+    expect(replace).not.toHaveBeenCalled()
+    expect(input.value).toBe('xyz')
+  })
 })

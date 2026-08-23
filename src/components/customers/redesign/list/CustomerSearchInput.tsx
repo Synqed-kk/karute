@@ -22,12 +22,6 @@ export function CustomerSearchInput({ initialQuery }: CustomerSearchInputProps) 
   // deep link) → re-seed so the box never shows a term the list isn't
   // filtered by.
   const lastWritten = useRef(initialQuery)
-  useEffect(() => {
-    if (initialQuery !== lastWritten.current) {
-      lastWritten.current = initialQuery
-      setValue(initialQuery)
-    }
-  }, [initialQuery])
 
   const apply = useDebouncedCallback((v: string) => {
     const q = v.trim()
@@ -39,6 +33,17 @@ export function CustomerSearchInput({ initialQuery }: CustomerSearchInputProps) 
     const next = params.toString()
     router.replace(next ? `${pathname}?${next}` : pathname)
   }, 250)
+
+  // A debounced write still pending from typing must not fire after an
+  // external navigation — it would overwrite the restored URL with the
+  // stale term.
+  useEffect(() => {
+    if (initialQuery !== lastWritten.current) {
+      apply.cancel()
+      lastWritten.current = initialQuery
+      setValue(initialQuery)
+    }
+  }, [initialQuery, apply])
 
   return (
     <label className="flex w-full items-center gap-2 rounded-[10px] border border-border bg-card px-3 focus-within:border-sky-500">
