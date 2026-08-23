@@ -9,10 +9,33 @@
 import { render, screen } from '@testing-library/react'
 
 const useLocaleMock = jest.fn(() => 'ja')
-jest.mock('next-intl', () => ({
-  useTranslations: () => (key: string) => key,
-  useLocale: () => useLocaleMock(),
-}))
+// VERIFIER FIX: the repo's established real-message mock idiom
+// (reassign-customer-action-copy / photos-tab-upload-guard / … — the sibling
+// component in this same directory uses it). Resolves against the REAL
+// messages, THROWS on a missing key, and leaves `{var}` literal when the
+// interpolation arg is missing — so a deleted or re-parameterised key fails
+// the suite instead of sailing past a raw-key assertion.
+jest.mock('next-intl', () => {
+  const ja = jest.requireActual('../../../messages/ja.json')
+  const en = jest.requireActual('../../../messages/en.json')
+  return {
+    useLocale: () => useLocaleMock(),
+    // useLocaleMock() is called here (in useTranslations itself, not in the
+    // returned callback) so eslint's react-hooks/rules-of-hooks sees it
+    // inside a hook-named function, matching real next-intl: the locale is
+    // resolved once per useTranslations() call, same as every render.
+    useTranslations: (ns: string) => {
+      const loc = useLocaleMock()
+      return (key: string, vars?: Record<string, unknown>) => {
+        let cur: unknown = loc === 'en' ? en : ja
+        for (const part of `${ns}.${key}`.split('.'))
+          cur = (cur as Record<string, unknown> | undefined)?.[part]
+        if (typeof cur !== 'string') throw new Error(`missing ${loc}.json key: ${ns}.${key}`)
+        return cur.replace(/\{(\w+)\}/g, (_m, v: string) => String(vars?.[v] ?? `{${v}}`))
+      }
+    },
+  }
+})
 jest.mock('@/i18n/navigation', () => ({
   Link: ({ href, children, ...rest }: React.ComponentProps<'a'>) => (
     <a href={typeof href === 'string' ? href : '#'} {...rest}>
@@ -70,7 +93,7 @@ describe('CustomerHeaderCard — 顧客ページ clone contract (案D確定)', (
   it('h2 + Link + aria-label survive with customerHref', () => {
     render(<CustomerHeaderCard {...FULL_PROPS} />)
     const heading = screen.getByRole('heading', { level: 2 })
-    const link = screen.getByRole('link', { name: 'CHIANG CHIEH — header.openCustomer' })
+    const link = screen.getByRole('link', { name: 'CHIANG CHIEH — 顧客カルテを開く' })
     expect(heading.contains(link)).toBe(true)
     expect(link).toHaveAttribute('href', '/customers/c1')
   })
@@ -86,7 +109,7 @@ describe('CustomerHeaderCard — 顧客ページ clone contract (案D確定)', (
     render(<CustomerHeaderCard {...FULL_PROPS} />)
     const heading = screen.getByRole('heading', { level: 2 })
     expect(heading.className).not.toMatch(/(^|\s)truncate(\s|$)/)
-    const link = screen.getByRole('link', { name: 'CHIANG CHIEH — header.openCustomer' })
+    const link = screen.getByRole('link', { name: 'CHIANG CHIEH — 顧客カルテを開く' })
     expect(link.className).toMatch(/(^|\s)min-w-0(\s|$)/)
     expect(link.className).toMatch(/max-w-full/)
     const nameSpan = link.querySelector('span')!
@@ -110,49 +133,48 @@ describe('CustomerHeaderCard — 顧客ページ clone contract (案D確定)', (
     render(<CustomerHeaderCard {...FULL_PROPS} />)
     // Mock echoes the key verbatim (no interpolation) — this proves the
     // RIGHT key fires, in the right order, with the branch's own ・ join.
-    expect(screen.getByText('ageValue・男性')).toBeInTheDocument()
+    expect(screen.getByText('32歳・男性')).toBeInTheDocument()
   })
 
   it('age alone (no gender) renders bare via the same key, no dangling separator', () => {
     render(<CustomerHeaderCard {...FULL_PROPS} gender={null} />)
-    expect(screen.getByText('ageValue')).toBeInTheDocument()
+    expect(screen.getByText('32歳')).toBeInTheDocument()
     expect(screen.queryByText(/・/)).toBeNull()
   })
 
   it('en locale: age/gender separator switches to " · "', () => {
     useLocaleMock.mockReturnValue('en')
     render(<CustomerHeaderCard {...FULL_PROPS} />)
-    expect(screen.getByText('ageValue · 男性')).toBeInTheDocument()
+    expect(screen.getByText('32 y/o · 男性')).toBeInTheDocument()
   })
 
   // ---- B-4 visit count: bare item, no 来店 prefix, real suffix key ------
   it('visit count is a bare item — no header.visitCount label, no 来店 prefix, real visitCountSuffix key', () => {
     render(<CustomerHeaderCard {...FULL_PROPS} />)
-    expect(screen.queryByText('header.visitCount')).toBeNull()
     expect(screen.queryByText(/来店/)).toBeNull()
     const countEl = screen.getByText('4')
-    expect(countEl.nextElementSibling?.textContent).toBe('visitCountSuffix')
+    expect(countEl.nextElementSibling?.textContent).toBe(' 回')
   })
 
   it('en locale: visit count keeps the real suffix key (not a bare-count assumption)', () => {
     useLocaleMock.mockReturnValue('en')
     render(<CustomerHeaderCard {...FULL_PROPS} visitNumber={21} />)
     const countEl = screen.getByText('21')
-    expect(countEl.nextElementSibling?.textContent).toBe('visitCountSuffix')
+    expect(countEl.nextElementSibling?.textContent).toBe(' visits')
   })
 
   // ---- lastVisit / sessionDate meta items --------------------------------
   it('lastVisit renders label + value + muted ago suffix', () => {
     render(<CustomerHeaderCard {...FULL_PROPS} />)
-    expect(screen.getByText('header.lastVisit')).toBeInTheDocument()
+    expect(screen.getByText('前回')).toBeInTheDocument()
     expect(screen.getByText('July 10, 2026')).toBeInTheDocument()
     expect(screen.getByText('(45日前)')).toBeInTheDocument()
   })
 
   it('施術日 (sessionDate) rides the SAME meta row as age/gender/visit/lastVisit (density rule — never its own row)', () => {
     render(<CustomerHeaderCard {...FULL_PROPS} />)
-    const sessionLabel = screen.getByText('header.sessionDate')
-    const ageEl = screen.getByText('ageValue・男性')
+    const sessionLabel = screen.getByText(/施術日/)
+    const ageEl = screen.getByText('32歳・男性')
     expect(sessionLabel.closest('div')).toBe(ageEl.closest('div'))
   })
 
@@ -177,7 +199,7 @@ describe('CustomerHeaderCard — 顧客ページ clone contract (案D確定)', (
   // ---- staff / service ----------------------------------------------------
   it('担当 renders the real staffName; service rides as a plain unlabeled item', () => {
     render(<CustomerHeaderCard {...FULL_PROPS} />)
-    expect(screen.getByText('header.staff')).toBeInTheDocument()
+    expect(screen.getByText(/担当/)).toBeInTheDocument()
     expect(screen.getByText('佐藤')).toBeInTheDocument()
     expect(screen.getByText('カット')).toBeInTheDocument()
   })
@@ -198,7 +220,7 @@ describe('CustomerHeaderCard — 顧客ページ clone contract (案D確定)', (
         gender={null}
       />,
     )
-    for (const text of ['header.staff', 'header.lastVisit', 'ageValue', 'visitCountSuffix']) {
+    for (const text of [/担当/, /前回/, /歳/, / 回/]) {
       expect(screen.queryByText(text)).toBeNull()
     }
     expect(screen.queryByText(/—/)).toBeNull()
