@@ -629,20 +629,50 @@ async function toCustomerInScope(
   return false
 }
 
+/** R3-1 (fix round 3, Greptile issue 1 — REAL): does the SOURCE record's
+ *  store fall outside the actor's clamp? Split out from
+ *  ensureReassignStoreScope so listReassignCustomerOptions (no to-customer
+ *  yet — it's building the roster) can run the identical refusal before
+ *  shipping anything, without duplicating the viewAll/floating arms twice.
+ *  viewAll passes; a degraded scope is refused by the caller before this
+ *  ever runs; a floating actor (allowedStoreIds null) is unclamped; a
+ *  NULL-store record keeps today's behavior — the SAME 全店舗/null-store
+ *  convention resolveKaruteStoreId's appointment clamp uses earlier in this
+ *  file ("A NULL-store appointment keeps today's behavior"). Mirrors that
+ *  arm 1:1. */
+async function sourceStoreOutOfScope(
+  record: { store_id: string | null },
+  scope: ReassignScope,
+): Promise<boolean> {
+  if (scope.viewAll) return false
+  if (!scope.allowedStoreIds) return false // floating — unclamped
+  return record.store_id !== null && !scope.allowedStoreIds.includes(record.store_id)
+}
+
 /** The store-scope clamp (mirrors menus.ts's storeScopeError shape, packet
  *  §2b): viewAll passes; a degraded lookup fails closed (never widens); a
  *  floating actor (allowedStoreIds null, not degraded) is unclamped; a
  *  clamped actor's to-customer must resolve inside one of their stores. No
  *  business-wide roster ever reaches a clamped actor — this is the SERVER
- *  refusal backstopping the store-scoped picker (hide, never show-and-refuse). */
+ *  refusal backstopping the store-scoped picker (hide, never show-and-refuse).
+ *
+ *  R3-1: composes the SOURCE record's store clamp (sourceStoreOutOfScope)
+ *  with the pre-existing to-customer clamp — one function proves BOTH sides
+ *  of the write, so neither caller (the web action, the facade route) can
+ *  get one proof without the other. Runs before the preview return too, so
+ *  a clamped actor can't even see an out-of-store record's honesty preview. */
 async function ensureReassignStoreScope(
   synqed: Pick<SynqedClient, 'customers'>,
+  record: { store_id: string | null },
   toCustomerId: string,
   scope: ReassignScope,
 ): Promise<void> {
   if (scope.viewAll) return
   if (scope.degraded) {
     throw new AppApiError('store_forbidden', 'could not verify your store assignment (fail-closed)')
+  }
+  if (await sourceStoreOutOfScope(record, scope)) {
+    throw new AppApiError('store_forbidden', 'this karute belongs to a store you are not assigned to')
   }
   if (!scope.allowedStoreIds) return // floating — unclamped
   if (await toCustomerInScope(synqed, toCustomerId, scope.allowedStoreIds)) return
@@ -689,7 +719,7 @@ export async function reassignKaruteCustomerWithClient(
     reassignCustomerOrThrow(synqed, toCustomerId),
   ])
 
-  await ensureReassignStoreScope(synqed, toCustomerId, scope)
+  await ensureReassignStoreScope(synqed, record, toCustomerId, scope)
 
   const facts = await reassignFacts(synqed, fromCustomerId, {
     id: karuteId,
@@ -755,7 +785,13 @@ export async function reassignKaruteCustomer(
       detail: {
         from_customer_id: result.fromCustomerId,
         to_customer_id: result.toCustomerId,
-        burn_count: result.burnCount,
+        // R3-2 (fix round 3, Greptile issue 2 — REAL): renamed from
+        // burn_count — the receipt now states exactly what it counted
+        // (same-JST-day redemptions, reassign-facts.ts's own ceiling
+        // comment), not an unqualified claim of every burn against this
+        // karute. The UI-facing burnCount field (result/response body)
+        // keeps its name — only the audit detail key renames.
+        same_day_burn_count: result.burnCount,
         photo_count: result.photoCount,
       },
       requestId: crypto.randomUUID(),
@@ -799,7 +835,12 @@ export async function reassignKaruteCustomer(
  *  pick from it anyway. Showing a roster full of other branches' customers
  *  behind a doomed picker is show-and-refuse — this file's own
  *  menuStoresForScope (store-scope.ts) names the same rule for the store
- *  picker (isolation law: hide, never show-and-refuse; Greptile P1 on #707). */
+ *  picker (isolation law: hide, never show-and-refuse; Greptile P1 on #707).
+ *
+ *  R3-1: the SAME source-store refusal ensureReassignStoreScope enforces on
+ *  the write is run here too, before the roster is built — a clamped actor
+ *  must not even see a picker for a karute record that itself sits outside
+ *  their assignment. */
 export async function listReassignCustomerOptions(
   karuteId: string,
 ): Promise<{ customers: ReassignCustomerOption[] } | { error: string }> {
@@ -810,6 +851,9 @@ export async function listReassignCustomerOptions(
     const scope = await resolveStoreScope()
     if (scope.degraded) {
       return { error: 'could not verify your store assignment (fail-closed)' }
+    }
+    if (await sourceStoreOutOfScope(record, scope)) {
+      return { error: 'this karute belongs to a store you are not assigned to' }
     }
     const lens = customerLensFor(scope)
     // Lazy import — cached.ts value-imports @synqed-kk/client at module scope

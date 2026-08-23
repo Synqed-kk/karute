@@ -66,6 +66,18 @@ type RedemptionReadSkew = {
  * recording_session_id via the shared scopeKarutePhotos helper — a manual
  * karute (recording_session_id === null) resolves to photoCount 0 without a
  * listPhotos crash (scopeKarutePhotos's own null rule).
+ *
+ * R3-2 (fix round 3, Greptile issue 2 — REAL): the same-day arm above means
+ * burnCount can attribute MULTIPLE same-day redemptions to this one karute —
+ * core's narrow read gives no stronger link than "happened the same JST
+ * calendar day". That's the honest attribution CEILING under today's data,
+ * not a bug to hide: the confirm-panel copy and the audit detail key are
+ * both scoped to the day claim on purpose (i18n `burnTitle` reads "this
+ * day's ticket redemptions: {n}"; the audit detail key is
+ * `same_day_burn_count`, not `burn_count`) so the receipt never claims more
+ * precision than the count actually has. The link arms (karute_record_id /
+ * appointment_id) tighten the claim automatically whenever a redemption
+ * actually carries one — this ceiling only bites when neither link exists.
  */
 export async function reassignFacts(
   synqed: Pick<SynqedClient, 'packs' | 'customers'>,

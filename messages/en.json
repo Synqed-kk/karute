@@ -377,7 +377,7 @@
       "confirmTitle": "Confirm the change?",
       "confirmButton": "Confirm change",
       "staysTitle": "Stays with the original customer",
-      "burnTitle": "Ticket redemptions: {n}",
+      "burnTitle": "Ticket redemptions that day: {n}",
       "burnNote": "The money record does not move (fix it through the existing reconciliation flow)",
       "photoTitle": "Photos: {n}",
       "photoNote": "Photos can't be moved yet — they stay on {name}'s page",

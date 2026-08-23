@@ -31,6 +31,19 @@ export const GET = facadeHandler<Params>('karute.reassignOptions', async (ctx: F
     capabilities: ctx.identity.capabilities,
     requestedStoreId: null,
   })
+
+  // R3-1 (fix round 3, Greptile issue 1 — REAL): same source-store refusal
+  // as src/actions/karute.ts's ensureReassignStoreScope/
+  // sourceStoreOutOfScope, run here before any roster is built — a clamped
+  // actor must not reach a picker for a karute record that itself sits
+  // outside their assignment. allowedStoreIds === null covers BOTH viewAll
+  // and a floating actor (resolveStoreForRequest's own convention) —
+  // unclamped either way. A NULL-store record keeps today's behavior (the
+  // 全店舗/null-store convention).
+  if (allowedStoreIds && record.store_id && !allowedStoreIds.includes(record.store_id)) {
+    throw new AppApiError('store_forbidden', 'this karute belongs to a store you are not assigned to')
+  }
+
   // Unclamped (viewAll / floating): business-wide. Clamped: enforceStore
   // keeps the filter (never a business-wide leak to a branch-restricted
   // actor) — the exact server-side roster the store clamp on the confirm

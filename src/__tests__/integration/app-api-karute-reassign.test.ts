@@ -58,7 +58,9 @@ jest.mock('@/lib/app-api/store-clamp', () => ({
   resolveStoreForRequest: () => resolveStoreForRequest(),
 }))
 
-const KARUTE = { current: { id: 'kar-1', customer_id: 'cust-FROM', appointment_id: null, recording_session_id: null } as Record<string, unknown> }
+// store_id: null (unclamped) by default — R3-1 tests override it per-case;
+// leaving it null keeps every pre-existing pin unaffected by the new arm.
+const KARUTE = { current: { id: 'kar-1', customer_id: 'cust-FROM', appointment_id: null, recording_session_id: null, store_id: null } as Record<string, unknown> }
 const CUSTOMERS: Record<string, { id: string; name: string }> = {
   'cust-FROM': { id: 'cust-FROM', name: '田中 美咲' },
   'cust-TO': { id: 'cust-TO', name: '佐藤 花子' },
@@ -113,7 +115,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   capabilities.current = new Set(['records.reassign'])
   storeClamp.current = { storeId: null, allowedStoreIds: null } // viewAll-shaped by default
-  KARUTE.current = { id: 'kar-1', customer_id: 'cust-FROM', appointment_id: null, recording_session_id: null }
+  KARUTE.current = { id: 'kar-1', customer_id: 'cust-FROM', appointment_id: null, recording_session_id: null, store_id: null }
 })
 
 describe('POST /karute/[id]/reassign', () => {
@@ -141,12 +143,18 @@ describe('POST /karute/[id]/reassign', () => {
     expect(auditSpy).not.toHaveBeenCalled()
   })
 
-  it('confirmed:true → 200, writes EXACTLY { customer_id: toId }, emits karute.customer_reassign exactly once', async () => {
+  it('confirmed:true → 200, writes EXACTLY { customer_id: toId }, emits karute.customer_reassign exactly once (R3-2: audit detail key is same_day_burn_count; response body keeps burn_count)', async () => {
     const res = await POST(postReq({ to_customer_id: 'cust-TO', confirmed: true }), routeFor('kar-1'))
     expect(res.status).toBe(200)
+    const body = (await res.json()) as Record<string, unknown>
+    // Response body (UI contract) is UNCHANGED — only the audit detail key
+    // below renames.
+    expect(body).toMatchObject({ burn_count: 0, photo_count: 0 })
     expect(karuteUpdate).toHaveBeenCalledTimes(1)
     expect(karuteUpdate).toHaveBeenCalledWith('kar-1', { customer_id: 'cust-TO' })
     expect(auditSpy).toHaveBeenCalledTimes(1)
+    // R3-2: burn_count → same_day_burn_count (red-run: emit the old key →
+    // this pin goes red).
     expect(auditSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         category: 'karute',
@@ -159,7 +167,7 @@ describe('POST /karute/[id]/reassign', () => {
         detail: {
           from_customer_id: 'cust-FROM',
           to_customer_id: 'cust-TO',
-          burn_count: 0,
+          same_day_burn_count: 0,
           photo_count: 0,
         },
       }),
@@ -180,6 +188,43 @@ describe('POST /karute/[id]/reassign', () => {
     const res = await POST(postReq({ to_customer_id: 'cust-OTHER-STORE', confirmed: true }), routeFor('kar-1'))
     expect(res.status).toBe(200)
     expect(karuteUpdate).toHaveBeenCalledWith('kar-1', { customer_id: 'cust-OTHER-STORE' })
+  })
+
+  // R3-1 (fix round 3, Greptile issue 1 — REAL): the SOURCE karute record's
+  // own store, proven regardless of what the request's to_customer_id is.
+  it('R3-1: clamped actor + an out-of-store SOURCE record → 403, no write, no audit (confirmed:true)', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
+    storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
+    const res = await POST(postReq({ to_customer_id: 'cust-TO', confirmed: true }), routeFor('kar-1'))
+    expect(res.status).toBe(403)
+    expect(karuteUpdate).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
+  })
+
+  it('R3-1: clamped actor + an out-of-store SOURCE record → 403 on the PREVIEW phase too (confirmed:false) — the leak-close half', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
+    storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
+    const res = await POST(postReq({ to_customer_id: 'cust-TO', confirmed: false }), routeFor('kar-1'))
+    expect(res.status).toBe(403)
+    expect(karuteUpdate).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
+  })
+
+  it('R3-1: null-store SOURCE record + clamped actor is ALLOWED', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: null }
+    storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
+    const res = await POST(postReq({ to_customer_id: 'cust-TO', confirmed: true }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect(karuteUpdate).toHaveBeenCalledWith('kar-1', { customer_id: 'cust-TO' })
+  })
+
+  it('R3-1: viewAll actor + an out-of-store SOURCE record is ALLOWED', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
+    capabilities.current = new Set(['records.reassign', 'stores.viewAll'])
+    storeClamp.current = { storeId: null, allowedStoreIds: null }
+    const res = await POST(postReq({ to_customer_id: 'cust-TO', confirmed: true }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect(karuteUpdate).toHaveBeenCalledWith('kar-1', { customer_id: 'cust-TO' })
   })
 
   it('same-customer no-op → 400, no write', async () => {

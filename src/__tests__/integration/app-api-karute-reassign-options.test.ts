@@ -53,7 +53,8 @@ jest.mock('@/lib/app-api/store-clamp', () => ({
   resolveStoreForRequest: () => resolveStoreForRequest(),
 }))
 
-const KARUTE = { current: { id: 'kar-1', customer_id: 'cust-FROM' } as Record<string, unknown> }
+// store_id: null (unclamped) by default — R3-1 tests override it per-case.
+const KARUTE = { current: { id: 'kar-1', customer_id: 'cust-FROM', store_id: null } as Record<string, unknown> }
 const karuteGet = jest.fn(async (id: string) => {
   if (id !== 'kar-1') throw Object.assign(new Error('not found'), { status: 404 })
   return KARUTE.current
@@ -106,7 +107,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   capabilities.current = new Set(['records.reassign'])
   storeClamp.current = { storeId: null, allowedStoreIds: null } // viewAll-shaped by default
-  KARUTE.current = { id: 'kar-1', customer_id: 'cust-FROM' }
+  KARUTE.current = { id: 'kar-1', customer_id: 'cust-FROM', store_id: null }
 })
 
 describe('GET /karute/[id]/reassign-options', () => {
@@ -137,5 +138,34 @@ describe('GET /karute/[id]/reassign-options', () => {
     const body = (await res.json()) as { customers: Array<{ id: string }> }
     expect(listAllCustomers).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ enforceStore: false }))
     expect(body.customers.map((c) => c.id).sort()).toEqual(['cust-OTHER-STORE', 'cust-TO'])
+  })
+
+  // R3-1 (fix round 3, Greptile issue 1 — REAL): same source-store refusal
+  // the write route enforces, mirrored here before any roster is built.
+  it('R3-1: clamped actor + an out-of-store SOURCE record → 403, no roster fetch', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
+    storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
+    const res = await GET(getReq(), routeFor('kar-1'))
+    expect(res.status).toBe(403)
+    expect(listAllCustomers).not.toHaveBeenCalled()
+  })
+
+  it('R3-1: null-store SOURCE record + clamped actor reaches the roster normally', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: null }
+    storeClamp.current = { storeId: 'store-A', allowedStoreIds: ['store-A'] }
+    const res = await GET(getReq(), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect(listAllCustomers).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ store_id: 'store-A', enforceStore: true }),
+    )
+  })
+
+  it('R3-1: viewAll actor + an out-of-store SOURCE record still reaches the business-wide roster', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
+    storeClamp.current = { storeId: null, allowedStoreIds: null }
+    const res = await GET(getReq(), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect(listAllCustomers).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ enforceStore: false }))
   })
 })

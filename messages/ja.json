@@ -377,7 +377,7 @@
       "confirmTitle": "変更を確定しますか？",
       "confirmButton": "変更を確定",
       "staysTitle": "元のお客様に残るもの",
-      "burnTitle": "回数券の消化 {n}件",
+      "burnTitle": "この日の回数券の消化 {n}件",
       "burnNote": "金額の記録は移動しません（修正は既存の照合フローで）",
       "photoTitle": "写真 {n}枚",
       "photoNote": "現在は移動できません（{name}様のページに残ります）",

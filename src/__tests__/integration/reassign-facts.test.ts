@@ -107,6 +107,26 @@ describe('reassignFacts — money detection', () => {
     expect(burnCount).toBe(0)
   })
 
+  // R3-2 (fix round 3, Greptile issue 2 — REAL): the same-day arm can match
+  // MULTIPLE redemptions against one karute — the count must reflect exactly
+  // that (2, not 1), matching the day-scoped claim the copy and the audit
+  // detail key (same_day_burn_count) now make.
+  it('counts BOTH of two same-day redemptions (no link on either) — the day-scoped claim', async () => {
+    const { synqed } = client({
+      redemptions: [
+        { pack_id: 'p1', redeemed_on: '2026-08-15' },
+        { pack_id: 'p2', redeemed_on: '2026-08-15' },
+      ],
+    })
+    const { burnCount } = await reassignFacts(synqed, 'cust-1', {
+      id: 'kar-1',
+      appointment_id: null,
+      recording_session_id: null,
+      session_date: '2026-08-15',
+    })
+    expect(burnCount).toBe(2)
+  })
+
   it('never mutates redemptions — no write method exists on the mocked client', async () => {
     const { synqed, listRedemptions } = client({ redemptions: [] })
     await reassignFacts(synqed, 'cust-1', {

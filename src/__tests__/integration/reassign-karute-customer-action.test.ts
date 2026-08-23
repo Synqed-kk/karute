@@ -68,7 +68,10 @@ const resolveStoreScope = resolveStoreScopeImport as jest.Mock
 const getSynqedClient = getSynqedClientImport as jest.Mock
 const getCachedCustomerList = getCachedCustomerListImport as jest.Mock
 
-const KARUTE = { current: { id: 'kar-1', customer_id: 'cust-FROM', appointment_id: null, recording_session_id: null } as Record<string, unknown> }
+// store_id: null (unclamped) by default — R3-1 tests override it per-case to
+// exercise the source-store clamp; leaving it null keeps every pre-existing
+// pin (1-9) unaffected by the new arm.
+const KARUTE = { current: { id: 'kar-1', customer_id: 'cust-FROM', appointment_id: null, recording_session_id: null, store_id: null } as Record<string, unknown> }
 const CUSTOMERS: Record<string, { id: string; name: string }> = {
   'cust-FROM': { id: 'cust-FROM', name: '田中 美咲' },
   'cust-TO': { id: 'cust-TO', name: '佐藤 花子' },
@@ -123,7 +126,7 @@ const BUSINESS_WIDE_ROSTER = Object.values(CUSTOMERS)
 
 beforeEach(() => {
   jest.clearAllMocks()
-  KARUTE.current = { id: 'kar-1', customer_id: 'cust-FROM', appointment_id: null, recording_session_id: null }
+  KARUTE.current = { id: 'kar-1', customer_id: 'cust-FROM', appointment_id: null, recording_session_id: null, store_id: null }
   karuteRecordsUpdate.mockResolvedValue({})
   getSynqedClient.mockImplementation(async () => fakeClient())
   resolveStoreScope.mockImplementation(async () => VIEW_ALL)
@@ -198,6 +201,67 @@ describe('pin 2 — store clamp (web)', () => {
       ),
     ).rejects.toThrow('could not verify your store assignment')
     expect(karuteRecordsUpdate).not.toHaveBeenCalled()
+  })
+})
+
+// ── Pin R3-1: source-store clamp on the SOURCE record (web) ──────────────
+// Fix round 3, Greptile issue 1 (REAL): the parent packet's clamp only ever
+// proved the TO-customer's store; a clamped actor supplying an out-of-scope
+// karute id passed regardless. These pins prove the SOURCE record itself is
+// now clamped, on BOTH phases (the preview leaks close too).
+
+describe('pin R3-1 — source-store clamp on the SOURCE record (web)', () => {
+  it('clamped actor + an out-of-store SOURCE record is refused, no write (confirmed:true)', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
+    const result = await reassignKaruteCustomerWithClient(
+      fakeClient(),
+      'kar-1',
+      'cust-TO',
+      { confirmed: true },
+      { viewAll: false, allowedStoreIds: ['store-A'] },
+    )
+      .then(() => ({ threw: false }))
+      .catch((err: Error) => ({ threw: true, message: err.message }))
+    expect(result).toEqual({ threw: true, message: 'this karute belongs to a store you are not assigned to' })
+    expect(karuteRecordsUpdate).not.toHaveBeenCalled()
+  })
+
+  it('clamped actor + an out-of-store SOURCE record is refused on the PREVIEW phase too (confirmed:false) — the leak-close half of R3-1', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
+    const result = await reassignKaruteCustomerWithClient(
+      fakeClient(),
+      'kar-1',
+      'cust-TO',
+      { confirmed: false },
+      { viewAll: false, allowedStoreIds: ['store-A'] },
+    )
+      .then(() => ({ threw: false }))
+      .catch((err: Error) => ({ threw: true, message: err.message }))
+    expect(result).toEqual({ threw: true, message: 'this karute belongs to a store you are not assigned to' })
+  })
+
+  it('null-store SOURCE record + clamped actor is ALLOWED — the 全店舗/null-store convention (resolveKaruteStoreId precedent)', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: null }
+    const result = await reassignKaruteCustomerWithClient(
+      fakeClient(),
+      'kar-1',
+      'cust-TO',
+      { confirmed: true },
+      { viewAll: false, allowedStoreIds: ['store-A'] },
+    )
+    expect(result).toMatchObject({ success: true })
+  })
+
+  it('viewAll actor + an out-of-store SOURCE record is ALLOWED', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
+    const result = await reassignKaruteCustomerWithClient(
+      fakeClient(),
+      'kar-1',
+      'cust-TO',
+      { confirmed: true },
+      { viewAll: true, allowedStoreIds: null },
+    )
+    expect(result).toMatchObject({ success: true })
   })
 })
 
@@ -311,14 +375,15 @@ describe('auditWeb — success-only', () => {
     expect(auditWeb).not.toHaveBeenCalled()
   })
 
-  it('emits the row EXACT-SHAPE on a successful confirmed write — packet §5 pin 5, web half', async () => {
+  it('emits the row EXACT-SHAPE on a successful confirmed write — packet §5 pin 5, web half (R3-2: detail key is same_day_burn_count)', async () => {
     await reassignKaruteCustomer('kar-1', 'cust-TO', { confirmed: true })
     expect(auditWeb).toHaveBeenCalledTimes(1)
     // Full-argument toEqual (via toHaveBeenCalledWith): a wrong action, wrong
     // targetType/targetId, or a dropped detail key each fail this — the
     // verifier's exact corruption set (action:'karute.entry_edit',
     // targetType:'customer', targetId:'WRONG-ID', detail reduced to
-    // {to_customer_id}) all flip it.
+    // {to_customer_id}) all flip it. R3-2: burn_count → same_day_burn_count
+    // (red-run: emit the old key → this pin goes red).
     expect(auditWeb).toHaveBeenCalledWith({
       category: 'karute',
       action: 'karute.customer_reassign',
@@ -327,7 +392,7 @@ describe('auditWeb — success-only', () => {
       detail: {
         from_customer_id: 'cust-FROM',
         to_customer_id: 'cust-TO',
-        burn_count: 0,
+        same_day_burn_count: 0,
         photo_count: 0,
       },
       requestId: expect.any(String),
@@ -377,5 +442,42 @@ describe('listReassignCustomerOptions — roster', () => {
     const result = await listReassignCustomerOptions('kar-1')
     expect(result).toEqual({ error: expect.any(String) })
     expect(getCachedCustomerList).not.toHaveBeenCalled()
+  })
+
+  // R3-1 (fix round 3): the same source-store refusal the write enforces,
+  // run here too — a clamped actor must not even see a picker for a karute
+  // record that itself sits outside their assignment.
+  it('R3-1: clamped actor + an out-of-store SOURCE record is refused BEFORE any list fetch', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
+    resolveStoreScope.mockResolvedValue({
+      viewAll: false,
+      allowedStoreIds: ['store-A'],
+      storeId: 'store-A',
+      degraded: false,
+    })
+    const result = await listReassignCustomerOptions('kar-1')
+    expect(result).toEqual({ error: expect.any(String) })
+    expect(getCachedCustomerList).not.toHaveBeenCalled()
+  })
+
+  it('R3-1: null-store SOURCE record + clamped actor reaches the roster normally', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: null }
+    resolveStoreScope.mockResolvedValue({
+      viewAll: false,
+      allowedStoreIds: ['store-A'],
+      storeId: 'store-A',
+      degraded: false,
+    })
+    const result = await listReassignCustomerOptions('kar-1')
+    expect(getCachedCustomerList).toHaveBeenCalledWith('store-A')
+    if (!('customers' in result)) throw new Error(`expected customers, got ${JSON.stringify(result)}`)
+  })
+
+  it('R3-1: viewAll actor + an out-of-store SOURCE record still reaches the business-wide roster', async () => {
+    KARUTE.current = { ...KARUTE.current, store_id: 'store-B' }
+    resolveStoreScope.mockResolvedValue(VIEW_ALL)
+    const result = await listReassignCustomerOptions('kar-1')
+    expect(getCachedCustomerList).toHaveBeenCalledWith(undefined)
+    if (!('customers' in result)) throw new Error(`expected customers, got ${JSON.stringify(result)}`)
   })
 })
