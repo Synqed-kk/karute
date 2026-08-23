@@ -447,6 +447,35 @@ describe('the fixture data door', () => {
         'react',
       ],
       'src/app/[locale]/(business)/business/shifts/loading.tsx': ['@/business/i18n'],
+      // 受信トレイ. The room's own message plane plus the derivations that BORROW
+      // every other fact it shows: 予約一覧's own `deadlineOf`/`lifecycleOf` for
+      // the deadline, the board's `customerStoreAffiliation`/`hhmm`/`yen`. The
+      // screen imports nothing but its own types — every number and every date
+      // is a string by the time it crosses the boundary.
+      'src/business/lib/fixtures-inbox.ts': [],
+      'src/business/lib/inbox.ts': [
+        './fixtures',
+        './fixtures-inbox',
+        './fixtures-reservations',
+        './fixtures-today',
+        './reservations',
+        './today-board',
+      ],
+      'src/app/[locale]/(business)/business/inbox/page.tsx': [
+        './InboxScreen',
+        './inbox.css',
+        '@/business/lib/admission',
+        '@/business/lib/clock',
+        '@/business/lib/data',
+        '@/business/lib/fixtures-inbox',
+        '@/business/lib/inbox',
+      ],
+      'src/app/[locale]/(business)/business/inbox/InboxScreen.tsx': [
+        '@/business/lib/inbox',
+        'next/link',
+        'react',
+      ],
+      'src/app/[locale]/(business)/business/inbox/loading.tsx': ['@/business/i18n'],
     }
     for (const [file, expected] of Object.entries(INVENTORY)) {
       const src = readFileSync(join(process.cwd(), file), 'utf8')

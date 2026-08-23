@@ -27,7 +27,7 @@
 import { jstDayKey, jstYmd } from './clock'
 import type { FixtureAppointment, FixtureCustomer } from './fixtures'
 import type { FixtureMix, FixtureMonthlySales, FixtureSourceMix, FixtureStaffMix } from './fixtures-analytics'
-import { bookingCategory, isEarningVisit } from './today-board'
+import { bookingCategory, customerStoreAffiliation, isEarningVisit } from './today-board'
 
 /** How far back the ledger reaches. The 推移 chart's own window, and the floor
  *  the month nav refuses to walk past. */
@@ -417,10 +417,10 @@ export function ticketLiability(
   storeId: string | null,
   unitPrice: number,
 ): { sessions: number; amount: number } {
-  const affiliation = new Map<string, string>()
-  for (const a of [...appointments].sort((x, y) => y.starts_at.localeCompare(x.starts_at))) {
-    if (a.store_id && !affiliation.has(a.customer_id)) affiliation.set(a.customer_id, a.store_id)
-  }
+  // The affiliation rule moved to today-board.ts when 受信トレイ needed the same
+  // answer for a thread with no booking — one spelling of "which store is this
+  // customer's" across the family (A8). Behaviour is unchanged.
+  const affiliation = customerStoreAffiliation(appointments)
   const sessions = customers
     .filter((c) => storeId === null || affiliation.get(c.id) === storeId)
     .reduce((n, c) => n + (c.ticket_balance ?? 0), 0)
