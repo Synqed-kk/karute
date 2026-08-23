@@ -199,6 +199,40 @@ describe('cache-key contract (Test #4, F10)', () => {
     // Mutation red: dropping `visitCount` from cacheInput makes these equal.
     expect(eight).not.toEqual(thirty)
   })
+
+  it('G1 (Greptile): a staff reassignment changes the cache key (the prompt prints Preferred staff verbatim)', async () => {
+    const { getCachedAI } = jest.requireMock('@/lib/ai-cache')
+
+    mockDraftResolved()
+    await getReengagementDraft({ ...BASE_PARAMS, status: 'dormant', lastVisitAgoDays: 120, preferredStaffName: '佐藤' })
+    const sato = getCachedAI.mock.calls[0][1]
+    expect(sato.preferredStaffName).toBe('佐藤')
+
+    mockDraftResolved()
+    await getReengagementDraft({ ...BASE_PARAMS, status: 'dormant', lastVisitAgoDays: 120, preferredStaffName: '田中' })
+    const tanaka = getCachedAI.mock.calls[1][1]
+    expect(tanaka.preferredStaffName).toBe('田中')
+
+    // Mutation red: dropping `preferredStaffName` from cacheInput makes these equal.
+    expect(sato).not.toEqual(tanaka)
+  })
+
+  it('G1 (Greptile): a day advance changes the cache key (the prompt prints Last visit: N days ago verbatim)', async () => {
+    const { getCachedAI } = jest.requireMock('@/lib/ai-cache')
+
+    mockDraftResolved()
+    await getReengagementDraft({ ...BASE_PARAMS, status: 'dormant', lastVisitAgoDays: 120 })
+    const day120 = getCachedAI.mock.calls[0][1]
+    expect(day120.lastVisitAgoDays).toBe(120)
+
+    mockDraftResolved()
+    await getReengagementDraft({ ...BASE_PARAMS, status: 'dormant', lastVisitAgoDays: 121 })
+    const day121 = getCachedAI.mock.calls[1][1]
+    expect(day121.lastVisitAgoDays).toBe(121)
+
+    // Mutation red: dropping `lastVisitAgoDays` from cacheInput makes these equal.
+    expect(day120).not.toEqual(day121)
+  })
 })
 
 describe('prompt-safety pins (Test #5, F14/F15)', () => {

@@ -127,3 +127,41 @@ describe('CustomerReengagementCard — structure pins', () => {
     expect(screen.queryByText(/日前$/)).not.toBeInTheDocument()
   })
 })
+
+// G2 (Greptile, batched with the CI audit-doc + G1 cache-key fixes) — one-way
+// accent law (accent-tier-contract.test.tsx pattern): the commit button keeps
+// the solid theme-token accent, and the decorative session signal icon
+// (non-pressable, inside the why-disclosure evidence list) goes neutral.
+// Whole-class matcher — same convention as accent-tier-contract.test.tsx.
+const cls = (name: string) => new RegExp(`(^|\\s)${name.replace('/', '\\/')}(\\s|$)`)
+
+describe('CustomerReengagementCard — accent tier (G2)', () => {
+  it('the send button carries the solid theme-token accent, never a hardcoded blue literal', () => {
+    render(
+      <CustomerReengagementCard customerId="cust-1" customerName="田中 花子" lastVisitAgoDays={95} draft={DRAFT} />,
+    )
+    const send = screen.getByText('このメッセージを送信').closest('button')!
+    expect(send.className).toMatch(cls('bg-primary'))
+    expect(send.className).toMatch(cls('text-primary-foreground'))
+    expect(send.className).toMatch(cls('hover:bg-primary-hover'))
+    expect(send.className).not.toMatch(cls('bg-blue-600'))
+    expect(send.className).not.toMatch(cls('text-white'))
+  })
+
+  it('the session signal icon (decorative, inside why-disclosure) is neutral, never accent blue', () => {
+    render(
+      <CustomerReengagementCard
+        customerId="cust-1"
+        customerName="田中 花子"
+        lastVisitAgoDays={95}
+        draft={{ ...DRAFT, signals: [{ kind: 'session', label: 'SESSION-SIGNAL-MARKER' }] }}
+      />,
+    )
+    fireEvent.click(screen.getByText('このメッセージの根拠を見る'))
+    const label = screen.getByText('SESSION-SIGNAL-MARKER')
+    const icon = label.previousElementSibling
+    expect(icon).not.toBeNull()
+    expect(icon!.getAttribute('class') ?? '').toMatch(cls('text-muted-foreground'))
+    expect(icon!.getAttribute('class') ?? '').not.toMatch(cls('text-blue-600'))
+  })
+})

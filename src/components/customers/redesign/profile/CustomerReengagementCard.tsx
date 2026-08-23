@@ -47,7 +47,10 @@ function SignalIcon({ kind }: { kind: ReengagementSignal['kind'] }) {
     return <Brain className="size-3 shrink-0 mt-0.5 text-purple-600 dark:text-purple-300" aria-hidden />
   }
   if (kind === 'session') {
-    return <Calendar className="size-3 shrink-0 mt-0.5 text-blue-600 dark:text-blue-300" aria-hidden />
+    // G2 (Greptile, one-way accent law): decorative, non-pressable — the
+    // saturated blue accent is reserved for pressables, so this drops to
+    // neutral (memory_item/prediction keep their own non-blue hues, unflagged).
+    return <Calendar className="size-3 shrink-0 mt-0.5 text-muted-foreground" aria-hidden />
   }
   if (kind === 'prediction') {
     return <TrendingUp className="size-3 shrink-0 mt-0.5 text-sky-600 dark:text-sky-300" aria-hidden />
@@ -150,7 +153,7 @@ export function CustomerReengagementCard({
           <button
             type="button"
             onClick={() => setComposeOpen(true)}
-            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-blue-600 px-3.5 text-[13px] font-medium text-white transition-colors hover:bg-blue-700"
+            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3.5 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary-hover"
           >
             <Send className="size-3.5" aria-hidden />
             {t('sendButton')}

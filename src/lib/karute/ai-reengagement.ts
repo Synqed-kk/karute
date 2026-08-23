@@ -258,6 +258,14 @@ async function computeReengagementDraft(
     // customer (the facade bug R1(a) fixed) would silently share one cache
     // entry, seeding each other with a draft written against the wrong count.
     visitCount,
+    // G1 (Greptile, batched with the CI audit-doc fix): the prompt also
+    // prints `Last visit: N days ago` and `Preferred staff: …` verbatim — a
+    // staff reassignment or a day advance within the 1-day TTL would
+    // otherwise serve a stale draft naming the old staff or the wrong day
+    // count. Accepted side effect: the key now changes daily (matches
+    // drafts that print an exact day count anyway).
+    lastVisitAgoDays,
+    preferredStaffName: params.preferredStaffName,
     business_type: orgSettings?.business_type ?? null,
     locale,
     voiceStyle,
