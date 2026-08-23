@@ -125,7 +125,15 @@
    to ≤1023 would leave 受信トレイ panning at iPad landscape (1024), a named
    device class in the ALL-SCREEN law, which is the thing being fixed. The
    room's ≤1279 band is measured against the deployed shell at 1024/1100/1180/
-   1279 instead of a pixel-parity diff (BUILD-REPORT §3(4b)). */
+   1279 instead of a pixel-parity diff (BUILD-REPORT §3(4b)).
+
+   BROWSER SUPPORT, verified: :has() (Safari 15.4+) sits INSIDE this bundle's
+   own CSS baseline — Tailwind v4's floor is Safari 16.4+ — so no supported
+   engine lacks it. Where an engine nonetheless drops the selector, the whole
+   rule is discarded and the 1180px floor above stays in force: horizontal
+   panning, byte-for-byte what main ships today. Degrades to the status quo,
+   never to a blank. (Business is the desktop web product; the iOS shell ships
+   the Karute routes and never navigates here.) */
 .biz .app:has(.page.pg-inbox) { min-width: 0; }
 
 .biz .main { min-width: 0; }
