@@ -629,22 +629,30 @@ describe('reading and triage are buildable; sending is a write', () => {
     expect(SRC).toContain('aria-label={`最新状態を確認 — ${props.refreshRefusal}`}')
   })
 
-  it('a resolved thread renders NO action levers — the panel is gated on status, not per-button (FIX-3)', async () => {
-    // Source-level: the action panel and its refusals are ONE branch, in that
-    // order — a per-button repeat would be a second copy of the same rule.
-    const gateAt = SRC_CODE.indexOf("{current.status !== 'resolved' && (")
+  it('a resolved thread hides the WORK levers only — 予約一覧で事実を確認 stays, resolved or not (FIX-3, adjudicated)', async () => {
+    // Source-level: TWO gates, not one. 返信する/解決として記録 (the WORK
+    // levers) and their refusal paragraphs are each their own branch; the
+    // booking-fact link sits BETWEEN them, ungated — it names no work, only
+    // navigation, so a resolved thread keeps it exactly like every other.
     const actionsAt = SRC_CODE.indexOf('<div className="ib-actions">')
-    const refusalAt = SRC_CODE.indexOf('<p className="ib-refusal"')
-    expect(gateAt).toBeGreaterThan(-1)
-    expect(actionsAt).toBeGreaterThan(gateAt)
-    expect(refusalAt).toBeGreaterThan(actionsAt)
-    expect(SRC_CODE.match(/status !== 'resolved' &&/g) ?? []).toHaveLength(1)
+    const gates = [...SRC_CODE.matchAll(/status !== 'resolved' &&/g)].map((m) => m.index!)
+    expect(gates).toHaveLength(2)
+    const [workGateAt, refusalGateAt] = gates
+    const bookingHrefAt = SRC_CODE.indexOf('current.bookingHref ?')
+    const actionsCloseAt = SRC_CODE.indexOf('</div>', bookingHrefAt)
+    expect(actionsAt).toBeGreaterThan(-1)
+    expect(workGateAt).toBeGreaterThan(actionsAt)
+    expect(bookingHrefAt).toBeGreaterThan(workGateAt)
+    expect(actionsCloseAt).toBeGreaterThan(bookingHrefAt)
+    expect(refusalGateAt).toBeGreaterThan(actionsCloseAt)
 
-    // Data-level: the gate has a true case AND a false case to prove — the
-    // room's one resolved fixture is real, and so are its non-resolved
-    // siblings.
+    // Data-level: a resolved, booking-backed thread is real (inb-noshow /
+    // apt-23) — a POSITIVE pin that the link stays, not just that the work
+    // buttons go.
     const rows = await room({ store: STORE_A })
-    expect(rows.threads.find((t) => t.status === 'resolved')?.id).toBe('inb-noshow')
+    const resolved = rows.threads.find((t) => t.status === 'resolved')!
+    expect(resolved.id).toBe('inb-noshow')
+    expect(resolved.bookingHref).not.toBeNull()
     expect(rows.threads.some((t) => t.status !== 'resolved')).toBe(true)
   })
 })

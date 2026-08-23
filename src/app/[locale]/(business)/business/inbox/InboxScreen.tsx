@@ -314,15 +314,16 @@ export function InboxScreen(props: InboxProps) {
                 )}
               </div>
 
-              {/* A resolved thread's 次の対応 fact above already states the
-                  outcome — 返信する behind an empty draft, or 今回は請求しない
-                  on a closed case, are levers naming work the record says is
-                  done. Omission over a disabled pair is the smaller honest
-                  surface here (⚖ overturnable). The panel is ONE branch, not
-                  per-button, so there is one rule to read, not three. */}
-              {current.status !== 'resolved' && (
-                <>
-                  <div className="ib-actions">
+              <div className="ib-actions">
+                {/* A resolved thread's 次の対応 fact above already states the
+                    outcome — 返信する behind an empty draft, or 今回は請求しない
+                    on a closed case, are WORK levers naming work the record
+                    says is done. Omission over a disabled pair is the smaller
+                    honest surface here (⚖ overturned in part on adjudication:
+                    only these two are work — 予約一覧で事実を確認 is a
+                    read/navigation lever and stays, resolved or not). */}
+                {current.status !== 'resolved' && (
+                  <>
                     <button
                       className="btn"
                       type="button"
@@ -341,24 +342,30 @@ export function InboxScreen(props: InboxProps) {
                     >
                       {current.resolveLabel}
                     </button>
-                    {current.bookingHref ? (
-                      <Link className="btn ib-wide" href={current.bookingHref}>
-                        予約一覧で事実を確認
-                      </Link>
-                    ) : (
-                      <button
-                        className="btn ib-wide"
-                        type="button"
-                        aria-disabled="true"
-                        title="この空き待ちにはまだ予約がないため、予約一覧では確認できません。"
-                      >
-                        予約一覧で事実を確認
-                      </button>
-                    )}
-                  </div>
-                  {/* THE REFUSALS. They change nothing, they are on screen before
-                      anyone reaches for the control, and they stay there — no toast,
-                      no flash, nothing to outrun (⚖ 47). */}
+                  </>
+                )}
+                {current.bookingHref ? (
+                  <Link className="btn ib-wide" href={current.bookingHref}>
+                    予約一覧で事実を確認
+                  </Link>
+                ) : (
+                  <button
+                    className="btn ib-wide"
+                    type="button"
+                    aria-disabled="true"
+                    title="この空き待ちにはまだ予約がないため、予約一覧では確認できません。"
+                  >
+                    予約一覧で事実を確認
+                  </button>
+                )}
+              </div>
+              {/* THE REFUSALS. They change nothing, they are on screen before
+                  anyone reaches for the control, and they stay there — no toast,
+                  no flash, nothing to outrun (⚖ 47). Gated with the WORK
+                  buttons above, not the panel — a resolved thread's refusal
+                  text would explain controls that are no longer there. */}
+              {current.status !== 'resolved' && (
+                <>
                   <p className="ib-refusal" id={`ibRefusal-${current.id}`}>
                     {current.primaryRefusal}
                   </p>
