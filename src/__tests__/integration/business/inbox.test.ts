@@ -41,10 +41,11 @@ import { jstDayKey, jstMinuteOfDay } from '@/business/lib/clock'
 import { appointments, customers, menus, STORE_A, STORE_B } from '@/business/lib/fixtures'
 import { threads as threadPlane, type FixtureThread } from '@/business/lib/fixtures-inbox'
 import { auditTrail, reservations } from '@/business/lib/fixtures-reservations'
-import { boardNow, decisions, operatingHours } from '@/business/lib/fixtures-today'
+import { boardNow, decisions, operatingHours, type FixtureDecision } from '@/business/lib/fixtures-today'
 import {
   buildThreads,
   channelStates,
+  DELIVERY_WORD,
   isUsable,
   matchesFilter,
   recommendedChannel,
@@ -258,6 +259,53 @@ describe('every fact this room shows belongs to the desk that owns it', () => {
     expect(byId(late, 'inb-recovery').overdue).toBe(true)
   })
 
+  it('a resolved thread never paints a red （超過） deadline — 超過 is display-only, gated on status (S-2)', () => {
+    // Constructed, not the demo world: apt-31's own deadline (12:30) already
+    // sits behind the pinned clock (13:24), so a resolved card on the SAME
+    // booking is the latent case — no fixture in the demo world pairs a
+    // resolved decision with a booking whose own deadline has passed.
+    const synDecision: FixtureDecision = {
+      id: 'dec-syn', store_id: STORE_A, kind: '担当変更',
+      appointment_id: 'apt-31', sell_slot_id: null,
+      deadline: '完了', deadline_tone: '', urgent: false, state: 'resolved',
+      owner_staff_id: 'p-04',
+      status: '完了', status_tone: 'done',
+      detail: '合成',
+      proof_title: '合成', proofs: [],
+      notification: 'sent',
+    }
+    const rows = build(STORE_A, {
+      threads: [
+        {
+          id: 'syn-resolved-overdue',
+          category: 'change',
+          mark: '合',
+          mark_tone: 'indigo',
+          customer_id: 'cus-04',
+          appointment_id: 'apt-31',
+          received: 9 * 60,
+          due: null,
+          source: '合成',
+          source_proof: null,
+          subject: '合成',
+          preview: '合成',
+          next: '合成',
+          reply: '',
+          delivery_state: null,
+          delivery_detail: null,
+          events: [],
+        },
+      ],
+      decisions: [...decisions, synDecision],
+    })
+    const t = rows[0]
+    expect(t.status).toBe('resolved')
+    expect(t.dueMinute).toBe(12 * 60 + 30)
+    expect(t.overdue).toBe(false)
+    expect(t.dueLabel).toBe('12:30まで')
+    expect(t.dueLabel).not.toContain('超過')
+  })
+
   it('a thread STATUS is its 次に決めること card own state — one verdict, two desks', () => {
     const rows = build(STORE_A)
     const map = { open: 'attention', waiting: 'waiting', resolved: 'resolved' } as const
@@ -280,6 +328,29 @@ describe('every fact this room shows belongs to the desk that owns it', () => {
       expect(t.deliveryState).toBe(d.notification)
       expect(t.proofTitle).toBe(d.proof_title)
       expect(t.proofLines).toEqual(d.proofs)
+    }
+  })
+
+  it('配信状態 states the bare delivery word only — a decision-backed thread carries no delivery detail of its own (FIX-1)', () => {
+    const rows = build(STORE_A)
+    // Live-proven cases: inb-delivery used to print 「配信失敗 / … / 2回目
+    // 送信済み」 and inb-noshow 「送信済み / … 電話1回 / 応答なし」 — the
+    // decision's own proof rows wearing 配信状態, a second home for 証跡's rows.
+    const delivery = byId(rows, 'inb-delivery')
+    const noshow = byId(rows, 'inb-noshow')
+    expect(delivery.deliveryLabel).toBe(DELIVERY_WORD.undelivered)
+    expect(noshow.deliveryLabel).toBe(DELIVERY_WORD.sent)
+    expect(delivery.deliveryLabel).not.toContain('/')
+    expect(noshow.deliveryLabel).not.toContain('/')
+    // The proofs are not gone — they stay in 証跡, the SAME array, unchanged.
+    expect(delivery.proofLines).toEqual(decisions.find((d) => d.id === 'dec-sms')!.proofs)
+    expect(noshow.proofLines).toEqual(decisions.find((d) => d.id === 'dec-noshow')!.proofs)
+    // Every decision-backed thread agrees: bare word, never a join.
+    for (const t of rows) {
+      const plane = threadPlane.find((p) => p.id === t.id)!
+      const d = decisions.find((x) => x.appointment_id === plane.appointment_id)
+      if (!d) continue
+      expect(t.deliveryLabel).toBe(DELIVERY_WORD[d.notification])
     }
   })
 
@@ -557,6 +628,25 @@ describe('reading and triage are buildable; sending is a write', () => {
     // reaches it — aria-disabled keeps it focusable, unlike `disabled`.
     expect(SRC).toContain('aria-label={`最新状態を確認 — ${props.refreshRefusal}`}')
   })
+
+  it('a resolved thread renders NO action levers — the panel is gated on status, not per-button (FIX-3)', async () => {
+    // Source-level: the action panel and its refusals are ONE branch, in that
+    // order — a per-button repeat would be a second copy of the same rule.
+    const gateAt = SRC_CODE.indexOf("{current.status !== 'resolved' && (")
+    const actionsAt = SRC_CODE.indexOf('<div className="ib-actions">')
+    const refusalAt = SRC_CODE.indexOf('<p className="ib-refusal"')
+    expect(gateAt).toBeGreaterThan(-1)
+    expect(actionsAt).toBeGreaterThan(gateAt)
+    expect(refusalAt).toBeGreaterThan(actionsAt)
+    expect(SRC_CODE.match(/status !== 'resolved' &&/g) ?? []).toHaveLength(1)
+
+    // Data-level: the gate has a true case AND a false case to prove — the
+    // room's one resolved fixture is real, and so are its non-resolved
+    // siblings.
+    const rows = await room({ store: STORE_A })
+    expect(rows.threads.find((t) => t.status === 'resolved')?.id).toBe('inb-noshow')
+    expect(rows.threads.some((t) => t.status !== 'resolved')).toBe(true)
+  })
 })
 
 // ── 6. triage state: argued N/A, pinned ─────────────────────────────────────
@@ -602,6 +692,18 @@ describe('nothing in this room needs to survive a real navigation', () => {
       '配信失敗',
       '解決済み',
     ])
+  })
+
+  it('the screen has ONE filter home — matchesFilter, not an inline copy (FIX-2)', () => {
+    // The inline ternary is gone. A pin that only checked for the import would
+    // pass even with a live inline copy still running underneath it (the M10
+    // discipline), so this checks the CALL exists too, and the ternary does not.
+    expect(SRC_CODE).not.toMatch(/filter === 'open'\s*\?\s*t\.status/)
+    expect(SRC_CODE).toMatch(/import\s*\{[^}]*\bmatchesFilter\b[^}]*\}\s*from\s*'@\/business\/lib\/inbox'/)
+    expect(SRC_CODE).toContain('props.threads.filter((t) => matchesFilter(t, filter))')
+    // The tested function and the running one are the SAME module, so a test
+    // that mutates `matchesFilter` also proves the screen, not just the pin.
+    expect(LIB).toContain('export function matchesFilter(')
   })
 })
 

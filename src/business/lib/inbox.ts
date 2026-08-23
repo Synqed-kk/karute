@@ -204,7 +204,7 @@ export interface ThreadInput {
   minuteOf: (iso: string) => number
 }
 
-const DELIVERY_WORD: Record<NonNullable<FixtureThread['delivery_state']>, string> = {
+export const DELIVERY_WORD: Record<NonNullable<FixtureThread['delivery_state']>, string> = {
   sent: '送信済み',
   undelivered: '配信失敗',
   unsent: '未送信',
@@ -270,9 +270,20 @@ export function buildThreads(input: ThreadInput): ThreadModel[] {
         ? 'attention'
         : 'new'
 
+    // A resolved thread's deadline is history, not a live overrun — painting
+    // 超過 on a closed case would tell the operator to hurry on work that is
+    // already done. `overdue` above still drives the no-card status branch
+    // (a resolved thread only ever gets there via a decision, never this),
+    // so only the DISPLAY value is gated.
+    const displayOverdue = overdue && status !== 'resolved'
+
     // ── 配信状態 — the decision's `notification`, or the plane's own ──────
     const deliveryState = decision ? decision.notification : t.delivery_state
-    const deliveryDetail = decision ? decision.proofs.join(' / ') : t.delivery_detail
+    // A decision-backed thread carries NO delivery detail of its own (the
+    // plane law, fixtures-inbox.ts:14-17) — the card's proofs are 証跡's, where
+    // the SAME array already renders two rows below. Restating them here was a
+    // second home for the same rows (A8) that could disagree with itself.
+    const deliveryDetail = decision ? null : t.delivery_detail
     const deliveryLabel = deliveryState
       ? deliveryDetail
         ? `${DELIVERY_WORD[deliveryState]} / ${deliveryDetail}`
@@ -280,7 +291,7 @@ export function buildThreads(input: ThreadInput): ThreadModel[] {
       : '記録なし'
 
     // ── 証跡 ──────────────────────────────────────────────────────────────
-    const proofTitle = decision ? decision.proof_title : '出所を固定'
+    const proofTitle = decision ? decision.proof_title : '記録された根拠'
     const proofLines = decision
       ? decision.proofs
       : record
@@ -313,7 +324,7 @@ export function buildThreads(input: ThreadInput): ThreadModel[] {
       markTone: t.mark_tone,
       status,
       statusLabel: overdue && status === 'attention' ? '期限超過' : STATUS_LABEL[status],
-      overdue,
+      overdue: displayOverdue,
       customerId: customer.id,
       customerName: customer.name,
       memberNumber: customer.member_number,
@@ -322,7 +333,11 @@ export function buildThreads(input: ThreadInput): ThreadModel[] {
       receivedLabel: hhmm(t.received),
       receivedMinute: t.received,
       dueLabel:
-        dueMinute === null ? '期限なし' : overdue ? `${hhmm(dueMinute)}まで（超過）` : `${hhmm(dueMinute)}まで`,
+        dueMinute === null
+          ? '期限なし'
+          : displayOverdue
+            ? `${hhmm(dueMinute)}まで（超過）`
+            : `${hhmm(dueMinute)}まで`,
       dueMinute,
       source: t.source,
       proofTitle,
@@ -353,7 +368,11 @@ export function buildThreads(input: ThreadInput): ThreadModel[] {
   })
 }
 
-export function matchesFilter(t: ThreadModel, filter: ThreadFilter): boolean {
+/** Narrowed to the two fields the rule actually needs (the reservations
+ *  sibling's own pattern, `matchesFilters` in ./reservations) so the client
+ *  screen's own thinner thread props satisfy it too — one function, one home,
+ *  callable from both the tests and the render it was tested against. */
+export function matchesFilter(t: Pick<ThreadModel, 'status' | 'category'>, filter: ThreadFilter): boolean {
   if (filter === 'open') return t.status !== 'resolved'
   if (filter === 'resolved') return t.status === 'resolved'
   return t.category === filter
@@ -367,8 +386,9 @@ export interface InboxSummary {
   failures: number
 }
 
-/** The five figures the strip prints. 配信失敗 counts threads whose LATEST
- *  delivery attempt failed — the label's own meaning — rather than canon's
+/** The five figures the strip prints. 配信失敗 counts threads whose 配信状態 —
+ *  the decision card's own `notification` where one exists, this plane's own
+ *  `delivery_state` where none does — reads undelivered, rather than canon's
  *  「delivery カテゴリー かつ 要対応」, which double-counts the category chip and
  *  goes to zero the moment such a thread is answered while its message is still
  *  undelivered. One reading, one home. */

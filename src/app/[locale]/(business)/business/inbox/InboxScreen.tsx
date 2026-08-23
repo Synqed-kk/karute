@@ -18,19 +18,22 @@
 // 運営 / 顧客 / 予約一覧 all state BARE `.biz .<name>` rules on the exact names
 // canon's inbox uses (`.panel`, `.inspector`, `.summary`, `.filters`, `.fact`,
 // `.history`, `.empty`, `.toast`…). Fencing sixty shared names one property at
-// a time is a list that rots; not colliding at all cannot. The handful of names
-// that are genuinely the SHELL's (`btn`, `pill`) are kept and fenced in
-// inbox.css, which is a list of three.
+// a time is a list that rots; not colliding at all cannot. `btn` is genuinely
+// the SHELL's AND restated here, so it is fenced in inbox.css (page, h1, btn —
+// a list of three). `pill` is also the shell's, but this room never restates a
+// property on it — there is nothing here to fence, because there is nothing
+// here to collide.
 
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
-import type {
-  ChannelState,
-  InboxSummary,
-  ThreadCategory,
-  ThreadFilter,
-  ThreadHistoryRow,
-  ThreadStatus,
+import {
+  matchesFilter,
+  type ChannelState,
+  type InboxSummary,
+  type ThreadCategory,
+  type ThreadFilter,
+  type ThreadHistoryRow,
+  type ThreadStatus,
 } from '@/business/lib/inbox'
 
 /** THE ROUTE WRAPPER. Every rule in inbox.css is scoped under this class, so
@@ -99,13 +102,7 @@ export function InboxScreen(props: InboxProps) {
   const [filter, setFilter] = useState<ThreadFilter>('open')
   const [selected, setSelected] = useState<string | null>(null)
 
-  const visible = useMemo(
-    () =>
-      props.threads.filter((t) =>
-        filter === 'open' ? t.status !== 'resolved' : filter === 'resolved' ? t.status === 'resolved' : t.category === filter,
-      ),
-    [props.threads, filter],
-  )
+  const visible = useMemo(() => props.threads.filter((t) => matchesFilter(t, filter)), [props.threads, filter])
   // The open thread follows the list: a selection the current filter no longer
   // shows falls back to the first row rather than leaving the panel describing
   // something the reader cannot see (⚖ A10 — a surface lying about state).
@@ -281,8 +278,8 @@ export function InboxScreen(props: InboxProps) {
                   <span>この対応には記録された根拠がまだありません。</span>
                 ) : (
                   <ul>
-                    {current.proofLines.map((line) => (
-                      <li key={line}>{line}</li>
+                    {current.proofLines.map((line, i) => (
+                      <li key={i}>{line}</li>
                     ))}
                   </ul>
                 )}
@@ -305,8 +302,8 @@ export function InboxScreen(props: InboxProps) {
                 {current.history.length === 0 ? (
                   <p className="ib-none">この対応の操作履歴はまだ記録されていません。</p>
                 ) : (
-                  current.history.map((h) => (
-                    <div className="ib-history-row" key={`${h.time}-${h.what}`}>
+                  current.history.map((h, i) => (
+                    <div className="ib-history-row" key={i}>
                       <time>{h.time}</time>
                       <span>
                         <strong>{h.what}</strong>
@@ -317,49 +314,59 @@ export function InboxScreen(props: InboxProps) {
                 )}
               </div>
 
-              <div className="ib-actions">
-                <button
-                  className="btn"
-                  type="button"
-                  aria-disabled="true"
-                  title={current.primaryRefusal}
-                  aria-describedby={`ibRefusal-${current.id}`}
-                >
-                  {current.primaryLabel}
-                </button>
-                <button
-                  className="btn"
-                  type="button"
-                  aria-disabled="true"
-                  title={current.resolveRefusal}
-                  aria-describedby={`ibResolve-${current.id}`}
-                >
-                  {current.resolveLabel}
-                </button>
-                {current.bookingHref ? (
-                  <Link className="btn ib-wide" href={current.bookingHref}>
-                    予約一覧で事実を確認
-                  </Link>
-                ) : (
-                  <button
-                    className="btn ib-wide"
-                    type="button"
-                    aria-disabled="true"
-                    title="この空き待ちにはまだ予約がないため、予約一覧では確認できません。"
-                  >
-                    予約一覧で事実を確認
-                  </button>
-                )}
-              </div>
-              {/* THE REFUSALS. They change nothing, they are on screen before
-                  anyone reaches for the control, and they stay there — no toast,
-                  no flash, nothing to outrun (⚖ 47). */}
-              <p className="ib-refusal" id={`ibRefusal-${current.id}`}>
-                {current.primaryRefusal}
-              </p>
-              <p className="ib-refusal" id={`ibResolve-${current.id}`}>
-                {current.resolveRefusal}
-              </p>
+              {/* A resolved thread's 次の対応 fact above already states the
+                  outcome — 返信する behind an empty draft, or 今回は請求しない
+                  on a closed case, are levers naming work the record says is
+                  done. Omission over a disabled pair is the smaller honest
+                  surface here (⚖ overturnable). The panel is ONE branch, not
+                  per-button, so there is one rule to read, not three. */}
+              {current.status !== 'resolved' && (
+                <>
+                  <div className="ib-actions">
+                    <button
+                      className="btn"
+                      type="button"
+                      aria-disabled="true"
+                      title={current.primaryRefusal}
+                      aria-describedby={`ibRefusal-${current.id}`}
+                    >
+                      {current.primaryLabel}
+                    </button>
+                    <button
+                      className="btn"
+                      type="button"
+                      aria-disabled="true"
+                      title={current.resolveRefusal}
+                      aria-describedby={`ibResolve-${current.id}`}
+                    >
+                      {current.resolveLabel}
+                    </button>
+                    {current.bookingHref ? (
+                      <Link className="btn ib-wide" href={current.bookingHref}>
+                        予約一覧で事実を確認
+                      </Link>
+                    ) : (
+                      <button
+                        className="btn ib-wide"
+                        type="button"
+                        aria-disabled="true"
+                        title="この空き待ちにはまだ予約がないため、予約一覧では確認できません。"
+                      >
+                        予約一覧で事実を確認
+                      </button>
+                    )}
+                  </div>
+                  {/* THE REFUSALS. They change nothing, they are on screen before
+                      anyone reaches for the control, and they stay there — no toast,
+                      no flash, nothing to outrun (⚖ 47). */}
+                  <p className="ib-refusal" id={`ibRefusal-${current.id}`}>
+                    {current.primaryRefusal}
+                  </p>
+                  <p className="ib-refusal" id={`ibResolve-${current.id}`}>
+                    {current.resolveRefusal}
+                  </p>
+                </>
+              )}
             </div>
           </aside>
         )}

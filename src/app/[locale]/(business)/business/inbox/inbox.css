@@ -173,9 +173,11 @@
 .biz .pg-inbox .ib-refusal { margin: 8px 0 0; color: var(--ink-3); font-size: 12px; line-height: 1.55; }
 
 /* ── responsive ───────────────────────────────────────────────────────────── */
-/* Canon's own breakpoint, and the shell's 1180px floor is what the grid is
-   sized against: 1180 − 76 rail − 56 padding leaves 1048, and 560 + 368 + 14
-   is 942. */
+/* Canon's own breakpoint, and the shell's 1180px floor is what the media query
+   below is sized against — its OWN narrowed numbers, not the base sheet's:
+   1180 − 76 rail − 40 padding (this breakpoint's own, not the base 56) leaves
+   1064, and 520 + 340 + 10 (this breakpoint's own workspace minimum, not the
+   base 560/368/14) is 870. */
 @media (max-width: 1320px) {
   .biz .page.pg-inbox { padding-left: 20px; padding-right: 20px; }
   .biz .pg-inbox .ib-workspace { grid-template-columns: minmax(520px, 1fr) 340px; gap: 10px; }
