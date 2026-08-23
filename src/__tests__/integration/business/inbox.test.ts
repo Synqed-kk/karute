@@ -941,8 +941,12 @@ describe('the sheet cannot reach another room, and no other room can reach it', 
     // navigation, so a bare `.biz .<name>` rule next door keeps styling this
     // room. The list below is DERIVED: every selector in every sibling route
     // sheet whose class names are ALL names this room renders. It comes out at
-    // four shapes because every element this room owns carries an `ib-` name
-    // that exists nowhere else in the family — a fence that cannot rot.
+    // three shapes (down from five — the route-CSS collision sweep, main
+    // bc074069, scoped every sibling's own `.page`/`.page h1` under its own
+    // `.page-<room>` compound class, so those two stopped colliding; `btn`'s
+    // shapes are untouched) because every element this room owns carries an
+    // `ib-` name that exists nowhere else in the family — a fence that cannot
+    // rot as the neighbours change shape underneath it.
     const styled = new Set<string>(['pill', 'indigo', 'alert', 'warn', 'good'])
     for (const sel of selectorsOf(CSS)) {
       if (!sel.includes('pg-inbox')) continue
@@ -963,13 +967,7 @@ describe('the sheet cannot reach another room, and no other room can reach it', 
         if (names.length && names.every((n) => styled.has(n))) reachable.add(sel)
       }
     }
-    expect([...reachable].sort()).toEqual([
-      '.biz .btn',
-      '.biz .btn.primary',
-      '.biz .page',
-      '.biz .page .btn',
-      '.biz .page h1',
-    ])
+    expect([...reachable].sort()).toEqual(['.biz .btn', '.biz .btn.primary', '.biz .page .btn'])
     // …and every one of them is answered at FOUR levels, which beats a
     // sibling's three and removes the insertion-order coin flip.
     for (const fence of [
@@ -1014,9 +1012,13 @@ describe('the sheet cannot reach another room, and no other room can reach it', 
       const body = CSS.slice(at + fence.length, CSS.indexOf('}', at))
       return new Set([...body.matchAll(/([a-z-]+)\s*:/g)].map((m) => m[1]))
     }
+    // `.page` / `.page h1` dropped out (main bc074069's route-CSS collision
+    // sweep scoped every sibling's own bare rule under its own `.page-<room>`
+    // compound class) — a pair with nothing declared would be vacuous, and
+    // the assertion below insists every pair here has something real to
+    // fence. `.page.pg-inbox`/`.page.pg-inbox h1` stay in inbox.css as this
+    // room's own styling; they just answer no sibling collision any more.
     const pairs: Array<[string, string]> = [
-      ['.page', '.biz .page.pg-inbox {'],
-      ['.page h1', '.biz .page.pg-inbox h1 {'],
       ['.page .btn', '.biz .page.pg-inbox .btn {'],
       ['.btn', '.biz .page.pg-inbox .btn {'],
       ['.btn.primary', '.biz .page.pg-inbox .btn.primary {'],

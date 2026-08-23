@@ -21,10 +21,14 @@
    THE FENCE HERE IS STRUCTURAL RATHER THAN ENUMERATED: every element this room
    owns carries an `ib-` name that exists nowhere else in the family, so there
    is no rule to collide with — a fence that cannot rot as the neighbours grow.
-   The fenced list is `page` / `h1` / `btn` — genuinely the SHELL's AND
-   restated here — fenced below at four levels. `pill` is also the shell's,
-   but this sheet never restates a property on it, so there is nothing to
-   fence: nothing here to collide.
+   `page` / `h1` / `btn` are the shell's and restated here at four levels, but
+   only `btn` (plus its `.page .btn` descendant shape, customers.css:23) is a
+   LIVE collision today — the route-CSS collision sweep (main, bc074069)
+   scoped every sibling's own `.page`/`.page h1` under its own `.page-<room>`
+   compound class, so this room's `.page.pg-inbox`/`.page.pg-inbox h1` rules
+   are its own styling now, not insurance against a bare sibling rule that no
+   longer exists. `pill` is also the shell's, but this sheet never restates a
+   property on it, so there is nothing to fence: nothing here to collide.
    `src/__tests__/integration/business/inbox.test.ts` derives the list from the
    sibling sheets and this screen's own markup and fails if a neighbour ever
    states a bare rule on a name this room renders. */
