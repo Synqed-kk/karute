@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { useDebouncedCallback } from 'use-debounce'
@@ -16,10 +16,24 @@ export function CustomerSearchInput({ initialQuery }: CustomerSearchInputProps) 
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [value, setValue] = useState(initialQuery)
+  // The value this box last wrote to the URL. When initialQuery changes to
+  // exactly that, it's our own debounced replace echoing back — keep local
+  // state and focus. Anything else is external navigation (back/forward,
+  // deep link) → re-seed so the box never shows a term the list isn't
+  // filtered by.
+  const lastWritten = useRef(initialQuery)
+  useEffect(() => {
+    if (initialQuery !== lastWritten.current) {
+      lastWritten.current = initialQuery
+      setValue(initialQuery)
+    }
+  }, [initialQuery])
 
   const apply = useDebouncedCallback((v: string) => {
+    const q = v.trim()
+    lastWritten.current = q
     const params = new URLSearchParams(searchParams.toString())
-    if (v.trim()) params.set('query', v.trim())
+    if (q) params.set('query', q)
     else params.delete('query')
     params.delete('page')
     const next = params.toString()
