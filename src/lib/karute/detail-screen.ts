@@ -111,7 +111,7 @@ export function buildKaruteDetailScreen(
   } = args
 
   const customerId = karute.client_id ?? null
-  const header = karuteToHeader(karute)
+  const header = karuteToHeader(karute, locale)
   const sessionEntries = karuteEntriesToSessionEntries(karute)
   const summaryBullets = karuteSummaryToBullets(karute)
   const transcript = karute.transcript ?? null
