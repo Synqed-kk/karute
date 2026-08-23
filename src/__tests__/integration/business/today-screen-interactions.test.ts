@@ -5852,6 +5852,44 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     expect(nearestFreeStarts(960, 30, HOURS, 60, () => true)).toEqual([930, 990])
   })
 
+  it('⚖ A2-N1/N2 — the SAME guard on both siblings that read the same dial', () => {
+    // AMENDMENT 2. The verify lens found F8's class in two more functions on the
+    // same `bookingStepMin` dial, so the insurance goes at the shared functions
+    // rather than at one caller — the rule this lane keeps reaching for.
+
+    // N1 — `offerableCell`. Not a hang: `s % 0` is NaN, so the off-lattice branch
+    // is taken and `Math.floor(s / 0) * 0` is NaN too. Every candidate is
+    // garbage, and the caller's gate gets asked about starts that do not exist.
+    const cell = { ...cellOf('degraded', 'x'), alternatives: [690, 750], alternativeKind: 'least-loss' as const }
+    expect(offerableCell(cell, 0, 780, () => true)!.alternatives).toEqual([])
+    expect(offerableCell(cell, -30, 780, () => true)!.alternatives).toEqual([])
+    // The cell itself still comes back — only the offers are withheld, so the
+    // sentence and the state the surface reads are untouched.
+    expect(offerableCell(cell, 0, 780, () => true)!.sentence).toBe('x')
+    expect(INT).toContain('if (stepMin <= 0) return { ...cell, alternatives: [] }')
+    // A sane dial is untouched (the ⚖ 58 rider's own behaviour).
+    expect(offerableCell(cell, 30, 780, () => true)!.alternatives).toEqual([690, 750])
+
+    // N2 — `guardRailsFor`. Here it IS a true hang: the cell walk is
+    // `start += input.stepMin`, so a zero step never reaches `close`. Safe today
+    // only because both call sites hardcode canon's 30 — which is exactly the
+    // kind of safe-by-accident a settings dial stops being.
+    const rin = (stepMin: number) => ({
+      open: HOURS.open, close: HOURS.close, stepMin, dur: 60, protectedDur: 90,
+      nowMinute: null, locked: [] as string[], excludeId: null,
+      guard: {
+        services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
+        newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0, mode: 'standard' as const,
+      },
+    })
+    const lanes = board({ staff: { window: { from: 600, until: 1140 }, untilLabel: '19:00' } })
+    expect(guardRailsFor(lanes, rin(0))).toEqual([])
+    expect(guardRailsFor(lanes, rin(-30))).toEqual([])
+    expect(INT).toContain('if (input.stepMin <= 0) return []')
+    // …and canon's own 30 still draws a full rail.
+    expect(guardRailsFor(lanes, rin(30))[0].cells.length).toBe((HOURS.close - HOURS.open) / 30)
+  })
+
   it('⚖ A1-8 — park → place-back lands in the ALLOCATOR’s room, not the old one', () => {
     // LENS-3 F1, the highest of that lens. `placeFromShelf` wrote `moves` and
     // never `bedMoves`, so the stale entry `restoreSides` wrote at park time

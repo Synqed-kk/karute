@@ -839,6 +839,12 @@ export interface RailInput {
  *  minus the DOM. Every exact 30-minute start on the board, judged by the
  *  guard engine against the pocket it would land in. */
 export function guardRailsFor(lanes: BoardLane[], input: RailInput): GuardRail[] {
+  // ⚖ AMENDMENT 2, N2 — the same insurance, and here it is a TRUE hang: the cell
+  // walk below is `start += input.stepMin`, so a zero step never reaches
+  // `input.close` and takes the render thread with it. Unreachable today only
+  // because both call sites hardcode canon's 30 — which is exactly the kind of
+  // "safe by accident" a settings dial stops being. No step, no rails.
+  if (input.stepMin <= 0) return []
   const engine = createGapGuard(input.guard)
   const rails: GuardRail[] = []
   for (const lane of lanes) {
@@ -966,6 +972,14 @@ export function offerableCell(
   ok: (start: number) => boolean,
 ): RailCell | null {
   if (!cell || cell.alternatives.length === 0) return cell
+  // ⚖ AMENDMENT 2, N1 — THE SAME FOOT-GUN AS `nearestFreeStarts`, on the same
+  // dial. `bookingStepMin` is heading for operator control (⚠SETTINGS-BATCH), and
+  // a zero step makes the snap below arithmetic nonsense: `s % 0` is NaN, so the
+  // off-lattice branch is taken and `Math.floor(s / 0) * 0` is NaN too — every
+  // candidate is garbage and the gate is asked about starts that do not exist.
+  // No lattice means nothing this function can honestly offer, so it offers
+  // nothing rather than something meaningless.
+  if (stepMin <= 0) return { ...cell, alternatives: [] }
   const out: number[] = []
   for (const s of cell.alternatives) {
     const candidates = s % stepMin === 0 ? [s] : [Math.floor(s / stepMin) * stepMin, Math.ceil(s / stepMin) * stepMin]
