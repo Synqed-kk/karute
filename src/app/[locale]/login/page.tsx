@@ -9,10 +9,15 @@ export default async function LoginPage({
   searchParams,
 }: {
   params: Promise<{ locale: string }>
-  searchParams: Promise<{ error?: string }>
+  // GREPTILE #754 P1 — the honest shape: a repeated query key (`?next=a&next=b`)
+  // arrives as an array, and typing it as a bare string only hid that from the
+  // compiler. `next` is handed on unread, and `error` is compared, never called.
+  searchParams: Promise<{ error?: string | string[]; next?: string | string[] }>
 }) {
   const { locale } = await params
-  const { error } = await searchParams
+  // ⚖ Liam flag 70 — forwarded raw; `LoginForm` owns the gate (one home for
+  // the rule, and the component stays safe whoever renders it).
+  const { error, next } = await searchParams
   const t = await getTranslations('auth')
   return (
     <NextIntlClientProvider
@@ -30,7 +35,7 @@ export default async function LoginPage({
           {error === 'confirm' && (
             <p role="alert" className="text-sm text-red-400">{t('confirmError')}</p>
           )}
-          <LoginForm locale={locale} />
+          <LoginForm locale={locale} next={next} />
         </div>
       </div>
     </NextIntlClientProvider>

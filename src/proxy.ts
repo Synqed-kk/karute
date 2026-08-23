@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import createMiddleware from 'next-intl/middleware'
 import { routing } from './i18n/routing'
+import { safeNext } from './lib/auth/safe-next'
 
 const intlMiddleware = createMiddleware(routing)
 
@@ -52,8 +53,15 @@ export async function proxy(request: NextRequest) {
 
   if (!data?.claims && !isPublic) {
     const url = request.nextUrl.clone()
+    // ⚖ Liam flag 70 (2026-08-22) — CARRY WHERE THEY WERE GOING. Every preview
+    // alias is its own origin, so a link into one always lands on a fresh
+    // login; this used to throw the destination away and the login page had
+    // nothing to honour, so a Business link put the operator on the Karute
+    // dashboard. The intended path rides along and the login honours it once.
+    const next = `${request.nextUrl.pathname}${request.nextUrl.search}`
     url.pathname = `/${locale}/login`
     url.search = ''
+    if (safeNext(next)) url.searchParams.set('next', next)
     return NextResponse.redirect(url)
   }
 
