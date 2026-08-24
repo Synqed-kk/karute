@@ -43,6 +43,7 @@ import {
   fitsDrag,
   fractionIn,
   allocateBed,
+  bedFeasibility,
   gapLayerFor,
   guardRailsFor,
   guardVerdictAt,
@@ -973,6 +974,200 @@ describe('the window layers price the committed board, never the card in flight'
     const after = gapLayerFor(applyMoves(lanes, inFlight, [], [], HOURS), gapOpts)
     expect(before.scraps).toEqual([])
     expect(after.scraps.filter((c) => c.group === 'staff').map((c) => [c.s, c.e])).toEqual([[965, 1020]])
+  })
+})
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * ⚖ LIAM flag 76 (2026-08-23) — THE 60分配置 RAIL IS BED-AWARE.
+ *
+ * His scene: the strip painted ✓14:30 and the drop at 14:30 refused 満室 — all
+ * three rooms busy (さくら / 清掃 / なぎ+清掃). Flag 54 had already fixed the
+ * MID-DRAG face by composing the cell with `landingVerdict`; at rest there is
+ * nothing in hand, the cell's own state paints, and the guard had never been
+ * told the rooms exist. Canon does tell it: `ctxFor(day, lane).placementFeasible`
+ * (fable-store-today.html :7278-7285) and the rail runs the same evaluator
+ * (`railAimFor` = `evaluateExactAim`, :7365).
+ *
+ * Every pin below drives the REAL `bedFeasibility` + `guardRailsFor` on a real
+ * board. The order canon states is pinned too: staff pocket first, rooms second.
+ * ──────────────────────────────────────────────────────────────────────────── */
+describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const GUARD = {
+    services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
+    newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
+    mode: 'standard' as const,
+  }
+  /** The rail exactly as the screen asks it, with the rooms plugged in — or not,
+   *  which is the pre-fix board and the way every other suite still calls it. */
+  const railIn = (lanes: BoardLane[] | null, over: Partial<Parameters<typeof guardRailsFor>[1]> = {}) => ({
+    open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
+    nowMinute: null, locked: [], guard: GUARD, ...over,
+    placementFeasible: lanes ? bedFeasibility(lanes, over.excludeId ?? null, POLICY) : undefined,
+  })
+  const cellAt = (lanes: BoardLane[], minute: number, over: Partial<Parameters<typeof guardRailsFor>[1]> = {}) =>
+    guardRailsFor(lanes, railIn(lanes, over))[0].cells.find((c) => c.start === minute)!
+  const cellAtBlind = (lanes: BoardLane[], minute: number, over: Partial<Parameters<typeof guardRailsFor>[1]> = {}) =>
+    guardRailsFor(lanes, railIn(null, over))[0].cells.find((c) => c.start === minute)!
+  /** 見本 あずさ, 10:00–12:30 free — a pocket a 60 fits without costing a 新規 90,
+   *  so the guard alone is honestly ✓ at 10:00. That ✓ is the lie under test. */
+  const staff = (over: Partial<BoardLane> = {}) =>
+    lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'], window: { from: 600, until: 750 }, untilLabel: '12:30', ...over })
+  const bed = (key: string, items: BoardItem[] = [], over: Partial<BoardLane> = {}) =>
+    lane({ key, group: 'beds', label: key, items, ...over })
+
+  // ── P1 ───────────────────────────────────────────────────────────────────
+  it('P1 — staff free, EVERY room busy over the span: the cell is —, not ✓', () => {
+    const rooms = [
+      bed('bed-01', [booking({ key: 'b1', caseId: 'x1', title: '見本 さくら' }, 600, 660)]),
+      bed('bed-02', [booking({ key: 'b2', caseId: 'x2', title: '見本 なぎ' }, 600, 660)]),
+    ]
+    const board = [staff(), ...rooms]
+    // The board he saw: the guard, asked without the rooms, says ✓10:00.
+    expect(cellAtBlind(board, 600).state).toBe('safe')
+    expect(cellAtBlind(board, 600).label).toBe('✓10:00')
+    // The board canon draws.
+    const c = cellAt(board, 600)
+    expect(c.state).toBe('blocked')
+    expect(c.label).toBe('—')
+    expect(c.sentence).toBe('この開始ではベッドを60分確保できません')
+    // canon :7330-7334 — a hard resource block is NEVER an override.
+    expect(c.ackAllowed).toBe(false)
+  })
+
+  // ── P2 ───────────────────────────────────────────────────────────────────
+  it('P2 — one room frees and the ✓ comes back', () => {
+    const board = [
+      staff(),
+      bed('bed-01', [booking({ key: 'b1', caseId: 'x1' }, 600, 660)]),
+      bed('bed-02'),
+    ]
+    const c = cellAt(board, 600)
+    expect(c.state).toBe('safe')
+    expect(c.label).toBe('✓10:00')
+  })
+
+  // ── P3 ───────────────────────────────────────────────────────────────────
+  it('P3 — a room busy only in the TAIL of the span still blocks it', () => {
+    // 10:30–11:00 busy: free at the start instant, not free for the 60 minutes.
+    const board = [
+      staff(),
+      bed('bed-01', [booking({ key: 'b1', caseId: 'x1' }, 630, 660)]),
+      bed('bed-02', [booking({ key: 'b2', caseId: 'x2' }, 630, 660)]),
+    ]
+    expect(cellAtBlind(board, 600).state).toBe('safe')
+    expect(cellAt(board, 600).state).toBe('blocked')
+    expect(cellAt(board, 600).sentence).toBe('この開始ではベッドを60分確保できません')
+    // Whole-span freeness, read the same way `trackFree` reads it: a span that
+    // ENDS where the booking begins never overlapped it, and one that clears the
+    // busy tail is feasible again. (Both starts are outside the shift, so the
+    // predicate is asked directly — the guard has its own answer for those.)
+    const feasible = bedFeasibility(board, null, POLICY)!
+    expect(feasible(board[0], 600, 60)).toBe(false)
+    expect(feasible(board[0], 570, 60)).toBe(true)
+    expect(feasible(board[0], 660, 60)).toBe(true)
+  })
+
+  // ── P4 ───────────────────────────────────────────────────────────────────
+  it('P4 — a store with no rooms configured is unchanged, cell for cell', () => {
+    // canon's own `SCENARIO.needsBed === false` switch (:7261). A store that has
+    // configured no resources is not a store that cannot sell.
+    const board = [staff()]
+    expect(bedFeasibility(board, null, POLICY)).toBeUndefined()
+    expect(guardRailsFor(board, railIn(board))).toEqual(guardRailsFor(board, railIn(null)))
+  })
+
+  // ── P5 ───────────────────────────────────────────────────────────────────
+  it('P5 — the card in hand and its OWN 清掃 travel with it; another booking’s does not', () => {
+    // The pocket is exactly the span, so the guard alone is ✓ either way and the
+    // only thing that can change the answer is the room.
+    const held = staff({ window: { from: 630, until: 690 }, untilLabel: '11:30' })
+    const own = [
+      held,
+      bed('bed-01', [
+        booking({ key: 'apt-1-bed', caseId: 'apt-1' }, 570, 630),
+        // `${id}-cleanup` — the linkage `today-board.cleanupBlocks` (:103) mints
+        // and `withTrailingCleanup` re-derives; it carries caseId: null (:554),
+        // so the KEY is the only thread back to its booking.
+        { ...booking({ key: 'apt-1-cleanup', caseId: null }, 630, 645), kind: 'cleanup' as const, title: '清掃' },
+      ]),
+    ]
+    expect(cellAtBlind(own, 630, { excludeId: 'apt-1' }).state).toBe('safe')
+    expect(cellAt(own, 630, { excludeId: 'apt-1' }).state).toBe('safe')
+    // The SAME turnaround belonging to someone else is a real blocker.
+    const foreign = [
+      held,
+      bed('bed-01', [
+        booking({ key: 'apt-1-bed', caseId: 'apt-1' }, 570, 630),
+        { ...booking({ key: 'x9-cleanup', caseId: null }, 630, 645), kind: 'cleanup' as const, title: '清掃' },
+      ]),
+    ]
+    const c = cellAt(foreign, 630, { excludeId: 'apt-1' })
+    expect(c.state).toBe('blocked')
+    expect(c.sentence).toBe('この開始ではベッドを60分確保できません')
+  })
+
+  // ── P6 ───────────────────────────────────────────────────────────────────
+  it('P6 — every alternative the rail offers is one a room can actually take', () => {
+    // (a) the no-pocket-at-this-start branch (⚖ 62): the offers come from
+    // `safeStarts`, which canon hands the SAME ctx (:7296-7301).
+    const long = staff({ window: { from: 600, until: 840 }, untilLabel: '14:00' })
+    const busyUntilNoon = [
+      long,
+      bed('bed-01', [booking({ key: 'b1', caseId: 'x1' }, 600, 720)]),
+      bed('bed-02', [booking({ key: 'b2', caseId: 'x2' }, 600, 720)]),
+    ]
+    const blind = cellAtBlind(busyUntilNoon, 810)
+    expect(blind.alternatives.some((s) => s < 720)).toBe(true)
+    const offered = cellAt(busyUntilNoon, 810)
+    expect(offered.sentence).toBe('この開始には60分の連続した空きがありません')
+    expect(offered.alternatives.length).toBeGreaterThan(0)
+    expect(offered.alternatives.every((s) => s >= 720)).toBe(true)
+    // (b) the R-UNAVAILABLE branch: the engine's own pool, already narrowed.
+    const rooms = [
+      staff(),
+      bed('bed-01', [booking({ key: 'b1', caseId: 'x1' }, 600, 660)]),
+      bed('bed-02', [booking({ key: 'b2', caseId: 'x2' }, 600, 660)]),
+    ]
+    const feasible = bedFeasibility(rooms, null, POLICY)!
+    const c = cellAt(rooms, 600)
+    expect(c.alternatives.length).toBeGreaterThan(0)
+    for (const s of c.alternatives) expect(feasible(rooms[0], s, 60)).toBe(true)
+  })
+
+  // ── P7 ───────────────────────────────────────────────────────────────────
+  it('P7 — a room in ANOTHER store never makes a start feasible (⚖ 46 isolation)', () => {
+    const otherStore = [
+      staff(),
+      bed('bed-01', [booking({ key: 'b1', caseId: 'x1' }, 600, 660)]),
+      bed('bed-b1', [], { stores: ['store-b'] }),
+    ]
+    expect(cellAt(otherStore, 600).state).toBe('blocked')
+    expect(cellAt(otherStore, 600).sentence).toBe('この開始ではベッドを60分確保できません')
+    // The identical board with that room in the person's OWN store: ✓.
+    const sameStoreBoard = [
+      staff(),
+      bed('bed-01', [booking({ key: 'b1', caseId: 'x1' }, 600, 660)]),
+      bed('bed-b1', [], { stores: ['store-a'] }),
+    ]
+    expect(cellAt(sameStoreBoard, 600).state).toBe('safe')
+  })
+
+  // ── the ORDER canon states, and the screen's own wiring ───────────────────
+  it('the staff pocket is asked FIRST — a start with no pocket keeps its own sentence', () => {
+    // canon `evaluateExactAim` :7322-7326 then :7332. Beds are busy too, and the
+    // operator is still told the thing that is actually in the way.
+    const noPocket = [
+      staff({ window: { from: 600, until: 640 } }),
+      bed('bed-01', [booking({ key: 'b1', caseId: 'x1' }, 600, 660)]),
+    ]
+    expect(cellAt(noPocket, 600).sentence).toBe('この開始には60分の連続した空きがありません')
+  })
+
+  it('the screen hands the rooms to BOTH guard doors', () => {
+    expect(SRC).toContain('bedFeasibility(lanes, excludeId, props.rooms)')
+    expect(SRC).toContain('placementFeasible: bedFeasibleFor(live?.id ?? pending?.id ?? null),')
+    expect(SRC).toContain('placementFeasible: bedFeasibleFor(excludeId, lanes),')
   })
 })
 
