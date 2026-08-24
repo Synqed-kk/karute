@@ -169,6 +169,27 @@ describe('GET /api/app/v1/karute/window', () => {
     },
   )
 
+  // Greptile PR #779 P1: these are regex-VALID and calendar-IMPOSSIBLE. The
+  // shape-only schema forwarded them into date arithmetic, where JS Date
+  // mishandles them two different ways — 2026-02-30 rolls over to 2026-03-02
+  // (a window nobody asked for, reported back as the boundary) and 2026-13
+  // becomes an Invalid Date that throws inside the walk and lands in the
+  // upstream catch as a 502. Both must be the SAME 400 as a malformed shape.
+  it.each(['?month=2026-13', '?month=2026-00', '?olderThan=2026-02-30', '?olderThan=2026-13-01'])(
+    'calendar-impossible %s → 400, never a rolled-over window or a 502',
+    async (qs) => {
+      const res = await GET(req(qs), route)
+      expect(res.status).toBe(400)
+      expect(karuteRecordsList).not.toHaveBeenCalled()
+    },
+  )
+
+  it('a REAL leap date is accepted — the validator rejects impossible days, not unusual ones', async () => {
+    const res = await GET(req('?olderThan=2028-02-29'), route)
+    expect(res.status).toBe(200)
+    expect(karuteRecordsList).toHaveBeenCalled()
+  })
+
   it('an upstream failure is a 502, never an empty-but-200 chunk', async () => {
     karuteRecordsList.mockRejectedValue(new Error('core down'))
     const res = await GET(req(), route)

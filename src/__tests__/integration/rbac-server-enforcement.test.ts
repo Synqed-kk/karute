@@ -153,6 +153,7 @@ import {
   saveKaruteRecordInline,
   deleteKaruteRecord,
   createManualKaruteRecord,
+  loadKaruteWindow,
 } from '@/actions/karute'
 import {
   regenerateKaruteEntries,
@@ -395,5 +396,33 @@ describe('RBAC — bookings.manage actions', () => {
     const result = await deleteAppointment('appt-1')
     expect(result).toEqual({ success: true })
     expect(appointments.delete).toHaveBeenCalledWith('appt-1')
+  })
+})
+
+// Not an RBAC gate — parked in THIS suite because it is the one harness that
+// already boots the real @/actions/karute module (a second 60-line mock header
+// duplicating it would be worse than the topical stretch). The capability gate
+// stays granted throughout, so the ONLY thing that can refuse here is the
+// calendar check itself.
+describe('loadKaruteWindow refuses calendar-impossible input (Greptile PR #779 P1)', () => {
+  it('a rolled-over day returns { error }, never a window nobody asked for', async () => {
+    // 2026-02-30 does NOT throw in JS — `new Date` slides it to 2026-03-02, so
+    // an unvalidated walk would happily read the wrong window and report that
+    // boundary back as if the caller had asked for it.
+    const result = await loadKaruteWindow({ olderThan: '2026-02-30' })
+    expect(result).toEqual({ error: 'olderThan must be a real calendar date (YYYY-MM-DD)' })
+    expect(requireCapability).toHaveBeenCalledWith('customers.view')
+  })
+
+  it('an impossible month returns { error }, never an Invalid Date thrown out of the walk', async () => {
+    const result = await loadKaruteWindow({ month: '2026-13' })
+    expect(result).toEqual({ error: 'month must be a real calendar month (YYYY-MM)' })
+  })
+
+  it('a REAL leap date passes the gate and reaches the read', async () => {
+    const result = await loadKaruteWindow({ olderThan: '2028-02-29' })
+    expect(result).not.toEqual(
+      expect.objectContaining({ error: expect.stringContaining('real calendar') }),
+    )
   })
 })

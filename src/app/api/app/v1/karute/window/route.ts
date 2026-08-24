@@ -18,7 +18,11 @@ import { storeStaffIdSetForBusiness } from '@/lib/auth/store-scope'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { listAllCustomers } from '@/lib/customers/list-all'
-import { loadKaruteWindowRows } from '@/lib/karute/karute-window'
+import {
+  isValidKaruteMonth,
+  isValidKaruteYmd,
+  loadKaruteWindowRows,
+} from '@/lib/karute/karute-window'
 import { buildSessionsListScreen } from '@/lib/karute/screen-rows'
 
 export const runtime = 'nodejs'
@@ -35,8 +39,13 @@ export const runtime = 'nodejs'
  *  epoch sweep skipped for themselves); it can never widen the lens or reach
  *  another viewer's history. */
 const QuerySchema = z.object({
-  olderThan: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  // Real-calendar check, not a shape regex (Greptile PR #779 P1): the regex
+  // alone let `2026-02-30` through to roll over into a different window, and
+  // `2026-13` through to throw an Invalid Date deep in the walk — surfacing as
+  // a 502 instead of the 400 this contract promises. The validators fold the
+  // shape check in, so this refine is the whole gate.
+  olderThan: z.string().refine(isValidKaruteYmd).optional(),
+  month: z.string().refine(isValidKaruteMonth).optional(),
   loadedCount: z.coerce.number().int().min(0).optional(),
 })
 
@@ -52,7 +61,7 @@ export const GET = facadeHandler('karute.window', async (ctx) => {
   if (!parsed.success) {
     throw new AppApiError(
       'validation',
-      'olderThan must be YYYY-MM-DD, month YYYY-MM, loadedCount a non-negative integer',
+      'olderThan must be a real calendar date (YYYY-MM-DD), month a real calendar month (YYYY-MM), loadedCount a non-negative integer',
     )
   }
 

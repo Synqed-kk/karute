@@ -6,7 +6,11 @@ import { getLocale } from 'next-intl/server'
 import { getCurrentUserStaffId, getBusinessId, getStaffList, staffListByBusinessOrThrow, type StaffMember } from '@/lib/staff'
 import { listAllCustomersCached } from '@/lib/customers/list-all'
 import { buildSessionsListScreen } from '@/lib/karute/screen-rows'
-import { loadKaruteWindowRows } from '@/lib/karute/karute-window'
+import {
+  isValidKaruteMonth,
+  isValidKaruteYmd,
+  loadKaruteWindowRows,
+} from '@/lib/karute/karute-window'
 import type { KaruteListItem } from '@/components/karute/spike-lifted/list/types'
 import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
@@ -1530,6 +1534,19 @@ export async function loadKaruteWindow(input: {
 }): Promise<KaruteWindowPage | { error: string }> {
   try {
     await requireCapability('customers.view')
+
+    // LENS PARITY with the facade route's QuerySchema (Greptile PR #779 P1): a
+    // server action is callable with arbitrary input too, so an impossible
+    // calendar value is refused HERE as well rather than rolling over into a
+    // window the caller never asked for (`2026-02-30` → 2026-03-02) or
+    // throwing an Invalid Date out of the walk. Same ONE pair of validators
+    // both surfaces use, so the two can never drift.
+    if (input.olderThan !== undefined && !isValidKaruteYmd(input.olderThan)) {
+      return { error: 'olderThan must be a real calendar date (YYYY-MM-DD)' }
+    }
+    if (input.month !== undefined && !isValidKaruteMonth(input.month)) {
+      return { error: 'month must be a real calendar month (YYYY-MM)' }
+    }
 
     const [synqed, scope, businessId] = await Promise.all([
       getSynqedClient(),

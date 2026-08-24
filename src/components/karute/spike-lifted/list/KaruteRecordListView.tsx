@@ -216,9 +216,46 @@ export function KaruteRecordListView({
   const hasMore =
     storeTotal !== null ? karuteHasMore(loadedCount, storeTotal) : serverHasMore
 
-  // Keep the derived total honest when the server re-renders (QuietRefresh).
+  // Keep the derived total honest when the server re-renders (QuietRefresh) —
+  // and RECONCILE rows that left the store (Greptile PR #779 P1).
+  //
+  // `appended` is a client-held cache of the older chunks; a healthy refresh
+  // only ever replaces `items` (the newest window), so a record DELETED
+  // server-side lingers as a ghost row AND keeps inflating loadedCount — which
+  // can flip hasMore false and hide さらに表示 while real history is still
+  // unloaded. A `total` that came back LOWER than the one we hold is the
+  // precise signal that something left the store: drop the cache, rewind the
+  // boundary to the server's fresh first window, and re-seed the ?since
+  // restore walk so it quietly rebuilds to the remembered depth with fresh
+  // data. Rewinding `windowStart` is load-bearing — without it the restore
+  // effect sees the boundary already at/past its target and stops without
+  // refetching anything, leaving the list SHORTER than the viewer left it.
+  //
+  // CEILING (deliberate): a delete and a create between the same two refreshes
+  // net to no total change and are missed; plain EDITS to already-appended
+  // rows stay stale the same way. Both heal on remount. That is the same cache
+  // posture the phone screens take — paying a full re-walk on every prop
+  // change would undo the point of chunk loading.
+  //
+  // KNOWN BENIGN CORNER: storeTotal has two writers (this effect and
+  // fetchOlder's response), so a refresh whose `total` was computed before an
+  // append landed can read as a decrease and trigger a purge + re-walk that
+  // wasn't strictly needed. The OUTCOME is still correct data — the cost is
+  // extra fetches, not a wrong list — and it is bounded to one per refresh
+  // because only a changed `total` PROP re-runs this.
   useEffect(() => {
+    if (total !== null && storeTotal !== null && total < storeTotal) {
+      setAppended([])
+      setWindowStart(initialWindowStart)
+      setRestoreTarget(sinceParam)
+    }
     setStoreTotal(total)
+    // `total` is the only trigger. storeTotal, sinceParam and
+    // initialWindowStart are read as CURRENT values, never as triggers —
+    // listing storeTotal would re-run this on our own setStoreTotal, and
+    // listing sinceParam would re-run it on every さらに表示 tap, which is how
+    // a purge could chase its own re-walk in a loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [total])
 
   async function fetchOlder(announce: boolean) {

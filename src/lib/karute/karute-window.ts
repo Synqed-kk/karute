@@ -88,6 +88,35 @@ export function karuteHasMore(loadedCount: number, freshStoreTotal: number): boo
   return loadedCount < freshStoreTotal
 }
 
+/**
+ * Is this a REAL calendar day, or merely YYYY-MM-DD-SHAPED?
+ *
+ * A shape regex alone accepts impossible values, and JS Date mishandles them
+ * two different, equally wrong ways: `2026-02-30` silently ROLLS OVER to
+ * 2026-03-02 (the walk then reads a window nobody asked for and reports it as
+ * the boundary), while `2026-13-01` becomes an Invalid Date whose
+ * `.toISOString()` throws from deep inside the walk and surfaces as a 502.
+ * Both break the facade's documented contract: malformed means a 400, never a
+ * silently different window and never an upstream error.
+ *
+ * Construct in UTC and re-format — a rolled-over value can't match the string
+ * it came from, and an Invalid Date fails the NaN guard before that. The shape
+ * check is folded in, so callers need this ONE call, not a regex plus this.
+ */
+export function isValidKaruteYmd(ymd: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return false
+  const d = new Date(`${ymd}T00:00:00.000Z`)
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === ymd
+}
+
+/** Is this a REAL calendar month ('YYYY-MM')? Month mode expands it to
+ *  `${month}-01`, so validating THAT day is validating the month — 2026-13 and
+ *  2026-00 both fail there, on the same round-trip as
+ *  {@link isValidKaruteYmd}. */
+export function isValidKaruteMonth(month: string): boolean {
+  return /^\d{4}-\d{2}$/.test(month) && isValidKaruteYmd(`${month}-01`)
+}
+
 /** JST midnight of a YYYY-MM-DD, as a Date. */
 function dayStart(ymd: string): Date {
   return jstWallTimeToDate(ymd, '00:00')

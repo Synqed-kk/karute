@@ -401,3 +401,93 @@ describe('degraded server window keeps what is already on screen (fix round 2)',
     expect(screen.getByText(/statusLine/)).toBeInTheDocument()
   })
 })
+
+// Greptile PR #779 P1. `appended` is a client-held cache of the older chunks;
+// a healthy refresh only ever replaces `items` (the newest window), so a record
+// DELETED server-side lingered as a ghost row AND kept inflating loadedCount —
+// which can flip hasMore false and hide さらに表示 while real history is still
+// unloaded. A `total` lower than the one we hold is the purge signal.
+describe('deleted rows reconcile on a healthy refresh (fix round 3)', () => {
+  /** Tap さらに表示 once so `appended` holds a row the server later deletes. */
+  const appendGhost = async (overrides = {}) => {
+    loadKaruteWindow.mockResolvedValueOnce({
+      items: [item('k3', '2026-08-05', '幽霊 太郎')],
+      windowStart: '2026-07-29',
+      freshStoreTotal: 9,
+      hasMore: true,
+      ...overrides,
+    })
+    const view = renderList()
+    fireEvent.click(loadMoreButton())
+    await waitFor(() => expect(screen.getByText('幽霊 太郎')).toBeInTheDocument())
+    return view
+  }
+
+  it('a LOWER total purges the cache and re-walks ?since with fresh data', async () => {
+    const view = await appendGhost()
+    // The re-walk's fresh read — the ghost is gone from the store, a real
+    // older row takes its place.
+    loadKaruteWindow.mockResolvedValueOnce({
+      items: [item('k4', '2026-08-04', '鈴木 一郎')],
+      windowStart: '2026-07-29',
+      freshStoreTotal: 8,
+      hasMore: true,
+    })
+
+    // QuietRefresh lands with one fewer record than we hold: 9 → 8.
+    await act(async () => {
+      view.rerender(listEl({ total: 8 }))
+    })
+
+    await waitFor(() => expect(loadKaruteWindow).toHaveBeenCalledTimes(2))
+    // The re-walk resumed from the server's FRESH first window, not from the
+    // deep boundary — rewinding windowStart is what makes the restore effect
+    // fetch at all instead of seeing itself as already done.
+    expect(loadKaruteWindow).toHaveBeenNthCalledWith(2, {
+      olderThan: '2026-08-12',
+      loadedCount: 2,
+    })
+    await waitFor(() => expect(screen.getByText('鈴木 一郎')).toBeInTheDocument())
+    expect(screen.queryByText('幽霊 太郎')).not.toBeInTheDocument()
+  })
+
+  it('an UNCHANGED total leaves the cache alone — no purge, no refetch', async () => {
+    const view = await appendGhost()
+    await act(async () => {
+      view.rerender(listEl({ total: 9 }))
+    })
+    // Still exactly the one append call: a refresh that changed nothing must
+    // not cost a re-walk, or chunk loading pays for itself every few seconds.
+    expect(loadKaruteWindow).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('幽霊 太郎')).toBeInTheDocument()
+  })
+
+  it('さらに表示 comes BACK after the purge when history really does remain', async () => {
+    // Store of 4. Two rows on screen, one appended (the ghost) → 3 of 4.
+    loadKaruteWindow.mockResolvedValueOnce({
+      items: [item('k3', '2026-08-05', '幽霊 太郎')],
+      windowStart: '2026-07-29',
+      freshStoreTotal: 4,
+      hasMore: true,
+    })
+    const view = renderList({ total: 4 })
+    fireEvent.click(loadMoreButton())
+    await waitFor(() => expect(screen.getByText('幽霊 太郎')).toBeInTheDocument())
+
+    loadKaruteWindow.mockResolvedValueOnce({
+      items: [item('k4', '2026-08-04', '鈴木 一郎')],
+      windowStart: '2026-07-29',
+      freshStoreTotal: 4,
+      hasMore: true,
+    })
+    // The ghost is deleted: 4 → 3. WITHOUT the purge, loadedCount would still
+    // count it (3) against a store total of 3 — hasMore false, button gone,
+    // and the genuinely unloaded older record unreachable.
+    await act(async () => {
+      view.rerender(listEl({ total: 3 }))
+    })
+
+    await waitFor(() => expect(screen.getByText('鈴木 一郎')).toBeInTheDocument())
+    expect(loadMoreButton()).toBeInTheDocument()
+  })
+})

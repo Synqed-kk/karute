@@ -16,6 +16,8 @@ import {
   KARUTE_SESSION_DATE_EPOCH,
   KARUTE_WINDOW_DAYS,
   KARUTE_WINDOW_PAGE_SIZE,
+  isValidKaruteMonth,
+  isValidKaruteYmd,
   karuteHasMore,
   loadKaruteWindowRows,
   loadKaruteWindowWithMonthProbe,
@@ -62,6 +64,44 @@ function fakeCore(records: Rec[]) {
 
 // Pinned "now" so a test never races the calendar.
 const NOW = new Date('2026-08-25T03:00:00.000Z')
+
+// Greptile PR #779 P1. A shape regex is NOT a calendar check, and JS Date gets
+// impossible values wrong two different ways — one silent, one loud. Both used
+// to reach the walk.
+describe('calendar validators', () => {
+  it('rejects the SILENT failure: a day that rolls over instead of throwing', () => {
+    // These do not produce an Invalid Date — `new Date` slides them forward, so
+    // an unvalidated walk reads a window nobody asked for and reports that
+    // boundary back as if it were the requested one.
+    expect(new Date('2026-02-30T00:00:00.000Z').toISOString()).toContain('2026-03-02')
+    expect(isValidKaruteYmd('2026-02-30')).toBe(false)
+    expect(isValidKaruteYmd('2026-02-29')).toBe(false) // 2026 is not a leap year
+    expect(isValidKaruteYmd('2026-04-31')).toBe(false)
+  })
+
+  it('rejects the LOUD failure: a month/day that becomes an Invalid Date', () => {
+    expect(Number.isNaN(new Date('2026-13-01T00:00:00.000Z').getTime())).toBe(true)
+    expect(isValidKaruteYmd('2026-13-01')).toBe(false)
+    expect(isValidKaruteMonth('2026-13')).toBe(false)
+    expect(isValidKaruteMonth('2026-00')).toBe(false)
+  })
+
+  it('still rejects malformed SHAPES, so callers need this one check and no regex', () => {
+    expect(isValidKaruteYmd('2026-8-1')).toBe(false)
+    expect(isValidKaruteYmd('yesterday')).toBe(false)
+    expect(isValidKaruteYmd('')).toBe(false)
+    expect(isValidKaruteMonth('2026-8')).toBe(false)
+  })
+
+  it('accepts real days and months — including the leap day and the year edges', () => {
+    expect(isValidKaruteYmd('2028-02-29')).toBe(true) // real leap day
+    expect(isValidKaruteYmd('2026-01-01')).toBe(true)
+    expect(isValidKaruteYmd('2026-12-31')).toBe(true)
+    expect(isValidKaruteYmd(KARUTE_SESSION_DATE_EPOCH)).toBe(true)
+    expect(isValidKaruteMonth('2026-01')).toBe(true)
+    expect(isValidKaruteMonth('2026-12')).toBe(true)
+  })
+})
 
 describe('loadKaruteWindowRows — probe-then-fetch', () => {
   it('skips EMPTY windows backward and returns the first non-empty one', async () => {
