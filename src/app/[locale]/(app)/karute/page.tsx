@@ -3,7 +3,7 @@ import { renderStamp } from '@/lib/perf/render-stamp'
 import { startTiming } from '@/lib/perf/timing'
 import { getBusinessId, getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { listSynqedKaruteRowsWithTotal } from '@/lib/karute/synqed-records'
+import { listSynqedKaruteRowsWithMonthProbe } from '@/lib/karute/synqed-records'
 import { jstStartOfMonth } from '@/lib/date/jst'
 import { listAllCustomersCached } from '@/lib/customers/list-all'
 import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
@@ -59,8 +59,7 @@ export default async function KaruteRecordsListPage() {
     staffList,
     allCustomersList,
     currentStaffId,
-    karuteRowsWithTotal,
-    monthProbe,
+    karuteData,
     synqedStaff,
   ] = await Promise.all([
       t.phase('staffList', () => getStaffList()),
@@ -83,18 +82,19 @@ export default async function KaruteRecordsListPage() {
       // synqed-core is the sole karute store (the Supabase karute_records table
       // is empty and being dropped). Scoped to the active branch so 代官山
       // karute don't surface under 銀座; the customer PROFILE stays unscoped.
-      // WithTotal (PR-1b): the same call also hands back the store-wide total
-      // (unfiltered by date) — plumbed through for PR-2a's 全件 display.
-      t.phase('karuteRows', () => listSynqedKaruteRowsWithTotal(synqed, { storeId: activeStore })),
-      // 今月 probe (PR-1b): a lean page_size:1 read over the JST month window —
-      // rows are discarded, only .total is read. LENS PARITY with
-      // screens/sessions/route.ts's identical computation.
-      t.phase('monthCount', () =>
-        listSynqedKaruteRowsWithTotal(synqed, {
+      // ONE combined phase (Greptile PR #775 fix): the main row read (store-
+      // wide total, plumbed through for PR-2a's 全件 display) and the 今月
+      // probe (JST month window, page_size:1) used to run as two INDEPENDENT
+      // degrade-wrapped calls — one transiently failing while the other
+      // succeeded could make the header contradict the visible list.
+      // listSynqedKaruteRowsWithMonthProbe shares ONE try/catch so both
+      // always come from the same success or the same failure. LENS PARITY
+      // with screens/sessions/route.ts's identical from/to computation.
+      t.phase('karuteData', () =>
+        listSynqedKaruteRowsWithMonthProbe(synqed, {
           storeId: activeStore,
-          from: monthStartIso,
-          to: nowIso,
-          page_size: 1,
+          monthFrom: monthStartIso,
+          monthTo: nowIso,
         }),
       ),
       // Synqed staff roster — translates a record's synqed staff id into the
@@ -102,7 +102,7 @@ export default async function KaruteRecordsListPage() {
       // in getAppointmentsByDate).
       t.phase('synqedStaff', () => synqed.staff.list({ page_size: 200 })),
     ])
-  const synqedKaruteRows = karuteRowsWithTotal.rows
+  const synqedKaruteRows = karuteData.data.rows
 
   // #496 store clamp: the 担当 picker only offers staff assigned to the active
   // store (or floating staff) — the full roster was leaking every branch's
@@ -120,8 +120,8 @@ export default async function KaruteRecordsListPage() {
     currentStaffId,
     synqedKaruteRows,
     synqedStaff,
-    monthCount: monthProbe.total,
-    total: karuteRowsWithTotal.total,
+    monthCount: karuteData.monthProbe.total,
+    total: karuteData.data.total,
   })
 
   return (

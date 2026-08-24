@@ -159,8 +159,12 @@ export async function listSynqedKaruteRowsWithTotalOrThrow(
 
 /** Graceful sibling of {@link listSynqedKaruteRowsWithTotalOrThrow} — degrades
  *  to `{rows: [], total: 0}` on a synqed-core failure, same swallow-and-log
- *  posture as {@link listSynqedKaruteRows}. The web page uses this variant;
- *  the facade route (packet 05 failure contract) uses the throwing one. */
+ *  posture as {@link listSynqedKaruteRows}. The facade route (packet 05
+ *  failure contract) uses the throwing variant directly. NOT used by the
+ *  page for the main-rows + 今月-probe pair — two INDEPENDENT calls of this
+ *  can each degrade on its own, so one transient failure silently produces a
+ *  header that contradicts the visible list (Greptile PR #775 finding); see
+ *  {@link listSynqedKaruteRowsWithMonthProbe} below for the coherent pairing. */
 export async function listSynqedKaruteRowsWithTotal(
   synqed: SynqedClient,
   opts?: Parameters<typeof listSynqedKaruteRowsWithTotalOrThrow>[1],
@@ -170,6 +174,50 @@ export async function listSynqedKaruteRowsWithTotal(
   } catch (err) {
     console.error('[listSynqedKaruteRowsWithTotal] synqed-core fetch failed:', err)
     return { rows: [], total: 0 }
+  }
+}
+
+/** {@link listSynqedKaruteRowsWithMonthProbe}'s return shape: the main
+ *  store-wide row read paired with the 今月 (JST month) count probe. Both
+ *  fields always come from the SAME success or the SAME failure — see the
+ *  function doc below. */
+export interface KaruteDataWithMonthProbe {
+  data: KaruteRowsWithTotal
+  monthProbe: KaruteRowsWithTotal
+}
+
+/**
+ * Coherent pairing of the main karute row read + the 今月 count probe
+ * (PR-1b 正直ヘッダー, Greptile PR #775 fix): the page's status line and its
+ * visible list must never disagree, so both reads share ONE try/catch — on
+ * ANY failure (either call, or both), BOTH degrade together to
+ * `{rows: [], total: 0}` (same swallow-and-log posture as
+ * {@link listSynqedKaruteRows}), never one succeeding while the other zeros
+ * out. Runs the two OrThrow reads in parallel (Promise.all) for the same
+ * latency the previous two-independent-calls shape had.
+ */
+export async function listSynqedKaruteRowsWithMonthProbe(
+  synqed: SynqedClient,
+  opts: {
+    storeId?: string | null
+    monthFrom: string
+    monthTo: string
+  },
+): Promise<KaruteDataWithMonthProbe> {
+  try {
+    const [data, monthProbe] = await Promise.all([
+      listSynqedKaruteRowsWithTotalOrThrow(synqed, { storeId: opts.storeId }),
+      listSynqedKaruteRowsWithTotalOrThrow(synqed, {
+        storeId: opts.storeId,
+        from: opts.monthFrom,
+        to: opts.monthTo,
+        page_size: 1,
+      }),
+    ])
+    return { data, monthProbe }
+  } catch (err) {
+    console.error('[listSynqedKaruteRowsWithMonthProbe] synqed-core fetch failed (coherent degrade):', err)
+    return { data: { rows: [], total: 0 }, monthProbe: { rows: [], total: 0 } }
   }
 }
 
