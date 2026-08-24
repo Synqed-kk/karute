@@ -1119,6 +1119,59 @@ describe('capabilities are read, never invented', () => {
     expect(open.close!.reconciliationNote).toContain('¥21,500')
     for (const r of open.close!.reconciliation) expect(r.received).not.toBe('権限がありません')
   })
+
+  it('⚖ F12 — the 現金ドロア holds NO ¥ for a redacted role: 期待額 IS the hidden 現金 差引', async () => {
+    // The half F5 left open. 期待額 is `totals.cash`, which is the 決済手段の内訳's
+    // 現金 差引 under a different label — hidden in one panel and printed two
+    // panels down. And the three go together or not at all: 実査額 minus 差異 IS
+    // 期待額, so leaving any two visible hands the reader the third.
+    const { props } = await registerProps({ locale: 'ja', store: STORE_A, world: { role: 'スタッフ' } })
+    const cash = props.close!.cash
+    for (const [field, value] of Object.entries({
+      expected: cash.expected,
+      counted: cash.counted,
+      variance: cash.variance,
+      tolerance: cash.tolerance,
+    })) {
+      expect({ field, value }).toEqual({ field, value: '権限がありません' })
+    }
+    // A tone belongs to its figure: nothing to paint red once it is hidden.
+    expect(cash.varianceBad).toBe(false)
+
+    // THE SAME THREE FIGURES, one panel down, in a sentence. Gating the band and
+    // not this row would move the leak rather than close it.
+    const check = props.close!.checks.find((c) => c.key === 'cash')!
+    expect(check.detail).toBe('権限がありません')
+    // …and the third printing, in 閉店で記録される内容.
+    expect(props.close!.record.find((r) => r.label === '現金差異')!.value).toBe('権限がありません')
+
+    // ⚠ NOT ONE ¥ ANYWHERE IN THE BAND — read as a sweep rather than cell by
+    // cell, because a cell list only checks the cells somebody remembered.
+    for (const v of [cash.expected, cash.counted, cash.variance, cash.tolerance, check.detail]) {
+      expect({ v, yen: v.includes('¥') }).toEqual({ v, yen: false })
+    }
+
+    // ⚖ REDACTION HIDES AMOUNTS, NOT WORKFLOW. The status, the checklist row's
+    // own label and the 差異理由 sentence all stay: that is what the shop is
+    // DOING, not what the shop TOOK.
+    expect(cash.status).toBe('保存済み')
+    expect(cash.statusDone).toBe(true)
+    expect(cash.reason).toContain('差異なし')
+    expect(check.label).toBe('現金計数と差異理由')
+    expect(check.status).toBe('保存済み')
+    // The other checklist rows keep their figures — this role sees 未収 and the
+    // terminal's 対象金額 unredacted elsewhere, so hiding them HERE would be a
+    // new inconsistency in the other direction.
+    expect(props.close!.checks.find((c) => c.key === 'terminal')!.detail).toContain('¥')
+
+    // …and the operator who passes the gate sees the whole drawer.
+    const openRoom = await room({ store: STORE_A })
+    expect(openRoom.close!.cash.expected).toBe('¥8,300')
+    expect(openRoom.close!.cash.counted).toBe('¥8,300')
+    expect(openRoom.close!.cash.variance).toBe('¥0')
+    expect(openRoom.close!.cash.tolerance).toContain('許容額')
+    expect(openRoom.close!.checks.find((c) => c.key === 'cash')!.detail).toContain('期待 ¥8,300')
+  })
 })
 
 // ── 9. every button here is a write, and every write is refused ─────────────
@@ -1580,6 +1633,30 @@ describe('⚖ ALL-SCREEN ADAPTIVITY, R13, and the shell that points here', () =>
       '(max-width: 743px)',
       '(prefers-reduced-motion: reduce)',
     ])
+  })
+
+  it('⚖ F12 — the workspace pair and the closing pair turn over at the SAME boundaries', () => {
+    // Two-up pairs that have run out of width are ONE rule, so they cannot
+    // disagree about where the width runs out: F8 fixed 800–1023 and left
+    // 1024–1099 disagreeing the other way (grid one column, closing two), four
+    // inches from the band it had just made consistent. Both rules are read out
+    // of the shipped sheet band by band rather than restated.
+    const band = (query: string) => {
+      const at = CSS_CODE.indexOf(query)
+      expect({ query, stated: at >= 0 }).toEqual({ query, stated: true })
+      return CSS_CODE.slice(at, CSS_CODE.indexOf('\n}', at))
+    }
+    const columns = (rules: string, selector: string) => {
+      const m = new RegExp(`\\.biz \\.pg-register \\.${selector} \\{[^}]*grid-template-columns:([^;]+);`).exec(rules)
+      return m === null ? null : m[1].trim().split(/\s+(?![^(]*\))/).length
+    }
+    // ≤1099 stacks BOTH.
+    const stack = band('@media (max-width: 1099px)')
+    expect({ grid: columns(stack, 'rg-grid'), closing: columns(stack, 'rg-closing') }).toEqual({ grid: 1, closing: 1 })
+    // 800–1023 re-pairs BOTH.
+    const pair = band('@media (min-width: 800px) and (max-width: 1023px)')
+    expect({ grid: columns(pair, 'rg-grid'), closing: columns(pair, 'rg-closing') }).toEqual({ grid: 2, closing: 2 })
+    // …and the measured columns at 1100 / 1024 / 940 / 820 are in the probe.
   })
 
   it('800–1023 keeps the inner pair side by side; ≤1099 stacks it', () => {

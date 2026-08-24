@@ -132,6 +132,9 @@ export interface RegisterCloseProps {
     counted: string
     variance: string
     varianceBad: boolean
+    /** F12 — this role may not see the day's cash figures, so the three stats
+     *  wear the strip's own quiet-sentence treatment instead of 18px bold. */
+    redacted: boolean
     reason: string
     status: string
     statusDone: boolean
@@ -794,15 +797,17 @@ export function RegisterScreen(props: RegisterProps) {
               <div className="rg-cash-stats">
                 <div className="rg-cash-stat">
                   <span>期待額</span>
-                  <b>{close.cash.expected}</b>
+                  <b className={close.cash.redacted ? 'redacted' : undefined}>{close.cash.expected}</b>
                 </div>
                 <div className="rg-cash-stat">
                   <span>実査額</span>
-                  <b>{close.cash.counted}</b>
+                  <b className={close.cash.redacted ? 'redacted' : undefined}>{close.cash.counted}</b>
                 </div>
                 <div className="rg-cash-stat">
                   <span>差異</span>
-                  <b className={close.cash.varianceBad ? 'bad' : undefined}>{close.cash.variance}</b>
+                  <b className={[close.cash.varianceBad ? 'bad' : '', close.cash.redacted ? 'redacted' : ''].filter(Boolean).join(' ') || undefined}>
+                    {close.cash.variance}
+                  </b>
                 </div>
               </div>
               <div className="rg-facts rg-cash-facts">

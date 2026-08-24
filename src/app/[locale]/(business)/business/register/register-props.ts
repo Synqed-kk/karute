@@ -360,15 +360,28 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
       closing && verdict
         ? {
             cash: {
-              expected: yen(totals.cash),
-              counted: yen(closing.cash_counted),
-              variance: yen(verdict.variance),
+              // ⚖ F12 — THE DRAWER IS THE OTHER HALF OF THE SAME GATE. 期待額 IS
+              // `totals.cash`, which is the 内訳's 現金 差引 under a different
+              // label; hiding one and printing the other two panels down is the
+              // exact disease F5 fixed, only closed halfway. And the three go
+              // together or not at all: 実査額 minus 差異 IS 期待額, so leaving
+              // any two of them visible hands the reader the third.
+              //
+              // Canon's receipt: this whole band is the content of its
+              // capability-gated `closeDialog` (:1625-1626 — `openCloseDialog`
+              // refuses without the `close` capability), so a role that may not
+              // close does not see the close's figures.
+              expected: redactMoney(yen(totals.cash)),
+              counted: redactMoney(yen(closing.cash_counted)),
+              variance: redactMoney(yen(verdict.variance)),
               // canon `renderSummary` (:1323) — the difference is BAD when it is
               // outside the tolerance, which is the same threshold the approval
               // rule reads. ONE verdict: a red figure and 「差異承認待ち」 can no
               // longer disagree, and a difference inside an allowance is not
-              // painted as a fault.
-              varianceBad: Math.abs(verdict.variance) > tolerance,
+              // painted as a fault. A tone belongs to its figure: with the figure
+              // hidden there is nothing to paint red.
+              varianceBad: !access.redactSummary && Math.abs(verdict.variance) > tolerance,
+              redacted: access.redactSummary,
               // ⚖ NEVER A VERDICT OVER A NUMBER THAT CONTRADICTS IT. 「差異なし」
               // used to print beside a printed ¥700 difference, because the
               // fallback keyed on whether an APPROVAL was needed rather than on
@@ -382,14 +395,28 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
                     : verdict.variance === 0
                       ? '差異なし — 理由の記録は不要です'
                       : '差異の理由が記録されていません',
+              // ⚠ THE STATUS STAYS. Redaction hides AMOUNTS, not workflow: a
+              // スタッフ still sees 未保存 / 保存済み / 差異承認待ち, because that is
+              // what the shop is DOING, not what the shop TOOK.
               status: verdict.checks.find((c) => c.key === 'cash')!.status,
               statusDone: verdict.cashReady,
-              tolerance: `許容額 ${yen(tolerance)}（現金差異の承認しきい値）`,
+              tolerance: redactMoney(`許容額 ${yen(tolerance)}（現金差異の承認しきい値）`),
               saveLabel: '計数を保存',
               saveRefusal: REFUSAL.cash,
               canSave: access.close,
             },
-            checks: verdict.checks,
+            // ⚖ F12, THE SAME FIGURES ONE PANEL DOWN. The 現金計数と差異理由 row
+            // prints 「期待 ¥8,300 / 実査 ¥8,300 / 差異 ¥0」 — the drawer band's
+            // three numbers again, in a sentence. Gating the band and not this
+            // row would move the leak rather than close it, so the gate is
+            // applied wherever the amounts are PRINTED, not where they are read.
+            // Only the cash row: the other four state 未収 and 端末保持 figures,
+            // which this role sees unredacted in the strip and the terminal band
+            // — hiding them HERE would be a new inconsistency in the other
+            // direction. The row's label and its status pill are untouched.
+            checks: verdict.checks.map((c) =>
+              c.key === 'cash' ? { ...c, detail: redactMoney(c.detail) } : c,
+            ),
             openCount: verdict.openCount,
             headline: verdict.closeReady ? '閉店の条件はすべて満たしています' : `${verdict.openCount}項目 未完了`,
             // ONE VERDICT, RENDERED AGAIN: the button's reason is the checklist's
@@ -414,7 +441,8 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
               { label: '純売上', value: redactMoney(yen(totals.net)) },
               { label: '受領済み', value: redactMoney(yen(totals.collected)) },
               { label: '未収', value: yen(totals.outstanding) },
-              { label: '現金差異', value: yen(verdict.variance) },
+              // ⚖ F12 — the third printing of the same figure.
+              { label: '現金差異', value: redactMoney(yen(verdict.variance)) },
               { label: '取引件数', value: `${counts.all}件` },
               { label: 'バージョン', value: `閉店 v${closing.close_version}` },
             ],

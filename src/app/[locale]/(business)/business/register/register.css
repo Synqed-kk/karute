@@ -142,7 +142,12 @@
 .biz .pg-register .rg-money-cell b.warn { color: var(--orange); }
 /* 権限がありません is a SENTENCE, not a figure — it must not wear the tabular
    money type or it reads as a number that failed to load. */
-.biz .pg-register .rg-money-cell b.redacted { font-size: 12px; font-weight: 500; color: var(--muted); }
+/* A REDACTED FIGURE IS A QUIET SENTENCE, NOT A BIG NUMBER — and the drawer's
+   three stats obey the same rule as the strip's cells (F12): at 18px bold,
+   「権限がありません」 wraps to two ragged lines inside a 100px cell and reads like
+   a headline about nothing. One treatment, both bands. */
+.biz .pg-register .rg-money-cell b.redacted,
+.biz .pg-register .rg-cash-stat b.redacted { font-size: 12px; font-weight: 500; color: var(--muted); }
 
 /* ── 取引の件数 — the numbers ARE the filters ──────────────────────────────── */
 /* NO `overflow: hidden` HERE: it would clip the shell's offset focus ring off
@@ -463,6 +468,12 @@
 /* ── ≤1099 — the pair genuinely runs out of width: stack it ──────────────── */
 @media (max-width: 1099px) {
   .biz .pg-register .rg-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  /* …and the CLOSING pair stacks with it. The two are one rule about one shape
+     — a two-up pair that has run out of width — so they turn over at the same
+     boundaries or the page says a foldable is too narrow for one pair and wide
+     enough for the other, four inches apart. Both are two-column at 1100+ and
+     at 800–1023, both one-column at 1024–1099 and ≤799. */
+  .biz .pg-register .rg-closing { grid-template-columns: minmax(0, 1fr); gap: 14px; }
   /* the terminal band's five cells stop fitting on one line long before this;
      the stats wrap under the sentence rather than squeezing it to nothing. */
   .biz .pg-register .rg-terminal { grid-template-columns: repeat(3, minmax(0, 1fr)); }
