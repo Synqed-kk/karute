@@ -463,18 +463,27 @@ export function KaruteRecordListView({
     return null
   }
 
-  /** 「7月26日」/「Jul 26」 — the さらに表示 label's boundary day. */
+  /** 「7月26日」/「Jul 26」 — the さらに表示 label's boundary day.
+   *
+   *  timeZone is EXPLICIT (fix round 5): the instant is anchored to JST
+   *  midnight, so formatting it in the viewer's own zone slides it a day for
+   *  anyone west of Japan — a manager abroad, and every UTC server. These
+   *  dates are JST business facts, not local wall-clock times. */
   function formatBoundaryDate(date: string): string {
     const dt = new Date(`${date}T00:00:00+09:00`)
     return new Intl.DateTimeFormat(locale === 'ja' ? 'ja-JP' : 'en-US', {
+      timeZone: 'Asia/Tokyo',
       month: locale === 'ja' ? 'long' : 'short',
       day: 'numeric',
     }).format(dt)
   }
 
+  /** Same JST-explicit rule as formatBoundaryDate above — this one predates
+   *  PR-2a, and was shifting date-group headers for any non-JST browser. */
   function formatDateHeader(date: string): string {
     const dt = new Date(`${date}T00:00:00+09:00`)
     return new Intl.DateTimeFormat(locale === 'ja' ? 'ja-JP' : 'en-US', {
+      timeZone: 'Asia/Tokyo',
       year: 'numeric',
       month: locale === 'ja' ? 'long' : 'short',
       day: 'numeric',

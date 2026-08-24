@@ -8,6 +8,7 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { assignStaffColors } from '@/lib/staff-colors'
+import { partsInJst } from '@/lib/date/jst'
 import {
   type KaruteListRow,
   mergeKaruteRows,
@@ -170,8 +171,17 @@ export function buildSessionsListScreen(args: {
       ? (r.entries[0]?.count ?? 0)
       : 0
     const isoDate = (r.session_date ?? r.created_at).slice(0, 10)
-    const dt = new Date(`${isoDate}T00:00:00+09:00`)
-    const weekday = ['日', '月', '火', '水', '木', '金', '土'][dt.getDay()]
+    // JST-EXPLICIT weekday (fix round 5 — this was a LIVE PRODUCTION BUG).
+    // The instant is anchored to JST midnight, but `.getDay()` reads it back in
+    // SERVER-LOCAL time. On this Mac (JST) that agreed by luck; on Vercel and
+    // in CI (both UTC) the same instant is 15:00 the PREVIOUS day, so every
+    // カルテ row shipped a weekday one day early. There is no TZ override in
+    // vercel.json or the workflows to lean on, and there shouldn't be — the
+    // date is a JST business fact and must be computed as one, whatever the
+    // server's clock is set to. partsInJst already does exactly this via Intl.
+    const weekday = ['日', '月', '火', '水', '木', '金', '土'][
+      partsInJst(new Date(`${isoDate}T00:00:00+09:00`)).weekday
+    ]
 
     // Derive AI status from data shape — see types.ts for rationale.
     let aiStatus: KaruteAiStatus = 'draft'
