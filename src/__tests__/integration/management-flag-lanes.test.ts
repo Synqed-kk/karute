@@ -226,12 +226,8 @@ describe('顧客 / カルテ rosters are never server-filtered (⚖ 2026-09-01 o
       allCustomersList: { customers: [], total: 0 } as unknown as Parameters<
         typeof buildSessionsListScreen
       >[0]['allCustomersList'],
-      storeCustomerList: null,
       currentStaffId: SATO,
       synqedKaruteRows: [],
-      apptList: { appointments: [] } as unknown as Parameters<
-        typeof buildSessionsListScreen
-      >[0]['apptList'],
       synqedStaff: { staff: [] } as unknown as Parameters<
         typeof buildSessionsListScreen
       >[0]['synqedStaff'],

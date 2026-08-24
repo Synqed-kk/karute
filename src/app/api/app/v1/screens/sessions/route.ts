@@ -1,15 +1,15 @@
 // Sessions-list (カルテ tab) screen facade read (packet 05, inventory #3). The
-// /karute page's 7-way Promise.all collapsed into one server wave on the
+// /karute page's Promise.all collapsed into one server wave on the
 // business-scoped client, rows assembled by the SAME buildSessionsListScreen the
 // web page uses. Store scope travels as the explicit `store-id` header per the
 // packet-03 contract — never a cookie: resolveStoreForRequest proves tenancy
 // FIRST, then staff assignment, and an errored lookup fails CLOSED.
 //
 // LENS PARITY: the page's cookie resolveStoreScope maps to the header clamp —
-//   clamped (non-viewAll)  → customers + karute + placeholder roster all scoped
-//   viewAll + store-id      → karute rows + placeholder roster scoped; the
-//                             customer name-map + customerOptions stay
-//                             business-wide (walk-in カルテ creation parity)
+//   clamped (non-viewAll)  → customers + karute all scoped
+//   viewAll + store-id      → karute rows scoped; the customer name-map +
+//                             customerOptions stay business-wide (walk-in
+//                             カルテ creation parity)
 //   viewAll + no store-id   → business-wide everything
 //
 // FAILURE CONTRACT: no graceful-empty swallowing on this path — the karute read
@@ -61,9 +61,7 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
     const [
       staffList,
       allCustomersList,
-      storeCustomerList,
       synqedKaruteRows,
-      apptList,
       synqedStaff,
     ] = await Promise.all([
       staffListByBusinessOrThrow(ctx.identity.businessId),
@@ -77,18 +75,8 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
             sort_order: 'asc',
           })
         : listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
-      // Store-scoped placeholder roster ONLY for a viewAll caller pinned to a
-      // store; null when unpinned OR clamped (the list above is already scoped).
-      !clamped && activeStore
-        ? listAllCustomers(synqed, {
-            store_id: activeStore,
-            sort_by: 'created_at',
-            sort_order: 'asc',
-          })
-        : Promise.resolve(null),
       // Throwing variant — a synqed outage is a 502, never an empty karute list.
       listSynqedKaruteRowsOrThrow(synqed, { storeId: activeStore }),
-      synqed.appointments.list({ page_size: 200 }),
       synqed.staff.list({ page_size: 200 }),
     ])
 
@@ -112,10 +100,8 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
       staffList,
       storeStaffIds,
       allCustomersList,
-      storeCustomerList,
       currentStaffId,
       synqedKaruteRows,
-      apptList,
       synqedStaff,
     })
   } catch (err) {

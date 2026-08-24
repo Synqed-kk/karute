@@ -39,7 +39,9 @@ const KaruteListItemDTO = z.object({
 export const SessionsScreenDTO = z.object({
   /** Real karute records, date-desc, capped at 200 (mergeKaruteRows). */
   items: z.array(KaruteListItemDTO),
-  /** Synthesized rows for customers with no karute yet (新規のお客様). */
+  /** Always []. Kept required — never delete — so release-17 phones can
+   *  still parse this key (see buildSessionsListScreen's SessionsListScreen
+   *  doc comment; PR-1a 未作成ブロック廃止 dropped the row synthesis). */
   placeholders: z.array(KaruteListItemDTO),
   /** Karute records dated in the current month — status-line only. */
   monthCount: z.number(),

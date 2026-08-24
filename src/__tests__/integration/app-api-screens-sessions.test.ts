@@ -60,17 +60,12 @@ const storesGet = jest.fn(async (id: string) => {
 })
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 const karuteList = jest.fn(async () => ({ karute_records: KARUTE, total: KARUTE.length }))
-// cust-3 has a booking with synqed staff sstaff-1 → resolves to profile staff-2.
-const apptsList = jest.fn(async () => ({
-  appointments: [{ customer_id: 'cust-3', staff_id: 'sstaff-1', starts_at: TODAY }],
-}))
 const staffList = jest.fn(async () => ({ staff: [{ id: 'sstaff-1', user_id: 'staff-2' }] }))
 const fakeClient = {
   customers: { list: listCustomers },
   stores: { get: storesGet },
   staffStores: { get: staffStoresGet },
   karuteRecords: { list: karuteList },
-  appointments: { list: apptsList },
   staff: { list: staffList },
 }
 jest.mock('@/lib/synqed/client', () => ({
@@ -134,10 +129,12 @@ describe('GET /api/app/v1/screens/sessions — happy path', () => {
     expect(res.status).toBe(200)
     const dto = await res.json()
 
-    // 2 real records, 1 placeholder (cust-3 has no karute), monthCount = both
-    // records dated today (current month).
+    // 2 real records, monthCount = both records dated today (current month).
+    // cust-3 has no karute but no longer gets a placeholder row (PR-1a
+    // 未作成ブロック廃止) — placeholders always ships [] (release-17
+    // tolerance; see SessionsScreenDTO's doc comment).
     expect(dto.items).toHaveLength(2)
-    expect(dto.placeholders).toHaveLength(1)
+    expect(dto.placeholders).toEqual([])
     expect(dto.monthCount).toBe(2)
 
     const rec1 = dto.items.find((i: { id: string }) => i.id === 'rec-1')
@@ -147,13 +144,6 @@ describe('GET /api/app/v1/screens/sessions — happy path', () => {
     const rec2 = dto.items.find((i: { id: string }) => i.id === 'rec-2')
     expect(rec2.aiStatus).toBe('pending')
     expect(rec2.conversionStatus).toBe('provisional')
-
-    // Placeholder 担当 resolved from the booking (synqed sstaff-1 → profile staff-2).
-    const ph = dto.placeholders[0]
-    expect(ph.customerId).toBe('cust-3')
-    expect(ph.isPlaceholder).toBe(true)
-    expect(ph.staffId).toBe('staff-2')
-    expect(ph.staffName).toBe('田中 太郎')
 
     expect(dto.currentStaffId).toBe('auth-user-1') // on the roster
     expect(dto.customerOptions).toHaveLength(3)
