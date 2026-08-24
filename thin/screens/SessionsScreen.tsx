@@ -11,15 +11,20 @@
 
 import { KaruteRecordListView } from '@/components/karute/spike-lifted/list/KaruteRecordListView'
 import {
-  SessionsScreenDTO,
-  type SessionsScreenDTOType,
+  SessionsScreenWindowedDTO,
+  type SessionsScreenWindowedDTOType,
 } from '@/lib/app-api/sessions-screen-dto'
 import { ScreenStates, useScreenDto } from './ScreenBoundary'
 
-const parse = (raw: unknown): SessionsScreenDTOType => SessionsScreenDTO.parse(raw)
+const parse = (raw: unknown): SessionsScreenWindowedDTOType =>
+  SessionsScreenWindowedDTO.parse(raw)
 
 export function SessionsScreen() {
-  const { state, retry } = useScreenDto('/api/app/v1/screens/sessions', parse)
+  // ?window=1 (PR-2a 日付チャンク読み込み): THIS bundle opts in to the windowed
+  // read. Release-17 bundles in the field keep sending the bare call and keep
+  // getting the legacy shape, byte-identical — the param is the whole version
+  // negotiation (see the route's header comment).
+  const { state, retry } = useScreenDto('/api/app/v1/screens/sessions?window=1', parse)
   return (
     <ScreenStates state={state} retry={retry}>
       {(dto) => (
@@ -27,6 +32,8 @@ export function SessionsScreen() {
           items={dto.items}
           monthCount={dto.monthCount}
           total={dto.total}
+          initialWindowStart={dto.windowStart}
+          initialHasMore={dto.hasMore}
           staffList={dto.staffList}
           currentStaffId={dto.currentStaffId}
           customerOptions={dto.customerOptions}
