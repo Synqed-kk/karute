@@ -1065,9 +1065,9 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // busy tail is feasible again. (Both starts are outside the shift, so the
     // predicate is asked directly — the guard has its own answer for those.)
     const feasible = bedFeasibility(board, null, POLICY)!
-    expect(feasible(board[0], 600, 60)).toBe(false)
-    expect(feasible(board[0], 570, 60)).toBe(true)
-    expect(feasible(board[0], 660, 60)).toBe(true)
+    expect(feasible(board[0], 600, 60).laneKey).toBeNull()
+    expect(feasible(board[0], 570, 60).laneKey).not.toBeNull()
+    expect(feasible(board[0], 660, 60).laneKey).not.toBeNull()
   })
 
   // ── P4 ───────────────────────────────────────────────────────────────────
@@ -1134,7 +1134,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     const feasible = bedFeasibility(rooms, null, POLICY)!
     const c = cellAt(rooms, 600)
     expect(c.alternatives.length).toBeGreaterThan(0)
-    for (const s of c.alternatives) expect(feasible(rooms[0], s, 60)).toBe(true)
+    for (const s of c.alternatives) expect(feasible(rooms[0], s, 60).laneKey).not.toBeNull()
   })
 
   // ── P7 ───────────────────────────────────────────────────────────────────
@@ -1721,6 +1721,7 @@ describe('次回予約を作成 arms the board, and the slot click makes the boo
     expect(solve(900, 960)).toEqual({
       laneKey: null,
       refusal: '15:00〜16:00はベッドが満室です。ベッド1が使用中（見本 かえる様）、ベッド2が使用中（見本 あかり様）',
+      compatibleRoomsExist: true,
     })
     // 16:00–17:00: bed-02 is still busy until 16:40, bed-01 is free → first wins.
     expect(solve(960, 1020).laneKey).toBe('bed-01')
@@ -3687,13 +3688,13 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
   it('keeps the booking’s own room when it is free at the landing time', () => {
     // 見本 かえる's case: carries ベッド2, and ベッド2 is free at 16:00 → nothing
     // moves. The room the operator can see on the card is the room they get.
-    expect(solve(scene(), { currentBed: 'bed-02' })).toEqual({ laneKey: 'bed-02', refusal: null })
+    expect(solve(scene(), { currentBed: 'bed-02' })).toEqual({ laneKey: 'bed-02', refusal: null, compatibleRoomsExist: true })
   })
 
   it('retargets to a free compatible room when its own is taken — Liam’s なぎ case', () => {
     // The whole flag: ベッド3 is held by あかり at 16:00, あずさ is free, so the
     // landing succeeds in another room instead of refusing about a person.
-    expect(solve(scene())).toEqual({ laneKey: 'bed-01', refusal: null })
+    expect(solve(scene())).toEqual({ laneKey: 'bed-01', refusal: null, compatibleRoomsExist: true })
   })
 
   it('refuses ONLY at true 満室 — and the sentence names the window and the rooms', () => {
@@ -3704,6 +3705,7 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     expect(solve(full)).toEqual({
       laneKey: null,
       refusal: '16:00〜17:00はベッドが満室です。ベッド1が使用中（見本 かえる様）、ベッド2が使用中（清掃）、ベッド3が使用中（見本 あかり様）',
+      compatibleRoomsExist: true,
     })
   })
 
@@ -3713,13 +3715,17 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     expect(solve(scene(), { vip: true, currentBed: 'bed-03' })).toEqual({
       laneKey: null,
       refusal: '16:00〜17:00は個室が満室です。ベッド3が使用中（見本 あかり様）',
+      compatibleRoomsExist: true,
     })
     // …and with the 個室 free it goes there, never into a 施術室.
     expect(solve(scene({ bed3: [] }), { vip: true, currentBed: null }).laneKey).toBe('bed-03')
-    // A store with no 個室 at all says that instead of naming rooms it has not.
+    // A store with no 個室 at all says that instead of naming rooms it has not —
+    // and it is NOT a full house (⚖ GREPTILE #777, pinned end to end in W8):
+    // nothing is full, the room the treatment needs is simply not on this board.
     expect(solve([lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })], { vip: true, currentBed: null })).toEqual({
       laneKey: null,
       refusal: '16:00〜17:00に使える個室がありません',
+      compatibleRoomsExist: false,
     })
   })
 
@@ -3764,7 +3770,7 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
       }),
     ]
     expect(allocateBed(own, { id: 'apt-nagi', currentBed: 'bed-02', stores: null, vip: false, start: 960, end: 1020, policy: POLICY }))
-      .toEqual({ laneKey: 'bed-02', refusal: null })
+      .toEqual({ laneKey: 'bed-02', refusal: null, compatibleRoomsExist: true })
     // Somebody else's turnaround is the room being unavailable, exactly as the
     // board's own 「清掃を予約不可時間として表示」 says.
     const theirs = [
@@ -6343,12 +6349,12 @@ describe('⚖ flags 80 + 44 — 満室, said on the chip and washed on the row',
     expect(said).toBe(
       allocateBed(board, { id: null, currentBed: null, stores: board[0].stores, vip: false, start: 960, end: 1020, policy: POLICY }).refusal,
     )
-    // The boolean the rail marks with and the sentence the box reads come out of
+    // The answer the rail marks with and the sentence the box reads come out of
     // ONE search — `bedFeasibility` is now a cached view of `bedSearch`, so the
     // two cannot disagree about which rooms were asked.
     const feasible = bedFeasibility(board, null, POLICY)!
-    expect(feasible(board[0], 960, 60)).toBe(search(board[0], 960, 60).laneKey !== null)
-    expect(feasible(board[0], 960, 60)).toBe(false)
+    expect(feasible(board[0], 960, 60)).toEqual(search(board[0], 960, 60))
+    expect(feasible(board[0], 960, 60).laneKey).toBeNull()
     // The screen QUOTES it. A hardcoded sentence here is the second spelling
     // this pin exists to stop.
     expect(SRC).toContain('const refusal = bedSearch(boardLanes, live?.id ?? pending?.id ?? null, props.rooms)?.(lane, start, railDur).refusal')
@@ -6448,5 +6454,63 @@ describe('⚖ flags 80 + 44 — 満室, said on the chip and washed on the row',
     expect(blind.find((c) => c.start === 960)!.label).toBe('△16:00')
     // And the screen refuses to open a box it has no sentence for.
     expect(SRC).toContain('    if (!refusal) return')
+  })
+
+  // ── W8 ───────────────────────────────────────────────────────────────────
+  /* ⚖ GREPTILE (PR #777) — 満室 IS THE BUSY CASE ONLY.
+   *
+   * `allocateBed` refuses through one code path on two different worlds: the
+   * rooms this lane could use exist and are busy over the span (a full house —
+   * wait and it clears), and there is no compatible room to BE busy (every bed
+   * in another store, a 個室 floor over a board with no 個室 — waiting changes
+   * nothing). The marker was set on the mere presence of a room callback, so
+   * the second world wore the first one's word: the chip said 満室 while the
+   * allocator's own sentence said 「…に使えるベッドがありません」, and the row
+   * was washed over a stretch no waiting will ever clear.
+   *
+   * The distinction is the allocator's own `compatibleRoomsExist` — the SAME
+   * candidate filter it already runs, never a second reading of the beds. */
+  it('W8 — a lane with no compatible room at all is 「—」, never 満室', () => {
+    // (a) ⚖ 46 store isolation: ごろう works at store-B and every configured bed
+    // is store-A's. Both rooms stand empty all day; none of them is his.
+    const foreign = [staff({ stores: ['store-b'] }), bed('bed-01', 'ベッド1'), bed('bed-02', 'ベッド2')]
+    const cells = cellsOf(foreign)
+    expect(cells.every((c) => c.state === 'blocked')).toBe(true)
+    expect(at(foreign, 960).label).toBe('—')
+    expect(cells.some((c) => c.fullHouse)).toBe(false)
+    expect(fullHouseRuns(cells, 30)).toEqual([])
+    // …and it is the ALLOCATOR that says so. The marker carries this field; the
+    // sentence is the same answer in words, and the two cannot contradict each
+    // other because there is only one search.
+    const answer = bedSearch(foreign, null, POLICY)!(foreign[0], 960, 60)
+    expect(answer.laneKey).toBeNull()
+    expect(answer.compatibleRoomsExist).toBe(false)
+    expect(answer.refusal).toBe('16:00〜17:00に使えるベッドがありません')
+
+    // (b) ⚖ 51 the 個室 floor: a VIP card in hand over a board whose only rooms
+    // are 施術室. Both are free for the whole day — freeness is not the question,
+    // eligibility is.
+    const vip = [
+      staff({ items: [booking({ key: 'v1', caseId: 'apt-vip', title: '見本 ゆき', category: 'vip' }, 600, 660)] }),
+      bed('bed-01', 'ベッド1'),
+      bed('bed-02', 'ベッド2'),
+    ]
+    const vipCells = guardRailsFor(vip, {
+      ...railIn(vip),
+      excludeId: 'apt-vip',
+      placementFeasible: bedFeasibility(vip, 'apt-vip', POLICY),
+    })[0].cells
+    expect(vipCells.every((c) => c.state === 'blocked')).toBe(true)
+    expect(vipCells.some((c) => c.fullHouse)).toBe(false)
+    expect(fullHouseRuns(vipCells, 30)).toEqual([])
+    const vipAnswer = bedSearch(vip, 'apt-vip', POLICY)!(vip[0], 960, 60)
+    expect(vipAnswer.compatibleRoomsExist).toBe(false)
+    expect(vipAnswer.refusal).toBe('16:00〜17:00に使える個室がありません')
+
+    // The other side of the same coin, so a mutant that simply stops marking
+    // cannot pass: a room that EXISTS and is taken still wears the word.
+    const full = bedSearch(busy(), null, POLICY)!(busy()[0], 960, 60)
+    expect(full.compatibleRoomsExist).toBe(true)
+    expect(at(busy(), 960).fullHouse).toBe(true)
   })
 })

@@ -791,7 +791,12 @@ export interface RailCell {
    *  Set at the single site that decides it (`railCell`'s `R-UNAVAILABLE`
    *  branch, gated on the same `placementFeasible` the sentence is gated on) and
    *  never re-derived from the sentence string: a marker read back out of prose
-   *  is a second verdict wearing the first one's clothes. */
+   *  is a second verdict wearing the first one's clothes.
+   *
+   *  ⚖ GREPTILE (PR #777) — 満室 IS THE BUSY CASE ONLY. A lane whose store or
+   *  room class leaves the allocator no candidate at all is refused by the same
+   *  code path and is NOT a full house, so the flag carries the allocator's own
+   *  `compatibleRoomsExist` rather than the mere presence of a room callback. */
   fullHouse: boolean
 }
 
@@ -863,8 +868,13 @@ export interface RailInput {
    *  ABSENT = a store with no rooms configured. Canon's own switch for that is
    *  `SCENARIO.needsBed === false` (:7261), which leaves every start
    *  bed-feasible; leaving the field undefined reproduces it exactly, because
-   *  the engine only consults a callback that is there (gap-guard :271-272). */
-  placementFeasible?: (lane: BoardLane, start: number, dur: number) => boolean
+   *  the engine only consults a callback that is there (gap-guard :271-272).
+   *
+   *  ⚖ GREPTILE (PR #777) — it hands over the ALLOCATOR'S WHOLE ANSWER rather
+   *  than a boolean, because the marker below needs to know WHICH refusal it is
+   *  holding and may not re-derive it (`compatibleRoomsExist`, :1571). The
+   *  engine still gets its boolean — `railCtx` takes it off the same answer. */
+  placementFeasible?: BedAnswerFor
 }
 
 /** The engine's ctx for ONE staff lane — canon `ctxFor` (:7278). The clock the
@@ -873,7 +883,7 @@ function railCtx(lane: BoardLane, input: RailInput): GuardContext {
   const feasible = input.placementFeasible
   return {
     now: input.nowMinute ?? undefined,
-    placementFeasible: feasible ? (start, dur) => feasible(lane, start, dur) : undefined,
+    placementFeasible: feasible ? (start, dur) => feasible(lane, start, dur).laneKey !== null : undefined,
   }
 }
 
@@ -901,7 +911,7 @@ export function guardRailsFor(lanes: BoardLane[], input: RailInput): GuardRail[]
     const cells: RailCell[] = []
     const ctx = railCtx(lane, input)
     for (let start = input.open; start < input.close; start += input.stepMin) {
-      cells.push(railCell(engine, pockets, start, input, ctx))
+      cells.push(railCell(engine, pockets, start, input, ctx, lane))
     }
     rails.push({ laneKey: lane.key, laneLabel: lane.label, cells })
   }
@@ -920,7 +930,7 @@ export function guardVerdictAt(lanes: BoardLane[], laneKey: string, start: numbe
     now: input.nowMinute,
     occupied: laneSpans(lane, input.excludeId),
   })
-  return railCell(createGapGuard(input.guard), pockets, start, input, railCtx(lane, input))
+  return railCell(createGapGuard(input.guard), pockets, start, input, railCtx(lane, input), lane)
 }
 
 function railCell(
@@ -929,6 +939,9 @@ function railCell(
   start: number,
   input: RailInput,
   ctx: GuardContext,
+  /** The lane `ctx` is bound to — so the room branch below can ask the SAME
+   *  question the engine was answered with, and read the half it kept. */
+  lane: BoardLane,
 ): RailCell {
   const blocked = (sentence: string): RailCell => ({
     start, state: 'blocked', label: '—', sentence, alternatives: [], alternativeKind: null, ackAllowed: false, fullHouse: false,
@@ -985,12 +998,11 @@ function railCell(
    *  engine's generic refusal, and a store with no rooms configured cannot
    *  honestly blame a bed. */
   if (v.reason?.code === 'R-UNAVAILABLE') {
+    // The allocator's own answer to the rail's own question — the same search,
+    // the same cache entry the engine's boolean came off (`bedFeasibility`).
+    const rooms = input.placementFeasible?.(lane, start, input.dur)
     return {
-      ...blocked(
-        input.placementFeasible
-          ? `この開始ではベッドを${input.dur}分確保できません`
-          : reasonLine(v.reason, input.protectedDur),
-      ),
+      ...blocked(rooms ? `この開始ではベッドを${input.dur}分確保できません` : reasonLine(v.reason, input.protectedDur)),
       alternatives: v.alternatives,
       alternativeKind: v.alternativeKind,
       // ⚖ flags 80 + 44 — THE MARKER, on the same condition as the sentence.
@@ -1000,7 +1012,16 @@ function railCell(
       // refused this start is the room, and without one the engine's generic
       // refusal must not be allowed to blame a bed the store has not configured
       // (the same honesty the sentence keys on, :967-973).
-      fullHouse: input.placementFeasible != null,
+      //
+      // ⚖ GREPTILE (PR #777) — AND 満室 IS ONLY ONE OF THE TWO ROOM REFUSALS.
+      // The allocator also refuses when this lane has no compatible room AT ALL
+      // (every bed in another store, a 個室 floor over a board with no 個室), and
+      // 満室 there is a word the board cannot back up: nothing is full, the rooms
+      // do not exist, and waiting will never clear them — the chip would say one
+      // thing while the popover's own sentence (「…に使えるベッドがありません」,
+      // `fullRoomsRefusal` :1736) said another. That case keeps the plain 「—」
+      // and the allocator's sentence, so the marker never outruns the answer.
+      fullHouse: rooms?.compatibleRoomsExist === true,
     }
   }
   if (v.verdict === 'ok' || v.verdict === 'exempt') {
@@ -1540,7 +1561,7 @@ export function allocateBed(
      *  it today; its unit facts are still pinned. */
     allowBusy?: boolean
   },
-): { laneKey: string | null; refusal: string | null } {
+): { laneKey: string | null; refusal: string | null; compatibleRoomsExist: boolean } {
   const { id, start, end, policy } = opts
   const blockersOn = (lane: BoardLane) =>
     lane.items.filter(
@@ -1557,9 +1578,21 @@ export function allocateBed(
   const needsPrivate = needsPrivateRoom(opts.vip, policy)
   const compatible = (l: BoardLane) => roomFitsClass(l, opts.vip, policy)
   const free = (l: BoardLane) => opts.allowBusy === true || blockersOn(l).length === 0
-  const current = beds.find((l) => l.key === opts.currentBed)
-  if (current && compatible(current) && free(current)) return { laneKey: current.key, refusal: null }
   const candidates = beds.filter(compatible)
+  /** ⚖ GREPTILE (PR #777) — WHICH OF THE TWO REFUSALS THIS IS, said by the
+   *  search that made it.
+   *
+   *  `laneKey: null` covers two different worlds and the board may only put the
+   *  word 満室 on one of them: rooms this lane could use EXIST and are busy over
+   *  the span (a full house — wait and it clears), versus no compatible room
+   *  exists at all (another store's beds, a 個室 floor over a board with no 個室 —
+   *  waiting changes nothing). `fullRoomsRefusal` already says both in words
+   *  (`rows.length === 0`); this is the same fact as data, so a marker never has
+   *  to be read back out of the prose (⚖ ONE VERDICT: the same filtering, in the
+   *  one assembly, never a second reading of the beds). */
+  const compatibleRoomsExist = candidates.length > 0
+  const current = beds.find((l) => l.key === opts.currentBed)
+  if (current && compatible(current) && free(current)) return { laneKey: current.key, refusal: null, compatibleRoomsExist }
   // 個室 last for a regular booking: it is the room the VIP work needs, so it is
   // spent only when the treatment rooms are gone.
   const ordered =
@@ -1567,8 +1600,12 @@ export function allocateBed(
       ? candidates
       : [...candidates.filter((l) => l.roomClass !== 'private'), ...candidates.filter((l) => l.roomClass === 'private')]
   const taken = ordered.find(free)
-  if (taken) return { laneKey: taken.key, refusal: null }
-  return { laneKey: null, refusal: fullRoomsRefusal(candidates.map((l) => [l, blockersOn(l)] as const), start, end, needsPrivate) }
+  if (taken) return { laneKey: taken.key, refusal: null, compatibleRoomsExist }
+  return {
+    laneKey: null,
+    refusal: fullRoomsRefusal(candidates.map((l) => [l, blockersOn(l)] as const), start, end, needsPrivate),
+    compatibleRoomsExist,
+  }
 }
 
 /** ⚖ LIAM flag 76 (2026-08-23) — THE ROOMS, AS THE GUARD ENGINE'S CTX.
@@ -1598,23 +1635,29 @@ export function bedFeasibility(
   lanes: BoardLane[],
   excludeId: string | null,
   policy: RoomPolicy,
-): ((lane: BoardLane, start: number, dur: number) => boolean) | undefined {
+): BedAnswerFor | undefined {
   const search = bedSearch(lanes, excludeId, policy)
   if (!search) return undefined
   // ponytail: the engine probes a 5-minute lattice per pocket per rail cell, so
   // the same (lane, start, dur) question arrives dozens of times per frame. One
   // map keyed by the question, dying with the board it was built for. Lift it to
   // a shared cache only if a bigger board ever measures slow.
-  const seen = new Map<string, boolean>()
+  const seen = new Map<string, ReturnType<typeof allocateBed>>()
   return (lane, start, dur) => {
     const key = `${lane.key}|${start}|${dur}`
     const hit = seen.get(key)
     if (hit !== undefined) return hit
-    const free = search(lane, start, dur).laneKey !== null
-    seen.set(key, free)
-    return free
+    const answer = search(lane, start, dur)
+    seen.set(key, answer)
+    return answer
   }
 }
+
+/** ⚖ GREPTILE (PR #777) — the WHOLE allocator answer, bound to a board. The
+ *  engine's ctx wants the boolean and the rail's marker wants the reason class,
+ *  and they are two readings of ONE search rather than two searches: the cache
+ *  above hands both readers the same object. */
+export type BedAnswerFor = (lane: BoardLane, start: number, dur: number) => ReturnType<typeof allocateBed>
 
 /** ⚖ ONE SENTENCE (flags 80 + 44, 2026-08-24) — THE SAME SEARCH, ANSWERING IN
  *  FULL.
@@ -1628,7 +1671,7 @@ export function bedFeasibility(
  *  the popover must all be quoting it.
  *
  *  So the question-assembly lives here, once, and `bedFeasibility` is now a
- *  cached boolean view of it. Neither caller can drift on the four fields that
+ *  cached view of it. Neither caller can drift on the four fields that
  *  decide the answer (the held card, the room it carries, its class, the store)
  *  because there is only one place that fills them in. */
 export function bedSearch(
