@@ -44,6 +44,8 @@ import {
   fractionIn,
   allocateBed,
   bedFeasibility,
+  bedSearch,
+  fullHouseRuns,
   gapLayerFor,
   guardRailsFor,
   guardVerdictAt,
@@ -2707,7 +2709,7 @@ describe('the confirm comes to the card, and the consult goes back to the placem
   // the case this kills.
   it('guardCheckRow: safe says nothing, and an advisory is ALWAYS △, never ×', () => {
     const cell = (over: Partial<RailCell>): RailCell => ({
-      start: 990, state: 'safe', label: '', sentence: '', alternatives: [], alternativeKind: null, ackAllowed: true, ...over,
+      start: 990, state: 'safe', label: '', sentence: '', alternatives: [], alternativeKind: null, ackAllowed: true, fullHouse: false, ...over,
     })
     expect(guardCheckRow(null)).toBeNull()
     expect(guardCheckRow(cell({ state: 'safe', sentence: '新規90分の空きを守れます' }))).toBeNull()
@@ -4046,7 +4048,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     landingVerdict(lanes, ask(over), cell)
 
   const cellOf = (state: RailCell['state'], sentence: string): RailCell => ({
-    start: 960, state, label: '', sentence, alternatives: [], alternativeKind: null, ackAllowed: state !== 'blocked',
+    start: 960, state, label: '', sentence, alternatives: [], alternativeKind: null, ackAllowed: state !== 'blocked', fullHouse: false,
   })
 
   // ── the three classes, and the word each one wears ───────────────────────
@@ -4723,7 +4725,7 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
   const staff = (items: BoardItem[] = []) => lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'], items })
   const beds = [lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })]
   const cellOf = (state: RailCell['state'], sentence: string): RailCell => ({
-    start: 630, state, label: '', sentence, alternatives: [], alternativeKind: null, ackAllowed: state !== 'blocked',
+    start: 630, state, label: '', sentence, alternatives: [], alternativeKind: null, ackAllowed: state !== 'blocked', fullHouse: false,
   })
   const askAt = (start: number, dur = 60) => ({
     staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
@@ -5449,7 +5451,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
   const verdict = (lanes: BoardLane[], over = {}, cell: RailCell | null = null) =>
     landingVerdict(lanes, ask(over), cell)
   const cellOf = (state: RailCell['state'], sentence: string): RailCell => ({
-    start: 960, state, label: '', sentence, alternatives: [], alternativeKind: null, ackAllowed: state !== 'blocked',
+    start: 960, state, label: '', sentence, alternatives: [], alternativeKind: null, ackAllowed: state !== 'blocked', fullHouse: false,
   })
   const busyBeds = [
     lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 960, 1020)] }),
@@ -6205,5 +6207,246 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // Plain-create's drop STAYS: nothing stages there, so there is nothing to
     // stamp and nothing that could lie.
     expect(SRC).toContain('(s) => openCreateAt({ staffId: lane.key, start: s }),')
+  })
+})
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * ⚖ LIAM flags 80 + 44 (2026-08-24) — THE BOARD SAYS 満室.
+ *
+ * #773 taught the 60分配置 rail about the rooms, so a bed-starved start stopped
+ * painting ✓. It painted 「—」 instead — the board's single syllable for eight
+ * different refusals — and the staff row itself said nothing at all: a wide,
+ * bookable-looking empty on ごろう's row while every bed was busy with other
+ * people's work. Liam's ruling: that case is visible at a glance, in two places
+ * painted from ONE call.
+ *
+ *   · the rail chip wears the word 満室 instead of the dash;
+ *   · the staff row's own track wears a quarter-intensity hatch over the
+ *     contiguous starved stretch;
+ *   · pressing either says WHY, in the allocator's own sentence.
+ *
+ * The laws under test are the three that make it one feature rather than three
+ * agreeing guesses: ONE VERDICT (the wash's spans ARE the rail's own
+ * R-UNAVAILABLE cells, merged), ONE SENTENCE (`fullRoomsRefusal` via
+ * `allocateBed` — the drop's own generator, never a second spelling), and the
+ * two riders: the wash survives the guide strip's display toggle, and yields
+ * while any gesture is in flight.
+ * ──────────────────────────────────────────────────────────────────────────── */
+describe('⚖ flags 80 + 44 — 満室, said on the chip and washed on the row', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+  const GUARD = {
+    services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
+    newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
+    mode: 'standard' as const,
+  }
+  /** The rail exactly as the screen asks it (TodayScreen :1160-1171): canon's
+   *  30-minute lattice, the standard session, and the rooms plugged in — or not,
+   *  which is a store that has configured none. */
+  const railIn = (lanes: BoardLane[] | null) => ({
+    open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
+    nowMinute: null, locked: [] as string[], guard: GUARD,
+    placementFeasible: lanes ? bedFeasibility(lanes, null, POLICY) : undefined,
+  })
+  const cellsOf = (board: BoardLane[], lanes: BoardLane[] | null = board) =>
+    guardRailsFor(board, railIn(lanes))[0].cells
+  const at = (board: BoardLane[], minute: number) => cellsOf(board).find((c) => c.start === minute)!
+
+  /** 見本 ごろう, free 10:00–19:00 — the row Liam was looking at. The guard alone
+   *  is honestly ✓ across the whole afternoon; the only thing that can refuse a
+   *  start here is a room. */
+  const staff = (over: Partial<BoardLane> = {}) =>
+    lane({ key: 'p-01', group: 'staff', label: '見本 ごろう', stores: ['store-a'], window: { from: 600, until: 1140 }, untilLabel: '19:00', ...over })
+  const bed = (key: string, label: string, items: BoardItem[] = []) =>
+    lane({ key, group: 'beds', label, items })
+  /** His own 16:00 scene, one hour wide: both rooms taken by other people's
+   *  bookings 16:00–17:00, ごろう standing free in front of them. */
+  const busy = () => [
+    staff(),
+    bed('bed-01', 'ベッド1', [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 960, 1020)]),
+    bed('bed-02', 'ベッド2', [booking({ key: 'b2', caseId: 'x2', title: '見本 あかり' }, 960, 1020)]),
+  ]
+
+  // ── W1 ───────────────────────────────────────────────────────────────────
+  it('W1 — every start the rooms refuse carries the marker; its bed-free neighbours do not', () => {
+    const board = busy()
+    // A 60 starting at 15:30, 16:00 or 16:30 all run into the 16:00–17:00 hour.
+    for (const start of [930, 960, 990]) {
+      const c = at(board, start)
+      expect(c.state).toBe('blocked')
+      expect(c.fullHouse).toBe(true)
+      expect(c.sentence).toBe('この開始ではベッドを60分確保できません')
+      // canon :7330-7334 — a room block is a FACT, never an override.
+      expect(c.ackAllowed).toBe(false)
+    }
+    // 15:00 ends where the busy hour begins and is a placeable start; 17:00
+    // starts where it ends and the GUARD refuses it on its own. Neither may
+    // wear the word — and the second is the pin that matters, because it proves
+    // the marker is about the ROOM rather than about the colour grey: a blocked
+    // cell that is not bed-class keeps canon's dash.
+    expect(at(board, 900).fullHouse).toBe(false)
+    expect(at(board, 900).state).toBe('degraded')
+    expect(at(board, 1020).state).toBe('blocked')
+    expect(at(board, 1020).fullHouse).toBe(false)
+    // ⚖ 73 / TEST:4030 generalised — 満室 OUTRANKS THE GUARD, and the engine
+    // already orders it that way (`attemptedFeasible` is tested before the loss
+    // ranking, gap-guard :347-377). 15:30 is a start the guard would refuse on
+    // its own too (see W7's blind board), and it still says 満室: the room is a
+    // fact about the world and the guard's is a judgement about the day.
+    expect(cellsOf(board, null).find((c) => c.start === 930)!.state).toBe('blocked')
+    // Nothing else on the board is marked either — the whole rest of the day.
+    expect(cellsOf(board).filter((c) => c.fullHouse).map((c) => c.start)).toEqual([930, 960, 990])
+    // The RENDERER's half: the marked chip drops the dash for the word, and only
+    // at rest — the moment something is in hand, flag 50's one verdict answers
+    // for THAT card and the × is the more specific truth.
+    expect(SRC).toContain('const fullHouse = c.fullHouse && !v')
+    expect(SRC).toContain("              ? '満室'")
+    expect(SRC).toContain("${fullHouse ? ' full-house' : ''}")
+  })
+
+  // ── W2 ───────────────────────────────────────────────────────────────────
+  it('W2 — the wash runs ARE the marked cells, merged; never a second bed reading', () => {
+    const board = busy()
+    const cells = cellsOf(board)
+    // 15:30 / 16:00 / 16:30 are contiguous on canon's 30-minute lattice, so they
+    // are ONE stretch — and it covers the STARTS it is made of (15:30〜17:00),
+    // not start→start+dur: a 17:00 start genuinely fits, and a wash claiming
+    // otherwise is a lie the owner can see on his own board.
+    expect(fullHouseRuns(cells, 30)).toEqual([{ start: 930, end: 1020 }])
+    // DERIVED, not re-read: hand it cells and the answer is a pure function of
+    // their markers. A second bed reading cannot reach this.
+    const mark = (start: number, fullHouse: boolean): RailCell =>
+      ({ start, state: 'blocked', label: '—', sentence: '', alternatives: [], alternativeKind: null, ackAllowed: false, fullHouse })
+    expect(fullHouseRuns([mark(600, true), mark(630, true), mark(660, false), mark(690, true)], 30))
+      .toEqual([{ start: 600, end: 660 }, { start: 690, end: 720 }])
+    // Off-by-one either way is a different answer: a run may not swallow the
+    // free start after it, nor stop one step short of its own last cell.
+    expect(fullHouseRuns([mark(600, true)], 30)).toEqual([{ start: 600, end: 630 }])
+    expect(fullHouseRuns([], 30)).toEqual([])
+    // The same insurance `guardRailsFor` takes on the same dial (:876).
+    expect(fullHouseRuns([mark(600, true)], 0)).toEqual([])
+    // …and the screen paints from the rail's OWN cells on the rail's own step.
+    expect(SRC).toContain('fullHouseRuns(rail.cells, RAIL_STEP_MIN)')
+    expect(SRC).toContain('stepMin: RAIL_STEP_MIN,')
+  })
+
+  // ── W3 ───────────────────────────────────────────────────────────────────
+  it('W3 — the popover speaks the DROP’s own 満室 sentence, character for character', () => {
+    const board = busy()
+    const search = bedSearch(board, null, POLICY)!
+    const said = search(board[0], 960, 60).refusal
+    // ⚖ 44 + 51's sentence: the window it judged, then the rooms and who is in
+    // them. One author — `fullRoomsRefusal`.
+    expect(said).toBe('16:00〜17:00はベッドが満室です。ベッド1が使用中（見本 かえる様）、ベッド2が使用中（見本 あかり様）')
+    // …and it IS the drop's, not a look-alike: the same allocator call the
+    // landing makes for the same window returns the identical string.
+    expect(said).toBe(
+      allocateBed(board, { id: null, currentBed: null, stores: board[0].stores, vip: false, start: 960, end: 1020, policy: POLICY }).refusal,
+    )
+    // The boolean the rail marks with and the sentence the box reads come out of
+    // ONE search — `bedFeasibility` is now a cached view of `bedSearch`, so the
+    // two cannot disagree about which rooms were asked.
+    const feasible = bedFeasibility(board, null, POLICY)!
+    expect(feasible(board[0], 960, 60)).toBe(search(board[0], 960, 60).laneKey !== null)
+    expect(feasible(board[0], 960, 60)).toBe(false)
+    // The screen QUOTES it. A hardcoded sentence here is the second spelling
+    // this pin exists to stop.
+    expect(SRC).toContain('const refusal = bedSearch(boardLanes, live?.id ?? pending?.id ?? null, props.rooms)?.(lane, start, railDur).refusal')
+    expect(SRC).toContain('      reason: refusal,')
+    expect(SRC).not.toContain("reason: '満室")
+    // The rail's own question, character for character, so a future edit cannot
+    // move the strip's dur without moving the box's.
+    expect(SRC).toContain('excludeId: live?.id ?? pending?.id ?? null,')
+    // Both surfaces open the SAME box — the chip and the wash, one function.
+    expect(SRC).toContain('onClick={(e) => openFullHouse(rail.laneKey, c.start, { x: e.clientX, y: e.clientY, t: e.timeStamp })}')
+    expect(SRC).toContain('onClick={(e) => openFullHouse(lane.key, run.start, { x: e.clientX, y: e.clientY, t: e.timeStamp })}')
+    // …and it is the 置けない popover family, not a new surface: ⚖ 33's dismissal
+    // stamp, ⚖ 35's four-edge clamp, ⚖ 73's room class.
+    expect(SRC).toContain('adviceOpenedAt.current = at.t')
+    expect(SRC).toContain("      floor: 'hard-room',")
+    // Nothing is being placed, so nothing here can place (⚖ 47 / ⚖ 31c).
+    expect(SRC).toContain('      cell: null,')
+    expect(SRC).toContain('      place: () => {},')
+  })
+
+  // ── W4 ───────────────────────────────────────────────────────────────────
+  it('W4 — the wash yields while a gesture is in flight, and returns on teardown', () => {
+    // The gate is derived state, so "returns after teardown" is the same fact as
+    // "every flag clears": there is no class to strand on a node.
+    expect(SRC).toContain('const gestureInFlight = live != null || blockLive != null || chipTarget != null || dragLen != null')
+    expect(SRC).toContain('{rail && !gestureInFlight &&')
+    // Each of the four is put down by a real teardown path.
+    expect(SRC).toContain('setLive(null)')
+    expect(SRC).toContain('setBlockLive(null)')
+    expect(SRC).toContain('    setChipTarget(null)\n    setDragLen(null)')
+    // The chips are the rail's own and keep following it: mid-drag the strip
+    // re-judges for the card in hand, which is why `fullHouse` is gated on `!v`
+    // (pinned in W1) rather than on this flag.
+  })
+
+  // ── W5 ───────────────────────────────────────────────────────────────────
+  it('W5 — the wash survives the guide strip’s display toggle', () => {
+    // ⚖ Liam's rider: a full house is sell-truth, not a guard display
+    // preference. The toggle's two hide rules name the STRIP and nothing else…
+    const hide = CSS.split('\n').filter((l) => l.includes('guard-guide-mode-hidden') || l.includes('guard-guide-mode-drag'))
+    expect(hide.length).toBeGreaterThan(0)
+    for (const rule of hide) expect(rule).not.toContain('cell-fullhouse')
+    expect(CSS).toContain('.biz .timeline.guard-guide-mode-hidden .guard-placement-rail { display: none; }')
+    // …and the wash is not in the strip: it is painted on the LANE's own track,
+    // before the cards, so no rule that hides `.guard-placement-rail` can reach
+    // it. `renderRail` starts after the wash's markup, which is the structural
+    // half of the same fact.
+    const wash = SRC.indexOf('className="cell-fullhouse"')
+    const rail = SRC.indexOf('function renderRail(')
+    const track = SRC.indexOf('className={`track${dropTarget?.laneKey === lane.key')
+    expect(wash).toBeGreaterThan(track)
+    expect(wash).toBeLessThan(rail)
+    // Quarter intensity, the grey family, no new palette entry, and it never
+    // reads as a booking or a block (R13 / the calm-board rulings).
+    expect(CSS).toContain('.biz .cell-fullhouse {')
+    expect(CSS).toContain('background-image: repeating-linear-gradient(135deg, rgba(102, 89, 79, .085) 0 4px, transparent 4px 8px);')
+    expect(CSS).toContain('.biz .guard-rail-cell.full-house {')
+  })
+
+  // ── W6 ───────────────────────────────────────────────────────────────────
+  it('W6 — one free room over the span and there is no wash and no 満室 chip', () => {
+    const board = [...busy(), bed('bed-03', 'ベッド3')]
+    for (const start of [930, 960, 990]) expect(at(board, start).fullHouse).toBe(false)
+    // The two the rooms had been refusing come back as the guard's own answer —
+    // 16:00 and 16:30 are placeable again. 15:30 stays 「—」 because the GUARD
+    // refuses it, which is the point: freeing a room does not buy the guard off.
+    expect(at(board, 960).state).toBe('degraded')
+    expect(at(board, 990).state).toBe('degraded')
+    expect(at(board, 930).state).toBe('blocked')
+    expect(cellsOf(board).some((c) => c.fullHouse)).toBe(false)
+    expect(fullHouseRuns(cellsOf(board), 30)).toEqual([])
+    // Freeing a room only PART of the hour is not freeing it: the span is 60
+    // minutes and the rooms have to be free for all of them.
+    const partial = [...busy(), bed('bed-03', 'ベッド3', [booking({ key: 'b3', caseId: 'x3', title: 'X' }, 990, 1020)])]
+    expect(at(partial, 960).fullHouse).toBe(true)
+    expect(at(partial, 990).fullHouse).toBe(true)
+    // …and at 15:30 ベッド3 is free for the whole [15:30, 16:30) span.
+    expect(at(partial, 930).fullHouse).toBe(false)
+  })
+
+  // ── W7 ───────────────────────────────────────────────────────────────────
+  it('W7 — a store with no rooms configured has nothing to mark', () => {
+    // canon's `SCENARIO.needsBed === false` (:7261): no callback, so the engine
+    // never asks, so no `R-UNAVAILABLE` can be bed-class.
+    const roomless = [staff()]
+    expect(bedFeasibility(roomless, null, POLICY)).toBeUndefined()
+    expect(bedSearch(roomless, null, POLICY)).toBeUndefined()
+    expect(cellsOf(roomless).some((c) => c.fullHouse)).toBe(false)
+    expect(fullHouseRuns(cellsOf(roomless), 30)).toEqual([])
+    // The marker rides the CALLBACK, not the sentence: the same busy board asked
+    // without the rooms is the pre-#773 strip, and nothing on it is marked.
+    const blind = cellsOf(busy(), null)
+    expect(blind.some((c) => c.fullHouse)).toBe(false)
+    // Liam's original complaint, preserved: asked without the rooms the strip
+    // called 16:00 placeable while all three beds were taken.
+    expect(blind.find((c) => c.start === 960)!.state).toBe('degraded')
+    expect(blind.find((c) => c.start === 960)!.label).toBe('△16:00')
+    // And the screen refuses to open a box it has no sentence for.
+    expect(SRC).toContain('    if (!refusal) return')
   })
 })

@@ -780,6 +780,19 @@ export interface RailCell {
   alternativeKind: 'safe' | 'least-loss' | null
   /** canon's `ackAllowed`: standard mode lets the 操作者 place anyway. */
   ackAllowed: boolean
+  /** ⚖ LIAM flags 80 + 44 (2026-08-24) — WHICH BLOCKED CELLS ARE BED-CLASS.
+   *
+   *  A 「—」 is the board's one word for eight different refusals, and the one
+   *  the staff row cannot show for itself is the room: the person is free, the
+   *  pocket holds, and every compatible bed is busy. Liam's ruling is that this
+   *  case says 満室 out loud on the chip and washes the staff row's own gap, so
+   *  the renderer needs to know WHICH refusal it is holding.
+   *
+   *  Set at the single site that decides it (`railCell`'s `R-UNAVAILABLE`
+   *  branch, gated on the same `placementFeasible` the sentence is gated on) and
+   *  never re-derived from the sentence string: a marker read back out of prose
+   *  is a second verdict wearing the first one's clothes. */
+  fullHouse: boolean
 }
 
 export interface GuardRail {
@@ -918,7 +931,7 @@ function railCell(
   ctx: GuardContext,
 ): RailCell {
   const blocked = (sentence: string): RailCell => ({
-    start, state: 'blocked', label: '—', sentence, alternatives: [], alternativeKind: null, ackAllowed: false,
+    start, state: 'blocked', label: '—', sentence, alternatives: [], alternativeKind: null, ackAllowed: false, fullHouse: false,
   })
   const pocket = pockets.find((p) => start >= p.s && start + input.dur <= p.e)
   if (!pocket) {
@@ -980,6 +993,14 @@ function railCell(
       ),
       alternatives: v.alternatives,
       alternativeKind: v.alternativeKind,
+      // ⚖ flags 80 + 44 — THE MARKER, on the same condition as the sentence.
+      // `attemptedFeasible` (gap-guard :347-348) is the pocket bounds AND the
+      // callback, and the branch above already answered when the pocket did not
+      // hold — so with a callback present the ONLY thing left that can have
+      // refused this start is the room, and without one the engine's generic
+      // refusal must not be allowed to blame a bed the store has not configured
+      // (the same honesty the sentence keys on, :967-973).
+      fullHouse: input.placementFeasible != null,
     }
   }
   if (v.verdict === 'ok' || v.verdict === 'exempt') {
@@ -988,7 +1009,7 @@ function railCell(
     const sentence = v.protectedCapacityBefore === 0
       ? `配置できます。この区間には現在、守れる新規${input.protectedDur}分の空きはありません`
       : `新規${input.protectedDur}分の空きを守れます`
-    return { start, state: 'safe', label: `✓${clockOf(start)}`, sentence, alternatives: [], alternativeKind: null, ackAllowed: true }
+    return { start, state: 'safe', label: `✓${clockOf(start)}`, sentence, alternatives: [], alternativeKind: null, ackAllowed: true, fullHouse: false }
   }
   if (v.verdict === 'degraded') {
     const loss = Math.max(0, v.protectedCapacityBefore - v.protectedCapacityAfter)
@@ -1000,6 +1021,7 @@ function railCell(
       alternatives: v.alternatives,
       alternativeKind: v.alternativeKind,
       ackAllowed: true,
+      fullHouse: false,
     }
   }
   return {
@@ -1008,6 +1030,32 @@ function railCell(
     alternativeKind: v.alternativeKind,
     ackAllowed: v.reason?.ackAllowed === true,
   }
+}
+
+/** ⚖ LIAM flags 80 + 44 (2026-08-24) — THE STARVED STRETCH, MERGED FROM THE
+ *  RAIL'S OWN CELLS.
+ *
+ *  ONE VERDICT (§A8): the wash the staff row wears is not a second reading of
+ *  the beds — it is the same `RailCell[]` the chips above it are painted from,
+ *  merged into runs. Chips and wash therefore agree by construction, and both
+ *  trace to `bedFeasibility` → `allocateBed`, which is the drop's own search.
+ *
+ *  A run covers the STARTS it is made of, not start→start+dur. Liam's own
+ *  reading of the mock: 14:00 and 14:30 refused means the wash is 14:00〜15:00,
+ *  because a 15:00 start where ベッド2's 清掃 ends at 15:00 genuinely fits, and
+ *  a wash claiming otherwise is a lie the owner can see on his own board. */
+export function fullHouseRuns(cells: RailCell[], stepMin: number): Array<{ start: number; end: number }> {
+  // The same insurance `guardRailsFor` takes on the same dial (:876): a step
+  // that is not a step describes no stretch, so it describes none.
+  if (stepMin <= 0) return []
+  const runs: Array<{ start: number; end: number }> = []
+  for (const c of cells) {
+    if (!c.fullHouse) continue
+    const last = runs[runs.length - 1]
+    if (last && last.end === c.start) last.end = c.start + stepMin
+    else runs.push({ start: c.start, end: c.start + stepMin })
+  }
+  return runs
 }
 
 /** ⚖ LIAM flag 58 RIDER (2026-08-22) — AN ENGINE START IS NOT YET AN OFFER.
@@ -1551,11 +1599,8 @@ export function bedFeasibility(
   excludeId: string | null,
   policy: RoomPolicy,
 ): ((lane: BoardLane, start: number, dur: number) => boolean) | undefined {
-  if (!lanes.some((l) => l.group === 'beds')) return undefined
-  const held = excludeId ? lanes.flatMap((l) => l.items).find((i) => i.caseId === excludeId) : undefined
-  const currentBed = excludeId
-    ? (lanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === excludeId))?.key ?? null)
-    : null
+  const search = bedSearch(lanes, excludeId, policy)
+  if (!search) return undefined
   // ponytail: the engine probes a 5-minute lattice per pocket per rail cell, so
   // the same (lane, start, dur) question arrives dozens of times per frame. One
   // map keyed by the question, dying with the board it was built for. Lift it to
@@ -1565,19 +1610,47 @@ export function bedFeasibility(
     const key = `${lane.key}|${start}|${dur}`
     const hit = seen.get(key)
     if (hit !== undefined) return hit
-    const free =
-      allocateBed(lanes, {
-        id: excludeId,
-        currentBed,
-        stores: lane.stores,
-        vip: held?.category === 'vip',
-        start,
-        end: start + dur,
-        policy,
-      }).laneKey !== null
+    const free = search(lane, start, dur).laneKey !== null
     seen.set(key, free)
     return free
   }
+}
+
+/** ⚖ ONE SENTENCE (flags 80 + 44, 2026-08-24) — THE SAME SEARCH, ANSWERING IN
+ *  FULL.
+ *
+ *  `bedFeasibility` throws the interesting half away: the engine's ctx wants a
+ *  boolean, so the allocator's own 満室 sentence — which names the window and
+ *  every busy room — is computed and dropped on every refused rail cell. The
+ *  chip's popover needs exactly that sentence, and it may not be spelled a
+ *  second time: 「16:00〜17:00はベッドが満室です。ベッド1が使用中（…）」 has ONE
+ *  author (`fullRoomsRefusal`, via `allocateBed`), and the drop, the rail and
+ *  the popover must all be quoting it.
+ *
+ *  So the question-assembly lives here, once, and `bedFeasibility` is now a
+ *  cached boolean view of it. Neither caller can drift on the four fields that
+ *  decide the answer (the held card, the room it carries, its class, the store)
+ *  because there is only one place that fills them in. */
+export function bedSearch(
+  lanes: BoardLane[],
+  excludeId: string | null,
+  policy: RoomPolicy,
+): ((lane: BoardLane, start: number, dur: number) => ReturnType<typeof allocateBed>) | undefined {
+  if (!lanes.some((l) => l.group === 'beds')) return undefined
+  const held = excludeId ? lanes.flatMap((l) => l.items).find((i) => i.caseId === excludeId) : undefined
+  const currentBed = excludeId
+    ? (lanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === excludeId))?.key ?? null)
+    : null
+  return (lane, start, dur) =>
+    allocateBed(lanes, {
+      id: excludeId,
+      currentBed,
+      stores: lane.stores,
+      vip: held?.category === 'vip',
+      start,
+      end: start + dur,
+      policy,
+    })
 }
 
 /** canon `renderHoldBar`'s summary line (:4769): who, when, on whom, on what.

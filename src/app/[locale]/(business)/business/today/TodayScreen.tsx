@@ -66,6 +66,8 @@ import {
   applyBlockMoves,
   applyMoves,
   bedFeasibility,
+  bedSearch,
+  fullHouseRuns,
   blockChrome,
   blockClash,
   blockDragModeAt,
@@ -125,6 +127,12 @@ import {
 } from './today-interactions'
 
 const HINT = '見本データのため実行できません'
+
+/** canon's own rail lattice (`renderSlotBoxes` :7543): every exact 30-minute
+ *  start. Named because the 満室 wash merges the SAME cells the strip paints, so
+ *  the two must be walking one grid — a wash built on a different step would
+ *  draw stretches that no chip under it agrees with. */
+const RAIL_STEP_MIN = 30
 
 /** ⚖ Liam flag 47 — how long the board's own voice stays on screen. The shipped
  *  3.2s is right for a message that CONFIRMS something the operator can already
@@ -1087,6 +1095,19 @@ export function TodayScreen(props: TodayProps) {
         ? { laneKey: chipTarget, x: 0, w: 0 }
         : null
 
+  /** ⚖ LIAM flags 80 + 44 RIDER (2026-08-24) — THE 満室 WASH YIELDS TO THE
+   *  GESTURE. While anything is in flight the drag preview and flag 50's × own
+   *  the track, so the resting explanation comes off rather than compositing a
+   *  fourth wash under the one the operator is aiming with.
+   *
+   *  The same three flags `dropTarget` reads above, plus the board's own
+   *  drag-live spelling (`dragLen`, :3632's class): a chip carried across dead
+   *  space has a length in hand and no lane under it, and a wash sliding back in
+   *  underneath a travelling card is exactly the flicker this rider forbids.
+   *  Every one of the four clears on every teardown path (`clearChipDrag`,
+   *  `setLive(null)`, `setBlockLive(null)`), so the wash returns by itself. */
+  const gestureInFlight = live != null || blockLive != null || chipTarget != null || dragLen != null
+
   const price = clampPriceInputs(appliedPrice.hi, appliedPrice.lo, dialogs.pricing)
   const depth = Math.round((1 - price.lo / price.hi) * 100)
   const frame = useMemo(
@@ -1160,7 +1181,7 @@ export function TodayScreen(props: TodayProps) {
         ? guardRailsFor(boardLanes, {
             open: hours.open,
             close: hours.close,
-            stepMin: 30,
+            stepMin: RAIL_STEP_MIN,
             dur: railDur,
             protectedDur: props.guard.protectedDurationMin,
             nowMinute: props.sell.nowMinute,
@@ -3071,6 +3092,52 @@ export function TodayScreen(props: TodayProps) {
    *  transient surface is ever alive. Canon guarantees it on `bindDemoPointer`'s
    *  pointerdown (:7779); ours hangs off the board root, which every card, block
    *  and track gesture passes through, plus the shelf chip's own press. */
+  /** ⚖ LIAM flags 80 + 44 (2026-08-24) — THE BOARD SAYS 満室, AND THEN SAYS WHY.
+   *
+   *  The chip and the wash are two paintings of one array of `RailCell`s, and
+   *  this is the third: press either and the SAME question the rail already
+   *  asked is asked once more in full, so the popover can name the window and
+   *  every busy room. `bedSearch` is that question — literally the search
+   *  `bedFeasibility` ran to mark the cell, with the answer's sentence kept
+   *  instead of thrown away — so the box cannot spell a refusal the strip above
+   *  it did not make (⚖ ONE SENTENCE: `fullRoomsRefusal` has one author).
+   *
+   *  `railDur` and the exclude id are the RAIL'S OWN, character for character
+   *  (:1170): the wash only paints at rest, where that is canon's standard
+   *  session, and reading them from the same expressions is what stops a future
+   *  edit from moving the strip's question without moving this one.
+   *
+   *  It is the 置けない popover, unchanged — canon's `placePopNear` anchor, ⚖ 35's
+   *  four-edge clamp, ⚖ 33's dismissal contract. `cell: null` because there is
+   *  nothing in hand and therefore nothing to offer: this surface explains a
+   *  board at rest, and a 「16:00に置く」 button here would name a placement no
+   *  gesture has proposed (⚖ 31c — a button that lies about what it will do). */
+  function openFullHouse(laneKey: string, start: number, at: { x: number; y: number; t: number }) {
+    const lane = boardLanes.find((l) => l.key === laneKey && l.group === 'staff')
+    if (!lane) return
+    const refusal = bedSearch(boardLanes, live?.id ?? pending?.id ?? null, props.rooms)?.(lane, start, railDur).refusal
+    if (!refusal) return
+    adviceOpenedAt.current = at.t
+    setAdvice({
+      laneKey,
+      start,
+      cell: null,
+      kind: 'blocked',
+      // ⚖ 73's class, carried rather than re-derived: a full house is a fact
+      // about ROOMS, which is what makes it ack-less everywhere else too.
+      floor: 'hard-room',
+      roomWord: needsPrivateRoom(false, props.rooms) ? '個室' : 'ベッド',
+      facts: null,
+      reason: refusal,
+      anchor: { x: at.x, y: at.y },
+      // ⚖ 47 — nothing is being placed, so nothing here can place. Unreachable
+      // by construction: both readers of `place` are gated on `advice.cell`.
+      place: () => {},
+      override: null,
+      attempt: null,
+    })
+  }
+
   function closeAdvice() {
     if (advice) setAdvice(null)
     // ⚖ 39 rides the same invariant: the block advisor is a transient surface on
@@ -3816,6 +3883,38 @@ export function TodayScreen(props: TodayProps) {
                 </span>
               )
             })}
+          {/* ⚖ LIAM flags 80 + 44 (2026-08-24) — THE STAFF ROW'S OWN GAP SAYS
+              満室. His scene: a wide bookable-looking empty on ごろう's row while
+              every bed is busy with other people's work — the blocker was real,
+              on the board, and invisible on the row it stops.
+              ONE VERDICT (§A8): the runs ARE the rail's R-UNAVAILABLE cells
+              merged (`fullHouseRuns`), never a second bed reading, so this wash
+              and the 満室 chips under it cannot disagree.
+              SURVIVES THE TOGGLE (⚖ Liam rider): it lives on the LANE's track,
+              not in the strip, so the guide's display mode — which hides
+              `.guard-placement-rail` and nothing else — never takes it off. A
+              full house is sell-truth, not a guard preference.
+              The same percent math the sell layer above it uses, so the wash
+              lines up with the price boxes it is explaining. */}
+          {rail && !gestureInFlight &&
+            fullHouseRuns(rail.cells, RAIL_STEP_MIN).map((run) => {
+              const span = place(run.start, run.end, hours)
+              return (
+                <button
+                  className="cell-fullhouse"
+                  type="button"
+                  key={`fh-${run.start}`}
+                  style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
+                  // No room NOUN here: 「ベッド」 vs 「個室」 is the allocator's
+                  // word (⚖ 51), and a label that guesses it is a second
+                  // spelling of the one sentence. The press says which.
+                  aria-label={`${lane.label}、${hhmm(run.start)}〜${hhmm(run.end)}は満室です。理由を見る`}
+                  onClick={(e) => openFullHouse(lane.key, run.start, { x: e.clientX, y: e.clientY, t: e.timeStamp })}
+                >
+                  <i>満室</i>
+                </button>
+              )
+            })}
           {landing?.laneKey === lane.key && landing.w > 0 && (
             <div className="drop-ghost" aria-hidden="true" style={{ '--x': `${landing.x}%`, '--w': `${landing.w}%` } as React.CSSProperties} />
           )}
@@ -3878,13 +3977,39 @@ export function TodayScreen(props: TodayProps) {
             // byte-identical to canon's.
             const v = inHand ? verdictFor({ ...inHand, staffLane: rail.laneKey, span: place(c.start, c.start + railDur, hours) }, c) : null
             const state = v ? (v.kind === 'blocked' ? 'blocked' : v.kind === 'caution' ? 'degraded' : 'safe') : c.state
+            // ⚖ LIAM flags 80 + 44 (2026-08-24) — THE BED-CLASS 「—」 STOPS BEING
+            // A 「—」. Grey dash is the board's one word for eight refusals, and
+            // the operator cannot tell the room apart from the person from it.
+            // Only at REST: the moment something is in hand this cell answers
+            // for THAT card through the one verdict (flag 50's ×), which is a
+            // different and more specific question than "is a room free at all".
+            const fullHouse = c.fullHouse && !v
             const label = v
               ? (v.kind === 'blocked' ? '×' : v.kind === 'caution' ? `△${hhmm(c.start)}` : `✓${hhmm(c.start)}`)
-              : c.label
-            return (
+              : fullHouse
+                ? '満室'
+                : c.label
+            // ⚖ flag 50(c) — canon's `.aimed`, in sync with the dashed landing.
+            const cls = `guard-rail-cell ${state === 'safe' ? 'guard-slot safe' : state}${fullHouse ? ' full-house' : ''}${v?.kind === 'blocked' ? ' inert' : ''}${aimed?.laneKey === rail.laneKey && aimed.start === c.start ? ' aimed' : ''}`
+            // A 満室 chip is the one rail cell that ANSWERS — canon's strip is
+            // 「表示だけの」 guidance and stays a `role="img"` statement everywhere
+            // else. Pressing this one opens the same 置けない box the wash opens,
+            // reading the same sentence; it still places nothing.
+            return fullHouse ? (
+              <button
+                className={cls}
+                type="button"
+                key={c.start}
+                data-start={c.start}
+                data-state={state}
+                aria-label={`${rail.laneLabel}、${hhmm(c.start)}。${c.sentence}。理由を見る`}
+                onClick={(e) => openFullHouse(rail.laneKey, c.start, { x: e.clientX, y: e.clientY, t: e.timeStamp })}
+              >
+                <i>{label}</i>
+              </button>
+            ) : (
               <span
-                // ⚖ flag 50(c) — canon's `.aimed`, in sync with the dashed landing.
-                className={`guard-rail-cell ${state === 'safe' ? 'guard-slot safe' : state}${v?.kind === 'blocked' ? ' inert' : ''}${aimed?.laneKey === rail.laneKey && aimed.start === c.start ? ' aimed' : ''}`}
+                className={cls}
                 key={c.start}
                 data-start={c.start}
                 data-state={state}

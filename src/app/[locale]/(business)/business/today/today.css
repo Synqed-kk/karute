@@ -722,6 +722,55 @@
    on .cell-price above. */
 .biz .lane.locked .cell-gapfill, .biz .lane.locked .cell-packed { display: none; }
 
+/* ── ⚖ LIAM flags 80 + 44 (2026-08-24) — 満室ウォッシュ ────────────────────────
+   The staff row's own gap, over the stretch whose every start the rooms refuse.
+   Liam's scene: a wide bookable-looking empty on one row while all three beds
+   are busy with other people's work — real, on the board, invisible on the row
+   it stops.
+
+   QUARTER INTENSITY, and that number is the mock's: rgba(102, 89, 79, .085) is
+   about a quarter of the 清掃 block's own hatch (`#ebe6e0`/`#f4f1ec` at :595),
+   at canon's identical 135deg / 4px / 8px geometry. Same grey family, no new
+   palette entry, nothing saturated — it must never read as a booking or a
+   block, which is the whole reason it is a hatch rather than a fill.
+
+   DELIBERATE DEVIATION FROM THE MOCK, one property: the mock paints an opaque
+   `background-color:#fdfcfb` under its hatch, because its demo row has no price
+   boxes beneath the wash. The real board's starved stretch is exactly where the
+   sell layer HAS painted ¥ boxes — that contradiction is the thing the operator
+   is being shown — so an opaque fill here would delete the evidence. The hatch
+   rides transparent over whatever the sell layer said, and the ¥ underneath
+   survives. Whether a starved stretch should still advertise a price at all is
+   a product question, and it is not this round's to answer.
+
+   `z-index: 1` puts it over both price layers and under the cards, which are
+   later in DOM at the same level. It is a BUTTON — the one press that opens the
+   満室 sentence — so it carries no accent and no dark fill (R13 / the one-way
+   accent law: a pressable may be quieter than accent). */
+.biz .cell-fullhouse {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: calc(var(--x) + 1px);
+  width: calc(var(--w) - 2px);
+  border: 0;
+  border-radius: 4px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  padding: 3px 5px;
+  overflow: hidden;
+  text-align: left;
+  font-family: inherit;
+  background-color: transparent;
+  background-image: repeating-linear-gradient(135deg, rgba(102, 89, 79, .085) 0 4px, transparent 4px 8px);
+  z-index: 1;
+  cursor: pointer;
+}
+.biz .cell-fullhouse i { font-style: normal; font-size: 10px; color: #8a8a93; line-height: 1; }
+.biz .cell-fullhouse:hover { background-color: rgba(102, 89, 79, .03); }
+.biz .lane.locked .cell-fullhouse { display: none; }
+
 /* ── スキマガード 60分配置ガイド (canon :626–686) ──────────────────────────
    An 18px status rail follows each staff lane: every exact 30-minute start,
    judged by the guard engine, without covering a card or a price. Purple ✓ =
@@ -738,6 +787,27 @@
 .biz .guard-rail-cell.guard-slot { border: 1px solid #7656a8; background: var(--guard-soft); color: var(--guard-dark); cursor: pointer; }
 .biz .guard-rail-cell.degraded { border: 1px solid #cf8427; background: #fff0d9; color: #8b4e06; cursor: pointer; }
 .biz .guard-rail-cell.blocked { border: 1px solid #e0e0e5; background: #f2f2f4; color: #8a8a93; }
+/* ⚖ LIAM flags 80 + 44 (2026-08-24) — 満室チップ = the blocked chip's own face,
+   plus the wash's quarter-intensity hatch and a 3px corner dot, exactly as the
+   mock draws it. It stays inside `.blocked`'s grey: the difference is not a new
+   colour but a WORD — 「—」 is the board's single syllable for eight refusals,
+   and the operator cannot tell a busy room from a busy person out of it.
+   The cell is a `<button>` in this state only, so `cursor` and the hover live
+   here: `.guard-rail-cell:hover:not(.blocked)` at :760 deliberately excludes
+   every grey chip, and the mock's own `filter: brightness(.96)` is the quieter
+   press feedback a statement-turned-control should get. */
+.biz .guard-rail-cell.full-house {
+  border: 1px solid #e0e0e5;
+  background-color: #f2f2f4;
+  background-image: repeating-linear-gradient(135deg, rgba(102, 89, 79, .085) 0 4px, transparent 4px 8px);
+  color: #8a8a93;
+  cursor: pointer;
+}
+.biz .guard-rail-cell.full-house::after { content: ""; position: absolute; right: 2px; top: 2px; width: 3px; height: 3px; border-radius: 50%; background: rgba(102, 89, 79, .42); }
+/* The rail's -.6px tracking is for tabular CLOCK digits; two CJK glyphs need it
+   off, the same correction `.inert i` already makes for its ×. */
+.biz .guard-rail-cell.full-house i { letter-spacing: 0; }
+.biz .guard-rail-cell.full-house:hover { filter: brightness(.96); }
 /* ⚖ Liam flag 50(c) — `.aimed` is canon's third selector on this exact rule
    (:667): the chip the drag is pointing at wears the hover treatment, so the
    dashed landing preview and the 60分配置 strip say the same thing at the same
