@@ -107,9 +107,14 @@ export function buildSessionsListScreen(args: {
     duration_minutes?: number | null
   }
 
-  // mergeKaruteRows still gives us the sort (session_date ?? created_at desc) +
-  // 200-cap; there's no longer a Supabase side to union in.
-  const records = mergeKaruteRows<RecordRow>([], synqedKaruteRows)
+  // mergeKaruteRows still gives us the sort (session_date ?? created_at desc)
+  // and the id dedupe; there's no longer a Supabase side to union in. The
+  // limit is the input's own length, i.e. NO cap (PR-2a): the caller decides
+  // how many rows it fetched, and a two-week window paged to completion can
+  // legitimately exceed the old 200 default, which would have silently
+  // truncated it. Every pre-2a caller passes ≤200 rows, so this is a no-op for
+  // them (slice(0, n) over n rows).
+  const records = mergeKaruteRows<RecordRow>([], synqedKaruteRows, synqedKaruteRows.length)
 
   // Build lookup maps — name resolution stays BUSINESS-WIDE so a record
   // written by another branch's staff still shows their name, but the 担当

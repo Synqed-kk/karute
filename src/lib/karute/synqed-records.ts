@@ -124,6 +124,9 @@ export async function listSynqedKaruteRowsWithTotalOrThrow(
     storeId?: string | null
     from?: string
     to?: string
+    /** 1-based. Only the PR-2a window loader pages; every other caller reads
+     *  page 1 implicitly, exactly as before. */
+    page?: number
     page_size?: number
   },
 ): Promise<KaruteRowsWithTotal> {
@@ -132,6 +135,7 @@ export async function listSynqedKaruteRowsWithTotalOrThrow(
     ...(opts?.storeId ? { store_id: opts.storeId } : {}),
     ...(opts?.from ? { from: opts.from } : {}),
     ...(opts?.to ? { to: opts.to } : {}),
+    ...(opts?.page ? { page: opts.page } : {}),
     page_size: opts?.page_size ?? 200,
   })
   const rows = (res.karute_records ?? []).map((r) => {
@@ -173,65 +177,13 @@ export async function listSynqedKaruteRowsWithTotal(
   }
 }
 
-/** {@link listSynqedKaruteRowsWithMonthProbe}'s return shape: the main
- *  store-wide row read paired with the 今月 (JST month) count probe — each
- *  leg INDEPENDENTLY nullable. null = that leg's read failed; the caller
- *  must never coerce it to a fake 0/[] (Greptile PR #775, fix round 2). */
-export interface KaruteDataWithMonthProbe {
-  /** null = the main row read failed. The caller renders the DEGRADED
-   *  presentation (no rows, no status numbers) — never an empty-but-honest
-   *  list, which would misreport a real outage as "no karute yet". */
-  data: KaruteRowsWithTotal | null
-  /** null = the 今月 probe failed — independently of `data`. The caller
-   *  OMITS the 今月 count entirely rather than rendering 0; it never
-   *  discards already-successfully-loaded rows just because this leg
-   *  failed (fix round 1's shared-try/catch bug — Greptile PR #775 round 2:
-   *  a probe failure silently emptied the whole list). */
-  monthProbe: { total: number } | null
-}
-
 /**
- * Independent pairing of the main karute row read + the 今月 count probe
- * (PR-1b 正直ヘッダー). The contract: the LIST is primary, the count is
- * auxiliary. Each read gets its OWN catch (swallow-and-log, same posture as
- * {@link listSynqedKaruteRows}) — a probe failure must never discard
- * already-loaded rows (round 1's shared try/catch did exactly that), and a
- * main-read failure must never be masked by a lucky probe success. null
- * means "this leg failed"; the caller (page.tsx) renders `data` regardless
- * of `monthProbe`'s outcome, and shows NO 今月 number when `monthProbe` is
- * null — a failed count is omitted, never rendered as a fake number.
- *
- * The facade route does NOT use this helper: its two reads share ONE
- * throw-into-502 catch (packet 05 failure contract) — a phone screen is
- * never partial, it's either whole or a classified error.
+ * NOTE (PR-2a): the main-read + 今月-probe pairing that used to live here moved
+ * to `karute-window.ts` as {@link loadKaruteWindowWithMonthProbe} — its main
+ * leg is now the first DATE WINDOW rather than a flat newest-200 read. The
+ * independent-legs contract (each leg its own catch, null = that leg failed)
+ * moved with it, unchanged.
  */
-export async function listSynqedKaruteRowsWithMonthProbe(
-  synqed: SynqedClient,
-  opts: {
-    storeId?: string | null
-    monthFrom: string
-    monthTo: string
-  },
-): Promise<KaruteDataWithMonthProbe> {
-  const [data, monthProbe] = await Promise.all([
-    listSynqedKaruteRowsWithTotalOrThrow(synqed, { storeId: opts.storeId }).catch(
-      (err: unknown) => {
-        console.error('[listSynqedKaruteRowsWithMonthProbe] main row read failed:', err)
-        return null
-      },
-    ),
-    listSynqedKaruteRowsWithTotalOrThrow(synqed, {
-      storeId: opts.storeId,
-      from: opts.monthFrom,
-      to: opts.monthTo,
-      page_size: 1,
-    }).catch((err: unknown) => {
-      console.error('[listSynqedKaruteRowsWithMonthProbe] 今月 probe failed:', err)
-      return null
-    }),
-  ])
-  return { data, monthProbe: monthProbe ? { total: monthProbe.total } : null }
-}
 
 /**
  * Unions Supabase rows with synqed-core rows, de-duped by id (Supabase wins on
