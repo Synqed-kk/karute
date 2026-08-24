@@ -374,6 +374,27 @@ describe('one fixture world', () => {
 // ── 5. MASK HONESTY (W1A) ───────────────────────────────────────────────────
 
 describe('a month in progress is never shown as a finished one', () => {
+  // Every claim in this section reads the month in progress against the one
+  // before it, and the comparison sentence names the PREVIOUS month's span —
+  // `1日〜${min(今日, 前月の日数)}日` (page.tsx builds it off spanFigures, which
+  // clamps to the comparand's own length). The day the assertion below computes
+  // off the clock is therefore absent from the sentence whenever today has run
+  // past the previous month's end: on 2026-12-31 the copy reads 「11月1日〜30日」
+  // against an expected 「1日〜31日」, and the same holds every 3/29–31, 5/31,
+  // 7/31, 10/31 and 12/31. (It also takes a different branch entirely on a 1st
+  // whose comparand day is the 定休日 — 2027-04-01 over a Monday 3月1日 — which
+  // says 「実績がないため、比較できません」 and names no span at all.) The section
+  // reads the clock once per render, so it is pinned once here rather than per
+  // assertion — same pin()/restore() idiom, same anchor its sibling sections
+  // already use. The nested 'comparison sentence' block below keeps its own
+  // pin: it lands on the same date for a different reason (three month-length
+  // states, documented there) and must not silently follow this one.
+  let restore = () => {}
+  beforeEach(() => {
+    restore = pin('2026-08-22T03:00:00.000Z')
+  })
+  afterEach(() => restore())
+
   it('the current month prints its ELAPSED days, tagged with the day it was read on', async () => {
     const p = await room({ store: STORE_A })
     const plan = salesLedger.find((r) => r.store_id === STORE_A && r.months_ago === 0)!
@@ -488,6 +509,18 @@ describe('a month in progress is never shown as a finished one', () => {
 // ── 6. the month nav is a real lever ────────────────────────────────────────
 
 describe('the month nav', () => {
+  // 「the month behind shows more rows than this one」 is 前月の日数 > 今日の日,
+  // and the 日報 stops at today: 2026-12-31 hands 12月 31 elapsed rows against
+  // 11月's 30, and 2026-08-31 ties 31 to 31 — the assertion is strict. Red on
+  // the last day of every month at least as long as its predecessor (1/31,
+  // 3/28–31, 5/31, 7/31, 8/31, 10/31, 12/31). Pinned once at the section head
+  // for the same reason as §5: every test here renders a month relative to now.
+  let restore = () => {}
+  beforeEach(() => {
+    restore = pin('2026-08-22T03:00:00.000Z')
+  })
+  afterEach(() => restore())
+
   it('moves the whole period — label, dateline, 日報 and the selected row', async () => {
     const now = await room({ store: STORE_A })
     const back = await room({ store: STORE_A, month: '-1' })
@@ -612,15 +645,26 @@ describe('store isolation', () => {
   })
 
   it("a branch's page never names the other store's people or its takings", async () => {
-    const b = await room({ store: STORE_B })
-    const names = b.ranking!.byMetric.total.rows.map((r) => r.name)
-    // p-01 / p-04 / p-06 work テスト銀座店 only.
-    expect(names).not.toContain('見本 はなこ')
-    expect(names).not.toContain('見本 しろう')
-    expect(names).not.toContain('見本 あずさ')
-    expect(JSON.stringify(b)).not.toContain('テスト銀座店')
-    const a = await room({ store: STORE_A })
-    expect(yenNumber(a.target!.actual)).not.toBe(yenNumber(b.target!.actual))
+    // The last line separates the two stores BY THEIR TAKINGS, so it needs a
+    // month that has taken something: on a 1st that is also the 定休日 both
+    // stores have earned ¥0 and 0 ≠ 0 is false (2026-06-01, 2027-02-01 and
+    // 2027-03-01 are all Monday the 1st). The isolation claims above are true
+    // on any clock — it is the discriminator that needs a trading day, so the
+    // test is pinned with the file's own single-test idiom (§14).
+    const restore = pin('2026-08-22T03:00:00.000Z')
+    try {
+      const b = await room({ store: STORE_B })
+      const names = b.ranking!.byMetric.total.rows.map((r) => r.name)
+      // p-01 / p-04 / p-06 work テスト銀座店 only.
+      expect(names).not.toContain('見本 はなこ')
+      expect(names).not.toContain('見本 しろう')
+      expect(names).not.toContain('見本 あずさ')
+      expect(JSON.stringify(b)).not.toContain('テスト銀座店')
+      const a = await room({ store: STORE_A })
+      expect(yenNumber(a.target!.actual)).not.toBe(yenNumber(b.target!.actual))
+    } finally {
+      restore()
+    }
   })
 
   it("the operator's own lane only appears in a store she treats in", async () => {
@@ -731,10 +775,19 @@ describe('売上の内訳', () => {
   })
 
   it('the page names only menus this store has', async () => {
-    const p = await room({ store: STORE_B })
-    const labels = p.trend!.menuSegments.map((s) => s.label)
-    expect(labels).not.toContain('テスト整体 60分') // a テスト銀座店 menu
-    expect(labels).toContain('その他')
+    // 「その他 is present」 needs a month with money in it — composition(0, …)
+    // is [] by design (the test above pins that), so on a 1st that is the
+    // 定休日 there are no segments to name and the assertion goes red
+    // (2026-06-01, 2027-02-01, 2027-03-01). Same single-test pin as §9.
+    const restore = pin('2026-08-22T03:00:00.000Z')
+    try {
+      const p = await room({ store: STORE_B })
+      const labels = p.trend!.menuSegments.map((s) => s.label)
+      expect(labels).not.toContain('テスト整体 60分') // a テスト銀座店 menu
+      expect(labels).toContain('その他')
+    } finally {
+      restore()
+    }
   })
 })
 
