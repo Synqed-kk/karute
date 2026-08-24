@@ -463,9 +463,12 @@ export function KaruteRecordListView({
              *  current truth, and saying so beats leaving the header blank.
              *  The two branches are exclusive so the numbers can't flash
              *  alongside the failure line on the render before the storeTotal
-             *  effect catches up. */}
+             *  effect catches up. role="alert" announces on mount, same as the
+             *  さらに表示 failure line: a background refresh that freezes the
+             *  newest rows is exactly what a screen-reader user must hear —
+             *  nothing on screen moved to tell them. */}
             {serverDegraded
-              ? loadedCount > 0 && t('loadMoreFailed')
+              ? loadedCount > 0 && <span role="alert">{t('loadMoreFailed')}</span>
               : storeTotal !== null &&
                 (monthCount !== null
                   ? t('statusLine', {

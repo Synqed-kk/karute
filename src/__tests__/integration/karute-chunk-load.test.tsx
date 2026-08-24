@@ -367,8 +367,11 @@ describe('degraded server window keeps what is already on screen (fix round 2)',
     // Server-rendered first window AND the appended chunk both survive.
     expect(screen.getAllByText('山田 花子')).toHaveLength(2)
     expect(screen.getByText('鈴木 一郎')).toBeInTheDocument()
-    // …and the header zone says so instead of showing stale numbers.
+    // …and the header zone says so instead of showing stale numbers —
+    // role="alert" so it is SPOKEN too: nothing on screen moved to signal the
+    // freeze, so a screen-reader user would otherwise never learn of it.
     expect(screen.getByText('loadMoreFailed')).toBeInTheDocument()
+    expect(screen.getByText('loadMoreFailed')).toHaveAttribute('role', 'alert')
     expect(screen.queryByText(/statusLine/)).not.toBeInTheDocument()
   })
 
