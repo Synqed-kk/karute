@@ -44,6 +44,11 @@ interface Props {
   /** Total karute records this month (not filtered) — shown in the
    *  status line independent of the active filter. */
   monthCount: number
+  /** Store-wide karute total, unfiltered by date (PR-1b plumbing — not
+   *  rendered until PR-2a's 全件 display). Optional so existing render
+   *  call sites (management-flag-wiring.test.tsx) still typecheck without
+   *  passing it. */
+  total?: number
   /** Staff list for the "your customers / all customers" filter. */
   staffList?: StaffFilterEntry[]
   /** The viewer's staff id — drives the "Me" filter pill. Null when

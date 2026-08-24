@@ -3,7 +3,8 @@ import { renderStamp } from '@/lib/perf/render-stamp'
 import { startTiming } from '@/lib/perf/timing'
 import { getBusinessId, getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { listSynqedKaruteRows } from '@/lib/karute/synqed-records'
+import { listSynqedKaruteRowsWithTotal } from '@/lib/karute/synqed-records'
+import { jstStartOfMonth } from '@/lib/date/jst'
 import { listAllCustomersCached } from '@/lib/customers/list-all'
 import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
 import { buildSessionsListScreen } from '@/lib/karute/screen-rows'
@@ -47,11 +48,19 @@ export default async function KaruteRecordsListPage() {
   const activeStore = scope.storeId
   const clamped = scope.allowedStoreIds != null
 
+  // JST month bounds for the 今月 status-line probe (PR-1b 正直ヘッダー) —
+  // computed once and reused for both reads in the wave below so they agree
+  // on "now" to the millisecond.
+  const now = new Date()
+  const monthStartIso = jstStartOfMonth(now).toISOString()
+  const nowIso = now.toISOString()
+
   const [
     staffList,
     allCustomersList,
     currentStaffId,
-    synqedKaruteRows,
+    karuteRowsWithTotal,
+    monthProbe,
     synqedStaff,
   ] = await Promise.all([
       t.phase('staffList', () => getStaffList()),
@@ -74,12 +83,26 @@ export default async function KaruteRecordsListPage() {
       // synqed-core is the sole karute store (the Supabase karute_records table
       // is empty and being dropped). Scoped to the active branch so 代官山
       // karute don't surface under 銀座; the customer PROFILE stays unscoped.
-      t.phase('karuteRows', () => listSynqedKaruteRows(synqed, { storeId: activeStore })),
+      // WithTotal (PR-1b): the same call also hands back the store-wide total
+      // (unfiltered by date) — plumbed through for PR-2a's 全件 display.
+      t.phase('karuteRows', () => listSynqedKaruteRowsWithTotal(synqed, { storeId: activeStore })),
+      // 今月 probe (PR-1b): a lean page_size:1 read over the JST month window —
+      // rows are discarded, only .total is read. LENS PARITY with
+      // screens/sessions/route.ts's identical computation.
+      t.phase('monthCount', () =>
+        listSynqedKaruteRowsWithTotal(synqed, {
+          storeId: activeStore,
+          from: monthStartIso,
+          to: nowIso,
+          page_size: 1,
+        }),
+      ),
       // Synqed staff roster — translates a record's synqed staff id into the
       // profile id the color/name maps key on (boundary translation mirrored
       // in getAppointmentsByDate).
       t.phase('synqedStaff', () => synqed.staff.list({ page_size: 200 })),
     ])
+  const synqedKaruteRows = karuteRowsWithTotal.rows
 
   // #496 store clamp: the 担当 picker only offers staff assigned to the active
   // store (or floating staff) — the full roster was leaking every branch's
@@ -97,6 +120,8 @@ export default async function KaruteRecordsListPage() {
     currentStaffId,
     synqedKaruteRows,
     synqedStaff,
+    monthCount: monthProbe.total,
+    total: karuteRowsWithTotal.total,
   })
 
   return (
@@ -108,6 +133,7 @@ export default async function KaruteRecordsListPage() {
       <KaruteRecordListView
         items={screen.items}
         monthCount={screen.monthCount}
+        total={screen.total}
         staffList={screen.staffList}
         currentStaffId={screen.currentStaffId}
         customerOptions={screen.customerOptions}

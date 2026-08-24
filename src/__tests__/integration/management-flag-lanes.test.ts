@@ -231,6 +231,8 @@ describe('顧客 / カルテ rosters are never server-filtered (⚖ 2026-09-01 o
       synqedStaff: { staff: [] } as unknown as Parameters<
         typeof buildSessionsListScreen
       >[0]['synqedStaff'],
+      monthCount: 0,
+      total: 0,
     })
     expect(screen.staffList.map((s) => s.id)).toEqual([SATO, KITANO])
     expect(screen.staffList.find((s) => s.id === KITANO)?.isManagement).toBe(true)

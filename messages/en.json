@@ -1354,9 +1354,11 @@
     },
     "tabHeading": "Karute",
     "recordList": {
-      "statusLine": "This month {monthCount} karute · past 14 days · showing {showingCount}",
+      "statusLine": "This month: {monthCount} karute · showing {showingCount}",
       "newKarute": "+ New karute",
       "searchPlaceholder": "Search by customer · service · staff",
+      "revealSummary": "Shows up here once their first session is recorded",
+      "revealCreate": "Create karute",
       "filters": {
         "all": "All",
         "thisWeek": "This week",

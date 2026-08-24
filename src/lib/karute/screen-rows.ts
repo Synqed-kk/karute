@@ -34,8 +34,15 @@ export interface SessionsListScreen {
    *  karute yet was removed in PR-1a (未作成ブロック廃止); the field ships
    *  empty for forward compatibility only. */
   placeholders: KaruteListItem[]
-  /** Total karute records this month (not filtered) — status-line only. */
+  /** Karute records dated in the current JST month, STORE-wide (not staff
+   *  filtered) — status-line only. Source: a server `karuteRecords.list`
+   *  total over the JST month window (PR-1b 正直ヘッダー; was a client-side
+   *  filter over the loaded ≤200-row page, which under-counted once the
+   *  page filled). */
   monthCount: number
+  /** Store-wide karute total, unfiltered by date or staff (PR-1b plumbing —
+   *  not rendered until PR-2a's 全件 display; see the DTO's matching field). */
+  total: number
   /** Staff filter pills (id + display name + initials). */
   staffList: Array<{
     id: string
@@ -71,6 +78,10 @@ export function buildSessionsListScreen(args: {
   currentStaffId: string | null
   synqedKaruteRows: KaruteListRow[]
   synqedStaff: SynqedStaffList
+  /** See the matching field's doc on SessionsListScreen. */
+  monthCount: number
+  /** See the matching field's doc on SessionsListScreen. */
+  total: number
 }): SessionsListScreen {
   const {
     staffList,
@@ -79,6 +90,8 @@ export function buildSessionsListScreen(args: {
     currentStaffId,
     synqedKaruteRows,
     synqedStaff,
+    monthCount,
+    total,
   } = args
 
   type RecordRow = {
@@ -199,10 +212,8 @@ export function buildSessionsListScreen(args: {
   // `placeholders` doc comment on SessionsListScreen for why the field stays.
   const placeholders: KaruteListItem[] = []
 
-  // monthCount — records whose session_date falls in the current month
-  const now = new Date()
-  const monthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  const monthCount = items.filter((i) => i.date.startsWith(monthPrefix)).length
+  // monthCount / total (PR-1b): both now server totals passed in by the
+  // caller (page.tsx / screens/sessions route) — see the args doc above.
 
   // Customer combobox source for the NewKaruteDialog. Reuses the same
   // list we already loaded above for the customer-name lookup map —
@@ -221,6 +232,7 @@ export function buildSessionsListScreen(args: {
     items,
     placeholders,
     monthCount,
+    total,
     staffList: visibleStaff.map((s) => ({
       id: s.id,
       name: s.full_name ?? 'Unknown',

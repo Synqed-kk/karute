@@ -136,6 +136,10 @@ describe('GET /api/app/v1/screens/sessions — happy path', () => {
     expect(dto.items).toHaveLength(2)
     expect(dto.placeholders).toEqual([])
     expect(dto.monthCount).toBe(2)
+    // PR-1b: total is a server total (store-wide, unfiltered by date) —
+    // the fake karuteList mock returns the same 2-record total for every
+    // call shape, so both monthCount and total read 2 here.
+    expect(dto.total).toBe(2)
 
     const rec1 = dto.items.find((i: { id: string }) => i.id === 'rec-1')
     expect(rec1.aiStatus).toBe('summarized')
@@ -157,6 +161,21 @@ describe('GET /api/app/v1/screens/sessions — happy path', () => {
       { id: 'staff-2', name: '田中 太郎', initials: expect.any(String), isManagement: false },
     ])
     expect(newSynqedClient).toHaveBeenCalledWith('business-1')
+  })
+
+  it('monthCount is sourced from a SEPARATE server call with JST month bounds, not a client-side filter (PR-1b 正直ヘッダー)', async () => {
+    const res = await GET(req({ headers: auth }), route)
+    expect(res.status).toBe(200)
+    // Two calls: the main row read (no from/to) and the 今月 probe (from/to
+    // set, page_size 1) — a revert to client-side date filtering would
+    // collapse this back to one call with no from/to at all.
+    expect(karuteList).toHaveBeenCalledTimes(2)
+    const calls = karuteList.mock.calls as unknown as Array<[Record<string, unknown>]>
+    const probeCall = calls.find((c) => 'from' in c[0])
+    expect(probeCall).toBeDefined()
+    expect(probeCall?.[0]).toEqual(
+      expect.objectContaining({ page_size: 1, from: expect.any(String), to: expect.any(String) }),
+    )
   })
 })
 

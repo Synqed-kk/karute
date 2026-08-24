@@ -25,7 +25,8 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { listAllCustomers } from '@/lib/customers/list-all'
-import { listSynqedKaruteRowsOrThrow } from '@/lib/karute/synqed-records'
+import { listSynqedKaruteRowsWithTotalOrThrow } from '@/lib/karute/synqed-records'
+import { jstStartOfMonth } from '@/lib/date/jst'
 import { buildSessionsListScreen } from '@/lib/karute/screen-rows'
 
 // Node runtime: the synqed SDK + node:crypto verifier are server-only.
@@ -52,6 +53,13 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
 
   let screen: ReturnType<typeof buildSessionsListScreen>
   try {
+    // JST month bounds for the 今月 status-line probe (PR-1b 正直ヘッダー) —
+    // computed once, reused for both reads below; LENS PARITY with the web
+    // page's identical computation (page.tsx).
+    const now = new Date()
+    const monthStartIso = jstStartOfMonth(now).toISOString()
+    const nowIso = now.toISOString()
+
     // One wave mirroring the page's Promise.all (getStaffList →
     // staffListByBusinessOrThrow, getCurrentUserStaffId → the roster-membership
     // check below, cookie scope → the header clamp). EVERY upstream read in the
@@ -61,7 +69,8 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
     const [
       staffList,
       allCustomersList,
-      synqedKaruteRows,
+      karuteRowsWithTotal,
+      monthProbe,
       synqedStaff,
     ] = await Promise.all([
       staffListByBusinessOrThrow(ctx.identity.businessId),
@@ -76,9 +85,21 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
           })
         : listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
       // Throwing variant — a synqed outage is a 502, never an empty karute list.
-      listSynqedKaruteRowsOrThrow(synqed, { storeId: activeStore }),
+      // WithTotal (PR-1b): also hands back the store-wide total, plumbed
+      // through for PR-2a's 全件 display.
+      listSynqedKaruteRowsWithTotalOrThrow(synqed, { storeId: activeStore }),
+      // 今月 probe (PR-1b): lean page_size:1 read over the JST month window —
+      // rows discarded, only .total read. Same failure contract (throws into
+      // the 502 catch below — never a swallowed stale count).
+      listSynqedKaruteRowsWithTotalOrThrow(synqed, {
+        storeId: activeStore,
+        from: monthStartIso,
+        to: nowIso,
+        page_size: 1,
+      }),
       synqed.staff.list({ page_size: 200 }),
     ])
+    const synqedKaruteRows = karuteRowsWithTotal.rows
 
     // Page parity (getCurrentUserStaffId): the caller's staff identity is their
     // roster row keyed by the CONFIRMED auth user id — never client input.
@@ -103,6 +124,8 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
       currentStaffId,
       synqedKaruteRows,
       synqedStaff,
+      monthCount: monthProbe.total,
+      total: karuteRowsWithTotal.total,
     })
   } catch (err) {
     if (err instanceof AppApiError) throw err

@@ -26,6 +26,7 @@ export function SessionsScreen() {
         <KaruteRecordListView
           items={dto.items}
           monthCount={dto.monthCount}
+          total={dto.total}
           staffList={dto.staffList}
           currentStaffId={dto.currentStaffId}
           customerOptions={dto.customerOptions}
