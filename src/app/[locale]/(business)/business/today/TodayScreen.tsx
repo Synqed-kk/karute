@@ -65,6 +65,7 @@ import {
   anchorOnScreen,
   applyBlockMoves,
   applyMoves,
+  bedFeasibility,
   blockChrome,
   blockClash,
   blockDragModeAt,
@@ -1133,6 +1134,16 @@ export function TodayScreen(props: TodayProps) {
     ? minuteOf(live.x + live.w, hours) - minuteOf(live.x, hours)
     : dragLen
   const railDur = aimDur ?? props.guard.standardSessionMin
+  /** ⚖ LIAM flag 76 (2026-08-23) — THE ROOMS, HANDED TO THE GUARD. The rule is
+   *  `bedFeasibility` (today-interactions); this is the board's own inputs to it.
+   *
+   *  `lanes` for the same reason `verdictAt` takes it (⚖ 39): a caller may ask
+   *  about a board it has already taken something out of, and the rooms have to
+   *  be read off THAT board rather than the one on screen. */
+  const bedFeasibleFor = useCallback(
+    (excludeId: string | null, lanes: BoardLane[] = boardLanes) => bedFeasibility(lanes, excludeId, props.rooms),
+    [boardLanes, props.rooms],
+  )
   const rails = useMemo<GuardRail[]>(
     () =>
       guardOn
@@ -1146,9 +1157,10 @@ export function TodayScreen(props: TodayProps) {
             locked,
             guard: props.guard.config,
             excludeId: live?.id ?? pending?.id ?? null,
+            placementFeasible: bedFeasibleFor(live?.id ?? pending?.id ?? null),
           })
         : [],
-    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, live?.id, pending?.id, railDur],
+    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, live?.id, pending?.id, railDur, bedFeasibleFor],
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
 
@@ -1283,9 +1295,10 @@ export function TodayScreen(props: TodayProps) {
             locked,
             guard: props.guard.config,
             excludeId,
+            placementFeasible: bedFeasibleFor(excludeId, lanes),
           })
         : null,
-    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked],
+    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedFeasibleFor],
   )
 
   /** ⚖ LIAM flag 50 (2026-08-22) — THE ONE VERDICT, ASKED FROM THE SCREEN.

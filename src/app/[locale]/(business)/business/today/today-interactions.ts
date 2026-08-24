@@ -21,7 +21,7 @@ import {
   type SellResourceLane,
   type SellStaffLane,
 } from '@/business/lib/canon-logic/availability'
-import { createGapGuard, type GuardConfig, type GuardReason } from '@/business/lib/canon-logic/gap-guard'
+import { createGapGuard, type GuardConfig, type GuardContext, type GuardReason } from '@/business/lib/canon-logic/gap-guard'
 import { gapFillPrice, packedPrice, priceAt, type PriceFrame } from '@/business/lib/canon-logic/pricing'
 import {
   computeChecks,
@@ -833,6 +833,35 @@ export interface RailInput {
   /** A card currently in hand: it is what is being placed, so it must not also
    *  count as an obstacle to itself (canon guardPocketsForLane :7196). */
   excludeId?: string | null
+  /** ⚖ LIAM flag 76 (2026-08-23) — THE RAIL HEARS ABOUT THE ROOMS.
+   *
+   *  Canon builds the engine's ctx per lane and puts a bed-checking callback in
+   *  it (`ctxFor(day, lane)` → `placementFeasible(lane, start, dur, day)` →
+   *  `bedFreeFor`, fable-store-today.html :7278-7285 / :7256-7261), and the rail
+   *  runs through that same evaluator (`railAimFor` = `evaluateExactAim`, :7365).
+   *  The transplant carried the pockets and dropped the callback, so the strip
+   *  painted ✓14:30 on a board whose three rooms were all busy — Liam's own
+   *  scene, where the drop then refused 満室.
+   *
+   *  The LANE is an argument because the store rule is lane-dependent: a room in
+   *  another store never makes a start feasible for someone who does not work
+   *  there (canon binds the lane the same way).
+   *
+   *  ABSENT = a store with no rooms configured. Canon's own switch for that is
+   *  `SCENARIO.needsBed === false` (:7261), which leaves every start
+   *  bed-feasible; leaving the field undefined reproduces it exactly, because
+   *  the engine only consults a callback that is there (gap-guard :271-272). */
+  placementFeasible?: (lane: BoardLane, start: number, dur: number) => boolean
+}
+
+/** The engine's ctx for ONE staff lane — canon `ctxFor` (:7278). The clock the
+ *  lead-time exemption reads, and the rooms. */
+function railCtx(lane: BoardLane, input: RailInput): GuardContext {
+  const feasible = input.placementFeasible
+  return {
+    now: input.nowMinute ?? undefined,
+    placementFeasible: feasible ? (start, dur) => feasible(lane, start, dur) : undefined,
+  }
 }
 
 /** The 60分配置 rail for every staff lane — canon `renderSlotBoxes` (:7543),
@@ -857,8 +886,9 @@ export function guardRailsFor(lanes: BoardLane[], input: RailInput): GuardRail[]
       occupied: laneSpans(lane, input.excludeId),
     })
     const cells: RailCell[] = []
+    const ctx = railCtx(lane, input)
     for (let start = input.open; start < input.close; start += input.stepMin) {
-      cells.push(railCell(engine, pockets, start, input))
+      cells.push(railCell(engine, pockets, start, input, ctx))
     }
     rails.push({ laneKey: lane.key, laneLabel: lane.label, cells })
   }
@@ -877,7 +907,7 @@ export function guardVerdictAt(lanes: BoardLane[], laneKey: string, start: numbe
     now: input.nowMinute,
     occupied: laneSpans(lane, input.excludeId),
   })
-  return railCell(createGapGuard(input.guard), pockets, start, input)
+  return railCell(createGapGuard(input.guard), pockets, start, input, railCtx(lane, input))
 }
 
 function railCell(
@@ -885,6 +915,7 @@ function railCell(
   pockets: ReturnType<typeof freePockets>,
   start: number,
   input: RailInput,
+  ctx: GuardContext,
 ): RailCell {
   const blocked = (sentence: string): RailCell => ({
     start, state: 'blocked', label: '—', sentence, alternatives: [], alternativeKind: null, ackAllowed: false,
@@ -904,8 +935,12 @@ function railCell(
     // surface, and the presentation seam (`offerableCell`) still snaps each one
     // onto the store's booking lattice and re-verifies it through the caller's
     // gate before any button names it.
+    // ⚖ 76 — and the offers are bed-filtered too. Canon's `demoCandidateStarts`
+    // hands `safeStarts` the SAME ctx (:7296-7301), so a bed-starved alternative
+    // is never named; the engine's own `candidateStarts` applies the callback
+    // (gap-guard :274-281). Without it the lie simply moves one click later.
     const here = pockets.find((p) => start >= p.s && start < p.e)
-    const alternatives = here ? engine.safeStarts(here, input.dur, { now: input.nowMinute ?? undefined }) : []
+    const alternatives = here ? engine.safeStarts(here, input.dur, ctx) : []
     return {
       ...blocked(`この開始には${input.dur}分の連続した空きがありません`),
       alternatives,
@@ -915,7 +950,38 @@ function railCell(
       alternativeKind: alternatives.length > 0 ? 'safe' : null,
     }
   }
-  const v = engine.evaluate(pocket, { start, dur: input.dur }, { now: input.nowMinute ?? undefined })
+  const v = engine.evaluate(pocket, { start, dur: input.dur }, ctx)
+  /** ⚖ 76 / canon `evaluateExactAim` (:7330-7337) — THE ROOM IS A HARD BLOCK.
+   *
+   *  The staff pocket held (the branch above already answered when it did not,
+   *  which is canon's order: pocket first, rooms second), so the only thing
+   *  left that can make the span impossible is the resource — and the engine
+   *  says so with `R-UNAVAILABLE` and `ackAllowed: false` (gap-guard :370-377).
+   *  Canon answers it with the concrete resource sentence and, in as many words,
+   *  "never offer an override". `blocked()` is already ack-less, so the override
+   *  cannot leak back in from here.
+   *
+   *  The alternatives are the engine's own and need no re-filtering: they come
+   *  from `candidateStarts`, which the same callback has already narrowed.
+   *
+   *  The sentence is the RAIL's, not `reasonLine`'s. `reasonLine` is a straight
+   *  transplant of canon :7092 and canon itself does not put the bed wording
+   *  there — it says it at the aim site, and only when the scenario has rooms
+   *  (`SCENARIO.needsBed !== false`, :7334-7336). Its other reader is the pinned
+   *  unit contract at today-screen-interactions.test :880, which speaks for the
+   *  engine's generic refusal, and a store with no rooms configured cannot
+   *  honestly blame a bed. */
+  if (v.reason?.code === 'R-UNAVAILABLE') {
+    return {
+      ...blocked(
+        input.placementFeasible
+          ? `この開始ではベッドを${input.dur}分確保できません`
+          : reasonLine(v.reason, input.protectedDur),
+      ),
+      alternatives: v.alternatives,
+      alternativeKind: v.alternativeKind,
+    }
+  }
   if (v.verdict === 'ok' || v.verdict === 'exempt') {
     // canon `exactAimConsequence` (:7570): a pocket that never held a protected
     // window cannot claim to be protecting one.
@@ -1455,6 +1521,63 @@ export function allocateBed(
   const taken = ordered.find(free)
   if (taken) return { laneKey: taken.key, refusal: null }
   return { laneKey: null, refusal: fullRoomsRefusal(candidates.map((l) => [l, blockersOn(l)] as const), start, end, needsPrivate) }
+}
+
+/** ⚖ LIAM flag 76 (2026-08-23) — THE ROOMS, AS THE GUARD ENGINE'S CTX.
+ *
+ *  canon `ctxFor(day, lane).placementFeasible` (fable-store-today.html :7278-
+ *  7285). The 60分配置 strip runs through the same evaluator canon's rail does
+ *  (`railAimFor` = `evaluateExactAim`, :7365), so it has to hear the same bed
+ *  truth — the transplant carried the pockets and dropped the callback, and the
+ *  strip painted ✓14:30 on a board whose three rooms were all busy.
+ *
+ *  It is `allocateBed` and NOT a second reading of the beds: the strip and the
+ *  release ask one search, so they cannot disagree (which is the whole of flag
+ *  54, read from the resting board). Everything the allocator already spells
+ *  rides along — the store rule (⚖ 46), the 個室 floor (⚖ 51), and both
+ *  exclude-self rules: the card in hand and its own trailing 清掃 travel WITH
+ *  the booking rather than blocking it (`${id}-cleanup`, :1434), which is canon
+ *  lifting the placed card for rail truth (:7534).
+ *
+ *  `undefined` on a store with no rooms configured — canon's own
+ *  `SCENARIO.needsBed === false` switch (:7261), and the engine consults a
+ *  callback only when there is one (gap-guard :271-272). A store that has
+ *  configured no resources is not a store that cannot sell.
+ *
+ *  It lives here rather than in the screen for this file's stated reason: an
+ *  answer the operator acts on has to be provable without a renderer. */
+export function bedFeasibility(
+  lanes: BoardLane[],
+  excludeId: string | null,
+  policy: RoomPolicy,
+): ((lane: BoardLane, start: number, dur: number) => boolean) | undefined {
+  if (!lanes.some((l) => l.group === 'beds')) return undefined
+  const held = excludeId ? lanes.flatMap((l) => l.items).find((i) => i.caseId === excludeId) : undefined
+  const currentBed = excludeId
+    ? (lanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === excludeId))?.key ?? null)
+    : null
+  // ponytail: the engine probes a 5-minute lattice per pocket per rail cell, so
+  // the same (lane, start, dur) question arrives dozens of times per frame. One
+  // map keyed by the question, dying with the board it was built for. Lift it to
+  // a shared cache only if a bigger board ever measures slow.
+  const seen = new Map<string, boolean>()
+  return (lane, start, dur) => {
+    const key = `${lane.key}|${start}|${dur}`
+    const hit = seen.get(key)
+    if (hit !== undefined) return hit
+    const free =
+      allocateBed(lanes, {
+        id: excludeId,
+        currentBed,
+        stores: lane.stores,
+        vip: held?.category === 'vip',
+        start,
+        end: start + dur,
+        policy,
+      }).laneKey !== null
+    seen.set(key, free)
+    return free
+  }
 }
 
 /** canon `renderHoldBar`'s summary line (:4769): who, when, on whom, on what.
