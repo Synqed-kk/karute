@@ -45,6 +45,11 @@ export const SessionsScreenDTO = z.object({
   placeholders: z.array(KaruteListItemDTO),
   /** Karute records dated in the current month — status-line only. */
   monthCount: z.number(),
+  /** Store-wide karute total, unfiltered by date (PR-1b). Optional-typed with
+   *  a safe default: an old cached/legacy payload that predates this field
+   *  still parses, and every reader gets a real number, never undefined. Not
+   *  rendered until PR-2a's 全件 display. */
+  total: z.number().default(0),
   /** Staff filter pills (id + display name + initials). */
   staffList: z.array(
     z.object({

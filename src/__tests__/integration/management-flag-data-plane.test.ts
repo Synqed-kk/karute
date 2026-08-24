@@ -188,6 +188,9 @@ describe('DTO carry — the key survives every screen parse', () => {
       customerOptions: [],
     })
     expect(parsed.staffList[0].isManagement).toBe(true)
+    // PR-1b: total is a NEW field — a payload that predates it (this one)
+    // must still parse, defaulting to 0 rather than undefined.
+    expect(parsed.total).toBe(0)
   })
 
   it('customer-profile assignableStaff', () => {

@@ -6,7 +6,13 @@
  *   - graceful [] on synqed-core error
  *   - merge dedupes by id (Supabase wins), sorts date-desc, caps at limit
  */
-import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
+import {
+  listSynqedKaruteRows,
+  listSynqedKaruteRowsWithTotal,
+  listSynqedKaruteRowsWithTotalOrThrow,
+  listSynqedKaruteRowsWithMonthProbe,
+  mergeKaruteRows,
+} from '@/lib/karute/synqed-records'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const asClient = (list: (...a: unknown[]) => unknown) => ({ karuteRecords: { list } }) as any
@@ -74,6 +80,155 @@ describe('listSynqedKaruteRows', () => {
       }),
     )
     expect(rows).toEqual([])
+  })
+})
+
+// PR-1b (正直ヘッダー + 検索リビール): the sibling that also reads `total` —
+// used both for the main row read (store-wide total) and the 今月 probe
+// (from/to bounds, page_size 1). Existing listSynqedKaruteRows(OrThrow) pair
+// above is untouched; this is coverage for the ADDITION only.
+describe('listSynqedKaruteRowsWithTotalOrThrow', () => {
+  it('maps rows the same way as listSynqedKaruteRows AND returns total', async () => {
+    const { rows, total } = await listSynqedKaruteRowsWithTotalOrThrow(
+      asClient(async () => ({
+        karute_records: [
+          {
+            id: 'k1',
+            business_id: 'biz',
+            customer_id: 'cli1',
+            staff_id: 'st1',
+            ai_summary: 'sum',
+            transcript: 't',
+            created_at: '2026-05-29T00:00:00Z',
+            entry_count: 3,
+          },
+        ],
+        total: 42,
+      })),
+    )
+    expect(total).toBe(42)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      id: 'k1',
+      summary: 'sum',
+      staff_profile_id: 'st1',
+      customer_id: 'biz',
+      client_id: 'cli1',
+    })
+  })
+
+  it('forwards customerId/storeId/from/to/page_size to the synqed list call', async () => {
+    const list = jest.fn(async () => ({ karute_records: [], total: 0 }))
+    await listSynqedKaruteRowsWithTotalOrThrow(asClient(list), {
+      customerId: 'cust-9',
+      storeId: 'store-1',
+      from: '2026-08-01T00:00:00.000Z',
+      to: '2026-08-24T00:00:00.000Z',
+      page_size: 1,
+    })
+    expect(list).toHaveBeenCalledWith({
+      customer_id: 'cust-9',
+      store_id: 'store-1',
+      from: '2026-08-01T00:00:00.000Z',
+      to: '2026-08-24T00:00:00.000Z',
+      page_size: 1,
+    })
+  })
+
+  it('defaults page_size to 200 and omits from/to when not given (main row-read shape)', async () => {
+    const list = jest.fn(async (_opts: unknown) => ({ karute_records: [], total: 0 }))
+    await listSynqedKaruteRowsWithTotalOrThrow(asClient(list), { storeId: 'store-1' })
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-1', page_size: 200 }),
+    )
+    expect(list.mock.calls[0][0]).not.toHaveProperty('from')
+    expect(list.mock.calls[0][0]).not.toHaveProperty('to')
+  })
+
+  it('throws through a synqed-core failure (no swallow)', async () => {
+    await expect(
+      listSynqedKaruteRowsWithTotalOrThrow(
+        asClient(async () => {
+          throw new Error('boom')
+        }),
+      ),
+    ).rejects.toThrow('boom')
+  })
+})
+
+describe('listSynqedKaruteRowsWithTotal', () => {
+  it('degrades to {rows: [], total: 0} when synqed-core throws', async () => {
+    const result = await listSynqedKaruteRowsWithTotal(
+      asClient(async () => {
+        throw new Error('boom')
+      }),
+    )
+    expect(result).toEqual({ rows: [], total: 0 })
+  })
+
+  it('passes through a real result unchanged on success', async () => {
+    const result = await listSynqedKaruteRowsWithTotal(
+      asClient(async () => ({ karute_records: [], total: 7 })),
+    )
+    expect(result).toEqual({ rows: [], total: 7 })
+  })
+})
+
+// Round 1 (Greptile PR #775) gave both reads ONE shared try/catch so the
+// header could never contradict the list — but that meant a 今月-probe
+// failure DISCARDED already-successfully-loaded rows too (a false EMPTY
+// list). SUPERSEDED by round 2's contract: the LIST is primary, the count
+// is auxiliary. Each leg degrades INDEPENDENTLY to null; the shared-fate
+// tests that used to live here are gone — rendering the omission (never a
+// fake 0) is KaruteRecordListView's job, pinned in its own test file.
+describe('listSynqedKaruteRowsWithMonthProbe', () => {
+  const opts = {
+    storeId: 'store-1',
+    monthFrom: '2026-08-01T00:00:00.000Z',
+    monthTo: '2026-08-24T00:00:00.000Z',
+  }
+
+  it('both calls succeed: returns the main read and the probe independently', async () => {
+    const list = jest
+      .fn()
+      .mockResolvedValueOnce({ karute_records: [], total: 10 }) // main
+      .mockResolvedValueOnce({ karute_records: [], total: 3 }) // probe
+    const result = await listSynqedKaruteRowsWithMonthProbe(asClient(list), opts)
+    expect(result.data?.total).toBe(10)
+    expect(result.monthProbe?.total).toBe(3)
+  })
+
+  it('the 今月 probe throwing does NOT discard the already-loaded main rows — only monthProbe goes null', async () => {
+    const list = jest
+      .fn()
+      .mockResolvedValueOnce({
+        karute_records: [{ id: 'k1', business_id: 'biz', customer_id: 'cli1', created_at: '2026-08-01T00:00:00Z', entry_count: 0 }],
+        total: 10,
+      }) // main succeeds
+      .mockRejectedValueOnce(new Error('boom')) // probe fails
+    const result = await listSynqedKaruteRowsWithMonthProbe(asClient(list), opts)
+    expect(result.data?.rows).toHaveLength(1)
+    expect(result.data?.total).toBe(10)
+    expect(result.monthProbe).toBeNull()
+  })
+
+  it('the main read throwing goes null WITHOUT being masked by a lucky probe success', async () => {
+    const list = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('boom')) // main fails
+      .mockResolvedValueOnce({ karute_records: [], total: 3 }) // probe succeeds
+    const result = await listSynqedKaruteRowsWithMonthProbe(asClient(list), opts)
+    expect(result.data).toBeNull()
+    expect(result.monthProbe?.total).toBe(3)
+  })
+
+  it('both legs failing: both go null independently, no cross-contamination', async () => {
+    const list = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('boom-main'))
+      .mockRejectedValueOnce(new Error('boom-probe'))
+    const result = await listSynqedKaruteRowsWithMonthProbe(asClient(list), opts)
+    expect(result).toEqual({ data: null, monthProbe: null })
   })
 })
 

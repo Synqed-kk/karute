@@ -1354,9 +1354,12 @@
     },
     "tabHeading": "カルテ",
     "recordList": {
-      "statusLine": "今月のカルテ · {monthCount} · 過去14日間 · {showingCount}件を表示中",
+      "statusLine": "カルテ 今月 {monthCount}件 ・ 表示中 {showingCount}件",
+      "statusLineNoMonth": "カルテ 表示中 {showingCount}件",
       "newKarute": "+ 新規カルテ",
       "searchPlaceholder": "顧客名・サービス・スタッフで検索...",
+      "revealSummary": "初回セッションを記録すると、ここに表示されます",
+      "revealCreate": "カルテを作成",
       "filters": {
         "all": "すべて",
         "thisWeek": "今週",
