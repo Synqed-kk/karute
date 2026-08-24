@@ -4,9 +4,12 @@
 // the loud notWired() actions port.
 //
 // Search parity note: the web page reruns the search server-side via the
-// ?query= URL param; the view's own search box already filters client-side
-// over the loaded rows, which this batch relies on. Server-side search rides
-// the DTO's ?query= param when a later batch wires the input through.
+// ?query= URL param — the view's own search box has no client-side filter of
+// its own, it only writes ?query= (debounced) and relies on the server
+// re-rendering with `search` applied. URL = single source of truth (web
+// parity, same AppointmentsScreen L112-122 pattern): read the param via the
+// thin useSearchParams port, put it on the fetch path; useScreenDto re-fetches
+// on path change.
 
 import { CustomersListView } from '@/components/customers/redesign/list/CustomersListView'
 import {
@@ -14,13 +17,20 @@ import {
   type CustomersScreenDTOType,
 } from '@/lib/app-api/customers-screen-dto'
 import { getThinLocale } from '../locale'
+import { useSearchParams } from '../ports/nav.vite'
 import { ScreenStates, useScreenDto } from './ScreenBoundary'
 
 const parse = (raw: unknown): CustomersScreenDTOType => CustomersScreenDTO.parse(raw)
 
 export function CustomersScreen() {
+  const search = useSearchParams()
+  // Clamp to the facade's QuerySchema max(200) — an overlong deep-link query must not 400 into the error frame.
+  const query = (search.get('query')?.trim() ?? '').slice(0, 200)
+  const qs = new URLSearchParams()
+  if (query) qs.set('query', query)
+  qs.set('locale', getThinLocale())
   const { state, retry } = useScreenDto(
-    `/api/app/v1/screens/customers?locale=${getThinLocale()}`,
+    `/api/app/v1/screens/customers?${qs.toString()}`,
     parse,
   )
   return (
@@ -29,7 +39,7 @@ export function CustomersScreen() {
         <CustomersListView
           rows={dto.rows}
           totalRegistered={dto.totalRegistered}
-          query=""
+          query={query}
           selfStaffId={dto.selfStaffId}
           bookingDataAvailable={dto.bookingDataAvailable}
           staffList={dto.staffList}
