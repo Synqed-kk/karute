@@ -931,7 +931,12 @@ describe('閉店できるか is ONE call, rendered wherever the page asks it', (
       heldAmount: 0,
       unsettledVisits: [],
       terminalTx: rows.find((r) => r.tenders.some((t) => t.flag === 'pending'))?.id ?? null,
-      outstandingTx: rows.find((r) => r.outstanding > 0)?.id ?? null,
+      // ⚖ F-S2 — the balance row travels WITH the verdict that paints its pill,
+      // because the gate narrows the ledger through that very predicate.
+      outstandingTx: (() => {
+        const owed = rows.find((r) => r.outstanding > 0)
+        return owed ? { id: owed.id, filter: owed.filter } : null
+      })(),
       // ⚖ THE PRESENCE FACTS, read off the same world rather than assumed: this
       // store's day has card payments, and it finished visits.
       hasCardTender: rows.some((r) => r.tenders.some((t) => t.channel === 'card')),
@@ -1031,6 +1036,79 @@ describe('閉店できるか is ONE call, rendered wherever the page asks it', (
     // own chip would be a second home for the verdict.
     expect(SRC_CODE).toContain('return c.jump ? (')
     expect(SRC_CODE).not.toMatch(/textContent|\.pill.*match/)
+  })
+
+  it('⚖ F-S2 — the 未収 gate lands on a list that CONTAINS the row it points at', async () => {
+    // A gate must never advertise a trip it does not take. The balance is not
+    // always carried by a 一部入金 row: a sale that was PART-REFUNDED and is
+    // still owed is classed 要確認 by the very predicate the ledger narrows
+    // through, and a jump that named 「一部入金」 landed the closer on an empty
+    // list with the counter lit at 0件 and the fix nowhere in sight.
+    const owedAndRefunded = txPlane.map((t) =>
+      t.id === 'TX-5501'
+        ? {
+            ...t,
+            tenders: [
+              { label: '現金', amount: 1700, flag: '' as const },
+              { label: '現金 返金', amount: -400, flag: 'refund' as const },
+              { label: '未収', amount: 1600, flag: 'unpaid' as const },
+            ],
+          }
+        : t,
+    ) as FixtureTransaction[]
+    const { props } = await registerProps({
+      locale: 'ja',
+      store: STORE_A,
+      world: { transactions: owedAndRefunded },
+    })
+    const row = props.rows.find((r) => r.id === 'TX-5501')!
+    // The row's OWN verdict — the one its pill reads.
+    expect(row.state).toBe('partial-refund')
+    expect(row.filter).toBe('attention')
+    // …and the doorway reads that same verdict rather than a category written
+    // into the checklist.
+    expect(props.close!.checks.find((c) => c.key === 'outstanding')!.jump).toEqual({
+      kind: 'ledger',
+      filter: 'attention',
+      tx: 'TX-5501',
+    })
+    // THE LANDING LIST HOLDS THE ROW, counted through the same predicate the
+    // counter strip counts through — so the counter the press lights cannot
+    // read 0件 over a list that was supposed to contain the fix.
+    const landed = props.rows.filter((r) => matchesFilter(r, 'attention'))
+    expect(landed.map((r) => r.id)).toContain('TX-5501')
+    expect(props.counts.attention).toBe(landed.length)
+    expect(props.counts.attention).toBeGreaterThan(0)
+    // …and the plain day is untouched: there the owed row IS a 一部入金 row.
+    const plain = await room({ store: STORE_A })
+    expect(plain.close!.checks.find((c) => c.key === 'outstanding')!.jump).toEqual({
+      kind: 'ledger',
+      filter: 'partial',
+      tx: 'TX-5501',
+    })
+    // The filter is DERIVED, never written down beside the row it points at.
+    expect(LIB_CODE).not.toContain("filter: 'partial', tx: input.outstandingTx")
+    expect(LIB_CODE).toContain("filter: input.outstandingTx?.filter ?? 'all'")
+  })
+
+  it('⚖ F-S13 — a gate row’s accessible name CARRIES the row, it never replaces it', async () => {
+    // The row prints three things a closer acts on — what the gate is, the
+    // EVIDENCE under it, and its status chip. An `aria-label` naming only the
+    // gate and its destination deleted the other two for anyone listening.
+    expect(SRC_CODE).toContain('aria-label={`${c.label} — ${c.detail} — ${c.status} — ${jumpLabelOf(c.jump)}`}')
+    const props = await room({ store: STORE_A })
+    const open = props.close!.checks.find((c) => !c.done && c.jump !== null)!
+    // Every composed part is a real sentence on a real row, so the name is not
+    // three empty strings joined by dashes.
+    for (const part of [open.label, open.detail, open.status]) {
+      expect({ key: open.key, part, empty: part.trim() === '' }).toEqual({ key: open.key, part, empty: false })
+    }
+    expect(open.detail).not.toBe(open.label)
+    // A SETTLED gate is not a control at all, so it carries no name of its own —
+    // its own content is what a reader hears.
+    expect(SRC_CODE).toContain('<div className="rg-check" key={c.key}>')
+    const doneBranch = SRC_CODE.slice(SRC_CODE.indexOf('<div className="rg-check" key={c.key}>'))
+    expect(doneBranch.slice(0, 120)).not.toContain('aria-label')
   })
 
   it('⑤/⑨ 承認者名 rides the approval — a time stamp cannot say WHO', async () => {
@@ -1264,6 +1342,49 @@ describe('閉店できるか is ONE call, rendered wherever the page asks it', (
     expect(props.close!.closeRefusal).not.toContain('現金計数')
     // The drawer BAND obeys the same law as its row, reading the very same row.
     expect(SRC_CODE).toContain("close.checks.some((c) => c.key === 'cash')")
+  })
+
+  it('⚖ F-S5 — 決済手段の内訳 obeys the SAME law: no money arrived, no panel', async () => {
+    // The band splits the money that CAME IN by the手段 it came in on. On a day
+    // that took nothing, and on a day whose every sale is still owed, no money
+    // came in at all — and the panel was rendering an empty bordered box under
+    // its heading and then reassuring the closer that 「決済手段の内訳は受領済み ¥0
+    // と一致しています」: a verdict about a subject that does not exist.
+    const zero = await room({ store: STORE_B })
+    expect(zero.close!.reconciliation).toHaveLength(0)
+
+    // …and the same on a day that sold plenty and collected none of it — 未収 is
+    // not a tender, so nothing arrived on any channel.
+    const allOwed = await registerProps({
+      locale: 'ja',
+      store: STORE_A,
+      world: {
+        terminalHeld: [],
+        transactions: [
+          {
+            id: 'TX-8001', appointment_id: null, store_id: STORE_A, customer_id: 'cus-05',
+            item: '施術料金', amount: 6600, at: 11 * 60,
+            tenders: [{ label: '未収', amount: 6600, flag: 'unpaid' as const }], audit: [],
+          },
+          {
+            id: 'TX-8002', appointment_id: null, store_id: STORE_A, customer_id: 'cus-06',
+            item: '物販', amount: 3300, at: 12 * 60,
+            tenders: [{ label: '未収', amount: 3300, flag: 'unpaid' as const }], audit: [],
+          },
+        ],
+        closing: emptyDrawer({ ...closingPlane[STORE_A], cash_float: 0, cash_saved: false }),
+      },
+    })
+    expect(allOwed.props.rows).toHaveLength(2)
+    expect(allOwed.props.close!.reconciliation).toHaveLength(0)
+
+    // The heading, the box and the sentence go together — one condition, on the
+    // whole panel, exactly like the drawer band above it.
+    expect(SRC_CODE).toContain('{close.reconciliation.length > 0 && (')
+    // …and an ordinary day still has it, so the law did not delete the band.
+    const day = await room({ store: STORE_A })
+    expect(day.close!.reconciliation.length).toBeGreaterThan(0)
+    expect(day.close!.reconciliationNote).toContain('一致しています')
   })
 })
 
@@ -1528,8 +1649,13 @@ describe('capabilities are read, never invented', () => {
     // A draft is not a verdict for anybody.
     expect(cashReasonLine(open, { cash_reason: '', cash_saved: false }, 0)).toContain('未保存')
     expect(cashReasonLine(hidden, { cash_reason: '', cash_saved: false }, 0)).toContain('未保存')
-    // ONE HOME — the props file reads the rule, it does not restate it.
-    expect(PROPS_CODE).toContain('reason: cashReasonLine(access, closing, verdict.variance)')
+    // ONE HOME — the props file reads the rule, it does not restate it. F-S7
+    // gave the sentence a SECOND READER (the read-only reason box) and the read
+    // is still made exactly once, above the props object, gate and all.
+    expect(PROPS_CODE).toContain('const cashReason = closing && verdict ? cashReasonLine(access, closing, verdict.variance) : \'\'')
+    expect(PROPS_CODE.match(/cashReasonLine\(/g) ?? []).toHaveLength(1)
+    expect(PROPS_CODE).toContain('reason: cashReason,')
+    expect(PROPS_CODE).toContain("value: closing.cash_reason !== '' ? closing.cash_reason : cashReason,")
   })
 
   it('⚠ 期待額 EXPLAINS ITSELF — the float and the day’s cash are the two halves that make it', async () => {
@@ -1787,11 +1913,12 @@ describe('reading is buildable; every button on a money desk is a write', () => 
 
   it('the room holds only VIEW state — nothing a refusal could write into', () => {
     const states = SRC_CODE.match(/useState[<(]/g) ?? []
-    // mode · filter · selected · detailOpen · folds · pointingAt · tourIdx ·
-    // tourTick · tourStep · tourPos · tourHover. All eleven are browsing: which
-    // view, which slice, which row, which fold, what a jump is pointing at, and
-    // where the walk is. None of them writes anything.
-    expect(states).toHaveLength(11)
+    // mode · filter · selected · detailOpen · folds · denOpen · pointingAt ·
+    // tourIdx · tourTick · tourStep · tourPos · tourHover. All twelve are
+    // browsing: which view, which slice, which row, which fold, whether the
+    // count sheet is open, what a jump is pointing at, and where the walk is.
+    // None of them writes anything.
+    expect(states).toHaveLength(12)
     expect(SRC_CODE).not.toMatch(/useState<[^>]*>\(\s*props\./)
   })
 })
@@ -1805,8 +1932,15 @@ describe('⧉ the restructure: one page, two modes, one day', () => {
     expect(SRC_CODE).toContain('role="tablist"')
     expect((SRC_CODE.match(/role="tab"/g) ?? [])).toHaveLength(2)
     expect((SRC_CODE.match(/role="tabpanel"/g) ?? []).length).toBeGreaterThanOrEqual(1)
-    expect(SRC_CODE).toContain('aria-controls="rgPanelLedger"')
-    expect(SRC_CODE).toContain('aria-controls="rgPanelClose"')
+    // ⚖ F-S12 — AND THE NAME IS TRUE OF THE PAGE. Only the open mode's panel is
+    // mounted, so only the selected tab may name one: an `aria-controls` on an
+    // id that is not in the document promises a screen reader a region that is
+    // not there. The pair is also ONE tab stop, which is what makes the arrow
+    // keys already wired here the way between them.
+    expect(SRC_CODE).toContain("aria-controls={mode === 'ledger' ? 'rgPanelLedger' : undefined}")
+    expect(SRC_CODE).toContain("aria-controls={mode === 'close' ? 'rgPanelClose' : undefined}")
+    expect(SRC_CODE).toContain("tabIndex={mode === 'ledger' ? 0 : -1}")
+    expect(SRC_CODE).toContain("tabIndex={mode === 'close' ? 0 : -1}")
     // NOT NAVIGATION: no route, no href, nothing that leaves the page.
     const tabRow = SRC_CODE.slice(SRC_CODE.indexOf('className="rg-modes"'), SRC_CODE.indexOf('id="rgPanelLedger"'))
     expect(tabRow).not.toMatch(/href|Link|router|useSearchParams/)
@@ -2272,6 +2406,126 @@ describe('⚖ ALL-SCREEN ADAPTIVITY, R13, and the shell that points here', () =>
   it('the loading state is Next’s own, and its string is the room’s', () => {
     const loading = readFileSync(join(process.cwd(), `${ROOM_DIR}/loading.tsx`), 'utf8')
     expect(loading).toContain('businessStrings.register.loading')
+  })
+
+  it('⚖ F-S1 — the mode row WRAPS, so a good evening’s status never pushes the page sideways', () => {
+    // The 閉店 tab carries the day's status, and the status of a successful close
+    // is a whole sentence: 「閉店の条件はすべて満たしています」. Two nowrap tabs on one
+    // nowrap line wanted 322px on a 284px screen, so the WHOLE PAGE panned at
+    // 360/375/390 in both modes — on the most ordinary evening a shop has.
+    expect(CSS_CODE).toContain('display: flex; flex-wrap: wrap; align-items: stretch; gap: 2px 24px;')
+    // A row that does not wrap has no row gap, so the approved arrangement is
+    // unchanged to the pixel wherever the pair still fits.
+    const band = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 743px)'))
+    expect(band).toContain('.biz .pg-register .rg-modes { gap: 2px 18px; }')
+    // Nothing is truncated to buy the room: the tab and its chip stay nowrap and
+    // the SENTENCE is what gets the line below.
+    expect(CSS_CODE).toMatch(/\.rg-mode \{[^}]*white-space: nowrap;/)
+  })
+
+  it('⚖ F-S6 — every box on the money desk is at least as wide as the figure in it', () => {
+    // ① the drawer's stats: the 124px basis still decides how many sit across on
+    // an ordinary evening, but a cell may no longer shrink BELOW its own content,
+    // so the row wraps instead of clipping the one figure a human types.
+    expect(CSS_CODE).toContain('.biz .pg-register .rg-cash-stat { flex: 1 1 124px; padding: 10px 11px; background: #fff; }')
+    expect(CSS_CODE).not.toMatch(/\.rg-cash-stat \{[^}]*min-width: 0/)
+    // …and the FIELD is measured by its own FIGURE, because a field is the one
+    // box with no content width a layout can read: its intrinsic size comes from
+    // `size`, an estimate in average characters. The figure is handed to the box
+    // as text and laid out at zero height in the type the field uses.
+    expect(SRC_CODE).toContain('<span className="rg-count-box" data-count={cash.counted}>')
+    expect(CSS_CODE).toContain('content: attr(data-count); display: block; height: 0; visibility: hidden;')
+    // ⚠ AND THE SIZER MUST NOT CLIP ITSELF. A box that hides its own overflow is a
+    // scroll container, and a scroll container's automatic minimum size is ZERO —
+    // it would measure the figure and then tell the layout it needed nothing.
+    expect(CSS_CODE).not.toMatch(/rg-count-box::before \{[^}]*overflow/)
+    // ⚠ AND IT MUST OUT-SPECIFY `.rg-cash-stat span`, which this very sheet states
+    // at three classes AND a type. At three classes the box lost, and the one
+    // figure a human types rendered at label size in grey.
+    expect(CSS_CODE).toContain('.biz .pg-register .rg-cash-stat .rg-count-box {')
+    expect(CSS_CODE).not.toMatch(/^\.biz \.pg-register \.rg-count-box \{/m)
+    // ONE VALUE, READ TWICE BY ONE EXPRESSION — the sizer is generated content
+    // (`visibility: hidden`, no node of its own), so no screen reader hears the
+    // count twice and no second string can drift from the first.
+    expect(SRC_CODE.match(/data-count=/g) ?? []).toHaveLength(1)
+    expect(SRC_CODE).toContain('value={cash.counted}')
+    expect(CSS_CODE).toContain('visibility: hidden;')
+    expect(CSS_CODE).toContain('.biz .pg-register .rg-cash-stat .rg-count-box { font-size: 16px; }')
+    // ③ the money strip sizes from the PANEL, not the window — one viewport width
+    // is two page widths, and the six cells were keyed to the viewport.
+    expect(CSS_CODE).toContain('.biz .pg-register .rg-money {\n  display: flex; flex-wrap: wrap; gap: 1px;')
+    expect(CSS_CODE).not.toMatch(/\.rg-money \{[^}]*repeat\(5, minmax\(96px/)
+    expect(CSS_CODE).toContain('.biz .pg-register .rg-money-cell { flex: 1 1 96px;')
+    // The approved arrangement is still STATED, band by band — what the bands no
+    // longer decide is whether a figure fits.
+    expect(CSS_CODE).toContain('.biz .pg-register .rg-money-cell { flex-basis: calc(50% - 1px); }')
+    expect(CSS_CODE).toContain('.biz .pg-register .rg-money-cell:last-child { flex-basis: 100%; border-radius: 0 0 10px 10px; }')
+    // ② the 内訳 row wraps instead of being clipped by its own radius — at EVERY
+    // width, because the base band held three fixed tracks too.
+    expect(CSS_CODE).toContain('.biz .pg-register .rg-recon-row { display: flex; flex-wrap: wrap; gap: 4px 14px;')
+    expect(CSS_CODE).not.toContain('repeat(3, minmax(84px, auto))')
+    expect(CSS_CODE).toContain('.biz .pg-register .rg-recon-cell { flex: 0 0 auto; display: block; text-align: right; }')
+    const band = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 743px)'))
+    expect(band).toContain('.biz .pg-register .rg-recon-cell { flex: 1 1 auto; text-align: left; }')
+  })
+
+  it('⚖ F-S7/F-S8/F-S9 — words wrap, names break, and the corner children carry the radius', () => {
+    // F-S7 — a reason is a SENTENCE. readOnly, it is text: it grows down rather
+    // than running off the side of a field that clips without saying so.
+    expect(SRC_CODE).toContain('<p className="rg-reason-in" title={cash.reasonInput.refusal}>')
+    expect(SRC_CODE).not.toMatch(/className="rg-reason-in"\s*\n\s*type="text"/)
+    expect(CSS_CODE).not.toMatch(/\.rg-reason-in \{[^}]*cursor: not-allowed/)
+    // F-S8 — most Japanese names have no space to break at, so `keep-all` alone
+    // told the browser never to break them and 承認者 painted over its neighbour.
+    expect(CSS_CODE).toContain('.biz .pg-register .rg-rec-cell b.wrap { white-space: normal; word-break: keep-all; overflow-wrap: anywhere; }')
+    // F-S9 — the corner children carry the box's radius, this sheet's own pattern
+    // (`.rg-checks` two blocks up), because this box may never clip.
+    expect(CSS_CODE).toContain('.biz .pg-register .rg-cash-stats > :first-child { border-top-left-radius: 8px; }')
+    expect(CSS_CODE).toContain('.biz .pg-register .rg-cash-stats > :last-child { border-radius: 0 0 8px 8px; }')
+    const band = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 743px)'))
+    expect(band).toContain('.biz .pg-register .rg-cash-stats > :first-child { border-radius: 8px 8px 0 0; }')
+    // …and the box still never clips, which is why the children carry it at all.
+    expect(CSS_CODE).not.toMatch(/\.rg-cash-stats \{[^}]*overflow/)
+  })
+
+  it('⚖ F-S3/F-S4 — the tour is a real modal, and the walk re-measures on any render that changes it', () => {
+    // F-S3 — a scrim that only stops the MOUSE is not a modal. Tab walked
+    // straight through it into the dimmed page and could operate it.
+    expect(SRC_CODE).toContain('aria-modal="true"')
+    expect(SRC_CODE).toContain("if (e.key === 'Tab') {")
+    expect(SRC_CODE).toContain("const stops = [...card.querySelectorAll<HTMLButtonElement>('button:not([disabled])')]")
+    expect(SRC_CODE).toContain('e.preventDefault()')
+    // F-S4 — the census is read off the DOM, so the deps are the state the DOM is
+    // a function of; and the INDEX is clamped in state, not only in the card.
+    expect(SRC_CODE).toContain('}, [tourIdx, tourTick, tourStep, mode, detailOpen, filter, folds, denOpen, props])')
+    expect(SRC_CODE).toContain('if (i !== tourIdx) { setTourIdx(i); return }')
+    // F-S11 — ≤743 the card is pinned to the bottom and the step is scrolled into
+    // the free zone above it, because a phone has no free SIDE.
+    expect(SRC_CODE).toContain('const narrow = window.innerWidth <= 743')
+    expect(SRC_CODE).toContain('const freeBottom = narrow ? window.innerHeight - size.height - 20 : window.innerHeight - 40')
+    expect(SRC_CODE).toContain('if (narrow) window.scrollBy(0, r.top - 60)')
+    // …and the shared engine is untouched: the override lives in the room.
+    expect(SRC_CODE).toContain('spotCardAt(boxOf(r), size, { width: window.innerWidth, height: window.innerHeight })')
+  })
+
+  it('⚖ F-S10/F-S12 — the count sheet survives a mode round trip, and every fold’s aria is true', () => {
+    // F-S10 — a native <details> keeps its open flag in a node the mode switch
+    // unmounts, so the closer's own counting was thrown away while every fold
+    // beside it survived.
+    expect(SRC_CODE).toContain('const [denOpen, setDenOpen] = useState(false)')
+    expect(SRC_CODE).toContain('open={denOpen}')
+    expect(SRC_CODE).toContain('onToggle={(e) => setDenOpen(e.currentTarget.open)}')
+    // F-S12 — a fold NAMES the region it opens, and all three regions render at
+    // every width (the phone band folds them with `display`, it does not unmount
+    // them), so the id is always in the document.
+    for (const id of ['rgMoney', 'rgCounts', 'rgRecord']) {
+      expect({ id, named: SRC_CODE.includes(`aria-controls="${id}"`) }).toEqual({ id, named: true })
+      expect({ id, exists: SRC_CODE.includes(`id="${id}"`) }).toEqual({ id, exists: true })
+    }
+    // …and the terminal fold's NAME says which way it goes, because one button
+    // doing two jobs cannot call itself 「開く」 while it is open.
+    expect(SRC_CODE).toContain('aria-label={folds.terminal ? props.terminal.foldCloseLabel : props.terminal.foldLabel}')
+    expect(PROPS_CODE).toContain("foldCloseLabel: '決済端末の詳細を閉じる',")
   })
 })
 

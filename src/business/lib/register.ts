@@ -728,7 +728,14 @@ export interface ClosingInput {
    *  balance nobody has decided about. `null` when the day has no such row —
    *  then the gate lands on the filter alone. */
   terminalTx: string | null
-  outstandingTx: string | null
+  /** ⚖ A GATE NEVER ADVERTISES A TRIP IT DOES NOT TAKE (F-S2). The balance row
+   *  arrives WITH THE VERDICT THAT PAINTS ITS OWN PILL — `TransactionModel.filter`,
+   *  the very predicate the counter strip and the filter row narrow the ledger
+   *  through — because the row that owes money is not always a 一部入金 row: a
+   *  sale that was part-refunded AND is still owed is classed 要確認, and a jump
+   *  that hardcoded 「一部入金」 landed the closer on an empty list with the counter
+   *  lit at 0件. One verdict, read once, by the pill and by the doorway. */
+  outstandingTx: { id: string; filter: RegisterFilter } | null
   /** ⚖ A ROW RENDERS ONLY WHEN ITS SUBJECT EXISTS IN THE DAY (the law this
    *  room's own sheet states at register.css:446). Two more LEDGER facts the
    *  caller resolves off the rows it is about to print, for the same reason the
@@ -804,7 +811,12 @@ export function closingReadiness(input: ClosingInput): ClosingVerdict {
             : `${yen(totals.outstanding)} の扱いが未判断`,
       done: outstandingDone,
       status: totals.outstanding === 0 ? '完了' : closing.outstanding_decision !== null ? '記録済み' : '未判断',
-      jump: outstandingDone ? null : { kind: 'ledger', filter: 'partial', tx: input.outstandingTx },
+      // ⚖ THE DESTINATION IS THE TARGET ROW'S OWN VERDICT, never a category
+      // written down here. With no target row there is nothing to narrow TO, so
+      // the gate lands on 「すべて」 — the one list that cannot fail to contain it.
+      jump: outstandingDone
+        ? null
+        : { kind: 'ledger', filter: input.outstandingTx?.filter ?? 'all', tx: input.outstandingTx?.id ?? null },
     },
     {
       key: 'unsettled',

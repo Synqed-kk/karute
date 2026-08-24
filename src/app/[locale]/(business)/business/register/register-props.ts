@@ -207,7 +207,11 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
   // lens cannot see.
   const heldIds = new Set(terminalHeld.map((h) => h.appointment_id))
   const terminalTx = models.find((m) => m.appointmentId !== null && heldIds.has(m.appointmentId))?.id ?? null
-  const outstandingTx = models.find((m) => m.outstanding > 0)?.id ?? null
+  // ⚖ F-S2 — AND THE ROW'S OWN VERDICT TRAVELS WITH IT. The gate narrows the
+  // ledger through `matchesFilter`, so the filter it presses has to be the one
+  // the target row is classed under; reading the model's `filter` here is the
+  // same single read the row's pill and the counter strip make.
+  const outstandingRow = models.find((m) => m.outstanding > 0) ?? null
   // ⚖ AND WHETHER THE ROW EXISTS AT ALL. A store with no card terminal never
   // holds a card record and never takes a card payment, so the day's own tenders
   // are what say the device is in the building — no business-type branch, and
@@ -223,13 +227,17 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
         heldAmount: terminalHeld.reduce((n, h) => n + h.amount, 0),
         unsettledVisits,
         terminalTx,
-        outstandingTx,
+        outstandingTx: outstandingRow && { id: outstandingRow.id, filter: outstandingRow.filter },
         hasCardTender,
         completedVisits: completedToday.length,
       })
     : null
 
   const reconciliation = tenderReconciliation(models)
+  // ⚖ ONE HOME for 差異理由 as a SENTENCE. The drawer's printed row and the
+  // read-only reason box are the same string with R-23's redaction gate applied
+  // once — F-S7 gave the box a second reader, not a second reading.
+  const cashReason = closing && verdict ? cashReasonLine(access, closing, verdict.variance) : ''
 
   const storeName = new Map(storeOptions.map((s) => [s.id, s.name]))
   const lensLabel = clamped ? (storeName.get(storeId!) ?? 'この店舗') : 'すべての店舗'
@@ -397,7 +405,12 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
         : {
             title: `決済端末（${heldTerminals.join('・')}）に送信待ちの取引が${terminalHeld.length}件あります`,
             copy: `${hhmm(heldSince!)}以降の${terminalHeld.length}件は端末内に保持されています。カードの新規決済は端末が復帰するまで記録できません。現金と受付価格には影響しません。`,
+            // ⚖ F-S12 — A CONTROL'S NAME SAYS WHAT PRESSING IT DOES NOW. One
+            // button, two jobs, so it needs both words: a fold that is already
+            // open and still calls itself 「開く」 is telling a screen-reader
+            // reader the opposite of what will happen.
             foldLabel: '決済端末の詳細を開く',
+            foldCloseLabel: '決済端末の詳細を閉じる',
             stats: [
               { label: '端末内保持', value: `${terminalHeld.length}件` },
               { label: '対象金額', value: yen(terminalHeld.reduce((n, h) => n + h.amount, 0)) },
@@ -458,7 +471,7 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
               // ⚖ NEVER A VERDICT OVER A NUMBER THAT CONTRADICTS IT, and ⚖ R-23
               // — never a verdict ABOUT a number this reader may not see. Both
               // readings live in `cashReasonLine`, one home.
-              reason: cashReasonLine(access, closing, verdict.variance),
+              reason: cashReason,
               // ⑪ AND SOMEWHERE TO PUT ONE. The room named the missing reason in
               // four places and offered nowhere to write it. The field appears on
               // the days there IS a difference — the same data-presence rule
@@ -470,8 +483,14 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
                   ? null
                   : {
                       label: '差異理由',
-                      value: closing.cash_reason,
-                      placeholder: '例: 両替のとき、釣銭用に千円札を1枚多く出した可能性があります',
+                      // ⚖ F-S7 — THE REASON IS READ, NOT TYPED, IN THIS SLICE.
+                      // A readOnly field CLIPS what will not fit on one line, so
+                      // a real 70-character reason lost its tail with nothing
+                      // saying so. It renders as wrapping text until the write
+                      // is connected, and an empty one prints the room's OWN
+                      // sentence for a missing reason (`cashReasonLine`, one
+                      // home) rather than an example dressed up as a record.
+                      value: closing.cash_reason !== '' ? closing.cash_reason : cashReason,
                       refusal: REFUSAL.reason,
                       // The three reasons a drawer is usually out. They FILL the
                       // field; they are not a taxonomy the shop has to learn.

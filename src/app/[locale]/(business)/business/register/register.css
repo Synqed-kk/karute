@@ -144,14 +144,30 @@
    row that put four buttons beside five identical-looking non-buttons would make
    「distinguish by aria, not by guess」 the reader's problem. Separating them by
    KIND says it before any aria has to. Same strip grammar, two bands. */
+/* ⚖ THE STRIP SIZES FROM THE PANEL, NOT FROM THE VIEWPORT (F-S6). This band's
+   shape was keyed to media queries, and a media query knows the WINDOW: one
+   viewport width is TWO page widths, because the operator opens and closes the
+   shell's sidebar (76px rail / 264px open). At 1024 with it open the six cells
+   had 720px to live in, `minmax(96px, …)` let every track sit narrower than the
+   figure inside it, and a seven-digit 未収 painted 23px past the page box —
+   4px of horizontal page scroll on a day a busy shop has every week.
+   A WRAPPING ROW WITH CONTENT-SIZED CELLS instead — the drawer's own F-R4c
+   shape: a cell is never narrower than the figure printed in it, so when six no
+   longer fit they take the line below rather than escaping the box, at every
+   width and in both sidebar states, with no constant in this sheet to keep in
+   step with how big the shop's numbers got. The bands below still state the
+   arrangement Liam approved; what they no longer decide is whether a figure
+   fits. AND THE SEPARATORS ARE THE GAP (the same reasoning as the drawer's): a
+   `border-left` on the cell paints a rule against the box's own edge the moment
+   the row wraps. */
 .biz .pg-register .rg-money {
-  display: grid; grid-template-columns: minmax(200px, 1.15fr) repeat(5, minmax(96px, .72fr));
-  margin-bottom: 10px; border: 1px solid var(--card); border-radius: 11px; background: #fff;
+  display: flex; flex-wrap: wrap; gap: 1px;
+  margin-bottom: 10px; border: 1px solid var(--card); border-radius: 11px; background: var(--section);
 }
-.biz .pg-register .rg-money-main { display: grid; align-content: center; padding: 11px 15px; background: #fafafb; border-radius: 10px 0 0 10px; }
+.biz .pg-register .rg-money-main { flex: 1 1 200px; display: grid; align-content: center; padding: 11px 15px; background: #fafafb; border-radius: 10px 0 0 10px; }
 .biz .pg-register .rg-money-main strong { display: block; font-size: 15px; }
 .biz .pg-register .rg-money-main span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.4; }
-.biz .pg-register .rg-money-cell { display: grid; align-content: center; padding: 10px 12px; border-left: 1px solid var(--section); }
+.biz .pg-register .rg-money-cell { flex: 1 1 96px; display: grid; align-content: center; padding: 10px 12px; background: #fff; }
 .biz .pg-register .rg-money-cell:last-child { border-radius: 0 10px 10px 0; }
 .biz .pg-register .rg-money-cell span { color: var(--muted); font-size: 12px; }
 .biz .pg-register .rg-money-cell b { margin-top: 3px; font-size: 18px; font-variant-numeric: tabular-nums; }
@@ -202,8 +218,16 @@
    pressed mark and the ledger's filter row: no border, no fill, nothing black.
    The 閉店 tab carries its status chip, so the closer knows whether the day is
    blocked WITHOUT leaving the transaction desk to find out. */
+/* ⚖ THE ROW WRAPS (F-S1). The 閉店 tab carries its STATUS, and the status of a
+   good evening is a whole sentence — 「閉店の条件はすべて満たしています」, 197px of
+   it. Two nowrap tabs on one nowrap line needed 322px on a screen that has 284,
+   so a normal successful close pushed the WHOLE PAGE sideways at 360/375/390, in
+   both modes (⚖ page-scroll, ⚖ all-screen). Wrapping is the only answer that
+   keeps the sentence whole and truncates nothing: while the pair fits it is the
+   approved row, unchanged to the pixel (a row that does not wrap has no row
+   gap), and when it cannot the 閉店 tab takes the line below. */
 .biz .pg-register .rg-modes {
-  display: flex; align-items: stretch; gap: 24px;
+  display: flex; flex-wrap: wrap; align-items: stretch; gap: 2px 24px;
   margin-bottom: 14px; padding: 0 2px; border-bottom: 1px solid var(--line-2);
 }
 .biz .pg-register .rg-mode {
@@ -520,12 +544,31 @@
    it does, the cell at the end of a line paints a rule against the box's edge
    and the line below it has nothing above it. A 1px gap over the line colour
    draws every separator the layout actually has, in both directions, however
-   the row happens to break. */
+   the row happens to break.
+
+   ⚠ …AND 124px WAS STILL A MEASUREMENT OF THE DEMO DAY (F-S6). A basis is only
+   half a rule: `min-width: 0` let every cell shrink BELOW its own figure, so the
+   band that was built to stop 実査額 clipping clipped it again the first time a
+   drawer held seven digits (¥9,990,000 in a 122px box at the 1280 reference
+   width). The basis stays — it is what decides how many sit across on an
+   ordinary evening — and the MINIMUM is now the cell's own content, so a cell
+   can never be narrower than the figure printed in it and the row wraps instead.
+   The 実査額 field carries its own `size` (a field is the one box that does not
+   size from its text), so its content minimum is the count, not a constant. */
 .biz .pg-register .rg-cash-stats {
   display: flex; flex-wrap: wrap; gap: 1px;
   border: 1px solid var(--line); border-radius: 9px; background: var(--section);
 }
-.biz .pg-register .rg-cash-stat { flex: 1 1 124px; min-width: 0; padding: 10px 11px; background: #fff; }
+.biz .pg-register .rg-cash-stat { flex: 1 1 124px; padding: 10px 11px; background: #fff; }
+/* ⚖ THE CORNER CHILDREN CARRY THE BOX'S RADIUS (F-S9) — this sheet's own
+   pattern, and the one `.rg-checks` two blocks up already uses, because this box
+   may never clip (it holds a field and a disclosure, and a ring the room clips
+   is not a ring). The row WRAPS, so the children whose position is a fact rather
+   than a guess are the FIRST — always the top-left — and the LAST, which is
+   always the end of the last line and therefore both bottom corners: 金種 is a
+   full-width line, and without it the third stat closes the box. */
+.biz .pg-register .rg-cash-stats > :first-child { border-top-left-radius: 8px; }
+.biz .pg-register .rg-cash-stats > :last-child { border-radius: 0 0 8px 8px; }
 .biz .pg-register .rg-cash-stat span { display: block; color: var(--muted); font-size: 12px; }
 .biz .pg-register .rg-cash-stat b { display: block; margin-top: 3px; font-size: 18px; font-variant-numeric: tabular-nums; }
 .biz .pg-register .rg-cash-stat b.bad { color: var(--red-dark); }
@@ -533,10 +576,43 @@
    the closing desk it wears a field rather than a printed number — the same 18px
    tabular figure, in a box that says "this is where the count goes". It is
    refused like every other write in the slice. */
+/* ⚖ …AND A FIELD HAS NO CONTENT WIDTH THE LAYOUT CAN READ (F-S6). `width: 100%`
+   contributes nothing to the cell's own minimum, and a field's intrinsic size
+   comes from `size` — an estimate in AVERAGE characters that under-measures ¥,
+   the commas and tabular digits by about a tenth. So the drawer shrank under its
+   own figure and the field clipped it: ¥9,990,000 printed as 「¥9,990,00」 at the
+   1280 reference width, with 差異 computed from the digit that was cut.
+   THE FIGURE IS MEASURED AS TEXT, by the browser, on the very string the field
+   carries: the box states it once as `data-count` and lays a zero-height copy of
+   it out in the type the field uses. That is the box's minimum, so the cell can
+   never be narrower than the number in it and the row wraps instead. The sizer
+   is GENERATED CONTENT — `visibility: hidden` and no node of its own — so no
+   screen reader hears the count twice. */
+/* ⚠ FOUR LEVELS, AND THE `.rg-cash-stat` IN THE MIDDLE IS LOAD-BEARING. This box
+   IS a `<span>` inside the count cell, and this sheet already states
+   `.rg-cash-stat span { font-size: 12px; color: var(--muted) }` at three classes
+   AND a type — which out-specifies a three-class rule and rendered the one figure
+   a human types at LABEL SIZE, in grey. (The same trap the refusal line's own
+   note two blocks down was written about; caught by the battery, not the eye.) */
+.biz .pg-register .rg-cash-stat .rg-count-box {
+  display: block; margin-top: 3px;
+  font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink);
+}
+/* ⚠ NO `overflow` HERE. A box that clips its own overflow is a scroll container,
+   and a scroll container's automatic minimum size is ZERO — the sizer would
+   measure the figure and then tell the layout it needed nothing. `height: 0` and
+   `visibility: hidden` take it off the page without taking its WIDTH off the
+   layout, which is the whole job. */
+.biz .pg-register .rg-cash-stat .rg-count-box::before {
+  content: attr(data-count); display: block; height: 0; visibility: hidden;
+  /* the field's own padding and border, so the box's minimum is the whole
+     control rather than just the text inside it. */
+  padding: 0 9px; white-space: pre;
+}
 .biz .pg-register .rg-cash-entry {
-  display: block; width: 100%; margin-top: 3px; padding: 2px 8px;
+  display: block; width: 100%; padding: 2px 8px;
   border: 1px solid var(--control); border-radius: 7px; background: #fbfbfc;
-  color: var(--ink); font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.5;
+  color: var(--ink); font-size: inherit; font-weight: inherit; line-height: 1.5;
   cursor: not-allowed;
 }
 .biz .pg-register .rg-cash-facts { margin-top: 12px; }
@@ -591,10 +667,16 @@
    it is today. The chips are the three reasons a drawer is usually out; they fill
    the field, they are not a taxonomy the shop must learn. */
 .biz .pg-register .rg-cash-reason { margin-top: 12px; }
+/* ⚖ A REASON IS A SENTENCE, AND A SENTENCE WRAPS (F-S7). It was a readOnly
+   FIELD, and a field clips: 「両替のとき、釣銭用に千円札を1枚多く出した可能性があります。
+   翌朝の開店前に…」 is what a closer actually writes, and 923px of it lived inside a
+   441px box with nothing saying the rest was there. The box, the border and the
+   place on the page are unchanged — it is TEXT now, so it grows down instead of
+   running off the side. The editable field returns with the write. */
 .biz .pg-register .rg-reason-in {
-  display: block; width: 100%; margin-top: 6px; padding: 7px 10px;
+  margin: 6px 0 0; padding: 7px 10px;
   border: 1px solid var(--control); border-radius: 8px; background: #fbfbfc;
-  color: var(--ink); font-size: 13px; line-height: 1.5; cursor: not-allowed;
+  color: var(--ink); font-size: 13px; line-height: 1.5;
 }
 .biz .pg-register .rg-reason-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
 .biz .pg-register .rg-reason-chip {
@@ -618,14 +700,21 @@
 .biz .pg-register span.rg-refusal { display: none; }
 
 .biz .pg-register .rg-recon { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-.biz .pg-register .rg-recon-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(3, minmax(84px, auto)); gap: 4px 14px; align-items: baseline; padding: 9px 11px; border-bottom: 1px solid var(--row); font-size: 12.5px; }
+/* ⚖ A ROW OF FIGURES WRAPS RATHER THAN CLIPPING (F-S6). `repeat(3, minmax(84px,
+   auto))` held three figures in three tracks however wide the figures were, and
+   a yen figure has nowhere to break: on a day that took ¥18,888,888 the cells
+   painted over each other, and `.rg-recon`'s own radius clipped the difference
+   away at the narrow end. Content-sized cells on a wrapping row — the drawer's
+   own F-R4c shape — hold three across on an ordinary evening and drop the third
+   to the line below when the shop's numbers get long. */
+.biz .pg-register .rg-recon-row { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; padding: 9px 11px; border-bottom: 1px solid var(--row); font-size: 12.5px; }
 .biz .pg-register .rg-recon-row:last-child { border-bottom: 0; }
-/* 現金 / カード / 回数券 — two or three characters, and the row's first track is
-   a `minmax(0, 1fr)` that will happily shrink them to one character per line. */
-.biz .pg-register .rg-recon-ch { color: var(--ink-2); font-weight: 600; white-space: nowrap; }
+/* 現金 / カード / 回数券 — two or three characters, and it takes the slack so the
+   figures stay against the right edge. */
+.biz .pg-register .rg-recon-ch { flex: 1 1 auto; color: var(--ink-2); font-weight: 600; white-space: nowrap; }
 /* Each figure carries its own word rather than leaning on a header row, which
    would vanish the moment the band stacks on a phone. */
-.biz .pg-register .rg-recon-cell { display: block; text-align: right; }
+.biz .pg-register .rg-recon-cell { flex: 0 0 auto; display: block; text-align: right; }
 .biz .pg-register .rg-recon-cell em { display: block; color: var(--quiet); font-size: 11px; font-style: normal; line-height: 1.3; }
 .biz .pg-register .rg-recon-cell b { font-variant-numeric: tabular-nums; font-weight: 600; }
 .biz .pg-register .rg-recon-cell b.rg-recon-rev { color: var(--red-dark); }
@@ -671,7 +760,16 @@
    the minus and printed a bare 「−」 on its own line, which reads as a fact of its
    own. The one cell that holds WORDS says so and breaks at its own space. */
 .biz .pg-register .rg-rec-cell b { margin-top: 2px; font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.biz .pg-register .rg-rec-cell b.wrap { white-space: normal; word-break: keep-all; }
+/* ⚖ …AND A NAME THAT CANNOT BREAK AT A SPACE STILL HAS TO BREAK (F-S8). Most
+   Japanese names have no space in them — 五十嵐真理子, 長谷川さくらこ — and
+   `keep-all` alone told the browser never to break a run of kana or kanji, so a
+   seven-character 承認者 painted 30px over its neighbour and, in the last cell,
+   50px past the page box. `keep-all` still wins wherever a space exists (the
+   name breaks at its own space, never mid-word); `anywhere` is the escape hatch
+   the browser takes only when the word would otherwise overflow — and, unlike
+   `break-word`, it lowers the cell's own minimum, so the strip stops demanding
+   room it does not have. */
+.biz .pg-register .rg-rec-cell b.wrap { white-space: normal; word-break: keep-all; overflow-wrap: anywhere; }
 .biz .pg-register .rg-rec-cell b.bad { color: var(--red-dark); }
 .biz .pg-register .rg-rec-cell b.warn { color: var(--orange); }
 /* 「権限がありません」 is one sentence and it must not break across two ragged lines
@@ -804,11 +902,13 @@
    viewport (no vh-based heights), so a 655px-high landscape interior simply
    scrolls the page like any other. */
 @media (max-width: 1023px) {
-  .biz .pg-register .rg-money { grid-template-columns: 1fr 1fr; }
-  .biz .pg-register .rg-money-main { grid-column: 1 / -1; border-radius: 10px 10px 0 0; }
-  .biz .pg-register .rg-money-cell { border-left: 0; border-top: 1px solid var(--section); }
-  .biz .pg-register .rg-money-cell:nth-child(odd) { border-left: 1px solid var(--section); }
-  .biz .pg-register .rg-money-cell:last-child { grid-column: 1 / -1; border-left: 0; border-radius: 0 0 10px 10px; }
+  /* the strip's approved shape on a tablet: the name across the top, the five
+     figures two-up, 未収 taking the last line on its own. Stated as BASES now
+     rather than tracks, so a figure too wide for half a line still wraps rather
+     than escaping the box (F-S6). */
+  .biz .pg-register .rg-money-main { flex-basis: 100%; border-radius: 10px 10px 0 0; }
+  .biz .pg-register .rg-money-cell { flex-basis: calc(50% - 1px); }
+  .biz .pg-register .rg-money-cell:last-child { flex-basis: 100%; border-radius: 0 0 10px 10px; }
   .biz .pg-register .rg-counts { grid-template-columns: 1fr 1fr; }
   .biz .pg-register .rg-count-main { grid-column: 1 / -1; border-radius: 10px 10px 0 0; }
   .biz .pg-register .rg-count:last-child { grid-column: 1 / -1; border-radius: 0 0 10px 10px; }
@@ -818,7 +918,9 @@
   /* the drawer is half a narrow page here, so the count field's three stats are
      ~117px each — 18px tabular 「¥39,620」 plus the field's own padding clipped
      inside it (measured at 820). The figure stays the same size everywhere else. */
-  .biz .pg-register .rg-cash-entry { font-size: 16px; }
+  /* stated on the BOX, so the field and the sizer that measures it can never be
+     set in two different types (they are one figure). */
+  .biz .pg-register .rg-cash-stat .rg-count-box { font-size: 16px; }
   .biz .pg-register .rg-record { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   /* two-up: the heading spans the top, so each row is (even, odd) and the line
      belongs to the odd one — the divider between the pair, never the outer edge. */
@@ -855,6 +957,14 @@
   /* ⚖ ≥44px on a thumb WITHOUT growing the mark: a 44px help circle beside a
      23px title would shout louder than the title, so the hit box is extended
      past the paint, which is what a touch target is for. */
+  /* ⚖ THE LAST SECTION NEEDS SOMEWHERE TO SCROLL TO (F-S11). A card pinned to
+     the bottom is cleared by scrolling the step UP, and the step at the END of
+     the page has nothing beneath it to scroll into — 閉店の操作 sat under the
+     card with the page already at its last pixel. The walk reserves the card's
+     own height below the page while it runs, and gives it straight back when it
+     closes. ponytail: 320px is this card's ceiling (300px wide, its longest
+     copy ≈250px tall) plus air — raise it if the tour copy ever grows past it. */
+  .biz .page.pg-register.is-touring { padding-bottom: 320px; }
   .biz .pg-register .rg-help { position: relative; }
   .biz .pg-register .rg-help::after {
     content: ""; position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%);
@@ -865,9 +975,9 @@
   .biz .pg-register.is-detail .rg-ledger { display: none; }
   .biz .pg-register.is-detail .rg-detail { display: block; }
 
-  .biz .pg-register .rg-money, .biz .pg-register .rg-counts { grid-template-columns: minmax(0, 1fr); }
-  .biz .pg-register .rg-money-cell, .biz .pg-register .rg-count { border-left: 0; border-top: 1px solid var(--section); border-radius: 0; }
-  .biz .pg-register .rg-money-cell:nth-child(odd) { border-left: 0; }
+  .biz .pg-register .rg-counts { grid-template-columns: minmax(0, 1fr); }
+  .biz .pg-register .rg-money-cell { flex-basis: 100%; border-radius: 0; }
+  .biz .pg-register .rg-count { border-left: 0; border-top: 1px solid var(--section); border-radius: 0; }
   .biz .pg-register .rg-money-main, .biz .pg-register .rg-count-main { border-radius: 10px 10px 0 0; }
   .biz .pg-register .rg-money-cell:last-child, .biz .pg-register .rg-count:last-child { border-radius: 0 0 10px 10px; }
   .biz .pg-register .rg-terminal { grid-template-columns: minmax(0, 1fr); }
@@ -875,7 +985,7 @@
   .biz .pg-register .rg-terminal-action .btn { width: 100%; min-height: 46px; }
 
   /* the tabs keep their quiet grammar; only the HIT BOX grows to 46px. */
-  .biz .pg-register .rg-modes { gap: 18px; }
+  .biz .pg-register .rg-modes { gap: 2px 18px; }
   .biz .pg-register .rg-mode { min-height: 46px; font-size: 14.5px; }
 
   .biz .pg-register .rg-panel-head { flex-direction: column; align-items: flex-start; gap: 8px; }
@@ -911,16 +1021,27 @@
      closer came for, and 期待額 / 実査額 / 差異 read top to bottom in the order
      they are computed. The separators come from the box's own 1px gap. */
   .biz .pg-register .rg-cash-stat { flex-basis: 100%; }
-  .biz .pg-register .rg-cash-stat:last-of-type { border-bottom: 0; }
+  /* One per line here, so BOTH top corners belong to the first child — the same
+     vertical shape `.rg-checks` carries (F-S9). (The `last-of-type
+     border-bottom` reset that used to sit here went with F-R4c's separators: the
+     cells have carried no bottom border since the gap became the rule.) */
+  .biz .pg-register .rg-cash-stats > :first-child { border-radius: 8px 8px 0 0; }
   /* a 44px target for the thumb that opens 金種 — the paint stays quiet. */
   .biz .pg-register .rg-den > summary { min-height: 44px; }
   .biz .pg-register .rg-den-cell { grid-template-columns: 52px minmax(0, 1fr) auto; }
   .biz .pg-register .rg-den-n { min-height: 38px; }
   .biz .pg-register .rg-reason-in { min-height: 44px; }
   .biz .pg-register .rg-reason-chip { min-height: 40px; }
-  .biz .pg-register .rg-recon-row { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 10px; }
-  .biz .pg-register .rg-recon-ch { grid-column: 1 / -1; }
-  .biz .pg-register .rg-recon-cell { text-align: left; }
+  /* ⚖ THREE FIGURES ACROSS A PHONE, WHILE THREE FIT (F-S6). `repeat(3, minmax(0,
+     1fr))` held them in three columns however wide the figures were, and a yen
+     figure has nowhere to break: an eight-digit 現金 row wanted 257px in a 250px
+     box and `.rg-recon`'s own radius clipped the difference away. A WRAPPING ROW
+     with content-sized cells — the same shape the drawer's stats use one panel
+     up — keeps three across on an ordinary evening and drops the third to its
+     own line on the day the shop takes ten million yen. */
+  .biz .pg-register .rg-recon-row { gap: 4px 10px; }
+  .biz .pg-register .rg-recon-ch { flex: 1 1 100%; }
+  .biz .pg-register .rg-recon-cell { flex: 1 1 auto; text-align: left; }
   .biz .pg-register .rg-record { grid-template-columns: minmax(0, 1fr); }
   .biz .pg-register .rg-rec-main { border-radius: 10px 10px 0 0; }
   .biz .pg-register .rg-rec-cell { border-left: 0 !important; border-top: 1px solid var(--section); border-radius: 0; }

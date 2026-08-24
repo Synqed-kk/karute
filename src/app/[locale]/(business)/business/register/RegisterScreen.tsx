@@ -19,9 +19,10 @@
 //
 // WHAT IS CLIENT STATE HERE, AND NOTHING ELSE: which mode is open, which filter
 // is pressed, which transaction is open, which of the phone's folds are open,
-// which control a jump is pointing at, which step of the 画面の説明 tour the
-// reader is on, and — ≤743 only — whether the reader is looking at the list or
-// at the transaction. All of it is browsing. Every control that would CHANGE
+// whether the 金種 count sheet is open, which control a jump is pointing at,
+// which step of the 画面の説明 tour the reader is on, and — ≤743 only — whether
+// the reader is looking at the list or at the transaction. All of it is
+// browsing. Every control that would CHANGE
 // MONEY ships refused with its reason, so there is no staged write for a
 // provider to hold above this component (flag 30's class).
 //
@@ -113,6 +114,9 @@ export interface RegisterTerminalProps {
   title: string
   copy: string
   foldLabel: string
+  /** …and what the same control does once it IS open. One button, two jobs, so
+   *  its accessible name has to be able to say both (F-S12). */
+  foldCloseLabel: string
   stats: Array<{ label: string; value: string; tone?: 'warn' }>
   recheckLabel: string
   recheckRefusal: string
@@ -157,11 +161,13 @@ export interface RegisterCloseProps {
      *  strip's own quiet-sentence treatment instead of 18px bold. */
     redacted: boolean
     reason: string
-    /** ⑪ Somewhere to WRITE the reason, on the days there is a difference. */
+    /** ⑪ Somewhere the reason LIVES, on the days there is a difference. Read-only
+     *  in this slice, so `value` is the recorded reason or the room's own
+     *  sentence for a missing one — never an example dressed up as a record
+     *  (F-S7; the placeholder returns with the editable field at reconnect). */
     reasonInput: {
       label: string
       value: string
-      placeholder: string
       refusal: string
       chips: string[]
     } | null
@@ -301,6 +307,13 @@ export function RegisterScreen(props: RegisterProps) {
     terminal: false,
     record: false,
   })
+  // ⑩ 金種で数える, AND IT IS THE SAME KIND OF STATE AS THE FOLDS (F-S10). A
+  // native <details> keeps its open flag in the DOM node, and the node is
+  // unmounted the moment the reader looks at 取引 — so a closer who had the
+  // count sheet open, checked one transaction and came back found it shut,
+  // while every fold beside it had survived. The counting is the job the phone
+  // came for; losing it is losing input.
+  const [denOpen, setDenOpen] = useState(false)
   // ⑨ A gate whose fix is already on this screen POINTS at it instead of
   // travelling. `null` = nothing is being pointed at.
   const [pointingAt, setPointingAt] = useState<'cash' | 'signoff' | null>(null)
@@ -380,14 +393,34 @@ export function RegisterScreen(props: RegisterProps) {
     if (tourIdx < 0) { setTourStep(null); setTourPos(null); setTourHover(null); return }
     const targets = spotTargets(rootRef.current)
     if (targets.length === 0) { setTourIdx(-1); return }
+    // ⚖ THE WALK IS CLAMPED TO THE CENSUS THAT IS ON SCREEN NOW (F-S4). A render
+    // this effect did not cause — a mode switch, a fold opening, a filter that
+    // empties the list — changes how many sections exist, and step 15 of a walk
+    // that now has 11 is not a step. The index is corrected in state rather than
+    // only in the card's text, or 次へ would go on counting from the walk that
+    // has gone.
     const i = Math.min(tourIdx, targets.length - 1)
+    if (i !== tourIdx) { setTourIdx(i); return }
     const el = targets[i]
+    const card = tourCardRef.current
+    const size = { width: card?.offsetWidth || 300, height: card?.offsetHeight || 160 }
+    // ⚖ ≤743 THE CARD IS PINNED TO THE BOTTOM, so the section it explains has a
+    // free zone ABOVE it (F-S11). A phone has no free side: `spotCardAt` places
+    // the card beside its target, and beside is nowhere when the target is the
+    // full width of the screen — the card landed on the very band it was
+    // explaining. Pinned, the free zone is everything above the card, and the
+    // step is scrolled into it.
+    const narrow = window.innerWidth <= 743
+    const freeBottom = narrow ? window.innerHeight - size.height - 20 : window.innerHeight - 40
     // A step off screen is scrolled to before it is measured, or the spotlight
     // would cut its hole in empty space. The PAGE scrolls — the overlay adds no
     // scroller of its own (⚖ page-scroll).
     let r = el.getBoundingClientRect()
-    if (r.top < 60 || r.bottom > window.innerHeight - 40) {
-      el.scrollIntoView({ block: 'center' })
+    if (r.top < 60 || r.bottom > freeBottom) {
+      // A section taller than the free zone cannot fit inside it at all, so the
+      // top of it — the heading the step is about — is what is put on screen.
+      if (narrow) window.scrollBy(0, r.top - 60)
+      else el.scrollIntoView({ block: 'center' })
       r = el.getBoundingClientRect()
     }
     tourRectsRef.current = targets.map((t) => boxOf(t.getBoundingClientRect()))
@@ -397,12 +430,19 @@ export function RegisterScreen(props: RegisterProps) {
     // this step's real text, and a fresh object every pass would be an infinite
     // render loop.
     setTourStep((was) => (was && sameStep(was, nextStep) ? was : nextStep))
-    const card = tourCardRef.current
-    const size = { width: card?.offsetWidth || 300, height: card?.offsetHeight || 160 }
-    const at = spotCardAt(boxOf(r), size, { width: window.innerWidth, height: window.innerHeight })
+    const at = narrow
+      ? {
+          top: Math.round(window.innerHeight - size.height - 10),
+          left: Math.max(10, Math.round((window.innerWidth - size.width) / 2)),
+        }
+      : spotCardAt(boxOf(r), size, { width: window.innerWidth, height: window.innerHeight })
     const next = { hole: { left: r.left - 5, top: r.top - 5, width: r.width + 10, height: r.height + 10 }, ...at }
     setTourPos((was) => (was && samePos(was, next) ? was : next))
-  }, [tourIdx, tourTick, tourStep])
+    // ⚖ EVERY RENDER THAT CHANGES WHICH SECTIONS EXIST RE-WALKS. The census is
+    // read off the DOM, so the deps are the state the DOM is a function of —
+    // the mode, the phone's one-screen swap, the filter (an empty list mounts
+    // no transaction panel), the folds, and the server's own props.
+  }, [tourIdx, tourTick, tourStep, mode, detailOpen, filter, folds, denOpen, props])
 
   // ONE keyboard listener for the two things that can be open, innermost first:
   // while the tour is up it owns Escape (and the arrows walk the ring), and only
@@ -415,6 +455,25 @@ export function RegisterScreen(props: RegisterProps) {
         if (e.key === 'Escape') setTourIdx(-1)
         if (e.key === 'ArrowRight') setTourIdx((i) => wrapStep(i + 1, tourRectsRef.current.length))
         if (e.key === 'ArrowLeft') setTourIdx((i) => wrapStep(i - 1, tourRectsRef.current.length))
+        // ⚖ THE TOUR IS A REAL MODAL, AND A SCRIM THAT ONLY STOPS THE MOUSE IS
+        // NOT ONE (F-S3). The catcher takes every click, but Tab walked STRAIGHT
+        // THROUGH it into the dimmed page — and a keyboard reader who kept going
+        // could press a filter they could not see moving. Tab is owned here for
+        // as long as the walk is up: it cycles the card's own controls, from
+        // wherever focus happens to be, so nothing under the scrim is reachable
+        // and no key can operate it.
+        if (e.key === 'Tab') {
+          const card = tourCardRef.current
+          if (card === null) return
+          const stops = [...card.querySelectorAll<HTMLButtonElement>('button:not([disabled])')]
+          if (stops.length === 0) return
+          e.preventDefault()
+          const at = stops.indexOf(document.activeElement as HTMLButtonElement)
+          const to = e.shiftKey
+            ? at <= 0 ? stops.length - 1 : at - 1
+            : at < 0 || at === stops.length - 1 ? 0 : at + 1
+          stops[to].focus()
+        }
         return
       }
       if (e.key === 'Escape') setDetailOpen(false)
@@ -497,7 +556,10 @@ export function RegisterScreen(props: RegisterProps) {
     // no transaction panel, and hiding the list for a panel that is not there
     // would leave a phone reader on a blank screen.
     <div
-      className={`${ROOT} ${mode === 'close' ? 'is-close' : 'is-ledger'}${detailOpen && current ? ' is-detail' : ''}`}
+      // `is-touring` is ≤743's alone: the tour card is pinned to the bottom of a
+      // phone, and the LAST section on the page has nothing under it to scroll
+      // into — so the page reserves the card's height while the walk runs (F-S11).
+      className={`${ROOT} ${mode === 'close' ? 'is-close' : 'is-ledger'}${detailOpen && current ? ' is-detail' : ''}${tourOpen ? ' is-touring' : ''}`}
       ref={rootRef}
     >
       <header
@@ -565,11 +627,19 @@ export function RegisterScreen(props: RegisterProps) {
             {/* ⑬ the phone's 閉店 screen keeps this band's HEADLINE — an exception
                 the closer cannot see is the worst possible fold — and puts the
                 figures and the control one tap away. Never on a pointer width. */}
+            {/* ⚖ F-S12 — THE NAME CARRIES THE STATE. A fold that is already open
+                and still calls itself 「詳細を開く」 tells a screen-reader reader the
+                opposite of what pressing it does. NO `aria-controls` here on
+                purpose: what this fold opens is the band's three stat cells and
+                its action, which are grid items of the band itself rather than
+                one region with an id — and an `aria-controls` naming an element
+                that does not exist is the very fault this item removes from the
+                tab pair. */}
             <button
               className="rg-terminal-more"
               type="button"
               aria-expanded={folds.terminal}
-              aria-label={props.terminal.foldLabel}
+              aria-label={folds.terminal ? props.terminal.foldCloseLabel : props.terminal.foldLabel}
               onClick={() => toggleFold('terminal')}
             >
               <span className="rg-den-chev" aria-hidden="true">›</span>
@@ -595,10 +665,14 @@ export function RegisterScreen(props: RegisterProps) {
 
       {/* ⑰ ≤743 + 閉店 only. One line each, carrying the two figures that decide
           something — and both of them say WHAT they count. */}
+      {/* ⚖ F-S12 — a fold NAMES THE REGION IT OPENS. All three of these regions
+          render at every width (the phone band folds them with `display`, it
+          does not unmount them), so the id is always in the document. */}
       <button
         className="rg-fold"
         type="button"
         aria-expanded={folds.money}
+        aria-controls="rgMoney"
         onClick={() => toggleFold('money')}
         data-guide-title="本日のレジ（たたんだ表示）"
         data-guide="スマートフォンで閉店の作業をしているあいだ、本日のレジの帯を一行にたたんでいます。押すと元の帯がそのまま開きます。数字を隠しているのではなく、数えるための場所を先に出しています。"
@@ -613,6 +687,7 @@ export function RegisterScreen(props: RegisterProps) {
           so rather than leaving the reader to guess from the shape. */}
       <section
         className={`rg-money${folds.money ? ' is-open' : ''}`}
+        id="rgMoney"
         aria-label="本日の売上集計"
         data-guide-title="本日の売上集計"
         data-guide="その日のお金の合計です。総売上から返金を引いたものが純売上で、そのうち実際に受け取った分が受領済み、まだいただいていない分が未収です。すべて下の台帳の取引を足したもので、押しても絞り込みは変わりません。"
@@ -633,6 +708,7 @@ export function RegisterScreen(props: RegisterProps) {
         className="rg-fold"
         type="button"
         aria-expanded={folds.counts}
+        aria-controls="rgCounts"
         onClick={() => toggleFold('counts')}
         data-guide-title="本日の取引（たたんだ表示）"
         data-guide="件数の帯も、スマートフォンの閉店では一行にたたんでいます。押すと件数のボタンがそのまま開き、そこから取引モードへ戻れます。"
@@ -648,6 +724,7 @@ export function RegisterScreen(props: RegisterProps) {
           and pressing one from 閉店 returns to 取引 where that list is. */}
       <section
         className={`rg-counts${folds.counts ? ' is-open' : ''}`}
+        id="rgCounts"
         aria-label="取引の件数"
         data-guide-title="取引の件数"
         data-guide="状態ごとの取引の件数です。数字はそのまま絞り込みボタンで、押すと取引モードに戻って台帳がその件数ぶんだけに切り替わります。一部入金と要確認は0件でなければ色がつきます。"
@@ -696,6 +773,12 @@ export function RegisterScreen(props: RegisterProps) {
             ;(next === 'close' ? closeTabRef : ledgerTabRef).current?.focus()
           }}
         >
+          {/* ⚖ F-S12 — ARIA THAT IS TRUE OF WHAT IS ON THE PAGE. Only the open
+              mode's panel is mounted, so only the selected tab may name one:
+              `aria-controls` pointing at an id that is not in the document is a
+              promise to a screen reader that nothing can keep. And the pair is a
+              ROVING TABINDEX, which is what makes a tablist one tab stop whose
+              arrows move between the two — the arrow keys were already wired. */}
           <button
             className="rg-mode"
             type="button"
@@ -703,7 +786,8 @@ export function RegisterScreen(props: RegisterProps) {
             id="rgTabLedger"
             ref={ledgerTabRef}
             aria-selected={mode === 'ledger'}
-            aria-controls="rgPanelLedger"
+            aria-controls={mode === 'ledger' ? 'rgPanelLedger' : undefined}
+            tabIndex={mode === 'ledger' ? 0 : -1}
             onClick={() => setMode('ledger')}
           >
             取引 <span className="rg-mode-n">{props.counts.all}件</span>
@@ -715,7 +799,8 @@ export function RegisterScreen(props: RegisterProps) {
             id="rgTabClose"
             ref={closeTabRef}
             aria-selected={mode === 'close'}
-            aria-controls="rgPanelClose"
+            aria-controls={mode === 'close' ? 'rgPanelClose' : undefined}
+            tabIndex={mode === 'close' ? 0 : -1}
             onClick={() => setMode('close')}
           >
             閉店 <span className={`pill ${close.openCount === 0 ? 'good' : 'warn'}`}>{close.headline}</span>
@@ -1103,11 +1188,17 @@ export function RegisterScreen(props: RegisterProps) {
                     // lives in another room is not one either, because an
                     // affordance that leads nowhere is the lie this fixes.
                     return c.jump ? (
+                      // ⚖ F-S13 — AN ACCESSIBLE NAME COMPOSES, IT NEVER REPLACES.
+                      // The row prints three things a closer acts on — what the
+                      // gate is, the EVIDENCE under it, and its status chip — and
+                      // an `aria-label` naming only the gate and its destination
+                      // silently deleted the other two for anyone listening. The
+                      // name is the row, then where pressing it goes.
                       <button
                         key={c.key}
                         type="button"
                         className="rg-check"
-                        aria-label={`${c.label} — ${jumpLabelOf(c.jump)}`}
+                        aria-label={`${c.label} — ${c.detail} — ${c.status} — ${jumpLabelOf(c.jump)}`}
                         onClick={() => takeJump(c.jump!)}
                       >
                         {body}
@@ -1174,14 +1265,30 @@ export function RegisterScreen(props: RegisterProps) {
                            the write; the ONE-SOURCE rule is untouched, because
                            the field still carries the very same string as its
                            `title` and its accessible name. */
-                        <input
-                          className="rg-cash-entry"
-                          type="text"
-                          readOnly
-                          aria-label={`実査額 — ${cash.saveRefusal}`}
-                          title={cash.saveRefusal}
-                          value={cash.counted}
-                        />
+                        /* ⚖ THE FIELD IS AS WIDE AS THE FIGURE IN IT (F-S6). A
+                           field CLIPS what will not fit and says nothing about
+                           it, and the box it sits in was sized from the DEMO
+                           figure — 124px, measured off ¥39,620 — so the first
+                           seven-digit drawer printed 「¥9,990,00」, with 差異
+                           computed from the digit the reader could not see.
+                           A FIELD HAS NO CONTENT WIDTH of its own that a layout
+                           can read (its intrinsic size comes from `size`, an
+                           estimate in average characters that under-measures ¥,
+                           the commas and tabular digits by about a tenth), so
+                           the figure is handed to the box AS TEXT for the
+                           browser to measure exactly. One value, written once —
+                           the sizer is generated content, so there is no second
+                           node for a screen reader to read it twice from. */
+                        <span className="rg-count-box" data-count={cash.counted}>
+                          <input
+                            className="rg-cash-entry"
+                            type="text"
+                            readOnly
+                            aria-label={`実査額 — ${cash.saveRefusal}`}
+                            title={cash.saveRefusal}
+                            value={cash.counted}
+                          />
+                        </span>
                       )}
                     </div>
                     <div className="rg-cash-stat">
@@ -1201,6 +1308,8 @@ export function RegisterScreen(props: RegisterProps) {
                     {!cash.redacted && den && (
                       <details
                         className="rg-den"
+                        open={denOpen}
+                        onToggle={(e) => setDenOpen(e.currentTarget.open)}
                         data-guide-title="金種で数える"
                         data-guide="お札と硬貨を種類ごとに何枚あるか入れる欄です。合計は機械が計算して、そのまま実査額になります。足し算を手でやらないので、数え間違いが差異になりません。ふだんは閉じたままで、必要なときだけ開きます。"
                       >
@@ -1244,15 +1353,17 @@ export function RegisterScreen(props: RegisterProps) {
                       data-guide="現金に差異が出た日にだけ表示されます。よくある理由はボタンで入れられて、そのまま計数記録に残ります。許容額を超える差異は、この理由と店舗管理者の承認がそろうまで閉店できません。"
                     >
                       <div className="rg-title">{cash.reasonInput.label}</div>
-                      <input
-                        className="rg-reason-in"
-                        type="text"
-                        readOnly
-                        aria-label={`${cash.reasonInput.label} — ${cash.reasonInput.refusal}`}
-                        title={cash.reasonInput.refusal}
-                        value={cash.reasonInput.value}
-                        placeholder={cash.reasonInput.placeholder}
-                      />
+                      {/* ⚖ A REASON IS A SENTENCE, AND A SENTENCE WRAPS (F-S7).
+                          Until the write is connected there is nothing to type
+                          into, and a readOnly field CLIPS: a real 70-character
+                          explanation lost its tail inside the box with nothing
+                          saying it had. Read-only, it is TEXT — same box, same
+                          place, whole at every width. The editable field returns
+                          with the write, and the chips below already say what a
+                          reason usually is. */}
+                      <p className="rg-reason-in" title={cash.reasonInput.refusal}>
+                        {cash.reasonInput.value}
+                      </p>
                       <span className="rg-refusal" aria-hidden="true">{cash.reasonInput.refusal}</span>
                       <div className="rg-reason-chips">
                         {cash.reasonInput.chips.map((chip) => (
@@ -1309,6 +1420,16 @@ export function RegisterScreen(props: RegisterProps) {
               </section>
               )}
 
+              {/* ⚖ A PANEL RENDERS ONLY WHEN ITS SUBJECT EXISTS IN THE DAY
+                  (F-S5) — the same presence law the checklist rows and the
+                  drawer band already obey. On a day that took nothing, and on a
+                  day whose every sale is still owed, there is no money that
+                  arrived to split by the手段 it arrived on: the panel used to
+                  render an empty bordered box under its heading and then
+                  reassure the closer that 「決済手段の内訳は受領済み ¥0 と一致して
+                  います」 — a verdict about nothing, on a surface with no
+                  subject. The heading, the box and the sentence go together. */}
+              {close.reconciliation.length > 0 && (
               <section
                 className="rg-panel rg-reconpanel"
                 aria-labelledby="rgReconTitle"
@@ -1348,6 +1469,7 @@ export function RegisterScreen(props: RegisterProps) {
                   </p>
                 </div>
               </section>
+              )}
             </div>
           </div>
 
@@ -1358,6 +1480,7 @@ export function RegisterScreen(props: RegisterProps) {
             className="rg-fold"
             type="button"
             aria-expanded={folds.record}
+            aria-controls="rgRecord"
             onClick={() => toggleFold('record')}
             data-guide-title="記録される内容（たたんだ表示）"
             data-guide="閉店で固定される内容を、スマートフォンでは一行にたたんでいます。確定を押す直前に開いて、何が記録されるのかを確かめられます。"
@@ -1375,6 +1498,7 @@ export function RegisterScreen(props: RegisterProps) {
               freezes it. */}
           <section
             className={`rg-record${folds.record ? ' is-open' : ''}`}
+            id="rgRecord"
             aria-label={close.recordLabel}
             data-guide-title="閉店で記録される内容"
             data-guide="閉店を確定したときに、その時点の台帳から固定して残る内容です。押す前に何が固定されるのかが見えるように、確定ボタンのすぐ上に置いています。承認した人の名前も、承認が済んだ日にはここに残ります。"
@@ -1462,6 +1586,7 @@ export function RegisterScreen(props: RegisterProps) {
             id="rgTour"
             ref={tourCardRef}
             role="dialog"
+            aria-modal="true"
             aria-label="画面の説明"
             style={tourPos ? { top: tourPos.top, left: tourPos.left } : { top: -9999, left: -9999 }}
           >
