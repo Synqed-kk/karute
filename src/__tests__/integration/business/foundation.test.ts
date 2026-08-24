@@ -324,13 +324,15 @@ describe('the fixture data door', () => {
       'src/business/lib/canon-logic/gap-guard.ts': [],
       'src/business/lib/canon-logic/availability.ts': ['./pricing'],
       'src/business/i18n/index.ts': ['./ja.json'],
+      // `@/business/i18n` LEFT this list when the day-one <768 viewport gate was
+      // deleted (⚖ ALL-SCREEN ADAPTIVITY, Liam 2026-08-23): `desktopOnly` was the
+      // only string the shell read, so the import went with the paragraph.
       'src/app/[locale]/(business)/layout.tsx': [
         './BusinessSessionEdits',
         './BusinessSidebar',
         './BusinessTopbar',
         './ShiftsSessionEdits',
         './business-shell.css',
-        '@/business/i18n',
         '@/business/lib/admission',
         '@/business/lib/data',
         'react',
