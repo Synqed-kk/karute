@@ -12,7 +12,16 @@ import { TEST_STAFF_PROFILE_ID } from './helpers/server-action-mocks'
 import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 
 // --- Next.js context mocks (must be top-level so jest.mock is hoisted) ---
-jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn() }))
+// unstable_cache joined this mock in PR-2a: actions/karute now imports
+// lib/customers/list-all (the 日付チャンク読み込み window action reuses the
+// page's customer fan-out), and list-all builds its cached reader at MODULE
+// scope — so the import alone needs the real signature present.
+jest.mock('next/cache', () => ({
+  revalidatePath: jest.fn(),
+  updateTag: jest.fn(),
+  revalidateTag: jest.fn(),
+  unstable_cache: (fn: (...a: unknown[]) => unknown) => fn,
+}))
 jest.mock('next/navigation', () => ({ redirect: jest.fn() }))
 // next-intl/server ships ESM that jest can't parse when customers.ts imports
 // getTranslations for real. The translator just echoes keys here.
