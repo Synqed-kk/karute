@@ -176,6 +176,8 @@ export interface RegisterCloseProps {
     toleranceLinkRefusal: string
     saveLabel: string
     saveRefusal: string
+    /** ⑩ 金種で数える, on the days there is a sheet to count. `null` when the
+     *  closing carries none — a typed 実査額 has no column to add up. */
     denominations: {
       summaryLabel: string
       summaryNote: string
@@ -183,9 +185,8 @@ export interface RegisterCloseProps {
       totalLabel: string
       totalValue: string
       totalNote: string
-      refusal: string
       rows: Array<{ key: string; label: string; name: string; count: string }>
-    }
+    } | null
   }
   checks: ClosingCheckRow[]
   openCount: number
@@ -483,6 +484,13 @@ export function RegisterScreen(props: RegisterProps) {
   const footnoteId = current ? `rgFootnote-${current.id}` : undefined
   const close = props.close
   const cash = close?.cash
+  // ⚖ THE DRAWER IS 現金計数's OWN SURFACE, so it obeys the same presence law as
+  // the checklist row — and reads THE VERY ROW, so the two cannot disagree about
+  // whether this store closes a drawer at all. A shop that took no cash and put
+  // no float in has no 期待額 ¥0 / 実査額 ¥0 panel to scroll past.
+  const showCash = close !== null && close.checks.some((c) => c.key === 'cash')
+  // A `const`, so the sheet's presence narrows inside the cells' own callback.
+  const den = cash?.denominations ?? null
 
   return (
     // `is-detail` needs a detail to show: a filter that matches nothing renders
@@ -1119,6 +1127,7 @@ export function RegisterScreen(props: RegisterProps) {
             </section>
 
             <div className="rg-right">
+              {showCash && (
               <section
                 className="rg-panel rg-cash"
                 aria-labelledby="rgCashTitle"
@@ -1155,17 +1164,24 @@ export function RegisterScreen(props: RegisterProps) {
                       {cash.redacted ? (
                         <b className="redacted">{cash.counted}</b>
                       ) : (
-                        <>
-                          <input
-                            className="rg-cash-entry"
-                            type="text"
-                            readOnly
-                            aria-label={`実査額 — ${cash.saveRefusal}`}
-                            title={cash.saveRefusal}
-                            value={cash.counted}
-                          />
-                          <span className="rg-refusal" aria-hidden="true">{cash.saveRefusal}</span>
-                        </>
+                        /* ⑫ + ⚖ THE SAME SENTENCE TWICE IS THE THING THIS ROOM
+                           ALREADY DELETED ONCE. This field and 計数を保存 at the
+                           top of the same panel are one write, refused for one
+                           reason, and each printed that reason as its own touch
+                           line — the identical paragraph twice, ~200px apart, on
+                           the narrowest screen the room has. The line is printed
+                           ONCE per panel per reason, at the button that performs
+                           the write; the ONE-SOURCE rule is untouched, because
+                           the field still carries the very same string as its
+                           `title` and its accessible name. */
+                        <input
+                          className="rg-cash-entry"
+                          type="text"
+                          readOnly
+                          aria-label={`実査額 — ${cash.saveRefusal}`}
+                          title={cash.saveRefusal}
+                          value={cash.counted}
+                        />
                       )}
                     </div>
                     <div className="rg-cash-stat">
@@ -1182,7 +1198,7 @@ export function RegisterScreen(props: RegisterProps) {
                         feature: the closer enters HOW MANY, the machine does the
                         arithmetic, and a mis-added column can no longer become a
                         差異 that never existed. */}
-                    {!cash.redacted && (
+                    {!cash.redacted && den && (
                       <details
                         className="rg-den"
                         data-guide-title="金種で数える"
@@ -1190,11 +1206,11 @@ export function RegisterScreen(props: RegisterProps) {
                       >
                         <summary>
                           <span className="rg-den-chev" aria-hidden="true">›</span>
-                          {cash.denominations.summaryLabel}
-                          <span className="rg-den-note">{cash.denominations.summaryNote}</span>
+                          {den.summaryLabel}
+                          <span className="rg-den-note">{den.summaryNote}</span>
                         </summary>
                         <div className="rg-den-grid">
-                          {cash.denominations.rows.map((d) => (
+                          {den.rows.map((d) => (
                             <label className="rg-den-cell" key={d.key}>
                               <span>{d.label}</span>
                               <input
@@ -1204,13 +1220,13 @@ export function RegisterScreen(props: RegisterProps) {
                                 value={d.count}
                                 aria-label={`${d.name}の枚数`}
                               />
-                              <span className="rg-den-u">{cash.denominations.unit}</span>
+                              <span className="rg-den-u">{den.unit}</span>
                             </label>
                           ))}
                         </div>
                         <p className="rg-den-sum">
-                          {cash.denominations.totalLabel} <b>{cash.denominations.totalValue}</b>
-                          <em>{cash.denominations.totalNote}</em>
+                          {den.totalLabel} <b>{den.totalValue}</b>
+                          <em>{den.totalNote}</em>
                         </p>
                       </details>
                     )}
@@ -1291,6 +1307,7 @@ export function RegisterScreen(props: RegisterProps) {
                   </div>
                 </div>
               </section>
+              )}
 
               <section
                 className="rg-panel rg-reconpanel"

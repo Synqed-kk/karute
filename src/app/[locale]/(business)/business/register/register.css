@@ -502,11 +502,30 @@
    this box holds a focusable field and a disclosure. Nothing inside it paints a
    background except the disclosure's own summary, so only that child needs the
    corner radius. */
-.biz .pg-register .rg-cash-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 9px; }
-.biz .pg-register .rg-cash-stat { padding: 10px 11px; border-right: 1px solid var(--section); }
-/* :last-of-type, not :last-child — the 金種 disclosure is now the box's last
-   CHILD, and the third stat must still drop its separator against the edge. */
-.biz .pg-register .rg-cash-stat:last-of-type { border-right: 0; }
+/* ⚖ THE THREE STATS FIT THEIR OWN FIGURES, AT WHATEVER WIDTH THEY GET.
+   `repeat(3, 1fr)` held them in one row however narrow the column became, and
+   実査額 lives in a FIELD — a field clips instead of wrapping, so the drawer
+   printed 「¥39,62」 and the reader had no way to tell the number had been cut.
+   Measured after the shell de-gate, which is what exposed it: below 1024 the
+   shell keeps a 76px rail, so this panel's width is no longer a function of the
+   viewport and no viewport-keyed rule can see how much room it really has.
+   A WRAPPING ROW, NOT A TRACK COUNT: three across while three fit the widest
+   figure this page can print, two when they do not, one below that — and the
+   stat left over takes the whole line rather than sitting beside an empty cell,
+   which is what a grid would have left behind. 124px is that figure measured
+   (¥39,620 at 18px) plus the cell's own padding.
+
+   AND THE SEPARATORS ARE THE GAP, not a border on the cell. A cell that carries
+   its own `border-right` is right exactly while the row never wraps: the moment
+   it does, the cell at the end of a line paints a rule against the box's edge
+   and the line below it has nothing above it. A 1px gap over the line colour
+   draws every separator the layout actually has, in both directions, however
+   the row happens to break. */
+.biz .pg-register .rg-cash-stats {
+  display: flex; flex-wrap: wrap; gap: 1px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--section);
+}
+.biz .pg-register .rg-cash-stat { flex: 1 1 124px; min-width: 0; padding: 10px 11px; background: #fff; }
 .biz .pg-register .rg-cash-stat span { display: block; color: var(--muted); font-size: 12px; }
 .biz .pg-register .rg-cash-stat b { display: block; margin-top: 3px; font-size: 18px; font-variant-numeric: tabular-nums; }
 .biz .pg-register .rg-cash-stat b.bad { color: var(--red-dark); }
@@ -532,7 +551,7 @@
    grid it does not need, and the closed strip costs one line INSIDE the count box
    — directly under 実査額, which is the figure it produces. Open, it may extend
    the panel; that is transient and belongs to the person counting. */
-.biz .pg-register .rg-den { grid-column: 1 / -1; border-top: 1px solid var(--section); }
+.biz .pg-register .rg-den { flex: 1 1 100%; min-width: 0; background: #fff; }
 .biz .pg-register .rg-den > summary {
   display: flex; align-items: center; gap: 7px; padding: 3px 11px;
   color: var(--ink-3); font-size: 12.5px; font-weight: 600; line-height: 1.5;
@@ -888,8 +907,10 @@
   .biz .pg-register .rg-fact { grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 10px 11px; }
   .biz .pg-register .rg-fact b { text-align: left; }
   .biz .pg-register .rg-quietlink { text-align: left; }
-  .biz .pg-register .rg-cash-stats { grid-template-columns: minmax(0, 1fr); }
-  .biz .pg-register .rg-cash-stat { border-right: 0; border-bottom: 1px solid var(--section); }
+  /* ONE per line on a phone even where two would fit: the count is what the
+     closer came for, and 期待額 / 実査額 / 差異 read top to bottom in the order
+     they are computed. The separators come from the box's own 1px gap. */
+  .biz .pg-register .rg-cash-stat { flex-basis: 100%; }
   .biz .pg-register .rg-cash-stat:last-of-type { border-bottom: 0; }
   /* a 44px target for the thumb that opens 金種 — the paint stays quiet. */
   .biz .pg-register .rg-den > summary { min-height: 44px; }

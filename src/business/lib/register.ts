@@ -607,6 +607,28 @@ export function denominationTotal(sheet: Array<{ denomination: number; count: nu
   return sheet.reduce((n, d) => n + d.denomination * d.count, 0)
 }
 
+/** ⚖ 実査額 IS THE SHEET — ONE READ, NOT TWO THAT AGREE BY LUCK.
+ *
+ *  The rebuild printed 「この合計がそのまま実査額になります」 under the count sheet and
+ *  then read 実査額 from a SEPARATE stored field: two independent reads of the
+ *  same quantity, with nothing between them. A world with one extra 千円札 in the
+ *  sheet rendered ¥44,620 in the box and ¥39,620 in the stat 200px above it, the
+ *  sentence still claiming they were the same figure, and 差異 ¥0 over both —
+ *  which is precisely the 差異 that never existed the sheet exists to prevent.
+ *
+ *  So the identity is made STRUCTURAL rather than pinned: when a closing has a
+ *  sheet, the counted figure IS what the sheet adds up to, and a mismatch is
+ *  unrepresentable. A closing with no sheet (a shop that types the total it
+ *  counted by hand) keeps its entered figure — there is nothing to derive from,
+ *  and the count box says so by not offering a sheet at all. */
+export function countedCash(
+  closing: Pick<FixtureClosing, 'cash_counted' | 'cash_count_sheet'>,
+): number {
+  return closing.cash_count_sheet.length > 0
+    ? denominationTotal(closing.cash_count_sheet)
+    : closing.cash_counted
+}
+
 /** canon `varianceRequiresApproval` (:1352-1354). The threshold is the named
  *  dial (`fixtures-register`'s `cashTolerance`), never a constant in here. */
 export function varianceRequiresApproval(saved: boolean, variance: number, tolerance: number): boolean {
@@ -672,6 +694,15 @@ export interface ClosingVerdict {
   /** 期待額 — ONE home for the expectation, so the drawer band, the checklist
    *  row and the difference cannot be computed three ways. */
   expected: number
+  /** 実査額 — the SAME one-home rule for what was counted: `countedCash` reads
+   *  the sheet where there is one, and the drawer band, the checklist row and
+   *  the difference all print this. */
+  counted: number
+  /** The drawer's own workflow word (未保存 / 保存済み / 差異承認待ち / 差異承認済み).
+   *  Published beside the rows because the drawer BAND prints it too, and the
+   *  band must not have to go looking for a row that a cashless day does not
+   *  render. */
+  cashStatus: string
   variance: number
   requiresApproval: boolean
   /** The reasons, in plain words, WHY the day cannot be closed yet. ONE home:
@@ -698,6 +729,13 @@ export interface ClosingInput {
    *  then the gate lands on the filter alone. */
   terminalTx: string | null
   outstandingTx: string | null
+  /** ⚖ A ROW RENDERS ONLY WHEN ITS SUBJECT EXISTS IN THE DAY (the law this
+   *  room's own sheet states at register.css:446). Two more LEDGER facts the
+   *  caller resolves off the rows it is about to print, for the same reason the
+   *  two jump targets are resolved there: whether the store's world contains a
+   *  card terminal at all, and how many visits it finished today. */
+  hasCardTender: boolean
+  completedVisits: number
 }
 
 /** ONE VERDICT, RENDERED N TIMES. Every 「閉店できるか」 question on the page —
@@ -716,7 +754,8 @@ export function closingReadiness(input: ClosingInput): ClosingVerdict {
     },
     totals.cash,
   )
-  const variance = cashVariance(closing.cash_counted, expected)
+  const counted = countedCash(closing)
+  const variance = cashVariance(counted, expected)
   const requiresApproval = varianceRequiresApproval(closing.cash_saved, variance, tolerance)
   // canon `cashClosingReady`: saved, and either inside the tolerance or
   // APPROVED. The approval itself is a WRITE this slice cannot make, so an
@@ -726,8 +765,16 @@ export function closingReadiness(input: ClosingInput): ClosingVerdict {
   const outstandingDone = totals.outstanding === 0 || closing.outstanding_decision !== null
   const unsettledDone = unsettledVisits.length === 0
   const managerSigned = closing.manager_signed_at !== null
+  // canon `renderClosing`'s own `cashLabel` (:1374), approval arm included.
+  const cashStatus = !closing.cash_saved
+    ? '未保存'
+    : requiresApproval && !closing.variance_approved
+      ? '差異承認待ち'
+      : requiresApproval
+        ? '差異承認済み'
+        : '保存済み'
 
-  const checks: ClosingCheckRow[] = [
+  const allChecks: ClosingCheckRow[] = [
     {
       key: 'terminal',
       label: '決済端末の送信',
@@ -741,17 +788,10 @@ export function closingReadiness(input: ClosingInput): ClosingVerdict {
     {
       key: 'cash',
       label: '現金計数と差異理由',
-      detail: `期待 ${yen(expected)} / 実査 ${yen(closing.cash_counted)} / 差異 ${yen(variance)}`,
+      detail: `期待 ${yen(expected)} / 実査 ${yen(counted)} / 差異 ${yen(variance)}`,
       done: cashReady,
       jump: cashReady ? null : { kind: 'here', target: 'cash' },
-      // canon `renderClosing`'s own `cashLabel` (:1374), approval arm included.
-      status: !closing.cash_saved
-        ? '未保存'
-        : requiresApproval && !closing.variance_approved
-          ? '差異承認待ち'
-          : requiresApproval
-            ? '差異承認済み'
-            : '保存済み',
+      status: cashStatus,
     },
     {
       key: 'outstanding',
@@ -794,18 +834,57 @@ export function closingReadiness(input: ClosingInput): ClosingVerdict {
     },
   ]
 
-  const prerequisitesReady = terminalDone && cashReady && outstandingDone && unsettledDone
+  /** ⚖ A ROW RENDERS ONLY WHEN ITS SUBJECT EXISTS IN THE DAY — the 26業種 lever,
+   *  with no business-type branch anywhere. The sheet has stated this law since
+   *  the rebuild (register.css:446) and the array was still a fixed five, so a
+   *  cashless clinic was told to count a drawer it does not own and a shop with
+   *  no card terminal was asked about a device it has never had — five rows of
+   *  which two could never be finished, on every evening of that shop's life.
+   *
+   *  Each subject is read off the world, never off a business-type flag:
+   *   · 決済端末の送信 — the store has a terminal at all: it is holding records
+   *     now, or the day contains a card payment that went through one.
+   *   · 現金計数と差異理由 — the store closes a cash DRAWER: a float was put in
+   *     this morning, or cash moved across the counter today — OR somebody has
+   *     already counted one. That third arm is not redundant: a drawer with
+   *     ¥5,000 in it and no float recorded is a day whose expectation is ¥0 and
+   *     whose difference is ¥5,000, and dropping the row would take a REAL cash
+   *     difference off the page without a word (⚖ A11, never silent). It can
+   *     only ever ADD the row.
+   *   · 未収の扱い — the day HOLDS a balance, or one has already been decided
+   *     (a decided row still has to show what was decided).
+   *   · 未精算の施術 — the day finished a visit at all; a day with no completed
+   *     bookings has nothing that could be missing from the ledger.
+   *   · 閉店承認 — always. Every close is signed, in every business.
+   *
+   *  EVERYTHING DOWNSTREAM READS THE FILTERED ARRAY (⚖ A8, one verdict home):
+   *  the 「N項目 未完了」 chip, the 閉店 button's 未完了 list and the prerequisite
+   *  gate are all derived from these rows, so a subject the day does not have
+   *  can never block a close it was never part of. */
+  const present: Record<ClosingCheckRow['key'], boolean> = {
+    terminal: heldCount > 0 || input.hasCardTender,
+    cash: closing.cash_float !== 0 || totals.cash !== 0 || counted !== 0,
+    outstanding: totals.outstanding > 0 || closing.outstanding_decision !== null,
+    unsettled: input.completedVisits > 0,
+    signoff: true,
+  }
+  const checks = allChecks.filter((c) => present[c.key])
+
+  const openRows = checks.filter((c) => !c.done)
+  const prerequisitesReady = checks.every((c) => c.key === 'signoff' || c.done)
   return {
     checks,
-    openCount: checks.filter((c) => !c.done).length,
+    openCount: openRows.length,
     prerequisitesReady,
     managerSigned,
     closeReady: prerequisitesReady && managerSigned,
     cashReady,
     expected,
+    counted,
+    cashStatus,
     variance,
     requiresApproval,
-    blockers: checks.filter((c) => !c.done).map((c) => c.label),
+    blockers: openRows.map((c) => c.label),
   }
 }
 

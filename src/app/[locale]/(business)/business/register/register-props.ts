@@ -183,13 +183,18 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
   // customer's carry-over row; this is the same fact, derived — so it appears
   // when the day HAS one and honestly reads 「すべて記録済み」 when it does not.
   const settled = new Set(models.map((m) => m.appointmentId).filter(Boolean))
-  const unsettledVisits = appointments
+  // ⚖ THE ROW'S SUBJECT, AND THE ROW'S CONTENT, FROM ONE LIST. 未精算の施術 asks
+  // two questions of the same day — did this store finish any visits at all
+  // (does the row exist?) and are any of them missing from the ledger (is it
+  // done?) — so both are read off one filter rather than two that could drift.
+  const completedToday = appointments
     .filter(
       (a) =>
         jstDayKey(a.starts_at) === todayKey &&
-        a.status === 'done' &&
-        !settled.has(a.id),
+        a.status === 'done',
     )
+  const unsettledVisits = completedToday
+    .filter((a) => !settled.has(a.id))
     .map((a) => ({
       bookingNo: a.display_no,
       who: customers.find((c) => c.id === a.customer_id)?.name ?? '—',
@@ -203,6 +208,11 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
   const heldIds = new Set(terminalHeld.map((h) => h.appointment_id))
   const terminalTx = models.find((m) => m.appointmentId !== null && heldIds.has(m.appointmentId))?.id ?? null
   const outstandingTx = models.find((m) => m.outstanding > 0)?.id ?? null
+  // ⚖ AND WHETHER THE ROW EXISTS AT ALL. A store with no card terminal never
+  // holds a card record and never takes a card payment, so the day's own tenders
+  // are what say the device is in the building — no business-type branch, and
+  // nothing to configure.
+  const hasCardTender = models.some((m) => m.tenders.some((t) => t.channel === 'card'))
 
   const verdict = closing
     ? closingReadiness({
@@ -214,6 +224,8 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
         unsettledVisits,
         terminalTx,
         outstandingTx,
+        hasCardTender,
+        completedVisits: completedToday.length,
       })
     : null
 
@@ -427,7 +439,13 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
               // refuses without the `close` capability), so a role that may not
               // close does not see the close's figures.
               expected: redactMoney(yen(verdict.expected)),
-              counted: redactMoney(yen(closing.cash_counted)),
+              // ⚖ 実査額 COMES OFF THE SHEET, and off the same call the checklist
+              // row and the difference read (`countedCash`, one home). The band
+              // used to read the stored field while the count sheet 200px below
+              // printed its own total under 「この合計がそのまま実査額になります」 —
+              // two independent reads of one quantity, and a world where they
+              // disagreed rendered both figures, the sentence, and 差異 ¥0.
+              counted: redactMoney(yen(verdict.counted)),
               variance: redactMoney(yen(verdict.variance)),
               // canon `renderSummary` (:1323) — the difference is BAD when it is
               // outside the tolerance, which is the same threshold the approval
@@ -462,7 +480,11 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
               // ⚠ THE STATUS STAYS. Redaction hides AMOUNTS, not workflow: a
               // スタッフ still sees 未保存 / 保存済み / 差異承認待ち, because that is
               // what the shop is DOING, not what the shop TOOK.
-              status: verdict.checks.find((c) => c.key === 'cash')!.status,
+              // ⚠ …AND FROM THE VERDICT, NOT FROM THE ROW. The checklist row is
+              // presence-gated now (a cashless day has none), so the band reads
+              // the workflow word the verdict publishes — the same string the
+              // row prints when the row exists.
+              status: verdict.cashStatus,
               statusDone: verdict.cashReady,
               // ⚠ 期待額 EXPLAINS ITSELF, or the closer cannot tell a wrong
               // expectation from a wrong drawer. The float is a labelled fact of
@@ -483,21 +505,28 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
               // them: the closer enters HOW MANY and the machine does the
               // arithmetic, so a mis-added column can never become a difference
               // that never existed.
-              denominations: {
-                summaryLabel: '金種で数える',
-                summaryNote: '枚数を入れると合計が出ます',
-                unit: '枚',
-                totalLabel: '合計',
-                totalValue: redactMoney(yen(denominationTotal(closing.cash_count_sheet))),
-                totalNote: 'この合計がそのまま実査額になります',
-                refusal: REFUSAL.cash,
-                rows: closing.cash_count_sheet.map((d) => ({
-                  key: String(d.denomination),
-                  label: yen(d.denomination),
-                  name: DENOMINATION_LABEL[d.denomination] ?? yen(d.denomination),
-                  count: String(d.count),
-                })),
-              },
+              //
+              // …AND THE SHEET IS PRESENT ONLY WHEN THE DAY HAS ONE. A closing
+              // with no sheet keeps its typed 実査額 (`countedCash`), and an
+              // empty grid claiming 「この合計がそのまま実査額になります」 over a ¥0
+              // total would be the same lie in the other direction.
+              denominations:
+                closing.cash_count_sheet.length === 0
+                  ? null
+                  : {
+                      summaryLabel: '金種で数える',
+                      summaryNote: '枚数を入れると合計が出ます',
+                      unit: '枚',
+                      totalLabel: '合計',
+                      totalValue: redactMoney(yen(denominationTotal(closing.cash_count_sheet))),
+                      totalNote: 'この合計がそのまま実査額になります',
+                      rows: closing.cash_count_sheet.map((d) => ({
+                        key: String(d.denomination),
+                        label: yen(d.denomination),
+                        name: DENOMINATION_LABEL[d.denomination] ?? yen(d.denomination),
+                        count: String(d.count),
+                      })),
+                    },
             },
             // ⚖ F12, THE SAME FIGURES ONE PANEL DOWN. The 現金計数と差異理由 row
             // prints 「期待 ¥8,300 / 実査 ¥8,300 / 差異 ¥0」 — the drawer band's

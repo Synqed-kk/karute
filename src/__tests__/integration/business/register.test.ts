@@ -51,6 +51,7 @@ import {
   closing as closingPlane,
   MAX_CASH_TOLERANCE,
   transactions as txPlane,
+  type FixtureClosing,
   type FixtureTransaction,
 } from '@/business/lib/fixtures-register'
 import {
@@ -62,6 +63,7 @@ import {
   COUNTER_STATS,
   countBy,
   cashReasonLine,
+  countedCash,
   DENOMINATION_LABEL,
   denominationTotal,
   expectedCash,
@@ -180,6 +182,28 @@ function inputFor(store: string | null, override: Partial<LedgerInput> = {}): Le
 
 const build = (store: string | null, override: Partial<LedgerInput> = {}) => buildLedger(inputFor(store, override))
 const byTx = (rows: TransactionModel[], id: string) => rows.find((r) => r.id === id)!
+
+/** ⚖ A DRAWER IS OUT BY NOTES AND COINS, NEVER BY A FIELD. 実査額 is what the count
+ *  sheet adds up to (`countedCash`), so a world where the drawer is ¥700 over is a
+ *  world holding one more ¥500 and two more ¥100 — the only way a real till is
+ *  ever out. These worlds used to be built by adding a number to `cash_counted`
+ *  while the sheet underneath stayed where it was, which is exactly the drift
+ *  F-R2 made unrepresentable. The stored field moves WITH the sheet here, because
+ *  a fixture world is product truth (⚖ 8/9); the one world where they disagree is
+ *  written out by hand, in the pin that exists to prove which of them wins. */
+const withCoins = (base: FixtureClosing, add: Array<[number, number]>): FixtureClosing => {
+  const sheet = base.cash_count_sheet.map((d) => {
+    const bump = add.find(([denomination]) => denomination === d.denomination)
+    return bump ? { ...d, count: d.count + bump[1] } : d
+  })
+  return { ...base, cash_count_sheet: sheet, cash_counted: denominationTotal(sheet) }
+}
+/** The drawer somebody emptied — every count zero. The only representable way a
+ *  till is tens of thousands short. */
+const emptyDrawer = (base: FixtureClosing): FixtureClosing => {
+  const sheet = base.cash_count_sheet.map((d) => ({ ...d, count: 0 }))
+  return { ...base, cash_count_sheet: sheet, cash_counted: 0 }
+}
 
 beforeEach(() => {
   supabase.mockResolvedValue({
@@ -783,7 +807,7 @@ describe('現金差異 is derived, and its threshold is a named dial', () => {
   })
 
   it('a difference OVER the threshold blocks the close and says which reason is missing', async () => {
-    const over = { ...closingPlane[STORE_A], cash_counted: closingPlane[STORE_A].cash_counted + 700 }
+    const over = withCoins(closingPlane[STORE_A], [[500, 1], [100, 2]])
     const { props } = await registerProps({ locale: 'ja', store: STORE_A, world: { closing: over } })
     const cash = props.close!.checks.find((c) => c.key === 'cash')!
     expect({ done: cash.done, status: cash.status }).toEqual({ done: false, status: '差異承認待ち' })
@@ -793,7 +817,7 @@ describe('現金差異 is derived, and its threshold is a named dial', () => {
   })
 
   it('a difference UNDER the threshold does not', async () => {
-    const inside = { ...closingPlane[STORE_A], cash_counted: closingPlane[STORE_A].cash_counted + 300 }
+    const inside = withCoins(closingPlane[STORE_A], [[100, 3]])
     const { props } = await registerProps({
       locale: 'ja',
       store: STORE_A,
@@ -811,7 +835,7 @@ describe('現金差異 is derived, and its threshold is a named dial', () => {
     // control after reconnect) that sets an absurd allowance gets the ceiling.
     // Without it, a drawer ¥40,000 short would close the day without a word —
     // which is the exact self-harm the guardrail law forbids a dial to permit.
-    const short = { ...closingPlane[STORE_A], cash_counted: closingPlane[STORE_A].cash_counted - 40_000 }
+    const short = emptyDrawer(closingPlane[STORE_A])
     const { props } = await registerProps({
       locale: 'ja',
       store: STORE_A,
@@ -826,7 +850,7 @@ describe('現金差異 is derived, and its threshold is a named dial', () => {
     // The tone used to key on `variance !== 0` while the status keyed on the
     // tolerance, so inside an allowance the page painted a red difference beside
     // 「保存済み」 — two answers to one question (canon `renderSummary` :1323).
-    const inside = { ...closingPlane[STORE_A], cash_counted: closingPlane[STORE_A].cash_counted + 300, cash_reason: '' }
+    const inside = { ...withCoins(closingPlane[STORE_A], [[100, 3]]), cash_reason: '' }
     const ok = await registerProps({ locale: 'ja', store: STORE_A, world: { closing: inside, tolerance: 500 } })
     expect({ bad: ok.props.close!.cash.varianceBad, status: ok.props.close!.cash.status })
       .toEqual({ bad: false, status: '保存済み' })
@@ -842,7 +866,7 @@ describe('現金差異 is derived, and its threshold is a named dial', () => {
     // 「差異なし — 理由の記録は不要です」 beside 「差異 ¥700」, because the fallback
     // keyed on whether an APPROVAL was needed rather than on whether there WAS a
     // difference.
-    const seven = { ...closingPlane[STORE_A], cash_counted: closingPlane[STORE_A].cash_counted + 700, cash_reason: '' }
+    const seven = { ...withCoins(closingPlane[STORE_A], [[500, 1], [100, 2]]), cash_reason: '' }
     const wide = await registerProps({ locale: 'ja', store: STORE_A, world: { closing: seven, tolerance: 1000 } })
     expect(wide.props.close!.cash.variance).toBe('¥700')
     expect(wide.props.close!.cash.reason).not.toContain('差異なし')
@@ -870,7 +894,7 @@ describe('現金差異 is derived, and its threshold is a named dial', () => {
     expect(cashClosingReady(true, true, true)).toBe(true)
     expect(cashClosingReady(false, false, true)).toBe(false)
 
-    const over = { ...closingPlane[STORE_A], cash_counted: closingPlane[STORE_A].cash_counted + 700 }
+    const over = withCoins(closingPlane[STORE_A], [[500, 1], [100, 2]])
     const unapproved = await registerProps({ locale: 'ja', store: STORE_A, world: { closing: over } })
     expect(unapproved.props.close!.checks.find((c) => c.key === 'cash')!.status).toBe('差異承認待ち')
 
@@ -893,7 +917,7 @@ describe('現金差異 is derived, and its threshold is a named dial', () => {
 // ── 6. ONE VERDICT, rendered N times ────────────────────────────────────────
 
 describe('閉店できるか is ONE call, rendered wherever the page asks it', () => {
-  const verdictFor = (store: string) => {
+  const verdictFor = (store: string, over: Partial<Parameters<typeof closingReadiness>[0]> = {}) => {
     const rows = build(store)
     return closingReadiness({
       totals: ledgerTotals(rows),
@@ -908,6 +932,13 @@ describe('閉店できるか is ONE call, rendered wherever the page asks it', (
       unsettledVisits: [],
       terminalTx: rows.find((r) => r.tenders.some((t) => t.flag === 'pending'))?.id ?? null,
       outstandingTx: rows.find((r) => r.outstanding > 0)?.id ?? null,
+      // ⚖ THE PRESENCE FACTS, read off the same world rather than assumed: this
+      // store's day has card payments, and it finished visits.
+      hasCardTender: rows.some((r) => r.tenders.some((t) => t.channel === 'card')),
+      completedVisits: appointments().filter(
+        (a) => a.store_id === store && a.status === 'done' && jstDayKey(a.starts_at) === jstDayKey(new Date()),
+      ).length,
+      ...over,
     })
   }
 
@@ -981,7 +1012,7 @@ describe('閉店できるか is ONE call, rendered wherever the page asks it', (
     expect(by('unsettled').jump).toBeNull()
     // …and on a day that balanced badly, the drawer row becomes a doorway that
     // points at the count box on this very page rather than travelling.
-    const over = { ...closingPlane[STORE_A], cash_counted: closingPlane[STORE_A].cash_counted + 700 }
+    const over = withCoins(closingPlane[STORE_A], [[500, 1], [100, 2]])
     const variance = await registerProps({ locale: 'ja', store: STORE_A, world: { closing: over } })
     expect(variance.props.close!.checks.find((c) => c.key === 'cash')!.jump).toEqual({ kind: 'here', target: 'cash' })
 
@@ -1042,6 +1073,49 @@ describe('閉店できるか is ONE call, rendered wherever the page asks it', (
     expect(row.detail).toBe('¥1,600 / 次回来店時に請求')
   })
 
+  it('⚖ 実査額 IS THE COUNT SHEET — a sheet that says something else WINS, everywhere', async () => {
+    // The L1 scene, and the reason the identity is now structural: the band read
+    // the stored field while the disclosure 200px below added the notes up, so a
+    // world with one more 千円札 in the drawer printed ¥40,620 under
+    // 「この合計がそのまま実査額になります」 and ¥39,620 in the stat above it — with
+    // 差異 ¥0 over both, which is precisely the difference that never existed the
+    // count sheet exists to prevent. The stored field is left BEHIND here on
+    // purpose: it is the losing read.
+    const base = closingPlane[STORE_A]
+    const drifted: FixtureClosing = {
+      ...base,
+      cash_count_sheet: base.cash_count_sheet.map((d) =>
+        d.denomination === 1000 ? { ...d, count: d.count + 1 } : d,
+      ),
+    }
+    expect(drifted.cash_counted).toBe(39_620)
+    expect(countedCash(drifted)).toBe(40_620)
+
+    const { props } = await registerProps({ locale: 'ja', store: STORE_A, world: { closing: drifted } })
+    const cash = props.close!.cash
+    expect(cash.counted).toBe(yen(40_620))
+    expect(cash.denominations!.totalValue).toBe(cash.counted)
+    expect(cash.variance).toBe(yen(1_000))
+    expect(props.close!.checks.find((c) => c.key === 'cash')!.detail)
+      .toBe(`期待 ${yen(39_620)} / 実査 ${yen(40_620)} / 差異 ${yen(1_000)}`)
+    // …and the room's close RECORD carries the same difference it printed.
+    expect(props.close!.record.find((r) => r.label === '現金差異')!.value).toBe(yen(1_000))
+    // ONE read: the props layer never reaches for the stored field itself.
+    expect(PROPS_CODE).not.toContain('closing.cash_counted')
+  })
+
+  it('…and a closing with NO sheet keeps the figure somebody typed', async () => {
+    // A shop that counts its drawer on paper and types the total has nothing to
+    // derive from — so the entered figure stands, and the disclosure that would
+    // have claimed to produce it is not offered at all.
+    const sheetless: FixtureClosing = { ...closingPlane[STORE_A], cash_count_sheet: [] }
+    expect(countedCash(sheetless)).toBe(39_620)
+    const { props } = await registerProps({ locale: 'ja', store: STORE_A, world: { closing: sheetless } })
+    expect(props.close!.cash.counted).toBe(yen(39_620))
+    expect(props.close!.cash.variance).toBe('¥0')
+    expect(props.close!.cash.denominations).toBeNull()
+  })
+
   it('⑥ しきい値 names its settings home, refused with the reason', async () => {
     const props = await room({ store: STORE_A })
     expect(props.close!.cash.toleranceLinkLabel).toBe('店舗設定で変更')
@@ -1079,11 +1153,117 @@ describe('閉店できるか is ONE call, rendered wherever the page asks it', (
     })
   })
 
-  it('a store that has taken nothing still has an honest close', async () => {
+  // ── ⚖ A ROW RENDERS ONLY WHEN ITS SUBJECT EXISTS IN THE DAY ────────────────
+  // The sheet has stated this law since the rebuild (register.css:446) and the
+  // array was a fixed five. Every row is driven BOTH WAYS here, on worlds that
+  // differ only in the fact that decides it.
+  describe('the checklist is presence-gated, row by row', () => {
+    // A day on which nothing happened at all: no float, no drawer counted, no
+    // card, no balance, no finished visit — 代官山's evening, driven directly.
+    const nothing = {
+      totals: { gross: 0, refunds: 0, net: 0, collected: 0, outstanding: 0, cash: 0 },
+      closing: {
+        ...emptyDrawer(closingPlane[STORE_A]),
+        cash_float: 0,
+        cash_saved: false,
+        outstanding_decision: null,
+      },
+      heldCount: 0,
+      hasCardTender: false,
+      completedVisits: 0,
+    }
+    const keys = (over: Partial<Parameters<typeof closingReadiness>[0]> = {}) =>
+      verdictFor(STORE_A, { ...nothing, ...over }).checks.map((c) => c.key)
+
+    it('決済端末の送信 — the store has a terminal, or it has never had one', () => {
+      expect(keys()).not.toContain('terminal')
+      // It is holding records right now…
+      expect(keys({ heldCount: 1 })).toContain('terminal')
+      // …or the day contains a card payment, which only a terminal can take.
+      expect(keys({ hasCardTender: true })).toContain('terminal')
+    })
+
+    it('現金計数と差異理由 — the store closes a DRAWER, or it is cashless', () => {
+      expect(keys()).not.toContain('cash')
+      // A float was put in this morning…
+      expect(keys({ closing: { ...nothing.closing, cash_float: 30_000 } })).toContain('cash')
+      // …or cash crossed the counter today.
+      expect(keys({ totals: { ...nothing.totals, cash: 1_100 } })).toContain('cash')
+      // ⚖ A11 — …or somebody has already COUNTED a drawer. ¥5,000 in a till the
+      // day says should not exist is a ¥5,000 difference, and dropping the row
+      // would take it off the page without a word.
+      const counted = keys({ closing: withCoins(nothing.closing, [[1000, 5]]) })
+      expect(counted).toContain('cash')
+      expect(verdictFor(STORE_A, { ...nothing, closing: withCoins(nothing.closing, [[1000, 5]]) }).variance)
+        .toBe(5_000)
+    })
+
+    it('未収の扱い — the day holds a balance, or one has already been decided', () => {
+      expect(keys()).not.toContain('outstanding')
+      expect(keys({ totals: { ...nothing.totals, outstanding: 1_600 } })).toContain('outstanding')
+      // A DECIDED balance keeps its row: the evening has to show what was decided.
+      expect(keys({ closing: { ...nothing.closing, outstanding_decision: '次回来店時に請求' } }))
+        .toContain('outstanding')
+    })
+
+    it('未精算の施術 — the day finished a visit at all', () => {
+      expect(keys()).not.toContain('unsettled')
+      expect(keys({ completedVisits: 1 })).toContain('unsettled')
+    })
+
+    it('閉店承認 is ALWAYS asked — every close is signed, in every business', () => {
+      expect(keys()).toEqual(['signoff'])
+      expect(keys({ heldCount: 1, hasCardTender: true, completedVisits: 3, totals: { ...nothing.totals, cash: 1, outstanding: 1 } }))
+        .toEqual(['terminal', 'cash', 'outstanding', 'unsettled', 'signoff'])
+    })
+
+    it('…and the chip, the blockers and the prerequisite gate read THAT array', () => {
+      // ⚖ A8 — one verdict home, now a presence-filtered one: a subject the day
+      // does not have can never block a close it was never part of.
+      const v = verdictFor(STORE_A, nothing)
+      expect(v.checks).toHaveLength(1)
+      expect(v.openCount).toBe(v.checks.filter((c) => !c.done).length)
+      expect(v.blockers).toEqual(v.checks.filter((c) => !c.done).map((c) => c.label))
+      expect(v.prerequisitesReady).toBe(true)
+      // The drawer was never counted and the day still closes once it is signed:
+      // an unopened drawer is not an unfinished count.
+      expect(nothing.closing.cash_saved).toBe(false)
+      expect(v.closeReady).toBe(false)
+      expect(verdictFor(STORE_A, {
+        ...nothing,
+        closing: { ...nothing.closing, manager_signed_at: 20 * 60 + 4, manager_signed_by: '見本 ごろう' },
+      }).closeReady).toBe(true)
+    })
+
+    it('the drawer BAND still knows its own status without the row', async () => {
+      // The band used to read the checklist row with a non-null assertion, which
+      // a presence-gated array turns into a crash the day a cashless shop opens
+      // the evening. Both read `cashStatus` — one home, no lookup.
+      expect(verdictFor(STORE_A, nothing).cashStatus).toBe('未保存')
+      const props = await room({ store: STORE_B })
+      expect(props.close!.cash.status).toBe('未保存')
+      expect(PROPS_CODE).not.toContain("checks.find((c) => c.key === 'cash')!")
+    })
+  })
+
+  it('a store that has taken nothing still has an honest close — and is asked about NOTHING it does not have', async () => {
+    // ⚖ A ROW RENDERS ONLY WHEN ITS SUBJECT EXISTS. 代官山 put no float in, took
+    // no cash and no card, carries no balance and finished no visit today, so its
+    // evening is ONE line: the manager's confirmation. The other four were
+    // questions about subjects that do not exist — and two of them (a drawer
+    // nobody opened, a terminal nobody has) could never have been answered, which
+    // is a close that can never happen rather than a close that is not ready.
     const props = await room({ store: STORE_B })
     expect(props.emptyDay).toBe(true)
-    expect(props.close!.checks.find((c) => c.key === 'outstanding')!.detail).toBe('未収なし')
-    expect(props.close!.checks.find((c) => c.key === 'cash')!.status).toBe('未保存')
+    expect(props.close!.checks.map((c) => c.key)).toEqual(['signoff'])
+    // …and the chip, the button's list and the prerequisite gate all read THAT
+    // array — one verdict home, now a presence-filtered one.
+    expect(props.close!.openCount).toBe(1)
+    expect(props.close!.headline).toBe('1項目 未完了')
+    expect(props.close!.closeRefusal).toContain('未完了: 閉店承認')
+    expect(props.close!.closeRefusal).not.toContain('現金計数')
+    // The drawer BAND obeys the same law as its row, reading the very same row.
+    expect(SRC_CODE).toContain("close.checks.some((c) => c.key === 'cash')")
   })
 })
 
@@ -1375,15 +1555,15 @@ describe('capabilities are read, never invented', () => {
     expect(props.close!.checks.find((c) => c.key === 'cash')!.detail)
       .toBe(`期待 ${yen(plane.cash_float + totals.cash)} / 実査 ${yen(plane.cash_counted)} / 差異 ¥0`)
     // ⑩ and the count sheet the disclosure prints adds up to the count itself.
-    expect(cash.denominations.totalValue).toBe(yen(plane.cash_counted))
-    expect(cash.denominations.rows).toHaveLength(9)
-    expect(cash.denominations.rows.find((r) => r.key === '10000')).toEqual({
+    expect(cash.denominations!.totalValue).toBe(yen(plane.cash_counted))
+    expect(cash.denominations!.rows).toHaveLength(9)
+    expect(cash.denominations!.rows.find((r) => r.key === '10000')).toEqual({
       key: '10000',
       label: '¥10,000',
       name: '1万円札',
       count: '3',
     })
-    expect(cash.denominations.unit).toBe('枚')
+    expect(cash.denominations!.unit).toBe('枚')
   })
 })
 
@@ -1436,12 +1616,18 @@ describe('reading is buildable; every button on a money desk is a write', () => 
     expect(refused.length).toBeGreaterThanOrEqual(8)
     // The two READ-ONLY FIELDS cannot use the component (they are inputs, not
     // buttons), so they are pinned to the same shape by hand: one string on the
-    // accessible name, on the title, and on the line.
+    // accessible name and on the title.
     for (const field of ['cash.saveRefusal', 'cash.reasonInput.refusal']) {
       expect({ field, titled: SRC_CODE.includes(`title={${field}}`) }).toEqual({ field, titled: true })
-      expect({ field, lined: SRC_CODE.includes(`<span className="rg-refusal" aria-hidden="true">{${field}}</span>`) })
-        .toEqual({ field, lined: true })
     }
+    // ⚖ …AND THE TOUCH LINE PRINTS ONCE PER PANEL PER REASON. 差異理由 is the
+    // only refused FIELD that carries one, because its sentence is its own; the
+    // 実査額 field's refusal is the identical paragraph 計数を保存 already prints
+    // at the top of the same panel, and the room deleted a duplicated verdict
+    // once already. The one-source rule is untouched — the field still names the
+    // very same string above.
+    expect(SRC_CODE).toContain('<span className="rg-refusal" aria-hidden="true">{cash.reasonInput.refusal}</span>')
+    expect(SRC_CODE).not.toContain('<span className="rg-refusal" aria-hidden="true">{cash.saveRefusal}</span>')
     expect((SRC_CODE.match(/aria-disabled="true"/g) ?? []).length).toBeGreaterThanOrEqual(2)
   })
 
@@ -1693,7 +1879,7 @@ describe('⧉ the restructure: one page, two modes, one day', () => {
     // The counters print their unit rather than a bare integer beside a word.
     expect(SRC_CODE).toContain('{props.counts[s.key]}件')
     // …and the denomination sheet's counts carry 枚.
-    expect(props.close!.cash.denominations.unit).toBe('枚')
+    expect(props.close!.cash.denominations!.unit).toBe('枚')
     expect(CSS_CODE).toContain('.rg-den-u')
     // The fold that hides eight facts says how many it is hiding.
     expect(SRC_CODE).toContain('記録される{close.record.length}項目を確認')
@@ -2025,6 +2211,19 @@ describe('⚖ ALL-SCREEN ADAPTIVITY, R13, and the shell that points here', () =>
     expect(CSS_CODE).toContain('.biz .pg-register .rg-detail,\n.biz .pg-register .rg-right { position: sticky; top: 74px; }')
     const sticky = CSS_CODE.slice(CSS_CODE.indexOf('.rg-detail,'), CSS_CODE.indexOf('.rg-panel {'))
     expect(sticky).not.toMatch(/max-height|overflow/)
+  })
+
+  it('⚖ F-R4 — the shell’s 1180px FLOOR IS OFF for this room, and the SHELL is what says so', () => {
+    // The family default pans below 1180 and a room leaves it only by proving a
+    // narrow ladder (business-shell.css's own opt-in-by-proof note). This room's
+    // ladder was real and unreachable: it laid itself out correctly at 390 while
+    // the reader got 790px of horizontal panning. The selector is SHELL-owned —
+    // a route sheet may never lift its own floor — so the contract is pinned
+    // HERE, against the shell's file, and the measured proof is in the probe.
+    const shell = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'), 'utf8')
+    expect(shell).toMatch(/\.biz \.app:has\([^)]*\.page\.pg-register[^)]*\)\s*\{\s*min-width:\s*0/)
+    // …and this room's own sheet never reaches up to the shell to do it itself.
+    expect(CSS_CODE).not.toContain('.app')
   })
 
   it('800–1023 keeps the inner pair side by side; ≤1099 stacks it', () => {
