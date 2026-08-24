@@ -1355,6 +1355,7 @@
     "tabHeading": "Karute",
     "recordList": {
       "statusLine": "This month: {monthCount} karute · showing {showingCount}",
+      "statusLineNoMonth": "Showing {showingCount} karute",
       "newKarute": "+ New karute",
       "searchPlaceholder": "Search by customer · service · staff",
       "revealSummary": "Shows up here once their first session is recorded",

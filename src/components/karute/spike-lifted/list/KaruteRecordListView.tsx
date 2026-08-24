@@ -41,14 +41,19 @@ import type { KaruteListFilter, KaruteListItem } from './types'
 
 interface Props {
   items: KaruteListItem[]
-  /** Total karute records this month (not filtered) — shown in the
-   *  status line independent of the active filter. */
-  monthCount: number
+  /** Total karute records this month (not filtered) — shown in the status
+   *  line independent of the active filter. null = the 今月 probe failed
+   *  (Greptile PR #775 round 2): the status line OMITS the count entirely
+   *  rather than rendering a fake 0 — a failed count is never shown as a
+   *  number. */
+  monthCount: number | null
   /** Store-wide karute total, unfiltered by date (PR-1b plumbing — not
-   *  rendered until PR-2a's 全件 display). Optional so existing render
-   *  call sites (management-flag-wiring.test.tsx) still typecheck without
-   *  passing it. */
-  total?: number
+   *  rendered until PR-2a's 全件 display). Optional so existing render call
+   *  sites (management-flag-wiring.test.tsx) still typecheck without passing
+   *  it. null = the main row read failed — doubles as the "did the list
+   *  itself load" signal the status line uses to decide whether to render
+   *  anything at all (Greptile PR #775 round 2). */
+  total?: number | null
   /** Staff list for the "your customers / all customers" filter. */
   staffList?: StaffFilterEntry[]
   /** The viewer's staff id — drives the "Me" filter pill. Null when
@@ -87,6 +92,7 @@ const FILTER_KEYS: KaruteListFilter[] = [
 export function KaruteRecordListView({
   items,
   monthCount,
+  total = null,
   staffList = [],
   currentStaffId = null,
   customerOptions = [],
@@ -248,7 +254,16 @@ export function KaruteRecordListView({
          *  above) so mobile keeps the shared offset. */}
         <div className="flex items-center justify-between gap-3 md:mt-1">
           <p className="min-w-0 flex-1 truncate text-xs tabular-nums text-muted-foreground">
-            {t('statusLine', { monthCount, showingCount: filtered.length })}
+            {/* Greptile PR #775 round 2: total===null means the main row
+             *  read failed — render NO status line at all (the empty/
+             *  degraded list below already tells the honest story). Zero
+             *  numbers on screen beats a fake one. total!==null but
+             *  monthCount===null means only the 今月 probe failed — show
+             *  the subset line, never a fake 「今月 0件」. */}
+            {total !== null &&
+              (monthCount !== null
+                ? t('statusLine', { monthCount, showingCount: filtered.length })
+                : t('statusLineNoMonth', { showingCount: filtered.length }))}
           </p>
           {/* + 新規カルテ — primary CTA. Opens the manual-entry dialog
            *  (NewKaruteDialog) so staff can backdate or log a session

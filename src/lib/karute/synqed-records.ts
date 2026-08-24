@@ -160,11 +160,7 @@ export async function listSynqedKaruteRowsWithTotalOrThrow(
 /** Graceful sibling of {@link listSynqedKaruteRowsWithTotalOrThrow} — degrades
  *  to `{rows: [], total: 0}` on a synqed-core failure, same swallow-and-log
  *  posture as {@link listSynqedKaruteRows}. The facade route (packet 05
- *  failure contract) uses the throwing variant directly. NOT used by the
- *  page for the main-rows + 今月-probe pair — two INDEPENDENT calls of this
- *  can each degrade on its own, so one transient failure silently produces a
- *  header that contradicts the visible list (Greptile PR #775 finding); see
- *  {@link listSynqedKaruteRowsWithMonthProbe} below for the coherent pairing. */
+ *  failure contract) uses the throwing variant directly. */
 export async function listSynqedKaruteRowsWithTotal(
   synqed: SynqedClient,
   opts?: Parameters<typeof listSynqedKaruteRowsWithTotalOrThrow>[1],
@@ -178,23 +174,36 @@ export async function listSynqedKaruteRowsWithTotal(
 }
 
 /** {@link listSynqedKaruteRowsWithMonthProbe}'s return shape: the main
- *  store-wide row read paired with the 今月 (JST month) count probe. Both
- *  fields always come from the SAME success or the SAME failure — see the
- *  function doc below. */
+ *  store-wide row read paired with the 今月 (JST month) count probe — each
+ *  leg INDEPENDENTLY nullable. null = that leg's read failed; the caller
+ *  must never coerce it to a fake 0/[] (Greptile PR #775, fix round 2). */
 export interface KaruteDataWithMonthProbe {
-  data: KaruteRowsWithTotal
-  monthProbe: KaruteRowsWithTotal
+  /** null = the main row read failed. The caller renders the DEGRADED
+   *  presentation (no rows, no status numbers) — never an empty-but-honest
+   *  list, which would misreport a real outage as "no karute yet". */
+  data: KaruteRowsWithTotal | null
+  /** null = the 今月 probe failed — independently of `data`. The caller
+   *  OMITS the 今月 count entirely rather than rendering 0; it never
+   *  discards already-successfully-loaded rows just because this leg
+   *  failed (fix round 1's shared-try/catch bug — Greptile PR #775 round 2:
+   *  a probe failure silently emptied the whole list). */
+  monthProbe: { total: number } | null
 }
 
 /**
- * Coherent pairing of the main karute row read + the 今月 count probe
- * (PR-1b 正直ヘッダー, Greptile PR #775 fix): the page's status line and its
- * visible list must never disagree, so both reads share ONE try/catch — on
- * ANY failure (either call, or both), BOTH degrade together to
- * `{rows: [], total: 0}` (same swallow-and-log posture as
- * {@link listSynqedKaruteRows}), never one succeeding while the other zeros
- * out. Runs the two OrThrow reads in parallel (Promise.all) for the same
- * latency the previous two-independent-calls shape had.
+ * Independent pairing of the main karute row read + the 今月 count probe
+ * (PR-1b 正直ヘッダー). The contract: the LIST is primary, the count is
+ * auxiliary. Each read gets its OWN catch (swallow-and-log, same posture as
+ * {@link listSynqedKaruteRows}) — a probe failure must never discard
+ * already-loaded rows (round 1's shared try/catch did exactly that), and a
+ * main-read failure must never be masked by a lucky probe success. null
+ * means "this leg failed"; the caller (page.tsx) renders `data` regardless
+ * of `monthProbe`'s outcome, and shows NO 今月 number when `monthProbe` is
+ * null — a failed count is omitted, never rendered as a fake number.
+ *
+ * The facade route does NOT use this helper: its two reads share ONE
+ * throw-into-502 catch (packet 05 failure contract) — a phone screen is
+ * never partial, it's either whole or a classified error.
  */
 export async function listSynqedKaruteRowsWithMonthProbe(
   synqed: SynqedClient,
@@ -204,21 +213,24 @@ export async function listSynqedKaruteRowsWithMonthProbe(
     monthTo: string
   },
 ): Promise<KaruteDataWithMonthProbe> {
-  try {
-    const [data, monthProbe] = await Promise.all([
-      listSynqedKaruteRowsWithTotalOrThrow(synqed, { storeId: opts.storeId }),
-      listSynqedKaruteRowsWithTotalOrThrow(synqed, {
-        storeId: opts.storeId,
-        from: opts.monthFrom,
-        to: opts.monthTo,
-        page_size: 1,
-      }),
-    ])
-    return { data, monthProbe }
-  } catch (err) {
-    console.error('[listSynqedKaruteRowsWithMonthProbe] synqed-core fetch failed (coherent degrade):', err)
-    return { data: { rows: [], total: 0 }, monthProbe: { rows: [], total: 0 } }
-  }
+  const [data, monthProbe] = await Promise.all([
+    listSynqedKaruteRowsWithTotalOrThrow(synqed, { storeId: opts.storeId }).catch(
+      (err: unknown) => {
+        console.error('[listSynqedKaruteRowsWithMonthProbe] main row read failed:', err)
+        return null
+      },
+    ),
+    listSynqedKaruteRowsWithTotalOrThrow(synqed, {
+      storeId: opts.storeId,
+      from: opts.monthFrom,
+      to: opts.monthTo,
+      page_size: 1,
+    }).catch((err: unknown) => {
+      console.error('[listSynqedKaruteRowsWithMonthProbe] 今月 probe failed:', err)
+      return null
+    }),
+  ])
+  return { data, monthProbe: monthProbe ? { total: monthProbe.total } : null }
 }
 
 /**

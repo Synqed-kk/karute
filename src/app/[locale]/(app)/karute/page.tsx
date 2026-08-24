@@ -82,14 +82,14 @@ export default async function KaruteRecordsListPage() {
       // synqed-core is the sole karute store (the Supabase karute_records table
       // is empty and being dropped). Scoped to the active branch so 代官山
       // karute don't surface under 銀座; the customer PROFILE stays unscoped.
-      // ONE combined phase (Greptile PR #775 fix): the main row read (store-
-      // wide total, plumbed through for PR-2a's 全件 display) and the 今月
-      // probe (JST month window, page_size:1) used to run as two INDEPENDENT
-      // degrade-wrapped calls — one transiently failing while the other
-      // succeeded could make the header contradict the visible list.
-      // listSynqedKaruteRowsWithMonthProbe shares ONE try/catch so both
-      // always come from the same success or the same failure. LENS PARITY
-      // with screens/sessions/route.ts's identical from/to computation.
+      // The main row read (store-wide total, plumbed through for PR-2a's 全件
+      // display) and the 今月 probe (JST month window, page_size:1) degrade
+      // INDEPENDENTLY (Greptile PR #775 round 2): the list is primary, the
+      // count is auxiliary — a probe failure must never discard already-
+      // loaded rows, and a main-read failure must never be masked by a lucky
+      // probe success. See listSynqedKaruteRowsWithMonthProbe's doc for the
+      // full contract. LENS PARITY (from/to computation only — the facade
+      // stays shared-fate) with screens/sessions/route.ts.
       t.phase('karuteData', () =>
         listSynqedKaruteRowsWithMonthProbe(synqed, {
           storeId: activeStore,
@@ -102,7 +102,15 @@ export default async function KaruteRecordsListPage() {
       // in getAppointmentsByDate).
       t.phase('synqedStaff', () => synqed.staff.list({ page_size: 200 })),
     ])
-  const synqedKaruteRows = karuteData.data.rows
+  const synqedKaruteRows = karuteData.data?.rows ?? []
+  // Nullable display values (Greptile PR #775 round 2): null means that leg
+  // failed — the view must render NO number for it, never a fake 0.
+  // buildSessionsListScreen's monthCount/total args stay plain numbers (the
+  // SAME shared builder the facade route calls with always-real numbers);
+  // these are what the view actually renders, bypassing screen.monthCount/
+  // screen.total below on purpose.
+  const displayMonthCount = karuteData.monthProbe?.total ?? null
+  const displayTotal = karuteData.data?.total ?? null
 
   // #496 store clamp: the 担当 picker only offers staff assigned to the active
   // store (or floating staff) — the full roster was leaking every branch's
@@ -120,8 +128,8 @@ export default async function KaruteRecordsListPage() {
     currentStaffId,
     synqedKaruteRows,
     synqedStaff,
-    monthCount: karuteData.monthProbe.total,
-    total: karuteData.data.total,
+    monthCount: displayMonthCount ?? 0,
+    total: displayTotal ?? 0,
   })
 
   return (
@@ -132,8 +140,8 @@ export default async function KaruteRecordsListPage() {
       <QuietRefresh renderedAt={renderStamp()} />
       <KaruteRecordListView
         items={screen.items}
-        monthCount={screen.monthCount}
-        total={screen.total}
+        monthCount={displayMonthCount}
+        total={displayTotal}
         staffList={screen.staffList}
         currentStaffId={screen.currentStaffId}
         customerOptions={screen.customerOptions}

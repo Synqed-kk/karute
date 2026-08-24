@@ -1355,6 +1355,7 @@
     "tabHeading": "カルテ",
     "recordList": {
       "statusLine": "カルテ 今月 {monthCount}件 ・ 表示中 {showingCount}件",
+      "statusLineNoMonth": "カルテ 表示中 {showingCount}件",
       "newKarute": "+ 新規カルテ",
       "searchPlaceholder": "顧客名・サービス・スタッフで検索...",
       "revealSummary": "初回セッションを記録すると、ここに表示されます",

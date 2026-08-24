@@ -174,10 +174,13 @@ describe('listSynqedKaruteRowsWithTotal', () => {
   })
 })
 
-// Greptile PR #775 fix: the main row read and the 今月 probe used to be two
-// INDEPENDENT degrade-wrapped calls — one transiently failing while the
-// other succeeded could make the header contradict the visible list
-// (positive list + 今月 0件, or the reverse). These pin the shared fate.
+// Round 1 (Greptile PR #775) gave both reads ONE shared try/catch so the
+// header could never contradict the list — but that meant a 今月-probe
+// failure DISCARDED already-successfully-loaded rows too (a false EMPTY
+// list). SUPERSEDED by round 2's contract: the LIST is primary, the count
+// is auxiliary. Each leg degrades INDEPENDENTLY to null; the shared-fate
+// tests that used to live here are gone — rendering the omission (never a
+// fake 0) is KaruteRecordListView's job, pinned in its own test file.
 describe('listSynqedKaruteRowsWithMonthProbe', () => {
   const opts = {
     storeId: 'store-1',
@@ -191,11 +194,11 @@ describe('listSynqedKaruteRowsWithMonthProbe', () => {
       .mockResolvedValueOnce({ karute_records: [], total: 10 }) // main
       .mockResolvedValueOnce({ karute_records: [], total: 3 }) // probe
     const result = await listSynqedKaruteRowsWithMonthProbe(asClient(list), opts)
-    expect(result.data.total).toBe(10)
-    expect(result.monthProbe.total).toBe(3)
+    expect(result.data?.total).toBe(10)
+    expect(result.monthProbe?.total).toBe(3)
   })
 
-  it('the month probe throwing zeroes the MAIN rows too — shared fate, not an independent degrade', async () => {
+  it('the 今月 probe throwing does NOT discard the already-loaded main rows — only monthProbe goes null', async () => {
     const list = jest
       .fn()
       .mockResolvedValueOnce({
@@ -204,22 +207,28 @@ describe('listSynqedKaruteRowsWithMonthProbe', () => {
       }) // main succeeds
       .mockRejectedValueOnce(new Error('boom')) // probe fails
     const result = await listSynqedKaruteRowsWithMonthProbe(asClient(list), opts)
-    expect(result).toEqual({
-      data: { rows: [], total: 0 },
-      monthProbe: { rows: [], total: 0 },
-    })
+    expect(result.data?.rows).toHaveLength(1)
+    expect(result.data?.total).toBe(10)
+    expect(result.monthProbe).toBeNull()
   })
 
-  it('the main read throwing zeroes the MONTH PROBE too — shared fate, not an independent degrade (vice versa)', async () => {
+  it('the main read throwing goes null WITHOUT being masked by a lucky probe success', async () => {
     const list = jest
       .fn()
       .mockRejectedValueOnce(new Error('boom')) // main fails
       .mockResolvedValueOnce({ karute_records: [], total: 3 }) // probe succeeds
     const result = await listSynqedKaruteRowsWithMonthProbe(asClient(list), opts)
-    expect(result).toEqual({
-      data: { rows: [], total: 0 },
-      monthProbe: { rows: [], total: 0 },
-    })
+    expect(result.data).toBeNull()
+    expect(result.monthProbe?.total).toBe(3)
+  })
+
+  it('both legs failing: both go null independently, no cross-contamination', async () => {
+    const list = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('boom-main'))
+      .mockRejectedValueOnce(new Error('boom-probe'))
+    const result = await listSynqedKaruteRowsWithMonthProbe(asClient(list), opts)
+    expect(result).toEqual({ data: null, monthProbe: null })
   })
 })
 
