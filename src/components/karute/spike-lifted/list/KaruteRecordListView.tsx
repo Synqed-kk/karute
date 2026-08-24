@@ -133,6 +133,14 @@ export function KaruteRecordListView({
   const [storeTotal, setStoreTotal] = useState<number | null>(total)
   const [serverHasMore, setServerHasMore] = useState(initialHasMore)
   const [loadingMore, setLoadingMore] = useState(false)
+  // Generation counter for the purge-vs-in-flight race (fix round 4). The
+  // deleted-row purge below bumps it; fetchOlder captures it BEFORE its await
+  // and throws the whole response away if it moved. Without this, a request
+  // already in flight when the purge fires lands afterwards and re-applies its
+  // stale boundary and rows over the freshly rewound state — the middle chunks
+  // then vanish until remount, which is precisely what the rewind is there to
+  // prevent.
+  const fetchGen = useRef(0)
   // Set on a failed fetchOlder (server error or a thrown RPC); cleared at the
   // top of the next attempt. Drives the inline retry message below the
   // さらに表示 button — the button stays enabled, this just makes the
@@ -240,11 +248,17 @@ export function KaruteRecordListView({
   // KNOWN BENIGN CORNER: storeTotal has two writers (this effect and
   // fetchOlder's response), so a refresh whose `total` was computed before an
   // append landed can read as a decrease and trigger a purge + re-walk that
-  // wasn't strictly needed. The OUTCOME is still correct data — the cost is
-  // extra fetches, not a wrong list — and it is bounded to one per refresh
-  // because only a changed `total` PROP re-runs this.
+  // wasn't strictly needed. The cost is extra fetches, never a wrong list —
+  // and that is true because the `fetchGen` bump below MAKES it true: a
+  // response already in flight when the purge fires is discarded wholesale
+  // instead of re-applying its stale boundary and rows over the rewound state.
+  // Bounded to one purge per refresh, because only a changed `total` PROP
+  // re-runs this.
   useEffect(() => {
     if (total !== null && storeTotal !== null && total < storeTotal) {
+      // Invalidate anything in flight BEFORE rewinding, so a response that
+      // resolves a tick later can't undo the three setters that follow.
+      fetchGen.current += 1
       setAppended([])
       setWindowStart(initialWindowStart)
       setRestoreTarget(sinceParam)
@@ -262,8 +276,16 @@ export function KaruteRecordListView({
     if (!windowStart || loadingMore) return
     setLoadingMore(true)
     setLoadError(false)
+    // Captured BEFORE the await — a purge landing while this is in flight bumps
+    // the counter, and everything below is then dropped wholesale.
+    const gen = fetchGen.current
     try {
       const res = await loadKaruteWindow({ olderThan: windowStart, loadedCount })
+      // SUPERSEDED: a purge rewound the walk under us. Discard the ENTIRE
+      // result — no rows, no boundary, no counts, no announcement — and leave
+      // loadError alone: this request didn't fail, it stopped being relevant.
+      // The restore walk the purge seeded is already fetching the truth.
+      if (gen !== fetchGen.current) return
       if ('error' in res) {
         // Clear restoreTarget so the restore effect (deps include
         // loadingMore) doesn't re-fire fetchOlder against a persistently
@@ -292,7 +314,11 @@ export function KaruteRecordListView({
       if (announce) setAnnouncement(t('addedCount', { n: fresh.length }))
     } catch {
       // loadKaruteWindow can THROW on the web (server-action RPC network
-      // failure) rather than resolve to { error }. Same recovery as above.
+      // failure) rather than resolve to { error }. Same recovery as above —
+      // and the same staleness rule: a SUPERSEDED request's failure is not
+      // this list's failure, and clearing restoreTarget here would strand the
+      // purge's re-walk before it ever starts.
+      if (gen !== fetchGen.current) return
       setLoadError(true)
       setRestoreTarget(null)
     } finally {

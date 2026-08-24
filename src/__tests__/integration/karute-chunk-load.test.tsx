@@ -491,3 +491,75 @@ describe('deleted rows reconcile on a healthy refresh (fix round 3)', () => {
     expect(loadMoreButton()).toBeInTheDocument()
   })
 })
+
+// The purge rewinds the walk, but fetchOlder's setters used to apply
+// unconditionally — so a request already in flight when the purge fired landed
+// afterwards and re-applied its stale boundary and rows over the rewound state,
+// dropping the middle chunks until remount. A generation counter closes it.
+describe('a purge invalidates an in-flight fetch (fix round 4)', () => {
+  it('DISCARDS the superseded response instead of applying it over the rewound state', async () => {
+    let resolveStale: (v: unknown) => void = () => {}
+    loadKaruteWindow
+      // Tap 1 lands normally — this is what puts a boundary in ?since, which
+      // is what the purge re-seeds the restore walk with. Without a committed
+      // boundary there is nothing to re-walk TO and the race can't be shown.
+      .mockResolvedValueOnce({
+        items: [item('k3', '2026-08-05', '幽霊 太郎')],
+        windowStart: '2026-07-29',
+        freshStoreTotal: 9,
+        hasMore: true,
+      })
+      // Tap 2 hangs — this is the request the purge will supersede.
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveStale = resolve
+          }),
+      )
+      // What the purge's re-walk gets: the store's real older row.
+      .mockResolvedValue({
+        items: [item('k4', '2026-08-04', '鈴木 一郎')],
+        windowStart: '2026-07-29',
+        freshStoreTotal: 8,
+        hasMore: true,
+      })
+
+    const view = renderList()
+    fireEvent.click(loadMoreButton())
+    await waitFor(() => expect(screen.getByText('幽霊 太郎')).toBeInTheDocument())
+    fireEvent.click(loadMoreButton())
+    await waitFor(() => expect(loadKaruteWindow).toHaveBeenCalledTimes(2))
+
+    // A refresh with one fewer record purges + rewinds WHILE tap 2 is still
+    // in flight.
+    await act(async () => {
+      view.rerender(listEl({ total: 8 }))
+    })
+
+    // Now the superseded response finally lands, carrying a boundary and a row
+    // that no longer describe anything real.
+    await act(async () => {
+      resolveStale({
+        items: [item('k99', '2026-06-01', '亡霊 花子')],
+        windowStart: '2026-06-01',
+        freshStoreTotal: 99,
+        hasMore: true,
+      })
+    })
+
+    // Not one setter from it took effect — and the purged ghost stayed purged.
+    expect(screen.queryByText('亡霊 花子')).not.toBeInTheDocument()
+    expect(screen.queryByText('幽霊 太郎')).not.toBeInTheDocument()
+    await waitFor(() => expect(loadKaruteWindow).toHaveBeenCalledTimes(3))
+    // THE decisive assertion: the re-walk resumed from the REWOUND boundary
+    // with the purged count. Had the superseded response been applied,
+    // windowStart would be 2026-06-01 and loadedCount 3 — the walk would
+    // resume from the wrong place with a ghost still counted.
+    expect(loadKaruteWindow).toHaveBeenNthCalledWith(3, {
+      olderThan: '2026-08-12',
+      loadedCount: 2,
+    })
+    await waitFor(() => expect(screen.getByText('鈴木 一郎')).toBeInTheDocument())
+    await waitFor(() => expect(loadMoreButton().textContent).toContain('7月29日'))
+  })
+})

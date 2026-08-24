@@ -64,6 +64,16 @@ const SELF_STAFF_ID = 'staff-self'
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'biz-1'),
   getCurrentUserStaffId: jest.fn(async () => SELF_STAFF_ID),
+  // loadKaruteWindow's fan-out (round 4): without these the action died on an
+  // undefined import before ever reaching the read, which made the leap-date
+  // test below pass VACUOUSLY.
+  getStaffList: jest.fn(async () => []),
+}))
+
+// Same fan-out. Mutations in this suite never touch the customer list, so a
+// bare [] is enough for the row projection to run.
+jest.mock('@/lib/customers/list-all', () => ({
+  listAllCustomersCached: jest.fn(async () => []),
 }))
 
 // Best-effort side-effects of saveKaruteRecord — no-op so the test focuses on
@@ -94,6 +104,7 @@ jest.mock('@synqed-kk/client', () => {
 // suites don't exercise store scoping, so stub it to the all-stores lens.
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: jest.fn(async () => ({ storeId: null, viewAll: true, allowedStoreIds: null })),
+  storeStaffIdSet: jest.fn(async () => null),
 }))
 
 jest.mock('@/lib/auth/require-permission', () => ({
@@ -110,7 +121,7 @@ jest.mock('@/lib/synqed/client', () => {
     deleteEntry: jest.fn(async () => ({})),
     get: jest.fn(async () => ({ entries: [] })),
     update: jest.fn(async () => ({})),
-    list: jest.fn(async () => ({ karute_records: [] })),
+    list: jest.fn(async () => ({ karute_records: [], total: 0 })),
   }
   const appointments = {
     create: jest.fn(async () => ({ id: 'appt-1' })),
@@ -121,6 +132,8 @@ jest.mock('@/lib/synqed/client', () => {
     get: jest.fn(async () => null),
   }
   const staffStores = { get: jest.fn(async () => ({ store_ids: [] })) }
+  // loadKaruteWindow's row projection translates synqed staff ids (round 4).
+  const staff = { list: jest.fn(async () => ({ staff: [] })) }
   const stores = { list: jest.fn(async () => ({ stores: [] })) }
   // deleteAppointmentCore's burn-dedup guard (FIX 8) reads this before every
   // delete — this suite never exercises a burned booking, so [] every time.
@@ -144,7 +157,7 @@ jest.mock('@/lib/synqed/client', () => {
     }),
     listPhotos: jest.fn(async () => ({ photos: [{ id: 'photo-1' }] })),
   }
-  const client = { karuteRecords, appointments, staffStores, stores, customers, packs }
+  const client = { karuteRecords, appointments, staffStores, stores, customers, packs, staff }
   return { getSynqedClient: jest.fn(async () => client) }
 })
 
@@ -424,5 +437,9 @@ describe('loadKaruteWindow refuses calendar-impossible input (Greptile PR #779 P
     expect(result).not.toEqual(
       expect.objectContaining({ error: expect.stringContaining('real calendar') }),
     )
+    // The half that earns the title: the gate not only stayed quiet, the walk
+    // actually ran. Without this the test would still pass if the action bailed
+    // out somewhere else before ever reading.
+    expect(karuteRecords.list).toHaveBeenCalled()
   })
 })
