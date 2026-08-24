@@ -204,7 +204,53 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
     expect(band).toContain('.biz .pg-register .rg-detail { display: none; }')
     expect(band).toContain('.biz .pg-register.is-detail .rg-ledger { display: none; }')
     expect(band).toContain('.biz .pg-register.is-detail .rg-detail { display: block; }')
-    expect(band).toMatch(/\.biz \.pg-register\.is-detail \.rg-closing,\s*\n\s*\.biz \.pg-register\.is-detail \.rg-noclose \{ display: none; \}/)
+    // ⚠ THE CLOSING PANELS NO LONGER NEED HIDING HERE. They used to sit under the
+    // ledger at every width, so a phone reader who opened a transaction had the
+    // day's close beneath it and the sheet had to say so. Since the restructure
+    // they live in the OTHER MODE and are not mounted at all while the reader is
+    // in 取引 — the rule is gone because the shape that needed it is.
+    expect(band).not.toContain('.rg-closing { display: none;')
+    expect(SRC_CODE).toContain("{close && cash && mode === 'close' && (")
+  })
+
+  it('⑯ the phone’s 閉店 screen is ordered around COUNTING, and nothing is hidden', () => {
+    // A closer standing at the register at 21:00 has a drawer of cash in one hand
+    // and the phone in the other: the count is the FIRST thing they do and the
+    // checklist is what they read once the number is in. On a laptop the two
+    // columns are side by side and order is not a question — on a phone the order
+    // IS the experience.
+    const band = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 743px)'))
+    expect(band).toContain('.biz .pg-register .rg-right { display: contents; }')
+    expect(band).toMatch(/\.rg-cash \{ order: 1; \}/)
+    expect(band).toMatch(/\.rg-close \{ order: 2; \}/)
+    expect(band).toMatch(/\.rg-reconpanel \{ order: 3; \}/)
+    // ⑰/⑱ the day-strips and the record fold to one line each — IN 閉店 ONLY, and
+    // every one of them opens again on a tap. Folded is not gone.
+    expect(band).toContain('.biz .pg-register.is-close .rg-fold { display: flex; }')
+    expect(band).toMatch(/is-close \.rg-money:not\(\.is-open\)/)
+    expect(band).toMatch(/is-close \.rg-counts:not\(\.is-open\)/)
+    expect(band).toMatch(/\.rg-record:not\(\.is-open\) \{ display: none; \}/)
+    // …the exception band keeps its HEADLINE while it is folded, because an
+    // exception a closer cannot see is the worst possible fold.
+    expect(band).toContain('.biz .pg-register.is-close .rg-terminal-more { display: inline-flex; }')
+    expect(band).toMatch(/is-close \.rg-terminal:not\(\.is-open\) \.rg-terminal-stat/)
+    // Every fold is a real control with a real state, not a CSS trick.
+    for (const key of ['money', 'counts', 'terminal', 'record']) {
+      expect({ key, wired: SRC_CODE.includes(`toggleFold('${key}')`) }).toEqual({ key, wired: true })
+    }
+    expect(SRC_CODE).toContain('const toggleFold = (key: FoldKey) => setFolds((f) => ({ ...f, [key]: !f[key] }))')
+  })
+
+  it('⑫ the refusal line is the SAME STRING as the tooltip, and only touch widths see it', () => {
+    const band = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 743px)'))
+    // Hidden by default, shown in the phone band — `span.` and not `.`, because
+    // two of these lines live inside boxes whose own sheet says `span` is a
+    // BLOCK, and a refusal that reappears on a pointer width because a
+    // neighbouring rule out-specifies it is worse than no refusal at all.
+    expect(CSS_CODE).toContain('.biz .pg-register span.rg-refusal { display: none; }')
+    expect(band).toMatch(/span\.rg-refusal \{ display: block;/)
+    expect(SRC_CODE).toContain('aria-label={`${label} — ${reason}`}')
+    expect(SRC_CODE).toContain('<span className="rg-refusal" aria-hidden="true">{reason}</span>')
   })
 })
 

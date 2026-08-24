@@ -16,9 +16,10 @@
 //     tender on a held sale is DERIVED from `register.terminal_held` (one home,
 //     and the two screens count the same 1件);
 //   · the reversals below sum to `register.refunds` (¥1,100), pinned;
-//   · `cash_counted` minus the cash tenders below equals `register.cash_difference`
-//     (¥0), pinned. Nothing here states a difference — a difference is what a
-//     count and an expectation make between them.
+//   · `cash_counted` minus the EXPECTATION — the opening float plus the cash
+//     tenders below, minus what left the drawer — equals
+//     `register.cash_difference` (¥0), pinned. Nothing here states a difference:
+//     a difference is what a count and an expectation make between them.
 //
 // TIMES ARE JST MINUTES FROM MIDNIGHT, like every other plane, and every one of
 // them sits before the pinned `boardNow` (13:24): a register showing money taken
@@ -79,12 +80,13 @@ export interface FixtureWalkInTransaction extends FixtureTransactionBase {
 
 export type FixtureTransaction = FixtureBookingTransaction | FixtureWalkInTransaction
 
-/** The day's transactions. Five, and every one of them is a state a real money
+/** The day's transactions. Six, and every one of them is a state a real money
  *  desk has to be able to show: settled in cash, settled on a card, charged but
- *  held inside an offline terminal, part-paid with a balance owed, and refunded.
- *  The three booking-backed rows are the three bookings the world has already
- *  finished today (apt-12 / apt-22 settled, apt-25 awaiting) — no sale is
- *  invented for a treatment that has not happened. */
+ *  held inside an offline terminal, part-paid with a balance owed, sold over the
+ *  counter to somebody the shop never recorded, and refunded. The three
+ *  booking-backed rows are the three bookings the world has already finished
+ *  today (apt-12 / apt-22 settled, apt-25 awaiting) — no sale is invented for a
+ *  treatment that has not happened. */
 export const transactions: FixtureTransaction[] = [
   {
     id: 'TX-4808',
@@ -143,6 +145,23 @@ export const transactions: FixtureTransaction[] = [
     ],
   },
   {
+    // ⚖ THE NAMELESS WALK-IN. A shop sells something over the counter to
+    // somebody it never records — no booking, no customer, no name. It is the
+    // most common row in a 物販 business and the shape a treatment-only fixture
+    // world never produced, so the ledger had never rendered one: the row has
+    // no person to put at the top of it, and printing 「店頭販売（予約なし）」
+    // where a name goes is a placeholder pretending to be a fact.
+    id: 'TX-5503',
+    appointment_id: null,
+    store_id: STORE_A,
+    customer_id: null,
+    item: 'ヘアバーム（店頭販売）',
+    amount: 1320,
+    at: 12 * 60 + 58,
+    tenders: [{ label: '現金', amount: 1320, flag: '' }],
+    audit: [['12:58', '店頭販売を記録', 'ヘアバーム（店頭販売） ¥1,320 / 現金 ¥1,320 / お客様の記録なし']],
+  },
+  {
     // 返金済み. The ¥1,100 `fixtures-today`'s register aggregate already knows
     // about — the original line is KEPT and a reversal is added beside it, which
     // is the whole point of the panel footer's sentence.
@@ -164,13 +183,46 @@ export const transactions: FixtureTransaction[] = [
   },
 ]
 
+/** 金種別計数 — one line per note and coin: HOW MANY, never a subtotal. The
+ *  subtotal is `denominationTotal`'s to compute, because a column somebody added
+ *  up by hand is exactly the mis-addition the count sheet exists to prevent. */
+export interface DenominationCount {
+  /** The note or coin, in yen. */
+  denomination: number
+  /** How many of them are in the drawer. */
+  count: number
+}
+
 /** 閉店処理 — what the day's close has recorded SO FAR. Every "is it ready"
  *  question is derived from these facts plus the ledger; nothing here stores a
  *  verdict (`closingReadiness` is the one home for all of them). */
 export interface FixtureClosing {
+  /** ⚠ 釣銭準備金 — the money that was in the drawer BEFORE the shop sold
+   *  anything. Without it 期待額 is structurally wrong for every cash business
+   *  on earth: a drawer that opened with ¥30,000 of change and took ¥9,620 holds
+   *  ¥39,620, and a page that expects ¥9,620 reports a ¥30,000 difference every
+   *  single evening. It is a recorded FACT of the day, like the count itself.
+   *
+   *  ⚠ RECONNECT: the opening float is set when the drawer is opened — the
+   *  開店時の釣銭準備金 entry screen is registry ⑭, not built here. */
+  cash_float: number
+  /** 入金 — cash put INTO the drawer during the day that is not a sale (a top-up
+   *  of change from the safe). ZERO in this world; the entry screen is registry
+   *  ⑭ with the float. The TERM is here because 期待額 is wrong without it the
+   *  moment a shop does it once. */
+  cash_paid_in: number
+  /** 出金 — cash taken OUT that is not a refund (a supplier paid in cash). */
+  cash_paid_out: number
+  /** 銀行入金 — cash removed from the drawer and banked before the close. */
+  cash_bank_deposit: number
   /** 実査額 — what somebody counted in the drawer. 期待額 is derived from the
-   *  cash tenders and 差異 from the two, so no difference is stored. */
+   *  float, the movements and the cash tenders, and 差異 from the two, so no
+   *  difference is stored. */
   cash_counted: number
+  /** 金種別の枚数. ⚖ THE SHEET IS THE COUNT: 実査額 is what these notes and
+   *  coins add up to, machine-checked, so a mis-added column can never become a
+   *  差異 that never existed. */
+  cash_count_sheet: DenominationCount[]
   /** 差異理由. Empty is only legal while the difference is inside the tolerance
    *  — that rule is `closingReadiness`'s, not this file's. */
   cash_reason: string
@@ -188,6 +240,11 @@ export interface FixtureClosing {
    *  for it. Recorded in a SEPARATE role context (canon's own 店長確認 page),
    *  which is why this room can never set it. */
   manager_signed_at: number | null
+  /** …AND WHO SIGNED IT. An approval with no name on it is not an approval: the
+   *  close record is the thing 本部 reads back weeks later (registry ⑨/⑬), and
+   *  「誰が」 is the half a time stamp cannot carry. `null` while unsigned — the
+   *  two halves are written together or not at all. */
+  manager_signed_by: string | null
   /** 閉店スナップショット — JST minute, or `null` while the day is open. */
   closed_at: number | null
   /** 閉店 v1 / 再開 v2 … — the version a close would be saved as. */
@@ -202,27 +259,63 @@ export interface FixtureClosing {
  *  its close. */
 export const closing: Record<string, FixtureClosing> = {
   [STORE_A]: {
-    // Equal to the cash tenders above (6,600 + 1,700 + 1,100 − 1,100 = ¥8,300),
-    // which is what makes the derived difference ¥0 — the same ¥0
-    // `fixtures-today`'s `register.cash_difference` states. Pinned both ways.
-    cash_counted: 8300,
+    // 開店時に用意した釣銭.
+    cash_float: 30000,
+    cash_paid_in: 0,
+    cash_paid_out: 0,
+    cash_bank_deposit: 0,
+    // The float PLUS the cash tenders above (30,000 + 6,600 + 1,700 + 1,320 +
+    // 1,100 − 1,100 = ¥39,620), which is what makes the derived difference ¥0 —
+    // the same ¥0 `fixtures-today`'s `register.cash_difference` states. Pinned
+    // both ways, and the count sheet below is pinned to add up to it.
+    cash_counted: 39620,
+    cash_count_sheet: [
+      { denomination: 10000, count: 3 },
+      { denomination: 5000, count: 1 },
+      { denomination: 1000, count: 4 },
+      { denomination: 500, count: 1 },
+      { denomination: 100, count: 1 },
+      { denomination: 50, count: 0 },
+      { denomination: 10, count: 2 },
+      { denomination: 5, count: 0 },
+      { denomination: 1, count: 0 },
+    ],
     cash_reason: '',
     cash_saved: true,
     variance_approved: false,
     outstanding_decision: null,
     manager_signed_at: null,
+    manager_signed_by: null,
     closed_at: null,
     close_version: 1,
   },
   [STORE_B]: {
     // 代官山 has taken nothing today, and the honest state of a drawer nobody has
-    // counted yet is exactly that — not a zero somebody signed for.
+    // counted yet is exactly that — not a zero somebody signed for. No float
+    // either: the drawer was never opened, and a ¥30,000 float nobody put in
+    // would be an expectation of money that is not in the building.
+    cash_float: 0,
+    cash_paid_in: 0,
+    cash_paid_out: 0,
+    cash_bank_deposit: 0,
     cash_counted: 0,
+    cash_count_sheet: [
+      { denomination: 10000, count: 0 },
+      { denomination: 5000, count: 0 },
+      { denomination: 1000, count: 0 },
+      { denomination: 500, count: 0 },
+      { denomination: 100, count: 0 },
+      { denomination: 50, count: 0 },
+      { denomination: 10, count: 0 },
+      { denomination: 5, count: 0 },
+      { denomination: 1, count: 0 },
+    ],
     cash_reason: '',
     cash_saved: false,
     variance_approved: false,
     outstanding_decision: null,
     manager_signed_at: null,
+    manager_signed_by: null,
     closed_at: null,
     close_version: 1,
   },

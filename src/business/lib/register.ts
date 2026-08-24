@@ -86,10 +86,15 @@ export function accessFor(role: string): SalesAccess {
  *  reader guessing which half is missing. */
 export function permissionNotice(access: SalesAccess): string | null {
   if (access.redactSummary) {
-    return 'この役割では総売上・純売上・受領済みを表示せず、返金と閉店操作も実行できません。'
+    // ⚖ THE RULE ITSELF, SAID OUT LOUD. A notice that lists which tiles are
+    // blank leaves the reader to work out the pattern from what is missing; the
+    // pattern IS the rule, and it is one sentence: the day's totals and the cash
+    // are hidden, every individual transaction is not. Saying it stops a
+    // スタッフ wondering whether the ledger they can read is also lying to them.
+    return 'この役割では、1日の合計金額と現金の金額は表示しません。取引1件ごとの内容と金額はこれまでどおり確認できます。返金と閉店の操作は実行できません。'
   }
   if (!access.close) {
-    return 'この役割では返金・取消を実行できます。端末照合、現金計数、未収、閉店操作は店舗管理者権限が必要です。'
+    return 'この役割では返金・取消を実行できます。端末の照合、現金計数、未収の記録、閉店の確定は店舗管理者の権限が必要なため、閉店の画面は表示していません。'
   }
   return null
 }
@@ -177,6 +182,12 @@ export interface TransactionModel {
   filter: RegisterFilter
   /** 顧客名, or the 店頭販売 sentence when the register recorded nobody. */
   who: string
+  /** ⚖ NOBODY IS NOT A NAME. A counter sale to a customer the shop never
+   *  recorded has no person to put at the top of its row, and printing a
+   *  placeholder where a name goes makes a stranger look like a record. The row
+   *  renders COMPACT instead — what was sold is the headline, and the row is a
+   *  line shorter than one that has a person in it. */
+  nameless: boolean
   memberNumber: string | null
   /** What was sold — the MENU's name for a booking, the item for a 店頭販売. */
   what: string
@@ -424,6 +435,7 @@ export function buildLedger(input: LedgerInput): TransactionModel[] {
       stateLabel: STATE_LABEL[state],
       filter: state === 'paid' ? 'paid' : state === 'partial' ? 'partial' : 'attention',
       who: customer ? customer.name : '店頭販売（予約なし）',
+      nameless: !customer,
       memberNumber: customer ? customer.member_number : null,
       what: booking ? (menu ? menu.name : 'メニュー未設定') : (tx.item ?? '店頭販売'),
       bookingNo: booking ? booking.display_no : null,
@@ -535,11 +547,65 @@ export const COUNTER_STATS: Array<{ key: keyof RegisterCounts; label: string; al
 
 // ── 現金と閉店 ──────────────────────────────────────────────────────────────
 
-/** canon `cashVariance` (:1348-1350): what was counted minus what the tenders
- *  say should be there. DERIVED, never stored — the money plane records a count
- *  and the ledger produces an expectation, and the difference is what they make
+/** ⚠ 期待額 — AND THE FLOAT IS PART OF IT.
+ *
+ *  The first cut of this room expected the drawer to hold 「現金受領 − 現金返金」
+ *  and nothing else, which is right for exactly one shop on earth: the one that
+ *  opens its till empty. Every real cash business puts 釣銭準備金 in first, and a
+ *  page that forgets it reports the float as a difference every single evening —
+ *  a structurally wrong expectation that trains the closer to ignore 差異, which
+ *  is the one number the whole ritual exists to produce.
+ *
+ *  THE FOUR MOVEMENT TERMS ARE HERE EVEN THOUGH THIS WORLD HOLDS ZEROS. 入金 and
+ *  出金 and 銀行入金 are not hypothetical: a shop tops its change up from the safe
+ *  and banks its notes before closing, and each one moves the drawer without
+ *  moving a sale. The ENTRY screens for them are registry ⑭; the arithmetic
+ *  belongs here now, so connecting the screens later cannot mean re-deriving the
+ *  expectation. */
+export interface DrawerMovements {
+  /** 釣銭準備金 — what was in the drawer before the day started. */
+  float: number
+  /** 入金 — cash added that is not a sale. */
+  paidIn: number
+  /** 出金 — cash removed that is not a refund. */
+  paidOut: number
+  /** 銀行入金 — cash banked before the close. */
+  bankDeposit: number
+}
+
+export function expectedCash(m: DrawerMovements, cashTenders: number): number {
+  return m.float + cashTenders + m.paidIn - m.paidOut - m.bankDeposit
+}
+
+/** canon `cashVariance` (:1348-1350): what was counted minus what the drawer is
+ *  expected to hold. DERIVED, never stored — the money plane records a count and
+ *  the ledger produces an expectation, and the difference is what they make
  *  between them. */
 export const cashVariance = (counted: number, expected: number): number => counted - expected
+
+/** ⑩ 金種で数える — the labels, in the order a drawer is counted (notes first,
+ *  biggest first). One home: the aria-label a screen reader hears and the label
+ *  a counter reads are the same string. */
+export const DENOMINATION_LABEL: Record<number, string> = {
+  10000: '1万円札',
+  5000: '5千円札',
+  1000: '千円札',
+  500: '500円玉',
+  100: '100円玉',
+  50: '50円玉',
+  10: '10円玉',
+  5: '5円玉',
+  1: '1円玉',
+}
+
+/** ⚖ THE MACHINE DOES THE ARITHMETIC. The closer enters how many of each note
+ *  and coin; 実査額 is what they add up to. A column added up by hand is where a
+ *  差異 that never existed comes from — this is the mistake-proofing half of the
+ *  denomination sheet, and the room pins the fixture's own sheet against its
+ *  count so the two can never drift. */
+export function denominationTotal(sheet: Array<{ denomination: number; count: number }>): number {
+  return sheet.reduce((n, d) => n + d.denomination * d.count, 0)
+}
 
 /** canon `varianceRequiresApproval` (:1352-1354). The threshold is the named
  *  dial (`fixtures-register`'s `cashTolerance`), never a constant in here. */
@@ -567,12 +633,27 @@ export function cashClosingReady(saved: boolean, requiresApproval: boolean, appr
   return saved && (!requiresApproval || approved)
 }
 
+/** ⑨ AN UNFINISHED GATE IS A DOORWAY, NOT A DEAD END — and where it leads is
+ *  DERIVED FROM THE SAME VERDICT the row's pill reads, never authored into the
+ *  markup. A row that is done has nowhere to send anyone (`null`), which is what
+ *  makes 「閉店できる状態」 lose every chevron without a single state branch.
+ *
+ *  `ledger` carries the reader to the 取引 desk with that filter applied and
+ *  that transaction open; `here` points at a control already on this screen,
+ *  because travelling to something the reader can already see is the lie this
+ *  fixes. */
+export type ClosingJump =
+  | { kind: 'ledger'; filter: RegisterFilter; tx: string | null }
+  | { kind: 'here'; target: 'cash' | 'signoff' }
+
 export interface ClosingCheckRow {
   key: 'terminal' | 'cash' | 'outstanding' | 'unsettled' | 'signoff'
   label: string
   detail: string
   done: boolean
   status: string
+  /** Where pressing this row lands, or `null` when there is nowhere to go. */
+  jump: ClosingJump | null
 }
 
 export interface ClosingVerdict {
@@ -588,6 +669,9 @@ export interface ClosingVerdict {
   closeReady: boolean
   /** canon `cashClosingReady` (:1356-1358). */
   cashReady: boolean
+  /** 期待額 — ONE home for the expectation, so the drawer band, the checklist
+   *  row and the difference cannot be computed three ways. */
+  expected: number
   variance: number
   requiresApproval: boolean
   /** The reasons, in plain words, WHY the day cannot be closed yet. ONE home:
@@ -608,6 +692,12 @@ export interface ClosingInput {
    *  second shop would actually need, and it makes the row DERIVED rather than
    *  a sentence that is true for one demo day. */
   unsettledVisits: Array<{ bookingNo: string; who: string; amount: number }>
+  /** ⑨ THE ROWS' LANDING POINTS, resolved by the caller because they are LEDGER
+   *  facts: which transaction the terminal is holding, and which one carries the
+   *  balance nobody has decided about. `null` when the day has no such row —
+   *  then the gate lands on the filter alone. */
+  terminalTx: string | null
+  outstandingTx: string | null
 }
 
 /** ONE VERDICT, RENDERED N TIMES. Every 「閉店できるか」 question on the page —
@@ -617,7 +707,16 @@ export function closingReadiness(input: ClosingInput): ClosingVerdict {
   const { totals, closing, tolerance, heldCount, heldAmount, unsettledVisits } = input
 
   const terminalDone = heldCount === 0
-  const variance = cashVariance(closing.cash_counted, totals.cash)
+  const expected = expectedCash(
+    {
+      float: closing.cash_float,
+      paidIn: closing.cash_paid_in,
+      paidOut: closing.cash_paid_out,
+      bankDeposit: closing.cash_bank_deposit,
+    },
+    totals.cash,
+  )
+  const variance = cashVariance(closing.cash_counted, expected)
   const requiresApproval = varianceRequiresApproval(closing.cash_saved, variance, tolerance)
   // canon `cashClosingReady`: saved, and either inside the tolerance or
   // APPROVED. The approval itself is a WRITE this slice cannot make, so an
@@ -637,12 +736,14 @@ export function closingReadiness(input: ClosingInput): ClosingVerdict {
         : `端末内に${heldCount}件保持 / 対象 ${yen(heldAmount)}`,
       done: terminalDone,
       status: terminalDone ? '完了' : '未完了',
+      jump: terminalDone ? null : { kind: 'ledger', filter: 'all', tx: input.terminalTx },
     },
     {
       key: 'cash',
       label: '現金計数と差異理由',
-      detail: `期待 ${yen(totals.cash)} / 実査 ${yen(closing.cash_counted)} / 差異 ${yen(variance)}`,
+      detail: `期待 ${yen(expected)} / 実査 ${yen(closing.cash_counted)} / 差異 ${yen(variance)}`,
       done: cashReady,
+      jump: cashReady ? null : { kind: 'here', target: 'cash' },
       // canon `renderClosing`'s own `cashLabel` (:1374), approval arm included.
       status: !closing.cash_saved
         ? '未保存'
@@ -663,6 +764,7 @@ export function closingReadiness(input: ClosingInput): ClosingVerdict {
             : `${yen(totals.outstanding)} の扱いが未判断`,
       done: outstandingDone,
       status: totals.outstanding === 0 ? '完了' : closing.outstanding_decision !== null ? '記録済み' : '未判断',
+      jump: outstandingDone ? null : { kind: 'ledger', filter: 'partial', tx: input.outstandingTx },
     },
     {
       key: 'unsettled',
@@ -674,15 +776,21 @@ export function closingReadiness(input: ClosingInput): ClosingVerdict {
             .join(' / '),
       done: unsettledDone,
       status: unsettledDone ? '完了' : '未記録',
+      // ⑨ NO DESTINATION, SO NO AFFORDANCE. A visit with no register row is
+      // fixed by ringing it up at the desk — there is no place on THIS page that
+      // finishes it, and a chevron that leads nowhere is the exact lie the jump
+      // rows exist to remove.
+      jump: null,
     },
     {
       key: 'signoff',
       label: '閉店承認',
       detail: managerSigned
-        ? `店舗管理者の確認を${hhmm(closing.manager_signed_at!)}に受信`
+        ? `店舗管理者 ${closing.manager_signed_by ?? '（氏名の記録なし）'} の確認を${hhmm(closing.manager_signed_at!)}に受信`
         : '店舗管理者の確認待ち — 別の画面で記録が必要です',
       done: managerSigned,
       status: managerSigned ? '確認済み' : '未確認',
+      jump: managerSigned ? null : { kind: 'here', target: 'signoff' },
     },
   ]
 
@@ -694,10 +802,33 @@ export function closingReadiness(input: ClosingInput): ClosingVerdict {
     managerSigned,
     closeReady: prerequisitesReady && managerSigned,
     cashReady,
+    expected,
     variance,
     requiresApproval,
     blockers: checks.filter((c) => !c.done).map((c) => c.label),
   }
+}
+
+/** ⚖ R-23 — A VERDICT ABOUT A HIDDEN FIGURE IS THE FIGURE.
+ *
+ *  「差異なし」 told to a role whose 差異 is 「権限がありません」 says the difference is
+ *  ZERO, in words, one line under the redaction that was supposed to hide it —
+ *  the same species of leak F12 closed on the drawer's three stats. So for a
+ *  redacted role this row carries the WORKFLOW fact and nothing else: whether a
+ *  reason has been written down, never what it says about the money.
+ *
+ *  ONE HOME for both readings, so the gate cannot be applied in one of them and
+ *  forgotten in the other. */
+export function cashReasonLine(
+  access: Pick<SalesAccess, 'redactSummary'>,
+  closing: Pick<FixtureClosing, 'cash_reason' | 'cash_saved'>,
+  variance: number,
+): string {
+  // A draft count is not a verdict at all, and saying so reveals nothing.
+  if (!closing.cash_saved) return '未保存 — 計数を保存すると差異理由がここに残ります'
+  if (access.redactSummary) return closing.cash_reason !== '' ? '記録済み' : '未記録'
+  if (closing.cash_reason !== '') return closing.cash_reason
+  return variance === 0 ? '差異なし — 理由の記録は不要です' : '差異の理由が記録されていません'
 }
 
 /** canon `buildTenderReconciliation` (:1106-1130) — the day's money grouped by

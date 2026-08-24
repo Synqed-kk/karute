@@ -35,8 +35,11 @@ import {
 import {
   accessFor,
   buildLedger,
+  cashReasonLine,
   closingReadiness,
   countBy,
+  DENOMINATION_LABEL,
+  denominationTotal,
   FILTERS,
   heldForLens,
   ledgerTotals,
@@ -65,9 +68,17 @@ const REFUSAL = {
   outstanding: '見本データのため未収の扱いを記録できません。記録は実行者と理由を残す操作のため、実データの接続後に有効になります。',
   terminal: '見本データのため決済端末へ再接続できません。端末照合は実機との通信のため、決済端末をつないだあとに有効になります。',
   cash: '見本データのため現金計数を保存できません。計数の保存は実行者と差異理由を記録する操作のため、実データの接続後に有効になります。',
+  reason: '見本データのため差異理由を保存できません。差異理由は実行者と一緒に計数記録へ残す操作のため、実データの接続後に有効になります。',
   close: '見本データのため閉店を確定できません。閉店はその時点の台帳を締める操作のため、実データの接続後に有効になります。',
   signoff: '店舗管理者の確認は別の画面で記録します。この画面は準備中のため、まだ開けません。',
   booking: 'この取引には予約がないため、予約一覧では確認できません。',
+  // ⑲ A レジ THAT CANNOT RING A SALE IS A LEDGER. The button belongs where the
+  // ledger is; the screen it opens — choosing the item, the quantity, the
+  // payment — is registry ⑪ and is not built here.
+  sell: '見本データのため店頭販売を記録できません。売上の記録は在庫と決済に触れる操作のため、商品の登録と実データをつないだあとに有効になります。',
+  // ⑥ しきい値 の変更先. The 店舗設定 room is not live, so the row says where the
+  // dial lives instead of pointing at a route that would 404 (registry ④).
+  tolerance: '現金差異の承認しきい値は店舗設定で変更します。設定の画面はまだ準備中のため、ここからは開けません。',
 } as const
 
 const FOOTNOTE = '見本データのため実行・記録はできません — 実データ接続後に有効になります。'
@@ -185,6 +196,14 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
       amount: a.booked_price ?? 0,
     }))
 
+  // ⑨ THE GATES' LANDING POINTS. Which transaction the terminal is holding and
+  // which one carries the balance are LEDGER facts, resolved here off the rows
+  // the page is about to print — so a jump can never aim at a transaction this
+  // lens cannot see.
+  const heldIds = new Set(terminalHeld.map((h) => h.appointment_id))
+  const terminalTx = models.find((m) => m.appointmentId !== null && heldIds.has(m.appointmentId))?.id ?? null
+  const outstandingTx = models.find((m) => m.outstanding > 0)?.id ?? null
+
   const verdict = closing
     ? closingReadiness({
         totals,
@@ -193,6 +212,8 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
         heldCount: terminalHeld.length,
         heldAmount: terminalHeld.reduce((n, h) => n + h.amount, 0),
         unsettledVisits,
+        terminalTx,
+        outstandingTx,
       })
     : null
 
@@ -221,6 +242,11 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
     filter: m.filter,
     pill: STATE_PILL[m.state],
     who: m.who,
+    // ⚖ THE HEADLINE IS WHOEVER — OR WHATEVER — THE ROW IS ABOUT. A counter sale
+    // to somebody the shop never recorded has no person, so what was sold takes
+    // the top line and the row renders a line shorter (see `nameless`).
+    title: m.nameless ? m.what : m.who,
+    nameless: m.nameless,
     memberNumber: m.memberNumber,
     what: m.what,
     bookingNo: m.bookingNo,
@@ -299,6 +325,12 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
     history: m.history,
     bookingHref: m.bookingNo ? `/${locale}/business/reservations${storeQuery}` : null,
     refundRefusal: REFUSAL.refund,
+    // ⚖ THE GATE'S LANDING POINT HAS TO OFFER THE DECISION. 未収の扱い is the one
+    // check a clinic or a salon with an account customer meets EVERY evening, and
+    // 「次回来店時に請求」 is the answer they give — so the control that records it
+    // says which decision it records, rather than 「未収として記録」, which records
+    // the fact the page already knows and decides nothing.
+    outstandingLabel: '次回来店時に請求として記録',
     outstandingRefusal: REFUSAL.outstanding,
     bookingRefusal: REFUSAL.booking,
     canRefund: access.refund,
@@ -330,34 +362,57 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
       { key: 'outstanding', label: '未収', value: yen(totals.outstanding), tone: totals.outstanding > 0 ? 'warn' : undefined },
     ],
     moneyScope: `取引${counts.all}件 / 返金を差し引いた営業日集計`,
+    // ⑰ the phone's 閉店 screen folds the day-strips to one line each, and a fold
+    // that says nothing is worse than the band it replaced: each one carries the
+    // two figures that decide something, WITH the word for what they count.
+    moneyFold: `純売上 ${redactMoney(yen(totals.net))} / 未収 ${yen(totals.outstanding)}`,
     counts,
+    countsFold: `全${counts.all}件 / 要確認 ${counts.attention}件`,
     filters: FILTERS,
     rows,
-    terminal: {
-      ok: terminalHeld.length === 0,
-      title:
-        terminalHeld.length === 0
-          ? '決済端末に送信待ちの取引はありません'
-          : `決済端末（${heldTerminals.join('・')}）に送信待ちの取引が${terminalHeld.length}件あります`,
-      copy:
-        terminalHeld.length === 0
-          ? '本日の決済はすべて送信済みです。現金と受付価格には影響しません。'
-          : `${hhmm(heldSince!)}以降の${terminalHeld.length}件は端末内に保持されています。カードの新規決済は端末が復帰するまで記録できません。現金と受付価格には影響しません。`,
-      stats: [
-        { label: '端末内保持', value: `${terminalHeld.length}件` },
-        { label: '対象金額', value: yen(terminalHeld.reduce((n, h) => n + h.amount, 0)) },
-        {
-          label: '二重請求',
-          value: `${duplicates}件`,
-          tone: duplicates > 0 ? ('warn' as const) : undefined,
-        },
-      ],
-      recheckLabel: '再接続を確認',
-      recheckRefusal: REFUSAL.terminal,
-      canRecheck: access.close,
-    },
+    sellLabel: '店頭販売を記録',
+    sellRefusal: REFUSAL.sell,
+    // ⧉ THE EXCEPTION BAND RENDERS WHEN THE DAY HOLDS ONE, AND NOT OTHERWISE
+    // (the mock's ④ lever). It was a permanent slot that said 「異常なし」 on a
+    // good day — a band whose whole job is to be alarming, printed 364 evenings
+    // out of 365 saying nothing happened, is how a reader learns to skip the one
+    // evening it matters. It is also the 26業種 lever with no business-type
+    // branch anywhere: a shop with no card terminal simply never has a held
+    // record, so it never sees the band.
+    terminal:
+      terminalHeld.length === 0
+        ? null
+        : {
+            title: `決済端末（${heldTerminals.join('・')}）に送信待ちの取引が${terminalHeld.length}件あります`,
+            copy: `${hhmm(heldSince!)}以降の${terminalHeld.length}件は端末内に保持されています。カードの新規決済は端末が復帰するまで記録できません。現金と受付価格には影響しません。`,
+            foldLabel: '決済端末の詳細を開く',
+            stats: [
+              { label: '端末内保持', value: `${terminalHeld.length}件` },
+              { label: '対象金額', value: yen(terminalHeld.reduce((n, h) => n + h.amount, 0)) },
+              {
+                label: '二重請求',
+                value: `${duplicates}件`,
+                tone: duplicates > 0 ? ('warn' as const) : undefined,
+              },
+            ],
+            recheckLabel: '再接続を確認',
+            recheckRefusal: REFUSAL.terminal,
+            // ⚑ THE CELL GOES WITH ITS BUTTON. The shipped room rendered the
+            // action CELL unconditionally and only the button inside it
+            // conditionally, so a role without the capability got an empty
+            // bordered slot holding nothing — dead furniture in the band that
+            // exists to be read fastest.
+            canRecheck: access.close,
+          },
+    // ⚖ RULING (a), 8/24 — A ROLE THAT MAY NOT CLOSE GETS NO 閉店 VIEW AT ALL.
+    // Redacting the closing desk figure by figure still handed a スタッフ two and
+    // a half screens of checklist they can neither complete nor approve, every
+    // gate greyed and every amount 「権限がありません」. The capability gate moves
+    // one level up, from the sixteen controls to the VIEW that holds them —
+    // ⚖ 8/17's own shape (hide, never show-and-refuse), applied to a room
+    // instead of a button. The transaction desk they DO work at is untouched.
     close:
-      closing && verdict
+      closing && verdict && access.close
         ? {
             cash: {
               // ⚖ F12 — THE DRAWER IS THE OTHER HALF OF THE SAME GATE. 期待額 IS
@@ -371,7 +426,7 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
               // capability-gated `closeDialog` (:1625-1626 — `openCloseDialog`
               // refuses without the `close` capability), so a role that may not
               // close does not see the close's figures.
-              expected: redactMoney(yen(totals.cash)),
+              expected: redactMoney(yen(verdict.expected)),
               counted: redactMoney(yen(closing.cash_counted)),
               variance: redactMoney(yen(verdict.variance)),
               // canon `renderSummary` (:1323) — the difference is BAD when it is
@@ -382,28 +437,67 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
               // hidden there is nothing to paint red.
               varianceBad: !access.redactSummary && Math.abs(verdict.variance) > tolerance,
               redacted: access.redactSummary,
-              // ⚖ NEVER A VERDICT OVER A NUMBER THAT CONTRADICTS IT. 「差異なし」
-              // used to print beside a printed ¥700 difference, because the
-              // fallback keyed on whether an APPROVAL was needed rather than on
-              // whether there WAS a difference. And a draft count is not a
-              // verdict at all — it says so.
-              reason:
-                closing.cash_reason !== ''
-                  ? closing.cash_reason
-                  : !closing.cash_saved
-                    ? '未保存 — 計数を保存すると差異理由がここに残ります'
-                    : verdict.variance === 0
-                      ? '差異なし — 理由の記録は不要です'
-                      : '差異の理由が記録されていません',
+              // ⚖ NEVER A VERDICT OVER A NUMBER THAT CONTRADICTS IT, and ⚖ R-23
+              // — never a verdict ABOUT a number this reader may not see. Both
+              // readings live in `cashReasonLine`, one home.
+              reason: cashReasonLine(access, closing, verdict.variance),
+              // ⑪ AND SOMEWHERE TO PUT ONE. The room named the missing reason in
+              // four places and offered nowhere to write it. The field appears on
+              // the days there IS a difference — the same data-presence rule
+              // every other band obeys — and stands the printed row down while it
+              // is there, because the same verdict twice, 40px apart, is what
+              // this page already deleted once.
+              reasonInput:
+                verdict.variance === 0
+                  ? null
+                  : {
+                      label: '差異理由',
+                      value: closing.cash_reason,
+                      placeholder: '例: 両替のとき、釣銭用に千円札を1枚多く出した可能性があります',
+                      refusal: REFUSAL.reason,
+                      // The three reasons a drawer is usually out. They FILL the
+                      // field; they are not a taxonomy the shop has to learn.
+                      chips: ['両替ミス', 'レシート訂正', '不明'],
+                    },
               // ⚠ THE STATUS STAYS. Redaction hides AMOUNTS, not workflow: a
               // スタッフ still sees 未保存 / 保存済み / 差異承認待ち, because that is
               // what the shop is DOING, not what the shop TOOK.
               status: verdict.checks.find((c) => c.key === 'cash')!.status,
               statusDone: verdict.cashReady,
+              // ⚠ 期待額 EXPLAINS ITSELF, or the closer cannot tell a wrong
+              // expectation from a wrong drawer. The float is a labelled fact of
+              // the day and the day's own cash sits under it, so the two rows add
+              // up to the figure printed above them.
+              floatLabel: '釣銭準備金',
+              floatValue: redactMoney(yen(closing.cash_float)),
+              dayCashLabel: '本日の現金',
+              dayCashValue: redactMoney(`${yen(totals.cash)}（受領 − 返金）`),
               tolerance: redactMoney(`許容額 ${yen(tolerance)}（現金差異の承認しきい値）`),
+              // ⑥ THE DIAL'S HOME, NAMED ON THE ROW THAT USES IT (registry ④).
+              toleranceLinkLabel: '店舗設定で変更',
+              toleranceLinkRefusal: REFUSAL.tolerance,
               saveLabel: '計数を保存',
               saveRefusal: REFUSAL.cash,
-              canSave: access.close,
+              // ⑩ 金種で数える — the count sheet, collapsed. 実査額 is what these
+              // add up to, and `denominationTotal` is the one place that adds
+              // them: the closer enters HOW MANY and the machine does the
+              // arithmetic, so a mis-added column can never become a difference
+              // that never existed.
+              denominations: {
+                summaryLabel: '金種で数える',
+                summaryNote: '枚数を入れると合計が出ます',
+                unit: '枚',
+                totalLabel: '合計',
+                totalValue: redactMoney(yen(denominationTotal(closing.cash_count_sheet))),
+                totalNote: 'この合計がそのまま実査額になります',
+                refusal: REFUSAL.cash,
+                rows: closing.cash_count_sheet.map((d) => ({
+                  key: String(d.denomination),
+                  label: yen(d.denomination),
+                  name: DENOMINATION_LABEL[d.denomination] ?? yen(d.denomination),
+                  count: String(d.count),
+                })),
+              },
             },
             // ⚖ F12, THE SAME FIGURES ONE PANEL DOWN. The 現金計数と差異理由 row
             // prints 「期待 ¥8,300 / 実査 ¥8,300 / 差異 ¥0」 — the drawer band's
@@ -425,7 +519,6 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
             closeRefusal: verdict.closeReady
               ? REFUSAL.close
               : `${REFUSAL.close}（未完了: ${verdict.blockers.join('・')}）`,
-            canClose: access.close,
             // ⚑ R-1 — SLICE B. 店舗管理者の確認 is canon's own SEPARATE
             // role-context page (fable-register-manager-signoff.html). It is not
             // built in this slice, so the control says exactly that instead of
@@ -433,8 +526,10 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
             // dead href.
             signoffLabel: '店舗管理者の確認を開く',
             signoffRefusal: REFUSAL.signoff,
-            // 閉店で記録される内容 — canon's close dialog's own content, read-only.
+            // 閉店で記録される内容 — canon's close dialog's own content, read-only,
+            // and now sitting directly above the button that freezes it.
             recordLabel: '閉店で記録される内容',
+            recordNote: '確定した時点で固定されます',
             record: [
               { label: '総売上', value: redactMoney(yen(totals.gross)) },
               { label: '返金・取消', value: yen(-totals.refunds) },
@@ -444,6 +539,15 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
               // ⚖ F12 — the third printing of the same figure.
               { label: '現金差異', value: redactMoney(yen(verdict.variance)) },
               { label: '取引件数', value: `${counts.all}件` },
+              // ⚠ 承認者 — WHO signed, not just when. The close record is what
+              // 本部 reads back (registry ⑨/⑬) and what an audit asks for; a
+              // record with a time and no name cannot answer either. Rendered
+              // when the day HAS an approval — the page's own data-presence rule,
+              // and an empty 承認者 cell on an unsigned day would be a slot
+              // holding nothing.
+              ...(closing.manager_signed_by !== null
+                ? [{ label: '承認者', value: closing.manager_signed_by, wrap: true }]
+                : []),
               { label: 'バージョン', value: `閉店 v${closing.close_version}` },
             ],
             // ⚖ THE SAME GATE AS THE STRIP. 受領済み is redacted for this role
@@ -463,7 +567,14 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
             reconciliationBalanced: reconciliation.balanced,
           }
         : null,
-    closeUnavailable: '閉店処理は店舗ごとに行います。サイドバーで店舗を選ぶと、その店舗の現金ドロアと閉店チェックが表示されます。',
+    // ⚖ A CLOSE BELONGS TO ONE STORE — and only THAT is worth explaining. A role
+    // without the capability is told nothing about a room it does not have (hide,
+    // never show-and-refuse); a reader who simply has no store selected is told
+    // how to get one, because that is a thing they can fix in one press.
+    closeUnavailable:
+      access.close && !clamped
+        ? '閉店処理は店舗ごとに行います。サイドバーで店舗を選ぶと、その店舗の現金ドロアと閉店チェックが表示されます。'
+        : null,
     actionFootnote: FOOTNOTE,
     emptyDay: models.length === 0,
   }

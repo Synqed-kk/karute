@@ -1,11 +1,20 @@
-/* 売上・レジ — the room's sheet, built to the 受信トレイ TEMPLATE (mock
-   2026-08-23, Liam's three-pass GO) from day one. Tokens, type scale, chip
-   colours and Japanese copy are the shell's and canon's; what this sheet states
-   is the template's layout expressed in this room's bands — a facts strip and a
-   counter strip, a 380px ledger column beside a wide workspace, the actions
-   pinned to the top of that workspace's band, 事実/決済手段 beside 証跡/影響 with
-   監査履歴 full width beneath, and a responsive ladder that reaches every screen
-   the business runs on.
+/* 売上・レジ — the room's sheet, REBUILT to the approved restructure mock
+   (MOCK-REGISTER-RESTRUCTURE-2026-08-24.html, ⚖ Liam 8/24 eve). Tokens, type
+   scale, chip colours and Japanese copy are the shell's and canon's; what this
+   sheet states is ONE PAGE WITH TWO MODES.
+
+   THE RESTRUCTURE, IN THE ORDER THE PAGE READS:
+     · everything TRUE OF THE DAY stays always visible — the exception band (only
+       on a day that has one), the money strip, the counter strip;
+     · below them the page splits into 取引 | 閉店 tabs. Same day, same scope, two
+       jobs. Tabs are same-object VIEWS, not navigation and not filters;
+     · 取引 keeps the shipped workspace's grammar and now owns the full viewport
+       height, with nothing beneath it, and its evidence column STICKS so a
+       sixty-row Saturday does not scroll the selected transaction's proof off
+       the top;
+     · 閉店 is a BALANCED DESK: the checklist is the spine on the left, the drawer
+       and the reconciliation stack on the right, and the record sits as one
+       horizontal strip DIRECTLY above the button it permits.
 
    ── TWO SCOPING JOBS, AND THEY ARE DIFFERENT PROBLEMS ───────────────────────
 
@@ -47,21 +56,23 @@
    pressable sitting against its edge. NO container this room owns clips: the
    rounded corners are stated on the CORNER CHILDREN instead, so the background
    still ends at the radius and the ring is whole on all four sides. Never
-   introduce `overflow: hidden` on `.rg-counts`, `.rg-money`, `.rg-terminal` or
-   `.rg-panel`.
+   introduce `overflow: hidden` on `.rg-counts`, `.rg-money`, `.rg-terminal`,
+   `.rg-panel`, `.rg-checks`, `.rg-cash-stats`, `.rg-facts` or `.rg-record` —
+   every one of those now holds a focusable control.
 
    ⚖ PAGE-SCROLL (Liam 8/22, ruled twice): NO wrapper in this room caps a height,
    owns overflow-y, or sets overscroll-behavior — and none owns overflow-x
    either, because the filter row WRAPS instead of panning and the ledger is a
    LIST rather than a table. The PAGE scrolls; nothing else does. Canon's own
    `.inspector` is `position: sticky` + `max-height: calc(100vh - 94px)` +
-   `overflow-y: auto` and is not carried. */
+   `overflow-y: auto`, and only the FIRST of those three is carried (see
+   `.rg-detail` / `.rg-right` below — sticky is not a scroller). */
 
 /* ── the fence: the three shared names this room still uses ────────────────── */
 /* Four levels (`.biz .page.pg-register …`) rather than three, because a
    sibling's own three-level rule (`.biz .page .btn`, customers.css:23) ties at
    three and a tie is decided by whichever sheet App Router happened to insert
-   last. Derived FRESH from today's six sibling sheets: `.biz .page .btn`
+   last. Derived FRESH from today's sibling sheets: `.biz .page .btn`
    (customers) · `.biz .btn` and `.biz .btn.primary` (reservations). */
 .biz .page.pg-register { padding: 24px 28px 40px; }
 .biz .page.pg-register h1 { margin: 0; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
@@ -94,7 +105,11 @@
   background: var(--orange-soft); color: var(--orange); font-size: 12.5px; font-weight: 700; line-height: 1.55;
 }
 
-/* ── 決済端末 — a recorded fact with its consequence ───────────────────────── */
+/* ── 決済端末 — EXCEPTION FIRST, and only when there IS one ───────────────── */
+/* ⧉ RESTRUCTURE (the ④ lever): the band is not a permanent slot that sometimes
+   says 「異常なし」. It renders when the day HOLDS a record and disappears when it
+   does not — which is also why a business with no card terminal at all never
+   sees it, with no business-type branch anywhere. Same rule, 26 業種. */
 .biz .pg-register .rg-terminal {
   display: grid; grid-template-columns: minmax(320px, 1fr) repeat(3, minmax(92px, auto)) auto;
   margin-bottom: 12px; border: 1px solid var(--proof-border); border-radius: 12px; background: var(--proof);
@@ -103,19 +118,24 @@
   display: flex; align-items: center; gap: 11px; min-width: 0; padding: 12px 14px;
   border-left: 3px solid var(--orange-line); border-radius: 11px 0 0 11px;
 }
-.biz .pg-register .rg-terminal.ok .rg-terminal-main { border-left-color: var(--green); }
 .biz .pg-register .rg-terminal-icon {
   display: grid; place-items: center; width: 30px; height: 30px; flex: 0 0 30px; border-radius: 50%;
   background: var(--orange-line); color: #fff; font-size: 14px; font-weight: 800;
 }
-.biz .pg-register .rg-terminal.ok .rg-terminal-icon { background: var(--green); }
 .biz .pg-register .rg-terminal-main strong { display: block; font-size: 15px; line-height: 1.4; }
 .biz .pg-register .rg-terminal-main > span > span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .biz .pg-register .rg-terminal-stat { display: grid; align-content: center; padding: 9px 12px; border-left: 1px solid #e9edfb; }
 .biz .pg-register .rg-terminal-stat span { color: var(--muted); font-size: 12px; }
 .biz .pg-register .rg-terminal-stat b { margin-top: 2px; font-size: 17px; font-variant-numeric: tabular-nums; }
 .biz .pg-register .rg-terminal-stat b.warn { color: var(--orange); }
-.biz .pg-register .rg-terminal-action { display: flex; align-items: center; padding: 9px 12px; border-left: 1px solid #e9edfb; }
+.biz .pg-register .rg-terminal-action { display: flex; flex-wrap: wrap; align-items: center; padding: 9px 12px; border-left: 1px solid #e9edfb; }
+/* ⧉ ⑬ the phone's fold control for this band — never on a pointer width. */
+.biz .pg-register .rg-terminal-more {
+  display: none; flex: 0 0 auto; align-items: center; justify-content: center;
+  width: 44px; height: 44px; margin-left: auto; padding: 0;
+  border: 1px solid #efd2b7; border-radius: 9px; background: #fff;
+  color: var(--orange); font-size: 15px; font-weight: 700; line-height: 1;
+}
 
 /* ── 本日の売上集計 — FACTS. Not pressable, and they must not look it. ─────── */
 /* The money band and the counter band are two BANDS rather than one mixed strip
@@ -140,17 +160,19 @@
    the family's words for them are red and amber. */
 .biz .pg-register .rg-money-cell b.bad { color: var(--red-dark); }
 .biz .pg-register .rg-money-cell b.warn { color: var(--orange); }
-/* 権限がありません is a SENTENCE, not a figure — it must not wear the tabular
-   money type or it reads as a number that failed to load. */
-/* A REDACTED FIGURE IS A QUIET SENTENCE, NOT A BIG NUMBER — and the drawer's
-   three stats obey the same rule as the strip's cells (F12): at 18px bold,
-   「権限がありません」 wraps to two ragged lines inside a 100px cell and reads like
-   a headline about nothing. One treatment, both bands. */
+/* A REDACTED FIGURE IS A QUIET SENTENCE, NOT A BIG NUMBER (F12). 権限がありません
+   is a SENTENCE — at 18px bold it wraps to two ragged lines inside a 100px cell
+   and reads like a headline about nothing. One treatment, every band. */
 .biz .pg-register .rg-money-cell b.redacted,
-.biz .pg-register .rg-cash-stat b.redacted { font-size: 12px; font-weight: 500; color: var(--muted); }
+.biz .pg-register .rg-cash-stat b.redacted,
+.biz .pg-register .rg-recon-cell b.redacted,
+.biz .pg-register .rg-fact b.redacted { font-size: 12px; font-weight: 500; color: var(--muted); }
 
-/* ── 取引の件数 — the numbers ARE the filters ──────────────────────────────── */
-/* NO `overflow: hidden` HERE: it would clip the shell's offset focus ring off
+/* ── 取引の件数 — the numbers ARE the filters, in BOTH modes ───────────────── */
+/* ⧉ RESTRUCTURE (the ⑤ lever): the counters stay live while the closer is in
+   閉店, and pressing one returns to 取引 with that filter applied — a filter
+   needs its list, so the press carries the reader to where the list is.
+   NO `overflow: hidden` HERE: it would clip the shell's offset focus ring off
    the counters. The strip's corners are stated on the corner children. */
 .biz .pg-register .rg-counts {
   display: grid; grid-template-columns: minmax(200px, 1.15fr) repeat(3, minmax(96px, .6fr));
@@ -172,6 +194,29 @@
 .biz .pg-register .rg-counts button[aria-pressed="true"] strong { color: var(--select-ink); }
 .biz .pg-register .rg-count[aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--select-line); }
 
+/* ── ⧉ THE MODE TABS — the whole restructure in one row ──────────────────── */
+/* THEY ARE NOT NAVIGATION and they are NOT FILTERS. A filter narrows one list;
+   these two show the SAME day doing two different JOBS, so they are tabs over
+   one object — the grammar the family already uses for "which view am I in".
+   Quiet text plus a 2px accent underline, identical to the counter strip's
+   pressed mark and the ledger's filter row: no border, no fill, nothing black.
+   The 閉店 tab carries its status chip, so the closer knows whether the day is
+   blocked WITHOUT leaving the transaction desk to find out. */
+.biz .pg-register .rg-modes {
+  display: flex; align-items: stretch; gap: 24px;
+  margin-bottom: 14px; padding: 0 2px; border-bottom: 1px solid var(--line-2);
+}
+.biz .pg-register .rg-mode {
+  display: inline-flex; align-items: center; gap: 9px; min-height: 42px;
+  padding: 0 2px; border: 0; background: none;
+  color: var(--muted); font-size: 15px; font-weight: 600; line-height: 1.4; white-space: nowrap;
+}
+.biz .pg-register .rg-mode:hover { color: var(--ink); }
+.biz .pg-register .rg-mode[aria-selected="true"] { color: var(--select-ink); font-weight: 700; box-shadow: inset 0 -2px 0 var(--select-line); }
+.biz .pg-register .rg-mode .pill { min-height: 23px; padding: 0 7px; font-size: 11.5px; }
+.biz .pg-register .rg-mode-n { color: var(--quiet); font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.biz .pg-register .rg-mode[aria-selected="true"] .rg-mode-n { color: var(--select-ink); }
+
 /* ── 本日まだ取引なし — a designed moment, not an empty panel ──────────────── */
 .biz .pg-register .rg-zero-card {
   max-width: 460px; margin: 52px auto 32px; padding: 44px 28px 46px;
@@ -184,20 +229,45 @@
 .biz .pg-register .rg-zero-card strong { display: block; font-size: 17px; line-height: 1.45; }
 .biz .pg-register .rg-zero-card p { margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
 
-/* ── the workspace ────────────────────────────────────────────────────────── */
+/* ── the 取引 workspace ───────────────────────────────────────────────────── */
 .biz .pg-register .rg-workspace { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 14px; align-items: start; }
+
+/* ── ⧉ ⑭ THE EVIDENCE COLUMN STAYS WITH THE ROW IT EXPLAINS ──────────────── */
+/* Five fixture rows fit on one screen; a real Saturday is sixty. At sixty the
+   ledger is four viewports tall and the selected transaction's evidence has long
+   since scrolled off the top — the reader scrolls back up to read what they
+   selected, which is the same round trip this restructure exists to kill. The
+   right column therefore STICKS below the topbar (62px + a hairline + air).
+   ⚖ THIS IS NOT A SCROLLER AND DOES NOT BREAK THE PAGE-SCROLL LAW: nothing here
+   caps a height or owns overflow — the page still owns Y, exactly one scrollbar,
+   and the column simply stops rising past the topbar. (room-2's frozen column is
+   the family precedent.) When the pair stacks into one column the grid area
+   equals the panel's own height, so sticky becomes a no-op on its own. */
+.biz .pg-register .rg-detail,
+.biz .pg-register .rg-right { position: sticky; top: 74px; }
 /* NO `overflow: hidden` HERE either — it cut the left and right of the focus
    ring off every row. The children that reach a corner carry the radius. */
 .biz .pg-register .rg-panel { border: 1px solid var(--line); border-radius: 11px; background: #fff; }
 .biz .pg-register .rg-panel-head {
   min-height: 62px; padding: 10px 14px; border-bottom: 1px solid var(--line-2);
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
   background: #fafafb; border-radius: 10px 10px 0 0;
 }
 .biz .pg-register .rg-panel-head > div { min-width: 0; }
 .biz .pg-register .rg-panel-head strong { display: block; font-size: 15px; }
 .biz .pg-register .rg-panel-head span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.4; }
 .biz .pg-register .rg-panel-head .pill { flex: 0 0 auto; }
+/* ⧉ RESTRUCTURE: the head can now carry a control beside its name — the ledger's
+   店頭販売を記録 and the drawer's 計数を保存. The room's own law is that a panel's
+   actions are pinned to the TOP of its band; the drawer was the one panel still
+   leaving its button floating at the bottom right. */
+.biz .pg-register .rg-head-act { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; flex: 0 0 auto; }
+.biz .pg-register .rg-head-act .btn { min-height: 36px; padding: 0 12px; font-size: 13px; }
+/* ⧉ a head that carries ONLY its name does not need 62px. 決済手段の内訳 had a
+   subtitle that restated the reconciliation sentence printed at the bottom of its
+   own panel — the same verdict twice, 200px apart. The sentence stays; the
+   restatement is gone, and the head sizes to what is left. */
+.biz .pg-register .rg-panel-head.rg-head-tight { min-height: 48px; }
 
 /* filters — QUIET TEXT, not buttons. A filter narrows a view; it is not an
    action, so it gets no border, no fill and no box. Selected = accent label plus
@@ -235,6 +305,13 @@
 /* 取引番号 — informational, so it is NEUTRAL (the accent law's one-way rule). */
 .biz .pg-register .rg-no { color: var(--quiet); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .biz .pg-register .rg-line1 time { margin-left: auto; color: var(--quiet); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* ⧉ THE COMPACT ROW — a sale with nobody on it. What was sold is the headline,
+   so the state chip rides the top line beside it and the row is one line
+   shorter. Both auto margins resolve in source order: the chip takes the slack
+   first and the time stays pinned to the right edge, exactly where it sits on
+   every other row. */
+.biz .pg-register .rg-copy-compact .rg-line1 .pill { margin-left: auto; flex: 0 0 auto; min-height: 22px; padding: 0 7px; font-size: 11px; }
+.biz .pg-register .rg-copy-compact .rg-line1 time { margin-left: 0; }
 .biz .pg-register .rg-line2 { display: flex; align-items: center; gap: 8px; min-width: 0; margin-top: 3px; }
 .biz .pg-register .rg-what { min-width: 0; color: var(--ink-2); font-size: 13px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .biz .pg-register .rg-line2 .pill { margin-left: auto; flex: 0 0 auto; min-height: 22px; padding: 0 7px; font-size: 11px; }
@@ -294,13 +371,24 @@
 .biz .pg-register .rg-sec { margin-top: 15px; }
 .biz .pg-register .rg-sec:first-child { margin-top: 0; }
 
-.biz .pg-register .rg-facts { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+/* ⚠ `overflow: hidden` GONE from the facts box: the しきい値 row now holds a
+   refused link, and a ring the room clips is not a ring. Nothing inside paints a
+   background, so nothing needs the corner radius back. */
+.biz .pg-register .rg-facts { border: 1px solid var(--line); border-radius: 9px; }
 .biz .pg-register .rg-fact { display: grid; grid-template-columns: 104px 1fr; gap: 10px; padding: 9px 11px; border-bottom: 1px solid var(--row); font-size: 13px; line-height: 1.45; }
 .biz .pg-register .rg-fact:last-child { border-bottom: 0; }
 .biz .pg-register .rg-fact span { color: var(--muted); }
 .biz .pg-register .rg-fact b { text-align: right; font-weight: 600; word-break: break-word; font-variant-numeric: tabular-nums; }
 .biz .pg-register .rg-fact b.warn { color: var(--orange); }
 .biz .pg-register .rg-fact b.bad { color: var(--red-dark); }
+/* ⑥ the dial's home, on the row that uses it. Quiet text, not a button box: it
+   opens a settings page, it does not act on the day. */
+.biz .pg-register .rg-quietlink {
+  display: block; margin-top: 4px; padding: 0; border: 0; background: none;
+  color: var(--muted); font-size: 12px; font-weight: 500; line-height: 1.5; text-align: right;
+  text-decoration-line: underline; text-decoration-color: #c9c9d2; text-underline-offset: 3px;
+}
+.biz .pg-register .rg-quietlink:hover { color: var(--ink-2); }
 
 .biz .pg-register .rg-tenders { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
 .biz .pg-register .rg-tender-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 9px 11px; border-bottom: 1px solid var(--row); font-size: 13px; }
@@ -348,44 +436,232 @@
 .biz .pg-register .rg-history-row > span > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .biz .pg-register .rg-none { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 
-/* ── 閉店 — the day's own end, full width beneath the workspace ────────────── */
-.biz .pg-register .rg-closing { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 14px; align-items: start; margin-top: 14px; }
+/* ═══ ⧉ THE 閉店 MODE — the closing desk, one viewport, balanced ══════════ */
+/* THE CHECKLIST IS THE SPINE. In the shipped room it was one of four stacked
+   bands; here it is the left column of the whole mode and every gate carries its
+   OWN evidence on its own row — the held facts on 端末の送信, 期待/実査/差異 on
+   現金計数, the amount on 未収の扱い, the slice-B refusal on 閉店承認. The closer
+   reads one column top to bottom and knows exactly what is stopping the day.
+
+   A ROW RENDERS ONLY WHEN ITS SUBJECT EXISTS IN THE DAY. That is the 26-業種
+   lever, and it is capability/data-driven with no business-type branch: a
+   business with no card terminal never gets the 端末 row, a cashless business
+   never gets 現金計数, a business that never carries a balance never gets 未収.
+
+   THE TWO COLUMNS ARE BALANCED BY CONSTRUCTION, not by a fixed height: the tall
+   checklist is set against the drawer PLUS the reconciliation, and the drawer's
+   own action moved into its head (the room's own "actions at the top of the
+   band" law) so the right column stops overshooting the left. */
+.biz .pg-register .rg-closing {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px; align-items: start;
+}
+.biz .pg-register .rg-right { display: grid; gap: 14px; align-content: start; }
+
+.biz .pg-register .rg-close-body { padding: 14px; }
+/* ⚖ THE BOX LOST `overflow: hidden` THE MOMENT IT STARTED HOLDING BUTTONS. The
+   shell's ring is 3px at 2px offset and this box would have clipped it. The
+   rounding moves to the CORNER CHILDREN, which is this sheet's own move for
+   every other rounded strip on the page. */
+.biz .pg-register .rg-checks { border: 1px solid var(--line); border-radius: 9px; }
+.biz .pg-register .rg-check { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; min-height: 48px; padding: 9px 11px; border-bottom: 1px solid var(--row); }
+.biz .pg-register .rg-check:last-child { border-bottom: 0; }
+.biz .pg-register .rg-check:first-child { border-radius: 8px 8px 0 0; }
+.biz .pg-register .rg-check:last-child { border-radius: 0 0 8px 8px; }
+.biz .pg-register .rg-check strong { display: block; font-size: 13px; }
+.biz .pg-register .rg-check > span > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+
+/* ── ⧉ ⑨ AN UNFINISHED GATE IS A DOORWAY, NOT A DEAD END ─────────────────── */
+/* A row that says 「未完了」 and offers nothing to press makes the closer go
+   hunting for the place the fix happens — which is the same forced scrolling the
+   mode split removed, only smaller. So every gate that is still open is
+   PRESSABLE and carries the reader THERE: 端末の送信 and 未収の扱い to the 取引
+   desk with that transaction open, 現金計数 and 閉店承認 to the control that
+   records them, highlighted in place. A gate that is CLOSED is not a control at
+   all and wears no chevron — there is nowhere to go, and an affordance that leads
+   nowhere is the lie this fixes. Pressability is DERIVED FROM THE VERDICT, never
+   from the markup: in 閉店できる状態 every row is done and every chevron is gone.
+   The chevron is a quiet glyph, not a button inside a row — the room has no
+   nested controls and this does not start any. */
+.biz .pg-register button.rg-check {
+  width: 100%; grid-template-columns: minmax(0, 1fr) auto auto;
+  border: 0; border-bottom: 1px solid var(--row);
+  background: #fff; color: inherit; font: inherit; text-align: left;
+}
+.biz .pg-register button.rg-check:last-child { border-bottom: 0; }
+.biz .pg-register button.rg-check:hover { background: #fafafb; }
+.biz .pg-register .rg-check-go { flex: 0 0 auto; color: var(--quiet); font-size: 16px; font-weight: 700; line-height: 1; }
+/* the landing mark for a jump that stays on this page: 閉店承認's fix lives in the
+   action row below and the drawer's is beside it, so the press points AT the
+   control rather than moving anything. Accent wash + accent ring — the room's
+   selected grammar, nothing black, nothing new. */
+.biz .pg-register .rg-flash { border-radius: 8px; box-shadow: 0 0 0 3px var(--select-bg), 0 0 0 5px var(--select-line); }
+
 .biz .pg-register .rg-cash-body { padding: 14px; }
-.biz .pg-register .rg-cash-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+/* ⚖ `overflow: hidden` gone here too, and for the same reason as `.rg-checks`:
+   this box holds a focusable field and a disclosure. Nothing inside it paints a
+   background except the disclosure's own summary, so only that child needs the
+   corner radius. */
+.biz .pg-register .rg-cash-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 9px; }
 .biz .pg-register .rg-cash-stat { padding: 10px 11px; border-right: 1px solid var(--section); }
-.biz .pg-register .rg-cash-stat:last-child { border-right: 0; }
+/* :last-of-type, not :last-child — the 金種 disclosure is now the box's last
+   CHILD, and the third stat must still drop its separator against the edge. */
+.biz .pg-register .rg-cash-stat:last-of-type { border-right: 0; }
 .biz .pg-register .rg-cash-stat span { display: block; color: var(--muted); font-size: 12px; }
 .biz .pg-register .rg-cash-stat b { display: block; margin-top: 3px; font-size: 18px; font-variant-numeric: tabular-nums; }
 .biz .pg-register .rg-cash-stat b.bad { color: var(--red-dark); }
+/* ⧉ the count ENTRY. 実査額 is the one figure a human types into this page, so in
+   the closing desk it wears a field rather than a printed number — the same 18px
+   tabular figure, in a box that says "this is where the count goes". It is
+   refused like every other write in the slice. */
+.biz .pg-register .rg-cash-entry {
+  display: block; width: 100%; margin-top: 3px; padding: 2px 8px;
+  border: 1px solid var(--control); border-radius: 7px; background: #fbfbfc;
+  color: var(--ink); font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.5;
+  cursor: not-allowed;
+}
 .biz .pg-register .rg-cash-facts { margin-top: 12px; }
-.biz .pg-register .rg-cash-action { display: flex; justify-content: flex-end; margin-top: 12px; }
-.biz .pg-register .rg-close-body { padding: 14px; }
-.biz .pg-register .rg-checks { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-.biz .pg-register .rg-check { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; min-height: 48px; padding: 9px 11px; border-bottom: 1px solid var(--row); }
-.biz .pg-register .rg-check:last-child { border-bottom: 0; }
-.biz .pg-register .rg-check strong { display: block; font-size: 13px; }
-.biz .pg-register .rg-check > span > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.45; }
-/* ⚖ THE PAIR ON TOP, THE EVIDENCE FULL WIDTH BENEATH — the template's own
-   workspace grammar, and the fix for a real gutter found in the pixel review:
-   with the record and the reconciliation inside the 閉店チェック panel, the
-   right column ran ~500px taller than 現金ドロア and the page grew an empty
-   column down its left. The two read-only evidence sections are the day's
-   RECORD rather than part of the checklist, so they get their own full-width
-   band under the pair. */
-.biz .pg-register .rg-record { margin-top: 14px; }
-.biz .pg-register .rg-record-body { padding: 14px; }
-.biz .pg-register .rg-close-grid { margin-top: 0; }
+
+/* ── ⧉ ⑩ 金種で数える — the denomination count, COLLAPSED ─────────────────── */
+/* Counting a drawer by denomination is what every incumbent register already
+   does (Airレジ-class 金種別計数 is table stakes, not a differentiator), and it is
+   a mistake-proofing device before it is a feature: the closer enters HOW MANY of
+   each note and coin, and the machine does the arithmetic, so a mis-added column
+   can no longer become a 差異 that never existed.
+   COLLAPSED BY DEFAULT: a drawer that reconciles at a glance must not pay for a
+   grid it does not need, and the closed strip costs one line INSIDE the count box
+   — directly under 実査額, which is the figure it produces. Open, it may extend
+   the panel; that is transient and belongs to the person counting. */
+.biz .pg-register .rg-den { grid-column: 1 / -1; border-top: 1px solid var(--section); }
+.biz .pg-register .rg-den > summary {
+  display: flex; align-items: center; gap: 7px; padding: 3px 11px;
+  color: var(--ink-3); font-size: 12.5px; font-weight: 600; line-height: 1.5;
+  list-style: none; border-radius: 0 0 8px 8px;
+}
+.biz .pg-register .rg-den > summary::-webkit-details-marker { display: none; }
+.biz .pg-register .rg-den > summary:hover { background: #fafafb; color: var(--ink); }
+.biz .pg-register .rg-den[open] > summary { border-bottom: 1px solid var(--section); border-radius: 0; }
+.biz .pg-register .rg-den-chev { display: inline-block; color: var(--quiet); font-size: 13px; font-weight: 700; line-height: 1; }
+.biz .pg-register .rg-den[open] .rg-den-chev { transform: rotate(90deg); }
+.biz .pg-register .rg-den-note { margin-left: auto; color: var(--quiet); font-size: 11.5px; font-weight: 500; }
+.biz .pg-register .rg-den-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 6px 8px; padding: 10px 11px; }
+.biz .pg-register .rg-den-cell { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; align-items: center; gap: 6px; }
+.biz .pg-register .rg-den-cell > span { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+/* ⚖ 8/25 SELF-EXPLAINING NUMBERS — a bare 3 in a box is not a fact. The unit
+   rides every cell, so 「¥1,000 · 4 枚」 reads as a sentence at any width. */
+.biz .pg-register .rg-den-u { color: var(--quiet); font-size: 11.5px; text-align: left; }
+.biz .pg-register .rg-den-n {
+  width: 100%; min-width: 0; padding: 3px 7px; border: 1px solid var(--control); border-radius: 6px;
+  background: #fbfbfc; color: var(--ink); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right;
+  cursor: not-allowed;
+}
+.biz .pg-register .rg-den-sum {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 0;
+  padding: 9px 11px; border-top: 1px solid var(--section); background: #fafafb;
+  border-radius: 0 0 8px 8px; color: var(--ink-3); font-size: 12px; line-height: 1.5;
+}
+.biz .pg-register .rg-den-sum b { font-size: 16px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.biz .pg-register .rg-den-sum em { margin-left: auto; font-style: normal; color: var(--quiet); font-size: 11.5px; }
+
+/* ── ⧉ ⑪ 差異理由 — A PAGE THAT ASKS FOR A REASON MUST HOLD ONE ──────────── */
+/* The room names the missing reason in four places (the check row, the drawer
+   fact, the 閉店 chip, the refusal on 閉店を確定) and, until now, offered nowhere
+   to put it. The field appears WHEN THE DAY HAS A 差異 — the same presence rule
+   every other band on this page obeys, and the mistake-proofing shape: a dial
+   that is not needed is not shown. With 差異 ¥0 the row stays the quiet sentence
+   it is today. The chips are the three reasons a drawer is usually out; they fill
+   the field, they are not a taxonomy the shop must learn. */
+.biz .pg-register .rg-cash-reason { margin-top: 12px; }
+.biz .pg-register .rg-reason-in {
+  display: block; width: 100%; margin-top: 6px; padding: 7px 10px;
+  border: 1px solid var(--control); border-radius: 8px; background: #fbfbfc;
+  color: var(--ink); font-size: 13px; line-height: 1.5; cursor: not-allowed;
+}
+.biz .pg-register .rg-reason-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.biz .pg-register .rg-reason-chip {
+  min-height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px;
+  background: #fff; color: var(--ink-2); font-size: 12px; font-weight: 600; line-height: 1.4;
+}
+.biz .pg-register .rg-reason-chip:hover { border-color: #d1d1d8; background: #fafafb; }
+.biz .pg-register .rg-reason-chip[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+
+/* ── ⧉ ⑫ A REFUSAL THAT ONLY LIVES IN A TOOLTIP DOES NOT EXIST FOR FINGERS ── */
+/* Every refused control on this page explains itself in its accessible name and
+   its `title`, and a phone has no hover: the reader taps a dead button and is
+   told nothing. The SAME sentence therefore renders as a quiet line under its
+   control on touch widths — one string, rendered twice by one component, so the
+   two can never drift apart. Desktop is unchanged: the tooltip is enough where a
+   pointer exists, and the line would be noise.
+   `span.` and not `.` — this sheet already says `.rg-panel-head span` and
+   `.rg-cash-stat span` are BLOCKS, and two of these lines live inside exactly
+   those two boxes. A refusal that reappears on a pointer width because a
+   neighbouring rule out-specifies it is worse than no refusal at all. */
+.biz .pg-register span.rg-refusal { display: none; }
+
 .biz .pg-register .rg-recon { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
 .biz .pg-register .rg-recon-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(3, minmax(84px, auto)); gap: 4px 14px; align-items: baseline; padding: 9px 11px; border-bottom: 1px solid var(--row); font-size: 12.5px; }
 .biz .pg-register .rg-recon-row:last-child { border-bottom: 0; }
-.biz .pg-register .rg-recon-ch { color: var(--ink-2); font-weight: 600; }
+/* 現金 / カード / 回数券 — two or three characters, and the row's first track is
+   a `minmax(0, 1fr)` that will happily shrink them to one character per line. */
+.biz .pg-register .rg-recon-ch { color: var(--ink-2); font-weight: 600; white-space: nowrap; }
 /* Each figure carries its own word rather than leaning on a header row, which
    would vanish the moment the band stacks on a phone. */
 .biz .pg-register .rg-recon-cell { display: block; text-align: right; }
 .biz .pg-register .rg-recon-cell em { display: block; color: var(--quiet); font-size: 11px; font-style: normal; line-height: 1.3; }
 .biz .pg-register .rg-recon-cell b { font-variant-numeric: tabular-nums; font-weight: 600; }
 .biz .pg-register .rg-recon-cell b.rg-recon-rev { color: var(--red-dark); }
-.biz .pg-register .rg-close-actions { justify-content: flex-end; margin-top: 14px; }
+.biz .pg-register .rg-recon-note { margin: 8px 0 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.6; }
+.biz .pg-register .rg-recon-note.bad { color: var(--red-dark); font-weight: 600; }
+
+/* ── ⧉ ⑬ THE FOLD — the phone's 閉店 screen, one line per band ─────────────── */
+/* Only ever visible at ≤743 in 閉店 mode: a one-line summary that stands in for a
+   band the closer is not using yet, one tap from the whole thing. Nothing is
+   HIDDEN — every figure is one tap away and the summary carries the two that
+   matter, each with the word for what it counts. */
+.biz .pg-register .rg-fold {
+  display: none; width: 100%; align-items: center; gap: 9px; min-height: 46px;
+  margin-bottom: 10px; padding: 8px 13px; border: 1px solid var(--line); border-radius: 10px;
+  background: #fff; color: var(--ink); font-size: 13.5px; font-weight: 700; text-align: left; line-height: 1.4;
+}
+.biz .pg-register .rg-fold em { font-style: normal; font-weight: 500; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.biz .pg-register .rg-fold .rg-den-chev { margin-left: auto; }
+.biz .pg-register [aria-expanded="true"] .rg-den-chev { transform: rotate(90deg); }
+
+/* ── ⧉ 閉店で記録される内容 — EVIDENCE ADJACENT TO THE ACTION IT PERMITS ──── */
+/* In the shipped room this was a tall two-up table sitting under the pair, with
+   the confirm button somewhere above it — the reader signed first and read what
+   they signed afterwards. Here it is one compact horizontal strip, full width,
+   DIRECTLY above 閉店を確定: what will be frozen, and then the button that freezes
+   it. Same strip grammar as 本日のレジ so it is obviously facts, and it is
+   deliberately quieter (15px, not 18px) — it is a receipt, not a headline.
+   ⧉ `auto-fit`, NOT a hand-written repeat(8): the record grows a 承認者 cell on a
+   day somebody signed it, so the strip has as many cells as the record has facts
+   and no number in this sheet has to be kept in step with a props array. */
+.biz .pg-register .rg-record {
+  display: grid; grid-template-columns: minmax(180px, 1.1fr) repeat(auto-fit, minmax(84px, .62fr));
+  margin-top: 14px; border: 1px solid var(--card); border-radius: 11px; background: #fff;
+}
+.biz .pg-register .rg-rec-main { display: grid; align-content: center; padding: 10px 14px; background: #fafafb; border-radius: 10px 0 0 10px; }
+.biz .pg-register .rg-rec-main strong { display: block; font-size: 14px; }
+.biz .pg-register .rg-rec-main span { display: block; margin-top: 3px; color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+.biz .pg-register .rg-rec-cell { display: grid; align-content: center; padding: 9px 11px; border-left: 1px solid var(--section); }
+.biz .pg-register .rg-rec-cell:last-child { border-radius: 0 10px 10px 0; }
+.biz .pg-register .rg-rec-cell span { color: var(--muted); font-size: 11.5px; }
+/* A STRIP OF FIGURES HOLDS ITS FIGURES ON ONE LINE. At 1280 with the shell's
+   sidebar OPEN the content is 960px and a cell is ~86px — 「−¥1,100」 broke after
+   the minus and printed a bare 「−」 on its own line, which reads as a fact of its
+   own. The one cell that holds WORDS says so and breaks at its own space. */
+.biz .pg-register .rg-rec-cell b { margin-top: 2px; font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.biz .pg-register .rg-rec-cell b.wrap { white-space: normal; word-break: keep-all; }
+.biz .pg-register .rg-rec-cell b.bad { color: var(--red-dark); }
+.biz .pg-register .rg-rec-cell b.warn { color: var(--orange); }
+/* 「権限がありません」 is one sentence and it must not break across two ragged lines
+   inside a 117px cell — the strip's cells are the tightest place the redacted
+   spelling ever lands, so it keeps a size that fits and never wraps. */
+.biz .pg-register .rg-rec-cell b.redacted { font-size: 11.5px; white-space: nowrap; }
+
+.biz .pg-register .rg-close-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.biz .pg-register .rg-close-foot { margin: 8px 0 0; color: var(--ink-3); font-size: 12px; line-height: 1.55; text-align: right; }
 
 /* ═══ ⚖ Liam 8/23 — 画面の説明 (the guided tour) ═══════════════════════════
    A SPOTLIGHT, NOT A MODAL: the hole is one big box-shadow, so the section being
@@ -422,20 +698,28 @@
 .biz .pg-register .rg-spot-foot button:disabled { opacity: .4; cursor: default; }
 .biz .pg-register .rg-spot-foot .rg-spot-done { margin-left: auto; }
 
-/* ⚖ ALL-SCREEN ADAPTIVITY (Liam 8/23) — the ladder, band by band. Only the
-   PAGE's own rules live here; the shell's own bands (`.biz .app`'s 1180px floor,
-   the rail, the topbar) are the family CSS sweep's, not this room's. */
+/* ⚖ A CLOSE BELONGS TO ONE STORE — the storeless lens gets a stated reason
+   rather than two stores' drawers merged into a figure nobody can act on. */
+.biz .pg-register .rg-noclose { margin-top: 14px; }
+.biz .pg-register .rg-noclose-note { margin: 0; padding: 14px; color: var(--ink-3); font-size: 13px; line-height: 1.65; }
+
+/* ⚖ ALL-SCREEN ADAPTIVITY (Liam 8/23) — the ladder, band by band, on the mock's
+   own boundaries. Only the PAGE's own rules live here; the shell's own bands
+   (`.biz .app`'s 1180px floor, the rail, the topbar) are the family CSS sweep's,
+   not this room's. */
 
 /* ═══ ≥1400 — big external displays: comfort, with line lengths capped ═══ */
 @media (min-width: 1400px) {
   .biz .page.pg-register { padding-left: 32px; padding-right: 32px; }
   .biz .pg-register .rg-workspace, .biz .pg-register .rg-closing { gap: 18px; }
+  .biz .pg-register .rg-right { gap: 18px; }
   .biz .pg-register .rg-body { padding: 16px 18px 18px; }
   .biz .pg-register .rg-grid { gap: 22px; }
   /* ultra-wide must not mean unreadably long lines */
   .biz .pg-register .rg-proof,
   .biz .pg-register .rg-preview,
-  .biz .pg-register .rg-impact { max-width: 62ch; }
+  .biz .pg-register .rg-impact,
+  .biz .pg-register .rg-recon-note { max-width: 62ch; }
   .biz .pg-register .rg-history-row > span > span { max-width: 56ch; }
   .biz .pg-register .rg-terminal-main > span > span { max-width: 72ch; }
   .biz .pg-register .rg-zero-card { margin-top: 64px; padding: 50px 32px 52px; }
@@ -443,15 +727,12 @@
 
 /* ═══ 1024–1279 — iPad landscape / small laptop ═══
    The workspace loses ~200px: the actions take their own full-width row rather
-   than fighting the name for the band, and the ledger column tightens to 300px.
-   ⚖ 1100–1279 KEEPS THE INNER PAIR SIDE BY SIDE (the room-3 finding): stacking
-   it here doubles the workspace's height while the short ledger card stays
-   short, and the page grows a tall empty gutter down the left. The pair costs
-   width, not height, and the width is still there. */
+   than fighting the name for the band, and the ledger column tightens to 300px. */
 @media (max-width: 1279px) {
   .biz .page.pg-register { padding-left: 20px; padding-right: 20px; }
   .biz .pg-register .rg-workspace { grid-template-columns: 300px minmax(0, 1fr); gap: 12px; }
   .biz .pg-register .rg-closing { gap: 12px; }
+  .biz .pg-register .rg-right { gap: 12px; }
   .biz .pg-register .rg-money-cell, .biz .pg-register .rg-count { padding-left: 9px; padding-right: 9px; }
   .biz .pg-register .rg-band { flex-direction: column; align-items: stretch; gap: 12px; }
   .biz .pg-register .rg-act { max-width: none; text-align: left; }
@@ -463,17 +744,30 @@
   /* the 104px label rail is generous for 予約/売上/受領 — 84 gives the value
      column back 20px exactly where the band is tightest. */
   .biz .pg-register .rg-fact { grid-template-columns: 84px 1fr; }
+  /* the record strip's cells stop fitting on one line here: it becomes a
+     three-up block that is still a strip, never a tall table. */
+  .biz .pg-register .rg-record { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .biz .pg-register .rg-rec-main { grid-column: 1 / -1; border-radius: 10px 10px 0 0; }
+  /* the separators follow the COLUMN, not the source order: with the heading
+     cell spanning the top, the first cell of each row is child 3n+2, and it is
+     the one that must not draw a line against the strip's own left border. */
+  .biz .pg-register .rg-rec-cell { border-left: 0; border-top: 1px solid var(--section); }
+  .biz .pg-register .rg-rec-cell:not(:nth-child(3n+2)) { border-left: 1px solid var(--section); }
 }
 
-/* ── ≤1099 — the pair genuinely runs out of width: stack it ──────────────── */
+/* ── ≤1099 — the INSPECTOR's pair runs out of width: stack it ────────────── */
+/* ⚖ THE TWO PAIRS ARE NOT THE SAME SHAPE, AND THE OLD RULE PRETENDED THEY WERE.
+   The inspector's pair lives INSIDE the 取引 workspace, to the right of a 300px
+   ledger — at 1024 it has ~600px to split, and two 290px halves stop holding a
+   sentence, so it stacks from 1099 down (and re-pairs at 800–1023 only because
+   the ledger is gone there). The closing desk has NO queue column beside it: at
+   1024 its pair splits the whole content width, ~450px a side, which is wider
+   than the 800–1023 pair the same page already calls comfortable. Stacking it at
+   1024–1099 made an iPad landscape closing desk WORSE than a foldable's interior
+   four inches smaller — inherited math, not a measurement. 閉店 is two columns
+   continuously from 800 up; only ≤799 stacks it. 取引's bands are untouched. */
 @media (max-width: 1099px) {
   .biz .pg-register .rg-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  /* …and the CLOSING pair stacks with it. The two are one rule about one shape
-     — a two-up pair that has run out of width — so they turn over at the same
-     boundaries or the page says a foldable is too narrow for one pair and wide
-     enough for the other, four inches apart. Both are two-column at 1100+ and
-     at 800–1023, both one-column at 1024–1099 and ≤799. */
-  .biz .pg-register .rg-closing { grid-template-columns: minmax(0, 1fr); gap: 14px; }
   /* the terminal band's five cells stop fitting on one line long before this;
      the stats wrap under the sentence rather than squeezing it to nothing. */
   .biz .pg-register .rg-terminal { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -484,17 +778,12 @@
 }
 
 /* ═══ 744–1023 — iPad portrait / iPad mini / foldable INNER display ═══
-   One column: the bands, then the ledger, then the open transaction's workspace
-   beneath it. The workspace has the FULL page width there, so its inner pair
-   pairs up again in the 800+ band below.
-
-   ⚖ VERIFIED DEVICE DATA (2026-08-23, carried from the approved mock): the
+   ⚖ VERIFIED DEVICE DATA (2026-08-23, carried from the approved mocks): the
    iPhone Fold's inner display is 4:3 landscape-leaning at roughly 930×655
    logical, and a Galaxy Z Fold's inner is near-square at ~840–980. Those
-   interiors are iPad-grade canvases, so the two-column workspace treatment
-   reaches DOWN to 744 rather than stopping at 1024. Nothing in this band assumes
-   a TALL portrait viewport (no vh-based heights), so a 655px-high landscape
-   interior simply scrolls the page like any other. */
+   interiors are iPad-grade canvases. Nothing in this band assumes a TALL portrait
+   viewport (no vh-based heights), so a 655px-high landscape interior simply
+   scrolls the page like any other. */
 @media (max-width: 1023px) {
   .biz .pg-register .rg-money { grid-template-columns: 1fr 1fr; }
   .biz .pg-register .rg-money-main { grid-column: 1 / -1; border-radius: 10px 10px 0 0; }
@@ -504,37 +793,42 @@
   .biz .pg-register .rg-counts { grid-template-columns: 1fr 1fr; }
   .biz .pg-register .rg-count-main { grid-column: 1 / -1; border-radius: 10px 10px 0 0; }
   .biz .pg-register .rg-count:last-child { grid-column: 1 / -1; border-radius: 0 0 10px 10px; }
-  .biz .pg-register .rg-workspace,
+  .biz .pg-register .rg-workspace { grid-template-columns: minmax(0, 1fr); gap: 14px; }
   .biz .pg-register .rg-closing { grid-template-columns: minmax(0, 1fr); gap: 14px; }
   .biz .pg-register .rg-act-row .btn { flex: 1 1 190px; }
+  /* the drawer is half a narrow page here, so the count field's three stats are
+     ~117px each — 18px tabular 「¥39,620」 plus the field's own padding clipped
+     inside it (measured at 820). The figure stays the same size everywhere else. */
+  .biz .pg-register .rg-cash-entry { font-size: 16px; }
+  .biz .pg-register .rg-record { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* two-up: the heading spans the top, so each row is (even, odd) and the line
+     belongs to the odd one — the divider between the pair, never the outer edge. */
+  .biz .pg-register .rg-rec-cell:nth-child(even) { border-left: 0; }
+  .biz .pg-register .rg-rec-cell:nth-child(odd) { border-left: 1px solid var(--section); }
 }
 
-/* ── 800–1023: the near-square canvases get the two-column workspace ─────── */
+/* ── 800–1023: the near-square canvases get the two-column treatment ─────── */
 /* ⚖ VERIFIED (2026-08-23): the boundary is 800, not 840, because the Galaxy Z
    Fold 8 "Wide" inner panel (1848×2448, 4:3) resolves to ≈820 logical — a
    near-square canvas that would waste its whole point on one stretched column.
    Below 800 sits the genuinely 3:4 PORTRAIT tablet (iPad 768), and a portrait
-   tablet is the shape a single column was made for. The split is about SHAPE,
-   not size. */
+   tablet is the shape a single column was made for. SHAPE, not size. */
 @media (min-width: 800px) and (max-width: 1023px) {
   .biz .pg-register .rg-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
-  /* …and the CLOSING pair re-pairs on exactly the same reasoning. The band's
-     point is that a near-square canvas has width to spend and no height to
-     waste; leaving 現金ドロア and 閉店チェック stacked while the workspace beside
-     them ran two columns was the rule applied to one band and not its
-     neighbour. Same shape, same boundary, same reason. */
-  .biz .pg-register .rg-closing { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 18px; }
+  .biz .pg-register .rg-closing { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
 }
 
 /* ═══ ≤743 — smartphones / folded cover screen: the Gmail phone pattern ═══
-   The ledger IS the page: a row tap opens the transaction as its own screen and
-   the ← control brings the list back (Escape does the same from a keyboard).
+   The MODES STAY TABS on a phone — they are the two jobs, and a phone does both.
+   Inside 取引 the ledger IS the page: a row tap opens the transaction as its own
+   screen and the ← control brings the list back (Escape does the same from a
+   keyboard).
 
    ⚖ VERIFIED DEVICE DATA (2026-08-23): this band must stay comfortable up to
-   ~500px, not just 390–430 — the iPhone Fold's FOLDED cover screen is a 4:3
-   panel at roughly 470–490 logical. Every rule here sizes from the CONTENT
-   (flex/auto columns, wrapping filters, ellipsis on the two lines that can run
-   long) rather than from a 390px assumption. */
+   ~500px, not just 390–430 — the iPhone Fold's FOLDED cover screen is a 4:3 panel
+   at roughly 470–490 logical. Every rule here sizes from the CONTENT (flex/auto
+   columns, wrapping filters, ellipsis on the two lines that can run long) rather
+   than from a 390px assumption. Targets ≥44px. */
 @media (max-width: 743px) {
   .biz .page.pg-register { padding: 16px 16px 32px; }
   .biz .page.pg-register h1 { font-size: 23px; }
@@ -551,10 +845,6 @@
   .biz .pg-register .rg-detail { display: none; }
   .biz .pg-register.is-detail .rg-ledger { display: none; }
   .biz .pg-register.is-detail .rg-detail { display: block; }
-  /* the closing panels belong to the LEDGER screen, not to one transaction —
-     a reader who opened a transaction should not have the day's close under it. */
-  .biz .pg-register.is-detail .rg-closing,
-  .biz .pg-register.is-detail .rg-noclose { display: none; }
 
   .biz .pg-register .rg-money, .biz .pg-register .rg-counts { grid-template-columns: minmax(0, 1fr); }
   .biz .pg-register .rg-money-cell, .biz .pg-register .rg-count { border-left: 0; border-top: 1px solid var(--section); border-radius: 0; }
@@ -565,7 +855,13 @@
   .biz .pg-register .rg-terminal-stat { border-left: 0 !important; border-top: 1px solid #e9edfb; }
   .biz .pg-register .rg-terminal-action .btn { width: 100%; min-height: 46px; }
 
+  /* the tabs keep their quiet grammar; only the HIT BOX grows to 46px. */
+  .biz .pg-register .rg-modes { gap: 18px; }
+  .biz .pg-register .rg-mode { min-height: 46px; font-size: 14.5px; }
+
   .biz .pg-register .rg-panel-head { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .biz .pg-register .rg-head-act { width: 100%; }
+  .biz .pg-register .rg-head-act .btn { flex: 1 1 auto; min-height: 46px; font-size: 14px; }
   /* the quiet text treatment stays; only the HIT BOX grows. 20px line + 12px top
      + 12px bottom = a 44px target, and because the mark is native
      text-decoration rather than a border-bottom, the underline stays pinned
@@ -585,28 +881,80 @@
   .biz .pg-register .rg-band-id h2 { font-size: 20px; }
   .biz .pg-register .rg-act-row { flex-direction: column; }
   .biz .pg-register .rg-act-row .btn { flex: 1 1 auto; width: 100%; min-height: 46px; }
-  /* 計数を保存 is a thumb target like every other control in this band — it was
-     the one button left at its desktop height, sitting alone in its own row at
-     the bottom of 現金ドロア where nothing else pushed it up. */
-  .biz .pg-register .rg-cash-action .btn { width: 100%; min-height: 46px; }
   .biz .pg-register .rg-body, .biz .pg-register .rg-cash-body, .biz .pg-register .rg-close-body { padding: 12px 14px 16px; }
   .biz .pg-register .rg-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   /* facts read as label-above-value on a phone: a 104px label column plus a
      right-aligned value turns 予約 into a four-line ragged block. */
   .biz .pg-register .rg-fact { grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 10px 11px; }
   .biz .pg-register .rg-fact b { text-align: left; }
+  .biz .pg-register .rg-quietlink { text-align: left; }
   .biz .pg-register .rg-cash-stats { grid-template-columns: minmax(0, 1fr); }
   .biz .pg-register .rg-cash-stat { border-right: 0; border-bottom: 1px solid var(--section); }
-  .biz .pg-register .rg-cash-stat:last-child { border-bottom: 0; }
+  .biz .pg-register .rg-cash-stat:last-of-type { border-bottom: 0; }
+  /* a 44px target for the thumb that opens 金種 — the paint stays quiet. */
+  .biz .pg-register .rg-den > summary { min-height: 44px; }
+  .biz .pg-register .rg-den-cell { grid-template-columns: 52px minmax(0, 1fr) auto; }
+  .biz .pg-register .rg-den-n { min-height: 38px; }
+  .biz .pg-register .rg-reason-in { min-height: 44px; }
+  .biz .pg-register .rg-reason-chip { min-height: 40px; }
   .biz .pg-register .rg-recon-row { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 10px; }
   .biz .pg-register .rg-recon-ch { grid-column: 1 / -1; }
   .biz .pg-register .rg-recon-cell { text-align: left; }
+  .biz .pg-register .rg-record { grid-template-columns: minmax(0, 1fr); }
+  .biz .pg-register .rg-rec-main { border-radius: 10px 10px 0 0; }
+  .biz .pg-register .rg-rec-cell { border-left: 0 !important; border-top: 1px solid var(--section); border-radius: 0; }
+  .biz .pg-register .rg-rec-cell:last-child { border-radius: 0 0 10px 10px; }
+  .biz .pg-register .rg-close-actions { flex-direction: column; }
+  .biz .pg-register .rg-close-actions .btn { width: 100%; min-height: 46px; }
+  .biz .pg-register .rg-close-foot { text-align: left; }
   /* stacked, the rows' own separators + 新しい順 already carry the order; a
      connector drawn into a gap that no longer exists would only be noise. */
   .biz .pg-register .rg-hist-rows { grid-template-columns: minmax(0, 1fr); }
   .biz .pg-register .rg-history-row { grid-template-columns: 46px 1fr; }
   .biz .pg-register .rg-history-row:nth-child(even)::before { display: none; }
   .biz .pg-register .rg-zero-card { margin: 28px auto 24px; padding: 36px 20px 38px; }
+
+  /* ══ ⧉ THE PHONE'S 閉店 SCREEN — SOMEBODY OPENED THIS TO COUNT ══════════ */
+  /* ⑯ ORDER: 現金ドロア → 閉店チェック → 決済手段の内訳 → 記録 → 確定. A closer
+     standing at the register at 21:00 has a drawer of cash in one hand and the
+     phone in the other; the count is the FIRST thing they do and the checklist is
+     what they read once the number is in. On a laptop the two columns are side by
+     side and order is not a question — on a phone the order IS the experience.
+     `display: contents` on the right column is what lets ONE order rule
+     interleave three panels that live in two containers. */
+  .biz .pg-register .rg-right { display: contents; }
+  .biz .pg-register .rg-cash { order: 1; }
+  .biz .pg-register .rg-close { order: 2; }
+  .biz .pg-register .rg-reconpanel { order: 3; }
+
+  /* ⑰ THE DAY-STRIPS GET OUT OF THE WAY — 閉店 MODE ONLY. In 取引 those counters
+     ARE the cashier's job and they stay open. In 閉店 they are three full screens
+     of figures standing between the closer and the count field, and every one of
+     them is repeated inside 閉店で記録される内容 anyway. They fold to one line each,
+     carrying the two figures that decide anything, one tap from the whole band.
+     NOTHING IS HIDDEN — folded is not gone. */
+  .biz .pg-register.is-close .rg-fold { display: flex; }
+  .biz .pg-register.is-close .rg-money:not(.is-open),
+  .biz .pg-register.is-close .rg-counts:not(.is-open) { display: none; }
+  /* the exception band keeps its HEADLINE (an exception a closer cannot see is
+     the worst possible fold) and puts its three stat cells and its control behind
+     the same tap. */
+  .biz .pg-register.is-close .rg-terminal-more { display: inline-flex; }
+  .biz .pg-register.is-close .rg-terminal:not(.is-open) .rg-terminal-main > span > span,
+  .biz .pg-register.is-close .rg-terminal:not(.is-open) .rg-terminal-stat,
+  .biz .pg-register.is-close .rg-terminal:not(.is-open) .rg-terminal-action { display: none; }
+  .biz .pg-register.is-close .rg-terminal:not(.is-open) .rg-terminal-main { border-radius: 11px; }
+  /* ⑱ 閉店で記録される内容: five of its figures are the money strip again, and on a
+     phone it is nine stacked rows sitting between the checklist and the button. It
+     becomes a line until the reader asks for it — which is the one moment it
+     matters, just before 確定. */
+  .biz .pg-register .rg-record:not(.is-open) { display: none; }
+
+  /* ⑫ TOUCH HAS NO HOVER: the refusal becomes a sentence under its control. */
+  .biz .pg-register span.rg-refusal { display: block; margin: 6px 0 0; color: var(--muted); font-size: 11.5px; font-weight: 400; line-height: 1.5; }
+  .biz .pg-register .rg-terminal-action span.rg-refusal,
+  .biz .pg-register .rg-head-act span.rg-refusal,
+  .biz .pg-register .rg-close-actions span.rg-refusal { flex: 1 1 100%; }
 }
 
 /* The two motions in the room — the row's own hover/selection fade and the
@@ -616,8 +964,3 @@
   .biz .pg-register .rg-row { transition: none; }
   .biz .pg-register .rg-spot-hole { transition: none; }
 }
-
-/* ⚖ A CLOSE BELONGS TO ONE STORE — the storeless lens gets a stated reason
-   rather than two stores' drawers merged into a figure nobody can act on. */
-.biz .pg-register .rg-noclose { margin-top: 14px; }
-.biz .pg-register .rg-noclose-note { margin: 0; padding: 14px; color: var(--ink-3); font-size: 13px; line-height: 1.65; }
