@@ -39,7 +39,8 @@ import { SegmentedFilterBar } from '@/components/customers/redesign/list/Segment
 import { KaruteListRow, NoKaruteRevealRow, type NoKaruteCandidate } from './KaruteListRow'
 import { NewKaruteDialog } from './NewKaruteDialog'
 import type { KaruteListFilter, KaruteListItem } from './types'
-import { revealNoKaruteCustomer } from '@/actions/karute'
+import { loadKaruteWindow, revealNoKaruteCustomer } from '@/actions/karute'
+import { karuteHasMore } from '@/lib/karute/karute-window'
 
 interface Props {
   items: KaruteListItem[]
@@ -56,6 +57,14 @@ interface Props {
    *  itself load" signal the status line uses to decide whether to render
    *  anything at all (Greptile PR #775 round 2). */
   total?: number | null
+  /** PR-2a 日付チャンク読み込み — the oldest day the SERVER-rendered first
+   *  window reached. さらに表示 walks backward from here; null = the window
+   *  read failed (button hidden, same degraded posture as the status line). */
+  initialWindowStart?: string | null
+  /** The server's own hasMore for the first window. Only used while the
+   *  store total is unknown — otherwise the view derives the identical
+   *  formula client-side (karuteHasMore), so the two can never disagree. */
+  initialHasMore?: boolean
   /** Staff list for the "your customers / all customers" filter. */
   staffList?: StaffFilterEntry[]
   /** The viewer's staff id — drives the "Me" filter pill. Null when
@@ -75,8 +84,6 @@ interface Props {
   }>
 }
 
-const PAGE_SIZE = 12
-
 // `needsReview` intentionally omitted from the visible filter row —
 // no code path assigns `aiStatus === 'needsReview'` today, so the
 // chip would always show "レビュー要 0" and filter to an empty list.
@@ -95,12 +102,15 @@ export function KaruteRecordListView({
   items,
   monthCount,
   total = null,
+  initialWindowStart = null,
+  initialHasMore = false,
   staffList = [],
   currentStaffId = null,
   customerOptions = [],
 }: Props) {
   const t = useTranslations('karute.recordList')
   const tHead = useTranslations('karute')
+  const tCommon = useTranslations('common')
   const locale = useLocale()
   // URL-backed list state — back-navigation restores page + filters (same
   // pattern as the 顧客 list; search text deliberately stays local).
@@ -114,30 +124,125 @@ export function KaruteRecordListView({
     () => (searchParams.get('s') as StaffFilterKey | null) ?? 'all',
   )
   const [searchQuery, setSearchQuery] = useState('')
-  const [page, setPage] = useState(() =>
-    Math.max(0, (parseInt(searchParams.get('p') ?? '1', 10) || 1) - 1),
+
+  // PR-2a 日付チャンク読み込み. `appended` holds ONLY the chunks さらに表示
+  // pulled in; `items` stays the server-rendered first window, so a router
+  // refresh keeps the newest rows fresh instead of freezing a client snapshot.
+  const [appended, setAppended] = useState<KaruteListItem[]>([])
+  const [windowStart, setWindowStart] = useState<string | null>(initialWindowStart)
+  const [storeTotal, setStoreTotal] = useState<number | null>(total)
+  const [serverHasMore, setServerHasMore] = useState(initialHasMore)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [announcement, setAnnouncement] = useState('')
+  // The loaded boundary persists as ?since=YYYY-MM-DD. Set ON TAP (via this
+  // state, written by the URL effect below in the same commit) — never
+  // debounced, so the input-sync request-id traps don't apply here.
+  const [sinceParam, setSinceParam] = useState<string | null>(() => searchParams.get('since'))
+  // A restore in progress: keep loading windows until the boundary reaches the
+  // ?since the URL remembers. Seeded on mount and re-seeded by popstate.
+  const [restoreTarget, setRestoreTarget] = useState<string | null>(() =>
+    searchParams.get('since'),
   )
+
   useEffect(() => {
     const next = new URLSearchParams(window.location.search)
-    if (page > 0) next.set('p', String(page + 1))
-    else next.delete('p')
+    // `p` (the old in-memory pager) is gone in PR-2a — actively deleted so a
+    // bookmarked ?p=3 from before this ships doesn't linger in the bar.
+    next.delete('p')
+    if (sinceParam) next.set('since', sinceParam)
+    else next.delete('since')
     if (filter !== 'all') next.set('f', String(filter))
     else next.delete('f')
     if (staffFilter !== 'all') next.set('s', String(staffFilter))
     else next.delete('s')
     const qs = next.toString()
     router.replace((pathname + (qs ? `?${qs}` : '')) as never, { scroll: false })
-  }, [page, filter, staffFilter, pathname, router])
+  }, [sinceParam, filter, staffFilter, pathname, router])
   const [newKaruteOpen, setNewKaruteOpen] = useState(false)
   // Which customer the dialog should preselect — null for the top "+ 新規
   // カルテ" CTA, a candidate id when opened from the search-reveal row below.
   const [presetCustomerId, setPresetCustomerId] = useState<string | null>(null)
 
-  // Reset to first page when filter or search changes — otherwise a
-  // narrower result set strands the viewer on an empty page.
+  // The full accumulated store rows, id-keyed dedupe then sorted IN-APP —
+  // server order is untrusted (core orders by created_at; the list reads by
+  // session_date ?? created_at, and offset paging over live data can repeat a
+  // row across page boundaries). mergeKaruteRows' idiom, client side.
+  const allItems = useMemo(() => {
+    const seen = new Set<string>()
+    const out: KaruteListItem[] = []
+    for (const item of [...items, ...appended]) {
+      if (seen.has(item.id)) continue
+      seen.add(item.id)
+      out.push(item)
+    }
+    // Stable sort: same-day rows keep the order the server projected them in.
+    return out.sort((a, b) => b.date.localeCompare(a.date))
+  }, [items, appended])
+
+  // COUNT DEFINITIONS — two names, two meanings. loadedCount = RAW accumulated
+  // store rows, unfiltered; showingCount (表示中) = post-filter visible rows,
+  // computed further down. さらに表示 keys on loadedCount, NEVER on
+  // showingCount: an active filter must not look like the end of history.
+  const loadedCount = allItems.length
+  // ONE formula (karuteHasMore) — the same function the server calls for the
+  // DTO field the phone renders. Only when the store total is unknown does the
+  // view fall back to the server's own flag.
+  const hasMore =
+    storeTotal !== null ? karuteHasMore(loadedCount, storeTotal) : serverHasMore
+
+  // Keep the derived total honest when the server re-renders (QuietRefresh).
   useEffect(() => {
-    setPage(0)
-  }, [filter, searchQuery, staffFilter])
+    setStoreTotal(total)
+  }, [total])
+
+  async function fetchOlder(announce: boolean) {
+    if (!windowStart || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const res = await loadKaruteWindow({ olderThan: windowStart, loadedCount })
+      if ('error' in res) return
+      const seen = new Set(allItems.map((i) => i.id))
+      const fresh = res.items.filter((i) => !seen.has(i.id))
+      setAppended((prev) => [...prev, ...fresh])
+      setWindowStart(res.windowStart)
+      setSinceParam(res.windowStart)
+      setStoreTotal(res.freshStoreTotal)
+      setServerHasMore(res.hasMore)
+      // Focus deliberately stays on the button (nothing is focused here) and
+      // scroll is untouched — an append lands BELOW the viewport, so the
+      // content-swap scrollTop reset (AuditLogSection's idiom) must NOT fire.
+      if (announce) setAnnouncement(t('addedCount', { n: fresh.length }))
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  // ?since restore: replay さらに表示 through the SAME path until the boundary
+  // reaches the remembered day. One window per pass, driven by re-render, so
+  // restore and a manual tap can never diverge.
+  useEffect(() => {
+    if (!restoreTarget) return
+    if (loadingMore) return
+    if (!windowStart || windowStart <= restoreTarget || !hasMore) {
+      setRestoreTarget(null)
+      return
+    }
+    void fetchOlder(false)
+    // fetchOlder is recreated every render on purpose (it closes over the
+    // current boundary + counts); the guard above is what bounds the loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restoreTarget, windowStart, hasMore, loadingMore])
+
+  // popstate only ever EXTENDS what's loaded — walking back to a shallower
+  // ?since can't un-fetch rows, and showing more than the URL remembers is
+  // not a lie, just a wider view.
+  useEffect(() => {
+    const onPop = () => {
+      setRestoreTarget(new URLSearchParams(window.location.search).get('since'))
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
 
   // Search-reveal (PR-1b 検索リビール): a customer matching the search term
   // who has no karute yet. EXACTLY ONE row, query stays LOCAL (no URL) —
@@ -177,16 +282,16 @@ export function KaruteRecordListView({
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
     const cutoff = sevenDaysAgo.toISOString().slice(0, 10)
     return {
-      all: items.length,
-      thisWeek: items.filter((i) => i.date >= cutoff).length,
-      aiPending: items.filter((i) => i.aiStatus === 'pending').length,
-      needsReview: items.filter((i) => i.aiStatus === 'needsReview').length,
-      draft: items.filter((i) => i.aiStatus === 'draft').length,
+      all: allItems.length,
+      thisWeek: allItems.filter((i) => i.date >= cutoff).length,
+      aiPending: allItems.filter((i) => i.aiStatus === 'pending').length,
+      needsReview: allItems.filter((i) => i.aiStatus === 'needsReview').length,
+      draft: allItems.filter((i) => i.aiStatus === 'draft').length,
     } satisfies Record<KaruteListFilter, number>
-  }, [items])
+  }, [allItems])
 
   const filtered = useMemo(() => {
-    let result = items
+    let result = allItems
 
     // Staff scope: 'all' shows every record; 'self' filters to the
     // current viewer's records only; a specific id filters to that
@@ -221,24 +326,20 @@ export function KaruteRecordListView({
       })
     }
     return result
-  }, [items, filter, searchQuery, staffFilter, currentStaffId])
+  }, [allItems, filter, searchQuery, staffFilter, currentStaffId])
 
-  // Page slice (in-memory, same approach as customer list)
-  const pageItems = useMemo(() => {
-    const start = page * PAGE_SIZE
-    return filtered.slice(start, start + PAGE_SIZE)
-  }, [filtered, page])
-
-  // Group page items by date for the date-section headers
+  // Same date-bucketing as before, now over the FULL accumulated row set —
+  // the in-memory pager (and its `p` URL param) is gone; さらに表示 is the
+  // only way more rows arrive.
   const grouped = useMemo(() => {
     const map = new Map<string, KaruteListItem[]>()
-    for (const item of pageItems) {
+    for (const item of filtered) {
       const arr = map.get(item.date) ?? []
       arr.push(item)
       map.set(item.date, arr)
     }
     return Array.from(map.entries()).sort(([a], [b]) => b.localeCompare(a))
-  }, [pageItems])
+  }, [filtered])
 
   const today = new Date().toISOString().slice(0, 10)
   const yesterday = (() => {
@@ -251,6 +352,15 @@ export function KaruteRecordListView({
     if (date === today) return t('dateGroup.today')
     if (date === yesterday) return t('dateGroup.yesterday')
     return null
+  }
+
+  /** 「7月26日」/「Jul 26」 — the さらに表示 label's boundary day. */
+  function formatBoundaryDate(date: string): string {
+    const dt = new Date(`${date}T00:00:00+09:00`)
+    return new Intl.DateTimeFormat(locale === 'ja' ? 'ja-JP' : 'en-US', {
+      month: locale === 'ja' ? 'long' : 'short',
+      day: 'numeric',
+    }).format(dt)
   }
 
   function formatDateHeader(date: string): string {
@@ -298,10 +408,20 @@ export function KaruteRecordListView({
              *  numbers on screen beats a fake one. total!==null but
              *  monthCount===null means only the 今月 probe failed — show
              *  the subset line, never a fake 「今月 0件」. */}
-            {total !== null &&
+            {/* statusLine v2 (PR-2a): 全{total}件 joins the line now that
+             *  chunk loading makes the whole store browsable — PR-1b held it
+             *  back on purpose while the list could only ever show 200. */}
+            {storeTotal !== null &&
               (monthCount !== null
-                ? t('statusLine', { monthCount, showingCount: filtered.length })
-                : t('statusLineNoMonth', { showingCount: filtered.length }))}
+                ? t('statusLine', {
+                    total: storeTotal,
+                    monthCount,
+                    showingCount: filtered.length,
+                  })
+                : t('statusLineNoMonth', {
+                    total: storeTotal,
+                    showingCount: filtered.length,
+                  }))}
           </p>
           {/* + 新規カルテ — primary CTA. Opens the manual-entry dialog
            *  (NewKaruteDialog) so staff can backdate or log a session
@@ -436,35 +556,31 @@ export function KaruteRecordListView({
         )}
       </div>
 
-      {/* Simple pagination footer (reused conceptually from customers list) */}
-      {filtered.length > PAGE_SIZE && (
-        <div className="flex items-center justify-between gap-3 pt-3">
-          <p className="text-xs tabular-nums text-muted-foreground">
-            {(page * PAGE_SIZE + 1).toLocaleString()}-
-            {Math.min((page + 1) * PAGE_SIZE, filtered.length).toLocaleString()} /
-            {' '}
-            {filtered.length.toLocaleString()}
-          </p>
-          <div className="inline-flex items-center gap-1">
-            <button
-              type="button"
-              disabled={page === 0}
-              onClick={() => setPage(page - 1)}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              ‹
-            </button>
-            <button
-              type="button"
-              disabled={(page + 1) * PAGE_SIZE >= filtered.length}
-              onClick={() => setPage(page + 1)}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              ›
-            </button>
-          </div>
+      {/* さらに表示 (PR-2a 日付チャンク読み込み) — replaces the in-memory pager.
+       *  Visible iff loadedCount < 全件: the RAW loaded count, never the
+       *  filtered 表示中 count, so a narrow filter never masquerades as the
+       *  end of the store's history. The label names the boundary the next
+       *  chunk starts from. */}
+      {hasMore && windowStart && (
+        <div className="flex justify-center pt-3">
+          <button
+            type="button"
+            onClick={() => void fetchOlder(true)}
+            disabled={loadingMore}
+            aria-busy={loadingMore}
+            className="inline-flex h-9 items-center justify-center rounded-full border border-border bg-card px-4 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {loadingMore
+              ? tCommon('loading')
+              : t('loadMore', { date: formatBoundaryDate(windowStart) })}
+          </button>
         </div>
       )}
+      {/* Append announcement — the button keeps focus, so a screen reader
+       *  needs the row count spoken rather than shown. */}
+      <p aria-live="polite" className="sr-only">
+        {announcement}
+      </p>
 
       {/* Manual-entry dialog for the "+ 新規カルテ" CTA. Renders at
        *  the root of the page so it overlays the whole viewport

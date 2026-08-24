@@ -3,7 +3,7 @@ import { renderStamp } from '@/lib/perf/render-stamp'
 import { startTiming } from '@/lib/perf/timing'
 import { getBusinessId, getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { listSynqedKaruteRowsWithMonthProbe } from '@/lib/karute/synqed-records'
+import { loadKaruteWindowWithMonthProbe } from '@/lib/karute/karute-window'
 import { jstStartOfMonth } from '@/lib/date/jst'
 import { listAllCustomersCached } from '@/lib/customers/list-all'
 import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
@@ -82,19 +82,22 @@ export default async function KaruteRecordsListPage() {
       // synqed-core is the sole karute store (the Supabase karute_records table
       // is empty and being dropped). Scoped to the active branch so 代官山
       // karute don't surface under 銀座; the customer PROFILE stays unscoped.
-      // The main row read (store-wide total, plumbed through for PR-2a's 全件
-      // display) and the 今月 probe (JST month window, page_size:1) degrade
-      // INDEPENDENTLY (Greptile PR #775 round 2): the list is primary, the
-      // count is auxiliary — a probe failure must never discard already-
-      // loaded rows, and a main-read failure must never be masked by a lucky
-      // probe success. See listSynqedKaruteRowsWithMonthProbe's doc for the
-      // full contract. LENS PARITY (from/to computation only — the facade
-      // stays shared-fate) with screens/sessions/route.ts.
+      // PR-2a 日付チャンク読み込み: the row read is now the FIRST DATE WINDOW
+      // (probe-then-fetch, 2 weeks back), not a flat newest-200 — さらに表示
+      // walks further back from `windowStart`. It and the 今月 probe (JST month
+      // window, page_size:1) degrade INDEPENDENTLY (Greptile PR #775 round 2):
+      // the list is primary, the count is auxiliary — a probe failure must
+      // never discard already-loaded rows, and a window-read failure must never
+      // be masked by a lucky probe success. See
+      // loadKaruteWindowWithMonthProbe's doc for the full contract. LENS PARITY
+      // (from/to computation only — the facade stays shared-fate) with
+      // screens/sessions/route.ts.
       t.phase('karuteData', () =>
-        listSynqedKaruteRowsWithMonthProbe(synqed, {
+        loadKaruteWindowWithMonthProbe(synqed, {
           storeId: activeStore,
           monthFrom: monthStartIso,
           monthTo: nowIso,
+          now,
         }),
       ),
       // Synqed staff roster — translates a record's synqed staff id into the
@@ -110,7 +113,12 @@ export default async function KaruteRecordsListPage() {
   // these are what the view actually renders, bypassing screen.monthCount/
   // screen.total below on purpose.
   const displayMonthCount = karuteData.monthProbe?.total ?? null
-  const displayTotal = karuteData.data?.total ?? null
+  const displayTotal = karuteData.data?.freshStoreTotal ?? null
+  // PR-2a: the loaded boundary + "is there older history" flag the さらに表示
+  // button keys on. null boundary = the window read failed (the button hides
+  // along with the whole status line).
+  const initialWindowStart = karuteData.data?.windowStart ?? null
+  const initialHasMore = karuteData.data?.hasMore ?? false
 
   // #496 store clamp: the 担当 picker only offers staff assigned to the active
   // store (or floating staff) — the full roster was leaking every branch's
@@ -142,6 +150,8 @@ export default async function KaruteRecordsListPage() {
         items={screen.items}
         monthCount={displayMonthCount}
         total={displayTotal}
+        initialWindowStart={initialWindowStart}
+        initialHasMore={initialHasMore}
         staffList={screen.staffList}
         currentStaffId={screen.currentStaffId}
         customerOptions={screen.customerOptions}
