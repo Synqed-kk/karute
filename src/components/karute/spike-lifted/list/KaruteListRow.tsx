@@ -22,6 +22,7 @@ import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import { getStaffColorByKey } from '@/lib/staff-colors'
 import { deriveFamilyInitials } from '@/lib/customers/identity'
+import { partsInJst } from '@/lib/date/jst'
 import { isNativeShell } from '@/lib/platform'
 import type {
   KaruteListItem,
@@ -254,8 +255,13 @@ export function NoKaruteRevealRow({ candidate, onCreateClick }: NoKaruteRevealRo
   }, [])
 
   const isoDate = candidate.registeredDate.slice(0, 10)
-  const dt = new Date(`${isoDate}T00:00:00+09:00`)
-  const weekday = ['日', '月', '火', '水', '木', '金', '土'][dt.getDay()]
+  // JST-EXPLICIT weekday (fix round 6), same defect and same fix as
+  // screen-rows.ts: the instant is anchored to JST midnight, but `.getDay()`
+  // reads it back in the BROWSER's zone, so a viewer west of Japan saw the
+  // previous day's character. The registered date is a JST business fact.
+  const weekday = ['日', '月', '火', '水', '木', '金', '土'][
+    partsInJst(new Date(`${isoDate}T00:00:00+09:00`)).weekday
+  ]
   const initials = deriveFamilyInitials(candidate.name)
 
   const body = (
