@@ -2398,7 +2398,7 @@
         },
         "recording": {
           "discard": "録音を破棄",
-          "session_cleanup": "録音セッション行を削除",
+          "session_cleanup": "録音を破棄",
           "transcribe": "録音を文字起こし"
         }
       },
@@ -2428,6 +2428,8 @@
       "entryEditPartial": "これより古い履歴は表示されません",
       "autostartOn": "自動録音をON（{store}）",
       "autostartOff": "自動録音をOFF（{store}）",
+      "recordingNoCustomer": "顧客未選択の録音",
+      "durationSuffix": "（{n}秒）",
       "menuUpdate": {
         "duration": "所要時間",
         "price": "料金",

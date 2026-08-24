@@ -411,6 +411,22 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       if (!change) return targetName
       return targetName ? `${targetName} · ${change}` : change
     }
+    // recording.session_cleanup (and any other target_type:'recording' row):
+    // the session row is HARD-DELETED at write time, so a resolved customer
+    // name (via targetLabels, widened in resolveTargetLabels above) is the
+    // best case — an unresolved one must NEVER fall through to the raw
+    // session UUID (the field report this fix answers), so it renders the
+    // honest no-customer line instead. duration_seconds (when present) rides
+    // either case as a suffix; legacy rows without it render unchanged.
+    if (e.target_type === 'recording') {
+      const resolvedName = e.target_id ? targetLabels[e.target_id] : undefined
+      const base = resolvedName ?? t('recordingNoCustomer')
+      const duration =
+        typeof detail.duration_seconds === 'number'
+          ? t('durationSuffix', { n: detail.duration_seconds })
+          : ''
+      return `${base}${duration}`
+    }
     return targetName
   }
 

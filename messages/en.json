@@ -2398,7 +2398,7 @@
         },
         "recording": {
           "discard": "Discarded recording",
-          "session_cleanup": "Recording session row removed",
+          "session_cleanup": "Recording discarded",
           "transcribe": "Transcribed recording"
         }
       },
@@ -2428,6 +2428,8 @@
       "entryEditPartial": "Older history isn't shown",
       "autostartOn": "Auto-record ON ({store})",
       "autostartOff": "Auto-record OFF ({store})",
+      "recordingNoCustomer": "No customer selected",
+      "durationSuffix": " · {n}s",
       "menuUpdate": {
         "duration": "Duration",
         "price": "Price",
