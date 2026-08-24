@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { usePathname, Link, useRouter } from '@/i18n/navigation'
 import {
@@ -89,6 +89,15 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
   const router = useRouter()
   const [menuOpen, setMenuOpen] = useState(false)
 
+  // Sliding active-tab indicator (replaces each item's own teleporting
+  // span). Refs on the three PRIMARY Links, measured against the relative
+  // bar container to get an X offset the indicator can transform to.
+  const navBarRef = useRef<HTMLDivElement>(null)
+  const navItemRefs = useRef<(HTMLAnchorElement | null)[]>([])
+  const [indicator, setIndicator] = useState({ x: 0, visible: false })
+  const [hasMeasured, setHasMeasured] = useState(false)
+  const [transitionOn, setTransitionOn] = useState(false)
+
   // Center mic button label = customer name + honorific (「様」 in JA,
   // empty in EN), or the scaffold placeholder when there's nothing to
   // record. The time hint underneath is a LIVE countdown computed inside
@@ -111,13 +120,47 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
     return pathname.startsWith(href)
   }
 
-  function renderNavItem(route: Route) {
+  function measureIndicator() {
+    const activeIndex = PRIMARY.findIndex((r) => isActive(r.href))
+    const el = activeIndex === -1 ? null : navItemRefs.current[activeIndex]
+    if (!el) {
+      setIndicator((prev) => ({ ...prev, visible: false }))
+      return
+    }
+    setIndicator({ x: el.offsetLeft + (el.offsetWidth - 40) / 2, visible: true })
+    setHasMeasured(true)
+  }
+
+  useLayoutEffect(() => {
+    measureIndicator()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname])
+
+  useEffect(() => {
+    if (!hasMeasured || transitionOn) return
+    const id = requestAnimationFrame(() => setTransitionOn(true))
+    return () => cancelAnimationFrame(id)
+  }, [hasMeasured, transitionOn])
+
+  useEffect(() => {
+    const container = navBarRef.current
+    if (!container) return
+    const observer = new ResizeObserver(() => measureIndicator())
+    observer.observe(container)
+    return () => observer.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function renderNavItem(route: Route, index: number) {
     const Icon = route.icon
     const active = isActive(route.href)
     const href = route.href as Parameters<typeof Link>[0]['href']
     return (
       <Link
         key={route.href}
+        ref={(el) => {
+          navItemRefs.current[index] = el
+        }}
         href={href}
         {...tapActivation(
           () => {
@@ -133,16 +176,6 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
         }`}
         aria-current={active ? 'page' : undefined}
       >
-        {/* iOS-style active indicator — a 3px bar pinned to the top
-         *  edge of the tab. Previous "just change text color to
-         *  primary" was too subtle in karute's theme; this gives a
-         *  clear visual anchor for the active tab. */}
-        {active && (
-          <span
-            aria-hidden
-            className="absolute inset-x-0 top-0 mx-auto h-0.5 w-10 rounded-full bg-primary"
-          />
-        )}
         <Icon className={`h-5 w-5 ${active ? 'stroke-[2.5]' : ''}`} />
         <span className="text-[10px] font-medium leading-none">{label(route.label)}</span>
       </Link>
@@ -152,15 +185,20 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
   return (
     <>
       {/* Slide-up menu sheet for secondary routes */}
-      {menuOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
-          {...tapActivation(() => setMenuOpen(false))}
-        />
-      )}
       <div
-        className={`fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 mx-auto max-w-md rounded-2xl border border-border bg-card p-2 shadow-2xl transition-all duration-200 ${
-          menuOpen ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-2 opacity-0'
+        aria-hidden
+        className={`fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-[opacity,visibility] ${
+          menuOpen
+            ? 'visible opacity-100 duration-(--duration-sheet) ease-(--ease-drawer)'
+            : 'invisible opacity-0 pointer-events-none duration-(--duration-modal) ease-(--ease-out)'
+        }`}
+        {...tapActivation(() => setMenuOpen(false))}
+      />
+      <div
+        className={`fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 mx-auto max-w-md rounded-2xl border border-border bg-card p-2 shadow-2xl transition-[transform,opacity,visibility] ${
+          menuOpen
+            ? 'visible translate-y-0 opacity-100 duration-(--duration-sheet) ease-(--ease-drawer)'
+            : 'invisible pointer-events-none translate-y-2 opacity-0 duration-(--duration-modal) ease-(--ease-out)'
         }`}
       >
         <div className="flex items-center justify-between px-3 pt-2 pb-1">
@@ -218,9 +256,26 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
         className="z-40 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]"
         aria-label="Primary navigation"
       >
-        <div className="relative mx-auto flex h-16 max-w-screen-sm items-stretch px-2">
-          {renderNavItem(PRIMARY[0])}
-          {renderNavItem(PRIMARY[1])}
+        <div
+          ref={navBarRef}
+          className="relative mx-auto flex h-16 max-w-screen-sm items-stretch px-2"
+        >
+          {/* Sliding active-tab indicator — one shared bar, positioned via
+           *  transform against the measured PRIMARY Link, instead of each
+           *  item mounting/unmounting its own (which teleported). */}
+          <span
+            aria-hidden
+            className={`absolute top-0 h-0.5 w-10 rounded-full bg-primary ${
+              indicator.visible ? 'opacity-100' : 'opacity-0'
+            } ${
+              transitionOn
+                ? 'transition-[transform,opacity] duration-200 ease-(--ease-out)'
+                : ''
+            }`}
+            style={{ transform: `translateX(${indicator.x}px)` }}
+          />
+          {renderNavItem(PRIMARY[0], 0)}
+          {renderNavItem(PRIMARY[1], 1)}
 
           {/* Center mic FAB — role-aware per spike's BottomTabRecord-
            *  Button (synqed-karute-design-spike/src/components/layout/
@@ -255,7 +310,7 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
             locale={locale}
           />
 
-          {renderNavItem(PRIMARY[2])}
+          {renderNavItem(PRIMARY[2], 2)}
 
           {/* Menu trigger */}
           <button
@@ -430,7 +485,7 @@ function CenterRecordButton({
             stopRecording()
           })}
           aria-label="録音を停止"
-          className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/30 ring-4 ring-background transition-transform active:scale-95"
+          className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/30 ring-4 ring-background transition-transform duration-(--duration-press) ease-(--ease-out) active:scale-95"
         >
           <span className="absolute inset-0 rounded-full bg-red-500/40 motion-safe:animate-ping" />
           <Square className="relative h-3.5 w-3.5" fill="currentColor" strokeWidth={0} />
@@ -471,7 +526,7 @@ function CenterRecordButton({
             )
           })}
           aria-label="録音画面に戻る"
-          className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 ring-4 ring-background transition-transform active:scale-95"
+          className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 ring-4 ring-background transition-transform duration-(--duration-press) ease-(--ease-out) active:scale-95"
         >
           <span className="absolute inset-0 rounded-full bg-red-500/40 motion-safe:animate-ping" />
           <Mic className="relative h-5 w-5" strokeWidth={2.25} />
@@ -508,7 +563,7 @@ function CenterRecordButton({
               : '/sessions',
           )
         }, closeMenuIfOpen)}
-        className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-black/30 ring-4 ring-background transition-transform hover:scale-105 hover:bg-red-500/90"
+        className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-black/30 ring-4 ring-background transition-transform duration-(--duration-press) ease-(--ease-out) hover:scale-105 hover:bg-red-500/90 active:scale-95"
         aria-label={
           needsAttention > 0
             ? `${ariaLabelIdle}${tInbox('needsAttentionAria', { n: needsAttention })}`
