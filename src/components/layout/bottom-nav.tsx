@@ -154,6 +154,12 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
     if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(() => measureRef.current())
     observer.observe(container)
+    // Also watch each PRIMARY link — flex-1 makes their geometry container-driven
+    // today, but observing them keeps this symmetric with CustomerTabBar and
+    // covers any future layout change (review finding, PR #780).
+    navItemRefs.current.forEach((el) => {
+      if (el) observer.observe(el)
+    })
     return () => observer.disconnect()
   }, [])
 
