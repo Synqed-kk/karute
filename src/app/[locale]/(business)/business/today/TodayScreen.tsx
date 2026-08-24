@@ -214,6 +214,16 @@ export interface TodayProps {
   /** ⚠SETTINGS-BATCH — ⚖ Liam flag 51. The store's room-allocation policy, the
    *  only judgement in the bed solve. A store dial, never a component's opinion. */
   rooms: RoomPolicy
+  /** ⚠SETTINGS-BATCH — ⚖ Liam flag 77 (2026-08-24). Does this store reserve
+   *  turnover time between customers? OFF by default, and the ベッド・設備 group's
+   *  own note is the one piece of copy that describes the CONVENTION rather than
+   *  a block on the board — so it has to hear the dial rather than the day. Read
+   *  on the server off the store's own `cleanup_minutes` (fixtures-today
+   *  `bedSecuredProof` reads the same number for the sentence a booking shows),
+   *  because a store that cleans but holds no bookings yet still shows bed rows
+   *  that WILL carry 清掃, and a board reading its own items would call that
+   *  store bare. */
+  bedCleanupOn: boolean
   /** ⚠SETTINGS-BATCH — ⚖ Liam flag 50(d). May THIS viewer place over a 置けない?
    *  Answered on the server from the store's `overridePolicy` and the operator's
    *  own role and staff_id, so the board never decides authority for itself and
@@ -4473,7 +4483,7 @@ export function TodayScreen(props: TodayProps) {
                           onClick={() => setCollapsed((was) => toggle(was, group))}
                         >
                           <span>{group === 'staff' ? 'スタッフ' : 'ベッド・設備'}</span>
-                          <span>{group === 'staff' ? '勤務・資格・休憩を含む' : '清掃を予約不可時間として表示'}</span>
+                          <span>{group === 'staff' ? '勤務・資格・休憩を含む' : props.bedCleanupOn ? '清掃を予約不可時間として表示' : '予約と予定ブロックを表示'}</span>
                         </button>
                         {groupLanes.map(renderLane)}
                       </div>
