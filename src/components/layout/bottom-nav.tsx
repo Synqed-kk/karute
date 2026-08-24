@@ -271,7 +271,7 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
            *  item mounting/unmounting its own (which teleported). */}
           <span
             aria-hidden
-            className={`absolute top-0 h-0.5 w-10 rounded-full bg-primary ${
+            className={`absolute left-0 top-0 h-0.5 w-10 rounded-full bg-primary ${
               indicator.visible ? 'opacity-100' : 'opacity-0'
             } ${
               transitionOn
