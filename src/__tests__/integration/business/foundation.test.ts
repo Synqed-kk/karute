@@ -364,12 +364,18 @@ describe('the fixture data door', () => {
         'react',
       ],
       'src/app/[locale]/(business)/business/customers/loading.tsx': ['@/business/i18n'],
+      // ⚖ flag 77 — `fixtures-today` joins the list for `bedSecuredProof` and
+      // nothing else: a pure formula, handed the page's OWN lens-clamped
+      // `resources`, so the page still reads its data through the door. Same
+      // shape as 受信トレイ's prop assembler two entries down, which imports the
+      // same module for the same reason.
       'src/app/[locale]/(business)/business/today/page.tsx': [
         './TodayScreen',
         './today.css',
         '@/business/lib/admission',
         '@/business/lib/clock',
         '@/business/lib/data',
+        '@/business/lib/fixtures-today',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/today/TodayScreen.tsx': [

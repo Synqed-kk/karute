@@ -8,9 +8,13 @@
  * BETWEEN surfaces, not spot-checks of single values.
  *
  * Second job: the fixture day has to stay operationally possible (⚖ 8/9). A
- * break outside its shift, a bed turning over with no cleaning time, a card
- * painted inside an absence — every one of those would have the demo teaching
- * Liam something untrue about how the business runs.
+ * break outside its shift, two bookings on one bed, a card painted inside an
+ * absence — every one of those would have the demo teaching Liam something
+ * untrue about how the business runs. (⚖ flag 77 retired one of the originals:
+ * "a bed turning over with no cleaning time" was on this list until Liam ruled
+ * the turnover feature default-OFF. A store that reserves no cleaning time is
+ * now the honest default, not an impossible state — see the flag 77 block at
+ * the foot of this file for what took its place.)
  *
  * NOTE ON RENDER SMOKES: react-dom is deliberately OFF territory's import
  * allowlist (business-isolation.test.ts), so a band is smoke-tested by
@@ -27,12 +31,15 @@ jest.mock('next/navigation', () => ({
   }),
 }))
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import { jstDayKey, jstMinuteOfDay } from '@/business/lib/clock'
 import { appointments, operator, reserveSync, STORE_A, STORE_B } from '@/business/lib/fixtures'
 import {
   absence,
+  bedSecuredProof,
   blocks,
   boardNow,
   decisions,
@@ -44,7 +51,7 @@ import {
   shifts,
   staffQualifications,
 } from '@/business/lib/fixtures-today'
-import { sellLayerFor } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { allocateBed, applyMoves, sellLayerFor } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { money } from '@/business/lib/canon-logic/pricing'
 import {
   availableMinutes,
@@ -59,6 +66,7 @@ import {
   place,
   suppressedByAbsence,
   utilization,
+  type BoardLane,
   type BuildInput,
 } from '@/business/lib/today-board'
 import * as data from '@/business/lib/data'
@@ -227,12 +235,21 @@ describe('the board day is operationally possible (⚖ 8/9 demo-data-product-tru
     expect(lanes.filter((l) => l.group === 'staff').every((l) => l.roomClass === null)).toBe(true)
   })
 
+  // ⚖ flag 77 — this store reserves NO turnover time, so the scene that proves
+  // the mechanic has to come from a store that opted in. `OPTED_IN` is that
+  // store: the same day, the same rooms, one dial turned up. Every 清掃 assertion
+  // in this suite runs against it, so the mechanic stays covered by exercise
+  // rather than by a fixture the product no longer has (packet §4).
+  const OPTED_IN = resources.map((r) => ({ ...r, cleanup_minutes: 30 }))
+
   it('the derived 清掃 block never overlaps the next booking on the same bed', () => {
-    for (const r of resources) {
+    let minted = 0
+    for (const r of OPTED_IN) {
       const on = today()
         .filter((a) => a.resource_id === r.id && a.status !== 'cancelled')
         .map((a) => ({ id: a.id, start: minutesOf(a.starts_at), end: minutesOf(a.ends_at) }))
       const cleans = cleanupBlocks(on, r.cleanup_minutes, operatingHours)
+      minted += cleans.length
       for (const c of cleans) {
         expect(c.end).toBeGreaterThan(c.start)
         expect(c.end).toBeLessThanOrEqual(operatingHours.close)
@@ -241,6 +258,9 @@ describe('the board day is operationally possible (⚖ 8/9 demo-data-product-tru
         }
       }
     }
+    // …and the scene is a real one: a dial at 0 would make every loop above
+    // vacuous, which is exactly the hollow test this round had to avoid.
+    expect(minted).toBeGreaterThan(0)
   })
 
   it('a 販売可能枠 is genuinely free — staff, bed, shift and break all clear', () => {
@@ -477,14 +497,16 @@ describe('今日の運営 screen', () => {
     expect(p.nowLabel).toBe('13:24')
   })
 
-  it('F — staff lanes and bed lanes both render, with cards, breaks, blocks and cleanup', async () => {
+  it('F — staff lanes and bed lanes both render, with cards, breaks and blocks', async () => {
     const p = await board(STORE_A)
     const staffLanes = p.lanes.filter((l) => l.group === 'staff')
     const bedLanes = p.lanes.filter((l) => l.group === 'beds')
     expect(staffLanes.length).toBeGreaterThanOrEqual(4)
     expect(bedLanes.length).toBeGreaterThanOrEqual(2)
     const kinds = new Set(p.lanes.flatMap((l) => l.items.map((i) => i.kind)))
-    expect([...kinds].sort()).toEqual(['absence', 'block', 'booking', 'break', 'cleanup'])
+    // ⚖ flag 77 — no 'cleanup': the store's dial is off, so the turnover the
+    // board used to paint is not a thing the day has (C1 pins the emptiness).
+    expect([...kinds].sort()).toEqual(['absence', 'block', 'booking', 'break'])
     // Every card is placed inside the board, with real width.
     for (const item of p.lanes.flatMap((l) => l.items)) {
       expect(item.x).toBeGreaterThanOrEqual(0)
@@ -812,5 +834,214 @@ describe('今日の運営 screen', () => {
     expect(p.hold).not.toBeNull()
     expect(p.kpi.utilization).not.toBe('0%')
     jest.setSystemTime(new Date('2026-08-19T00:00:00Z'))
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ Liam flag 77 (2026-08-24) — 清掃 IS A DIAL, AND THIS STORE HAS IT OFF
+//
+// "I never asked for it. It's in the way… Have it turned off by default."
+// The turnover feature is default-OFF and the demo store's opt-in is overturned,
+// so the board carries no 清掃 anywhere and no copy claims cleaning time is
+// being held. The MECHANIC is not deleted — a store that cleans opts in — so
+// every pin below runs the bare store against `OPTED_IN`, the same day with the
+// dial turned up, and the pair is what proves each half.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ flag 77 — the store reserves no turnover time', () => {
+  /** The same fixture day on a store that DID opt in — the control every pin
+   *  below is read against, built through `buildLanes` exactly as the page does
+   *  so the mechanic is exercised end to end rather than unit-poked. */
+  const OPTED_IN = 30
+
+  async function lanesAt(cleanupMinutes: number): Promise<BoardLane[]> {
+    const lens = STORE_A
+    const [custs, appts, menus, staff, beds, planes, shell, storeOptions, staffStores] = await Promise.all([
+      data.listCustomers(lens), data.listAppointments(lens), data.listMenus(lens), data.listStaff(lens),
+      data.listResources(lens), data.readDayPlanes(lens, jstDayKey(new Date())), data.readShellIdentity(),
+      data.listStoreOptions(), data.readStaffStores(lens),
+    ])
+    const input: BuildInput = {
+      appointments: appts, customers: custs, menus, staff,
+      resources: beds.map((r) => ({ ...r, cleanup_minutes: cleanupMinutes })),
+      shifts: planes.shifts, qualifications: planes.staffQualifications,
+      staffListPrice: planes.staffListPrice, staffStores, absence: planes.absence,
+      blocks: planes.blocks, sellSlots: planes.sellSlots, decisions: planes.decisions,
+      hours: planes.operatingHours, dayKey: jstDayKey(new Date()),
+      operatorStaffId: shell.operator.staff_id,
+      storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
+      crossStore: false,
+    }
+    return buildLanes(input, dayBookings(input))
+  }
+
+  // ── C1 — nothing 清掃-shaped reaches a lane ───────────────────────────────
+
+  it('C1 — a dial at or below zero mints no block at all, which is why the data fix is the whole fix', () => {
+    // today-board :102-103 — `end = min(bookingEnd + minutes, ceiling)`, pushed
+    // only `if (end > bookingEnd)`. At 0 the sum IS the booking's end, so the
+    // guard is false for every booking and the array comes back empty. This is
+    // the REQUIRED SEMANTIC the packet named, asserted rather than reasoned
+    // about, because `cleanupBlocks` lives in a file this round may not edit and
+    // another lane has open — if that guard ever moves, this goes red first.
+    const day = [{ id: 'a', start: 600, end: 660 }, { id: 'b', start: 700, end: 760 }]
+    expect(cleanupBlocks(day, 0, operatingHours)).toEqual([])
+    expect(cleanupBlocks(day, -30, operatingHours)).toEqual([])
+    expect(cleanupBlocks(day, 30, operatingHours).length).toBe(2)
+  })
+
+  it('C1 — the served board mints no 清掃: no item, no `-cleanup` key, no label', async () => {
+    for (const store of [STORE_A, STORE_B]) {
+      const p = await board(store)
+      const items = p.lanes.flatMap((l) => l.items)
+      // The board is not empty — an empty board would pass every line below.
+      expect(items.filter((i) => i.kind === 'booking').length).toBeGreaterThan(0)
+      expect(items.filter((i) => i.kind === 'cleanup')).toEqual([])
+      expect(items.filter((i) => i.key.endsWith('-cleanup'))).toEqual([])
+      for (const i of items) {
+        expect(i.title).not.toContain('清掃')
+        expect(i.label).not.toContain('清掃')
+      }
+    }
+  })
+
+  it('C1 — and the CLIENT board re-derives none either: a dragged card grows no tail', async () => {
+    const p = await board(STORE_A)
+    const hours = { open: p.hours.open, close: p.hours.close }
+    // `withTrailingCleanup` is the client's own re-derivation and it runs on
+    // EVERY board, not only a dragged one — so a resting board and a staged move
+    // both have to come back bare. It keys off the server's own `-cleanup` rows,
+    // which is exactly why the data fix reaches it: there are none to key off.
+    const held = p.lanes.flatMap((l) => l.items).find((i) => i.kind === 'booking' && i.caseId)!
+    const lane = p.lanes.find((l) => l.items.includes(held))!
+    const staged = applyMoves(
+      p.lanes,
+      { [held.caseId!]: { laneKey: lane.key, x: held.x + 5, w: held.w } },
+      [], [], hours,
+    )
+    for (const board of [applyMoves(p.lanes, {}, [], [], hours), staged]) {
+      const items = board.flatMap((l) => l.items)
+      expect(items.filter((i) => i.kind === 'cleanup')).toEqual([])
+      for (const i of items) expect(i.label).not.toContain('清掃')
+    }
+  })
+
+  // ── C2 — the freed tail is sellable ───────────────────────────────────────
+
+  it('C2 — the half hour the tail used to hold is offered to the wall', async () => {
+    // ONE concrete scene: apt-12 runs 10:00–11:00 on ベッド1. Its turnaround used
+    // to stand 11:00–11:30, so the earliest thing the 販売可能枠 layer could
+    // offer on that bed began at 11:30. With the dial off the room is free at
+    // 11:00 and the layer says so — the space came back as product, which is the
+    // whole point of turning the feature off rather than just hiding the paint.
+    const layerOn = (lanes: BoardLane[]) =>
+      sellLayerFor(lanes, operatingHours, {
+        gridMin: 30, nowMinute: null, locked: [], showPrice: true, hi: 9000, hqMin: 5000, depth: 9,
+      })
+    const bedOf = (lanes: BoardLane[]) => lanes.find((l) => l.key === 'bed-01')!
+    const covers = (lanes: BoardLane[], at: number) =>
+      bedOf(lanes).items.some((i) => i.startMin <= at && i.endMin > at)
+    const offerAt = (lanes: BoardLane[], at: number) =>
+      layerOn(lanes).bands.some((b) => b.group === 'beds' && b.resourceKey === 'bed-01' && b.hStart <= at && b.hEnd > at)
+
+    const bare = await lanesAt(0)
+    const cleaning = await lanesAt(OPTED_IN)
+    // The control: with the dial up, 11:00 on ベッド1 is held and unsellable.
+    expect(covers(cleaning, 11 * 60)).toBe(true)
+    expect(offerAt(cleaning, 11 * 60)).toBe(false)
+    // Shipped: nothing stands there and the layer offers it.
+    expect(covers(bare, 11 * 60)).toBe(false)
+    expect(offerAt(bare, 11 * 60)).toBe(true)
+    // The booking itself is untouched — the room is free BECAUSE the tail is
+    // gone, not because the session moved or vanished.
+    expect(bedOf(bare).items.some((i) => i.kind === 'booking' && i.endMin === 11 * 60)).toBe(true)
+  })
+
+  // ── C3 — the sentence reads the dial ──────────────────────────────────────
+
+  it('C3 — a confirmed booking says it holds the bed, and says 清掃N分 only when N exists', async () => {
+    const p = await board(STORE_A)
+    const withBed = Object.values(p.cases).filter((c) =>
+      c.proofs.some((row) => row.includes('を確保') || row.includes('確保')),
+    )
+    expect(withBed.length).toBeGreaterThan(0)
+    for (const c of withBed) {
+      for (const row of c.proofs) expect(row).not.toContain('清掃')
+    }
+    // The 仮押さえ bar reads the same rows, so it cannot say something else.
+    expect(p.hold!.checks.some((row) => row.includes('を確保'))).toBe(true)
+    for (const row of p.hold!.checks) expect(row).not.toContain('清掃')
+    // And the sentence is a FORMULA, not a stripped string: a store that cleans
+    // gets its own minutes back — 30 here, 45 for a store that says 45.
+    expect(bedSecuredProof(resources, 'bed-01')).toBe('ベッド1を確保')
+    const opted = resources.map((r) => ({ ...r, cleanup_minutes: r.id === 'bed-01' ? 45 : 30 }))
+    expect(bedSecuredProof(opted, 'bed-01')).toBe('ベッド1と清掃45分を確保')
+    expect(bedSecuredProof(opted, 'bed-02')).toBe('ベッド2と清掃30分を確保')
+    // …and the ベッド・設備 group's own note tells the truth about the same dial.
+    expect(p.bedCleanupOn).toBe(false)
+  })
+
+  it('C3 — the ベッド・設備 group note reads the dial rather than asserting 清掃', () => {
+    const screen = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
+      'utf8',
+    )
+    // The one piece of copy that describes the CONVENTION rather than a block on
+    // the board. Gated on the dial, so a store that cleans keeps its sentence
+    // and a store that does not never promises 予約不可時間 it is not holding.
+    expect(screen).toContain(
+      "props.bedCleanupOn ? '清掃を予約不可時間として表示' : '予約と予定ブロックを表示'",
+    )
+  })
+
+  // ── C4 — the mechanic still works for a store that opts in ────────────────
+
+  it('C4 — an opted-in store still mints tails, and a booking never blocks itself with its own', async () => {
+    const cleaning = await lanesAt(OPTED_IN)
+    const tails = cleaning.flatMap((l) => l.items).filter((i) => i.kind === 'cleanup')
+    expect(tails.length).toBeGreaterThan(0)
+    for (const t of tails) {
+      expect(t.key.endsWith('-cleanup')).toBe(true)
+      expect(t.title).toBe('清掃')
+      expect(t.label).toContain('清掃・予約不可')
+    }
+    // allocateBed's own-tail exclusion: apt-12 owns ベッド1 10:00–11:00 and its
+    // turnaround stands 11:00–11:30. Nudged 30 minutes later it lands ON its own
+    // tail, and the allocator must still hand it the room it is already in.
+    const policy = opsConfig.roomPolicy
+    const stores = [STORE_A]
+    expect(
+      allocateBed(cleaning, {
+        id: 'apt-12', currentBed: 'bed-01', stores, vip: false,
+        start: 10 * 60 + 30, end: 11 * 60 + 30, policy,
+      }),
+    ).toEqual({ laneKey: 'bed-01', refusal: null })
+    // …and someone ELSE'S tail is a genuine wall: the same span, without the
+    // exclusion, is refused the room.
+    expect(
+      allocateBed(cleaning, {
+        id: null, currentBed: 'bed-01', stores, vip: false,
+        start: 10 * 60 + 30, end: 11 * 60 + 30, policy,
+      }).laneKey,
+    ).not.toBe('bed-01')
+  })
+
+  // ── C5 — no surface hardcodes the number ──────────────────────────────────
+
+  it('C5 — no 今日の運営 surface writes 清掃30分 (or any fixed 清掃N分) into a string', () => {
+    const SURFACES = [
+      'src/app/[locale]/(business)/business/today/page.tsx',
+      'src/app/[locale]/(business)/business/today/TodayScreen.tsx',
+      'src/app/[locale]/(business)/business/today/today-interactions.ts',
+      'src/business/lib/fixtures-today.ts',
+      'src/business/lib/today-board.ts',
+    ]
+    for (const file of SURFACES) {
+      const src = readFileSync(join(process.cwd(), file), 'utf8')
+      // The ONE legal spelling is the interpolation inside `bedSecuredProof`,
+      // which reads the store's own number. A literal digit run between 清掃 and
+      // 分 is the dead lever this round removed.
+      expect({ file, hits: src.match(/清掃\s*\d+\s*分/g) ?? [] }).toEqual({ file, hits: [] })
+    }
   })
 })

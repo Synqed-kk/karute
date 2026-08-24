@@ -105,7 +105,16 @@ export const absence: FixtureAbsence = {
 
 /** ベッド・設備 (ask T-04). `cleanup_minutes` is the turnaround the board paints
  *  as 予約不可 after every booking on the resource — a rule, not a list of
- *  hand-placed blocks, so a bed can never be shown turning over in zero time. */
+ *  hand-placed blocks, so a bed can never be shown turning over in zero time.
+ *
+ *  ⚖ Liam flag 77 (2026-08-24) — AND THE DIAL IS OFF BY DEFAULT. 0 means the
+ *  store does not reserve turnover time at all: `cleanupBlocks` mints nothing
+ *  (today-board :102-103 — `end` can never exceed the booking's own end), so the
+ *  bed rows carry the bookings and nothing else. A store that DOES clean between
+ *  customers opts in by setting its own minutes here, and every surface reads
+ *  the number rather than assuming one (`bedSecuredProof` below is the only
+ *  spelling of the sentence). The 店舗設定 control ships with the settings
+ *  batch; this is the data it will write. */
 export interface FixtureResource {
   id: string
   store_id: string
@@ -125,11 +134,32 @@ export interface FixtureResource {
 export type RoomClass = 'standard' | 'private'
 
 export const resources: FixtureResource[] = [
-  { id: 'bed-01', store_id: STORE_A, name: 'ベッド1', note: '施術室A', cleanup_minutes: 30, room_class: 'standard' },
-  { id: 'bed-02', store_id: STORE_A, name: 'ベッド2', note: '施術室A', cleanup_minutes: 30, room_class: 'standard' },
-  { id: 'bed-03', store_id: STORE_A, name: 'ベッド3', note: '個室 / VIP対応', cleanup_minutes: 30, room_class: 'private' },
-  { id: 'bed-04', store_id: STORE_B, name: 'ベッド1', note: '施術室B', cleanup_minutes: 30, room_class: 'standard' },
+  { id: 'bed-01', store_id: STORE_A, name: 'ベッド1', note: '施術室A', cleanup_minutes: 0, room_class: 'standard' },
+  { id: 'bed-02', store_id: STORE_A, name: 'ベッド2', note: '施術室A', cleanup_minutes: 0, room_class: 'standard' },
+  { id: 'bed-03', store_id: STORE_A, name: 'ベッド3', note: '個室 / VIP対応', cleanup_minutes: 0, room_class: 'private' },
+  { id: 'bed-04', store_id: STORE_B, name: 'ベッド1', note: '施術室B', cleanup_minutes: 0, room_class: 'standard' },
 ]
+
+/** ⚖ Liam flag 77 (2026-08-24) — WHAT A CONFIRMED BOOKING ACTUALLY HOLDS, in
+ *  one sentence, from the dial. The 仮押さえ bar, the 判断 cards' proof box and
+ *  every booking inspector promised a half hour of cleaning with the number
+ *  written into the string itself, which is flag 53's dead-lever disease one
+ *  level down: the copy kept reserving cleaning time after the store stopped
+ *  reserving any. A store that turns its beds over states the minutes it really
+ *  reserves; a store that does not says it holds the bed, and nothing else.
+ *
+ *  It lives beside `resources` because that is where the number lives, and there
+ *  is ONE spelling of it so the demo store's decisions and the server's inspector
+ *  can never disagree about what was secured. Callers pass their OWN resource
+ *  list — the page's is lens-clamped and this file's is the whole fixture world;
+ *  neither is a second door to the other's data. */
+export function bedSecuredProof(from: FixtureResource[], resourceId: string): string {
+  const bed = from.find((r) => r.id === resourceId)
+  if (!bed) return '設備を確保'
+  return bed.cleanup_minutes > 0
+    ? `${bed.name}と清掃${bed.cleanup_minutes}分を確保`
+    : `${bed.name}を確保`
+}
 
 /** Non-booking board blocks (ask T-05): not appointments (no customer), not
  *  shifts. 休憩 is NOT here — it comes from the shift row, so a break has one
@@ -329,7 +359,7 @@ export const decisions: FixtureDecision[] = [
     status: '担当変更が必要', status_tone: '',
     detail: '見本 はなこ欠勤 / 見本 しろう + ベッド1が成立',
     proof_title: '見本 しろう + ベッド1が成立',
-    proofs: ['整体資格が一致', '勤務18:00まで / 休憩外', 'ベッド1と清掃30分を確保', '予約時価格を保持'],
+    proofs: ['整体資格が一致', '勤務18:00まで / 休憩外', bedSecuredProof(resources, 'bed-01'), '予約時価格を保持'],
     notification: 'unsent',
   },
   {
@@ -351,7 +381,7 @@ export const decisions: FixtureDecision[] = [
     status: '安全に公開可能', status_tone: 'public',
     detail: '見本 しろう + ベッド2 / 新規オンライン単発',
     proof_title: '公開しても崩れないこと',
-    proofs: ['勤務時間内 / 休憩外', 'ベッド2と清掃30分を確保', '既存予約の変更なし', 'HQ範囲内の価格'],
+    proofs: ['勤務時間内 / 休憩外', bedSecuredProof(resources, 'bed-02'), '既存予約の変更なし', 'HQ範囲内の価格'],
     notification: 'sent',
   },
   {
