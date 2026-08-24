@@ -119,6 +119,29 @@ describe('GET /api/app/v1/karute/reveal', () => {
     expect(karuteRecordsList).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-A' }))
   })
 
+  // Greptile PR #776 (adjudicated, comment-only fix — no behavior change):
+  // a viewAll caller with NO store-id header has a genuinely null
+  // clamp.storeId (resolveStoreForRequest has no primary-store fallback the
+  // way the web action's resolveStoreScope does), so the zero-karute check
+  // runs business-wide too — matching this SAME caller's already
+  // business-wide candidate search, not a store-scoping gap. A candidate
+  // with karute in ANY store must still be suppressed, proving the check
+  // actually runs rather than being skipped.
+  it('viewAll actor with NO store-id header → both the search and the zero-karute check run business-wide; a cross-store karute still suppresses the candidate', async () => {
+    storeClamp.current = { storeId: null, allowedStoreIds: null }
+    customersList.mockResolvedValueOnce({
+      customers: [{ id: 'cust-1', name: '田中太郎', karute_number: null, created_at: '2026-01-01T00:00:00.000Z' }],
+      total: 1,
+    })
+    karuteRecordsList.mockResolvedValueOnce({ karute_records: [{}], total: 1 })
+    const res = await GET(req('田中'), route)
+    expect(res.status).toBe(200)
+    expect(customersList).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
+    expect(karuteRecordsList).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
+    const body = (await res.json()) as { candidate: unknown }
+    expect(body.candidate).toBeNull()
+  })
+
   it('fail-closed: a clamp with no resolvable store never reaches an unscoped read', async () => {
     storeClamp.current = { storeId: null, allowedStoreIds: ['store-A'] }
     const res = await GET(req('田中'), route)

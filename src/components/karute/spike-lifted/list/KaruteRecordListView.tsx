@@ -154,11 +154,19 @@ export function KaruteRecordListView({
     setRevealCandidate('candidate' in result ? result.candidate : null)
   }, 300)
   useEffect(() => {
+    // Bump + clear on EVERY change, synchronously, BEFORE (re)scheduling the
+    // debounce — not just when the query empties (Greptile PR #776: the id
+    // used to advance only when the debounced callback FIRED, so query A's
+    // in-flight response could still render under query B during B's 300ms
+    // debounce window — worst case, カルテを作成 preselects the wrong
+    // customer). Invalidating immediately means A's response is already
+    // stale the instant the user types past it, whether or not B's own
+    // fetch has fired yet.
+    revealRequestId.current++
+    setRevealCandidate(null)
     const q = searchQuery.trim()
     if (!q) {
-      revealRequestId.current++ // invalidate any in-flight response
       fetchReveal.cancel()
-      setRevealCandidate(null)
       return
     }
     fetchReveal(q)

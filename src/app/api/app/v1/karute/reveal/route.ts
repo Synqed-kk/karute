@@ -1,11 +1,26 @@
 // Facade: カルテ tab search-reveal (PR-1b 検索リビール, packet karute-tab
 // restructure). Web twin of src/actions/karute.ts's revealNoKaruteCustomer —
 // same store-scoping rules, mirrored via resolveStoreForRequest ('store-id'
-// header, fail-closed) instead of the cookie-bound resolveStoreScope. The
-// zero-karute check is ALWAYS store-scoped (never enrichment(), which is
-// business-wide by declaration). Read-only → 'skip' in FACADE_AUDIT_MAP
-// (list render ≠ a view, same wayfinding rule as customers.list /
-// reassign-options).
+// header, fail-closed) instead of the cookie-bound resolveStoreScope.
+//
+// The zero-karute check is scoped to the caller's STORE LENS, not
+// unconditionally store-scoped — for a viewAll caller with NO store-id
+// header, clamp.storeId is genuinely null (resolveStoreForRequest has no
+// primary-store fallback the way the web action's resolveStoreScope does;
+// store-scope.ts:23 — "an unset cookie resolves to the primary store"), so
+// the check runs business-wide same as the web action would if it ever hit
+// that combination. This is deliberate, not a gap: that SAME caller's
+// candidate search above is ALSO business-wide in this case (enforceStore
+// is false for viewAll), so a customer with a cross-store karute already
+// appears in their candidate list — checking only one store would "reveal"
+// someone the list already shows as having a session, contradicting the
+// page. Scoping the check tighter than the search would introduce exactly
+// that contradiction (Greptile PR #776, adjudicated 2026-08-25).
+//
+// Never enrichment(), which is business-wide by declaration for an
+// unrelated reason (no params at all, not a lens choice). Read-only →
+// 'skip' in FACADE_AUDIT_MAP (list render ≠ a view, same wayfinding rule as
+// customers.list / reassign-options).
 
 import { z } from 'zod'
 import { facadeHandler, ok } from '@/lib/app-api/handler'
@@ -53,6 +68,9 @@ export const GET = facadeHandler('karute.reveal', async (ctx) => {
     page_size: 5,
   })
   for (const c of res.customers) {
+    // Scoped to clamp.storeId when set, business-wide when it's genuinely
+    // null (viewAll + no header) — matches the search's own lens, see the
+    // file-header comment for why that's deliberate, not a gap.
     const karute = await synqed.karuteRecords.list({
       customer_id: c.id,
       store_id: clamp.storeId ?? undefined,
