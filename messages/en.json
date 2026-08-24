@@ -326,7 +326,6 @@
     "title": "Karute",
     "stats": {
       "thisMonth": "This month · {n}",
-      "last14": "Last 14 days · {n}",
       "showing": "{n} showing"
     },
     "newKarute": "New Karute",

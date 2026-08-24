@@ -326,7 +326,6 @@
     "title": "カルテ",
     "stats": {
       "thisMonth": "今月 ・ {n}",
-      "last14": "直近14日 ・ {n}",
       "showing": "{n}件表示"
     },
     "newKarute": "新規カルテ",
