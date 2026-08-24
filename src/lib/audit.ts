@@ -273,6 +273,7 @@ export type FacadeEndpointKey =
   | 'karute.reassign'
   | 'karute.reassignOptions'
   | 'karute.regenerate'
+  | 'karute.reveal'
   | 'karute.save'
   | 'karute.summary.update'
   | 'orgSettings.recordingAutostart'
@@ -517,6 +518,9 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // path) — a list GET, same wayfinding skip every other list carries
   // (customers.list above).
   'karute.reassignOptions': { kind: 'skip', category: 'karute', action: '' },
+  // Search-reveal (PR-1b): list render, not a person-record open — same
+  // wayfinding rule as customers.list / karute.reassignOptions above.
+  'karute.reveal': { kind: 'skip', category: 'karute', action: '' },
   'karute.entryEdits.list': { kind: 'view', category: 'karute', action: 'karute.entry_edits_view', targetType: 'karute' },
   'customer.ai.preSessionBrief': { kind: 'view', category: 'customer', action: 'customer.brief_view', targetType: 'customer' },
   'customer.ai.bodyPrediction': { kind: 'view', category: 'customer', action: 'customer.ai_prediction_view', targetType: 'customer' },

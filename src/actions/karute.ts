@@ -1415,3 +1415,75 @@ export async function listEntryEditHistory(
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
 }
+
+/** The カルテ tab search-reveal's ONE row shape (PR-1b 検索リビール). */
+export interface KaruteRevealCandidate {
+  id: string
+  name: string
+  code: string
+  registeredDate: string
+}
+
+/**
+ * カルテ tab search-reveal (PR-1b 正直ヘッダー + 検索リビール): the mock's
+ * approved そっと1行だけ — when a search term matches a customer who has NO
+ * karute yet in the active store, this returns that ONE customer so the list
+ * can show a single muted row + カルテを作成 CTA instead of hiding them
+ * entirely. Never more than one — the first qualifying candidate wins.
+ *
+ * Store scoping (⚖ adversarial-round ruling, packet §PR-1b):
+ *   - the SEARCH itself copies list-all.ts's own enforceStore gate verbatim
+ *     (list-all.ts:58-66) — business-wide unless the viewer is RBAC-clamped,
+ *     in which case the store filter stays on even while searching (a
+ *     branch-restricted staff can't pull another store's customer this way).
+ *   - the zero-karute CHECK is ALWAYS scoped to the active store, regardless
+ *     of whether the search itself was business-wide — a customer with
+ *     karute at another branch still has none HERE, so they still reveal.
+ *   - customers.enrichment() is BUSINESS-WIDE by declaration and is BANNED
+ *     for this check; only a direct store-scoped karuteRecords.list qualifies.
+ * `degraded` scope is intentionally NOT special-cased here (store-scope.ts's
+ * own doc: reads ignore it, only a WRITE clamp fails closed on it — this is
+ * a pure read, same posture as the sessions screen / page reads).
+ */
+export async function revealNoKaruteCustomer(
+  query: string,
+): Promise<{ candidate: KaruteRevealCandidate | null } | { error: string }> {
+  try {
+    await requireCapability('customers.view')
+    const q = query.trim()
+    if (!q) return { candidate: null }
+
+    const scope = await resolveStoreScope()
+    const enforceStore = scope.allowedStoreIds != null
+    // Defensive, mirrors list-all.ts's own "clamped ⇒ storeId non-null"
+    // backstop: a clamp with no resolvable store must never fall through to
+    // an unscoped search.
+    if (enforceStore && !scope.storeId) return { candidate: null }
+
+    const synqed = await getSynqedClient()
+    const res = await synqed.customers.list({
+      search: q,
+      store_id: enforceStore ? (scope.storeId ?? undefined) : undefined,
+      page_size: 5,
+    })
+    for (const c of res.customers) {
+      const karute = await synqed.karuteRecords.list({
+        customer_id: c.id,
+        store_id: scope.storeId ?? undefined,
+        page_size: 1,
+      })
+      if ((karute.total ?? 0) === 0) {
+        const code =
+          typeof c.karute_number === 'number' && c.karute_number > 0
+            ? `#${String(c.karute_number).padStart(5, '0')}`
+            : '#00000'
+        return {
+          candidate: { id: c.id, name: c.name, code, registeredDate: c.created_at },
+        }
+      }
+    }
+    return { candidate: null }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}

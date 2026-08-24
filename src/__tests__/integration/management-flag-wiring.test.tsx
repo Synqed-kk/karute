@@ -80,6 +80,17 @@ jest.mock('@/components/customers/redesign/list/CustomersStaffFilter', () => ({
 jest.mock('@/components/customers/redesign/list/SegmentedFilterBar', () => ({
   SegmentedFilterBar: () => null,
 }))
+// KaruteRecordListView imports revealNoKaruteCustomer directly (PR-1b 検索
+// リビール) — unlike NewKaruteDialog's own @/actions/karute import (inert
+// here since NewKaruteDialog itself is mocked below), THIS import runs for
+// real because KaruteRecordListView is the component under test. The real
+// 'use server' module pulls in next/cache's unstable_cache, which needs a
+// DOM API (TextEncoder) this jsdom suite doesn't polyfill — stub the one
+// export this render path touches, same narrow-stub convention as every
+// other heavy module above.
+jest.mock('@/actions/karute', () => ({
+  revealNoKaruteCustomer: jest.fn(async () => ({ candidate: null })),
+}))
 
 type BookingProps = {
   staff?: { id: string; isManagement?: boolean }[]

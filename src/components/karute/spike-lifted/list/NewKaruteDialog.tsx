@@ -22,7 +22,7 @@
 // pair the recording flow uses (SaveKaruteFlow / RecordingPanel),
 // so walk-in customers can be created inline.
 
-import { useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useTranslations } from 'next-intl'
 
 import {
@@ -58,6 +58,10 @@ interface NewKaruteDialogProps {
   customers: CustomerOption[]
   /** Viewer's staff id — pre-selects the staff dropdown when known. */
   defaultStaffId?: string | null
+  /** Customer id to pre-select on open (PR-1b 検索リビール's カルテを作成
+   *  button) — looked up against `customers` so an id that isn't in the
+   *  list (timing edge case) degrades to no preselect rather than crashing. */
+  preselectedCustomerId?: string | null
 }
 
 type CustomerFlowState = 'combobox' | 'quick-create'
@@ -77,6 +81,7 @@ export function NewKaruteDialog({
   staffList,
   customers,
   defaultStaffId = null,
+  preselectedCustomerId = null,
 }: NewKaruteDialogProps) {
   const t = useTranslations('karute.recordList.newKaruteDialog')
 
@@ -104,6 +109,16 @@ export function NewKaruteDialog({
     () => customerList.find((c) => c.id === selectedCustomerId) ?? null,
     [customerList, selectedCustomerId],
   )
+
+  // Preselect on open (PR-1b 検索リビール's カルテを作成 button). A miss
+  // (the candidate isn't in `customers`, a timing edge case) leaves the
+  // combobox blank rather than crashing — reset() below still clears this on
+  // close, so the top "+ 新規カルテ" CTA never inherits a stale preselect.
+  useEffect(() => {
+    if (open && preselectedCustomerId) {
+      setSelectedCustomerId(preselectedCustomerId)
+    }
+  }, [open, preselectedCustomerId])
 
   const canSubmit =
     !!selectedCustomer &&
