@@ -282,10 +282,30 @@ export function KaruteRecordListView({
     try {
       const res = await loadKaruteWindow({ olderThan: windowStart, loadedCount })
       // SUPERSEDED: a purge rewound the walk under us. Discard the ENTIRE
-      // result — no rows, no boundary, no counts, no announcement — and leave
-      // loadError alone: this request didn't fail, it stopped being relevant.
-      // The restore walk the purge seeded is already fetching the truth.
-      if (gen !== fetchGen.current) return
+      // result — no rows, no boundary, no counts, no announcement — because it
+      // describes a state that no longer exists.
+      //
+      // But a discarded request must not become a DEAD TAP. `sinceParam` is
+      // only written once a window has actually landed, so a null one on this
+      // tap's render means the purge seeded `restoreTarget` with null too, and
+      // the restore effect will exit without replaying anything: nothing else
+      // is coming. For a user-initiated tap (`announce`) that is exactly the
+      // case where the retry line is the honest answer — the request really
+      // did not produce the rows they asked for, and tapping again really does
+      // work. No new string, no replay machinery.
+      //
+      // CEILING (deliberate): the sibling case — a superseded tap with
+      // `sinceParam` already set — stays silent. The re-walk restores their
+      // DEPTH but not the one extra window that tap was reaching for, so
+      // strictly they lost something too. It is left unannounced because rows
+      // are visibly moving during the re-walk and the button is still there:
+      // a failure line mid-restore would read as "this is broken" when it is
+      // in fact busy, and the next tap gets them the window. Noted in the lane
+      // queue rather than papered over here.
+      if (gen !== fetchGen.current) {
+        if (announce && sinceParam === null) setLoadError(true)
+        return
+      }
       if ('error' in res) {
         // Clear restoreTarget so the restore effect (deps include
         // loadingMore) doesn't re-fire fetchOlder against a persistently
@@ -317,8 +337,13 @@ export function KaruteRecordListView({
       // failure) rather than resolve to { error }. Same recovery as above —
       // and the same staleness rule: a SUPERSEDED request's failure is not
       // this list's failure, and clearing restoreTarget here would strand the
-      // purge's re-walk before it ever starts.
-      if (gen !== fetchGen.current) return
+      // purge's re-walk before it ever starts. Same dead-tap rule too — see
+      // the result path above for why a null `sinceParam` means nothing is
+      // coming to replace this tap.
+      if (gen !== fetchGen.current) {
+        if (announce && sinceParam === null) setLoadError(true)
+        return
+      }
       setLoadError(true)
       setRestoreTarget(null)
     } finally {

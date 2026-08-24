@@ -563,3 +563,115 @@ describe('a purge invalidates an in-flight fetch (fix round 4)', () => {
     await waitFor(() => expect(loadMoreButton().textContent).toContain('7月29日'))
   })
 })
+
+// Greptile PR #779 P1 (round 7). The generation guard correctly discards a
+// response the purge superseded — but on the user's FIRST tap `sinceParam` is
+// still null, so the purge seeds restoreTarget with null and the restore effect
+// exits without replaying. The tap produced nothing and said nothing: a dead
+// tap. The existing retry line is the honest answer.
+describe('a superseded FIRST tap says so instead of dying silently (fix round 7)', () => {
+  /** Hang the tap, then purge mid-flight, then land the superseded response. */
+  const supersedeInFlight = async () => {
+    let resolveStale: (v: unknown) => void = () => {}
+    loadKaruteWindow.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStale = resolve
+        }),
+    )
+    const view = renderList()
+    fireEvent.click(loadMoreButton())
+    await waitFor(() => expect(loadKaruteWindow).toHaveBeenCalled())
+    await act(async () => {
+      view.rerender(listEl({ total: 8 }))
+    })
+    await act(async () => {
+      resolveStale({
+        items: [item('k99', '2026-06-01', '亡霊 花子')],
+        windowStart: '2026-06-01',
+        freshStoreTotal: 99,
+        hasMore: true,
+      })
+    })
+    return view
+  }
+
+  it('discards the response AND shows the retry line — the tap is never silently swallowed', async () => {
+    await supersedeInFlight()
+
+    // The superseded payload never landed…
+    expect(screen.queryByText('亡霊 花子')).not.toBeInTheDocument()
+    // …and nothing replaced it, so the viewer is told to try again rather than
+    // left staring at a button that appeared to do nothing.
+    await waitFor(() => expect(screen.getByText('loadMoreFailed')).toBeInTheDocument())
+    expect(screen.getByText('loadMoreFailed')).toHaveAttribute('role', 'alert')
+    // No re-walk fired (restoreTarget was seeded null) — exactly one call.
+    expect(loadKaruteWindow).toHaveBeenCalledTimes(1)
+  })
+
+  it('the next tap works and clears the line', async () => {
+    await supersedeInFlight()
+    await waitFor(() => expect(screen.getByText('loadMoreFailed')).toBeInTheDocument())
+
+    loadKaruteWindow.mockResolvedValue({
+      items: [item('k4', '2026-08-04', '鈴木 一郎')],
+      windowStart: '2026-07-29',
+      freshStoreTotal: 8,
+      hasMore: true,
+    })
+    fireEvent.click(loadMoreButton())
+
+    await waitFor(() => expect(screen.getByText('鈴木 一郎')).toBeInTheDocument())
+    expect(screen.queryByText('loadMoreFailed')).not.toBeInTheDocument()
+  })
+
+  it('a superseded DEEP tap stays quiet — the re-walk is already fixing it', async () => {
+    // A tap that lands FIRST commits a boundary to ?since. The next tap
+    // therefore has sinceParam non-null, so the purge seeds a real restore
+    // target and rows visibly come back — a failure line here would read as
+    // "broken" while the list is in fact busy repairing itself.
+    let resolveStale: (v: unknown) => void = () => {}
+    loadKaruteWindow
+      .mockResolvedValueOnce({
+        items: [item('k3', '2026-08-05', '幽霊 太郎')],
+        windowStart: '2026-07-29',
+        freshStoreTotal: 9,
+        hasMore: true,
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveStale = resolve
+          }),
+      )
+      .mockResolvedValue({
+        items: [item('k4', '2026-08-04', '鈴木 一郎')],
+        windowStart: '2026-07-29',
+        freshStoreTotal: 8,
+        hasMore: true,
+      })
+
+    const view = renderList()
+    fireEvent.click(loadMoreButton())
+    await waitFor(() => expect(screen.getByText('幽霊 太郎')).toBeInTheDocument())
+    fireEvent.click(loadMoreButton()) // deep tap — hangs
+    await waitFor(() => expect(loadKaruteWindow).toHaveBeenCalledTimes(2))
+
+    await act(async () => {
+      view.rerender(listEl({ total: 8 }))
+    })
+    await act(async () => {
+      resolveStale({
+        items: [item('k99', '2026-06-01', '亡霊 花子')],
+        windowStart: '2026-06-01',
+        freshStoreTotal: 99,
+        hasMore: true,
+      })
+    })
+
+    expect(screen.queryByText('loadMoreFailed')).not.toBeInTheDocument()
+    // The re-walk fired — a third call the purge seeded, not a dead end.
+    await waitFor(() => expect(loadKaruteWindow).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(screen.getByText('鈴木 一郎')).toBeInTheDocument())
+  })
+})
