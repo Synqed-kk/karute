@@ -296,7 +296,7 @@ export function VoiceEnrollmentDialog({
                   >
                     <Square className="size-5" fill="currentColor" />
                   </button>
-                  <span className="absolute inset-0 animate-ping rounded-full bg-red-500/40" />
+                  <span className="absolute inset-0 motion-safe:animate-ping rounded-full bg-red-500/40" />
                 </div>
               )}
               <div className="text-[20px] font-semibold tabular-nums text-foreground">
