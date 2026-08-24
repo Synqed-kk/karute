@@ -74,6 +74,25 @@ describe('thin actions port — karute window transport contract', () => {
     })
   })
 
+  it('an OLD server that never learned this route (404 + HTML) maps to {error}, never a throw', async () => {
+    // A release-18 bundle pointed at a server that predates the endpoint gets
+    // Next's HTML 404 page, so `res.json()` REJECTS. The parse is guarded, so
+    // the shell shows the retry line instead of an unhandled rejection
+    // crossing the port boundary.
+    port(
+      jest.fn(
+        async () =>
+          new Response('<!DOCTYPE html><html><body>404</body></html>', {
+            status: 404,
+            headers: { 'content-type': 'text/html' },
+          }),
+      ),
+    )
+    expect(await loadKaruteWindow({ olderThan: '2026-08-12' })).toEqual({
+      error: 'Request failed (404)',
+    })
+  })
+
   it('a transport rejection maps to {error}, never a throw across the boundary', async () => {
     port(
       jest.fn(async () => {

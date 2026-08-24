@@ -296,6 +296,12 @@ describe('OPTIONS preflight', () => {
 // legacy path, this fails, which is the whole point: zod's `.default()` injects
 // keys at parse time, so merging the window fields into the shared schema would
 // have leaked them into the legacy body silently.
+//
+// REBASE NOTE (fix round 2): the branch's base moved from 76646b4e to 2e8bc361
+// (the B0 motion-tokens commit). The parity-relevant files —
+// sessions-screen-dto.ts, screens/sessions/route.ts, karute/screen-rows.ts,
+// list/types.ts and staff-colors.ts — are byte-for-byte UNCHANGED between the
+// two commits, so the transcribed literal below still describes origin/main.
 // ---------------------------------------------------------------------------
 const FIXED = '2026-08-20T02:00:00.000Z'
 const FIXED_KARUTE = [

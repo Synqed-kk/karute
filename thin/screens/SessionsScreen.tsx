@@ -5,9 +5,11 @@
 // other mutation stay behind the loud notWired() actions port.
 //
 // Nav parity note: KaruteRecordListView keeps its own client-side filters +
-// in-memory pagination + URL-backed list state (via the nav port's
-// usePathname/useRouter/useSearchParams); the DTO ships ALL records exactly
-// like the web page, so the view filters over the full set.
+// URL-backed list state (via the nav port's usePathname/useRouter/
+// useSearchParams). PR-2a retired the in-memory pager: the DTO now ships the
+// first DATE WINDOW plus its boundary, exactly like the web page, and さらに表示
+// walks further back through the facade — so the view filters over whatever the
+// walk has accumulated, not over a preloaded full set.
 
 import { KaruteRecordListView } from '@/components/karute/spike-lifted/list/KaruteRecordListView'
 import {

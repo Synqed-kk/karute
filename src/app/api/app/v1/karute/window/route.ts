@@ -26,7 +26,14 @@ export const runtime = 'nodejs'
 /** Strict query contract. `olderThan` is a JST calendar day, `month` a JST
  *  calendar month (PR-2b sends it), `loadedCount` the caller's raw accumulated
  *  row count — anything malformed is a 400, never a silently-ignored param
- *  that would hand back the newest window and look like the end of history. */
+ *  that would hand back the newest window and look like the end of history.
+ *
+ *  TRUST BOUNDARY: `loadedCount` is client-supplied and trusted for WALK
+ *  ECONOMICS only. It gates no data access and no scope — the store clamp
+ *  below is what decides which rows this caller may see. An overstated value
+ *  can only end THIS caller's own list early (a false `hasMore: false`, the
+ *  epoch sweep skipped for themselves); it can never widen the lens or reach
+ *  another viewer's history. */
 const QuerySchema = z.object({
   olderThan: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   month: z.string().regex(/^\d{4}-\d{2}$/).optional(),

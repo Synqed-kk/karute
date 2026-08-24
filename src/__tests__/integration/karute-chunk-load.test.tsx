@@ -65,26 +65,40 @@ const item = (id: string, date: string, name = '山田 花子'): KaruteListItem 
   href: `/karute/${id}`,
 })
 
+const listEl = (props: Partial<React.ComponentProps<typeof KaruteRecordListView>> = {}) => (
+  <KaruteRecordListView
+    items={[item('k1', '2026-08-20'), item('k2', '2026-08-19')]}
+    monthCount={2}
+    total={9}
+    initialWindowStart="2026-08-12"
+    initialHasMore
+    staffList={[]}
+    currentStaffId={null}
+    customerOptions={[]}
+    {...props}
+  />
+)
+
 const renderList = (props: Partial<React.ComponentProps<typeof KaruteRecordListView>> = {}) =>
-  render(
-    <KaruteRecordListView
-      items={[item('k1', '2026-08-20'), item('k2', '2026-08-19')]}
-      monthCount={2}
-      total={9}
-      initialWindowStart="2026-08-12"
-      initialHasMore
-      staffList={[]}
-      currentStaffId={null}
-      customerOptions={[]}
-      {...props}
-    />,
-  )
+  render(listEl(props))
+
+/** The degraded signal page.tsx sends when the SERVER window read failed. */
+const DEGRADED_PROPS: Partial<React.ComponentProps<typeof KaruteRecordListView>> = {
+  items: [],
+  monthCount: null,
+  total: null,
+  initialWindowStart: null,
+  initialHasMore: false,
+}
 
 const loadMoreButton = () =>
   screen.getByRole('button', { name: /loadMore/ })
 
 beforeEach(() => {
   jest.clearAllMocks()
+  // mockReset, not just clear: a pending-promise implementation set by one test
+  // must not leak into the next one's default.
+  loadKaruteWindow.mockReset()
   searchParams = new URLSearchParams()
 })
 
@@ -146,13 +160,19 @@ describe('append', () => {
     expect(screen.getByText('addedCount:{"n":1}')).toBeInTheDocument()
   })
 
-  it('sends the RAW loaded count and the current boundary, and keeps focus on the button', async () => {
-    loadKaruteWindow.mockResolvedValue({
-      items: [item('k3', '2026-08-05')],
-      windowStart: '2026-07-29',
-      freshStoreTotal: 9,
-      hasMore: true,
-    })
+  it('sends the RAW loaded count and the current boundary, and keeps focus on the button THROUGHOUT the fetch', async () => {
+    // A PENDING promise, so the assertions below land mid-flight. Asserting
+    // focus only after completion was false confidence: the pre-fix button
+    // carried `disabled={loadingMore}`, and a browser BLURS a focused element
+    // the instant it is disabled — focus was lost during the fetch and only
+    // happened to look right once the attribute came back off.
+    let resolveFetch: (v: unknown) => void = () => {}
+    loadKaruteWindow.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve
+        }),
+    )
     renderList()
     const button = loadMoreButton()
     button.focus()
@@ -162,6 +182,20 @@ describe('append', () => {
     expect(loadKaruteWindow).toHaveBeenCalledWith({
       olderThan: '2026-08-12',
       loadedCount: 2,
+    })
+    // MID-FLIGHT: busy is announced through aria-busy, never through the
+    // native attribute, so there is nothing for the browser to blur.
+    await waitFor(() => expect(button).toHaveAttribute('aria-busy', 'true'))
+    expect(button).not.toBeDisabled()
+    expect(document.activeElement).toBe(button)
+
+    await act(async () => {
+      resolveFetch({
+        items: [item('k3', '2026-08-05')],
+        windowStart: '2026-07-29',
+        freshStoreTotal: 9,
+        hasMore: true,
+      })
     })
     await waitFor(() => expect(loadMoreButton().textContent).toContain('7月29日'))
     expect(document.activeElement).toBe(loadMoreButton())
@@ -277,13 +311,16 @@ describe('load-failure display (fix round 1)', () => {
       renderList()
     })
     await waitFor(() => expect(screen.getByText('loadMoreFailed')).toBeInTheDocument())
+    // role="alert" (fix round 2): a SILENT restore failure used to be visible
+    // but never spoken — the announcement only ever fired on a manual tap.
+    expect(screen.getByText('loadMoreFailed')).toHaveAttribute('role', 'alert')
     // A pre-fix loop would keep re-firing fetchOlder as loadingMore flips
     // true→false on every failed attempt; the fix clears restoreTarget so
     // the restore effect never re-triggers past this first failure.
     expect(loadKaruteWindow).toHaveBeenCalledTimes(1)
   })
 
-  it('a manual tap failure shows the retry line; the next successful tap clears it', async () => {
+  it('a manual tap failure shows ONE alert line; the next successful tap clears it', async () => {
     loadKaruteWindow
       .mockResolvedValueOnce({ error: 'upstream' })
       .mockResolvedValueOnce({
@@ -294,15 +331,70 @@ describe('load-failure display (fix round 1)', () => {
       })
     renderList()
     fireEvent.click(loadMoreButton())
-    // A manual tap announces too (announce=true), so the same string renders
-    // BOTH as the visible inline line and the aria-live echo — getAllByText,
-    // not getByText, on purpose.
-    await waitFor(() => expect(screen.getAllByText('loadMoreFailed').length).toBeGreaterThan(0))
+    // EXACTLY ONE (fix round 2): the aria-live region carries loaded counts
+    // only now, so a failed tap is no longer both shown inline AND echoed
+    // through the live region — one failure, announced once.
+    await waitFor(() => expect(screen.getByText('loadMoreFailed')).toBeInTheDocument())
+    expect(screen.getAllByText('loadMoreFailed')).toHaveLength(1)
     // Button stays enabled for retry.
     expect(loadMoreButton()).not.toBeDisabled()
 
     fireEvent.click(loadMoreButton())
     await waitFor(() => expect(loadMoreButton().textContent).toContain('7月29日'))
     expect(screen.queryAllByText('loadMoreFailed')).toHaveLength(0)
+  })
+})
+
+// page.tsx signals a FAILED server window read as items=[] + total=null +
+// initialWindowStart=null. Merging that empty `items` with the persisted
+// `appended` chunks silently VANISHED the newest rows while older chunks stayed
+// on screen — a failed background refresh reading as "those karute were
+// deleted". The view latches the last NON-degraded `items` instead.
+describe('degraded server window keeps what is already on screen (fix round 2)', () => {
+  it('a failed refresh keeps every row that was showing, and says the refresh failed', async () => {
+    loadKaruteWindow.mockResolvedValue({
+      items: [item('k3', '2026-08-05', '鈴木 一郎')],
+      windowStart: '2026-07-29',
+      freshStoreTotal: 9,
+      hasMore: true,
+    })
+    const view = renderList()
+    fireEvent.click(loadMoreButton())
+    await waitFor(() => expect(screen.getByText('鈴木 一郎')).toBeInTheDocument())
+
+    view.rerender(listEl(DEGRADED_PROPS))
+
+    // Server-rendered first window AND the appended chunk both survive.
+    expect(screen.getAllByText('山田 花子')).toHaveLength(2)
+    expect(screen.getByText('鈴木 一郎')).toBeInTheDocument()
+    // …and the header zone says so instead of showing stale numbers.
+    expect(screen.getByText('loadMoreFailed')).toBeInTheDocument()
+    expect(screen.queryByText(/statusLine/)).not.toBeInTheDocument()
+  })
+
+  it('a healthy prop set takes over again — rows update, the failure line goes', async () => {
+    const view = renderList()
+    view.rerender(listEl(DEGRADED_PROPS))
+    expect(screen.getByText('loadMoreFailed')).toBeInTheDocument()
+
+    view.rerender(
+      listEl({ items: [item('k1', '2026-08-20'), item('k9', '2026-08-21', '佐藤 次郎')] }),
+    )
+    expect(screen.getByText('佐藤 次郎')).toBeInTheDocument()
+    expect(screen.queryByText('loadMoreFailed')).not.toBeInTheDocument()
+    expect(screen.getByText(/statusLine/)).toBeInTheDocument()
+  })
+
+  it('a genuinely EMPTY store is NOT degraded — normal empty state, no failure line', () => {
+    renderList({
+      items: [],
+      monthCount: 0,
+      total: 0,
+      initialWindowStart: '2026-08-12',
+      initialHasMore: false,
+    })
+    expect(screen.getByText('empty')).toBeInTheDocument()
+    expect(screen.queryByText('loadMoreFailed')).not.toBeInTheDocument()
+    expect(screen.getByText(/statusLine/)).toBeInTheDocument()
   })
 })

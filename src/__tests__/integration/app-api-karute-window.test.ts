@@ -62,6 +62,7 @@ jest.mock('@/lib/synqed/client', () => ({
 }))
 
 import { GET } from '@/app/api/app/v1/karute/window/route'
+import { AppApiError } from '@/lib/app-api/errors'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -147,11 +148,15 @@ describe('GET /api/app/v1/karute/window', () => {
   })
 
   it('a clamp failure is 403 BEFORE any data read (fail-closed)', async () => {
+    // A REAL AppApiError, not a duck-typed Error carrying a `code` field: the
+    // handler branches on `instanceof`, so the duck only ever proved the
+    // generic 500 path. 403 EXACTLY — a 500 here would read to the client as
+    // "retry later" instead of "this store is not yours".
     resolveStoreForRequest.mockRejectedValueOnce(
-      Object.assign(new Error('store_forbidden'), { code: 'store_forbidden' }),
+      new AppApiError('store_forbidden', 'store-id outside your assignment'),
     )
     const res = await GET(req(), route)
-    expect(res.status).toBeGreaterThanOrEqual(400)
+    expect(res.status).toBe(403)
     expect(karuteRecordsList).not.toHaveBeenCalled()
   })
 

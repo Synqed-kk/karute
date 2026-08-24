@@ -15,6 +15,7 @@ import {
   KARUTE_MAX_PROBE_WINDOWS,
   KARUTE_SESSION_DATE_EPOCH,
   KARUTE_WINDOW_DAYS,
+  KARUTE_WINDOW_PAGE_SIZE,
   karuteHasMore,
   loadKaruteWindowRows,
   loadKaruteWindowWithMonthProbe,
@@ -126,6 +127,53 @@ describe('loadKaruteWindowRows — probe-then-fetch', () => {
     expect(new Date(resumedProbe.to!).getTime()).toBe(
       new Date(lastProbed.from!).getTime() - 1,
     )
+  })
+})
+
+// A concurrent DELETE between page fetches shifts every later row one slot
+// forward, so a live row slides from the top of page 2 into page 1 — which the
+// walk already read — and is never fetched at all. Dedupe cannot recover it.
+// Page 1's `total` is the witness; a later page reporting a different one
+// restarts the whole read ONCE from page 1.
+describe('loadKaruteWindowRows — offset drift restarts the read once', () => {
+  /** 250 rows inside the newest window, so the walk needs pages 1 and 2. */
+  const window250 = () =>
+    Array.from({ length: 250 }, (_, i) => rec(`k${String(i).padStart(3, '0')}`, `2026-08-2${i % 5}T01:00:00.000Z`))
+
+  it('re-reads from page 1 when `total` moves mid-walk, and loses NO still-live row', async () => {
+    const records = window250()
+    const core = fakeCore(records)
+    // Drop an EARLY row the instant page 1 of attempt 1 has been served: every
+    // later row shifts down one, so k200 (the old top of page 2) now sits at
+    // the bottom of page 1 — already passed.
+    const list = (o: ListOpts) => {
+      const res = core.list(o)
+      if (o.page_size === KARUTE_WINDOW_PAGE_SIZE && o.page === 1 && records.length === 250) {
+        records.splice(5, 1)
+      }
+      return res
+    }
+    const res = await loadKaruteWindowRows(asClient(list), { now: NOW })
+
+    // Every row still in the store came back — including the one the naive
+    // walk would have skipped straight past.
+    const got = new Set(res.rows.map((r) => r.id))
+    expect(records.every((r) => got.has(r.id))).toBe(true)
+    expect(got.has('k200')).toBe(true)
+    expect(got.size).toBe(249)
+
+    // Exactly ONE retry: two page-1 reads, no third attempt.
+    const pageOnes = core.calls.filter(
+      (c) => c.page_size === KARUTE_WINDOW_PAGE_SIZE && c.from && c.page === 1,
+    )
+    expect(pageOnes).toHaveLength(2)
+  })
+
+  it('the no-drift path does ONE pass — page 1 is never re-read', async () => {
+    const core = fakeCore(window250())
+    await loadKaruteWindowRows(asClient(core.list), { now: NOW })
+    const paged = core.calls.filter((c) => c.page_size === KARUTE_WINDOW_PAGE_SIZE && c.from)
+    expect(paged.map((c) => c.page)).toEqual([1, 2])
   })
 })
 

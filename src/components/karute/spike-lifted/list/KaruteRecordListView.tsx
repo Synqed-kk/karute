@@ -136,7 +136,9 @@ export function KaruteRecordListView({
   // Set on a failed fetchOlder (server error or a thrown RPC); cleared at the
   // top of the next attempt. Drives the inline retry message below the
   // さらに表示 button — the button stays enabled, this just makes the
-  // failure visible instead of silently doing nothing.
+  // failure visible instead of silently doing nothing. Fix round 2: that line
+  // is now role="alert", so it is the ONLY place a load failure is reported —
+  // the aria-live region below carries the loaded-count string alone.
   const [loadError, setLoadError] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   // The loaded boundary persists as ?since=YYYY-MM-DD. Set ON TAP (via this
@@ -168,6 +170,25 @@ export function KaruteRecordListView({
   // カルテ" CTA, a candidate id when opened from the search-reveal row below.
   const [presetCustomerId, setPresetCustomerId] = useState<string | null>(null)
 
+  // DEGRADED SERVER WINDOW (fix round 2). page.tsx signals a FAILED server-side
+  // window read as items=[] + total=null + initialWindowStart=null. Merging that
+  // empty `items` with the persisted `appended` chunks would silently VANISH the
+  // newest rows while the older chunks stayed on screen — a failed background
+  // refresh reading as "those karute were deleted". So the last NON-degraded
+  // `items` prop is latched and kept on screen instead, with a visible failure
+  // line saying the refresh didn't land.
+  //
+  // A genuinely empty store (total = 0, a real windowStart) is NOT degraded and
+  // renders exactly as before; a first mount that is already degraded has
+  // nothing latched and keeps the degraded-empty presentation.
+  const serverDegraded = total === null && initialWindowStart === null
+  // Render-time ref write, not an effect: the latched value has to be available
+  // on THIS render, and it is only ever written from a render whose props came
+  // back healthy.
+  const lastGoodItems = useRef(items)
+  if (!serverDegraded) lastGoodItems.current = items
+  const baseItems = serverDegraded ? lastGoodItems.current : items
+
   // The full accumulated store rows, id-keyed dedupe then sorted IN-APP —
   // server order is untrusted (core orders by created_at; the list reads by
   // session_date ?? created_at, and offset paging over live data can repeat a
@@ -175,14 +196,14 @@ export function KaruteRecordListView({
   const allItems = useMemo(() => {
     const seen = new Set<string>()
     const out: KaruteListItem[] = []
-    for (const item of [...items, ...appended]) {
+    for (const item of [...baseItems, ...appended]) {
       if (seen.has(item.id)) continue
       seen.add(item.id)
       out.push(item)
     }
     // Stable sort: same-day rows keep the order the server projected them in.
     return out.sort((a, b) => b.date.localeCompare(a.date))
-  }, [items, appended])
+  }, [baseItems, appended])
 
   // COUNT DEFINITIONS — two names, two meanings. loadedCount = RAW accumulated
   // store rows, unfiltered; showingCount (表示中) = post-filter visible rows,
@@ -213,7 +234,6 @@ export function KaruteRecordListView({
         // loops the same request forever.
         setLoadError(true)
         setRestoreTarget(null)
-        if (announce) setAnnouncement(t('loadMoreFailed'))
         return
       }
       const seen = new Set(allItems.map((i) => i.id))
@@ -223,16 +243,21 @@ export function KaruteRecordListView({
       setSinceParam(res.windowStart)
       setStoreTotal(res.freshStoreTotal)
       setServerHasMore(res.hasMore)
-      // Focus deliberately stays on the button (nothing is focused here) and
-      // scroll is untouched — an append lands BELOW the viewport, so the
+      // Focus stays on the button — nothing is focused here, and the button
+      // never carries a native `disabled` attribute for the browser to blur
+      // (see the さらに表示 markup below). Scroll is untouched on purpose: an
+      // append usually lands BELOW the viewport, and even when it doesn't — a
+      // BACKDATED row (created recently, dated older) interleaves ABOVE
+      // existing rows, because the merged set re-sorts by DISPLAY date — the
       // content-swap scrollTop reset (AuditLogSection's idiom) must NOT fire.
+      // Moving the page under a reader's finger is worse than an off-screen
+      // row they can scroll to.
       if (announce) setAnnouncement(t('addedCount', { n: fresh.length }))
     } catch {
       // loadKaruteWindow can THROW on the web (server-action RPC network
       // failure) rather than resolve to { error }. Same recovery as above.
       setLoadError(true)
       setRestoreTarget(null)
-      if (announce) setAnnouncement(t('loadMoreFailed'))
     } finally {
       setLoadingMore(false)
     }
@@ -432,17 +457,26 @@ export function KaruteRecordListView({
             {/* statusLine v2 (PR-2a): 全{total}件 joins the line now that
              *  chunk loading makes the whole store browsable — PR-1b held it
              *  back on purpose while the list could only ever show 200. */}
-            {storeTotal !== null &&
-              (monthCount !== null
-                ? t('statusLine', {
-                    total: storeTotal,
-                    monthCount,
-                    showingCount: filtered.length,
-                  })
-                : t('statusLineNoMonth', {
-                    total: storeTotal,
-                    showingCount: filtered.length,
-                  }))}
+            {/* Fix round 2: when the server window read FAILED but latched rows
+             *  are still on screen, this slot carries the failure line instead
+             *  of the numbers — the rows below are the last good ones, not the
+             *  current truth, and saying so beats leaving the header blank.
+             *  The two branches are exclusive so the numbers can't flash
+             *  alongside the failure line on the render before the storeTotal
+             *  effect catches up. */}
+            {serverDegraded
+              ? loadedCount > 0 && t('loadMoreFailed')
+              : storeTotal !== null &&
+                (monthCount !== null
+                  ? t('statusLine', {
+                      total: storeTotal,
+                      monthCount,
+                      showingCount: filtered.length,
+                    })
+                  : t('statusLineNoMonth', {
+                      total: storeTotal,
+                      showingCount: filtered.length,
+                    }))}
           </p>
           {/* + 新規カルテ — primary CTA. Opens the manual-entry dialog
            *  (NewKaruteDialog) so staff can backdate or log a session
@@ -584,24 +618,42 @@ export function KaruteRecordListView({
        *  chunk starts from. */}
       {hasMore && windowStart && (
         <div className="flex flex-col items-center gap-1 pt-3">
+          {/* NO native `disabled` (fix round 2): the browser BLURS a focused
+           *  element the instant it becomes disabled, so the tapped button lost
+           *  focus mid-fetch and a keyboard/screen-reader user was dropped back
+           *  to the top of the document — the exact opposite of the
+           *  "focus stays put" intent below. fetchOlder already self-guards
+           *  re-entry (its `loadingMore` check), so the attribute bought
+           *  nothing. aria-busy carries the state; the classes carry the look
+           *  the `disabled:` variants used to. */}
           <button
             type="button"
             onClick={() => void fetchOlder(true)}
-            disabled={loadingMore}
             aria-busy={loadingMore}
-            className="inline-flex h-9 items-center justify-center rounded-full border border-border bg-card px-4 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            className={`inline-flex h-9 items-center justify-center rounded-full border border-border bg-card px-4 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground${
+              loadingMore ? ' cursor-not-allowed opacity-40' : ''
+            }`}
           >
             {loadingMore
               ? tCommon('loading')
               : t('loadMore', { date: formatBoundaryDate(windowStart) })}
           </button>
+          {/* role="alert" (fix round 2): this line IS the failure messaging now
+           *  — it announces on mount, which covers the SILENT ?since restore
+           *  too. Before, a restore failure was visible but never spoken, and a
+           *  manual tap spoke through the aria-live region while also showing
+           *  this line: one failure, announced twice. */}
           {loadError && (
-            <p className="text-xs text-muted-foreground">{t('loadMoreFailed')}</p>
+            <p role="alert" className="text-xs text-muted-foreground">
+              {t('loadMoreFailed')}
+            </p>
           )}
         </div>
       )}
       {/* Append announcement — the button keeps focus, so a screen reader
-       *  needs the row count spoken rather than shown. */}
+       *  needs the row count spoken rather than shown. Loaded counts ONLY:
+       *  failures speak through the role="alert" line above (fix round 2), so
+       *  one failed tap can never be announced twice. */}
       <p aria-live="polite" className="sr-only">
         {announcement}
       </p>

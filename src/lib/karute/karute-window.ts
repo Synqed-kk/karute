@@ -98,31 +98,69 @@ function shiftYmd(ymd: string, days: number): string {
   return ymdInJst(new Date(dayStart(ymd).getTime() + days * 86_400_000))
 }
 
+/**
+ * One offset-paged read of a query, restarted ONCE if the underlying row set
+ * moves mid-walk.
+ *
+ * Offset paging over live data does not merely REPEAT rows across a page
+ * boundary (the caller's id-keyed dedupe collapses those). A concurrent DELETE
+ * of an earlier-ranked row slides every later row one slot forward, so the row
+ * that sat at the top of page 2 lands at the bottom of page 1 — which the walk
+ * has already read — and is never fetched at all. Dedupe cannot recover a row
+ * that never arrived. Every page response carries `total` for the SAME query,
+ * so page 1's total is the witness: a later page reporting a different one
+ * means the set moved under the offsets, and the whole read restarts from page
+ * 1 with fresh accumulation.
+ *
+ * Ceiling: exactly ONE restart. A second drift inside the same
+ * millisecond-scale walk is vanishingly rare, and if it happens the walk
+ * returns what it got — the row surfaces on the next refresh or on the epoch
+ * sweep. Retrying unbounded against a hot store would cost far more than the
+ * gap it closes.
+ */
+async function pagedReadWithDriftRetry(
+  readPage: (page: number) => Promise<{ rows: KaruteListRow[]; total: number }>,
+): Promise<KaruteListRow[]> {
+  for (let attempt = 1; ; attempt += 1) {
+    const rows: KaruteListRow[] = []
+    let firstTotal = 0
+    // Hard page ceiling derived from the first response's own total, so a
+    // shifting live total can't spin the loop.
+    let maxPages = 1
+    let drifted = false
+    for (let page = 1; ; page += 1) {
+      const res = await readPage(page)
+      if (page === 1) {
+        firstTotal = res.total
+        maxPages = Math.ceil(res.total / KARUTE_WINDOW_PAGE_SIZE) + 1
+      } else if (res.total !== firstTotal && attempt === 1) {
+        drifted = true
+        break
+      }
+      rows.push(...res.rows)
+      if (page * KARUTE_WINDOW_PAGE_SIZE >= res.total) break
+      if (page >= maxPages) break
+    }
+    if (!drifted) return rows
+  }
+}
+
 /** Page one from/to window to completion — `page * page_size < total` (the
- *  audit-log idiom), with a hard page ceiling derived from the first response's
- *  own total so a shifting live total can't spin the loop. */
+ *  audit-log idiom), through {@link pagedReadWithDriftRetry} so a concurrent
+ *  delete can't slide a live row past the offsets unread. */
 async function pageWindowToCompletion(
   synqed: SynqedClient,
   opts: { storeId?: string | null; from: string; to: string },
 ): Promise<KaruteListRow[]> {
-  const rows: KaruteListRow[] = []
-  let page = 1
-  let maxPages = 1
-  for (;;) {
-    const res = await listSynqedKaruteRowsWithTotalOrThrow(synqed, {
+  return pagedReadWithDriftRetry((page) =>
+    listSynqedKaruteRowsWithTotalOrThrow(synqed, {
       storeId: opts.storeId,
       from: opts.from,
       to: opts.to,
       page,
       page_size: KARUTE_WINDOW_PAGE_SIZE,
-    })
-    rows.push(...res.rows)
-    if (page === 1) maxPages = Math.ceil(res.total / KARUTE_WINDOW_PAGE_SIZE) + 1
-    if (page * KARUTE_WINDOW_PAGE_SIZE >= res.total) break
-    if (page >= maxPages) break
-    page += 1
-  }
-  return rows
+    }),
+  )
 }
 
 /**
@@ -137,24 +175,22 @@ async function pageWindowToCompletion(
  * Ceiling: one full store read. Acceptable because it happens at most once per
  * viewer per session, at the END of their history, and the store total is
  * already known to be small enough that they scrolled to the bottom of it.
+ *
+ * Pages through {@link pagedReadWithDriftRetry} for the same reason the window
+ * walk does — this is the read that closes out the list, so a row lost to a
+ * concurrent delete's offset shift here would never be fetched again.
  */
 async function legacySweep(
   synqed: SynqedClient,
   storeId: string | null | undefined,
-  total: number,
 ): Promise<KaruteListRow[]> {
-  const rows: KaruteListRow[] = []
-  const maxPages = Math.ceil(total / KARUTE_WINDOW_PAGE_SIZE) + 1
-  for (let page = 1; page <= maxPages; page += 1) {
-    const res = await listSynqedKaruteRowsWithTotalOrThrow(synqed, {
+  return pagedReadWithDriftRetry((page) =>
+    listSynqedKaruteRowsWithTotalOrThrow(synqed, {
       storeId,
       page,
       page_size: KARUTE_WINDOW_PAGE_SIZE,
-    })
-    rows.push(...res.rows)
-    if (page * KARUTE_WINDOW_PAGE_SIZE >= res.total) break
-  }
-  return rows
+    }),
+  )
 }
 
 /**
@@ -167,6 +203,13 @@ async function legacySweep(
  *
  * `loadedCount` is what the CALLER already holds (0 on a first load) — it feeds
  * the epoch-sweep decision and the returned `hasMore`.
+ *
+ * TRUST BOUNDARY: `loadedCount` is trusted for WALK ECONOMICS only. It gates no
+ * data access, no store scope and no other viewer's view — every row this walk
+ * can reach is already clamped by `storeId`. An overstated value can only make
+ * the CALLER'S OWN list end early (a false `hasMore: false`, the epoch sweep
+ * skipped for itself); it can neither widen a lens nor reach a row the walk
+ * would otherwise refuse.
  *
  * Throws on upstream failure (listSynqedKaruteRowsWithTotalOrThrow's contract) —
  * the facade route classifies it as a 502, the web action catches it.
@@ -226,7 +269,7 @@ export async function loadKaruteWindowRows(
       if (!karuteHasMore(loadedCount, freshStoreTotal)) {
         return { rows: [], windowStart: KARUTE_SESSION_DATE_EPOCH, freshStoreTotal, hasMore: false }
       }
-      const rows = await legacySweep(synqed, storeId, freshStoreTotal)
+      const rows = await legacySweep(synqed, storeId)
       return {
         rows,
         windowStart: KARUTE_SESSION_DATE_EPOCH,
