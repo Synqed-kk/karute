@@ -23,7 +23,8 @@
 
 import { Button } from '@/components/ui/button'
 import { FilePlus2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
 import { useLocale, useTranslations } from 'next-intl'
 import { useSearchParams } from 'next/navigation'
 import { usePathname, useRouter } from '@/i18n/navigation'
@@ -35,9 +36,10 @@ import {
 } from '@/components/customers/redesign/list/CustomersStaffFilter'
 import { SegmentedFilterBar } from '@/components/customers/redesign/list/SegmentedFilterBar'
 
-import { KaruteListRow } from './KaruteListRow'
+import { KaruteListRow, NoKaruteRevealRow, type NoKaruteCandidate } from './KaruteListRow'
 import { NewKaruteDialog } from './NewKaruteDialog'
 import type { KaruteListFilter, KaruteListItem } from './types'
+import { revealNoKaruteCustomer } from '@/actions/karute'
 
 interface Props {
   items: KaruteListItem[]
@@ -127,12 +129,48 @@ export function KaruteRecordListView({
     router.replace((pathname + (qs ? `?${qs}` : '')) as never, { scroll: false })
   }, [page, filter, staffFilter, pathname, router])
   const [newKaruteOpen, setNewKaruteOpen] = useState(false)
+  // Which customer the dialog should preselect — null for the top "+ 新規
+  // カルテ" CTA, a candidate id when opened from the search-reveal row below.
+  const [presetCustomerId, setPresetCustomerId] = useState<string | null>(null)
 
   // Reset to first page when filter or search changes — otherwise a
   // narrower result set strands the viewer on an empty page.
   useEffect(() => {
     setPage(0)
   }, [filter, searchQuery, staffFilter])
+
+  // Search-reveal (PR-1b 検索リビール): a customer matching the search term
+  // who has no karute yet. EXACTLY ONE row, query stays LOCAL (no URL) —
+  // debounced server action (web) / facade call (thin), never a client-side
+  // filter over `items` (those customers were never in `items` to begin
+  // with — they have no karute record). A monotonic request id discards a
+  // stale response that resolves after a newer query already superseded it.
+  const [revealCandidate, setRevealCandidate] = useState<NoKaruteCandidate | null>(null)
+  const revealRequestId = useRef(0)
+  const fetchReveal = useDebouncedCallback(async (q: string) => {
+    const myRequestId = ++revealRequestId.current
+    const result = await revealNoKaruteCustomer(q)
+    if (myRequestId !== revealRequestId.current) return // superseded — drop it
+    setRevealCandidate('candidate' in result ? result.candidate : null)
+  }, 300)
+  useEffect(() => {
+    // Bump + clear on EVERY change, synchronously, BEFORE (re)scheduling the
+    // debounce — not just when the query empties (Greptile PR #776: the id
+    // used to advance only when the debounced callback FIRED, so query A's
+    // in-flight response could still render under query B during B's 300ms
+    // debounce window — worst case, カルテを作成 preselects the wrong
+    // customer). Invalidating immediately means A's response is already
+    // stale the instant the user types past it, whether or not B's own
+    // fetch has fired yet.
+    revealRequestId.current++
+    setRevealCandidate(null)
+    const q = searchQuery.trim()
+    if (!q) {
+      fetchReveal.cancel()
+      return
+    }
+    fetchReveal(q)
+  }, [searchQuery, fetchReveal])
 
   const counts = useMemo(() => {
     const sevenDaysAgo = new Date()
@@ -278,7 +316,10 @@ export function KaruteRecordListView({
           <Button
             type="button"
             aria-label={t('newKarute')}
-            onClick={() => setNewKaruteOpen(true)}
+            onClick={() => {
+              setPresetCustomerId(null)
+              setNewKaruteOpen(true)
+            }}
           >
             <FilePlus2 className="size-3.5 min-[380px]:hidden" aria-hidden />
             <span className="hidden min-[380px]:inline">{t('newKarute')}</span>
@@ -347,37 +388,51 @@ export function KaruteRecordListView({
        *  horizontal padding so the rounded card has breathing room from
        *  the screen edges, matching the design spike. */}
       <div className="mt-4 overflow-hidden rounded-2xl border border-border/60 bg-card">
-        {grouped.length === 0 ? (
+        {grouped.length === 0 && !revealCandidate ? (
           <div className="px-6 py-12 text-center">
             <p className="text-sm font-medium text-foreground">{t('empty')}</p>
           </div>
         ) : (
-          grouped.map(([date, items]) => {
-            const dayLabel = dayLabelFor(date)
-            return (
-              <div key={date}>
-                {/* Date section header */}
-                <div className="border-b border-border/40 bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground md:px-5">
-                  <span className="tabular-nums text-foreground">
-                    {formatDateHeader(date)}
-                  </span>
-                  {dayLabel && (
-                    <>
-                      <span aria-hidden> · </span>
-                      <span className="text-muted-foreground">
-                        {dayLabel}
-                      </span>
-                    </>
-                  )}
-                  <span aria-hidden> · </span>
-                  <span>{t('dateGroup.suffix', { n: items.length })}</span>
+          <>
+            {grouped.map(([date, items]) => {
+              const dayLabel = dayLabelFor(date)
+              return (
+                <div key={date}>
+                  {/* Date section header */}
+                  <div className="border-b border-border/40 bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground md:px-5">
+                    <span className="tabular-nums text-foreground">
+                      {formatDateHeader(date)}
+                    </span>
+                    {dayLabel && (
+                      <>
+                        <span aria-hidden> · </span>
+                        <span className="text-muted-foreground">
+                          {dayLabel}
+                        </span>
+                      </>
+                    )}
+                    <span aria-hidden> · </span>
+                    <span>{t('dateGroup.suffix', { n: items.length })}</span>
+                  </div>
+                  {items.map((item) => (
+                    <KaruteListRow key={item.id} item={item} />
+                  ))}
                 </div>
-                {items.map((item) => (
-                  <KaruteListRow key={item.id} item={item} />
-                ))}
-              </div>
-            )
-          })
+              )
+            })}
+            {/* Search-reveal (PR-1b 検索リビール) — EXACTLY ONE row, appended
+             *  after the real results. These customers have no karute record
+             *  at all, so they were never part of `items`/`grouped` above. */}
+            {revealCandidate && (
+              <NoKaruteRevealRow
+                candidate={revealCandidate}
+                onCreateClick={() => {
+                  setPresetCustomerId(revealCandidate.id)
+                  setNewKaruteOpen(true)
+                }}
+              />
+            )}
+          </>
         )}
       </div>
 
@@ -424,6 +479,7 @@ export function KaruteRecordListView({
         }))}
         customers={customerOptions}
         defaultStaffId={currentStaffId}
+        preselectedCustomerId={presetCustomerId}
       />
     </main>
   )

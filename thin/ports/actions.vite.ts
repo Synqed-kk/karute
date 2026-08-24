@@ -493,6 +493,26 @@ async function facadeListReassignCustomerOptions(
   }
 }
 
+// -- カルテ list: search-reveal (PR-1b 検索リビール). READ, degrades to no
+// candidate on any failure — same graceful convention as
+// facadeListReassignCustomerOptions above. KaruteRecordListView renders the
+// row itself (no create button on thin — createManualKaruteRecord stays a
+// deliberate notWired stub; the row navigates to /customers/{id} instead).
+async function facadeRevealNoKaruteCustomer(
+  query: string,
+): Promise<{ candidate: import('@/actions/karute').KaruteRevealCandidate | null } | { error: string }> {
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/karute/reveal?q=${enc(query)}`)
+    const body = (await res.json().catch(() => null)) as
+      | { candidate?: import('@/actions/karute').KaruteRevealCandidate | null; error?: { message?: string } }
+      | null
+    if (!res.ok || !body) return { error: body?.error?.message ?? `Request failed (${res.status})` }
+    return { candidate: body.candidate ?? null }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
 // -- session detail: per-entry edit history (edit-layer W2 history-sheet
 // packet). Local redeclaration of EntryEditHistoryRow (src/actions/karute.ts)
 // — same "redeclare the shape" convention as AuditLogEvent/StoreRow below.
@@ -1612,6 +1632,9 @@ export const reassignKaruteCustomer =
   facadeReassignKaruteCustomer satisfies typeof import('@/actions/karute').reassignKaruteCustomer
 export const listReassignCustomerOptions =
   facadeListReassignCustomerOptions satisfies typeof import('@/actions/karute').listReassignCustomerOptions
+// -- カルテ list search-reveal (PR-1b). Same type-only `satisfies` pin.
+export const revealNoKaruteCustomer =
+  facadeRevealNoKaruteCustomer satisfies typeof import('@/actions/karute').revealNoKaruteCustomer
 // -- entry edit history (edit-layer W2 history-sheet packet)
 export const listEntryEditHistory = facadeListEntryEditHistory
 export const listCustomerKaruteForRegen = notWired('listCustomerKaruteForRegen')

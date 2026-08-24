@@ -16,10 +16,13 @@
 //   findKaruteNumberByName fallback      → not needed (number passed in)
 //   AIStatusChip / ConversionStatusChip  → inline below (small, file-local)
 
+import { useEffect, useState } from 'react'
 import { Link } from '@/i18n/navigation'
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import { getStaffColorByKey } from '@/lib/staff-colors'
+import { deriveFamilyInitials } from '@/lib/customers/identity'
+import { isNativeShell } from '@/lib/platform'
 import type {
   KaruteListItem,
   KaruteAiStatus,
@@ -210,5 +213,104 @@ function ConversionChip({ status }: { status: KaruteConversionStatus }) {
       <span aria-hidden>◷</span>
       <span>{t('provisional')}</span>
     </span>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// NoKaruteRevealRow — the カルテ tab search-reveal's ONE row (PR-1b 検索
+// リビール): a customer matching the search term who has no karute yet in
+// this store. Deliberately NOT a KaruteListItem — the reveal action returns
+// a much smaller shape (id/name/code/registeredDate; no staff, no status),
+// so this gets its own small renderer rather than overloading KaruteListRow
+// with a second data shape.
+//
+// Web renders a カルテを作成 button (opens NewKaruteDialog preselected —
+// wired by the caller via onCreateClick); the phone shell has no wired
+// create action (createManualKaruteRecord is a deliberate notWired stub
+// there), so it makes the whole row a Link to the customer hub instead —
+// same destination the pre-PR-1a placeholder rows used. isNativeShell() is
+// the existing app-wide "are we in the Capacitor shell" signal (src/lib/
+// platform.ts, e.g. WebOnly) — deferred to a post-mount effect so SSR and
+// the shell agree on the FIRST paint (same defensive posture WebOnly uses).
+// ─────────────────────────────────────────────────────────────
+
+export interface NoKaruteCandidate {
+  id: string
+  name: string
+  code: string
+  registeredDate: string
+}
+
+interface NoKaruteRevealRowProps {
+  candidate: NoKaruteCandidate
+  onCreateClick: () => void
+}
+
+export function NoKaruteRevealRow({ candidate, onCreateClick }: NoKaruteRevealRowProps) {
+  const t = useTranslations('karute.recordList')
+  const [isNative, setIsNative] = useState(false)
+  useEffect(() => {
+    setIsNative(isNativeShell())
+  }, [])
+
+  const isoDate = candidate.registeredDate.slice(0, 10)
+  const dt = new Date(`${isoDate}T00:00:00+09:00`)
+  const weekday = ['日', '月', '火', '水', '木', '金', '土'][dt.getDay()]
+  const initials = deriveFamilyInitials(candidate.name)
+
+  const body = (
+    <>
+      <div className="hidden w-12 shrink-0 text-center md:block">
+        <div className="text-xs font-semibold tabular-nums text-muted-foreground">
+          {isoDate.slice(5).replace('-', '/')}
+        </div>
+        <div className="mt-0.5 text-[10px] text-muted-foreground">{weekday}</div>
+      </div>
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground ring-1 ring-border">
+        {initials}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-1.5">
+          <span className="truncate text-[14px] font-medium text-foreground">
+            {candidate.name}
+          </span>
+          <span className="shrink-0 text-[11px] text-muted-foreground">様</span>
+          <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+            {candidate.code}
+          </span>
+        </div>
+        <p className="mt-0.5 truncate text-[11px] text-muted-foreground/70">
+          {t('revealSummary')}
+        </p>
+      </div>
+    </>
+  )
+
+  if (isNative) {
+    return (
+      <Link
+        href={`/customers/${candidate.id}` as Parameters<typeof Link>[0]['href']}
+        className="group relative flex min-h-[60px] items-center gap-3 border-b border-black/5 px-4 py-2.5 transition-colors last:border-b-0 hover:bg-muted/30 active:bg-muted/50 dark:border-white/5 md:gap-4"
+      >
+        {body}
+        <span className="shrink-0 text-[11px] text-muted-foreground">{t('noSessionYet')}</span>
+      </Link>
+    )
+  }
+
+  return (
+    <div className="relative flex min-h-[60px] items-center gap-3 border-b border-black/5 px-4 py-2.5 last:border-b-0 dark:border-white/5 md:gap-4">
+      {body}
+      <div className="flex shrink-0 items-center gap-2">
+        <span className="text-[11px] text-muted-foreground">{t('noSessionYet')}</span>
+        <button
+          type="button"
+          onClick={onCreateClick}
+          className="inline-flex shrink-0 items-center rounded-lg border border-primary/30 bg-primary/8 px-3 py-1.5 text-[11.5px] font-bold text-primary whitespace-nowrap"
+        >
+          {t('revealCreate')}
+        </button>
+      </div>
+    </div>
   )
 }
