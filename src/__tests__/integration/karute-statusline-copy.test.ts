@@ -27,9 +27,9 @@ describe('karute.recordList.statusLine states only what the query backs (PR-1b �
 
   it('the さらに表示 label + append announcement are pinned in both locales (PR-2a)', () => {
     expect(ja.karute.recordList.loadMore).toBe('さらに表示（{date}以前のカルテ）')
-    expect(ja.karute.recordList.addedCount).toBe('{n}件を追加しました')
+    expect(ja.karute.recordList.addedCount).toBe('{n}件を読み込みました')
     expect(en.karute.recordList.loadMore).toBe('Show more (karute before {date})')
-    expect(en.karute.recordList.addedCount).toBe('Added {n} karute')
+    expect(en.karute.recordList.addedCount).toBe('Loaded {n} karute')
   })
 
   it('neither locale ships the disproven "past 14 days" window, in the statusLine or anywhere else in the recordList namespace', () => {

@@ -268,3 +268,41 @@ describe('?since boundary', () => {
     expect(replace.mock.calls.every(([url]) => !String(url).includes('p=3'))).toBe(true)
   })
 })
+
+describe('load-failure display (fix round 1)', () => {
+  it('a failed ?since restore fetches ONCE and shows the failure line — the retry loop is broken', async () => {
+    searchParams = new URLSearchParams('since=2026-07-15')
+    loadKaruteWindow.mockResolvedValue({ error: 'upstream' })
+    await act(async () => {
+      renderList()
+    })
+    await waitFor(() => expect(screen.getByText('loadMoreFailed')).toBeInTheDocument())
+    // A pre-fix loop would keep re-firing fetchOlder as loadingMore flips
+    // true→false on every failed attempt; the fix clears restoreTarget so
+    // the restore effect never re-triggers past this first failure.
+    expect(loadKaruteWindow).toHaveBeenCalledTimes(1)
+  })
+
+  it('a manual tap failure shows the retry line; the next successful tap clears it', async () => {
+    loadKaruteWindow
+      .mockResolvedValueOnce({ error: 'upstream' })
+      .mockResolvedValueOnce({
+        items: [item('k3', '2026-08-05')],
+        windowStart: '2026-07-29',
+        freshStoreTotal: 9,
+        hasMore: true,
+      })
+    renderList()
+    fireEvent.click(loadMoreButton())
+    // A manual tap announces too (announce=true), so the same string renders
+    // BOTH as the visible inline line and the aria-live echo — getAllByText,
+    // not getByText, on purpose.
+    await waitFor(() => expect(screen.getAllByText('loadMoreFailed').length).toBeGreaterThan(0))
+    // Button stays enabled for retry.
+    expect(loadMoreButton()).not.toBeDisabled()
+
+    fireEvent.click(loadMoreButton())
+    await waitFor(() => expect(loadMoreButton().textContent).toContain('7月29日'))
+    expect(screen.queryAllByText('loadMoreFailed')).toHaveLength(0)
+  })
+})

@@ -133,6 +133,11 @@ export function KaruteRecordListView({
   const [storeTotal, setStoreTotal] = useState<number | null>(total)
   const [serverHasMore, setServerHasMore] = useState(initialHasMore)
   const [loadingMore, setLoadingMore] = useState(false)
+  // Set on a failed fetchOlder (server error or a thrown RPC); cleared at the
+  // top of the next attempt. Drives the inline retry message below the
+  // さらに表示 button — the button stays enabled, this just makes the
+  // failure visible instead of silently doing nothing.
+  const [loadError, setLoadError] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   // The loaded boundary persists as ?since=YYYY-MM-DD. Set ON TAP (via this
   // state, written by the URL effect below in the same commit) — never
@@ -198,9 +203,19 @@ export function KaruteRecordListView({
   async function fetchOlder(announce: boolean) {
     if (!windowStart || loadingMore) return
     setLoadingMore(true)
+    setLoadError(false)
     try {
       const res = await loadKaruteWindow({ olderThan: windowStart, loadedCount })
-      if ('error' in res) return
+      if ('error' in res) {
+        // Clear restoreTarget so the restore effect (deps include
+        // loadingMore) doesn't re-fire fetchOlder against a persistently
+        // failing backend — without this, true→false→true on loadingMore
+        // loops the same request forever.
+        setLoadError(true)
+        setRestoreTarget(null)
+        if (announce) setAnnouncement(t('loadMoreFailed'))
+        return
+      }
       const seen = new Set(allItems.map((i) => i.id))
       const fresh = res.items.filter((i) => !seen.has(i.id))
       setAppended((prev) => [...prev, ...fresh])
@@ -212,6 +227,12 @@ export function KaruteRecordListView({
       // scroll is untouched — an append lands BELOW the viewport, so the
       // content-swap scrollTop reset (AuditLogSection's idiom) must NOT fire.
       if (announce) setAnnouncement(t('addedCount', { n: fresh.length }))
+    } catch {
+      // loadKaruteWindow can THROW on the web (server-action RPC network
+      // failure) rather than resolve to { error }. Same recovery as above.
+      setLoadError(true)
+      setRestoreTarget(null)
+      if (announce) setAnnouncement(t('loadMoreFailed'))
     } finally {
       setLoadingMore(false)
     }
@@ -562,7 +583,7 @@ export function KaruteRecordListView({
        *  end of the store's history. The label names the boundary the next
        *  chunk starts from. */}
       {hasMore && windowStart && (
-        <div className="flex justify-center pt-3">
+        <div className="flex flex-col items-center gap-1 pt-3">
           <button
             type="button"
             onClick={() => void fetchOlder(true)}
@@ -574,6 +595,9 @@ export function KaruteRecordListView({
               ? tCommon('loading')
               : t('loadMore', { date: formatBoundaryDate(windowStart) })}
           </button>
+          {loadError && (
+            <p className="text-xs text-muted-foreground">{t('loadMoreFailed')}</p>
+          )}
         </div>
       )}
       {/* Append announcement — the button keeps focus, so a screen reader

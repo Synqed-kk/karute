@@ -258,11 +258,13 @@ export async function loadKaruteWindowRows(
     fromYmd = shiftYmd(fromYmd, -KARUTE_WINDOW_DAYS)
   }
 
-  // Probe cap hit without a hit. The boundary still advanced, so the next tap
-  // resumes from here rather than re-walking the same empty stretch.
+  // Probe cap hit without a hit. `fromYmd` is the start of the NEXT
+  // (unprobed) window here, so return the start of the LAST PROBED window
+  // instead — feeding that back as `olderThan` resumes the walk at the first
+  // unprobed window rather than skipping it.
   return {
     rows: [],
-    windowStart: fromYmd,
+    windowStart: shiftYmd(fromYmd, KARUTE_WINDOW_DAYS),
     freshStoreTotal,
     hasMore: karuteHasMore(loadedCount, freshStoreTotal),
   }

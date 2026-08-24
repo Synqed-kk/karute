@@ -12,6 +12,7 @@
  *     which moved here when its main leg became a window read)
  */
 import {
+  KARUTE_MAX_PROBE_WINDOWS,
   KARUTE_SESSION_DATE_EPOCH,
   KARUTE_WINDOW_DAYS,
   karuteHasMore,
@@ -90,7 +91,7 @@ describe('loadKaruteWindowRows — probe-then-fetch', () => {
     expect(pagedCalls.map((c) => c.page)).toEqual([1, 2])
   })
 
-  it('terminates at the probe cap with the boundary ADVANCED, so the next tap resumes', async () => {
+  it('terminates at the probe cap with the boundary ADVANCED to the LAST PROBED window, so the next tap resumes at the first unprobed one', async () => {
     // Records exist, but far past the cap's reach — and past the epoch, so we
     // must NOT reach the sweep either: start the walk well after the epoch.
     const core = fakeCore([rec('k-1', '2020-01-01T00:00:00.000Z')])
@@ -98,9 +99,33 @@ describe('loadKaruteWindowRows — probe-then-fetch', () => {
       now: new Date('2030-01-01T00:00:00.000Z'),
     })
     expect(res.rows).toEqual([])
-    // 26 windows × 14 days back from 2030-01-01.
-    expect(res.windowStart < '2029-01-01').toBe(true)
+    // 26 windows probed, 14 days each, walking back from the initial
+    // 2029-12-19 window. windowStart is the start of the 26th (LAST
+    // PROBED) window — NOT the 27th (unprobed) one the pre-fix bug
+    // returned, which would silently skip that window on resume.
+    expect(res.windowStart).toBe('2029-01-03')
     expect(res.hasMore).toBe(true)
+  })
+
+  it('probe-cap resume has NO GAP: feeding windowStart back as olderThan starts the next probe window exactly 14 days earlier', async () => {
+    const core = fakeCore([rec('k-1', '2020-01-01T00:00:00.000Z')])
+    const now = new Date('2030-01-01T00:00:00.000Z')
+    const res = await loadKaruteWindowRows(asClient(core.list), { now })
+    const probes = core.calls.filter((c) => c.page_size === 1 && c.from)
+    expect(probes).toHaveLength(KARUTE_MAX_PROBE_WINDOWS)
+    const lastProbed = probes[probes.length - 1]
+
+    const core2 = fakeCore([rec('k-1', '2020-01-01T00:00:00.000Z')])
+    await loadKaruteWindowRows(asClient(core2.list), { now, olderThan: res.windowStart })
+    const resumedProbe = core2.calls.find((c) => c.page_size === 1 && c.from)!
+
+    // Adjacent windows never share an instant (both bounds inclusive) — the
+    // resumed window's `to` must land exactly 1ms before the last probed
+    // window's `from`. A gap here means the fix regressed to skipping a
+    // window again.
+    expect(new Date(resumedProbe.to!).getTime()).toBe(
+      new Date(lastProbed.from!).getTime() - 1,
+    )
   })
 })
 
