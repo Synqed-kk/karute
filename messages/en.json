@@ -1380,7 +1380,6 @@
       },
       "minutesSuffix": " min",
       "empty": "No karute records yet",
-      "newCustomersHeader": "Customers without a karute · no session yet",
       "noSessionYet": "No session yet",
       "newKaruteDialog": {
         "title": "Create new karute",

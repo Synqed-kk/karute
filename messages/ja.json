@@ -1380,7 +1380,6 @@
       },
       "minutesSuffix": "分",
       "empty": "カルテはまだありません",
-      "newCustomersHeader": "カルテ未作成のお客様 · まだセッションなし",
       "noSessionYet": "まだセッションなし",
       "newKaruteDialog": {
         "title": "新規カルテの作成",
