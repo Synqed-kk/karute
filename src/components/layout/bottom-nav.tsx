@@ -124,12 +124,16 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
     const activeIndex = PRIMARY.findIndex((r) => isActive(r.href))
     const el = activeIndex === -1 ? null : navItemRefs.current[activeIndex]
     if (!el) {
-      setIndicator((prev) => ({ ...prev, visible: false }))
+      setIndicator((prev) => (prev.visible ? { ...prev, visible: false } : prev))
       return
     }
-    setIndicator({ x: el.offsetLeft + (el.offsetWidth - 40) / 2, visible: true })
+    // 40 = the indicator span's w-10 width
+    const x = el.offsetLeft + (el.offsetWidth - 40) / 2
+    setIndicator((prev) => (prev.x === x && prev.visible ? prev : { x, visible: true }))
     setHasMeasured(true)
   }
+  const measureRef = useRef(measureIndicator)
+  measureRef.current = measureIndicator
 
   useLayoutEffect(() => {
     measureIndicator()
@@ -145,10 +149,12 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
   useEffect(() => {
     const container = navBarRef.current
     if (!container) return
-    const observer = new ResizeObserver(() => measureIndicator())
+    // jsdom has no ResizeObserver — measurement still happens via the layout
+    // effect above, this observer only covers post-mount geometry changes.
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => measureRef.current())
     observer.observe(container)
     return () => observer.disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function renderNavItem(route: Route, index: number) {
@@ -269,7 +275,7 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
               indicator.visible ? 'opacity-100' : 'opacity-0'
             } ${
               transitionOn
-                ? 'transition-[transform,opacity] duration-200 ease-(--ease-out)'
+                ? 'transition-[transform,opacity] duration-(--duration-base) ease-(--ease-out)'
                 : ''
             }`}
             style={{ transform: `translateX(${indicator.x}px)` }}

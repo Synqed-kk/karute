@@ -39,9 +39,15 @@ export function CustomerTabBar({ active, onChange, counts }: CustomerTabBarProps
   function measureUnderline() {
     const el = tabRefs.current[TABS.findIndex((tab) => tab.id === active)]
     if (!el) return
-    setUnderline({ x: el.offsetLeft, width: el.offsetWidth })
+    setUnderline((prev) =>
+      prev.x === el.offsetLeft && prev.width === el.offsetWidth
+        ? prev
+        : { x: el.offsetLeft, width: el.offsetWidth },
+    )
     setHasMeasured(true)
   }
+  const measureRef = useRef(measureUnderline)
+  measureRef.current = measureUnderline
 
   useLayoutEffect(() => {
     measureUnderline()
@@ -57,10 +63,18 @@ export function CustomerTabBar({ active, onChange, counts }: CustomerTabBarProps
   useEffect(() => {
     const nav = navRef.current
     if (!nav) return
-    const observer = new ResizeObserver(() => measureUnderline())
+    // jsdom has no ResizeObserver — measurement still happens via the layout
+    // effect above, this observer only covers post-mount geometry changes.
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => measureRef.current())
     observer.observe(nav)
+    // Also watch each tab button: the nav's own border-box doesn't change
+    // when a tab's content grows (count badge 9→10, label swap) because of
+    // overflow-x-auto, so the underline would otherwise go stale.
+    tabRefs.current.forEach((el) => {
+      if (el) observer.observe(el)
+    })
     return () => observer.disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return (
@@ -72,7 +86,7 @@ export function CustomerTabBar({ active, onChange, counts }: CustomerTabBarProps
       <span
         aria-hidden
         className={`absolute bottom-0 left-0 h-0.5 rounded-full bg-blue-600 dark:bg-blue-300 ${
-          transitionOn ? 'transition-[transform,width] duration-200 ease-(--ease-out)' : ''
+          transitionOn ? 'transition-[transform,width] duration-(--duration-base) ease-(--ease-out)' : ''
         }`}
         style={{ transform: `translateX(${underline.x}px)`, width: `${underline.width}px` }}
       />
