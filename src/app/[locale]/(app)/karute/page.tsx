@@ -12,15 +12,13 @@ import { KaruteRecordListView } from '@/components/karute/spike-lifted/list/Karu
 /**
  * カルテ tab — RECORD-CENTRIC list of karute sessions.
  *
- * Phase A (this commit): one row per karute record, date-grouped,
- * AI status badges, karute-specific filters. Matches the design
- * spike's KaruteList structure end-to-end.
- *
- * Phase B (next): append placeholder rows for customers with NO
- * karute records yet so brand-new customers still appear (Liam's
- * earlier ask). Today they're invisible on this tab; the customer-
- * centric chip-row view we shipped previously is still reachable
- * via the 顧客 tab → tap a customer → karute detail page.
+ * One row per karute record, date-grouped, AI status badges,
+ * karute-specific filters. Matches the design spike's KaruteList
+ * structure end-to-end. (PR-1a 未作成ブロック廃止: the placeholder
+ * section for customers with no karute yet — briefly shipped — was
+ * removed; a brand-new customer with no session doesn't get a row
+ * here. The customer-centric chip-row view is still reachable via
+ * the 顧客 tab → tap a customer → karute detail page.)
  *
  * ANTHONY: karute_records currently lacks `service` (text) and
  * `duration_minutes` (int) columns. The row renderer expects both;
@@ -52,19 +50,17 @@ export default async function KaruteRecordsListPage() {
   const [
     staffList,
     allCustomersList,
-    storeCustomerList,
     currentStaffId,
     synqedKaruteRows,
-    apptList,
     synqedStaff,
   ] = await Promise.all([
       t.phase('staffList', () => getStaffList()),
-      // Page to completion so カルテ rows + placeholder rows resolve for every
-      // customer, not just the first 500 (server clamps page_size at 500). This
-      // backs record-name enrichment AND the New カルテ dialog's customer picker.
-      // Cross-store viewers load it BUSINESS-WIDE (so names resolve + a karute
-      // can be created for another store's walk-in); a branch-restricted staff
-      // loads it SCOPED to their store (no cross-store names/customers leak).
+      // Page to completion so every customer resolves, not just the first 500
+      // (server clamps page_size at 500). This backs record-name enrichment
+      // AND the New カルテ dialog's customer picker. Cross-store viewers load
+      // it BUSINESS-WIDE (so names resolve + a karute can be created for
+      // another store's walk-in); a branch-restricted staff loads it SCOPED
+      // to their store (no cross-store names/customers leak).
       t.phase('customers.all', () =>
         clamped
         ? listAllCustomersCached(businessId, {
@@ -74,31 +70,14 @@ export default async function KaruteRecordsListPage() {
             sort_order: 'asc',
           })
         : listAllCustomersCached(businessId, { sort_by: 'created_at', sort_order: 'asc' })),
-      // Store-scoped customer roster — ONLY to scope the "新規のお客様"
-      // placeholder section to the active branch for a CROSS-STORE viewer who
-      // has pinned a store (a customer "belongs to" a store via events; see
-      // listAllCustomers). null when unpinned, or when clamped (the list above
-      // is already store-scoped, so its customers ARE the placeholder roster).
-      t.phase('customers.store', () =>
-        !clamped && activeStore
-        ? listAllCustomersCached(businessId, {
-            store_id: activeStore,
-            sort_by: 'created_at',
-            sort_order: 'asc',
-          })
-        : Promise.resolve(null)),
       t.phase('activeStaffId', () => getCurrentUserStaffId()),
       // synqed-core is the sole karute store (the Supabase karute_records table
       // is empty and being dropped). Scoped to the active branch so 代官山
       // karute don't surface under 銀座; the customer PROFILE stays unscoped.
       t.phase('karuteRows', () => listSynqedKaruteRows(synqed, { storeId: activeStore })),
-      // Recent appointments (UNWINDOWED, like enrichCustomers) + the synqed
-      // staff roster — resolve each placeholder customer's 担当 from their
-      // booking, translating the synqed staff id into the profile id the
-      // color/name maps key on (same boundary translation getAppointmentsByDate
-      // does). No from/to filter on purpose: a window keyed on today drops a
-      // customer's already-past booking and the stripe goes blank again.
-      t.phase('appointments', () => synqed.appointments.list({ page_size: 200 })),
+      // Synqed staff roster — translates a record's synqed staff id into the
+      // profile id the color/name maps key on (boundary translation mirrored
+      // in getAppointmentsByDate).
       t.phase('synqedStaff', () => synqed.staff.list({ page_size: 200 })),
     ])
 
@@ -115,10 +94,8 @@ export default async function KaruteRecordsListPage() {
     staffList,
     storeStaffIds,
     allCustomersList,
-    storeCustomerList,
     currentStaffId,
     synqedKaruteRows,
-    apptList,
     synqedStaff,
   })
 
@@ -131,7 +108,6 @@ export default async function KaruteRecordsListPage() {
       <KaruteRecordListView
         items={screen.items}
         monthCount={screen.monthCount}
-        placeholders={screen.placeholders}
         staffList={screen.staffList}
         currentStaffId={screen.currentStaffId}
         customerOptions={screen.customerOptions}

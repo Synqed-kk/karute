@@ -326,7 +326,6 @@
     "title": "Karute",
     "stats": {
       "thisMonth": "This month · {n}",
-      "last14": "Last 14 days · {n}",
       "showing": "{n} showing"
     },
     "newKarute": "New Karute",
@@ -1381,7 +1380,6 @@
       },
       "minutesSuffix": " min",
       "empty": "No karute records yet",
-      "newCustomersHeader": "Customers without a karute · no session yet",
       "noSessionYet": "No session yet",
       "newKaruteDialog": {
         "title": "Create new karute",

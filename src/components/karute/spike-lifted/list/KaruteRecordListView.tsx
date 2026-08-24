@@ -44,16 +44,6 @@ interface Props {
   /** Total karute records this month (not filtered) — shown in the
    *  status line independent of the active filter. */
   monthCount: number
-  /**
-   * Customers with NO karute records yet — rendered in a separate
-   * "新規のお客様 (まだセッションなし)" section below the date-grouped
-   * records so brand-new customers don't vanish from the karute tab.
-   * Each placeholder is a KaruteListItem with isPlaceholder=true; the
-   * view renders them in a separate section. The status chips don't
-   * apply (no record to be draft/pending), but the staff-scope pills +
-   * search DO filter this section — see filteredPlaceholders.
-   */
-  placeholders?: KaruteListItem[]
   /** Staff list for the "your customers / all customers" filter. */
   staffList?: StaffFilterEntry[]
   /** The viewer's staff id — drives the "Me" filter pill. Null when
@@ -92,7 +82,6 @@ const FILTER_KEYS: KaruteListFilter[] = [
 export function KaruteRecordListView({
   items,
   monthCount,
-  placeholders = [],
   staffList = [],
   currentStaffId = null,
   customerOptions = [],
@@ -184,29 +173,6 @@ export function KaruteRecordListView({
     }
     return result
   }, [items, filter, searchQuery, staffFilter, currentStaffId])
-
-  // Placeholders (no-karute customers) get the IDENTITY filters — staff scope
-  // + search — but NOT the karute-status chips (they have no record to be
-  // draft/pending/this-week). Without this the section ignored the staff pills
-  // entirely and showed every customer no matter who was selected. Staff scope
-  // keys on the booking's staff (item.staffId), populated for placeholders now.
-  const filteredPlaceholders = useMemo(() => {
-    let result = placeholders
-    if (staffFilter === 'self' && currentStaffId) {
-      result = result.filter((i) => i.staffId === currentStaffId)
-    } else if (staffFilter !== 'all' && staffFilter !== 'self') {
-      result = result.filter((i) => i.staffId === staffFilter)
-    }
-    const q = searchQuery.trim().toLowerCase()
-    if (q) {
-      result = result.filter(
-        (i) =>
-          i.customerName.toLowerCase().includes(q) ||
-          i.staffName.toLowerCase().includes(q),
-      )
-    }
-    return result
-  }, [placeholders, staffFilter, currentStaffId, searchQuery])
 
   // Page slice (in-memory, same approach as customer list)
   const pageItems = useMemo(() => {
@@ -361,11 +327,11 @@ export function KaruteRecordListView({
        *  horizontal padding so the rounded card has breathing room from
        *  the screen edges, matching the design spike. */}
       <div className="mt-4 overflow-hidden rounded-2xl border border-border/60 bg-card">
-        {grouped.length === 0 && filteredPlaceholders.length === 0 ? (
+        {grouped.length === 0 ? (
           <div className="px-6 py-12 text-center">
             <p className="text-sm font-medium text-foreground">{t('empty')}</p>
           </div>
-        ) : grouped.length === 0 ? null : (
+        ) : (
           grouped.map(([date, items]) => {
             const dayLabel = dayLabelFor(date)
             return (
@@ -394,24 +360,6 @@ export function KaruteRecordListView({
           })
         )}
       </div>
-
-      {/* Placeholder section — customers without any karute records yet.
-       *  Sits below the date-grouped records so brand-new customers are
-       *  visible on this tab without polluting the session-record list. */}
-      {filteredPlaceholders.length > 0 && (
-        <div className="mt-4 overflow-hidden rounded-2xl border border-border/60 bg-card">
-          <div className="border-b border-border/40 bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground md:px-5">
-            <span className="font-medium text-foreground">
-              {t('newCustomersHeader')}
-            </span>
-            <span aria-hidden> · </span>
-            <span>{t('dateGroup.suffix', { n: filteredPlaceholders.length })}</span>
-          </div>
-          {filteredPlaceholders.map((item) => (
-            <KaruteListRow key={item.id} item={item} />
-          ))}
-        </div>
-      )}
 
       {/* Simple pagination footer (reused conceptually from customers list) */}
       {filtered.length > PAGE_SIZE && (

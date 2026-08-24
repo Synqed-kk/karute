@@ -6,8 +6,8 @@
 //
 // Nav parity note: KaruteRecordListView keeps its own client-side filters +
 // in-memory pagination + URL-backed list state (via the nav port's
-// usePathname/useRouter/useSearchParams); the DTO ships ALL records + all
-// placeholders exactly like the web page, so the view filters over the full set.
+// usePathname/useRouter/useSearchParams); the DTO ships ALL records exactly
+// like the web page, so the view filters over the full set.
 
 import { KaruteRecordListView } from '@/components/karute/spike-lifted/list/KaruteRecordListView'
 import {
@@ -26,7 +26,6 @@ export function SessionsScreen() {
         <KaruteRecordListView
           items={dto.items}
           monthCount={dto.monthCount}
-          placeholders={dto.placeholders}
           staffList={dto.staffList}
           currentStaffId={dto.currentStaffId}
           customerOptions={dto.customerOptions}
