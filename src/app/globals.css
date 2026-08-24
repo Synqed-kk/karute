@@ -129,6 +129,19 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* Motion tokens (animation lab B0, 2026-08-24): shared easing curves +
+   * duration scale for transitions/animations app-wide. Color-independent,
+   * so no .dark override needed. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --duration-instant: 40ms;
+  --duration-fast: 120ms;
+  --duration-press: 160ms;
+  --duration-base: 200ms;
+  --duration-modal: 240ms;
+  --duration-sheet: 320ms;
 }
 
 .dark {
@@ -396,6 +409,24 @@ html.dark[data-theme="karute"] {
    * long as it is mounted (i.e. exactly as long as it's open). */
   .customer-presentation-open [data-sonner-toaster] {
     display: none;
+  }
+}
+
+/* App-wide prefers-reduced-motion policy: neutralize TRANSITION-based
+ * movement (the motion tokens above, and any transition-* utility) only.
+ * Keyframe animations are deliberately spared — animate-pulse/animate-ping/
+ * animate-spin carry state meaning (recording-live, alerts, loading), not
+ * decoration; muting them would make a live recording look idle under an
+ * accessibility setting. Same transition-only shape as business-shell.css's
+ * .biz rule, applied app-wide since this file covers surfaces outside
+ * Business. (The hold-cancel-shake keyframe below already opts out via
+ * Tailwind's motion-safe: variant — no duplicate rule needed for it here.) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
