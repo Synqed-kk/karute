@@ -381,6 +381,10 @@ describe('the fixture data door', () => {
       'src/app/[locale]/(business)/business/today/TodayScreen.tsx': [
         '../../BusinessSessionEdits',
         '../../BusinessTopbar',
+        // ⚖ R2 of the layer rebuild — the capacity book, read in SHADOW behind
+        // `capacityLedgerShadow` (default OFF). The screen's only new
+        // dependency this round, and R3 turns it into the real one.
+        './capacity-ledger',
         './today-interactions',
         '@/business/lib/canon-logic/drag-rules',
         '@/business/lib/canon-logic/gap-guard',
