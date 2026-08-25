@@ -106,6 +106,50 @@ const FILTER_KEYS: KaruteListFilter[] = [
   'draft',
 ]
 
+/**
+ * THE 今週 lens — ONE home for the last-7-days rule (⚖ Liam 8/25, overturning
+ * PR-2c's server-count line: **the 今週 pill counts exactly the rows its tap
+ * shows**).
+ *
+ * The cutoff arithmetic used to exist TWICE in this file — once for the pill's
+ * count, once for the tap's filter. Two copies of a rule is how a number stops
+ * describing what it opens: change one and the pill quietly starts promising
+ * rows the tap won't produce. Both callers read {@link isThisWeek} against the
+ * cutoff computed once per render, so a mutation to this line moves the count
+ * and the filter together or not at all.
+ *
+ * JST-EXPLICIT (V6 crumb, fixed here because count and tap now move as one).
+ * The old `new Date(...).toISOString().slice(0,10)` named the UTC calendar day,
+ * so between JST 00:00 and 09:00 the cutoff fell a day early and 今週 quietly
+ * reached eight days back. `ymdInJst` is the same helper the rest of this file
+ * already uses for JST business dates.
+ *
+ * WHY A CLIENT TALLY IS COMPLETE, not a partial count over whatever the walk
+ * has loaded: a karute's `date` is `session_date ?? created_at`, and a session
+ * cannot be written down before it happens — **created_at ≥ session_date**. So
+ * a row displaying inside the last 7 days was created inside the last 7 days
+ * too, which puts it inside the first date window (14 days of created_at, paged
+ * to completion on load). Every row this predicate can match is therefore
+ * already on the client before the viewer taps anything, and さらに表示 can only
+ * add rows that are OLDER than the cutoff — the count does not climb as the walk
+ * goes back.
+ *
+ * The assumption is stated so it can be falsified: a karute FORWARD-dated at
+ * creation (session_date in the future, or a row created >14 days before the
+ * session it names) would break it. Nothing in the app writes one today — the
+ * 新規カルテ dialog backdates, which is the safe direction.
+ */
+function thisWeekCutoffYmd(now: Date = new Date()): string {
+  return ymdInJst(new Date(now.getTime() - 7 * 86_400_000))
+}
+
+/** The 今週 membership test itself. Boundary day INCLUDED — the span this pill
+ *  has always shown. Called by BOTH the count and the filter; see
+ *  {@link thisWeekCutoffYmd} for why they must never be two lines. */
+function isThisWeek(item: KaruteListItem, cutoffYmd: string): boolean {
+  return item.date >= cutoffYmd
+}
+
 export function KaruteRecordListView({
   items,
   monthCount,
@@ -738,18 +782,39 @@ export function KaruteRecordListView({
     fetchReveal(q)
   }, [searchQuery, fetchReveal])
 
+  // The 今週 cutoff, computed ONCE per render and handed to both the count and
+  // the filter below (recomputed per render rather than frozen in a mount-time
+  // memo, so a tab left open across JST midnight rolls over with the business
+  // day). It is a plain YYYY-MM-DD string, so passing it as a memo dep is stable
+  // by value — equal days never retrigger.
+  const weekCutoff = thisWeekCutoffYmd()
+
+  // PILL COUNTS — two kinds, and the split is deliberate.
+  //
+  // すべて is the STORE total: the very freshStoreTotal the header's 全件
+  // renders (the same `storeTotal` state, plumbed once — never a second
+  // client-side read that could disagree with the header sitting inches above
+  // it on the same screen). The gap between it and the rows on screen is the
+  // one さらに表示 exists to close, and the header's 表示中 already names it.
+  //
+  // EVERY OTHER PILL counts the rows its own tap reveals — ⚖ Liam 8/25 for
+  // 今週 (see thisWeekCutoffYmd for the ruling and the completeness argument),
+  // and settled-not-pending for AI補完待ち/下書き: `aiStatus` is derived from
+  // each row's data shape (summary/transcript presence — see screen-rows.ts),
+  // while core's own `status` field is the workflow axis
+  // (DRAFT/REVIEW/APPROVED), a different question that cannot back them.
+  //
+  // null (storeTotal unknown, or month view below) → SegmentedFilterBar renders
+  // that pill's LABEL ALONE. A count that can't be true is dropped, not guessed.
   const counts = useMemo(() => {
-    const sevenDaysAgo = new Date()
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-    const cutoff = sevenDaysAgo.toISOString().slice(0, 10)
     return {
-      all: allItems.length,
-      thisWeek: allItems.filter((i) => i.date >= cutoff).length,
+      all: storeTotal,
+      thisWeek: allItems.filter((i) => isThisWeek(i, weekCutoff)).length,
       aiPending: allItems.filter((i) => i.aiStatus === 'pending').length,
       needsReview: allItems.filter((i) => i.aiStatus === 'needsReview').length,
       draft: allItems.filter((i) => i.aiStatus === 'draft').length,
-    } satisfies Record<KaruteListFilter, number>
-  }, [allItems])
+    } satisfies Record<KaruteListFilter, number | null>
+  }, [allItems, storeTotal, weekCutoff])
 
   // Month view SWAPS the row set (PR-2b). The staff scope and the search box
   // still apply INSIDE a month — they answer "whose" and "which words", not
@@ -774,10 +839,10 @@ export function KaruteRecordListView({
       result = result.filter((i) => i.staffId === staffFilter)
     }
 
-    const sevenDaysAgo = new Date()
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-    const cutoff = sevenDaysAgo.toISOString().slice(0, 10)
-    if (filter === 'thisWeek') result = result.filter((i) => i.date >= cutoff)
+    // SAME predicate, SAME cutoff as the pill's count above — that identity IS
+    // the ⚖ ruling (thisWeekCutoffYmd). The second copy of this arithmetic that
+    // used to live here is gone.
+    if (filter === 'thisWeek') result = result.filter((i) => isThisWeek(i, weekCutoff))
     else if (filter === 'aiPending')
       result = result.filter((i) => i.aiStatus === 'pending')
     else if (filter === 'needsReview')
@@ -797,7 +862,7 @@ export function KaruteRecordListView({
       })
     }
     return result
-  }, [displayItems, filter, searchQuery, staffFilter, currentStaffId])
+  }, [displayItems, filter, weekCutoff, searchQuery, staffFilter, currentStaffId])
 
   // Same date-bucketing as before, now over the FULL accumulated row set —
   // the in-memory pager (and its `p` URL param) is gone; さらに表示 is the
@@ -812,12 +877,12 @@ export function KaruteRecordListView({
     return Array.from(map.entries()).sort(([a], [b]) => b.localeCompare(a))
   }, [filtered])
 
-  const today = new Date().toISOString().slice(0, 10)
-  const yesterday = (() => {
-    const d = new Date()
-    d.setDate(d.getDate() - 1)
-    return d.toISOString().slice(0, 10)
-  })()
+  // 本日/昨日 labels, JST-EXPLICIT (V6 crumb — same UTC-slice bug the 今週
+  // cutoff above carried, same one-line fix, and it sits right here). `.date`
+  // is a JST business date, so naming today in the viewer's own zone labelled
+  // the wrong row for anyone west of Japan and on every UTC server.
+  const today = ymdInJst()
+  const yesterday = ymdInJst(new Date(Date.now() - 86_400_000))
 
   function dayLabelFor(date: string): string | null {
     if (date === today) return t('dateGroup.today')
@@ -995,10 +1060,10 @@ export function KaruteRecordListView({
           segments={FILTER_KEYS.map((key) => ({
             key,
             label: t(`filters.${key}`),
-            // LABELS ONLY while a month is picked: these counts are computed
-            // over the rows on screen, which in month view is that month
-            // alone — 今週 would read 0 inside any past month and すべて would
-            // disagree with the 全件 in the header. Dropped, never guessed.
+            // LABELS ONLY while a month is picked (PR-2b): the row-counting
+            // pills would count that month alone — 今週 reads 0 inside any past
+            // month — and すべて names the whole store, which is not the month on
+            // screen either. Dropped, never guessed.
             count: monthMode ? null : counts[key],
           }))}
           active={filter}

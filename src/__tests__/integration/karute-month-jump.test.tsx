@@ -291,11 +291,20 @@ describe('picking a month', () => {
 describe('while a month is picked', () => {
   it('shows filter pills as LABELS ONLY', async () => {
     renderList()
-    // Default view: label + count.
-    expect(pill('all').textContent).toBe('filters.all3')
+    // Default view: label + count. すべて is the store total (PR-2c); the rest
+    // count rows. Asserted as "carries A number" rather than a literal one —
+    // the seeded rows have fixed dates, so pinning 今週 here would rot the day
+    // this file's fixtures age out of the week. Its exact value is pinned
+    // against the tap in karute-chunk-load.test.tsx, which is that count's home.
+    expect(pill('all').textContent).toBe('filters.all9')
+    expect(pill('thisWeek').textContent).toMatch(/^filters\.thisWeek\d+$/)
     await jumpToJanuary()
+    // Inside a month EVERY count drops: the row-counting pills would count that
+    // month alone (今週 reads 0 in any past month), and すべて names the whole
+    // store, which is not the month on screen either.
     expect(pill('all').textContent).toBe('filters.all')
     expect(pill('thisWeek').textContent).toBe('filters.thisWeek')
+    expect(pill('draft').textContent).toBe('filters.draft')
   })
 
   it('hides さらに表示 — a month is fetched whole', async () => {
@@ -336,7 +345,7 @@ describe('leaving month view', () => {
     // aiStatus 'summarized', so 下書き shows none of them while the pills
     // carry their counts again.
     expect(pill('draft')).toHaveAttribute('aria-pressed', 'true')
-    expect(pill('all').textContent).toBe('filters.all3')
+    expect(pill('all').textContent).toBe('filters.all9')
     expect(screen.queryByText('山田 花子')).not.toBeInTheDocument()
 
     fireEvent.click(pill('all'))
@@ -356,7 +365,7 @@ describe('leaving month view', () => {
     expect(loadKaruteWindow).toHaveBeenCalledTimes(3)
     expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
     expect(screen.getAllByText('山田 花子')).toHaveLength(2)
-    expect(pill('all').textContent).toBe('filters.all3')
+    expect(pill('all').textContent).toBe('filters.all9')
     expect(loadMoreQuery()).toBeInTheDocument()
   })
 
@@ -471,7 +480,12 @@ describe('store switch (Greptile PR #784)', () => {
     // window the new store's props carry.
     expect(screen.queryByText('一月 太郎')).not.toBeInTheDocument()
     expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
-    expect(pill('all').textContent).toBe('filters.all3')
+    // すべて is the STORE total since PR-2c, not a tally of the rows on screen
+    // — so this now asserts something STRONGER than it did when it read 3: the
+    // pill is showing the NEW store's total, which is precisely what this
+    // block's `setStoreTotal(total)` exists to guarantee ("the header numbers
+    // describe the STORE"). Store A's total lingering here would be the bug.
+    expect(pill('all').textContent).toBe('filters.all9')
   })
 
   it('never COMMITS a frame carrying ANY of the old store state (frame-probed)', async () => {
@@ -524,9 +538,19 @@ describe('store switch (Greptile PR #784)', () => {
       expect(frame).not.toContain('山田 花子')
       // …its 全件 (the status line echoes the params it was given)…
       expect(frame).not.toContain('"total":9')
+      // …the すべて PILL, which reads that same store total since PR-2c and so
+      // became a second surface this frame guarantee has to cover (the status
+      // line's `"total":9` check above cannot see it — the pill renders a bare
+      // 「filters.all9」)…
+      expect(frame).not.toContain('filters.all9')
       // …and its retry line.
       expect(frame).not.toContain('loadMoreFailed')
     }
+    // 今週 needs no frame check of its own, and no store-switch reset either:
+    // it counts `allItems` through a cutoff that is pure date arithmetic (see
+    // thisWeekCutoffYmd — no store input, recomputed every render). The store
+    // dimension lives entirely in the ROWS, and every frame above is already
+    // asserted free of store A's rows, so a stale 今週 is unreachable.
     // Store B's own truth is what landed.
     expect(screen.getByText(/statusLine/).textContent).toContain('"total":3')
   })
