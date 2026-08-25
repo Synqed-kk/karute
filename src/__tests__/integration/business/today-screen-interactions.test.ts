@@ -1649,6 +1649,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
       const degraded: RailCell = {
         start: 990, state: 'degraded', label: '△16:30',
         sentence: '新規90分の空き2→1（1枠減・損を減らす）。15:45はこの区間で損が最少の開始です',
+        reason: null,
         alternatives: [945], alternativeKind: 'least-loss', ackAllowed: true,
       }
       expect(guardCheckRow(degraded)).toEqual({
@@ -2247,7 +2248,10 @@ describe('次回予約を作成 arms the board, and the slot click makes the boo
     expect(solve(900, 960)).toEqual({
       laneKey: null,
       refusal: '15:00〜16:00はベッドに空きがありません。ベッド1が使用中（見本 かえる様）、ベッド2が使用中（見本 あかり様）',
+      blockers: solve(900, 960).blockers,
     })
+    // ⚖ 44 — and the occupants the sentence just named, handed out as values.
+    expect(solve(900, 960).blockers.map((i) => i.title)).toEqual(['見本 かえる', '見本 あかり'])
     // 16:00–17:00: bed-02 is still busy until 16:40, bed-01 is free → first wins.
     expect(solve(960, 1020).laneKey).toBe('bed-01')
     // Touching ends do not overlap: a bed free FROM 16:00 can take 16:00.
@@ -3241,7 +3245,7 @@ describe('the confirm comes to the card, and the consult goes back to the placem
   // the case this kills.
   it('guardCheckRow: safe says nothing, and an advisory is ALWAYS △, never ×', () => {
     const cell = (over: Partial<RailCell>): RailCell => ({
-      start: 990, state: 'safe', label: '', sentence: '', alternatives: [], alternativeKind: null, ackAllowed: true, ...over,
+      start: 990, state: 'safe', label: '', sentence: '', reason: null, alternatives: [], alternativeKind: null, ackAllowed: true, ...over,
     })
     expect(guardCheckRow(null)).toBeNull()
     expect(guardCheckRow(cell({ state: 'safe', sentence: '新規90分の空きを守れます' }))).toBeNull()
@@ -4252,13 +4256,13 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
   it('keeps the booking’s own room when it is free at the landing time', () => {
     // 見本 かえる's case: carries ベッド2, and ベッド2 is free at 16:00 → nothing
     // moves. The room the operator can see on the card is the room they get.
-    expect(solve(scene(), { currentBed: 'bed-02' })).toEqual({ laneKey: 'bed-02', refusal: null })
+    expect(solve(scene(), { currentBed: 'bed-02' })).toEqual({ laneKey: 'bed-02', refusal: null, blockers: [] })
   })
 
   it('retargets to a free compatible room when its own is taken — Liam’s なぎ case', () => {
     // The whole flag: ベッド3 is held by あかり at 16:00, あずさ is free, so the
     // landing succeeds in another room instead of refusing about a person.
-    expect(solve(scene())).toEqual({ laneKey: 'bed-01', refusal: null })
+    expect(solve(scene())).toEqual({ laneKey: 'bed-01', refusal: null, blockers: [] })
   })
 
   it('refuses ONLY at true 満室 — and the sentence names the window and the rooms', () => {
@@ -4269,7 +4273,14 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     expect(solve(full)).toEqual({
       laneKey: null,
       refusal: '16:00〜17:00はベッドに空きがありません。ベッド1が使用中（見本 かえる様）、ベッド2が使用中（清掃）、ベッド3が使用中（見本 あかり様）',
+      blockers: solve(full).blockers,
     })
+    // ⚖ 44 — the walk the sentence was composed from, handed out beside it: the
+    // same occupants, in the same room order, so a display classifying them can
+    // never disagree with the line printed next to it.
+    expect(solve(full).blockers.map((i) => [i.title, i.kind])).toEqual([
+      ['見本 かえる', 'booking'], ['清掃', 'cleanup'], ['見本 あかり', 'booking'],
+    ])
   })
 
   it('a VIP never silently leaves the 個室 — a busy 個室 IS 満室 for it', () => {
@@ -4278,13 +4289,16 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     expect(solve(scene(), { vip: true, currentBed: 'bed-03' })).toEqual({
       laneKey: null,
       refusal: '16:00〜17:00は個室に空きがありません。ベッド3が使用中（見本 あかり様）',
+      blockers: solve(scene(), { vip: true, currentBed: 'bed-03' }).blockers,
     })
+    expect(solve(scene(), { vip: true, currentBed: 'bed-03' }).blockers.map((i) => i.title)).toEqual(['見本 あかり'])
     // …and with the 個室 free it goes there, never into a 施術室.
     expect(solve(scene({ bed3: [] }), { vip: true, currentBed: null }).laneKey).toBe('bed-03')
     // A store with no 個室 at all says that instead of naming rooms it has not.
     expect(solve([lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })], { vip: true, currentBed: null })).toEqual({
       laneKey: null,
       refusal: '16:00〜17:00に使える個室がありません',
+      blockers: [],
     })
   })
 
@@ -4329,7 +4343,7 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
       }),
     ]
     expect(allocateBed(own, { id: 'apt-nagi', currentBed: 'bed-02', stores: null, vip: false, start: 960, end: 1020, policy: POLICY }))
-      .toEqual({ laneKey: 'bed-02', refusal: null })
+      .toEqual({ laneKey: 'bed-02', refusal: null, blockers: [] })
     // Somebody else's turnaround is the room being unavailable, exactly as the
     // board's own 「清掃を予約不可時間として表示」 says.
     const theirs = [
@@ -4613,7 +4627,8 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     landingVerdict(lanes, ask(over), cell)
 
   const cellOf = (state: RailCell['state'], sentence: string): RailCell => ({
-    start: 960, state, label: '', sentence, alternatives: [], alternativeKind: null, ackAllowed: state !== 'blocked',
+    start: 960, state, label: '', sentence, reason: state === 'blocked' ? 'guard' : null,
+    alternatives: [], alternativeKind: null, ackAllowed: state !== 'blocked',
   })
 
   // ── the three classes, and the word each one wears ───────────────────────
@@ -5302,7 +5317,8 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
   const staff = (items: BoardItem[] = []) => lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'], items })
   const beds = [lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })]
   const cellOf = (state: RailCell['state'], sentence: string): RailCell => ({
-    start: 630, state, label: '', sentence, alternatives: [], alternativeKind: null, ackAllowed: state !== 'blocked',
+    start: 630, state, label: '', sentence, reason: state === 'blocked' ? 'guard' : null,
+    alternatives: [], alternativeKind: null, ackAllowed: state !== 'blocked',
   })
   const askAt = (start: number, dur = 60) => ({
     staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
@@ -6028,7 +6044,8 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
   const verdict = (lanes: BoardLane[], over = {}, cell: RailCell | null = null) =>
     landingVerdict(lanes, ask(over), cell)
   const cellOf = (state: RailCell['state'], sentence: string): RailCell => ({
-    start: 960, state, label: '', sentence, alternatives: [], alternativeKind: null, ackAllowed: state !== 'blocked',
+    start: 960, state, label: '', sentence, reason: state === 'blocked' ? 'guard' : null,
+    alternatives: [], alternativeKind: null, ackAllowed: state !== 'blocked',
   })
   const busyBeds = [
     lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 960, 1020)] }),

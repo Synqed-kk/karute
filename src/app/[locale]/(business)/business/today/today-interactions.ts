@@ -778,6 +778,37 @@ export interface SellReconcile {
    *  bare room (0 minutes) — the same decision, and the same reason, as
    *  `ClaimsBook.violations`. */
   cleanupMinutesByBed: Record<string, number>
+  /** ⚖ flag 75(i) rider (2026-08-26) — WHAT THE RECONCILE THREW AWAY, told to
+   *  whoever asked. Absent by default and OBSERVATIONAL by construction: it is
+   *  called, never read, so a board that passes one and a board that does not
+   *  get the same cells (`today-explains.test.ts` pins that byte-for-byte).
+   *
+   *  WHY IT EXISTS AT ALL: R4 makes one room carry one advertised offer, and
+   *  the offers it drops leave a hole nothing on the board explains — a ✓ chip
+   *  over empty space, which reads as an hour the store simply did not bother
+   *  to sell. The reason was computed here and discarded. Handing it out is the
+   *  whole of the honesty rider; the composing happens display-side. */
+  onDrop?: (drop: SellDrop) => void
+}
+
+/** ⚖ 75(i) — ONE OFFER THE RECONCILE DID NOT KEEP.
+ *
+ *  `kind` is the two answers the reconcile can give, and they are DIFFERENT
+ *  facts about the board:
+ *    · `lane` — this offer's own PERSON is already inside a promise, so no room
+ *      could have saved it. The space is not empty: the box that beat it is
+ *      drawn on this very row, and ⚖ 75(i) says a chip over it gets no clause.
+ *    · `room` — the room went to somebody else's promise and the loser found
+ *      nowhere to land. THIS is the hole a ✓ chip cannot otherwise explain, and
+ *      `takerLaneKey` is who got it (rider 75(ii)'s honesty about lane order). */
+export interface SellDrop {
+  /** The staff lane the dropped offer was advertised on. */
+  laneKey: string
+  /** Its slot start — the offer spans `[h, h + SELL_SLOT_MIN)`. */
+  h: number
+  kind: 'lane' | 'room'
+  /** `room` drops only: the lane whose claim kept the room. */
+  takerLaneKey?: string
 }
 
 /** ⚖ R4 — ONE ADVERTISED OFFER PER BED, decided at the app seam.
@@ -826,12 +857,16 @@ export interface SellReconcile {
 function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellReconcile): SellCell[] {
   /** The gap layer emits every box twice — once for the staff row, once for the
    *  bed row — so the pair collapses to one promise before anything is judged. */
-  const promises = new Map<string, Array<{ resourceKey: string; start: number; end: number }>>()
+  // ⚖ 75(i) — the claim's OWN LANE rides along. It was already on the `GapCell`
+  // being read and was dropped on the way into this map; the rider needs it to
+  // name who kept the room, and re-finding it afterwards would mean matching a
+  // promise back to a claim by its span — a second lookup that can miss.
+  const promises = new Map<string, Array<{ resourceKey: string; laneKey: string; start: number; end: number }>>()
   for (const c of input.claims) {
     if (c.resourceKey === '') continue
     const held = promises.get(c.resourceKey) ?? []
     if (held.some((p) => p.start === c.s && p.end === c.e)) continue
-    held.push({ resourceKey: c.resourceKey, start: c.s, end: c.e })
+    held.push({ resourceKey: c.resourceKey, laneKey: c.laneKey, start: c.s, end: c.e })
     promises.set(c.resourceKey, held)
   }
   // ⚖ R4 fix round — THE CLAIMS, not the rooms they name. The lane test below
@@ -856,14 +891,20 @@ function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellRe
   /** A room is unavailable to this offer when a promise on it overlaps the span
    *  OR sits closer to it than the room's own turnaround — and when the rule
    *  says that promise is the one that keeps the room. */
-  const promised = (resourceKey: string, cell: SellCell) => {
+  const promisedBy = (resourceKey: string, cell: SellCell) => {
     const held = promises.get(resourceKey)
-    if (!held) return false
+    if (!held) return null
     const pad = turnaround(resourceKey)
-    return held.some(
-      (p) => p.end + pad > cell.h && p.start - pad < cell.h + SELL_SLOT_MIN && keepsTheRoom() === 'gap',
+    return (
+      held.find(
+        (p) => p.end + pad > cell.h && p.start - pad < cell.h + SELL_SLOT_MIN && keepsTheRoom() === 'gap',
+      ) ?? null
     )
   }
+  // ⚖ 75(i) — the same test, still the only one anything branches on. `some` →
+  // `find` → `!== null` is the identical predicate on the identical list; the
+  // WINNER is now kept instead of thrown away, and only the collector reads it.
+  const promised = (resourceKey: string, cell: SellCell) => promisedBy(resourceKey, cell) !== null
 
   /** ⚖ R4 fix round — THE SAME PERSON IS A COLLISION TOO, and the filter this
    *  round deleted was saying so. `renderLane`'s suppression did TWO jobs at
@@ -914,8 +955,10 @@ function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellRe
       // The lane test FIRST, and it is terminal: a person already inside a
       // promise has no free room to be moved to, so the offer goes and its room
       // is left free for somebody else's loser to land on.
-      if (busyLane(c)) decisions.set(offerKey(c), null)
-      else if (promised(c.resourceKey, c)) losers.push(c)
+      if (busyLane(c)) {
+        decisions.set(offerKey(c), null)
+        input.onDrop?.({ laneKey: c.laneKey, h: c.h, kind: 'lane' })
+      } else if (promised(c.resourceKey, c)) losers.push(c)
       else taken.add(c.resourceKey)
     }
     for (const c of losers) {
@@ -934,6 +977,10 @@ function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellRe
       })
       if (found.laneKey === null) {
         decisions.set(offerKey(c), null)
+        // The room this offer lost, and to whom. Read from the SAME `promisedBy`
+        // the loser was selected by, so the taker named here is by construction
+        // the promise that took the room — never a second guess at it.
+        input.onDrop?.({ laneKey: c.laneKey, h: c.h, kind: 'room', takerLaneKey: promisedBy(c.resourceKey, c)?.laneKey })
         continue
       }
       taken.add(found.laneKey)
@@ -1090,6 +1137,30 @@ export function gapLayerFor(
 
 export type RailState = 'safe' | 'degraded' | 'blocked'
 
+/** ⚖ LIAM flag 44 (2026-08-21, restated 2026-08-26) — WHICH KIND OF BLOCKER,
+ *  as a field rather than as a sentence the surface would have to read back.
+ *
+ *  The chip already carried the WHY in prose; nothing carried the CLASS, so a
+ *  display that wants to say 満室 in ten grey pixels had to match on the
+ *  sentence — flag 54's disease one level down (two readings of one answer,
+ *  free to disagree the day the wording is passed again, which is exactly what
+ *  the 8/25 native pass did to this file's other sentences).
+ *
+ *  THREE CLASSES, and they are the branches `railCell` already has:
+ *    · `fit`   — no pocket holds the session at this start. The blocker is
+ *                DRAWN on the row (a booking, a 予定ブロック, a shift wall), so
+ *                the operator can already see it.
+ *    · `bed`   — the pocket held and the ROOM did not (`R-UNAVAILABLE`, which
+ *                the engine only ever emits when a `placementFeasible` callback
+ *                answered false: gap-guard :272/:347/:370). Invisible on this
+ *                row — the rooms are somewhere else entirely.
+ *    · `guard` — the guard is protecting the 新規 window (`R-REP`/`R-DEAD`/
+ *                `R-SALV`). Also invisible: it is a rule, not a card.
+ *
+ *  `null` on a start that was not refused. `EXEMPT` never reaches here — it
+ *  arrives as `verdict: 'exempt'` and the safe branch answers it first. */
+export type RailReason = 'fit' | 'bed' | 'guard'
+
 export interface RailCell {
   start: number
   state: RailState
@@ -1097,6 +1168,8 @@ export interface RailCell {
   label: string
   /** What this start actually does to the protected window, in canon's words. */
   sentence: string
+  /** ⚖ 44 — the class of blocker, `null` when nothing blocked. See `RailReason`. */
+  reason: RailReason | null
   /** The engine's feasible alternatives, when it refused this start. */
   alternatives: number[]
   alternativeKind: 'safe' | 'least-loss' | null
@@ -1239,8 +1312,8 @@ function railCell(
   input: RailInput,
   ctx: GuardContext,
 ): RailCell {
-  const blocked = (sentence: string): RailCell => ({
-    start, state: 'blocked', label: '—', sentence, alternatives: [], alternativeKind: null, ackAllowed: false,
+  const blocked = (sentence: string, reason: RailReason): RailCell => ({
+    start, state: 'blocked', label: '—', sentence, reason, alternatives: [], alternativeKind: null, ackAllowed: false,
   })
   const pocket = pockets.find((p) => start >= p.s && start + input.dur <= p.e)
   if (!pocket) {
@@ -1264,7 +1337,7 @@ function railCell(
     const here = pockets.find((p) => start >= p.s && start < p.e)
     const alternatives = here ? engine.safeStarts(here, input.dur, ctx) : []
     return {
-      ...blocked(`この開始には${input.dur}分の連続した空きがありません`),
+      ...blocked(`この開始には${input.dur}分の連続した空きがありません`, 'fit'),
       alternatives,
       // ponytail: zero-loss starts only. A pocket whose every feasible start is
       // lossy still answers 「ありません」 — upgrade to the engine's own
@@ -1299,6 +1372,7 @@ function railCell(
         input.placementFeasible
           ? `この開始ではベッドを${input.dur}分確保できません`
           : reasonLine(v.reason, input.protectedDur),
+        'bed',
       ),
       alternatives: v.alternatives,
       alternativeKind: v.alternativeKind,
@@ -1310,7 +1384,7 @@ function railCell(
     const sentence = v.protectedCapacityBefore === 0
       ? `配置できます。この区間には現在、守れる新規${input.protectedDur}分の空きはありません`
       : `新規${input.protectedDur}分の空きを守れます`
-    return { start, state: 'safe', label: `✓${clockOf(start)}`, sentence, alternatives: [], alternativeKind: null, ackAllowed: true }
+    return { start, state: 'safe', label: `✓${clockOf(start)}`, sentence, reason: null, alternatives: [], alternativeKind: null, ackAllowed: true }
   }
   if (v.verdict === 'degraded') {
     const loss = Math.max(0, v.protectedCapacityBefore - v.protectedCapacityAfter)
@@ -1319,17 +1393,102 @@ function railCell(
       state: 'degraded',
       label: `△${clockOf(start)}`,
       sentence: `新規${input.protectedDur}分の空き${v.protectedCapacityBefore}→${v.protectedCapacityAfter}（${loss}枠減・損を減らす）。${clockOf(v.leastLossStart ?? start)}はこの区間で損が最少の開始です`,
+      reason: null,
       alternatives: v.alternatives,
       alternativeKind: v.alternativeKind,
       ackAllowed: true,
     }
   }
   return {
-    ...blocked(reasonLine(v.reason, input.protectedDur)),
+    ...blocked(reasonLine(v.reason, input.protectedDur), 'guard'),
     alternatives: v.alternatives,
     alternativeKind: v.alternativeKind,
     ackAllowed: v.reason?.ackAllowed === true,
   }
+}
+
+/** ⚖ LIAM flag 44 (2026-08-21, restated in the 8/26 kickoff) — THE BOARD
+ *  EXPLAINS ITSELF. What ONE rail chip wears at rest, and what it says when it
+ *  is pressed.
+ *
+ *  HIS COMPLAINT, in his own scene: the strip is honest and unreadable. A grey
+ *  「—」 states a refusal and names nothing, and two of the three things that can
+ *  cause one — a full house, and the guard holding the 新規 window — are
+ *  INVISIBLE ON THAT ROW. The operator sees empty space and a board refusing to
+ *  sell it, with no way to find out why short of dragging a card at it.
+ *
+ *  SO: a ten-pixel word at rest, and the whole sentence on demand. The rest
+ *  budget is the entire ⚖ big-tech-simplicity allowance for this strip (a word,
+ *  a 3px dot, a quarter-strength hatch) and the explanation is a press away.
+ *
+ *  IT LIVES HERE, not in the renderer, for this file's own stated reason: an
+ *  answer the operator acts on has to be provable without a renderer — and this
+ *  one is asked across twelve dial combinations, on boards whose sell layer is
+ *  empty, where a DOM test would prove nothing.
+ *
+ *  ⚖ 44's WINDOW REQUIREMENT — EVERY sentence names the exact start-window it
+ *  judged, `[start, start + dur)`. The strip's length follows the gesture (⚖
+ *  50), so 「置けません」 with no window is a sentence about a span the operator
+ *  cannot see and may not have guessed. Two grammars, deliberately ONE home
+ *  each:
+ *    · a bed refusal is `fullRoomsRefusal`'s, arriving whole through
+ *      `allocateBed` — it already opens with the window and then names the room
+ *      and every occupant, and re-wording it here would be the second composer
+ *      that ruling exists to forbid. ⛔ Never coin a new full-house sentence:
+ *      「この時間帯に空いているベッドがいません」 is RETIRED and
+ *      「空きベッドなし」 was never vocabulary.
+ *    · everything else appends 「（HH:MM–HH:MM）」 to the engine's own line.
+ *
+ *  ⚖ 75(i) — AND A ✓ OVER NOTHING IS ALSO A QUESTION. A window carrying no
+ *  advertised box at all says "placeable" while the board shows no offer there,
+ *  and R4's reconcile is often the reason: it dropped that hour so one room
+ *  would carry one advertisement. When it did, the clause names WHO GOT THE
+ *  ROOM (75(ii)); when nothing was dropped the hour was never derived at all,
+ *  and the clause says exactly that and NOTHING MORE. Inventing a cause for an
+ *  hour the derivation simply never emitted would be worse than the silence it
+ *  replaces. */
+export function railExplain(
+  cell: RailCell,
+  /** The length the strip is judging — ⚖ 50, it follows the gesture. */
+  dur: number,
+  opts: {
+    /** `allocateBed`'s answer for THIS chip's own window, on a bed-refused
+     *  chip: its sentence, and the occupants it walked. Absent everywhere else
+     *  (and on a store with no rooms, where nothing can blame a bed). */
+    room?: { refusal: string | null; blockers: readonly BoardItem[] } | null
+    /** ⚖ 75(i) — this window overlaps no advertised box on its lane. */
+    adless?: boolean
+    /** ⚖ 75(ii) — the lane whose promise kept the room, when a room-drop is
+     *  what emptied this window. Absent = nothing was dropped for a room. */
+    takerLabel?: string | null
+  } = {},
+): { word: string | null; sentence: string } {
+  const judged = `（${clockOf(cell.start)}–${clockOf(cell.start + dur)}）` // JP-DRAFT
+  const blockers = opts.room?.blockers ?? []
+  const word =
+    cell.reason === 'bed'
+      // ⚖ 44 — 満室 is the CHIP's word: internal/state vocabulary, which the
+      // 8/25 native pass retired from operator SENTENCES only (see
+      // `fullRoomsRefusal`'s own note). A window whose every blocker is a
+      // turnaround is not a busy house, it is a house being turned over, and
+      // 清掃 is the truer word — read off the walk `allocateBed` already did,
+      // never re-derived from the sentence.
+      ? (blockers.length > 0 && blockers.every((i) => i.kind === 'cleanup') ? '清掃' : '満室') // JP-DRAFT
+      : cell.reason === 'guard'
+        ? '新規' // JP-DRAFT
+        // ⚖ Fable-accepted default (overturnable): a no-pocket-fit chip keeps
+        // the bare 「—」. Its blocker — a booking, a 予定ブロック, a shift wall —
+        // is DRAWN on the row directly above it, so a word would be labelling
+        // something the operator is already looking at.
+        : null
+  const base = cell.reason === 'bed' && opts.room?.refusal ? opts.room.refusal : `${cell.sentence}${judged}`
+  // A refused chip is already answering; ⚖ 75(i)'s clause is about a start the
+  // board said YES to and then advertised nothing at.
+  if (cell.state === 'blocked' || opts.adless !== true) return { word, sentence: base }
+  const clause = opts.takerLabel
+    ? `ベッドは別の販売枠（${opts.takerLabel}）が使っています` // JP-DRAFT
+    : 'この開始の販売枠は表示されていません' // JP-DRAFT
+  return { word, sentence: `${base}。${clause}` }
 }
 
 /** ⚖ LIAM flag 58 RIDER (2026-08-22) — AN ENGINE START IS NOT YET AN OFFER.
@@ -1828,7 +1987,7 @@ export function allocateBed(
      *  the day — today-board draws a staged card exactly like a standing one. */
     stagedId?: string | null
   },
-): { laneKey: string | null; refusal: string | null } {
+): { laneKey: string | null; refusal: string | null; blockers: BoardItem[] } {
   const { id, start, end, policy } = opts
   const blockersOn = (lane: BoardLane) =>
     lane.items.filter(
@@ -1846,7 +2005,7 @@ export function allocateBed(
   const compatible = (l: BoardLane) => roomFitsClass(l, opts.vip, policy)
   const free = (l: BoardLane) => opts.allowBusy === true || blockersOn(l).length === 0
   const current = beds.find((l) => l.key === opts.currentBed)
-  if (current && compatible(current) && free(current)) return { laneKey: current.key, refusal: null }
+  if (current && compatible(current) && free(current)) return { laneKey: current.key, refusal: null, blockers: [] }
   const candidates = beds.filter(compatible)
   // 個室 last for a regular booking: it is the room the VIP work needs, so it is
   // spent only when the treatment rooms are gone.
@@ -1855,10 +2014,19 @@ export function allocateBed(
       ? candidates
       : [...candidates.filter((l) => l.roomClass !== 'private'), ...candidates.filter((l) => l.roomClass === 'private')]
   const taken = ordered.find(free)
-  if (taken) return { laneKey: taken.key, refusal: null }
+  if (taken) return { laneKey: taken.key, refusal: null, blockers: [] }
+  // ⚖ 44 — THE SAME WALK, HANDED OUT ONCE. The refusal SENTENCE names the
+  // occupants and the rail's micro-word has to CLASSIFY them (all-清掃 wears
+  // 清掃 rather than 満室), and a display that re-walked the rooms to find that
+  // out would be a second reading of the one thing this function just decided —
+  // free to disagree with the sentence sitting beside it. One walk, both
+  // answers. Empty on every non-refusal above: nothing blocked, so there is
+  // nobody to name.
+  const rows = candidates.map((l) => [l, blockersOn(l)] as const)
   return {
     laneKey: null,
-    refusal: fullRoomsRefusal(candidates.map((l) => [l, blockersOn(l)] as const), start, end, needsPrivate, opts.stagedId ?? null),
+    refusal: fullRoomsRefusal(rows, start, end, needsPrivate, opts.stagedId ?? null),
+    blockers: rows.flatMap(([, blockers]) => blockers),
   }
 }
 
