@@ -55,6 +55,8 @@
 // future round — it is what the screen does, and `worldMinusHand` exists only
 // while a hand is holding a card.
 
+import type { GapCell, SellCell } from '@/business/lib/canon-logic/availability'
+import { SELL_SLOT_MIN } from '@/business/lib/canon-logic/pricing'
 import type { BoardLane } from '@/business/lib/today-board'
 import { allocateBed, roomFitsClass, sharesStore, type RoomPolicy } from './today-interactions'
 
@@ -643,9 +645,25 @@ export function buildClaims(truth: BedTruth, offers: readonly OfferInput[]): Cla
    *   · the PAIR shares it — one offer drawn on its staff lane and again on the
    *     bed row is the same box twice, same room, same span, same kind, so it
    *     still collapses to one claim;
-   *   · a TWIN inside one kind cannot happen — each frozen ledger already
-   *     refuses to sell one room twice (sell's per-slot Set, gap's bedLedger),
-   *     so identical (room, span) within a kind is not a case;
+   *   · ⚖ R4 (2026-08-25) — A TWIN INSIDE ONE KIND, SAID TRUTHFULLY. R2 wrote
+   *     that one cannot happen "because each frozen ledger already refuses to
+   *     sell one room twice (sell's per-slot Set, gap's bedLedger)". Half of
+   *     that is FALSE and it is worth the correction, because the false half is
+   *     exactly what R4 exists to name. `gap`'s ledger is per-CALL and does
+   *     refuse a second overlapping claim on one room (availability.ts:345).
+   *     `sell`'s `claimed` Set is minted fresh INSIDE the per-slot loop
+   *     (availability.ts:117) while `SELL_SLOT_MIN` is fixed at 60 — so at
+   *     `gridMin` 30 the sell layer advertises 15:00–16:00 and 15:30–16:30 on
+   *     ONE room, and it overlaps ITSELF by construction.
+   *
+   *     That is not a twin and not a defect: an OFFER IS AN OPTION. A booking
+   *     grid emitting 15:00 / 15:30 / 16:00 on one room is a MENU of
+   *     alternatives, and one booking takes the menu away. A PROMISE is a UNIT
+   *     — one pocket, one discount, one thing that may not overlap — and that
+   *     is what a スキマ枠 or a 詰め込み box is. `boardOffers` below is where
+   *     the difference is spelled: it hands this book ONE claim per menu run,
+   *     so an identical (room, span) within a kind genuinely is not a case by
+   *     the time the offers arrive here;
    *   · a CROSS-KIND collision is exactly the disease this book exists to
    *     expose. The two ledgers never meet, so combineCrumbs can merge two
    *     30-minute crumbs into an (h, h+60) union that lands on the same room
@@ -715,4 +733,61 @@ export function buildClaims(truth: BedTruth, offers: readonly OfferInput[]): Cla
     },
   }
   return Object.freeze(book)
+}
+
+/** ⚖ R4 (2026-08-25) — WHAT THE BOARD ACTUALLY PROMISED, out of what it drew.
+ *
+ *  THE ONE DISTINCTION THIS ROUND IS BUILT ON, and the only place it is spelled:
+ *
+ *    · an OFFER IS AN OPTION. The 販売可能枠 grid emitting 15:00 / 15:30 / 16:00
+ *      on one room is a MENU of alternatives — the customer picks one and the
+ *      other two stop existing. Overlapping STARTS are the correct grammar of a
+ *      booking grid, not a double-claim, and de-duplicating them would break the
+ *      grid. Nothing here changes what the sell layer emits or what the screen
+ *      draws: those boxes are untouched.
+ *    · a PROMISE IS A UNIT. A スキマ枠 or a 詰め込み box is one pocket, one
+ *      price, one length, drawn once. Two of them on one room is two things the
+ *      store cannot both do.
+ *
+ *  So a run of sell options on one room is read as ONE claim over the room-time
+ *  the menu commits — the union of the run — and every gap box is its own claim.
+ *  That is what makes `violations` answerable: it can then say "this room was
+ *  promised twice" without calling a menu a conflict with itself.
+ *
+ *  A run is contiguous OR overlapping: two adjacent hours on one room are one
+ *  stretch of that room's day, and splitting them would invent a separation the
+ *  turnaround rule would then judge.
+ *
+ *  Offers with NO room (`bed?.key ?? ''`, canon's bed-less store, availability
+ *  :127) are dropped here rather than thrown on: they are a claim on nothing,
+ *  and `buildClaims` refuses them by design — "the caller filters first". */
+export function boardOffers(sellCells: readonly SellCell[], gapCells: readonly GapCell[]): OfferInput[] {
+  const out: OfferInput[] = []
+  for (const c of gapCells) {
+    if (c.resourceKey === '') continue
+    out.push({ resourceKey: c.resourceKey, start: c.s, end: c.e, kind: 'gap', laneKey: c.laneKey })
+  }
+  // One run per room. The staff-row and bed-row emissions of one sell cell
+  // share (room, h), so they collapse into the same run without a dedup step.
+  const byRoom = new Map<string, SellCell[]>()
+  for (const c of sellCells) {
+    if (c.resourceKey === '') continue
+    const held = byRoom.get(c.resourceKey)
+    if (held) held.push(c)
+    else byRoom.set(c.resourceKey, [c])
+  }
+  for (const [resourceKey, cells] of byRoom) {
+    const sorted = [...cells].sort((a, b) => a.h - b.h)
+    let run: OfferInput | null = null
+    for (const c of sorted) {
+      const end = c.h + SELL_SLOT_MIN
+      if (run && c.h <= run.end) {
+        run.end = Math.max(run.end, end)
+        continue
+      }
+      run = { resourceKey, start: c.h, end, kind: 'sell', laneKey: c.laneKey }
+      out.push(run)
+    }
+  }
+  return out
 }
