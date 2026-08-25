@@ -246,6 +246,26 @@ const rec = (claims: GapCell[], cleanup: Record<string, number> = {}): SellRecon
 const roomsAt = (layer: SellLayer, h: number) =>
   layer.cells.filter((c) => c.group === 'staff' && c.h === h).map((c) => `${c.laneKey}→${c.resourceKey}`).sort()
 
+/** THE R2 ORACLE ARMOR, ON THE AXIS THE ORACLE CANNOT REACH. `boardOffers`
+ *  groups by ROOM, so `violations` returns empty for a staff-axis collision no
+ *  matter how bad it is (its own comment now says so). This asks the reconciled
+ *  layer directly: is any surviving hour sitting inside a promise drawn on its
+ *  OWN lane?
+ *
+ *  ⚖ DELTA-VERIFY ROUND — HOISTED TO SHARED SCOPE. It lived inside §3b and so
+ *  the staff axis was pinned on the HAND-BUILT board only; the 12-combination
+ *  fixture sweep asserted the room-axis oracle and nothing else, which is how
+ *  R4's own fix came to have zero fixture-level coverage. §6 now calls it too.
+ *
+ *  ponytail: the literal 60 is deliberate and stays. This is an INDEPENDENT
+ *  reading of the same overlap the code makes with `SELL_SLOT_MIN` — importing
+ *  the constant would let a wrong slot length agree with itself and pass. */
+const doubleAdvertised = (layers: { sell: SellLayer; claims: readonly GapCell[] }) =>
+  layers.sell.cells
+    .filter((c) => c.group === 'staff')
+    .filter((c) => layers.claims.some((g) => g.laneKey === c.laneKey && g.s < c.h + 60 && c.h < g.e))
+    .map((c) => `${c.laneKey} ${hhmm(c.h)} on ${c.resourceKey}`)
+
 // ═══════════════════════════════════════════════════════════════════════════
 // §1 — AN OFFER IS AN OPTION, A PROMISE IS A UNIT
 // ═══════════════════════════════════════════════════════════════════════════
@@ -537,16 +557,8 @@ describe('§3b — an offer inside its own person’s promise is dropped, never 
     lane({ key: 'bed-03', group: 'beds' }),
   ]
 
-  /** THE R2 ORACLE ARMOR, ON THE AXIS THE ORACLE CANNOT REACH. `boardOffers`
-   *  groups by ROOM, so `violations` returns empty for a staff-axis collision no
-   *  matter how bad it is (its comment now says so). This asks the reconciled
-   *  layer directly: is any surviving hour sitting inside a promise drawn on its
-   *  OWN lane? */
-  const doubleAdvertised = (layers: { sell: SellLayer; claims: GapCell[] }) =>
-    layers.sell.cells
-      .filter((c) => c.group === 'staff')
-      .filter((c) => layers.claims.some((g) => g.laneKey === c.laneKey && g.s < c.h + 60 && c.h < g.e))
-      .map((c) => `${c.laneKey} ${hhmm(c.h)} on ${c.resourceKey}`)
+  /** `doubleAdvertised` is now module-scope (defined beside `roomsAt`) so §6's
+   *  fixture sweep can ask the same question of the operator's own board. */
 
   /** The operator's real props with THIS scene's clock, so the hand-built lanes
    *  and the layer that reads them agree on where the day starts and ends. */
@@ -954,6 +966,22 @@ describe('§6 — one advertised offer per bed, on the operator’s own board', 
           expect({ at: `grid=${gridMin} S=${sessionMin} minSell=${minSellableMin}`, red: bad.length > 0 })
             .toEqual({ at: `grid=${gridMin} S=${sessionMin} minSell=${minSellableMin}`, red: true })
           expect(ok.map(say)).toEqual([])
+          // ⚖ DELTA-VERIFY ROUND — THE STAFF AXIS, ON THE OPERATOR'S OWN BOARD.
+          // Everything above this line reads the room-axis oracle, and
+          // `violations` cannot see a staff-axis collision at all — so R4's own
+          // fix (`busyLane`) had NO fixture-level coverage: disabling it turned
+          // only §3b's hand-built board red. This is the same question asked of
+          // the real fixture, in every combination.
+          //
+          // GREEN SIDE ONLY, deliberately. The staff-axis red count is genuinely
+          // 0 at grid=60 S=60 (the store's own dials — the same reason the
+          // fixture's headline counts did not move this round), so a per-combo
+          // `red > 0` here would be false. §3b's board is the one that keeps
+          // this axis's defect asserted-reproducible; the per-combo red counts
+          // below ride into the artifact as DATA, not as a pin.
+          const staffRed = doubleAdvertised(red).length
+          expect({ at: `grid=${gridMin} S=${sessionMin} minSell=${minSellableMin}`, staffAxis: doubleAdvertised(green) })
+            .toEqual({ at: `grid=${gridMin} S=${sessionMin} minSell=${minSellableMin}`, staffAxis: [] })
           // ⚠ THE BAR IS BOARD-LEVEL. A single empty LAYER is not a failure —
           // canon's grid mode legitimately silences the packing layer — what
           // must hold is that the board keeps advertising something.
@@ -963,7 +991,8 @@ describe('§6 — one advertised offer per bed, on the operator’s own board', 
             `grid=${String(gridMin).padStart(2)} S=${String(sessionMin).padStart(2)} minSell=${String(minSellableMin).padStart(2)}` +
               ` | cells ${String(red.sell.cells.length).padStart(3)}→${String(green.sell.cells.length).padStart(3)}` +
               ` packed=${String(green.gap.packed.length).padStart(3)} scraps=${String(green.gap.scraps.length).padStart(3)}` +
-              ` | violations ${String(bad.length).padStart(2)}→${String(ok.length).padStart(2)}`,
+              ` | violations ${String(bad.length).padStart(2)}→${String(ok.length).padStart(2)}` +
+              ` | staff-axis ${String(staffRed).padStart(2)}→${String(doubleAdvertised(green).length).padStart(2)}`,
           )
         }
       }
@@ -978,8 +1007,19 @@ describe('§6 — one advertised offer per bed, on the operator’s own board', 
           '# DIAL-SWEEP-r4 — one advertised offer per bed, across every dial combination',
           `# board: the REAL fixture board (${STORE_A}) assembled by TodayPage · ${hhmm(REAL.hours.open)}-${hhmm(REAL.hours.close)}`,
           '# columns: sell cells before→after reconciliation · 詰め込み · スキマ · claim violations before→after',
+          '#          · staff-axis double-advertisements before→after',
           '# the bar is BOARD-level: a single empty layer is not a failure (canon grid mode),',
           '# what must hold is that the board keeps selling and violations reach zero.',
+          '#',
+          '# TWO AXES, and they are not the same evidence (⚖ delta-verify round):',
+          '#   violations = the ROOM axis, via boardOffers/buildClaims. Grouped by room,',
+          '#     so it is blind to one PERSON advertised on two rooms at the same minute.',
+          '#   staff-axis = that other question, asked straight of the reconciled layer:',
+          '#     surviving 販売可能枠 hours whose OWN lane carries an overlapping promise.',
+          '#     ASSERTED EMPTY on the green side in all 12 combinations. The red column',
+          '#     is DATA, not a pin — it is genuinely 0 at grid=60 S=60 (the store\'s own',
+          '#     dials), which is why §3b\'s hand-built board is what keeps this axis\'s',
+          '#     defect asserted-reproducible.',
           '',
           ...rows,
           '',
