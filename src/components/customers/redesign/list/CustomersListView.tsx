@@ -380,7 +380,7 @@ export function CustomersListView({
               <span>{t('col.staff')}</span>
               <span className="text-right">{t('col.total')}</span>
             </div>
-            {pagedRows.map((c) => (
+            {pagedRows.map((c, i) => (
               <CustomerRowDesktop
                 key={c.id}
                 c={c}
@@ -390,6 +390,7 @@ export function CustomersListView({
                 }
                 karuteContext={karuteContext}
                 hrefBase={hrefBase}
+                entranceIndex={i}
               />
             ))}
           </div>
@@ -399,7 +400,7 @@ export function CustomersListView({
            *  card has breathing room from the screen edges, matching the
            *  design spike (cards inset, not bleeding). */}
           <div className="overflow-hidden rounded-2xl border border-border/60 bg-card md:hidden">
-            {pagedRows.map((c) => (
+            {pagedRows.map((c, i) => (
               <CustomerCardMobile
                 key={c.id}
                 c={c}
@@ -409,6 +410,7 @@ export function CustomersListView({
                 }
                 karuteContext={karuteContext}
                 hrefBase={hrefBase}
+                entranceIndex={i}
               />
             ))}
           </div>

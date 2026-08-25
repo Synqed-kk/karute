@@ -462,3 +462,11 @@ html.dark[data-theme="karute"] {
   80% { transform: translateX(2px); }
 }
 
+/* 要連絡 dot (customer list): pulse three times then rest solid — enough to
+ * catch the eye on entry without a permanent blink (B2). Standalone keyframe:
+ * deliberately SPARED under prefers-reduced-motion per the tier-3 policy
+ * above (the dot carries state meaning); it is finite either way. */
+@keyframes contact-pulse {
+  50% { opacity: 0.5; }
+}
+

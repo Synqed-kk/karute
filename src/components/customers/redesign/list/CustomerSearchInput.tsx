@@ -56,7 +56,7 @@ export function CustomerSearchInput({ initialQuery }: CustomerSearchInputProps) 
   }, [apply])
 
   return (
-    <label className="flex w-full items-center gap-2 rounded-[10px] border border-border bg-card px-3 focus-within:border-sky-500">
+    <label className="flex w-full items-center gap-2 rounded-[10px] border border-border bg-card px-3 transition-colors duration-(--duration-fast) ease-(--ease-out) focus-within:border-sky-500">
       <Search size={16} className="text-muted-foreground" />
       <input
         type="text"

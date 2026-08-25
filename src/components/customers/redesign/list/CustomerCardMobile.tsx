@@ -30,6 +30,9 @@ interface CustomerCardMobileProps {
    * customer-centric karute list (Phase B).
    */
   hrefBase?: string
+  /** Entrance stagger position within the current page (decorative;
+   *  reduced motion renders instantly with no delay). */
+  entranceIndex?: number
 }
 
 /**
@@ -51,6 +54,7 @@ export function CustomerCardMobile({
   c,
   karuteContext = false,
   hrefBase = '/customers',
+  entranceIndex = 0,
 }: CustomerCardMobileProps) {
   const t = useTranslations('customers.list')
   const status = STATUS_STYLES[c.status]
@@ -58,9 +62,10 @@ export function CustomerCardMobile({
   return (
     <Link
       href={`${hrefBase}/${c.id}` as Parameters<typeof Link>[0]['href']}
-      className={`relative flex items-center gap-3 border-b border-border transition-colors hover:bg-muted/30 active:bg-muted/50 last:border-b-0 ${
+      className={`relative flex items-center gap-3 border-b border-border transition-colors hover:bg-muted/30 active:bg-muted/50 last:border-b-0 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-[6px] motion-safe:fill-mode-backwards motion-safe:animation-duration-(--duration-base) motion-safe:ease-(--ease-out) ${
         karuteContext ? 'px-4 py-2.5' : 'px-4 py-3'
       }`}
+      style={{ animationDelay: `${entranceIndex * 40}ms` }}
     >
       {/* Avatar — smaller in karute context (size-8 / 32px) to match
        *  the spike's tighter karute-tab density; full size (size-10 /
@@ -171,7 +176,7 @@ export function CustomerCardMobile({
         <div className="mt-1 flex items-center gap-x-2 text-[11px] tabular-nums">
           {c.packAlert === 'contact' && (
             <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-red-200 bg-red-50 px-1.5 py-px font-medium text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400">
-              <span className="size-1.5 animate-pulse rounded-full bg-red-500" />
+              <span className="size-1.5 animate-[contact-pulse_2s_cubic-bezier(0.4,0,0.6,1)_3] rounded-full bg-red-500" />
               {t('row.packContact')}
             </span>
           )}
