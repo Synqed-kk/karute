@@ -1926,6 +1926,22 @@ export function TodayScreen(props: TodayProps) {
       start,
       end: minuteOf(span.x + span.w, hours),
       policy: props.rooms,
+      // ⚖ R3 one world — THE SAME SENTENCE, ON THIS LEG TOO. This refusal is
+      // SAID (`refuse` below), so it is one of the two places 満室 reaches the
+      // operator, and with a staged card real for every reader it can name the
+      // operator's own unconfirmed move. Without this it named it like a
+      // stranger's booking — the defect item 2 exists to close, alive on the
+      // sibling path (bed-row drop, 次回予約 chip, the stage-time re-solve, the
+      // gap partner).
+      //
+      // Read from the render closure rather than a ref, unlike `board` above:
+      // `boardLanes` moves on every pointer frame, `pending` does not move
+      // during a gesture at all — `onCardPointerDown` refuses to start one on
+      // any other card while something is staged, and every `setPending` site
+      // fires at a landing or on the hold popover's own answer, never between a
+      // pointerdown and its drop. Same reason `props.rooms` and `hours` are read
+      // here the same way.
+      stagedId: pending?.id ?? null,
     })
     if (solved.refusal) {
       refuse(solved.refusal)

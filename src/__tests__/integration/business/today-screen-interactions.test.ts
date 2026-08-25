@@ -1212,6 +1212,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
  * zero-delta pin on purpose.
  * ──────────────────────────────────────────────────────────────────────────── */
 describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane for everybody', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
   const GUARD = {
     services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
     newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
@@ -1490,6 +1491,47 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
       expect(ask(null).reason).toBe('10:00〜11:00はベッドが満室です。bed-01が使用中（見本 さくら様）、bed-02が使用中（見本 いつき様）')
       // A staged id that is not on this board changes nothing either.
       expect(ask('somebody-else').reason).toBe(ask(null).reason)
+    })
+
+    /** ⚖ F1 (line audit, 2026-08-25) — AND THE OTHER LEG THAT SAYS IT OUT LOUD.
+     *
+     *  `landingVerdict` is not the only path to this sentence. `solveBed`
+     *  (TodayScreen) calls `allocateBed` itself and hands the refusal straight
+     *  to `refuse(...)`, which is four more surfaces: the bed-row drop, the
+     *  次回予約 chip's landing, the stage-time re-solve and the gap partner. It
+     *  shipped without `stagedId`, so while a move was staged every one of them
+     *  could name the operator's own card like a stranger's — item 2's defect,
+     *  alive on a sibling path.
+     *
+     *  Pinned in two halves, because the wiring is component-internal and
+     *  territory has no renderer for TodayScreen: the ANSWER here (the allocator
+     *  asked exactly as `solveBed` asks it — a 次回予約, so `id: null`, no room
+     *  carried in), and the WIRING as a source pin inside `solveBed`'s own body
+     *  below. */
+    it('solveBed’s leg says it too — a 次回予約 into a full house names the staged move', () => {
+      const staffLane = board.find((l) => l.key === 'p-01')!
+      const solved = allocateBed(board, {
+        id: null, currentBed: null, stores: staffLane.stores, vip: false,
+        start: 600, end: 660, policy: POLICY, stagedId: 'staged',
+      })
+      expect(solved.laneKey).toBeNull()
+      expect(solved.refusal).toBe('10:00〜11:00はベッドが満室です。bed-01が使用中（見本 さくら様）、bed-02が使用中（確定待ちの移動：見本 いつき様）')
+      // …and nothing staged is byte-identical to what this leg shipped before.
+      expect(allocateBed(board, {
+        id: null, currentBed: null, stores: staffLane.stores, vip: false,
+        start: 600, end: 660, policy: POLICY,
+      }).refusal).toBe('10:00〜11:00はベッドが満室です。bed-01が使用中（見本 さくら様）、bed-02が使用中（見本 いつき様）')
+    })
+
+    it('…and solveBed actually threads it — the wiring, in its own body', () => {
+      // Scoped to `solveBed`'s body: the same literal also appears in
+      // `verdictFor`, and a pin that could be satisfied by the OTHER call site
+      // would not catch this leg dropping it.
+      const fn = SRC.indexOf('function solveBed(')
+      expect(fn).toBeGreaterThan(-1)
+      const body = SRC.slice(fn, SRC.indexOf('\n  }', fn))
+      expect(body).toContain('stagedId: pending?.id ?? null,')
+      expect(body).toContain('refuse(solved.refusal)')
     })
 
     it('the fact is never suppressed — the staged room is still counted as taken', () => {
