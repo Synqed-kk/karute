@@ -76,15 +76,31 @@ export function RecordingTranscriptCard({
         >
           <ChevronDown
             size={14}
-            className={cn('transition-transform', open && 'rotate-180')}
+            className={cn(
+              'transition-transform duration-(--duration-press) ease-(--ease-out)',
+              open && 'rotate-180',
+            )}
           />
         </button>
       </header>
-      {open && (
-        <div className="border-t border-border p-5 text-sm leading-relaxed text-foreground/85 md:p-6">
-          {transcript}
+      {/* Always mounted (not conditional on `open`) so the grid-rows tween can
+       *  animate; the inner overflow-hidden div clips via the child, not the
+       *  row, since a CSS grid row can't itself clip content. Pre-Chrome-107 /
+       *  pre-Safari-16.4 engines snap instead of animating grid-template-rows
+       *  — accepted degradation, layout stays correct either way. */}
+      <div
+        className={cn(
+          'grid transition-[grid-template-rows] duration-(--duration-modal) ease-(--ease-out)',
+          open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+        )}
+        aria-hidden={!open}
+      >
+        <div className="overflow-hidden min-h-0">
+          <div className="border-t border-border p-5 text-sm leading-relaxed text-foreground/85 md:p-6">
+            {transcript}
+          </div>
         </div>
-      )}
+      </div>
     </section>
   )
 }
