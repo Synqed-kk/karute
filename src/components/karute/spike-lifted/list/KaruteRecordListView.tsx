@@ -158,6 +158,11 @@ export function KaruteRecordListView({
   // the aria-live region below carries the loaded-count string alone.
   const [loadError, setLoadError] = useState(false)
   const [announcement, setAnnouncement] = useState('')
+  // Search-reveal (PR-1b) state — the fetch itself lives further down with its
+  // debounce; the declarations sit up here with the rest of the store-scoped
+  // state so the store-switch reset can reach them.
+  const [revealCandidate, setRevealCandidate] = useState<NoKaruteCandidate | null>(null)
+  const revealRequestId = useRef(0)
   // The loaded boundary persists as ?since=YYYY-MM-DD. Set ON TAP (via this
   // state, written by the URL effect below in the same commit) — never
   // debounced, so the input-sync request-id traps don't apply here.
@@ -275,6 +280,11 @@ export function KaruteRecordListView({
     fetchGen.current += 1
     setAppended([])
     setWindowStart(initialWindowStart)
+    // Back to the SERVER's own flag for the first window. Both callers want it:
+    // the purge is re-seeding from fresh props, and a store switch's flag
+    // described the previous store. Only used while storeTotal is unknown, but
+    // that is exactly the degraded case where a stale value would be trusted.
+    setServerHasMore(initialHasMore)
     // KEEP THE DEEPEST GOAL (Greptile PR #779 P1, round 8). `sinceParam` is
     // NOT a stable record of how deep the viewer got: every landed window
     // writes it, so DURING a re-walk it holds an INTERMEDIATE, shallower
@@ -513,6 +523,35 @@ export function KaruteRecordListView({
     setPrevStoreId(storeId)
     exitMonth()
     rewindToFirstWindow()
+
+    // CONTEXT-ONLY resets. These belong HERE and deliberately NOT in the shared
+    // rewind, because the two callers mean different things: a purge is a DATA
+    // refresh (rows moved under the SAME lens), a store switch is a CONTEXT
+    // change (a different location, a different roster, different numbers).
+    //
+    // The staff roster is per-store (#496 clamps the 担当 picker to the active
+    // store), so a staffFilter pinned to store A's stylist matches nobody in
+    // store B and silently renders an empty list. It must equally SURVIVE a
+    // purge, where the viewer's chosen lens is still perfectly valid — which is
+    // why this line cannot move into rewindToFirstWindow().
+    setStaffFilter('all')
+    // The header numbers describe the STORE. Without this, a committed frame
+    // shows store A's 全件 above store B's rows, and hasMore rides that stale
+    // total long enough for さらに表示 to flash in and out.
+    setStoreTotal(total)
+    // Store A's retry line, its last announcement, and its reveal row (which
+    // NAMES a store A customer) all stop being true at the switch. The request
+    // id bump lands an in-flight reveal into nothing, same as the two
+    // generation counters above.
+    setLoadError(false)
+    setAnnouncement('')
+    revealRequestId.current += 1
+    setRevealCandidate(null)
+    // The degraded latch still holds store A's rows. It only matters when store
+    // B's very first render is ALSO degraded — without this, that failure would
+    // resurrect the previous store's list instead of showing the honest
+    // degraded-empty state.
+    lastGoodItems.current = items
   }
 
   async function pickMonth(month: string) {
@@ -550,8 +589,18 @@ export function KaruteRecordListView({
       //
       // So: fetch the picked month's created-window WIDENED by ±1 month, then
       // keep only the rows whose DISPLAY date lands in the picked month. 表示中
-      // counts what survives, so the header agrees with the list. Three reads
-      // in parallel — a month pick is a deliberate act, not a scroll.
+      // counts what survives, so the header agrees with the list.
+      //
+      // COST, honestly: this is three calls to loadKaruteWindow, and EACH one
+      // re-runs the whole screen fan-out — staff roster, the full customer list
+      // (会員番号 is assigned by position over it), the synqed staff roster —
+      // on top of its own window read. One month pick therefore costs roughly
+      // 3× a full screen read, not "one read over three windows". Accepted
+      // because a month pick is a deliberate, occasional act rather than a
+      // scroll, and because the alternative was a second divergent projection
+      // path. QUEUE: a leaner month read — one widened from/to inside the
+      // engine plus a SINGLE fan-out — would bring this back to ~1× and is the
+      // obvious follow-up if 月ジャンプ proves to be a hot path in the field.
       //
       // CEILING: a row backdated by MORE than one month still surfaces only
       // through the default walk, deliberately. No width is provably enough
@@ -630,8 +679,9 @@ export function KaruteRecordListView({
   // filter over `items` (those customers were never in `items` to begin
   // with — they have no karute record). A monotonic request id discards a
   // stale response that resolves after a newer query already superseded it.
-  const [revealCandidate, setRevealCandidate] = useState<NoKaruteCandidate | null>(null)
-  const revealRequestId = useRef(0)
+  // (state + request id declared with the other list state above, so the
+  // store-switch reset can clear them — a reveal row names a customer of the
+  // store that was active when it was fetched.)
   const fetchReveal = useDebouncedCallback(async (q: string) => {
     const myRequestId = ++revealRequestId.current
     const result = await revealNoKaruteCustomer(q)

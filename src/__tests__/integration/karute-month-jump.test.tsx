@@ -474,12 +474,11 @@ describe('store switch (Greptile PR #784)', () => {
     expect(pill('all').textContent).toBe('filters.all3')
   })
 
-  it('never COMMITS a frame carrying the old store rows (Greptile #784 round 2)', async () => {
+  it('never COMMITS a frame carrying ANY of the old store state (frame-probed)', async () => {
     // The act-flushed assertions above pass either way — they only see the
-    // settled DOM. A layout effect runs after commit but BEFORE paint and
-    // before passive effects, so a probe there observes exactly the frame the
-    // browser would have shown: with the reset in a useEffect it still holds
-    // store A's rows, with the reset done during render it never does.
+    // SETTLED DOM. A layout effect runs after commit but BEFORE paint and
+    // before passive effects, so a probe there observes exactly the frames the
+    // browser would have shown. Anything reset a tick late shows up here.
     const seen: string[] = []
     function Probe() {
       useLayoutEffect(() => {
@@ -487,24 +486,91 @@ describe('store switch (Greptile PR #784)', () => {
       })
       return null
     }
-    const tree = (storeId: string) => (
+    const tree = (props: Partial<React.ComponentProps<typeof KaruteRecordListView>>) => (
       <>
-        {listEl({ storeId })}
+        {listEl(props)}
         <Probe />
       </>
     )
-    const { rerender } = render(tree('store-a'))
+    const { rerender } = render(tree({ storeId: 'store-a' }))
     await jumpToJanuary()
     expect(screen.getByText('一月 太郎')).toBeInTheDocument()
+    // Also arm a さらに表示 failure, so the retry line is on screen at switch
+    // time and any late clear of it would show up in a frame too.
+    loadKaruteWindow.mockResolvedValue({ error: 'upstream' })
+    fireEvent.click(pill('all'))
+    await act(async () => {
+      fireEvent.click(loadMoreQuery()!)
+    })
+    expect(screen.getAllByRole('alert').length).toBeGreaterThan(0)
 
     seen.length = 0
     await act(async () => {
-      rerender(tree('store-b'))
+      rerender(
+        tree({
+          storeId: 'store-b',
+          items: [item('b1', '2026-08-18', 'ビー 花子')],
+          total: 3,
+          monthCount: 1,
+          initialWindowStart: '2026-08-01',
+        }),
+      )
     })
 
     expect(seen.length).toBeGreaterThan(0)
-    // Not one committed frame after the switch carried store A's month rows.
-    expect(seen.filter((html) => html.includes('一月 太郎'))).toEqual([])
+    for (const frame of seen) {
+      // Store A's rows…
+      expect(frame).not.toContain('一月 太郎')
+      expect(frame).not.toContain('山田 花子')
+      // …its 全件 (the status line echoes the params it was given)…
+      expect(frame).not.toContain('"total":9')
+      // …and its retry line.
+      expect(frame).not.toContain('loadMoreFailed')
+    }
+    // Store B's own truth is what landed.
+    expect(screen.getByText(/statusLine/).textContent).toContain('"total":3')
+  })
+
+  it('clears a さらに表示 failure line across the switch', async () => {
+    loadKaruteWindow.mockResolvedValue({ error: 'upstream' })
+    const { rerender } = render(listEl({ storeId: 'store-a' }))
+    await act(async () => {
+      fireEvent.click(loadMoreQuery()!)
+    })
+    expect(screen.getAllByRole('alert').map((n) => n.textContent)).toContain('loadMoreFailed')
+
+    await act(async () => {
+      rerender(listEl({ storeId: 'store-b', items: [], total: 3, initialWindowStart: '2026-08-01' }))
+    })
+    // Store A's failure has nothing to say about store B.
+    expect(screen.queryAllByRole('alert')).toEqual([])
+  })
+
+  it('resets the staff filter on a store switch but KEEPS it across a purge', async () => {
+    // Two different resets with two different meanings. The roster is
+    // per-store (#496), so a filter pinned to store A's stylist matches nobody
+    // in store B — but a purge is only a data refresh under the SAME lens, and
+    // silently dropping the viewer's chosen staff there would be a bug of its
+    // own.
+    const staffList = [{ id: 'staff-1', name: '田中 太郎', initials: '田中' }]
+    const props = { staffList, currentStaffId: 'staff-1' }
+    const selfToggle = () => screen.getByRole('button', { name: 'self' })
+    const { rerender } = render(listEl({ storeId: 'store-a', ...props }))
+
+    fireEvent.click(selfToggle())
+    expect(selfToggle()).toHaveAttribute('aria-pressed', 'true')
+
+    // PURGE — same store, a total that came back lower.
+    await act(async () => {
+      rerender(listEl({ storeId: 'store-a', ...props, total: 1 }))
+    })
+    expect(selfToggle()).toHaveAttribute('aria-pressed', 'true')
+
+    // STORE SWITCH — different lens, different roster.
+    await act(async () => {
+      rerender(listEl({ storeId: 'store-b', ...props, total: 1 }))
+    })
+    expect(selfToggle()).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('drops a month response still in flight across the switch', async () => {
