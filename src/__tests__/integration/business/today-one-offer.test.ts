@@ -817,18 +817,20 @@ describe('§7 — the cost, on real timers', () => {
       // are being compared: measured in separate loops, V8's own warm-up and
       // whatever the machine was doing between them lands entirely on one side,
       // and the table grows negative deltas that mean nothing.
-      let ta = 0n
-      let tb = 0n
+      // Nanoseconds accumulated as numbers, not bigints: the tsconfig target is
+      // below ES2020 and a `0n` literal will not compile there.
+      let ta = 0
+      let tb = 0
       for (let i = 0; i < runs; i += 1) {
         const t0 = process.hrtime.bigint()
         a()
         const t1 = process.hrtime.bigint()
         b()
         const t2 = process.hrtime.bigint()
-        ta += t1 - t0
-        tb += t2 - t1
+        ta += Number(t1 - t0)
+        tb += Number(t2 - t1)
       }
-      return [Number(ta) / 1e6 / runs, Number(tb) / 1e6 / runs] as const
+      return [ta / 1e6 / runs, tb / 1e6 / runs] as const
     } finally {
       jest.useFakeTimers().setSystemTime(new Date('2026-08-19T00:00:00Z'))
     }
