@@ -1180,10 +1180,52 @@ describe('9 — the cost of the book, measured rather than asserted in prose', (
     expect(truth.stats.allocateBedCalls).toBe(2 * SLOTS)
   })
 
-  it('more than eight distinct lengths is a named ceiling, not a silent leak', () => {
-    const truth = truthOn(syntheticBoard(SMALL_6))
+  /** ⚖ R3 FIX-1 (blind round, 2026-08-25) — PAST THE CEILING THE BOOK DEGRADES,
+   *  IT DOES NOT REFUSE.
+   *
+   *  This used to assert a THROW on the ninth distinct length, which was safe
+   *  only while the book was dark. R3 puts `newClientMask` on the render path
+   *  and ⚖ flag 50 makes the rail's length follow the gesture, so eight
+   *  short-pocket clicks or eight chip lengths on one unmoved board reach the
+   *  ninth — during render, with no error boundary under 今日の運営 and no way
+   *  back. Caching is a memory ceiling; it may never be a correctness one.
+   *
+   *  A length ≤ 0 or non-finite still throws, and the difference is the point:
+   *  that is a programmer contract (a span with no minutes in it is not a
+   *  question), not board traffic. */
+  it('past eight distinct lengths the book keeps answering — uncached, never a throw', () => {
+    const lanes = syntheticBoard(SMALL_6)
+    const truth = truthOn(lanes)
     for (let n = 1; n <= 8; n += 1) truth.fullRuns(n * 5, HERE.stores)
-    expect(() => truth.fullRuns(45 + 500, HERE.stores)).toThrow(/distinct lengths/)
+    // The ninth length, and the twentieth: answered, every surface.
+    for (let n = 9; n <= 20; n += 1) {
+      expect(() => truth.fullRuns(n * 5, HERE.stores)).not.toThrow()
+    }
+    const ninth = 9 * 5
+    expect(() => truth.newClientMask(staffLanesOf(lanes)[0], ninth)).not.toThrow()
+    expect(() => truth.bedFor(OPEN, OPEN + ninth, HERE)).not.toThrow()
+    expect(() => truth.freeBedKeys(OPEN, OPEN + ninth, HERE)).not.toThrow()
+
+    // …and the answers past the ceiling are the SAME answers. Uncached is a
+    // cost, never a different reading of the board: every lattice start of the
+    // ninth length is checked against the allocator directly.
+    const lane = staffLanesOf(lanes)[0]
+    const mask = truth.newClientMask(lane, ninth)
+    for (let start = OPEN; start + ninth <= CLOSE; start += LATTICE_STEP_MIN) {
+      const direct = allocateBed(lanes, {
+        id: null, currentBed: null, stores: lane.stores, vip: false,
+        start, end: start + ninth, policy: POLICY,
+      })
+      expect([start, mask(start)]).toEqual([start, direct.laneKey !== null])
+      expect([start, truth.bedFor(start, start + ninth, { stores: lane.stores }).laneKey])
+        .toEqual([start, direct.laneKey])
+    }
+    // The rows already minted keep serving — degrading is not forgetting.
+    const before = truth.stats.allocateBedCalls
+    truth.fullRuns(5, HERE.stores)
+    expect(truth.stats.allocateBedCalls).toBe(before)
+
+    // A length that is not a length is still the caller's bug.
     expect(() => truth.fullRuns(0, HERE.stores)).toThrow(/positive number of minutes/)
     expect(() => truth.fullRuns(Number.NaN, HERE.stores)).toThrow(/positive number of minutes/)
   })

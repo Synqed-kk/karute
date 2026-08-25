@@ -51,11 +51,22 @@ import { allocateBed, roomFitsClass, sharesStore, type RoomPolicy } from './toda
  *  wrong question. The battery greps that line, so the two cannot drift. */
 export const LATTICE_STEP_MIN = 5
 
-/** ponytail: eight distinct durations per book is a ceiling, not a limit of the
- *  design — today's screen asks about two or three (the rail's length, the
- *  protected window, occasionally a menu). Raise it if a real surface needs
- *  more; the throw exists so a caller looping durations discovers the cost here
- *  rather than in a frame budget. */
+/** How many distinct LENGTHS the book keeps cache rows for. Not a validity
+ *  bound and not a caller contract — exactly like MAX_STORE_BINDINGS below,
+ *  past it the book still answers, it just stops remembering.
+ *
+ *  ⚖ R3 (2026-08-25): this used to THROW past the eighth length, on the theory
+ *  that a caller looping durations should discover the cost here. That was safe
+ *  only while the book was dark. R3 puts `newClientMask` on the render path, and
+ *  the rail's length follows the gesture (⚖ flag 50) — so eight short-pocket
+ *  clicks or eight chip lengths on one unmoved board reach the ninth, and a
+ *  throw during render takes 今日の運営 down with no error boundary under it and
+ *  no way back. Degrading is the only acceptable failure direction for a book
+ *  the board reads to draw itself.
+ *
+ *  ponytail: 8 rows is a ceiling on MEMORY, not on answers. Raise it if a real
+ *  surface measures hot on the ninth length; the only cost of a higher number is
+ *  memory, and the only cost of this one is repeated searches past it. */
 const MAX_DURATIONS = 8
 
 /** How many store bindings the book keeps CACHE ROWS for. Not a validity bound:
@@ -330,13 +341,19 @@ function buildBedTruth(
   const masks: Array<Array<Uint8Array | undefined>> = []
   const runs: Array<Array<readonly FullRun[] | undefined>> = []
 
+  /** One row per distinct length, or -1 once the book has as many rows as it
+   *  keeps — the same shape, and the same reason, as `storesIdx` below.
+   *
+   *  A length ≤ 0 or non-finite is still a THROW, and the difference matters:
+   *  that is a programmer contract (a span with no minutes in it is not a
+   *  question), while "the ninth different length" is ordinary board traffic
+   *  under ⚖ flag 50 — the rail's length follows the gesture. One is a bug in
+   *  the caller, the other is a Tuesday. */
   const durIdx = (dur: number) => {
     if (!Number.isFinite(dur) || dur <= 0) throw new Error(`capacity-ledger: a length must be a positive number of minutes, got ${dur}`)
     const known = durIndex.get(dur)
     if (known !== undefined) return known
-    if (durIndex.size >= MAX_DURATIONS) {
-      throw new Error(`capacity-ledger: more than ${MAX_DURATIONS} distinct lengths asked of one book — see MAX_DURATIONS`)
-    }
+    if (durIndex.size >= MAX_DURATIONS) return -1
     const i = durIndex.size
     durIndex.set(dur, i)
     answers[i] = []
@@ -389,8 +406,9 @@ function buildBedTruth(
     if (s < 0) return answerFor(q, start, start + dur)
     // Past cache saturation: answered, just not remembered.
     const st = storesIdx(q.stores)
-    if (st < 0) return answerFor(q, start, start + dur)
-    const row = rowOf(answers, durIdx(dur), st)
+    const d = durIdx(dur)
+    if (st < 0 || d < 0) return answerFor(q, start, start + dur)
+    const row = rowOf(answers, d, st)
     const hit = row[s]
     if (hit) return hit
     const made = answerFor(q, start, start + dur)
@@ -402,8 +420,9 @@ function buildBedTruth(
     const s = slotIdx(start)
     if (s < 0) return freeKeysFor(q, start, start + dur)
     const st = storesIdx(q.stores)
-    if (st < 0) return freeKeysFor(q, start, start + dur)
-    const row = rowOf(freeKeys, durIdx(dur), st)
+    const d = durIdx(dur)
+    if (st < 0 || d < 0) return freeKeysFor(q, start, start + dur)
+    const row = rowOf(freeKeys, d, st)
     const hit = row[s]
     if (hit) return hit
     const made = freeKeysFor(q, start, start + dur)
@@ -441,7 +460,7 @@ function buildBedTruth(
     fullRuns(dur, stores) {
       const d = durIdx(dur)
       const st = storesIdx(stores)
-      const held = st < 0 ? undefined : runs[d][st]
+      const held = st < 0 || d < 0 ? undefined : runs[d][st]
       if (held) return held
       const q = queryOf({ stores })
       const out: FullRun[] = []
@@ -460,20 +479,23 @@ function buildBedTruth(
       }
       if (open !== null) out.push(Object.freeze({ startMin: open, endMin: latticeStart + slots * LATTICE_STEP_MIN }))
       const made = Object.freeze(out)
-      if (st >= 0) runs[d][st] = made
+      if (st >= 0 && d >= 0) runs[d][st] = made
       return made
     },
     newClientMask(lane, dur) {
       const q = queryOf({ stores: lane.stores })
       const d = durIdx(dur)
       const st = storesIdx(lane.stores)
-      let mask = st < 0 ? undefined : masks[d][st]
+      let mask = st < 0 || d < 0 ? undefined : masks[d][st]
       if (!mask) {
         mask = new Uint8Array(slots)
         for (let i = 0; i < slots; i += 1) {
           mask[i] = cachedAnswer(q, latticeStart + i * LATTICE_STEP_MIN, dur).laneKey !== null ? 1 : 0
         }
-        if (st >= 0) masks[d][st] = mask
+        // Past either saturation the mask is still BUILT — the answers are the
+        // same ones, and serving this frame from an array it already walked is
+        // free. It just is not remembered for the next one.
+        if (st >= 0 && d >= 0) masks[d][st] = mask
       }
       const built = mask
       return (startMin: number) => {
