@@ -23,7 +23,7 @@
 
 import { Button } from '@/components/ui/button'
 import { FilePlus2 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 import { useLocale, useTranslations } from 'next-intl'
 import { useSearchParams } from 'next/navigation'
@@ -37,10 +37,12 @@ import {
 import { SegmentedFilterBar } from '@/components/customers/redesign/list/SegmentedFilterBar'
 
 import { KaruteListRow, NoKaruteRevealRow, type NoKaruteCandidate } from './KaruteListRow'
+import { KaruteMonthSelector } from './KaruteMonthSelector'
 import { NewKaruteDialog } from './NewKaruteDialog'
 import type { KaruteListFilter, KaruteListItem } from './types'
 import { loadKaruteWindow, revealNoKaruteCustomer } from '@/actions/karute'
-import { karuteHasMore } from '@/lib/karute/karute-window'
+import { KARUTE_SESSION_DATE_EPOCH, karuteHasMore } from '@/lib/karute/karute-window'
+import { ymdInJst } from '@/lib/date/jst'
 
 interface Props {
   items: KaruteListItem[]
@@ -400,6 +402,125 @@ export function KaruteRecordListView({
     return () => window.removeEventListener('popstate', onPop)
   }, [])
 
+  // 月ジャンプ (PR-2b). A picked month SWAPS the list rather than appending to
+  // it, so its rows live in their own state: exiting a month restores the
+  // accumulated default walk instantly, with no refetch and nothing lost.
+  const [activeMonth, setActiveMonth] = useState<string | null>(null)
+  const [monthItems, setMonthItems] = useState<KaruteListItem[] | null>(null)
+  const [monthLoading, setMonthLoading] = useState(false)
+  const [monthError, setMonthError] = useState(false)
+  // Same generation guard as fetchOlder's: a month fetch still in flight when
+  // the user picks a different month (or leaves month view) describes a state
+  // that no longer exists, so its whole response is dropped.
+  const monthGen = useRef(0)
+  const monthMode = activeMonth !== null
+
+  // The JST calendar month containing today — the top of the picker and the
+  // chip's label while nothing is picked. JST-explicit for the same reason
+  // every other date in this file is (PR-2a fix round 5): a UTC server or a
+  // traveller's browser must not name a different month than the business is
+  // actually in.
+  const currentMonth = useMemo(() => ymdInJst().slice(0, 7), [])
+  // How far back the picker may offer. The session-date epoch is the floor the
+  // app can reason about unaided; anything OLDER is offered only once rows from
+  // it are actually on screen (the さらに表示 walk, or its one-time legacy
+  // sweep) — so every month in the list is either inside the reasoned range or
+  // provably has karute behind it. Monotonic within the session: a ref, not a
+  // plain derivation, because the deleted-row purge above REWINDS `appended` to
+  // the first window — a derived floor would snap forward with it and yank
+  // months out of an open picker. Render-time write, same posture as
+  // lastGoodItems above.
+  const monthFloorRef = useRef(KARUTE_SESSION_DATE_EPOCH.slice(0, 7))
+  const oldestLoadedMonth = allItems.length
+    ? allItems[allItems.length - 1].date.slice(0, 7)
+    : null
+  if (oldestLoadedMonth && oldestLoadedMonth < monthFloorRef.current) {
+    monthFloorRef.current = oldestLoadedMonth
+  }
+  const monthFloor = monthFloorRef.current
+
+  /** Leave month view — the accumulated default window is still in state, so
+   *  this is a pure swap back with no fetch. */
+  function exitMonth() {
+    monthGen.current += 1
+    setActiveMonth(null)
+    setMonthItems(null)
+    setMonthLoading(false)
+    setMonthError(false)
+  }
+
+  async function pickMonth(month: string) {
+    // Picking the CURRENT month is how you come back (⛔ no 「今月に戻る」
+    // button — a v1 invention the mock lacks). The default view already IS this
+    // month's newest rows plus さらに表示; re-fetching it as a month would
+    // strip the counts and the button off a screen the user thinks they just
+    // returned to.
+    if (month === currentMonth) {
+      exitMonth()
+      return
+    }
+    const gen = ++monthGen.current
+    setActiveMonth(month)
+    setMonthItems(null)
+    setMonthLoading(true)
+    setMonthError(false)
+    // The month IS the date lens now. すべて/今週 are date lenses too, and
+    // 今週 inside a past month is empty by definition — arriving at a blank
+    // screen that has rows behind it is exactly the lie the honest-header work
+    // set out to kill. The packet already makes the two mutually exclusive in
+    // the other direction (any pill tap leaves month view), so resetting here
+    // closes the model.
+    setFilter('all')
+    try {
+      const res = await loadKaruteWindow({ month })
+      if (gen !== monthGen.current) return
+      if ('error' in res) {
+        setMonthError(true)
+        setMonthItems([])
+        return
+      }
+      setMonthItems(res.items)
+      // Focus is back on the chip (whose label now names the month), so the
+      // swap is silent for a screen reader unless it is spoken. Same string the
+      // append uses — a swap really did load N karute.
+      setAnnouncement(t('addedCount', { n: res.items.length }))
+    } catch {
+      // Same both-shapes recovery as fetchOlder: the web action can THROW on an
+      // RPC network failure instead of resolving to { error }.
+      if (gen !== monthGen.current) return
+      setMonthError(true)
+      setMonthItems([])
+    } finally {
+      if (gen === monthGen.current) setMonthLoading(false)
+    }
+  }
+
+  /** Any count-pill tap LEAVES month view, carrying that filter into the
+   *  default window (packet §PR-2b). Tapping the already-active pill still
+   *  leaves — the tap's meaning is "show me this across the whole list". */
+  function pickFilter(key: KaruteListFilter) {
+    if (monthMode) exitMonth()
+    setFilter(key)
+  }
+
+  // Content-swap scroll reset (AuditLogSection's idiom): entering or leaving a
+  // month REPLACES the list, and a viewer scrolled deep into August would
+  // otherwise land past the bottom of a short July — a blank screen whose taps
+  // hit nothing. Deliberately NOT wired to appends (see fetchOlder). The first
+  // run is skipped so a back-navigation's restored scroll position survives
+  // mount.
+  const rootRef = useRef<HTMLElement>(null)
+  const monthSwapped = useRef(false)
+  useLayoutEffect(() => {
+    if (!monthSwapped.current) {
+      monthSwapped.current = true
+      return
+    }
+    for (let el = rootRef.current?.parentElement ?? null; el; el = el.parentElement) {
+      el.scrollTop = 0
+    }
+  }, [activeMonth])
+
   // Search-reveal (PR-1b 検索リビール): a customer matching the search term
   // who has no karute yet. EXACTLY ONE row, query stays LOCAL (no URL) —
   // debounced server action (web) / facade call (thin), never a client-side
@@ -446,8 +567,18 @@ export function KaruteRecordListView({
     } satisfies Record<KaruteListFilter, number>
   }, [allItems])
 
+  // Month view SWAPS the row set (PR-2b). The staff scope and the search box
+  // still apply INSIDE a month — they answer "whose" and "which words", not
+  // "which dates", so a month lens never contradicts them. The count-pill
+  // filter is always 'all' in here: pickMonth resets it, and any pill tap
+  // leaves.
+  const displayItems = useMemo(
+    () => (monthMode ? (monthItems ?? []) : allItems),
+    [monthMode, monthItems, allItems],
+  )
+
   const filtered = useMemo(() => {
-    let result = allItems
+    let result = displayItems
 
     // Staff scope: 'all' shows every record; 'self' filters to the
     // current viewer's records only; a specific id filters to that
@@ -482,7 +613,7 @@ export function KaruteRecordListView({
       })
     }
     return result
-  }, [allItems, filter, searchQuery, staffFilter, currentStaffId])
+  }, [displayItems, filter, searchQuery, staffFilter, currentStaffId])
 
   // Same date-bucketing as before, now over the FULL accumulated row set —
   // the in-memory pager (and its `p` URL param) is gone; さらに表示 is the
@@ -543,7 +674,7 @@ export function KaruteRecordListView({
     // padding now (system rule). The sticky title bar inside uses
     // `-mx-4 md:-mx-6` to bleed back to viewport edges for the iOS
     // sticky-header pattern (its bg + border line span full-width).
-    <main className="mx-auto w-full max-w-6xl flex-col px-4 pb-6 md:px-6">
+    <main ref={rootRef} className="mx-auto w-full max-w-6xl flex-col px-4 pb-6 md:px-6">
       {/* Title row — h1 visible on desktop only (MobileHeader
        *  handles the mobile title to avoid the duplicate
        *  "カルテ" rendering at top + below). Stats + primary CTA
@@ -669,15 +800,32 @@ export function KaruteRecordListView({
        *  顧客 list status filter (one design language across list screens).
        *  flex wrapper so md:w-auto shrinks the bar to content on desktop —
        *  in a plain block it would stretch the full ~1100px content width. */}
-      <div className="flex pt-3">
+      {/* 月ジャンプ (PR-2b) rides in THIS row — 「月ジャンプは新しい行を増や
+       *  さず、既存のフィルター行に追加」 (mock, 決定済み). flex-wrap is the
+       *  narrow-width backstop: the segmented bar is full-width below md, so
+       *  the chip drops to a second line rather than squeezing 「AI補完待ち」
+       *  into an ellipsis. No overflow container here on purpose — one would
+       *  clip the chip's anchored panel. */}
+      <div className="flex flex-wrap items-center gap-2 pt-3">
         <SegmentedFilterBar
           segments={FILTER_KEYS.map((key) => ({
             key,
             label: t(`filters.${key}`),
-            count: counts[key],
+            // LABELS ONLY while a month is picked: these counts are computed
+            // over the rows on screen, which in month view is that month
+            // alone — 今週 would read 0 inside any past month and すべて would
+            // disagree with the 全件 in the header. Dropped, never guessed.
+            count: monthMode ? null : counts[key],
           }))}
           active={filter}
-          onChange={setFilter}
+          onChange={pickFilter}
+        />
+        <KaruteMonthSelector
+          currentMonth={currentMonth}
+          oldestMonth={monthFloor}
+          selected={activeMonth}
+          onSelect={(month) => void pickMonth(month)}
+          busy={monthLoading}
         />
       </div>
 
@@ -685,7 +833,20 @@ export function KaruteRecordListView({
        *  horizontal padding so the rounded card has breathing room from
        *  the screen edges, matching the design spike. */}
       <div className="mt-4 overflow-hidden rounded-2xl border border-border/60 bg-card">
-        {grouped.length === 0 && !revealCandidate ? (
+        {/* A month's rows are still coming: say so. The 「カルテはまだ
+         *  ありません」 empty state below would name that month as EMPTY while
+         *  its rows are in flight — a load reported as a fact. */}
+        {monthMode && monthItems === null ? (
+          <div className="px-6 py-12 text-center">
+            <p className="text-sm text-muted-foreground">{tCommon('loading')}</p>
+          </div>
+        ) : monthMode && monthError ? (
+          <div className="px-6 py-12 text-center">
+            <p role="alert" className="text-sm text-muted-foreground">
+              {t('loadMoreFailed')}
+            </p>
+          </div>
+        ) : grouped.length === 0 && !revealCandidate ? (
           <div className="px-6 py-12 text-center">
             <p className="text-sm font-medium text-foreground">{t('empty')}</p>
           </div>
@@ -738,7 +899,10 @@ export function KaruteRecordListView({
        *  filtered 表示中 count, so a narrow filter never masquerades as the
        *  end of the store's history. The label names the boundary the next
        *  chunk starts from. */}
-      {hasMore && windowStart && (
+      {/* HIDDEN in month view (PR-2b): a month is fetched whole, so there is
+       *  nothing older to walk to — the button would offer history it cannot
+       *  reach from here. Come back via the chip's current month. */}
+      {!monthMode && hasMore && windowStart && (
         <div className="flex flex-col items-center gap-1 pt-3">
           {/* NO native `disabled` (fix round 2): the browser BLURS a focused
            *  element the instant it becomes disabled, so the tapped button lost
