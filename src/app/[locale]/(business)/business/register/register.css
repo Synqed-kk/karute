@@ -1046,7 +1046,13 @@
   .biz .pg-register .rg-cash-entry { min-height: 44px; }
   .biz .pg-register .rg-den-n { min-height: 44px; }
   .biz .pg-register .rg-reason-in { min-height: 44px; }
-  .biz .pg-register .rg-reason-chip { min-height: 40px; }
+  /* ⚖ F-M6 — THE LAST CONTROL UNDER THE BAR. The band grew seven neighbours to
+     44–46px and stopped at a bare 40 here with no rationale beside it; a preset
+     reason is a real button a thumb taps, and it carries its own refusal line,
+     so it is held to the band's own rule like everything around it. The row's
+     6px gap is untouched: four pixels of growth needs no compensation, unlike
+     the quiet link's twenty-six. */
+  .biz .pg-register .rg-reason-chip { min-height: 44px; }
   /* ⚖ THREE FIGURES ACROSS A PHONE, WHILE THREE FIT (F-S6). `repeat(3, minmax(0,
      1fr))` held them in three columns however wide the figures were, and a yen
      figure has nowhere to break: an eight-digit 現金 row wanted 257px in a 250px
