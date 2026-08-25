@@ -1,12 +1,20 @@
 // Deliberate-discard session cleanup (Build F1 fix round 3) — INTERIM.
 //
-// ⚠ THIS IS A STOPGAP AND IS MEANT TO BE DELETED. The doctrine-correct
-// treatment (⚖ 8/20: discards are KEPT IN FULL, rendered as grayed 破棄済み
-// rows off the core discard ledger) is P5's build, and it cannot ship yet —
-// its receipt requires a written reason (RecordDiscardInput / discard.ts's
-// DISCARD_CATEGORIES) and the reason dialog does not exist. P5 REPLACES this
-// file's wiring: when the kept-discard rows land, delete the cleanup call
-// sites and this module with them.
+// ⚠ THIS IS A STOPGAP AND IS MEANT TO BE DELETED — at P5-B, by
+// PACKET-P5-DISCARD-2026-08-25.md item B-1. P5-A (shipped) added the half that
+// does not need core: the required written reason now lands in core's discard
+// ledger and the receipt points at it, but a discarded take's CONTENT is still
+// destroyed exactly as before, so this cleanup is still what stops the orphan
+// recording_sessions row from sitting in 要対応 as an unclearable 失敗.
+// The doctrine-correct treatment (⚖ 8/20: discards KEPT IN FULL, rendered as
+// grayed 破棄済み rows off the discard ledger) needs the core work in that
+// packet's §3. When it lands, delete the cleanup call sites and this module.
+//
+// ⚠ OPEN QUESTION FOR B-1 (raised at P5-A build): the reason row keys on
+// recording_session_id and this function HARD-DELETES that session row
+// afterwards. Whether core cascades the discard row away with it, or refuses
+// the delete outright, is unverified app-side — both need an answer before
+// this file's deletion is designed.
 //
 // WHY IT EXISTS AT ALL: a deliberate 破棄 leaves an orphan recording_sessions
 // row — the take is destroyed client-side and no karute is ever written — and

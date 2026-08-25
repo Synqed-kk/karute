@@ -818,7 +818,14 @@
     "recoverSaveFailed": "Could not save. Please try again.",
     "recoverAlreadyRedeemed": "This visit's pack session is already used",
     "recoverBurnCheckFailed": "Could not check the pack. Please try again.",
-    "recoverPackSaleLost": "The pack sale was lost. Please register it from the customer page."
+    "recoverPackSaleLost": "The pack sale was lost. Please register it from the customer page.",
+    "discardReason": {
+      "title": "Reason for discarding",
+      "placeholder": "Enter the reason for discarding (required)",
+      "disclosure": "A discard record (date/time, staff, reason) will be kept.",
+      "confirm": "Discard",
+      "failed": "Could not save. Please try again."
+    }
   },
   "customers": {
     "title": "Customers",

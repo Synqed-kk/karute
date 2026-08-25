@@ -383,6 +383,14 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-08-09',
   },
   {
+    file: 'src/lib/recording/discard.ts',
+    call: 'recordingDiscards.create',
+    symbols: ['ensureDiscardReasonRow'],
+    justification:
+      "P5-A (⚖ 8/17) — the written discard reason. NOT a silent write: its caller discardRecordingWithReasonRow hands the created row's id straight to discardRecordingWithClient, whose writeDiscardReceipt emits the recording.discard row (auditDurable, AWAITED — a dropped receipt is a failure, never a success) carrying discard_row_id. So every row this call creates is audited within the same call stack, one step out; the walker cannot see it because ensureDiscardReasonRow is a private helper with no audit() of its own, and the emitter is auditDurable rather than the audit()/auditWeb() pair AUDITED_CORES is seeded from. The reason TEXT deliberately never enters the audit row (doc law: reason is content, id only).",
+    dated: '2026-08-25',
+  },
+  {
     file: 'src/actions/customers.ts',
     call: 'customers.grantConsent',
     symbols: ['grantCustomerConsentWithClient'],

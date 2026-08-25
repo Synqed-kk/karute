@@ -21,12 +21,15 @@
 // supply its own. The 'use server' boundary lives in src/actions/
 // recording-discard.ts, which exports ONLY the cookie-resolved wrapper.
 //
-// NOT in this PR (spec §14.1): client wiring / offline queue / thin port (A3),
-// the reason dialog (A2), abandoned-take call sites (A3b — the schema already
-// accepts `abandoned` so A3b touches no server code), free text (there is
-// deliberately no such field), seal machinery, and every Phase B row. Phase A
-// behaviour is unchanged otherwise: the take is still deleted client-side and
-// the server cohort still saves normally.
+// P5-A (⚖ 8/17) added the STAFF door on top: discardRecordingWithReasonRow
+// writes the required WRITTEN reason to core's discard ledger and hands this
+// receipt the row's id. The reason text itself never reaches this module's
+// schema — see the `detail` note below.
+//
+// NOT in this PR: offline queue / thin port, seal machinery, the DISCARDED
+// save path and every other Phase B row (P5-B). Behaviour is unchanged
+// otherwise: the take is still deleted client-side and the server cohort still
+// saves normally.
 
 import { z } from 'zod'
 import { auditDurable } from '@/lib/audit'
@@ -39,44 +42,84 @@ import type { newSynqedClient } from '@/lib/synqed/client'
 // free-text field a 400 instead of something that rides through to core.
 const MAX_ID_CHARS = 200
 
+/** The written reason is CONTENT — it lives in the core discard row and never
+ *  in `detail`. Capped here and at the textarea that produces it. */
+const MAX_REASON_CHARS = 2_000
+
 /** The accidental-tap floor (spec §3.5, ▶ spec-call: 10 seconds): below this,
  *  no transcription runs and the receipt records the take as sub-floor. The
  *  client reports only the DURATION — the flag is derived here, so a receipt
  *  can never carry a floor claim that disagrees with its own duration. */
 const BELOW_FLOOR_SEC = 10
 
-/** Phase A discard vocabulary (spec §3.2). `abandoned` is the SYSTEM-only
- *  code — the dialog never offers it (A2's concern); it arrives from the
- *  three system paths A3b wires (recovery dismissal, TTL sweep, logout). */
-const DISCARD_CATEGORIES = [
-  'mistap',
-  'quality',
-  'duplicate',
-  'wrong_target',
-  'not_session',
-  'abandoned',
-] as const
+/** What both shapes describe about the take itself. Spread into each member
+ *  of the union below so the two receipts can never drift apart. */
+const TAKE_FIELDS = {
+  takeId: z.string().max(MAX_ID_CHARS).nullish(),
+  durationSeconds: z.number().finite().min(0),
+  customerId: z.string().max(MAX_ID_CHARS).nullish(),
+  appointmentId: z.string().max(MAX_ID_CHARS).nullish(),
+  pipeline: z.enum(['in_tab', 'server']),
+  // The real pipeline states — mirrors the SDK's own RecordingJobStatus
+  // union, so an unrecognised state is a 400 rather than a free string
+  // landing in the row.
+  jobState: z.enum(['QUEUED', 'RUNNING', 'DONE', 'FAILED']).nullish(),
+}
 
+/** ⚖ 8/17: the category enum is DEAD for staff discards. A staff member states
+ *  a written reason instead, and that reason is content — it goes to the core
+ *  discard row, and only the ROW ID rides into `detail`. So the two receipt
+ *  shapes are now discriminated by `source`:
+ *
+ *  - STAFF — always carries the discard row it belongs to. A staff receipt
+ *    without one would claim a reason was recorded when none was, which is the
+ *    exact dishonesty this lane exists to kill, so `discardRowId` is REQUIRED
+ *    and (with it) `recordingSessionId` is too: the row keys on the session.
+ *  - SYSTEM — the old `abandoned` semantics, unchanged: no human was present
+ *    to write anything, the actor stays the take's OWNER (spec §3.7), and core
+ *    writes its own SYSTEM cleanup rows (G5), so nothing is required here. The
+ *    pre-mint takeId-only case survives on this arm.
+ */
 const DiscardRecordingSchema = z
-  .object({
-    recordingSessionId: z.string().max(MAX_ID_CHARS).nullish(),
-    takeId: z.string().max(MAX_ID_CHARS).nullish(),
-    category: z.enum(DISCARD_CATEGORIES),
-    durationSeconds: z.number().finite().min(0),
-    customerId: z.string().max(MAX_ID_CHARS).nullish(),
-    appointmentId: z.string().max(MAX_ID_CHARS).nullish(),
-    pipeline: z.enum(['in_tab', 'server']),
-    // The real pipeline states — mirrors the SDK's own RecordingJobStatus
-    // union, so an unrecognised state is a 400 rather than a free string
-    // landing in the row.
-    jobState: z.enum(['QUEUED', 'RUNNING', 'DONE', 'FAILED']).nullish(),
-  })
-  .strict()
+  .discriminatedUnion('source', [
+    z
+      .object({
+        ...TAKE_FIELDS,
+        source: z.literal('STAFF'),
+        recordingSessionId: z.string().min(1).max(MAX_ID_CHARS),
+        discardRowId: z.string().min(1).max(MAX_ID_CHARS),
+      })
+      .strict(),
+    z
+      .object({
+        ...TAKE_FIELDS,
+        source: z.literal('SYSTEM'),
+        recordingSessionId: z.string().max(MAX_ID_CHARS).nullish(),
+      })
+      .strict(),
+  ])
   // A receipt with no subject is not a receipt. takeId covers the pre-mint
   // case (a take discarded before its recording_sessions row exists).
   .refine((v) => Boolean(v.recordingSessionId ?? v.takeId), {
     message: 'recordingSessionId or takeId is required',
   })
+
+/** The STAFF door's input: the receipt fields plus the reason itself. The
+ *  reason is stripped here and never handed on — `DiscardRecordingSchema` is
+ *  `.strict()` and would refuse it, which is the point. */
+const DiscardWithReasonSchema = z
+  .object({
+    ...TAKE_FIELDS,
+    recordingSessionId: z.string().min(1).max(MAX_ID_CHARS),
+    // Required NON-BLANK (⚖ 8/17). `.min(1)` alone would accept a row of
+    // spaces, which is a blank reason wearing a disguise — the one thing the
+    // whole gate exists to prevent.
+    reason: z
+      .string()
+      .max(MAX_REASON_CHARS)
+      .refine((s) => s.trim().length > 0, { message: 'reason must not be blank' }),
+  })
+  .strict()
 
 export interface DiscardRecordingActor {
   /** The AUTHENTICATED staff identity — resolved by the caller, NEVER taken
@@ -94,7 +137,10 @@ export interface DiscardRecordingActor {
 
 export type DiscardRecordingResult =
   | { ok: true; receiptId: string | null; duplicate: boolean }
-  | { ok: false; error: 'validation' | 'forbidden' | 'failed' | 'receipt_write_failed' }
+  | {
+      ok: false
+      error: 'validation' | 'forbidden' | 'failed' | 'receipt_write_failed' | 'discard_row_failed'
+    }
 
 /** Client-threaded core: validate → idempotency probe → awaited receipt.
  *
@@ -137,6 +183,86 @@ export async function discardRecordingWithClient(
   if (prior.found) return { ok: true, receiptId: prior.receiptId, duplicate: true }
 
   return writeDiscardReceipt(actor, data, targetId)
+}
+
+/** The STAFF door (P5-A): the written reason lands in core FIRST, then the
+ *  receipt records that it did. Both steps are idempotent, so the whole thing
+ *  is safely retryable — which is what makes the caller's fail-closed dialog
+ *  honest (a discard that could not leave its trace must not happen, and the
+ *  staff member must be able to try again without filing anything twice).
+ *
+ *  ORDER IS LOAD-BEARING: the reason row is the trace P5-A exists to create;
+ *  the receipt only points at it. Writing the receipt first would let a failed
+ *  row-create leave a receipt claiming a reason that was never recorded.
+ */
+export async function discardRecordingWithReasonRow(
+  synqed: ReturnType<typeof newSynqedClient>,
+  actor: DiscardRecordingActor,
+  input: unknown,
+): Promise<DiscardRecordingResult> {
+  if (!actor.staffId || !actor.businessId) return { ok: false, error: 'forbidden' }
+
+  const parsed = DiscardWithReasonSchema.safeParse(input)
+  if (!parsed.success) return { ok: false, error: 'validation' }
+  const { reason, ...receipt } = parsed.data
+
+  const row = await ensureDiscardReasonRow(synqed, {
+    recordingSessionId: receipt.recordingSessionId,
+    staffId: actor.staffId,
+    // Trimmed here, not only at the textarea: the server decides what the
+    // stored reason actually is.
+    reason: reason.trim(),
+  })
+  if (!row.ok) return { ok: false, error: 'discard_row_failed' }
+
+  return discardRecordingWithClient(synqed, actor, {
+    ...receipt,
+    source: 'STAFF',
+    discardRowId: row.rowId,
+  })
+}
+
+/** Probe first, then create — the same check-then-write idempotency the
+ *  receipt uses, for the same reason: a double tap (or a retry after the
+ *  receipt failed) must reuse the reason the staff member already wrote rather
+ *  than file a second one under the same session.
+ *
+ *  The probe is scoped to the session and matched on `source === 'STAFF'`
+ *  here, because a SYSTEM cleanup row on the same session is not a staff
+ *  reason and reusing one would report a written reason that does not exist.
+ *
+ *  A FAILED probe degrades to "not found" rather than blocking the create —
+ *  losing the reason entirely is strictly worse than a possible duplicate row,
+ *  and if core is genuinely down the create below fails anyway and the caller
+ *  is told so.
+ */
+async function ensureDiscardReasonRow(
+  synqed: ReturnType<typeof newSynqedClient>,
+  input: { recordingSessionId: string; staffId: string; reason: string },
+): Promise<{ ok: true; rowId: string } | { ok: false }> {
+  try {
+    const res = await synqed.recordingDiscards.list({
+      recording_session_id: input.recordingSessionId,
+    })
+    const prior = (res?.events ?? []).find((e) => e?.source === 'STAFF' && e.id)
+    if (prior) return { ok: true, rowId: prior.id }
+  } catch (err) {
+    console.warn(JSON.stringify({ evt: 'discard_reason_probe_failed', err: String(err) }))
+  }
+
+  try {
+    const row = await synqed.recordingDiscards.create({
+      recording_session_id: input.recordingSessionId,
+      source: 'STAFF',
+      discarded_by: input.staffId,
+      reason: input.reason,
+    })
+    // No row id = no trace we can point the receipt at. Fail closed.
+    return row?.id ? { ok: true, rowId: row.id } : { ok: false }
+  } catch (err) {
+    console.warn(JSON.stringify({ evt: 'discard_reason_create_failed', err: String(err) }))
+    return { ok: false }
+  }
 }
 
 /** Has this take already been discarded under ANY of its keys? Core exposes no
@@ -203,7 +329,7 @@ async function writeDiscardReceipt(
     category: 'recording',
     action: 'recording.discard',
     // Authenticated actor, always — a discard is attributable by definition.
-    // 'staff' even for `abandoned`: the actor is the take's owner (spec §3.7),
+    // 'staff' even for a SYSTEM row: the actor is the take's owner (spec §3.7),
     // the system only noticed the take was gone.
     actorId: actor.staffId,
     actorType: 'staff',
@@ -217,29 +343,34 @@ async function writeDiscardReceipt(
     requestId: actor.requestId,
     source: actor.source,
     // spec §10.3 exactly. Ids, flags and counts only — never a word of what
-    // was said or why in prose (there is no free-text field in Phase A, fix
-    // B7).
+    // was said or why in prose. THE WRITTEN REASON NEVER APPEARS HERE (⚖ 8/17
+    // doc law): it is content, it lives in the core discard row, and this
+    // detail carries only that row's ID so a manager surface can go and read
+    // it under the manager gate. `DiscardRecordingSchema` is `.strict()` and
+    // has no reason field at all, so there is nothing here that could leak it.
     //
-    // Four fields are computed here rather than accepted from the request:
+    // Six fields are computed here rather than accepted from the request:
     // `route` (a Phase A constant — category 6 does not exist yet),
-    // `has_free_text` (no such field exists to set it), `staff_id` (the
-    // authenticated actor, never a body value), and `below_floor` (derived
-    // from the reported duration, so the flag cannot contradict it).
+    // `staff_id` (the authenticated actor, never a body value), `below_floor`
+    // (derived from the reported duration, so the flag cannot contradict it),
+    // and the three the discriminant settles — `category`, `has_free_text`
+    // and `system_emitted`.
     //
     // `system_emitted` is honestly weaker and says so: it means THE CALLER'S
     // SYSTEM PATH FIRED THIS (§3.7 recovery dismissal / TTL sweep / logout),
     // attributed to the authenticated owner of the take. The server derives
-    // the flag from the category and verifies the ATTRIBUTION — it cannot
-    // verify the ABSENCE OF A HUMAN, because the §3.7 paths are client code
-    // and `category` arrives in the body. Phase A carries no server-verifiable
-    // signal that would let it; do not read this flag as proof no one chose.
+    // the flag from `source` and verifies the ATTRIBUTION — it cannot verify
+    // the ABSENCE OF A HUMAN, because the §3.7 paths are client code and
+    // `source` arrives in the body. Do not read this flag as proof no one
+    // chose. `category` survives only as its label: `abandoned` was the
+    // system-only code and is now derived, never client-supplied.
     detail: {
       recording_session_id: data.recordingSessionId ?? null,
       take_id: data.takeId ?? null,
       staff_id: actor.staffId,
       customer_id: data.customerId ?? null,
       appointment_id: data.appointmentId ?? null,
-      category: data.category,
+      category: data.source === 'SYSTEM' ? 'abandoned' : null,
       duration_sec: Math.round(data.durationSeconds),
       // Derived from the RAW duration, not the rounded one above: a 9.7s take
       // genuinely ran no transcription, and recording below_floor:false for it
@@ -249,8 +380,11 @@ async function writeDiscardReceipt(
       route: 'operational',
       pipeline: data.pipeline,
       job_state: data.jobState ?? null,
-      has_free_text: false,
-      system_emitted: data.category === 'abandoned',
+      // A staff discard always states a reason (the dialog cannot be confirmed
+      // blank) and always points at the row holding it.
+      has_free_text: data.source === 'STAFF',
+      discard_row_id: data.source === 'STAFF' ? data.discardRowId : null,
+      system_emitted: data.source === 'SYSTEM',
     },
   })
 

@@ -19,7 +19,10 @@ import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { discardRecordingWithClient } from '@/lib/recording/discard'
+import {
+  discardRecordingWithClient,
+  discardRecordingWithReasonRow,
+} from '@/lib/recording/discard'
 
 export const runtime = 'nodejs'
 
@@ -34,16 +37,23 @@ export const POST = facadeHandler('recordings.discard', async (ctx) => {
   }
 
   const businessId = ctx.identity.businessId
-  const result = await discardRecordingWithClient(
-    newSynqedClient(businessId),
-    {
-      staffId: ctx.identity.authUserId,
-      businessId,
-      source: 'facade',
-      requestId: ctx.meta.requestId,
-    },
-    body,
-  )
+  const actor = {
+    staffId: ctx.identity.authUserId,
+    businessId,
+    source: 'facade' as const,
+    requestId: ctx.meta.requestId,
+  }
+  // P5-A: a STAFF discard arrives carrying its written reason, and takes the
+  // door that writes the core discard row before the receipt. Everything else
+  // is the receipt-only shape. ONE endpoint either way — the phone and the web
+  // page must not be able to drift into different discard semantics, and both
+  // shapes are `.strict()`, so a body is never ambiguous about which it is.
+  const synqed = newSynqedClient(businessId)
+  const hasReason =
+    typeof body === 'object' && body !== null && 'reason' in (body as Record<string, unknown>)
+  const result = hasReason
+    ? await discardRecordingWithReasonRow(synqed, actor, body)
+    : await discardRecordingWithClient(synqed, actor, body)
 
   if (!result.ok) {
     if (result.error === 'validation') {
@@ -55,7 +65,9 @@ export const POST = facadeHandler('recordings.discard', async (ctx) => {
     if (result.error === 'forbidden') {
       throw new AppApiError('forbidden', 'no staff identity for this receipt')
     }
-    throw new AppApiError('upstream_unavailable', 'the discard receipt could not be recorded')
+    // Covers 'discard_row_failed' too — the reason row is the trace, so
+    // losing it is exactly as fatal as losing the receipt.
+    throw new AppApiError('upstream_unavailable', 'the discard could not be recorded')
   }
 
   return ok(ctx, { receiptId: result.receiptId, duplicate: result.duplicate })

@@ -36,6 +36,16 @@ jest.mock('@/actions/recordings', () => ({
   startRecordingSession: jest.fn(),
   deleteRecordingSession: (id: string) => mockDeleteRecordingSession(id),
 }))
+/** P5-A: every deliberate discard now passes the written-reason gate first,
+ *  and the cleanup only runs once that gate reports success. */
+const mockDiscardWithReason = jest.fn(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- the arg is
+  // what the wiring assertions read off mock.calls
+  async (_input: unknown) => ({ ok: true, receiptId: 'row-1', duplicate: false }) as const,
+)
+jest.mock('@/actions/recording-discard', () => ({
+  discardRecordingWithReason: (input: unknown) => mockDiscardWithReason(input),
+}))
 jest.mock('@/actions/karute', () => ({
   saveKaruteRecord: jest.fn(),
   saveKaruteRecordInline: jest.fn(async () => ({ id: 'karute-1' })),
@@ -127,7 +137,9 @@ jest.mock('@/hooks/use-global-recorder', () => ({
     pauseRecording: jest.fn(),
     resumeRecording: jest.fn(),
     discardRecording: (...a: unknown[]) => mockDiscardRecording(...a),
-    awaitRecordingSessionId: jest.fn(async () => null),
+    // P5-A: the reason gate bounded-awaits the mint before it will discard
+    // anything, so this must answer with the live session id.
+    awaitRecordingSessionId: jest.fn(async () => 'sess-live'),
   }),
 }))
 
@@ -224,6 +236,21 @@ beforeEach(() => {
   mockPipelineState = 'idle'
 })
 
+/** P5-A: a deliberate discard is now two taps — 破棄, then the required
+ *  written reason. `next-intl` is key-echoing in this suite, so the confirm
+ *  button's label is its key. */
+async function discardThroughReasonGate(trigger: string) {
+  await act(async () => {
+    fireEvent.click(screen.getByText(trigger))
+  })
+  await act(async () => {
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '録り直します' } })
+  })
+  await act(async () => {
+    fireEvent.click(screen.getByText('discardReason.confirm'))
+  })
+}
+
 afterEach(() => {
   cleanup()
   resetInbox()
@@ -232,9 +259,7 @@ afterEach(() => {
 describe('WIRED — the deliberate discard chokepoints', () => {
   it('the 破棄 button cleans up the RECORDER’s session id', async () => {
     await renderPage()
-    await act(async () => {
-      fireEvent.click(screen.getByText('discard'))
-    })
+    await discardThroughReasonGate('discard')
     expect(mockDeleteRecordingSession).toHaveBeenCalledTimes(1)
     expect(mockDeleteRecordingSession).toHaveBeenCalledWith(RECORDER_SESSION)
     // …and the take is still discarded: the cleanup rides along, never gates.
@@ -251,18 +276,14 @@ describe('WIRED — the deliberate discard chokepoints', () => {
     })
     mockDiscardRecording.mockImplementation(() => order.push('discard'))
     await renderPage()
-    await act(async () => {
-      fireEvent.click(screen.getByText('discard'))
-    })
+    await discardThroughReasonGate('discard')
     expect(order).toEqual(['cleanup', 'discard'])
   })
 
   it('ReviewScreen’s 破棄 cleans up the PIPELINE’s session id', async () => {
     mockPipelineState = 'review'
     await renderPage()
-    await act(async () => {
-      fireEvent.click(screen.getByText('review-discard'))
-    })
+    await discardThroughReasonGate('review-discard')
     expect(mockDeleteRecordingSession).toHaveBeenCalledTimes(1)
     expect(mockDeleteRecordingSession).toHaveBeenCalledWith(PIPELINE_SESSION)
   })
@@ -270,9 +291,7 @@ describe('WIRED — the deliberate discard chokepoints', () => {
   it('a failed cleanup never blocks or breaks the discard', async () => {
     mockDeleteRecordingSession.mockRejectedValue(new Error('core down'))
     await renderPage()
-    await act(async () => {
-      fireEvent.click(screen.getByText('discard'))
-    })
+    await discardThroughReasonGate('discard')
     expect(mockDiscardRecording).toHaveBeenCalled()
   })
 })

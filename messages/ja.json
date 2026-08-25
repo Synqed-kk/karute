@@ -818,7 +818,14 @@
     "recoverSaveFailed": "保存できませんでした。もう一度お試しください。",
     "recoverAlreadyRedeemed": "この来店の回数券はすでに消化済みです",
     "recoverBurnCheckFailed": "回数券の確認ができませんでした。もう一度お試しください",
-    "recoverPackSaleLost": "回数券の販売登録が失われました。お客様ページから登録してください"
+    "recoverPackSaleLost": "回数券の販売登録が失われました。お客様ページから登録してください",
+    "discardReason": {
+      "title": "録音を破棄する理由",
+      "placeholder": "破棄する理由を入力してください（必須）",
+      "disclosure": "破棄の記録（日時・担当者・理由）が残ります。",
+      "confirm": "破棄する",
+      "failed": "保存できませんでした。もう一度お試しください。"
+    }
   },
   "customers": {
     "title": "顧客",
