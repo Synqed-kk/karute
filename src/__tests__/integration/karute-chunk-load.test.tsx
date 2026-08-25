@@ -782,3 +782,143 @@ describe('a second purge mid-restore keeps the DEEPEST goal (fix round 8)', () =
     expect(loadKaruteWindow).toHaveBeenCalledTimes(2)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Pill counts. ⚖ Liam 8/25: **every row-counting pill counts exactly the rows
+// its tap shows** — 今週 included (this overturned PR-2c's first shape, which
+// made 今週 a server total and let the number describe a different population
+// than the tap). すべて is the one deliberate exception: it names the STORE
+// total, the same number the header's 全件 renders, with さらに表示 and 表示中
+// standing between it and the rows on screen.
+//
+// The count/filter identity is asserted BY CONSTRUCTION below — the pill's
+// number and the length of what its tap renders are read from ONE render, so
+// the assertion cannot pass while the two drift.
+// ---------------------------------------------------------------------------
+describe('pill counts', () => {
+  const pill = (key: string) =>
+    screen.getByRole('button', { name: new RegExp(`^filters\\.${key}`) })
+  /** The number printed ON the pill. */
+  const pillCount = (key: string): number =>
+    Number(pill(key).textContent!.replace(`filters.${key}`, ''))
+  /** 表示中 — the post-filter visible row count, read off the status line the
+   *  header renders. This is literally "what the tap shows". */
+  const showingCount = (): number => {
+    const line = screen.getByText(/^statusLine/).textContent ?? ''
+    return JSON.parse(line.slice(line.indexOf(':') + 1)).showingCount
+  }
+
+  /** Today/yesterday in JST — the same rule the view now uses, so a fixture
+   *  dated "this week" really is inside the cutoff whatever TZ jest runs in. */
+  const jstYmd = (daysAgo: number) =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo' })
+      .format(new Date(Date.now() - daysAgo * 86_400_000))
+
+  /** Rows spanning the 今週 boundary, INCLUDING a backdated one: k-old is
+   *  displayed 40 days back (its session_date), which is exactly the row a
+   *  created_at-based count would have counted and the tap would have hidden.
+   *  k-7d sits exactly ON the cutoff day — without it a `>=`→`>` slip in the
+   *  predicate is invisible (found by mutation testing: the first version of
+   *  this fixture straddled the boundary without landing on it, and the broken
+   *  build stayed green). */
+  const SPANNING = [
+    item('k-today', jstYmd(0), '今日 太郎'),
+    item('k-6d', jstYmd(6), '六日前 花子'),
+    item('k-7d', jstYmd(7), '七日前 次郎'),
+    item('k-9d', jstYmd(9), '九日前 一郎'),
+    item('k-old', jstYmd(40), '古川 いにしえ'),
+  ]
+
+  it('今週 counts exactly the rows its tap shows — one render, backdated row included', () => {
+    renderList({ items: SPANNING, total: 9 })
+    // 3 of the 5 are inside the last 7 JST days, boundary day INCLUDED.
+    expect(pillCount('thisWeek')).toBe(3)
+    fireEvent.click(pill('thisWeek'))
+    // THE assertion: the promise and the delivery, from the same render.
+    expect(showingCount()).toBe(pillCount('thisWeek'))
+    expect(showingCount()).toBe(3)
+    // …and it is the right three rows, not merely the right number of them.
+    expect(screen.getByText('今日 太郎')).toBeInTheDocument()
+    expect(screen.getByText('六日前 花子')).toBeInTheDocument()
+    expect(screen.getByText('七日前 次郎')).toBeInTheDocument()
+    expect(screen.queryByText('九日前 一郎')).not.toBeInTheDocument()
+    expect(screen.queryByText('古川 いにしえ')).not.toBeInTheDocument()
+  })
+
+  it('AI補完待ち / 下書き keep the same property', () => {
+    const rows = [
+      { ...item('p1', jstYmd(0), 'ペンディング 一郎'), aiStatus: 'pending' as const },
+      { ...item('p2', jstYmd(1), 'ペンディング 二郎'), aiStatus: 'pending' as const },
+      { ...item('d1', jstYmd(2), '下書き 三郎'), aiStatus: 'draft' as const },
+      item('s1', jstYmd(3), '完了 四郎'),
+    ]
+    renderList({ items: rows, total: 9 })
+    fireEvent.click(pill('aiPending'))
+    expect(showingCount()).toBe(pillCount('aiPending'))
+    expect(showingCount()).toBe(2)
+    fireEvent.click(pill('draft'))
+    expect(showingCount()).toBe(pillCount('draft'))
+    expect(showingCount()).toBe(1)
+  })
+
+  it('今週 does NOT climb when さらに表示 appends OLDER rows', async () => {
+    loadKaruteWindow.mockResolvedValue({
+      // A walk backward can only ever return rows older than the boundary, so
+      // it cannot add to this week — the completeness argument, exercised.
+      items: [item('k3', jstYmd(30), '鈴木 一郎')],
+      windowStart: '2026-07-29',
+      freshStoreTotal: 9,
+      hasMore: true,
+    })
+    renderList({ items: SPANNING, total: 9 })
+    expect(pillCount('thisWeek')).toBe(3)
+    fireEvent.click(loadMoreButton())
+    await waitFor(() => expect(screen.getByText('鈴木 一郎')).toBeInTheDocument())
+    expect(pillCount('thisWeek')).toBe(3)
+    fireEvent.click(pill('thisWeek'))
+    expect(showingCount()).toBe(pillCount('thisWeek'))
+  })
+
+  it('すべて names the STORE total — the very number the header 全件 renders', () => {
+    renderList()
+    // 2 rows on screen, 9 in the store. The pill and the header read ONE
+    // plumbed value, so they cannot disagree an inch apart on the same screen;
+    // さらに表示 and 表示中 are what stand between the total and the rows.
+    expect(pill('all').textContent).toBe('filters.all9')
+    expect(
+      screen.getByText('statusLine:{"total":9,"monthCount":2,"showingCount":2}'),
+    ).toBeInTheDocument()
+  })
+
+  it('すべて does NOT climb on an append, and follows a FRESH store total', async () => {
+    loadKaruteWindow.mockResolvedValue({
+      items: [item('k3', '2026-08-05', '鈴木 一郎')],
+      windowStart: '2026-07-29',
+      freshStoreTotal: 11,
+      hasMore: true,
+    })
+    renderList()
+    expect(pill('all').textContent).toBe('filters.all9')
+    fireEvent.click(loadMoreButton())
+    await waitFor(() => expect(screen.getByText('鈴木 一郎')).toBeInTheDocument())
+    // The OLD behaviour read 「すべて 3」 here — a store that appeared to grow
+    // as you read it. It now reports the server's freshly re-read total.
+    expect(pill('all').textContent).toBe('filters.all11')
+  })
+
+  it('すべて renders its LABEL ALONE when the store total is unknown', () => {
+    // total=null with a real windowStart is "the count leg failed", not the
+    // degraded whole-screen state — the rows are fine, the number is not. A
+    // fake 0 would be worse than no number.
+    renderList({ items: SPANNING, total: null })
+    expect(pill('all').textContent).toBe('filters.all')
+    // The row-counting pills are unaffected: their source is the rows, which
+    // are still on screen — and the tap still delivers exactly that many.
+    // (showingCount() is unusable here on purpose: a null total suppresses the
+    // whole status line, so the rows themselves are the witness.)
+    expect(pillCount('thisWeek')).toBe(3)
+    fireEvent.click(pill('thisWeek'))
+    expect(screen.getByText('七日前 次郎')).toBeInTheDocument()
+    expect(screen.queryByText('九日前 一郎')).not.toBeInTheDocument()
+  })
+})
