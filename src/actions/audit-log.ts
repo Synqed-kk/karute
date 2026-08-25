@@ -373,6 +373,15 @@ async function resolveTargetLabels(
       )
       .map((e) => e.target_id!),
   )
+  // Discarded/cleaned-up recording rows resolve their CUSTOMER's label, same
+  // idiom as the karute branch above — session_cleanup.ts (P5 stopgap) hard-
+  // deletes the recording_sessions row, so detail.customer_id (stamped at
+  // write time) is the only surviving context; batched into the SAME
+  // customers.list call, keyed by the row's own target_id.
+  const recordingCustomerIds = events
+    .filter((e) => e.target_type === 'recording')
+    .map((e) => (e.detail as { customer_id?: unknown } | null)?.customer_id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
   const unresolvedKaruteIds = idsOf('karute')
     .filter((id) => !detailKaruteIds.has(id))
     .slice(0, 30)
@@ -412,7 +421,13 @@ async function resolveTargetLabels(
   // resolve — their rows keep showing the raw value, same honest-state
   // fallback as a purged customer or a failed batch call below.
   const allCustomerIds = [
-    ...new Set([...customerIds, ...karuteCustomerIds, ...karuteCustomerById.values(), ...reassignCustomerIds]),
+    ...new Set([
+      ...customerIds,
+      ...karuteCustomerIds,
+      ...karuteCustomerById.values(),
+      ...reassignCustomerIds,
+      ...recordingCustomerIds,
+    ]),
   ].filter((id) => UUID_RE.test(id))
   if (allCustomerIds.length > 0) {
     try {
@@ -434,6 +449,12 @@ async function resolveTargetLabels(
         const cid =
           (e.detail as { customer_id?: unknown } | null)?.customer_id ??
           karuteCustomerById.get(e.target_id)
+        const name = typeof cid === 'string' ? nameById.get(cid) : undefined
+        if (name) labels[e.target_id] = name
+      }
+      for (const e of events) {
+        if (e.target_type !== 'recording' || !e.target_id) continue
+        const cid = (e.detail as { customer_id?: unknown } | null)?.customer_id
         const name = typeof cid === 'string' ? nameById.get(cid) : undefined
         if (name) labels[e.target_id] = name
       }

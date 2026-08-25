@@ -664,6 +664,66 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     expect(res.targetLabels).toEqual({ 'kar-live': '鈴木 一郎' })
   })
 
+  // Recording-labels fix (2026-08-25 packet): session_cleanup.ts hard-deletes
+  // the recording_sessions row it audits, so detail.customer_id (stamped at
+  // write time) is the only surviving context — same structural twin as the
+  // karute branch test above, just target_type:'recording'.
+  it("a recording row resolves its CUSTOMER label off detail.customer_id, keyed by the recording target_id, via the SHARED batch", async () => {
+    const customersList = jest.fn(async () => ({
+      customers: [{ id: CUS_1, name: '鈴木 一郎' }],
+    }))
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: customersList },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'evt-rec',
+          category: 'recording',
+          action: 'recording.session_cleanup',
+          target_type: 'recording',
+          target_id: 'sess-1',
+          detail: { customer_id: CUS_1, had_audio_path: true, duration_seconds: 42 },
+        }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    // ONE batch call for the whole page, not a per-row lookup.
+    expect(customersList).toHaveBeenCalledTimes(1)
+    expect(customersList).toHaveBeenCalledWith({ ids: [CUS_1], include_deleted: true })
+    expect(res.targetLabels).toEqual({ 'sess-1': '鈴木 一郎' })
+  })
+
+  it('a recording row with no customer_id (or an unresolvable one) leaves target_id unresolved — honest state, no crash', async () => {
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: jest.fn(async () => ({ customers: [] })) },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'evt-rec-none',
+          category: 'recording',
+          action: 'recording.session_cleanup',
+          target_type: 'recording',
+          target_id: 'sess-2',
+          detail: { customer_id: null, had_audio_path: false, duration_seconds: null },
+        }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.targetLabels).toEqual({})
+  })
+
   it('resolves staff targets in BOTH id spaces (synqed staff.id + linked profiles.id) incl. deactivated staff — one unfiltered list call', async () => {
     const staffList = jest.fn(async () => ({
       staff: [
