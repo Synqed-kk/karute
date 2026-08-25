@@ -15,6 +15,9 @@ interface CustomerRowDesktopProps {
   karuteContext?: boolean
   /** See CustomerCardMobile — same flag, same purpose. */
   hrefBase?: string
+  /** Entrance stagger position within the current page (decorative;
+   *  reduced motion renders instantly with no delay). */
+  entranceIndex?: number
 }
 
 /**
@@ -33,6 +36,7 @@ export function CustomerRowDesktop({
   staffColorKey,
   karuteContext = false,
   hrefBase = '/customers',
+  entranceIndex = 0,
 }: CustomerRowDesktopProps) {
   const t = useTranslations('customers.list')
   const status = STATUS_STYLES[c.status]
@@ -41,7 +45,8 @@ export function CustomerRowDesktop({
   return (
     <Link
       href={`${hrefBase}/${c.id}` as Parameters<typeof Link>[0]['href']}
-      className="relative grid grid-cols-[minmax(0,2fr)_130px_110px_120px_160px_60px] items-center gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-muted/30 last:border-b-0"
+      className="relative grid grid-cols-[minmax(0,2fr)_130px_110px_120px_160px_60px] items-center gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-muted/30 active:bg-muted/50 last:border-b-0 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-[6px] motion-safe:fill-mode-backwards motion-safe:animation-duration-(--duration-base) motion-safe:ease-(--ease-out)"
+      style={{ animationDelay: `${entranceIndex * 40}ms` }}
     >
 
       {/* Customer */}
