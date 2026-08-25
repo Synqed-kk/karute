@@ -351,6 +351,30 @@ export function guardCheckRow(cell: RailCell | null): { label: string; tone: 'wa
   return { label: cell.sentence.replace('・損を減らす', ''), tone: 'warn' }
 }
 
+/** ⚖ FIX-6 (blind round, 2026-08-25) — THE SAME ROW, BESIDE AN OFFER LINE.
+ *
+ *  GAP-6 gave the row back the engine's second clause 「{clock}はこの区間で損が
+ *  最少の開始です」, and that clause is the row's answer to "then where?". On the
+ *  HOLD popover it is the only answer there is, so it belongs.
+ *
+ *  The CONSULT popover is the other surface, and it already has an offer line:
+ *  `sourcedCell`/`offerableCell` put the engine's own alternative starts under
+ *  the facts, and when there are none that line reads 「この区間に、より損の少な
+ *  い開始はありません」. Stacking clause two above it prints a contradiction —
+ *  「15:45は…損が最少の開始です」 over 「より損の少ない開始はありません」 — two
+ *  true sentences from two different questions, which the operator reads as the
+ *  board disagreeing with itself.
+ *
+ *  So the SPLIT lives here, in one place, and it is a decision about SURFACES
+ *  rather than about the sentence: display never re-authors the engine's words,
+ *  it picks which row it is entitled to. Derived from `guardCheckRow` rather
+ *  than re-deriving the label, so the two can never drift apart, and ⚖ flag 52
+ *  rides along untouched — same tone, same never-blocking, same forbidden ×. */
+export function guardCheckRowBesideOffer(cell: RailCell | null): { label: string; tone: 'warn' } | null {
+  const row = guardCheckRow(cell)
+  return row && { ...row, label: row.label.split('。')[0] }
+}
+
 // ── the board's own state transitions ──────────────────────────────────────
 
 /** The board as it currently stands: the server's lanes, plus staged moves,

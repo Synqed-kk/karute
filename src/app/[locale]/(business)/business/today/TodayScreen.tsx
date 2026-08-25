@@ -85,6 +85,7 @@ import {
   stretchOrCarry,
   gapLayerFor,
   guardCheckRow,
+  guardCheckRowBesideOffer,
   guardRailsFor,
   guardVerdictAt,
   blockNode,
@@ -147,7 +148,15 @@ export function bedViewsFor(
   frame: DayFrame,
   handId: string | null,
 ): BedViews {
-  return { handId, ...bedTruthViews(lanes, policy, frame, handId === null ? null : { id: handId }) }
+  // ⚖ FIX-5 (blind round) — AN EMPTY ID IS NOBODY, HERE TOO. `bedFeasibility`
+  // read `excludeId` for truthiness and `bedDoor` below keeps that reading, so
+  // an `''` arriving here has to mean the same thing on BOTH sides of the seam
+  // or the door would be asked about a hand the book was never built for. The
+  // book itself throws on an empty hand id (rightly: a hand with no id is a bug
+  // in the caller, not an empty world), and normalising is what stops that
+  // throw reaching a render.
+  const hand = handId === null || handId === '' ? null : handId
+  return { handId: hand, ...bedTruthViews(lanes, policy, frame, hand === null ? null : { id: hand }) }
 }
 
 /** ⚖ LIAM flag 76 (2026-08-23) + ⚖ R3 ONE WORLD (2026-08-25) — THE ROOMS,
@@ -2676,7 +2685,10 @@ export function TodayScreen(props: TodayProps) {
               title: heldName,
             }),
             checks: v.checks,
-            guardRow: guardCheckRow(v.cell),
+            // ⚖ FIX-6 — this box has an OFFER LINE under it; the hold popover
+            // does not. See `guardCheckRowBesideOffer` for why the second clause
+            // may not be stacked above 「より損の少ない開始はありません」.
+            guardRow: guardCheckRowBesideOffer(v.cell),
           }
         : null
     setAdvice({

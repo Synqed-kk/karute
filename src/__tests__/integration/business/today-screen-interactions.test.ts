@@ -72,6 +72,7 @@ import {
   foreignStoreRefusal,
   anchorOnScreen,
   guardCheckRow,
+  guardCheckRowBesideOffer,
   holdPopAnchor,
   holdSummary,
   bedClassCell,
@@ -1436,6 +1437,13 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     // canon's own `SCENARIO.needsBed === false` switch: absent, not false.
     const noRooms = board.filter((l) => l.group !== 'beds')
     expect(bedDoor(bedViewsFor(noRooms, POLICY, FRAME, null), noRooms, null)).toBeUndefined()
+    // ⚖ FIX-5 (blind round) — AND THE SEAM AGREES ON BOTH SIDES. The book throws
+    // on an empty hand id (rightly: a hand with no id is a bug in the caller,
+    // not an empty world), so `bedViewsFor` normalises it to "no hand" before
+    // that throw can reach a render — the same truthiness `bedDoor` reads.
+    expect(() => bedViewsFor(board, POLICY, FRAME, '')).not.toThrow()
+    expect(bedViewsFor(board, POLICY, FRAME, '').worldMinusHand).toBeNull()
+    expect(bedViewsFor(board, POLICY, FRAME, '').handId).toBeNull()
   })
 
   it('the hypothetical door answers PER LENGTH, not once for the first one asked', () => {
@@ -1561,7 +1569,38 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
       expect(shelf.slice(0, shelf.indexOf('setPending({'))).toContain('solveBed(')
     })
 
-    it('…and solveBed actually threads it — the wiring, in its own body', () => {
+      /** ⚖ FIX-6 (blind round) — ONE VERDICT, TWO SURFACES, AND ONLY ONE OF THEM
+     *  ALREADY ANSWERS "THEN WHERE?".
+     *
+     *  The hold popover has no offer line, so GAP-6's second clause is the only
+     *  answer it carries and it belongs there whole. The consult popover puts
+     *  the engine's alternative starts underneath the facts, and when there are
+     *  none that line reads 「この区間に、より損の少ない開始はありません」 — with
+     *  clause two stacked above it the box prints two true sentences that read
+     *  as the board contradicting itself. */
+    it('the hold row keeps both clauses; the row beside an offer line keeps one', () => {
+      const degraded: RailCell = {
+        start: 990, state: 'degraded', label: '△16:30',
+        sentence: '新規90分の空き2→1（1枠減・損を減らす）。15:45はこの区間で損が最少の開始です',
+        alternatives: [945], alternativeKind: 'least-loss', ackAllowed: true,
+      }
+      expect(guardCheckRow(degraded)).toEqual({
+        label: '新規90分の空き2→1（1枠減）。15:45はこの区間で損が最少の開始です', tone: 'warn',
+      })
+      expect(guardCheckRowBesideOffer(degraded)).toEqual({
+        label: '新規90分の空き2→1（1枠減）', tone: 'warn',
+      })
+      // A one-clause sentence is the SAME row on both surfaces — the split is
+      // about the second clause and nothing else.
+      const blocked: RailCell = { ...degraded, state: 'blocked', label: '—', sentence: 'この開始ではベッドを60分確保できません' }
+      expect(guardCheckRowBesideOffer(blocked)).toEqual(guardCheckRow(blocked))
+      // ⚖ flag 52 rides along untouched on both: warn, never ×, never blocking.
+      expect(guardCheckRowBesideOffer(degraded)!.tone).toBe('warn')
+      expect(guardCheckRowBesideOffer(null)).toBeNull()
+      expect(guardCheckRowBesideOffer({ ...degraded, state: 'safe' })).toBeNull()
+    })
+
+  it('…and solveBed actually threads it — the wiring, in its own body', () => {
       // Scoped to `solveBed`'s body: the same literal also appears in
       // `verdictFor`, and a pin that could be satisfied by the OTHER call site
       // would not catch this leg dropping it.
@@ -6153,7 +6192,11 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     expect(SRC).toContain('bedLane: v.bedLane,')
     expect(SRC).not.toContain('v.bedLane ?? attempt.bedLane')
     expect(SRC).toContain('checks: v.checks,')
-    expect(SRC).toContain('guardRow: guardCheckRow(v.cell),')
+    // ⚖ FIX-6 (blind round, 2026-08-25) — this box has an OFFER LINE under it,
+    // so it takes the row built for surfaces-with-offers. The hold popover has
+    // no offer line and keeps the whole sentence. Same verdict, same cell, one
+    // home for the split (`guardCheckRowBesideOffer`, today-interactions).
+    expect(SRC).toContain('guardRow: guardCheckRowBesideOffer(v.cell),')
     expect(SRC.match(/checksFor\(/g)).toHaveLength(2) // the two confirm-side readers, and NOT the box
   })
 
