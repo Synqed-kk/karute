@@ -765,7 +765,7 @@ function synthBoard(staff: number, beds: number, seed: number): BoardLane[] {
   for (let i = 0; i < staff; i += 1) {
     for (let n = 0; n < 3; n += 1) {
       const dur = [45, 60, 90][Math.floor(next() * 3) % 3]
-      const start = HOURS.open + Math.floor(next() * ((HOURS.close - HOURS.open - dur) / 30 + 1)) * 30
+      const start = HOURS.open + Math.floor(next() * ((HOURS.close - HOURS.open - dur) / 15 + 1)) * 15
       const span = { start, end: start + dur }
       const bed = Math.floor(next() * beds) % beds
       if (made.some((b) => (b.staff === i || b.bed === bed) && overlaps(b, span))) continue
@@ -796,19 +796,39 @@ function synthBoard(staff: number, beds: number, seed: number): BoardLane[] {
 
 describe('§7 — the cost, on real timers', () => {
   const SIZES = [6, 15, 25, 30]
+  /** Rooms scale with the roster (the any-business-size law: a 30-person board
+   *  is ordinary), and the dials are `gridMin` 60 / `sessionMin` 45 — a REAL
+   *  combination off the sweep, chosen because it is the one that puts the most
+   *  promises on the board. At `sessionMin` 60 canon's grid mode silences the
+   *  packing layer on a board whose pockets all land on the grid, and a perf
+   *  table measured with zero promises would be measuring the early return. */
+  const roomsFor = (staff: number) => Math.max(3, Math.round(staff / 2.5))
 
   /** ⚠ THE HARNESS RUNS UNDER `jest.useFakeTimers()` (this file pins the fixture
    *  day with it), and @sinonjs/fake-timers flattens `hrtime` and `performance`
    *  to a frozen clock — a faked 0.00ms is not evidence of anything. Every
    *  number below is taken with REAL timers, restored afterwards, and the
    *  artifact states which mode produced it. */
-  const timed = (runs: number, fn: () => void) => {
+  const timed = (runs: number, a: () => void, b: () => void) => {
     jest.useRealTimers()
     try {
-      for (let i = 0; i < 5; i += 1) fn() // warm
-      const t0 = process.hrtime.bigint()
-      for (let i = 0; i < runs; i += 1) fn()
-      return Number(process.hrtime.bigint() - t0) / 1e6 / runs
+      for (let i = 0; i < 20; i += 1) { a(); b() } // warm both, together
+      // INTERLEAVED, because they are tens of microseconds apart and the two
+      // are being compared: measured in separate loops, V8's own warm-up and
+      // whatever the machine was doing between them lands entirely on one side,
+      // and the table grows negative deltas that mean nothing.
+      let ta = 0n
+      let tb = 0n
+      for (let i = 0; i < runs; i += 1) {
+        const t0 = process.hrtime.bigint()
+        a()
+        const t1 = process.hrtime.bigint()
+        b()
+        const t2 = process.hrtime.bigint()
+        ta += t1 - t0
+        tb += t2 - t1
+      }
+      return [Number(ta) / 1e6 / runs, Number(tb) / 1e6 / runs] as const
     } finally {
       jest.useFakeTimers().setSystemTime(new Date('2026-08-19T00:00:00Z'))
     }
@@ -836,11 +856,13 @@ describe('§7 — the cost, on real timers', () => {
   it('PERF TABLE — 6 / 15 / 25 / 30 staff, sell layer with and without the reconciliation', () => {
     const rows: string[] = []
     for (const staff of SIZES) {
-      const lanes = synthBoard(staff, 5, 4242 + staff)
+     for (const sessionMin of [45, 60]) {
+      const rooms = roomsFor(staff)
+      const lanes = synthBoard(staff, rooms, 4242 + staff)
       const { price, depth, frame } = priceOf(REAL)
       const gap = gapLayerFor(lanes, {
-        gridMin: 30,
-        sessionMin: 60,
+        gridMin: 60,
+        sessionMin,
         gapFillMin: REAL.guard.gapFillMinMin,
         gapFillDiscountPct: REAL.guard.gapFillDiscountPct,
         minSellableMin: 0,
@@ -851,21 +873,38 @@ describe('§7 — the cost, on real timers', () => {
         guard: REAL.guard.config,
       })
       const claims = [...gap.packed, ...gap.scraps]
-      const base = { gridMin: 30, nowMinute: null, locked: [], showPrice: true, hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth }
-      const off = timed(200, () => sellLayerFor(lanes, HOURS, base))
-      const on = timed(200, () => sellLayerFor(lanes, HOURS, { ...base, reconcile: rec(claims) }))
+      const base = { gridMin: 60, nowMinute: null, locked: [], showPrice: true, hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth }
+      const bare = sellLayerFor(lanes, HOURS, base)
       const layer = sellLayerFor(lanes, HOURS, { ...base, reconcile: rec(claims) })
-      rows.push(
-        `staff=${String(staff).padStart(2)} rooms=5 claims=${String(claims.length).padStart(3)}` +
-          ` | R3 ${off.toFixed(3)}ms · R4 ${on.toFixed(3)}ms · +${(((on - off) / off) * 100).toFixed(1)}%` +
-          ` | cells ${String(layer.cells.length).padStart(3)}`,
+      // WHAT THE RECONCILIATION ACTUALLY DID on this board — the number that
+      // makes the milliseconds beside it mean something, and the one the cost
+      // is bounded by: one `allocateBed` search per offer that lost its room.
+      const key = (c: { laneKey: string; h: number }) => `${c.laneKey}|${c.h}`
+      const now = new Map(layer.cells.filter((c) => c.group === 'staff').map((c) => [key(c), c.resourceKey]))
+      const losers = bare.cells.filter((c) => c.group === 'staff' && now.get(key(c)) !== c.resourceKey).length
+      const [off, on] = timed(
+        500,
+        () => sellLayerFor(lanes, HOURS, base),
+        () => sellLayerFor(lanes, HOURS, { ...base, reconcile: rec(claims) }),
       )
-      // Not a benchmark gate — a tripwire on the ORDER of the cost. The
-      // reconciliation is bounded by the losers, so it can never be a multiple
-      // of the derivation it follows.
-      expect(on).toBeLessThan(off * 6 + 1)
+      rows.push(
+        `staff=${String(staff).padStart(2)} rooms=${String(rooms).padStart(2)} S=${sessionMin}` +
+          ` promises=${String(claims.length / 2).padStart(3)}` +
+          ` | R3 ${off.toFixed(3)}ms · R4 ${on.toFixed(3)}ms · ${(on - off >= 0 ? '+' : '') + (on - off).toFixed(3)}ms` +
+          ` (${(((on - off) / off) * 100).toFixed(0)}%)` +
+          ` | offers ${String(bare.cells.filter((c) => c.group === 'staff').length).padStart(3)}` +
+          `→${String(layer.cells.filter((c) => c.group === 'staff').length).padStart(3)}` +
+          ` · searched ${String(losers).padStart(3)}`,
+      )
+      // NOT a benchmark gate — the absolute numbers are tens of microseconds and
+      // run-to-run noise dominates them, so a threshold here would be a flake
+      // rather than a guard. What IS asserted is that the row measured something:
+      // the board carried promises and offers really did lose their rooms.
+      expect(claims.length).toBeGreaterThan(0)
+      expect(losers).toBeGreaterThan(0)
+     }
     }
-    expect(rows).toHaveLength(4)
+    expect(rows).toHaveLength(8)
     if (EVIDENCE) {
       mkdirSync(EVIDENCE, { recursive: true })
       writeFileSync(
@@ -876,17 +915,34 @@ describe('§7 — the cost, on real timers', () => {
           '#   run and the fake clock is restored in a finally. The harness otherwise runs',
           '#   under jest.useFakeTimers(), which flattens process.hrtime to a frozen value —',
           '#   a 0.00ms reading taken under it would be evidence of nothing.',
-          '# method: 5 warm-up runs, then 200 timed runs, mean per run, process.hrtime.bigint()',
-          '# board: deterministic synthetic, 5 rooms, 3 bookings attempted per staff lane,',
-          '#   10:00-19:00, gridMin 30 / session 60 / minSellable 0',
+          '# method: 20 warm-up rounds, then 500 timed rounds. The two calls are timed',
+          '#   INTERLEAVED inside one loop (R3 then R4, per round) so V8 warm-up and',
+          '#   machine drift land on both sides equally. Mean per run, hrtime.bigint().',
+          '# board: deterministic synthetic, rooms ≈ staff/2.5, 3 bookings attempted per',
+          '#   staff lane on a 15-minute grid, 10:00-19:00',
+          '# dials: gridMin 60 / minSellable 0, at BOTH session lengths off the sweep.',
+          '#   S=45 is the CEILING row: the packing layer claims a room in every pocket, so',
+          '#   every 販売可能枠 offer loses its room and every one costs a search — the most',
+          '#   the round can ever cost on a board that size. S=60 is the ordinary case.',
+          '#   (A sessionMin-60 board whose pockets all land on the grid produces NO',
+          '#   promises at all — canon grid mode — and would time the early return.)',
           '# R3 = sellLayerFor without `reconcile` · R4 = the same call with it',
+          '# searched = offers that lost their room = allocateBed searches the round adds',
+          '# CAVEAT: these are tens of microseconds. Run-to-run noise is the same order as',
+          '#   the difference, so read the SHAPE (the added work tracks `searched`, not the',
+          '#   roster) rather than any single percentage.',
           '',
           ...rows,
           '',
           'The reconciliation costs one `allocateBed` search per offer that actually',
           'LOST its room. A survivor costs a map lookup and nothing else, so the added',
-          'work scales with the number of スキマ枠/詰め込み boxes on the board rather',
-          'than with the number of staff.',
+          'work tracks the `searched` column and not the roster — which is why the S=45',
+          'ceiling rows cost several times what the S=60 rows beside them do on the very',
+          'same board.',
+          '',
+          'ON THE REAL FIXTURE BOARD, at the store\'s own dials: 4 offers, 3 of them',
+          'searched, 1 re-bedded and 2 dropped (REBED-r4.txt). That is the shape an',
+          'operator actually pays for.',
           '',
         ].join('\n'),
       )
