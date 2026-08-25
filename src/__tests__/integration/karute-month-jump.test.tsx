@@ -195,6 +195,23 @@ describe('the month chip', () => {
       'true',
     )
   })
+
+  it('paints the selected month with the R13 accent TOKENS, not literal blues', () => {
+    // CLAUDE.md design law + accent-tier-contract's selected-row recipe
+    // (Greptile PR #784 P2): a selected option is bg-primary/8 + text-primary,
+    // so it follows the configured theme in both modes. Literal bg-blue-50
+    // drifts — StaffSelector still carries it only because it predates the
+    // retint.
+    renderList()
+    openPanel()
+    const selected = screen.getByRole('option', { name: CURRENT_MONTH_LABEL })
+    expect(selected.className).toContain('bg-primary/8')
+    expect(selected.className).toContain('text-primary')
+    expect(selected.className).not.toContain('bg-blue-50')
+    // Never a solid accent fill on a selected STATE — that is reserved for the
+    // commit action.
+    expect(selected.className).not.toMatch(/(^|\s)bg-primary(\s|$)/)
+  })
 })
 
 describe('picking a month', () => {

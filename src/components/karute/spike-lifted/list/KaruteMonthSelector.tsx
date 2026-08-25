@@ -251,8 +251,15 @@ export function KaruteMonthSelector({
                   onClick={() => pick(month)}
                   className={cn(
                     'flex min-h-[44px] w-full items-center gap-2 px-3 py-2 text-left text-[13px] tabular-nums transition-colors',
+                    // R13 selected-state recipe (CLAUDE.md), not StaffSelector's
+                    // literal bg-blue-50 — that sibling predates the retint. The
+                    // accent TOKENS follow the configured theme and carry their
+                    // own dark values, and /8 is the ratio that clears AA for
+                    // text-primary on the wash. Pinned in
+                    // karute-month-jump.test.tsx (that suite already carries the
+                    // useLocale mock this panel needs).
                     isActive
-                      ? 'bg-blue-50 font-semibold text-blue-800 dark:bg-blue-500/10 dark:text-blue-200'
+                      ? 'bg-primary/8 font-semibold text-primary'
                       : 'text-foreground active:bg-black/[0.03] dark:active:bg-white/[0.04]',
                   )}
                 >
