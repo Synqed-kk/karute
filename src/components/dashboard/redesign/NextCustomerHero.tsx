@@ -233,7 +233,7 @@ export function NextCustomerHero({ slides, tomorrow, doneCount }: NextCustomerHe
           {slides.map((s, i) => (
             <span
               key={s.appointmentId}
-              className={`h-1.5 rounded-full transition-all ${
+              className={`h-1.5 rounded-full transition-[width,background-color] duration-(--duration-base) ease-(--ease-out) ${
                 i === index ? 'w-4 bg-foreground/50' : 'w-1.5 bg-muted-foreground/30'
               }`}
             />

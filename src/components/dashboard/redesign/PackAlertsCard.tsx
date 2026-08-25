@@ -62,8 +62,15 @@ function CountUpYen({ value, className }: { value: number; className?: string })
       if (pulseTimer) clearTimeout(pulseTimer)
     }
   }, [value])
+  // The span inherits the at-risk line's red (回収リスク — bad news). The
+  // grow-tick darkens (light: 700) / brightens (dark: 300) within that same
+  // warning family for 1200ms — never a success color, a growing at-risk
+  // figure is bad news. Opacity blink dropped because it read as an
+  // error/loading state.
   return (
-    <span className={`${className ?? ''} ${pulse ? 'animate-pulse' : ''} tabular-nums`}>
+    <span
+      className={`${className ?? ''} ${pulse ? 'text-red-700 dark:text-red-300' : ''} tabular-nums transition-colors duration-(--duration-base) ease-(--ease-out)`}
+    >
       {yen(shown)}
     </span>
   )

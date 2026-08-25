@@ -65,7 +65,7 @@ export default function RootLayout({
         <ThemeProvider>
           {children}
         </ThemeProvider>
-        <Toaster />
+        <Toaster position="bottom-center" mobileOffset={{ bottom: 88 }} />
         {/* perf(debug) — flag-gated cold-start overlay, see ColdStartOverlay.
             Separate from the splash handshake below; does not touch it. */}
         <ColdStartOverlay />
