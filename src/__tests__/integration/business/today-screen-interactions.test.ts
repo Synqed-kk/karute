@@ -1390,6 +1390,41 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     expect(bedDoor(atRest, board, null)!(board[0], 600, 60)).toBe(false)
   })
 
+  /** ⚖ R3-DEBT (d), ANSWERED — AND THE ANSWER IS NOT THE ONE R2 EXPECTED.
+   *
+   *  R2 pinned `worldMinusHand` as a WHOLE-ANSWER NO-OP for a Subject and wrote
+   *  down that R3's rewire would make the lift load-bearing on the live-drag
+   *  path. It did not, and this is the measurement rather than the guess: a
+   *  mutant that answers the hand out of the UNLIFTED world (`const truth =
+   *  views.world`) survives the whole battery, because `allocateBed` already
+   *  performs both of the lift's exclusions itself — the card's own drawing and
+   *  its own trailing `-cleanup` — for any question carrying that id.
+   *
+   *  So the lift is kept for what it makes UNSAYABLE, not for what it changes.
+   *  `worldMinusHand` is the only door to a world with a card taken out of it,
+   *  it exists only while a hand is holding one, and the book refuses to answer
+   *  a Subject question about anybody else out of it. That is the structural
+   *  guarantee this round is built on, and this pin is where the equivalence is
+   *  stated out loud instead of being an unpinned survivor in a mutation run. */
+  it('the lift is a whole-answer no-op for the hand — kept for what it forbids, not what it changes', () => {
+    const board = shotBoard()
+    const views = bedViewsFor(board, POLICY, FRAME, 'staged')
+    const lifted = bedDoor(views, board, 'staged')!
+    const unlifted = bedDoor({ ...views, worldMinusHand: null }, board, 'staged')!
+    let asked = 0
+    for (const l of board.filter((x) => x.group === 'staff')) {
+      for (let start = HOURS.open; start + 60 <= HOURS.close; start += 5) {
+        asked += 1
+        expect([l.key, start, lifted(l, start, 60)]).toEqual([l.key, start, unlifted(l, start, 60)])
+      }
+    }
+    expect(asked).toBe(2 * ((HOURS.close - HOURS.open - 60) / 5 + 1))
+    // …and the world it CANNOT be talked into: asked about anybody but the hand,
+    // the lifted book refuses rather than lifting a second card.
+    expect(() => views.worldMinusHand!.bedFor(600, 660, { id: 'other', currentBed: null, vip: false, stores: ['store-a'] }))
+      .toThrow(/would lift a second card/)
+  })
+
   it('an empty id is NOBODY, and a store with no rooms has no door at all', () => {
     const board = shotBoard()
     const views = bedViewsFor(board, POLICY, FRAME, null)
