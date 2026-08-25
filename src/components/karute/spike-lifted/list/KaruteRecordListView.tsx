@@ -23,7 +23,7 @@
 
 import { Button } from '@/components/ui/button'
 import { FilePlus2 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 import { useLocale, useTranslations } from 'next-intl'
 import { useSearchParams } from 'next/navigation'
@@ -37,10 +37,12 @@ import {
 import { SegmentedFilterBar } from '@/components/customers/redesign/list/SegmentedFilterBar'
 
 import { KaruteListRow, NoKaruteRevealRow, type NoKaruteCandidate } from './KaruteListRow'
+import { KaruteMonthSelector, shiftMonth } from './KaruteMonthSelector'
 import { NewKaruteDialog } from './NewKaruteDialog'
 import type { KaruteListFilter, KaruteListItem } from './types'
 import { loadKaruteWindow, revealNoKaruteCustomer } from '@/actions/karute'
-import { karuteHasMore } from '@/lib/karute/karute-window'
+import { KARUTE_SESSION_DATE_EPOCH, karuteHasMore } from '@/lib/karute/karute-window'
+import { ymdInJst } from '@/lib/date/jst'
 
 interface Props {
   items: KaruteListItem[]
@@ -65,6 +67,12 @@ interface Props {
    *  store total is unknown — otherwise the view derives the identical
    *  formula client-side (karuteHasMore), so the two can never disagree. */
   initialHasMore?: boolean
+  /** The store lens these rows were loaded under. A CHANGE resets every
+   *  client-held row cache, DURING RENDER — see the store-switch block. Web
+   *  only in practice: the phone shell's setActiveStore does a
+   *  window.location.reload() (thin/ports/actions.vite.ts), so nothing survives
+   *  there to go stale, and thin never passes this. */
+  storeId?: string | null
   /** Staff list for the "your customers / all customers" filter. */
   staffList?: StaffFilterEntry[]
   /** The viewer's staff id — drives the "Me" filter pill. Null when
@@ -104,6 +112,7 @@ export function KaruteRecordListView({
   total = null,
   initialWindowStart = null,
   initialHasMore = false,
+  storeId = null,
   staffList = [],
   currentStaffId = null,
   customerOptions = [],
@@ -149,6 +158,11 @@ export function KaruteRecordListView({
   // the aria-live region below carries the loaded-count string alone.
   const [loadError, setLoadError] = useState(false)
   const [announcement, setAnnouncement] = useState('')
+  // Search-reveal (PR-1b) state — the fetch itself lives further down with its
+  // debounce; the declarations sit up here with the rest of the store-scoped
+  // state so the store-switch reset can reach them.
+  const [revealCandidate, setRevealCandidate] = useState<NoKaruteCandidate | null>(null)
+  const revealRequestId = useRef(0)
   // The loaded boundary persists as ?since=YYYY-MM-DD. Set ON TAP (via this
   // state, written by the URL effect below in the same commit) — never
   // debounced, so the input-sync request-id traps don't apply here.
@@ -254,30 +268,45 @@ export function KaruteRecordListView({
   // instead of re-applying its stale boundary and rows over the rewound state.
   // Bounded to one purge per refresh, because only a changed `total` PROP
   // re-runs this.
+  /**
+   * Drop the client-held chunk cache and re-seed the ?since re-walk from the
+   * server's fresh first window. Shared by the deleted-row purge below and the
+   * store switch further down — both mean "every row this component is holding
+   * has stopped being the truth", and both need the SAME rewind.
+   */
+  function rewindToFirstWindow() {
+    // Invalidate anything in flight BEFORE rewinding, so a response that
+    // resolves a tick later can't undo the setters that follow.
+    fetchGen.current += 1
+    setAppended([])
+    setWindowStart(initialWindowStart)
+    // Back to the SERVER's own flag for the first window. Both callers want it:
+    // the purge is re-seeding from fresh props, and a store switch's flag
+    // described the previous store. Only used while storeTotal is unknown, but
+    // that is exactly the degraded case where a stale value would be trusted.
+    setServerHasMore(initialHasMore)
+    // KEEP THE DEEPEST GOAL (Greptile PR #779 P1, round 8). `sinceParam` is
+    // NOT a stable record of how deep the viewer got: every landed window
+    // writes it, so DURING a re-walk it holds an INTERMEDIATE, shallower
+    // boundary. Seeding a second purge from it plainly would hand the new
+    // walk that intermediate target — the walk would stop there and the
+    // viewer's deeper windows would silently stay gone until they tapped
+    // again. So the goal only ever gets DEEPER: min of the goal in flight and
+    // the live boundary (YYYY-MM-DD sorts lexicographically; smaller = older
+    // = deeper). A null `cand` must not null a goal in flight either — that
+    // is the popstate-to-a-remembered-?since case, where a re-walk is running
+    // with nothing yet committed to `sinceParam`.
+    setRestoreTarget((prev) => {
+      const cand = sinceParam
+      if (!cand) return prev
+      if (!prev) return cand
+      return prev < cand ? prev : cand
+    })
+  }
+
   useEffect(() => {
     if (total !== null && storeTotal !== null && total < storeTotal) {
-      // Invalidate anything in flight BEFORE rewinding, so a response that
-      // resolves a tick later can't undo the three setters that follow.
-      fetchGen.current += 1
-      setAppended([])
-      setWindowStart(initialWindowStart)
-      // KEEP THE DEEPEST GOAL (Greptile PR #779 P1, round 8). `sinceParam` is
-      // NOT a stable record of how deep the viewer got: every landed window
-      // writes it, so DURING a re-walk it holds an INTERMEDIATE, shallower
-      // boundary. Seeding a second purge from it plainly would hand the new
-      // walk that intermediate target — the walk would stop there and the
-      // viewer's deeper windows would silently stay gone until they tapped
-      // again. So the goal only ever gets DEEPER: min of the goal in flight and
-      // the live boundary (YYYY-MM-DD sorts lexicographically; smaller = older
-      // = deeper). A null `cand` must not null a goal in flight either — that
-      // is the popstate-to-a-remembered-?since case, where a re-walk is running
-      // with nothing yet committed to `sinceParam`.
-      setRestoreTarget((prev) => {
-        const cand = sinceParam
-        if (!cand) return prev
-        if (!prev) return cand
-        return prev < cand ? prev : cand
-      })
+      rewindToFirstWindow()
     }
     setStoreTotal(total)
     // `total` is the only trigger. storeTotal, sinceParam and
@@ -400,14 +429,290 @@ export function KaruteRecordListView({
     return () => window.removeEventListener('popstate', onPop)
   }, [])
 
+  // 月ジャンプ (PR-2b). A picked month SWAPS the list rather than appending to
+  // it, so its rows live in their own state: exiting a month restores the
+  // accumulated default walk instantly, with no refetch and nothing lost.
+  const [activeMonth, setActiveMonth] = useState<string | null>(null)
+  const [monthItems, setMonthItems] = useState<KaruteListItem[] | null>(null)
+  const [monthLoading, setMonthLoading] = useState(false)
+  const [monthError, setMonthError] = useState(false)
+  // Same generation guard as fetchOlder's: a month fetch still in flight when
+  // the user picks a different month (or leaves month view) describes a state
+  // that no longer exists, so its whole response is dropped.
+  const monthGen = useRef(0)
+  const monthMode = activeMonth !== null
+
+  // The JST calendar month containing today — the top of the picker and the
+  // chip's label while nothing is picked. JST-explicit for the same reason
+  // every other date in this file is (PR-2a fix round 5): a UTC server or a
+  // traveller's browser must not name a different month than the business is
+  // actually in.
+  const currentMonth = useMemo(() => ymdInJst().slice(0, 7), [])
+  // How far back the picker may offer. The session-date epoch is the floor the
+  // app can reason about unaided; anything OLDER is offered only once rows from
+  // it are actually on screen (the さらに表示 walk, or its one-time legacy
+  // sweep) — so every month in the list is either inside the reasoned range or
+  // provably has karute behind it. Monotonic within the session: a ref, not a
+  // plain derivation, because the deleted-row purge above REWINDS `appended` to
+  // the first window — a derived floor would snap forward with it and yank
+  // months out of an open picker. Render-time write, same posture as
+  // lastGoodItems above.
+  const monthFloorRef = useRef(KARUTE_SESSION_DATE_EPOCH.slice(0, 7))
+  const oldestLoadedMonth = allItems.length
+    ? allItems[allItems.length - 1].date.slice(0, 7)
+    : null
+  if (oldestLoadedMonth && oldestLoadedMonth < monthFloorRef.current) {
+    monthFloorRef.current = oldestLoadedMonth
+  }
+  const monthFloor = monthFloorRef.current
+
+  /** Leave month view — the accumulated default window is still in state, so
+   *  this is a pure swap back with no fetch. */
+  function exitMonth() {
+    monthGen.current += 1
+    setActiveMonth(null)
+    setMonthItems(null)
+    setMonthLoading(false)
+    setMonthError(false)
+  }
+
+  // STORE SWITCH — every row this component holds belongs to the store that was
+  // active when it loaded. The switcher runs setActiveStore() then
+  // router.refresh() (StoreSwitcher.tsx), and a refresh is a SERVER RE-RENDER,
+  // not a navigation: React reconciles this same element in place instead of
+  // remounting it, so the old store's month rows AND appended chunks otherwise
+  // stay on screen under the new store's header and totals. Not an isolation
+  // leak — the switcher only offers stores the viewer is allowed to see — but
+  // the wrong store's karute all the same.
+  //
+  // exitMonth() first: its monthGen bump is what makes a month read already in
+  // flight land into nothing rather than paint the old store's rows over the
+  // new store's list.
+  //
+  // Web-only in practice, by construction: the phone shell's setActiveStore
+  // does a window.location.reload() (thin/ports/actions.vite.ts), which
+  // remounts everything, and thin never passes this prop.
+  //
+  // DURING RENDER, not in an effect (Greptile PR #784, round 2). An effect runs
+  // AFTER paint, so the render that first carries the new store's props would
+  // COMMIT with the previous store's month rows and appended chunks still on
+  // screen — a visible frame of the wrong store's karute before the reset
+  // caught up. Setting state while rendering makes React discard this render
+  // and re-run the component with the reset values BEFORE anything is painted,
+  // which is exactly React's documented "adjusting state when a prop changes"
+  // recipe.
+  //
+  // `prevStoreId` is STATE, not a ref, for the same reason: a ref written
+  // during render survives a discarded render attempt while the state reset
+  // would not, so the two could disagree and the rewind be silently skipped.
+  //
+  // Guarded on a REAL change, never the mount: rewindToFirstWindow bumps
+  // fetchGen, and the ?since restore effect above has already fired its first
+  // fetchOlder by mount time — an unconditional run would supersede that
+  // in-flight window, the walk would never advance, and the restore would
+  // refire the same request forever (caught by karute-chunk-load's restore
+  // tests).
+  //
+  // CEILING: the two generation counters are refs, so they are bumped during
+  // render too. If React ever discards this render attempt, those bumps stick
+  // while the state reset does not — the cost is an in-flight window dropped
+  // that need not have been, which the next tap or the restore walk re-fetches.
+  // A conservative failure, never a wrong list.
+  const [prevStoreId, setPrevStoreId] = useState(storeId)
+  if (storeId !== prevStoreId) {
+    setPrevStoreId(storeId)
+    exitMonth()
+    rewindToFirstWindow()
+
+    // CONTEXT-ONLY resets. These belong HERE and deliberately NOT in the shared
+    // rewind, because the two callers mean different things: a purge is a DATA
+    // refresh (rows moved under the SAME lens), a store switch is a CONTEXT
+    // change (a different location, a different roster, different numbers).
+    //
+    // The staff roster is per-store (#496 clamps the 担当 picker to the active
+    // store), so a staffFilter pinned to store A's stylist matches nobody in
+    // store B and silently renders an empty list. It must equally SURVIVE a
+    // purge, where the viewer's chosen lens is still perfectly valid — which is
+    // why this line cannot move into rewindToFirstWindow().
+    setStaffFilter('all')
+    // The header numbers describe the STORE. Without this, a committed frame
+    // shows store A's 全件 above store B's rows, and hasMore rides that stale
+    // total long enough for さらに表示 to flash in and out.
+    setStoreTotal(total)
+    // Store A's retry line, its last announcement, and its reveal row (which
+    // NAMES a store A customer) all stop being true at the switch. The request
+    // id bump lands an in-flight reveal into nothing, same as the two
+    // generation counters above.
+    setLoadError(false)
+    setAnnouncement('')
+    revealRequestId.current += 1
+    setRevealCandidate(null)
+    // HISTORY DEPTH is per-store too (Greptile #784, final round). These MUST
+    // land after rewindToFirstWindow() — it re-seeds restoreTarget with the
+    // deepest goal, which is right for a purge and wrong here. "I had scrolled
+    // back to January" is a reading position in store A; carrying it over
+    // makes store B silently walk itself back through months of history the
+    // viewer never asked to see, one fetch per window. Store B starts at its
+    // own first window, with さらに表示 right there.
+    //
+    // Same reason this cannot move into the shared rewind: a purge is the SAME
+    // store re-reading itself, and dropping the goal there would leave the
+    // viewer shallower than they left off (PR-2a round 8 fixed exactly that).
+    setSinceParam(null)
+    setRestoreTarget(null)
+    // The picker's floor is store A's deepest loaded month, and it only ever
+    // extends BACKWARD by design — so without this it keeps stretching store
+    // B's picker on the strength of rows store B never had, offering months
+    // that break the very invariant stated where the floor is computed ("every
+    // month in the list is either inside the reasoned range or provably has
+    // karute behind it"). Back to the epoch; store B's own rows re-deepen it.
+    monthFloorRef.current = KARUTE_SESSION_DATE_EPOCH.slice(0, 7)
+    // The degraded latch still holds store A's rows. It only matters when store
+    // B's very first render is ALSO degraded — without this, that failure would
+    // resurrect the previous store's list instead of showing the honest
+    // degraded-empty state.
+    //
+    // ORDERING, and why these two ref writes are safe DOWN HERE even though
+    // `baseItems` and `monthFloor` were both computed from them further up:
+    // this render pass is about to be THROWN AWAY. `setPrevStoreId` above is a
+    // state update during render, so React discards this attempt and re-runs
+    // the component from the top, where those derivations read the values just
+    // written. Nothing downstream of this point in THIS pass reaches the DOM.
+    // A reader hoisting these writes above their derivations would not be
+    // making an equivalent change — they would be making the reset depend on
+    // statement order instead of on the discard-and-rerun, and the next edit
+    // that moves a derivation would silently break it.
+    lastGoodItems.current = items
+  }
+
+  async function pickMonth(month: string) {
+    // Picking the CURRENT month is how you come back (⛔ no 「今月に戻る」
+    // button — a v1 invention the mock lacks). The default view already IS this
+    // month's newest rows plus さらに表示; re-fetching it as a month would
+    // strip the counts and the button off a screen the user thinks they just
+    // returned to.
+    if (month === currentMonth) {
+      exitMonth()
+      return
+    }
+    const gen = ++monthGen.current
+    setActiveMonth(month)
+    setMonthItems(null)
+    setMonthLoading(true)
+    setMonthError(false)
+    // The month IS the date lens now. すべて/今週 are date lenses too, and
+    // 今週 inside a past month is empty by definition — arriving at a blank
+    // screen that has rows behind it is exactly the lie the honest-header work
+    // set out to kill. The packet already makes the two mutually exclusive in
+    // the other direction (any pill tap leaves month view), so resetting here
+    // closes the model.
+    setFilter('all')
+    try {
+      // FETCH AXIS ≠ DISPLAY AXIS. The engine's month mode filters
+      // **created_at** — core offers no session_date filter, proven in PR-2a —
+      // while this list DISPLAYS `session_date ?? created_at`. So a karute
+      // written Aug 3 for a July 28 session is FETCHED by the August window but
+      // BELONGS in the July view, and one written July 30 for an Aug 2 session
+      // is the mirror image. A bare month fetch misses the first and shows the
+      // second. The standing "leave it" ruling covers the さらに表示 button,
+      // where the axes only shift a boundary label; an explicit month PICK is a
+      // claim about a specific month and has to be true.
+      //
+      // So: fetch the picked month's created-window WIDENED by ±1 month, then
+      // keep only the rows whose DISPLAY date lands in the picked month. 表示中
+      // counts what survives, so the header agrees with the list.
+      //
+      // COST, honestly: this is three calls to loadKaruteWindow, and EACH one
+      // re-runs the whole screen fan-out — staff roster, the full customer list
+      // (会員番号 is assigned by position over it), the synqed staff roster —
+      // on top of its own window read. One month pick therefore costs roughly
+      // 3× a full screen read, not "one read over three windows". Accepted
+      // because a month pick is a deliberate, occasional act rather than a
+      // scroll, and because the alternative was a second divergent projection
+      // path. QUEUE: a leaner month read — one widened from/to inside the
+      // engine plus a SINGLE fan-out — would bring this back to ~1× and is the
+      // obvious follow-up if 月ジャンプ proves to be a hot path in the field.
+      //
+      // CEILING: a row backdated by MORE than one month still surfaces only
+      // through the default walk, deliberately. No width is provably enough
+      // while core cannot filter on session_date, and each extra month costs
+      // another full fan-out; the real fix is that core filter, not a wider net
+      // here.
+      const chunks = await Promise.all(
+        [-1, 0, 1].map((offset) => loadKaruteWindow({ month: shiftMonth(month, offset) })),
+      )
+      if (gen !== monthGen.current) return
+      const seen = new Set<string>()
+      const rows: KaruteListItem[] = []
+      for (const chunk of chunks) {
+        // Any leg failing means an INCOMPLETE month. Reported as a failure —
+        // never served as a short list that would read as the truth.
+        if ('error' in chunk) {
+          setMonthError(true)
+          setMonthItems([])
+          return
+        }
+        for (const row of chunk.items) {
+          if (row.date.slice(0, 7) !== month) continue
+          if (seen.has(row.id)) continue
+          seen.add(row.id)
+          rows.push(row)
+        }
+      }
+      // Same in-app sort the accumulated set gets — server order is untrusted,
+      // and these rows arrive in three separate created-windows.
+      rows.sort((a, b) => b.date.localeCompare(a.date))
+      setMonthItems(rows)
+      // Focus is back on the chip (whose label now names the month), so the
+      // swap is silent for a screen reader unless it is spoken. Same string the
+      // append uses — a swap really did load N karute.
+      setAnnouncement(t('addedCount', { n: rows.length }))
+    } catch {
+      // Same both-shapes recovery as fetchOlder: the web action can THROW on an
+      // RPC network failure instead of resolving to { error }.
+      if (gen !== monthGen.current) return
+      setMonthError(true)
+      setMonthItems([])
+    } finally {
+      if (gen === monthGen.current) setMonthLoading(false)
+    }
+  }
+
+  /** Any count-pill tap LEAVES month view, carrying that filter into the
+   *  default window (packet §PR-2b). Tapping the already-active pill still
+   *  leaves — the tap's meaning is "show me this across the whole list". */
+  function pickFilter(key: KaruteListFilter) {
+    if (monthMode) exitMonth()
+    setFilter(key)
+  }
+
+  // Content-swap scroll reset (AuditLogSection's idiom): entering or leaving a
+  // month REPLACES the list, and a viewer scrolled deep into August would
+  // otherwise land past the bottom of a short July — a blank screen whose taps
+  // hit nothing. Deliberately NOT wired to appends (see fetchOlder). The first
+  // run is skipped so a back-navigation's restored scroll position survives
+  // mount.
+  const rootRef = useRef<HTMLElement>(null)
+  const monthSwapped = useRef(false)
+  useLayoutEffect(() => {
+    if (!monthSwapped.current) {
+      monthSwapped.current = true
+      return
+    }
+    for (let el = rootRef.current?.parentElement ?? null; el; el = el.parentElement) {
+      el.scrollTop = 0
+    }
+  }, [activeMonth])
+
   // Search-reveal (PR-1b 検索リビール): a customer matching the search term
   // who has no karute yet. EXACTLY ONE row, query stays LOCAL (no URL) —
   // debounced server action (web) / facade call (thin), never a client-side
   // filter over `items` (those customers were never in `items` to begin
   // with — they have no karute record). A monotonic request id discards a
   // stale response that resolves after a newer query already superseded it.
-  const [revealCandidate, setRevealCandidate] = useState<NoKaruteCandidate | null>(null)
-  const revealRequestId = useRef(0)
+  // (state + request id declared with the other list state above, so the
+  // store-switch reset can clear them — a reveal row names a customer of the
+  // store that was active when it was fetched.)
   const fetchReveal = useDebouncedCallback(async (q: string) => {
     const myRequestId = ++revealRequestId.current
     const result = await revealNoKaruteCustomer(q)
@@ -446,8 +751,18 @@ export function KaruteRecordListView({
     } satisfies Record<KaruteListFilter, number>
   }, [allItems])
 
+  // Month view SWAPS the row set (PR-2b). The staff scope and the search box
+  // still apply INSIDE a month — they answer "whose" and "which words", not
+  // "which dates", so a month lens never contradicts them. The count-pill
+  // filter is always 'all' in here: pickMonth resets it, and any pill tap
+  // leaves.
+  const displayItems = useMemo(
+    () => (monthMode ? (monthItems ?? []) : allItems),
+    [monthMode, monthItems, allItems],
+  )
+
   const filtered = useMemo(() => {
-    let result = allItems
+    let result = displayItems
 
     // Staff scope: 'all' shows every record; 'self' filters to the
     // current viewer's records only; a specific id filters to that
@@ -482,7 +797,7 @@ export function KaruteRecordListView({
       })
     }
     return result
-  }, [allItems, filter, searchQuery, staffFilter, currentStaffId])
+  }, [displayItems, filter, searchQuery, staffFilter, currentStaffId])
 
   // Same date-bucketing as before, now over the FULL accumulated row set —
   // the in-memory pager (and its `p` URL param) is gone; さらに表示 is the
@@ -543,7 +858,7 @@ export function KaruteRecordListView({
     // padding now (system rule). The sticky title bar inside uses
     // `-mx-4 md:-mx-6` to bleed back to viewport edges for the iOS
     // sticky-header pattern (its bg + border line span full-width).
-    <main className="mx-auto w-full max-w-6xl flex-col px-4 pb-6 md:px-6">
+    <main ref={rootRef} className="mx-auto w-full max-w-6xl flex-col px-4 pb-6 md:px-6">
       {/* Title row — h1 visible on desktop only (MobileHeader
        *  handles the mobile title to avoid the duplicate
        *  "カルテ" rendering at top + below). Stats + primary CTA
@@ -669,15 +984,32 @@ export function KaruteRecordListView({
        *  顧客 list status filter (one design language across list screens).
        *  flex wrapper so md:w-auto shrinks the bar to content on desktop —
        *  in a plain block it would stretch the full ~1100px content width. */}
-      <div className="flex pt-3">
+      {/* 月ジャンプ (PR-2b) rides in THIS row — 「月ジャンプは新しい行を増や
+       *  さず、既存のフィルター行に追加」 (mock, 決定済み). flex-wrap is the
+       *  narrow-width backstop: the segmented bar is full-width below md, so
+       *  the chip drops to a second line rather than squeezing 「AI補完待ち」
+       *  into an ellipsis. No overflow container here on purpose — one would
+       *  clip the chip's anchored panel. */}
+      <div className="flex flex-wrap items-center gap-2 pt-3">
         <SegmentedFilterBar
           segments={FILTER_KEYS.map((key) => ({
             key,
             label: t(`filters.${key}`),
-            count: counts[key],
+            // LABELS ONLY while a month is picked: these counts are computed
+            // over the rows on screen, which in month view is that month
+            // alone — 今週 would read 0 inside any past month and すべて would
+            // disagree with the 全件 in the header. Dropped, never guessed.
+            count: monthMode ? null : counts[key],
           }))}
           active={filter}
-          onChange={setFilter}
+          onChange={pickFilter}
+        />
+        <KaruteMonthSelector
+          currentMonth={currentMonth}
+          oldestMonth={monthFloor}
+          selected={activeMonth}
+          onSelect={(month) => void pickMonth(month)}
+          busy={monthLoading}
         />
       </div>
 
@@ -685,7 +1017,20 @@ export function KaruteRecordListView({
        *  horizontal padding so the rounded card has breathing room from
        *  the screen edges, matching the design spike. */}
       <div className="mt-4 overflow-hidden rounded-2xl border border-border/60 bg-card">
-        {grouped.length === 0 && !revealCandidate ? (
+        {/* A month's rows are still coming: say so. The 「カルテはまだ
+         *  ありません」 empty state below would name that month as EMPTY while
+         *  its rows are in flight — a load reported as a fact. */}
+        {monthMode && monthItems === null ? (
+          <div className="px-6 py-12 text-center">
+            <p className="text-sm text-muted-foreground">{tCommon('loading')}</p>
+          </div>
+        ) : monthMode && monthError ? (
+          <div className="px-6 py-12 text-center">
+            <p role="alert" className="text-sm text-muted-foreground">
+              {t('loadMoreFailed')}
+            </p>
+          </div>
+        ) : grouped.length === 0 && !revealCandidate ? (
           <div className="px-6 py-12 text-center">
             <p className="text-sm font-medium text-foreground">{t('empty')}</p>
           </div>
@@ -738,7 +1083,10 @@ export function KaruteRecordListView({
        *  filtered 表示中 count, so a narrow filter never masquerades as the
        *  end of the store's history. The label names the boundary the next
        *  chunk starts from. */}
-      {hasMore && windowStart && (
+      {/* HIDDEN in month view (PR-2b): a month is fetched whole, so there is
+       *  nothing older to walk to — the button would offer history it cannot
+       *  reach from here. Come back via the chip's current month. */}
+      {!monthMode && hasMore && windowStart && (
         <div className="flex flex-col items-center gap-1 pt-3">
           {/* NO native `disabled` (fix round 2): the browser BLURS a focused
            *  element the instant it becomes disabled, so the tapped button lost
