@@ -38,11 +38,10 @@ jest.mock('@/actions/recordings', () => ({
 }))
 /** P5-A: every deliberate discard now passes the written-reason gate first,
  *  and the cleanup only runs once that gate reports success. */
-const mockDiscardWithReason = jest.fn(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- the arg is
-  // what the wiring assertions read off mock.calls
-  async (_input: unknown) => ({ ok: true, receiptId: 'row-1', duplicate: false }) as const,
-)
+const mockDiscardWithReason = jest.fn(async (input: unknown) => {
+  void input // the mock is input-agnostic; the ARG is what the wiring asserts on
+  return { ok: true, receiptId: 'row-1', duplicate: false } as const
+})
 jest.mock('@/actions/recording-discard', () => ({
   discardRecordingWithReason: (input: unknown) => mockDiscardWithReason(input),
 }))
