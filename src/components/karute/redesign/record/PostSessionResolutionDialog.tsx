@@ -187,9 +187,10 @@ export function PostSessionResolutionDialog({
       className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${closing ? 'pointer-events-none' : ''}`}
       role="dialog"
       aria-modal="true"
-      // inert (not just pointer-events-none): a hardware-keyboard Enter can
-      // still fire the save button while closing — inert kills focus and
-      // keyboard events for the whole subtree too.
+      // inert removes the subtree from focus, keyboard, and the
+      // accessibility tree on WebKit 15.5+/modern engines; on iOS 15.0–15.4
+      // it is a silent no-op, which is why the save button also hard-disables
+      // while closing (see its disabled expression below).
       inert={closing || undefined}
     >
       <button
@@ -210,7 +211,11 @@ export function PostSessionResolutionDialog({
             : 'animate-in fade-in-0 zoom-in-[0.95] duration-200 ease-(--ease-out)'
         }`}
         onAnimationEnd={(e) => {
-          if (e.target === e.currentTarget && !open) setRender(false)
+          // The entrance animation is named `enter`; only `exit` ending
+          // should tear the card down — an `enter` end landing on the exact
+          // frame the user closes would otherwise skip the exit animation
+          // entirely (tw-animate-css names its keyframes enter/exit).
+          if (e.target === e.currentTarget && e.animationName === 'exit' && !open) setRender(false)
         }}
       >
         <header className="mb-1 flex items-start justify-between gap-3">
@@ -521,6 +526,12 @@ export function PostSessionResolutionDialog({
           <button
             type="button"
             disabled={
+              // While the dialog is closing (deferred unmount), the button
+              // must be inoperable for every input modality —
+              // pointer-events-none misses hardware-keyboard Enter, and
+              // inert is a no-op on iOS 15.0–15.4 WKWebView; this covers
+              // both the post-save and the cancel-then-Enter windows.
+              closing ||
               effectiveStatus === null ||
               saving ||
               // 成約 with the pack panel open requires a valid size+price (or

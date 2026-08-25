@@ -581,10 +581,11 @@ export function RecordPageView({
   // walk-in NULL case, and pack creation has no dedupe of its own). The REF is
   // the real guard — the synchronous re-entry check (state reads stale
   // mid-tick, same reason usingRecording below is a ref). The state feeds the
-  // dialog's `saving` prop as belt-and-braces for a future edit that changes
-  // the close timing — TODAY it is NOT visibly observable at this call site:
-  // onResolve closes the dialog (setOutcomeOpen(false)) in the same batch it
-  // sets both, so the dialog never actually renders with saving=true here.
+  // dialog's `saving` prop as belt-and-braces — that future edit has arrived
+  // (B3/B4 deferred-unmount exit): the dialog keeps rendering with
+  // saving=true through the ~200ms closing window after onResolve calls
+  // setOutcomeOpen(false), so the resolvingOutcome/saving belt is now live
+  // and load-bearing, not just insurance.
   // Reset on the dialog's OPEN transition too (openOutcomeDialog below), not
   // just in onResolve's finally — a hung take's write must not pre-lock the
   // NEXT take's dialog as 保存中 (F2, PR-0 fix round).
@@ -2615,6 +2616,11 @@ export function RecordPageView({
           burned so it states 消化済み instead of offering a second one (D4). */}
       {outcomeFlow && (
         <PostSessionResolutionDialog
+          // `open` is deliberately a constant here — close is a same-commit
+          // unmount (the `{outcomeFlow && ...}` guard above), not a toggle.
+          // This mount must NOT be given the animated closing window without
+          // also adding a resolve re-entry guard: its safety proof is
+          // exactly the synchronous latch + instant unmount pairing.
           open
           customerName={outcomeFlow.dest.customerName}
           isFirstVisit={false}

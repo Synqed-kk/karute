@@ -12,7 +12,8 @@ interface RecordButtonCardProps {
   onStop: () => void
   /** 0-1 normalized waveform bars (already smoothed). Length sets bar count. */
   waveform?: number[]
-  /** Consent gate (idle button). A blocked tap must visibly acknowledge, not dead-tap. */
+  /** Consent gate (idle button). Blocked = VISIBLY disabled (dimmed, out of
+   *  tab order), not a full-strength button that silently swallows taps. */
   disabled?: boolean
   /** phase === 'recorded' — the take is stopped and waiting on discard/use. */
   ended?: boolean
@@ -41,7 +42,7 @@ const DEFAULT_BARS = 24
 // glyph morph snapping. (The waveform bars are a real inline `transform:
 // scaleY(...)` and are deliberately untransitioned.)
 const BUTTON_BASE =
-  'relative flex h-16 w-16 items-center justify-center rounded-full [transition:scale_250ms_cubic-bezier(0.34,1.56,0.64,1),background-color_200ms_var(--ease-out),color_200ms_var(--ease-out),box-shadow_200ms_var(--ease-out)] motion-safe:active:scale-[0.97]'
+  'relative flex h-16 w-16 items-center justify-center rounded-full [transition:scale_250ms_cubic-bezier(0.34,1.56,0.64,1),background-color_200ms_var(--ease-out),color_200ms_var(--ease-out),box-shadow_200ms_var(--ease-out),opacity_200ms_var(--ease-out)] motion-safe:active:scale-[0.97] disabled:cursor-default'
 const GLYPH_BASE =
   'pointer-events-none absolute inset-0 grid place-items-center [transition:opacity_200ms_var(--ease-out),scale_250ms_cubic-bezier(0.34,1.56,0.64,1)]'
 const GLYPH_SHOWN = 'opacity-100 scale-100'
@@ -85,8 +86,8 @@ export function RecordButtonCard({
           aria-label={ended ? t('ended') : live ? t('stopAria') : t('startAria')}
           className={`${BUTTON_BASE} ${
             ended
-              ? 'bg-red-50 text-red-400 shadow-none dark:bg-red-500/10'
-              : 'bg-red-500 shadow-lg shadow-red-500/40 hover:bg-red-600 disabled:opacity-50'
+              ? 'bg-red-50 text-red-400 shadow-none opacity-50 dark:bg-red-500/10'
+              : 'bg-red-500 shadow-lg shadow-red-500/40 enabled:hover:bg-red-600 disabled:opacity-50'
           }`}
         >
           <span aria-hidden className={`${GLYPH_BASE} ${live ? GLYPH_HIDDEN : GLYPH_SHOWN}`}>

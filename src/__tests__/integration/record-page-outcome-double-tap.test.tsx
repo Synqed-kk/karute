@@ -152,7 +152,7 @@ jest.mock('@/lib/global-pipeline', () => ({
   },
 }))
 
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import {
   RecordPageView,
   type RecordPageViewProps,
@@ -434,11 +434,24 @@ describe('RecordPageView — per-take outcome resolution latch (Greptile P1, #67
     // (pointer-events-none) rather than absent from the DOM.
     const dialog = screen.getByRole('dialog')
     expect(dialog).toHaveClass('pointer-events-none')
+    // Proves the closing window is keyboard-inert even where `inert` is
+    // unsupported (the save button's disabled expression also gates on
+    // `closing` directly, not just on `saving`). resolvingOutcome is still
+    // true here (the mocked actions haven't settled), so the mock
+    // translation renders the 'saving' key.
+    expect(within(dialog).getByText('saving')).toBeDisabled()
 
     // Flush the deferred unmount deterministically via the card's real
     // animationend (the component's fast-path listener) — jsdom never runs
     // CSS animations on its own, so nothing would fire this otherwise.
-    fireEvent.animationEnd(dialog.lastElementChild!)
+    // animationName must be 'exit' (tw-animate-css's actual keyframe name,
+    // confirmed in compiled CSS) — the listener now ignores an 'enter' end.
+    // jsdom has no AnimationEvent constructor, so fireEvent.animationEnd's
+    // init dict is silently dropped (it falls back to plain Event, which
+    // ignores unrecognized init keys) — set the property directly instead.
+    const exitEnd = new Event('animationend', { bubbles: true })
+    Object.defineProperty(exitEnd, 'animationName', { value: 'exit' })
+    fireEvent(dialog.lastElementChild!, exitEnd)
 
     expect(screen.queryByText('repurchase.success.title')).toBeNull()
     expect(screen.queryByText('save')).toBeNull()
@@ -451,6 +464,30 @@ describe('RecordPageView — per-take outcome resolution latch (Greptile P1, #67
 
     expect(mockCreatePackAction).toHaveBeenCalledTimes(1)
     expect(mockRedeemSessionAction).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancel (not save) also leaves the dialog closing-but-mounted with 保存 disabled — isolates the `closing` gate from `saving`, which is false here', async () => {
+    await renderRecordedPage()
+    openDialogAtSuccess()
+
+    // Never tapped save — resolvingOutcome/saving stays false for this whole
+    // test. Regression guard for the cancel-then-Enter window on iOS < 15.5
+    // (no inert): with saving false, only the `closing ||` gate protects the
+    // resolve seam — this is the case the saving=true assertion above can't
+    // isolate (that one would still pass if `closing ||` were ever removed).
+    fireEvent.click(screen.getByText('cancel'))
+
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveClass('pointer-events-none')
+    expect(within(dialog).getByText('save')).toBeDisabled()
+
+    // Same manual-exit-event flush as the test above (jsdom has no
+    // AnimationEvent constructor).
+    const exitEnd = new Event('animationend', { bubbles: true })
+    Object.defineProperty(exitEnd, 'animationName', { value: 'exit' })
+    fireEvent(dialog.lastElementChild!, exitEnd)
+
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   // Fresh-eyes P2: the "new take unlocks it" tests above all drive the reset
