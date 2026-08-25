@@ -428,7 +428,18 @@ describe('RecordPageView — per-take outcome resolution latch (Greptile P1, #67
     fireEvent.click(screen.getByText('useRecording'))
 
     // Blocked — outcomeResolvedRef latched in onResolve, so the second tap's
-    // openOutcomeDialog() early-returns and the dialog never reopens.
+    // openOutcomeDialog() early-returns and the dialog never reopens. `open`
+    // is false here, but the dialog defers its unmount to play an exit
+    // animation — it's CLOSING, not gone yet: assert non-interactive
+    // (pointer-events-none) rather than absent from the DOM.
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveClass('pointer-events-none')
+
+    // Flush the deferred unmount deterministically via the card's real
+    // animationend (the component's fast-path listener) — jsdom never runs
+    // CSS animations on its own, so nothing would fire this otherwise.
+    fireEvent.animationEnd(dialog.lastElementChild!)
+
     expect(screen.queryByText('repurchase.success.title')).toBeNull()
     expect(screen.queryByText('save')).toBeNull()
 

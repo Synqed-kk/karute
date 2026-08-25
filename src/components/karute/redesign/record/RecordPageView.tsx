@@ -2196,39 +2196,7 @@ export function RecordPageView({
     runStopFlow()
   }
 
-  const recorderControls = phase === 'recorded' ? (
-    <section className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-7 shadow-sm">
-      <div className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">
-        {`${pad2(Math.floor(recordingDuration / 60))}:${pad2(recordingDuration % 60)}`}
-      </div>
-      <div className="flex h-10 items-end gap-[3px] opacity-50">
-        {frozenBars.map((h, i) => (
-          <span
-            key={i}
-            className="w-[3px] rounded-full bg-muted-foreground/50"
-            style={{ height: `${Math.max(15, Math.min(100, h * 0.6))}%` }}
-          />
-        ))}
-      </div>
-      <div className="mt-2 flex w-full items-center gap-3">
-        <Button variant="outline" size="md" className="flex-1" onClick={handleDiscard}>
-          {t('discard')}
-        </Button>
-        <Button
-          variant="default"
-          size="md"
-          className="flex-1"
-          // Belt: visual only, state-driven (resolvingOutcome only spans the
-          // pack/redeem write, not the whole post-resolve window) — the real
-          // guard is outcomeResolvedRef inside openOutcomeDialog.
-          disabled={resolvingOutcome}
-          onClick={handleUseRecordingTap}
-        >
-          {t('useRecording')}
-        </Button>
-      </div>
-    </section>
-  ) : (
+  const recorderControls = (
     <RecordButtonCard
       customerName={boundCustomerName}
       isRecording={isRecording}
@@ -2239,6 +2207,29 @@ export function RecordPageView({
         handleStartRecording()
       }}
       onStop={stopRecording}
+      disabled={recordingBlocked}
+      ended={phase === 'recorded'}
+      recordingDuration={recordingDuration}
+      frozenBars={frozenBars}
+      endedActions={
+        <div className="mt-2 flex w-full items-center gap-3">
+          <Button variant="outline" size="md" className="flex-1" onClick={handleDiscard}>
+            {t('discard')}
+          </Button>
+          <Button
+            variant="default"
+            size="md"
+            className="flex-1"
+            // Belt: visual only, state-driven (resolvingOutcome only spans the
+            // pack/redeem write, not the whole post-resolve window) — the real
+            // guard is outcomeResolvedRef inside openOutcomeDialog.
+            disabled={resolvingOutcome}
+            onClick={handleUseRecordingTap}
+          >
+            {t('useRecording')}
+          </Button>
+        </div>
+      }
     />
   )
 
@@ -2956,10 +2947,6 @@ function useElapsed(recState: string, startedAt: number | null): number {
     if (recState === 'idle') setSeconds(0)
   }, [recState])
   return seconds
-}
-
-function pad2(n: number): string {
-  return String(n).padStart(2, '0')
 }
 
 // Leaf that unwraps the streamed AI brief. use() suspends ONLY this child, so

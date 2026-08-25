@@ -113,6 +113,27 @@ export function PostSessionResolutionDialog({
   const [npPrice, setNpPrice] = useState<number>(prefill?.unitPrice ?? 0)
   const [sizeCustom, setSizeCustom] = useState(false)
   const [priceCustom, setPriceCustom] = useState(false)
+  // Closing-flag deferred unmount: `open` flips to false immediately, but the
+  // card still needs to render (and play its exit animation) for one more
+  // paint. `render` stays true until the card's own animationend fires.
+  const [render, setRender] = useState(open)
+  useEffect(() => {
+    if (open) setRender(true)
+  }, [open])
+  // Timeout belt: onAnimationEnd (below, on the card) is the fast path, but
+  // it can't be trusted alone — jsdom never runs CSS animations, so
+  // animationend never fires there and every jest run that closes this
+  // dialog would leave it mounted forever; in a real browser, an exit
+  // animation cancelled mid-flight (its element or an ancestor going
+  // display:none — e.g. Next's cached-route snapshot subtree) fires
+  // animationcancel, not animationend, which also strands the mount. This
+  // force-unmounts slightly past the 200ms card exit so a missed or
+  // cancelled event can't do that; it clears on reopen or unmount.
+  useEffect(() => {
+    if (open || !render) return
+    const id = window.setTimeout(() => setRender(false), 300)
+    return () => window.clearTimeout(id)
+  }, [open, render])
 
   // The dialog stays mounted (parent toggles `open`), so a cancelled pick would
   // otherwise survive into the next open and submit a stale outcome. Reset the
@@ -131,7 +152,11 @@ export function PostSessionResolutionDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  if (!open) return null
+  if (!render) return null
+
+  // Past the render gate, `!open` can only mean "closing" (render is
+  // guaranteed true here) — drives the exit-animation class swap below.
+  const closing = !open
 
   const ICON: Record<Outcome, React.ReactNode> = {
     success: <Check size={16} />,
@@ -159,18 +184,35 @@ export function PostSessionResolutionDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${closing ? 'pointer-events-none' : ''}`}
       role="dialog"
       aria-modal="true"
+      // inert (not just pointer-events-none): a hardware-keyboard Enter can
+      // still fire the save button while closing — inert kills focus and
+      // keyboard events for the whole subtree too.
+      inert={closing || undefined}
     >
       <button
         type="button"
         aria-label={t('cancel')}
         onClick={onCancel}
         disabled={saving}
-        className="absolute inset-0 bg-black/40"
+        className={`absolute inset-0 bg-black/40 ${
+          closing
+            ? 'animate-out fade-out-0 duration-150 fill-mode-forwards'
+            : 'animate-in fade-in-0 duration-150'
+        }`}
       />
-      <div className="relative max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-xl md:p-6">
+      <div
+        className={`relative max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-xl md:p-6 ${
+          closing
+            ? 'animate-out fade-out-0 zoom-out-[0.95] duration-200 ease-(--ease-out) fill-mode-forwards'
+            : 'animate-in fade-in-0 zoom-in-[0.95] duration-200 ease-(--ease-out)'
+        }`}
+        onAnimationEnd={(e) => {
+          if (e.target === e.currentTarget && !open) setRender(false)
+        }}
+      >
         <header className="mb-1 flex items-start justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight text-foreground">
             {mode === 'repurchase'
@@ -296,8 +338,13 @@ export function PostSessionResolutionDialog({
                   redeem ? 'bg-emerald-600' : 'bg-muted-foreground/30'
                 }`}
               >
+                {/* Knob is ANCHORED (left/right), not translated from its static
+                 *  position — an un-anchored absolute child starts from the button's
+                 *  centered text position on iOS WebKit, which pushed the knob half
+                 *  outside the pill (Liam's phone, 2026-07-05).
+                 *  Same pattern as PacksSection.tsx. */}
                 <span
-                  className={`absolute top-[3px] size-5 rounded-full bg-white transition-all ${
+                  className={`absolute top-[3px] size-5 rounded-full bg-white transition-[left,right] ${
                     redeem ? 'right-[3px]' : 'left-[3px]'
                   }`}
                 />
