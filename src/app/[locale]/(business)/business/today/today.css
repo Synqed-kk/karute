@@ -642,6 +642,16 @@
   z-index: 0;
 }
 .biz .cell-price i { font-style: normal; font-size: 10px; font-weight: 600; color: var(--indigo); opacity: .7; line-height: 1; }
+/* ⚖ flag 44 (2) — WHERE THE INVISIBLE BLOCKER IS. The 60分配置 chip under this
+   row can refuse over something that is not drawn here at all (a full house
+   lives on the bed rows; the guard is a rule and has no card), so the row says
+   which 30 minutes it means. THE BOARD'S OWN 清掃 HATCH at a quarter strength —
+   the identical `135deg / 4px / 8px` grammar and the identical two colours as
+   `.event.cleanup` (:595), no new colour anywhere — because these minutes are
+   most often exactly that, and because a cue nobody has seen before is a second
+   thing to learn. `z-index: 0` and `pointer-events: none` put it under every
+   offer and under every card: it explains empty space, it never covers a sale. */
+.biz .cell-rest-cue { position: absolute; z-index: 0; top: 0; bottom: 0; left: var(--x); width: var(--w); background: repeating-linear-gradient(135deg, #ebe6e0 0 4px, #f4f1ec 4px 8px); opacity: .25; pointer-events: none; }
 .biz .timeline.sell-drag .cell-price { opacity: 0; }
 .biz .timeline.sell-off .cell-price { display: none; }
 /* ⚖ Liam 2026-08-20 — LENGTH-MATCHED EMPHASIS, superseding canon's uniform
@@ -732,12 +742,31 @@
 .biz .guard-placement-rail { display: grid; grid-template-columns: var(--label) minmax(0, 1fr); height: 18px; min-height: 18px; border-bottom: 1px solid var(--row); background: #fff; }
 .biz .guard-rail-label { position: sticky; left: 0; z-index: 7; display: flex; align-items: center; padding: 0 8px 0 11px; border-right: 1px solid var(--section); background: #fafafb; color: #666670; font-size: 9px; font-weight: 800; white-space: nowrap; }
 .biz .guard-rail-track { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 0; min-width: 0; padding: 2px 0; background: #fff; }
-.biz .guard-rail-cell { position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; height: 14px; padding: 0; box-sizing: border-box; border-radius: 2px; font-family: inherit; font-size: 9px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.6px; white-space: nowrap; overflow: hidden; touch-action: manipulation; }
+/* ⚖ flag 44 (3) — THE CHIPS ARE BUTTONS NOW. They were `role="img"` spans
+   carrying their explanation where only a screen reader could reach it; every
+   one of them answers a press with that sentence. `appearance`/`margin` are the
+   UA button dress being taken back off — the paint below is unchanged, and the
+   14px height is load-bearing (the strip is 18px and the micro-word must not
+   grow it, which is what `overflow: hidden` has always been here for). */
+.biz .guard-rail-cell { position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; height: 14px; margin: 0; padding: 0; box-sizing: border-box; appearance: none; -webkit-appearance: none; border-radius: 2px; font-family: inherit; font-size: 9px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.6px; white-space: nowrap; overflow: hidden; touch-action: manipulation; }
 .biz .guard-rail-cell:not(:last-child)::before { content: ""; position: absolute; z-index: 1; right: 0; top: 1px; bottom: 1px; width: 1px; background: rgba(255, 255, 255, .8); pointer-events: none; }
 .biz .guard-rail-cell i { font: inherit; color: inherit; white-space: nowrap; }
 .biz .guard-rail-cell.guard-slot { border: 1px solid #7656a8; background: var(--guard-soft); color: var(--guard-dark); cursor: pointer; }
 .biz .guard-rail-cell.degraded { border: 1px solid #cf8427; background: #fff0d9; color: #8b4e06; cursor: pointer; }
-.biz .guard-rail-cell.blocked { border: 1px solid #e0e0e5; background: #f2f2f4; color: #8a8a93; }
+/* ⚖ flag 44 (3) — CURSOR HONESTY ON THE — CHIP. A refused chip is now the one
+   that has the most to say, so it stops reading as inert. (The board-wide
+   cursor sweep is R8's; this is the rail's own half, and it is here because the
+   press it advertises exists.) */
+.biz .guard-rail-cell.blocked { border: 1px solid #e0e0e5; background: #f2f2f4; color: #8a8a93; cursor: pointer; }
+/* ⚖ flag 44 (1)+(2) — THE ENTIRE REST BUDGET: a 10px word and a 3px dot.
+   ⚖ big-tech simplicity — calm at rest, explanation on demand. No new colour on
+   either: the word is the blocked family's own grey (`currentColor`, #8a8a93)
+   and so is the dot, dimmed. `[data-reason]` is set by the render pass from the
+   SAME value that chooses the word, so the two can never appear apart.
+   The word replaces the bare 「—」 rather than joining it: 「—」 states a
+   refusal and names nothing, which is the whole of Liam's complaint. */
+.biz .guard-rail-cell[data-reason] i { font-size: 10px; font-weight: 800; letter-spacing: -.5px; }
+.biz .guard-rail-cell[data-reason]::after { content: ""; position: absolute; z-index: 2; top: 2px; right: 2.5px; width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: .5; pointer-events: none; }
 /* ⚖ Liam flag 50(c) — `.aimed` is canon's third selector on this exact rule
    (:667): the chip the drag is pointing at wears the hover treatment, so the
    dashed landing preview and the 60分配置 strip say the same thing at the same
@@ -757,7 +786,11 @@
    At rest the strip has no `.inert` anywhere and is byte-identical to canon's. */
 .biz .guard-rail-cell.inert { border-color: #e6a09a; background: var(--red-soft); color: var(--red-dark); }
 .biz .guard-rail-cell.inert i { font-size: 11px; letter-spacing: 0; }
-.biz .guard-rail-cell:hover:not(.blocked), .biz .guard-rail-cell:focus-visible, .biz .guard-rail-cell.aimed { outline: 0; filter: brightness(.94); box-shadow: inset 0 0 0 1px currentColor, 0 0 0 2px rgba(85, 60, 143, .18); }
+/* ⚖ flag 44 (3) — `:not(.blocked)` is GONE. It was true of a strip whose grey
+   chips did nothing; now they are the ones carrying the answer, and a control
+   that goes quiet under the cursor is the cursor lying about what a press does.
+   `.aimed` was never excluded here (see the note above) and is unchanged. */
+.biz .guard-rail-cell:hover, .biz .guard-rail-cell:focus-visible, .biz .guard-rail-cell.aimed { outline: 0; filter: brightness(.94); box-shadow: inset 0 0 0 1px currentColor, 0 0 0 2px rgba(85, 60, 143, .18); }
 .biz button.guard-rail-cell:focus { z-index: 6; outline: 2px solid var(--select-line); outline-offset: 1px; filter: brightness(.94); box-shadow: inset 0 0 0 1px currentColor, 0 0 0 3px #fff; }
 @media (max-width: 1200px) {
   .biz .guard-rail-cell { font-size: 8px; letter-spacing: -.6px; }

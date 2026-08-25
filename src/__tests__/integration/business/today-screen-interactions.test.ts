@@ -3614,13 +3614,18 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     const gapMemo = SRC.slice(SRC.indexOf('const gap = useMemo('), SRC.indexOf('const gapClaims = useMemo('))
     expect(gapMemo).toContain('gapLayerFor(committedLanes, {')
     expect(gapMemo).not.toContain('boardLanes')
-    expect(SRC.indexOf('const gap = useMemo(')).toBeLessThan(SRC.indexOf('const sell = useMemo('))
-    const sell = SRC.slice(SRC.indexOf('const sell = useMemo('), SRC.indexOf('const guardOn ='))
+    // ⚖ flag 44 — the memo hands back the layer AND ⚖ 75(i)'s dropped offers.
+    // Both halves this pin exists for are untouched: the ORDER, and the board
+    // the sell layer reads (`committedLanes`, never `boardLanes`).
+    expect(SRC.indexOf('const gap = useMemo(')).toBeLessThan(SRC.indexOf('const { sell, sellDrops } = useMemo('))
+    const sell = SRC.slice(SRC.indexOf('const { sell, sellDrops } = useMemo('), SRC.indexOf('const guardOn ='))
     expect(sell).toContain('sellLayerFor(committedLanes, hours, {')
     expect(sell).not.toContain('boardLanes')
     // …and the promises it reconciles against are the gap layer's own cells,
     // never a second derivation of them.
-    expect(sell).toContain('reconcile: { claims: gapClaims, rooms: props.rooms, cleanupMinutesByBed: props.bedCleanupMinutes }')
+    expect(sell).toContain('claims: gapClaims,')
+    expect(sell).toContain('rooms: props.rooms,')
+    expect(sell).toContain('cleanupMinutesByBed: props.bedCleanupMinutes,')
     expect(SRC).toContain('const gapClaims = useMemo(() => [...gap.packed, ...gap.scraps], [gap])')
     // Proven arithmetically here too: the span a staged move VACATES is free for
     // the layer that prices it.

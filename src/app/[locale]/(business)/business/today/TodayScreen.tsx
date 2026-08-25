@@ -51,6 +51,7 @@ import {
   hqNote,
   priceButtonCaption,
   money,
+  SELL_SLOT_MIN,
 } from '@/business/lib/canon-logic/pricing'
 import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 // ⚖ Liam 8/23 — the guided tour is EVERY Business page's now, so the engine this
@@ -105,6 +106,7 @@ import {
   pairLanesOf,
   parkChipText,
   pinInViewport,
+  railExplain,
   sameStore,
   sharesStore,
   sellLayerFor,
@@ -122,6 +124,7 @@ import {
   type PairLanes,
   type RailCell,
   type RoomPolicy,
+  type SellDrop,
 } from './today-interactions'
 import { bedTruthViews, type BedTruth, type DayFrame } from './capacity-ledger'
 
@@ -1256,9 +1259,18 @@ export function TodayScreen(props: TodayProps) {
    *  the pair itself, so this is the concatenation and nothing more. */
   const gapClaims = useMemo(() => [...gap.packed, ...gap.scraps], [gap])
 
-  const sell = useMemo(
-    () =>
-      sellLayerFor(committedLanes, hours, {
+  /** ⚖ 75(i) — THE LAYER, AND WHAT BUILDING IT THREW AWAY.
+   *
+   *  One call, two results. The drops are collected INSIDE the memo rather than
+   *  by a second `sellLayerFor` run: the derivation is the expensive half of
+   *  this screen's frame, and running it twice to hear the same answer is the
+   *  disease every other seam on this board is written against. The array is
+   *  minted here and never escapes except as a value, so the memo stays a pure
+   *  function of its dependencies. */
+  const { sell, sellDrops } = useMemo(
+    () => {
+      const sellDrops: SellDrop[] = []
+      const sell = sellLayerFor(committedLanes, hours, {
         gridMin: props.sell.gridMin,
         nowMinute: props.sell.nowMinute,
         locked,
@@ -1273,8 +1285,15 @@ export function TodayScreen(props: TodayProps) {
         // counts were already computed — so the header could say 22 windows while
         // one box was on screen, and a cross-row collision (p-05's hour and
         // p-06's スキマ枠 both on ベッド2) was invisible to it.
-        reconcile: { claims: gapClaims, rooms: props.rooms, cleanupMinutesByBed: props.bedCleanupMinutes },
-      }),
+        reconcile: {
+          claims: gapClaims,
+          rooms: props.rooms,
+          cleanupMinutesByBed: props.bedCleanupMinutes,
+          onDrop: (d) => sellDrops.push(d),
+        },
+      })
+      return { sell, sellDrops }
+    },
     [
       committedLanes,
       hours,
@@ -1370,6 +1389,79 @@ export function TodayScreen(props: TodayProps) {
     [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
+
+  /** ⚖ LIAM flag 44 + rider 75(i) — EVERY CHIP'S WORD AND ITS SENTENCE, worked
+   *  out once per frame instead of once per press.
+   *
+   *  The rail is the one surface on this board that states a refusal and names
+   *  nothing, and two of the three things that cause one are invisible on the
+   *  row it sits under (a full house lives on the bed rows; the guard is a rule
+   *  and has no card at all). This map is what makes them sayable: the 10px
+   *  word the chip wears at rest, and the whole sentence it answers a press
+   *  with. `railExplain` is the composer — everything here is the board's own
+   *  inputs to it, which is how every other answer on this screen is built.
+   *
+   *  THE ROOM QUESTION IS THE STRIP'S OWN, spelled the way the strip asks it: a
+   *  NEW placement of `railDur` minutes on this lane's stores, with the card in
+   *  hand lifted out (`id: handId` is `guardRailsFor`'s own `excludeId`, so the
+   *  sentence and the chip above it were judged against one board). It goes
+   *  through `allocateBed` because that is where the refusal SENTENCE is
+   *  composed — one home, never a second composer for a full house.
+   *
+   *  ponytail: one `allocateBed` per BED-REFUSED chip per frame, and nothing at
+   *  all for the rest. The ceiling is a board where most starts are full for
+   *  most staff; move these through `capacity-ledger`'s book (which memoises the
+   *  identical question) if a bigger board ever measures slow. */
+  const railExplained = useMemo(() => {
+    const overlaps = (aS: number, aE: number, bS: number, bE: number) => aS < bE && bS < aE
+    const out = new Map<string, Map<number, { word: string | null; sentence: string }>>()
+    for (const rail of rails) {
+      const staff = boardLanes.find((l) => l.key === rail.laneKey && l.group === 'staff')
+      // Per lane, once — the ad-less test below is asked per cell and these
+      // three lists do not change between them.
+      const sellHere = sell.cells.filter((s) => s.group === 'staff' && s.laneKey === rail.laneKey)
+      const gapHere = gapClaims.filter((g) => g.group === 'staff' && g.laneKey === rail.laneKey)
+      // ⚖ 75(i) — only a ROOM drop explains an empty window. A `lane` drop means
+      // this person's own promise beat the offer, and that promise is a box
+      // drawn on this very row, so the window is not ad-less in the first place.
+      const roomDrops = sellDrops.filter((d) => d.laneKey === rail.laneKey && d.kind === 'room' && d.takerLaneKey != null)
+      const per = new Map<number, { word: string | null; sentence: string }>()
+      for (const c of rail.cells) {
+        const end = c.start + railDur
+        const advertised =
+          sellHere.some((s) => overlaps(s.h, s.h + SELL_SLOT_MIN, c.start, end)) ||
+          gapHere.some((g) => overlaps(g.s, g.e, c.start, end))
+        const taker = advertised ? undefined : roomDrops.find((d) => overlaps(d.h, d.h + SELL_SLOT_MIN, c.start, end))
+        per.set(
+          c.start,
+          railExplain(c, railDur, {
+            room:
+              c.reason === 'bed' && staff
+                ? allocateBed(boardLanes, {
+                    id: handId,
+                    currentBed: null,
+                    stores: staff.stores,
+                    // A rail cell asks about a placement nobody has made yet, so
+                    // nobody is VIP and nobody holds a room — the same
+                    // hypothetical `bedDoor` binds for the marks themselves.
+                    vip: false,
+                    start: c.start,
+                    end,
+                    policy: props.rooms,
+                    // ⚖ R3 one world — the operator's own staged card is named
+                    // as theirs rather than as a stranger's.
+                    stagedId: pending?.id ?? null,
+                  })
+                : null,
+            adless: !advertised,
+            takerLabel: taker?.takerLaneKey != null ? (boardLanes.find((l) => l.key === taker.takerLaneKey)?.label ?? null) : null,
+          }),
+        )
+      }
+      out.set(rail.laneKey, per)
+    }
+    return out
+  }, [rails, boardLanes, railDur, handId, props.rooms, pending?.id, sell, gapClaims, sellDrops])
 
   /** ⚖ LIAM flag 50 item 4b (2026-08-22) — WHAT IS IN THE OPERATOR'S HAND, so
    *  the strip can judge every start FOR IT.
@@ -3924,6 +4016,19 @@ export function TodayScreen(props: TodayProps) {
     // LAYER rather than of the paint, which is what makes those four honest.
     const cells = sell.cells.filter(onThisLane)
     const rail = railByLane.get(lane.key)
+    /** ⚖ flag 44 (2) — WHERE THE INVISIBLE BLOCKER ACTUALLY IS. A chip wearing
+     *  満室/清掃/新規 is refusing over something that is not drawn on this row,
+     *  so the row itself says which 30 minutes are meant: a quarter-strength
+     *  wash of the board's own 清掃 hatch, and nothing louder. Exactly the
+     *  micro-word chips and no others — one condition, read off the same map the
+     *  word is — and it is a REST cue, so it stands down the moment a card is in
+     *  hand and the strip starts answering a different question. A locked lane
+     *  has no rail at all, so it has no entry here and paints nothing. */
+    const explainedHere = railExplained.get(lane.key)
+    const restCues =
+      lane.group === 'staff' && !inHand && explainedHere
+        ? [...explainedHere].filter(([, e]) => e.word != null).map(([start]) => start)
+        : []
     // canon `lane.insertAdjacentElement("afterend", rail)` (:7566): the rail is
     // the lane's SIBLING, not its child. A `.lane` is a two-column grid, so a
     // third child lands in the label column and the strip collapses to a sliver.
@@ -4037,6 +4142,21 @@ export function TodayScreen(props: TodayProps) {
             )
           }}
         >
+          {/* Under everything the board is SELLING — a cue about why a space is
+              empty may never sit on top of an offer. `--x`/`--w` is the same
+              positioning grammar `.cell-price` uses; 30 is the rail's own step
+              (`stepMin`, where the cells are built). */}
+          {restCues.map((start) => {
+            const span = place(start, start + 30, hours)
+            return (
+              <span
+                className="cell-rest-cue"
+                key={`cue-${start}`}
+                aria-hidden="true"
+                style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
+              />
+            )
+          })}
           {!isLocked &&
             cells.map((c) => {
               const span = place(c.h, c.h + 60, hours)
@@ -4141,7 +4261,14 @@ export function TodayScreen(props: TodayProps) {
               // 注意して配置 places exactly what the × sat on. The passed wording
               // is true on both: the drop does not land, and the board says why.
               'data-guide':
-                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。`,
+                // ⚖ FLAGS 25c precedent again (flag 44, 2026-08-26): the strip
+                // grew a third face — a word at rest, a press that answers, and
+                // a faint mark on the lane above — and all three are READINGS of
+                // surfaces already on the tour, so the delta is one sentence
+                // rather than a new step. The hatch has no other home to be
+                // explained in, which is why it is named here explicitly.
+                // JP-DRAFT (native pass owes this whole clause a rewrite).
+                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、判定した時間帯とその理由を表示します。「満室」「清掃」「新規」の小さな文字と点が付いたコマは、この行には見えない理由でふさがっているという意味で、すぐ上の行の薄い斜線がその30分を指しています。`,
             }
           : {})}
       >
@@ -4166,18 +4293,42 @@ export function TodayScreen(props: TodayProps) {
             const label = v
               ? (v.kind === 'blocked' ? '×' : v.kind === 'caution' ? `△${hhmm(c.start)}` : `✓${hhmm(c.start)}`)
               : c.label
+            // ⚖ flag 44 — the chip's own reading of itself. The WORD is a
+            // rest-state cue and the mid-drag face belongs to the verdict (the
+            // × is the answer to a different question), so it is dropped for
+            // exactly as long as something is in hand; the SENTENCE stays, and
+            // the verdict's own reason outranks it while one exists.
+            const explained = railExplained.get(rail.laneKey)?.get(c.start) ?? null
+            const word = v ? null : (explained?.word ?? null)
+            const sentence = v?.reason ?? explained?.sentence ?? c.sentence
             return (
-              <span
+              <button
                 // ⚖ flag 50(c) — canon's `.aimed`, in sync with the dashed landing.
                 className={`guard-rail-cell ${state === 'safe' ? 'guard-slot safe' : state}${v?.kind === 'blocked' ? ' inert' : ''}${aimed?.laneKey === rail.laneKey && aimed.start === c.start ? ' aimed' : ''}`}
                 key={c.start}
+                type="button"
                 data-start={c.start}
                 data-state={state}
-                role="img"
-                aria-label={`${rail.laneLabel}、${hhmm(c.start)}。${v?.reason ?? c.sentence}`}
+                // ⚖ flag 44 (2) — the 3px dot rides this attribute, so the cue
+                // and the word can never appear without each other: both are
+                // set from the same `word`, which is why the paint has no second
+                // condition to drift from.
+                data-reason={word ? (c.reason ?? undefined) : undefined}
+                aria-label={`${rail.laneLabel}、${hhmm(c.start)}。${sentence}`}
+                // ⚖ flag 44 (3) — CANON'S OWN PRESS-ANSWERS-WITH-A-SENTENCE, the
+                // absence hatch's (:4249). The strip was a `role="img"` that
+                // carried its explanation where only a screen reader could reach
+                // it; every chip is now pressable and says the same sentence out
+                // loud. It is a REST affordance: a press arriving while a card
+                // or a block is in flight is part of that gesture, not a
+                // question about this start, and the drag's own listeners own it.
+                onPointerDown={() => {
+                  if (dragRef.current || blockDragRef.current) return
+                  show(sentence)
+                }}
               >
-                <i>{label}</i>
-              </span>
+                <i>{word ?? label}</i>
+              </button>
             )
           })}
         </div>

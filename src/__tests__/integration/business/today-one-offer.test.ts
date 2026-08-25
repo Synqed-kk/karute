@@ -414,8 +414,20 @@ describe('§2 — reconciled before the layer is built, never in the renderer', 
     expect(src).not.toContain('!gapHere.some((g) => g.s < c.h + 60 && c.h < g.e)')
     expect(src).toContain('const cells = sell.cells.filter(onThisLane)')
     // The gap layer computes first, and the sell layer is handed its cells.
-    expect(src.indexOf('const gap = useMemo(')).toBeLessThan(src.indexOf('const sell = useMemo('))
-    expect(src).toContain('reconcile: { claims: gapClaims, rooms: props.rooms, cleanupMinutesByBed: props.bedCleanupMinutes }')
+    // ⚖ flag 44 — the memo now returns the layer AND what building it dropped
+    // (⚖ 75(i)'s collector); the ORDER this pin exists for is unchanged.
+    expect(src.indexOf('const gap = useMemo(')).toBeLessThan(src.indexOf('const { sell, sellDrops } = useMemo('))
+    for (const field of [
+      'claims: gapClaims,',
+      'rooms: props.rooms,',
+      'cleanupMinutesByBed: props.bedCleanupMinutes,',
+      // Observation only, and collected inside the ONE derivation run — a second
+      // `sellLayerFor` call to hear the same answer is what this must not become.
+      'onDrop: (d) => sellDrops.push(d),',
+    ]) {
+      expect(src).toContain(field)
+    }
+    expect(src.match(/sellLayerFor\(committedLanes/g)).toHaveLength(1)
     // The four surfaces that read the count read the LAYER, so they cannot
     // disagree with the paint any more.
     for (const surface of ['公開中 {sell.staffBands.length}枠', '販売可能枠 {sell.staffBands.length}窓', '<b>{sell.staffBands.length}枠</b>', 'priceButtonCaption(sell.staffBands.length']) {
