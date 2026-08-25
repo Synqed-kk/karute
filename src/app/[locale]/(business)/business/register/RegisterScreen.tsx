@@ -233,6 +233,39 @@ const jumpLabelOf = (j: ClosingJump) => JUMP_LABEL[j.kind === 'ledger' ? 'ledger
 const boxOf = (r: { left: number; top: number; width: number; height: number }): SpotRect =>
   ({ left: r.left, top: r.top, width: r.width, height: r.height })
 
+/** ⚖ F-M3 — THE WALK FOLLOWS WHAT THE READER SEES. `spotTargets` returns the
+ *  registry in DOM order on the engine's own contract that 「DOM order is visual
+ *  order」 — true of every room until this one put `order:` on the phone's 閉店
+ *  column (register.css ⑯: `.rg-right { display: contents }` + three `order`s, so
+ *  the count comes first because that is what the closer does first). The walk
+ *  then went DOWN to 閉店チェック and back UP 836px to 現金ドロア: on a phone the
+ *  order IS the experience, and the tour was walking against it.
+ *
+ *  THE RULE, MEASURED AT WALK TIME rather than written down: DOM order IS visual
+ *  order, EXCEPT that a box standing clear below another IN THE SAME COLUMN comes
+ *  after it. Both halves are load-bearing, and each was proven by the walk going
+ *  wrong without it:
+ *   · without the vertical half the phone's 閉店 walks against ⑯ — the finding;
+ *   · without the COLUMN half a plain sort on `top` zigzags between columns. At
+ *     1280 the ledger and the open transaction start on the same line, and one
+ *     column's short section can stand clear above the other column's second
+ *     section (予約時価格 above 決済手段の台帳, measured) — so the walk left the
+ *     ledger mid-way, crossed to the inspector and came back. Two columns are
+ *     not a top-to-bottom question: each is read down, in the document's order.
+ *  Boxes that overlap either way — side by side, or a section nested inside a
+ *  section — are ties, and the sort is stable, so they keep DOM order.
+ *
+ *  Derived, never listed: a future reorder — in this sheet or another — is picked
+ *  up with nothing to keep in sync, the same property the census has. */
+const byRenderedOrder = (els: HTMLElement[]): HTMLElement[] =>
+  els
+    .map((el) => el.getBoundingClientRect())
+    .map((r, i) => ({ el: els[i], top: r.top, bottom: r.bottom, left: r.left, right: r.right }))
+    .sort((a, b) =>
+      a.left >= b.right || b.left >= a.right ? 0 : a.top >= b.bottom ? 1 : b.top >= a.bottom ? -1 : 0,
+    )
+    .map((x) => x.el)
+
 type TourStep = { title: string; text: string; idx: number; total: number }
 const sameStep = (a: TourStep, b: TourStep) =>
   a.title === b.title && a.text === b.text && a.idx === b.idx && a.total === b.total
@@ -391,7 +424,11 @@ export function RegisterScreen(props: RegisterProps) {
 
   useLayoutEffect(() => {
     if (tourIdx < 0) { setTourStep(null); setTourPos(null); setTourHover(null); return }
-    const targets = spotTargets(rootRef.current)
+    // ⚖ F-M3 — RE-MEASURED AND RE-ORDERED ON EVERY PASS, including the renders
+    // this effect did not cause (the F-S3/F-S4 stale-census lesson): the ≤743
+    // band arriving, a mode switch or a fold opening all change the RENDERED
+    // order, not only how many sections there are.
+    const targets = byRenderedOrder(spotTargets(rootRef.current))
     if (targets.length === 0) { setTourIdx(-1); return }
     // ⚖ THE WALK IS CLAMPED TO THE CENSUS THAT IS ON SCREEN NOW (F-S4). A render
     // this effect did not cause — a mode switch, a fold opening, a filter that

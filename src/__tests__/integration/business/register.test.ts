@@ -930,7 +930,12 @@ describe('閉店できるか is ONE call, rendered wherever the page asks it', (
       ).length,
       heldAmount: 0,
       unsettledVisits: [],
-      terminalTx: rows.find((r) => r.tenders.some((t) => t.flag === 'pending'))?.id ?? null,
+      // ⚖ F-M2 — the held row travels with its own verdict too, and it can be
+      // absent: the held record and the ledger are two independent planes.
+      terminalTx: (() => {
+        const held = rows.find((r) => r.tenders.some((t) => t.flag === 'pending'))
+        return held ? { id: held.id, filter: held.filter } : null
+      })(),
       // ⚖ F-S2 — the balance row travels WITH the verdict that paints its pill,
       // because the gate narrows the ledger through that very predicate.
       outstandingTx: (() => {
@@ -1007,7 +1012,9 @@ describe('閉店できるか is ONE call, rendered wherever the page asks it', (
     // Pressability is DERIVED from the verdict: a row has somewhere to go
     // exactly when it is still open, and the destination is where the fix
     // happens rather than a category.
-    expect(by('terminal').jump).toEqual({ kind: 'ledger', filter: 'all', tx: 'TX-4827' })
+    // ⚖ F-M2 — the held row's destination is its OWN class (端末保持 is 要確認),
+    // read the same way the balance row's is, not 「すべて」 written down here.
+    expect(by('terminal').jump).toEqual({ kind: 'ledger', filter: 'attention', tx: 'TX-4827' })
     expect(by('outstanding').jump).toEqual({ kind: 'ledger', filter: 'partial', tx: 'TX-5501' })
     expect(by('signoff').jump).toEqual({ kind: 'here', target: 'signoff' })
     // A SETTLED gate has nowhere to send anyone, so it loses its chevron with
@@ -1089,6 +1096,58 @@ describe('閉店できるか is ONE call, rendered wherever the page asks it', (
     // The filter is DERIVED, never written down beside the row it points at.
     expect(LIB_CODE).not.toContain("filter: 'partial', tx: input.outstandingTx")
     expect(LIB_CODE).toContain("filter: input.outstandingTx?.filter ?? 'all'")
+  })
+
+  it('⚖ F-M2 — the 端末照合 gate takes the trip it advertises, or advertises none', async () => {
+    // THE SAME CLASS AS F-S2, still open on the terminal row — and worse, because
+    // `terminal_held` and `transactions` are two INDEPENDENT planes. A held
+    // record whose booking never became a register transaction has no row in the
+    // ledger at all, and the jump still travelled: 「すべて」 with no target, where
+    // the screen's own "the open transaction follows the list" rule auto-selected
+    // an UNRELATED row whose 閉店への影響 read 「この取引は閉店を妨げていません。」
+    // One press, and the gate and its landing said opposite things.
+
+    // (a) THE ORDINARY DAY. The destination is the held row's OWN class — the
+    //     predicate the counter strip narrows through — and the list holds it.
+    const plain = await room({ store: STORE_A })
+    const held = plain.rows.find((r) => r.id === 'TX-4827')!
+    expect(held.state).toBe('held')
+    expect(held.filter).toBe('attention')
+    expect(plain.close!.checks.find((c) => c.key === 'terminal')!.jump).toEqual({
+      kind: 'ledger',
+      filter: 'attention',
+      tx: 'TX-4827',
+    })
+    const landed = plain.rows.filter((r) => matchesFilter(r, 'attention'))
+    expect(landed.map((r) => r.id)).toContain('TX-4827')
+    expect(plain.counts.attention).toBe(landed.length)
+    expect(plain.counts.attention).toBeGreaterThan(0)
+
+    // (b) THE ORPHAN — the terminal holds a record for a booking the register
+    //     never rang up. The gate KEEPS its evidence (the terminal really is
+    //     holding ¥6,600) and loses its doorway, because there is nowhere on this
+    //     page to be taken to. Same shape as 未精算の施術: no destination, no
+    //     affordance — never a landing that contradicts the row above it.
+    const { props: orphan } = await registerProps({
+      locale: 'ja',
+      store: STORE_A,
+      world: { transactions: txPlane.filter((t) => t.id !== 'TX-4827') },
+    })
+    expect(orphan.rows.map((r) => r.id)).not.toContain('TX-4827')
+    const gate = orphan.close!.checks.find((c) => c.key === 'terminal')!
+    expect({ done: gate.done, status: gate.status, jump: gate.jump }).toEqual({
+      done: false,
+      status: '未完了',
+      jump: null,
+    })
+    expect(gate.detail).toBe('端末内に1件保持 / 対象 ¥6,600')
+    // …and it still BLOCKS: dropping the doorway must never quietly drop the gate.
+    expect(orphan.close!.closeRefusal).toContain('決済端末の送信')
+
+    // The destination is DERIVED from the row, never a category written down in
+    // the checklist — the F-S2 shape, on this gate too.
+    expect(LIB_CODE).not.toContain("filter: 'all', tx: input.terminalTx")
+    expect(LIB_CODE).toContain('filter: input.terminalTx.filter, tx: input.terminalTx.id')
   })
 
   it('⚖ F-S13 — a gate row’s accessible name CARRIES the row, it never replaces it', async () => {
@@ -1494,6 +1553,49 @@ describe('capabilities are read, never invented', () => {
     expect(NO_ACCESS).toEqual({ refund: false, close: false, redactSummary: true })
   })
 
+  it('⚖ F-M1 — and an INHERITED name gets nothing either: fail-closed means own rows only', () => {
+    // A bare index walks the prototype chain. `SALES_ACCESS_BY_ROLE['toString']`
+    // is a Function and `['__proto__']` is Object.prototype, so `?? NO_ACCESS`
+    // never fired, all three flags read `undefined`, and the day's totals printed
+    // UNREDACTED — a capability gate on a money desk, open on eight names every
+    // object in JavaScript already has.
+    for (const inherited of [
+      'toString',
+      'valueOf',
+      'constructor',
+      'hasOwnProperty',
+      '__proto__',
+      'isPrototypeOf',
+      'propertyIsEnumerable',
+      'toLocaleString',
+    ]) {
+      expect({ role: inherited, access: accessFor(inherited) }).toEqual({ role: inherited, access: NO_ACCESS })
+    }
+    // The three real rows are untouched — the guard is an OWN-PROPERTY read, not
+    // a denylist of the names above (which the next JS version would outgrow).
+    for (const [role, access] of Object.entries(SALES_ACCESS_BY_ROLE)) expect(accessFor(role)).toEqual(access)
+    expect(LIB_CODE).toContain('Object.hasOwn(SALES_ACCESS_BY_ROLE, role)')
+    expect(LIB_CODE).not.toContain('SALES_ACCESS_BY_ROLE[role] ?? NO_ACCESS')
+  })
+
+  it('⚖ F-M1 — the DESK such a role opens is redacted, exactly as an ordinary unknown role’s is', async () => {
+    // The unit above proves the table; this proves the PAGE, because the leak
+    // that mattered was 総売上 and 受領済み printing in full.
+    const { props } = await registerProps({ locale: 'ja', store: STORE_A, world: { role: 'toString' } })
+    const ordinary = await registerProps({ locale: 'ja', store: STORE_A, world: { role: '見習い' } })
+    expect(props.money.map((m) => m.value)).toEqual(ordinary.props.money.map((m) => m.value))
+    expect(props.money.filter((m) => m.redacted).map((m) => m.value)).toEqual([
+      '権限がありません',
+      '権限がありません',
+      '権限がありません',
+    ])
+    // …and the capabilities that ride the same read are shut with it.
+    expect(props.close).toBeNull()
+    expect(props.terminal!.canRecheck).toBe(false)
+    for (const r of props.rows) expect(r.canRefund).toBe(false)
+    expect(props.permissionNotice).toBe(permissionNotice(NO_ACCESS))
+  })
+
   it('a role without the capability loses the CONTROLS, and the money it may not see', async () => {
     // A pin that only ever sees the passing case is not a pin: the room is
     // driven from the other side of its own gate.
@@ -1547,6 +1649,33 @@ describe('capabilities are read, never invented', () => {
   it('the operator who passes the gate sees no notice at all', async () => {
     const props = await room({ store: STORE_A })
     expect(props.permissionNotice).toBeNull()
+  })
+
+  it('⚖ F-M5 — the notice states the rule the STRIP follows, exceptions and all', async () => {
+    // 「1日の合計金額と現金の金額は表示しません」 was a rule this page does not keep:
+    // 返金・取消 −¥1,100 and 未収 ¥1,600 are day totals too, and they print in the
+    // very same band on purpose. A sentence a reader disproves by looking two
+    // centimetres to the right costs more trust than the redaction saves.
+    const { props } = await registerProps({ locale: 'ja', store: STORE_A, world: { role: 'スタッフ' } })
+    const notice = props.permissionNotice!
+    // THE OLD SENTENCE FAILS THIS PIN.
+    expect(notice).not.toContain('1日の合計金額と現金の金額は表示しません')
+    // What is hidden, named as what it is.
+    for (const label of ['総売上', '純売上', '受領済み']) expect(notice).toContain(label)
+    expect(notice).toContain('現金に関する金額は表示しません')
+    // EVERY day-total tile that still prints is named — DERIVED from the strip,
+    // so a future exposure nobody mentions here fails this pin instead of
+    // quietly making the sentence false again.
+    const printed = props.money.filter((m) => !m.redacted).map((m) => m.label)
+    expect(printed).toEqual(['返金・取消', '未収'])
+    for (const label of printed) expect(notice).toContain(label)
+    // …and the exception BAND prints its own figure to this role for the same
+    // reason, so the sentence names that too.
+    expect(props.terminal!.stats.find((s) => s.label === '対象金額')!.value).toBe('¥6,600')
+    expect(notice).toContain('決済端末が保持している金額')
+    // The two halves the old sentence got right are still said.
+    expect(notice).toContain('取引1件ごとの内容と金額')
+    expect(notice).toContain('返金と閉店の操作は実行できません')
   })
 
   it('the role table is DATA with a fail-closed default, never a `viewRoles` dial that admits everyone', () => {

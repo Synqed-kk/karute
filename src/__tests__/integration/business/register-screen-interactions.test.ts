@@ -54,6 +54,9 @@ import { spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
 const ROOM_DIR = 'src/app/[locale]/(business)/business/register'
 const SRC = readFileSync(join(process.cwd(), `${ROOM_DIR}/RegisterScreen.tsx`), 'utf8')
 const CSS = readFileSync(join(process.cwd(), `${ROOM_DIR}/register.css`), 'utf8')
+/** The SHARED engine, read whole (comments included): the room orders its own
+ *  walk (F-M3) and the engine's contract for every other room is unchanged. */
+const GUIDE_CODE = readFileSync(join(process.cwd(), 'src/business/lib/guide.ts'), 'utf8')
 
 /** Source pins read CODE, not prose: the screen documents the tour in comments
  *  that quote the very attributes these pins look for. */
@@ -62,8 +65,10 @@ const SRC_CODE = stripComments(SRC).replace(/^\s*\/\/.*$/gm, '')
 const CSS_CODE = stripComments(CSS)
 
 /** Every declaration the screen makes, in source order — which for static JSX is
- *  the order the browser puts them in the DOM, and therefore the order the walk
- *  visits them in. */
+ *  the order the browser puts them in the DOM. It is NOT the order the walk
+ *  visits them in: ⑯ reorders the phone's 閉店 column in CSS, and since F-M3 the
+ *  walk reads RENDERED position (only the browser probe can measure that). These
+ *  pins are about PAIRING and uniqueness, never sequence. */
 type Declaration = { title: string; text: string; at: number }
 const DECLARATIONS: Declaration[] = [
   ...SRC_CODE.matchAll(/data-guide-title="([^"]*)"\s*\n\s*data-guide="([^"]*)"/g),
@@ -360,8 +365,24 @@ describe('⚖ Liam 8/23 — the ? is wired to the walk, and the keyboard is not 
   it('the walk is scoped to the ROOM, and re-measures when the page moves under it', () => {
     // The shell's rail and topbar are not this page; the room is also rendered
     // on its own in the evidence harness, where `document` would be the harness.
-    expect(SRC_CODE).toContain('const targets = spotTargets(rootRef.current)')
+    expect(SRC_CODE).toContain('const targets = byRenderedOrder(spotTargets(rootRef.current))')
     expect(SRC_CODE).toContain('ref={rootRef}')
+    // ⚖ F-M3 — AND IT WALKS IN THE ORDER THE READER SEES. The engine's registry
+    // is DOM order on its own contract 「DOM order is visual order」, which this
+    // room broke the moment ⑯ put `order:` on the phone's 閉店 column. The order
+    // is derived from RENDERED position at walk time, so a future reorder needs
+    // nothing kept in sync — and it is re-derived on every pass, not cached.
+    expect(SRC_CODE).toMatch(/const byRenderedOrder = \(els: HTMLElement\[\]\): HTMLElement\[\] =>/)
+    // A box standing clear below another IN THE SAME COLUMN comes after it;
+    // anything else — two columns on one line, a section nested inside a section
+    // — is not a top-to-bottom question and keeps DOM order. BOTH halves are
+    // load-bearing: a plain sort on `top` zigzags between the desktop's two
+    // columns, and no sort at all walks the phone's 閉店 against ⑯.
+    expect(SRC_CODE).toContain('a.left >= b.right || b.left >= a.right ? 0 : a.top >= b.bottom ? 1 : b.top >= a.bottom ? -1 : 0,')
+    // The room does not reach into the SHARED engine to fix its own reflow:
+    // `guide.ts` still states DOM order for every other room that has no
+    // `order:` at all, and the sort lives where the reflow does.
+    expect(GUIDE_CODE).toContain('DOM order is visual order, so the walk needs no sort')
     // The hole is drawn in viewport coordinates, so a scroll or a resize has to
     // re-measure or it drifts off the section it is explaining.
     expect(SRC_CODE).toContain("window.addEventListener('resize', bump)")

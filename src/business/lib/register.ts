@@ -77,7 +77,14 @@ export const SALES_ACCESS_BY_ROLE: Record<string, SalesAccess> = {
 export const NO_ACCESS: SalesAccess = { refund: false, close: false, redactSummary: true }
 
 export function accessFor(role: string): SalesAccess {
-  return SALES_ACCESS_BY_ROLE[role] ?? NO_ACCESS
+  // ⚖ F-M1 — FAIL-CLOSED MEANS THE TABLE'S OWN ROWS, NOT EVERYTHING IT INHERITS.
+  // A bare index walks the PROTOTYPE CHAIN, so a role named `toString`,
+  // `constructor`, `valueOf`, `hasOwnProperty` or `__proto__` resolved to a
+  // Function or to Object.prototype, `?? NO_ACCESS` never fired, and all three
+  // flags read `undefined`: the day's totals printed UNREDACTED on a money desk
+  // whose own comment twenty lines up promises the opposite. `Object.hasOwn`
+  // asks the three rows above and nothing else, so the comment is true again.
+  return Object.hasOwn(SALES_ACCESS_BY_ROLE, role) ? SALES_ACCESS_BY_ROLE[role] : NO_ACCESS
 }
 
 /** canon `renderPermissionNotice` (:984-1001) — what the page says out loud when
@@ -86,12 +93,17 @@ export function accessFor(role: string): SalesAccess {
  *  reader guessing which half is missing. */
 export function permissionNotice(access: SalesAccess): string | null {
   if (access.redactSummary) {
-    // ⚖ THE RULE ITSELF, SAID OUT LOUD. A notice that lists which tiles are
-    // blank leaves the reader to work out the pattern from what is missing; the
-    // pattern IS the rule, and it is one sentence: the day's totals and the cash
-    // are hidden, every individual transaction is not. Saying it stops a
-    // スタッフ wondering whether the ledger they can read is also lying to them.
-    return 'この役割では、1日の合計金額と現金の金額は表示しません。取引1件ごとの内容と金額はこれまでどおり確認できます。返金と閉店の操作は実行できません。'
+    // ⚖ THE RULE ITSELF, SAID OUT LOUD — AND THE RULE THE STRIP ACTUALLY FOLLOWS
+    // (F-M5). A notice that lists which tiles are blank leaves the reader to work
+    // out the pattern from what is missing; the pattern IS the rule. But the rule
+    // as written — 「1日の合計金額と現金の金額は表示しません」 — was not the one this
+    // page keeps: 返金・取消 and 未収 are day totals too, and they print in the very
+    // same band, deliberately (register-props.ts — they are the exceptions a
+    // スタッフ has to act on, and the 決済端末 band prints 対象金額 for the same
+    // reason). A sentence a reader can disprove by looking two centimetres to the
+    // right costs more trust than the redaction saves, so it names the exceptions
+    // instead of pretending they are not there.
+    return 'この役割では、その日の売上の合計（総売上・純売上・受領済み）と現金に関する金額は表示しません。返金・取消、未収、決済端末が保持している金額は、その場で対応が必要なため、1日の合計でもそのまま表示します。取引1件ごとの内容と金額も、これまでどおり確認できます。返金と閉店の操作は実行できません。'
   }
   if (!access.close) {
     return 'この役割では返金・取消を実行できます。端末の照合、現金計数、未収の記録、閉店の確定は店舗管理者の権限が必要なため、閉店の画面は表示していません。'
@@ -725,9 +737,18 @@ export interface ClosingInput {
   unsettledVisits: Array<{ bookingNo: string; who: string; amount: number }>
   /** ⑨ THE ROWS' LANDING POINTS, resolved by the caller because they are LEDGER
    *  facts: which transaction the terminal is holding, and which one carries the
-   *  balance nobody has decided about. `null` when the day has no such row —
-   *  then the gate lands on the filter alone. */
-  terminalTx: string | null
+   *  balance nobody has decided about.
+   *
+   *  ⚖ AND THE HELD ROW TRAVELS WITH ITS OWN VERDICT TOO (F-M2 — the F-S2 class,
+   *  still open on the terminal row). `terminal_held` and the LEDGER are two
+   *  independent planes: a held record whose booking never became a register
+   *  transaction has NO row to land on, and the jump still travelled — to
+   *  「すべて」 with no target, where the screen's own "the open transaction
+   *  follows the list" rule auto-selected an UNRELATED row whose 閉店への影響 read
+   *  「この取引は閉店を妨げていません。」 One press, and the gate and the landing
+   *  contradicted each other. `null` means there is nowhere to go, and the gate
+   *  keeps its evidence and drops its doorway — the 未精算の施術 shape. */
+  terminalTx: { id: string; filter: RegisterFilter } | null
   /** ⚖ A GATE NEVER ADVERTISES A TRIP IT DOES NOT TAKE (F-S2). The balance row
    *  arrives WITH THE VERDICT THAT PAINTS ITS OWN PILL — `TransactionModel.filter`,
    *  the very predicate the counter strip and the filter row narrow the ledger
@@ -790,7 +811,16 @@ export function closingReadiness(input: ClosingInput): ClosingVerdict {
         : `端末内に${heldCount}件保持 / 対象 ${yen(heldAmount)}`,
       done: terminalDone,
       status: terminalDone ? '完了' : '未完了',
-      jump: terminalDone ? null : { kind: 'ledger', filter: 'all', tx: input.terminalTx },
+      // ⚖ ONE VERDICT, GATE AND JUMP (F-M2). The destination is the held row's
+      // OWN class — the predicate the counter strip and the filter row narrow
+      // through — never a category written down here; and with no row in the
+      // ledger there is no destination at all, so the gate stays open, keeps
+      // printing what the terminal is holding, and offers no doorway rather than
+      // landing the closer somewhere that contradicts it.
+      jump:
+        terminalDone || input.terminalTx === null
+          ? null
+          : { kind: 'ledger', filter: input.terminalTx.filter, tx: input.terminalTx.id },
     },
     {
       key: 'cash',

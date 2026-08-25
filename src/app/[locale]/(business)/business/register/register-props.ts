@@ -206,7 +206,11 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
   // the page is about to print — so a jump can never aim at a transaction this
   // lens cannot see.
   const heldIds = new Set(terminalHeld.map((h) => h.appointment_id))
-  const terminalTx = models.find((m) => m.appointmentId !== null && heldIds.has(m.appointmentId))?.id ?? null
+  // ⚖ F-M2 — THE HELD ROW CARRIES ITS OWN VERDICT, and it can be absent. The two
+  // planes are independent: a held record whose booking never reached the
+  // register has no ledger row here, and the gate must then have nowhere to send
+  // anyone rather than a filter with no target in it.
+  const terminalRow = models.find((m) => m.appointmentId !== null && heldIds.has(m.appointmentId)) ?? null
   // ⚖ F-S2 — AND THE ROW'S OWN VERDICT TRAVELS WITH IT. The gate narrows the
   // ledger through `matchesFilter`, so the filter it presses has to be the one
   // the target row is classed under; reading the model's `filter` here is the
@@ -226,7 +230,7 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
         heldCount: terminalHeld.length,
         heldAmount: terminalHeld.reduce((n, h) => n + h.amount, 0),
         unsettledVisits,
-        terminalTx,
+        terminalTx: terminalRow && { id: terminalRow.id, filter: terminalRow.filter },
         outstandingTx: outstandingRow && { id: outstandingRow.id, filter: outstandingRow.filter },
         hasCardTender,
         completedVisits: completedToday.length,
