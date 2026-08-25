@@ -35,6 +35,7 @@ async function requireOwnPath(path: string): Promise<void> {
   const prefix = `app_${businessId}_`
   const suffix = '.webm'
   if (
+    typeof path !== 'string' ||
     !path.startsWith(prefix) ||
     !path.endsWith(suffix) ||
     !TAKE_UUID.test(path.slice(prefix.length, -suffix.length))

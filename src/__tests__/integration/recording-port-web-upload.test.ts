@@ -97,9 +97,22 @@ describe('webRecordingPort.prepareTranscription', () => {
 
   it('cleanup is fire-and-forget — a rejecting delete never escapes', async () => {
     removeRecordingObject.mockRejectedValue(new Error('rpc down'))
-    const { cleanup } = await webRecordingPort.prepareTranscription(blob())
-    expect(() => cleanup()).not.toThrow()
-    await Promise.resolve()
+    // cleanup() is called and not awaited, so "it didn't throw" is free — the
+    // rejection would escape as an UNHANDLED one, which only the guard prevents.
+    const unhandled = jest.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      const { cleanup } = await webRecordingPort.prepareTranscription(blob())
+      expect(() => cleanup()).not.toThrow()
+      // Node reports an unhandled rejection once the microtask queue has drained
+      // and the tick ends — take a full loop turn before reading the spy.
+      await Promise.resolve()
+      await Promise.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
   })
 
   it('a rejected upload fails the take loudly (no silent empty transcript)', async () => {

@@ -11,7 +11,11 @@ const requireCapability = jest.fn(async (_c: string) => {})
 jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: (c: string) => requireCapability(c),
 }))
-jest.mock('@/lib/staff', () => ({ getBusinessId: async () => 'biz-1' }))
+// A jest.fn, not a bare async literal: the capability gate must run BEFORE the
+// tenant fence, and "the fence never asked who the caller is" is the only
+// evidence of that ordering (storage-not-reached also holds if the gate is last).
+const getBusinessId = jest.fn(async () => 'biz-1')
+jest.mock('@/lib/staff', () => ({ getBusinessId: () => getBusinessId() }))
 
 const createSignedUploadUrl = jest.fn(async (p: string) => ({
   data: { path: p, signedUrl: `https://proj.supabase.co/upload/${p}?token=t`, token: 'tok-1' },
@@ -67,11 +71,26 @@ const REFUSED: [string, string][] = [
   ['no unique part at all', 'app_biz-1_.webm'],
 ]
 
+// Not a string, but string-SHAPED: every method the fence calls answers
+// conformingly. A server action's argument is caller-supplied JSON, so the type
+// annotation proves nothing at runtime — the guard must refuse this before it
+// invokes a single one of these.
+const IMPOSTOR = {
+  startsWith: () => true,
+  endsWith: () => true,
+  slice: () => UUID,
+} as unknown as string
+
+// Real tenant ids are uuids, not short slugs — the mint test signs against one so
+// the flat-key assertion is proved on the shape production actually composes.
+const BIZ_UUID = 'c47a1f2e-6b90-4d3a-8e15-9f0c2a7d4b61'
+
 beforeEach(() => {
   jest.clearAllMocks()
   // removeRecordingObject warns on every refusal by design — keep the run readable.
   jest.spyOn(console, 'warn').mockImplementation(() => {})
   requireCapability.mockImplementation(async () => {})
+  getBusinessId.mockImplementation(async () => 'biz-1')
   createSignedUploadUrl.mockImplementation(async (p: string) => ({
     data: { path: p, signedUrl: `https://proj.supabase.co/upload/${p}?token=t`, token: 'tok-1' },
     error: null,
@@ -85,9 +104,12 @@ beforeEach(() => {
 
 describe('mintRecordingUploadUrl — the key shape the whole pipeline assumes', () => {
   it('mints app_${businessId}_<uuid>.webm and hands back the signed URL + token', async () => {
+    getBusinessId.mockResolvedValue(BIZ_UUID)
     const res = await mintRecordingUploadUrl()
     expect(res.path).toMatch(
-      /^app_biz-1_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.webm$/,
+      new RegExp(
+        `^app_${BIZ_UUID}_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.webm$`,
+      ),
     )
     // Flat key — /api/cleanup lists the bucket ROOT non-recursively.
     expect(res.path).not.toContain('/')
@@ -129,9 +151,18 @@ describe('mintRecordingReadUrl — the tenant fence', () => {
     expect(createSignedUrl).not.toHaveBeenCalled()
   })
 
+  it('refuses a string-shaped non-string before it calls a method on it', async () => {
+    await expect(mintRecordingReadUrl(IMPOSTOR)).rejects.toThrow(
+      'recording not found in this business',
+    )
+    expect(createSignedUrl).not.toHaveBeenCalled()
+  })
+
   it('gates on records.write before the fence even runs', async () => {
     requireCapability.mockRejectedValue(new Error('forbidden'))
     await expect(mintRecordingReadUrl(OWN)).rejects.toThrow('forbidden')
+    // The fence's first act is asking who the caller is — never asked = never ran.
+    expect(getBusinessId).not.toHaveBeenCalled()
     expect(createSignedUrl).not.toHaveBeenCalled()
   })
 })
@@ -147,11 +178,18 @@ describe('removeRecordingObject — same fence, and it never throws', () => {
     expect(removeObj).not.toHaveBeenCalled()
   })
 
+  it('refuses a string-shaped non-string before it calls a method on it', async () => {
+    await expect(removeRecordingObject(IMPOSTOR)).resolves.toEqual({ error: 'failed' })
+    expect(removeObj).not.toHaveBeenCalled()
+  })
+
   it('a denied capability returns the error arm, never a throw into the recording UX', async () => {
     requireCapability.mockRejectedValue(new Error('forbidden'))
     await expect(removeRecordingObject(OWN)).resolves.toEqual({
       error: 'failed',
     })
+    // The fence's first act is asking who the caller is — never asked = never ran.
+    expect(getBusinessId).not.toHaveBeenCalled()
     expect(removeObj).not.toHaveBeenCalled()
   })
 
