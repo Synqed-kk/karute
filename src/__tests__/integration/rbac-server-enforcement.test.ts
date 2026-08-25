@@ -64,6 +64,16 @@ const SELF_STAFF_ID = 'staff-self'
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'biz-1'),
   getCurrentUserStaffId: jest.fn(async () => SELF_STAFF_ID),
+  // loadKaruteWindow's fan-out (round 4): without these the action died on an
+  // undefined import before ever reaching the read, which made the leap-date
+  // test below pass VACUOUSLY.
+  getStaffList: jest.fn(async () => []),
+}))
+
+// Same fan-out. Mutations in this suite never touch the customer list, so a
+// bare [] is enough for the row projection to run.
+jest.mock('@/lib/customers/list-all', () => ({
+  listAllCustomersCached: jest.fn(async () => []),
 }))
 
 // Best-effort side-effects of saveKaruteRecord — no-op so the test focuses on
@@ -94,6 +104,7 @@ jest.mock('@synqed-kk/client', () => {
 // suites don't exercise store scoping, so stub it to the all-stores lens.
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: jest.fn(async () => ({ storeId: null, viewAll: true, allowedStoreIds: null })),
+  storeStaffIdSet: jest.fn(async () => null),
 }))
 
 jest.mock('@/lib/auth/require-permission', () => ({
@@ -110,7 +121,7 @@ jest.mock('@/lib/synqed/client', () => {
     deleteEntry: jest.fn(async () => ({})),
     get: jest.fn(async () => ({ entries: [] })),
     update: jest.fn(async () => ({})),
-    list: jest.fn(async () => ({ karute_records: [] })),
+    list: jest.fn(async () => ({ karute_records: [], total: 0 })),
   }
   const appointments = {
     create: jest.fn(async () => ({ id: 'appt-1' })),
@@ -121,6 +132,8 @@ jest.mock('@/lib/synqed/client', () => {
     get: jest.fn(async () => null),
   }
   const staffStores = { get: jest.fn(async () => ({ store_ids: [] })) }
+  // loadKaruteWindow's row projection translates synqed staff ids (round 4).
+  const staff = { list: jest.fn(async () => ({ staff: [] })) }
   const stores = { list: jest.fn(async () => ({ stores: [] })) }
   // deleteAppointmentCore's burn-dedup guard (FIX 8) reads this before every
   // delete — this suite never exercises a burned booking, so [] every time.
@@ -144,7 +157,7 @@ jest.mock('@/lib/synqed/client', () => {
     }),
     listPhotos: jest.fn(async () => ({ photos: [{ id: 'photo-1' }] })),
   }
-  const client = { karuteRecords, appointments, staffStores, stores, customers, packs }
+  const client = { karuteRecords, appointments, staffStores, stores, customers, packs, staff }
   return { getSynqedClient: jest.fn(async () => client) }
 })
 
@@ -153,6 +166,7 @@ import {
   saveKaruteRecordInline,
   deleteKaruteRecord,
   createManualKaruteRecord,
+  loadKaruteWindow,
 } from '@/actions/karute'
 import {
   regenerateKaruteEntries,
@@ -395,5 +409,37 @@ describe('RBAC — bookings.manage actions', () => {
     const result = await deleteAppointment('appt-1')
     expect(result).toEqual({ success: true })
     expect(appointments.delete).toHaveBeenCalledWith('appt-1')
+  })
+})
+
+// Not an RBAC gate — parked in THIS suite because it is the one harness that
+// already boots the real @/actions/karute module (a second 60-line mock header
+// duplicating it would be worse than the topical stretch). The capability gate
+// stays granted throughout, so the ONLY thing that can refuse here is the
+// calendar check itself.
+describe('loadKaruteWindow refuses calendar-impossible input (Greptile PR #779 P1)', () => {
+  it('a rolled-over day returns { error }, never a window nobody asked for', async () => {
+    // 2026-02-30 does NOT throw in JS — `new Date` slides it to 2026-03-02, so
+    // an unvalidated walk would happily read the wrong window and report that
+    // boundary back as if the caller had asked for it.
+    const result = await loadKaruteWindow({ olderThan: '2026-02-30' })
+    expect(result).toEqual({ error: 'olderThan must be a real calendar date (YYYY-MM-DD)' })
+    expect(requireCapability).toHaveBeenCalledWith('customers.view')
+  })
+
+  it('an impossible month returns { error }, never an Invalid Date thrown out of the walk', async () => {
+    const result = await loadKaruteWindow({ month: '2026-13' })
+    expect(result).toEqual({ error: 'month must be a real calendar month (YYYY-MM)' })
+  })
+
+  it('a REAL leap date passes the gate and reaches the read', async () => {
+    const result = await loadKaruteWindow({ olderThan: '2028-02-29' })
+    expect(result).not.toEqual(
+      expect.objectContaining({ error: expect.stringContaining('real calendar') }),
+    )
+    // The half that earns the title: the gate not only stayed quiet, the walk
+    // actually ran. Without this the test would still pass if the action bailed
+    // out somewhere else before ever reading.
+    expect(karuteRecords.list).toHaveBeenCalled()
   })
 })

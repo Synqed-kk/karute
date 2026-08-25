@@ -326,7 +326,6 @@
     "title": "カルテ",
     "stats": {
       "thisMonth": "今月 ・ {n}",
-      "last14": "直近14日 ・ {n}",
       "showing": "{n}件表示"
     },
     "newKarute": "新規カルテ",
@@ -1355,9 +1354,19 @@
     },
     "tabHeading": "カルテ",
     "recordList": {
-      "statusLine": "今月のカルテ · {monthCount} · 過去14日間 · {showingCount}件を表示中",
+      "statusLine": "カルテ 全{total}件 ・ 今月 {monthCount}件 ・ 表示中 {showingCount}件",
+      "statusLineNoMonth": "カルテ 全{total}件 ・ 表示中 {showingCount}件",
+      "loadMore": "さらに表示（{date}以前のカルテ）",
+      "addedCount": "{n}件を読み込みました",
+      "loadMoreFailed": "読み込みに失敗しました。もう一度お試しください",
       "newKarute": "+ 新規カルテ",
       "searchPlaceholder": "顧客名・サービス・スタッフで検索...",
+      "revealSummary": "初回セッションを記録すると、ここに表示されます",
+      "revealCreate": "カルテを作成",
+      "month": {
+        "panelTitle": "月を選択",
+        "note": "月を選ぶと、その月のカルテに絞り込まれます。"
+      },
       "filters": {
         "all": "すべて",
         "thisWeek": "今週",
@@ -1381,7 +1390,6 @@
       },
       "minutesSuffix": "分",
       "empty": "カルテはまだありません",
-      "newCustomersHeader": "カルテ未作成のお客様 · まだセッションなし",
       "noSessionYet": "まだセッションなし",
       "newKaruteDialog": {
         "title": "新規カルテの作成",
@@ -2397,7 +2405,7 @@
         },
         "recording": {
           "discard": "録音を破棄",
-          "session_cleanup": "録音セッション行を削除",
+          "session_cleanup": "録音を破棄",
           "transcribe": "録音を文字起こし"
         }
       },
@@ -2427,6 +2435,9 @@
       "entryEditPartial": "これより古い履歴は表示されません",
       "autostartOn": "自動録音をON（{store}）",
       "autostartOff": "自動録音をOFF（{store}）",
+      "recordingNoCustomer": "顧客未選択の録音",
+      "recordingUnresolved": "録音",
+      "durationSuffix": "（{n}秒）",
       "menuUpdate": {
         "duration": "所要時間",
         "price": "料金",

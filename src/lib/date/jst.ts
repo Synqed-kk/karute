@@ -119,6 +119,14 @@ export function jstStartOfToday(): Date {
   return jstWallTimeToDate(ymdInJst(), '00:00')
 }
 
+/** JST midnight of the 1st of the month containing `d` (mirrors
+ *  jstStartOfToday). Used for month-window server queries (今月 status-line
+ *  count, PR-1b カルテ tab restructure). */
+export function jstStartOfMonth(d: Date = new Date()): Date {
+  const p = partsInJst(d)
+  return jstWallTimeToDate(`${p.year}-${pad2(p.month)}-01`, '00:00')
+}
+
 /** "right now" as a Date — alias for `new Date()`, kept for symmetry. */
 export function nowUtc(): Date {
   return new Date()

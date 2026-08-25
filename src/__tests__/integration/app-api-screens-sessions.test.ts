@@ -60,17 +60,12 @@ const storesGet = jest.fn(async (id: string) => {
 })
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 const karuteList = jest.fn(async () => ({ karute_records: KARUTE, total: KARUTE.length }))
-// cust-3 has a booking with synqed staff sstaff-1 → resolves to profile staff-2.
-const apptsList = jest.fn(async () => ({
-  appointments: [{ customer_id: 'cust-3', staff_id: 'sstaff-1', starts_at: TODAY }],
-}))
 const staffList = jest.fn(async () => ({ staff: [{ id: 'sstaff-1', user_id: 'staff-2' }] }))
 const fakeClient = {
   customers: { list: listCustomers },
   stores: { get: storesGet },
   staffStores: { get: staffStoresGet },
   karuteRecords: { list: karuteList },
-  appointments: { list: apptsList },
   staff: { list: staffList },
 }
 jest.mock('@/lib/synqed/client', () => ({
@@ -134,11 +129,17 @@ describe('GET /api/app/v1/screens/sessions — happy path', () => {
     expect(res.status).toBe(200)
     const dto = await res.json()
 
-    // 2 real records, 1 placeholder (cust-3 has no karute), monthCount = both
-    // records dated today (current month).
+    // 2 real records, monthCount = both records dated today (current month).
+    // cust-3 has no karute but no longer gets a placeholder row (PR-1a
+    // 未作成ブロック廃止) — placeholders always ships [] (release-17
+    // tolerance; see SessionsScreenDTO's doc comment).
     expect(dto.items).toHaveLength(2)
-    expect(dto.placeholders).toHaveLength(1)
+    expect(dto.placeholders).toEqual([])
     expect(dto.monthCount).toBe(2)
+    // PR-1b: total is a server total (store-wide, unfiltered by date) —
+    // the fake karuteList mock returns the same 2-record total for every
+    // call shape, so both monthCount and total read 2 here.
+    expect(dto.total).toBe(2)
 
     const rec1 = dto.items.find((i: { id: string }) => i.id === 'rec-1')
     expect(rec1.aiStatus).toBe('summarized')
@@ -147,13 +148,6 @@ describe('GET /api/app/v1/screens/sessions — happy path', () => {
     const rec2 = dto.items.find((i: { id: string }) => i.id === 'rec-2')
     expect(rec2.aiStatus).toBe('pending')
     expect(rec2.conversionStatus).toBe('provisional')
-
-    // Placeholder 担当 resolved from the booking (synqed sstaff-1 → profile staff-2).
-    const ph = dto.placeholders[0]
-    expect(ph.customerId).toBe('cust-3')
-    expect(ph.isPlaceholder).toBe(true)
-    expect(ph.staffId).toBe('staff-2')
-    expect(ph.staffName).toBe('田中 太郎')
 
     expect(dto.currentStaffId).toBe('auth-user-1') // on the roster
     expect(dto.customerOptions).toHaveLength(3)
@@ -167,6 +161,21 @@ describe('GET /api/app/v1/screens/sessions — happy path', () => {
       { id: 'staff-2', name: '田中 太郎', initials: expect.any(String), isManagement: false },
     ])
     expect(newSynqedClient).toHaveBeenCalledWith('business-1')
+  })
+
+  it('monthCount is sourced from a SEPARATE server call with JST month bounds, not a client-side filter (PR-1b 正直ヘッダー)', async () => {
+    const res = await GET(req({ headers: auth }), route)
+    expect(res.status).toBe(200)
+    // Two calls: the main row read (no from/to) and the 今月 probe (from/to
+    // set, page_size 1) — a revert to client-side date filtering would
+    // collapse this back to one call with no from/to at all.
+    expect(karuteList).toHaveBeenCalledTimes(2)
+    const calls = karuteList.mock.calls as unknown as Array<[Record<string, unknown>]>
+    const probeCall = calls.find((c) => 'from' in c[0])
+    expect(probeCall).toBeDefined()
+    expect(probeCall?.[0]).toEqual(
+      expect.objectContaining({ page_size: 1, from: expect.any(String), to: expect.any(String) }),
+    )
   })
 })
 
@@ -273,5 +282,156 @@ describe('OPTIONS preflight', () => {
     expect(res.status).toBe(204)
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe('capacitor://localhost')
     expect(res.headers.get('Access-Control-Allow-Credentials')).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PR-2a 日付チャンク読み込み — version negotiation on this endpoint.
+//
+// THE DECISIVE TEST is the first one below: a BARE call (what every release-17
+// bundle in the field sends) must serialize to the SAME BYTES it did before
+// PR-2a. The expected literal is transcribed from the schema declaration order
+// in SessionsScreenDTO as it stands at origin/main (76646b4e) — key order and
+// key SET both. If a later change adds, drops, renames or reorders a key on the
+// legacy path, this fails, which is the whole point: zod's `.default()` injects
+// keys at parse time, so merging the window fields into the shared schema would
+// have leaked them into the legacy body silently.
+//
+// REBASE NOTE (fix round 2): the branch's base moved from 76646b4e to 2e8bc361
+// (the B0 motion-tokens commit). The parity-relevant files —
+// sessions-screen-dto.ts, screens/sessions/route.ts, karute/screen-rows.ts,
+// list/types.ts and staff-colors.ts — are byte-for-byte UNCHANGED between the
+// two commits, so the transcribed literal below still describes origin/main.
+// ---------------------------------------------------------------------------
+const FIXED = '2026-08-20T02:00:00.000Z'
+const FIXED_KARUTE = [
+  { id: 'rec-1', customer_id: 'cust-1', created_at: FIXED, session_date: FIXED, ai_summary: 'まとめ', transcript: '発話', staff_id: 'sstaff-1', business_id: 'business-1', entry_count: 2 },
+]
+const windowReq = (qs: string, init: RequestInit = {}) =>
+  new Request(`https://s/api/app/v1/screens/sessions${qs}`, init)
+// The shared karuteList mock is declared arg-less; the window walk calls it
+// WITH options, so read them back through one typed view.
+type KaruteListArgs = { from?: string; to?: string; store_id?: string; page_size?: number }
+const karuteCalls = () =>
+  karuteList.mock.calls as unknown as Array<[KaruteListArgs | undefined]>
+
+describe('GET /api/app/v1/screens/sessions — release-17 bare-call byte parity', () => {
+  beforeEach(() => {
+    karuteList.mockResolvedValue({ karute_records: FIXED_KARUTE, total: 1 })
+  })
+
+  it('a BARE call serializes byte-for-byte to the pre-PR-2a legacy shape', async () => {
+    const res = await GET(windowReq('', { headers: auth }), route)
+    expect(res.status).toBe(200)
+    const body = await res.text()
+
+    const expected = JSON.stringify({
+      items: [
+        {
+          id: 'rec-1',
+          customerId: 'cust-1',
+          customerName: '山田 花子',
+          customerInitials: '山田',
+          customerKaruteNumber: '#00001',
+          date: '2026-08-20',
+          weekday: '木',
+          service: '—',
+          duration: 0,
+          staffId: 'staff-2',
+          staffColorKey: 'violet',
+          staffName: '田中 太郎',
+          summary: 'まとめ',
+          aiStatus: 'summarized',
+          conversionStatus: 'active',
+          href: '/karute/rec-1',
+        },
+      ],
+      placeholders: [],
+      monthCount: 1,
+      total: 1,
+      staffList: [
+        { id: 'auth-user-1', name: '佐藤 美咲', initials: '佐藤', isManagement: false },
+        { id: 'staff-2', name: '田中 太郎', initials: '田中', isManagement: false },
+      ],
+      currentStaffId: 'auth-user-1',
+      customerOptions: [
+        { id: 'cust-1', name: '山田 花子', phone: '090-1', furigana: null },
+        { id: 'cust-2', name: '鈴木 一郎', phone: null, furigana: null },
+        { id: 'cust-3', name: '高橋 実', phone: null, furigana: null },
+      ],
+    })
+    expect(body).toBe(expected)
+  })
+
+  it('a bare call carries NO window keys and reads the LEGACY newest-200 slab', async () => {
+    const res = await GET(windowReq('', { headers: auth }), route)
+    const body = await res.text()
+    expect(body).not.toContain('hasMore')
+    expect(body).not.toContain('windowStart')
+    // The legacy karute read is one undated page_size:200 call — no date walk.
+    const dated = karuteCalls().filter((c) => c[0]?.from && c[0]?.page_size === 200)
+    expect(dated).toHaveLength(0)
+  })
+
+  it('an unrecognised param value (?window=0, ?window=yes) still gets the legacy shape', async () => {
+    for (const qs of ['?window=0', '?window=yes', '?windows=1']) {
+      const res = await GET(windowReq(qs, { headers: auth }), route)
+      expect(await res.text()).not.toContain('windowStart')
+    }
+  })
+})
+
+describe('GET /api/app/v1/screens/sessions?window=1 — the release-18 windowed shape', () => {
+  beforeEach(() => {
+    karuteList.mockResolvedValue({ karute_records: FIXED_KARUTE, total: 1 })
+  })
+
+  it('adds hasMore + windowStart ON TOP of the legacy keys (additive only)', async () => {
+    const res = await GET(windowReq('?window=1', { headers: auth }), route)
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(Object.keys(dto)).toEqual([
+      'items',
+      'placeholders',
+      'monthCount',
+      'total',
+      'staffList',
+      'currentStaffId',
+      'customerOptions',
+      'hasMore',
+      'windowStart',
+    ])
+    expect(typeof dto.windowStart).toBe('string')
+    // 1 row loaded of a 1-row store → nothing older.
+    expect(dto.hasMore).toBe(false)
+    expect(dto.items).toHaveLength(1)
+  })
+
+  it('reads through the DATE WALK (from/to windows), not the flat slab', async () => {
+    await GET(windowReq('?window=1', { headers: auth }), route)
+    const dated = karuteCalls().filter((c) => c[0]?.from)
+    expect(dated.length).toBeGreaterThan(0)
+    // Store scope rides every windowed read (viewAll + no store-id here, so
+    // store_id is absent — but the walk must never lose a set lens).
+    const res2 = await GET(
+      windowReq('?window=1', { headers: { ...auth, 'store-id': 'store-1' } }),
+      route,
+    )
+    expect(res2.status).toBe(200)
+    const scoped = karuteCalls().filter((c) => c[0]?.store_id === 'store-1')
+    expect(scoped.length).toBeGreaterThan(0)
+  })
+
+  it('hasMore is true when the store holds more than the first window', async () => {
+    // The window read finds 1 row; the store total probe reports 9.
+    karuteList.mockImplementation(async (opts: { from?: string } = {}) =>
+      opts.from
+        ? { karute_records: FIXED_KARUTE, total: 1 }
+        : { karute_records: FIXED_KARUTE, total: 9 },
+    )
+    const res = await GET(windowReq('?window=1', { headers: auth }), route)
+    const dto = await res.json()
+    expect(dto.total).toBe(9)
+    expect(dto.hasMore).toBe(true)
   })
 })

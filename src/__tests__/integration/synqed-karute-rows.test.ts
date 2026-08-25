@@ -6,7 +6,12 @@
  *   - graceful [] on synqed-core error
  *   - merge dedupes by id (Supabase wins), sorts date-desc, caps at limit
  */
-import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
+import {
+  listSynqedKaruteRows,
+  listSynqedKaruteRowsWithTotal,
+  listSynqedKaruteRowsWithTotalOrThrow,
+  mergeKaruteRows,
+} from '@/lib/karute/synqed-records'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const asClient = (list: (...a: unknown[]) => unknown) => ({ karuteRecords: { list } }) as any
@@ -76,6 +81,101 @@ describe('listSynqedKaruteRows', () => {
     expect(rows).toEqual([])
   })
 })
+
+// PR-1b (正直ヘッダー + 検索リビール): the sibling that also reads `total` —
+// used both for the main row read (store-wide total) and the 今月 probe
+// (from/to bounds, page_size 1). Existing listSynqedKaruteRows(OrThrow) pair
+// above is untouched; this is coverage for the ADDITION only.
+describe('listSynqedKaruteRowsWithTotalOrThrow', () => {
+  it('maps rows the same way as listSynqedKaruteRows AND returns total', async () => {
+    const { rows, total } = await listSynqedKaruteRowsWithTotalOrThrow(
+      asClient(async () => ({
+        karute_records: [
+          {
+            id: 'k1',
+            business_id: 'biz',
+            customer_id: 'cli1',
+            staff_id: 'st1',
+            ai_summary: 'sum',
+            transcript: 't',
+            created_at: '2026-05-29T00:00:00Z',
+            entry_count: 3,
+          },
+        ],
+        total: 42,
+      })),
+    )
+    expect(total).toBe(42)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      id: 'k1',
+      summary: 'sum',
+      staff_profile_id: 'st1',
+      customer_id: 'biz',
+      client_id: 'cli1',
+    })
+  })
+
+  it('forwards customerId/storeId/from/to/page_size to the synqed list call', async () => {
+    const list = jest.fn(async () => ({ karute_records: [], total: 0 }))
+    await listSynqedKaruteRowsWithTotalOrThrow(asClient(list), {
+      customerId: 'cust-9',
+      storeId: 'store-1',
+      from: '2026-08-01T00:00:00.000Z',
+      to: '2026-08-24T00:00:00.000Z',
+      page_size: 1,
+    })
+    expect(list).toHaveBeenCalledWith({
+      customer_id: 'cust-9',
+      store_id: 'store-1',
+      from: '2026-08-01T00:00:00.000Z',
+      to: '2026-08-24T00:00:00.000Z',
+      page_size: 1,
+    })
+  })
+
+  it('defaults page_size to 200 and omits from/to when not given (main row-read shape)', async () => {
+    const list = jest.fn(async (_opts: unknown) => ({ karute_records: [], total: 0 }))
+    await listSynqedKaruteRowsWithTotalOrThrow(asClient(list), { storeId: 'store-1' })
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-1', page_size: 200 }),
+    )
+    expect(list.mock.calls[0][0]).not.toHaveProperty('from')
+    expect(list.mock.calls[0][0]).not.toHaveProperty('to')
+  })
+
+  it('throws through a synqed-core failure (no swallow)', async () => {
+    await expect(
+      listSynqedKaruteRowsWithTotalOrThrow(
+        asClient(async () => {
+          throw new Error('boom')
+        }),
+      ),
+    ).rejects.toThrow('boom')
+  })
+})
+
+describe('listSynqedKaruteRowsWithTotal', () => {
+  it('degrades to {rows: [], total: 0} when synqed-core throws', async () => {
+    const result = await listSynqedKaruteRowsWithTotal(
+      asClient(async () => {
+        throw new Error('boom')
+      }),
+    )
+    expect(result).toEqual({ rows: [], total: 0 })
+  })
+
+  it('passes through a real result unchanged on success', async () => {
+    const result = await listSynqedKaruteRowsWithTotal(
+      asClient(async () => ({ karute_records: [], total: 7 })),
+    )
+    expect(result).toEqual({ rows: [], total: 7 })
+  })
+})
+
+// The main-read + 今月-probe pairing MOVED to karute-window.ts in PR-2a (its
+// main leg is a date window now). Its independent-legs coverage moved with it:
+// src/__tests__/integration/karute-window.test.ts.
 
 describe('mergeKaruteRows', () => {
   const row = (id: string, date: string) => ({

@@ -92,6 +92,99 @@ export async function listSynqedKaruteRowsOrThrow(
   })
 }
 
+/** {@link listSynqedKaruteRowsWithTotal} / …OrThrow return shape: the mapped
+ *  rows (subject to page_size, same as today) PLUS the server's reported
+ *  `total` for the query as sent (all-time store total when called with no
+ *  from/to, or a date-windowed count when called with them — see the doc
+ *  comment below). */
+export interface KaruteRowsWithTotal {
+  rows: KaruteListRow[]
+  total: number
+}
+
+/**
+ * Sibling of {@link listSynqedKaruteRowsOrThrow} that also reads the synqed
+ * response's `total` and accepts `from`/`to` — needed for the カルテ tab's
+ * honest header (PR-1b 正直ヘッダー): monthCount is now a SERVER total, not a
+ * client-side filter over the loaded page. One function serves both call
+ * shapes so the mapping logic lives in one place:
+ *   - main row read (page_size 200, no from/to) → total = store-wide count
+ *   - 今月 probe (from/to = JST month bounds, page_size 1) → rows ignored,
+ *     only total read
+ * The existing {@link listSynqedKaruteRows} / {@link listSynqedKaruteRowsOrThrow}
+ * pair, their 8 call sites, and their test pins are UNTOUCHED — this is an
+ * ADDITION, not a replacement (their row-mapping logic is duplicated here on
+ * purpose rather than refactored, to keep the pinned pair's body exactly as
+ * it was).
+ */
+export async function listSynqedKaruteRowsWithTotalOrThrow(
+  synqed: SynqedClient,
+  opts?: {
+    customerId?: string
+    storeId?: string | null
+    from?: string
+    to?: string
+    /** 1-based. Only the PR-2a window loader pages; every other caller reads
+     *  page 1 implicitly, exactly as before. */
+    page?: number
+    page_size?: number
+  },
+): Promise<KaruteRowsWithTotal> {
+  const res = await synqed.karuteRecords.list({
+    ...(opts?.customerId ? { customer_id: opts.customerId } : {}),
+    ...(opts?.storeId ? { store_id: opts.storeId } : {}),
+    ...(opts?.from ? { from: opts.from } : {}),
+    ...(opts?.to ? { to: opts.to } : {}),
+    ...(opts?.page ? { page: opts.page } : {}),
+    page_size: opts?.page_size ?? 200,
+  })
+  const rows = (res.karute_records ?? []).map((r) => {
+    const extra = r as unknown as {
+      session_date?: string | null
+      service?: string | null
+      duration_minutes?: number | null
+    }
+    return {
+      id: r.id,
+      session_date: extra.session_date ?? null,
+      created_at: r.created_at,
+      summary: effectiveSummary(r),
+      transcript: r.transcript ?? null,
+      staff_profile_id: r.staff_id ?? null,
+      customer_id: r.business_id ?? null,
+      client_id: r.customer_id ?? '',
+      entries: [{ count: r.entry_count ?? r.entries?.length ?? 0 }],
+      service: extra.service ?? null,
+      duration_minutes: extra.duration_minutes ?? null,
+    }
+  })
+  return { rows, total: res.total ?? 0 }
+}
+
+/** Graceful sibling of {@link listSynqedKaruteRowsWithTotalOrThrow} — degrades
+ *  to `{rows: [], total: 0}` on a synqed-core failure, same swallow-and-log
+ *  posture as {@link listSynqedKaruteRows}. The facade route (packet 05
+ *  failure contract) uses the throwing variant directly. */
+export async function listSynqedKaruteRowsWithTotal(
+  synqed: SynqedClient,
+  opts?: Parameters<typeof listSynqedKaruteRowsWithTotalOrThrow>[1],
+): Promise<KaruteRowsWithTotal> {
+  try {
+    return await listSynqedKaruteRowsWithTotalOrThrow(synqed, opts)
+  } catch (err) {
+    console.error('[listSynqedKaruteRowsWithTotal] synqed-core fetch failed:', err)
+    return { rows: [], total: 0 }
+  }
+}
+
+/**
+ * NOTE (PR-2a): the main-read + 今月-probe pairing that used to live here moved
+ * to `karute-window.ts` as {@link loadKaruteWindowWithMonthProbe} — its main
+ * leg is now the first DATE WINDOW rather than a flat newest-200 read. The
+ * independent-legs contract (each leg its own catch, null = that leg failed)
+ * moved with it, unchanged.
+ */
+
 /**
  * Unions Supabase rows with synqed-core rows, de-duped by id (Supabase wins on
  * conflict), sorted by session_date ?? created_at descending, capped at `limit`.

@@ -3,7 +3,8 @@ import { renderStamp } from '@/lib/perf/render-stamp'
 import { startTiming } from '@/lib/perf/timing'
 import { getBusinessId, getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { listSynqedKaruteRows } from '@/lib/karute/synqed-records'
+import { loadKaruteWindowWithMonthProbe } from '@/lib/karute/karute-window'
+import { jstStartOfMonth } from '@/lib/date/jst'
 import { listAllCustomersCached } from '@/lib/customers/list-all'
 import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
 import { buildSessionsListScreen } from '@/lib/karute/screen-rows'
@@ -12,15 +13,13 @@ import { KaruteRecordListView } from '@/components/karute/spike-lifted/list/Karu
 /**
  * カルテ tab — RECORD-CENTRIC list of karute sessions.
  *
- * Phase A (this commit): one row per karute record, date-grouped,
- * AI status badges, karute-specific filters. Matches the design
- * spike's KaruteList structure end-to-end.
- *
- * Phase B (next): append placeholder rows for customers with NO
- * karute records yet so brand-new customers still appear (Liam's
- * earlier ask). Today they're invisible on this tab; the customer-
- * centric chip-row view we shipped previously is still reachable
- * via the 顧客 tab → tap a customer → karute detail page.
+ * One row per karute record, date-grouped, AI status badges,
+ * karute-specific filters. Matches the design spike's KaruteList
+ * structure end-to-end. (PR-1a 未作成ブロック廃止: the placeholder
+ * section for customers with no karute yet — briefly shipped — was
+ * removed; a brand-new customer with no session doesn't get a row
+ * here. The customer-centric chip-row view is still reachable via
+ * the 顧客 tab → tap a customer → karute detail page.)
  *
  * ANTHONY: karute_records currently lacks `service` (text) and
  * `duration_minutes` (int) columns. The row renderer expects both;
@@ -49,22 +48,27 @@ export default async function KaruteRecordsListPage() {
   const activeStore = scope.storeId
   const clamped = scope.allowedStoreIds != null
 
+  // JST month bounds for the 今月 status-line probe (PR-1b 正直ヘッダー) —
+  // computed once and reused for both reads in the wave below so they agree
+  // on "now" to the millisecond.
+  const now = new Date()
+  const monthStartIso = jstStartOfMonth(now).toISOString()
+  const nowIso = now.toISOString()
+
   const [
     staffList,
     allCustomersList,
-    storeCustomerList,
     currentStaffId,
-    synqedKaruteRows,
-    apptList,
+    karuteData,
     synqedStaff,
   ] = await Promise.all([
       t.phase('staffList', () => getStaffList()),
-      // Page to completion so カルテ rows + placeholder rows resolve for every
-      // customer, not just the first 500 (server clamps page_size at 500). This
-      // backs record-name enrichment AND the New カルテ dialog's customer picker.
-      // Cross-store viewers load it BUSINESS-WIDE (so names resolve + a karute
-      // can be created for another store's walk-in); a branch-restricted staff
-      // loads it SCOPED to their store (no cross-store names/customers leak).
+      // Page to completion so every customer resolves, not just the first 500
+      // (server clamps page_size at 500). This backs record-name enrichment
+      // AND the New カルテ dialog's customer picker. Cross-store viewers load
+      // it BUSINESS-WIDE (so names resolve + a karute can be created for
+      // another store's walk-in); a branch-restricted staff loads it SCOPED
+      // to their store (no cross-store names/customers leak).
       t.phase('customers.all', () =>
         clamped
         ? listAllCustomersCached(businessId, {
@@ -74,33 +78,47 @@ export default async function KaruteRecordsListPage() {
             sort_order: 'asc',
           })
         : listAllCustomersCached(businessId, { sort_by: 'created_at', sort_order: 'asc' })),
-      // Store-scoped customer roster — ONLY to scope the "新規のお客様"
-      // placeholder section to the active branch for a CROSS-STORE viewer who
-      // has pinned a store (a customer "belongs to" a store via events; see
-      // listAllCustomers). null when unpinned, or when clamped (the list above
-      // is already store-scoped, so its customers ARE the placeholder roster).
-      t.phase('customers.store', () =>
-        !clamped && activeStore
-        ? listAllCustomersCached(businessId, {
-            store_id: activeStore,
-            sort_by: 'created_at',
-            sort_order: 'asc',
-          })
-        : Promise.resolve(null)),
       t.phase('activeStaffId', () => getCurrentUserStaffId()),
       // synqed-core is the sole karute store (the Supabase karute_records table
       // is empty and being dropped). Scoped to the active branch so 代官山
       // karute don't surface under 銀座; the customer PROFILE stays unscoped.
-      t.phase('karuteRows', () => listSynqedKaruteRows(synqed, { storeId: activeStore })),
-      // Recent appointments (UNWINDOWED, like enrichCustomers) + the synqed
-      // staff roster — resolve each placeholder customer's 担当 from their
-      // booking, translating the synqed staff id into the profile id the
-      // color/name maps key on (same boundary translation getAppointmentsByDate
-      // does). No from/to filter on purpose: a window keyed on today drops a
-      // customer's already-past booking and the stripe goes blank again.
-      t.phase('appointments', () => synqed.appointments.list({ page_size: 200 })),
+      // PR-2a 日付チャンク読み込み: the row read is now the FIRST DATE WINDOW
+      // (probe-then-fetch, 2 weeks back), not a flat newest-200 — さらに表示
+      // walks further back from `windowStart`. It and the 今月 probe (JST month
+      // window, page_size:1) degrade INDEPENDENTLY (Greptile PR #775 round 2):
+      // the list is primary, the count is auxiliary — a probe failure must
+      // never discard already-loaded rows, and a window-read failure must never
+      // be masked by a lucky probe success. See
+      // loadKaruteWindowWithMonthProbe's doc for the full contract. LENS PARITY
+      // (from/to computation only — the facade stays shared-fate) with
+      // screens/sessions/route.ts.
+      t.phase('karuteData', () =>
+        loadKaruteWindowWithMonthProbe(synqed, {
+          storeId: activeStore,
+          monthFrom: monthStartIso,
+          monthTo: nowIso,
+          now,
+        }),
+      ),
+      // Synqed staff roster — translates a record's synqed staff id into the
+      // profile id the color/name maps key on (boundary translation mirrored
+      // in getAppointmentsByDate).
       t.phase('synqedStaff', () => synqed.staff.list({ page_size: 200 })),
     ])
+  const synqedKaruteRows = karuteData.data?.rows ?? []
+  // Nullable display values (Greptile PR #775 round 2): null means that leg
+  // failed — the view must render NO number for it, never a fake 0.
+  // buildSessionsListScreen's monthCount/total args stay plain numbers (the
+  // SAME shared builder the facade route calls with always-real numbers);
+  // these are what the view actually renders, bypassing screen.monthCount/
+  // screen.total below on purpose.
+  const displayMonthCount = karuteData.monthProbe?.total ?? null
+  const displayTotal = karuteData.data?.freshStoreTotal ?? null
+  // PR-2a: the loaded boundary + "is there older history" flag the さらに表示
+  // button keys on. null boundary = the window read failed (the button hides
+  // along with the whole status line).
+  const initialWindowStart = karuteData.data?.windowStart ?? null
+  const initialHasMore = karuteData.data?.hasMore ?? false
 
   // #496 store clamp: the 担当 picker only offers staff assigned to the active
   // store (or floating staff) — the full roster was leaking every branch's
@@ -115,11 +133,11 @@ export default async function KaruteRecordsListPage() {
     staffList,
     storeStaffIds,
     allCustomersList,
-    storeCustomerList,
     currentStaffId,
     synqedKaruteRows,
-    apptList,
     synqedStaff,
+    monthCount: displayMonthCount ?? 0,
+    total: displayTotal ?? 0,
   })
 
   return (
@@ -130,8 +148,14 @@ export default async function KaruteRecordsListPage() {
       <QuietRefresh renderedAt={renderStamp()} />
       <KaruteRecordListView
         items={screen.items}
-        monthCount={screen.monthCount}
-        placeholders={screen.placeholders}
+        monthCount={displayMonthCount}
+        total={displayTotal}
+        initialWindowStart={initialWindowStart}
+        initialHasMore={initialHasMore}
+        // The lens these rows were read under. The store switcher's
+        // router.refresh() re-PROPS this component rather than remounting it,
+        // so this is what tells it to drop the previous store's cached rows.
+        storeId={activeStore}
         staffList={screen.staffList}
         currentStaffId={screen.currentStaffId}
         customerOptions={screen.customerOptions}

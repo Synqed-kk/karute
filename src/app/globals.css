@@ -129,6 +129,19 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* Motion tokens (animation lab B0, 2026-08-24): shared easing curves +
+   * duration scale for transitions/animations app-wide. Color-independent,
+   * so no .dark override needed. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --duration-instant: 40ms;
+  --duration-fast: 120ms;
+  --duration-press: 160ms;
+  --duration-base: 200ms;
+  --duration-modal: 240ms;
+  --duration-sheet: 320ms;
 }
 
 .dark {
@@ -399,6 +412,45 @@ html.dark[data-theme="karute"] {
   }
 }
 
+/* App-wide prefers-reduced-motion policy, three tiers:
+ * 1. Transitions collapse to near-instant (0.01ms, not 0 — transitionend
+ *    must still fire).
+ * 2. tw-animate enter/exit (dialogs, dropdowns, popovers) collapse in both
+ *    space (the --tw-enter/exit vars below) and time
+ *    (--tw-animation-duration) — they appear/disappear instantly.
+ * 3. Standalone keyframes (animate-pulse/ping/spin) are spared BY DEFAULT:
+ *    they carry state meaning (alerts, loading), and this block must never
+ *    blanket-mute them. Recording-live surfaces are the deliberate
+ *    exception: each pings via motion-safe: at its own site, going static
+ *    under reduced motion while its solid core stays visible (ruled spec).
+ * Wrapped in @layer base: for !important declarations the layer order
+ * REVERSES, so an unlayered block would lose to any future !important
+ * utility; base (declared before utilities) stays on top. */
+@layer base {
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      --tw-animation-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+      /* tw-animate enter/exit keyframes read these per-element vars for their
+       * spatial channels (dialog zoom, dropdown zoom/slide). Zeroing them
+       * strips the spatial motion; --tw-animation-duration above makes what
+       * remains instant. Standalone keyframes (pulse/ping) read none of these
+       * and stay spared per tier 3. */
+      --tw-enter-scale: 1 !important;
+      --tw-enter-translate-x: 0 !important;
+      --tw-enter-translate-y: 0 !important;
+      --tw-enter-rotate: 0 !important;
+      --tw-exit-scale: 1 !important;
+      --tw-exit-translate-x: 0 !important;
+      --tw-exit-translate-y: 0 !important;
+      --tw-exit-rotate: 0 !important;
+    }
+  }
+}
+
 /* PhotoPresentationOverlay hold-to-close: a brief shake when a hold is
  * released early. Applied via Tailwind's motion-safe: variant, so this
  * keyframe simply never runs under prefers-reduced-motion. */
@@ -408,5 +460,13 @@ html.dark[data-theme="karute"] {
   40% { transform: translateX(3px); }
   60% { transform: translateX(-2px); }
   80% { transform: translateX(2px); }
+}
+
+/* 要連絡 dot (customer list): pulse three times then rest solid — enough to
+ * catch the eye on entry without a permanent blink (B2). Standalone keyframe:
+ * deliberately SPARED under prefers-reduced-motion per the tier-3 policy
+ * above (the dot carries state meaning); it is finite either way. */
+@keyframes contact-pulse {
+  50% { opacity: 0.5; }
 }
 

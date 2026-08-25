@@ -326,7 +326,6 @@
     "title": "Karute",
     "stats": {
       "thisMonth": "This month · {n}",
-      "last14": "Last 14 days · {n}",
       "showing": "{n} showing"
     },
     "newKarute": "New Karute",
@@ -1355,9 +1354,19 @@
     },
     "tabHeading": "Karute",
     "recordList": {
-      "statusLine": "This month {monthCount} karute · past 14 days · showing {showingCount}",
+      "statusLine": "Karute · {total} total · {monthCount} this month · showing {showingCount}",
+      "statusLineNoMonth": "Karute · {total} total · showing {showingCount}",
+      "loadMore": "Show more (karute before {date})",
+      "addedCount": "Loaded {n} karute",
+      "loadMoreFailed": "Couldn't load more. Please try again.",
       "newKarute": "+ New karute",
       "searchPlaceholder": "Search by customer · service · staff",
+      "revealSummary": "Shows up here once their first session is recorded",
+      "revealCreate": "Create karute",
+      "month": {
+        "panelTitle": "Select a month",
+        "note": "Pick a month to narrow the list to that month's karute."
+      },
       "filters": {
         "all": "All",
         "thisWeek": "This week",
@@ -1381,7 +1390,6 @@
       },
       "minutesSuffix": " min",
       "empty": "No karute records yet",
-      "newCustomersHeader": "Customers without a karute · no session yet",
       "noSessionYet": "No session yet",
       "newKaruteDialog": {
         "title": "Create new karute",
@@ -2397,7 +2405,7 @@
         },
         "recording": {
           "discard": "Discarded recording",
-          "session_cleanup": "Recording session row removed",
+          "session_cleanup": "Recording discarded",
           "transcribe": "Transcribed recording"
         }
       },
@@ -2427,6 +2435,9 @@
       "entryEditPartial": "Older history isn't shown",
       "autostartOn": "Auto-record ON ({store})",
       "autostartOff": "Auto-record OFF ({store})",
+      "recordingNoCustomer": "No customer selected",
+      "recordingUnresolved": "Recording",
+      "durationSuffix": " · {n}s",
       "menuUpdate": {
         "duration": "Duration",
         "price": "Price",

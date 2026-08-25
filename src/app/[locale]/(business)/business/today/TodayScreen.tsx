@@ -65,6 +65,7 @@ import {
   anchorOnScreen,
   applyBlockMoves,
   applyMoves,
+  bedFeasibility,
   blockChrome,
   blockClash,
   blockDragModeAt,
@@ -122,8 +123,220 @@ import {
   type RailCell,
   type RoomPolicy,
 } from './today-interactions'
+import { bedTruthViews, type Asker, type DayFrame } from './capacity-ledger'
 
 const HINT = '見本データのため実行できません'
+
+/** WHERE THE DIAGNOSTIC IS ALLOWED TO RUN AT ALL — an ALLOWLIST, and the same
+ *  shape the Business door already uses (`admission.ts` :46: "admits only when
+ *  VERCEL_ENV is absent or exactly 'preview'… an unexpected value can never
+ *  read as permission"). This is that rule's client-side twin.
+ *
+ *  `NEXT_PUBLIC_CAPACITY_SHADOW` is a PUBLIC, BUILD-TIME flag: anyone who can
+ *  set an env var on a build can set it, and "dev/preview only" written in a
+ *  comment stops nobody. So the scope is enforced here rather than documented.
+ *
+ *    NEXT_PUBLIC_VERCEL_ENV   NODE_ENV      armed (with the flag on)?
+ *    'preview'                any           YES — the preview door stays open
+ *    'development'            any           YES — `vercel dev`
+ *    'production'             any           NO
+ *    anything else            any           NO — allowlist, so a typo or a
+ *                                           future environment name denies
+ *    absent                   'production'  NO — see the fail-closed note
+ *    absent                   otherwise     YES — local `next dev`, and jest
+ *
+ *  WHY NOT `NODE_ENV !== 'production'` ALONE: Vercel builds PREVIEW deployments
+ *  with NODE_ENV=production too, so that test would slam the door this flag
+ *  exists to open. The Vercel signal is the one that separates them, and this
+ *  project already reads it on the client (`instrumentation-client.ts` :6 tags
+ *  Sentry with `NEXT_PUBLIC_VERCEL_ENV`).
+ *
+ *  FAIL-CLOSED ON THE AMBIGUOUS CASE, stated rather than assumed: the client
+ *  var only exists if the Vercel project exposes system environment variables
+ *  (the default, and this repo neither overrides it in vercel.json nor declares
+ *  an `env` block in next.config). If it is ever turned off, a production build
+ *  has no Vercel signal — so the second leg refuses on NODE_ENV instead of
+ *  guessing. The cost of that is a preview where the flag quietly does nothing;
+ *  the cost of the other direction is the diagnostic running on a customer's
+ *  machine, and only one of those two is acceptable. */
+export function shadowEnvAllows(vercelEnv: string | undefined, nodeEnv: string | undefined): boolean {
+  if (vercelEnv !== undefined) return vercelEnv === 'preview' || vercelEnv === 'development'
+  return nodeEnv !== 'production'
+}
+
+/** ⚖ R2 OF THE LAYER REBUILD — THE SHADOW READER'S OFF-SWITCH.
+ *
+ *  Registry name: `capacityLedgerShadow` — DEFAULT OFF, dev/preview only, and
+ *  the "only" is the second term above rather than a promise. Nothing
+ *  user-visible exists behind it: on, the board answers every rail question a
+ *  second time out of the capacity book and says so in the console when the two
+ *  disagree; off, it is this one boolean.
+ *
+ *  The env var is the door because the store registry (`opsConfig`) cannot
+ *  reach this screen without a page.tsx prop, and page.tsx is not this round's
+ *  to edit. `capacityLedgerShadow` is the reserved registry name for the round
+ *  that wires it; until then the flag is absent, which reads OFF. */
+export const CAPACITY_LEDGER_SHADOW =
+  process.env.NEXT_PUBLIC_CAPACITY_SHADOW === '1' &&
+  shadowEnvAllows(process.env.NEXT_PUBLIC_VERCEL_ENV, process.env.NODE_ENV)
+
+/** EXACTLY WHAT ONE SHADOW COMPARISON RUNS ON. It is a named type because the
+ *  hook's job is to ASSEMBLE it, and assembling it wrongly is the only failure
+ *  this whole diagnostic can have — so the assembly is a pure function
+ *  (`shadowArgs`) whose output the battery pins field by field. Four wiring
+ *  mutations (wrong length, wrong clock, comparing mid-drag, a callback built
+ *  for a different hand) used to pass a fully green suite; they are pinned now
+ *  because this tuple is. */
+export interface ShadowRun {
+  rails: readonly GuardRail[]
+  lanes: BoardLane[]
+  policy: RoomPolicy
+  frame: DayFrame
+  handId: string | null
+  dur: number
+  legacy: (lane: BoardLane, start: number, dur: number) => boolean
+}
+
+/** THE HOOK'S ARGUMENT ASSEMBLY, lifted out so it can be proven.
+ *
+ *  Returns `null` for "do not compare", which is every gate in one place: the
+ *  flag is off, the store runs no guard, a gesture is in flight, or the store
+ *  has no rooms for `bedFeasibility` to answer about.
+ *
+ *  ⚖ REST ONLY. The comparison does not run while a card is in the operator's
+ *  hand. With the flag on it would otherwise rebuild the book on every animation
+ *  frame of a drag (~900 extra `allocateBed` runs per frame at 25 staff — the
+ *  warn limit bounds the WARNS, never the work, and a Subject question skips the
+ *  book's memoised path exactly when it is hottest). A canary that changed the
+ *  thing it measures is not a canary. Rest is also where the question is
+ *  cleanest: no hand, so both sides ask the hypothetical.
+ *
+ *  The legacy callback is built AFTER the gates, never before: it walks the
+ *  board to find the held card and its room, and doing that work on the way to
+ *  `return null` is the cost this diagnostic promises not to have. */
+export function shadowArgs(input: {
+  on: boolean
+  guardOn: boolean
+  /** Is a gesture in flight? Rest only — see above. */
+  dragging: boolean
+  rails: readonly GuardRail[]
+  lanes: BoardLane[]
+  policy: RoomPolicy
+  hours: { open: number; close: number }
+  nowMinute: number | null
+  railDur: number
+  legacyFor: (excludeId: string | null) => ((lane: BoardLane, start: number, dur: number) => boolean) | undefined
+}): ShadowRun | null {
+  if (!input.on || !input.guardOn || input.dragging) return null
+  // At rest nothing is held, so both sides ask the hypothetical question and
+  // the callback is built for the same nobody the book is asked about.
+  const handId: string | null = null
+  const legacy = input.legacyFor(handId)
+  if (!legacy) return null
+  return {
+    rails: input.rails,
+    lanes: input.lanes,
+    policy: input.policy,
+    frame: { openMin: input.hours.open, closeMin: input.hours.close, nowMin: input.nowMinute ?? input.hours.open },
+    handId,
+    dur: input.railDur,
+    legacy,
+  }
+}
+
+/** THE SHADOW COMPARISON, and it dies in R3.
+ *
+ *  ponytail: scaffolding with a purpose. R3 makes the rails read the book for
+ *  real, at which point there is only one answer and nothing to compare — this
+ *  function, `shadowArgs` and their hook are deleted in that round, not migrated.
+ *
+ *  IT IS A WIRING-FIDELITY CANARY, NOT A DIVERGENCE HUNT. Both sides are asked
+ *  the SAME question with the SAME binding: `bedFeasibility` (today-interactions
+ *  :1549) and the ledger, on the LANE's stores. So the expected output is ZERO
+ *  WARNS, ALWAYS, on every board and at every dial. A warn does not mean the
+ *  board is wrong; it means THIS WIRING is unfaithful — the frame, the lanes,
+ *  the asker or the length handed to the book stopped matching what the rail was
+ *  handed. That is the one thing a shadow reader can prove before R3 makes the
+ *  swap for real, and the parity battery pins the zero.
+ *
+ *  WHAT IT PROVES, STATED NARROWLY: both sides bottom out in the SAME
+ *  `allocateBed`, so agreement proves the book's memoisation, its cache keying
+ *  and this wiring's bindings never corrupt that one search. It does NOT compare
+ *  the board's other bed readers (the sell layer's per-slot Set, the gap layer's
+ *  bedLedger, the confirm gate's span overlap) — those are R3+'s subject.
+ *
+ *  WHAT IT DELIBERATELY DOES NOT SEE: the staged-card divergence. The rail's own
+ *  `excludeId` is `live ?? pending`; this runs only at rest and asks the
+ *  hypothetical, so a staged card is standing on the board for BOTH sides and
+ *  they agree. Nothing about `?? pending` is compared here and nothing about it
+ *  is ever warned. That divergence is R3's subject and it lives in the layer
+ *  map, not in this console.
+ *
+ *  And it compares against the rail's `placementFeasible` question rather than
+ *  against the rail's PAINTED cells on purpose: a painted cell folds pocket and
+ *  guard refusals in with bed truth, so comparing to it would report the engine's
+ *  own verdicts as ledger disagreements.
+ *
+ *  THE `handId` PATH IS EXERCISED ONLY BY THE BATTERY. `shadowArgs` never
+ *  produces one (rest only), but the binding is kept and pinned because it is
+ *  the binding R3's real swap has to reproduce, and a round that has to invent
+ *  it from scratch is a round that gets it wrong.
+ *
+ *  ponytail — TWO THINGS THIS KNOWINGLY DUPLICATES, both licensed by the fact
+ *  that the whole function is deleted in R3: the held-card binding below
+ *  (`currentBed`, `vip`) re-spells what `bedFeasibility` already computes
+ *  privately for itself, because that function exposes the binding only through
+ *  the closure it returns; and asking the book beside the callback pays for the
+ *  same search twice. Neither is worth a seam in code with a known death date —
+ *  if this ever outlives R3, lift the binding into today-interactions instead.
+ *
+ *  Exported so the parity battery can drive it with a doctored `legacy` and
+ *  watch exactly one warn come out — there is no DOM renderer in territory. */
+export function shadowCompare(run: ShadowRun, limit = 10): number {
+  // A DIAGNOSTIC MAY NEVER TAKE THE BOARD DOWN. The book validates its inputs
+  // by throwing (duplicate lane keys, a non-finite frame, a length ≤ 0, a
+  // malformed hand), which is right for the book and fatal here: this runs
+  // inside the screen's own commit, so an unhandled throw unmounts 今日の運営
+  // over a console message nobody asked for. It reports and stands down.
+  try {
+    return runShadowCompare(run, limit)
+  } catch (err) {
+    console.warn(`capacity-ledger shadow: comparison stood down — ${err instanceof Error ? err.message : String(err)}`)
+    return 0
+  }
+}
+
+function runShadowCompare(run: ShadowRun, limit: number): number {
+  const { rails, lanes, policy, frame, dur, legacy } = run
+  // An empty id is NOT a hand. `bedFeasibility` reads `excludeId` for truthiness
+  // (:1555), so '' means "exclude nobody" there; the book takes it as a real
+  // subject and throws. Same falsy semantics on both sides, or the two are not
+  // being asked the same question.
+  const handId = run.handId === '' ? null : run.handId
+  const views = bedTruthViews(lanes, policy, frame, handId === null ? null : { id: handId })
+  const truth = views.worldMinusHand ?? views.world
+  const held = handId === null ? undefined : lanes.flatMap((l) => l.items).find((i) => i.caseId === handId)
+  const currentBed = handId === null ? null : (lanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === handId))?.key ?? null)
+  const askerOn = (lane: BoardLane): Asker =>
+    handId === null ? { stores: lane.stores } : { id: handId, currentBed, vip: held?.category === 'vip', stores: lane.stores }
+  const byKey = new Map(lanes.map((l) => [l.key, l]))
+  let seen = 0
+  for (const rail of rails) {
+    const lane = byKey.get(rail.laneKey)
+    if (!lane) continue
+    for (const cell of rail.cells) {
+      if (seen >= limit) return seen
+      const railSide = legacy(lane, cell.start, dur)
+      const book = truth.bedFor(cell.start, cell.start + dur, askerOn(lane)).laneKey !== null
+      if (railSide === book) continue
+      seen += 1
+      console.warn(
+        `capacity-ledger shadow: lane=${rail.laneKey} start=${cell.start} dur=${dur} rail=${railSide} ledger=${book}`,
+      )
+    }
+  }
+  return seen
+}
 
 /** ⚖ Liam flag 47 — how long the board's own voice stays on screen. The shipped
  *  3.2s is right for a message that CONFIRMS something the operator can already
@@ -213,6 +426,16 @@ export interface TodayProps {
   /** ⚠SETTINGS-BATCH — ⚖ Liam flag 51. The store's room-allocation policy, the
    *  only judgement in the bed solve. A store dial, never a component's opinion. */
   rooms: RoomPolicy
+  /** ⚠SETTINGS-BATCH — ⚖ Liam flag 77 (2026-08-24). Does this store reserve
+   *  turnover time between customers? OFF by default, and the ベッド・設備 group's
+   *  own note is the one piece of copy that describes the CONVENTION rather than
+   *  a block on the board — so it has to hear the dial rather than the day. Read
+   *  on the server off the store's own `cleanup_minutes` (fixtures-today
+   *  `bedSecuredProof` reads the same number for the sentence a booking shows),
+   *  because a store that cleans but holds no bookings yet still shows bed rows
+   *  that WILL carry 清掃, and a board reading its own items would call that
+   *  store bare. */
+  bedCleanupOn: boolean
   /** ⚠SETTINGS-BATCH — ⚖ Liam flag 50(d). May THIS viewer place over a 置けない?
    *  Answered on the server from the store's `overridePolicy` and the operator's
    *  own role and staff_id, so the board never decides authority for itself and
@@ -1133,6 +1356,16 @@ export function TodayScreen(props: TodayProps) {
     ? minuteOf(live.x + live.w, hours) - minuteOf(live.x, hours)
     : dragLen
   const railDur = aimDur ?? props.guard.standardSessionMin
+  /** ⚖ LIAM flag 76 (2026-08-23) — THE ROOMS, HANDED TO THE GUARD. The rule is
+   *  `bedFeasibility` (today-interactions); this is the board's own inputs to it.
+   *
+   *  `lanes` for the same reason `verdictAt` takes it (⚖ 39): a caller may ask
+   *  about a board it has already taken something out of, and the rooms have to
+   *  be read off THAT board rather than the one on screen. */
+  const bedFeasibleFor = useCallback(
+    (excludeId: string | null, lanes: BoardLane[] = boardLanes) => bedFeasibility(lanes, excludeId, props.rooms),
+    [boardLanes, props.rooms],
+  )
   const rails = useMemo<GuardRail[]>(
     () =>
       guardOn
@@ -1146,11 +1379,42 @@ export function TodayScreen(props: TodayProps) {
             locked,
             guard: props.guard.config,
             excludeId: live?.id ?? pending?.id ?? null,
+            placementFeasible: bedFeasibleFor(live?.id ?? pending?.id ?? null),
           })
         : [],
-    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, live?.id, pending?.id, railDur],
+    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, live?.id, pending?.id, railDur, bedFeasibleFor],
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
+  /** THE SHADOW READ (⚖ R2) — the wiring canary; see `shadowCompare`. Zero
+   *  warns is the expected output, always.
+   *
+   *  AN EFFECT, NOT A MEMO. The comparison's only output is a console line, and
+   *  a memo factory is not a place to put one: React may double-invoke it under
+   *  StrictMode and may discard a memoised value and recompute it, so the warns
+   *  would double or repeat with no bug behind them. An effect runs after the
+   *  commit, once per committed change of these inputs.
+   *
+   *  It reads the same inputs the `rails` memo above does, so the book is never
+   *  built on a pointer frame of its own — and it does not run mid-gesture at
+   *  all (`shadowArgs` gates on `dragging`). With the flag off, `shadowArgs`
+   *  returns on its first boolean: no callback is built, no views, no searches,
+   *  no allocateBed. Nothing here reaches a customer either way — the flag is a
+   *  dev/preview switch that defaults OFF. */
+  useEffect(() => {
+    const run = shadowArgs({
+      on: CAPACITY_LEDGER_SHADOW,
+      guardOn,
+      dragging: live !== null,
+      rails,
+      lanes: boardLanes,
+      policy: props.rooms,
+      hours,
+      nowMinute: props.sell.nowMinute,
+      railDur,
+      legacyFor: bedFeasibleFor,
+    })
+    if (run) shadowCompare(run)
+  }, [guardOn, live, rails, boardLanes, props.rooms, hours, props.sell.nowMinute, railDur, bedFeasibleFor])
 
   /** ⚖ LIAM flag 50 item 4b (2026-08-22) — WHAT IS IN THE OPERATOR'S HAND, so
    *  the strip can judge every start FOR IT.
@@ -1283,9 +1547,10 @@ export function TodayScreen(props: TodayProps) {
             locked,
             guard: props.guard.config,
             excludeId,
+            placementFeasible: bedFeasibleFor(excludeId, lanes),
           })
         : null,
-    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked],
+    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedFeasibleFor],
   )
 
   /** ⚖ LIAM flag 50 (2026-08-22) — THE ONE VERDICT, ASKED FROM THE SCREEN.
@@ -4460,7 +4725,7 @@ export function TodayScreen(props: TodayProps) {
                           onClick={() => setCollapsed((was) => toggle(was, group))}
                         >
                           <span>{group === 'staff' ? 'スタッフ' : 'ベッド・設備'}</span>
-                          <span>{group === 'staff' ? '勤務・資格・休憩を含む' : '清掃を予約不可時間として表示'}</span>
+                          <span>{group === 'staff' ? '勤務・資格・休憩を含む' : props.bedCleanupOn ? '清掃を予約不可時間として表示' : '予約と予定ブロックを表示'}</span>
                         </button>
                         {groupLanes.map(renderLane)}
                       </div>

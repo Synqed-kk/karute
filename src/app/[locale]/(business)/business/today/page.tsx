@@ -25,6 +25,7 @@
 
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { jstDayKey } from '@/business/lib/clock'
+import { bedSecuredProof } from '@/business/lib/fixtures-today'
 import {
   defaultStoreId,
   listAppointments,
@@ -333,7 +334,7 @@ export default async function TodayPage({
       b.state === 'hold' ? 'waiting' : b.state === 'attention' || b.settlement === 'awaiting' ? 'checkout' : 'done',
       b.resourceId ? `${b.staffName} + ${b.resourceName}が成立` : '設備は未確定',
       b.resourceId
-        ? ['担当の勤務時間内', '休憩と重ならない', `${b.resourceName}と清掃30分を確保`, '予約時価格を保持']
+        ? ['担当の勤務時間内', '休憩と重ならない', bedSecuredProof(resources, b.resourceId), '予約時価格を保持']
         : ['担当の勤務時間内', '設備の割当てが未確定', '予約時価格を保持'],
     )
   })
@@ -441,6 +442,8 @@ export default async function TodayPage({
     // from the store's own config for the same reason the guard's do: one place,
     // read by everything, changed in 設定 rather than in code.
     rooms: planes.opsConfig.roomPolicy,
+    // ⚖ flag 77 — the dial itself, not what today happens to have on it.
+    bedCleanupOn: resources.some((r) => r.cleanup_minutes > 0),
     // ⚠SETTINGS-BATCH — ⚖ Liam flag 50(d). WHO may place over a 置けない, decided
     // ONCE, here, from the store's dial and this operator's own role/staff_id.
     // The board is handed the answer, never the policy: a locked-out staff member

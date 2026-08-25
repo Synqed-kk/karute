@@ -152,7 +152,13 @@ export async function deleteRecordingSessionWithClient(
     targetType: 'recording',
     targetId: recordingSessionId,
     severity: 'notice',
-    detail: { customer_id: row.customer_id ?? null, had_audio_path: !!row.audio_storage_path },
+    detail: {
+      customer_id: row.customer_id ?? null,
+      had_audio_path: !!row.audio_storage_path,
+      // Ids-and-flags-safe (no PII): lets the 監査ログ subtitle carry how
+      // long the take ran, since the session row itself is hard-deleted.
+      duration_seconds: row.duration_seconds ?? null,
+    },
     requestId: actor.requestId,
     source: actor.source,
   })

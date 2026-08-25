@@ -26,12 +26,14 @@ type Row = {
   staff_id: string
   customer_id: string | null
   audio_storage_path: string | null
+  duration_seconds: number | null
 }
 const MY_ROW: Row = {
   id: 'sess-1',
   staff_id: ME,
   customer_id: 'cust-1',
   audio_storage_path: 'app_business-1_take-1.webm',
+  duration_seconds: 137,
 }
 
 const get = jest.fn(async (_id: string): Promise<Row> => MY_ROW)
@@ -76,8 +78,18 @@ describe('deleteRecordingSessionWithClient — ownership', () => {
   it('the audit detail is IDS AND FLAGS ONLY — no path, no content', async () => {
     await deleteRecordingSessionWithClient(client, actor, 'sess-1')
     const detail = (auditSpy.mock.calls[0][0] as { detail: Record<string, unknown> }).detail
-    expect(detail).toEqual({ customer_id: 'cust-1', had_audio_path: true })
+    // Deliberately widened (recording-labels fix): duration_seconds rides
+    // along ids-and-flags-safe — it feeds the 監査ログ subtitle since the
+    // session row itself is hard-deleted at cleanup time.
+    expect(detail).toEqual({ customer_id: 'cust-1', had_audio_path: true, duration_seconds: 137 })
     expect(JSON.stringify(detail)).not.toContain('app_business-1_take-1.webm')
+  })
+
+  it('a row with no duration on record stamps duration_seconds: null, never undefined', async () => {
+    get.mockResolvedValue({ ...MY_ROW, duration_seconds: null })
+    await deleteRecordingSessionWithClient(client, actor, 'sess-1')
+    const detail = (auditSpy.mock.calls[0][0] as { detail: Record<string, unknown> }).detail
+    expect(detail.duration_seconds).toBeNull()
   })
 
   it('ANOTHER staffer’s session is left untouched — no delete, no audit', async () => {

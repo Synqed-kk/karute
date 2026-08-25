@@ -1,13 +1,14 @@
 // Sessions-list (カルテ tab) screen assembly — the row derivation MOVED VERBATIM
 // out of app/[locale]/(app)/karute/page.tsx (packet 05) so the web page and the
 // facade screen endpoint share ONE source of truth for how the カルテ list is
-// built (record → KaruteListItem projection, staff name/color maps, booking →
-// staff resolution for placeholder rows, placeholder synthesis, monthCount,
-// customerOptions). Pure over explicit inputs: callers own their own fan-out
-// (cookie-scoped on the web page, Bearer/business-scoped in the facade route).
+// built (record → KaruteListItem projection, staff name/color maps,
+// monthCount, customerOptions). Pure over explicit inputs: callers own their
+// own fan-out (cookie-scoped on the web page, Bearer/business-scoped in the
+// facade route).
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { assignStaffColors } from '@/lib/staff-colors'
+import { partsInJst } from '@/lib/date/jst'
 import {
   type KaruteListRow,
   mergeKaruteRows,
@@ -24,14 +25,25 @@ import type {
 } from '@/components/karute/spike-lifted/list/types'
 
 type CustomerList = Awaited<ReturnType<typeof listAllCustomers>>
-type SynqedApptList = Awaited<ReturnType<SynqedClient['appointments']['list']>>
 type SynqedStaffList = Awaited<ReturnType<SynqedClient['staff']['list']>>
 
 export interface SessionsListScreen {
   items: KaruteListItem[]
+  /** Always []. Kept required — never delete — release-17 phones parse this
+   *  key and the facade route 500s if it goes missing (see
+   *  sessions-screen-dto.ts). Placeholder-row synthesis for customers with no
+   *  karute yet was removed in PR-1a (未作成ブロック廃止); the field ships
+   *  empty for forward compatibility only. */
   placeholders: KaruteListItem[]
-  /** Total karute records this month (not filtered) — status-line only. */
+  /** Karute records dated in the current JST month, STORE-wide (not staff
+   *  filtered) — status-line only. Source: a server `karuteRecords.list`
+   *  total over the JST month window (PR-1b 正直ヘッダー; was a client-side
+   *  filter over the loaded ≤200-row page, which under-counted once the
+   *  page filled). */
   monthCount: number
+  /** Store-wide karute total, unfiltered by date or staff (PR-1b plumbing —
+   *  not rendered until PR-2a's 全件 display; see the DTO's matching field). */
+  total: number
   /** Staff filter pills (id + display name + initials). */
   staffList: Array<{
     id: string
@@ -64,31 +76,24 @@ export function buildSessionsListScreen(args: {
    */
   storeStaffIds: Set<string> | null
   allCustomersList: CustomerList
-  storeCustomerList: CustomerList | null
   currentStaffId: string | null
   synqedKaruteRows: KaruteListRow[]
-  apptList: SynqedApptList
   synqedStaff: SynqedStaffList
+  /** See the matching field's doc on SessionsListScreen. */
+  monthCount: number
+  /** See the matching field's doc on SessionsListScreen. */
+  total: number
 }): SessionsListScreen {
   const {
     staffList,
     storeStaffIds,
     allCustomersList,
-    storeCustomerList,
     currentStaffId,
     synqedKaruteRows,
-    apptList,
     synqedStaff,
+    monthCount,
+    total,
   } = args
-
-  // Booking → staff for placeholder rows. QuickReserve scrapes the 担当 onto
-  // each appointment, but customer.assigned_staff_id (a separate "preferred
-  // staff" field) is never set by the sync — so placeholder stripes were
-  // blank. Derive 担当 from the customer's booking instead. Read the recent
-  // appointment list UNWINDOWED (same as enrichCustomers): a date window keyed
-  // on "today" drops a booking that has already passed (a 5/31 visit viewed on
-  // 6/01), which is exactly why the first attempt still showed blank.
-  const nowMs = new Date().getTime()
 
   type RecordRow = {
     id: string
@@ -103,9 +108,14 @@ export function buildSessionsListScreen(args: {
     duration_minutes?: number | null
   }
 
-  // mergeKaruteRows still gives us the sort (session_date ?? created_at desc) +
-  // 200-cap; there's no longer a Supabase side to union in.
-  const records = mergeKaruteRows<RecordRow>([], synqedKaruteRows)
+  // mergeKaruteRows still gives us the sort (session_date ?? created_at desc)
+  // and the id dedupe; there's no longer a Supabase side to union in. The
+  // limit is the input's own length, i.e. NO cap (PR-2a): the caller decides
+  // how many rows it fetched, and a two-week window paged to completion can
+  // legitimately exceed the old 200 default, which would have silently
+  // truncated it. Every pre-2a caller passes ≤200 rows, so this is a no-op for
+  // them (slice(0, n) over n rows).
+  const records = mergeKaruteRows<RecordRow>([], synqedKaruteRows, synqedKaruteRows.length)
 
   // Build lookup maps — name resolution stays BUSINESS-WIDE so a record
   // written by another branch's staff still shows their name, but the 担当
@@ -130,48 +140,17 @@ export function buildSessionsListScreen(args: {
     allCustomersList.customers,
   )
 
-  const recordedCustomerIds = new Set(records.map((r) => r.client_id))
-
-  // ── Booking → staff for placeholder rows ─────────────────────────────
-  // synqed staff id → profile id. Appointments arrive keyed by the synqed
-  // staff id; staffNameById + staffColors key off the profile id (=
-  // synqed staff.user_id). Profile-less synqed staff fall back to their
-  // synqed id — exactly how getStaffList ids them too, so name/color still
-  // resolve. Mirrors the boundary translation in getAppointmentsByDate.
+  // synqed staff id → profile id. Karute records arrive keyed by either id
+  // (see recordStaffProfileId below); staffNameById + staffColors key off
+  // the profile id (= synqed staff.user_id). Profile-less synqed staff fall
+  // back to their synqed id — exactly how getStaffList ids them too, so
+  // name/color still resolve. Mirrors the boundary translation in
+  // getAppointmentsByDate.
   const profileByStaffId = new Map(
     synqedStaff.staff
       .filter((s): s is typeof s & { user_id: string } => s.user_id != null)
       .map((s) => [s.id, s.user_id]),
   )
-
-  // customer id → their booking's staff profile id. Pick the nearest
-  // upcoming booking (the 担当 the customer is about to see); fall back to
-  // the latest in-window booking so a customer whose only slot is earlier
-  // today still resolves to a stylist.
-  const bookingStaffByCustomer = new Map<string, string>()
-  {
-    const apptsByCustomer = new Map<string, typeof apptList.appointments>()
-    for (const a of apptList.appointments) {
-      const arr = apptsByCustomer.get(a.customer_id)
-      if (arr) arr.push(a)
-      else apptsByCustomer.set(a.customer_id, [a])
-    }
-    for (const [cid, appts] of apptsByCustomer) {
-      const sorted = [...appts].sort(
-        (x, y) =>
-          new Date(x.starts_at).getTime() - new Date(y.starts_at).getTime(),
-      )
-      const chosen =
-        sorted.find((a) => new Date(a.starts_at).getTime() >= nowMs) ??
-        sorted[sorted.length - 1]
-      if (chosen) {
-        bookingStaffByCustomer.set(
-          cid,
-          profileByStaffId.get(chosen.staff_id) ?? chosen.staff_id,
-        )
-      }
-    }
-  }
 
   // Project records into KaruteListItem shape
   const items: KaruteListItem[] = records.map((r) => {
@@ -192,8 +171,17 @@ export function buildSessionsListScreen(args: {
       ? (r.entries[0]?.count ?? 0)
       : 0
     const isoDate = (r.session_date ?? r.created_at).slice(0, 10)
-    const dt = new Date(`${isoDate}T00:00:00+09:00`)
-    const weekday = ['日', '月', '火', '水', '木', '金', '土'][dt.getDay()]
+    // JST-EXPLICIT weekday (fix round 5 — this was a LIVE PRODUCTION BUG).
+    // The instant is anchored to JST midnight, but `.getDay()` reads it back in
+    // SERVER-LOCAL time. On this Mac (JST) that agreed by luck; on Vercel and
+    // in CI (both UTC) the same instant is 15:00 the PREVIOUS day, so every
+    // カルテ row shipped a weekday one day early. There is no TZ override in
+    // vercel.json or the workflows to lean on, and there shouldn't be — the
+    // date is a JST business fact and must be computed as one, whatever the
+    // server's clock is set to. partsInJst already does exactly this via Intl.
+    const weekday = ['日', '月', '火', '水', '木', '金', '土'][
+      partsInJst(new Date(`${isoDate}T00:00:00+09:00`)).weekday
+    ]
 
     // Derive AI status from data shape — see types.ts for rationale.
     let aiStatus: KaruteAiStatus = 'draft'
@@ -234,72 +222,13 @@ export function buildSessionsListScreen(args: {
     }
   })
 
-  // Phase B: synthesize placeholder rows for customers with NO records yet.
-  // Each links to the customer hub (/customers/[id]) — the single canonical
-  // customer page — so a カルテ-list tap and a 顧客-list tap land on the SAME
-  // place. (Previously /karute/customer/[id], a near-duplicate of the hub that
-  // the spike never had — removed for a predictable 2-page nav.)
-  // Sorted newest-customer-first so the most recent signups bubble up.
-  // Restrict the placeholder roster to the active branch so "新規のお客様"
-  // follows the same lens as the records. For a cross-store viewer with a pinned
-  // store, storeCustomerList carries that branch's members; null otherwise (no
-  // pin → business-wide, OR clamped → allCustomersList is already store-scoped).
-  const storeCustomerIds = storeCustomerList
-    ? new Set(storeCustomerList.customers.map((c) => c.id))
-    : null
-  const placeholders: KaruteListItem[] = allCustomersList.customers
-    .filter(
-      (c) =>
-        !recordedCustomerIds.has(c.id) &&
-        (!storeCustomerIds || storeCustomerIds.has(c.id)),
-    )
-    .sort((a, b) =>
-      (b.created_at ?? '').localeCompare(a.created_at ?? ''),
-    )
-    .map((c) => {
-      const isoDate = (c.created_at ?? new Date().toISOString()).slice(0, 10)
-      const dt = new Date(`${isoDate}T00:00:00+09:00`)
-      const weekday = ['日', '月', '火', '水', '木', '金', '土'][dt.getDay()]
-      // 担当 comes from the customer's booking (QuickReserve scrapes it onto
-      // the appointment). assigned_staff_id is a separate preferred-staff
-      // field the sync never sets — so it was always null here, leaving the
-      // stripe blank and no 担当 on the card. Fall back to it only when the
-      // customer has no booking in the window.
-      const bookingStaffId =
-        bookingStaffByCustomer.get(c.id) ?? c.assigned_staff_id ?? null
-      return {
-        id: `placeholder-${c.id}`,
-        customerId: c.id,
-        customerName: c.name,
-        customerInitials: deriveFamilyInitials(c.name),
-        customerKaruteNumber:
-          karuteNumberByCustomerId.get(c.id) ?? '#00000',
-        date: isoDate,
-        weekday,
-        // ANTHONY: when service + duration columns land on karute_records,
-        // these stay empty for placeholder rows (no session yet). The
-        // string here is the user-facing label shown in lieu of a service.
-        service: 'まだセッションなし',
-        duration: 0,
-        staffId: bookingStaffId,
-        staffColorKey: bookingStaffId
-          ? (staffColors.get(bookingStaffId)?.key ?? null)
-          : null,
-        staffName: bookingStaffId
-          ? (staffNameById.get(bookingStaffId) ?? '—')
-          : '—',
-        summary: '初回セッションを記録すると、ここに表示されます',
-        aiStatus: 'draft',
-        conversionStatus: 'provisional',
-        href: `/customers/${c.id}`,
-        isPlaceholder: true,
-      }
-    })
+  // 未作成ブロック廃止 (PR-1a): placeholder rows for customers with no karute
+  // yet used to be synthesized here. Always empty now — see the
+  // `placeholders` doc comment on SessionsListScreen for why the field stays.
+  const placeholders: KaruteListItem[] = []
 
-  // monthCount — records whose session_date falls in the current month
-  const now = new Date()
-  const monthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  const monthCount = items.filter((i) => i.date.startsWith(monthPrefix)).length
+  // monthCount / total (PR-1b): both now server totals passed in by the
+  // caller (page.tsx / screens/sessions route) — see the args doc above.
 
   // Customer combobox source for the NewKaruteDialog. Reuses the same
   // list we already loaded above for the customer-name lookup map —
@@ -318,6 +247,7 @@ export function buildSessionsListScreen(args: {
     items,
     placeholders,
     monthCount,
+    total,
     staffList: visibleStaff.map((s) => ({
       id: s.id,
       name: s.full_name ?? 'Unknown',
