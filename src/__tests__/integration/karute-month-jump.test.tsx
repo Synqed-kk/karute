@@ -49,6 +49,7 @@ jest.mock('@/actions/karute', () => ({
   loadKaruteWindow: (...a: unknown[]) => loadKaruteWindow(...a),
 }))
 
+import { useLayoutEffect } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { KaruteRecordListView } from '@/components/karute/spike-lifted/list/KaruteRecordListView'
 import type { KaruteListItem } from '@/components/karute/spike-lifted/list/types'
@@ -471,6 +472,39 @@ describe('store switch (Greptile PR #784)', () => {
     expect(screen.queryByText('一月 太郎')).not.toBeInTheDocument()
     expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
     expect(pill('all').textContent).toBe('filters.all3')
+  })
+
+  it('never COMMITS a frame carrying the old store rows (Greptile #784 round 2)', async () => {
+    // The act-flushed assertions above pass either way — they only see the
+    // settled DOM. A layout effect runs after commit but BEFORE paint and
+    // before passive effects, so a probe there observes exactly the frame the
+    // browser would have shown: with the reset in a useEffect it still holds
+    // store A's rows, with the reset done during render it never does.
+    const seen: string[] = []
+    function Probe() {
+      useLayoutEffect(() => {
+        seen.push(document.body.textContent ?? '')
+      })
+      return null
+    }
+    const tree = (storeId: string) => (
+      <>
+        {listEl({ storeId })}
+        <Probe />
+      </>
+    )
+    const { rerender } = render(tree('store-a'))
+    await jumpToJanuary()
+    expect(screen.getByText('一月 太郎')).toBeInTheDocument()
+
+    seen.length = 0
+    await act(async () => {
+      rerender(tree('store-b'))
+    })
+
+    expect(seen.length).toBeGreaterThan(0)
+    // Not one committed frame after the switch carried store A's month rows.
+    expect(seen.filter((html) => html.includes('一月 太郎'))).toEqual([])
   })
 
   it('drops a month response still in flight across the switch', async () => {

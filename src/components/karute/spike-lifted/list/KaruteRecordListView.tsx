@@ -68,10 +68,10 @@ interface Props {
    *  formula client-side (karuteHasMore), so the two can never disagree. */
   initialHasMore?: boolean
   /** The store lens these rows were loaded under. A CHANGE resets every
-   *  client-held row cache — see the store-switch effect below. Web only in
-   *  practice: the phone shell's setActiveStore does a window.location.reload()
-   *  (thin/ports/actions.vite.ts), so nothing survives there to go stale, and
-   *  thin simply never passes this. */
+   *  client-held row cache, DURING RENDER — see the store-switch block. Web
+   *  only in practice: the phone shell's setActiveStore does a
+   *  window.location.reload() (thin/ports/actions.vite.ts), so nothing survives
+   *  there to go stale, and thin never passes this. */
   storeId?: string | null
   /** Staff list for the "your customers / all customers" filter. */
   staffList?: StaffFilterEntry[]
@@ -483,21 +483,37 @@ export function KaruteRecordListView({
   // does a window.location.reload() (thin/ports/actions.vite.ts), which
   // remounts everything, and thin never passes this prop.
   //
-  // A ref-compare, NOT a bare [storeId] effect: the mount run is emphatically
-  // not a no-op. rewindToFirstWindow bumps fetchGen, and the ?since restore
-  // effect above has already fired its first fetchOlder by then — the bump
-  // would supersede that in-flight window, the walk would never advance, and
-  // the restore would refire the same request forever (caught by
-  // karute-chunk-load's restore tests). Only a REAL lens change may rewind.
-  const lastStoreId = useRef(storeId)
-  useEffect(() => {
-    if (storeId === lastStoreId.current) return
-    lastStoreId.current = storeId
+  // DURING RENDER, not in an effect (Greptile PR #784, round 2). An effect runs
+  // AFTER paint, so the render that first carries the new store's props would
+  // COMMIT with the previous store's month rows and appended chunks still on
+  // screen — a visible frame of the wrong store's karute before the reset
+  // caught up. Setting state while rendering makes React discard this render
+  // and re-run the component with the reset values BEFORE anything is painted,
+  // which is exactly React's documented "adjusting state when a prop changes"
+  // recipe.
+  //
+  // `prevStoreId` is STATE, not a ref, for the same reason: a ref written
+  // during render survives a discarded render attempt while the state reset
+  // would not, so the two could disagree and the rewind be silently skipped.
+  //
+  // Guarded on a REAL change, never the mount: rewindToFirstWindow bumps
+  // fetchGen, and the ?since restore effect above has already fired its first
+  // fetchOlder by mount time — an unconditional run would supersede that
+  // in-flight window, the walk would never advance, and the restore would
+  // refire the same request forever (caught by karute-chunk-load's restore
+  // tests).
+  //
+  // CEILING: the two generation counters are refs, so they are bumped during
+  // render too. If React ever discards this render attempt, those bumps stick
+  // while the state reset does not — the cost is an in-flight window dropped
+  // that need not have been, which the next tap or the restore walk re-fetches.
+  // A conservative failure, never a wrong list.
+  const [prevStoreId, setPrevStoreId] = useState(storeId)
+  if (storeId !== prevStoreId) {
+    setPrevStoreId(storeId)
     exitMonth()
     rewindToFirstWindow()
-    // storeId is the only trigger; everything else is read as a current value.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storeId])
+  }
 
   async function pickMonth(month: string) {
     // Picking the CURRENT month is how you come back (⛔ no 「今月に戻る」
