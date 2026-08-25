@@ -86,7 +86,7 @@ export function RecordButtonCard({
           aria-label={ended ? t('ended') : live ? t('stopAria') : t('startAria')}
           className={`${BUTTON_BASE} ${
             ended
-              ? 'bg-red-50 text-red-400 shadow-none opacity-50 dark:bg-red-500/10'
+              ? 'bg-red-50/50 text-red-400 shadow-none dark:bg-red-500/10'
               : 'bg-red-500 shadow-lg shadow-red-500/40 enabled:hover:bg-red-600 disabled:opacity-50'
           }`}
         >
