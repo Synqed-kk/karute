@@ -746,10 +746,14 @@ export function sellResourceLanes(lanes: BoardLane[]): SellResourceLane[] {
  *
  *  ponytail: no config, no policy object, no store dial — nothing has asked for
  *  one. A named function with a provenance comment is the whole requirement. */
-export function keepsTheRoom(
-  _sell: { resourceKey: string; start: number; end: number },
-  _gap: { resourceKey: string; start: number; end: number },
-): 'sell' | 'gap' {
+export interface ClaimSpan {
+  resourceKey: string
+  start: number
+  end: number
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- the answer is a constant today; the pair is the signature the revenue ruling above will weigh, and the call site reads honestly because it passes both.
+export function keepsTheRoom(_sell: ClaimSpan, _gap: ClaimSpan): 'sell' | 'gap' {
   return 'gap'
 }
 
@@ -847,7 +851,6 @@ function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellRe
     )
   }
 
-  const bedKeys = lanes.filter((l) => l.group === 'beds').map((l) => l.key)
   const storesOf = new Map(lanes.filter((l) => l.group === 'staff').map((l) => [l.key, l.stores]))
 
   /** ONE OFFER, TWO CELLS. canon pushes a staff-row cell and a bed-row cell per
