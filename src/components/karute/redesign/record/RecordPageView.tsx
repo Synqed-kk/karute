@@ -944,7 +944,9 @@ export function RecordPageView({
         return
       }
       setDiscardReasonFor(null)
-      if (origin === 'review') finishReviewDiscard()
+      // Ids read BEFORE the await, handed in — the same read-it-first rule
+      // proceedDiscard obeys for the recorder singleton.
+      if (origin === 'review') finishReviewDiscard(recordingSessionId, ctx?.takeId)
       else proceedDiscard()
     } finally {
       discardReasonSubmittingRef.current = false
@@ -953,13 +955,17 @@ export function RecordPageView({
   }
 
   /** ReviewScreen's discard, everything after the reason has landed. Unchanged
-   *  from the inline body it was lifted out of. */
-  function finishReviewDiscard() {
+   *  from the inline body it was lifted out of, except that its two ids are
+   *  now passed in (read before the confirm handler's awaits) instead of
+   *  re-read off the singleton afterwards. */
+  function finishReviewDiscard(
+    recordingSessionId: string | null,
+    takeId: string | null | undefined,
+  ) {
     // Deliberate discard → drop the draft + take too, or they reappear
     // as recovery offers for a session the user intentionally threw away.
     clearDraft()
-    cleanUpDiscardedSession(globalPipeline.context?.recordingSessionId)
-    const takeId = globalPipeline.context?.takeId
+    cleanUpDiscardedSession(recordingSessionId)
     if (takeId) void deleteTake(takeId)
     setRecoveredDraft(null)
     setRecoveredTake(null)
