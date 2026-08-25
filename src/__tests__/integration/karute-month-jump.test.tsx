@@ -131,14 +131,24 @@ const openPanel = () => {
 const pill = (key: string) => screen.getByRole('button', { name: new RegExp(`^filters\\.${key}`) })
 const loadMoreQuery = () => screen.queryByRole('button', { name: /loadMore/ })
 
-/** Pick 2026年1月 and let its rows land. */
-const jumpToJanuary = async (rows: KaruteListItem[] = [item('j1', '2026-01-20', '一月 太郎')]) => {
-  loadKaruteWindow.mockResolvedValue({
-    items: rows,
-    windowStart: '2026-01-01',
+/**
+ * Answer each created-month window separately. A month pick reads THREE — the
+ * picked month's created-window plus its two neighbours — because the fetch
+ * axis (created_at) and the display axis (session_date ?? created_at) are
+ * different columns.
+ */
+const windowsByMonth = (byMonth: Record<string, KaruteListItem[]>) => {
+  loadKaruteWindow.mockImplementation(async ({ month }: { month: string }) => ({
+    items: byMonth[month] ?? [],
+    windowStart: `${month}-01`,
     freshStoreTotal: 9,
     hasMore: false,
-  })
+  }))
+}
+
+/** Pick 2026年1月 and let its rows land. */
+const jumpToJanuary = async (rows: KaruteListItem[] = [item('j1', '2026-01-20', '一月 太郎')]) => {
+  windowsByMonth({ '2026-01': rows })
   openPanel()
   await act(async () => {
     fireEvent.click(screen.getByRole('option', { name: '2026年1月' }))
@@ -188,11 +198,21 @@ describe('the month chip', () => {
 })
 
 describe('picking a month', () => {
-  it('fetches with {month} ALONE — no olderThan, no loadedCount', async () => {
+  it('fetches the picked month WIDENED by ±1, each with {month} ALONE', async () => {
     renderList()
     await jumpToJanuary()
-    expect(loadKaruteWindow).toHaveBeenCalledTimes(1)
-    expect(loadKaruteWindow).toHaveBeenCalledWith({ month: '2026-01' })
+    // ±1 month because the fetch filters created_at while the list displays
+    // session_date — a backdated karute sits in a neighbouring created-window.
+    expect(loadKaruteWindow.mock.calls.map(([a]: [{ month: string }]) => a.month).sort()).toEqual([
+      '2025-12',
+      '2026-01',
+      '2026-02',
+    ])
+    // Never an olderThan and never a loadedCount: a month is read whole, it is
+    // not a resumed backward walk.
+    for (const [arg] of loadKaruteWindow.mock.calls) {
+      expect(Object.keys(arg)).toEqual(['month'])
+    }
   })
 
   it('SWAPS the list instead of appending to it', async () => {
@@ -220,10 +240,11 @@ describe('picking a month', () => {
   })
 
   it('says the rows are LOADING rather than calling the month empty', async () => {
+    // ONE shared pending promise for all three window reads — a per-call
+    // promise would leave two of them unresolved and hang the Promise.all.
     let resolveFetch: (v: unknown) => void = () => {}
-    loadKaruteWindow.mockImplementation(
-      () => new Promise((resolve) => { resolveFetch = resolve }),
-    )
+    const pending = new Promise((resolve) => { resolveFetch = resolve })
+    loadKaruteWindow.mockImplementation(() => pending)
     renderList()
     openPanel()
     fireEvent.click(screen.getByRole('option', { name: '2026年1月' }))
@@ -290,7 +311,7 @@ describe('leaving month view', () => {
 
     // Back in the default window: the accumulated rows are on screen again,
     // straight out of state — no refetch.
-    expect(loadKaruteWindow).toHaveBeenCalledTimes(1)
+    expect(loadKaruteWindow).toHaveBeenCalledTimes(3)
     expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
     expect(screen.queryByText('一月 太郎')).not.toBeInTheDocument()
     // …and the tapped filter is the one now in force: every seeded row is
@@ -314,7 +335,7 @@ describe('leaving month view', () => {
     // The default window is restored from state — the current month is NEVER
     // fetched as a month (that would strip the counts and the button off a
     // screen the user thinks they just came back to).
-    expect(loadKaruteWindow).toHaveBeenCalledTimes(1)
+    expect(loadKaruteWindow).toHaveBeenCalledTimes(3)
     expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
     expect(screen.getAllByText('山田 花子')).toHaveLength(2)
     expect(pill('all').textContent).toBe('filters.all3')
@@ -322,10 +343,11 @@ describe('leaving month view', () => {
   })
 
   it('drops a month response that lands after the user already left', async () => {
+    // ONE shared pending promise for all three window reads — a per-call
+    // promise would leave two of them unresolved and hang the Promise.all.
     let resolveFetch: (v: unknown) => void = () => {}
-    loadKaruteWindow.mockImplementation(
-      () => new Promise((resolve) => { resolveFetch = resolve }),
-    )
+    const pending = new Promise((resolve) => { resolveFetch = resolve })
+    loadKaruteWindow.mockImplementation(() => pending)
     renderList()
     openPanel()
     fireEvent.click(screen.getByRole('option', { name: '2026年1月' }))
@@ -340,6 +362,121 @@ describe('leaving month view', () => {
       })
     })
     // The superseded chunk describes a state that no longer exists.
+    expect(screen.queryByText('一月 太郎')).not.toBeInTheDocument()
+    expect(screen.getAllByText('山田 花子')).toHaveLength(2)
+  })
+})
+
+describe('fetch axis vs display axis (Greptile PR #784)', () => {
+  // The engine filters created_at; the list displays session_date ?? created_at.
+  // The month view has to be true about the month the user PICKED, which is the
+  // display axis — so it reads the neighbouring created-windows too and then
+  // filters on what it will actually show.
+
+  it('SHOWS a karute created in the next month but dated INTO the picked one', async () => {
+    // Written Feb 2, session Jan 28: the January created-window never sees it.
+    const backdated = item('backdated', '2026-01-28', '遡り 記子')
+    windowsByMonth({
+      '2026-01': [item('j1', '2026-01-20', '一月 太郎')],
+      '2026-02': [backdated],
+    })
+    renderList()
+    openPanel()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: '2026年1月' }))
+    })
+    expect(screen.getByText('遡り 記子')).toBeInTheDocument()
+    expect(screen.getByText('一月 太郎')).toBeInTheDocument()
+  })
+
+  it('HIDES a karute created in the picked month but dated OUT of it', async () => {
+    // Written Jan 30, session Feb 2: the January created-window returns it, but
+    // it is displayed in February and has no business in the January view.
+    windowsByMonth({
+      '2026-01': [item('j1', '2026-01-20', '一月 太郎'), item('stray', '2026-02-02', '越境 迷子')],
+    })
+    renderList()
+    openPanel()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: '2026年1月' }))
+    })
+    expect(screen.queryByText('越境 迷子')).not.toBeInTheDocument()
+    expect(screen.getByText('一月 太郎')).toBeInTheDocument()
+    // 表示中 counts what SURVIVED the display filter, so the header cannot
+    // promise a row the list does not show.
+    expect(screen.getByText(/statusLine/).textContent).toContain('"showingCount":1')
+  })
+
+  it('DEDUPES a row two created-windows both return', async () => {
+    const shared = item('j1', '2026-01-20', '一月 太郎')
+    windowsByMonth({ '2026-01': [shared], '2026-02': [shared], '2025-12': [shared] })
+    renderList()
+    openPanel()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: '2026年1月' }))
+    })
+    expect(screen.getAllByText('一月 太郎')).toHaveLength(1)
+  })
+
+  it('reports a FAILED neighbour window as a failed month, not a short one', async () => {
+    loadKaruteWindow.mockImplementation(async ({ month }: { month: string }) =>
+      month === '2026-02'
+        ? { error: 'upstream' }
+        : { items: [item('j1', '2026-01-20', '一月 太郎')], windowStart: `${month}-01`, freshStoreTotal: 9, hasMore: false },
+    )
+    renderList()
+    openPanel()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: '2026年1月' }))
+    })
+    // An incomplete month served as a list would read as the truth.
+    expect(screen.getByRole('alert').textContent).toBe('loadMoreFailed')
+    expect(screen.queryByText('一月 太郎')).not.toBeInTheDocument()
+  })
+})
+
+describe('store switch (Greptile PR #784)', () => {
+  // The switcher runs setActiveStore() + router.refresh(), which RE-PROPS this
+  // component instead of remounting it — so the store lens is what has to tell
+  // it that everything it holds belongs to the previous store.
+
+  it('drops month rows when the active store changes', async () => {
+    const { rerender } = render(listEl({ storeId: 'store-a' }))
+    await jumpToJanuary()
+    expect(screen.getByText('一月 太郎')).toBeInTheDocument()
+
+    await act(async () => {
+      rerender(listEl({ storeId: 'store-b' }))
+    })
+
+    // Store A's month rows are gone, and the view is back on the default
+    // window the new store's props carry.
+    expect(screen.queryByText('一月 太郎')).not.toBeInTheDocument()
+    expect(monthChip().textContent).toBe(CURRENT_MONTH_LABEL)
+    expect(pill('all').textContent).toBe('filters.all3')
+  })
+
+  it('drops a month response still in flight across the switch', async () => {
+    let resolveFetch: (v: unknown) => void = () => {}
+    const pending = new Promise((resolve) => { resolveFetch = resolve })
+    loadKaruteWindow.mockImplementation(() => pending)
+    const { rerender } = render(listEl({ storeId: 'store-a' }))
+    openPanel()
+    fireEvent.click(screen.getByRole('option', { name: '2026年1月' }))
+
+    await act(async () => {
+      rerender(listEl({ storeId: 'store-b' }))
+    })
+    await act(async () => {
+      resolveFetch({
+        items: [item('j1', '2026-01-20', '一月 太郎')],
+        windowStart: '2026-01-01',
+        freshStoreTotal: 9,
+        hasMore: false,
+      })
+    })
+
+    // Store A's rows must not paint over store B's list.
     expect(screen.queryByText('一月 太郎')).not.toBeInTheDocument()
     expect(screen.getAllByText('山田 花子')).toHaveLength(2)
   })

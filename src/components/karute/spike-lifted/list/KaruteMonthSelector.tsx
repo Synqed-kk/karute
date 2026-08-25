@@ -37,6 +37,13 @@ import { cn } from '@/lib/utils'
  */
 const MAX_MONTHS = 240
 
+/** 'YYYY-MM' shifted by whole months, either direction. */
+export function shiftMonth(month: string, delta: number): string {
+  const m = Number(month.slice(5, 7)) - 1 + delta
+  const year = Number(month.slice(0, 4)) + Math.floor(m / 12)
+  return `${year}-${String((((m % 12) + 12) % 12) + 1).padStart(2, '0')}`
+}
+
 /**
  * Newest-first 'YYYY-MM' list from `newest` back to `oldest`, both inclusive.
  * Plain string compare is exact on zero-padded YYYY-MM, and an `oldest` that

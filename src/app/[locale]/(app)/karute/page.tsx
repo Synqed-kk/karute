@@ -152,6 +152,10 @@ export default async function KaruteRecordsListPage() {
         total={displayTotal}
         initialWindowStart={initialWindowStart}
         initialHasMore={initialHasMore}
+        // The lens these rows were read under. The store switcher's
+        // router.refresh() re-PROPS this component rather than remounting it,
+        // so this is what tells it to drop the previous store's cached rows.
+        storeId={activeStore}
         staffList={screen.staffList}
         currentStaffId={screen.currentStaffId}
         customerOptions={screen.customerOptions}
