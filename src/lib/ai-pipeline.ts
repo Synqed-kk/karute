@@ -94,7 +94,7 @@ export async function runAIPipeline(
   onProgress('transcribing')
 
   // Upload + transcribe legs go through the recording pipeline PORT (Decision 2):
-  // web = supabase-js upload + /api/ai; thin = a service-minted signed upload URL
+  // web = a service-minted signed upload URL + /api/ai; thin = a service-minted signed upload URL
   // + /api/app/v1/ai (no supabase-js in the bundle). The GlobalRecorder /
   // globalPipeline / draft singletons are unchanged — the seam is HERE only.
   const recordingPort = getRecordingPipelinePort()

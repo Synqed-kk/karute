@@ -439,6 +439,14 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-07-27',
   },
   {
+    file: 'src/actions/recording-upload.ts',
+    call: 'storage.recordings.remove',
+    symbols: ['removeRecordingObject'],
+    justification:
+      "Best-effort cleanup of the staged audio object, fired by the web recording port right AFTER transcription resolves (src/lib/ai-pipeline.ts cleanup(), before extraction/summarization/save even start) — not itself a business action; the eventual karute.save is what audits. Carries over verbatim from the pruned src/lib/ports/recording-port.ts#prepareTranscription entry (2026-07-27, FIX ROUND 1 #15): the 2026-08-25 upload hotfix moved the delete off the browser's supabase-js client and onto this cookie-authed server action (bucket RLS now 403s browser-direct writes), the timing and the reasoning are unchanged. Precedent for the sibling mint legs: src/app/api/app/v1/recordings/upload-url/route.ts.",
+    dated: '2026-08-25',
+  },
+  {
     file: 'src/actions/recordings.ts',
     call: 'recordings.create',
     symbols: ['startRecordingSessionWithClient'],
@@ -660,22 +668,6 @@ export const SDK_WRITE_ALLOWLIST: {
     symbols: ['updatePackStatus'],
     justification:
       'No FacadeEndpointKey or web action taxonomy entry covers pack status changes at all today — genuinely untracked, not pendingWave (no wave has claimed it). Flagged here rather than silently passing.',
-    dated: '2026-07-27',
-  },
-  {
-    file: 'src/lib/ports/recording-port.ts',
-    call: 'storage.recordings.upload',
-    symbols: ['prepareTranscription', 'stageForJob'],
-    justification:
-      "The web recording port's audio staging upload (both the interactive prepareTranscription leg and the job-pipeline stageForJob leg) — nothing auditable happens until the eventual save (createOrUpdateKaruteRecord) or job completion (processJob).",
-    dated: '2026-07-27',
-  },
-  {
-    file: 'src/lib/ports/recording-port.ts',
-    call: 'storage.recordings.remove',
-    symbols: ['prepareTranscription'],
-    justification:
-      "Best-effort cleanup of the staged audio object. FIX ROUND 1 #15 correction: this fires right AFTER TRANSCRIPTION resolves (verified at source, src/lib/ai-pipeline.ts:101-115 — cleanup() is called immediately after the transcribe fetch, BEFORE extraction/summarization/save even start), not \"after a successful save\" and never on retry — not itself a business action either way; the eventual karute.save is what audits.",
     dated: '2026-07-27',
   },
   {
