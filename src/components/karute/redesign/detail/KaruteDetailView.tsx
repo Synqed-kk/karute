@@ -95,48 +95,76 @@ export function KaruteDetailView({
         }
       />
 
-      <OutcomeCard
-        karuteRecordId={karuteId}
-        customerId={customerId}
-        customerName={header.customerName}
-        current={
-          outcome
-            ? {
-                outcome: outcome.outcome,
-                reason: outcome.reason,
-                autoDecided: outcome.auto_decided,
-                isFirstVisit: outcome.is_first_visit,
-              }
-            : null
-        }
-      />
+      {/* These wrapped cards (and the suggestedMessageSlot below) can
+       *  legitimately render null — an empty wrapper must not hold its
+       *  gap-4 slot open, so empty:hidden collapses it. Content that later
+       *  fills the wrapper (e.g. Suspense resolve) flips it visible and the
+       *  entrance runs then — intended. */}
+      <div
+        className="empty:hidden motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-[6px] motion-safe:fill-mode-backwards motion-safe:animation-duration-(--duration-base) motion-safe:ease-(--ease-out)"
+        style={{ animationDelay: '0ms' }}
+      >
+        <OutcomeCard
+          karuteRecordId={karuteId}
+          customerId={customerId}
+          customerName={header.customerName}
+          current={
+            outcome
+              ? {
+                  outcome: outcome.outcome,
+                  reason: outcome.reason,
+                  autoDecided: outcome.auto_decided,
+                  isFirstVisit: outcome.is_first_visit,
+                }
+              : null
+          }
+        />
+      </div>
 
       <CustomerMemoryCard memory={memory} />
 
       <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <div className="flex flex-col gap-4">
           {bodyPredictionSlot}
-          <CurrentSessionCard
-            sessionDate={sessionDateLong}
-            entries={entries}
-            karuteRecordId={karuteId}
-            headerAction={
-              transcript ? (
-                <RegenerateEntriesButton karuteRecordId={karuteId} />
-              ) : null
-            }
-          />
+          <div
+            className="empty:hidden motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-[6px] motion-safe:fill-mode-backwards motion-safe:animation-duration-(--duration-base) motion-safe:ease-(--ease-out)"
+            style={{ animationDelay: '40ms' }}
+          >
+            <CurrentSessionCard
+              sessionDate={sessionDateLong}
+              entries={entries}
+              karuteRecordId={karuteId}
+              headerAction={
+                transcript ? (
+                  <RegenerateEntriesButton karuteRecordId={karuteId} />
+                ) : null
+              }
+            />
+          </div>
         </div>
         <div className="flex flex-col gap-4">
-          <AISummaryCard
-            sessionDate={sessionDateLong}
-            bullets={summaryBullets}
-            karuteRecordId={karuteId}
-            summaryRaw={summaryRaw}
-            summaryEdited={summaryEdited}
-          />
+          <div
+            className="empty:hidden motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-[6px] motion-safe:fill-mode-backwards motion-safe:animation-duration-(--duration-base) motion-safe:ease-(--ease-out)"
+            style={{ animationDelay: '80ms' }}
+          >
+            <AISummaryCard
+              sessionDate={sessionDateLong}
+              bullets={summaryBullets}
+              karuteRecordId={karuteId}
+              summaryRaw={summaryRaw}
+              summaryEdited={summaryEdited}
+            />
+          </div>
           {photosSlot}
-          {suggestedMessageSlot}
+          {/* Suspense fallback mounts here and animates in; the resolved
+           *  suggestedMessageSlot content swaps into this same wrapper
+           *  without re-triggering the entrance (intended). */}
+          <div
+            className="empty:hidden motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-[6px] motion-safe:fill-mode-backwards motion-safe:animation-duration-(--duration-base) motion-safe:ease-(--ease-out)"
+            style={{ animationDelay: '120ms' }}
+          >
+            {suggestedMessageSlot}
+          </div>
           <RecordingTranscriptCard
             transcript={transcript}
             consentOnFile={consentOnFile}
