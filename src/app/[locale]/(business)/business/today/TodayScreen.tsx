@@ -343,6 +343,17 @@ export interface TodayProps {
    *  that WILL carry 清掃, and a board reading its own items would call that
    *  store bare. */
   bedCleanupOn: boolean
+  /** ⚖ R4 (2026-08-25) — THE SAME DIAL, PER ROOM, because a claim is a claim on
+   *  ONE room. `bedCleanupOn` above answers "does this store reserve turnover
+   *  time at all" and that is the right shape for a sentence in the ベッド・設備
+   *  note; it is the wrong shape for the reconciliation, which has to ask how
+   *  many minutes THIS room needs before the next thing may be advertised on it.
+   *  Assembled in page.tsx off each resource's own `cleanup_minutes` — the
+   *  number today-board already derives its 清掃 blocks from (PR #770 owns that
+   *  derivation and it is untouched here; this reads the same source field).
+   *  A room missing from the map is a bare room, 0 minutes — 0 is the dial's own
+   *  OFF value (⚖ flag 77), the same decision `ClaimsBook.violations` makes. */
+  bedCleanupMinutes: Record<string, number>
   /** ⚠SETTINGS-BATCH — ⚖ Liam flag 50(d). May THIS viewer place over a 置けない?
    *  Answered on the server from the store's `overridePolicy` and the operator's
    *  own role and staff_id, so the board never decides authority for itself and
@@ -1213,22 +1224,16 @@ export function TodayScreen(props: TodayProps) {
     [price.hi, price.lo, dialogs.pricing.hqMin, dialogs.pricing.hqMax],
   )
 
-  const sell = useMemo(
-    () =>
-      sellLayerFor(committedLanes, hours, {
-        gridMin: props.sell.gridMin,
-        nowMinute: props.sell.nowMinute,
-        locked,
-        showPrice: showSlotPrice,
-        hi: price.hi,
-        hqMin: dialogs.pricing.hqMin,
-        depth,
-      }),
-    [committedLanes, hours, props.sell, locked, showSlotPrice, price.hi, dialogs.pricing.hqMin, depth],
-  )
-
   /** スキマ枠 + 詰め込みセッション — canon renders them from the same board pass
-   *  as the normal layer (renderPublicLayer → renderGapFillLayer :5402). */
+   *  as the normal layer (renderPublicLayer → renderGapFillLayer :5402).
+   *
+   *  ⚖ R4 (2026-08-25) — IT RUNS FIRST NOW, AND THAT ORDER IS THE ROUND. Its
+   *  finished cells — after `combineCrumbs` and the `minSellableMin` floor, so
+   *  after every box that will not be drawn has already gone — are the promises
+   *  the 販売可能枠 layer below reconciles itself against. Two layers picking
+   *  rooms out of two private books is what let one bed be advertised to two
+   *  customers at once; one of them has to be the book, and the boxes with a
+   *  fixed price and a fixed length are it. */
   const gap = useMemo(
     () =>
       gapLayerFor(committedLanes, {
@@ -1244,6 +1249,45 @@ export function TodayScreen(props: TodayProps) {
         guard: props.guard.config,
       }),
     [committedLanes, props.sell, props.guard, locked, frame, depth],
+  )
+
+  /** ⚖ R4 — the スキマ枠/詰め込み boxes as ONE list of promises. Both layers
+   *  emit a staff-row and a bed-row copy of every box; `sellLayerFor` collapses
+   *  the pair itself, so this is the concatenation and nothing more. */
+  const gapClaims = useMemo(() => [...gap.packed, ...gap.scraps], [gap])
+
+  const sell = useMemo(
+    () =>
+      sellLayerFor(committedLanes, hours, {
+        gridMin: props.sell.gridMin,
+        nowMinute: props.sell.nowMinute,
+        locked,
+        showPrice: showSlotPrice,
+        hi: price.hi,
+        hqMin: dialogs.pricing.hqMin,
+        depth,
+        // ⚖ R4 — ONE ADVERTISED OFFER PER BED. The reconciliation happens inside
+        // `sellLayerFor`, BEFORE `buildSellLayer`, so 公開中 N枠 / 販売可能枠 N窓 /
+        // 安全な空き and the price button all count the boxes the board actually
+        // draws. It used to happen in `renderLane`, per drawn row, after the
+        // counts were already computed — so the header could say 22 windows while
+        // one box was on screen, and a cross-row collision (p-05's hour and
+        // p-06's スキマ枠 both on ベッド2) was invisible to it.
+        reconcile: { claims: gapClaims, rooms: props.rooms, cleanupMinutesByBed: props.bedCleanupMinutes },
+      }),
+    [
+      committedLanes,
+      hours,
+      props.sell,
+      locked,
+      showSlotPrice,
+      price.hi,
+      dialogs.pricing.hqMin,
+      depth,
+      gapClaims,
+      props.rooms,
+      props.bedCleanupMinutes,
+    ],
   )
 
   /** The 配置ガイド. `guardOn` is the STORE's protection policy; `guideMode` is
@@ -3861,13 +3905,24 @@ export function TodayScreen(props: TodayProps) {
     const isLocked = locked.includes(lane.key)
     const onThisLane = <T extends { group: string; laneKey: string; resourceKey: string }>(c: T) =>
       c.group !== lane.group ? false : lane.group === 'staff' ? c.laneKey === lane.key : c.resourceKey === lane.key
-    // canon `suppressOverlappingSellableCells` (:5039): one box per span. Where
-    // a スキマ枠 or a packed session owns the minutes, the normal layer's wash
-    // comes off entirely rather than compositing two washes into a third colour.
     const gapHere = [...gap.packed, ...gap.scraps].filter(onThisLane)
-    const cells = sell.cells
-      .filter(onThisLane)
-      .filter((c) => !gapHere.some((g) => g.s < c.h + 60 && c.h < g.e))
+    // ⚖ R4 (2026-08-25, corrected in the fix round) — canon
+    // `suppressOverlappingSellableCells` (:5039) USED TO LIVE HERE, as
+    // `.filter((c) => !gapHere.some(…))`. It MOVED, both of its halves, into
+    // `reconcileSellCells`: the ROOM half became the `promised` test and the
+    // SAME-LANE half became `busyLane`. (The first cut of this round moved only
+    // the room half and this comment claimed the filter was "gone, not
+    // weakened" — it was weakened, and the blind round found it: re-bedding
+    // resurrected the same-row cells the filter used to kill. Both halves are
+    // there now, and the lane half drops rather than re-beds.)
+    // Two things the render-time version could not do: it
+    // filtered `onThisLane`, so p-05's hour and p-06's box both pointing at
+    // ベッド2 were never compared; and it ran AFTER `buildSellLayer`, so the
+    // counts on four surfaces — 公開中 N枠 (:4389), 販売可能枠 N窓 (:4435), 安全な空き
+    // (:4862) and the 公開価格 button (:5077) — were computed from boxes this line
+    // then declined to draw. One box per span still holds; it is now true of the
+    // LAYER rather than of the paint, which is what makes those four honest.
+    const cells = sell.cells.filter(onThisLane)
     const rail = railByLane.get(lane.key)
     // canon `lane.insertAdjacentElement("afterend", rail)` (:7566): the rail is
     // the lane's SIBLING, not its child. A `.lane` is a two-column grid, so a

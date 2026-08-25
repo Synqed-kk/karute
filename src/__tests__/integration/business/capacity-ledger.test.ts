@@ -1410,9 +1410,15 @@ describe('11 — what the book refuses, and what it exports', () => {
     expect(Object.isFrozen(truth.frame)).toBe(true)
   })
 
-  it('the module’s door is exactly two functions and one constant', () => {
+  it('the module’s door is exactly three functions and one constant', () => {
     const doors = Object.keys(ledger).filter((k) => k !== '__esModule').sort()
-    expect(doors).toEqual(['LATTICE_STEP_MIN', 'bedTruthViews', 'buildClaims'])
+    // ⚖ R4 (2026-08-25) — `boardOffers` joined the door, and the pin moved WITH
+    // the decision rather than being relaxed to a subset check. It is Phase 2's
+    // own input adapter: the one place the OPTION/PROMISE distinction is spelled
+    // (a run of sell options on one room is ONE claim on that room's time; every
+    // スキマ枠 box is its own). It reads nothing and builds nothing, so it opens
+    // no world — which is what this pin exists to protect.
+    expect(doors).toEqual(['LATTICE_STEP_MIN', 'bedTruthViews', 'boardOffers', 'buildClaims'])
     // The world-builders are NOT among them: exported, either one would be the
     // free exclusion that produced the three-world board.
     expect((ledger as Record<string, unknown>).buildBedTruth).toBeUndefined()

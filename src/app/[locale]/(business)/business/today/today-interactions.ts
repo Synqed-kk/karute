@@ -17,12 +17,13 @@ import {
   deriveSellableCells,
   freePockets,
   type GapCell,
+  type SellCell,
   type SellLayer,
   type SellResourceLane,
   type SellStaffLane,
 } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext, type GuardReason } from '@/business/lib/canon-logic/gap-guard'
-import { gapFillPrice, packedPrice, priceAt, type PriceFrame } from '@/business/lib/canon-logic/pricing'
+import { gapFillPrice, packedPrice, priceAt, SELL_SLOT_MIN, type PriceFrame } from '@/business/lib/canon-logic/pricing'
 import {
   computeChecks,
   confirmCaption,
@@ -665,7 +666,21 @@ export function laneSpans(lane: BoardLane, exclude?: string | null): Array<{ sta
 
 /** ONE reading of the board's lanes, shared by every window layer — the normal
  *  販売可能枠, the スキマ枠/詰め込み layers and the guard rail all price and
- *  refuse against the same occupancy, so they can never disagree. */
+ *  refuse against the same occupancy, so they can never disagree.
+ *
+ *  ⚖ R4 (2026-08-25) — THAT SENTENCE WAS TRUE ON ONE AXIS ONLY, and the round
+ *  exists because of the other one. On the STAFF axis it holds: both layers
+ *  read the same `SellStaffLane[]`, so they cannot disagree about whether a
+ *  person is free. On the BED axis they never met — the sell layer minted a
+ *  per-slot `Set` inside canon's own loop and the gap layer kept a per-call
+ *  `bedLedger`, two private books that could hand the SAME room to two
+ *  different customers at the same hour. THREE such double-claims sit on the
+ *  pristine demo fixture at the store's own dials, and the count is
+ *  dial-dependent — the sweep moves it (⚖ R4 fix round: this line said "four",
+ *  which counted the sell cells un-merged; the red run's own total is 3).
+ *  `sellLayerFor` now reconciles the sell layer against
+ *  the gap layer's finished cells (`reconcile` below), so the bed axis has one
+ *  answer too — and the sentence above is finally true as written. */
 export function sellStaffLanes(lanes: BoardLane[], locked: string[]): SellStaffLane[] {
   return lanes
     .filter((l) => l.group === 'staff' && l.window != null && l.listPrice > 0)
@@ -681,10 +696,268 @@ export function sellStaffLanes(lanes: BoardLane[], locked: string[]): SellStaffL
     }))
 }
 
+/** ⚖ R4 (2026-08-25) — A-5, THE STORE FLATTENING, NAMED RATHER THAN LEFT INLINE.
+ *
+ *  `storeId` is ONE string because canon's `SellResourceLane` says so and
+ *  `canPair` reads exactly that field (availability.ts:51) — a frozen file, so
+ *  this shape is not ours to widen. A `BoardLane` carries the whole list, and
+ *  the two disagree in two places: a room belonging to more than one store
+ *  keeps only its first, and a FLOATING room (`stores: null`, "every store")
+ *  becomes `''`, which no staff member's list contains.
+ *
+ *  WHICH DIRECTION IT FAILS, because that decides whether R4 may leave it: in
+ *  every case canon's answer is a strict SUBSET of `sharesStore`'s. `staff ===
+ *  null` short-circuits both to true; a single-store room is identical; the two
+ *  divergences above both turn a legal pairing into a refusal. So the
+ *  flattening can only UNDER-advertise — it can never put a person in another
+ *  store's room, which is the direction the store-isolation law cares about,
+ *  and a reconciliation pass downstream can never win those offers back because
+ *  they were never emitted. Today it is unreachable besides: today-board writes
+ *  `stores: [resource.store_id]` for every room (:583).
+ *
+ *  WHAT R4 DOES ABOUT IT: every room decision this round makes — the re-bedding
+ *  in `reconcileSellCells` — goes through `allocateBed`, whose store rule is
+ *  `sharesStore` over the room's WHOLE list. So the offers R4 moves are placed
+ *  by the real rule even where canon's pairing would have refused. Repairing
+ *  canon's own emission needs `SellResourceLane` to carry the list, and that is
+ *  an edit to a frozen file — recorded as a spec/ask, not done here. */
 export function sellResourceLanes(lanes: BoardLane[]): SellResourceLane[] {
   return lanes
     .filter((l) => l.group === 'beds')
     .map((l) => ({ key: l.key, name: l.label, occupied: laneSpans(l), storeId: l.stores?.[0] ?? '' }))
+}
+
+/** ⚖ R4 (2026-08-25) — WHICH PROMISE KEEPS THE ROOM. One exported function, one
+ *  home, so the rule is never a literal buried in a filter.
+ *
+ *  THE DEFAULT IS TODAY'S SHIPPED BEHAVIOUR: the スキマ枠/詰め込み box wins and
+ *  the 販売可能枠 hour moves or goes. That is what `renderLane`'s per-lane
+ *  suppression did before this round (canon `suppressOverlappingSellableCells`,
+ *  :5039), and R4 is a CORRECTNESS round — it makes one room carry one
+ *  advertised offer, and it must not also change which offer the store earns
+ *  from. The nine-lens council measured gap-first losing money on 8 of 9 dial
+ *  settings, but on SYNTHETIC occupancy; that is a revenue ruling for Liam once
+ *  it is measurable on real bookings, not a builder's call on fixture data.
+ *
+ *  FLIPPING IT IS ONE LINE — `return 'sell'` — and the line is the small half of
+ *  the change. This seam can only drop the SELL side: `gapLayerFor` has already
+ *  run and its cells arrive here as an input (see `SellReconcile`), so a 'sell'
+ *  answer leaves the gap box drawn and the reconciliation has to move up one
+ *  level, to the screen, where both lists are in hand.
+ *
+ *  IT TAKES NOTHING BECAUSE IT WEIGHS NOTHING (⚖ R4 fix round). It once took the
+ *  two spans, ignored both, and needed an `eslint-disable` to say so — a
+ *  signature built for a ruling that has not been made. The ruling WIDENS the
+ *  signature the day it lands, and adding the parameters back is the same one
+ *  line as the `return` above; a parameter list that lies today buys nothing
+ *  towards it.
+ *
+ *  ponytail: no config, no policy object, no store dial — nothing has asked for
+ *  one. A named function with a provenance comment is the whole requirement. */
+export function keepsTheRoom(): 'sell' | 'gap' {
+  return 'gap'
+}
+
+/** ⚖ R4 — WHAT THE OTHER LAYER HAS ALREADY PROMISED, handed to this one.
+ *
+ *  `claims` are `gapLayerFor`'s FINAL cells — after `combineCrumbs` and the
+ *  `minSellableMin` floor — because a claim the board never draws is not a
+ *  claim, and reconciling against the raw cells would suppress hours for boxes
+ *  that were then filtered away. The screen therefore computes the gap layer
+ *  FIRST and hands the result in.
+ *
+ *  ABSENT means the caller drew no スキマ枠/詰め込み layer at all, which is the
+ *  literal truth for a unit test asking about the sell layer alone, and leaves
+ *  the derivation byte-identical to R3's. */
+export interface SellReconcile {
+  claims: readonly GapCell[]
+  /** The store's two room-allocation judgements — the re-bedding is a real
+   *  `allocateBed` search and it obeys them. */
+  rooms: RoomPolicy
+  /** Per-room turnaround, ⚖ flag 77's dial. A room MISSING from the map is a
+   *  bare room (0 minutes) — the same decision, and the same reason, as
+   *  `ClaimsBook.violations`. */
+  cleanupMinutesByBed: Record<string, number>
+}
+
+/** ⚖ R4 — ONE ADVERTISED OFFER PER BED, decided at the app seam.
+ *
+ *  THE DEFECT: the sell layer and the gap layer each picked rooms out of their
+ *  own private book, so staff p-05's 販売可能枠 hour and staff p-06's スキマ枠
+ *  box could both point at ベッド2 at the same minute. The shipped suppression
+ *  ran inside `renderLane` and filtered `onThisLane` — the same DRAWN ROW — so
+ *  it could not see a cross-row collision at all, and because it ran after
+ *  `buildSellLayer` the counts it fed (公開中 N枠, 販売可能枠 N窓, 安全な空き)
+ *  were computed from boxes the screen then declined to draw.
+ *
+ *  Reconciling HERE, between `deriveSellableCells` and `buildSellLayer`, makes
+ *  those counts honest BY CONSTRUCTION: every surface reads a layer built out of
+ *  the cells that actually survive.
+ *
+ *  FOUR MOVES, in this order, per offer:
+ *    1. is this offer's own PERSON already inside a promise? Then no room saves
+ *       it and it is DROPPED — see `busyLane` below. This is the half of the old
+ *       render-time filter that has to live here too.
+ *    2. does this offer's OWN room carry a competing promise — overlap, or a
+ *       separation shorter than that room's turnaround? The test is per ROOM and
+ *       per SPAN, never per drawn row.
+ *    3. if it does, SOLVE THE ROOM — 「people are chosen, rooms are solved」
+ *       (⚖ flag 51). The loser is re-bedded through `allocateBed`, the same one
+ *       search every other room decision on this screen goes through, asked as a
+ *       hypothetical (`id: null`) on a board whose competing and already-taken
+ *       rooms are not on offer. Most losers land somewhere.
+ *    4. only a loser with nowhere to go is DROPPED.
+ *
+ *  WHAT IS NOT RECONCILED, deliberately: two sell options overlapping on one
+ *  room. An offer is an OPTION and a booking grid emitting 15:00 / 15:30 / 16:00
+ *  on one room is a MENU — see `boardOffers` in capacity-ledger for the whole
+ *  distinction.
+ *
+ *  THE CEILING ON THE ROOM RULE, stated rather than denied (⚖ R4 fix round —
+ *  this comment used to claim "a re-bedding can never hand two people the same
+ *  room for the same hour", which is true PER SLOT only). `taken` is minted
+ *  inside the per-slot loop, exactly as canon mints `claimed` inside its own
+ *  (availability.ts:117), while `SELL_SLOT_MIN` is fixed at 60. So at `gridMin`
+ *  30 a re-bedded 15:30 offer can land on a room a surviving 15:00 offer still
+ *  holds, and the two overlap. That is the OPTION side of the distinction above
+ *  and it is legal: both are alternatives on one room's menu, and one booking
+ *  takes the menu away. What the cap really guarantees is the per-slot form —
+ *  within ONE slot the rooms are distinct — and that is the whole of it. */
+function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellReconcile): SellCell[] {
+  /** The gap layer emits every box twice — once for the staff row, once for the
+   *  bed row — so the pair collapses to one promise before anything is judged. */
+  const promises = new Map<string, Array<{ resourceKey: string; start: number; end: number }>>()
+  for (const c of input.claims) {
+    if (c.resourceKey === '') continue
+    const held = promises.get(c.resourceKey) ?? []
+    if (held.some((p) => p.start === c.s && p.end === c.e)) continue
+    held.push({ resourceKey: c.resourceKey, start: c.s, end: c.e })
+    promises.set(c.resourceKey, held)
+  }
+  // ⚖ R4 fix round — THE CLAIMS, not the rooms they name. The lane test below
+  // needs no room, so the early return has to mean "nothing was promised at
+  // all"; `promises.size` would also be 0 for a claim list carrying no rooms,
+  // and returning there would skip the lane half. (Canon's own emission always
+  // carries a room — `bedLedger` returns a lane or nothing, availability.ts:372
+  // — so on a real board the two conditions agree.)
+  if (input.claims.length === 0) return cells
+
+  /** ⚖ flag 77's dial, read the way the render path has to read it: a value
+   *  that is not a number of minutes DEGRADES to a bare room rather than
+   *  throwing. `ClaimsBook.violations` throws on the same input on purpose — it
+   *  is an assertion surface and a caller bug should be loud there — but this
+   *  runs while the board is drawing itself, with no error boundary under it. */
+  const turnaround = (resourceKey: string) => {
+    if (!Object.hasOwn(input.cleanupMinutesByBed, resourceKey)) return 0
+    const held = input.cleanupMinutesByBed[resourceKey]
+    return typeof held === 'number' && Number.isFinite(held) ? Math.max(0, held) : 0
+  }
+
+  /** A room is unavailable to this offer when a promise on it overlaps the span
+   *  OR sits closer to it than the room's own turnaround — and when the rule
+   *  says that promise is the one that keeps the room. */
+  const promised = (resourceKey: string, cell: SellCell) => {
+    const held = promises.get(resourceKey)
+    if (!held) return false
+    const pad = turnaround(resourceKey)
+    return held.some(
+      (p) => p.end + pad > cell.h && p.start - pad < cell.h + SELL_SLOT_MIN && keepsTheRoom() === 'gap',
+    )
+  }
+
+  /** ⚖ R4 fix round — THE SAME PERSON IS A COLLISION TOO, and the filter this
+   *  round deleted was saying so. `renderLane`'s suppression did TWO jobs at
+   *  once: on a BED row it compared `resourceKey`, and on a STAFF row it
+   *  compared `laneKey` — the same person. R4 moved the room half here and
+   *  dropped the lane half, and re-bedding then RESURRECTED the very cells the
+   *  old filter used to kill: an offer losing its room to a 詰め込み box on its
+   *  OWN row found another free room and survived, advertising one staff member
+   *  on two rooms at the same minute (blind round B1).
+   *
+   *  A LANE COLLISION IS A DROP, NEVER A RE-BED. Solving the room does not make
+   *  the person free — they are already inside the box. Re-bedding is only ever
+   *  right for a CROSS-row collision, where the person is fine and the room is
+   *  the only thing taken.
+   *
+   *  NO TURNAROUND PAD ON THIS TEST, deliberately: turnaround is a property of a
+   *  ROOM (how long it takes to turn one over), not of a person, and the old
+   *  filter used plain overlap. Parity with what it did, and nothing more.
+   *
+   *  Read off `input.claims` rather than `promises`: this asks about a LANE, and
+   *  the room-keyed collapse above has already dropped every room-less box. Both
+   *  emissions of a box carry the staff `laneKey` (availability.ts:372-373), so
+   *  the pair matching twice is the same answer twice. */
+  const busyLane = (cell: SellCell) =>
+    input.claims.some((g) => g.laneKey === cell.laneKey && g.s < cell.h + SELL_SLOT_MIN && cell.h < g.e)
+
+  const storesOf = new Map(lanes.filter((l) => l.group === 'staff').map((l) => [l.key, l.stores]))
+
+  /** ONE OFFER, TWO CELLS. canon pushes a staff-row cell and a bed-row cell per
+   *  window (availability :126-134); they are one advertisement and they move or
+   *  go together. */
+  const offerKey = (c: SellCell) => `${c.laneKey}|${c.h}`
+  const decisions = new Map<string, { resourceKey: string; bed: string } | null>()
+  const bySlot = new Map<number, SellCell[]>()
+  for (const c of cells) {
+    if (c.group !== 'staff' || c.resourceKey === '') continue
+    const held = bySlot.get(c.h)
+    if (held) held.push(c)
+    else bySlot.set(c.h, [c])
+  }
+
+  for (const [, slot] of bySlot) {
+    const losers: SellCell[] = []
+    // canon's per-slot cap, carried forward: the rooms the survivors hold are
+    // spoken for, and a re-bedding may not take one of them.
+    const taken = new Set<string>()
+    for (const c of slot) {
+      // The lane test FIRST, and it is terminal: a person already inside a
+      // promise has no free room to be moved to, so the offer goes and its room
+      // is left free for somebody else's loser to land on.
+      if (busyLane(c)) decisions.set(offerKey(c), null)
+      else if (promised(c.resourceKey, c)) losers.push(c)
+      else taken.add(c.resourceKey)
+    }
+    for (const c of losers) {
+      const stores = storesOf.get(c.laneKey) ?? null
+      const offer = lanes.filter((l) => l.group !== 'beds' || !(taken.has(l.key) || promised(l.key, c)))
+      const found = allocateBed(offer, {
+        id: null,
+        currentBed: null,
+        stores,
+        // A window is an advertisement, not a booking: nobody is VIP yet, so
+        // the 個室 floor asks its ordinary question and 個室-last still holds.
+        vip: false,
+        start: c.h,
+        end: c.h + SELL_SLOT_MIN,
+        policy: input.rooms,
+      })
+      if (found.laneKey === null) {
+        decisions.set(offerKey(c), null)
+        continue
+      }
+      taken.add(found.laneKey)
+      decisions.set(offerKey(c), {
+        resourceKey: found.laneKey,
+        bed: lanes.find((l) => l.key === found.laneKey)?.label ?? '',
+      })
+    }
+  }
+
+  if (decisions.size === 0) return cells
+  // Rebuilt in canon's own emission order, so a board with nothing to reconcile
+  // comes out of here byte-identical to the one that went in.
+  const out: SellCell[] = []
+  for (const c of cells) {
+    if (!decisions.has(offerKey(c))) {
+      out.push(c)
+      continue
+    }
+    const moved = decisions.get(offerKey(c))
+    if (moved == null) continue
+    out.push({ ...c, resourceKey: moved.resourceKey, bed: moved.bed })
+  }
+  return out
 }
 
 /** The 販売可能枠 layer for the board as it currently stands. Derived here, in
@@ -692,11 +965,21 @@ export function sellResourceLanes(lanes: BoardLane[]): SellResourceLane[] {
 export function sellLayerFor(
   lanes: BoardLane[],
   hours: Hours,
-  opts: { gridMin: number; nowMinute: number | null; locked: string[]; showPrice: boolean; hi: number; hqMin: number; depth: number },
+  opts: {
+    gridMin: number
+    nowMinute: number | null
+    locked: string[]
+    showPrice: boolean
+    hi: number
+    hqMin: number
+    depth: number
+    /** ⚖ R4 — the other layer's finished promises. See `SellReconcile`. */
+    reconcile?: SellReconcile
+  },
 ): SellLayer {
   const staffLanes = sellStaffLanes(lanes, opts.locked)
   const resourceLanes = sellResourceLanes(lanes)
-  const cells = deriveSellableCells({
+  const raw = deriveSellableCells({
     staffLanes,
     resourceLanes,
     open: hours.open,
@@ -705,6 +988,11 @@ export function sellLayerFor(
     now: opts.nowMinute,
     priceFor: (lane, hour) => priceAt(lane.listPrice, hour, opts.hi, opts.hqMin, opts.depth),
   })
+  // ⚖ R4 — BEFORE `buildSellLayer`, never after and never in the renderer: the
+  // bands, the density verdict and 「販売可能枠 N窓」 are all computed from these
+  // cells, and a layer built from boxes the screen then declines to draw is a
+  // board that counts what it does not show.
+  const cells = opts.reconcile ? reconcileSellCells(raw, lanes, opts.reconcile) : raw
   return buildSellLayer(cells, opts.showPrice)
 }
 
