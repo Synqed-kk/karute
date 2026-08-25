@@ -1164,10 +1164,25 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     expect(cellAt(noPocket, 600).sentence).toBe('この開始には60分の連続した空きがありません')
   })
 
-  it('the screen hands the rooms to BOTH guard doors', () => {
-    expect(SRC).toContain('bedFeasibility(lanes, excludeId, props.rooms)')
-    expect(SRC).toContain('placementFeasible: bedFeasibleFor(live?.id ?? pending?.id ?? null),')
-    expect(SRC).toContain('placementFeasible: bedFeasibleFor(excludeId, lanes),')
+  /** ⚖ flag 76 (bed-aware rail) + ⚖ R3 one-world (2026-08-25): exclusion is the
+   *  live gesture's privilege; a staged booking is real for every reader.
+   *
+   *  The pin MOVED with the code it pins. It used to hold the three
+   *  `bedFeasibility` literals; the rail now reads the capacity book, so it
+   *  holds the book's. Flag 76's half is unchanged and still pinned — BOTH guard
+   *  doors are handed the rooms — and R3's half is the new one: the id that may
+   *  be lifted out of the world is `live?.id`, full stop. `?? pending?.id` was
+   *  the excluded world, and it may not come back anywhere in this file. */
+  it('the screen hands the rooms to BOTH guard doors, out of the ONE book', () => {
+    expect(SRC).toContain('const handId = live?.id ?? null')
+    expect(SRC).toContain('placementFeasible: bedDoorFor(handId),')
+    expect(SRC).toContain('placementFeasible: bedDoorFor(excludeId, lanes),')
+    // The book is built ONCE per frame, in a memo — never inside a predicate,
+    // a pointer frame or a drag handler.
+    expect(SRC).toContain('() => bedViewsFor(boardLanes, props.rooms, ledgerFrame, handId),')
+    // …and the excluded world is unreachable from anywhere else on the screen.
+    expect(SRC).not.toContain('?? pending?.id')
+    expect(SRC).not.toContain('bedFeasibility(')
   })
 })
 
@@ -3631,7 +3646,10 @@ describe('BATCH-7 — FLAGS 25c backlog: the three unregistered surfaces join th
     // …and the strip through a conditional spread, because it renders per lane
     // and only the first one may carry the pair (next test).
     expect(SRC).toContain("'data-guide-title': '60分配置',")
-    expect(SRC).toContain('このスタッフの各30分に、そこから60分の施術を始めた場合の判定が並びます。✓は空きを減らさない、△は減らすが置ける、—は置けません。')
+    // ⚖ R3 one world — the strip's own sentence moved with its semantics: the
+    // marks answer 「could a NEW placement start here」, a 確定待ち card holds its
+    // room for that question, and only the card in hand is lifted out.
+    expect(SRC).toContain('このスタッフの各30分に、そこから60分の予約を新しく入れられるかの判定が並びます。✓は空きを減らさない、△は減らすが置ける、—は置けません。確定待ちの移動もほかの予約と同じように場所をふさぎます。')
   })
 
   it('the strip registers ONCE, not once per staff member', () => {
@@ -4517,7 +4535,10 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // of the 60分配置 strip and of the drag itself, both already registered. So
     // the delta is zero SECTIONS and one SENTENCE — the strip's own entry now
     // teaches the mid-drag reading, which is where an operator meets it.
-    expect(SRC).toContain('ドラッグ中は、手に持っている予約に合わせて判定し直します')
+    // ⚖ R3 one world (2026-08-25) — the mid-drag half of the sentence had to say
+    // WHAT the drag changes: the card in hand is lifted out of the world, and it
+    // is the only card that ever is.
+    expect(SRC).toContain('ドラッグ中だけは、手に持っている予約をどけた状態で判定し直します')
     expect(SRC).toContain('置けない場所には × が付き、離しても配置されません')
     // ONE entry, still: a pair on every strip would put the same step on the
     // tour once per staff member (batch-7's rule, unchanged).

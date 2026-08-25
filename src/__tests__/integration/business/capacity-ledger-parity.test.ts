@@ -42,12 +42,17 @@
 // and the dials are the ones the operator sees, assembled by page.tsx rather
 // than by this file. Territory has no DOM renderer — business-isolation.test.ts
 // allows only react/next/node bare packages, so @testing-library never
-// resolves here — and the SHIPPED shadow reader is therefore proven by calling
-// the exact functions the hook calls (`shadowArgs`, `shadowCompare`), exported
-// from TodayScreen for that reason. (The separate fence on TodayScreen's OWN
-// imports is foundation.test.ts's INVENTORY object, which this round adds one
-// specifier to; the two are different machines and it is worth not confusing
-// them.)
+// resolves here.
+//
+// ⚖ R3 (2026-08-25) — THE CANARY IS GONE AND THE PARITY IS NOT. R2's shadow
+// reader (`shadowArgs`, `shadowCompare`, the env allowlist, the hook) existed
+// to prove the book's answers equalled the rail's BEFORE the rail read the
+// book. R3 wired the book in for real, so there is one answer and nothing left
+// to compare: every pin that drove that machinery is deleted with it (named in
+// PIN-DELTA-r3, reason "R2 canary retired by R3's real wiring"). What SURVIVES
+// is this file's whole point — `bedFor` ≡ `bedFeasibility` on the real board,
+// on synthetic boards and across the dials — and it is now the live proof that
+// the swap did not drift the search underneath the operator.
 
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: jest.fn() }))
 jest.mock('@/lib/supabase/server', () => ({ createClient: jest.fn() }))
@@ -77,14 +82,7 @@ import {
   sellLayerFor,
   type RoomPolicy,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
-import {
-  CAPACITY_LEDGER_SHADOW,
-  shadowArgs,
-  shadowEnvAllows,
-  shadowCompare,
-  TodayScreen,
-  type TodayProps,
-} from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { cleanupBlocks, hhmm, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 
@@ -384,51 +382,6 @@ describe('P1 — the book’s hypothetical answer IS the rail’s, on the real b
     for (const key of a) expect(key === null || key === 'bed-01' || key === 'bed-03').toBe(true)
     for (const key of b) expect(key === null || key === 'bed-02' || key === 'bed-04').toBe(true)
   })
-
-  it('the SHIPPED shadow reader carries the lane’s stores too — two stores, zero warns', () => {
-    // The fixture store has ONE store id, so a shadow reader that asked on
-    // behalf of "anybody" would agree with the rail there and the mistake would
-    // never show. It shows here: a floating asker would be offered the OTHER
-    // store's rooms, which is the store-isolation law failing open.
-    const lanes = synthBoard(TWO_STORE, SYNTH_HOURS)
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    try {
-      const seen = shadowCompare({
-        rails: railsFor(lanes, SYNTH_HOURS, null, 60),
-        lanes,
-        policy: REAL.rooms,
-        frame: frameOf(SYNTH_HOURS, SYNTH_NOW),
-        handId: null,
-        dur: 60,
-        legacy: bedFeasibility(lanes, null, REAL.rooms)!,
-      })
-      expect(seen).toBe(0)
-      expect(warn).not.toHaveBeenCalled()
-    } finally {
-      warn.mockRestore()
-    }
-  })
-
-  it('…and with a hand held on the two-store board, the binding still carries', () => {
-    const lanes = synthBoard(TWO_STORE, SYNTH_HOURS)
-    const hand = staffLanesOf(lanes).flatMap((l) => l.items).find((i) => i.caseId)!.caseId!
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    try {
-      const seen = shadowCompare({
-        rails: railsFor(lanes, SYNTH_HOURS, hand, 60),
-        lanes,
-        policy: REAL.rooms,
-        frame: frameOf(SYNTH_HOURS, SYNTH_NOW),
-        handId: hand,
-        dur: 60,
-        legacy: bedFeasibility(lanes, hand, REAL.rooms)!,
-      })
-      expect(seen).toBe(0)
-      expect(warn).not.toHaveBeenCalled()
-    } finally {
-      warn.mockRestore()
-    }
-  })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -564,30 +517,6 @@ describe('P2 — with a card in hand, worldMinusHand IS the rail’s excluded wo
     expect(lift).toEqual({ bool: 0, key: 0 })
     expect(kept).toEqual({ bool: 0, key: 186 })
   })
-
-  it('the SHIPPED shadow reader agrees too — both hands, zero warns', () => {
-    // The hook's own function, driven with the rail the screen would build.
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    try {
-      for (const hand of [handsOn(REAL.lanes).plain!, handsOn(REAL.lanes).vip!]) {
-        const rails = railsOn(REAL, hand)
-        const legacy = bedFeasibility(REAL.lanes, hand, REAL.rooms)!
-        const seen = shadowCompare({
-          rails,
-          lanes: REAL.lanes,
-          policy: REAL.rooms,
-          frame: frameOf(REAL.hours, REAL.sell.nowMinute ?? REAL.hours.open),
-          handId: hand,
-          dur: REAL.guard.standardSessionMin,
-          legacy,
-        })
-        expect(seen).toBe(0)
-      }
-      expect(warn).not.toHaveBeenCalled()
-    } finally {
-      warn.mockRestore()
-    }
-  })
 })
 
 /** The rail the screen builds — the same call shape as TodayScreen's `rails`
@@ -610,23 +539,6 @@ function railsFor(lanes: BoardLane[], hours: { open: number; close: number }, ex
 /** …and the same thing for the real board, at its own clock. */
 const railsOn = (props: TodayProps, excludeId: string | null, dur = props.guard.standardSessionMin) =>
   railsFor(props.lanes, props.hours, excludeId, dur, props.sell.nowMinute)
-
-/** EXACTLY WHAT THE HOOK HANDS `shadowArgs`, on the real board at rest — one
- *  home, so a pin that overrides one field is provably changing only that
- *  field. Kept in step with TodayScreen's call site by P8's field pins. */
-const wiringInput = (over: Partial<Parameters<typeof shadowArgs>[0]> = {}): Parameters<typeof shadowArgs>[0] => ({
-  on: true,
-  guardOn: true,
-  dragging: false,
-  rails: railsOn(REAL, null),
-  lanes: REAL.lanes,
-  policy: REAL.rooms,
-  hours: REAL.hours,
-  nowMinute: REAL.sell.nowMinute,
-  railDur: REAL.guard.standardSessionMin,
-  legacyFor: (excludeId) => bedFeasibility(REAL.lanes, excludeId, REAL.rooms),
-  ...over,
-})
 
 // ═══════════════════════════════════════════════════════════════════════════
 // P3 — 満室 RUNS ≡ THE STARTS THE RAIL REFUSES FOR WANT OF A ROOM
@@ -889,32 +801,6 @@ describe('P4 — no dial combination annihilates a layer, and the book agrees at
     // widen it silently. R4 owns the gridMin<60 clamp; this is its baseline.
     expect(gapEmpty).toEqual(['grid=30 S=60 minSell=0', 'grid=30 S=60 minSell=30'])
   })
-
-  it('the SHIPPED shadow reader is asked at EVERY session length, not just canon’s 60', () => {
-    // The rail's length follows the gesture (⚖ flag 50) and the store's own
-    // standard session is a dial, so a shadow reader that answered for 60 while
-    // the rail asked about 45 would agree by accident on the one board whose
-    // dial is 60 — and silently lie on every store that set anything else.
-    const lanes = synthBoard(TWO_STORE, SYNTH_HOURS)
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    try {
-      for (const dur of SESSION) {
-        const seen = shadowCompare({
-          rails: railsFor(lanes, SYNTH_HOURS, null, dur),
-          lanes,
-          policy: REAL.rooms,
-          frame: frameOf(SYNTH_HOURS, SYNTH_NOW),
-          handId: null,
-          dur,
-          legacy: bedFeasibility(lanes, null, REAL.rooms)!,
-        })
-        expect([dur, seen]).toEqual([dur, 0])
-      }
-      expect(warn).not.toHaveBeenCalled()
-    } finally {
-      warn.mockRestore()
-    }
-  })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -945,312 +831,5 @@ describe('P5 — parity survives a 25-staff roster, and the shared cache is what
     expect(run.diverged).toEqual([])
     expect(run.truth.stats.storeBindings).toBe(2)
     expect(run.truth.stats.allocateBedCalls).toBe(2 * latticeOf(SYNTH_HOURS).length)
-  })
-})
-
-// ═══════════════════════════════════════════════════════════════════════════
-// P6 — SHADOW OFF = ZERO
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe('P6 — with the switch off, nothing is assembled and nothing runs', () => {
-  const SCREEN = readFileSync(
-    join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
-    'utf8',
-  )
-
-  it('the flag ships OFF — no registry entry, no env door, no shadow', () => {
-    expect(CAPACITY_LEDGER_SHADOW).toBe(false)
-    expect(process.env.NEXT_PUBLIC_CAPACITY_SHADOW).toBeUndefined()
-  })
-
-  it('the switch is read from the env at module scope, so the check is a constant read', () => {
-    expect(SCREEN).toContain("process.env.NEXT_PUBLIC_CAPACITY_SHADOW === '1' &&")
-    expect(SCREEN).toContain('shadowEnvAllows(process.env.NEXT_PUBLIC_VERCEL_ENV, process.env.NODE_ENV)')
-  })
-
-  /** THE FLAG IS PUBLIC AND BUILD-TIME, so "dev/preview only" cannot be a
-   *  sentence in a comment — anyone who can set an env var on a build can set
-   *  this one. The scope is a second term in the armed condition, and this is
-   *  its truth table.
-   *
-   *  Shaped as an ALLOWLIST, exactly like the Business door's own environment
-   *  gate (admission.ts :46, pinned in foundation.test.ts): a value nobody
-   *  anticipated denies rather than admits. */
-  it('the environment boundary is ENFORCED, not documented — the whole truth table', () => {
-    // The preview door stays OPEN — this is the case a bare NODE_ENV test
-    // would have broken, because Vercel builds previews with NODE_ENV=production.
-    expect(shadowEnvAllows('preview', 'production')).toBe(true)
-    expect(shadowEnvAllows('development', 'production')).toBe(true)
-    // Production is refused no matter what the flag says.
-    expect(shadowEnvAllows('production', 'production')).toBe(false)
-    expect(shadowEnvAllows('production', 'development')).toBe(false)
-    // Allowlist: an unexpected value is never permission.
-    expect(shadowEnvAllows('staging', 'development')).toBe(false)
-    expect(shadowEnvAllows('Preview', 'development')).toBe(false)
-    expect(shadowEnvAllows('', 'development')).toBe(false)
-    // No Vercel signal at all: local dev and jest are fine, a production
-    // bundle is not. Fail-CLOSED on the ambiguous case.
-    expect(shadowEnvAllows(undefined, 'development')).toBe(true)
-    expect(shadowEnvAllows(undefined, 'test')).toBe(true)
-    expect(shadowEnvAllows(undefined, undefined)).toBe(true)
-    expect(shadowEnvAllows(undefined, 'production')).toBe(false)
-  })
-
-  it('a production build cannot be talked into arming, flag or no flag', () => {
-    // The shipped condition is `flag === '1' && shadowEnvAllows(...)`, so this
-    // is the second term standing alone: with it false, no value of the flag
-    // arms the diagnostic.
-    for (const nodeEnv of ['production', 'development', 'test', undefined]) {
-      expect(shadowEnvAllows('production', nodeEnv)).toBe(false)
-    }
-    expect(shadowEnvAllows(undefined, 'production')).toBe(false)
-  })
-
-  it('…and in THIS run the flag is absent, so the constant is false either way', () => {
-    // Jest: no Vercel signal, NODE_ENV=test — the environment WOULD allow it.
-    // The flag is what is off, which is what "ships OFF" means.
-    expect(shadowEnvAllows(process.env.NEXT_PUBLIC_VERCEL_ENV, process.env.NODE_ENV)).toBe(true)
-    expect(process.env.NEXT_PUBLIC_CAPACITY_SHADOW).toBeUndefined()
-    expect(CAPACITY_LEDGER_SHADOW).toBe(false)
-  })
-
-  /** The off-cost, proven by RUNNING the assembly rather than by reading the
-   *  hook's source. `legacyFor` is the expensive input — `bedFeasibility` walks
-   *  every lane and every item to find the held card and its room — so counting
-   *  its calls IS the cost measurement: zero calls means the gate returned
-   *  before any board work, which is the claim. */
-  it('flag off ⇒ no run assembled, and the legacy callback is never even built', () => {
-    let built = 0
-    const run = shadowArgs(wiringInput({ on: false, legacyFor: (id) => { built += 1; return bedFeasibility(REAL.lanes, id, REAL.rooms) } }))
-    expect(run).toBeNull()
-    expect(built).toBe(0)
-  })
-
-  it('a store that runs no guard ⇒ same: no run, no callback built', () => {
-    let built = 0
-    const run = shadowArgs(wiringInput({ guardOn: false, legacyFor: (id) => { built += 1; return bedFeasibility(REAL.lanes, id, REAL.rooms) } }))
-    expect(run).toBeNull()
-    expect(built).toBe(0)
-  })
-
-  it('a store with no rooms configured ⇒ no run (bedFeasibility answers undefined)', () => {
-    const noRooms = REAL.lanes.filter((l) => l.group !== 'beds')
-    expect(shadowArgs(wiringInput({ lanes: noRooms, legacyFor: (id) => bedFeasibility(noRooms, id, REAL.rooms) }))).toBeNull()
-  })
-
-  it('the screen has exactly one door to the book, and it is inside the shadow function', () => {
-    // A second `bedTruthViews` anywhere in the screen would be a reader the
-    // flag does not gate — which is the whole thing R2 promises it is not.
-    expect(SCREEN.split('bedTruthViews(').length - 1).toBe(1)
-    const fn = SCREEN.indexOf('function runShadowCompare(')
-    expect(fn).toBeGreaterThan(-1)
-    expect(SCREEN.indexOf('bedTruthViews(', fn)).toBeGreaterThan(fn)
-  })
-
-  it('the comparison is an EFFECT, not a memo — a console line is not a memoised value', () => {
-    // React may double-invoke a memo factory under StrictMode and may discard
-    // and recompute a memoised value, so warns from inside one would double or
-    // repeat with no bug behind them.
-    const hook = SCREEN.slice(SCREEN.indexOf('THE SHADOW READ (⚖ R2)'))
-    const effect = hook.indexOf('useEffect(')
-    const call = hook.indexOf('shadowCompare(')
-    expect(effect).toBeGreaterThan(-1)
-    expect(effect).toBeLessThan(call)
-    expect(hook.slice(0, call)).not.toContain('useMemo(')
-  })
-})
-
-// ═══════════════════════════════════════════════════════════════════════════
-// P8 — THE HOOK'S OWN WIRING (the canary's own canary)
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// WHY THIS SECTION EXISTS. A proof lens mutated four things in the hook's
-// argument assembly — the length hardcoded to 60, the clock dropped, the
-// gesture gate dropped, the callback built for a different hand — and ALL FOUR
-// survived a fully green suite. They are precisely the four things the shadow
-// reader's doc block says it exists to catch, and nothing pinned them, because
-// the assembly lived inline in a hook no test can call. It is `shadowArgs` now,
-// and this is where it is held to its word.
-
-describe('P8 — the hook’s argument assembly, pinned field by field', () => {
-  it('AT REST: every field is the one the rail beside it was built from', () => {
-    const run = shadowArgs(wiringInput())
-    expect(run).not.toBeNull()
-    expect(run!.lanes).toBe(REAL.lanes)
-    expect(run!.policy).toBe(REAL.rooms)
-    expect(run!.handId).toBeNull()
-    expect(run!.frame).toEqual({
-      openMin: REAL.hours.open,
-      closeMin: REAL.hours.close,
-      nowMin: REAL.sell.nowMinute,
-    })
-  })
-
-  it('the LENGTH follows the rail’s, never a hardcoded 60', () => {
-    // ⚖ flag 50 — the rail asks about the card in hand, so its length is a
-    // variable and the store's standard session is a dial. A shadow reader
-    // frozen at canon's 60 agrees by accident on this store and lies on every
-    // store that set anything else.
-    expect(shadowArgs(wiringInput())!.dur).toBe(REAL.guard.standardSessionMin)
-    for (const dur of [30, 45, 90]) expect(shadowArgs(wiringInput({ railDur: dur }))!.dur).toBe(dur)
-  })
-
-  it('the CLOCK is the board’s own now, not the opening time', () => {
-    // Guard of the guard: the fixture board can tell the two apart (10:00 door,
-    // 13:24 now), so dropping the clock is a visible mutation rather than a
-    // silent one.
-    expect(REAL.sell.nowMinute).not.toBe(REAL.hours.open)
-    expect(shadowArgs(wiringInput())!.frame.nowMin).toBe(REAL.sell.nowMinute)
-    // …and a board with no now falls back to the door, deliberately.
-    expect(shadowArgs(wiringInput({ nowMinute: null }))!.frame.nowMin).toBe(REAL.hours.open)
-  })
-
-  it('MID-GESTURE it does not run at all — rest only', () => {
-    // ⚖ C3. With the flag on, comparing per animation frame would rebuild the
-    // book on every pointer move (~900 extra allocateBed runs per frame at 25
-    // staff) — a canary that changes what it measures. The warn limit bounds
-    // the WARNS, never the work, so the gate has to be here.
-    let built = 0
-    const run = shadowArgs(wiringInput({ dragging: true, legacyFor: (id) => { built += 1; return bedFeasibility(REAL.lanes, id, REAL.rooms) } }))
-    expect(run).toBeNull()
-    expect(built).toBe(0)
-  })
-
-  it('the legacy callback is built for the SAME hand the book is asked about', () => {
-    // The two sides asking about different holders is the exact failure this
-    // whole diagnostic would otherwise report as a board bug.
-    const asked: Array<string | null> = []
-    const run = shadowArgs(wiringInput({ legacyFor: (id) => { asked.push(id); return bedFeasibility(REAL.lanes, id, REAL.rooms) } }))
-    expect(run).not.toBeNull()
-    expect(asked).toEqual([run!.handId])
-  })
-
-  it('and the assembled run is one the comparison accepts — zero warns end to end', () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    try {
-      expect(shadowCompare(shadowArgs(wiringInput())!)).toBe(0)
-      expect(warn).not.toHaveBeenCalled()
-    } finally {
-      warn.mockRestore()
-    }
-  })
-})
-
-// ═══════════════════════════════════════════════════════════════════════════
-// P9 — THE DIAGNOSTIC MAY NEVER TAKE THE BOARD DOWN
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe('P9 — every input the book refuses is reported, never thrown', () => {
-  const warnSpy = () => jest.spyOn(console, 'warn').mockImplementation(() => {})
-
-  /** The book validates by throwing, which is right for the book and fatal
-   *  here: `shadowCompare` runs inside the screen's own commit, so an unhandled
-   *  throw unmounts 今日の運営 over a console message nobody asked for. Each
-   *  case below is a REAL board state or a real caller slip, not a fantasy. */
-  // Thunks, not values: `REAL` is built in beforeAll and a describe body runs
-  // at collection time, before it exists.
-  const cases: Array<[string, () => Partial<Parameters<typeof shadowCompare>[0]>]> = [
-    ['two lanes sharing a key', () => ({ lanes: [...REAL.lanes, REAL.lanes[0]] })],
-    ['a non-finite frame', () => ({ frame: { openMin: Number.NaN, closeMin: 1140, nowMin: 800 } })],
-    ['a day that closes before it opens', () => ({ frame: { openMin: 1140, closeMin: 600, nowMin: 800 } })],
-    ['a length of zero', () => ({ dur: 0 })],
-    ['a negative length', () => ({ dur: -60 })],
-  ]
-
-  for (const [name, overFn] of cases) {
-    it(`${name}: warns and stands down, returns 0`, () => {
-      const warn = warnSpy()
-      try {
-        const run = { ...shadowArgs(wiringInput())!, ...overFn() }
-        expect(() => shadowCompare(run)).not.toThrow()
-        expect(shadowCompare(run)).toBe(0)
-        expect(warn.mock.calls.some((c) => String(c[0]).includes('stood down'))).toBe(true)
-      } finally {
-        warn.mockRestore()
-      }
-    })
-  }
-
-  it('an EMPTY hand id means "nobody", the same as it does to bedFeasibility', () => {
-    // today-interactions :1555 reads `excludeId` for truthiness, so '' excludes
-    // nobody there. Read as a real subject the book throws instead — two
-    // different questions from one value is the bug this closes.
-    const warn = warnSpy()
-    try {
-      const run = { ...shadowArgs(wiringInput())!, handId: '' }
-      expect(shadowCompare(run)).toBe(0)
-      expect(warn).not.toHaveBeenCalled()
-    } finally {
-      warn.mockRestore()
-    }
-  })
-})
-
-// ═══════════════════════════════════════════════════════════════════════════
-// P7 — SHADOW ON
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe('P7 — switched on, the shadow reader says exactly what disagreed', () => {
-  let warn: jest.SpyInstance
-
-  beforeEach(() => {
-    warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-  })
-  afterEach(() => warn.mockRestore())
-
-  const honest = () => bedFeasibility(REAL.lanes, null, REAL.rooms)!
-  const run = (legacy: (lane: BoardLane, start: number, dur: number) => boolean, limit?: number) =>
-    shadowCompare(
-      {
-        rails: railsOn(REAL, null),
-        lanes: REAL.lanes,
-        policy: REAL.rooms,
-        frame: frameOf(REAL.hours, REAL.sell.nowMinute ?? REAL.hours.open),
-        handId: null,
-        dur: REAL.guard.standardSessionMin,
-        legacy,
-      },
-      limit,
-    )
-
-  it('the honest board produces ZERO warns', () => {
-    expect(run(honest())).toBe(0)
-    expect(warn).not.toHaveBeenCalled()
-  })
-
-  it('ONE doctored answer produces exactly one structured warn naming lane, start, dur and both sides', () => {
-    const real = honest()
-    const rails = railsOn(REAL, null)
-    const target = { lane: rails[0].laneKey, start: rails[0].cells[2].start }
-    const doctored = (lane: BoardLane, start: number, dur: number) =>
-      lane.key === target.lane && start === target.start ? !real(lane, start, dur) : real(lane, start, dur)
-    expect(run(doctored)).toBe(1)
-    expect(warn).toHaveBeenCalledTimes(1)
-    const line = String(warn.mock.calls[0][0])
-    expect(line).toContain('capacity-ledger shadow:')
-    expect(line).toContain(`lane=${target.lane}`)
-    expect(line).toContain(`start=${target.start}`)
-    expect(line).toContain(`dur=${REAL.guard.standardSessionMin}`)
-    expect(line).toMatch(/rail=(true|false) ledger=(true|false)/)
-    // The two sides are named, and they are NOT the same word — a warn that
-    // printed one answer twice would say nothing.
-    const [, rail, book] = line.match(/rail=(true|false) ledger=(true|false)/)!
-    expect(rail).not.toBe(book)
-  })
-
-  it('a board that disagrees everywhere is throttled to the first ten PER COMPARISON', () => {
-    // Per comparison run, not per mount: the counter is local to the call, and
-    // the hook runs one call per committed change of its inputs. A board that
-    // stayed divergent would warn ten times per such change, not ten times ever.
-    const real = honest()
-    const doctored = (lane: BoardLane, start: number, dur: number) => !real(lane, start, dur)
-    expect(run(doctored)).toBe(10)
-    expect(warn).toHaveBeenCalledTimes(10)
-  })
-
-  it('the throttle is the ceiling, not the answer — a smaller limit is honoured', () => {
-    const real = honest()
-    expect(run((l, s, d) => !real(l, s, d), 3)).toBe(3)
-    expect(warn).toHaveBeenCalledTimes(3)
   })
 })
