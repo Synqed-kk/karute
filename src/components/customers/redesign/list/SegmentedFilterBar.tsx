@@ -12,7 +12,12 @@
 export interface FilterSegment<K extends string> {
   key: K
   label: string
-  count: number
+  /** null = render the LABEL ALONE. Used by the カルテ list's 月ジャンプ
+   *  (PR-2b): while a month is picked the bar's counts would be counted over
+   *  that month's rows alone, so 今週 inside a past month would read 0 and
+   *  すべて would name the month's size while the header names the store's.
+   *  A count that can't be true is dropped rather than shown wrong. */
+  count: number | null
 }
 
 export function SegmentedFilterBar<K extends string>({
@@ -41,9 +46,11 @@ export function SegmentedFilterBar<K extends string>({
             }`}
           >
             <span className="truncate">{s.label}</span>
-            <span className="text-[10px] tabular-nums text-muted-foreground">
-              {s.count}
-            </span>
+            {s.count !== null && (
+              <span className="text-[10px] tabular-nums text-muted-foreground">
+                {s.count}
+              </span>
+            )}
           </button>
         )
       })}
