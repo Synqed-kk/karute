@@ -65,6 +65,9 @@ export default function RootLayout({
         <ThemeProvider>
           {children}
         </ThemeProvider>
+        {/* Props must stay in lock-step with AppRoot.tsx's live-session
+            Toaster (src/lib/app-root/AppRoot.tsx) — the thin shell renders
+            that instance, this tree renders this one. */}
         <Toaster position="bottom-center" mobileOffset={{ bottom: 88 }} />
         {/* perf(debug) — flag-gated cold-start overlay, see ColdStartOverlay.
             Separate from the splash handshake below; does not touch it. */}
