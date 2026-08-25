@@ -569,6 +569,47 @@ describe('store switch (Greptile PR #784)', () => {
     expect(bLabels).not.toContain('2026年6月')
   })
 
+  it('does NOT walk the new store back to the old store\'s reading depth', async () => {
+    // ?since remembers how deep the viewer had scrolled. That is a position in
+    // store A; replaying it against store B would silently fetch months of
+    // history nobody asked for, one window at a time. The same goal must
+    // SURVIVE a purge though (same store re-reading itself) — that half is
+    // pinned by karute-chunk-load's restore tests, which stay green precisely
+    // because this reset lives in the switch block and not the shared rewind.
+    searchParams = new URLSearchParams('since=2026-07-29')
+    windowsByMonth({})
+    loadKaruteWindow.mockResolvedValue({
+      items: [item('k3', '2026-08-05')],
+      windowStart: '2026-07-29',
+      freshStoreTotal: 9,
+      hasMore: true,
+    })
+    const { rerender } = render(listEl({ storeId: 'store-a' }))
+    // Store A replays to the remembered boundary.
+    await waitFor(() => expect(loadKaruteWindow).toHaveBeenCalled())
+    loadKaruteWindow.mockClear()
+    replace.mockClear()
+
+    await act(async () => {
+      rerender(
+        listEl({
+          storeId: 'store-b',
+          items: [item('b1', '2026-08-18', 'ビー 花子')],
+          total: 3,
+          monthCount: 1,
+          initialWindowStart: '2026-08-01',
+        }),
+      )
+    })
+
+    // No auto-walk into store B's history…
+    expect(loadKaruteWindow).not.toHaveBeenCalled()
+    // …and the remembered boundary is dropped from the URL rather than left
+    // pointing the next reload back down there.
+    const lastUrl = String(replace.mock.calls.at(-1)?.[0] ?? '')
+    expect(lastUrl).not.toContain('since')
+  })
+
   it('clears a さらに表示 failure line across the switch', async () => {
     loadKaruteWindow.mockResolvedValue({ error: 'upstream' })
     const { rerender } = render(listEl({ storeId: 'store-a' }))

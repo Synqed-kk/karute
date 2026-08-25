@@ -547,6 +547,19 @@ export function KaruteRecordListView({
     setAnnouncement('')
     revealRequestId.current += 1
     setRevealCandidate(null)
+    // HISTORY DEPTH is per-store too (Greptile #784, final round). These MUST
+    // land after rewindToFirstWindow() — it re-seeds restoreTarget with the
+    // deepest goal, which is right for a purge and wrong here. "I had scrolled
+    // back to January" is a reading position in store A; carrying it over
+    // makes store B silently walk itself back through months of history the
+    // viewer never asked to see, one fetch per window. Store B starts at its
+    // own first window, with さらに表示 right there.
+    //
+    // Same reason this cannot move into the shared rewind: a purge is the SAME
+    // store re-reading itself, and dropping the goal there would leave the
+    // viewer shallower than they left off (PR-2a round 8 fixed exactly that).
+    setSinceParam(null)
+    setRestoreTarget(null)
     // The picker's floor is store A's deepest loaded month, and it only ever
     // extends BACKWARD by design — so without this it keeps stretching store
     // B's picker on the strength of rows store B never had, offering months
