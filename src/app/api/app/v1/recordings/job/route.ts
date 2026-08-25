@@ -23,6 +23,7 @@ import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/custome
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { RecordingJobEnqueueSchema } from '@/lib/app-api/record-schemas'
+import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
 import { isReturningCustomerServerSide } from '@/lib/karute/revisit-guard'
 import type { RecordingJobPayload } from '@/lib/jobs/process-recording'
 
@@ -43,15 +44,17 @@ export const POST = facadeHandler('recordings.job.enqueue', async (ctx) => {
     throw new AppApiError('validation', parsed.error.issues.map((e) => e.message).join(', '))
   }
 
-  // Tenant-prefix gate — the SAME by-construction check the transcribe twin
+  // Tenant-key gate — the SAME by-construction check the transcribe twin
   // enforces (ai/transcribe/route.ts): audioPath is a client-supplied storage
   // key that the worker later reads AND deletes via a service-role client (no
   // RLS). Without this, a Bearer staffer at business A could point the job at
   // business B's `app_${B}_*.webm` object → B's audio transcribed into an A
   // record, then B's file deleted. The upload-url facade only ever mints
-  // `app_${businessId}_*`, so a path that doesn't carry this caller's prefix is
-  // not theirs → not_found, before any job is queued.
-  if (!parsed.data.audioPath.startsWith(`app_${ctx.identity.businessId}_`)) {
+  // `app_${businessId}_<uuid>.webm`, so the shared grammar matches that shape
+  // POSITIVELY — a bare prefix check also let through a traversal body or a
+  // query suffix riding on this caller's own prefix. Anything else is not
+  // theirs → not_found, before any job is queued.
+  if (!isOwnRecordingKey(parsed.data.audioPath, ctx.identity.businessId)) {
     throw new AppApiError('not_found', 'recording not found in this business')
   }
 

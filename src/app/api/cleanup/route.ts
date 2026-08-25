@@ -28,18 +28,32 @@ export async function GET(request: Request) {
   let recordingsDeleted = 0
   let cacheDeleted = 0
 
-  // 1. Clean up orphaned recordings
+  // 1. Clean up orphaned recordings. The bucket listing is PAGED (storage-js
+  // defaults to 100 per call), so the old unparameterised list() only ever saw
+  // the FIRST page and left every orphan past it in the bucket. Walk to the end,
+  // THEN delete: removing mid-walk shifts the offsets underneath us and the next
+  // page skips exactly as many objects as the last one deleted. Advance by what
+  // the page RETURNED, not by the limit we asked for, so a server-side cap below
+  // PAGE_SIZE can't end the walk early; MAX_PAGES is the runaway stop.
+  const PAGE_SIZE = 1000
+  const MAX_PAGES = 100
   try {
-    const { data: files } = await supabase.storage.from('recordings').list()
-    if (files && files.length > 0) {
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const oldFiles = files.filter((f: any) => new Date(f.created_at) < oneHourAgo)
-      if (oldFiles.length > 0) {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
+    const expired: string[] = []
+    for (let page = 0, offset = 0; page < MAX_PAGES; page++) {
+      const { data: files } = await supabase.storage
+        .from('recordings')
+        .list('', { limit: PAGE_SIZE, offset })
+      if (!files || files.length === 0) break
+      for (const f of files) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await supabase.storage.from('recordings').remove(oldFiles.map((f: any) => f.name))
-        recordingsDeleted = oldFiles.length
+        if (new Date((f as any).created_at) < oneHourAgo) expired.push(f.name)
       }
+      offset += files.length
+    }
+    if (expired.length > 0) {
+      await supabase.storage.from('recordings').remove(expired)
+      recordingsDeleted = expired.length
     }
   } catch (err) {
     console.error('[cleanup] recordings error:', err)

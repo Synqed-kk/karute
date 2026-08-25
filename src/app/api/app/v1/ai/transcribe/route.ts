@@ -1,6 +1,6 @@
 // Facade twin of POST /api/ai/transcribe (packet 08 Decision 2, leg 2). Takes a
-// STORAGE PATH (never a URL): the server verifies `path` starts with
-// `app_${identity.businessId}_` — a cross-tenant path → not_found — then mints
+// STORAGE PATH (never a URL): the server verifies `path` is exactly a key minted
+// for `identity.businessId` — a cross-tenant path → not_found — then mints
 // its OWN signed READ url, so the SSRF guard surface disappears by construction.
 // Runs the shared runTranscription core with the org diarization toggle + the
 // FACADE CALLER's OWN enrollment clip via selfStaffId (voice-isolation rule #401
@@ -23,6 +23,7 @@ import {
   loadStaffReferenceForStaff,
 } from '@/lib/ai/transcribe'
 import { TranscribeSchema } from '@/lib/app-api/record-schemas'
+import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -42,9 +43,11 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
   }
   const { path } = parsed.data
 
-  // TENANCY by construction: the object must live under THIS business's prefix —
-  // a cross-tenant path is not_found before any signed-URL mint or Deepgram call.
-  if (!path.startsWith(`app_${ctx.identity.businessId}_`)) {
+  // TENANCY by construction: the object must be EXACTLY a key minted for THIS
+  // business — matched positively against the shared grammar, so a traversal
+  // body or a query suffix riding on this caller's own prefix is refused too.
+  // Anything else is not_found before any signed-URL mint or Deepgram call.
+  if (!isOwnRecordingKey(path, ctx.identity.businessId)) {
     throw new AppApiError('not_found', 'recording not found in this business')
   }
 

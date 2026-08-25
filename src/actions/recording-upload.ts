@@ -17,8 +17,7 @@
 import { requireCapability } from '@/lib/auth/require-permission'
 import { getBusinessId } from '@/lib/staff'
 import { createServiceClient } from '@/lib/supabase/service'
-
-const TAKE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
 
 /**
  * Tenant fence for a CLIENT-SUPPLIED storage key. The service-role client
@@ -28,18 +27,13 @@ const TAKE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
  * non-tenant-scoped key.
  * Minted keys have exactly one shape (see mintRecordingUploadUrl), so the
  * grammar is matched POSITIVELY — own prefix, a lowercase uuid, `.webm` — and
- * anything that is not exactly that shape is refused.
+ * anything that is not exactly that shape is refused. The grammar itself lives
+ * in @/lib/recording/key-grammar, shared with the three service-role call
+ * sites that fence the same client-supplied key.
  */
 async function requireOwnPath(path: string): Promise<void> {
   const businessId = await getBusinessId()
-  const prefix = `app_${businessId}_`
-  const suffix = '.webm'
-  if (
-    typeof path !== 'string' ||
-    !path.startsWith(prefix) ||
-    !path.endsWith(suffix) ||
-    !TAKE_UUID.test(path.slice(prefix.length, -suffix.length))
-  ) {
+  if (!isOwnRecordingKey(path, businessId)) {
     throw new Error('recording not found in this business')
   }
 }

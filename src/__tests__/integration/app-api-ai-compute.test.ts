@@ -1,7 +1,7 @@
 // Recording-flow AI compute + brief (packet 08 Decision 1/2). Verifies: the F-A1
 // plan-gate ordering (locked → per-surface contract with ZERO rate-limit consume
-// + ZERO LLM call), the transcribe storage-path tenant-prefix proof (cross-tenant
-// → not_found before any mint/Deepgram), the VOICE-ISOLATION rule (the voiceprint
+// + ZERO LLM call), the transcribe storage-key grammar proof (anything but a key
+// minted here → not_found before any mint/Deepgram), the VOICE-ISOLATION rule (the voiceprint
 // reference is the CALLER's own selfStaffId, never the roster), the brief tenancy
 // 404/502 split, and Bearer/capability/revocation. OPENAI/Deepgram keys are never
 // present — every LLM/transcription core is mocked.
@@ -74,6 +74,7 @@ import { POST as summarizePOST } from '@/app/api/app/v1/ai/summarize/route'
 import { POST as suggestPOST } from '@/app/api/app/v1/ai/suggestions/route'
 import { GET as briefGET } from '@/app/api/app/v1/customers/[id]/ai/pre-session-brief/route'
 import { AppApiError } from '@/lib/app-api/errors'
+import { conformingKey, refusedKeys } from './helpers/recording-key-fixtures'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -89,6 +90,9 @@ const auth = { authorization: `Bearer ${bearer()}`, 'content-type': 'application
 const noRoute = { params: Promise.resolve({}) }
 const custRoute = (id = 'cust-1') => ({ params: Promise.resolve({ id }) })
 const post = (headers: Record<string, string>, body: unknown) => new Request('https://s/x', { method: 'POST', headers, body: JSON.stringify(body) })
+// The transcribe facade takes a STORAGE KEY, and the tenancy gate now matches the
+// minted grammar positively — every fixture below must be a real one.
+const OWN_PATH = conformingKey('business-1')
 const get = (path: string, headers = { authorization: auth.authorization }) => new Request('https://s/x' + path, { headers })
 
 beforeEach(() => {
@@ -102,7 +106,7 @@ beforeEach(() => {
 describe('plan-gate matrix (F-A1: locked → per-surface, ZERO consume, ZERO LLM)', () => {
   beforeEach(() => { planAllowed.current = false })
   it('transcribe locked → 403, no consume, no core', async () => {
-    const res = await transcribePOST(post(auth, { path: 'app_business-1_x.webm', locale: 'ja' }), noRoute)
+    const res = await transcribePOST(post(auth, { path: OWN_PATH, locale: 'ja' }), noRoute)
     expect(res.status).toBe(403)
     expect(enforceRate).not.toHaveBeenCalled()
     expect(runTranscription).not.toHaveBeenCalled()
@@ -135,40 +139,54 @@ describe('plan-gate matrix (F-A1: locked → per-surface, ZERO consume, ZERO LLM
 })
 
 describe('transcribe — storage-path tenancy + voice isolation', () => {
-  it('cross-tenant path → not_found BEFORE any signed-URL mint or Deepgram', async () => {
-    const res = await transcribePOST(post(auth, { path: 'app_other-tenant_x.webm' }), noRoute)
-    expect(res.status).toBe(404)
+  // One row per grammar class (helpers/recording-key-fixtures). Half carry this
+  // caller's OWN prefix — the bare `startsWith` this gate used to be took them.
+  it.each(refusedKeys('business-1'))(
+    'refuses %s → not_found BEFORE any signed-URL mint or Deepgram',
+    async (_label, path) => {
+      const res = await transcribePOST(post(auth, { path }), noRoute)
+      expect(res.status).toBe(404)
+      expect(createSignedUrl).not.toHaveBeenCalled()
+      expect(runTranscription).not.toHaveBeenCalled()
+    },
+  )
+  it('a non-string path is refused by the schema, before the fence → 400', async () => {
+    // typeof guard proved on the server-action arm (recording-jobs-tenant-key);
+    // here zod's `z.string()` meets a non-string first. Either way it never
+    // reaches the service-role mint.
+    const res = await transcribePOST(post(auth, { path: 12345 }), noRoute)
+    expect(res.status).toBe(400)
     expect(createSignedUrl).not.toHaveBeenCalled()
     expect(runTranscription).not.toHaveBeenCalled()
   })
   it('happy → 200; voiceprint reference loaded for the CALLER own selfStaffId only', async () => {
-    const res = await transcribePOST(post(auth, { path: 'app_business-1_take.webm', locale: 'ja' }), noRoute)
+    const res = await transcribePOST(post(auth, { path: OWN_PATH, locale: 'ja' }), noRoute)
     expect(res.status).toBe(200)
     // Voice-isolation: loadStaffReferenceForStaff called with THIS caller's staff id.
     expect(loadRef).toHaveBeenCalledWith(expect.anything(), 'auth-user-1')
-    expect(removeObj).toHaveBeenCalledWith(['app_business-1_take.webm'])
+    expect(removeObj).toHaveBeenCalledWith([OWN_PATH])
   })
   it('early gate failure (rate limit) AFTER upload → object still deleted', async () => {
     enforceRate.mockRejectedValueOnce(new AppApiError('rate_limited', 'slow down'))
-    const res = await transcribePOST(post(auth, { path: 'app_business-1_take.webm', locale: 'ja' }), noRoute)
+    const res = await transcribePOST(post(auth, { path: OWN_PATH, locale: 'ja' }), noRoute)
     expect(res.status).toBe(429)
-    expect(removeObj).toHaveBeenCalledWith(['app_business-1_take.webm'])
+    expect(removeObj).toHaveBeenCalledWith([OWN_PATH])
     expect(runTranscription).not.toHaveBeenCalled()
   })
   it('transcription failure → object still deleted (no orphaned audio)', async () => {
     runTranscription.mockRejectedValueOnce(new Error('deepgram down'))
-    const res = await transcribePOST(post(auth, { path: 'app_business-1_take.webm', locale: 'ja' }), noRoute)
+    const res = await transcribePOST(post(auth, { path: OWN_PATH, locale: 'ja' }), noRoute)
     expect(res.status).toBeGreaterThanOrEqual(500)
-    expect(removeObj).toHaveBeenCalledWith(['app_business-1_take.webm'])
+    expect(removeObj).toHaveBeenCalledWith([OWN_PATH])
   })
   it('missing capability → 403', async () => {
     capabilities.current = new Set(['customers.view'])
-    const res = await transcribePOST(post(auth, { path: 'app_business-1_x.webm' }), noRoute)
+    const res = await transcribePOST(post(auth, { path: OWN_PATH }), noRoute)
     expect(res.status).toBe(403)
   })
   it('revoked → 401 (server round-trip)', async () => {
     getUser.fn.mockResolvedValueOnce({ data: { user: null }, error: { message: 'revoked' } })
-    const res = await transcribePOST(post(auth, { path: 'app_business-1_x.webm' }), noRoute)
+    const res = await transcribePOST(post(auth, { path: OWN_PATH }), noRoute)
     expect(res.status).toBe(401)
   })
 })

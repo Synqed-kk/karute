@@ -18,6 +18,7 @@ import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { requireCapability } from '@/lib/auth/require-permission'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
 import type { RecordingJobPayload } from '@/lib/jobs/process-recording'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
@@ -53,12 +54,15 @@ export async function enqueueRecordingJob(
     ])
     // Tenancy gate — the cookie-path twin of the facade route's check. audioPath
     // is a client-supplied storage key the worker later reads AND deletes via a
-    // service-role client (no RLS); it MUST carry this caller's own tenant
-    // prefix. Web takes staged for a job go through this shape too, so a
-    // hand-crafted RPC pointing at another tenant's object (or a guessable
-    // non-tenant `rec_*` key) is refused before any job is queued. The worker
-    // re-checks the same invariant as the last line of defense.
-    if (!input.audioPath.startsWith(`app_${businessId}_`)) {
+    // service-role client (no RLS); it MUST be EXACTLY a key minted for this
+    // caller's business, matched positively against the shared grammar (a bare
+    // prefix check also took a traversal body, a query suffix, or a string-shaped
+    // non-string — a server action's argument is caller-supplied JSON, so the
+    // `string` annotation proves nothing at runtime). Web takes staged for a job
+    // go through this shape too, so a hand-crafted RPC pointing at another
+    // tenant's object (or a guessable `rec_*` key) is refused before any job is
+    // queued. The worker re-checks the same invariant as the last defense.
+    if (!isOwnRecordingKey(input.audioPath, businessId)) {
       return { error: 'recording not found in this business' }
     }
     // The worker runs without a session — attribution is captured NOW, at
