@@ -499,7 +499,6 @@ function CenterRecordButton({
           aria-label="録音を停止"
           className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/30 ring-4 ring-background transition-transform duration-(--duration-press) ease-(--ease-out) active:scale-95"
         >
-          <span className="absolute inset-0 rounded-full bg-red-500/40 motion-safe:animate-ping" />
           <Square className="relative h-3.5 w-3.5" fill="currentColor" strokeWidth={0} />
         </button>
         <span className="mt-2 text-[10px] font-semibold leading-none tabular-nums text-red-600 dark:text-red-300">
@@ -540,7 +539,6 @@ function CenterRecordButton({
           aria-label="録音画面に戻る"
           className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 ring-4 ring-background transition-transform duration-(--duration-press) ease-(--ease-out) active:scale-95"
         >
-          <span className="absolute inset-0 rounded-full bg-red-500/40 motion-safe:animate-ping" />
           <Mic className="relative h-5 w-5" strokeWidth={2.25} />
         </button>
         <span className="mt-2 text-[10px] font-semibold leading-none tabular-nums text-red-600 dark:text-red-300">

@@ -707,6 +707,7 @@
       "startSub": "{name}様のセッションを録音します。",
       "startSubNoTarget": "セッションを録音してカルテを自動生成します。",
       "recording": "録音中",
+      "ended": "録音終了",
       "stopAria": "録音停止",
       "startAria": "録音開始"
     },

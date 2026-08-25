@@ -581,10 +581,11 @@ export function RecordPageView({
   // walk-in NULL case, and pack creation has no dedupe of its own). The REF is
   // the real guard — the synchronous re-entry check (state reads stale
   // mid-tick, same reason usingRecording below is a ref). The state feeds the
-  // dialog's `saving` prop as belt-and-braces for a future edit that changes
-  // the close timing — TODAY it is NOT visibly observable at this call site:
-  // onResolve closes the dialog (setOutcomeOpen(false)) in the same batch it
-  // sets both, so the dialog never actually renders with saving=true here.
+  // dialog's `saving` prop as belt-and-braces — that future edit has arrived
+  // (B3/B4 deferred-unmount exit): the dialog keeps rendering with
+  // saving=true through the ~200ms closing window after onResolve calls
+  // setOutcomeOpen(false), so the resolvingOutcome/saving belt is now live
+  // and load-bearing, not just insurance.
   // Reset on the dialog's OPEN transition too (openOutcomeDialog below), not
   // just in onResolve's finally — a hung take's write must not pre-lock the
   // NEXT take's dialog as 保存中 (F2, PR-0 fix round).
@@ -2196,39 +2197,7 @@ export function RecordPageView({
     runStopFlow()
   }
 
-  const recorderControls = phase === 'recorded' ? (
-    <section className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-7 shadow-sm">
-      <div className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">
-        {`${pad2(Math.floor(recordingDuration / 60))}:${pad2(recordingDuration % 60)}`}
-      </div>
-      <div className="flex h-10 items-end gap-[3px] opacity-50">
-        {frozenBars.map((h, i) => (
-          <span
-            key={i}
-            className="w-[3px] rounded-full bg-muted-foreground/50"
-            style={{ height: `${Math.max(15, Math.min(100, h * 0.6))}%` }}
-          />
-        ))}
-      </div>
-      <div className="mt-2 flex w-full items-center gap-3">
-        <Button variant="outline" size="md" className="flex-1" onClick={handleDiscard}>
-          {t('discard')}
-        </Button>
-        <Button
-          variant="default"
-          size="md"
-          className="flex-1"
-          // Belt: visual only, state-driven (resolvingOutcome only spans the
-          // pack/redeem write, not the whole post-resolve window) — the real
-          // guard is outcomeResolvedRef inside openOutcomeDialog.
-          disabled={resolvingOutcome}
-          onClick={handleUseRecordingTap}
-        >
-          {t('useRecording')}
-        </Button>
-      </div>
-    </section>
-  ) : (
+  const recorderControls = (
     <RecordButtonCard
       customerName={boundCustomerName}
       isRecording={isRecording}
@@ -2239,6 +2208,29 @@ export function RecordPageView({
         handleStartRecording()
       }}
       onStop={stopRecording}
+      disabled={recordingBlocked}
+      ended={phase === 'recorded'}
+      recordingDuration={recordingDuration}
+      frozenBars={frozenBars}
+      endedActions={
+        <div className="mt-2 flex w-full items-center gap-3">
+          <Button variant="outline" size="md" className="flex-1" onClick={handleDiscard}>
+            {t('discard')}
+          </Button>
+          <Button
+            variant="default"
+            size="md"
+            className="flex-1"
+            // Belt: visual only, state-driven (resolvingOutcome only spans the
+            // pack/redeem write, not the whole post-resolve window) — the real
+            // guard is outcomeResolvedRef inside openOutcomeDialog.
+            disabled={resolvingOutcome}
+            onClick={handleUseRecordingTap}
+          >
+            {t('useRecording')}
+          </Button>
+        </div>
+      }
     />
   )
 
@@ -2624,6 +2616,11 @@ export function RecordPageView({
           burned so it states 消化済み instead of offering a second one (D4). */}
       {outcomeFlow && (
         <PostSessionResolutionDialog
+          // `open` is deliberately a constant here — close is a same-commit
+          // unmount (the `{outcomeFlow && ...}` guard above), not a toggle.
+          // This mount must NOT be given the animated closing window without
+          // also adding a resolve re-entry guard: its safety proof is
+          // exactly the synchronous latch + instant unmount pairing.
           open
           customerName={outcomeFlow.dest.customerName}
           isFirstVisit={false}
@@ -2956,10 +2953,6 @@ function useElapsed(recState: string, startedAt: number | null): number {
     if (recState === 'idle') setSeconds(0)
   }, [recState])
   return seconds
-}
-
-function pad2(n: number): string {
-  return String(n).padStart(2, '0')
 }
 
 // Leaf that unwraps the streamed AI brief. use() suspends ONLY this child, so
