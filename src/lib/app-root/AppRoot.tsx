@@ -89,7 +89,10 @@ function SessionGatedToaster() {
     if (wasLive.current && !live) toast.dismiss()
     wasLive.current = live
   }, [live])
-  return live ? <Toaster /> : null
+  // Props must stay in lock-step with the root layout's Toaster
+  // (src/app/layout.tsx) — the thin shell renders THIS instance, the web
+  // tree the other; both must clear the ~64px bottom tab bar.
+  return live ? <Toaster position="bottom-center" mobileOffset={{ bottom: 88 }} /> : null
 }
 
 export type AppRootProps = {
