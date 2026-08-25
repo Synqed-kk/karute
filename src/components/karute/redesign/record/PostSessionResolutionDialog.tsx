@@ -137,7 +137,10 @@ export function PostSessionResolutionDialog({
 
   // The dialog stays mounted (parent toggles `open`), so a cancelled pick would
   // otherwise survive into the next open and submit a stale outcome. Reset the
-  // selection each time it opens.
+  // selection each time it opens. Closing also runs this effect, but the
+  // `if (open)` guard below skips the reset then — the picked values
+  // deliberately stay in place through the exit fade, and the wipe happens
+  // on the NEXT open, not on close.
   useEffect(() => {
     if (open) {
       setStatus(null)
