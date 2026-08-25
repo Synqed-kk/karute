@@ -102,5 +102,11 @@ describe('KaruteRecordListView search-reveal — stale-query race (Greptile PR #
       await Promise.resolve()
     })
     expect(screen.getByText('正解花子')).toBeInTheDocument()
+    // JST-EXPLICIT weekday (fix round 6). registeredDate 2026-02-02 is a
+    // MONDAY in Japan. The row anchors the instant to JST midnight but used to
+    // read the weekday back with `.getDay()`, i.e. in the BROWSER's zone — so
+    // anywhere west of Japan (and on every UTC box, CI included) it rendered
+    // 日, the day before. This assertion fails under TZ=UTC without the fix.
+    expect(screen.getByText('月')).toBeInTheDocument()
   })
 })

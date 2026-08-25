@@ -8,6 +8,7 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { assignStaffColors } from '@/lib/staff-colors'
+import { partsInJst } from '@/lib/date/jst'
 import {
   type KaruteListRow,
   mergeKaruteRows,
@@ -107,9 +108,14 @@ export function buildSessionsListScreen(args: {
     duration_minutes?: number | null
   }
 
-  // mergeKaruteRows still gives us the sort (session_date ?? created_at desc) +
-  // 200-cap; there's no longer a Supabase side to union in.
-  const records = mergeKaruteRows<RecordRow>([], synqedKaruteRows)
+  // mergeKaruteRows still gives us the sort (session_date ?? created_at desc)
+  // and the id dedupe; there's no longer a Supabase side to union in. The
+  // limit is the input's own length, i.e. NO cap (PR-2a): the caller decides
+  // how many rows it fetched, and a two-week window paged to completion can
+  // legitimately exceed the old 200 default, which would have silently
+  // truncated it. Every pre-2a caller passes ≤200 rows, so this is a no-op for
+  // them (slice(0, n) over n rows).
+  const records = mergeKaruteRows<RecordRow>([], synqedKaruteRows, synqedKaruteRows.length)
 
   // Build lookup maps — name resolution stays BUSINESS-WIDE so a record
   // written by another branch's staff still shows their name, but the 担当
@@ -165,8 +171,17 @@ export function buildSessionsListScreen(args: {
       ? (r.entries[0]?.count ?? 0)
       : 0
     const isoDate = (r.session_date ?? r.created_at).slice(0, 10)
-    const dt = new Date(`${isoDate}T00:00:00+09:00`)
-    const weekday = ['日', '月', '火', '水', '木', '金', '土'][dt.getDay()]
+    // JST-EXPLICIT weekday (fix round 5 — this was a LIVE PRODUCTION BUG).
+    // The instant is anchored to JST midnight, but `.getDay()` reads it back in
+    // SERVER-LOCAL time. On this Mac (JST) that agreed by luck; on Vercel and
+    // in CI (both UTC) the same instant is 15:00 the PREVIOUS day, so every
+    // カルテ row shipped a weekday one day early. There is no TZ override in
+    // vercel.json or the workflows to lean on, and there shouldn't be — the
+    // date is a JST business fact and must be computed as one, whatever the
+    // server's clock is set to. partsInJst already does exactly this via Intl.
+    const weekday = ['日', '月', '火', '水', '木', '金', '土'][
+      partsInJst(new Date(`${isoDate}T00:00:00+09:00`)).weekday
+    ]
 
     // Derive AI status from data shape — see types.ts for rationale.
     let aiStatus: KaruteAiStatus = 'draft'

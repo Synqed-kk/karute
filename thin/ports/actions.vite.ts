@@ -513,6 +513,44 @@ async function facadeRevealNoKaruteCustomer(
   }
 }
 
+// -- カルテ list: 日付チャンク読み込み (PR-2a さらに表示). READ, degrades to the
+// declared {error} result on any failure — same graceful convention as
+// facadeRevealNoKaruteCustomer above. The web action's own catch returns the
+// same shape, so KaruteRecordListView's append/error branches behave
+// identically on both platforms.
+async function facadeLoadKaruteWindow(input: {
+  olderThan?: string
+  month?: string
+  loadedCount?: number
+}): Promise<import('@/actions/karute').KaruteWindowPage | { error: string }> {
+  try {
+    const qs = new URLSearchParams()
+    if (input.olderThan) qs.set('olderThan', input.olderThan)
+    if (input.month) qs.set('month', input.month)
+    if (input.loadedCount != null) qs.set('loadedCount', String(input.loadedCount))
+    const res = await getDataPort().apiFetch(`/api/app/v1/karute/window?${qs.toString()}`)
+    const body = (await res.json().catch(() => null)) as
+      | (Partial<import('@/actions/karute').KaruteWindowPage> & {
+          error?: { message?: string }
+        })
+      | null
+    if (!res.ok || !body) return { error: body?.error?.message ?? `Request failed (${res.status})` }
+    // A malformed 200 must read as an ERROR, never as "no more history" — a
+    // silent empty window would end the list early and look like the truth.
+    if (!Array.isArray(body.items) || typeof body.windowStart !== 'string') {
+      return { error: 'Malformed window response' }
+    }
+    return {
+      items: body.items,
+      windowStart: body.windowStart,
+      freshStoreTotal: body.freshStoreTotal ?? 0,
+      hasMore: body.hasMore ?? false,
+    }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
 // -- session detail: per-entry edit history (edit-layer W2 history-sheet
 // packet). Local redeclaration of EntryEditHistoryRow (src/actions/karute.ts)
 // — same "redeclare the shape" convention as AuditLogEvent/StoreRow below.
@@ -1635,6 +1673,10 @@ export const listReassignCustomerOptions =
 // -- カルテ list search-reveal (PR-1b). Same type-only `satisfies` pin.
 export const revealNoKaruteCustomer =
   facadeRevealNoKaruteCustomer satisfies typeof import('@/actions/karute').revealNoKaruteCustomer
+
+// -- カルテ list 日付チャンク読み込み (PR-2a). Same type-only `satisfies` pin.
+export const loadKaruteWindow =
+  facadeLoadKaruteWindow satisfies typeof import('@/actions/karute').loadKaruteWindow
 // -- entry edit history (edit-layer W2 history-sheet packet)
 export const listEntryEditHistory = facadeListEntryEditHistory
 export const listCustomerKaruteForRegen = notWired('listCustomerKaruteForRegen')

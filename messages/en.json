@@ -1354,8 +1354,11 @@
     },
     "tabHeading": "Karute",
     "recordList": {
-      "statusLine": "This month: {monthCount} karute · showing {showingCount}",
-      "statusLineNoMonth": "Showing {showingCount} karute",
+      "statusLine": "Karute · {total} total · {monthCount} this month · showing {showingCount}",
+      "statusLineNoMonth": "Karute · {total} total · showing {showingCount}",
+      "loadMore": "Show more (karute before {date})",
+      "addedCount": "Loaded {n} karute",
+      "loadMoreFailed": "Couldn't load more. Please try again.",
       "newKarute": "+ New karute",
       "searchPlaceholder": "Search by customer · service · staff",
       "revealSummary": "Shows up here once their first session is recorded",

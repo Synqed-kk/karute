@@ -29,7 +29,7 @@ import { globalRecorder } from '@/lib/global-recorder'
 import { RecordScreenDTO } from '@/lib/app-api/record-screen-dto'
 import { AppointmentsScreenDTO } from '@/lib/app-api/appointments-screen-dto'
 import { CustomersScreenDTO } from '@/lib/app-api/customers-screen-dto'
-import { SessionsScreenDTO } from '@/lib/app-api/sessions-screen-dto'
+import { SessionsScreenWindowedDTO } from '@/lib/app-api/sessions-screen-dto'
 import { DashboardScreenDTO } from '@/lib/app-api/dashboard-screen-dto'
 import { getSessionState, subscribeSessionState } from '@/lib/auth/mobile/session-store'
 import { subscribeRefresh, subscribeRevalidate } from '../ports/nav.vite'
@@ -65,8 +65,11 @@ const TARGETS: Target[] = [
     parse: (raw) => CustomersScreenDTO.parse(raw),
   },
   {
-    path: '/api/app/v1/screens/sessions',
-    parse: (raw) => SessionsScreenDTO.parse(raw),
+    // ?window=1 must MATCH SessionsScreen's own fetch path exactly — the path
+    // IS the cache key, so a prefetch of the bare URL would warm a cache the
+    // screen never reads and the screen would refetch on open (PR-2a).
+    path: '/api/app/v1/screens/sessions?window=1',
+    parse: (raw) => SessionsScreenWindowedDTO.parse(raw),
   },
   {
     path: `/api/app/v1/screens/dashboard?locale=${getThinLocale()}`,

@@ -3,11 +3,19 @@
 import { revalidatePath, revalidateTag, updateTag } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { getLocale } from 'next-intl/server'
-import { getCurrentUserStaffId, getBusinessId, staffListByBusinessOrThrow, type StaffMember } from '@/lib/staff'
+import { getCurrentUserStaffId, getBusinessId, getStaffList, staffListByBusinessOrThrow, type StaffMember } from '@/lib/staff'
+import { listAllCustomersCached } from '@/lib/customers/list-all'
+import { buildSessionsListScreen } from '@/lib/karute/screen-rows'
+import {
+  isValidKaruteMonth,
+  isValidKaruteYmd,
+  loadKaruteWindowRows,
+} from '@/lib/karute/karute-window'
+import type { KaruteListItem } from '@/components/karute/spike-lifted/list/types'
 import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
-import { resolveStoreScope, customerLensFor, sourceStoreOutOfScope } from '@/lib/auth/store-scope'
+import { resolveStoreScope, customerLensFor, sourceStoreOutOfScope, storeStaffIdSet } from '@/lib/auth/store-scope'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
@@ -1483,6 +1491,112 @@ export async function revealNoKaruteCustomer(
       }
     }
     return { candidate: null }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
+/** One date-chunk of the カルテ list, projected into render-ready rows.
+ *  Mirrors {@link KaruteWindow} but carries `items` (the shared
+ *  buildSessionsListScreen projection) instead of raw rows — the client has
+ *  none of the staff/customer maps the projection needs, so the boundary that
+ *  crosses the wire is the SAME item shape the page already renders. */
+export type KaruteWindowPage = {
+  items: KaruteListItem[]
+  windowStart: string
+  freshStoreTotal: number
+  hasMore: boolean
+}
+
+/**
+ * カルテ tab 日付チャンク読み込み (PR-2a): load one more date-window of the
+ * list — the さらに表示 button's server half, and PR-2b's 月ジャンプ fetch.
+ *
+ * `olderThan` is the previous window's `windowStart` (YYYY-MM-DD, JST); the
+ * walk resumes strictly older than it. `month` ('YYYY-MM') is part of the
+ * signature FROM PR-2a — PR-2b is what starts sending it. `loadedCount` is the
+ * caller's RAW accumulated row count (never the post-filter 表示中 count) and
+ * feeds the ONE hasMore formula (karuteHasMore) plus the epoch-sweep decision.
+ *
+ * Scope = the cookie-bound web lens (resolveStoreScope), exactly like the page
+ * read it continues; the facade twin (/api/app/v1/karute/window) mirrors it
+ * with resolveStoreForRequest. The fan-out is deliberately the SAME one
+ * page.tsx does — staff roster, customer list, synqed staff — because the row
+ * projection needs all three (会員番号 is assigned by position over the WHOLE
+ * customer list, so a subset read would renumber every row). Ceiling: one tap
+ * costs one page-equivalent fan-out; the alternative was a second, divergent
+ * projection path.
+ */
+export async function loadKaruteWindow(input: {
+  olderThan?: string
+  month?: string
+  loadedCount?: number
+}): Promise<KaruteWindowPage | { error: string }> {
+  try {
+    await requireCapability('customers.view')
+
+    // LENS PARITY with the facade route's QuerySchema (Greptile PR #779 P1): a
+    // server action is callable with arbitrary input too, so an impossible
+    // calendar value is refused HERE as well rather than rolling over into a
+    // window the caller never asked for (`2026-02-30` → 2026-03-02) or
+    // throwing an Invalid Date out of the walk. Same ONE pair of validators
+    // both surfaces use, so the two can never drift.
+    if (input.olderThan !== undefined && !isValidKaruteYmd(input.olderThan)) {
+      return { error: 'olderThan must be a real calendar date (YYYY-MM-DD)' }
+    }
+    if (input.month !== undefined && !isValidKaruteMonth(input.month)) {
+      return { error: 'month must be a real calendar month (YYYY-MM)' }
+    }
+
+    const [synqed, scope, businessId] = await Promise.all([
+      getSynqedClient(),
+      resolveStoreScope(),
+      getBusinessId(),
+    ])
+    const activeStore = scope.storeId
+    const clamped = scope.allowedStoreIds != null
+
+    const [staffList, allCustomersList, currentStaffId, window, synqedStaff] =
+      await Promise.all([
+        getStaffList(),
+        clamped
+          ? listAllCustomersCached(businessId, {
+              store_id: activeStore,
+              enforceStore: true,
+              sort_by: 'created_at',
+              sort_order: 'asc',
+            })
+          : listAllCustomersCached(businessId, { sort_by: 'created_at', sort_order: 'asc' }),
+        getCurrentUserStaffId(),
+        loadKaruteWindowRows(synqed, {
+          storeId: activeStore,
+          olderThan: input.olderThan,
+          month: input.month,
+          loadedCount: input.loadedCount,
+        }),
+        synqed.staff.list({ page_size: 200 }),
+      ])
+
+    const storeStaffIds = await storeStaffIdSet(staffList, activeStore)
+    const screen = buildSessionsListScreen({
+      staffList,
+      storeStaffIds,
+      allCustomersList,
+      currentStaffId,
+      synqedKaruteRows: window.rows,
+      synqedStaff,
+      // Status-line numbers are the PAGE's job (it owns the 今月 probe); this
+      // append only carries rows. freshStoreTotal rides the response field.
+      monthCount: 0,
+      total: window.freshStoreTotal,
+    })
+
+    return {
+      items: screen.items,
+      windowStart: window.windowStart,
+      freshStoreTotal: window.freshStoreTotal,
+      hasMore: window.hasMore,
+    }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }

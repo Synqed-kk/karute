@@ -10,7 +10,6 @@ import {
   listSynqedKaruteRows,
   listSynqedKaruteRowsWithTotal,
   listSynqedKaruteRowsWithTotalOrThrow,
-  listSynqedKaruteRowsWithMonthProbe,
   mergeKaruteRows,
 } from '@/lib/karute/synqed-records'
 
@@ -174,63 +173,9 @@ describe('listSynqedKaruteRowsWithTotal', () => {
   })
 })
 
-// Round 1 (Greptile PR #775) gave both reads ONE shared try/catch so the
-// header could never contradict the list — but that meant a 今月-probe
-// failure DISCARDED already-successfully-loaded rows too (a false EMPTY
-// list). SUPERSEDED by round 2's contract: the LIST is primary, the count
-// is auxiliary. Each leg degrades INDEPENDENTLY to null; the shared-fate
-// tests that used to live here are gone — rendering the omission (never a
-// fake 0) is KaruteRecordListView's job, pinned in its own test file.
-describe('listSynqedKaruteRowsWithMonthProbe', () => {
-  const opts = {
-    storeId: 'store-1',
-    monthFrom: '2026-08-01T00:00:00.000Z',
-    monthTo: '2026-08-24T00:00:00.000Z',
-  }
-
-  it('both calls succeed: returns the main read and the probe independently', async () => {
-    const list = jest
-      .fn()
-      .mockResolvedValueOnce({ karute_records: [], total: 10 }) // main
-      .mockResolvedValueOnce({ karute_records: [], total: 3 }) // probe
-    const result = await listSynqedKaruteRowsWithMonthProbe(asClient(list), opts)
-    expect(result.data?.total).toBe(10)
-    expect(result.monthProbe?.total).toBe(3)
-  })
-
-  it('the 今月 probe throwing does NOT discard the already-loaded main rows — only monthProbe goes null', async () => {
-    const list = jest
-      .fn()
-      .mockResolvedValueOnce({
-        karute_records: [{ id: 'k1', business_id: 'biz', customer_id: 'cli1', created_at: '2026-08-01T00:00:00Z', entry_count: 0 }],
-        total: 10,
-      }) // main succeeds
-      .mockRejectedValueOnce(new Error('boom')) // probe fails
-    const result = await listSynqedKaruteRowsWithMonthProbe(asClient(list), opts)
-    expect(result.data?.rows).toHaveLength(1)
-    expect(result.data?.total).toBe(10)
-    expect(result.monthProbe).toBeNull()
-  })
-
-  it('the main read throwing goes null WITHOUT being masked by a lucky probe success', async () => {
-    const list = jest
-      .fn()
-      .mockRejectedValueOnce(new Error('boom')) // main fails
-      .mockResolvedValueOnce({ karute_records: [], total: 3 }) // probe succeeds
-    const result = await listSynqedKaruteRowsWithMonthProbe(asClient(list), opts)
-    expect(result.data).toBeNull()
-    expect(result.monthProbe?.total).toBe(3)
-  })
-
-  it('both legs failing: both go null independently, no cross-contamination', async () => {
-    const list = jest
-      .fn()
-      .mockRejectedValueOnce(new Error('boom-main'))
-      .mockRejectedValueOnce(new Error('boom-probe'))
-    const result = await listSynqedKaruteRowsWithMonthProbe(asClient(list), opts)
-    expect(result).toEqual({ data: null, monthProbe: null })
-  })
-})
+// The main-read + 今月-probe pairing MOVED to karute-window.ts in PR-2a (its
+// main leg is a date window now). Its independent-legs coverage moved with it:
+// src/__tests__/integration/karute-window.test.ts.
 
 describe('mergeKaruteRows', () => {
   const row = (id: string, date: string) => ({
