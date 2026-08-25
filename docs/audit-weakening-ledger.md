@@ -64,3 +64,21 @@
   it independently); CP3 requires the raw karuteRecords.update call site's
   own registration since it sits outside AUDITED_CORES by design · Liam
   (F4 packet build-order clearance, 2026-08-23)
+- 2026-08-25 · SDK_WRITE_ALLOWLIST:src/actions/recording-upload.ts::storage.recordings.remove · the
+  web upload hotfix. The `recordings` bucket's RLS started rejecting
+  browser-token inserts ("new row violates row-level security policy"), which
+  killed every web take at its upload leg, so the web recording port moved to
+  service-minted signed URLs like the thin arm — and the cleanup DELETE moved
+  with it, off the browser's supabase-js client and onto this cookie-authed
+  server action. Not a new silent write: the identical call was already
+  allowlisted at src/lib/ports/recording-port.ts#prepareTranscription
+  (2026-07-27, FIX ROUND 1 #15) and THAT entry is deleted in the same commit,
+  along with the sibling storage.recordings.upload one — net −1 allowlist
+  entry, and the browser no longer writes storage at all. The justification
+  carries over verbatim because nothing about the delete changed: it fires
+  right after transcription resolves (src/lib/ai-pipeline.ts cleanup(), before
+  extraction/summarization/save even start), so it is not itself a business
+  action — the eventual karute.save is what audits. The two MINT legs need no
+  entry (createSignedUploadUrl/createSignedUrl are not CP3 storage write
+  methods), same as the facade precedent
+  src/app/api/app/v1/recordings/upload-url/route.ts · Liam (2026-08-25 web-upload hotfix)
