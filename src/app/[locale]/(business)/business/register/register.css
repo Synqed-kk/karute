@@ -742,17 +742,27 @@
    DIRECTLY above 閉店を確定: what will be frozen, and then the button that freezes
    it. Same strip grammar as 本日のレジ so it is obviously facts, and it is
    deliberately quieter (15px, not 18px) — it is a receipt, not a headline.
-   ⧉ `auto-fit`, NOT a hand-written repeat(8): the record grows a 承認者 cell on a
-   day somebody signed it, so the strip has as many cells as the record has facts
-   and no number in this sheet has to be kept in step with a props array. */
+   ⧉ NO HAND-WRITTEN repeat(8): the record grows a 承認者 cell on a day somebody
+   signed it, so the strip has as many cells as the record has facts and no number
+   in this sheet is kept in step with a props array.
+
+   ⚖ …AND NO TRACK MINIMUM EITHER (F-S14). `repeat(auto-fit, minmax(84px, .62fr))`
+   did the counting honestly and then sized every cell from a constant measured on
+   the demo day: at eight digits 「¥39,012,342」 painted straight over the cell
+   beside it at 1280 and above — the last surface still carrying the class F-S6
+   removed from the money strip. Same shape as that fix: a WRAPPING ROW with
+   content-sized cells, and the separators as the 1px gap rather than a border on
+   the cell, which is what let the bands below drop three `:nth-child` rules that
+   had to know how many cells sat on a line. The strip's CONTRACT is untouched —
+   every cell, its order and its label are the props', exactly as before. */
 .biz .pg-register .rg-record {
-  display: grid; grid-template-columns: minmax(180px, 1.1fr) repeat(auto-fit, minmax(84px, .62fr));
-  margin-top: 14px; border: 1px solid var(--card); border-radius: 11px; background: #fff;
+  display: flex; flex-wrap: wrap; gap: 1px;
+  margin-top: 14px; border: 1px solid var(--card); border-radius: 11px; background: var(--section);
 }
-.biz .pg-register .rg-rec-main { display: grid; align-content: center; padding: 10px 14px; background: #fafafb; border-radius: 10px 0 0 10px; }
+.biz .pg-register .rg-rec-main { flex: 1 1 180px; display: grid; align-content: center; padding: 10px 14px; background: #fafafb; border-radius: 10px 0 0 10px; }
 .biz .pg-register .rg-rec-main strong { display: block; font-size: 14px; }
 .biz .pg-register .rg-rec-main span { display: block; margin-top: 3px; color: var(--muted); font-size: 11.5px; line-height: 1.4; }
-.biz .pg-register .rg-rec-cell { display: grid; align-content: center; padding: 9px 11px; border-left: 1px solid var(--section); }
+.biz .pg-register .rg-rec-cell { flex: 1 1 84px; display: grid; align-content: center; padding: 9px 11px; background: #fff; }
 .biz .pg-register .rg-rec-cell:last-child { border-radius: 0 10px 10px 0; }
 .biz .pg-register .rg-rec-cell span { color: var(--muted); font-size: 11.5px; }
 /* A STRIP OF FIGURES HOLDS ITS FIGURES ON ONE LINE. At 1280 with the shell's
@@ -862,14 +872,13 @@
      column back 20px exactly where the band is tightest. */
   .biz .pg-register .rg-fact { grid-template-columns: 84px 1fr; }
   /* the record strip's cells stop fitting on one line here: it becomes a
-     three-up block that is still a strip, never a tall table. */
-  .biz .pg-register .rg-record { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .biz .pg-register .rg-rec-main { grid-column: 1 / -1; border-radius: 10px 10px 0 0; }
-  /* the separators follow the COLUMN, not the source order: with the heading
-     cell spanning the top, the first cell of each row is child 3n+2, and it is
-     the one that must not draw a line against the strip's own left border. */
-  .biz .pg-register .rg-rec-cell { border-left: 0; border-top: 1px solid var(--section); }
-  .biz .pg-register .rg-rec-cell:not(:nth-child(3n+2)) { border-left: 1px solid var(--section); }
+     three-up block that is still a strip, never a tall table. Stated as a BASIS
+     now rather than a track count, so a figure too wide for a third of the line
+     still wraps rather than painting over its neighbour (F-S14) — and the
+     separators are the row's own gap, which is what retired the three
+     `:nth-child` rules that had to know how many cells sat on a line. */
+  .biz .pg-register .rg-rec-main { flex-basis: 100%; border-radius: 10px 10px 0 0; }
+  .biz .pg-register .rg-rec-cell { flex-basis: calc(33.333% - 1px); }
 }
 
 /* ── ≤1099 — the INSPECTOR's pair runs out of width: stack it ────────────── */
@@ -921,11 +930,7 @@
   /* stated on the BOX, so the field and the sizer that measures it can never be
      set in two different types (they are one figure). */
   .biz .pg-register .rg-cash-stat .rg-count-box { font-size: 16px; }
-  .biz .pg-register .rg-record { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  /* two-up: the heading spans the top, so each row is (even, odd) and the line
-     belongs to the odd one — the divider between the pair, never the outer edge. */
-  .biz .pg-register .rg-rec-cell:nth-child(even) { border-left: 0; }
-  .biz .pg-register .rg-rec-cell:nth-child(odd) { border-left: 1px solid var(--section); }
+  .biz .pg-register .rg-rec-cell { flex-basis: calc(50% - 1px); }
 }
 
 /* ── 800–1023: the near-square canvases get the two-column treatment ─────── */
@@ -1042,9 +1047,8 @@
   .biz .pg-register .rg-recon-row { gap: 4px 10px; }
   .biz .pg-register .rg-recon-ch { flex: 1 1 100%; }
   .biz .pg-register .rg-recon-cell { flex: 1 1 auto; text-align: left; }
-  .biz .pg-register .rg-record { grid-template-columns: minmax(0, 1fr); }
   .biz .pg-register .rg-rec-main { border-radius: 10px 10px 0 0; }
-  .biz .pg-register .rg-rec-cell { border-left: 0 !important; border-top: 1px solid var(--section); border-radius: 0; }
+  .biz .pg-register .rg-rec-cell { flex-basis: 100%; border-radius: 0; }
   .biz .pg-register .rg-rec-cell:last-child { border-radius: 0 0 10px 10px; }
   .biz .pg-register .rg-close-actions { flex-direction: column; }
   .biz .pg-register .rg-close-actions .btn { width: 100%; min-height: 46px; }

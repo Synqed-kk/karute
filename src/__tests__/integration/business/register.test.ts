@@ -1130,8 +1130,11 @@ describe('閉店できるか is ONE call, rendered wherever the page asks it', (
     expect(open.close!.record.some((r) => r.label === '承認者')).toBe(false)
     expect(open.close!.record).toHaveLength(8)
     expect(props.close!.record).toHaveLength(9)
-    // …and the strip's column count follows the record rather than a hard 8.
-    expect(CSS_CODE).toContain('repeat(auto-fit, minmax(84px, .62fr))')
+    // …and the strip's cell count follows the record rather than a hard 8: no
+    // number in the sheet is kept in step with the props array (F-S14 turned the
+    // counting from auto-fit tracks into a wrapping row, which counts by itself).
+    expect(CSS_CODE).not.toMatch(/rg-record[^}]*repeat\(\s*\d/)
+    expect(CSS_CODE).toContain('.biz .pg-register .rg-rec-cell { flex: 1 1 84px;')
   })
 
   it('⑤ 未収の扱い — the landing point OFFERS the carry-forward decision', async () => {
@@ -2467,6 +2470,50 @@ describe('⚖ ALL-SCREEN ADAPTIVITY, R13, and the shell that points here', () =>
     expect(CSS_CODE).toContain('.biz .pg-register .rg-recon-cell { flex: 0 0 auto; display: block; text-align: right; }')
     const band = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 743px)'))
     expect(band).toContain('.biz .pg-register .rg-recon-cell { flex: 1 1 auto; text-align: left; }')
+  })
+
+  it('⚖ F-S14 — the money-clip class is gone from the LAST surface that carried it', () => {
+    // 閉店で記録される内容 was the one strip still sizing its cells from a constant
+    // measured on the demo day, so an eight-digit 総売上 painted straight over the
+    // cell beside it. Same shape as the money strip's fix: a wrapping row with
+    // content-sized cells, separators as the gap.
+    expect(CSS_CODE).toContain('.biz .pg-register .rg-record {\n  display: flex; flex-wrap: wrap; gap: 1px;')
+    expect(CSS_CODE).not.toContain('minmax(84px, .62fr)')
+    expect(CSS_CODE).toContain('.biz .pg-register .rg-rec-main { flex: 1 1 180px;')
+    // The bands Liam approved are still stated — three-up, two-up, one-up — as
+    // BASES, so what they no longer decide is whether a figure fits.
+    expect(CSS_CODE).toContain('.biz .pg-register .rg-rec-cell { flex-basis: calc(33.333% - 1px); }')
+    expect(CSS_CODE).toContain('.biz .pg-register .rg-rec-cell { flex-basis: calc(50% - 1px); }')
+    const band = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 743px)'))
+    expect(band).toContain('.biz .pg-register .rg-rec-cell { flex-basis: 100%; border-radius: 0; }')
+    // …and the three `:nth-child` separator rules that had to know how many cells
+    // sat on a line are GONE with the border they were drawing.
+    expect(CSS_CODE).not.toMatch(/rg-rec-cell:not\(:nth-child/)
+    expect(CSS_CODE).not.toMatch(/rg-rec-cell:nth-child\((even|odd)\)/)
+    expect(CSS_CODE).not.toMatch(/\.rg-rec-cell \{[^}]*border-left/)
+  })
+
+  it('⚖ F-S14 — …and the strip’s CONTRACT is untouched (STOP-2): same cells, same order, same labels', async () => {
+    // The fix is sizing and wrap only. What the strip HOLDS is the props', and it
+    // is the same list it was before — including 現金差異, which is present on
+    // every day whether or not there is one.
+    const open = await room({ store: STORE_A })
+    expect(open.close!.record.map((r) => r.label)).toEqual([
+      '総売上', '返金・取消', '純売上', '受領済み', '未収', '現金差異', '取引件数', 'バージョン',
+    ])
+    // …and 承認者 still slots in before バージョン on a day somebody signed it.
+    const signed = await registerProps({
+      locale: 'ja',
+      store: STORE_A,
+      world: {
+        closing: { ...closingPlane[STORE_A], manager_signed_at: 18 * 60 + 42, manager_signed_by: '見本 ごろう' },
+      },
+    })
+    expect(signed.props.close!.record.map((r) => r.label)).toEqual([
+      '総売上', '返金・取消', '純売上', '受領済み', '未収', '現金差異', '取引件数', '承認者', 'バージョン',
+    ])
+    // The one cell that holds WORDS still says so, and only that one.
+    expect(signed.props.close!.record.filter((r) => r.wrap).map((r) => r.label)).toEqual(['承認者'])
   })
 
   it('⚖ F-S7/F-S8/F-S9 — words wrap, names break, and the corner children carry the radius', () => {
