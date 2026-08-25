@@ -3913,9 +3913,10 @@ export function TodayScreen(props: TodayProps) {
     // the minutes of. Two things the render-time version could not do: it
     // filtered `onThisLane`, so p-05's hour and p-06's box both pointing at
     // ベッド2 were never compared; and it ran AFTER `buildSellLayer`, so the
-    // counts on four surfaces (:4339, :4385, :4812, :5027) were computed from
-    // boxes this line then declined to draw. One box per span still holds — it
-    // is now true of the layer rather than of the paint.
+    // counts on four surfaces — 公開中 N枠 (:4389), 販売可能枠 N窓 (:4435), 安全な空き
+    // (:4862) and the 公開価格 button (:5077) — were computed from boxes this line
+    // then declined to draw. One box per span still holds; it is now true of the
+    // LAYER rather than of the paint, which is what makes those four honest.
     const cells = sell.cells.filter(onThisLane)
     const rail = railByLane.get(lane.key)
     // canon `lane.insertAdjacentElement("afterend", rail)` (:7566): the rail is
