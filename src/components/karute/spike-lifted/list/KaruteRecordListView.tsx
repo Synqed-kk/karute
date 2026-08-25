@@ -547,10 +547,28 @@ export function KaruteRecordListView({
     setAnnouncement('')
     revealRequestId.current += 1
     setRevealCandidate(null)
+    // The picker's floor is store A's deepest loaded month, and it only ever
+    // extends BACKWARD by design — so without this it keeps stretching store
+    // B's picker on the strength of rows store B never had, offering months
+    // that break the very invariant stated where the floor is computed ("every
+    // month in the list is either inside the reasoned range or provably has
+    // karute behind it"). Back to the epoch; store B's own rows re-deepen it.
+    monthFloorRef.current = KARUTE_SESSION_DATE_EPOCH.slice(0, 7)
     // The degraded latch still holds store A's rows. It only matters when store
     // B's very first render is ALSO degraded — without this, that failure would
     // resurrect the previous store's list instead of showing the honest
     // degraded-empty state.
+    //
+    // ORDERING, and why these two ref writes are safe DOWN HERE even though
+    // `baseItems` and `monthFloor` were both computed from them further up:
+    // this render pass is about to be THROWN AWAY. `setPrevStoreId` above is a
+    // state update during render, so React discards this attempt and re-runs
+    // the component from the top, where those derivations read the values just
+    // written. Nothing downstream of this point in THIS pass reaches the DOM.
+    // A reader hoisting these writes above their derivations would not be
+    // making an equivalent change — they would be making the reset depend on
+    // statement order instead of on the discard-and-rerun, and the next edit
+    // that moves a derivation would silently break it.
     lastGoodItems.current = items
   }
 

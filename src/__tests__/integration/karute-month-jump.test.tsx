@@ -531,6 +531,44 @@ describe('store switch (Greptile PR #784)', () => {
     expect(screen.getByText(/statusLine/).textContent).toContain('"total":3')
   })
 
+  it('resets the picker floor — store A\'s depth never stretches store B\'s months', async () => {
+    // The floor only ever extends BACKWARD (so a purge can't yank months out
+    // of an open picker), which is exactly why it has to be reset here: store
+    // A's 2026-01 row is no evidence about store B, and offering that month
+    // would break the invariant the floor exists to hold — every month listed
+    // is either inside the reasoned range or provably has karute behind it.
+    const openLabels = () => {
+      fireEvent.click(monthChip())
+      const labels = screen.getAllByRole('option').map((o) => o.textContent)
+      fireEvent.keyDown(document, { key: 'Escape' })
+      return labels
+    }
+    const { rerender } = render(
+      // Store A has a January karute loaded, dragging its floor back.
+      listEl({ storeId: 'store-a', items: [item('a1', '2026-08-20'), OLD_ROW] }),
+    )
+    expect(openLabels()).toContain('2026年1月')
+
+    // Store B is shallow: its newest window only reaches August.
+    await act(async () => {
+      rerender(
+        listEl({
+          storeId: 'store-b',
+          items: [item('b1', '2026-08-18', 'ビー 花子')],
+          total: 3,
+          monthCount: 1,
+          initialWindowStart: '2026-08-01',
+        }),
+      )
+    })
+
+    const bLabels = openLabels()
+    expect(bLabels).not.toContain('2026年1月')
+    // Floored at the session-date epoch month, exactly as on a fresh mount.
+    expect(bLabels).toContain('2026年7月')
+    expect(bLabels).not.toContain('2026年6月')
+  })
+
   it('clears a さらに表示 failure line across the switch', async () => {
     loadKaruteWindow.mockResolvedValue({ error: 'upstream' })
     const { rerender } = render(listEl({ storeId: 'store-a' }))
