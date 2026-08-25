@@ -91,6 +91,11 @@ import { dragOrigin, stepPct } from '@/business/lib/canon-logic/drag-rules'
 import { buildSellLayer, type SellCell } from '@/business/lib/canon-logic/availability'
 import { DENSITY_CEILING, packedPrice } from '@/business/lib/canon-logic/pricing'
 import { minuteOf, place, type BoardItem, type BoardLane } from '@/business/lib/today-board'
+// ⚖ R3 one world — the guard's door lives on the screen (it needs both the book
+// and the board's own types, and the book imports today-interactions). Exported
+// for the reason everything on this board's answer path is: an answer the
+// operator acts on has to be provable without a renderer.
+import { bedDoor, bedViewsFor } from '@/app/[locale]/(business)/business/today/TodayScreen'
 
 if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
   HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement): void {
@@ -1183,6 +1188,282 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // …and the excluded world is unreachable from anywhere else on the screen.
     expect(SRC).not.toContain('?? pending?.id')
     expect(SRC).not.toContain('bedFeasibility(')
+  })
+})
+
+/** ────────────────────────────────────────────────────────────────────────────
+ * ⚖ R3 ONE WORLD (Liam, 2026-08-25) — A STAGED 仮押さえ IS REAL FOR EVERY READER
+ *
+ * His refusal shots: a card staged but not confirmed, and the 60分配置 strip
+ * beside it still offering the minutes and the ROOM that card was standing in.
+ * The cause was one expression — the guard's door bound `live ?? pending`, so
+ * an unconfirmed move was deleted from the rail's reality — and the drop then
+ * refused 満室 on a start the board had just advertised.
+ *
+ * EVERY SCENE BELOW IS A PAIR. The BEFORE leg drives the door this round
+ * deleted (`bedFeasibility(lanes, stagedId, POLICY)` + `excludeId: stagedId`),
+ * which is the red-run: it is what the board did, asserted so a regression that
+ * brought it back could not pass quietly. The AFTER leg drives the shipped one
+ * (`bedDoor` out of `bedViewsFor`, `excludeId: handId`).
+ *
+ * The one thing that did NOT change is the live gesture: a card actually in the
+ * operator's hand is still lifted out of the world, and still answered as
+ * ITSELF — its room, its VIP-ness. That is the last scene, and it is a
+ * zero-delta pin on purpose.
+ * ──────────────────────────────────────────────────────────────────────────── */
+describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane for everybody', () => {
+  const GUARD = {
+    services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
+    newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
+    mode: 'standard' as const,
+  }
+  const FRAME = { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }
+  const staff = (key: string, over: Partial<BoardLane> = {}) =>
+    lane({ key, group: 'staff', label: key, stores: ['store-a'], window: { from: HOURS.open, until: HOURS.close }, untilLabel: '19:00', ...over })
+  const bed = (key: string, items: BoardItem[] = [], over: Partial<BoardLane> = {}) =>
+    lane({ key, group: 'beds', label: key, items, ...over })
+
+  /** The rail exactly as the screen builds it, with either door plugged in. */
+  const railsWith = (
+    lanes: BoardLane[],
+    excludeId: string | null,
+    door: ((l: BoardLane, s: number, d: number) => boolean) | undefined,
+    nowMinute: number | null = null,
+  ) =>
+    guardRailsFor(lanes, {
+      open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
+      nowMinute, locked: [], guard: GUARD, excludeId, placementFeasible: door,
+    })
+  /** THE DOOR THIS ROUND DELETED — the red-run leg. */
+  const before = (lanes: BoardLane[], stagedId: string, nowMinute: number | null = null) =>
+    railsWith(lanes, stagedId, bedFeasibility(lanes, stagedId, POLICY), nowMinute)
+  /** THE DOOR THIS ROUND SHIPS. `handId` is null at rest — that is the round. */
+  const after = (lanes: BoardLane[], handId: string | null = null, nowMinute: number | null = null) =>
+    railsWith(lanes, handId, bedDoor(bedViewsFor(lanes, POLICY, { ...FRAME, nowMin: nowMinute ?? HOURS.open }, handId), lanes, handId), nowMinute)
+  const cell = (rails: ReturnType<typeof railsWith>, laneKey: string, start: number) =>
+    rails.find((r) => r.laneKey === laneKey)!.cells.find((c) => c.start === start)!
+
+  // ── SCENE 0.03.58 — the rail BESIDE the staged card ───────────────────────
+  /** Two rooms, both taken over 10:00–11:00 once the staged card is counted:
+   *  bed-01 by a stranger, bed-02 by the operator's own unconfirmed move. The
+   *  other staff lane is free, so the guard alone is happy — the ROOM is the
+   *  whole question, which is what makes this flag 76's disease with a new
+   *  cause. */
+  const shotBoard = () => [
+    staff('p-01'),
+    staff('p-02', { items: [booking({ key: 'staged-staff', caseId: 'staged', title: '見本 いつき' }, 600, 660)] }),
+    bed('bed-01', [booking({ key: 'b1', caseId: 'other', title: '見本 さくら' }, 600, 660)]),
+    bed('bed-02', [booking({ key: 'staged-bed', caseId: 'staged', title: '見本 いつき' }, 600, 660)]),
+  ]
+
+  it('0.03.58 — the strip beside a staged card stops inviting onto its room', () => {
+    const board = shotBoard()
+    // THE RED-RUN: the deleted door lifted the staged card out of everybody's
+    // world, so bed-02 read free and the strip said ✓10:00 on the neighbour's
+    // lane. This is his screenshot.
+    const was = cell(before(board, 'staged'), 'p-01', 600)
+    expect(was.state).toBe('degraded')
+    expect(was.label).toBe('△10:00')
+    // ONE WORLD: the room is taken, and the strip says so in the engine's own
+    // resource sentence (⚖ 76's wording, unchanged).
+    const now = cell(after(board), 'p-01', 600)
+    expect(now.state).toBe('blocked')
+    expect(now.label).toBe('—')
+    expect(now.sentence).toBe('この開始ではベッドを60分確保できません')
+    // canon :7330-7334 — a hard resource block is never an override.
+    expect(now.ackAllowed).toBe(false)
+  })
+
+  // ── SCENE 0.04.10 — the rail UNDER the staged card ────────────────────────
+  it('0.04.10 — the strip under a staged card stops offering the minutes it stands in', () => {
+    const board = shotBoard()
+    // THE RED-RUN: excluded from its own lane's occupancy, the staged card left
+    // a pocket behind it and the strip offered the very start it occupies.
+    expect(cell(before(board, 'staged'), 'p-02', 600).state).toBe('degraded')
+    // ONE WORLD: the lane is busy, so there is no pocket to answer about.
+    const now = cell(after(board), 'p-02', 600)
+    expect(now.state).toBe('blocked')
+    expect(now.sentence).toBe('この開始には60分の連続した空きがありません')
+  })
+
+  it('…and the minutes the staged card does NOT occupy are unchanged', () => {
+    // The change is not "the lane went quiet": 11:30 is past the staged span and
+    // both rooms are free there, so both doors say the same thing. A round that
+    // blanked the strip would pass the two scenes above and fail here.
+    const board = shotBoard()
+    expect(cell(before(board, 'staged'), 'p-01', 690).state).toBe(cell(after(board), 'p-01', 690).state)
+    expect(cell(after(board), 'p-01', 690).state).toBe('degraded')
+    expect(cell(after(board), 'p-01', 690).label).toBe('△11:30')
+  })
+
+  // ── the VIP axis: ⚖ 51's 個室 floor is what the two askers disagree about ──
+  it('a staged VIP: the strip stops answering as the VIP and answers as a new client', () => {
+    // 個室 bed-02 is busy 10:00–11:00 with somebody else; the staged VIP sits in
+    // it later, at 11:40. The standard room is free the whole time.
+    const board = [
+      staff('p-01'),
+      staff('p-02', { items: [booking({ key: 'v-staff', caseId: 'staged', category: 'vip', title: 'テスト えいた' }, 700, 760)] }),
+      bed('bed-01'),
+      bed('bed-02', [
+        booking({ key: 'o1', caseId: 'other', title: '見本 さくら', category: 'vip' }, 600, 660),
+        booking({ key: 'v-bed', caseId: 'staged', category: 'vip', title: 'テスト えいた' }, 700, 760),
+      ], { roomClass: 'private', sub: '個室' }),
+    ]
+    // THE RED-RUN: bound to the staged VIP, the 個室 floor narrowed the候補 to
+    // bed-02 alone — busy at 10:00 — so the strip refused a start at which a
+    // NEW client could perfectly well have started, in the free 施術室.
+    const was = cell(before(board, 'staged'), 'p-01', 600)
+    expect(was.state).toBe('blocked')
+    expect(was.sentence).toBe('この開始ではベッドを60分確保できません')
+    // ONE WORLD: the strip asks its own question — 「could a new placement start
+    // here」 — and bed-01 answers it.
+    expect(cell(after(board), 'p-01', 600).state).toBe('degraded')
+    expect(cell(after(board), 'p-01', 600).label).toBe('△10:00')
+    // The floor itself is untouched: asked ABOUT that VIP, the answer is still no.
+    const asVip = bedDoor(bedViewsFor(board, POLICY, FRAME, 'staged'), board, 'staged')!
+    expect(asVip(board[0], 600, 60)).toBe(false)
+  })
+
+  // ── NOW-TRUNCATED (guard-round requirement): an off-lattice clock ──────────
+  it('an off-lattice now (804) does not hide the change — the fixture board’s own clock', () => {
+    // Fixture nows sit on the lattice and hide shift bugs (migration F8). 804 is
+    // 13:24: not a multiple of five, not a rail start, and the pocket walk clips
+    // to it. The staged span is moved into the afternoon so the scene lives on
+    // the far side of that clock.
+    const board = [
+      staff('p-01'),
+      staff('p-02', { items: [booking({ key: 'staged-staff', caseId: 'staged', title: '見本 いつき' }, 840, 900)] }),
+      bed('bed-01', [booking({ key: 'b1', caseId: 'other', title: '見本 さくら' }, 840, 900)]),
+      bed('bed-02', [booking({ key: 'staged-bed', caseId: 'staged', title: '見本 いつき' }, 840, 900)]),
+    ]
+    // THE RED-RUN, and it is the sharper half of the shot: the excluded world
+    // refused this start for a JUDGEMENT (the protected 新規 window), which the
+    // store's own override policy lets a manager walk past — 「注意して配置」 on a
+    // start whose room the operator's own staged card was standing in.
+    const was = cell(before(board, 'staged', 804), 'p-01', 840)
+    expect(was.sentence).toBe('ここに置くと新規（90分）が入らなくなります')
+    expect(was.ackAllowed).toBe(true)
+    // ONE WORLD: the same start is a FACT now, and ⚖ 73's floor takes the
+    // override away with it — a full room is not a thing a manager can approve.
+    const now = cell(after(board, null, 804), 'p-01', 840)
+    expect(now.state).toBe('blocked')
+    expect(now.sentence).toBe('この開始ではベッドを60分確保できません')
+    expect(now.ackAllowed).toBe(false)
+  })
+
+  // ── the live gesture keeps its privilege ──────────────────────────────────
+  it('a card IN HAND is still lifted out, and still answered as itself', () => {
+    const board = shotBoard()
+    // Its own room is its first candidate and its own card is not an obstacle to
+    // itself, so the hand's own start stays feasible — byte for byte the answer
+    // the deleted door gave, which is the zero-delta half of the binding table.
+    for (const start of [600, 630, 660, 690, 720]) {
+      expect([start, cell(after(board, 'staged'), 'p-02', start).state])
+        .toEqual([start, cell(before(board, 'staged'), 'p-02', start).state])
+    }
+    // …and the neighbour's lane too: the lift is the SAME world the old
+    // `excludeId` produced.
+    for (const start of [600, 630, 660]) {
+      expect([start, cell(after(board, 'staged'), 'p-01', start).sentence])
+        .toEqual([start, cell(before(board, 'staged'), 'p-01', start).sentence])
+    }
+  })
+
+  // ── the door's own contract (the mutation targets) ────────────────────────
+  it('bedDoor picks its world by WHO is asking, never by who is standing there', () => {
+    const board = shotBoard()
+    const views = bedViewsFor(board, POLICY, FRAME, 'staged')
+    // A hand exists, so the second world exists — and only then.
+    expect(views.worldMinusHand).not.toBeNull()
+    expect(bedViewsFor(board, POLICY, FRAME, null).worldMinusHand).toBeNull()
+    // The HAND is answered out of the lifted world: its own room is free to it.
+    expect(bedDoor(views, board, 'staged')!(board[0], 600, 60)).toBe(true)
+    // A hypothetical is answered out of the ONE world: both rooms are taken.
+    expect(bedDoor(views, board, null)!(board[0], 600, 60)).toBe(false)
+    // A NON-hand booking is answered out of the ONE world as a SUBJECT — it does
+    // not count as its own obstacle, and it does not vanish for anybody else.
+    // (Asking the lifted world about it would lift a second card; the book
+    // refuses that, and this is the wiring that never asks.)
+    const atRest = bedViewsFor(board, POLICY, FRAME, null)
+    expect(bedDoor(atRest, board, 'staged')!(board[0], 600, 60)).toBe(true)
+    expect(bedDoor(atRest, board, 'other')!(board[0], 600, 60)).toBe(true)
+    expect(bedDoor(atRest, board, null)!(board[0], 600, 60)).toBe(false)
+  })
+
+  it('an empty id is NOBODY, and a store with no rooms has no door at all', () => {
+    const board = shotBoard()
+    const views = bedViewsFor(board, POLICY, FRAME, null)
+    // `bedFeasibility` read `excludeId` for truthiness; '' meant "exclude
+    // nobody" there and it means the same here, or the two are not the same
+    // question.
+    expect(bedDoor(views, board, '')!(board[0], 600, 60)).toBe(bedDoor(views, board, null)!(board[0], 600, 60))
+    // canon's own `SCENARIO.needsBed === false` switch: absent, not false.
+    const noRooms = board.filter((l) => l.group !== 'beds')
+    expect(bedDoor(bedViewsFor(noRooms, POLICY, FRAME, null), noRooms, null)).toBeUndefined()
+  })
+
+  it('the hypothetical door answers PER LENGTH, not once for the first one asked', () => {
+    // The mask is memoised per (lane, length). Keyed by the lane alone it would
+    // hand a 90's answer back for a 30 — the cache-key defect the book's own
+    // battery exists to catch, one layer up.
+    const board = [
+      staff('p-01'),
+      bed('bed-01', [booking({ key: 'b1', caseId: 'other' }, 630, 660)]),
+    ]
+    const door = bedDoor(bedViewsFor(board, POLICY, FRAME, null), board, null)!
+    expect(door(board[0], 600, 60)).toBe(false) // 10:00–11:00 straddles the booking
+    expect(door(board[0], 600, 30)).toBe(true) // 10:00–10:30 clears it
+    expect(door(board[0], 600, 60)).toBe(false) // …and the first answer is still right
+  })
+
+  it('StrictMode: two books built from the same inputs answer identically, cell for cell', () => {
+    // React may invoke a memo factory twice. The book is a value, not an effect,
+    // so the second one has to be the first one — including the two-world split.
+    const board = shotBoard()
+    const runs = [null, 'staged'].map((handId) =>
+      [bedViewsFor(board, POLICY, FRAME, handId), bedViewsFor(board, POLICY, FRAME, handId)].map((views) =>
+        railsWith(board, handId, bedDoor(views, board, handId)).map((r) => r.cells.map((c) => `${c.state}|${c.label}|${c.sentence}`)),
+      ),
+    )
+    for (const [a, b] of runs) expect(a).toEqual(b)
+    // …and it actually asked something: a vacuous comparison is not a pin.
+    expect(runs[0][0].flat().length).toBe(2 * ((HOURS.close - HOURS.open) / 30))
+  })
+
+  // ── the 満室 sentence names the operator's own move (product U3) ───────────
+  describe('満室 says WHOSE — the operator’s own unconfirmed move is named, never hidden', () => {
+    const board = shotBoard()
+    const ask = (stagedId: string | null) =>
+      landingVerdict(board, {
+        staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
+        start: 600, end: 660, span: place(600, 660, HOURS), foreignRefusal: null,
+        locked: [], rooms: POLICY, minutesOf: (x) => minuteOf(x, HOURS), stagedId,
+      }, null)
+
+    it('the staged card is named as the operator’s own, and the room is still 満室', () => {
+      const v = ask('staged')
+      expect(v.kind).toBe('blocked')
+      // ⚖ 73 — a full house is a FACT, so it stays `hard-room` and offers no
+      // 「注意して配置」. Naming the occupant does not soften the floor.
+      expect(v.floor).toBe('hard-room')
+      expect(v.reason).toBe('10:00〜11:00はベッドが満室です。bed-01が使用中（見本 さくら様）、bed-02が使用中（確定待ちの移動：見本 いつき様）')
+    })
+
+    it('…and every other blocker keeps flags 44 + 51 wording exactly', () => {
+      // Nothing staged: the sentence is byte-identical to the one this board
+      // shipped before R3.
+      expect(ask(null).reason).toBe('10:00〜11:00はベッドが満室です。bed-01が使用中（見本 さくら様）、bed-02が使用中（見本 いつき様）')
+      // A staged id that is not on this board changes nothing either.
+      expect(ask('somebody-else').reason).toBe(ask(null).reason)
+    })
+
+    it('the fact is never suppressed — the staged room is still counted as taken', () => {
+      // The alternative design (hide the operator's own card from the sentence)
+      // would have to hide it from the COUNT as well, and then a full house would
+      // read as a free room. Both rooms are named, and the verdict is 置けない.
+      expect(ask('staged').reason).toContain('bed-02が使用中')
+      expect(ask('staged').bedLane).toBeNull()
+    })
   })
 })
 
