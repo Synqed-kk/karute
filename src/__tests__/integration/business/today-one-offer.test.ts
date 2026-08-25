@@ -1,8 +1,11 @@
 // ONE ADVERTISED OFFER PER BED (R4 of the 今日の運営 layer rebuild).
 //
 // WHAT WENT WRONG. The board could advertise the SAME ROOM to two different
-// customers at the same minute, and four such double-claims sat on the pristine
-// demo fixture. Two layers picked rooms out of two private books: the sell
+// customers at the same minute, and THREE such double-claims sat on the
+// pristine demo fixture at the store's own dials — a dial-dependent count, and
+// the sweep moves it. (The header once said "four", which counted the sell
+// cells un-merged; §6's red run asserts the real total.) Two layers picked
+// rooms out of two private books: the sell
 // layer minted a `Set` inside canon's per-slot loop (availability.ts:117) and
 // the gap layer kept its own `bedLedger` (availability.ts:345). They never met.
 // The suppression that was supposed to catch it ran inside `renderLane`,
@@ -13,7 +16,7 @@
 //
 // WHAT THIS FILE PROVES, in the order the round decides things:
 //   §1 the OPTION/PROMISE distinction — a booking grid emitting 15:00 / 15:30 /
-//      16:00 on one room is a MENU, not four double-claims, and `boardOffers`
+//      16:00 on one room is a MENU, not three double-claims, and `boardOffers`
 //      is the one place that is said.
 //   §2 the reconciliation happens at the SEAM (between `deriveSellableCells`
 //      and `buildSellLayer`), so the counts are honest by construction.
@@ -324,10 +327,21 @@ describe('§1 — the distinction, and the one place it is spelled', () => {
       join(process.cwd(), 'src/app/[locale]/(business)/business/today/capacity-ledger.ts'),
       'utf8',
     )
-    expect(src).not.toContain('a TWIN inside one kind cannot happen — each frozen ledger already')
+    // ⚖ PIN RELAXED (R4 fix round) — the negative pin quoted the whole false
+    // sentence through '…— each frozen ledger already'. The minimal fact is the
+    // claim itself, and the shorter literal still fails if the sentence comes
+    // back in any rewording that keeps its point. The MECHANISM it was standing
+    // in for is covered behaviourally by every test above this one: a menu of
+    // overlapping starts really does collapse to one claim, and a gap box over
+    // it really is a violation.
+    expect(src).not.toContain('a TWIN inside one kind cannot happen')
     expect(src).toContain('OFFER IS AN OPTION')
     expect(src).toContain('PROMISE IS A UNIT')
     expect(src).toContain('minted fresh INSIDE the per-slot loop')
+    // ⚖ R4 fix round — and the oracle now states its own axis. `violations`
+    // groups by ROOM, so an empty result is evidence on the room axis only;
+    // §3's staff-axis pin is what holds the other one.
+    expect(src).toContain('ROOM AXIS ONLY')
   })
 })
 
@@ -459,8 +473,145 @@ describe('§3 — the reconciliation is a room’s question, not a row’s', () 
     // error boundary under it, so the only acceptable failure direction is a
     // bare room — the same rule the ledger's own MAX_DURATIONS states.
     const claims = promise('p-02', 'bed-01', 840, 890)
-    for (const junk of [Number.NaN, Number.POSITIVE_INFINITY, -30]) {
+    // ⚖ R4 fix round — THE STRING IS THE POINT, and it was missing. NaN and
+    // Infinity are both `typeof 'number'`, so the three cases below it were all
+    // caught by the `Number.isFinite` half and the `typeof` half never ran at
+    // all. A dial arriving as text is the shape a bad server column actually
+    // takes, and it is the branch that decides whether the board draws or
+    // throws mid-render.
+    const junkDials: number[] = [Number.NaN, Number.POSITIVE_INFINITY, -30, '45' as unknown as number]
+    for (const junk of junkDials) {
       const out = sellLayerFor(crossRow(), HOURS, { ...SELL_OPTS, reconcile: rec(claims, { 'bed-01': junk }) })
+      expect(out.cells.some((c) => c.group === 'staff' && c.h === 900)).toBe(true)
+    }
+    // '45' is a NUMBER OF MINUTES to nobody: had it been coerced it would have
+    // padded bed-01 by 45 and taken the hour away, so this asserts the degrade
+    // rather than a coincidence.
+    expect(
+      sellLayerFor(crossRow(), HOURS, { ...SELL_OPTS, reconcile: rec(claims, { 'bed-01': 45 }) }).cells.some(
+        (c) => c.h === 900,
+      ),
+    ).toBe(false)
+  })
+
+  it('the LOWER overlap boundary, pinned directly: a box ending ON the hour is not over it', () => {
+    // Only ever incidental before. `p.end + pad > start` is a STRICT >, so a box
+    // ending at 15:00 and an hour starting at 15:00 TOUCH and do not overlap —
+    // the same one-sided form `ClaimsBook.violations` uses at pad 0. One minute
+    // of real overlap is the other side of the line, and there is no room to
+    // re-bed to on this board, so it goes.
+    const touching = sellLayerFor(crossRow(), HOURS, { ...SELL_OPTS, reconcile: rec(promise('p-02', 'bed-01', 840, 900)) })
+    expect(touching.cells.some((c) => c.group === 'staff' && c.h === 900)).toBe(true)
+    const byOne = sellLayerFor(crossRow(), HOURS, { ...SELL_OPTS, reconcile: rec(promise('p-02', 'bed-01', 840, 901)) })
+    expect(byOne.cells.some((c) => c.h === 900)).toBe(false)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §3b — …AND THE SAME PERSON IS A COLLISION TOO (blind round B1)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** ONE STAFF MEMBER ADVERTISED ON TWO ROOMS AT THE SAME MINUTE — found by the
+ *  blind round on the first cut of this file's code, and the reason §3 alone is
+ *  not the whole rule.
+ *
+ *  The filter R4 deleted from `renderLane` was doing TWO jobs. On a bed row it
+ *  compared rooms; on a STAFF row it compared `laneKey`, and killed any
+ *  販売可能枠 hour that sat inside its own person's スキマ枠/詰め込み box. R4
+ *  moved the room half into `reconcileSellCells` and left the lane half behind —
+ *  and then re-bedding RESURRECTED exactly the cells the old filter used to
+ *  kill: the hour lost its room to its owner's own box, went looking, found a
+ *  free room, and survived. Two customers could book the same person for 11:30
+ *  and 12:00 in two different rooms.
+ *
+ *  A lane collision is a DROP. Solving the room does not make the person free. */
+describe('§3b — an offer inside its own person’s promise is dropped, never re-bedded', () => {
+  /** THE BLIND ROUND'S BOARD, rebuilt: one staff member on a 10:00-19:00 shift
+   *  with a booking at each end, three rooms, and a six-hour hole in the middle.
+   *  Three rooms is load-bearing — with a free room to run to, the defect
+   *  survives; with none it hides behind an ordinary drop. */
+  const oneStaff = (): BoardLane[] => [
+    lane({ key: 'p-01', group: 'staff', items: [booking('am', 600, 690), booking('pm', 1050, 1140)] }),
+    lane({ key: 'bed-01', group: 'beds', items: [booking('am-b', 600, 690)] }),
+    lane({ key: 'bed-02', group: 'beds', items: [booking('pm-b', 1050, 1140)] }),
+    lane({ key: 'bed-03', group: 'beds' }),
+  ]
+
+  /** THE R2 ORACLE ARMOR, ON THE AXIS THE ORACLE CANNOT REACH. `boardOffers`
+   *  groups by ROOM, so `violations` returns empty for a staff-axis collision no
+   *  matter how bad it is (its comment now says so). This asks the reconciled
+   *  layer directly: is any surviving hour sitting inside a promise drawn on its
+   *  OWN lane? */
+  const doubleAdvertised = (layers: { sell: SellLayer; claims: GapCell[] }) =>
+    layers.sell.cells
+      .filter((c) => c.group === 'staff')
+      .filter((c) => layers.claims.some((g) => g.laneKey === c.laneKey && g.s < c.h + 60 && c.h < g.e))
+      .map((c) => `${c.laneKey} ${hhmm(c.h)} on ${c.resourceKey}`)
+
+  /** The operator's real props with THIS scene's clock, so the hand-built lanes
+   *  and the layer that reads them agree on where the day starts and ends. */
+  const handProps = (): TodayProps => ({ ...REAL, hours: { ...REAL.hours, open: HOURS.open, close: HOURS.close } })
+
+  it('the blind round’s board: no hour survives on top of its own person’s box', () => {
+    // The store's OWN dials and guard config, on a hand-built roster — the
+    // shape the fixture cannot show, judged by the real engine.
+    const props = handProps()
+    const dials: Dials = {
+      gridMin: REAL.sell.gridMin,
+      sessionMin: REAL.guard.standardSessionMin,
+      minSellableMin: REAL.guard.minSellableMin ?? 0,
+    }
+    const lanes = oneStaff()
+    const before = layersOf(props, lanes, dials, false)
+    const after = layersOf(props, lanes, dials, true)
+    // The pin is worth nothing unless the board really produces the defect it
+    // asserts the absence of: the 詰め込み layer fills the hole and R3's
+    // unreconciled layer advertises straight over it.
+    expect(before.claims.length).toBeGreaterThan(0)
+    expect(doubleAdvertised(before).length).toBeGreaterThan(0)
+    // …and after, zero. Every one of those hours is DROPPED — bed-03 is free
+    // and empty all day, so a re-bed would have found it.
+    expect(doubleAdvertised(after)).toEqual([])
+    // The room axis agrees too, which is all `violations` was ever able to say.
+    expect(violationsOf(props, lanes, after).map(say)).toEqual([])
+  })
+
+  it('a DROP, not a move: the free third room stays free rather than collecting the offer', () => {
+    const props = handProps()
+    const dials: Dials = { gridMin: 60, sessionMin: REAL.guard.standardSessionMin, minSellableMin: 0 }
+    const after = layersOf(props, oneStaff(), dials, true)
+    const own = after.sell.cells.filter(
+      (c) => c.group === 'staff' && after.claims.some((g) => g.laneKey === c.laneKey && g.s < c.h + 60 && c.h < g.e),
+    )
+    expect(own).toEqual([])
+  })
+
+  it('the PAIR goes together — a bed row never keeps an hour the lane test dropped', () => {
+    // The drop is recorded against `${laneKey}|${h}` and canon emits both the
+    // staff-row and the bed-row cell under the STAFF lane's key
+    // (availability.ts:127/132), so one decision removes both drawings.
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff' }),
+      lane({ key: 'bed-01', group: 'beds' }),
+      lane({ key: 'bed-02', group: 'beds' }),
+    ]
+    // p-01's OWN box on bed-01 at 15:00, and bed-02 free the whole day.
+    const after = sellLayerFor(lanes, HOURS, { ...SELL_OPTS, reconcile: rec(promise('p-01', 'bed-01', 900, 960)) })
+    expect(after.cells.filter((c) => c.h === 900)).toEqual([])
+    // The contrast that makes it a RULE rather than a coincidence: the same
+    // board with the box on somebody ELSE's row re-beds onto bed-02 and lives.
+    const other = sellLayerFor(lanes, HOURS, { ...SELL_OPTS, reconcile: rec(promise('p-09', 'bed-01', 900, 960)) })
+    expect(roomsAt(other, 900)).toEqual(['p-01→bed-02'])
+  })
+
+  it('NO TURNAROUND PAD on the lane test — the pad is a room’s property, not a person’s', () => {
+    // Parity with the filter this replaces, which used plain overlap. A box
+    // ending at 14:50 leaves p-01's 15:00 hour alone however long bed-01 takes
+    // to turn over, because turning a room over says nothing about the person.
+    const lanes = [lane({ key: 'p-01', group: 'staff' }), lane({ key: 'bed-02', group: 'beds' })]
+    const claims = promise('p-01', 'bed-01', 840, 890)
+    for (const pad of [0, 15, 60]) {
+      const out = sellLayerFor(lanes, HOURS, { ...SELL_OPTS, reconcile: rec(claims, { 'bed-01': pad, 'bed-02': pad }) })
       expect(out.cells.some((c) => c.group === 'staff' && c.h === 900)).toBe(true)
     }
   })
@@ -516,6 +667,39 @@ describe('§4 —「people are chosen, rooms are solved」(⚖ flag 51)', () => 
     expect(roomsAt(after, 900)).toEqual(['p-02→bed-02'])
   })
 
+  it('TWO losers in ONE slot land on DIFFERENT rooms', () => {
+    // ⚖ R4 fix round — THE ONE REAL ARMOR HOLE the mutation table found. Every
+    // re-bed test above has a SINGLE loser, and with one loser the line that
+    // books the room it took (`taken.add(found.laneKey)`) is never read back:
+    // delete it and the suite stays green while two customers are quietly handed
+    // one bed. Two losers is the smallest board that reads it.
+    //
+    // p-01 and p-02 hold bed-01 and bed-02 at 15:00 (canon pairs index-wise).
+    // Two boxes on OTHER people's rows take both rooms away — other rows, so
+    // this is a room collision and both offers are entitled to move — and
+    // bed-03 and bed-04 are free. There are exactly two of them.
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff' }),
+      lane({ key: 'p-02', group: 'staff' }),
+      lane({ key: 'bed-01', group: 'beds' }),
+      lane({ key: 'bed-02', group: 'beds' }),
+      lane({ key: 'bed-03', group: 'beds' }),
+      lane({ key: 'bed-04', group: 'beds' }),
+    ]
+    const before = sellLayerFor(lanes, HOURS, SELL_OPTS)
+    expect(roomsAt(before, 900)).toEqual(['p-01→bed-01', 'p-02→bed-02'])
+    const after = sellLayerFor(lanes, HOURS, {
+      ...SELL_OPTS,
+      reconcile: rec([...promise('p-08', 'bed-01', 900, 960), ...promise('p-09', 'bed-02', 900, 960)]),
+    })
+    // Both survived, and they are NOT in the same room. The mutant puts them
+    // both on bed-03.
+    const landed = after.cells.filter((c) => c.group === 'staff' && c.h === 900).map((c) => c.resourceKey)
+    expect(landed).toHaveLength(2)
+    expect(new Set(landed).size).toBe(2)
+    expect(roomsAt(after, 900)).toEqual(['p-01→bed-03', 'p-02→bed-04'])
+  })
+
   it('the re-bed obeys ⚖ 51’s 個室-last order, because it IS `allocateBed`', () => {
     const lanes = [
       lane({ key: 'p-01', group: 'staff' }),
@@ -560,10 +744,16 @@ describe('§4 —「people are chosen, rooms are solved」(⚖ flag 51)', () => 
 
 describe('§5 — the precedence has one home and its provenance', () => {
   it('the default is today’s shipped behaviour: the スキマ枠 box keeps the room', () => {
-    expect(keepsTheRoom({ resourceKey: 'bed-01', start: 900, end: 960 }, { resourceKey: 'bed-01', start: 900, end: 950 })).toBe('gap')
-    // It does not depend on which is longer, earlier or dearer — R4 is a
-    // CORRECTNESS round and does not touch a revenue rule on fixture data.
-    expect(keepsTheRoom({ resourceKey: 'bed-01', start: 600, end: 1140 }, { resourceKey: 'bed-01', start: 900, end: 905 })).toBe('gap')
+    // ⚖ PIN MIGRATION (R4 fix round) — this pin was
+    //   keepsTheRoom({ resourceKey, start, end }, { resourceKey, start, end })
+    // twice over, and it moved because the SIGNATURE moved, not because the
+    // rule did. The function ignored both spans and needed an `eslint-disable`
+    // to say so; the ruling that flips it widens the signature the day it
+    // lands. The fact pinned is unchanged and is the whole of the rule: the
+    // answer is 'gap', and it does not depend on which claim is longer,
+    // earlier or dearer, because R4 is a CORRECTNESS round and does not touch a
+    // revenue rule on fixture data.
+    expect(keepsTheRoom()).toBe('gap')
   })
 
   it('the rule is a function, not a literal in a filter, and it carries the ⚖ note', () => {
@@ -571,11 +761,20 @@ describe('§5 — the precedence has one home and its provenance', () => {
       join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'),
       'utf8',
     )
-    expect(src).toContain('export function keepsTheRoom(')
+    // ⚖ PIN RELAXED (R4 fix round) — `expect(src).toContain('export function
+    // keepsTheRoom(')` stood here. It is now covered behaviourally and better:
+    // this file IMPORTS `keepsTheRoom` (:60) and CALLS it in the test above, so
+    // un-exporting it, renaming it or inlining it into the filter fails the
+    // suite at compile time rather than on a string. The source pins that stay
+    // are the ones with no behavioural cover at all — a comment cannot be
+    // called, and PKT §5 requires these two sentences by name.
     expect(src).toContain('WHICH PROMISE KEEPS THE ROOM')
     expect(src).toContain("FLIPPING IT IS ONE LINE — `return 'sell'`")
-    // …and the reconciliation ASKS it rather than assuming the answer.
-    expect(src).toContain("keepsTheRoom({ resourceKey, start, end }, p) === 'gap'")
+    // …and the reconciliation ASKS it rather than assuming the answer. Pinned
+    // as text because the answer is a CONSTANT: no behavioural test can tell a
+    // call to the rule apart from a hardcoded `'gap'`. Migrated with the
+    // signature above — same fact, shorter literal.
+    expect(src).toContain("keepsTheRoom() === 'gap'")
   })
 })
 
@@ -597,6 +796,13 @@ describe('§6 — one advertised offer per bed, on the operator’s own board', 
     // one: every entry is a room the board advertised twice, at the dials the
     // store actually ships with.
     expect(red.length).toBeGreaterThan(0)
+    // ⚖ R4 fix round — THE COUNT, PINNED, because the round's prose kept
+    // guessing at it. THREE, at the dials this store actually ships with. It is
+    // NOT a property of the code: the sweep below moves it, and the R3-era
+    // "four" came from counting the sell cells un-merged rather than as the
+    // menus they are. Pinned so the next sentence written about it has to agree
+    // with the run.
+    expect(red).toHaveLength(3)
     for (const v of red) expect([v.earlier.kind, v.later.kind].sort()).toEqual(['gap', 'sell'])
     if (EVIDENCE) {
       mkdirSync(EVIDENCE, { recursive: true })
@@ -632,6 +838,36 @@ describe('§6 — one advertised offer per bed, on the operator’s own board', 
     expect(after.gap.packed).toEqual(before.gap.packed)
     expect(after.gap.scraps).toEqual(before.gap.scraps)
     expect(after.sell.cells.length).toBeGreaterThan(0)
+  })
+
+  it('THE FIXTURE BOARD’S POST-FIX COUNTS, pinned exactly', () => {
+    // ⚖ R4 fix round — NOTHING BOUNDED THE COLLAPSE. `violations` is empty on a
+    // silenced layer too, and the sweep only ever asked that the BOARD keep
+    // selling (its bar is board-level on purpose: canon's grid mode legitimately
+    // empties the packing layer, and two combinations already ship that way).
+    // So the one board every reader of this round actually looks at — the
+    // operator's own, at the operator's own dials — has its numbers written
+    // down. This pin DOCUMENTS, it does not forbid: a number that moves is a
+    // number to explain and re-stamp in the artifact, not a failure by itself.
+    const dials: Dials = { gridMin: REAL.sell.gridMin, sessionMin: REAL.guard.standardSessionMin, minSellableMin: REAL.guard.minSellableMin ?? 0 }
+    const before = layersOf(REAL, REAL.lanes, dials, false)
+    const after = layersOf(REAL, REAL.lanes, dials, true)
+    const shape = (l: typeof after) => ({
+      sellCells: l.sell.cells.length,
+      sellOffers: l.sell.cells.filter((c) => c.group === 'staff').length,
+      staffBands: l.sell.staffBands.length,
+      packed: l.gap.packed.length,
+      scraps: l.gap.scraps.length,
+    })
+    expect({ before: shape(before), after: shape(after) }).toEqual({
+      // R3's board: 4 advertised hours (8 cells — staff row + bed row), 3 bands.
+      before: { sellCells: 8, sellOffers: 4, staffBands: 3, packed: 10, scraps: 4 },
+      // R4's: 2 hours survive, and the 詰め込み/スキマ layer is BYTE-for-byte the
+      // same on both sides — it runs first and it is the book, so this round can
+      // only ever take from the 販売可能枠 side. The layer is not zero: a board
+      // that stopped selling would also have no violations.
+      after: { sellCells: 4, sellOffers: 2, staffBands: 2, packed: 10, scraps: 4 },
+    })
   })
 
   it('WHAT HAPPENED TO EVERY OFFER THAT LOST ITS ROOM — re-bedded, or dropped because the day was full', () => {
@@ -709,6 +945,14 @@ describe('§6 — one advertised offer per bed, on the operator’s own board', 
           const green = layersOf(REAL, REAL.lanes, dials, true)
           const bad = violationsOf(REAL, REAL.lanes, red)
           const ok = violationsOf(REAL, REAL.lanes, green)
+          // ⚖ R4 fix round — ASSERT THE RED SIDE TOO. `bad` was computed, printed
+          // into the artifact, and never checked. All twelve combinations are
+          // genuinely red before the reconciliation, so the sweep's green side
+          // means "fixed" rather than "there was nothing here" in every one of
+          // them — without this line a combination could quietly stop
+          // reproducing the defect and the row would still read as a pass.
+          expect({ at: `grid=${gridMin} S=${sessionMin} minSell=${minSellableMin}`, red: bad.length > 0 })
+            .toEqual({ at: `grid=${gridMin} S=${sessionMin} minSell=${minSellableMin}`, red: true })
           expect(ok.map(say)).toEqual([])
           // ⚠ THE BAR IS BOARD-LEVEL. A single empty LAYER is not a failure —
           // canon's grid mode legitimately silences the packing layer — what
@@ -904,6 +1148,13 @@ describe('§7 — the cost, on real timers', () => {
       // the board carried promises and offers really did lose their rooms.
       expect(claims.length).toBeGreaterThan(0)
       expect(losers).toBeGreaterThan(0)
+      // ⚖ R4 fix round — AND THAT THE CLOCK WAS REAL. The `useRealTimers()` call
+      // inside `timed` is the whole reason these numbers are evidence: under the
+      // file's fake clock @sinonjs freezes `process.hrtime` and every reading
+      // comes back 0.000ms — a table of zeroes that still passed every
+      // assertion. Delete the protection and this line goes red.
+      expect(off).toBeGreaterThan(0)
+      expect(on).toBeGreaterThan(0)
      }
     }
     expect(rows).toHaveLength(8)

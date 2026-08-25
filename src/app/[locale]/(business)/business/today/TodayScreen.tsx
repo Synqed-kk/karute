@@ -3906,11 +3906,16 @@ export function TodayScreen(props: TodayProps) {
     const onThisLane = <T extends { group: string; laneKey: string; resourceKey: string }>(c: T) =>
       c.group !== lane.group ? false : lane.group === 'staff' ? c.laneKey === lane.key : c.resourceKey === lane.key
     const gapHere = [...gap.packed, ...gap.scraps].filter(onThisLane)
-    // ⚖ R4 (2026-08-25) — canon `suppressOverlappingSellableCells` (:5039) USED
-    // TO LIVE HERE, as `.filter((c) => !gapHere.some(…))`. It is gone, not
-    // weakened: `sellLayerFor` now reconciles the two layers before the sell
-    // layer is built, so `sell.cells` no longer contains a box a スキマ枠 owns
-    // the minutes of. Two things the render-time version could not do: it
+    // ⚖ R4 (2026-08-25, corrected in the fix round) — canon
+    // `suppressOverlappingSellableCells` (:5039) USED TO LIVE HERE, as
+    // `.filter((c) => !gapHere.some(…))`. It MOVED, both of its halves, into
+    // `reconcileSellCells`: the ROOM half became the `promised` test and the
+    // SAME-LANE half became `busyLane`. (The first cut of this round moved only
+    // the room half and this comment claimed the filter was "gone, not
+    // weakened" — it was weakened, and the blind round found it: re-bedding
+    // resurrected the same-row cells the filter used to kill. Both halves are
+    // there now, and the lane half drops rather than re-beds.)
+    // Two things the render-time version could not do: it
     // filtered `onThisLane`, so p-05's hour and p-06's box both pointing at
     // ベッド2 were never compared; and it ran AFTER `buildSellLayer`, so the
     // counts on four surfaces — 公開中 N枠 (:4389), 販売可能枠 N窓 (:4435), 安全な空き

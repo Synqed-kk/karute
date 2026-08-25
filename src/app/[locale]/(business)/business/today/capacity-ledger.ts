@@ -702,6 +702,18 @@ export function buildClaims(truth: BedTruth, offers: readonly OfferInput[]): Cla
       const minutesFor = (resourceKey: string) => {
         // Own properties only: `cleanupMinutesByBed['toString']` is a function
         // off the prototype, and `?? 0` would have let it through as NaN.
+        //
+        // ⚖ R4 fix round — THE OTHER HALF OF THE ASYMMETRY, said out loud. The
+        // render path reads this same dial in `reconcileSellCells.turnaround`
+        // and differs twice, not once: it DEGRADES a non-number to 0 where this
+        // throws (documented below — it draws under no error boundary, this is
+        // an assertion surface), and it also CLAMPS with `Math.max(0, held)`
+        // where this passes a negative straight through. A negative is not a
+        // number of minutes any dial can produce, so neither side spends code
+        // on it; the difference is worth naming because the directions are
+        // opposite. A negative here lands in `required` and can only NARROW
+        // what the book reports — the one failure mode of the two that is
+        // quiet, and the reason it is written down instead of discovered.
         if (!Object.hasOwn(cleanupMinutesByBed, resourceKey)) return 0
         const held = cleanupMinutesByBed[resourceKey]
         if (typeof held !== 'number' || !Number.isFinite(held)) {
@@ -757,6 +769,19 @@ export function buildClaims(truth: BedTruth, offers: readonly OfferInput[]): Cla
  *  A run is contiguous OR overlapping: two adjacent hours on one room are one
  *  stretch of that room's day, and splitting them would invent a separation the
  *  turnaround rule would then judge.
+ *
+ *  ⚖ R4 fix round — WHAT THIS ORACLE CAN AND CANNOT SEE. Everything here is
+ *  grouped BY ROOM, so `violations` answers on the ROOM AXIS ONLY. An empty
+ *  result proves no room was promised twice; it proves NOTHING about the STAFF
+ *  axis, and one staff member advertised on two different rooms at the same
+ *  minute yields zero violations from this book. That axis is held by the code
+ *  instead — `reconcileSellCells.busyLane` drops a cell whose own lane already
+ *  carries a promise — and pinned behaviourally beside the §6 assertions rather
+ *  than through this function. (It is also why the run collapse is safe to do
+ *  ACROSS staff: two people's hours on one room merge into one claim, so a
+ *  genuine sell-vs-sell same-room overlap between two people is unreportable
+ *  here too, and by the same distinction — those are two options on one room's
+ *  menu, and a menu is one claim.)
  *
  *  Offers with NO room (`bed?.key ?? ''`, canon's bed-less store, availability
  *  :127) are dropped here rather than thrown on: they are a claim on nothing,
