@@ -1363,6 +1363,10 @@
       "searchPlaceholder": "顧客名・サービス・スタッフで検索...",
       "revealSummary": "初回セッションを記録すると、ここに表示されます",
       "revealCreate": "カルテを作成",
+      "month": {
+        "panelTitle": "月を選択",
+        "note": "月を選ぶと、その月のカルテに絞り込まれます。"
+      },
       "filters": {
         "all": "すべて",
         "thisWeek": "今週",
