@@ -379,7 +379,7 @@ describe('2 — 満室 and 「使える部屋がない」 are different answers'
     const a = truthOn(lanes).bedFor(600, 660, HERE)
     expect(a.laneKey).toBeNull()
     expect(a.compatibleRoomsExist).toBe(true)
-    expect(a.refusal).toContain('満室')
+    expect(a.refusal).toContain('に空きがありません')
   })
 
   it('a VIP on a board with no 個室 → no compatible room exists at all', () => {
@@ -480,7 +480,7 @@ describe('2b — a hypothetical booking asks on ITS store’s rooms, never on th
     const truth = truthOn(split())
     const a = truth.bedFor(600, 660, HERE)
     expect(a.laneKey).toBeNull()
-    expect(a.refusal).toContain('満室')
+    expect(a.refusal).toContain('に空きがありません')
     expect(a.compatibleRoomsExist).toBe(true)
     // The same question from store-b, and from a floating asker, is answered.
     expect(truth.bedFor(600, 660, AWAY).laneKey).toBe('bed-b')

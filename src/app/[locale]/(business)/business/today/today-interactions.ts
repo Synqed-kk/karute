@@ -1711,9 +1711,18 @@ export function holdSummary(
   return `${title ? `${title}様 → ` : ''}${clockOf(from)}〜${clockOf(to)} / 担当 ${staffLane?.label ?? '—'} / ${moved}${bedLane?.label ?? '—'}`
 }
 
-/** ⚖ flags 44 + 51 — 満室, said the way the board says every other refusal: the
- *  exact window it judged, then WHY, naming the room and who is in it. 清掃 and
- *  予定ブロック answer with their own word (they have no customer).
+/** ⚖ flags 44 + 51 — a full house, said the way the board says every other
+ *  refusal: the exact window it judged, then WHY, naming the room and who is in
+ *  it. 清掃 and 予定ブロック answer with their own word (they have no customer).
+ *
+ *  ⚖ NATIVE PASS (2026-08-25) — THE STRUCTURE IS FLAGS 44+51's, THE WORDING IS
+ *  NOT. It read 「…はベッドが満室です」, and 満室 takes a counter the sentence
+ *  does not give it — a room-by-room count read as a whole-store state. The
+ *  native pass ruled 「…に空きがありません」, which is the same fact in the
+ *  grammar the operator uses. Structure preserved exactly: the window it judged,
+ *  the room word (the 個室 branch is natural either way), then the occupants.
+ *  内部の 満室 vocabulary — identifiers, comments, the `hard-room` floor — is
+ *  unchanged; this is the operator-visible sentence and nothing else.
  *
  *  ⚖ R3 ONE WORLD (2026-08-25) — AND ONE OF THOSE OCCUPANTS CAN BE THE OPERATOR
  *  THEMSELVES. Now that a staged 仮押さえ is real for every reader, the second
@@ -1747,7 +1756,7 @@ function fullRoomsRefusal(
         ? `仮押さえ中：${i.title}様`
         : `${i.title}様`
   const named = rows.map(([lane, blockers]) => `${lane.label}が使用中（${[...new Set(blockers.map(who))].join('・')}）`)
-  return `${window}は${room}が満室です。${named.join('、')}`
+  return `${window}は${room}に空きがありません。${named.join('、')}`
 }
 
 // ── ⚖ Liam flag 50 (2026-08-22) — ONE VERDICT, THREE CLASSES ───────────────

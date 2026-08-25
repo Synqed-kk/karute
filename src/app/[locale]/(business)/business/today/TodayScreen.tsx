@@ -2392,7 +2392,7 @@ export function TodayScreen(props: TodayProps) {
   function onCardPointerDown(e: React.PointerEvent<HTMLButtonElement>, item: BoardItem, lane: BoardLane) {
     if (e.button !== 0 || dragRef.current || !item.caseId) return
     if (pending && pending.id !== item.caseId) {
-      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      refuse('仮押さえ中の予約を確定するか、元に戻してから操作してください')
       return
     }
     const track = e.currentTarget.closest('.track')
@@ -2942,7 +2942,7 @@ export function TodayScreen(props: TodayProps) {
 
   function onBlockPointerDown(e: React.PointerEvent<HTMLButtonElement>, item: BoardItem, lane: BoardLane) {
     if (e.button !== 0 || dragRef.current || blockDragRef.current) return
-    if (pending) { refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください'); return }
+    if (pending) { refuse('仮押さえ中の予約を確定するか、元に戻してから操作してください'); return }
     const track = e.currentTarget.closest('.track')
     if (!track) return
     const rect = e.currentTarget.getBoundingClientRect()
@@ -3277,7 +3277,7 @@ export function TodayScreen(props: TodayProps) {
     e.stopPropagation()
     if (!item.caseId || dragRef.current) return
     if (pending && pending.id !== item.caseId) {
-      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      refuse('仮押さえ中の予約を確定するか、元に戻してから操作してください')
       return
     }
     // ⚖ BATCH-6 flag 45 — the keyboard nudge is the same landing as a drag and
@@ -3411,7 +3411,7 @@ export function TodayScreen(props: TodayProps) {
     if (e.button !== 0 || dragRef.current || (e.target as Element).closest('.park-x')) return
     closeAdvice()
     if (pending) {
-      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      refuse('仮押さえ中の予約を確定するか、元に戻してから操作してください')
       return
     }
     const box = e.currentTarget.getBoundingClientRect()
@@ -3583,7 +3583,7 @@ export function TodayScreen(props: TodayProps) {
   function armNextVisit() {
     if (!props.inStore) return
     if (pending) {
-      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      refuse('仮押さえ中の予約を確定するか、元に戻してから操作してください')
       return
     }
     setPlacing({
@@ -3624,7 +3624,7 @@ export function TodayScreen(props: TodayProps) {
     // The shelf's twin (`placeFromShelf`) needs no gate: it is reachable only
     // through `onChipPointerDown`, which already refuses on `pending` (:3395).
     if (pending) {
-      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      refuse('仮押さえ中の予約を確定するか、元に戻してから操作してください')
       return
     }
     // ⚖ Liam flag 46 rider — the same store rule as the shelf chip's, in the
@@ -4050,7 +4050,7 @@ export function TodayScreen(props: TodayProps) {
         className="guard-placement-rail"
         data-lane={rail.laneKey}
         role="group"
-        aria-label={`${rail.laneLabel}の60分配置ガイド`}
+        aria-label={`${rail.laneLabel}の${railDur}分配置ガイド`}
         // ⚖ FLAGS 25c, backlog — the strip is a section of this board and joins
         // the tour like every other one. It arrived in the rail round without a
         // registration and three batches added to it without noticing, which is
@@ -4060,7 +4060,10 @@ export function TodayScreen(props: TodayProps) {
         // carries it and the sentence is true of all of them.
         {...(rails[0]?.laneKey === rail.laneKey
           ? {
-              'data-guide-title': '60分配置',
+              // ⚖ FIX-10 — the title names the strip, and the strip renders
+              // `{railDur}分配置`. A literal 60 here made the tour's own heading
+              // disagree with the thing it was pointing at.
+              'data-guide-title': `${railDur}分配置`,
               // ⚖ FLAGS 25c (batch-9): the strip has a second face now, so its
               // own entry teaches it. No new SECTION is added — the marks and the
               // cursor word are new readings of surfaces that are already on the
@@ -4068,19 +4071,22 @@ export function TodayScreen(props: TodayProps) {
               // is one sentence rather than one step.
               // ⚖ R3 ONE WORLD (2026-08-25) + ⚖ FIX-9 (blind round) — the
               // sentence had to move with the semantics, and then had to stop
-              // saying things that were not true. Four corrections: the marks
-              // answer 「could a NEW booking start here」 (not "a treatment
-              // begun"); the LENGTH is `railDur`, interpolated, because the
-              // strip's own label renders it and a hardcoded 60 lies at every
-              // store whose standard session is not 60 and at every mid-drag
-              // moment (⚖ flag 50); a 仮押さえ中 booking blocks like any other;
-              // and the lift is a BOARD-CARD drag's privilege — a shelf chip
-              // lifts nothing, because it is not on the board to lift. The
-              // clause repeating the legend band's ✓/△/— key is gone: the band
-              // is one home for that and this entry now points at it.
-              // NEEDS NATIVE PASS (JP).
+              // saying things that were not true. The marks answer 「could a NEW
+              // booking start here」; the LENGTH is `railDur`, interpolated,
+              // because the strip's own label renders it and ⚖ flag 50 makes it
+              // follow the gesture; a 仮押さえ中 booking blocks like any other;
+              // and the lift is a BOARD-CARD drag's privilege, because a shelf
+              // chip is not on the board to be lifted out of it. The clause
+              // repeating the legend band's ✓/△/— key is gone — the band is one
+              // home for that, and this entry points at it.
+              //
+              // ⚖ NATIVE PASS (2026-08-25) — and the last clause was still a
+              // lie. The old 「離しても…」 clause — the drop simply not landing —
+              // is true of a HARD floor and false of a policy one, where
+              // 注意して配置 places exactly what the × sat on. The passed wording
+              // is true on both: the drop does not land, and the board says why.
               'data-guide':
-                `このスタッフの30分ごとに、そこから${railDur}分の予約を新しく入れられるかを表示します。記号の意味は上の帯と同じです。仮押さえ中の予約も、ほかの予約と同じように場所をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直し、置けない場所には × が付いて、離しても配置されません。`,
+                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。`,
             }
           : {})}
       >
@@ -4607,8 +4613,10 @@ export function TodayScreen(props: TodayProps) {
               // behind it; it used to also describe what the strip judges, in
               // wording that went stale the moment R3 changed the question and
               // that hardcoded 60 besides. It points at the strip's own entry
-              // now instead of restating it. NEEDS NATIVE PASS (JP).
-              data-guide="新規のお客様のための時間を守る仕組みです。記号の意味はこの帯にあります。各スタッフの細い帯「配置」の見方は、その帯の説明をご覧ください。"
+              // now instead of restating it. (⚖ NATIVE PASS 2026-08-25: and it
+              // names the strip by where it IS rather than by a length, so the
+              // sentence stays true at every store dial.)
+              data-guide="新規のお客様のための時間を守る仕組みです。記号の意味は、この帯に書いてあります。各スタッフの下に細い帯が出ているときは、その帯の説明をご覧ください。"
             >
               <span className="protected-key">守るもの: {props.guard.protectedLabel}{props.guard.protectedDurationMin}分</span>
               <span className="guard-key">紫 ✓ = 空きを減らさない</span>
@@ -4616,9 +4624,9 @@ export function TodayScreen(props: TodayProps) {
               <span className="guard-key blocked-key">灰 — = 置けません</span>
               <span className="guard-band-note">
                 {guideMode === 'selected'
-                  ? '下の「60分配置」で、ドラッグ前に全開始を確認できます。'
+                  ? `下の「${railDur}分配置」で、ドラッグ前に全開始を確認できます。`
                   : guideMode === 'drag'
-                    ? '下の「60分配置」は、ドラッグ中だけ表示します。'
+                    ? `下の「${railDur}分配置」は、ドラッグ中だけ表示します。`
                     : '細い配置ガイドは非表示です。ドラッグ中の判定と店舗の保護ルールは残ります。'}
               </span>
             </div>
