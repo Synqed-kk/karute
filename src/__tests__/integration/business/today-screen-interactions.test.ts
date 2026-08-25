@@ -1011,8 +1011,28 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     nowMinute: null, locked: [], guard: GUARD, ...over,
     placementFeasible: lanes ? bedFeasibility(lanes, over.excludeId ?? null, POLICY) : undefined,
   })
-  const cellAt = (lanes: BoardLane[], minute: number, over: Partial<Parameters<typeof guardRailsFor>[1]> = {}) =>
-    guardRailsFor(lanes, railIn(lanes, over))[0].cells.find((c) => c.start === minute)!
+  /** ⚖ FIX-4 (blind round, 2026-08-25) — EVERY SCENE BELOW RUNS BOTH DOORS.
+   *
+   *  These are flag 76's own unit contracts and they predate the capacity book,
+   *  so the legacy `bedFeasibility` leg stays the ORACLE — it is what the board
+   *  did, and what P1–P5 were written against. The book leg is what R3 ships,
+   *  and the helper refuses to answer unless the two agree.
+   *
+   *  Written into the helper rather than repeated in five scenes for the reason
+   *  the round keeps finding: a scene added later cannot forget to do it. */
+  const bookFrame = { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }
+  const cellAt = (lanes: BoardLane[], minute: number, over: Partial<Parameters<typeof guardRailsFor>[1]> = {}) => {
+    const at = (input: Parameters<typeof guardRailsFor>[1]) =>
+      guardRailsFor(lanes, input)[0].cells.find((c) => c.start === minute)!
+    const legacy = at(railIn(lanes, over))
+    const askerId = over.excludeId ?? null
+    const book = at({
+      ...railIn(lanes, over),
+      placementFeasible: bedDoor(bedViewsFor(lanes, POLICY, bookFrame, askerId), lanes, askerId),
+    })
+    expect([minute, book]).toEqual([minute, legacy])
+    return legacy
+  }
   const cellAtBlind = (lanes: BoardLane[], minute: number, over: Partial<Parameters<typeof guardRailsFor>[1]> = {}) =>
     guardRailsFor(lanes, railIn(null, over))[0].cells.find((c) => c.start === minute)!
   /** 見本 あずさ, 10:00–12:30 free — a pocket a 60 fits without costing a 新規 90,
@@ -1181,14 +1201,46 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
    *  the excluded world, and it may not come back anywhere in this file. */
   it('the screen hands the rooms to BOTH guard doors, out of the ONE book', () => {
     expect(SRC).toContain('const handId = live?.id ?? null')
+    // ⚖ FIX-4(a) — the ENGINE's exclusion moved with the door's. Pinning only
+    // `placementFeasible` would let a round put `pending` back into the pocket
+    // walk while the beds stayed honest: half a world, which is worse than
+    // either whole one.
+    expect(SRC).toContain('excludeId: handId,')
     expect(SRC).toContain('placementFeasible: bedDoorFor(handId),')
     expect(SRC).toContain('placementFeasible: bedDoorFor(excludeId, lanes),')
     // The book is built ONCE per frame, in a memo — never inside a predicate,
     // a pointer frame or a drag handler.
     expect(SRC).toContain('() => bedViewsFor(boardLanes, props.rooms, ledgerFrame, handId),')
+    // ⚖ FIX-4(f) — and on THESE inputs. A dep dropped here is a book answering
+    // about last frame's board, which is the one failure a memo can have.
+    expect(SRC).toContain('[boardLanes, props.rooms, ledgerFrame, handId],')
+    // ⚖ FIX-4(c) — ⚖ 39's escape hatch, whole. A caller handing in a board it
+    // has already taken something out of gets its OWN book; every hot caller
+    // passes nothing and reads the frame's. Pinned as one expression, because
+    // the identity check and the fallback are one decision.
+    expect(SRC).toContain('bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, props.rooms, ledgerFrame, handId), lanes, askerId),')
     // …and the excluded world is unreachable from anywhere else on the screen.
     expect(SRC).not.toContain('?? pending?.id')
     expect(SRC).not.toContain('bedFeasibility(')
+  })
+
+  /** ⚖ FIX-4(e) — THE ONE-DOOR INVARIANT, IN R3's SHAPE.
+   *
+   *  R2 pinned "exactly one `bedTruthViews(` in the screen, inside the shadow
+   *  function". The flag it was behind is gone; the invariant it protected is
+   *  not — a second reader of the book is a third world for the asking, which is
+   *  the disease this whole rebuild exists to remove. In R3's shape the book is
+   *  reached through `bedViewsFor`, so that is what gets counted. */
+  it('the screen has exactly one door to the book, and two ways in through it', () => {
+    // `bedTruthViews` is called in exactly ONE place, and it is inside the wrapper.
+    expect(SRC.split('bedTruthViews(').length - 1).toBe(1)
+    const wrapper = SRC.indexOf('export function bedViewsFor(')
+    expect(wrapper).toBeGreaterThan(-1)
+    expect(SRC.indexOf('bedTruthViews(', wrapper)).toBeGreaterThan(wrapper)
+    // …and the wrapper is CALLED exactly twice: the frame's book, and ⚖ 39's own
+    // book for a caller that handed in a different board. A third call site is a
+    // third world. (+1 for the definition itself.)
+    expect(SRC.split('bedViewsFor(').length - 1).toBe(3)
   })
 })
 
@@ -1460,6 +1512,21 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     expect(door(board[0], 600, 60)).toBe(false) // …and the first answer is still right
   })
 
+  it('the SUBJECT door answers per LENGTH too — its own map is keyed by the whole question', () => {
+    // ⚖ FIX-4(d) — the hypothetical path is memoised by (lane, length) and the
+    // Subject path by (lane, start, length). Both keys are complete, and either
+    // one dropping the length would hand a 60's answer back for a 30.
+    const board = [
+      staff('p-01'),
+      staff('p-02', { items: [booking({ key: 's', caseId: 'staged' }, 900, 960)] }),
+      bed('bed-01', [booking({ key: 'b1', caseId: 'other' }, 630, 660)]),
+    ]
+    const door = bedDoor(bedViewsFor(board, POLICY, FRAME, 'staged'), board, 'staged')!
+    expect(door(board[0], 600, 60)).toBe(false) // 10:00–11:00 straddles the booking
+    expect(door(board[0], 600, 30)).toBe(true) // 10:00–10:30 clears it
+    expect(door(board[0], 600, 60)).toBe(false) // …and the first answer is still right
+  })
+
   it('StrictMode: two books built from the same inputs answer identically, cell for cell', () => {
     // React may invoke a memo factory twice. The book is a value, not an effect,
     // so the second one has to be the first one — including the two-world split.
@@ -1599,6 +1666,17 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
       expect(guardCheckRowBesideOffer(null)).toBeNull()
       expect(guardCheckRowBesideOffer({ ...degraded, state: 'safe' })).toBeNull()
     })
+
+  /** ⚖ FIX-4(b) — the ASK path's own threading, scoped the same way. The literal
+   *  appears twice in the file now, so an unscoped pin could be satisfied by
+   *  `solveBed` alone and this leg could go dark. */
+  it('…and verdictFor threads it too — the wiring, in its own body', () => {
+    const fn = SRC.indexOf('const verdictFor = useCallback(')
+    expect(fn).toBeGreaterThan(-1)
+    const body = SRC.slice(fn, SRC.indexOf('\n  )', fn))
+    expect(body).toContain('stagedId: pending?.id ?? null,')
+    expect(body).toContain('landingVerdict(')
+  })
 
   it('…and solveBed actually threads it — the wiring, in its own body', () => {
       // Scoped to `solveBed`'s body: the same literal also appears in

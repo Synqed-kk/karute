@@ -5,9 +5,17 @@
 // oversells itself is worth less than one that does not.
 //
 // Both sides bottom out in the SAME search: `bedFeasibility` calls
-// `allocateBed`, and the book calls `allocateBed`. So agreement CANNOT prove
-// that the search is right — it proves the two things a new layer can actually
-// get wrong around it:
+// `allocateBed`, and the book calls `allocateBed`. So agreement here CANNOT
+// prove that the search is right, and — stated plainly after the R3 blind round
+// — it does not prove the SWAP either. This file proves that TWO
+// IMPLEMENTATIONS OF THE SAME QUESTION AGREE. That the screen now asks a
+// DIFFERENT question at rest (a new client, rather than the staged card) is
+// R3's subject and is pinned where it happens, in the screen's own suite
+// (`today-screen-interactions.test.ts`, the ⚖ R3 one world describe) and in
+// RAIL-DELTA-r3.
+//
+// What agreement here does prove is the two things a new layer can actually get
+// wrong around that one search:
 //
 //   1. the book's memoisation and cache keying never corrupt that one search
 //      (index-keyed lattice rows, per-duration and per-store-binding keys, the

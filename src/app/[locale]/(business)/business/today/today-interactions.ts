@@ -1596,7 +1596,18 @@ export function allocateBed(
  *  configured no resources is not a store that cannot sell.
  *
  *  It lives here rather than in the screen for this file's stated reason: an
- *  answer the operator acts on has to be provable without a renderer. */
+ *  answer the operator acts on has to be provable without a renderer.
+ *
+ *  ⚖ R3 (2026-08-25) — A TEST ORACLE NOW, AND NOTHING ELSE. The board reads the
+ *  capacity book through `bedDoor` (TodayScreen); this function has NO
+ *  production callers, and a pin in the screen's suite forbids it being
+ *  imported there again (`expect(SRC).not.toContain('bedFeasibility(')`).
+ *
+ *  It is kept, deliberately, because it is the LEGACY COUNTERPART the parity
+ *  battery compares the book against — `capacity-ledger-parity.test.ts` drives
+ *  it on the real board, on synthetic boards and across the dials, and the
+ *  flag-76 unit contracts use it as the oracle their book leg must match.
+ *  Deleting it would delete the comparison, not the dead code. */
 export function bedFeasibility(
   lanes: BoardLane[],
   excludeId: string | null,
