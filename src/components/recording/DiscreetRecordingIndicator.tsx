@@ -144,10 +144,7 @@ export function DiscreetRecordingIndicator() {
         {...longPress}
         className="inline-flex size-7 items-center justify-center rounded-full bg-neutral-200/80 ring-1 ring-neutral-300 transition-colors hover:bg-neutral-300 dark:bg-neutral-700/70 dark:ring-neutral-600 dark:hover:bg-neutral-600"
       >
-        <span className="relative flex items-center justify-center">
-          <span className="absolute inline-flex size-3 rounded-full bg-red-500/30 motion-safe:animate-ping" />
-          <span className="relative inline-block size-1.5 rounded-full bg-red-500" />
-        </span>
+        <span className="relative inline-block size-1.5 rounded-full bg-red-500 motion-safe:animate-[breathe_3.2s_ease-in-out_infinite]" />
       </button>
 
       {open && (

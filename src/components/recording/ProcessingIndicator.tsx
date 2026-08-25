@@ -219,7 +219,7 @@ export function ProcessingIndicator() {
     return (
       <div className={wrap} role="status" aria-live="polite">
         <span
-          className={`inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 shadow-lg transition-all duration-200 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300 ${
+          className={`inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 shadow-lg transition-[opacity,scale] duration-200 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300 ${
             done.leaving
               ? 'scale-95 opacity-0'
               : 'animate-in fade-in zoom-in-95 duration-300'
