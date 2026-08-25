@@ -3587,6 +3587,27 @@ export function TodayScreen(props: TodayProps) {
   function placeNextVisit(lane: BoardLane, start: number, override: string | null = null) {
     const p = placing
     if (!p) return
+    // ⚖ FIX-3 (blind round, 2026-08-25) — THE WRITE IS GATED, NOT THE ASK.
+    //
+    // This path ends in `setPending`, and `armNextVisit` guards only the ARMING
+    // (:3567): 配置モード can be armed with nothing staged, a card dragged and
+    // staged after it, and the still-armed mode then clicked — at which point
+    // this overwrote the operator's staged change with no word said. A 仮押さえ
+    // that disappears because the board took a second one is silent data loss,
+    // and ⚖ 47's law is that a refusal changes NOTHING.
+    //
+    // Gated HERE rather than at the click, so everything short of the write
+    // still works: the rail's marks, `askGuard`'s consult popup and its 満室
+    // sentence — which is the one that names the staged card — all still answer.
+    // The operator is refused at the moment they would have lost something, in
+    // the board's own existing sentence, and `pending` is not touched.
+    //
+    // The shelf's twin (`placeFromShelf`) needs no gate: it is reachable only
+    // through `onChipPointerDown`, which already refuses on `pending` (:3395).
+    if (pending) {
+      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      return
+    }
     // ⚖ Liam flag 46 rider — the same store rule as the shelf chip's, in the
     // same shape. Checked here as well as at the click so the guard popup's
     // 「この開始に配置」 cannot walk around it.

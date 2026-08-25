@@ -1523,6 +1523,44 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
       }).refusal).toBe('10:00〜11:00はベッドが満室です。bed-01が使用中（見本 さくら様）、bed-02が使用中（見本 いつき様）')
     })
 
+    /** ⚖ FIX-3 (blind round) — THE ORPHANING WRITE IS GATED, AND THE ASK IS NOT.
+     *
+     *  `placeNextVisit` ends in `setPending`, and `armNextVisit` guards only the
+     *  ARMING: 配置モード can be armed with nothing staged, a card dragged and
+     *  staged after it, and the still-armed mode then clicked — silently
+     *  overwriting the operator's 仮押さえ. A staged change that disappears
+     *  because the board took a second one is data loss, and ⚖ 47's law is that
+     *  a refusal changes NOTHING.
+     *
+     *  Source-order pins, because the path is component-internal and territory
+     *  has no renderer: the gate must sit INSIDE this function and BEFORE its
+     *  write, and the ask must sit outside it. */
+    it('a staged 仮押さえ cannot be orphaned — placeNextVisit refuses before it writes', () => {
+      const body = SRC.slice(SRC.indexOf('function placeNextVisit('), SRC.indexOf('function placeFromShelf('))
+      expect(body).toContain("if (pending) {\n      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')")
+      // …and it refuses BEFORE the write it exists to protect.
+      expect(body.indexOf('if (pending) {')).toBeGreaterThan(-1)
+      expect(body.indexOf('if (pending) {')).toBeLessThan(body.indexOf('setPending({'))
+      // The gate is on the WRITE, not on the click: the empty-track handler
+      // still asks the guard, and `placeNextVisit` is still its callback — so
+      // the consult popup, the rail's marks and the 満室 sentence that names the
+      // staged card all keep answering.
+      expect(SRC).toContain('(s, override) => placeNextVisit(lane, s, override),')
+      const askBody = SRC.slice(SRC.indexOf('askGuard(\n              { staffLane: lane.key'))
+      expect(askBody.slice(0, 400)).not.toContain('if (pending)')
+    })
+
+    it('…and the shelf’s twin needs no gate of its own — it is closed upstream', () => {
+      // `placeFromShelf` writes `pending` too, but it is reachable only through
+      // `onChipPointerDown`, which already refuses on a staged change. Pinned so
+      // a future round that loosens THAT gate discovers this dependency here
+      // rather than in an orphaned 仮押さえ.
+      const chipDown = SRC.slice(SRC.indexOf('function onChipPointerDown('), SRC.indexOf('function onChipPointerMove('))
+      expect(chipDown).toContain("refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')")
+      const shelf = SRC.slice(SRC.indexOf('function placeFromShelf('))
+      expect(shelf.slice(0, shelf.indexOf('setPending({'))).toContain('solveBed(')
+    })
+
     it('…and solveBed actually threads it — the wiring, in its own body', () => {
       // Scoped to `solveBed`'s body: the same literal also appears in
       // `verdictFor`, and a pin that could be satisfied by the OTHER call site
