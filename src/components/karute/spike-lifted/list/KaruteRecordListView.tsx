@@ -261,7 +261,23 @@ export function KaruteRecordListView({
       fetchGen.current += 1
       setAppended([])
       setWindowStart(initialWindowStart)
-      setRestoreTarget(sinceParam)
+      // KEEP THE DEEPEST GOAL (Greptile PR #779 P1, round 8). `sinceParam` is
+      // NOT a stable record of how deep the viewer got: every landed window
+      // writes it, so DURING a re-walk it holds an INTERMEDIATE, shallower
+      // boundary. Seeding a second purge from it plainly would hand the new
+      // walk that intermediate target — the walk would stop there and the
+      // viewer's deeper windows would silently stay gone until they tapped
+      // again. So the goal only ever gets DEEPER: min of the goal in flight and
+      // the live boundary (YYYY-MM-DD sorts lexicographically; smaller = older
+      // = deeper). A null `cand` must not null a goal in flight either — that
+      // is the popstate-to-a-remembered-?since case, where a re-walk is running
+      // with nothing yet committed to `sinceParam`.
+      setRestoreTarget((prev) => {
+        const cand = sinceParam
+        if (!cand) return prev
+        if (!prev) return cand
+        return prev < cand ? prev : cand
+      })
     }
     setStoreTotal(total)
     // `total` is the only trigger. storeTotal, sinceParam and
@@ -302,6 +318,12 @@ export function KaruteRecordListView({
       // a failure line mid-restore would read as "this is broken" when it is
       // in fact busy, and the next tap gets them the window. Noted in the lane
       // queue rather than papered over here.
+      //
+      // Round 8 narrows "null sinceParam means nothing is coming" by exactly
+      // one case: a popstate-seeded re-walk survives a null-cand purge, so a
+      // tap superseded during THAT walk gets the retry line while rows are in
+      // fact still coming. An extra, honest "try again" on a walk the viewer
+      // never initiated is the cheap side of that trade; the condition stays.
       if (gen !== fetchGen.current) {
         if (announce && sinceParam === null) setLoadError(true)
         return

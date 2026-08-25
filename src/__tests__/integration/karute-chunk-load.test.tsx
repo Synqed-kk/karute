@@ -675,3 +675,110 @@ describe('a superseded FIRST tap says so instead of dying silently (fix round 7)
     await waitFor(() => expect(screen.getByText('鈴木 一郎')).toBeInTheDocument())
   })
 })
+
+// Greptile PR #779 P1 (round 8). The purge seeds the restore goal from
+// `sinceParam` — but every landed window WRITES sinceParam, so mid-re-walk it
+// holds an INTERMEDIATE, shallower boundary. A second purge arriving then used
+// to adopt that intermediate value as the new goal, truncating the restoration:
+// the viewer's deeper windows stayed gone until they tapped again. The goal now
+// only ever deepens.
+describe('a second purge mid-restore keeps the DEEPEST goal (fix round 8)', () => {
+  it('resumes to the ORIGINAL depth instead of stopping at the intermediate boundary', async () => {
+    let resolveStale: (v: unknown) => void = () => {}
+    const win1 = {
+      items: [item('k3', '2026-08-05', '幽霊 太郎')],
+      windowStart: '2026-08-05',
+      hasMore: true,
+    }
+    const win2 = {
+      items: [item('k4', '2026-07-30', '鈴木 一郎')],
+      windowStart: '2026-07-29',
+      hasMore: true,
+    }
+    loadKaruteWindow
+      // Two manual taps take the viewer down to 2026-07-29 — THE depth the
+      // restoration has to get back to.
+      .mockResolvedValueOnce({ ...win1, freshStoreTotal: 9 })
+      .mockResolvedValueOnce({ ...win2, freshStoreTotal: 9 })
+      // Purge 1's re-walk: window 1 lands, so sinceParam is now the SHALLOW
+      // 2026-08-05 while the goal is still the deep 2026-07-29.
+      .mockResolvedValueOnce({ ...win1, freshStoreTotal: 8 })
+      // Purge 1's re-walk, window 2 — hangs, so purge 2 fires mid-restore.
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveStale = resolve
+          }),
+      )
+      // Purge 2's re-walk, from the rewound boundary.
+      .mockResolvedValueOnce({ ...win1, freshStoreTotal: 7 })
+      .mockResolvedValue({ ...win2, freshStoreTotal: 7 })
+
+    const view = renderList()
+    fireEvent.click(loadMoreButton())
+    await waitFor(() => expect(screen.getByText('幽霊 太郎')).toBeInTheDocument())
+    fireEvent.click(loadMoreButton())
+    await waitFor(() => expect(screen.getByText('鈴木 一郎')).toBeInTheDocument())
+
+    // Purge 1: one record left the store. Rewind + re-walk toward 2026-07-29.
+    await act(async () => {
+      view.rerender(listEl({ total: 8 }))
+    })
+    // Wait for the re-walk to be MID-flight on its second window: call 3 landed
+    // (sinceParam is now the intermediate 2026-08-05) and call 4 is hanging.
+    await waitFor(() => expect(loadKaruteWindow).toHaveBeenCalledTimes(4))
+
+    // Purge 2 lands right there, seeded from that intermediate boundary.
+    await act(async () => {
+      view.rerender(listEl({ total: 7 }))
+    })
+    await act(async () => {
+      resolveStale({ ...win2, freshStoreTotal: 99 })
+    })
+
+    // THE decisive assertion: the second re-walk went TWO windows deep, not
+    // one. With the goal truncated to 2026-08-05 the walk stops after call 5
+    // and 鈴木 一郎 never comes back.
+    await waitFor(() => expect(loadKaruteWindow).toHaveBeenCalledTimes(6))
+    expect(loadKaruteWindow).toHaveBeenNthCalledWith(5, {
+      olderThan: '2026-08-12',
+      loadedCount: 2,
+    })
+    expect(loadKaruteWindow).toHaveBeenNthCalledWith(6, {
+      olderThan: '2026-08-05',
+      loadedCount: 3,
+    })
+    await waitFor(() => expect(screen.getByText('鈴木 一郎')).toBeInTheDocument())
+    expect(screen.getByText('幽霊 太郎')).toBeInTheDocument()
+    // The walk reached its goal and stopped — no runaway seventh call.
+    expect(loadKaruteWindow).toHaveBeenCalledTimes(6)
+  })
+
+  it('a purge with NO restore in flight still seeds from the live boundary', async () => {
+    // The min must not make the goal STICKY: once a restore has finished,
+    // restoreTarget is null again and the next purge seeds exactly what round 7
+    // shipped — the boundary the viewer is actually sitting on.
+    loadKaruteWindow.mockResolvedValue({
+      items: [item('k3', '2026-08-05', '幽霊 太郎')],
+      windowStart: '2026-08-05',
+      freshStoreTotal: 9,
+      hasMore: true,
+    })
+    const view = renderList()
+    fireEvent.click(loadMoreButton())
+    await waitFor(() => expect(screen.getByText('幽霊 太郎')).toBeInTheDocument())
+    expect(loadKaruteWindow).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      view.rerender(listEl({ total: 8 }))
+    })
+
+    // Exactly one re-walk window, aimed at the live 2026-08-05 boundary.
+    await waitFor(() => expect(loadKaruteWindow).toHaveBeenCalledTimes(2))
+    expect(loadKaruteWindow).toHaveBeenNthCalledWith(2, {
+      olderThan: '2026-08-12',
+      loadedCount: 2,
+    })
+    expect(loadKaruteWindow).toHaveBeenCalledTimes(2)
+  })
+})
