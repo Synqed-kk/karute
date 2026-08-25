@@ -1481,7 +1481,7 @@ export function TodayScreen(props: TodayProps) {
           rooms: props.rooms,
           minutesOf: (x) => minuteOf(x, hours),
           // ⚖ R3 one world — the one thing the sentence cannot read off the
-          // board: which of these cards is the operator's own unconfirmed move.
+          // board: which of these cards is the operator's own 仮押さえ.
           stagedId: pending?.id ?? null,
         },
         cell,

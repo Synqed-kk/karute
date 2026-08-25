@@ -1482,7 +1482,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
       // ⚖ 73 — a full house is a FACT, so it stays `hard-room` and offers no
       // 「注意して配置」. Naming the occupant does not soften the floor.
       expect(v.floor).toBe('hard-room')
-      expect(v.reason).toBe('10:00〜11:00はベッドが満室です。bed-01が使用中（見本 さくら様）、bed-02が使用中（確定待ちの移動：見本 いつき様）')
+      expect(v.reason).toBe('10:00〜11:00はベッドが満室です。bed-01が使用中（見本 さくら様）、bed-02が使用中（仮押さえ中：見本 いつき様）')
     })
 
     it('…and every other blocker keeps flags 44 + 51 wording exactly', () => {
@@ -1515,7 +1515,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
         start: 600, end: 660, policy: POLICY, stagedId: 'staged',
       })
       expect(solved.laneKey).toBeNull()
-      expect(solved.refusal).toBe('10:00〜11:00はベッドが満室です。bed-01が使用中（見本 さくら様）、bed-02が使用中（確定待ちの移動：見本 いつき様）')
+      expect(solved.refusal).toBe('10:00〜11:00はベッドが満室です。bed-01が使用中（見本 さくら様）、bed-02が使用中（仮押さえ中：見本 いつき様）')
       // …and nothing staged is byte-identical to what this leg shipped before.
       expect(allocateBed(board, {
         id: null, currentBed: null, stores: staffLane.stores, vip: false,

@@ -1501,7 +1501,7 @@ export function allocateBed(
      *  answer would make the overturn a rebuild. Nothing on the board reaches
      *  it today; its unit facts are still pinned. */
     allowBusy?: boolean
-    /** ⚖ R3 ONE WORLD (2026-08-25) — THE OPERATOR'S OWN UNCONFIRMED MOVE.
+    /** ⚖ R3 ONE WORLD (2026-08-25) — THE OPERATOR'S OWN 仮押さえ.
      *
      *  A staged 仮押さえ is real for every reader, so it can and does turn up as
      *  a blocker in this refusal. It is still the truth (the room IS taken), and
@@ -1684,10 +1684,17 @@ export function holdSummary(
  *  THEMSELVES. Now that a staged 仮押さえ is real for every reader, the second
  *  placement into a full house is honestly blocked by the operator's own
  *  unconfirmed move. The room is named exactly as any other busy room is — the
- *  fact is never softened — and the OCCUPANT is labelled 確定待ちの移動 so the
+ *  fact is never softened — and the OCCUPANT is labelled 仮押さえ中 so the
  *  operator recognises their own card instead of hunting for a customer who is
  *  not on the board yet. Suppressing the row instead would be the excluded world
- *  smuggled back in at the sentence. */
+ *  smuggled back in at the sentence.
+ *
+ *  ⚖ FIX-2 (blind round) — 仮押さえ中, NOT 「確定待ちの移動」. `pending` is not
+ *  only a MOVE: `placeNextVisit` and `placeFromShelf` write it for placements
+ *  that never stood anywhere, so "the unconfirmed move" was factually wrong for
+ *  half the cases. 仮押さえ is the board's own word for this state — it is what
+ *  the toast says when the card is staged and what the chip wears — and it is
+ *  short enough to survive the ・-joined multi-blocker line. */
 function fullRoomsRefusal(
   rows: ReadonlyArray<readonly [BoardLane, BoardItem[]]>,
   start: number,
@@ -1702,7 +1709,7 @@ function fullRoomsRefusal(
     i.kind !== 'booking'
       ? i.title
       : stagedId != null && i.caseId === stagedId
-        ? `確定待ちの移動：${i.title}様`
+        ? `仮押さえ中：${i.title}様`
         : `${i.title}様`
   const named = rows.map(([lane, blockers]) => `${lane.label}が使用中（${[...new Set(blockers.map(who))].join('・')}）`)
   return `${window}は${room}が満室です。${named.join('、')}`
