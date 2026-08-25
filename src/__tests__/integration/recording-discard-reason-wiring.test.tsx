@@ -411,11 +411,17 @@ describe('double tap on 破棄する', () => {
     await writeReason()
 
     const confirm = screen.getByText('discardReason.confirm')
-    // Both taps land before ANY flush — React has not re-rendered with
-    // submitting=true, so the button is not disabled on screen yet.
-    fireEvent.click(confirm)
-    fireEvent.click(confirm)
+    // Both taps are dispatched inside ONE act, with no render between them —
+    // that is the real race. fireEvent flushes on the way out, so two
+    // fireEvent calls would let React re-render (and disable the button)
+    // between the taps and quietly prove nothing: the second handler would
+    // read a FRESH submitting=true. Raw dispatch keeps both handlers on the
+    // same stale render, which is exactly what the phone does on a
+    // double-tap, and only the synchronous ref can catch it.
+    const tap = () => confirm.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await act(async () => {
+      tap()
+      tap()
       for (let i = 0; i < 8; i++) await Promise.resolve()
     })
     expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
