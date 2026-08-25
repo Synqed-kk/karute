@@ -8,9 +8,19 @@
 // anything new: it wraps the search that already exists (`allocateBed`) and
 // writes the answers down in a shape the lattice can afford to ask thousands of
 // times a frame. That affordability is the MEMOISED path only — a hypothetical
-// question, which is the one the rails and masks ask over and over. A question
-// carrying a real `Subject` is a gesture asking once: uncached by design, and
-// `freeBedKeys` on that path costs one search per candidate room.
+// question, which is the one the rails and masks ask over and over.
+//
+// A question carrying a real `Subject` is UNCACHED here, and after R3 that is a
+// measured choice rather than a premise. R1 wrote "a gesture asking once"; R3
+// puts the Subject path on the verdict surfaces (the card in hand, a staged
+// card's own confirm row, a chip's landing), where the frozen engine probes the
+// same (lane, start, length) dozens of times per frame. The book still does not
+// cache it — a Subject's key would have to carry the room it holds and its VIP
+// flag, and that is a second cache to get wrong — so the DOOR keeps a
+// frame-lifetime map instead, exactly the one `bedFeasibility` kept
+// (TodayScreen `bedDoor`). Measured at 25 staff: +3.0% at rest, +6.7% mid-drag
+// against the door it replaced, inside the run-to-run spread of either.
+// `freeBedKeys` on that path still costs one search per candidate room.
 //
 // TWO PHASES, AND PHASE 1 CANNOT SEE PHASE 2.
 //   Phase 1 · BED TRUTH — real occupancy only. What is free, what is refused,
@@ -37,8 +47,13 @@
 // is actually holding something. `buildBedTruth` is deliberately NOT exported:
 // exported, it would be a third world for the asking.
 //
-// R1 SHIPS IT DARK: nothing imports this file yet. R2 wires it as a shadow
-// reader and proves its answers equal today's.
+// R1 SHIPPED IT DARK and R2 wired it as a shadow reader that proved its answers
+// equalled the board's. R3 (2026-08-25) MADE IT THE BOARD'S: the 60分配置 rail
+// and every per-cell verdict read this file through `bedDoor`, the shadow
+// machinery is deleted, and `bedFeasibility` survives only as the parity
+// battery's oracle. The two-world split above is no longer a promise about a
+// future round — it is what the screen does, and `worldMinusHand` exists only
+// while a hand is holding a card.
 
 import type { BoardLane } from '@/business/lib/today-board'
 import { allocateBed, roomFitsClass, sharesStore, type RoomPolicy } from './today-interactions'

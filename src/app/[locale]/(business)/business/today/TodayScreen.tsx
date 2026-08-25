@@ -1938,10 +1938,17 @@ export function TodayScreen(props: TodayProps) {
       // ⚖ R3 one world — THE SAME SENTENCE, ON THIS LEG TOO. This refusal is
       // SAID (`refuse` below), so it is one of the two places 満室 reaches the
       // operator, and with a staged card real for every reader it can name the
-      // operator's own unconfirmed move. Without this it named it like a
-      // stranger's booking — the defect item 2 exists to close, alive on the
-      // sibling path (bed-row drop, 次回予約 chip, the stage-time re-solve, the
-      // gap partner).
+      // operator's own 仮押さえ instead of wording it like a stranger's booking.
+      //
+      // ⚖ FIX-8 (blind round) — WHICH CALLERS CAN ACTUALLY REACH IT, counted
+      // rather than listed. Of this function's four call sites only the 次回予約
+      // placement genuinely can: the bed-row drop and the stage-time re-solve
+      // pass the staged booking's OWN id, so `allocateBed` self-excludes it and
+      // it can never be its own blocker; the shelf chip is unreachable with a
+      // 仮押さえ open at all (`onChipPointerDown` refuses first). The live leg is
+      // the gap partner and 配置モード's placement — which is also why FIX-3
+      // gates the write there rather than the ask: the refusal has to stay
+      // reachable to be worth wording.
       //
       // Read from the render closure rather than a ref, unlike `board` above:
       // `boardLanes` moves on every pointer frame, `pending` does not move
@@ -4059,15 +4066,21 @@ export function TodayScreen(props: TodayProps) {
               // cursor word are new readings of surfaces that are already on the
               // tour (this strip, and the drag itself), so the registration delta
               // is one sentence rather than one step.
-              // ⚖ R3 ONE WORLD (2026-08-25) — and the sentence had to change with
-              // the semantics. At rest the marks answer 「could a NEW placement
-              // start here」, and a 確定待ち card is standing in its room for that
-              // question like anybody else; only the card in the operator's hand
-              // is lifted out, and only while they are holding it. The old copy
-              // described the excluded world this round deleted.
+              // ⚖ R3 ONE WORLD (2026-08-25) + ⚖ FIX-9 (blind round) — the
+              // sentence had to move with the semantics, and then had to stop
+              // saying things that were not true. Four corrections: the marks
+              // answer 「could a NEW booking start here」 (not "a treatment
+              // begun"); the LENGTH is `railDur`, interpolated, because the
+              // strip's own label renders it and a hardcoded 60 lies at every
+              // store whose standard session is not 60 and at every mid-drag
+              // moment (⚖ flag 50); a 仮押さえ中 booking blocks like any other;
+              // and the lift is a BOARD-CARD drag's privilege — a shelf chip
+              // lifts nothing, because it is not on the board to lift. The
+              // clause repeating the legend band's ✓/△/— key is gone: the band
+              // is one home for that and this entry now points at it.
               // NEEDS NATIVE PASS (JP).
               'data-guide':
-                'このスタッフの各30分に、そこから60分の予約を新しく入れられるかの判定が並びます。✓は空きを減らさない、△は減らすが置ける、—は置けません。確定待ちの移動もほかの予約と同じように場所をふさぎます。ドラッグ中だけは、手に持っている予約をどけた状態で判定し直します — 置けない場所には × が付き、離しても配置されません。',
+                `このスタッフの30分ごとに、そこから${railDur}分の予約を新しく入れられるかを表示します。記号の意味は上の帯と同じです。仮押さえ中の予約も、ほかの予約と同じように場所をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直し、置けない場所には × が付いて、離しても配置されません。`,
             }
           : {})}
       >
@@ -4590,7 +4603,12 @@ export function TodayScreen(props: TodayProps) {
               className="guard-band"
               role="note"
               data-guide-title="スキマガード"
-              data-guide="新規のお客様のための時間を守る仕組みです。記号の意味はこの帯に、各スタッフの「60分配置」の細い帯には、その時間に60分の施術を始めた場合の判定が並びます。"
+              // ⚖ FIX-9 — ONE HOME. This band owns the ✓/△/— key and the rule
+              // behind it; it used to also describe what the strip judges, in
+              // wording that went stale the moment R3 changed the question and
+              // that hardcoded 60 besides. It points at the strip's own entry
+              // now instead of restating it. NEEDS NATIVE PASS (JP).
+              data-guide="新規のお客様のための時間を守る仕組みです。記号の意味はこの帯にあります。各スタッフの細い帯「配置」の見方は、その帯の説明をご覧ください。"
             >
               <span className="protected-key">守るもの: {props.guard.protectedLabel}{props.guard.protectedDurationMin}分</span>
               <span className="guard-key">紫 ✓ = 空きを減らさない</span>

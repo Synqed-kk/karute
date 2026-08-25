@@ -4159,10 +4159,16 @@ describe('BATCH-7 — FLAGS 25c backlog: the three unregistered surfaces join th
     // …and the strip through a conditional spread, because it renders per lane
     // and only the first one may carry the pair (next test).
     expect(SRC).toContain("'data-guide-title': '60分配置',")
-    // ⚖ R3 one world — the strip's own sentence moved with its semantics: the
-    // marks answer 「could a NEW placement start here」, a 確定待ち card holds its
-    // room for that question, and only the card in hand is lifted out.
-    expect(SRC).toContain('このスタッフの各30分に、そこから60分の予約を新しく入れられるかの判定が並びます。✓は空きを減らさない、△は減らすが置ける、—は置けません。確定待ちの移動もほかの予約と同じように場所をふさぎます。')
+    // ⚖ R3 one world + ⚖ FIX-9 — the strip's own sentence moved with its
+    // semantics and then stopped saying untrue things. The LENGTH is
+    // interpolated (`${railDur}`), never a hardcoded 60: the strip's own label
+    // renders that number and ⚖ flag 50 makes it follow the gesture, so a
+    // literal would lie at every store whose standard session is not 60 and at
+    // every mid-drag moment. A template literal, so this pin holds the shape.
+    expect(SRC).toContain('このスタッフの30分ごとに、そこから${railDur}分の予約を新しく入れられるかを表示します。')
+    expect(SRC).toContain('仮押さえ中の予約も、ほかの予約と同じように場所をふさぎます。')
+    // …and the ✓/△/— key is NOT restated here: the legend band is its one home.
+    expect(SRC).not.toContain('✓は空きを減らさない、△は減らすが置ける、—は置けません。')
   })
 
   it('the strip registers ONCE, not once per staff member', () => {
@@ -5048,11 +5054,16 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // of the 60分配置 strip and of the drag itself, both already registered. So
     // the delta is zero SECTIONS and one SENTENCE — the strip's own entry now
     // teaches the mid-drag reading, which is where an operator meets it.
-    // ⚖ R3 one world (2026-08-25) — the mid-drag half of the sentence had to say
-    // WHAT the drag changes: the card in hand is lifted out of the world, and it
-    // is the only card that ever is.
-    expect(SRC).toContain('ドラッグ中だけは、手に持っている予約をどけた状態で判定し直します')
-    expect(SRC).toContain('置けない場所には × が付き、離しても配置されません')
+    // ⚖ R3 one world + ⚖ FIX-9 — the mid-drag half says WHAT the drag changes
+    // AND which drag: the lift is a BOARD-CARD drag's privilege, because a shelf
+    // chip is not on the board to be lifted out of it. 「ボードのカード」 is the
+    // word that stops the old copy claiming otherwise.
+    expect(SRC).toContain('ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直し')
+    expect(SRC).toContain('置けない場所には × が付いて、離しても配置されません')
+    // ⚖ FIX-9 — and the スキマガード band no longer describes the strip in its own
+    // stale words: one home, and it points at the strip's entry.
+    expect(SRC).toContain('各スタッフの細い帯「配置」の見方は、その帯の説明をご覧ください。')
+    expect(SRC).not.toContain('その時間に60分の施術を始めた場合の判定が並びます')
     // ONE entry, still: a pair on every strip would put the same step on the
     // tour once per staff member (batch-7's rule, unchanged).
     expect(SRC).toContain("{...(rails[0]?.laneKey === rail.laneKey")
