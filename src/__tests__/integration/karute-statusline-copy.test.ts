@@ -32,6 +32,19 @@ describe('karute.recordList.statusLine states only what the query backs (PR-1b �
     expect(en.karute.recordList.addedCount).toBe('Loaded {n} karute')
   })
 
+  it('the 月ジャンプ panel copy is the MOCK\'s, byte-for-byte (PR-2b)', () => {
+    // Liam approved these two strings as drawn — they ship verbatim, so an
+    // edit has to come through this pin rather than slide past it.
+    expect(ja.karute.recordList.month.panelTitle).toBe('月を選択')
+    expect(ja.karute.recordList.month.note).toBe(
+      '月を選ぶと、その月のカルテに絞り込まれます。',
+    )
+    expect(en.karute.recordList.month.panelTitle).toBe('Select a month')
+    expect(en.karute.recordList.month.note).toBe(
+      "Pick a month to narrow the list to that month's karute.",
+    )
+  })
+
   it('neither locale ships the disproven "past 14 days" window, in the statusLine or anywhere else in the recordList namespace', () => {
     const jaFlat = JSON.stringify(ja.karute.recordList)
     const enFlat = JSON.stringify(en.karute.recordList)
