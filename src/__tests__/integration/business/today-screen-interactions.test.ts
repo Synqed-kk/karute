@@ -2711,19 +2711,25 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     })
     expect(guardCheckRow(null)).toBeNull()
     expect(guardCheckRow(cell({ state: 'safe', sentence: '新規90分の空きを守れます' }))).toBeNull()
-    // The rail's 「損を減らす」 aside is advice for CHOOSING a start; this row is
-    // reporting the one already chosen, so it comes off — and the row is exactly
-    // the sentence Liam's own flag quoted back at us.
+    // ⚖ GAP-6 (R3, 2026-08-25) — THE SECOND CLAUSE COMES BACK. This used to
+    // assert the truncated row (`sentence.split('。')[0]`), which threw away the
+    // engine's own answer to "then where?" — the operator was shown a cost and
+    // no way out of it, on the surface they confirm from. The 「・損を減らす」
+    // aside still comes off: it is a CHIP LABEL glued inside the loss figure's
+    // parentheses, and the clause that follows says it in words.
     expect(guardCheckRow(cell({
       state: 'degraded',
       sentence: '新規90分の空き2→1（1枠減・損を減らす）。15:45はこの区間で損が最少の開始です',
-    }))).toEqual({ label: '新規90分の空き2→1（1枠減）', tone: 'warn' })
+    }))).toEqual({ label: '新規90分の空き2→1（1枠減）。15:45はこの区間で損が最少の開始です', tone: 'warn' })
+    // …and a one-clause sentence is unchanged — every blocked sentence is one.
+    expect(guardCheckRow(cell({ state: 'blocked', sentence: 'この開始ではベッドを60分確保できません' })))
+      .toEqual({ label: 'この開始ではベッドを60分確保できません', tone: 'warn' })
     // Liam's exact ×-over-an-enabled-確定 line, now wearing △.
     expect(guardCheckRow(cell({ state: 'blocked', sentence: 'ここに置くと新規（90分）が入らなくなります' })))
       .toEqual({ label: 'ここに置くと新規（90分）が入らなくなります', tone: 'warn' })
     // Neither state can produce the blocking mark, whatever the engine thought.
     for (const state of ['degraded', 'blocked'] as const) {
-      expect(guardCheckRow(cell({ state, sentence: 'なにか。あと' }))?.tone).toBe('warn')
+      expect(guardCheckRow(cell({ state, sentence: 'なにか。あと' }))).toEqual({ label: 'なにか。あと', tone: 'warn' })
     }
   })
 
