@@ -322,10 +322,20 @@ export function holdPopAnchor(
  *  owns what can and cannot be confirmed (canon-logic, frozen), and a degraded
  *  landing stays confirmable exactly as canon's `ackAllowed` allows it.
  *
- *  The row is the verdict's own first sentence, minus the rail's `・損を減らす`
- *  aside — that clause is advice for CHOOSING a start, and this row is reporting
- *  the one already chosen. `null` for a safe landing: a check that always passes
- *  is noise.
+ *  The row is the verdict's own sentence, minus the rail's `・損を減らす` aside —
+ *  that fragment is a CHIP LABEL glued inside the loss figure's parentheses, and
+ *  the sentence that follows says the same thing in words. `null` for a safe
+ *  landing: a check that always passes is noise.
+ *
+ *  ⚖ GAP-6 (R3 of the layer rebuild, 2026-08-25) — AND IT IS THE WHOLE SENTENCE.
+ *  This used to be `sentence.split('。')[0]`, which threw away the engine's
+ *  second clause — 「{clock}はこの区間で損が最少の開始です」 — the one part of
+ *  the row that answers "then where?". The operator was shown a cost with no
+ *  way out of it, on the very surface they confirm from. The engine already
+ *  computes the least-loss start (`leastLossStart`, railCell's degraded branch);
+ *  truncating it was the board keeping an answer it already had. Only the
+ *  degraded sentence has two clauses — every blocked sentence is one — so this
+ *  changes that row and no other.
  *
  *  ⚖ Liam flag 52 (2026-08-21) — AND IT IS ALWAYS △, NEVER ×. The mark is the
  *  row's SEVERITY, and severity on this board means one thing: × is a line that
@@ -338,7 +348,31 @@ export function holdPopAnchor(
  *  return type says so, so a future caller cannot reintroduce the ×. */
 export function guardCheckRow(cell: RailCell | null): { label: string; tone: 'warn' } | null {
   if (!cell || cell.state === 'safe') return null
-  return { label: cell.sentence.split('。')[0].replace('・損を減らす', ''), tone: 'warn' }
+  return { label: cell.sentence.replace('・損を減らす', ''), tone: 'warn' }
+}
+
+/** ⚖ FIX-6 (blind round, 2026-08-25) — THE SAME ROW, BESIDE AN OFFER LINE.
+ *
+ *  GAP-6 gave the row back the engine's second clause 「{clock}はこの区間で損が
+ *  最少の開始です」, and that clause is the row's answer to "then where?". On the
+ *  HOLD popover it is the only answer there is, so it belongs.
+ *
+ *  The CONSULT popover is the other surface, and it already has an offer line:
+ *  `sourcedCell`/`offerableCell` put the engine's own alternative starts under
+ *  the facts, and when there are none that line reads 「この区間に、より損の少な
+ *  い開始はありません」. Stacking clause two above it prints a contradiction —
+ *  「15:45は…損が最少の開始です」 over 「より損の少ない開始はありません」 — two
+ *  true sentences from two different questions, which the operator reads as the
+ *  board disagreeing with itself.
+ *
+ *  So the SPLIT lives here, in one place, and it is a decision about SURFACES
+ *  rather than about the sentence: display never re-authors the engine's words,
+ *  it picks which row it is entitled to. Derived from `guardCheckRow` rather
+ *  than re-deriving the label, so the two can never drift apart, and ⚖ flag 52
+ *  rides along untouched — same tone, same never-blocking, same forbidden ×. */
+export function guardCheckRowBesideOffer(cell: RailCell | null): { label: string; tone: 'warn' } | null {
+  const row = guardCheckRow(cell)
+  return row && { ...row, label: row.label.split('。')[0] }
 }
 
 // ── the board's own state transitions ──────────────────────────────────────
@@ -1491,6 +1525,20 @@ export function allocateBed(
      *  answer would make the overturn a rebuild. Nothing on the board reaches
      *  it today; its unit facts are still pinned. */
     allowBusy?: boolean
+    /** ⚖ R3 ONE WORLD (2026-08-25) — THE OPERATOR'S OWN 仮押さえ.
+     *
+     *  A staged 仮押さえ is real for every reader, so it can and does turn up as
+     *  a blocker in this refusal. It is still the truth (the room IS taken), and
+     *  suppressing it would be the excluded world coming back in through the
+     *  sentence — but a line that names the operator's own card the same way it
+     *  names a stranger's reads as a stranger's, and they go looking for a
+     *  customer who is not there. So the fact is kept and the ATTRIBUTION is
+     *  said out loud.
+     *
+     *  It arrives as an argument rather than being read off the board because
+     *  "which move is unconfirmed" is screen state (`pending`), not a fact about
+     *  the day — today-board draws a staged card exactly like a standing one. */
+    stagedId?: string | null
   },
 ): { laneKey: string | null; refusal: string | null } {
   const { id, start, end, policy } = opts
@@ -1520,7 +1568,10 @@ export function allocateBed(
       : [...candidates.filter((l) => l.roomClass !== 'private'), ...candidates.filter((l) => l.roomClass === 'private')]
   const taken = ordered.find(free)
   if (taken) return { laneKey: taken.key, refusal: null }
-  return { laneKey: null, refusal: fullRoomsRefusal(candidates.map((l) => [l, blockersOn(l)] as const), start, end, needsPrivate) }
+  return {
+    laneKey: null,
+    refusal: fullRoomsRefusal(candidates.map((l) => [l, blockersOn(l)] as const), start, end, needsPrivate, opts.stagedId ?? null),
+  }
 }
 
 /** ⚖ LIAM flag 76 (2026-08-23) — THE ROOMS, AS THE GUARD ENGINE'S CTX.
@@ -1545,7 +1596,18 @@ export function allocateBed(
  *  configured no resources is not a store that cannot sell.
  *
  *  It lives here rather than in the screen for this file's stated reason: an
- *  answer the operator acts on has to be provable without a renderer. */
+ *  answer the operator acts on has to be provable without a renderer.
+ *
+ *  ⚖ R3 (2026-08-25) — A TEST ORACLE NOW, AND NOTHING ELSE. The board reads the
+ *  capacity book through `bedDoor` (TodayScreen); this function has NO
+ *  production callers, and a pin in the screen's suite forbids it being
+ *  imported there again (`expect(SRC).not.toContain('bedFeasibility(')`).
+ *
+ *  It is kept, deliberately, because it is the LEGACY COUNTERPART the parity
+ *  battery compares the book against — `capacity-ledger-parity.test.ts` drives
+ *  it on the real board, on synthetic boards and across the dials, and the
+ *  flag-76 unit contracts use it as the oracle their book leg must match.
+ *  Deleting it would delete the comparison, not the dead code. */
 export function bedFeasibility(
   lanes: BoardLane[],
   excludeId: string | null,
@@ -1649,21 +1711,52 @@ export function holdSummary(
   return `${title ? `${title}様 → ` : ''}${clockOf(from)}〜${clockOf(to)} / 担当 ${staffLane?.label ?? '—'} / ${moved}${bedLane?.label ?? '—'}`
 }
 
-/** ⚖ flags 44 + 51 — 満室, said the way the board says every other refusal: the
- *  exact window it judged, then WHY, naming the room and who is in it. 清掃 and
- *  予定ブロック answer with their own word (they have no customer). */
+/** ⚖ flags 44 + 51 — a full house, said the way the board says every other
+ *  refusal: the exact window it judged, then WHY, naming the room and who is in
+ *  it. 清掃 and 予定ブロック answer with their own word (they have no customer).
+ *
+ *  ⚖ NATIVE PASS (2026-08-25) — THE STRUCTURE IS FLAGS 44+51's, THE WORDING IS
+ *  NOT. It read 「…はベッドが満室です」, and 満室 takes a counter the sentence
+ *  does not give it — a room-by-room count read as a whole-store state. The
+ *  native pass ruled 「…に空きがありません」, which is the same fact in the
+ *  grammar the operator uses. Structure preserved exactly: the window it judged,
+ *  the room word (the 個室 branch is natural either way), then the occupants.
+ *  内部の 満室 vocabulary — identifiers, comments, the `hard-room` floor — is
+ *  unchanged; this is the operator-visible sentence and nothing else.
+ *
+ *  ⚖ R3 ONE WORLD (2026-08-25) — AND ONE OF THOSE OCCUPANTS CAN BE THE OPERATOR
+ *  THEMSELVES. Now that a staged 仮押さえ is real for every reader, the second
+ *  placement into a full house is honestly blocked by the operator's own
+ *  unconfirmed move. The room is named exactly as any other busy room is — the
+ *  fact is never softened — and the OCCUPANT is labelled 仮押さえ中 so the
+ *  operator recognises their own card instead of hunting for a customer who is
+ *  not on the board yet. Suppressing the row instead would be the excluded world
+ *  smuggled back in at the sentence.
+ *
+ *  ⚖ FIX-2 (blind round) — 仮押さえ中, NOT 「確定待ちの移動」. `pending` is not
+ *  only a MOVE: `placeNextVisit` and `placeFromShelf` write it for placements
+ *  that never stood anywhere, so "the unconfirmed move" was factually wrong for
+ *  half the cases. 仮押さえ is the board's own word for this state — it is what
+ *  the toast says when the card is staged and what the chip wears — and it is
+ *  short enough to survive the ・-joined multi-blocker line. */
 function fullRoomsRefusal(
   rows: ReadonlyArray<readonly [BoardLane, BoardItem[]]>,
   start: number,
   end: number,
   needsPrivate: boolean,
+  stagedId: string | null = null,
 ): string {
   const window = `${clockOf(start)}〜${clockOf(end)}`
   const room = needsPrivate ? '個室' : 'ベッド'
   if (rows.length === 0) return `${window}に使える${room}がありません`
-  const who = (i: BoardItem) => (i.kind === 'booking' ? `${i.title}様` : i.title)
+  const who = (i: BoardItem) =>
+    i.kind !== 'booking'
+      ? i.title
+      : stagedId != null && i.caseId === stagedId
+        ? `仮押さえ中：${i.title}様`
+        : `${i.title}様`
   const named = rows.map(([lane, blockers]) => `${lane.label}が使用中（${[...new Set(blockers.map(who))].join('・')}）`)
-  return `${window}は${room}が満室です。${named.join('、')}`
+  return `${window}は${room}に空きがありません。${named.join('、')}`
 }
 
 // ── ⚖ Liam flag 50 (2026-08-22) — ONE VERDICT, THREE CLASSES ───────────────
@@ -1759,6 +1852,11 @@ export interface LandingQuestion {
   locked: string[]
   rooms: RoomPolicy
   minutesOf: (x: number) => number
+  /** ⚖ R3 ONE WORLD — the session's own unconfirmed move, for the one sentence
+   *  that can end up naming it (`allocateBed`'s 満室 refusal). Absent is the
+   *  honest default: a board with nothing staged has no such occupant, and every
+   *  caller that genuinely has one passes it. */
+  stagedId?: string | null
 }
 
 /** ⚖ LIAM flag 50 (2026-08-22) — THE ONE VERDICT HOME.
@@ -1809,6 +1907,7 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
         start: q.start,
         end: q.end,
         policy: q.rooms,
+        stagedId: q.stagedId ?? null,
       })
     : { laneKey: q.bedLane, refusal: null }
   const bed = lanes.find((l) => l.key === solved.laneKey && l.group === 'beds') ?? null
