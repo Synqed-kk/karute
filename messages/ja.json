@@ -2429,6 +2429,7 @@
       "autostartOn": "自動録音をON（{store}）",
       "autostartOff": "自動録音をOFF（{store}）",
       "recordingNoCustomer": "顧客未選択の録音",
+      "recordingUnresolved": "録音",
       "durationSuffix": "（{n}秒）",
       "menuUpdate": {
         "duration": "所要時間",

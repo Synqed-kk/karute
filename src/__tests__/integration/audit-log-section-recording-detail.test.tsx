@@ -12,6 +12,7 @@ import ja from '../../../messages/ja.json'
 
 const DICT: Record<string, string> = {
   recordingNoCustomer: '顧客未選択の録音',
+  recordingUnresolved: '録音',
   durationSuffix: '（{n}秒）',
 }
 
@@ -119,6 +120,21 @@ describe('AuditLogSection — recording.session_cleanup rows never show the raw 
     expect(container.textContent).toContain('顧客未選択の録音（6秒）')
   })
 
+  it('customer_id PRESENT but never resolved (failed/degraded name batch, or a purged customer) renders the neutral 録音 line — never the false "no customer selected" claim, never the raw UUID', async () => {
+    const container = await renderWithEvents([
+      // No targetLabels entry for RAW_UUID — simulates the name batch never
+      // resolving this id even though detail.customer_id is present. The
+      // duration rides this third branch exactly as it rides the other two,
+      // and asserting the COMPOSED string is what makes this decisive: a bare
+      // toContain('録音') would also pass on the 録音を破棄 action label above
+      // the subtitle, so it could not tell a working branch from an empty one.
+      coreEvent({ detail: { customer_id: 'cus-dead', had_audio_path: true, duration_seconds: 6 } }),
+    ])
+    expect(container.textContent).toContain('録音（6秒）')
+    expect(container.textContent).not.toContain('顧客未選択の録音')
+    expect(container.textContent).not.toContain(RAW_UUID)
+  })
+
   it('a legacy row without duration_seconds at all renders cleanly — no "undefined秒", no crash', async () => {
     const container = await renderWithEvents(
       [coreEvent({ detail: { customer_id: 'cus-1', had_audio_path: true } })],
@@ -134,6 +150,8 @@ describe('recording-labels fix — pinned dictionary strings (ja + en)', () => {
   it('the exact ja + en values landed as specified', () => {
     expect(ja.settings.auditLog.recordingNoCustomer).toBe('顧客未選択の録音')
     expect(en.settings.auditLog.recordingNoCustomer).toBe('No customer selected')
+    expect(ja.settings.auditLog.recordingUnresolved).toBe('録音')
+    expect(en.settings.auditLog.recordingUnresolved).toBe('Recording')
     expect(ja.settings.auditLog.durationSuffix).toBe('（{n}秒）')
     expect(en.settings.auditLog.durationSuffix).toBe(' · {n}s')
     expect(ja.settings.auditLog.actions.recording.session_cleanup).toBe('録音を破棄')

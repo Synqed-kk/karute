@@ -415,12 +415,19 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     // the session row is HARD-DELETED at write time, so a resolved customer
     // name (via targetLabels, widened in resolveTargetLabels above) is the
     // best case — an unresolved one must NEVER fall through to the raw
-    // session UUID (the field report this fix answers), so it renders the
-    // honest no-customer line instead. duration_seconds (when present) rides
-    // either case as a suffix; legacy rows without it render unchanged.
+    // session UUID (the field report this fix answers). THREE-WAY, not two
+    // (line-read nit): a missing customer_id genuinely means "no customer
+    // selected", but a PRESENT customer_id that still isn't in targetLabels
+    // (a failed name batch, or a purged customer) is a resolution failure,
+    // not an absence — claiming "no customer selected" there would be a
+    // false statement about what happened, so that case gets the neutral,
+    // no-claim 録音/"Recording" line instead. duration_seconds (when
+    // present) rides all three cases as a suffix; legacy rows without it
+    // render unchanged.
     if (e.target_type === 'recording') {
       const resolvedName = e.target_id ? targetLabels[e.target_id] : undefined
-      const base = resolvedName ?? t('recordingNoCustomer')
+      const hasCustomerId = typeof detail.customer_id === 'string' && detail.customer_id.length > 0
+      const base = resolvedName ?? t(hasCustomerId ? 'recordingUnresolved' : 'recordingNoCustomer')
       const duration =
         typeof detail.duration_seconds === 'number'
           ? t('durationSuffix', { n: detail.duration_seconds })

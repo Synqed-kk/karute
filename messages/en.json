@@ -2429,6 +2429,7 @@
       "autostartOn": "Auto-record ON ({store})",
       "autostartOff": "Auto-record OFF ({store})",
       "recordingNoCustomer": "No customer selected",
+      "recordingUnresolved": "Recording",
       "durationSuffix": " · {n}s",
       "menuUpdate": {
         "duration": "Duration",
