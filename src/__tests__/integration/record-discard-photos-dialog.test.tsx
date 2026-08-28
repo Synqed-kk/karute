@@ -263,7 +263,7 @@ describe('RecordPageView discard — D3 discard-with-photos dialog', () => {
     ).toBeInTheDocument()
   })
 
-  it('写真も削除 deletes each done photo (best-effort) then discards', async () => {
+  it('写真も削除 records the decision, and the photos die only PAST the reason gate', async () => {
     sessionPhotoStore.photos = [
       donePhoto({ id: 'a', serverId: 's-a' }),
       donePhoto({ id: 'b', serverId: 's-b' }),
@@ -274,12 +274,59 @@ describe('RecordPageView discard — D3 discard-with-photos dialog', () => {
     // The photos confirm resolves first, THEN the reason gate opens (A-2's
     // ordering contract).
     await waitFor(() => expect(reasonGateShown()).toBe(true))
+    // Fix round 1: answering the photos dialog decides NOTHING irreversible.
+    // The gate that follows is the commitment step, so while it is open the
+    // customer's photos must still be on the server, untouched.
+    expect(mockDeleteCustomerPhoto).not.toHaveBeenCalled()
     expect(mockDiscardRecording).not.toHaveBeenCalled()
+
     confirmDiscardReason()
     await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
     expect(mockDeleteCustomerPhoto).toHaveBeenCalledTimes(2)
     expect(mockDeleteCustomerPhoto).toHaveBeenCalledWith('cust-A', 's-a')
     expect(mockDeleteCustomerPhoto).toHaveBeenCalledWith('cust-A', 's-b')
+  })
+
+  // THE fix-round-1 case, and the one that made the old order indefensible:
+  // cancelling the gate used to leave the take sitting there with the
+  // customer's photos already destroyed server-side — strictly worse than
+  // never having tapped 破棄 at all.
+  it('cancelling the reason gate after 写真も削除 leaves every photo intact', async () => {
+    sessionPhotoStore.photos = [
+      donePhoto({ id: 'a', serverId: 's-a' }),
+      donePhoto({ id: 'b', serverId: 's-b' }),
+    ]
+    render(<RecordPageView {...baseProps} />)
+    fireEvent.click(screen.getByText('discard'))
+    fireEvent.click(screen.getByText('sessionPhotos.discardPhotosDelete'))
+    await waitFor(() => expect(reasonGateShown()).toBe(true))
+
+    fireEvent.click(screen.getByText('cancel'))
+
+    await waitFor(() => expect(reasonGateShown()).toBe(false))
+    expect(mockDeleteCustomerPhoto).not.toHaveBeenCalled()
+    expect(mockDiscardRecording).not.toHaveBeenCalled()
+    expect(sessionPhotoStore.photos).toHaveLength(2)
+  })
+
+  // …and the armed decision must not survive the cancel either: re-opening the
+  // gate and choosing 顧客ページに残す has to mean KEEP, not "delete anyway".
+  it('a cancelled 写真も削除 does not carry over into the next discard', async () => {
+    sessionPhotoStore.photos = [donePhoto({ id: 'a', serverId: 's-a' })]
+    render(<RecordPageView {...baseProps} />)
+    fireEvent.click(screen.getByText('discard'))
+    fireEvent.click(screen.getByText('sessionPhotos.discardPhotosDelete'))
+    await waitFor(() => expect(reasonGateShown()).toBe(true))
+    fireEvent.click(screen.getByText('cancel'))
+    await waitFor(() => expect(reasonGateShown()).toBe(false))
+
+    fireEvent.click(screen.getByText('discard'))
+    fireEvent.click(screen.getByText('sessionPhotos.discardPhotosKeep'))
+    await waitFor(() => expect(reasonGateShown()).toBe(true))
+    confirmDiscardReason()
+
+    await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
+    expect(mockDeleteCustomerPhoto).not.toHaveBeenCalled()
   })
 
   // §7 — the settle-then-delete path (mutation red-run anchor: removing the

@@ -121,6 +121,24 @@ const DiscardWithReasonSchema = z
   })
   .strict()
 
+/** MODULE-INTERNAL VOUCH (fix round 1). A STAFF receipt asserts that a written
+ *  reason exists and points at the row holding it — and `discardRowId` is the
+ *  entire basis of that assertion. Only this module can make it honestly,
+ *  because only this module writes the row (ensureDiscardReasonRow).
+ *
+ *  Without this token the STAFF arm was reachable from both PUBLIC doors: the
+ *  facade route sends any body with no `reason` key straight to
+ *  discardRecordingWithClient, so an authenticated records.write caller could
+ *  POST `{source:'STAFF', recordingSessionId, discardRowId:'anything'}` and mint
+ *  a receipt claiming `has_free_text: true` against a row that never existed —
+ *  the precise dishonesty the header above says must be impossible.
+ *
+ *  NOT EXPORTED, deliberately: a symbol cannot be forged or named from outside
+ *  this file, so the type of the parameter is itself the boundary. Both public
+ *  doors call with three arguments and therefore cannot reach the STAFF arm at
+ *  all; discardRecordingWithReasonRow passes it only AFTER writing the row. */
+const STAFF_ROW_VOUCH = Symbol('discard row written by this module')
+
 export interface DiscardRecordingActor {
   /** The AUTHENTICATED staff identity — resolved by the caller, NEVER taken
    *  from a request body (see this file's no-'use server' note above). Same
@@ -157,6 +175,9 @@ export async function discardRecordingWithClient(
   synqed: ReturnType<typeof newSynqedClient>,
   actor: DiscardRecordingActor,
   input: unknown,
+  /** See STAFF_ROW_VOUCH. Absent on every call that can be reached from a
+   *  request body, which is what makes the STAFF arm internal-only. */
+  vouch?: typeof STAFF_ROW_VOUCH,
 ): Promise<DiscardRecordingResult> {
   // The receipt's whole value is its attribution, so an unattributable one is
   // refused before anything is read or written. Both callers resolve the actor
@@ -168,6 +189,13 @@ export async function discardRecordingWithClient(
   const parsed = DiscardRecordingSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: 'validation' }
   const data = parsed.data
+
+  // A STAFF shape that did not come from discardRecordingWithReasonRow is a
+  // caller-supplied row id. Refuse it as validation — the same 400 the schema
+  // gives any other malformed body, on both doors at once.
+  if (data.source === 'STAFF' && vouch !== STAFF_ROW_VOUCH) {
+    return { ok: false, error: 'validation' }
+  }
 
   // Pre-mint takes key on takeId; everything else on the session id.
   const targetId = (data.recordingSessionId ?? data.takeId) as string
@@ -215,11 +243,14 @@ export async function discardRecordingWithReasonRow(
   })
   if (!row.ok) return { ok: false, error: 'discard_row_failed' }
 
-  return discardRecordingWithClient(synqed, actor, {
-    ...receipt,
-    source: 'STAFF',
-    discardRowId: row.rowId,
-  })
+  // The row exists and this module wrote it — the one place the STAFF claim can
+  // be vouched for.
+  return discardRecordingWithClient(
+    synqed,
+    actor,
+    { ...receipt, source: 'STAFF', discardRowId: row.rowId },
+    STAFF_ROW_VOUCH,
+  )
 }
 
 /** Probe first, then create — the same check-then-write idempotency the

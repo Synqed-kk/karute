@@ -590,6 +590,21 @@ export function RecordPageView({
   // the discard twice (the outcome dialog's resolvingOutcomeRef precedent).
   // The `submitting` prop and the disabled button are the visible half.
   const discardReasonSubmittingRef = useRef(false)
+  // The photo decision, RECORDED not acted on (fix round 1). 写真も削除 used to
+  // delete the customer's photos server-side the moment the photos dialog was
+  // answered — i.e. BEFORE the reason gate, the step that is supposed to be the
+  // final commitment. Cancelling the gate (or any server refusal) then left the
+  // photos irreversibly gone with the take still sitting there. The deletion now
+  // runs from the confirm handler's success branch; this ref is the decision in
+  // the meantime, and cancel clears it.
+  const pendingPhotoDeleteRef = useRef(false)
+  // Discard-intent latch (fix round 1). While the gate is open for a recorder
+  // take, an in-flight 使用 must not hand THAT take to transcription — it used
+  // to, because proceedDiscard (which bumps useRecordingGen) now runs only
+  // after the server round-trip, leaving the whole dialog lifetime unguarded.
+  // Same latch idiom as outcomeResolvedRef, keyed by take so it can only ever
+  // stop the take it was opened for. null = no gate open for the recorder.
+  const discardIntentRef = useRef<{ takeId: string | null } | null>(null)
 
   // Single-flight guard for the outcome dialog's 保存: a double-tap must never
   // create two pack rows or fire two redemptions (live prod bug — the DB's
@@ -883,12 +898,20 @@ export function RecordPageView({
   // is always LAST, the final commitment gate for the discard itself.
 
   function openDiscardReason(origin: 'recorder' | 'review') {
+    // Latch WHICH take this gate is for, at the moment it opens. Only the
+    // recorder chokepoint can race 使用 — the review take was handed to the
+    // pipeline long before, so there is nothing left to invalidate there.
+    discardIntentRef.current = origin === 'recorder' ? { takeId: globalRecorder.takeId } : null
     setDiscardReasonError(null)
     setDiscardReasonFor(origin)
   }
 
   function cancelDiscardReason() {
     if (discardReasonSubmittingRef.current) return
+    // A cancelled gate must leave NOTHING behind: no latched intent wedging the
+    // next 使用, and no armed photo deletion.
+    discardIntentRef.current = null
+    pendingPhotoDeleteRef.current = false
     setDiscardReasonFor(null)
     setDiscardReasonError(null)
   }
@@ -918,10 +941,34 @@ export function RecordPageView({
       // fast discard can beat it (G14). Bounded await, exactly as the save
       // path does; the review path's take was already handed off with whatever
       // id it had, so there is nothing left to wait for there.
-      const recordingSessionId =
+      let recordingSessionId =
         origin === 'review' ? (ctx?.recordingSessionId ?? null) : await awaitRecordingSessionId()
       if (!recordingSessionId) {
+        // Not "slow" — FAILED. The mint runs once at start() and its promise
+        // stays settled, so awaiting it again can only ever return null again;
+        // without this the gate dead-ends forever and its retry copy lies. ONE
+        // re-mint, bounded the same way, then fail closed honestly. The review
+        // arm keys off the pipeline context because the recorder was reset at
+        // hand-off and no longer knows this take's customer or take id.
+        recordingSessionId =
+          origin === 'review'
+            ? await globalRecorder.retryRecordingSessionMint({
+                customerId: ctx?.appointmentCustomerId ?? null,
+                appointmentId: ctx?.appointmentId ?? null,
+                takeId: ctx?.takeId ?? null,
+              })
+            : await globalRecorder.retryRecordingSessionMint()
+      }
+      if (!recordingSessionId) {
         setDiscardReasonError(t('discardReason.failed'))
+        return
+      }
+      // The take must still be the one this gate was opened for. If 使用 won the
+      // race while the dialog was open, that take is already in transcription —
+      // discarding it here would file a reason for audio the pipeline still
+      // owns. Say so instead of failing silently or acting on the wrong take.
+      if (origin === 'recorder' && globalRecorder.takeId !== discardIntentRef.current?.takeId) {
+        setDiscardReasonError(t('discardReason.takeChanged'))
         return
       }
       const res = await discardRecordingWithReason({
@@ -944,10 +991,18 @@ export function RecordPageView({
         return
       }
       setDiscardReasonFor(null)
+      discardIntentRef.current = null
       // Ids read BEFORE the await, handed in — the same read-it-first rule
       // proceedDiscard obeys for the recorder singleton.
       if (origin === 'review') finishReviewDiscard(recordingSessionId, ctx?.takeId)
-      else proceedDiscard()
+      else {
+        // The photos die HERE, past the gate — never before it. Still ahead of
+        // proceedDiscard() because its discardRecording() wipes the strip these
+        // reads depend on (the ordering constraint that was always in this
+        // file; only the starting line moved).
+        await runPendingPhotoDelete()
+        proceedDiscard()
+      }
     } finally {
       discardReasonSubmittingRef.current = false
       setDiscardReasonSubmitting(false)
@@ -977,13 +1032,27 @@ export function RecordPageView({
     setShowDiscardPhotosDialog(false)
   }
 
-  async function handleDiscardDeletePhotos() {
+  /**
+   * The photo half of a discard — RUN ONLY ONCE THE DISCARD HAS LANDED.
+   *
+   * Deleting a customer's photos is irreversible and server-side, so it may not
+   * happen one step before the final commitment gate. It used to: 写真も削除
+   * deleted them the moment the photos dialog was answered, and cancelling the
+   * reason gate (or hitting any server refusal) left the photos gone with the
+   * take still sitting there — strictly worse than never having tapped.
+   *
+   * The marks still have to precede proceedDiscard(): its discardRecording()
+   * clears the store and the strip these reads depend on. That constraint never
+   * changed — only the line this work starts from.
+   */
+  async function runPendingPhotoDelete() {
+    if (!pendingPhotoDeleteRef.current) return
+    pendingPhotoDeleteRef.current = false
     const photos = sessionPhotosForDiscardDialog()
     const donePhotos = photos.filter((p) => p.status === 'done')
     // §7: an 'uploading' photo hasn't landed server-side yet — mark it for
     // delete-after-settle (the store fires the delete itself the moment
-    // that upload resolves to 'done'; nothing to do on 'error'). Marked
-    // BEFORE proceedDiscard, whose discardRecording() wipes the strip.
+    // that upload resolves to 'done'; nothing to do on 'error').
     // The onFail closure carries t() so a settle-path delete failure gets the
     // SAME toast as its done-photos twin below (n:1 — one photo per mark).
     // Firing after navigation is fine: sonner's toaster is app-global.
@@ -994,7 +1063,6 @@ export function RecordPageView({
         )
       }
     }
-    setShowDiscardPhotosDialog(false)
     setDiscardingPhotos(true)
     // Best-effort: collect failures, one toast if any fail — deleteCustomerPhoto
     // never throws (catches internally), so Promise.all is safe here.
@@ -1004,10 +1072,18 @@ export function RecordPageView({
     setDiscardingPhotos(false)
     const failed = results.filter((r) => !r.success).length
     if (failed > 0) toast.error(t('sessionPhotos.discardDeleteFailed', { n: failed }))
+  }
+
+  /** Records the DECISION only — see runPendingPhotoDelete for why nothing is
+   *  destroyed here. */
+  function handleDiscardDeletePhotos() {
+    pendingPhotoDeleteRef.current = true
+    setShowDiscardPhotosDialog(false)
     openDiscardReason('recorder')
   }
 
   function handleDiscardKeepPhotos() {
+    pendingPhotoDeleteRef.current = false
     setShowDiscardPhotosDialog(false)
     openDiscardReason('recorder')
   }
@@ -1040,6 +1116,13 @@ export function RecordPageView({
       // A discard during the await bumps the generation — this take no longer
       // belongs to us; drop it instead of pipelining a discarded recording.
       if (gen !== useRecordingGen.current) return
+      // The generation only moves once the discard COMMITS, and since P5-A that
+      // is after a whole dialog round-trip. So also drop the take when a discard
+      // gate is merely OPEN for it: handing a take the staff is mid-破棄 to
+      // transcription resurfaces it as a save offer (and bills the run) — the
+      // exact outcome the doctrine forbids.
+      const discardIntent = discardIntentRef.current
+      if (discardIntent && discardIntent.takeId === globalRecorder.takeId) return
       globalPipeline.start(result.blob, {
         locale,
         customers,

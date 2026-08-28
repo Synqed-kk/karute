@@ -114,6 +114,12 @@ jest.mock('@/lib/global-recorder', () => ({
     subscribe: () => () => {},
     // The logout-wipe test drives the REAL wipeSessionVault through this.
     discard: jest.fn(),
+    // Fix round 1: the gate's SECOND chance at a session id. The mint runs once
+    // at start() and its promise stays settled, so a failed one made every
+    // retry of the bounded await return null again — the discard dead-ended
+    // forever. Defaults to "still no id" so the fail-closed cases below are
+    // unchanged; the recovery case overrides it.
+    retryRecordingSessionMint: jest.fn(async (): Promise<string | null> => null),
   },
 }))
 let mockRecState: 'idle' | 'recording' | 'paused' | 'recorded' = 'recorded'
@@ -198,12 +204,21 @@ jest.mock('@/components/review/ReviewScreen', () => ({
   },
 }))
 
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import {
   RecordPageView,
   type RecordPageViewProps,
 } from '@/components/karute/redesign/record/RecordPageView'
+import { globalRecorder } from '@/lib/global-recorder'
+import { globalPipeline } from '@/lib/global-pipeline'
 import { resetInbox } from '@/lib/recordings/inbox-store'
+
+/** The re-mint the gate falls back to when the bounded await comes up empty. */
+const mockRetryMint = globalRecorder.retryRecordingSessionMint as jest.Mock
+/** The recorder's live take id — mutable, because the 使用/破棄 race is a
+ *  question about which take the singleton is holding right now. */
+const recorderTake = globalRecorder as unknown as { takeId: string | null }
+const mockPipelineStart = globalPipeline.start as jest.Mock
 
 async function renderPage(overrides: Partial<RecordPageViewProps> = {}) {
   const r = render(
@@ -234,6 +249,7 @@ beforeEach(() => {
   mockRecState = 'recorded'
   mockPipelineState = 'idle'
   mockAwaitSession.mockImplementation(async () => RECORDER_SESSION)
+  recorderTake.takeId = null
   mockDiscardWithReason.mockImplementation(async () => ({
     ok: true,
     receiptId: 'row-1',
@@ -334,14 +350,17 @@ describe('both deliberate-discard chokepoints go through the gate', () => {
 // ── 2. Fail closed ─────────────────────────────────────────────────────
 
 describe('a discard that cannot leave its trace does not happen', () => {
-  it('no session id (the mint never landed) → nothing is discarded, the gate stays open', async () => {
+  it('no session id (the mint never landed, and re-minting fails too) → nothing is discarded, the gate stays open', async () => {
     mockAwaitSession.mockImplementation(async () => null)
     await renderPage()
     await tapDiscard('discard')
     await writeReason()
     await confirmReason()
 
-    // Never even attempted — there is nowhere to key the reason row (G14).
+    // The await came back empty, so the gate tried ONCE more to mint the id
+    // rather than re-awaiting a promise that can only ever answer null again.
+    expect(mockRetryMint).toHaveBeenCalledTimes(1)
+    // That failed too — so there is still nowhere to key the reason row (G14).
     expect(mockDiscardWithReason).not.toHaveBeenCalled()
     expect(mockDiscardRecording).not.toHaveBeenCalled()
     expect(mockDeleteRecordingSession).not.toHaveBeenCalled()
@@ -349,6 +368,65 @@ describe('a discard that cannot leave its trace does not happen', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('discardReason.failed')
     expect(screen.getByRole('textbox')).toHaveValue(REASON)
     expect(reasonGate()).not.toBeNull()
+  })
+
+  // THE fix-round-1 case. Before it, a mint that failed at recording start left
+  // the staff member with no way to throw the take away at all: their only exits
+  // were saving audio they wanted gone, or walking away and meeting the recovery
+  // banner again. The copy promised a retry that could not work.
+  it('a failed mint is RE-MINTED on confirm, and the discard then goes through', async () => {
+    mockAwaitSession.mockImplementation(async () => null)
+    mockRetryMint.mockImplementationOnce(async () => 'sess-reminted')
+    await renderPage()
+    await tapDiscard('discard')
+    await writeReason()
+    await confirmReason()
+
+    expect(mockRetryMint).toHaveBeenCalledTimes(1)
+    expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
+    // The re-minted id is what the reason row keys on.
+    expect(mockDiscardWithReason.mock.calls[0][0]).toMatchObject({
+      recordingSessionId: 'sess-reminted',
+      reason: REASON,
+    })
+    await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
+    expect(reasonGate()).toBeNull()
+  })
+
+  // ── The 使用/破棄 race (fix round 1) ────────────────────────────────────
+  // proceedDiscard bumps useRecordingGen, and since P5-A it runs only AFTER the
+  // server round-trip — so for the whole dialog lifetime an in-flight 使用 was
+  // unguarded. It would hand the very take the staff member is mid-破棄 to
+  // transcription, which then resurfaces it as a save offer (and bills the
+  // run): the R2 outcome the doctrine forbids. The gate latches its take.
+  it('a take handed to the pipeline while the gate was open is NOT discarded', async () => {
+    recorderTake.takeId = 'take-1'
+    await renderPage()
+    await tapDiscard('discard')
+    await writeReason()
+    // 使用 won the race: the recorder moved on to a different take.
+    recorderTake.takeId = 'take-2'
+    await confirmReason()
+
+    expect(mockDiscardWithReason).not.toHaveBeenCalled()
+    expect(mockDiscardRecording).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent('discardReason.takeChanged')
+    // Fails closed like every other refusal: text kept, gate open, retryable.
+    expect(screen.getByRole('textbox')).toHaveValue(REASON)
+    expect(reasonGate()).not.toBeNull()
+  })
+
+  it('an in-flight 使用 drops its take while a discard gate is open for it', async () => {
+    recorderTake.takeId = 'take-1'
+    await renderPage()
+    await tapDiscard('discard')
+
+    // The gate is open for take-1; 使用 resolving now must not pipeline it.
+    await act(async () => {
+      fireEvent.click(screen.getByText('useRecording'))
+    })
+
+    expect(mockPipelineStart).not.toHaveBeenCalled()
   })
 
   it('core refuses → nothing is discarded, and a retry still works', async () => {

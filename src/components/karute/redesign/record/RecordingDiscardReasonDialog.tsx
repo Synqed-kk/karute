@@ -77,6 +77,17 @@ function DiscardReasonPanel({
     textareaRef.current?.focus()
   }, [])
 
+  // Submitting disables every control, which used to drop keyboard containment
+  // entirely: the focused textarea was disabled out from under the caret, focus
+  // fell to <body>, and the panel's onKeyDown then stopped firing — so Escape
+  // and the Tab wrap were both dead for the whole round-trip. Pull focus back to
+  // the panel (tabIndex -1) so the handler keeps receiving keys; Escape is still
+  // a deliberate no-op while submitting, but it is a no-op we CHOOSE rather than
+  // one the DOM imposes.
+  useEffect(() => {
+    if (submitting) panelRef.current?.focus()
+  }, [submitting])
+
   // Keyboard containment (Greptile r1, carried): Escape cancels, guarded by
   // `submitting` same as the other three exits (backdrop/Cancel/Confirm).
   // Tab/Shift+Tab wrap within the panel — the DOM already puts every focusable
@@ -138,7 +149,10 @@ function DiscardReasonPanel({
           disabled={submitting}
           rows={4}
           maxLength={MAX_REASON_CHARS}
-          aria-label={t('discardReason.title')}
+          // Its OWN name, not the dialog's — the two carried the same string, so
+          // a screen reader announced the identical phrase twice and the field
+          // itself had no distinct label.
+          aria-label={t('discardReason.fieldLabel')}
           placeholder={t('discardReason.placeholder')}
           className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
         />
@@ -170,7 +184,7 @@ function DiscardReasonPanel({
             disabled={!canConfirm}
             onClick={() => canConfirm && onConfirm(reason.trim())}
           >
-            {t('discardReason.confirm')}
+            {submitting ? t('discardReason.submitting') : t('discardReason.confirm')}
           </Button>
         </div>
       </div>

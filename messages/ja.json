@@ -821,10 +821,13 @@
     "recoverPackSaleLost": "回数券の販売登録が失われました。お客様ページから登録してください",
     "discardReason": {
       "title": "録音を破棄する理由",
+      "fieldLabel": "理由",
       "placeholder": "破棄する理由を入力してください（必須）",
       "disclosure": "破棄の記録（日時・担当者・理由）が残ります。",
       "confirm": "破棄する",
-      "failed": "保存できませんでした。もう一度お試しください。"
+      "submitting": "破棄中...",
+      "failed": "破棄を記録できませんでした。もう一度お試しください。",
+      "takeChanged": "この録音はすでに文字起こしに進んでいます。破棄できませんでした。"
     }
   },
   "customers": {

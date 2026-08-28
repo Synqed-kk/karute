@@ -55,17 +55,26 @@ import en from '../../../messages/en.json'
  *  the copy Liam signed off cannot drift without this file going red. */
 const CANON_BLOCK_JA = {
   title: '録音を破棄する理由',
+  fieldLabel: '理由',
   placeholder: '破棄する理由を入力してください（必須）',
   disclosure: '破棄の記録（日時・担当者・理由）が残ります。',
   confirm: '破棄する',
-  failed: '保存できませんでした。もう一度お試しください。',
+  submitting: '破棄中...',
+  // Fix round 1: was 「保存できませんでした。…」 — the SAVE verb, inside a
+  // 破棄 dialog, for a failure that saved nothing.
+  failed: '破棄を記録できませんでした。もう一度お試しください。',
+  takeChanged: 'この録音はすでに文字起こしに進んでいます。破棄できませんでした。',
 }
 const CANON_BLOCK_EN = {
   title: 'Reason for discarding',
+  fieldLabel: 'Reason',
   placeholder: 'Enter the reason for discarding (required)',
   disclosure: 'A discard record (date/time, staff, reason) will be kept.',
   confirm: 'Discard',
-  failed: 'Could not save. Please try again.',
+  submitting: 'Discarding...',
+  failed: 'Could not record the discard. Please try again.',
+  takeChanged:
+    'This recording has already gone to transcription, so it could not be discarded.',
 }
 /** Phase B's line. Ships in B1, WITH the behaviour it describes — never here. */
 const PHASE_B_SENTENCE = '録音内容も方針により保存されます。'
@@ -89,6 +98,9 @@ function open(props: { submitting?: boolean; error?: string | null } = {}) {
   )
 }
 const confirmButton = () => screen.getByRole('button', { name: '破棄する' })
+/** The same button while a submit is in flight — it swaps to the in-progress
+ *  label, so its accessible NAME changes with it (fix round 1). */
+const submittingButton = () => screen.getByRole('button', { name: '破棄中...' })
 const cancelButton = () => screen.getByRole('button', { name: 'キャンセル' })
 const textarea = () => screen.getByRole('textbox') as HTMLTextAreaElement
 const type = (value: string) => fireEvent.change(textarea(), { target: { value } })
@@ -118,6 +130,16 @@ describe('the form the ruling approved', () => {
     for (const dead of ['誤操作', '重複した録音', '施術に関係のない会話', '録音品質']) {
       expect(document.body.textContent).not.toContain(dead)
     }
+  })
+
+  // Fix round 1: the textarea carried the DIALOG's aria-label, so a screen
+  // reader announced the identical phrase twice in a row and the field itself
+  // had no name of its own.
+  it('the textarea carries its own accessible name, not the dialog’s', () => {
+    open()
+
+    expect(textarea()).toHaveAttribute('aria-label', CANON_BLOCK_JA.fieldLabel)
+    expect(textarea().getAttribute('aria-label')).not.toBe(CANON_BLOCK_JA.title)
   })
 
   it('the TEXTAREA takes focus on open, not the panel (⚖ 8/17 / packet A-1)', () => {
@@ -214,11 +236,11 @@ describe('submitting — the in-flight guard', () => {
     open({ submitting: true })
     // The field is pre-filled by the parent's state in production; here the
     // guard alone is what must hold.
-    expect(confirmButton()).toBeDisabled()
+    expect(submittingButton()).toBeDisabled()
     expect(cancelButton()).toBeDisabled()
     expect(textarea()).toBeDisabled()
 
-    fireEvent.click(confirmButton())
+    fireEvent.click(submittingButton())
     fireEvent.click(cancelButton())
     expect(onConfirm).not.toHaveBeenCalled()
     expect(onCancel).not.toHaveBeenCalled()
@@ -228,6 +250,43 @@ describe('submitting — the in-flight guard', () => {
     const backdrop = document.querySelector('.fixed.inset-0.bg-black\\/50')
     expect(backdrop).not.toBeNull()
     fireEvent.click(backdrop as Element)
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+
+  // Fix round 1: the button used to go silently inert — no spinner, no label
+  // change — while the network round-trip ran. On a slow connection that reads
+  // as "did my tap register?", which invites a second tap on a deliberate,
+  // slightly tense action. Same idiom as RecordingConsentDialog's confirm.
+  it('the confirm button says what it is doing while submitting', () => {
+    const { rerender } = open()
+    expect(confirmButton()).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '破棄中...' })).toBeNull()
+
+    rerender(
+      <RecordingDiscardReasonDialog
+        open
+        submitting
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+      />,
+    )
+    expect(submittingButton()).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '破棄する' })).toBeNull()
+  })
+
+  // Every control is disabled while submitting, which used to drop the focused
+  // textarea out from under the caret: focus fell to <body>, so the panel's
+  // onKeyDown stopped firing and BOTH Escape and the Tab wrap went dead for the
+  // whole round-trip — while the file's own header claimed containment carries
+  // over. Focus moves to the panel instead, so the handler keeps receiving keys.
+  it('keeps keyboard focus inside the panel while submitting', () => {
+    open({ submitting: true })
+
+    const panel = screen.getByRole('dialog')
+    expect(panel).toHaveFocus()
+    // Escape is still a deliberate no-op here — but a CHOSEN one, reached by a
+    // handler that actually fires, not one the DOM silently detached.
+    fireEvent.keyDown(panel, { key: 'Escape' })
     expect(onCancel).not.toHaveBeenCalled()
   })
 

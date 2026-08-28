@@ -821,10 +821,13 @@
     "recoverPackSaleLost": "The pack sale was lost. Please register it from the customer page.",
     "discardReason": {
       "title": "Reason for discarding",
+      "fieldLabel": "Reason",
       "placeholder": "Enter the reason for discarding (required)",
       "disclosure": "A discard record (date/time, staff, reason) will be kept.",
       "confirm": "Discard",
-      "failed": "Could not save. Please try again."
+      "submitting": "Discarding...",
+      "failed": "Could not record the discard. Please try again.",
+      "takeChanged": "This recording has already gone to transcription, so it could not be discarded."
     }
   },
   "customers": {

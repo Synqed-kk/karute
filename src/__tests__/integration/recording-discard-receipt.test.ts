@@ -248,6 +248,25 @@ const WITH_REASON = {
   jobState: null,
 }
 
+/**
+ * File a STAFF receipt the ONLY way anything can now (fix round 1, FIX-4).
+ *
+ * `VALID` above is a STAFF receipt SHAPE, and it used to be posted straight at
+ * the receipt-only door. That door no longer accepts one: `discardRowId` is the
+ * entire basis of a STAFF receipt's honesty, so the STAFF arm is reachable only
+ * behind a module-internal vouch that `discardRecordingWithReasonRow` passes
+ * after it has actually written the row (§9 pins the refusal from outside).
+ *
+ * The receipt this produces is byte-identical to the one `VALID` used to
+ * produce — same take fields, `discard_row_id: 'dr-1'` from the ledger fake —
+ * so every assertion below is UNCHANGED. Only the door moved, and it moved onto
+ * the path production actually uses, which means these cases now exercise
+ * `discardRecordingWithClient`'s dedupe/scoping/detail derivation through the
+ * real caller rather than a shape nothing can send any more.
+ */
+const staffReceipt = (over: Record<string, unknown> = {}) =>
+  discardRecordingWithReason({ ...WITH_REASON, ...over })
+
 /** Seed a non-discard row on a target — the probe must ignore it. */
 function seedRow(over: Partial<CoreRow> & { action: string; target_id: string | null }) {
   coreRows.push({
@@ -280,7 +299,7 @@ beforeEach(() => {
 
 describe('one discard = exactly one recording.discard row', () => {
   it('the WEB action writes one durable row carrying the §10.3 detail', async () => {
-    const res = await discardRecordingReceipt(VALID)
+    const res = await staffReceipt()
 
     expect(res).toEqual({ ok: true, receiptId: 'row-1', duplicate: false })
     expect(discardRows()).toHaveLength(1)
@@ -313,7 +332,7 @@ describe('one discard = exactly one recording.discard row', () => {
   })
 
   it('the FACADE route writes one row — the on-2xx hook does NOT add a second', async () => {
-    const res = await post(VALID)
+    const res = await post(WITH_REASON)
     const body = await res.json()
 
     expect(res.status).toBe(200)
@@ -342,7 +361,7 @@ describe('one discard = exactly one recording.discard row', () => {
   })
 
   it('the facade row carries the SERVER-minted requestId, not a client-supplied one', async () => {
-    const res = await post(VALID, { ...auth, 'request-id': 'forged-by-client' })
+    const res = await post(WITH_REASON, { ...auth, 'request-id': 'forged-by-client' })
     const detail = auditLog.mock.calls[0][0].detail as Record<string, unknown>
     // Pinned to the ACTUAL ctx.meta.requestId, which the handler echoes on the
     // response — "not the forged one" alone would pass on any random value.
@@ -353,18 +372,18 @@ describe('one discard = exactly one recording.discard row', () => {
   })
 
   it('scopes the core client to the CALLER’s business, never a body-supplied one', async () => {
-    await post({ ...VALID, businessId: 'someone-elses-business' })
+    await post({ ...WITH_REASON, businessId: 'someone-elses-business' })
     // (the extra key also proves .strict() rejects it — hence no row)
     expect(discardRows()).toHaveLength(0)
 
-    await post(VALID)
+    await post(WITH_REASON)
     expect(newSynqedClientSpy).toHaveBeenCalledWith('business-1')
     expect(auditLog.mock.calls[0][0]).toMatchObject({ actor_id: 'auth-user-1' })
   })
 
   it('falls back to the minted requestId when core returns no row id', async () => {
     auditLog.mockImplementationOnce(async () => undefined)
-    const res = await discardRecordingWithClient(fakeClient as never, webActor, VALID)
+    const res = await discardRecordingWithReasonRow(fakeClient as never, webActor, WITH_REASON)
 
     expect(res).toEqual({ ok: true, receiptId: 'req-web-1', duplicate: false })
   })
@@ -388,10 +407,10 @@ describe('one discard = exactly one recording.discard row', () => {
 
 describe('idempotency on the take key', () => {
   it('a second discard of the same recordingSessionId writes NOTHING and reports duplicate', async () => {
-    const first = await discardRecordingReceipt(VALID)
+    const first = await staffReceipt()
     expect(first).toMatchObject({ ok: true, duplicate: false })
 
-    const second = await discardRecordingReceipt(VALID)
+    const second = await staffReceipt()
 
     expect(second).toEqual({ ok: true, receiptId: 'row-1', duplicate: true })
     expect(discardRows()).toHaveLength(1) // zero new writes
@@ -411,8 +430,8 @@ describe('idempotency on the take key', () => {
   })
 
   it('crosses the two doors — a web discard then the facade one is still one row', async () => {
-    await discardRecordingReceipt(VALID)
-    const res = await post(VALID)
+    await staffReceipt()
+    const res = await post(WITH_REASON)
 
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ receiptId: 'row-1', duplicate: true })
@@ -420,8 +439,8 @@ describe('idempotency on the take key', () => {
   })
 
   it('a DIFFERENT take is not deduped against an existing receipt', async () => {
-    await discardRecordingReceipt(VALID)
-    const other = await discardRecordingReceipt({ ...VALID, recordingSessionId: 'rs-2' })
+    await staffReceipt()
+    const other = await staffReceipt({ recordingSessionId: 'rs-2' })
 
     expect(other).toMatchObject({ ok: true, duplicate: false })
     expect(discardRows()).toHaveLength(2)
@@ -436,7 +455,7 @@ describe('idempotency on the take key', () => {
     // …plus a real discard, but on somebody else's take.
     seedRow({ action: 'recording.discard', target_id: 'rs-999' })
 
-    const res = await discardRecordingReceipt(VALID)
+    const res = await staffReceipt()
 
     expect(res).toMatchObject({ ok: true, duplicate: false })
     expect(discardRows().filter((r) => r.target_id === 'rs-1')).toHaveLength(1)
@@ -464,7 +483,7 @@ describe('a dropped durable write is never reported as success', () => {
   it('the web action returns a failure result', async () => {
     logFails.next = true
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    const res = await discardRecordingReceipt(VALID)
+    const res = await staffReceipt()
     warn.mockRestore()
 
     expect(res).toEqual({ ok: false, error: 'receipt_write_failed' })
@@ -474,7 +493,7 @@ describe('a dropped durable write is never reported as success', () => {
   it('the facade route returns a NON-2xx', async () => {
     logFails.next = true
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    const res = await post(VALID)
+    const res = await post(WITH_REASON)
     warn.mockRestore()
 
     expect(res.status).toBeGreaterThanOrEqual(400)
@@ -501,7 +520,7 @@ describe('system_emitted derivation', () => {
   })
 
   it("source 'STAFF' derives system_emitted: false", async () => {
-    await discardRecordingReceipt(VALID)
+    await staffReceipt()
     expect((discardRows()[0].detail as Record<string, unknown>).system_emitted).toBe(false)
   })
 
@@ -614,7 +633,7 @@ describe('input validation', () => {
 
 describe('detail carries ids/flags/counts only — never record content', () => {
   it('every emitted detail value is a string, number, boolean or null', async () => {
-    await discardRecordingReceipt({ ...VALID, takeId: 'take-1', jobState: 'QUEUED' })
+    await staffReceipt({ takeId: 'take-1', jobState: 'QUEUED' })
     const detail = discardRows()[0].detail as Record<string, unknown>
 
     for (const [key, value] of Object.entries(detail)) {
@@ -624,7 +643,7 @@ describe('detail carries ids/flags/counts only — never record content', () => 
   })
 
   it('the detail key set is exactly spec §10.3 (plus the request_id correlation key)', async () => {
-    await discardRecordingReceipt(VALID)
+    await staffReceipt()
     const detail = discardRows()[0].detail as Record<string, unknown>
 
     expect(Object.keys(detail).sort()).toEqual(
@@ -649,7 +668,7 @@ describe('detail carries ids/flags/counts only — never record content', () => 
   })
 
   it('the key set is IDENTICAL on both arms — a SYSTEM row hides nothing', async () => {
-    await discardRecordingReceipt(VALID)
+    await staffReceipt()
     const staffKeys = Object.keys(discardRows()[0].detail as object).sort()
     coreRows.length = 0
     await discardRecordingReceipt(SYSTEM_VALID)
@@ -657,12 +676,12 @@ describe('detail carries ids/flags/counts only — never record content', () => 
   })
 
   it('duration is a whole-second COUNT, never a raw float', async () => {
-    await discardRecordingReceipt({ ...VALID, durationSeconds: 12.987 })
+    await staffReceipt({ durationSeconds: 12.987 })
     expect((discardRows()[0].detail as Record<string, unknown>).duration_sec).toBe(13)
   })
 
   it('has_free_text follows the SOURCE, never a body value', async () => {
-    await discardRecordingReceipt(VALID)
+    await staffReceipt()
     expect((discardRows()[0].detail as Record<string, unknown>).has_free_text).toBe(true)
     coreRows.length = 0
     await discardRecordingReceipt(SYSTEM_VALID)
@@ -687,7 +706,7 @@ describe('below_floor derivation', () => {
     [12.4, false],
     [600, false],
   ])('%ss of audio → below_floor %s', async (durationSeconds, expected) => {
-    await discardRecordingReceipt({ ...VALID, durationSeconds })
+    await staffReceipt({ durationSeconds })
     expect((discardRows()[0].detail as Record<string, unknown>).below_floor).toBe(expected)
   })
 
@@ -705,7 +724,7 @@ describe('below_floor derivation', () => {
 
 describe('jobState', () => {
   it.each(['QUEUED', 'RUNNING', 'DONE', 'FAILED'])('accepts the real pipeline state %s', async (jobState) => {
-    await discardRecordingReceipt({ ...VALID, jobState })
+    await staffReceipt({ jobState })
     expect((discardRows()[0].detail as Record<string, unknown>).job_state).toBe(jobState)
   })
 
@@ -736,7 +755,7 @@ describe('an unattributable receipt is refused before any read or write', () => 
 
 describe('idempotency probe', () => {
   it('queries core through synqed.audit (receiver preserved) scoped to this take', async () => {
-    await discardRecordingReceipt(VALID)
+    await staffReceipt()
     expect(auditList).toHaveBeenCalledTimes(1)
     expect(auditList.mock.calls[0][0]).toMatchObject({
       category: 'recording',
@@ -748,7 +767,7 @@ describe('idempotency probe', () => {
   it('a FAILED probe still files the receipt (losing it would be worse than a duplicate)', async () => {
     auditList.mockRejectedValueOnce(new Error('core read down'))
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    const res = await discardRecordingReceipt(VALID)
+    const res = await staffReceipt()
     warn.mockRestore()
 
     expect(res).toMatchObject({ ok: true, duplicate: false })
@@ -879,6 +898,12 @@ describe('the reason row lands first, and the receipt points at it', () => {
       expect.objectContaining({ reason: '' }),
     )
     expect(discardRows()).toHaveLength(0)
+
+    // …and the padding around a REAL reason is stripped SERVER-side, not just
+    // at the textarea: the server decides what the stored reason is, and a
+    // non-web caller does not go through that textarea at all.
+    await discardRecordingWithReason({ ...WITH_REASON, reason: '  録り直します  ' })
+    expect(discardLedger[0].reason).toBe('録り直します')
   })
 
   it('refuses a STAFF discard with no session id — there is nowhere to key the row', async () => {
@@ -931,5 +956,93 @@ describe('the reason row lands first, and the receipt points at it', () => {
 
     expect(res).toEqual({ ok: false, error: 'discard_row_failed' })
     expect(discardRows()).toHaveLength(0)
+  })
+})
+
+// ── 9. A STAFF receipt cannot be MINTED from outside (fix round 1, FIX-4) ───
+// `discard_row_id` + `has_free_text: true` is a claim that a written reason
+// exists. Only this module can make it, because only this module writes the
+// row. Before the vouch, the receipt-only door took a STAFF body straight from
+// a request: an authenticated records.write caller could file a receipt
+// pointing at a row id they invented, on a session with no reason anywhere —
+// the exact dishonesty discard.ts's header says must be impossible.
+
+describe('the public doors cannot reach the STAFF arm', () => {
+  it('the WEB receipt-only door refuses a STAFF shape with a forged row id', async () => {
+    expect(await discardRecordingReceipt({ ...VALID, discardRowId: 'forged' })).toEqual({
+      ok: false,
+      error: 'validation',
+    })
+    expect(discardRows()).toHaveLength(0)
+    expect(discardLedger).toHaveLength(0)
+  })
+
+  it('the FACADE receipt-only door refuses it too — same chokepoint, same answer', async () => {
+    const res = await post({ ...VALID, discardRowId: 'forged' })
+
+    expect(res.status).toBe(400)
+    expect(discardRows()).toHaveLength(0)
+    expect(discardLedger).toHaveLength(0)
+  })
+
+  // Not just the forged id: the STAFF arm is unreachable from outside AT ALL,
+  // including with the row id this very suite's ledger would mint.
+  it('refuses a STAFF shape even when its row id is one that really exists', async () => {
+    await discardRecordingWithReason({ ...WITH_REASON, recordingSessionId: 'rs-9' })
+    expect(discardLedger).toHaveLength(1)
+    const realRowId = discardLedger[0].id
+    coreRows.length = 0
+
+    expect(await discardRecordingReceipt({ ...VALID, discardRowId: realRowId })).toEqual({
+      ok: false,
+      error: 'validation',
+    })
+    expect(discardRows()).toHaveLength(0)
+  })
+
+  // The STAFF arm's own `.strict()` is now belt behind the reason door's
+  // braces — a hostile key can only ever arrive THERE, so that is where the
+  // refusal has to be pinned or a widened schema goes unnoticed.
+  it.each(['note', 'comment', 'freeText', 'category', 'system_emitted', 'belowFloor', 'has_free_text'])(
+    'the reason door refuses the unknown key %s',
+    async (field) => {
+      expect(await discardRecordingWithReason({ ...WITH_REASON, [field]: 'anything' })).toEqual({
+        ok: false,
+        error: 'validation',
+      })
+      expect(discardCreate).not.toHaveBeenCalled()
+      expect(discardRows()).toHaveLength(0)
+    },
+  )
+})
+
+// ── 10. The facade routes on `reason`, and only on `reason` ────────────────
+// route.ts decides per request which door a body takes, and its own comment
+// names the stake: "the phone and the web page must not be able to drift into
+// different discard semantics". Nothing used to post a body carrying a reason,
+// so the entire phone path — thin port → facade → reason door — was unproven.
+
+describe('facade reason-door routing', () => {
+  it('a body WITH a reason takes the written-reason door', async () => {
+    const res = await post(WITH_REASON)
+
+    expect(res.status).toBe(200)
+    expect(discardCreate).toHaveBeenCalledTimes(1)
+    expect(discardCreate.mock.calls[0][0]).toMatchObject({
+      recording_session_id: 'rs-1',
+      source: 'STAFF',
+      discarded_by: 'auth-user-1',
+      reason: WITH_REASON.reason,
+    })
+    expect((discardRows()[0].detail as Record<string, unknown>).discard_row_id).toBe('dr-1')
+  })
+
+  it('a body WITHOUT one takes the receipt-only door — no ledger row is written', async () => {
+    const res = await post(SYSTEM_VALID)
+
+    expect(res.status).toBe(200)
+    expect(discardCreate).not.toHaveBeenCalled()
+    expect(discardLedger).toHaveLength(0)
+    expect((discardRows()[0].detail as Record<string, unknown>).discard_row_id).toBeNull()
   })
 })
