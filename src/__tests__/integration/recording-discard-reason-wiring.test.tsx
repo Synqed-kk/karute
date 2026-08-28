@@ -43,6 +43,10 @@ const mockDiscardWithReason = jest.fn(async (input: unknown) => {
 jest.mock('@/actions/recording-discard', () => ({
   discardRecordingWithReason: (input: unknown) => mockDiscardWithReason(input),
 }))
+jest.mock('@/actions/recording-discards', () => ({
+  myDiscardCountThisMonth: jest.fn(async () => null),
+  listDiscardReasons: jest.fn(async () => ({ ok: false, error: 'forbidden' })),
+}))
 jest.mock('@/actions/karute', () => ({
   saveKaruteRecord: jest.fn(),
   saveKaruteRecordInline: jest.fn(async () => ({ id: 'karute-1' })),

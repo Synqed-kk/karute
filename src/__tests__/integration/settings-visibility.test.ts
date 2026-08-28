@@ -13,16 +13,17 @@ const TABS = [
   { id: 'packs', ownerOnly: true },
   { id: 'menus' },
   { id: 'audit' },
+  { id: 'discards' },
 ] as const
 
 describe('visibleSettingsTabs', () => {
   it('owner sees everything (incl. stores + ownerOnly tabs)', () => {
-    const ids = visibleSettingsTabs(TABS, { isOwner: true, canViewAllStores: true, canViewAudit: true, canViewSync: true, canManageMenus: true }).map((t) => t.id)
-    expect(ids).toEqual(['organization', 'stores', 'theme', 'staff', 'sync', 'packs', 'menus', 'audit'])
+    const ids = visibleSettingsTabs(TABS, { isOwner: true, canViewAllStores: true, canViewAudit: true, canViewSync: true, canManageMenus: true, canManageStaff: true }).map((t) => t.id)
+    expect(ids).toEqual(['organization', 'stores', 'theme', 'staff', 'sync', 'packs', 'menus', 'audit', 'discards'])
   })
 
   it('cross-store manager (viewAll, not owner, no grant) sees stores but not sync/packs/audit', () => {
-    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: true, canViewAudit: false, canViewSync: false, canManageMenus: false }).map((t) => t.id)
+    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: true, canViewAudit: false, canViewSync: false, canManageMenus: false, canManageStaff: true }).map((t) => t.id)
     expect(ids).toContain('stores')
     expect(ids).not.toContain('sync')
     expect(ids).not.toContain('packs')
@@ -30,32 +31,48 @@ describe('visibleSettingsTabs', () => {
   })
 
   it('audit.view-granted manager sees 監査ログ but still not owner-only tabs', () => {
-    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: true, canViewAudit: true, canViewSync: false, canManageMenus: false }).map((t) => t.id)
+    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: true, canViewAudit: true, canViewSync: false, canManageMenus: false, canManageStaff: true }).map((t) => t.id)
     expect(ids).toContain('audit')
     expect(ids).not.toContain('packs')
   })
 
   it('audit.view-granted but store-clamped (no viewAll) staff: 監査ログ stays hidden — the audit read has no store filter yet (store-scope parity)', () => {
-    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: false, canViewAudit: true, canViewSync: false, canManageMenus: false }).map((t) => t.id)
+    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: false, canViewAudit: true, canViewSync: false, canManageMenus: false, canManageStaff: false }).map((t) => t.id)
     expect(ids).not.toContain('audit')
   })
 
   it('sync.view-granted manager sees 予約同期 but still not owner-only tabs (PR-M2 fix round)', () => {
-    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: true, canViewAudit: false, canViewSync: true, canManageMenus: false }).map((t) => t.id)
+    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: true, canViewAudit: false, canViewSync: true, canManageMenus: false, canManageStaff: true }).map((t) => t.id)
     expect(ids).toContain('sync')
     expect(ids).not.toContain('packs')
     expect(ids).not.toContain('audit')
   })
 
   it('the メニュー tab follows menus.manage alone — no owner/grant shortcut (menu-catalog PR-2)', () => {
-    const granted = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: false, canViewAudit: false, canViewSync: false, canManageMenus: true }).map((t) => t.id)
+    const granted = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: false, canViewAudit: false, canViewSync: false, canManageMenus: true, canManageStaff: false }).map((t) => t.id)
     expect(granted).toContain('menus')
-    const withoutCap = visibleSettingsTabs(TABS, { isOwner: true, canViewAllStores: true, canViewAudit: true, canViewSync: true, canManageMenus: false }).map((t) => t.id)
+    const withoutCap = visibleSettingsTabs(TABS, { isOwner: true, canViewAllStores: true, canViewAudit: true, canViewSync: true, canManageMenus: false, canManageStaff: false }).map((t) => t.id)
     expect(withoutCap).not.toContain('menus')
   })
 
+  // 破棄の記録 (packet P5-A A-6). staff.manage is the EXISTING owner/manager
+  // line — owner holds ALL and manager holds ALL minus five, so both carry it
+  // while senior/practitioner/frontdesk do not. Deliberately NOT a new
+  // capability (integrity.view is B-5), and deliberately not ownerOnly: a
+  // manager runs the salon and is exactly who reads these.
+  it('the 破棄の記録 tab follows staff.manage alone — manager yes, owner yes, everyone else no', () => {
+    const manager = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: true, canViewAudit: false, canViewSync: false, canManageMenus: false, canManageStaff: true }).map((t) => t.id)
+    expect(manager).toContain('discards')
+
+    // A senior/practitioner holds menus.manage or records.write but never
+    // staff.manage — the reasons their colleagues wrote are not theirs to read.
+    const senior = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: true, canViewAudit: false, canViewSync: false, canManageMenus: true, canManageStaff: false }).map((t) => t.id)
+    expect(senior).not.toContain('discards')
+    expect(senior).toContain('menus')
+  })
+
   it('branch-restricted staff (no viewAll, no sync.view): the 店舗 and 予約同期 tabs are hidden entirely', () => {
-    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: false, canViewAudit: false, canViewSync: false, canManageMenus: false }).map((t) => t.id)
+    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: false, canViewAudit: false, canViewSync: false, canManageMenus: false, canManageStaff: false }).map((t) => t.id)
     expect(ids).not.toContain('stores')
     expect(ids).not.toContain('sync')
     // ...but still sees the ordinary tabs.

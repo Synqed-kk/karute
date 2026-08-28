@@ -33,6 +33,10 @@ jest.mock('@/actions/karute', () => ({
   saveKaruteRecord: jest.fn(),
   saveKaruteRecordInline: jest.fn(async () => ({ id: 'karute-1' })),
 }))
+jest.mock('@/actions/recording-discards', () => ({
+  myDiscardCountThisMonth: jest.fn(async () => null),
+  listDiscardReasons: jest.fn(async () => ({ ok: false, error: 'forbidden' })),
+}))
 jest.mock('@/actions/recovery', () => ({
   getRecoveryDayFacts: jest.fn(async () => ({
     date: '2026-08-25',

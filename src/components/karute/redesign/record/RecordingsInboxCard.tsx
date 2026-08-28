@@ -36,6 +36,13 @@ export interface RecordingsInboxCardProps {
   onOpenRecord: (row: InboxRow) => void
   /** 保存する / 再試行 — hand this take's audio to the recovery save. */
   onSaveTake: (row: InboxRow) => void
+  /** The viewer's OWN discards this month (⚖ 8/25 ruling B, staff half).
+   *  A LABELLED PLAIN FACT in muted type — never a badge, a threshold or a
+   *  colour: Liam's rule is that this number must never make someone hesitate
+   *  to discard a recording they should discard. null/undefined = not known
+   *  (the read failed, or it has not answered yet) and nothing renders — a
+   *  zero would be a claim we cannot make. */
+  myDiscardsThisMonth?: number | null
 }
 
 const STATE_LABEL: Record<InboxState, string> = {
@@ -76,6 +83,7 @@ export function RecordingsInboxCard({
   customerNameById,
   onOpenRecord,
   onSaveTake,
+  myDiscardsThisMonth,
 }: RecordingsInboxCardProps) {
   const t = useTranslations('recording.inbox')
   const tRec = useTranslations('recording')
@@ -159,6 +167,11 @@ export function RecordingsInboxCard({
         <span className="w-full text-[11.5px] leading-relaxed text-muted-foreground">
           {t('caption')}
         </span>
+        {typeof myDiscardsThisMonth === 'number' && (
+          <span className="w-full text-[11.5px] leading-relaxed text-muted-foreground">
+            {t('myDiscards', { n: myDiscardsThisMonth })}
+          </span>
+        )}
         {serverFailed && (
           <span className="w-full text-[11.5px] leading-relaxed text-muted-foreground">
             {t('partial')}

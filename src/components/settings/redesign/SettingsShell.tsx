@@ -12,6 +12,7 @@ import {
   Palette,
   RefreshCw,
   ShieldCheck,
+  Trash2,
   Sparkles,
   Store,
   Users,
@@ -37,6 +38,7 @@ import { SyncStatusCard } from './sections/SyncStatusCard'
 import { PacksSection } from './sections/PacksSection'
 import { MenusSection } from './sections/MenusSection'
 import { AuditLogSection } from './sections/AuditLogSection'
+import { DiscardReasonsSection } from './sections/DiscardReasonsSection'
 
 export type SettingsTabId =
   | 'organization'
@@ -50,6 +52,7 @@ export type SettingsTabId =
   | 'packs'
   | 'menus'
   | 'audit'
+  | 'discards'
 
 interface TabDef {
   id: SettingsTabId
@@ -161,6 +164,21 @@ const TABS: TabDef[] = [
     labelKey: 'auditLog.label',
     descriptionKey: 'auditLogDescription',
     icon: ShieldCheck,
+  },
+  {
+    // 破棄の記録 (packet P5-A A-6). Not ownerOnly: gated on canManageStaff —
+    // the EXISTING owner/manager line (`staff.manage`, the one capability both
+    // presets carry and senior/practitioner/frontdesk do not). Deliberately not
+    // a new capability; `integrity.view` is a B-5 item and would ship here with
+    // no UI to grant it. The action enforces the same check server-side.
+    //
+    // labelKey reaches into `.label` because `settings.discardReasons` is an
+    // object holding the section's copy — the same i18n-collision pattern as
+    // theme/coaching/packs/menus/auditLog above.
+    id: 'discards',
+    labelKey: 'discardReasons.label',
+    descriptionKey: 'discardReasonsDescription',
+    icon: Trash2,
   },
 ]
 
@@ -285,7 +303,7 @@ export function SettingsShell({
   // 店舗 hidden from branch-restricted staff; staff roster clamped to self for
   // non-managers. Pure, unit-tested rules (see lib/auth/settings-visibility) —
   // this is UI exposure reduction; server actions enforce the real boundary.
-  const visibleTabs = visibleSettingsTabs(TABS, { isOwner, canViewAllStores, canViewAudit, canViewSync, canManageMenus })
+  const visibleTabs = visibleSettingsTabs(TABS, { isOwner, canViewAllStores, canViewAudit, canViewSync, canManageMenus, canManageStaff })
   const visibleStaff = visibleStaffRoster(staffList, activeStaffId, canManageStaff)
 
   const desktopActiveTab = activeTab ?? visibleTabs[0]?.id ?? null
@@ -383,6 +401,10 @@ export function SettingsShell({
         return canViewAudit && canViewAllStores ? (
           <AuditLogSection staffList={staffList} initialTargetId={auditTargetId} />
         ) : null
+      case 'discards':
+        // Defense in depth alongside the tab filter (same idiom as the two
+        // above). The server action re-checks staff.manage regardless.
+        return canManageStaff ? <DiscardReasonsSection /> : null
       default:
         return null
     }

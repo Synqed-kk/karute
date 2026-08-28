@@ -731,6 +731,7 @@
     "inbox": {
       "title": "Recording history",
       "caption": "Your recordings from the past 7 days",
+      "myDiscards": "Recordings you discarded this month: {n}",
       "needsAttention": "{n} need attention",
       "needsAttentionAria": ", {n} need attention",
       "empty": "No recordings in the past 7 days.",
@@ -2288,6 +2289,19 @@
       "shownLabel": "Shown",
       "hiddenLabel": "Hidden"
     },
+    "discardReasons": {
+      "label": "Discard records",
+      "title": "Discard records",
+      "description": "The reasons staff gave when discarding a recording. Visible to managers only.",
+      "byStaffTitle": "By staff member (this month)",
+      "countThisMonth": "Discarded this month: {count}",
+      "countTotal": "Discards on record: {count} in total",
+      "unknownStaff": "Staff member unknown",
+      "loading": "Loading…",
+      "loadFailed": "Could not load the discard records.",
+      "empty": "No discards have been recorded yet.",
+      "truncated": "Older records are not shown — there are too many to list."
+    },
     "auditLog": {
       "label": "Audit log",
       "description": "Who accessed or changed which record, and when.",
@@ -2553,6 +2567,7 @@
     "consentTemplatePlaceholder": "We record this consultation to improve your care…",
     "subscriptionDescription": "Plan, billing, payment method",
     "auditLogDescription": "Access history — APPI compliance + governance",
+    "discardReasonsDescription": "Why recordings were discarded",
     "storesTab": "Stores",
     "storesDescription": "Manage and add stores",
     "coachingTabDescription": "Coaching settings — coming soon.",

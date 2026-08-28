@@ -82,6 +82,10 @@ jest.mock('@/actions/customers', () => ({
   getCustomerConsent: jest.fn(async () => ({ consent: null })),
   grantCustomerConsent: jest.fn(async () => ({ ok: true })),
 }))
+jest.mock('@/actions/recording-discards', () => ({
+  myDiscardCountThisMonth: jest.fn(async () => null),
+  listDiscardReasons: jest.fn(async () => ({ ok: false, error: 'forbidden' })),
+}))
 jest.mock('@/actions/packs', () => ({
   createPackAction: jest.fn(),
   redeemSessionAction: jest.fn(),

@@ -24,6 +24,13 @@ export interface SettingsCaps {
    *  member) all hold menus.manage through their CAPABILITIES preset, so the
    *  capability alone is the whole rule (verified in lib/auth/permissions.ts). */
   canManageMenus: boolean
+  /** the staff.manage capability — gates the 破棄の記録 tab (packet P5-A A-6).
+   *  This is the codebase's EXISTING owner/manager line: owner holds ALL and
+   *  manager holds ALL minus billing/business/recordings.viewAll/audit.view/
+   *  sync.view, so both carry it while senior/practitioner/frontdesk do not
+   *  (verified in lib/auth/permissions.ts). A bare capability read like
+   *  canManageMenus, not the `isOwner ||` grant idiom audit/sync use. */
+  canManageStaff: boolean
 }
 
 /**
@@ -43,6 +50,10 @@ export interface SettingsCaps {
  *   - The 店舗 (stores) tab requires stores.viewAll: a branch-restricted staff
  *     can't switch stores (the switch is server-clamped) and the section
  *     otherwise leaks the other branch + its customer counts.
+ *   - The 破棄の記録 (discards) tab requires staff.manage — the existing
+ *     owner/manager line. The reasons staff write about their own recordings
+ *     are a manager read, and listDiscardReasons enforces the same capability
+ *     server-side, so a viewer without it would only ever get a denied read.
  */
 export function visibleSettingsTabs<T extends { id: string; ownerOnly?: boolean }>(
   tabs: readonly T[],
@@ -53,6 +64,7 @@ export function visibleSettingsTabs<T extends { id: string; ownerOnly?: boolean 
     if (tab.id === 'audit' && !(caps.canViewAudit && caps.canViewAllStores)) return false
     if (tab.id === 'sync' && !caps.canViewSync) return false
     if (tab.id === 'menus' && !caps.canManageMenus) return false
+    if (tab.id === 'discards' && !caps.canManageStaff) return false
     return !tab.ownerOnly || caps.isOwner
   })
 }

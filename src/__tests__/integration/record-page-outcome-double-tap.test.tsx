@@ -43,6 +43,10 @@ jest.mock('@/actions/recording-discard', () => ({
     duplicate: false,
   })),
 }))
+jest.mock('@/actions/recording-discards', () => ({
+  myDiscardCountThisMonth: jest.fn(async () => null),
+  listDiscardReasons: jest.fn(async () => ({ ok: false, error: 'forbidden' })),
+}))
 jest.mock('@/actions/karute', () => ({ saveKaruteRecord: jest.fn() }))
 // Overridable per-test (mockResolvedValueOnce) — the handleStartRecording
 // regression test below needs consent GRANTED to reach the real record-start

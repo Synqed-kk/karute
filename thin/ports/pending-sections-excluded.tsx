@@ -26,3 +26,7 @@ const Excluded = (): null => null
 export default Excluded
 export const SyncSection = Excluded
 export const MenusSection = Excluded
+// DiscardReasonsSection (packet P5-A A-6): 準備中 on the phone — the section
+// reads the discard ledger through a 'use server' action, so the thin shell
+// needs a facade route + port entry before its tab can go live here.
+export const DiscardReasonsSection = Excluded

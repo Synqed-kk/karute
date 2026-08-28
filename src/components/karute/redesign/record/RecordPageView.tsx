@@ -37,6 +37,7 @@ import { saveKaruteRecordInline } from '@/actions/karute'
 import { getRecoveryDayFacts } from '@/actions/recovery'
 import { deleteRecordingSession } from '@/actions/recordings'
 import { discardRecordingWithReason } from '@/actions/recording-discard'
+import { myDiscardCountThisMonth } from '@/actions/recording-discards'
 import type { RecoveryDayFacts } from '@/lib/karute/recovery-facts'
 import { formatCompactDateJst, hmInJst, ymdInJst } from '@/lib/date/jst'
 import type { EntryCategory } from '@/lib/karute/categories'
@@ -662,6 +663,20 @@ export function RecordPageView({
   // any draft existed). A surviving draft is PREFERRED — its transcription is
   // already paid for — so the audio is offered only when no draft loads.
   const [recoveredTake, setRecoveredTake] = useState<RecoverableTake | null>(null)
+
+  // ⚖ 8/25 ruling B (staff half): the staffer sees their OWN discard count for
+  // the month, and only their own. Read once on mount, alongside the inbox it
+  // renders next to. null = unknown (never shown), never a zero we cannot back.
+  const [myDiscardsThisMonth, setMyDiscardsThisMonth] = useState<number | null>(null)
+  useEffect(() => {
+    let alive = true
+    void myDiscardCountThisMonth().then((n) => {
+      if (alive) setMyDiscardsThisMonth(n)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
   useEffect(() => {
     // Both loads are async and owner-gated at their store layer — only the
     // staff member who recorded/saved is ever offered anything (privacy on a
@@ -2681,6 +2696,7 @@ export function RecordPageView({
         customerNameById={customerNameById}
         onOpenRecord={handleInboxOpenRecord}
         onSaveTake={handleInboxSaveTake}
+        myDiscardsThisMonth={myDiscardsThisMonth}
       />
 
       <LiveTranscriptCard connected={false} lines={[]} />

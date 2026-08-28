@@ -31,6 +31,10 @@ const SECTION_FILE_BY_TAB: Record<string, string> = {
   // menu-catalog lane PR-2: web-only for fork A (editing lives on the
   // computer, plan §8) — same three-way pairing as sync.
   menus: 'MenusSection.tsx',
+  // 破棄の記録 (packet P5-A A-6): 準備中 on the phone — the section reads the
+  // discard ledger through a 'use server' action, so the thin shell needs a
+  // facade route + port entry before its tab can go live here.
+  discards: 'DiscardReasonsSection.tsx',
 }
 
 function tabIdsFromConst(src: string, constName: string): string[] {

@@ -92,6 +92,7 @@ const PENDING_SECTION_FILES = new Set(
   [
     'src/components/settings/redesign/sections/SyncSection.tsx',
     'src/components/settings/redesign/sections/MenusSection.tsx',
+    'src/components/settings/redesign/sections/DiscardReasonsSection.tsx',
   ].map((p) => path.resolve(root, p)),
 )
 

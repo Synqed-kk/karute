@@ -84,6 +84,9 @@ jest.mock('@/components/settings/redesign/sections/PacksSection', () => ({
 jest.mock('@/components/settings/redesign/sections/AuditLogSection', () => ({
   AuditLogSection: () => null,
 }))
+jest.mock('@/components/settings/redesign/sections/DiscardReasonsSection', () => ({
+  DiscardReasonsSection: () => null,
+}))
 
 import { SettingsScreenInner } from '../../../thin/screens/SettingsScreen'
 import { SettingsShell } from '@/components/settings/redesign/SettingsShell'

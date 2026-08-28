@@ -45,6 +45,9 @@ jest.mock('@/components/settings/redesign/sections/MenusSection', () => ({
 jest.mock('@/components/settings/redesign/sections/AuditLogSection', () => ({
   AuditLogSection: () => <div data-testid="section-audit" />,
 }))
+jest.mock('@/components/settings/redesign/sections/DiscardReasonsSection', () => ({
+  DiscardReasonsSection: () => null,
+}))
 
 import { SettingsShell, type SettingsTabId } from '@/components/settings/redesign/SettingsShell'
 import type { StaffMember } from '@/lib/staff'

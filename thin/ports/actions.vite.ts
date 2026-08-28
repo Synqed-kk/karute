@@ -1133,6 +1133,20 @@ export const discardRecordingWithReason = async (
   }
 }
 
+// 破棄の記録 — the staffer's OWN monthly discard count (⚖ 8/25 ruling B, staff
+// half). NOT AVAILABLE ON THE PHONE THIS ROUND: the web action reads core's
+// discard ledger through a 'use server' client, and the thin shell would need
+// its own facade route (GET /recordings/discards) before it could ask the same
+// question. `null` is the component's honest "not known" state and renders
+// NOTHING — never a 0, which would claim the staffer discarded nothing this
+// month. The 破棄の記録 manager screen is 準備中 on thin for the same reason
+// (thin/screens/SettingsScreen.tsx PENDING_TAB_IDS).
+//
+// This entry exists because the boundary plugin substitutes this module for
+// every src/actions/ import: without the name, the thin BUILD fails — which is
+// the gate working, not a workaround.
+export const myDiscardCountThisMonth = async (): Promise<number | null> => null
+
 // -- 録音履歴 inbox (Build F1). Type-only import of the row shape: inbox.ts is
 // pure (no next/*, no synqed client), so this erases at compile and the DTO
 // stays defined in ONE place instead of being redeclared here.
