@@ -58,6 +58,12 @@ const client = {
     })),
   },
   recordingJobs: { getByRecordingSession: jest.fn() },
+  // P5-A item A2-3: the inbox read now also asks the discard ledger which
+  // sessions a staff member deliberately threw away. Empty here — these suites
+  // are about the customer-name fill / the facade envelope, not discards.
+  recordingDiscards: {
+    list: jest.fn(async () => ({ events: [], total: 0, page: 1, page_size: 200 })),
+  },
 } as unknown as Parameters<typeof readRecordingsInbox>[0]['synqed']
 
 const read = () =>

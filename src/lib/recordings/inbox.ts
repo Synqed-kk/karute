@@ -41,8 +41,15 @@ export const INBOX_WINDOW_MS = 7 * DAY_MS
  */
 export const SESSION_UNSETTLED_GRACE_MS = 3 * 60 * 60 * 1000
 
-/** The five states of the mock, in the mock's own vocabulary. */
+/** The states of the mock, in the mock's own vocabulary. */
 export type InboxState =
+  /** 破棄済み — a staff member deliberately threw this take away and wrote why
+   *  (⚖ 8/20 doctrine, packet item A2-3). It is NOT a failure and NOT an
+   *  outstanding job: it is a finished, deliberate decision, so the row is
+   *  inert — grayed, no retry, no navigation to content. Before A2-1 the
+   *  session row was hard-deleted on discard and this state could not exist;
+   *  the row now survives BECAUSE the written reason keys on it. */
+  | 'discarded'
   /** 保存済み — a karute record exists for this session. */
   | 'saved'
   /** 確認待ち — the record exists but this device never settled its take, so
@@ -107,6 +114,16 @@ export interface InboxServerSession {
   jobProbeFailed: boolean
   /** Present only on FAILED — mapped to a reason, never rendered raw. */
   jobLastError: string | null
+  /**
+   * A STAFF row exists for this session in core's discard ledger — the staff
+   * member deliberately threw the take away and wrote why (P5-A).
+   *
+   * Optional so every existing caller and fixture keeps compiling and reads
+   * as "not discarded", which is the honest default: absent evidence of a
+   * discard is not evidence of one. Filled by inbox-read.ts from ONE batched
+   * ledger read per derivation pass, never a per-row probe.
+   */
+  discardedByStaff?: boolean
 }
 
 /** One device-local take (lib/karute/take-store). Audio is guaranteed: the
@@ -146,7 +163,10 @@ export interface InboxRow {
  *  actually act on it. 処理中 and 保存済み are deliberately NOT counted —
  *  nothing to do. A failed row with no retryable take is also excluded — no
  *  再試行 button renders for it (see canRetry), so counting it would demand
- *  an action the staff member cannot perform. */
+ *  an action the staff member cannot perform. 破棄済み is likewise never
+ *  counted (A2-3): the staff member already decided AND explained; putting it
+ *  in 要対応 would demand an action for a finished decision, which is the
+ *  unclearable-badge problem the old cleanup existed to avoid. */
 export function needsAttention(row: InboxRow): boolean {
   return (
     row.state === 'awaiting-check' ||
@@ -208,6 +228,21 @@ export function deriveInboxRows(input: {
       startedAt,
       durationSeconds: s.durationSeconds ?? takeDuration(take),
       canRetry: false,
+    }
+
+    // PRECEDENCE, ABOVE EVERYTHING (A2-3). A deliberate discard is a decision
+    // a human already made and explained; nothing the job probe or the local
+    // take says can outrank it. Placing it first is what makes G9's outcome —
+    // a discarded session resurfacing as a green 保存済み / an actionable
+    // 復元可能 row offering to save audio the staff member threw away —
+    // structurally impossible rather than merely unlikely.
+    if (s.discardedByStaff) {
+      // The ids stay TRUE (this module never invents or erases evidence); what
+      // makes the row inert is `canRetry: false` plus the state itself, which
+      // RecordingsInboxCard's actionFor checks FIRST and answers with no
+      // affordance at all — no 保存する, no 再試行, no 開く.
+      rows.push({ ...base, state: 'discarded', reason: null, canRetry: false })
+      continue
     }
 
     if (s.karuteRecordId) {

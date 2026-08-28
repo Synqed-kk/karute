@@ -744,7 +744,8 @@
         "awaitingCheck": "Needs a look",
         "processing": "Processing",
         "failed": "Failed",
-        "recoverable": "Recoverable"
+        "recoverable": "Recoverable",
+        "discarded": "Discarded"
       },
       "reason": {
         "transcribing": "Transcribing on the server",

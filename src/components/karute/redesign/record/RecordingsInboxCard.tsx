@@ -51,6 +51,7 @@ const STATE_LABEL: Record<InboxState, string> = {
   processing: 'processing',
   failed: 'failed',
   recoverable: 'recoverable',
+  discarded: 'discarded',
 }
 
 /** Wash + dark text for every chip. Semantic colours (green/amber/red) and
@@ -66,6 +67,10 @@ const CHIP_CLASS: Record<InboxState, string> = {
     'bg-red-50 text-red-700 border-red-200 dark:bg-red-500/15 dark:text-red-200 dark:border-red-500/30',
   recoverable:
     'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-500/15 dark:text-amber-200 dark:border-amber-500/30',
+  // 破棄済み is NEUTRAL GRAY, deliberately (⚖ 8/20 doctrine, A2-3). A discard
+  // is a finished, explained decision — not a failure and not an alarm — so it
+  // gets no red, no amber and no accent. It is the quietest chip on the card.
+  discarded: 'bg-muted text-muted-foreground border-border',
 }
 
 const QUIET_BTN = 'rounded-lg px-1 py-0.5 text-[12.5px] font-semibold text-primary'
@@ -115,6 +120,12 @@ export function RecordingsInboxCard({
   /** The ONE thing a row still offers, or nothing. Quiet link for the two that
    *  navigate/re-run, the R13 wash for 確認する, the solid commit for 保存する. */
   function actionFor(row: InboxRow) {
+    // 破棄済み is INERT (A2-3): the take is gone by the staff member's own
+    // explained decision, so there is nothing to open, save or retry. Guarded
+    // FIRST so no later branch can hand a discarded row an affordance — the
+    // fold already nulls its takeId and karuteRecordId, and this is the second
+    // lock on the same door.
+    if (row.state === 'discarded') return null
     if (row.karuteRecordId && (row.state === 'saved' || row.state === 'awaiting-check')) {
       const check = row.state === 'awaiting-check'
       return {

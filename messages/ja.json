@@ -744,7 +744,8 @@
         "awaitingCheck": "確認待ち",
         "processing": "処理中",
         "failed": "失敗",
-        "recoverable": "復元可能"
+        "recoverable": "復元可能",
+        "discarded": "破棄済み"
       },
       "reason": {
         "transcribing": "サーバーで文字起こし中",

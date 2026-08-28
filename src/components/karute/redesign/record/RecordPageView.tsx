@@ -35,7 +35,6 @@ import { isConsentCurrent } from '@/lib/consent'
 import { sessionPhotoStore } from '@/lib/karute/session-photos'
 import { saveKaruteRecordInline } from '@/actions/karute'
 import { getRecoveryDayFacts } from '@/actions/recovery'
-import { deleteRecordingSession } from '@/actions/recordings'
 import { discardRecordingWithReason } from '@/actions/recording-discard'
 import { myDiscardCountThisMonth } from '@/actions/recording-discards'
 import type { RecoveryDayFacts } from '@/lib/karute/recovery-facts'
@@ -861,31 +860,30 @@ export function RecordPageView({
     if (dropped > 0) toast.warning(t('sessionPhotos.uploadsDropped', { n: dropped }))
   }
 
-  /**
-   * ⚠ INTERIM, deleted by P5 (see lib/recording/session-cleanup.ts). A
-   * deliberate 破棄 destroys the take and writes no karute, so its
-   * recording_sessions row is left an orphan the 録音履歴 inbox can only render
-   * as 失敗 — a false alarm in 要対応 that nobody can clear for seven days.
-   * Remove the row with it. Fire-and-forget: the discard never waits on this
-   * and never fails because of it.
-   *
-   * Wired at the DELIBERATE chokepoints only — proceedDiscard (the 破棄 button
-   * and both photo-dialog exits) and ReviewScreen's onDiscard. Explicitly NOT
-   * on the error card's キャンセル (dismiss-only, the take is KEPT and the row
-   * is still honest), settle-on-save (the row becomes 保存済み), the TTL prune,
-   * or the logout wipe (a phone-path session can still complete server-side
-   * after sign-out).
-   */
-  function cleanUpDiscardedSession(recordingSessionId: string | null | undefined) {
-    if (!recordingSessionId) return
-    void deleteRecordingSession(recordingSessionId).catch(() => {})
-  }
+  // ⚰ THE DISCARD CLEANUP IS GONE (packet item A2-1).
+  //
+  // It existed to stop a deliberate 破棄 from leaving an orphan
+  // recording_sessions row that the 録音履歴 inbox could only render as 失敗 —
+  // an unclearable false alarm in 要対応 for seven days. It solved that by
+  // HARD-DELETING the session row.
+  //
+  // P5-A made that self-defeating: the written reason lands in core's discard
+  // ledger keyed on `recording_session_id`, and this cleanup then deleted that
+  // very key moments later, fire-and-forget, with no app-side signal. The
+  // flagship deliverable could be voided ~200 ms after it landed.
+  //
+  // So the row SURVIVES a reasoned discard now, and A2-3 gives the inbox the
+  // honest thing to render for it: a grayed 破棄済み row, off the same ledger
+  // (see lib/recordings/inbox.ts). The orphan-as-失敗 problem the cleanup was
+  // built for is solved by naming the row correctly instead of destroying it.
+  //
+  // SYSTEM/abandoned cleanup is untouched — deleteRecordingSessionWithClient
+  // keeps its other call sites (the recordings action + the facade route).
 
   function proceedDiscard() {
     toastDroppedErrorPhotos()
-    // BEFORE discardRecording(), which nulls recordingSessionId on the
-    // singleton — same read-it-first rule toastDroppedErrorPhotos above obeys.
-    cleanUpDiscardedSession(globalRecorder.recordingSessionId)
+    // A2-1: NO session cleanup here any more. The reason row keys on this
+    // session id, so deleting the row would delete the trace.
     // Invalidate any in-flight handleUseRecording: its post-await body must
     // not hand a take the staff just discarded to the pipeline.
     useRecordingGen.current++
@@ -1024,18 +1022,21 @@ export function RecordPageView({
     }
   }
 
-  /** ReviewScreen's discard, everything after the reason has landed. Unchanged
-   *  from the inline body it was lifted out of, except that its two ids are
-   *  now passed in (read before the confirm handler's awaits) instead of
-   *  re-read off the singleton afterwards. */
+  /** ReviewScreen's discard, everything after the reason has landed.
+   *
+   *  A2-1: the session cleanup that used to run here is gone for the same
+   *  reason as its recorder-side twin — the reason row keys on this session id.
+   *  `recordingSessionId` is still taken as a parameter: the inbox now needs
+   *  that row to EXIST to render its 破棄済み line, and keeping the argument
+   *  documents which session this discard belongs to at the call site. */
   function finishReviewDiscard(
     recordingSessionId: string | null,
     takeId: string | null | undefined,
   ) {
+    void recordingSessionId
     // Deliberate discard → drop the draft + take too, or they reappear
     // as recovery offers for a session the user intentionally threw away.
     clearDraft()
-    cleanUpDiscardedSession(recordingSessionId)
     if (takeId) void deleteTake(takeId)
     setRecoveredDraft(null)
     setRecoveredTake(null)

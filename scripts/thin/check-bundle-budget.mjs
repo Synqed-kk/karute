@@ -198,7 +198,19 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // the 1928.7 KB ceiling. Report-only per the owner ruling of the same day:
 // bundle raises are raised and reported, never gated. The headroom also covers
 // the upcoming 月ジャンプ work.
-const BUDGET_BYTES = 1_990_000
+// Raised 2026-08-26 at P5-A fix round 1 — 破棄の記録 (packet A-6) plus the
+// written-reason gate's own fixes. Ground truth from an EMPTIED thin/dist,
+// deterministic across two clean builds: base ce62545b = 1,988,520 B, tip
+// = 1,992,218 B, feature cost +3,698 B. Note the prior ceiling had only
+// 1,480 B of headroom left at that base, so it was already exhausted before
+// this work — the overage is 2,218 B, not a 2 KB regression from nothing.
+// The weight is honest feature volume: a new settings tab (label, description
+// and its 11-key section block) in BOTH locales, the tab's icon and TABS
+// entry, and the fix round's recorder/dialog code. The manager SECTION itself
+// is excluded from the bundle (PENDING_SECTION_FILES) and its tab is 準備中 on
+// thin, so none of the screen's own code ships here. Ceiling set 4,782 B above
+// the measurement, same low-headroom convention as the five raises above.
+const BUDGET_BYTES = 1_997_000
 
 let dir
 try {
