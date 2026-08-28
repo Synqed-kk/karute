@@ -4319,10 +4319,20 @@ export function TodayScreen(props: TodayProps) {
                 // absence hatch's (:4249). The strip was a `role="img"` that
                 // carried its explanation where only a screen reader could reach
                 // it; every chip is now pressable and says the same sentence out
-                // loud. It is a REST affordance: a press arriving while a card
-                // or a block is in flight is part of that gesture, not a
-                // question about this start, and the drag's own listeners own it.
-                onPointerDown={() => {
+                // loud.
+                //
+                // `onClick`, NOT the precedent's `onPointerDown` — and the
+                // difference is the ELEMENT, not the behaviour. The absence
+                // hatch is a `<span role="note">`: it can never be focused, so
+                // pointerdown is the only press it has. These are real buttons,
+                // and a button that answers a mouse and ignores Enter is a
+                // control lying about being one. A click covers both, because
+                // the keyboard synthesises one.
+                //
+                // It stays a REST affordance: a click arriving while a card or a
+                // block is in flight is the tail of THAT gesture, not a question
+                // about this start, and the drag's own listeners own it.
+                onClick={() => {
                   if (dragRef.current || blockDragRef.current) return
                   show(sentence)
                 }}

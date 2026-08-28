@@ -501,11 +501,14 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
   })
 
   it('every chip is pressable and answers with its sentence — and the — chip has a cursor', () => {
-    // ⚖ 44 (3) — the strip was `role="img"`; it is buttons now, and the press
-    // is the absence hatch's own precedent (`onPointerDown` → `show`).
+    // ⚖ 44 (3) — the strip was `role="img"`; it is real buttons now.
     expect(SRC).not.toContain('role="img"\n                aria-label={`${rail.laneLabel}')
     expect(SRC).toContain('aria-label={`${rail.laneLabel}、${hhmm(c.start)}。${sentence}`}')
-    expect(SRC).toContain('show(sentence)')
+    // …and the press is a CLICK, so the keyboard reaches it too. A button that
+    // answers a mouse and ignores Enter is a control lying about being one —
+    // the absence hatch's `onPointerDown` precedent is a `<span role="note">`
+    // that can never be focused, which is why it is not the spelling here.
+    expect(SRC).toContain('onClick={() => {\n                  if (dragRef.current || blockDragRef.current) return\n                  show(sentence)')
     // A rest affordance: a press arriving mid-gesture belongs to that gesture.
     expect(SRC).toContain('if (dragRef.current || blockDragRef.current) return')
     // Cursor honesty on the grey chip, and the hover exclusion is gone with it.
