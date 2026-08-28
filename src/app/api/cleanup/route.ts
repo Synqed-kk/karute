@@ -37,8 +37,14 @@ export async function GET(request: Request) {
   // PAGE_SIZE can't end the walk early; MAX_PAGES is the runaway stop.
   const PAGE_SIZE = 1000
   const MAX_PAGES = 100
+  // Delete in fixed-size batches instead of handing every expired name to one
+  // remove(): a single oversized request can be refused WHOLE, and the old code
+  // discarded remove()'s result and reported expired.length regardless — a
+  // deletion count for objects still sitting in the bucket. 100 = the storage
+  // client's own default page size, so a batch is never bigger than a listing.
+  const REMOVE_BATCH_SIZE = 100
   try {
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
+    const oneHourAgo = Date.now() - 60 * 60 * 1000
     const expired: string[] = []
     for (let page = 0, offset = 0; page < MAX_PAGES; page++) {
       const { data: files } = await supabase.storage
@@ -46,14 +52,25 @@ export async function GET(request: Request) {
         .list('', { limit: PAGE_SIZE, offset })
       if (!files || files.length === 0) break
       for (const f of files) {
+        // A null/absent/unparseable created_at parses to NaN, which the old
+        // `new Date(...) < cutoff` form read as the epoch — i.e. ALWAYS expired,
+        // queueing a row of unknown age for deletion. Require a real timestamp.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if (new Date((f as any).created_at) < oneHourAgo) expired.push(f.name)
+        const createdAt = Date.parse((f as any).created_at)
+        if (Number.isFinite(createdAt) && createdAt < oneHourAgo) expired.push(f.name)
       }
       offset += files.length
     }
-    if (expired.length > 0) {
-      await supabase.storage.from('recordings').remove(expired)
-      recordingsDeleted = expired.length
+    for (let i = 0; i < expired.length; i += REMOVE_BATCH_SIZE) {
+      const batch = expired.slice(i, i + REMOVE_BATCH_SIZE)
+      const { error } = await supabase.storage.from('recordings').remove(batch)
+      // Count only what storage confirmed gone; a failed batch must not inflate
+      // the number, and the batches after it still deserve their attempt.
+      if (error) {
+        console.error('[cleanup] recordings batch error:', error)
+        continue
+      }
+      recordingsDeleted += batch.length
     }
   } catch (err) {
     console.error('[cleanup] recordings error:', err)

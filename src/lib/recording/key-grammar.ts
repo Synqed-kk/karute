@@ -1,5 +1,12 @@
-// Storage-key grammar for the `recordings` bucket — the ONE place that decides
-// whether a caller-supplied key is this tenant's own take.
+// Storage-key grammar for the `recordings` bucket — the ONE place the app's
+// entry points decide whether a caller-supplied key is this tenant's own take.
+//
+// One deliberate exception, not a second grammar: the job worker
+// (src/lib/jobs/process-recording.ts, a frozen file) keeps its own
+// `app_<businessId>_` prefix check as an in-file last line of defense right
+// before its service-role read + delete. Both doors that can enqueue a job are
+// fenced by THIS predicate, so no new job row can carry a key the grammar would
+// refuse; the worker's check is defense in depth over rows already in the queue.
 //
 // Every consumer of such a key reaches the object through a SERVICE-ROLE client
 // (no RLS), so this predicate is all that stands between a caller and another
@@ -27,7 +34,7 @@ const TAKE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
  * `string` annotation would prove nothing at runtime — the typeof guard runs
  * first, before any method on `key` is invoked.
  */
-export function isOwnRecordingKey(key: unknown, businessId: string): boolean {
+export function isOwnRecordingKey(key: unknown, businessId: string): key is string {
   const prefix = `app_${businessId}_`
   const suffix = '.webm'
   return (

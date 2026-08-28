@@ -29,7 +29,13 @@ beforeEach(() => {
   jest.clearAllMocks()
   process.env.CRON_SECRET = 'test-cron-secret'
   storageList.mockImplementation(async () => ({ data: [] }))
+  storageRemove.mockImplementation(async () => ({}))
 })
+
+// remove() is now called once per batch, so "was this name deleted?" is a
+// question about the whole run, not about call 0.
+const removedNames = () =>
+  (storageRemove.mock.calls as unknown as [string[]][]).flatMap(([names]) => names)
 
 describe('GET /api/cleanup auth', () => {
   it('401s with no Authorization header — never touches storage/cache', async () => {
@@ -119,9 +125,90 @@ describe('GET /api/cleanup — the sweep sees the WHOLE bucket, not just page 1'
 
     // Asked for a second page at all, and advanced by what page 1 RETURNED.
     expect(storageList.mock.calls.map(([, o]) => o.offset)).toEqual([0, 1000, 1003])
-    const [deleted] = storageRemove.mock.calls[0] as unknown as [string[]]
+    const deleted = removedNames()
     expect(deleted).toContain('p2-0.webm')
     // Age filter untouched — a file younger than an hour survives on any page.
     expect(deleted).not.toContain('too-new.webm')
+  })
+})
+
+describe('GET /api/cleanup — deletion is batched and the count is honest', () => {
+  const old = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+  const oldFiles = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ name: `old-${i}.webm`, created_at: old }))
+
+  const run = async () => {
+    let body: { recordingsDeleted: number } = { recordingsDeleted: -1 }
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: 'GET',
+          headers: { authorization: 'Bearer test-cron-secret' },
+        })
+        expect(res.status).toBe(200)
+        body = await res.json()
+      },
+    })
+    return body
+  }
+
+  it('splits 250 expired names across remove() calls of 100/100/50', async () => {
+    // One oversized remove() carrying all 250 can be refused whole; batching
+    // keeps every request inside a size the storage API actually accepts.
+    storageList.mockImplementation(async (_prefix, opts) => ({
+      data: opts.offset === 0 ? oldFiles(250) : [],
+    }))
+
+    expect(await run()).toMatchObject({ recordingsDeleted: 250 })
+
+    const batches = (storageRemove.mock.calls as unknown as [string[]][]).map(
+      ([names]) => names.length
+    )
+    expect(batches).toEqual([100, 100, 50])
+    expect(removedNames()).toHaveLength(250)
+  })
+
+  it('does not count a batch storage refused, and still runs the batches after it', async () => {
+    // The old code discarded remove()'s result and reported expired.length, so a
+    // rejected request still came back as a successful deletion.
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+    storageList.mockImplementation(async (_prefix, opts) => ({
+      data: opts.offset === 0 ? oldFiles(250) : [],
+    }))
+    let call = 0
+    storageRemove.mockImplementation(async () =>
+      ++call === 2 ? { error: { message: 'Payload too large' } } : {}
+    )
+
+    // 250 expired, the middle batch of 100 refused → 150, not 250.
+    expect(await run()).toMatchObject({ recordingsDeleted: 150 })
+
+    // The failure neither aborted the sweep nor went unlogged.
+    expect(storageRemove).toHaveBeenCalledTimes(3)
+    expect(removedNames()).toHaveLength(250)
+    expect(consoleError).toHaveBeenCalledWith(
+      '[cleanup] recordings batch error:',
+      expect.objectContaining({ message: 'Payload too large' })
+    )
+    consoleError.mockRestore()
+  })
+
+  it('never collects a row whose created_at is missing or unparseable', async () => {
+    // `new Date(null) < cutoff` is the epoch — the old form read an ageless row
+    // as two hours old and queued it for deletion.
+    storageList.mockImplementation(async (_prefix, opts) => ({
+      data:
+        opts.offset === 0
+          ? [
+              { name: 'ageless.webm', created_at: null as unknown as string },
+              { name: 'garbage-date.webm', created_at: 'not-a-date' },
+              { name: 'genuinely-old.webm', created_at: old },
+            ]
+          : [],
+    }))
+
+    expect(await run()).toMatchObject({ recordingsDeleted: 1 })
+    expect(removedNames()).toEqual(['genuinely-old.webm'])
   })
 })
