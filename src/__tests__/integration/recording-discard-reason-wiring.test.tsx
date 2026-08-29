@@ -59,9 +59,16 @@ jest.mock('@/actions/recovery', () => ({
     redeemed: { appointmentIds: [], customerIds: [] },
   })),
 }))
+/** The server-side photo delete the gate awaits on the recorder arm. Held
+ *  pending by the photo-deletion-window case below — that await IS the
+ *  window under test. */
+const mockDeleteCustomerPhoto = jest.fn(async () => ({ success: true }) as { success: boolean })
 jest.mock('@/actions/customers', () => ({
   getCustomerConsent: jest.fn(async () => ({ consent: null })),
   grantCustomerConsent: jest.fn(async () => ({ ok: true })),
+  listCustomerPhotos: jest.fn(async () => ({ photos: [] })),
+  uploadCustomerPhoto: jest.fn(async () => ({ photo: { id: 'p1' } })),
+  deleteCustomerPhoto: () => mockDeleteCustomerPhoto(),
 }))
 jest.mock('@/actions/packs', () => ({
   createPackAction: jest.fn(),
@@ -127,6 +134,9 @@ jest.mock('@/lib/global-recorder', () => ({
   },
 }))
 let mockRecState: 'idle' | 'recording' | 'paused' | 'recorded' = 'recorded'
+/** The bound customer. null for every case except the photo-deletion window —
+ *  session photos only exist for a take bound to a customer. */
+let mockTarget: { customerId: string; customerName: string } | null = null
 const mockDiscardRecording = jest.fn()
 /** The recorder's bounded session-id mint (global-recorder.ts, 1500ms). The
  *  gate awaits it and FAILS CLOSED on null. */
@@ -140,7 +150,7 @@ jest.mock('@/hooks/use-global-recorder', () => ({
     startedAt: mockRecState === 'idle' ? null : Date.now(),
     overrun: false,
     autoStopped: false,
-    target: null,
+    target: mockTarget,
     takeId: null,
     startRecording: jest.fn(),
     stopRecording: jest.fn(),
@@ -216,6 +226,7 @@ import {
 import { globalRecorder } from '@/lib/global-recorder'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { resetInbox } from '@/lib/recordings/inbox-store'
+import { sessionPhotoStore, type SessionPhoto } from '@/lib/karute/session-photos'
 
 /** The re-mint the gate falls back to when the bounded await comes up empty. */
 const mockRetryMint = globalRecorder.retryRecordingSessionMint as jest.Mock
@@ -254,6 +265,9 @@ beforeEach(() => {
   mockPipelineState = 'idle'
   mockAwaitSession.mockImplementation(async () => RECORDER_SESSION)
   recorderTake.takeId = null
+  mockTarget = null
+  sessionPhotoStore.photos = []
+  mockDeleteCustomerPhoto.mockImplementation(async () => ({ success: true }))
   mockDiscardWithReason.mockImplementation(async () => ({
     ok: true,
     receiptId: 'row-1',
@@ -430,6 +444,67 @@ describe('a discard that cannot leave its trace does not happen', () => {
       fireEvent.click(screen.getByText('useRecording'))
     })
 
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+  })
+
+  // …and the latch has to cover the WHOLE window, not just the dialog's life.
+  // The recorder arm awaits the customer's photo deletion between core's OK
+  // and proceedDiscard(). The clear used to sit ahead of that await: the gate
+  // was closed, the phase was still 'recorded' and useRecordingGen had not
+  // moved, so a 使用 tap landing in the deletion window sailed past every
+  // guard and handed transcription a take THE SERVER HAD ALREADY DISCARDED —
+  // it comes back as a save offer for a recording that no longer exists, and
+  // bills the run. The exact R2 outcome the latch was built to prevent, one
+  // step later.
+  it('a 使用 tap DURING the photo deletion is refused too — the latch outlives the window', async () => {
+    recorderTake.takeId = 'take-1'
+    mockTarget = { customerId: 'cust-A', customerName: 'テスト花子' }
+    sessionPhotoStore.photos = [
+      {
+        id: 'sp1',
+        objectUrl: 'blob:mock',
+        status: 'done',
+        file: new File(['x'], 'a.jpg'),
+        category: 'before',
+        customerId: 'cust-A',
+        serverId: 's-a',
+        takenWithConsent: true,
+      } as SessionPhoto,
+    ]
+    // The deletion is held open — this pending promise IS the window.
+    let releaseDelete: (v: { success: boolean }) => void = () => {}
+    mockDeleteCustomerPhoto.mockImplementationOnce(
+      () => new Promise((res) => { releaseDelete = res }),
+    )
+
+    await renderPage()
+    await tapDiscard('discard')
+    // Photos on screen → the photos confirm comes first; 写真も削除 arms the
+    // deletion the gate will run once the reason has landed.
+    await act(async () => {
+      fireEvent.click(screen.getByText('sessionPhotos.discardPhotosDelete'))
+    })
+    await writeReason()
+    await confirmReason()
+
+    // Core said OK and the gate closed, but the take is NOT gone yet — the
+    // deletion is still in flight, so proceedDiscard has not run.
+    expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
+    expect(reasonGate()).toBeNull()
+    expect(mockDiscardRecording).not.toHaveBeenCalled()
+
+    // THE TAP. Nothing on screen says this take is spoken for any more.
+    await act(async () => {
+      fireEvent.click(screen.getByText('useRecording'))
+    })
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+
+    // The window closes and the discard completes as it always did.
+    await act(async () => {
+      releaseDelete({ success: true })
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+    await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
     expect(mockPipelineStart).not.toHaveBeenCalled()
   })
 

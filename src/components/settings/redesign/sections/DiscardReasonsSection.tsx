@@ -44,14 +44,24 @@ export function DiscardReasonsSection() {
 
   useEffect(() => {
     let alive = true
-    void listDiscardReasons().then((res) => {
-      if (!alive) return
-      setState(
-        res.ok
-          ? { kind: 'ready', rows: res.rows, counts: res.counts, truncated: res.truncated }
-          : { kind: 'error' },
-      )
-    })
+    void listDiscardReasons().then(
+      (res) => {
+        if (!alive) return
+        setState(
+          res.ok
+            ? { kind: 'ready', rows: res.rows, counts: res.counts, truncated: res.truncated }
+            : { kind: 'error' },
+        )
+      },
+      // A server action can fail at the TRANSPORT layer (offline, a 500 from
+      // the action endpoint, a deploy mid-flight) — that rejects instead of
+      // resolving { ok: false }. Fulfillment-only, this screen sat on its
+      // spinner forever. A failure is a failure: same error state either way.
+      () => {
+        if (!alive) return
+        setState({ kind: 'error' })
+      },
+    )
     return () => {
       alive = false
     }

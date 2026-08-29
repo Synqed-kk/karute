@@ -1005,7 +1005,6 @@ export function RecordPageView({
         return
       }
       setDiscardReasonFor(null)
-      discardIntentRef.current = null
       // Ids read BEFORE the await, handed in — the same read-it-first rule
       // proceedDiscard obeys for the recorder singleton.
       if (origin === 'review') finishReviewDiscard(recordingSessionId, ctx?.takeId)
@@ -1017,6 +1016,16 @@ export function RecordPageView({
         await runPendingPhotoDelete()
         proceedDiscard()
       }
+      // Latch released LAST — after proceedDiscard, never before it (fix round
+      // 2). It used to clear the moment core accepted the discard, i.e. ahead
+      // of the awaited photo deletion: the dialog was closed, the phase was
+      // still 'recorded' and useRecordingGen had not moved yet, so for the
+      // whole deletion window a 使用 tap passed every guard and handed
+      // transcription a take the SERVER HAD ALREADY DISCARDED. The latch has
+      // to outlive the window it was built to cover. (The review arm never had
+      // a latch to release — openDiscardReason sets null for it — so this is a
+      // no-op there, kept on the shared line so the two arms cannot drift.)
+      discardIntentRef.current = null
     } finally {
       discardReasonSubmittingRef.current = false
       setDiscardReasonSubmitting(false)

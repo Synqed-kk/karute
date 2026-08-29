@@ -36,6 +36,8 @@ jest.mock('@/actions/recording-discards', () => ({
 import { DiscardReasonsSection } from '@/components/settings/redesign/sections/DiscardReasonsSection'
 
 const QUALIFIER = tFor('settings.discardReasons')('countsTruncated')
+const LOAD_FAILED = tFor('settings.discardReasons')('loadFailed')
+const LOADING = tFor('settings.discardReasons')('loading')
 
 async function renderWith(truncated: boolean) {
   listDiscardReasons.mockResolvedValue({
@@ -76,5 +78,31 @@ describe('破棄の記録 — count tiles past the read cap', () => {
     await renderWith(false)
 
     expect(screen.queryByText(QUALIFIER)).toBeNull()
+  })
+})
+
+// The load effect used to be fulfillment-only. A server action can fail at the
+// TRANSPORT layer — offline, a 500 from the action endpoint, a deploy landing
+// mid-flight — and that REJECTS rather than resolving { ok: false }, so the
+// screen sat on its spinner forever with the failure swallowed as an unhandled
+// rejection. A failure is a failure: it gets the same honest state.
+describe('破棄の記録 — the read failing at the transport layer', () => {
+  it('a rejection renders the load-failed state, not an eternal spinner', async () => {
+    const unhandled = jest.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      listDiscardReasons.mockRejectedValue(new Error('network'))
+      render(<DiscardReasonsSection />)
+
+      await screen.findByText(LOAD_FAILED)
+      expect(screen.queryByText(LOADING)).toBeNull()
+      // …and the rejection was actually CONSUMED. Without this, the spinner
+      // assertion alone could pass off a lucky render as handling. One
+      // macrotask turn is what node needs to report an unhandled rejection.
+      await new Promise((r) => setTimeout(r, 0))
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
   })
 })
