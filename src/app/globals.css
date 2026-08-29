@@ -470,3 +470,11 @@ html.dark[data-theme="karute"] {
   50% { opacity: 0.5; }
 }
 
+/* Discreet-dot breathe (⚖ ruled 8/24). Standalone keyframe — tier-3 spared
+ * under reduced motion, so every call site MUST gate with motion-safe:
+ * (static solid core is the ruled reduced-motion treatment). */
+@keyframes breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.94); }
+}
+

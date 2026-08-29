@@ -707,6 +707,7 @@
       "startSub": "{name}'s session will be recorded.",
       "startSubNoTarget": "Record the session and the karute is drafted automatically.",
       "recording": "RECORDING",
+      "ended": "Recording ended",
       "stopAria": "Stop recording",
       "startAria": "Start recording"
     },

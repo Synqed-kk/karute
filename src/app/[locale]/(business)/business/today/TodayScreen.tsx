@@ -65,7 +65,6 @@ import {
   anchorOnScreen,
   applyBlockMoves,
   applyMoves,
-  bedFeasibility,
   blockChrome,
   blockClash,
   blockDragModeAt,
@@ -86,6 +85,7 @@ import {
   stretchOrCarry,
   gapLayerFor,
   guardCheckRow,
+  guardCheckRowBesideOffer,
   guardRailsFor,
   guardVerdictAt,
   blockNode,
@@ -123,219 +123,126 @@ import {
   type RailCell,
   type RoomPolicy,
 } from './today-interactions'
-import { bedTruthViews, type Asker, type DayFrame } from './capacity-ledger'
+import { bedTruthViews, type BedTruth, type DayFrame } from './capacity-ledger'
 
 const HINT = '見本データのため実行できません'
 
-/** WHERE THE DIAGNOSTIC IS ALLOWED TO RUN AT ALL — an ALLOWLIST, and the same
- *  shape the Business door already uses (`admission.ts` :46: "admits only when
- *  VERCEL_ENV is absent or exactly 'preview'… an unexpected value can never
- *  read as permission"). This is that rule's client-side twin.
+/** ⚖ R3 OF THE LAYER REBUILD — THE TWO WORLDS, AND WHICH ONE ANSWERS.
  *
- *  `NEXT_PUBLIC_CAPACITY_SHADOW` is a PUBLIC, BUILD-TIME flag: anyone who can
- *  set an env var on a build can set it, and "dev/preview only" written in a
- *  comment stops nobody. So the scope is enforced here rather than documented.
- *
- *    NEXT_PUBLIC_VERCEL_ENV   NODE_ENV      armed (with the flag on)?
- *    'preview'                any           YES — the preview door stays open
- *    'development'            any           YES — `vercel dev`
- *    'production'             any           NO
- *    anything else            any           NO — allowlist, so a typo or a
- *                                           future environment name denies
- *    absent                   'production'  NO — see the fail-closed note
- *    absent                   otherwise     YES — local `next dev`, and jest
- *
- *  WHY NOT `NODE_ENV !== 'production'` ALONE: Vercel builds PREVIEW deployments
- *  with NODE_ENV=production too, so that test would slam the door this flag
- *  exists to open. The Vercel signal is the one that separates them, and this
- *  project already reads it on the client (`instrumentation-client.ts` :6 tags
- *  Sentry with `NEXT_PUBLIC_VERCEL_ENV`).
- *
- *  FAIL-CLOSED ON THE AMBIGUOUS CASE, stated rather than assumed: the client
- *  var only exists if the Vercel project exposes system environment variables
- *  (the default, and this repo neither overrides it in vercel.json nor declares
- *  an `env` block in next.config). If it is ever turned off, a production build
- *  has no Vercel signal — so the second leg refuses on NODE_ENV instead of
- *  guessing. The cost of that is a preview where the flag quietly does nothing;
- *  the cost of the other direction is the diagnostic running on a customer's
- *  machine, and only one of those two is acceptable. */
-export function shadowEnvAllows(vercelEnv: string | undefined, nodeEnv: string | undefined): boolean {
-  if (vercelEnv !== undefined) return vercelEnv === 'preview' || vercelEnv === 'development'
-  return nodeEnv !== 'production'
-}
-
-/** ⚖ R2 OF THE LAYER REBUILD — THE SHADOW READER'S OFF-SWITCH.
- *
- *  Registry name: `capacityLedgerShadow` — DEFAULT OFF, dev/preview only, and
- *  the "only" is the second term above rather than a promise. Nothing
- *  user-visible exists behind it: on, the board answers every rail question a
- *  second time out of the capacity book and says so in the console when the two
- *  disagree; off, it is this one boolean.
- *
- *  The env var is the door because the store registry (`opsConfig`) cannot
- *  reach this screen without a page.tsx prop, and page.tsx is not this round's
- *  to edit. `capacityLedgerShadow` is the reserved registry name for the round
- *  that wires it; until then the flag is absent, which reads OFF. */
-export const CAPACITY_LEDGER_SHADOW =
-  process.env.NEXT_PUBLIC_CAPACITY_SHADOW === '1' &&
-  shadowEnvAllows(process.env.NEXT_PUBLIC_VERCEL_ENV, process.env.NODE_ENV)
-
-/** EXACTLY WHAT ONE SHADOW COMPARISON RUNS ON. It is a named type because the
- *  hook's job is to ASSEMBLE it, and assembling it wrongly is the only failure
- *  this whole diagnostic can have — so the assembly is a pure function
- *  (`shadowArgs`) whose output the battery pins field by field. Four wiring
- *  mutations (wrong length, wrong clock, comparing mid-drag, a callback built
- *  for a different hand) used to pass a fully green suite; they are pinned now
- *  because this tuple is. */
-export interface ShadowRun {
-  rails: readonly GuardRail[]
-  lanes: BoardLane[]
-  policy: RoomPolicy
-  frame: DayFrame
+ *  `bedTruthViews` returns the world everybody sees and, only while a hand is
+ *  holding a card, the world with that card lifted out. This wrapper carries the
+ *  hand's id alongside them for one reason: the book REFUSES to answer a
+ *  Subject question about anybody but the card it lifted (capacity-ledger's
+ *  one-lift throw), so the choice between the two worlds must be made where the
+ *  hand is known rather than at each call site. Remembering it here makes the
+ *  wrong choice unsayable instead of merely discouraged. */
+export interface BedViews {
+  world: BedTruth
+  worldMinusHand: BedTruth | null
   handId: string | null
-  dur: number
-  legacy: (lane: BoardLane, start: number, dur: number) => boolean
 }
 
-/** THE HOOK'S ARGUMENT ASSEMBLY, lifted out so it can be proven.
- *
- *  Returns `null` for "do not compare", which is every gate in one place: the
- *  flag is off, the store runs no guard, a gesture is in flight, or the store
- *  has no rooms for `bedFeasibility` to answer about.
- *
- *  ⚖ REST ONLY. The comparison does not run while a card is in the operator's
- *  hand. With the flag on it would otherwise rebuild the book on every animation
- *  frame of a drag (~900 extra `allocateBed` runs per frame at 25 staff — the
- *  warn limit bounds the WARNS, never the work, and a Subject question skips the
- *  book's memoised path exactly when it is hottest). A canary that changed the
- *  thing it measures is not a canary. Rest is also where the question is
- *  cleanest: no hand, so both sides ask the hypothetical.
- *
- *  The legacy callback is built AFTER the gates, never before: it walks the
- *  board to find the held card and its room, and doing that work on the way to
- *  `return null` is the cost this diagnostic promises not to have. */
-export function shadowArgs(input: {
-  on: boolean
-  guardOn: boolean
-  /** Is a gesture in flight? Rest only — see above. */
-  dragging: boolean
-  rails: readonly GuardRail[]
-  lanes: BoardLane[]
-  policy: RoomPolicy
-  hours: { open: number; close: number }
-  nowMinute: number | null
-  railDur: number
-  legacyFor: (excludeId: string | null) => ((lane: BoardLane, start: number, dur: number) => boolean) | undefined
-}): ShadowRun | null {
-  if (!input.on || !input.guardOn || input.dragging) return null
-  // At rest nothing is held, so both sides ask the hypothetical question and
-  // the callback is built for the same nobody the book is asked about.
-  const handId: string | null = null
-  const legacy = input.legacyFor(handId)
-  if (!legacy) return null
-  return {
-    rails: input.rails,
-    lanes: input.lanes,
-    policy: input.policy,
-    frame: { openMin: input.hours.open, closeMin: input.hours.close, nowMin: input.nowMinute ?? input.hours.open },
-    handId,
-    dur: input.railDur,
-    legacy,
-  }
+export function bedViewsFor(
+  lanes: BoardLane[],
+  policy: RoomPolicy,
+  frame: DayFrame,
+  handId: string | null,
+): BedViews {
+  // ⚖ FIX-5 (blind round) — AN EMPTY ID IS NOBODY, HERE TOO. `bedFeasibility`
+  // read `excludeId` for truthiness and `bedDoor` below keeps that reading, so
+  // an `''` arriving here has to mean the same thing on BOTH sides of the seam
+  // or the door would be asked about a hand the book was never built for. The
+  // book itself throws on an empty hand id (rightly: a hand with no id is a bug
+  // in the caller, not an empty world), and normalising is what stops that
+  // throw reaching a render.
+  const hand = handId === null || handId === '' ? null : handId
+  return { handId: hand, ...bedTruthViews(lanes, policy, frame, hand === null ? null : { id: hand }) }
 }
 
-/** THE SHADOW COMPARISON, and it dies in R3.
+/** ⚖ LIAM flag 76 (2026-08-23) + ⚖ R3 ONE WORLD (2026-08-25) — THE ROOMS,
+ *  HANDED TO THE GUARD, OUT OF THE BOOK.
  *
- *  ponytail: scaffolding with a purpose. R3 makes the rails read the book for
- *  real, at which point there is only one answer and nothing to compare — this
- *  function, `shadowArgs` and their hook are deleted in that round, not migrated.
+ *  This replaces `bedFeasibility` (today-interactions :1549) as the callback the
+ *  60分配置 rail and every per-cell verdict are handed. Flag 76's rule is
+ *  unchanged and its bindings are re-spelled here exactly — the store rule
+ *  (⚖ 46), the 個室 floor (⚖ 51), the card's own two self-exclusions — because
+ *  they are `allocateBed`'s and the book asks the same `allocateBed`.
  *
- *  IT IS A WIRING-FIDELITY CANARY, NOT A DIVERGENCE HUNT. Both sides are asked
- *  the SAME question with the SAME binding: `bedFeasibility` (today-interactions
- *  :1549) and the ledger, on the LANE's stores. So the expected output is ZERO
- *  WARNS, ALWAYS, on every board and at every dial. A warn does not mean the
- *  board is wrong; it means THIS WIRING is unfaithful — the frame, the lanes,
- *  the asker or the length handed to the book stopped matching what the rail was
- *  handed. That is the one thing a shadow reader can prove before R3 makes the
- *  swap for real, and the parity battery pins the zero.
+ *  WHAT R3 CHANGES IS WHO IS ASKING. The old door fell through from the live id
+ *  to the STAGED one, so a booking the operator had staged but not confirmed was
+ *  deleted from the rail's reality, and the strip invited a second placement onto
+ *  the room that card was standing in (Liam's 8/25 refusal shots). A staged booking is real for
+ *  every reader; **exclusion is the live gesture's privilege and nothing else**.
  *
- *  WHAT IT PROVES, STATED NARROWLY: both sides bottom out in the SAME
- *  `allocateBed`, so agreement proves the book's memoisation, its cache keying
- *  and this wiring's bindings never corrupt that one search. It does NOT compare
- *  the board's other bed readers (the sell layer's per-slot Set, the gap layer's
- *  bedLedger, the confirm gate's span overlap) — those are R3+'s subject.
+ *  So there are exactly two questions, and `askerId` picks between them:
  *
- *  WHAT IT DELIBERATELY DOES NOT SEE: the staged-card divergence. The rail's own
- *  `excludeId` is `live ?? pending`; this runs only at rest and asks the
- *  hypothetical, so a staged card is standing on the board for BOTH sides and
- *  they agree. Nothing about `?? pending` is compared here and nothing about it
- *  is ever warned. That divergence is R3's subject and it lives in the layer
- *  map, not in this console.
+ *    · `null` (or '') — 「a new placement could start here」. The rail's own
+ *      question at rest, and the block advisor's. Answered from `world` through
+ *      `newClientMask`, which is the precomputed lattice R1 built for this exact
+ *      caller: the engine probes every 5 minutes of every pocket of every cell,
+ *      and a naive callback measured 19–41× call growth at 25 staff.
+ *    · a booking id — 「may THIS booking go here」. Answered as a `Subject`, which
+ *      carries the room it already holds and its VIP-ness, and which
+ *      `allocateBed` self-excludes exactly as before. When that booking is the
+ *      LIVE gesture it is answered out of `worldMinusHand`; when it is anything
+ *      else (a staged card's own confirm row, a shelf chip's landing) it is
+ *      answered out of the ONE world — the card stays real for every other
+ *      reader while its own question still does not count it as its own obstacle.
  *
- *  And it compares against the rail's `placementFeasible` question rather than
- *  against the rail's PAINTED cells on purpose: a painted cell folds pocket and
- *  guard refusals in with bed truth, so comparing to it would report the engine's
- *  own verdicts as ledger disagreements.
+ *  Empty-string ids read as "nobody", the same as `bedFeasibility` read them
+ *  (:1555 tested `excludeId` for truthiness), so nothing on the board can hand
+ *  this an id it would take as a real subject.
  *
- *  THE `handId` PATH IS EXERCISED ONLY BY THE BATTERY. `shadowArgs` never
- *  produces one (rest only), but the binding is kept and pinned because it is
- *  the binding R3's real swap has to reproduce, and a round that has to invent
- *  it from scratch is a round that gets it wrong.
+ *  `undefined` on a store with no rooms configured — canon's own
+ *  `SCENARIO.needsBed === false` switch, and the engine consults a callback only
+ *  when there is one (gap-guard :271-272).
  *
- *  ponytail — TWO THINGS THIS KNOWINGLY DUPLICATES, both licensed by the fact
- *  that the whole function is deleted in R3: the held-card binding below
- *  (`currentBed`, `vip`) re-spells what `bedFeasibility` already computes
- *  privately for itself, because that function exposes the binding only through
- *  the closure it returns; and asking the book beside the callback pays for the
- *  same search twice. Neither is worth a seam in code with a known death date —
- *  if this ever outlives R3, lift the binding into today-interactions instead.
+ *  ponytail — TWO SMALL CACHES, both dying with the frame that made them, both
+ *  the shape the callback they replace already had:
+ *    · the hypothetical path memoises the mask PER (lane, length) so a strip of
+ *      thousands of asks allocates one closure rather than thousands;
+ *    · the Subject path is uncached in the book by design (a gesture asks once),
+ *      but the ENGINE asks the same (lane, start, length) dozens of times per
+ *      frame — so it keeps `bedFeasibility`'s own map, keyed by the whole
+ *      question. Lift either into a shared cache only if a bigger board measures
+ *      slow.
  *
- *  Exported so the parity battery can drive it with a doctored `legacy` and
- *  watch exactly one warn come out — there is no DOM renderer in territory. */
-export function shadowCompare(run: ShadowRun, limit = 10): number {
-  // A DIAGNOSTIC MAY NEVER TAKE THE BOARD DOWN. The book validates its inputs
-  // by throwing (duplicate lane keys, a non-finite frame, a length ≤ 0, a
-  // malformed hand), which is right for the book and fatal here: this runs
-  // inside the screen's own commit, so an unhandled throw unmounts 今日の運営
-  // over a console message nobody asked for. It reports and stands down.
-  try {
-    return runShadowCompare(run, limit)
-  } catch (err) {
-    console.warn(`capacity-ledger shadow: comparison stood down — ${err instanceof Error ? err.message : String(err)}`)
-    return 0
-  }
-}
-
-function runShadowCompare(run: ShadowRun, limit: number): number {
-  const { rails, lanes, policy, frame, dur, legacy } = run
-  // An empty id is NOT a hand. `bedFeasibility` reads `excludeId` for truthiness
-  // (:1555), so '' means "exclude nobody" there; the book takes it as a real
-  // subject and throws. Same falsy semantics on both sides, or the two are not
-  // being asked the same question.
-  const handId = run.handId === '' ? null : run.handId
-  const views = bedTruthViews(lanes, policy, frame, handId === null ? null : { id: handId })
-  const truth = views.worldMinusHand ?? views.world
-  const held = handId === null ? undefined : lanes.flatMap((l) => l.items).find((i) => i.caseId === handId)
-  const currentBed = handId === null ? null : (lanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === handId))?.key ?? null)
-  const askerOn = (lane: BoardLane): Asker =>
-    handId === null ? { stores: lane.stores } : { id: handId, currentBed, vip: held?.category === 'vip', stores: lane.stores }
-  const byKey = new Map(lanes.map((l) => [l.key, l]))
-  let seen = 0
-  for (const rail of rails) {
-    const lane = byKey.get(rail.laneKey)
-    if (!lane) continue
-    for (const cell of rail.cells) {
-      if (seen >= limit) return seen
-      const railSide = legacy(lane, cell.start, dur)
-      const book = truth.bedFor(cell.start, cell.start + dur, askerOn(lane)).laneKey !== null
-      if (railSide === book) continue
-      seen += 1
-      console.warn(
-        `capacity-ledger shadow: lane=${rail.laneKey} start=${cell.start} dur=${dur} rail=${railSide} ledger=${book}`,
-      )
+ *  It is exported for the reason everything on this board's answer path is: an
+ *  answer the operator acts on has to be provable without a renderer. */
+export function bedDoor(
+  views: BedViews,
+  lanes: BoardLane[],
+  askerId: string | null,
+): ((lane: BoardLane, start: number, dur: number) => boolean) | undefined {
+  if (!lanes.some((l) => l.group === 'beds')) return undefined
+  if (!askerId) {
+    const masks = new Map<string, (startMin: number) => boolean>()
+    return (lane, start, dur) => {
+      const key = `${lane.key}|${dur}`
+      let mask = masks.get(key)
+      if (!mask) {
+        mask = views.world.newClientMask(lane, dur)
+        masks.set(key, mask)
+      }
+      return mask(start)
     }
   }
-  return seen
+  // The hand's own facts, read off the board this question is about — the same
+  // two reads `bedFeasibility` made (:1555-1558).
+  const held = lanes.flatMap((l) => l.items).find((i) => i.caseId === askerId)
+  const currentBed = lanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === askerId))?.key ?? null
+  const vip = held?.category === 'vip'
+  const truth = askerId === views.handId && views.worldMinusHand ? views.worldMinusHand : views.world
+  const seen = new Map<string, boolean>()
+  return (lane, start, dur) => {
+    const key = `${lane.key}|${start}|${dur}`
+    const hit = seen.get(key)
+    if (hit !== undefined) return hit
+    const free =
+      truth.bedFor(start, start + dur, { id: askerId, currentBed, vip, stores: lane.stores }).laneKey !== null
+    seen.set(key, free)
+    return free
+  }
 }
 
 /** ⚖ Liam flag 47 — how long the board's own voice stays on screen. The shipped
@@ -436,6 +343,17 @@ export interface TodayProps {
    *  that WILL carry 清掃, and a board reading its own items would call that
    *  store bare. */
   bedCleanupOn: boolean
+  /** ⚖ R4 (2026-08-25) — THE SAME DIAL, PER ROOM, because a claim is a claim on
+   *  ONE room. `bedCleanupOn` above answers "does this store reserve turnover
+   *  time at all" and that is the right shape for a sentence in the ベッド・設備
+   *  note; it is the wrong shape for the reconciliation, which has to ask how
+   *  many minutes THIS room needs before the next thing may be advertised on it.
+   *  Assembled in page.tsx off each resource's own `cleanup_minutes` — the
+   *  number today-board already derives its 清掃 blocks from (PR #770 owns that
+   *  derivation and it is untouched here; this reads the same source field).
+   *  A room missing from the map is a bare room, 0 minutes — 0 is the dial's own
+   *  OFF value (⚖ flag 77), the same decision `ClaimsBook.violations` makes. */
+  bedCleanupMinutes: Record<string, number>
   /** ⚠SETTINGS-BATCH — ⚖ Liam flag 50(d). May THIS viewer place over a 置けない?
    *  Answered on the server from the store's `overridePolicy` and the operator's
    *  own role and staff_id, so the board never decides authority for itself and
@@ -1306,22 +1224,16 @@ export function TodayScreen(props: TodayProps) {
     [price.hi, price.lo, dialogs.pricing.hqMin, dialogs.pricing.hqMax],
   )
 
-  const sell = useMemo(
-    () =>
-      sellLayerFor(committedLanes, hours, {
-        gridMin: props.sell.gridMin,
-        nowMinute: props.sell.nowMinute,
-        locked,
-        showPrice: showSlotPrice,
-        hi: price.hi,
-        hqMin: dialogs.pricing.hqMin,
-        depth,
-      }),
-    [committedLanes, hours, props.sell, locked, showSlotPrice, price.hi, dialogs.pricing.hqMin, depth],
-  )
-
   /** スキマ枠 + 詰め込みセッション — canon renders them from the same board pass
-   *  as the normal layer (renderPublicLayer → renderGapFillLayer :5402). */
+   *  as the normal layer (renderPublicLayer → renderGapFillLayer :5402).
+   *
+   *  ⚖ R4 (2026-08-25) — IT RUNS FIRST NOW, AND THAT ORDER IS THE ROUND. Its
+   *  finished cells — after `combineCrumbs` and the `minSellableMin` floor, so
+   *  after every box that will not be drawn has already gone — are the promises
+   *  the 販売可能枠 layer below reconciles itself against. Two layers picking
+   *  rooms out of two private books is what let one bed be advertised to two
+   *  customers at once; one of them has to be the book, and the boxes with a
+   *  fixed price and a fixed length are it. */
   const gap = useMemo(
     () =>
       gapLayerFor(committedLanes, {
@@ -1337,6 +1249,45 @@ export function TodayScreen(props: TodayProps) {
         guard: props.guard.config,
       }),
     [committedLanes, props.sell, props.guard, locked, frame, depth],
+  )
+
+  /** ⚖ R4 — the スキマ枠/詰め込み boxes as ONE list of promises. Both layers
+   *  emit a staff-row and a bed-row copy of every box; `sellLayerFor` collapses
+   *  the pair itself, so this is the concatenation and nothing more. */
+  const gapClaims = useMemo(() => [...gap.packed, ...gap.scraps], [gap])
+
+  const sell = useMemo(
+    () =>
+      sellLayerFor(committedLanes, hours, {
+        gridMin: props.sell.gridMin,
+        nowMinute: props.sell.nowMinute,
+        locked,
+        showPrice: showSlotPrice,
+        hi: price.hi,
+        hqMin: dialogs.pricing.hqMin,
+        depth,
+        // ⚖ R4 — ONE ADVERTISED OFFER PER BED. The reconciliation happens inside
+        // `sellLayerFor`, BEFORE `buildSellLayer`, so 公開中 N枠 / 販売可能枠 N窓 /
+        // 安全な空き and the price button all count the boxes the board actually
+        // draws. It used to happen in `renderLane`, per drawn row, after the
+        // counts were already computed — so the header could say 22 windows while
+        // one box was on screen, and a cross-row collision (p-05's hour and
+        // p-06's スキマ枠 both on ベッド2) was invisible to it.
+        reconcile: { claims: gapClaims, rooms: props.rooms, cleanupMinutesByBed: props.bedCleanupMinutes },
+      }),
+    [
+      committedLanes,
+      hours,
+      props.sell,
+      locked,
+      showSlotPrice,
+      price.hi,
+      dialogs.pricing.hqMin,
+      depth,
+      gapClaims,
+      props.rooms,
+      props.bedCleanupMinutes,
+    ],
   )
 
   /** The 配置ガイド. `guardOn` is the STORE's protection policy; `guideMode` is
@@ -1356,15 +1307,44 @@ export function TodayScreen(props: TodayProps) {
     ? minuteOf(live.x + live.w, hours) - minuteOf(live.x, hours)
     : dragLen
   const railDur = aimDur ?? props.guard.standardSessionMin
-  /** ⚖ LIAM flag 76 (2026-08-23) — THE ROOMS, HANDED TO THE GUARD. The rule is
-   *  `bedFeasibility` (today-interactions); this is the board's own inputs to it.
+  /** ⚖ R3 ONE WORLD — THE HAND IS THE LIVE GESTURE, AND NOTHING ELSE.
    *
-   *  `lanes` for the same reason `verdictAt` takes it (⚖ 39): a caller may ask
-   *  about a board it has already taken something out of, and the rooms have to
-   *  be read off THAT board rather than the one on screen. */
-  const bedFeasibleFor = useCallback(
-    (excludeId: string | null, lanes: BoardLane[] = boardLanes) => bedFeasibility(lanes, excludeId, props.rooms),
-    [boardLanes, props.rooms],
+   *  This one expression is the round. It used to fall through to the STAGED
+   *  card's id wherever the board asked "who is allowed to be invisible", which
+   *  made an unconfirmed staged booking invisible to the rail — so the strip
+   *  advertised
+   *  the room that card was standing in, and the drop then refused 満室 (Liam's
+   *  8/25 refusal shots). A staged booking is REAL for every reader. Only a card
+   *  actually in the operator's hand may be lifted out of the world, and only for
+   *  the question "may the thing I am holding go here". */
+  const handId = live?.id ?? null
+  /** The ONE clock the book is built on — the same three numbers the sell, gap
+   *  and guard layers each read their own way (see capacity-ledger's `DayFrame`).
+   *  Its own memo so the book below is not rebuilt by an `hours` object that
+   *  merely re-rendered. */
+  const ledgerFrame = useMemo<DayFrame>(
+    () => ({ openMin: hours.open, closeMin: hours.close, nowMin: props.sell.nowMinute ?? hours.open }),
+    [hours.open, hours.close, props.sell.nowMinute],
+  )
+  /** THE CAPACITY BOOK, BUILT ONCE PER FRAME. Both worlds come out of one call,
+   *  and the second only exists while a hand is holding something. Construction
+   *  is a memo and never a predicate, a pointer frame or a drag handler: the
+   *  strip asks this thousands of times per frame, and a book built inside the
+   *  asking is a book per ask. */
+  const ledger = useMemo(
+    () => bedViewsFor(boardLanes, props.rooms, ledgerFrame, handId),
+    [boardLanes, props.rooms, ledgerFrame, handId],
+  )
+  /** ⚖ 39 — the same escape hatch the verdict has: a caller may ask about a board
+   *  it has already taken something OUT of (the block advisor's drop), and the
+   *  rooms have to be read off THAT board rather than the one on screen. That
+   *  board is not the one the frame's book was built for, so it gets its own —
+   *  once per drop, which is not a frame budget. Every hot caller passes nothing
+   *  and reads the frame's book. */
+  const bedDoorFor = useCallback(
+    (askerId: string | null, lanes: BoardLane[] = boardLanes) =>
+      bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, props.rooms, ledgerFrame, handId), lanes, askerId),
+    [boardLanes, props.rooms, ledger, ledgerFrame, handId],
   )
   const rails = useMemo<GuardRail[]>(
     () =>
@@ -1378,43 +1358,18 @@ export function TodayScreen(props: TodayProps) {
             nowMinute: props.sell.nowMinute,
             locked,
             guard: props.guard.config,
-            excludeId: live?.id ?? pending?.id ?? null,
-            placementFeasible: bedFeasibleFor(live?.id ?? pending?.id ?? null),
+            // ⚖ R3 — the staged card counts as an obstacle to itself no longer
+            // ONLY while it is in hand. At rest it stands on its lane and in its
+            // room for the pockets and for the beds alike, and the strip answers
+            // the question it was always painting: could a NEW placement start
+            // here. `bedDoorFor(null)` is that question in the book's words.
+            excludeId: handId,
+            placementFeasible: bedDoorFor(handId),
           })
         : [],
-    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, live?.id, pending?.id, railDur, bedFeasibleFor],
+    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
-  /** THE SHADOW READ (⚖ R2) — the wiring canary; see `shadowCompare`. Zero
-   *  warns is the expected output, always.
-   *
-   *  AN EFFECT, NOT A MEMO. The comparison's only output is a console line, and
-   *  a memo factory is not a place to put one: React may double-invoke it under
-   *  StrictMode and may discard a memoised value and recompute it, so the warns
-   *  would double or repeat with no bug behind them. An effect runs after the
-   *  commit, once per committed change of these inputs.
-   *
-   *  It reads the same inputs the `rails` memo above does, so the book is never
-   *  built on a pointer frame of its own — and it does not run mid-gesture at
-   *  all (`shadowArgs` gates on `dragging`). With the flag off, `shadowArgs`
-   *  returns on its first boolean: no callback is built, no views, no searches,
-   *  no allocateBed. Nothing here reaches a customer either way — the flag is a
-   *  dev/preview switch that defaults OFF. */
-  useEffect(() => {
-    const run = shadowArgs({
-      on: CAPACITY_LEDGER_SHADOW,
-      guardOn,
-      dragging: live !== null,
-      rails,
-      lanes: boardLanes,
-      policy: props.rooms,
-      hours,
-      nowMinute: props.sell.nowMinute,
-      railDur,
-      legacyFor: bedFeasibleFor,
-    })
-    if (run) shadowCompare(run)
-  }, [guardOn, live, rails, boardLanes, props.rooms, hours, props.sell.nowMinute, railDur, bedFeasibleFor])
 
   /** ⚖ LIAM flag 50 item 4b (2026-08-22) — WHAT IS IN THE OPERATOR'S HAND, so
    *  the strip can judge every start FOR IT.
@@ -1533,7 +1488,15 @@ export function TodayScreen(props: TodayProps) {
    *  has already taken something OUT of. A booking in hand excludes itself by
    *  `caseId` (`excludeId`, canon's `guardPocketsForLane` :7196); a 予定ブロック
    *  has no caseId, so the block advisor hands in the board without it instead.
-   *  Same engine, same input, one shape. */
+   *  Same engine, same input, one shape.
+   *
+   *  ⚖ R3 ONE WORLD — and `excludeId` is WHO IS ASKING, which is not the same
+   *  thing as who is invisible. Every caller here asks about ONE named booking's
+   *  landing (a staged card's own confirm row, a chip's, the card in flight), so
+   *  the door binds that booking as the subject: it never counts as its own
+   *  obstacle, and it stays on the board for everybody else. Only when the
+   *  subject IS the live gesture does the book hand back the lifted world. The
+   *  block advisor asks about no booking at all and gets the hypothetical. */
   const verdictAt = useCallback(
     (laneKey: string, start: number, dur: number, excludeId: string | null, lanes: BoardLane[] = boardLanes): RailCell | null =>
       guardOn
@@ -1547,10 +1510,10 @@ export function TodayScreen(props: TodayProps) {
             locked,
             guard: props.guard.config,
             excludeId,
-            placementFeasible: bedFeasibleFor(excludeId, lanes),
+            placementFeasible: bedDoorFor(excludeId, lanes),
           })
         : null,
-    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedFeasibleFor],
+    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor],
   )
 
   /** ⚖ LIAM flag 50 (2026-08-22) — THE ONE VERDICT, ASKED FROM THE SCREEN.
@@ -1570,10 +1533,13 @@ export function TodayScreen(props: TodayProps) {
           locked,
           rooms: props.rooms,
           minutesOf: (x) => minuteOf(x, hours),
+          // ⚖ R3 one world — the one thing the sentence cannot read off the
+          // board: which of these cards is the operator's own 仮押さえ.
+          stagedId: pending?.id ?? null,
         },
         cell,
       ),
-    [boardLanes, hours, locked, props.rooms],
+    [boardLanes, hours, locked, props.rooms, pending?.id],
   )
 
   /** The same question when the guard has NOT already been asked — a gesture
@@ -2013,6 +1979,29 @@ export function TodayScreen(props: TodayProps) {
       start,
       end: minuteOf(span.x + span.w, hours),
       policy: props.rooms,
+      // ⚖ R3 one world — THE SAME SENTENCE, ON THIS LEG TOO. This refusal is
+      // SAID (`refuse` below), so it is one of the two places 満室 reaches the
+      // operator, and with a staged card real for every reader it can name the
+      // operator's own 仮押さえ instead of wording it like a stranger's booking.
+      //
+      // ⚖ FIX-8 (blind round) — WHICH CALLERS CAN ACTUALLY REACH IT, counted
+      // rather than listed. Of this function's four call sites only the 次回予約
+      // placement genuinely can: the bed-row drop and the stage-time re-solve
+      // pass the staged booking's OWN id, so `allocateBed` self-excludes it and
+      // it can never be its own blocker; the shelf chip is unreachable with a
+      // 仮押さえ open at all (`onChipPointerDown` refuses first). The live leg is
+      // the gap partner and 配置モード's placement — which is also why FIX-3
+      // gates the write there rather than the ask: the refusal has to stay
+      // reachable to be worth wording.
+      //
+      // Read from the render closure rather than a ref, unlike `board` above:
+      // `boardLanes` moves on every pointer frame, `pending` does not move
+      // during a gesture at all — `onCardPointerDown` refuses to start one on
+      // any other card while something is staged, and every `setPending` site
+      // fires at a landing or on the hold popover's own answer, never between a
+      // pointerdown and its drop. Same reason `props.rooms` and `hours` are read
+      // here the same way.
+      stagedId: pending?.id ?? null,
     })
     if (solved.refusal) {
       refuse(solved.refusal)
@@ -2447,7 +2436,7 @@ export function TodayScreen(props: TodayProps) {
   function onCardPointerDown(e: React.PointerEvent<HTMLButtonElement>, item: BoardItem, lane: BoardLane) {
     if (e.button !== 0 || dragRef.current || !item.caseId) return
     if (pending && pending.id !== item.caseId) {
-      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      refuse('仮押さえ中の予約を確定するか、元に戻してから操作してください')
       return
     }
     const track = e.currentTarget.closest('.track')
@@ -2747,7 +2736,10 @@ export function TodayScreen(props: TodayProps) {
               title: heldName,
             }),
             checks: v.checks,
-            guardRow: guardCheckRow(v.cell),
+            // ⚖ FIX-6 — this box has an OFFER LINE under it; the hold popover
+            // does not. See `guardCheckRowBesideOffer` for why the second clause
+            // may not be stacked above 「より損の少ない開始はありません」.
+            guardRow: guardCheckRowBesideOffer(v.cell),
           }
         : null
     setAdvice({
@@ -2994,7 +2986,7 @@ export function TodayScreen(props: TodayProps) {
 
   function onBlockPointerDown(e: React.PointerEvent<HTMLButtonElement>, item: BoardItem, lane: BoardLane) {
     if (e.button !== 0 || dragRef.current || blockDragRef.current) return
-    if (pending) { refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください'); return }
+    if (pending) { refuse('仮押さえ中の予約を確定するか、元に戻してから操作してください'); return }
     const track = e.currentTarget.closest('.track')
     if (!track) return
     const rect = e.currentTarget.getBoundingClientRect()
@@ -3329,7 +3321,7 @@ export function TodayScreen(props: TodayProps) {
     e.stopPropagation()
     if (!item.caseId || dragRef.current) return
     if (pending && pending.id !== item.caseId) {
-      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      refuse('仮押さえ中の予約を確定するか、元に戻してから操作してください')
       return
     }
     // ⚖ BATCH-6 flag 45 — the keyboard nudge is the same landing as a drag and
@@ -3463,7 +3455,7 @@ export function TodayScreen(props: TodayProps) {
     if (e.button !== 0 || dragRef.current || (e.target as Element).closest('.park-x')) return
     closeAdvice()
     if (pending) {
-      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      refuse('仮押さえ中の予約を確定するか、元に戻してから操作してください')
       return
     }
     const box = e.currentTarget.getBoundingClientRect()
@@ -3635,7 +3627,7 @@ export function TodayScreen(props: TodayProps) {
   function armNextVisit() {
     if (!props.inStore) return
     if (pending) {
-      refuse('仮押さえ中の変更を確定するか、元に戻してから操作してください')
+      refuse('仮押さえ中の予約を確定するか、元に戻してから操作してください')
       return
     }
     setPlacing({
@@ -3658,6 +3650,27 @@ export function TodayScreen(props: TodayProps) {
   function placeNextVisit(lane: BoardLane, start: number, override: string | null = null) {
     const p = placing
     if (!p) return
+    // ⚖ FIX-3 (blind round, 2026-08-25) — THE WRITE IS GATED, NOT THE ASK.
+    //
+    // This path ends in `setPending`, and `armNextVisit` guards only the ARMING
+    // (:3567): 配置モード can be armed with nothing staged, a card dragged and
+    // staged after it, and the still-armed mode then clicked — at which point
+    // this overwrote the operator's staged change with no word said. A 仮押さえ
+    // that disappears because the board took a second one is silent data loss,
+    // and ⚖ 47's law is that a refusal changes NOTHING.
+    //
+    // Gated HERE rather than at the click, so everything short of the write
+    // still works: the rail's marks, `askGuard`'s consult popup and its 満室
+    // sentence — which is the one that names the staged card — all still answer.
+    // The operator is refused at the moment they would have lost something, in
+    // the board's own existing sentence, and `pending` is not touched.
+    //
+    // The shelf's twin (`placeFromShelf`) needs no gate: it is reachable only
+    // through `onChipPointerDown`, which already refuses on `pending` (:3395).
+    if (pending) {
+      refuse('仮押さえ中の予約を確定するか、元に戻してから操作してください')
+      return
+    }
     // ⚖ Liam flag 46 rider — the same store rule as the shelf chip's, in the
     // same shape. Checked here as well as at the click so the guard popup's
     // 「この開始に配置」 cannot walk around it.
@@ -3892,13 +3905,24 @@ export function TodayScreen(props: TodayProps) {
     const isLocked = locked.includes(lane.key)
     const onThisLane = <T extends { group: string; laneKey: string; resourceKey: string }>(c: T) =>
       c.group !== lane.group ? false : lane.group === 'staff' ? c.laneKey === lane.key : c.resourceKey === lane.key
-    // canon `suppressOverlappingSellableCells` (:5039): one box per span. Where
-    // a スキマ枠 or a packed session owns the minutes, the normal layer's wash
-    // comes off entirely rather than compositing two washes into a third colour.
     const gapHere = [...gap.packed, ...gap.scraps].filter(onThisLane)
-    const cells = sell.cells
-      .filter(onThisLane)
-      .filter((c) => !gapHere.some((g) => g.s < c.h + 60 && c.h < g.e))
+    // ⚖ R4 (2026-08-25, corrected in the fix round) — canon
+    // `suppressOverlappingSellableCells` (:5039) USED TO LIVE HERE, as
+    // `.filter((c) => !gapHere.some(…))`. It MOVED, both of its halves, into
+    // `reconcileSellCells`: the ROOM half became the `promised` test and the
+    // SAME-LANE half became `busyLane`. (The first cut of this round moved only
+    // the room half and this comment claimed the filter was "gone, not
+    // weakened" — it was weakened, and the blind round found it: re-bedding
+    // resurrected the same-row cells the filter used to kill. Both halves are
+    // there now, and the lane half drops rather than re-beds.)
+    // Two things the render-time version could not do: it
+    // filtered `onThisLane`, so p-05's hour and p-06's box both pointing at
+    // ベッド2 were never compared; and it ran AFTER `buildSellLayer`, so the
+    // counts on four surfaces — 公開中 N枠 (:4389), 販売可能枠 N窓 (:4435), 安全な空き
+    // (:4862) and the 公開価格 button (:5077) — were computed from boxes this line
+    // then declined to draw. One box per span still holds; it is now true of the
+    // LAYER rather than of the paint, which is what makes those four honest.
+    const cells = sell.cells.filter(onThisLane)
     const rail = railByLane.get(lane.key)
     // canon `lane.insertAdjacentElement("afterend", rail)` (:7566): the rail is
     // the lane's SIBLING, not its child. A `.lane` is a two-column grid, so a
@@ -4081,7 +4105,7 @@ export function TodayScreen(props: TodayProps) {
         className="guard-placement-rail"
         data-lane={rail.laneKey}
         role="group"
-        aria-label={`${rail.laneLabel}の60分配置ガイド`}
+        aria-label={`${rail.laneLabel}の${railDur}分配置ガイド`}
         // ⚖ FLAGS 25c, backlog — the strip is a section of this board and joins
         // the tour like every other one. It arrived in the rail round without a
         // registration and three batches added to it without noticing, which is
@@ -4091,14 +4115,33 @@ export function TodayScreen(props: TodayProps) {
         // carries it and the sentence is true of all of them.
         {...(rails[0]?.laneKey === rail.laneKey
           ? {
-              'data-guide-title': '60分配置',
+              // ⚖ FIX-10 — the title names the strip, and the strip renders
+              // `{railDur}分配置`. A literal 60 here made the tour's own heading
+              // disagree with the thing it was pointing at.
+              'data-guide-title': `${railDur}分配置`,
               // ⚖ FLAGS 25c (batch-9): the strip has a second face now, so its
               // own entry teaches it. No new SECTION is added — the marks and the
               // cursor word are new readings of surfaces that are already on the
               // tour (this strip, and the drag itself), so the registration delta
               // is one sentence rather than one step.
+              // ⚖ R3 ONE WORLD (2026-08-25) + ⚖ FIX-9 (blind round) — the
+              // sentence had to move with the semantics, and then had to stop
+              // saying things that were not true. The marks answer 「could a NEW
+              // booking start here」; the LENGTH is `railDur`, interpolated,
+              // because the strip's own label renders it and ⚖ flag 50 makes it
+              // follow the gesture; a 仮押さえ中 booking blocks like any other;
+              // and the lift is a BOARD-CARD drag's privilege, because a shelf
+              // chip is not on the board to be lifted out of it. The clause
+              // repeating the legend band's ✓/△/— key is gone — the band is one
+              // home for that, and this entry points at it.
+              //
+              // ⚖ NATIVE PASS (2026-08-25) — and the last clause was still a
+              // lie. The old 「離しても…」 clause — the drop simply not landing —
+              // is true of a HARD floor and false of a policy one, where
+              // 注意して配置 places exactly what the × sat on. The passed wording
+              // is true on both: the drop does not land, and the board says why.
               'data-guide':
-                'このスタッフの各30分に、そこから60分の施術を始めた場合の判定が並びます。✓は空きを減らさない、△は減らすが置ける、—は置けません。ドラッグ中は、手に持っている予約に合わせて判定し直します — 置けない場所には × が付き、離しても配置されません。',
+                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。`,
             }
           : {})}
       >
@@ -4621,7 +4664,14 @@ export function TodayScreen(props: TodayProps) {
               className="guard-band"
               role="note"
               data-guide-title="スキマガード"
-              data-guide="新規のお客様のための時間を守る仕組みです。記号の意味はこの帯に、各スタッフの「60分配置」の細い帯には、その時間に60分の施術を始めた場合の判定が並びます。"
+              // ⚖ FIX-9 — ONE HOME. This band owns the ✓/△/— key and the rule
+              // behind it; it used to also describe what the strip judges, in
+              // wording that went stale the moment R3 changed the question and
+              // that hardcoded 60 besides. It points at the strip's own entry
+              // now instead of restating it. (⚖ NATIVE PASS 2026-08-25: and it
+              // names the strip by where it IS rather than by a length, so the
+              // sentence stays true at every store dial.)
+              data-guide="新規のお客様のための時間を守る仕組みです。記号の意味は、この帯に書いてあります。各スタッフの下に細い帯が出ているときは、その帯の説明をご覧ください。"
             >
               <span className="protected-key">守るもの: {props.guard.protectedLabel}{props.guard.protectedDurationMin}分</span>
               <span className="guard-key">紫 ✓ = 空きを減らさない</span>
@@ -4629,9 +4679,9 @@ export function TodayScreen(props: TodayProps) {
               <span className="guard-key blocked-key">灰 — = 置けません</span>
               <span className="guard-band-note">
                 {guideMode === 'selected'
-                  ? '下の「60分配置」で、ドラッグ前に全開始を確認できます。'
+                  ? `下の「${railDur}分配置」で、ドラッグ前に全開始を確認できます。`
                   : guideMode === 'drag'
-                    ? '下の「60分配置」は、ドラッグ中だけ表示します。'
+                    ? `下の「${railDur}分配置」は、ドラッグ中だけ表示します。`
                     : '細い配置ガイドは非表示です。ドラッグ中の判定と店舗の保護ルールは残ります。'}
               </span>
             </div>

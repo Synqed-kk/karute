@@ -379,7 +379,7 @@ describe('2 — 満室 and 「使える部屋がない」 are different answers'
     const a = truthOn(lanes).bedFor(600, 660, HERE)
     expect(a.laneKey).toBeNull()
     expect(a.compatibleRoomsExist).toBe(true)
-    expect(a.refusal).toContain('満室')
+    expect(a.refusal).toContain('に空きがありません')
   })
 
   it('a VIP on a board with no 個室 → no compatible room exists at all', () => {
@@ -480,7 +480,7 @@ describe('2b — a hypothetical booking asks on ITS store’s rooms, never on th
     const truth = truthOn(split())
     const a = truth.bedFor(600, 660, HERE)
     expect(a.laneKey).toBeNull()
-    expect(a.refusal).toContain('満室')
+    expect(a.refusal).toContain('に空きがありません')
     expect(a.compatibleRoomsExist).toBe(true)
     // The same question from store-b, and from a floating asker, is answered.
     expect(truth.bedFor(600, 660, AWAY).laneKey).toBe('bed-b')
@@ -1180,10 +1180,52 @@ describe('9 — the cost of the book, measured rather than asserted in prose', (
     expect(truth.stats.allocateBedCalls).toBe(2 * SLOTS)
   })
 
-  it('more than eight distinct lengths is a named ceiling, not a silent leak', () => {
-    const truth = truthOn(syntheticBoard(SMALL_6))
+  /** ⚖ R3 FIX-1 (blind round, 2026-08-25) — PAST THE CEILING THE BOOK DEGRADES,
+   *  IT DOES NOT REFUSE.
+   *
+   *  This used to assert a THROW on the ninth distinct length, which was safe
+   *  only while the book was dark. R3 puts `newClientMask` on the render path
+   *  and ⚖ flag 50 makes the rail's length follow the gesture, so eight
+   *  short-pocket clicks or eight chip lengths on one unmoved board reach the
+   *  ninth — during render, with no error boundary under 今日の運営 and no way
+   *  back. Caching is a memory ceiling; it may never be a correctness one.
+   *
+   *  A length ≤ 0 or non-finite still throws, and the difference is the point:
+   *  that is a programmer contract (a span with no minutes in it is not a
+   *  question), not board traffic. */
+  it('past eight distinct lengths the book keeps answering — uncached, never a throw', () => {
+    const lanes = syntheticBoard(SMALL_6)
+    const truth = truthOn(lanes)
     for (let n = 1; n <= 8; n += 1) truth.fullRuns(n * 5, HERE.stores)
-    expect(() => truth.fullRuns(45 + 500, HERE.stores)).toThrow(/distinct lengths/)
+    // The ninth length, and the twentieth: answered, every surface.
+    for (let n = 9; n <= 20; n += 1) {
+      expect(() => truth.fullRuns(n * 5, HERE.stores)).not.toThrow()
+    }
+    const ninth = 9 * 5
+    expect(() => truth.newClientMask(staffLanesOf(lanes)[0], ninth)).not.toThrow()
+    expect(() => truth.bedFor(OPEN, OPEN + ninth, HERE)).not.toThrow()
+    expect(() => truth.freeBedKeys(OPEN, OPEN + ninth, HERE)).not.toThrow()
+
+    // …and the answers past the ceiling are the SAME answers. Uncached is a
+    // cost, never a different reading of the board: every lattice start of the
+    // ninth length is checked against the allocator directly.
+    const lane = staffLanesOf(lanes)[0]
+    const mask = truth.newClientMask(lane, ninth)
+    for (let start = OPEN; start + ninth <= CLOSE; start += LATTICE_STEP_MIN) {
+      const direct = allocateBed(lanes, {
+        id: null, currentBed: null, stores: lane.stores, vip: false,
+        start, end: start + ninth, policy: POLICY,
+      })
+      expect([start, mask(start)]).toEqual([start, direct.laneKey !== null])
+      expect([start, truth.bedFor(start, start + ninth, { stores: lane.stores }).laneKey])
+        .toEqual([start, direct.laneKey])
+    }
+    // The rows already minted keep serving — degrading is not forgetting.
+    const before = truth.stats.allocateBedCalls
+    truth.fullRuns(5, HERE.stores)
+    expect(truth.stats.allocateBedCalls).toBe(before)
+
+    // A length that is not a length is still the caller's bug.
     expect(() => truth.fullRuns(0, HERE.stores)).toThrow(/positive number of minutes/)
     expect(() => truth.fullRuns(Number.NaN, HERE.stores)).toThrow(/positive number of minutes/)
   })
@@ -1368,9 +1410,15 @@ describe('11 — what the book refuses, and what it exports', () => {
     expect(Object.isFrozen(truth.frame)).toBe(true)
   })
 
-  it('the module’s door is exactly two functions and one constant', () => {
+  it('the module’s door is exactly three functions and one constant', () => {
     const doors = Object.keys(ledger).filter((k) => k !== '__esModule').sort()
-    expect(doors).toEqual(['LATTICE_STEP_MIN', 'bedTruthViews', 'buildClaims'])
+    // ⚖ R4 (2026-08-25) — `boardOffers` joined the door, and the pin moved WITH
+    // the decision rather than being relaxed to a subset check. It is Phase 2's
+    // own input adapter: the one place the OPTION/PROMISE distinction is spelled
+    // (a run of sell options on one room is ONE claim on that room's time; every
+    // スキマ枠 box is its own). It reads nothing and builds nothing, so it opens
+    // no world — which is what this pin exists to protect.
+    expect(doors).toEqual(['LATTICE_STEP_MIN', 'bedTruthViews', 'boardOffers', 'buildClaims'])
     // The world-builders are NOT among them: exported, either one would be the
     // free exclusion that produced the three-world board.
     expect((ledger as Record<string, unknown>).buildBedTruth).toBeUndefined()

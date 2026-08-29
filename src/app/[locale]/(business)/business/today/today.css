@@ -963,7 +963,11 @@
    both places have to answer identically. The two grid-placement rules that
    belonged to the retired bar's own layout are gone with it. */
 .biz .holdbar-checks { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-3); font-size: 12px; }
-.biz .holdbar-checks .ck { display: inline-flex; align-items: center; gap: 5px; }
+/* ⚖ FIX-6/FIX-7 rider (2026-08-25) — `flex-start`, for `.hp-head`'s reason two
+   rules up: the guard row now carries BOTH clauses of the engine's sentence, so
+   its label wraps, and `center` floated the ✓/△ glyph against the middle of a
+   two-line block instead of sitting on line one where the eye starts. */
+.biz .holdbar-checks .ck { display: inline-flex; align-items: flex-start; gap: 5px; }
 .biz .holdbar-checks .ck::before {
   content: "✓";
   display: grid;

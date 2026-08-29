@@ -8,9 +8,19 @@
 // anything new: it wraps the search that already exists (`allocateBed`) and
 // writes the answers down in a shape the lattice can afford to ask thousands of
 // times a frame. That affordability is the MEMOISED path only — a hypothetical
-// question, which is the one the rails and masks ask over and over. A question
-// carrying a real `Subject` is a gesture asking once: uncached by design, and
-// `freeBedKeys` on that path costs one search per candidate room.
+// question, which is the one the rails and masks ask over and over.
+//
+// A question carrying a real `Subject` is UNCACHED here, and after R3 that is a
+// measured choice rather than a premise. R1 wrote "a gesture asking once"; R3
+// puts the Subject path on the verdict surfaces (the card in hand, a staged
+// card's own confirm row, a chip's landing), where the frozen engine probes the
+// same (lane, start, length) dozens of times per frame. The book still does not
+// cache it — a Subject's key would have to carry the room it holds and its VIP
+// flag, and that is a second cache to get wrong — so the DOOR keeps a
+// frame-lifetime map instead, exactly the one `bedFeasibility` kept
+// (TodayScreen `bedDoor`). Measured at 25 staff: +3.0% at rest, +6.7% mid-drag
+// against the door it replaced, inside the run-to-run spread of either.
+// `freeBedKeys` on that path still costs one search per candidate room.
 //
 // TWO PHASES, AND PHASE 1 CANNOT SEE PHASE 2.
 //   Phase 1 · BED TRUTH — real occupancy only. What is free, what is refused,
@@ -37,9 +47,16 @@
 // is actually holding something. `buildBedTruth` is deliberately NOT exported:
 // exported, it would be a third world for the asking.
 //
-// R1 SHIPS IT DARK: nothing imports this file yet. R2 wires it as a shadow
-// reader and proves its answers equal today's.
+// R1 SHIPPED IT DARK and R2 wired it as a shadow reader that proved its answers
+// equalled the board's. R3 (2026-08-25) MADE IT THE BOARD'S: the 60分配置 rail
+// and every per-cell verdict read this file through `bedDoor`, the shadow
+// machinery is deleted, and `bedFeasibility` survives only as the parity
+// battery's oracle. The two-world split above is no longer a promise about a
+// future round — it is what the screen does, and `worldMinusHand` exists only
+// while a hand is holding a card.
 
+import type { GapCell, SellCell } from '@/business/lib/canon-logic/availability'
+import { SELL_SLOT_MIN } from '@/business/lib/canon-logic/pricing'
 import type { BoardLane } from '@/business/lib/today-board'
 import { allocateBed, roomFitsClass, sharesStore, type RoomPolicy } from './today-interactions'
 
@@ -51,11 +68,22 @@ import { allocateBed, roomFitsClass, sharesStore, type RoomPolicy } from './toda
  *  wrong question. The battery greps that line, so the two cannot drift. */
 export const LATTICE_STEP_MIN = 5
 
-/** ponytail: eight distinct durations per book is a ceiling, not a limit of the
- *  design — today's screen asks about two or three (the rail's length, the
- *  protected window, occasionally a menu). Raise it if a real surface needs
- *  more; the throw exists so a caller looping durations discovers the cost here
- *  rather than in a frame budget. */
+/** How many distinct LENGTHS the book keeps cache rows for. Not a validity
+ *  bound and not a caller contract — exactly like MAX_STORE_BINDINGS below,
+ *  past it the book still answers, it just stops remembering.
+ *
+ *  ⚖ R3 (2026-08-25): this used to THROW past the eighth length, on the theory
+ *  that a caller looping durations should discover the cost here. That was safe
+ *  only while the book was dark. R3 puts `newClientMask` on the render path, and
+ *  the rail's length follows the gesture (⚖ flag 50) — so eight short-pocket
+ *  clicks or eight chip lengths on one unmoved board reach the ninth, and a
+ *  throw during render takes 今日の運営 down with no error boundary under it and
+ *  no way back. Degrading is the only acceptable failure direction for a book
+ *  the board reads to draw itself.
+ *
+ *  ponytail: 8 rows is a ceiling on MEMORY, not on answers. Raise it if a real
+ *  surface measures hot on the ninth length; the only cost of a higher number is
+ *  memory, and the only cost of this one is repeated searches past it. */
 const MAX_DURATIONS = 8
 
 /** How many store bindings the book keeps CACHE ROWS for. Not a validity bound:
@@ -330,13 +358,19 @@ function buildBedTruth(
   const masks: Array<Array<Uint8Array | undefined>> = []
   const runs: Array<Array<readonly FullRun[] | undefined>> = []
 
+  /** One row per distinct length, or -1 once the book has as many rows as it
+   *  keeps — the same shape, and the same reason, as `storesIdx` below.
+   *
+   *  A length ≤ 0 or non-finite is still a THROW, and the difference matters:
+   *  that is a programmer contract (a span with no minutes in it is not a
+   *  question), while "the ninth different length" is ordinary board traffic
+   *  under ⚖ flag 50 — the rail's length follows the gesture. One is a bug in
+   *  the caller, the other is a Tuesday. */
   const durIdx = (dur: number) => {
     if (!Number.isFinite(dur) || dur <= 0) throw new Error(`capacity-ledger: a length must be a positive number of minutes, got ${dur}`)
     const known = durIndex.get(dur)
     if (known !== undefined) return known
-    if (durIndex.size >= MAX_DURATIONS) {
-      throw new Error(`capacity-ledger: more than ${MAX_DURATIONS} distinct lengths asked of one book — see MAX_DURATIONS`)
-    }
+    if (durIndex.size >= MAX_DURATIONS) return -1
     const i = durIndex.size
     durIndex.set(dur, i)
     answers[i] = []
@@ -389,8 +423,9 @@ function buildBedTruth(
     if (s < 0) return answerFor(q, start, start + dur)
     // Past cache saturation: answered, just not remembered.
     const st = storesIdx(q.stores)
-    if (st < 0) return answerFor(q, start, start + dur)
-    const row = rowOf(answers, durIdx(dur), st)
+    const d = durIdx(dur)
+    if (st < 0 || d < 0) return answerFor(q, start, start + dur)
+    const row = rowOf(answers, d, st)
     const hit = row[s]
     if (hit) return hit
     const made = answerFor(q, start, start + dur)
@@ -402,8 +437,9 @@ function buildBedTruth(
     const s = slotIdx(start)
     if (s < 0) return freeKeysFor(q, start, start + dur)
     const st = storesIdx(q.stores)
-    if (st < 0) return freeKeysFor(q, start, start + dur)
-    const row = rowOf(freeKeys, durIdx(dur), st)
+    const d = durIdx(dur)
+    if (st < 0 || d < 0) return freeKeysFor(q, start, start + dur)
+    const row = rowOf(freeKeys, d, st)
     const hit = row[s]
     if (hit) return hit
     const made = freeKeysFor(q, start, start + dur)
@@ -441,7 +477,7 @@ function buildBedTruth(
     fullRuns(dur, stores) {
       const d = durIdx(dur)
       const st = storesIdx(stores)
-      const held = st < 0 ? undefined : runs[d][st]
+      const held = st < 0 || d < 0 ? undefined : runs[d][st]
       if (held) return held
       const q = queryOf({ stores })
       const out: FullRun[] = []
@@ -460,20 +496,23 @@ function buildBedTruth(
       }
       if (open !== null) out.push(Object.freeze({ startMin: open, endMin: latticeStart + slots * LATTICE_STEP_MIN }))
       const made = Object.freeze(out)
-      if (st >= 0) runs[d][st] = made
+      if (st >= 0 && d >= 0) runs[d][st] = made
       return made
     },
     newClientMask(lane, dur) {
       const q = queryOf({ stores: lane.stores })
       const d = durIdx(dur)
       const st = storesIdx(lane.stores)
-      let mask = st < 0 ? undefined : masks[d][st]
+      let mask = st < 0 || d < 0 ? undefined : masks[d][st]
       if (!mask) {
         mask = new Uint8Array(slots)
         for (let i = 0; i < slots; i += 1) {
           mask[i] = cachedAnswer(q, latticeStart + i * LATTICE_STEP_MIN, dur).laneKey !== null ? 1 : 0
         }
-        if (st >= 0) masks[d][st] = mask
+        // Past either saturation the mask is still BUILT — the answers are the
+        // same ones, and serving this frame from an array it already walked is
+        // free. It just is not remembered for the next one.
+        if (st >= 0 && d >= 0) masks[d][st] = mask
       }
       const built = mask
       return (startMin: number) => {
@@ -606,9 +645,25 @@ export function buildClaims(truth: BedTruth, offers: readonly OfferInput[]): Cla
    *   · the PAIR shares it — one offer drawn on its staff lane and again on the
    *     bed row is the same box twice, same room, same span, same kind, so it
    *     still collapses to one claim;
-   *   · a TWIN inside one kind cannot happen — each frozen ledger already
-   *     refuses to sell one room twice (sell's per-slot Set, gap's bedLedger),
-   *     so identical (room, span) within a kind is not a case;
+   *   · ⚖ R4 (2026-08-25) — A TWIN INSIDE ONE KIND, SAID TRUTHFULLY. R2 wrote
+   *     that one cannot happen "because each frozen ledger already refuses to
+   *     sell one room twice (sell's per-slot Set, gap's bedLedger)". Half of
+   *     that is FALSE and it is worth the correction, because the false half is
+   *     exactly what R4 exists to name. `gap`'s ledger is per-CALL and does
+   *     refuse a second overlapping claim on one room (availability.ts:345).
+   *     `sell`'s `claimed` Set is minted fresh INSIDE the per-slot loop
+   *     (availability.ts:117) while `SELL_SLOT_MIN` is fixed at 60 — so at
+   *     `gridMin` 30 the sell layer advertises 15:00–16:00 and 15:30–16:30 on
+   *     ONE room, and it overlaps ITSELF by construction.
+   *
+   *     That is not a twin and not a defect: an OFFER IS AN OPTION. A booking
+   *     grid emitting 15:00 / 15:30 / 16:00 on one room is a MENU of
+   *     alternatives, and one booking takes the menu away. A PROMISE is a UNIT
+   *     — one pocket, one discount, one thing that may not overlap — and that
+   *     is what a スキマ枠 or a 詰め込み box is. `boardOffers` below is where
+   *     the difference is spelled: it hands this book ONE claim per menu run,
+   *     so an identical (room, span) within a kind genuinely is not a case by
+   *     the time the offers arrive here;
    *   · a CROSS-KIND collision is exactly the disease this book exists to
    *     expose. The two ledgers never meet, so combineCrumbs can merge two
    *     30-minute crumbs into an (h, h+60) union that lands on the same room
@@ -647,6 +702,18 @@ export function buildClaims(truth: BedTruth, offers: readonly OfferInput[]): Cla
       const minutesFor = (resourceKey: string) => {
         // Own properties only: `cleanupMinutesByBed['toString']` is a function
         // off the prototype, and `?? 0` would have let it through as NaN.
+        //
+        // ⚖ R4 fix round — THE OTHER HALF OF THE ASYMMETRY, said out loud. The
+        // render path reads this same dial in `reconcileSellCells.turnaround`
+        // and differs twice, not once: it DEGRADES a non-number to 0 where this
+        // throws (documented below — it draws under no error boundary, this is
+        // an assertion surface), and it also CLAMPS with `Math.max(0, held)`
+        // where this passes a negative straight through. A negative is not a
+        // number of minutes any dial can produce, so neither side spends code
+        // on it; the difference is worth naming because the directions are
+        // opposite. A negative here lands in `required` and can only NARROW
+        // what the book reports — the one failure mode of the two that is
+        // quiet, and the reason it is written down instead of discovered.
         if (!Object.hasOwn(cleanupMinutesByBed, resourceKey)) return 0
         const held = cleanupMinutesByBed[resourceKey]
         if (typeof held !== 'number' || !Number.isFinite(held)) {
@@ -678,4 +745,74 @@ export function buildClaims(truth: BedTruth, offers: readonly OfferInput[]): Cla
     },
   }
   return Object.freeze(book)
+}
+
+/** ⚖ R4 (2026-08-25) — WHAT THE BOARD ACTUALLY PROMISED, out of what it drew.
+ *
+ *  THE ONE DISTINCTION THIS ROUND IS BUILT ON, and the only place it is spelled:
+ *
+ *    · an OFFER IS AN OPTION. The 販売可能枠 grid emitting 15:00 / 15:30 / 16:00
+ *      on one room is a MENU of alternatives — the customer picks one and the
+ *      other two stop existing. Overlapping STARTS are the correct grammar of a
+ *      booking grid, not a double-claim, and de-duplicating them would break the
+ *      grid. Nothing here changes what the sell layer emits or what the screen
+ *      draws: those boxes are untouched.
+ *    · a PROMISE IS A UNIT. A スキマ枠 or a 詰め込み box is one pocket, one
+ *      price, one length, drawn once. Two of them on one room is two things the
+ *      store cannot both do.
+ *
+ *  So a run of sell options on one room is read as ONE claim over the room-time
+ *  the menu commits — the union of the run — and every gap box is its own claim.
+ *  That is what makes `violations` answerable: it can then say "this room was
+ *  promised twice" without calling a menu a conflict with itself.
+ *
+ *  A run is contiguous OR overlapping: two adjacent hours on one room are one
+ *  stretch of that room's day, and splitting them would invent a separation the
+ *  turnaround rule would then judge.
+ *
+ *  ⚖ R4 fix round — WHAT THIS ORACLE CAN AND CANNOT SEE. Everything here is
+ *  grouped BY ROOM, so `violations` answers on the ROOM AXIS ONLY. An empty
+ *  result proves no room was promised twice; it proves NOTHING about the STAFF
+ *  axis, and one staff member advertised on two different rooms at the same
+ *  minute yields zero violations from this book. That axis is held by the code
+ *  instead — `reconcileSellCells.busyLane` drops a cell whose own lane already
+ *  carries a promise — and pinned behaviourally beside the §6 assertions rather
+ *  than through this function. (It is also why the run collapse is safe to do
+ *  ACROSS staff: two people's hours on one room merge into one claim, so a
+ *  genuine sell-vs-sell same-room overlap between two people is unreportable
+ *  here too, and by the same distinction — those are two options on one room's
+ *  menu, and a menu is one claim.)
+ *
+ *  Offers with NO room (`bed?.key ?? ''`, canon's bed-less store, availability
+ *  :127) are dropped here rather than thrown on: they are a claim on nothing,
+ *  and `buildClaims` refuses them by design — "the caller filters first". */
+export function boardOffers(sellCells: readonly SellCell[], gapCells: readonly GapCell[]): OfferInput[] {
+  const out: OfferInput[] = []
+  for (const c of gapCells) {
+    if (c.resourceKey === '') continue
+    out.push({ resourceKey: c.resourceKey, start: c.s, end: c.e, kind: 'gap', laneKey: c.laneKey })
+  }
+  // One run per room. The staff-row and bed-row emissions of one sell cell
+  // share (room, h), so they collapse into the same run without a dedup step.
+  const byRoom = new Map<string, SellCell[]>()
+  for (const c of sellCells) {
+    if (c.resourceKey === '') continue
+    const held = byRoom.get(c.resourceKey)
+    if (held) held.push(c)
+    else byRoom.set(c.resourceKey, [c])
+  }
+  for (const [resourceKey, cells] of byRoom) {
+    const sorted = [...cells].sort((a, b) => a.h - b.h)
+    let run: OfferInput | null = null
+    for (const c of sorted) {
+      const end = c.h + SELL_SLOT_MIN
+      if (run && c.h <= run.end) {
+        run.end = Math.max(run.end, end)
+        continue
+      }
+      run = { resourceKey, start: c.h, end, kind: 'sell', laneKey: c.laneKey }
+      out.push(run)
+    }
+  }
+  return out
 }

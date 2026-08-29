@@ -444,6 +444,14 @@ export default async function TodayPage({
     rooms: planes.opsConfig.roomPolicy,
     // ⚖ flag 77 — the dial itself, not what today happens to have on it.
     bedCleanupOn: resources.some((r) => r.cleanup_minutes > 0),
+    // ⚖ R4 (2026-08-25) — THE SAME DIAL, PER ROOM. `bedCleanupOn` is a sentence
+    // about the store; the 一室一枠 reconciliation and the claims book both have
+    // to ask how many minutes ONE room needs between two advertised offers, and
+    // that is a number per resource. Built here rather than in today-board.ts
+    // because that file is another PR's and its own `resource.cleanup_minutes`
+    // derivation stays exactly where it is — this reads the same server field a
+    // second time rather than moving it.
+    bedCleanupMinutes: Object.fromEntries(resources.map((r) => [r.id, r.cleanup_minutes])),
     // ⚠SETTINGS-BATCH — ⚖ Liam flag 50(d). WHO may place over a 置けない, decided
     // ONCE, here, from the store's dial and this operator's own role/staff_id.
     // The board is handed the answer, never the policy: a locked-out staff member
