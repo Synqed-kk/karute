@@ -1463,7 +1463,11 @@ export function railExplain(
     takerLabel?: string | null
   } = {},
 ): { word: string | null; sentence: string } {
-  const judged = `（${clockOf(cell.start)}–${clockOf(cell.start + dur)}）` // JP-DRAFT
+  // ⚖ NATIVE PASS (2026-08-26) — 〜, NOT AN EN DASH. The bed branch's own
+  // sentence, two chips away on the same strip, spells the identical window
+  // 「13:30〜14:30」; one strip may not punctuate one fact two ways. The ⚖-ruled
+  // appended-parenthesis SHAPE is untouched — this is the glyph inside it.
+  const judged = `（${clockOf(cell.start)}〜${clockOf(cell.start + dur)}）`
   const blockers = opts.room?.blockers ?? []
   // ⚖ 44 FIX ROUND (blind lens 1, F1) — A WORD MAY ONLY RIDE A REFUSAL THAT
   // NAMED SOMEBODY. `cell.reason` is the ENGINE's class for this start and the
@@ -1485,13 +1489,17 @@ export function railExplain(
       // turnaround is not a busy house, it is a house being turned over, and
       // 清掃 is the truer word — read off the walk `allocateBed` already did,
       // never re-derived from the sentence.
-      ? (blockers.every((i) => i.kind === 'cleanup') ? '清掃' : '満室') // JP-DRAFT
+      //
+      // ⚖ NATIVE PASS (2026-08-26) — 満室 and 清掃 confirmed as ruled. Both are
+      // chip vocabulary, which the 8/25 pass deliberately left standing.
+      ? (blockers.every((i) => i.kind === 'cleanup') ? '清掃' : '満室')
       : null
   const word =
     cell.reason === 'bed'
       ? roomWord
       : cell.reason === 'guard'
-        ? '新規' // JP-DRAFT
+        // ⚖ NATIVE PASS (2026-08-26) — 新規 confirmed as ruled (chip vocabulary).
+        ? '新規'
         // ⚖ Fable-accepted default (overturnable): a no-pocket-fit chip keeps
         // the bare 「—」. Its blocker — a booking, a 予定ブロック, a shift wall —
         // is DRAWN on the row directly above it, so a word would be labelling
@@ -1501,9 +1509,17 @@ export function railExplain(
   // A refused chip is already answering; ⚖ 75(i)'s clause is about a start the
   // board said YES to and then advertised nothing at.
   if (cell.state === 'blocked' || opts.adless !== true) return { word, sentence: base }
+  // ⚖ NATIVE PASS (2026-08-26) — BOTH CLAUSES NAMED THE WRONG THING.
+  //   · the taker read 「ベッドは別の販売枠（…）が使っています」, but what took
+  //     the room is a 詰め込み／スキマ box, not a 販売枠, and the label in the
+  //     parenthesis is a PERSON — so it hangs off スタッフ, and the reason the
+  //     operator is being told this (nothing is offered here) is now said.
+  //   · the bare one read 「…は表示されていません」, which points at the display
+  //     and invites 「then turn it back on」. The honest fact is that no sellable
+  //     box was ever put out for this start.
   const clause = opts.takerLabel
-    ? `ベッドは別の販売枠（${opts.takerLabel}）が使っています` // JP-DRAFT
-    : 'この開始の販売枠は表示されていません' // JP-DRAFT
+    ? `ベッドは別のスタッフ（${opts.takerLabel}）の枠が使うため、ここには販売可能枠を出していません`
+    : 'この開始には販売可能枠が出ていません'
   return { word, sentence: `${base}。${clause}` }
 }
 
@@ -1565,7 +1581,7 @@ export function explainRails(
     /** ⚖ 44 FIX ROUND (blind lens 4, N4) — IS THE SELL LAYER ON SCREEN AT ALL.
      *  表示設定 → 空き枠表示「非表示」 hides every 販売可能枠 box (`.sell-off`),
      *  so EVERY window is ad-less and 75(i)'s clause would fire on every ✓ chip
-     *  on the board — 「この開始の販売枠は表示されていません」 said about a
+     *  on the board — 「この開始には販売可能枠が出ていません」 said about a
      *  display the operator switched off themselves. The clause explains an
      *  absence the board chose; it may not explain one the operator did.
      *  「ドラッグ中のみ」 is NOT gated here: that layer exists and is revealed by

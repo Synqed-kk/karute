@@ -313,16 +313,20 @@ describe('§3 — every sentence names the window it judged', () => {
     expect(said).not.toContain('満室')
   })
 
-  it('every other class appends its own 「（HH:MM–HH:MM）」', () => {
+  it('every other class appends its own 「（HH:MM〜HH:MM）」', () => {
     const noFit = at(railOn([lane({ key: 'p-01', group: 'staff', items: [booking({ key: 's1', caseId: 'y1' }, 780, 840)] })]), 780)
-    expect(explainOn([], noFit).sentence).toBe('この開始には60分の連続した空きがありません（13:00–14:00）')
+    expect(explainOn([], noFit).sentence).toBe('この開始には60分の連続した空きがありません（13:00〜14:00）')
 
     const ok = placeableOn(railOn(sceneWith([])))
-    expect(explainOn([], ok).sentence).toBe(`${ok.sentence}（${clock(ok.start)}–${clock(ok.start + 60)}）`)
+    expect(explainOn([], ok).sentence).toBe(`${ok.sentence}（${clock(ok.start)}〜${clock(ok.start + 60)}）`)
 
     const guarded = railOn([lane({ key: 'p-01', group: 'staff', items: [booking({ key: 's1', caseId: 'y1' }, 900, 960)] })])
       .cells.find((c) => c.reason === 'guard')!
-    expect(explainOn([], guarded).sentence).toBe(`${guarded.sentence}（${clock(guarded.start)}–${clock(guarded.start + 60)}）`)
+    expect(explainOn([], guarded).sentence).toBe(`${guarded.sentence}（${clock(guarded.start)}〜${clock(guarded.start + 60)}）`)
+    // ⚖ NATIVE PASS (2026-08-26) — 〜, one glyph for one fact. The bed branch
+    // above spells its window the same way, and an en dash beside it on the
+    // same strip was two punctuations for one grammar.
+    expect(explainOn([], noFit).sentence).not.toContain('–')
   })
 
   // ⚖ 44 FIX ROUND (blind lens 2) — THE △ CLASS, PINNED BY NAME. §3 proved safe,
@@ -336,14 +340,14 @@ describe('§3 — every sentence names the window it judged', () => {
     // word — a △ is not a refusal, so it has no invisible blocker to name.
     const said = explainOn([], degraded!)
     expect(said.word).toBeNull()
-    expect(said.sentence).toBe(`${degraded!.sentence}（${clock(degraded!.start)}–${clock(degraded!.start + 60)}）`)
+    expect(said.sentence).toBe(`${degraded!.sentence}（${clock(degraded!.start)}〜${clock(degraded!.start + 60)}）`)
   })
 
   it('the window follows the LENGTH the strip is judging (⚖ 50)', () => {
-    // A 90 in hand asks about 13:00–14:30, and the sentence has to say so or it
+    // A 90 in hand asks about 13:00〜14:30, and the sentence has to say so or it
     // is naming a span the operator is not holding.
     const noFit = at(railOn([lane({ key: 'p-01', group: 'staff', items: [booking({ key: 's1', caseId: 'y1' }, 780, 840)] })], 90), 780)
-    expect(explainOn([], noFit, 90).sentence).toContain('（13:00–14:30）')
+    expect(explainOn([], noFit, 90).sentence).toContain('（13:00〜14:30）')
   })
 })
 
@@ -400,23 +404,26 @@ describe('§4 — ⚖ 75(i): the collector observes, and the clause never invent
 
   it('the clause names the taker, or states the absence and NOTHING more', () => {
     const safe = placeableOn(railOn(sceneWith([])))
-    const win = `（${clock(safe.start)}–${clock(safe.start + 60)}）`
+    const win = `（${clock(safe.start)}〜${clock(safe.start + 60)}）`
 
     // A room-drop explains the hole: the sentence says who is using the room.
+    // ⚖ NATIVE PASS (2026-08-26) — the taker is a person, so it hangs off
+    // スタッフ, and what took the room is that person's 枠, never a 販売枠.
     expect(railExplain(safe, 60, { adless: true, takerLabel: '見本 かおる' }).sentence)
-      .toBe(`${safe.sentence}${win}。ベッドは別の販売枠（見本 かおる）が使っています`)
+      .toBe(`${safe.sentence}${win}。ベッドは別のスタッフ（見本 かおる）の枠が使うため、ここには販売可能枠を出していません`)
 
     // Nothing was dropped — the hour was simply never derived. The clause states
-    // that and invents no cause for it.
+    // that and invents no cause for it. ⚖ NATIVE PASS (2026-08-26) — and it
+    // states it as a FACT about the inventory, not about the display.
     const bare = railExplain(safe, 60, { adless: true, takerLabel: null }).sentence
-    expect(bare).toBe(`${safe.sentence}${win}。この開始の販売枠は表示されていません`)
+    expect(bare).toBe(`${safe.sentence}${win}。この開始には販売可能枠が出ていません`)
     expect(bare).not.toContain('ベッド')
 
     // A window that DOES carry a box gets no clause at all.
     expect(railExplain(safe, 60, { adless: false, takerLabel: '見本 かおる' }).sentence).toBe(`${safe.sentence}${win}`)
     // …and a refused chip is already answering, so it never grows one either.
     const noFit = at(railOn([lane({ key: 'p-01', group: 'staff', items: [booking({ key: 's1', caseId: 'y1' }, 780, 840)] })]), 780)
-    expect(railExplain(noFit, 60, { adless: true, takerLabel: '見本 かおる' }).sentence).not.toContain('別の販売枠')
+    expect(railExplain(noFit, 60, { adless: true, takerLabel: '見本 かおる' }).sentence).not.toContain('別のスタッフ')
   })
 })
 
@@ -499,9 +506,9 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
               // THE BAR, on every single chip of every single lane: it says
               // something, and what it says names the window it judged. Both
               // grammars satisfy it — the bed refusal opens with 「HH:MM〜HH:MM」
-              // and everything else closes with 「（HH:MM–HH:MM）」 — which is
-              // why the clock strings themselves are the pin rather than either
-              // punctuation.
+              // and everything else closes with 「（HH:MM〜HH:MM）」 — which is
+              // why the clock strings themselves are the pin rather than the
+              // position of the window in the sentence.
               expect({ at, chip: `${rail.laneKey}@${c.start}`, empty: said.sentence === '' })
                 .toEqual({ at, chip: `${rail.laneKey}@${c.start}`, empty: false })
               const from = clock(c.start)
@@ -510,12 +517,12 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
                 .toEqual({ at, chip: `${rail.laneKey}@${c.start}`, names: true })
               if (c.state === 'blocked') blocked += 1
               if (said.word != null) worded += 1
-              if (said.sentence.includes('販売枠')) claused += 1
+              if (said.sentence.includes('販売可能枠')) claused += 1
               // A word only ever rides a refusal, and only the two invisible ones.
               if (said.word != null) expect(c.reason === 'bed' || c.reason === 'guard').toBe(true)
               // ⚖ 75(i) — and a clause only ever rides a start the board said
               // YES to. A refusal is already answering.
-              if (c.state === 'blocked') expect(said.sentence).not.toContain('販売枠')
+              if (c.state === 'blocked') expect(said.sentence).not.toContain('販売可能枠')
             }
           }
           expect(blocked).toBeGreaterThan(0)
@@ -540,9 +547,6 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
     // reached, not the count — a dial change that moved it is not a regression,
     // a sweep that stopped reaching any of them is.
     expect(mute.length).toBeGreaterThan(0)
-    // ⚖ 44 FIX ROUND — and the ⚖ 75(i) clause is REACHED by the sweep. Same
-    // shape of pin as `mute` above: the fact, not the count. A sweep that
-    // threads `adless` and never once produces a clause is threading nothing.
     // ⚖ 44 FIX ROUND — AND THE CLAUSE COUNT IS ZERO AT ALL TWELVE, RECORDED
     // RATHER THAN ASSERTED AWAY. `claused` is threaded through the real
     // composer now, and it comes back 0 everywhere because this fixture board
@@ -593,32 +597,33 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
   it('an ADVERTISED window gets no clause, an ad-less one does', () => {
     const lanes = twoStaff()
     const start = okStart(lanes)
-    expect(ask(lanes).get('p-05')!.get(start)!.sentence).toContain('この開始の販売枠は表示されていません')
+    expect(ask(lanes).get('p-05')!.get(start)!.sentence).toContain('この開始には販売可能枠が出ていません')
     // One box overlapping this window and the question ⚖ 75(i) asks is answered
     // by the board itself — the operator can see the offer.
     expect(ask(lanes, { sellCells: [sellAt('p-05', start)] }).get('p-05')!.get(start)!.sentence)
-      .not.toContain('販売枠')
+      .not.toContain('販売可能枠')
     // A box on the OTHER person's row is not this row's advertisement.
     expect(ask(lanes, { sellCells: [sellAt('p-06', start)] }).get('p-05')!.get(start)!.sentence)
-      .toContain('この開始の販売枠は表示されていません')
+      .toContain('この開始には販売可能枠が出ていません')
   })
 
   it('a room-drop names the TAKER by their label — and never this lane itself', () => {
     const lanes = twoStaff()
     const start = okStart(lanes)
     const named = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, kind: 'room', takerLaneKey: 'p-06' }] })
-    expect(named.get('p-05')!.get(start)!.sentence).toContain('ベッドは別の販売枠（見本 かおる）が使っています')
+    expect(named.get('p-05')!.get(start)!.sentence)
+      .toContain('ベッドは別のスタッフ（見本 かおる）の枠が使うため、ここには販売可能枠を出していません')
 
     // ⚖ 44 FIX ROUND (blind lens 1, F4/F5) — 別の = ANOTHER. A drop whose winner
     // is this very lane cannot be its subject, so it falls to the bare clause.
     const own = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, kind: 'room', takerLaneKey: 'p-05' }] })
-    expect(own.get('p-05')!.get(start)!.sentence).toContain('この開始の販売枠は表示されていません')
-    expect(own.get('p-05')!.get(start)!.sentence).not.toContain('別の販売枠')
+    expect(own.get('p-05')!.get(start)!.sentence).toContain('この開始には販売可能枠が出ていません')
+    expect(own.get('p-05')!.get(start)!.sentence).not.toContain('別のスタッフ')
 
     // A `lane` drop is the person's own promise: the box IS drawn, no clause.
     const laneDrop = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, kind: 'lane' }] })
-    expect(laneDrop.get('p-05')!.get(start)!.sentence).toContain('この開始の販売枠は表示されていません')
-    expect(laneDrop.get('p-05')!.get(start)!.sentence).not.toContain('別の販売枠')
+    expect(laneDrop.get('p-05')!.get(start)!.sentence).toContain('この開始には販売可能枠が出ていません')
+    expect(laneDrop.get('p-05')!.get(start)!.sentence).not.toContain('別のスタッフ')
   })
 
   it('a BED-refused chip is asked the room question, and nothing else is', () => {
@@ -662,12 +667,12 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     const lanes = twoStaff()
     const start = okStart(lanes)
     const off = ask(lanes, { sellDisplayed: false, drops: [{ laneKey: 'p-05', h: start, kind: 'room', takerLaneKey: 'p-06' }] })
-    expect(off.get('p-05')!.get(start)!.sentence).not.toContain('販売枠')
+    expect(off.get('p-05')!.get(start)!.sentence).not.toContain('販売可能枠')
     // Every other sentence is untouched by the dial: it is the CLAUSE that is
     // gated, never the board's own answer.
     const on = ask(lanes, { sellDisplayed: true })
     for (const [start, said] of off.get('p-05')!) {
-      expect(said.sentence).toBe(on.get('p-05')!.get(start)!.sentence.replace(/。この開始の販売枠は表示されていません$/, ''))
+      expect(said.sentence).toBe(on.get('p-05')!.get(start)!.sentence.replace(/。この開始には販売可能枠が出ていません$/, ''))
     }
   })
 
@@ -790,8 +795,13 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
 
   it('the tour sentence teaches the third face — flag 25c’s one-sentence precedent', () => {
     const guide = SRC.slice(SRC.indexOf("'data-guide':"), SRC.indexOf("'data-guide':") + 1400)
-    expect(guide).toContain('どのコマも押すと、判定した時間帯とその理由を表示します')
+    expect(guide).toContain('どのコマも押すと、何時から何時までを判定したかと、その理由を表示します')
     expect(guide).toContain('薄い斜線')
     expect(guide).toContain('「満室」「清掃」「新規」')
+    // ⚖ NATIVE PASS (2026-08-26) — ふさがっている was FALSE of 新規, which is a
+    // guard HOLD on an empty slot, not an occupied one. 置けない is true of all
+    // three, and the retired word is pinned dead so it cannot come back.
+    expect(guide).toContain('この行には見えない事情で置けないという意味です')
+    expect(guide).not.toContain('ふさがっているという意味')
   })
 })

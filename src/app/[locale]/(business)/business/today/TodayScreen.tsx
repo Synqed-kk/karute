@@ -4240,8 +4240,14 @@ export function TodayScreen(props: TodayProps) {
                 // surfaces already on the tour, so the delta is one sentence
                 // rather than a new step. The hatch has no other home to be
                 // explained in, which is why it is named here explicitly.
-                // JP-DRAFT (native pass owes this whole clause a rewrite).
-                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、判定した時間帯とその理由を表示します。「満室」「清掃」「新規」の小さな文字と点が付いたコマは、この行には見えない理由でふさがっているという意味で、すぐ上の行の薄い斜線がその30分を指しています。`,
+                //
+                // ⚖ NATIVE PASS (2026-08-26) — ふさがっている WAS FALSE FOR ONE
+                // OF THE THREE. 新規 is a guard HOLD — the slot is empty and
+                // being kept that way for a 新規 window — so "occupied" was a
+                // plain untruth about it. 置けない is true of all three, and the
+                // hatch is now its own sentence: it APPEARS, it is not a
+                // standing mark the operator should hunt for.
+                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、何時から何時までを判定したかと、その理由を表示します。「満室」「清掃」「新規」の小さな文字と点が付いたコマは、この行には見えない事情で置けないという意味です。そのときは、すぐ上の行に薄い斜線が出て、その30分を示します。`,
             }
           : {})}
       >
@@ -4337,7 +4343,7 @@ export function TodayScreen(props: TodayProps) {
                 // guard below was therefore reached with both refs already
                 // cleared by their own pointerup, which made it dead code
                 // dressed as a safety net. It is a real one now: the same three
-                // conditions the track's own click window uses (:4036-4037) —
+                // conditions the track's own click window uses (:4043-4044) —
                 // both drag refs, the CHIP drag's ref, and canon's
                 // `suppressClickUntil` window, which is the only one of the four
                 // that can still be true when a synthetic click lands here.
