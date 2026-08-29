@@ -165,12 +165,13 @@ describe('GET /api/cleanup — the sweep sees the WHOLE bucket, not just page 1'
           method: 'GET',
           headers: { authorization: 'Bearer test-cron-secret' },
         })
-        // The failure neither throws nor strands page 1: those names were
-        // genuinely listed and genuinely expired, so they still go, and the
-        // count reports exactly them.
-        expect(res.status).toBe(200)
-        // ...but the body must not read as a finished sweep. The log alone was
-        // invisible to the cron, which saw the same shape a full pass produces.
+        // The cron reads only the status, so a sweep that never saw the rest of
+        // the bucket has to come back failed — a 200 here recorded the run as a
+        // clean pass and nobody was alerted.
+        expect(res.status).toBe(500)
+        // The failure still neither throws nor strands page 1: those names were
+        // genuinely listed and genuinely expired, so they still go, the count
+        // reports exactly them, and the body says the sweep was not finished.
         expect(await res.json()).toMatchObject({
           recordingsDeleted: 1000,
           recordingsSweepComplete: false,
@@ -203,8 +204,9 @@ describe('GET /api/cleanup — the sweep sees the WHOLE bucket, not just page 1'
           method: 'GET',
           headers: { authorization: 'Bearer test-cron-secret' },
         })
-        expect(res.status).toBe(200)
-        // One row per page for 100 pages: everything it DID see is deleted.
+        expect(res.status).toBe(500)
+        // One row per page for 100 pages: everything it DID see is deleted, and
+        // the status admits the walk stopped short.
         expect(await res.json()).toMatchObject({
           recordingsDeleted: 100,
           recordingsSweepComplete: false,

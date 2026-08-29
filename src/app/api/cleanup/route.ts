@@ -112,12 +112,14 @@ export async function GET(request: Request) {
   // 2. Clean up expired AI cache (synqed-core)
   cacheDeleted = await cleanupExpiredAiCache()
 
-  // Stays 200: the cache half ran and the recordings we DID delete are really
-  // gone, so this is a completed best-effort run, not a failed request. The flag
-  // is what carries the truth about how much of the bucket it covered.
-  return NextResponse.json({
-    recordingsDeleted,
-    recordingsSweepComplete,
-    cacheDeleted,
-  })
+  // The scheduler reads only the HTTP status, so an incomplete sweep must not
+  // record as a successful run.
+  return NextResponse.json(
+    {
+      recordingsDeleted,
+      recordingsSweepComplete,
+      cacheDeleted,
+    },
+    { status: recordingsSweepComplete ? 200 : 500 }
+  )
 }
