@@ -1465,15 +1465,31 @@ export function railExplain(
 ): { word: string | null; sentence: string } {
   const judged = `（${clockOf(cell.start)}–${clockOf(cell.start + dur)}）` // JP-DRAFT
   const blockers = opts.room?.blockers ?? []
-  const word =
-    cell.reason === 'bed'
+  // ⚖ 44 FIX ROUND (blind lens 1, F1) — A WORD MAY ONLY RIDE A REFUSAL THAT
+  // NAMED SOMEBODY. `cell.reason` is the ENGINE's class for this start and the
+  // room answer beside it is the DISPLAY's own `allocateBed` call, so the two
+  // can legitimately disagree, and both ways of disagreeing printed 満室:
+  //   · mid-gesture the display's call lifts the card in hand, finds a bed and
+  //     answers `refusal: null` — 満室 over a room that is free;
+  //   · a staff lane sharing no store with any room is refused with
+  //     「…使えるベッドがありません」 and NO occupants at all — 満室 beside a
+  //     sentence saying there are no rooms to be full of anybody.
+  // So the word is derived from the same two facts the SENTENCE is: there is a
+  // refusal, and it named who is in the way. Anything else keeps the bare 「—」,
+  // which states the refusal without naming something that is not true.
+  const roomWord =
+    opts.room?.refusal != null && blockers.length > 0
       // ⚖ 44 — 満室 is the CHIP's word: internal/state vocabulary, which the
       // 8/25 native pass retired from operator SENTENCES only (see
       // `fullRoomsRefusal`'s own note). A window whose every blocker is a
       // turnaround is not a busy house, it is a house being turned over, and
       // 清掃 is the truer word — read off the walk `allocateBed` already did,
       // never re-derived from the sentence.
-      ? (blockers.length > 0 && blockers.every((i) => i.kind === 'cleanup') ? '清掃' : '満室') // JP-DRAFT
+      ? (blockers.every((i) => i.kind === 'cleanup') ? '清掃' : '満室') // JP-DRAFT
+      : null
+  const word =
+    cell.reason === 'bed'
+      ? roomWord
       : cell.reason === 'guard'
         ? '新規' // JP-DRAFT
         // ⚖ Fable-accepted default (overturnable): a no-pocket-fit chip keeps
@@ -1489,6 +1505,132 @@ export function railExplain(
     ? `ベッドは別の販売枠（${opts.takerLabel}）が使っています` // JP-DRAFT
     : 'この開始の販売枠は表示されていません' // JP-DRAFT
   return { word, sentence: `${base}。${clause}` }
+}
+
+/** What one chip wears and says: `railExplain`'s answer, keyed lane → start. */
+export type RailExplained = Map<string, Map<number, { word: string | null; sentence: string }>>
+
+/** ⚖ 44 + rider 75(i) — EVERY CHIP'S WORD AND ITS SENTENCE, worked out once per
+ *  frame instead of once per press.
+ *
+ *  `railExplain` is the composer for ONE chip; this is the board's own inputs to
+ *  it for the whole strip. It lives out here with the composer rather than in
+ *  the renderer for this file's stated reason (and `railExplain`'s own): an
+ *  answer the operator acts on has to be provable without a renderer — Business
+ *  territory has none — and this one is asked across twelve dial combinations,
+ *  on boards whose sell layer is empty, where a DOM test would prove nothing.
+ *
+ *  THE ROOM QUESTION IS THE STRIP'S OWN, spelled the way the strip asks it: a
+ *  NEW placement of `dur` minutes on this lane's stores, with the card in hand
+ *  lifted out (`handId` is `guardRailsFor`'s own `excludeId`, so the sentence
+ *  and the chip above it were judged against one board). It goes through
+ *  `allocateBed` because that is where the refusal SENTENCE is composed — one
+ *  home, never a second composer for a full house.
+ *
+ *  ponytail: one `allocateBed` per BED-REFUSED chip per frame, and nothing at
+ *  all for the rest — and nothing WHATEVER while a gesture is in hand. The
+ *  ceiling is a board where most starts are full for most staff; move these
+ *  through `capacity-ledger`'s book (which memoises the identical question) if a
+ *  bigger board ever measures slow. */
+export function explainRails(
+  rails: readonly GuardRail[],
+  lanes: BoardLane[],
+  opts: {
+    /** The length the strip is judging — ⚖ 50, it follows the gesture. */
+    dur: number
+    /** The card in hand, lifted out of the board for the room question. */
+    handId: string | null
+    rooms: RoomPolicy
+    /** ⚖ R3 one world — the operator's own staged card, named as theirs. */
+    stagedId: string | null
+    /** The advertised layer and the promises, as the board draws them. */
+    sellCells: readonly SellCell[]
+    claims: readonly GapCell[]
+    /** ⚖ 75(i) — what building that layer threw away. */
+    drops: readonly SellDrop[]
+    /** ⚖ 44 FIX ROUND (blind lens 4, SF2) — SOMETHING IS IN THE OPERATOR'S HAND,
+     *  and then this map is not read at all: the chip wears the verdict's × and
+     *  its accessible name is the verdict's own reason, so every answer composed
+     *  here would be thrown away — once per pointer frame, `allocateBed` per
+     *  bed-refused chip included, because the live board re-derives the rails on
+     *  every frame of the drag. The empty map IS the rest-state cue standing
+     *  down (the word is already nulled and the hatch already gated on the same
+     *  gesture), and the one thing that survives it is the accessible name of a
+     *  CLEAN landing, which falls to the engine's own `cell.sentence` — no
+     *  window suffix, no 75(i) clause. That is the mid-drag shape every other
+     *  class already had: a blocked or caution chip's name has always been the
+     *  verdict's raw sentence, so the clean chip now matches its neighbours
+     *  instead of being the only one still wearing the resting composition. */
+    inHand: boolean
+    /** ⚖ 44 FIX ROUND (blind lens 4, N4) — IS THE SELL LAYER ON SCREEN AT ALL.
+     *  表示設定 → 空き枠表示「非表示」 hides every 販売可能枠 box (`.sell-off`),
+     *  so EVERY window is ad-less and 75(i)'s clause would fire on every ✓ chip
+     *  on the board — 「この開始の販売枠は表示されていません」 said about a
+     *  display the operator switched off themselves. The clause explains an
+     *  absence the board chose; it may not explain one the operator did.
+     *  「ドラッグ中のみ」 is NOT gated here: that layer exists and is revealed by
+     *  the gesture, and a gesture already empties this map. */
+    sellDisplayed: boolean
+  },
+): RailExplained {
+  const out: RailExplained = new Map()
+  if (opts.inHand) return out
+  const overlaps = (aS: number, aE: number, bS: number, bE: number) => aS < bE && bS < aE
+  for (const rail of rails) {
+    const staff = lanes.find((l) => l.key === rail.laneKey && l.group === 'staff')
+    // Per lane, once — the ad-less test below is asked per cell and these three
+    // lists do not change between them.
+    const sellHere = opts.sellCells.filter((s) => s.group === 'staff' && s.laneKey === rail.laneKey)
+    const gapHere = opts.claims.filter((g) => g.group === 'staff' && g.laneKey === rail.laneKey)
+    // ⚖ 75(i) — only a ROOM drop explains an empty window. A `lane` drop means
+    // this person's own promise beat the offer, and that promise is a box drawn
+    // on this very row, so the window is not ad-less in the first place.
+    //
+    // ⚖ 44 FIX ROUND (blind lens 1, F4/F5) — AND THE TAKER HAS TO BE SOMEBODY
+    // ELSE. The clause says 別の販売枠 — *another* — so a room-drop whose winning
+    // promise is on THIS lane cannot be its subject; it falls through to the
+    // bare clause, which states the absence without naming a stranger who is
+    // this very person. (What is still accepted: two drops in the same slot on
+    // one lane are told apart only by `h`, so a chip overlapping both takes the
+    // first — the honest ceiling of a per-slot collector, and every candidate it
+    // can pick did lose its room to the lane it names.)
+    const roomDrops = opts.drops.filter(
+      (d) => d.laneKey === rail.laneKey && d.kind === 'room' && d.takerLaneKey != null && d.takerLaneKey !== rail.laneKey,
+    )
+    const per = new Map<number, { word: string | null; sentence: string }>()
+    for (const c of rail.cells) {
+      const end = c.start + opts.dur
+      const advertised =
+        sellHere.some((s) => overlaps(s.h, s.h + SELL_SLOT_MIN, c.start, end)) ||
+        gapHere.some((g) => overlaps(g.s, g.e, c.start, end))
+      const taker = advertised ? undefined : roomDrops.find((d) => overlaps(d.h, d.h + SELL_SLOT_MIN, c.start, end))
+      per.set(
+        c.start,
+        railExplain(c, opts.dur, {
+          room:
+            c.reason === 'bed' && staff
+              ? allocateBed(lanes, {
+                  id: opts.handId,
+                  currentBed: null,
+                  stores: staff.stores,
+                  // A rail cell asks about a placement nobody has made yet, so
+                  // nobody is VIP and nobody holds a room — the same
+                  // hypothetical `bedDoor` binds for the marks themselves.
+                  vip: false,
+                  start: c.start,
+                  end,
+                  policy: opts.rooms,
+                  stagedId: opts.stagedId,
+                })
+              : null,
+          adless: !advertised && opts.sellDisplayed,
+          takerLabel: taker?.takerLaneKey != null ? (lanes.find((l) => l.key === taker.takerLaneKey)?.label ?? null) : null,
+        }),
+      )
+    }
+    out.set(rail.laneKey, per)
+  }
+  return out
 }
 
 /** ⚖ LIAM flag 58 RIDER (2026-08-22) — AN ENGINE START IS NOT YET AN OFFER.
@@ -1987,7 +2129,10 @@ export function allocateBed(
      *  the day — today-board draws a staged card exactly like a standing one. */
     stagedId?: string | null
   },
-): { laneKey: string | null; refusal: string | null; blockers: BoardItem[] } {
+  // ⚖ 44 FIX ROUND (blind lens 1, F6) — `readonly`: the walk is handed out to be
+  // READ (classified into the chip's word), never to be sorted or spliced by the
+  // display that borrowed it.
+): { laneKey: string | null; refusal: string | null; blockers: readonly BoardItem[] } {
   const { id, start, end, policy } = opts
   const blockersOn = (lane: BoardLane) =>
     lane.items.filter(
@@ -2365,7 +2510,11 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
         policy: q.rooms,
         stagedId: q.stagedId ?? null,
       })
-    : { laneKey: q.bedLane, refusal: null }
+    // ⚖ 44 FIX ROUND (blind lens 1, F6) — ONE SHAPE ON BOTH SIDES. A bed-row
+    // gesture names its own room, so nothing was walked and nobody is in the
+    // way; saying that with `[]` keeps `solved` one type rather than a union
+    // whose second arm quietly lacks the field a reader may go looking for.
+    : { laneKey: q.bedLane, refusal: null, blockers: [] }
   const bed = lanes.find((l) => l.key === solved.laneKey && l.group === 'beds') ?? null
   bedLane = solved.laneKey
 
