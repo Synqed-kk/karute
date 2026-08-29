@@ -129,6 +129,12 @@ class GlobalRecorder {
    *  take — a session minted for a different one would key the discard row to
    *  the wrong recording, which is worse than the orphan row it avoids. */
   private recordingSessionMintTakeId: string | null = null
+  /** True when the mint above was issued while ANOTHER take was still live —
+   *  the one case where the null marker must NOT be read as "the live take":
+   *  start() fires its mint before creating its own take, so a take sitting
+   *  there belongs to the PREVIOUS recording. Pins what the retry's fallback
+   *  silently assumed (start() runs with no take live). */
+  private recordingSessionMintTakeUnknown = false
   /** Staleness guard for the mint. A slow mint from recording A resolving
    *  AFTER discard()/a new start() must not stamp its id (minted for A's
    *  customer) onto recording B — bump on every start() and discard(); the
@@ -252,6 +258,9 @@ class GlobalRecorder {
     const gen = ++this.recordingSessionGen
     this.recordingSessionMintInFlight = true
     this.recordingSessionMintTakeId = input.stampTakeId ?? null
+    // ponytail: never cleared once start() creates its take — the retry then
+    // just mints fresh instead of sharing, which is the safe side of the trade.
+    this.recordingSessionMintTakeUnknown = input.stampTakeId == null && this.takeId !== null
     const promise = startRecordingSession({
       customerId: input.customerId,
       appointmentId: input.appointmentId,
@@ -437,6 +446,7 @@ class GlobalRecorder {
     if (!takeId) return null
     const inFlightForThisTake =
       this.recordingSessionMintInFlight &&
+      !this.recordingSessionMintTakeUnknown &&
       (this.recordingSessionMintTakeId ?? this.takeId) === takeId
         ? this.recordingSessionPromise
         : null
@@ -509,6 +519,9 @@ class GlobalRecorder {
     this.target = null
     this.recordingSessionId = null
     this.recordingSessionPromise = null
+    this.recordingSessionMintInFlight = false
+    this.recordingSessionMintTakeId = null
+    this.recordingSessionMintTakeUnknown = false
     // Invalidate any in-flight mint so its late resolution can't stamp a
     // discarded take's session id onto the next recording.
     this.recordingSessionGen++

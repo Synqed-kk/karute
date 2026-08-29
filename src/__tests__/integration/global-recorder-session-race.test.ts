@@ -113,6 +113,24 @@ describe('GlobalRecorder — recording-session mint staleness guard', () => {
     expect(mockStartRecordingSession).toHaveBeenCalledTimes(2)
   })
 
+  // The fallback above reads "no named take" as "the recorder's own live take",
+  // which holds only because start() fires its mint BEFORE creating that take.
+  // If a previous recording's take is still sitting there, the in-flight mint
+  // belongs to the NEW recording — reusing it would key the old take's discard
+  // row to a session minted for a different one.
+  it('refuses to reuse a mint issued while another take was still live', async () => {
+    globalRecorder.takeId = 'take-old'
+    const slow = deferred<{ id: string } | null>()
+    mockStartRecordingSession.mockReturnValueOnce(slow.promise)
+    await globalRecorder.start({ target: TARGET_B })
+
+    mockStartRecordingSession.mockResolvedValueOnce({ id: 'session-old' })
+    expect(await globalRecorder.retryRecordingSessionMint({ takeId: 'take-old', timeoutMs: 1 })).toBe(
+      'session-old',
+    )
+    expect(mockStartRecordingSession).toHaveBeenCalledTimes(2)
+  })
+
   it('a current-generation mint still lands (control)', async () => {
     mockStartRecordingSession.mockResolvedValueOnce({ id: 'session-live' })
     await globalRecorder.start({ target: TARGET_A })
