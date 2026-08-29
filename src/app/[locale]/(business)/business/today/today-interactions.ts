@@ -1437,7 +1437,7 @@ function railCell(
  *      that ruling exists to forbid. ⛔ Never coin a new full-house sentence:
  *      「この時間帯に空いているベッドがいません」 is RETIRED and
  *      「空きベッドなし」 was never vocabulary.
- *    · everything else appends 「（HH:MM–HH:MM）」 to the engine's own line.
+ *    · everything else appends 「（HH:MM〜HH:MM）」 to the engine's own line.
  *
  *  ⚖ 75(i) — AND A ✓ OVER NOTHING IS ALSO A QUESTION. A window carrying no
  *  advertised box at all says "placeable" while the board shows no offer there,
