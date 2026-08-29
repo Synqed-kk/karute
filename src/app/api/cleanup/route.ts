@@ -63,14 +63,18 @@ export async function GET(request: Request) {
     }
     for (let i = 0; i < expired.length; i += REMOVE_BATCH_SIZE) {
       const batch = expired.slice(i, i + REMOVE_BATCH_SIZE)
-      const { error } = await supabase.storage.from('recordings').remove(batch)
+      const { data, error } = await supabase.storage.from('recordings').remove(batch)
       // Count only what storage confirmed gone; a failed batch must not inflate
       // the number, and the batches after it still deserve their attempt.
       if (error) {
         console.error('[cleanup] recordings batch error:', error)
         continue
       }
-      recordingsDeleted += batch.length
+      // remove() returns the objects it ACTUALLY removed, which is not always
+      // every name we asked for — an object can vanish between the listing and
+      // the delete (this system's own post-transcription cleanup produces
+      // exactly that race). Count the result, not the ask.
+      recordingsDeleted += data?.length ?? 0
     }
   } catch (err) {
     console.error('[cleanup] recordings error:', err)

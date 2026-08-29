@@ -9,7 +9,13 @@ const cleanupExpiredAiCache = jest.fn(async () => 0)
 jest.mock('@/lib/ai-cache', () => ({
   cleanupExpiredAiCache: () => cleanupExpiredAiCache(),
 }))
-const storageRemove = jest.fn(async () => ({}))
+// remove() answers with the objects it actually removed, so the mock mirrors the
+// batch it was handed; a case that needs a shorter answer overrides it.
+type RemoveResult = { data?: { name: string }[]; error?: { message: string } }
+const removedAll = async (names: string[]): Promise<RemoveResult> => ({
+  data: names.map((name) => ({ name })),
+})
+const storageRemove = jest.fn(removedAll)
 type ListOpts = { limit: number; offset: number }
 const storageList = jest.fn(async (_prefix: string, _opts: ListOpts) => ({
   data: [] as { name: string; created_at: string }[],
@@ -29,7 +35,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   process.env.CRON_SECRET = 'test-cron-secret'
   storageList.mockImplementation(async () => ({ data: [] }))
-  storageRemove.mockImplementation(async () => ({}))
+  storageRemove.mockImplementation(removedAll)
 })
 
 // remove() is now called once per batch, so "was this name deleted?" is a
@@ -177,8 +183,8 @@ describe('GET /api/cleanup — deletion is batched and the count is honest', () 
       data: opts.offset === 0 ? oldFiles(250) : [],
     }))
     let call = 0
-    storageRemove.mockImplementation(async () =>
-      ++call === 2 ? { error: { message: 'Payload too large' } } : {}
+    storageRemove.mockImplementation(async (names) =>
+      ++call === 2 ? { error: { message: 'Payload too large' } } : removedAll(names)
     )
 
     // 250 expired, the middle batch of 100 refused → 150, not 250.
@@ -192,6 +198,23 @@ describe('GET /api/cleanup — deletion is batched and the count is honest', () 
       expect.objectContaining({ message: 'Payload too large' })
     )
     consoleError.mockRestore()
+  })
+
+  it('counts what remove() returned, not what it was asked to delete', async () => {
+    // An object can disappear between the listing and the delete — this system's
+    // own post-transcription cleanup removes takes on exactly that path. remove()
+    // answers with the objects it ACTUALLY removed, so a name that was already
+    // gone must not be credited as a deletion.
+    storageList.mockImplementation(async (_prefix, opts) => ({
+      data: opts.offset === 0 ? oldFiles(3) : [],
+    }))
+    storageRemove.mockImplementation(async (names) => ({
+      data: names.slice(1).map((name) => ({ name })), // old-0.webm vanished first
+    }))
+
+    // Asked to delete 3, storage removed 2.
+    expect(await run()).toMatchObject({ recordingsDeleted: 2 })
+    expect(removedNames()).toHaveLength(3)
   })
 
   it('never collects a row whose created_at is missing or unparseable', async () => {
