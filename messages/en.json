@@ -2298,6 +2298,7 @@
       "byStaffTitle": "By staff member (this month)",
       "countThisMonth": "Discarded this month: {count}",
       "countTotal": "Discards on record: {count} in total",
+      "countsTruncated": "These counts exclude the older records not shown.",
       "unknownStaff": "Staff member unknown",
       "loading": "Loading…",
       "loadFailed": "Could not load the discard records.",

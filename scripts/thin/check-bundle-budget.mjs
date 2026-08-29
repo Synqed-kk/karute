@@ -210,6 +210,12 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // is excluded from the bundle (PENDING_SECTION_FILES) and its tab is 準備中 on
 // thin, so none of the screen's own code ships here. Ceiling set 4,782 B above
 // the measurement, same low-headroom convention as the five raises above.
+// RE-MEASURED 2026-08-30, same emptied-thin/dist method, deterministic across
+// two clean builds: the merged tip is 1,993,592 B raw against this 1,997,000 B
+// ceiling, and the polish round on top of it is 1,994,051 B (+459 B: the
+// recorder's in-flight mint guard and one i18n key in both locales). Real
+// headroom is therefore 2,949 B — not the 4,782 B the raise above recorded,
+// which was taken at the PRE-merge tip and is kept only as its history.
 const BUDGET_BYTES = 1_997_000
 
 let dir

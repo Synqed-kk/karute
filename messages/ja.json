@@ -2298,6 +2298,7 @@
       "byStaffTitle": "スタッフ別（今月）",
       "countThisMonth": "今月の破棄 {count}件",
       "countTotal": "記録されている破棄 全{count}件",
+      "countsTruncated": "古い記録を除いた件数です。",
       "unknownStaff": "担当者不明",
       "loading": "読み込んでいます…",
       "loadFailed": "破棄の記録を読み込めませんでした。",

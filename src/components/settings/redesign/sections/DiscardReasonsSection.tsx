@@ -88,7 +88,8 @@ export function DiscardReasonsSection() {
       {state.kind === 'ready' && (
         <>
           {/* Labelled plain facts. Each number says WHAT it counts — never a
-              bare figure the reader has to interpret. */}
+              bare figure the reader has to interpret, and past the read cap
+              that includes saying the older records are not in it. */}
           <div className="flex flex-wrap gap-x-6 gap-y-1 rounded-xl border border-border bg-card px-4 py-3">
             <p className="text-xs text-muted-foreground">
               {t('countThisMonth', { count: state.counts.thisMonth })}
@@ -96,6 +97,9 @@ export function DiscardReasonsSection() {
             <p className="text-xs text-muted-foreground">
               {t('countTotal', { count: state.counts.total })}
             </p>
+            {state.truncated && (
+              <p className="w-full text-[11px] text-muted-foreground">{t('countsTruncated')}</p>
+            )}
           </div>
 
           {state.counts.byStaff.length > 0 && (
@@ -112,6 +116,9 @@ export function DiscardReasonsSection() {
                   </li>
                 ))}
               </ul>
+              {state.truncated && (
+                <p className="mt-2 text-[11px] text-muted-foreground">{t('countsTruncated')}</p>
+              )}
             </div>
           )}
 

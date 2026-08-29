@@ -39,8 +39,13 @@ const listSeen: Record<string, unknown>[] = []
 class ThisSensitiveDiscardClient {
   async list(q: Record<string, unknown> = {}) {
     listSeen.push(q)
-    const events = ledger.filter((r) => !q.source || r.source === q.source)
-    return { events, total: events.length, page: 1, page_size: 200 }
+    const all = ledger.filter((r) => !q.source || r.source === q.source)
+    // Pages for real: the read caps at MAX_PAGES, and a fake that hands back
+    // the whole ledger on page 1 can never reach that cap.
+    const page = Number(q.page ?? 1)
+    const pageSize = Number(q.page_size ?? 200)
+    const events = all.slice((page - 1) * pageSize, page * pageSize)
+    return { events, total: all.length, page, page_size: pageSize }
   }
 }
 const fakeClient = { recordingDiscards: new ThisSensitiveDiscardClient() }
@@ -204,6 +209,16 @@ describe('the staffer’s own count (the staff half of ruling B)', () => {
   it('an unresolved identity yields null, never 0 (a 0 would be a claim)', async () => {
     staffId.current = null
     ledger.push(row({ id: 'mine' }))
+
+    expect(await myDiscardCountThisMonth()).toBeNull()
+  })
+
+  // Same rule one step further out: past the page cap the read has only seen
+  // PART of the ledger, so the number it holds is a FLOOR. A floor rendered as
+  // "your discards this month" is a claim we cannot back, so nothing is shown.
+  it('past the read cap it yields null — a partial count is not the count', async () => {
+    // 20 pages x 200 + 1: the loop exhausts MAX_PAGES with rows still unread.
+    for (let i = 0; i < 4001; i++) ledger.push(row({ id: `d${i}` }))
 
     expect(await myDiscardCountThisMonth()).toBeNull()
   })

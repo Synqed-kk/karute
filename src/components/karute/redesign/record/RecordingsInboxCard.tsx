@@ -121,10 +121,12 @@ export function RecordingsInboxCard({
    *  navigate/re-run, the R13 wash for 確認する, the solid commit for 保存する. */
   function actionFor(row: InboxRow) {
     // 破棄済み is INERT (A2-3): the take is gone by the staff member's own
-    // explained decision, so there is nothing to open, save or retry. Guarded
-    // FIRST so no later branch can hand a discarded row an affordance — the
-    // fold already nulls its takeId and karuteRecordId, and this is the second
-    // lock on the same door.
+    // explained decision, so there is nothing to open, save or retry. This
+    // state guard is the SOLE lock, and it is sufficient — the fold
+    // deliberately keeps takeId and karuteRecordId TRUE (that module never
+    // erases evidence, see lib/recordings/inbox.ts), so the state must be
+    // checked FIRST: no later branch may read those ids and hand a discarded
+    // row an affordance.
     if (row.state === 'discarded') return null
     if (row.karuteRecordId && (row.state === 'saved' || row.state === 'awaiting-check')) {
       const check = row.state === 'awaiting-check'

@@ -118,6 +118,17 @@ class GlobalRecorder {
    *  time can await it briefly instead of only reading whatever has resolved
    *  so far. Cleared on discard(). */
   private recordingSessionPromise: Promise<string | null> | null = null
+  /** True from the moment a mint is ISSUED until it settles. `recordingSessionId`
+   *  reads null in BOTH the failed and the still-in-flight case, so this is the
+   *  only thing that lets the retry below tell "it failed, mint again" apart
+   *  from "it is merely slow, wait for it". */
+  private recordingSessionMintInFlight = false
+  /** The take the in-flight mint will stamp, or null for "the recorder's own
+   *  live take, read at resolution" (start()'s mint, fired before the take
+   *  exists). The retry reuses an in-flight mint ONLY when it is for the same
+   *  take — a session minted for a different one would key the discard row to
+   *  the wrong recording, which is worse than the orphan row it avoids. */
+  private recordingSessionMintTakeId: string | null = null
   /** Staleness guard for the mint. A slow mint from recording A resolving
    *  AFTER discard()/a new start() must not stamp its id (minted for A's
    *  customer) onto recording B — bump on every start() and discard(); the
@@ -239,13 +250,19 @@ class GlobalRecorder {
     stampTakeId?: string | null
   }): Promise<string | null> {
     const gen = ++this.recordingSessionGen
+    this.recordingSessionMintInFlight = true
+    this.recordingSessionMintTakeId = input.stampTakeId ?? null
     const promise = startRecordingSession({
       customerId: input.customerId,
       appointmentId: input.appointmentId,
     }).then((res) => {
       // Stale mint (user discarded / started a new recording while this was
       // in flight): drop it — its row belongs to a different take/customer.
+      // The flag is NOT cleared here: it belongs to whichever mint owns the
+      // current generation, and that one is still in flight.
       if (gen !== this.recordingSessionGen) return null
+      // Settled (this call swallows every failure to null, so it never rejects).
+      this.recordingSessionMintInFlight = false
       this.recordingSessionId = res?.id ?? null
       // Stamp the persisted take so a crash-recovered save still dedupes.
       // (If the meta row isn't written yet, createTake's callback re-stamps.)
@@ -396,6 +413,11 @@ class GlobalRecorder {
    * take is held any more, in which case there is no audio this row could
    * honestly describe. Bounded exactly like awaitRecordingSessionId.
    *
+   * A mint that is merely SLOW is not a failed one: a second confirm tap while
+   * the first is still in flight AWAITS it rather than issuing a parallel
+   * upstream create (each new mint bumps the generation, so the previous one's
+   * row would land referenced by nothing — one orphan per tap).
+   *
    * ponytail: a review-path retry writes its id onto this singleton like any
    * other mint (the gen guard is what keeps that safe — a newer recording
    * invalidates it). The recorder is idle in that case and the next start()
@@ -413,11 +435,18 @@ class GlobalRecorder {
     if (this.recordingSessionId !== null) return this.recordingSessionId
     const takeId = opts?.takeId ?? this.takeId
     if (!takeId) return null
-    const promise = this.mintRecordingSession({
-      customerId: opts?.customerId ?? this.target?.customerId ?? null,
-      appointmentId: opts?.appointmentId ?? this.target?.appointmentId ?? null,
-      stampTakeId: takeId,
-    })
+    const inFlightForThisTake =
+      this.recordingSessionMintInFlight &&
+      (this.recordingSessionMintTakeId ?? this.takeId) === takeId
+        ? this.recordingSessionPromise
+        : null
+    const promise =
+      inFlightForThisTake ??
+      this.mintRecordingSession({
+        customerId: opts?.customerId ?? this.target?.customerId ?? null,
+        appointmentId: opts?.appointmentId ?? this.target?.appointmentId ?? null,
+        stampTakeId: takeId,
+      })
     const timeout = new Promise<null>((resolve) =>
       setTimeout(() => resolve(null), opts?.timeoutMs ?? MINT_AWAIT_MS),
     )

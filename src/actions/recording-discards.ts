@@ -43,6 +43,9 @@ export interface DiscardReasonCounts {
   thisMonth: number
   /** Every STAFF discard the ledger holds (within the page cap below). */
   total: number
+  // NOTE: past the cap these are FLOORS, not totals — `truncated` on the result
+  // says so, and the section renders the qualifier ON the tiles because a
+  // number that cannot say it is complete must say it is not (⚖ 8/25).
   /** Per staffer, this month, newest-heaviest first. Plain counts — ⚖ 8/25
    *  ruling B: labelled facts, never a threshold, grade or ranking colour. */
   byStaff: { staffId: string; staffName: string | null; thisMonth: number }[]
@@ -175,6 +178,10 @@ export async function myDiscardCountThisMonth(): Promise<number | null> {
         if (e?.discarded_by === staffId && Date.parse(e.created_at) >= monthFloor) mine += 1
       }
       if (batch.length === 0 || page * PAGE_SIZE >= (res?.total ?? 0)) break
+      // Past the cap the ledger was only partly read, so `mine` is a FLOOR and
+      // not the count. Same rule as the catch below: a number we cannot back is
+      // not shown at all — the header renders nothing on null.
+      if (page === MAX_PAGES) return null
     }
     return mine
   } catch (err) {
