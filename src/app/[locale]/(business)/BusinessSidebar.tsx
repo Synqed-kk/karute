@@ -79,7 +79,7 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
       { key: 'customers', segment: 'customers', label: '顧客', mini: '顧客', live: true },
       { key: 'inbox', segment: 'inbox', label: '受信トレイ', mini: '受信', live: true },
       { key: 'shifts', segment: 'shifts', label: 'スタッフ・シフト', mini: 'シフト', live: true },
-      { key: 'register', segment: null, label: '売上・レジ', mini: '売上', live: false },
+      { key: 'register', segment: 'register', label: '売上・レジ', mini: '売上', live: true },
       { key: 'analytics', segment: 'analytics', label: '売上分析', mini: '分析', live: true },
     ],
   },

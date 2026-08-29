@@ -65,6 +65,7 @@ const CRUMB: Record<string, string> = {
   reservations: '予約一覧',
   customers: '顧客',
   inbox: '受信トレイ',
+  register: '売上・レジ',
   analytics: '売上分析',
   shifts: 'スタッフ・シフト',
 }
