@@ -17,9 +17,15 @@ const removedAll = async (names: string[]): Promise<RemoveResult> => ({
 })
 const storageRemove = jest.fn(removedAll)
 type ListOpts = { limit: number; offset: number }
-const storageList = jest.fn(async (_prefix: string, _opts: ListOpts) => ({
-  data: [] as { name: string; created_at: string }[],
-}))
+// A page that fails answers with data null + an error, so the mock's shape has
+// to be able to say that, not just hand back rows.
+type ListResult = {
+  data: { name: string; created_at: string }[] | null
+  error?: { message: string }
+}
+const storageList = jest.fn(
+  async (_prefix: string, _opts: ListOpts): Promise<ListResult> => ({ data: [] })
+)
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
     storage: {
@@ -135,6 +141,41 @@ describe('GET /api/cleanup — the sweep sees the WHOLE bucket, not just page 1'
     expect(deleted).toContain('p2-0.webm')
     // Age filter untouched — a file younger than an hour survives on any page.
     expect(deleted).not.toContain('too-new.webm')
+  })
+
+  it('logs a mid-walk list failure instead of ending the sweep silently', async () => {
+    // A failed page also answers with data null, so taking only `data` made it
+    // indistinguishable from the end of the bucket: the route finished the
+    // partial sweep, reported success, and left no trace anywhere that the
+    // orphans past the failure were never looked at.
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const first = page('p1', 1000)
+    storageList.mockImplementation(async (_prefix, opts) =>
+      opts.offset === 0 ? { data: first } : { data: null, error: { message: 'list failed' } }
+    )
+
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: 'GET',
+          headers: { authorization: 'Bearer test-cron-secret' },
+        })
+        // The failure neither throws nor strands page 1: those names were
+        // genuinely listed and genuinely expired, so they still go, and the
+        // count reports exactly them.
+        expect(res.status).toBe(200)
+        expect(await res.json()).toMatchObject({ recordingsDeleted: 1000 })
+      },
+    })
+
+    expect(storageList.mock.calls.map(([, o]) => o.offset)).toEqual([0, 1000])
+    expect(removedNames()).toHaveLength(1000)
+    expect(consoleError).toHaveBeenCalledWith(
+      '[cleanup] recordings list error:',
+      expect.objectContaining({ message: 'list failed' })
+    )
+    consoleError.mockRestore()
   })
 })
 

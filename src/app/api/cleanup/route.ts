@@ -47,9 +47,19 @@ export async function GET(request: Request) {
     const oneHourAgo = Date.now() - 60 * 60 * 1000
     const expired: string[] = []
     for (let page = 0, offset = 0; page < MAX_PAGES; page++) {
-      const { data: files } = await supabase.storage
+      const { data: files, error: listError } = await supabase.storage
         .from('recordings')
         .list('', { limit: PAGE_SIZE, offset })
+      // A failed page also answers with data null, which the old destructuring
+      // read as "bucket ended here" — the sweep then finished silently and every
+      // orphan past the failure waited for the next cron with nothing logged.
+      // End the walk (the offsets after a failed page can't be trusted) but SAY
+      // so; the names already collected were genuinely listed and expired, so
+      // deleting them below stays correct.
+      if (listError) {
+        console.error('[cleanup] recordings list error:', listError)
+        break
+      }
       if (!files || files.length === 0) break
       for (const f of files) {
         // A null/absent/unparseable created_at parses to NaN, which the old
