@@ -650,8 +650,16 @@
    `.event.cleanup` (:595), no new colour anywhere — because these minutes are
    most often exactly that, and because a cue nobody has seen before is a second
    thing to learn. `z-index: 0` and `pointer-events: none` put it under every
-   offer and under every card: it explains empty space, it never covers a sale. */
-.biz .cell-rest-cue { position: absolute; z-index: 0; top: 0; bottom: 0; left: var(--x); width: var(--w); background: repeating-linear-gradient(135deg, #ebe6e0 0 4px, #f4f1ec 4px 8px); opacity: .25; pointer-events: none; }
+   offer and under every card: it explains empty space, it never covers a sale.
+
+   ⚖ 44 FIX ROUND (blind lenses 2 + 4, N3) — THE INSET GRAMMAR IS `.cell-price`'s,
+   to the pixel: `top/bottom: 4px`, `left: calc(var(--x) + 1px)`,
+   `width: calc(var(--w) - 2px)`, `border-radius: 4px`. It shipped full-bleed
+   (`top/bottom: 0`, no radius), which drew a band running the row's whole height
+   and poking 1px past both edges of the boxes it sits under — a second geometry
+   on a layer whose whole point is that it is the same layer. The signed-off mock
+   is discrete rounded marks; these are those. */
+.biz .cell-rest-cue { position: absolute; z-index: 0; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); border-radius: 4px; background: repeating-linear-gradient(135deg, #ebe6e0 0 4px, #f4f1ec 4px 8px); opacity: .25; pointer-events: none; }
 .biz .timeline.sell-drag .cell-price { opacity: 0; }
 .biz .timeline.sell-off .cell-price { display: none; }
 /* ⚖ Liam 2026-08-20 — LENGTH-MATCHED EMPHASIS, superseding canon's uniform
@@ -791,14 +799,32 @@
    that goes quiet under the cursor is the cursor lying about what a press does.
    `.aimed` was never excluded here (see the note above) and is unchanged. */
 .biz .guard-rail-cell:hover, .biz .guard-rail-cell:focus-visible, .biz .guard-rail-cell.aimed { outline: 0; filter: brightness(.94); box-shadow: inset 0 0 0 1px currentColor, 0 0 0 2px rgba(85, 60, 143, .18); }
-.biz button.guard-rail-cell:focus { z-index: 6; outline: 2px solid var(--select-line); outline-offset: 1px; filter: brightness(.94); box-shadow: inset 0 0 0 1px currentColor, 0 0 0 3px #fff; }
+/* ⚖ 44 FIX ROUND (blind lens 4, SF3) — `:focus-visible`, not `:focus`. A chip is
+   a real button now, so a MOUSE press focuses it, and a plain `:focus` ring
+   meant every press left a 2px outline the operator never asked for — dead CSS
+   for the round it shipped in (the keyboard case is already carried by the
+   `:focus-visible` rule above; this one only adds the visible ring the rest of
+   this board gives a keyboard landing). */
+.biz button.guard-rail-cell:focus-visible { z-index: 6; outline: 2px solid var(--select-line); outline-offset: 1px; filter: brightness(.94); box-shadow: inset 0 0 0 1px currentColor, 0 0 0 3px #fff; }
 @media (max-width: 1200px) {
   .biz .guard-rail-cell { font-size: 8px; letter-spacing: -.6px; }
+  /* ⚖ 44 FIX ROUND (blind lens 4, N2) — the 10px micro-word is the WIDEST thing
+     the strip can carry, so it is the one that most needs the narrow-viewport
+     shrink, and it was the one rule that did not honour it: at 1200px the 3px
+     dot sat on the second glyph of 満室. */
+  .biz .guard-rail-cell[data-reason] i { font-size: 8px; }
   .biz .guard-rail-label { padding-left: 8px; font-size: 8.5px; }
 }
 @media (min-width: 1400px) { .biz .guard-rail-cell { font-size: 10px; letter-spacing: -.5px; } }
+/* ⚖ 44 FIX ROUND (blind lens 4, SF1) — THE CUE GOES WITH THE STRIP IT EXPLAINS.
+   The hatch means 「the chip below is refusing over something you cannot see on
+   this row」, so with the 配置ガイド dial turned to 非表示 or ドラッグ中のみ there
+   is no chip below and the mark is an unexplained smudge on the lane. Same two
+   selectors, so the mark can never outlive the strip. */
 .biz .timeline.guard-guide-mode-drag:not(.guard-guide-aiming) .guard-placement-rail,
-.biz .timeline.guard-guide-mode-hidden .guard-placement-rail { display: none; }
+.biz .timeline.guard-guide-mode-drag:not(.guard-guide-aiming) .cell-rest-cue,
+.biz .timeline.guard-guide-mode-hidden .guard-placement-rail,
+.biz .timeline.guard-guide-mode-hidden .cell-rest-cue { display: none; }
 
 /* 守るもの — the legend band that names what the rail is protecting (canon
    :1282–1294 + the #guardDemoHonesty markup at :1855). */
