@@ -47,9 +47,10 @@ import { createClient } from '@/lib/supabase/server'
 import { STORE_A } from '@/business/lib/fixtures'
 import { bedTruthViews } from '@/app/[locale]/(business)/business/today/capacity-ledger'
 import { clampPriceInputs } from '@/business/lib/canon-logic/pricing'
-import type { GapCell } from '@/business/lib/canon-logic/availability'
+import type { GapCell, SellCell } from '@/business/lib/canon-logic/availability'
 import {
   allocateBed,
+  explainRails,
   gapLayerFor,
   guardRailsFor,
   railExplain,
@@ -255,6 +256,48 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
     // A start nothing refused wears nothing.
     expect(explainOn(sceneWith([]), placeableOn(railOn(sceneWith([])))).word).toBeNull()
   })
+
+  // ⚖ 44 FIX ROUND (blind lens 1, F1) — THE TWO WAYS THE WORD USED TO LIE. The
+  // chip's CLASS is the engine's and the room answer beside it is the display's
+  // own `allocateBed` call; where the two legitimately disagree, the word has to
+  // fall silent rather than name a state that is not on the board.
+  it('a bed class with NO refusal wears no word — the display found the room the engine could not', () => {
+    // The strip judged this start against the whole board, so ベッド1 is busy and
+    // the chip is `bed`. The SENTENCE is asked with the card in hand lifted out
+    // (`handId`), which is exactly the booking in the way — so the allocator
+    // hands back that very room, free.
+    const busy = sceneWith([booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)])
+    const cell = at(railOn(busy), 780)
+    expect(cell.reason).toBe('bed')
+    const lifted = allocateBed(busy, {
+      id: 'x1', currentBed: null, stores: null, vip: false, start: 780, end: 840, policy: POLICY,
+    })
+    expect([lifted.laneKey, lifted.refusal]).toEqual(['bed-01', null])
+    // 満室 over a room that is standing empty is the lie. Bare 「—」 instead.
+    expect(railExplain(cell, 60, { room: lifted }).word).toBeNull()
+  })
+
+  it('a refusal that names NOBODY wears no word — 使えるベッドがありません is not a full house', () => {
+    // ⚖ 46 store isolation: this staff member's store has no rooms in it at all,
+    // so the allocator's candidate list is empty. It refuses — truthfully — and
+    // there is no occupant anywhere in the answer.
+    const split = [
+      lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-b'] }),
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', stores: ['store-a'] }),
+    ]
+    const empty = allocateBed(split, {
+      id: null, currentBed: null, stores: ['store-b'], vip: false, start: 780, end: 840, policy: POLICY,
+    })
+    expect(empty.refusal).toBe('13:00〜14:00に使えるベッドがありません')
+    expect(empty.blockers).toEqual([])
+    const bedCell: RailCell = { ...at(railOn(sceneWith([])), 780), state: 'blocked', reason: 'bed' }
+    const said = railExplain(bedCell, 60, { room: empty })
+    // 「満室」 beside 「使えるベッドがありません」 said two different things about
+    // one board — and 清掃 was the LITERAL old answer here, because `every` on an
+    // empty list is true. Neither now: the sentence still refuses, the chip is bare.
+    expect(said.word).toBeNull()
+    expect(said.sentence).toBe('13:00〜14:00に使えるベッドがありません')
+  })
 })
 
 describe('§3 — every sentence names the window it judged', () => {
@@ -280,6 +323,20 @@ describe('§3 — every sentence names the window it judged', () => {
     const guarded = railOn([lane({ key: 'p-01', group: 'staff', items: [booking({ key: 's1', caseId: 'y1' }, 900, 960)] })])
       .cells.find((c) => c.reason === 'guard')!
     expect(explainOn([], guarded).sentence).toBe(`${guarded.sentence}（${clock(guarded.start)}–${clock(guarded.start + 60)}）`)
+  })
+
+  // ⚖ 44 FIX ROUND (blind lens 2) — THE △ CLASS, PINNED BY NAME. §3 proved safe,
+  // no-fit and guard by name and left the fourth class to `placeableOn`, which
+  // asks 「not blocked」 and would go on passing if degraded stopped composing.
+  it('a △ chip carries its own window too', () => {
+    const rail = railOn(sceneWith([]))
+    const degraded = rail.cells.find((c) => c.state === 'degraded')
+    expect(degraded).toBeDefined()
+    // The engine's own least-loss line, with the judged window appended and no
+    // word — a △ is not a refusal, so it has no invisible blocker to name.
+    const said = explainOn([], degraded!)
+    expect(said.word).toBeNull()
+    expect(said.sentence).toBe(`${degraded!.sentence}（${clock(degraded!.start)}–${clock(degraded!.start + 60)}）`)
   })
 
   it('the window follows the LENGTH the strip is judging (⚖ 50)', () => {
@@ -378,13 +435,6 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
       { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open },
       null,
     ).world
-    const rails = guardRailsFor(REAL.lanes, {
-      open: REAL.hours.open, close: REAL.hours.close, stepMin: 30,
-      dur: REAL.guard.standardSessionMin, protectedDur: REAL.guard.protectedDurationMin,
-      nowMinute: REAL.sell.nowMinute, locked: [], guard: REAL.guard.config,
-      placementFeasible: (l, start, d) => truth.newClientMask(l, d)(start),
-    })
-    expect(rails.length).toBeGreaterThan(0)
 
     const rows: string[] = []
     const mute: string[] = []
@@ -392,6 +442,20 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
       for (const sessionMin of SESSION) {
         for (const minSellableMin of MIN_SELLABLE) {
           const at = `grid=${gridMin} S=${sessionMin} minSell=${minSellableMin}`
+          // ⚖ 44 FIX ROUND (blind lenses 2 + 3) — THE STRIP MOVES WITH THE DIAL
+          // TOO. The rails used to be built ONCE, outside this loop, at the
+          // fixture's own S — so twelve combinations swept the sell layer past a
+          // strip that never changed, and the S column proved nothing at all
+          // about the chips. ⚖ 50 makes the judged length follow the session, so
+          // the rails are rebuilt per combo and every window below is that
+          // combo's own.
+          const rails = guardRailsFor(REAL.lanes, {
+            open: REAL.hours.open, close: REAL.hours.close, stepMin: 30,
+            dur: sessionMin, protectedDur: REAL.guard.protectedDurationMin,
+            nowMinute: REAL.sell.nowMinute, locked: [], guard: REAL.guard.config,
+            placementFeasible: (l, start, d) => truth.newClientMask(l, d)(start),
+          })
+          expect(rails.length).toBeGreaterThan(0)
           const gap = gapLayerFor(REAL.lanes, {
             gridMin, sessionMin, gapFillMin: REAL.guard.gapFillMinMin,
             gapFillDiscountPct: REAL.guard.gapFillDiscountPct, minSellableMin,
@@ -407,21 +471,31 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
               onDrop: (d) => drops.push(d),
             },
           })
+          // ⚖ 44 FIX ROUND (blind lens 3) — AND THE SCREEN'S OWN COMPOSITION,
+          // not a second one written for the test. The sweep used to call
+          // `railExplain` with the room alone, so ⚖ 75(i)'s two clauses — the
+          // widest thing a sentence can grow on this board — were swept at
+          // exactly zero of the twelve combinations. `explainRails` is the
+          // function TodayScreen's memo calls, with the layer and the drops this
+          // combo just produced.
+          const explained = explainRails(rails, REAL.lanes, {
+            dur: sessionMin,
+            handId: null,
+            rooms: REAL.rooms,
+            stagedId: null,
+            sellCells: sell.cells,
+            claims,
+            drops,
+            inHand: false,
+            sellDisplayed: true,
+          })
 
           let blocked = 0
           let worded = 0
+          let claused = 0
           for (const rail of rails) {
-            const staff = REAL.lanes.find((l) => l.key === rail.laneKey)!
             for (const c of rail.cells) {
-              const said = railExplain(c, REAL.guard.standardSessionMin, {
-                room:
-                  c.reason === 'bed'
-                    ? allocateBed(REAL.lanes, {
-                        id: null, currentBed: null, stores: staff.stores, vip: false,
-                        start: c.start, end: c.start + REAL.guard.standardSessionMin, policy: REAL.rooms,
-                      })
-                    : null,
-              })
+              const said = explained.get(rail.laneKey)!.get(c.start)!
               // THE BAR, on every single chip of every single lane: it says
               // something, and what it says names the window it judged. Both
               // grammars satisfy it — the bed refusal opens with 「HH:MM〜HH:MM」
@@ -431,20 +505,24 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
               expect({ at, chip: `${rail.laneKey}@${c.start}`, empty: said.sentence === '' })
                 .toEqual({ at, chip: `${rail.laneKey}@${c.start}`, empty: false })
               const from = clock(c.start)
-              const to = clock(c.start + REAL.guard.standardSessionMin)
+              const to = clock(c.start + sessionMin)
               expect({ at, chip: `${rail.laneKey}@${c.start}`, names: said.sentence.includes(from) && said.sentence.includes(to) })
                 .toEqual({ at, chip: `${rail.laneKey}@${c.start}`, names: true })
               if (c.state === 'blocked') blocked += 1
               if (said.word != null) worded += 1
+              if (said.sentence.includes('販売枠')) claused += 1
               // A word only ever rides a refusal, and only the two invisible ones.
               if (said.word != null) expect(c.reason === 'bed' || c.reason === 'guard').toBe(true)
+              // ⚖ 75(i) — and a clause only ever rides a start the board said
+              // YES to. A refusal is already answering.
+              if (c.state === 'blocked') expect(said.sentence).not.toContain('販売枠')
             }
           }
           expect(blocked).toBeGreaterThan(0)
           const offers = sell.cells.length + gap.packed.length + gap.scraps.length
           if (sell.cells.length === 0) mute.push(at)
           rows.push(
-            `${at} | chips blocked ${blocked} worded ${worded}` +
+            `${at} | chips blocked ${blocked} worded ${worded} claused ${claused}` +
               ` | sell ${sell.cells.length} packed ${gap.packed.length} scraps ${gap.scraps.length} (total ${offers})` +
               ` | drops ${drops.length}`,
           )
@@ -462,6 +540,145 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
     // reached, not the count — a dial change that moved it is not a regression,
     // a sweep that stopped reaching any of them is.
     expect(mute.length).toBeGreaterThan(0)
+    // ⚖ 44 FIX ROUND — and the ⚖ 75(i) clause is REACHED by the sweep. Same
+    // shape of pin as `mute` above: the fact, not the count. A sweep that
+    // threads `adless` and never once produces a clause is threading nothing.
+    // ⚖ 44 FIX ROUND — AND THE CLAUSE COUNT IS ZERO AT ALL TWELVE, RECORDED
+    // RATHER THAN ASSERTED AWAY. `claused` is threaded through the real
+    // composer now, and it comes back 0 everywhere because this fixture board
+    // refuses 88 of its ~90 chips and advertises every start it does not: there
+    // is no ad-less ✓ on it at any dial. That is the board being what it is, not
+    // the wiring being absent — ⚖ 75(i)'s clause is proved in §4 and §7, where a
+    // scene can be built to hold one. If a future fixture grows an ad-less ✓
+    // this column starts counting on its own.
+    expect(rows.every((r) => r.includes('claused 0 '))).toBe(true)
+  })
+})
+
+// ── §7 ─────────────────────────────────────────────────────────────────────
+//
+// ⚖ 44 FIX ROUND — WHAT THE SCREEN ACTUALLY ASKS. All four blind lenses named
+// the same gap: `railExplain` composes ONE chip and was pinned to death, while
+// the thing that decides what each chip is ASKED — is this window advertised,
+// who took the room, is a card in hand, is the sell layer even on screen —
+// lived inline in a React memo where nothing could reach it. It is
+// `explainRails` now, beside its own composer, and this is its coverage.
+describe('§7 — the whole strip’s reading of itself: `explainRails`', () => {
+  /** Two staff on one room, so a room-drop with a real taker is buildable. */
+  const twoStaff = (): BoardLane[] => [
+    lane({ key: 'p-05', group: 'staff', label: '見本 あずさ', stores: ['store-a'] }),
+    lane({ key: 'p-06', group: 'staff', label: '見本 かおる', stores: ['store-a'] }),
+    lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
+  ]
+  const railsOn = (lanes: BoardLane[], dur = 60): GuardRail[] => {
+    const truth = bedTruthViews(lanes, POLICY, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
+    return guardRailsFor(lanes, {
+      open: HOURS.open, close: HOURS.close, stepMin: 30, dur, protectedDur: 90,
+      nowMinute: null, locked: [], guard: GUARD,
+      placementFeasible: lanes.some((l) => l.group === 'beds') ? (l, start, d) => truth.newClientMask(l, d)(start) : undefined,
+    })
+  }
+  const ask = (lanes: BoardLane[], over: Partial<Parameters<typeof explainRails>[2]> = {}) =>
+    explainRails(railsOn(lanes), lanes, {
+      dur: 60, handId: null, rooms: POLICY, stagedId: null,
+      sellCells: [], claims: [], drops: [], inHand: false, sellDisplayed: true,
+      ...over,
+    })
+  const sellAt = (laneKey: string, h: number): SellCell => ({
+    laneKey, resourceKey: 'bed-01', group: 'staff', staff: laneKey, bed: 'ベッド1', h, price: 7000, tier: 2,
+  })
+  /** The first start on p-05 the board did not refuse — where ⚖ 75(i) lives. */
+  const okStart = (lanes: BoardLane[]) => railsOn(lanes).find((r) => r.laneKey === 'p-05')!.cells.find((c) => c.state !== 'blocked')!.start
+
+  it('an ADVERTISED window gets no clause, an ad-less one does', () => {
+    const lanes = twoStaff()
+    const start = okStart(lanes)
+    expect(ask(lanes).get('p-05')!.get(start)!.sentence).toContain('この開始の販売枠は表示されていません')
+    // One box overlapping this window and the question ⚖ 75(i) asks is answered
+    // by the board itself — the operator can see the offer.
+    expect(ask(lanes, { sellCells: [sellAt('p-05', start)] }).get('p-05')!.get(start)!.sentence)
+      .not.toContain('販売枠')
+    // A box on the OTHER person's row is not this row's advertisement.
+    expect(ask(lanes, { sellCells: [sellAt('p-06', start)] }).get('p-05')!.get(start)!.sentence)
+      .toContain('この開始の販売枠は表示されていません')
+  })
+
+  it('a room-drop names the TAKER by their label — and never this lane itself', () => {
+    const lanes = twoStaff()
+    const start = okStart(lanes)
+    const named = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, kind: 'room', takerLaneKey: 'p-06' }] })
+    expect(named.get('p-05')!.get(start)!.sentence).toContain('ベッドは別の販売枠（見本 かおる）が使っています')
+
+    // ⚖ 44 FIX ROUND (blind lens 1, F4/F5) — 別の = ANOTHER. A drop whose winner
+    // is this very lane cannot be its subject, so it falls to the bare clause.
+    const own = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, kind: 'room', takerLaneKey: 'p-05' }] })
+    expect(own.get('p-05')!.get(start)!.sentence).toContain('この開始の販売枠は表示されていません')
+    expect(own.get('p-05')!.get(start)!.sentence).not.toContain('別の販売枠')
+
+    // A `lane` drop is the person's own promise: the box IS drawn, no clause.
+    const laneDrop = ask(lanes, { drops: [{ laneKey: 'p-05', h: start, kind: 'lane' }] })
+    expect(laneDrop.get('p-05')!.get(start)!.sentence).toContain('この開始の販売枠は表示されていません')
+    expect(laneDrop.get('p-05')!.get(start)!.sentence).not.toContain('別の販売枠')
+  })
+
+  it('a BED-refused chip is asked the room question, and nothing else is', () => {
+    const busy = sceneWith([booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)])
+    const per = ask(busy).get('p-01')!
+    // `fullRoomsRefusal`'s sentence, whole — the composer was handed a real
+    // `allocateBed` answer for this chip's own window.
+    expect(per.get(780)).toEqual({ word: '満室', sentence: '13:00〜14:00はベッドに空きがありません。ベッド1が使用中（見本 かえる様）' })
+    // …and a chip of any other class never grew a room answer, so it can never
+    // wear a room word.
+    for (const [start, said] of per) {
+      const c = at(railOn(busy), start)
+      if (c.reason !== 'bed') expect(said.word === '満室' || said.word === '清掃').toBe(false)
+    }
+  })
+
+  it('the CARD IN HAND is lifted out of the room question (⚖ R3), and can silence the word', () => {
+    // The engine judged the whole board, so the chip is `bed`; the sentence is
+    // asked with `handId` lifted out, which is the booking in the way — case (a).
+    const busy = sceneWith([booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)])
+    expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)).toEqual({ word: null, sentence: expect.any(String) })
+    expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)!.sentence).not.toContain('ベッド1が使用中')
+  })
+
+  it('A GESTURE EMPTIES THE MAP — nothing is composed while a card is in hand', () => {
+    // ⚖ 44 FIX ROUND (blind lens 4, SF2). The live board re-derives the rails on
+    // every pointer frame, and this map was re-composed inside that — one
+    // `allocateBed` per bed-refused chip per frame — for answers the render pass
+    // then discarded, because the chip wears the verdict's × mid-drag.
+    const busy = sceneWith([booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)])
+    expect(ask(busy, { inHand: true }).size).toBe(0)
+    // The cue and the word are gated on the same gesture in the render pass
+    // (§6), so an empty map is the whole rest-state face standing down together.
+    expect(ask(busy, { inHand: false }).size).toBeGreaterThan(0)
+  })
+
+  it('the sell layer switched OFF takes ⚖ 75(i)’s clause with it', () => {
+    // ⚖ 44 FIX ROUND (blind lens 4, N4). 表示設定 → 空き枠表示「非表示」 hides
+    // every box, so every window is ad-less and the clause would fire on every ✓
+    // chip on the board — about a display the operator turned off themselves.
+    const lanes = twoStaff()
+    const start = okStart(lanes)
+    const off = ask(lanes, { sellDisplayed: false, drops: [{ laneKey: 'p-05', h: start, kind: 'room', takerLaneKey: 'p-06' }] })
+    expect(off.get('p-05')!.get(start)!.sentence).not.toContain('販売枠')
+    // Every other sentence is untouched by the dial: it is the CLAUSE that is
+    // gated, never the board's own answer.
+    const on = ask(lanes, { sellDisplayed: true })
+    for (const [start, said] of off.get('p-05')!) {
+      expect(said.sentence).toBe(on.get('p-05')!.get(start)!.sentence.replace(/。この開始の販売枠は表示されていません$/, ''))
+    }
+  })
+
+  it('a 詰め込み／スキマ promise counts as an advertisement too', () => {
+    const lanes = twoStaff()
+    const start = okStart(lanes)
+    const claims: GapCell[] = [
+      { laneKey: 'p-05', resourceKey: 'bed-01', group: 'staff', staff: 'p-05', s: start, e: start + 60, price: 5000 },
+      { laneKey: 'p-05', resourceKey: 'bed-01', group: 'beds', staff: 'p-05', s: start, e: start + 60, price: 5000 },
+    ]
+    expect(ask(lanes, { claims }).get('p-05')!.get(start)!.sentence).not.toContain('販売枠')
   })
 })
 
@@ -486,6 +703,33 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // different question then, and the chip wears the verdict's × instead.
     expect(SRC).toContain('const word = v ? null : (explained?.word ?? null)')
     expect(SRC).toContain("lane.group === 'staff' && !inHand && explainedHere")
+    // ⚖ 44 FIX ROUND — and the MAP is empty for the whole of that gesture, so
+    // the standing-down is one decision rather than three (§7 proves the
+    // behaviour; this is the wiring that reaches it).
+    expect(SRC).toContain('inHand: inHand != null,')
+    expect(SRC).toContain("sellDisplayed: sellMode !== 'off',")
+  })
+
+  it('the hatch never outlives the strip that explains it, and the marks are the price boxes’ own', () => {
+    // ⚖ 44 FIX ROUND (blind lens 4, SF1) — the 配置ガイド dial hides the strip in
+    // two modes, and the cue is hidden by the SAME two selectors.
+    expect(CSS).toContain('.biz .timeline.guard-guide-mode-drag:not(.guard-guide-aiming) .cell-rest-cue,')
+    expect(CSS).toContain('.biz .timeline.guard-guide-mode-hidden .cell-rest-cue { display: none; }')
+    // ⚖ 44 FIX ROUND (blind lenses 2 + 4, N3) — `.cell-price`'s inset grammar to
+    // the pixel: discrete rounded marks, never a full-bleed band.
+    expect(CSS).toContain('.biz .cell-rest-cue { position: absolute; z-index: 0; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); border-radius: 4px;')
+    expect(CSS).toContain('.biz .cell-price {\n  position: absolute;\n  top: 4px;\n  bottom: 4px;\n  left: calc(var(--x) + 1px);\n  width: calc(var(--w) - 2px);\n  border-radius: 4px;')
+  })
+
+  it('the ring is the KEYBOARD’s, and the micro-word shrinks with the strip', () => {
+    // ⚖ 44 FIX ROUND (blind lens 4, SF3) — a mouse press focuses a real button,
+    // so a plain `:focus` ring fired on every click.
+    expect(CSS).toContain('.biz button.guard-rail-cell:focus-visible { z-index: 6;')
+    expect(CSS).not.toContain('.biz button.guard-rail-cell:focus {')
+    // ⚖ 44 FIX ROUND (blind lens 4, N2) — the 10px word is the widest thing the
+    // strip carries and was the one rule ignoring the narrow-viewport shrink.
+    const narrow = CSS.slice(CSS.indexOf('@media (max-width: 1200px) {'))
+    expect(narrow.slice(0, narrow.indexOf('\n}'))).toContain('.biz .guard-rail-cell[data-reason] i { font-size: 8px; }')
   })
 
   it('the paint hangs off `[data-reason]` and nowhere else, and adds no colour', () => {
@@ -508,14 +752,40 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // answers a mouse and ignores Enter is a control lying about being one —
     // the absence hatch's `onPointerDown` precedent is a `<span role="note">`
     // that can never be focused, which is why it is not the spelling here.
-    expect(SRC).toContain('onClick={() => {\n                  if (dragRef.current || blockDragRef.current) return\n                  show(sentence)')
-    // A rest affordance: a press arriving mid-gesture belongs to that gesture.
-    expect(SRC).toContain('if (dragRef.current || blockDragRef.current) return')
+    //
+    // ⚖ 44 FIX ROUND (blind lenses 1 F7 + 4 N1) — A REST AFFORDANCE, GUARDED
+    // FOR REAL. The first cut tested two refs that a release's own pointerup has
+    // already cleared by the time a click is dispatched: dead code wearing a
+    // safety net's clothes. All four conditions the track's own window uses now,
+    // and `suppressClickUntil` is the one that can actually be true here.
+    expect(SRC).toContain(
+      'onClick={(e) => {\n' +
+        '                  if (dragRef.current || blockDragRef.current || chipDragRef.current) return\n' +
+        '                  if (e.timeStamp < suppressClickUntil.current) return\n' +
+        '                  show(sentence)',
+    )
     // Cursor honesty on the grey chip, and the hover exclusion is gone with it.
     expect(CSS).toContain('background: #f2f2f4; color: #8a8a93; cursor: pointer;')
     expect(CSS).not.toContain('.guard-rail-cell:hover:not(.blocked)')
     // The chip is still 14px — the micro-word may not grow the 18px strip.
     expect(CSS).toContain('height: 14px;')
+  })
+
+  it('the strip is ONE tab stop and ←/→ walk it (⚖ 44 fix round, blind lens 4)', () => {
+    // A dozen lanes of eighteen chips is 200 tab stops between this board and
+    // whatever comes after it. The plain toolbar pattern instead — no dep, no
+    // state, and the walk wraps because a strip is a closed row of starts.
+    expect(SRC).toContain('tabIndex={i === 0 ? 0 : -1}')
+    expect(SRC).toContain("const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0")
+    expect(SRC).toContain('chips[(at + step + chips.length) % chips.length].focus()')
+    // The handler is on the TRACK — a keypress on a chip bubbles to it, and the
+    // chips it walks are the ones actually rendered under it.
+    expect(SRC).toContain("const chips = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('.guard-rail-cell')]")
+    // ⚖ 44 FIX ROUND (blind lens 4, N5) — and the doc above `renderRail` says
+    // so. It still claimed the cells were 「guidance, not controls」 a round
+    // after they became buttons.
+    expect(SRC).not.toContain('The cells are guidance, not')
+    expect(SRC).toContain('⚖ 44 (3) — THE CELLS ARE CONTROLS NOW')
   })
 
   it('the tour sentence teaches the third face — flag 25c’s one-sentence precedent', () => {
