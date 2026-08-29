@@ -51,7 +51,6 @@ import {
   hqNote,
   priceButtonCaption,
   money,
-  SELL_SLOT_MIN,
 } from '@/business/lib/canon-logic/pricing'
 import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 // ⚖ Liam 8/23 — the guided tour is EVERY Business page's now, so the engine this
@@ -106,7 +105,7 @@ import {
   pairLanesOf,
   parkChipText,
   pinInViewport,
-  railExplain,
+  explainRails,
   sameStore,
   sharesStore,
   sellLayerFor,
@@ -1390,79 +1389,6 @@ export function TodayScreen(props: TodayProps) {
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
 
-  /** ⚖ LIAM flag 44 + rider 75(i) — EVERY CHIP'S WORD AND ITS SENTENCE, worked
-   *  out once per frame instead of once per press.
-   *
-   *  The rail is the one surface on this board that states a refusal and names
-   *  nothing, and two of the three things that cause one are invisible on the
-   *  row it sits under (a full house lives on the bed rows; the guard is a rule
-   *  and has no card at all). This map is what makes them sayable: the 10px
-   *  word the chip wears at rest, and the whole sentence it answers a press
-   *  with. `railExplain` is the composer — everything here is the board's own
-   *  inputs to it, which is how every other answer on this screen is built.
-   *
-   *  THE ROOM QUESTION IS THE STRIP'S OWN, spelled the way the strip asks it: a
-   *  NEW placement of `railDur` minutes on this lane's stores, with the card in
-   *  hand lifted out (`id: handId` is `guardRailsFor`'s own `excludeId`, so the
-   *  sentence and the chip above it were judged against one board). It goes
-   *  through `allocateBed` because that is where the refusal SENTENCE is
-   *  composed — one home, never a second composer for a full house.
-   *
-   *  ponytail: one `allocateBed` per BED-REFUSED chip per frame, and nothing at
-   *  all for the rest. The ceiling is a board where most starts are full for
-   *  most staff; move these through `capacity-ledger`'s book (which memoises the
-   *  identical question) if a bigger board ever measures slow. */
-  const railExplained = useMemo(() => {
-    const overlaps = (aS: number, aE: number, bS: number, bE: number) => aS < bE && bS < aE
-    const out = new Map<string, Map<number, { word: string | null; sentence: string }>>()
-    for (const rail of rails) {
-      const staff = boardLanes.find((l) => l.key === rail.laneKey && l.group === 'staff')
-      // Per lane, once — the ad-less test below is asked per cell and these
-      // three lists do not change between them.
-      const sellHere = sell.cells.filter((s) => s.group === 'staff' && s.laneKey === rail.laneKey)
-      const gapHere = gapClaims.filter((g) => g.group === 'staff' && g.laneKey === rail.laneKey)
-      // ⚖ 75(i) — only a ROOM drop explains an empty window. A `lane` drop means
-      // this person's own promise beat the offer, and that promise is a box
-      // drawn on this very row, so the window is not ad-less in the first place.
-      const roomDrops = sellDrops.filter((d) => d.laneKey === rail.laneKey && d.kind === 'room' && d.takerLaneKey != null)
-      const per = new Map<number, { word: string | null; sentence: string }>()
-      for (const c of rail.cells) {
-        const end = c.start + railDur
-        const advertised =
-          sellHere.some((s) => overlaps(s.h, s.h + SELL_SLOT_MIN, c.start, end)) ||
-          gapHere.some((g) => overlaps(g.s, g.e, c.start, end))
-        const taker = advertised ? undefined : roomDrops.find((d) => overlaps(d.h, d.h + SELL_SLOT_MIN, c.start, end))
-        per.set(
-          c.start,
-          railExplain(c, railDur, {
-            room:
-              c.reason === 'bed' && staff
-                ? allocateBed(boardLanes, {
-                    id: handId,
-                    currentBed: null,
-                    stores: staff.stores,
-                    // A rail cell asks about a placement nobody has made yet, so
-                    // nobody is VIP and nobody holds a room — the same
-                    // hypothetical `bedDoor` binds for the marks themselves.
-                    vip: false,
-                    start: c.start,
-                    end,
-                    policy: props.rooms,
-                    // ⚖ R3 one world — the operator's own staged card is named
-                    // as theirs rather than as a stranger's.
-                    stagedId: pending?.id ?? null,
-                  })
-                : null,
-            adless: !advertised,
-            takerLabel: taker?.takerLaneKey != null ? (boardLanes.find((l) => l.key === taker.takerLaneKey)?.label ?? null) : null,
-          }),
-        )
-      }
-      out.set(rail.laneKey, per)
-    }
-    return out
-  }, [rails, boardLanes, railDur, handId, props.rooms, pending?.id, sell, gapClaims, sellDrops])
-
   /** ⚖ LIAM flag 50 item 4b (2026-08-22) — WHAT IS IN THE OPERATOR'S HAND, so
    *  the strip can judge every start FOR IT.
    *
@@ -1506,6 +1432,41 @@ export function TodayScreen(props: TodayProps) {
     }
     return null
   }, [live, proxy, parkChips, boardLanes, props.store])
+
+  /** ⚖ LIAM flag 44 + rider 75(i) — EVERY CHIP'S WORD AND ITS SENTENCE, worked
+   *  out once per frame instead of once per press.
+   *
+   *  The rail is the one surface on this board that states a refusal and names
+   *  nothing, and two of the three things that cause one are invisible on the
+   *  row it sits under (a full house lives on the bed rows; the guard is a rule
+   *  and has no card at all). `explainRails` is what makes them sayable — the
+   *  10px word the chip wears at rest and the whole sentence it answers a press
+   *  with — and it lives beside its own composer rather than here, for the
+   *  reason that file states: this answer is asked across twelve dial
+   *  combinations on boards whose sell layer is empty, and a DOM test would
+   *  prove nothing about any of them.
+   *
+   *  Everything below is the board's own inputs to it. It sits AFTER `inHand`
+   *  because the gesture is one of them: while a card is in hand the strip is
+   *  answering a different question and this map is not read at all (⚖ 44 fix
+   *  round, blind lens 4). */
+  const railExplained = useMemo(
+    () =>
+      explainRails(rails, boardLanes, {
+        dur: railDur,
+        handId,
+        rooms: props.rooms,
+        // ⚖ R3 one world — the operator's own staged card is named as theirs
+        // rather than as a stranger's.
+        stagedId: pending?.id ?? null,
+        sellCells: sell.cells,
+        claims: gapClaims,
+        drops: sellDrops,
+        inHand: inHand != null,
+        sellDisplayed: sellMode !== 'off',
+      }),
+    [rails, boardLanes, railDur, handId, props.rooms, pending?.id, sell, gapClaims, sellDrops, inHand, sellMode],
+  )
 
   const openCards = props.cards.filter((c) => c.state === 'open' && !resolved.includes(c.id))
   const unresolved = openCards.length
@@ -2520,8 +2481,15 @@ export function TodayScreen(props: TodayProps) {
     })
     // ⚖ Liam flag 50 — AND THE WORD AT THE CURSOR, written straight to the node.
     // Same discipline as the transform above it: React renders the element once
-    // per gesture and never sees the verdict change, so a board this dense pays
-    // nothing per pointer frame for it.
+    // per gesture and never sees the verdict change, so the cursor word itself
+    // costs nothing per pointer frame.
+    // ⚖ 44 FIX ROUND (blind lens 4, SF2) — and this comment used to claim that
+    // of the whole BOARD, which was never true: `setLive` below moves
+    // `liveMoves` → `boardLanes` → `rails`, so the strips are re-derived on
+    // every frame of a drag, and for one round `railExplained` ran an
+    // `allocateBed` per bed-refused chip inside that. It early-returns on the
+    // gesture now (see `explainRails`); the rails themselves still re-derive,
+    // which is what makes the × follow the pointer.
     paintProxyVerdict(ctx, span)
   }
 
@@ -4216,9 +4184,14 @@ export function TodayScreen(props: TodayProps) {
   /** canon `renderSlotBoxes` (:7543). An 18px strip under each staff lane that
    *  shows every exact 30-minute start and what placing a standard session
    *  there would do to the protected 新規 window: purple ✓ keeps it, amber △
-   *  costs the least available, grey — is refused. The cells are guidance, not
-   *  controls (canon's own copy: 「表示だけの個人設定」), so each carries its
-   *  sentence as its accessible name and nothing here can move a booking. */
+   *  costs the least available, grey — is refused.
+   *
+   *  ⚖ 44 (3) — THE CELLS ARE CONTROLS NOW, and this comment said otherwise for
+   *  a round. They are buttons that answer a press with their own sentence; what
+   *  canon's 「表示だけの個人設定」 is still true of is the STRIP — nothing here
+   *  moves a booking, and a press only ever says something out loud. Each still
+   *  carries its sentence as its accessible name; the strip is ONE tab stop and
+   *  ←/→ walk it (⚖ 44 fix round, blind lens 4). */
   function renderRail(rail: GuardRail) {
     return (
       <div
@@ -4277,8 +4250,27 @@ export function TodayScreen(props: TodayProps) {
             operator's hand, because a ✓ that means "a 60 would fit" while they
             carry a 90 is the disagreement flag 54 is made of. */}
         <span className="guard-rail-label">{railDur}分配置</span>
-        <div className="guard-rail-track">
-          {rail.cells.map((c) => {
+        {/* ⚖ 44 FIX ROUND (blind lens 4, SF4) — ONE TAB STOP FOR THE STRIP.
+            A staff board is a dozen lanes of eighteen chips: tabbing through
+            them one at a time is 200 stops between the board and whatever comes
+            after it. The plain toolbar pattern instead — the first chip is the
+            stop, ←/→ walk the strip, and the walk wraps because a strip is a
+            closed row of starts. No dependency and no state: the handler lives
+            on the track because a keypress on a chip bubbles to it, and the
+            chips it walks are the ones actually rendered under it. */}
+        <div
+          className="guard-rail-track"
+          onKeyDown={(e) => {
+            const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
+            if (step === 0) return
+            const chips = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('.guard-rail-cell')]
+            const at = chips.findIndex((n) => n === document.activeElement)
+            if (at < 0) return
+            e.preventDefault()
+            chips[(at + step + chips.length) % chips.length].focus()
+          }}
+        >
+          {rail.cells.map((c, i) => {
             // ⚖ LIAM flag 50 item 4b — THE × GOES ON THE SPOT ITSELF. While
             // something is in hand every start on this lane is re-judged FOR IT
             // by the one verdict — the guard's cell composed with the room, the
@@ -4309,6 +4301,9 @@ export function TodayScreen(props: TodayProps) {
                 type="button"
                 data-start={c.start}
                 data-state={state}
+                // The roving half of the toolbar pattern above: the strip's
+                // first chip is its tab stop and the rest are reached with ←/→.
+                tabIndex={i === 0 ? 0 : -1}
                 // ⚖ flag 44 (2) — the 3px dot rides this attribute, so the cue
                 // and the word can never appear without each other: both are
                 // set from the same `word`, which is why the paint has no second
@@ -4331,9 +4326,24 @@ export function TodayScreen(props: TodayProps) {
                 //
                 // It stays a REST affordance: a click arriving while a card or a
                 // block is in flight is the tail of THAT gesture, not a question
-                // about this start, and the drag's own listeners own it.
-                onClick={() => {
-                  if (dragRef.current || blockDragRef.current) return
+                // about this start.
+                //
+                // ⚖ 44 FIX ROUND (blind lenses 1 F7 + 4 N1) — WHAT ACTUALLY
+                // PROTECTS THIS, said correctly. The PRIMARY mechanism is the
+                // click TARGET: the strip is the lane's SIBLING, no gesture on
+                // this board starts on a chip, and a release retargets onto the
+                // element under the pointer — so a drag that ends over the strip
+                // never dispatches a click on a chip in the first place. The
+                // guard below was therefore reached with both refs already
+                // cleared by their own pointerup, which made it dead code
+                // dressed as a safety net. It is a real one now: the same three
+                // conditions the track's own click window uses (:4036-4037) —
+                // both drag refs, the CHIP drag's ref, and canon's
+                // `suppressClickUntil` window, which is the only one of the four
+                // that can still be true when a synthetic click lands here.
+                onClick={(e) => {
+                  if (dragRef.current || blockDragRef.current || chipDragRef.current) return
+                  if (e.timeStamp < suppressClickUntil.current) return
                   show(sentence)
                 }}
               >
