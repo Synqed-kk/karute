@@ -131,7 +131,11 @@ describe('GET /api/cleanup — the sweep sees the WHOLE bucket, not just page 1'
           headers: { authorization: 'Bearer test-cron-secret' },
         })
         expect(res.status).toBe(200)
-        expect(await res.json()).toMatchObject({ recordingsDeleted: 1002 })
+        // A walk that reached the end of the bucket says so.
+        expect(await res.json()).toMatchObject({
+          recordingsDeleted: 1002,
+          recordingsSweepComplete: true,
+        })
       },
     })
 
@@ -165,7 +169,12 @@ describe('GET /api/cleanup — the sweep sees the WHOLE bucket, not just page 1'
         // genuinely listed and genuinely expired, so they still go, and the
         // count reports exactly them.
         expect(res.status).toBe(200)
-        expect(await res.json()).toMatchObject({ recordingsDeleted: 1000 })
+        // ...but the body must not read as a finished sweep. The log alone was
+        // invisible to the cron, which saw the same shape a full pass produces.
+        expect(await res.json()).toMatchObject({
+          recordingsDeleted: 1000,
+          recordingsSweepComplete: false,
+        })
       },
     })
 
@@ -174,6 +183,38 @@ describe('GET /api/cleanup — the sweep sees the WHOLE bucket, not just page 1'
     expect(consoleError).toHaveBeenCalledWith(
       '[cleanup] recordings list error:',
       expect.objectContaining({ message: 'list failed' })
+    )
+    consoleError.mockRestore()
+  })
+
+  it('says the sweep is incomplete when the runaway page bound stops the walk', async () => {
+    // A bucket that keeps answering with rows exhausts MAX_PAGES. The walk is
+    // genuinely partial — everything past the bound was never listed — and the
+    // response has to admit it, exactly as the mid-walk failure does.
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+    storageList.mockImplementation(async (_prefix, opts) => ({
+      data: [{ name: `endless-${opts.offset}.webm`, created_at: old }],
+    }))
+
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: 'GET',
+          headers: { authorization: 'Bearer test-cron-secret' },
+        })
+        expect(res.status).toBe(200)
+        // One row per page for 100 pages: everything it DID see is deleted.
+        expect(await res.json()).toMatchObject({
+          recordingsDeleted: 100,
+          recordingsSweepComplete: false,
+        })
+      },
+    })
+
+    expect(storageList).toHaveBeenCalledTimes(100)
+    expect(consoleError).toHaveBeenCalledWith(
+      '[cleanup] recordings walk hit MAX_PAGES; bucket may extend past it'
     )
     consoleError.mockRestore()
   })

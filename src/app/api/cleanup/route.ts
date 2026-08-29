@@ -27,6 +27,12 @@ export async function GET(request: Request) {
 
   let recordingsDeleted = 0
   let cacheDeleted = 0
+  // A degraded sweep must not read as a finished one. The caller is a cron with
+  // no other view of the run, and `recordingsDeleted` alone can't separate "the
+  // bucket held 12 orphans" from "we stopped after 12 and never saw the rest".
+  // Flip this on every path that leaves part of the bucket unwalked; the
+  // response carries it so a truncated run is legible to whoever reads it.
+  let recordingsSweepComplete = true
 
   // 1. Clean up orphaned recordings. The bucket listing is PAGED (storage-js
   // defaults to 100 per call), so the old unparameterised list() only ever saw
@@ -46,7 +52,8 @@ export async function GET(request: Request) {
   try {
     const oneHourAgo = Date.now() - 60 * 60 * 1000
     const expired: string[] = []
-    for (let page = 0, offset = 0; page < MAX_PAGES; page++) {
+    let page = 0
+    for (let offset = 0; page < MAX_PAGES; page++) {
       const { data: files, error: listError } = await supabase.storage
         .from('recordings')
         .list('', { limit: PAGE_SIZE, offset })
@@ -58,6 +65,7 @@ export async function GET(request: Request) {
       // deleting them below stays correct.
       if (listError) {
         console.error('[cleanup] recordings list error:', listError)
+        recordingsSweepComplete = false
         break
       }
       if (!files || files.length === 0) break
@@ -70,6 +78,16 @@ export async function GET(request: Request) {
         if (Number.isFinite(createdAt) && createdAt < oneHourAgo) expired.push(f.name)
       }
       offset += files.length
+    }
+    // Only a zero-length page ends the walk at the true end of the bucket, and
+    // that path leaves `page` below the bound. Reaching MAX_PAGES therefore means
+    // rows were still coming back when the runaway stop fired — anything past
+    // what we walked was never looked at. (A page shorter than PAGE_SIZE does
+    // NOT mean the bucket ended, per the offset comment above, so the bound is
+    // the only thing this can key on.)
+    if (page === MAX_PAGES) {
+      console.error('[cleanup] recordings walk hit MAX_PAGES; bucket may extend past it')
+      recordingsSweepComplete = false
     }
     for (let i = 0; i < expired.length; i += REMOVE_BATCH_SIZE) {
       const batch = expired.slice(i, i + REMOVE_BATCH_SIZE)
@@ -88,13 +106,18 @@ export async function GET(request: Request) {
     }
   } catch (err) {
     console.error('[cleanup] recordings error:', err)
+    recordingsSweepComplete = false
   }
 
   // 2. Clean up expired AI cache (synqed-core)
   cacheDeleted = await cleanupExpiredAiCache()
 
+  // Stays 200: the cache half ran and the recordings we DID delete are really
+  // gone, so this is a completed best-effort run, not a failed request. The flag
+  // is what carries the truth about how much of the bucket it covered.
   return NextResponse.json({
     recordingsDeleted,
+    recordingsSweepComplete,
     cacheDeleted,
   })
 }
