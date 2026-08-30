@@ -1,0 +1,251 @@
+1003b291d28fe323adbb7757c150c104ce63e32da0bc3dd1fe6410142b953db2  src/actions/recording-discards.ts
+
+  console.log
+    Integration test environment ready
+
+      at Object.<anonymous> (src/__tests__/integration/setup/jest.setup.ts:34:9)
+
+  console.log
+      Supabase URL: https://test-local.supabase.co
+
+      at Object.<anonymous> (src/__tests__/integration/setup/jest.setup.ts:35:9)
+
+  console.warn
+    [discard-transcript] transcribe failed: Error: 404
+        at Object.get (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:77:32)
+        at consentAllows (/Users/liam/karute-discard/src/actions/recording-discard-transcript.ts:111:45)
+        at transcribeAndPersistDiscard (/Users/liam/karute-discard/src/actions/recording-discard-transcript.ts:279:29)
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+        at async Object.<anonymous> (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:243:5)
+
+      298 |         : null
+      299 |       const reference = mode === 'off' ? null : await loadStaffReferenceForStaff(settings, staffId)
+    > 300 |       const transcription = (await runTranscription({
+          |                 ^
+      301 |         audio: { url: signed.signedUrl },
+      302 |         locale: input.locale || 'ja',
+      303 |         diarize: settings?.speaker_diarization !== false,
+
+      at transcribeAndPersistDiscard (src/actions/recording-discard-transcript.ts:300:17)
+      at async Object.<anonymous> (src/__tests__/integration/discard-transcript-actions.test.ts:268:9)
+
+  console.warn
+    [discard-transcript] persist failed: Error: 404
+        at Object.get (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:77:32)
+        at consentAllows (/Users/liam/karute-discard/src/actions/recording-discard-transcript.ts:111:45)
+        at persistDiscardTranscript (/Users/liam/karute-discard/src/actions/recording-discard-transcript.ts:232:17)
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+        at async Object.<anonymous> (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:244:5)
+
+      202 |         start_time: 0,
+      203 |         end_time: Math.max(0, Math.round(durationSeconds)),
+    > 204 |       },
+          |         ^
+      205 |     ],
+      206 |     { replace: true },
+      207 |   )
+
+      at persistDiscardTranscript (src/actions/recording-discard-transcript.ts:204:17)
+      at async Object.<anonymous> (src/__tests__/integration/discard-transcript-actions.test.ts:271:9)
+
+  console.warn
+    [discard-transcript] transcribe failed: Error: deepgram unreachable
+        at /Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:349:13
+        at /Users/liam/karute-discard/node_modules/jest-environment-node/node_modules/jest-mock/build/index.js:397:39
+        at /Users/liam/karute-discard/node_modules/jest-environment-node/node_modules/jest-mock/build/index.js:404:13
+        at mockRunTranscription (/Users/liam/karute-discard/node_modules/jest-environment-node/node_modules/jest-mock/build/index.js:148:19)
+        at runTranscription (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:128:42)
+        at transcribeAndPersistDiscard (/Users/liam/karute-discard/src/actions/recording-discard-transcript.ts:300:52)
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+        at async Object.<anonymous> (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:351:5)
+
+      298 |         : null
+      299 |       const reference = mode === 'off' ? null : await loadStaffReferenceForStaff(settings, staffId)
+    > 300 |       const transcription = (await runTranscription({
+          |                 ^
+      301 |         audio: { url: signed.signedUrl },
+      302 |         locale: input.locale || 'ja',
+      303 |         diarize: settings?.speaker_diarization !== false,
+
+      at transcribeAndPersistDiscard (src/actions/recording-discard-transcript.ts:300:17)
+      at async Object.<anonymous> (src/__tests__/integration/discard-transcript-actions.test.ts:421:9)
+
+  console.warn
+    [discard-transcript] staged audio sweep failed: Error: storage unreachable
+        at Object.remove (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:147:35)
+        at transcribeAndPersistDiscard (/Users/liam/karute-discard/src/actions/recording-discard-transcript.ts:344:51)
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+        at async Object.<anonymous> (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:482:5)
+
+      294 |       // resolved from the cookie session — they are the recorder.
+      295 |       const selfStaffId = await getCurrentUserStaffId()
+    > 296 |       const staffId = selfStaffId
+          |                         ^
+      297 |         ? await resolveSynqedStaffId(selfStaffId).catch(() => selfStaffId)
+      298 |         : null
+      299 |       const reference = mode === 'off' ? null : await loadStaffReferenceForStaff(settings, staffId)
+
+      at transcribeAndPersistDiscard (src/actions/recording-discard-transcript.ts:296:25)
+      at async Object.<anonymous> (src/__tests__/integration/discard-transcript-actions.test.ts:581:9)
+
+  console.warn
+    [discard-transcript] staged audio sweep failed: Error: storage unreachable
+        at Object.remove (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:147:35)
+        at transcribeAndPersistDiscard (/Users/liam/karute-discard/src/actions/recording-discard-transcript.ts:344:51)
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+        at async Object.<anonymous> (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:489:5)
+
+      294 |       // resolved from the cookie session — they are the recorder.
+      295 |       const selfStaffId = await getCurrentUserStaffId()
+    > 296 |       const staffId = selfStaffId
+          |                         ^
+      297 |         ? await resolveSynqedStaffId(selfStaffId).catch(() => selfStaffId)
+      298 |         : null
+      299 |       const reference = mode === 'off' ? null : await loadStaffReferenceForStaff(settings, staffId)
+
+      at transcribeAndPersistDiscard (src/actions/recording-discard-transcript.ts:296:25)
+      at async Object.<anonymous> (src/__tests__/integration/discard-transcript-actions.test.ts:589:9)
+
+  console.warn
+    [discard-reasons] transcript read failed: Error: core unreachable
+        at Object.<anonymous> (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:547:30)
+        at Promise.then.completed (/Users/liam/karute-discard/node_modules/jest-circus/build/utils.js:298:28)
+        at new Promise (<anonymous>)
+        at callAsyncCircusFn (/Users/liam/karute-discard/node_modules/jest-circus/build/utils.js:231:10)
+        at _callCircusTest (/Users/liam/karute-discard/node_modules/jest-circus/build/run.js:316:40)
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+        at async _runTest (/Users/liam/karute-discard/node_modules/jest-circus/build/run.js:252:3)
+        at async _runTestsForDescribeBlock (/Users/liam/karute-discard/node_modules/jest-circus/build/run.js:126:9)
+        at async _runTestsForDescribeBlock (/Users/liam/karute-discard/node_modules/jest-circus/build/run.js:121:9)
+        at async run (/Users/liam/karute-discard/node_modules/jest-circus/build/run.js:71:3)
+        at async runAndTransformResultsToJestFormat (/Users/liam/karute-discard/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)
+        at async jestAdapter (/Users/liam/karute-discard/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)
+        at async runTestInternal (/Users/liam/karute-discard/node_modules/jest-runner/build/runTest.js:367:16)
+        at async runTest (/Users/liam/karute-discard/node_modules/jest-runner/build/runTest.js:444:34)
+
+      191 |        *  the floor" from "there is simply no transcript". */
+      192 |       segments: { text: string }[]
+    > 193 |       durationSeconds: number | null
+          |                 ^
+      194 |     }
+      195 |   | { ok: false; error: 'forbidden' | 'failed' }
+      196 |
+
+      at getDiscardTranscript (src/actions/recording-discards.ts:193:17)
+      at async Object.<anonymous> (src/__tests__/integration/discard-transcript-actions.test.ts:654:9)
+
+FAIL src/__tests__/integration/discard-transcript-actions.test.ts
+  the consent gate (⚖ 8/20 ⑤) refuses BEFORE it spends
+    ✓ a stale consent version: skipped, and ZERO transcription calls (1 ms)
+    ✓ no consent row at all: skipped, and ZERO transcription calls
+    ✓ a customer-less (walk-in) session: skipped without even asking core
+    ✓ the review path is gated the same way — words in hand are still the customer’s (1 ms)
+    ✓ a session row that cannot be READ is not a consent answer — it is a retry (4 ms)
+  a client-named customer cannot widen consent
+    ✓ the staged door ignores it: the SESSION’s customer is the one asked
+    ✓ the review door ignores it too
+    ✓ and the reverse: a wrong client id cannot BLOCK a consenting session either (1 ms)
+  the tenant fence on a client-supplied storage key
+    ✓ refuses a key minted for another business, before any read
+    ✓ refuses anything that is not exactly a minted key shape
+  words are persisted ONLY onto an already-discarded session
+    ✓ no STAFF discard row: both actions refuse
+    ✓ a SYSTEM cleanup row is not a staff discard (1 ms)
+    ✓ the fence re-checks the session id in CODE, not only in the query
+    ✓ a refusal past the tenant fence still sweeps the object the client staged
+    ✓ a transcription that THROWS still sweeps it, and still reports the failure (1 ms)
+  records.write is required, and a denial is TERMINAL
+    ✓ the staged door: forbidden, never a retryable failure
+    ✓ the review door: forbidden too
+    ✓ an identity that could not be RESOLVED is a RETRY, not a denial — both doors
+    ✓ capability resolution that THROWS is a retry too — both doors
+  what actually lands
+    ✓ ONE segment carrying the whole text, and the staged audio is dropped after
+    ✓ silence is answered honestly — nothing is written for an empty transcript (1 ms)
+    ✓ the review path writes the words it was handed, without transcribing anything
+  a transcript that already landed is never replaced
+    ✓ a retry of the staged persist keeps the first text, sweeps its own audio, spends nothing
+    ✓ the review door cannot overwrite the landed words with a friendlier account
+  a failed staged-audio sweep does not fail the persist
+    ✓ the words landed, so the answer is ok and the caller drops its take (1 ms)
+    ✓ a consent refusal stays a settled skip, never a retryable error
+  getDiscardTranscript — the manager-only read
+    ✓ refuses a caller without staff.manage
+    ✕ returns the words a manager checks the written reason against (2 ms)
+    ✕ carries a BELOW-FLOOR duration through from recordings.get, unchanged
+    ✓ absence is honest, never invented: no segments and no readable session → nulls, not an error
+    ✓ a segments read that FAILED is a failure, never an empty answer
+    ✓ …but core’s own 404 IS an answer: a swept session row has no words
+
+  ● getDiscardTranscript — the manager-only read › returns the words a manager checks the written reason against
+
+    expect(received).resolves.toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 1
+
+    @@ -1,7 +1,7 @@
+      Object {
+    -   "durationSeconds": 62,
+    +   "durationSeconds": null,
+        "ok": true,
+        "segments": Array [
+          Object {
+            "text": "こんにちは、本日はありがとうございます",
+          },
+
+      507 |     await staged()
+      508 |     recordingRow = { duration_seconds: 62, customer_id: 'cust-1' }
+    > 509 |     await expect(getDiscardTranscript(SESSION)).resolves.toEqual({
+          |                                                          ^
+      510 |       ok: true,
+      511 |       segments: [{ text: 'こんにちは、本日はありがとうございます' }],
+      512 |       durationSeconds: 62,
+
+      at Object.toEqual (node_modules/@jest/expect/node_modules/expect/build/index.js:174:22)
+      at Object.<anonymous> (src/__tests__/integration/discard-transcript-actions.test.ts:509:58)
+
+  ● getDiscardTranscript — the manager-only read › carries a BELOW-FLOOR duration through from recordings.get, unchanged
+
+    expect(received).resolves.toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 1
+
+      Object {
+    -   "durationSeconds": 9,
+    +   "durationSeconds": null,
+        "ok": true,
+        "segments": Array [],
+      }
+
+      522 |   it('carries a BELOW-FLOOR duration through from recordings.get, unchanged', async () => {
+      523 |     recordingRow = { duration_seconds: 9, customer_id: 'cust-1' }
+    > 524 |     await expect(getDiscardTranscript(SESSION)).resolves.toEqual({
+          |                                                          ^
+      525 |       ok: true,
+      526 |       segments: [],
+      527 |       durationSeconds: 9,
+
+      at Object.toEqual (node_modules/@jest/expect/node_modules/expect/build/index.js:174:22)
+      at Object.<anonymous> (src/__tests__/integration/discard-transcript-actions.test.ts:524:58)
+
+Test Suites: 1 failed, 1 total
+Tests:       2 failed, 30 passed, 32 total
+Snapshots:   0 total
+Time:        0.223 s, estimated 1 s
+Ran all test suites matching /src\/__tests__\/integration\/discard-transcript-actions.test.ts/i.
+8f7df89cc3180e5eac2b95417e91c45e6aca37c7f188125493a4f5cc447e02ac  src/actions/recording-discards.ts
+
+--- WHAT THIS FILE PROVES -------------------------------------------------
+The B4 "pin move" assertion (discard-transcript-actions.test.ts ›
+getDiscardTranscript › "carries a BELOW-FLOOR duration through from
+recordings.get, unchanged") is green BOTH sides of this PR — the action layer
+already read `recordings.get(...).duration_seconds`; what #798 mocked past was
+the COMPONENT test, not this seam. So its red proof is a mutation, not a
+pre-fix run: `durationSeconds: recording?.duration_seconds ?? null` was
+replaced with `durationSeconds: null`, the suite went red on exactly that
+assertion (plus the pre-existing 62s sibling), and the mutation was reverted.
+Hashes above/below bracket the run: the first is the MUTATED file, the last is
+the restored file. The restored hash equals the pre-mutation hash
+8f7df89cc3180e5eac2b95417e91c45e6aca37c7f188125493a4f5cc447e02ac.

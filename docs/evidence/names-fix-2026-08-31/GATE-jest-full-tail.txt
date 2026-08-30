@@ -1,0 +1,60 @@
+      at Object.<anonymous> (src/__tests__/integration/memory-backfill-depth.test.ts:82:5)
+
+PASS src/__tests__/integration/thin-appointments-port.test.ts
+  ● Console
+
+    console.log
+      Integration test environment ready
+
+      at Object.log (src/__tests__/integration/setup/jest.setup.ts:45:9)
+
+    console.log
+        Supabase URL: https://test-local.supabase.co
+
+      at Object.log (src/__tests__/integration/setup/jest.setup.ts:46:9)
+
+PASS src/__tests__/integration/record-screen-customer-facts-paging.test.ts
+  ● Console
+
+    console.log
+      Integration test environment ready
+
+      at Object.log (src/__tests__/integration/setup/jest.setup.ts:45:9)
+
+    console.log
+        Supabase URL: https://test-local.supabase.co
+
+      at Object.log (src/__tests__/integration/setup/jest.setup.ts:46:9)
+
+PASS src/__tests__/integration/reassign-facts.test.ts
+  ● Console
+
+    console.log
+      Integration test environment ready
+
+      at Object.log (src/__tests__/integration/setup/jest.setup.ts:45:9)
+
+    console.log
+        Supabase URL: https://test-local.supabase.co
+
+      at Object.log (src/__tests__/integration/setup/jest.setup.ts:46:9)
+
+PASS src/__tests__/integration/effective-summary.test.ts
+  ● Console
+
+    console.log
+      Integration test environment ready
+
+      at Object.log (src/__tests__/integration/setup/jest.setup.ts:45:9)
+
+    console.log
+        Supabase URL: https://test-local.supabase.co
+
+      at Object.log (src/__tests__/integration/setup/jest.setup.ts:46:9)
+
+
+Test Suites: 502 passed, 502 total
+Tests:       1 skipped, 7357 passed, 7358 total
+Snapshots:   0 total
+Time:        24.061 s
+Ran all test suites.

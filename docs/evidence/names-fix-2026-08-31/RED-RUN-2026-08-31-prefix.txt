@@ -1,0 +1,761 @@
+FAIL src/__tests__/integration/recording-discard-receipt.test.ts
+  ● Console
+
+    console.log
+      Integration test environment ready
+
+      at Object.<anonymous> (src/__tests__/integration/setup/jest.setup.ts:34:9)
+
+    console.log
+        Supabase URL: https://test-local.supabase.co
+
+      at Object.<anonymous> (src/__tests__/integration/setup/jest.setup.ts:35:9)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.503Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"2e96cae4-967a-48ff-81bd-3b6118a2690a","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.507Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"3cfa0c2b-18ed-40b4-a1e6-21a806eb80b0","store_id":null,"source":"facade"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.508Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"1cfb4d6b-3162-4773-8f82-209af18c26e8","store_id":null,"source":"facade"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.warn
+      {"evt":"facade_error","endpoint":"recordings.discard","code":"validation","status":400,"requestId":"550fea16-6358-4e67-a14b-ae7718b25a63","appVersion":null,"platform":null}
+
+      240 |       // sibling fields. 128 chars fits any legitimate id (UUID = 36).
+      241 |       detail: Object.keys(detail).length > 0 ? detail : undefined,
+    > 242 |       source: 'facade',
+          |             ^
+      243 |     })
+      244 |   } catch (err) {
+      245 |     // CP6 loud floor (contract §8): this rethrow covers ANY failure that
+
+      at logFacadeError (src/lib/app-api/handler.ts:242:13)
+      at src/lib/app-api/handler.ts:90:13
+      at async Object.<anonymous> (src/__tests__/integration/recording-discard-receipt.test.ts:438:9)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.509Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"7e94a880-adf4-476c-be4d-196744f69e89","store_id":null,"source":"facade"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.510Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"req-web-1","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.warn
+      {"evt":"facade_error","endpoint":"recordings.discard","code":"validation","status":400,"requestId":"62302e5a-378b-485d-ae22-a2b26dcde689","appVersion":null,"platform":null}
+
+      240 |       // sibling fields. 128 chars fits any legitimate id (UUID = 36).
+      241 |       detail: Object.keys(detail).length > 0 ? detail : undefined,
+    > 242 |       source: 'facade',
+          |             ^
+      243 |     })
+      244 |   } catch (err) {
+      245 |     // CP6 loud floor (contract §8): this rethrow covers ANY failure that
+
+      at logFacadeError (src/lib/app-api/handler.ts:242:13)
+      at src/lib/app-api/handler.ts:90:13
+      at async Object.<anonymous> (src/__tests__/integration/recording-discard-receipt.test.ts:460:21)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.510Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"b5e47ae0-6c88-485c-8fb1-8bfdf40bf89c","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.511Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"take-9","severity":"notice","break_glass":false,"detail":{"recording_session_id":null,"take_id":"take-9","staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":"abandoned","duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":false,"discard_row_id":null,"system_emitted":true},"request_id":"req-web-1","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.511Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"1f3a10be-b6c3-426a-bb92-7a97032e14a4","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.511Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"7be7416c-3f06-4d2a-ada6-67fcdb763a9a","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.511Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-2","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-2","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-2","system_emitted":false},"request_id":"acf64108-e194-43f3-93f6-423a09822ea5","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.512Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"ae57eecc-5e02-4b58-a900-6f8bce9f8cc0","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.512Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"take-7","severity":"notice","break_glass":false,"detail":{"recording_session_id":null,"take_id":"take-7","staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":"abandoned","duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":false,"discard_row_id":null,"system_emitted":true},"request_id":"3fe6ad9a-0cb8-42ac-8dde-c89919ecbe91","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.512Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"6b5550d3-575b-4d1b-a1e2-ea34c4125b64","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.513Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"c17dab1f-5a95-4864-8800-fc7d033d0c6a","store_id":null,"source":"facade"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.513Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":"abandoned","duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":false,"discard_row_id":null,"system_emitted":true},"request_id":"85bec3af-6edc-46df-b513-197831574237","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.513Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"440b3f03-226c-4238-b694-c2ca3a1b186c","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.warn
+      {"evt":"facade_error","endpoint":"recordings.discard","code":"validation","status":400,"requestId":"2138b171-5bca-4d64-a4bf-159c9d1fbd17","appVersion":null,"platform":null}
+
+      240 |       // sibling fields. 128 chars fits any legitimate id (UUID = 36).
+      241 |       detail: Object.keys(detail).length > 0 ? detail : undefined,
+    > 242 |       source: 'facade',
+          |             ^
+      243 |     })
+      244 |   } catch (err) {
+      245 |     // CP6 loud floor (contract §8): this rethrow covers ANY failure that
+
+      at logFacadeError (src/lib/app-api/handler.ts:242:13)
+      at src/lib/app-api/handler.ts:90:13
+      at async Object.<anonymous> (src/__tests__/integration/recording-discard-receipt.test.ts:766:21)
+
+    console.warn
+      {"evt":"facade_error","endpoint":"recordings.discard","code":"forbidden","status":403,"requestId":"db9ba351-d8e0-454d-8759-99f5685194b4","appVersion":null,"platform":null}
+
+      240 |       // sibling fields. 128 chars fits any legitimate id (UUID = 36).
+      241 |       detail: Object.keys(detail).length > 0 ? detail : undefined,
+    > 242 |       source: 'facade',
+          |             ^
+      243 |     })
+      244 |   } catch (err) {
+      245 |     // CP6 loud floor (contract §8): this rethrow covers ANY failure that
+
+      at logFacadeError (src/lib/app-api/handler.ts:242:13)
+      at src/lib/app-api/handler.ts:90:13
+      at async Object.<anonymous> (src/__tests__/integration/recording-discard-receipt.test.ts:781:17)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.516Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":"take-1","staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":"QUEUED","has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"2800d529-3176-460a-a2b7-b2bb62e6d0b4","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.517Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"59765c12-9b2e-404b-8e9a-19ad63f2fc5c","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.517Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"4fb7f85c-84cb-468c-9d45-918ee29ce478","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.517Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":"abandoned","duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":false,"discard_row_id":null,"system_emitted":true},"request_id":"b81db6ee-8bf6-43f6-9d84-5abd65d7aac2","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.517Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":13,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"6118e3c2-b5f3-4f5d-a406-d4e608c0c321","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.517Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"0013ea14-63ff-4794-981d-3696b83a1391","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.517Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":"abandoned","duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":false,"discard_row_id":null,"system_emitted":true},"request_id":"61e0f166-b752-407c-bf75-330df472aba0","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.518Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":0,"below_floor":true,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"1045a875-3d39-44b6-b201-fdf6929be1be","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.518Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":9,"below_floor":true,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"da0b303b-b344-4a34-828c-16a560b7386e","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.518Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":10,"below_floor":true,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"c58469d2-086c-4452-a3a8-f02c5b87d329","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.518Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":10,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"999296c0-ad78-4b2e-ace6-9507c10592e5","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.518Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"f483cef5-5d0e-4415-934c-958bd82dba61","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.518Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":600,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"99dc68c3-e812-47b4-be85-3de295848047","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.518Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":10,"below_floor":true,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"72c5d6bd-7334-48aa-a55e-44c91df37e00","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.523Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":10,"below_floor":true,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"618220ee-9953-4508-bcb7-b6e266d34f44","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.523Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":0,"below_floor":true,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"2131cab9-e156-4a2e-8ea4-e28ef75aa40c","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.524Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"5ed3e0fe-ebd0-40d2-b014-d6255e97df7c","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.524Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":600,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"163dc4ca-3269-419a-b31b-6ebb80bf20ae","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.526Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"5284e720-f1d7-43d8-803d-0751670ee447","store_id":null,"source":"facade"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.527Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":"abandoned","duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":false,"discard_row_id":null,"system_emitted":true},"request_id":"req-web-1","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.528Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"563bb8d4-b863-48dd-ae96-48b8cf662fef","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.528Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"take-9","severity":"notice","break_glass":false,"detail":{"recording_session_id":null,"take_id":"take-9","staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":"abandoned","duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":false,"discard_row_id":null,"system_emitted":true},"request_id":"req-web-1","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.529Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"b416b30a-e626-4ca9-8302-744c37119fc2","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.529Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":"QUEUED","has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"2535805a-889d-435f-a800-463b3433355b","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.530Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":"RUNNING","has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"3bb4663d-fdbe-40ec-a79c-959e376d4226","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.530Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":"DONE","has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"0a0b96c2-dfc8-491d-bfb4-56fe084533f7","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.531Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":"FAILED","has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"045f79f0-c453-4088-bbf7-80378aef4384","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.538Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"7f86756a-3753-4c51-9d0e-f27ca29a5a57","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.538Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"9e3e65f6-7132-449c-83a7-a258f7752f89","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.539Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"cba153ed-a3b4-4832-91b7-229268a4818b","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.539Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"30a46e58-5eb7-4287-bee4-cc06953dc242","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.540Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"4a6b2ca3-cac6-4d51-b8fe-70276f666ef2","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.540Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"a2522b43-93fe-42a0-a62d-19c76ad74012","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.541Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-2","system_emitted":false},"request_id":"0096c7d5-3cf7-4596-93f7-5e9c373c9f6d","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.543Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"76a49e12-fd5e-457c-b6cc-18ba5d7c71ff","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.543Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"d0378cf3-02aa-43c3-acee-d831439bd1d6","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.544Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"f862d83e-9e49-40a7-bdbe-627de9af0f82","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.546Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"2ba1ed3e-3f8d-4c3c-9fc6-f1a87bbf4c54","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.warn
+      {"evt":"facade_error","endpoint":"recordings.discard","code":"validation","status":400,"requestId":"2d99fdb0-4714-4208-a4b3-e3995b8497de","appVersion":null,"platform":null}
+
+      240 |       // sibling fields. 128 chars fits any legitimate id (UUID = 36).
+      241 |       detail: Object.keys(detail).length > 0 ? detail : undefined,
+    > 242 |       source: 'facade',
+          |             ^
+      243 |     })
+      244 |   } catch (err) {
+      245 |     // CP6 loud floor (contract §8): this rethrow covers ANY failure that
+
+      at logFacadeError (src/lib/app-api/handler.ts:242:13)
+      at src/lib/app-api/handler.ts:90:13
+      at async Object.<anonymous> (src/__tests__/integration/recording-discard-receipt.test.ts:1282:21)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.548Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-9","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-9","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"23763fc4-9e2f-4ac9-8816-dda31f723453","store_id":null,"source":"web"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.549Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":null,"duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":true,"discard_row_id":"dr-1","system_emitted":false},"request_id":"3fb95cc3-4085-4084-802a-a9f1cddba635","store_id":null,"source":"facade"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+    console.log
+      {"evt":"audit","at":"2026-08-30T15:12:21.549Z","category":"recording","action":"recording.discard","actor_id":"auth-user-1","actor_type":"staff","business_id":"business-1","target_type":"recording","target_id":"rs-1","severity":"notice","break_glass":false,"detail":{"recording_session_id":"rs-1","take_id":null,"staff_id":"auth-user-1","customer_id":"cust-1","appointment_id":"appt-1","category":"abandoned","duration_sec":12,"below_floor":false,"route":"operational","pipeline":"in_tab","job_state":null,"has_free_text":false,"discard_row_id":null,"system_emitted":true},"request_id":"a9763e71-54cb-4edb-b77c-0e48b5f4f29b","store_id":null,"source":"facade"}
+
+      at emitConsoleLine (src/lib/audit.ts:112:5)
+
+  ● the take’s duration is stamped on the recording › 9.7s of audio is stamped as 9 — FLOORED, never rounded
+
+    expect(jest.fn()).toHaveBeenCalledTimes(expected)
+
+    Expected number of calls: 1
+    Received number of calls: 0
+
+      750 |     await staffReceipt({ durationSeconds })
+      751 |
+    > 752 |     expect(recordingUpdate).toHaveBeenCalledTimes(1)
+          |                             ^
+      753 |     expect(recordingUpdate).toHaveBeenCalledWith('rs-1', { duration_seconds: stored })
+      754 |   })
+      755 |
+
+      at src/__tests__/integration/recording-discard-receipt.test.ts:752:29
+
+  ● the take’s duration is stamped on the recording › 9.99s of audio is stamped as 9 — FLOORED, never rounded
+
+    expect(jest.fn()).toHaveBeenCalledTimes(expected)
+
+    Expected number of calls: 1
+    Received number of calls: 0
+
+      750 |     await staffReceipt({ durationSeconds })
+      751 |
+    > 752 |     expect(recordingUpdate).toHaveBeenCalledTimes(1)
+          |                             ^
+      753 |     expect(recordingUpdate).toHaveBeenCalledWith('rs-1', { duration_seconds: stored })
+      754 |   })
+      755 |
+
+      at src/__tests__/integration/recording-discard-receipt.test.ts:752:29
+
+  ● the take’s duration is stamped on the recording › 0.4s of audio is stamped as 0 — FLOORED, never rounded
+
+    expect(jest.fn()).toHaveBeenCalledTimes(expected)
+
+    Expected number of calls: 1
+    Received number of calls: 0
+
+      750 |     await staffReceipt({ durationSeconds })
+      751 |
+    > 752 |     expect(recordingUpdate).toHaveBeenCalledTimes(1)
+          |                             ^
+      753 |     expect(recordingUpdate).toHaveBeenCalledWith('rs-1', { duration_seconds: stored })
+      754 |   })
+      755 |
+
+      at src/__tests__/integration/recording-discard-receipt.test.ts:752:29
+
+  ● the take’s duration is stamped on the recording › 12.4s of audio is stamped as 12 — FLOORED, never rounded
+
+    expect(jest.fn()).toHaveBeenCalledTimes(expected)
+
+    Expected number of calls: 1
+    Received number of calls: 0
+
+      750 |     await staffReceipt({ durationSeconds })
+      751 |
+    > 752 |     expect(recordingUpdate).toHaveBeenCalledTimes(1)
+          |                             ^
+      753 |     expect(recordingUpdate).toHaveBeenCalledWith('rs-1', { duration_seconds: stored })
+      754 |   })
+      755 |
+
+      at src/__tests__/integration/recording-discard-receipt.test.ts:752:29
+
+  ● the take’s duration is stamped on the recording › 600s of audio is stamped as 600 — FLOORED, never rounded
+
+    expect(jest.fn()).toHaveBeenCalledTimes(expected)
+
+    Expected number of calls: 1
+    Received number of calls: 0
+
+      750 |     await staffReceipt({ durationSeconds })
+      751 |
+    > 752 |     expect(recordingUpdate).toHaveBeenCalledTimes(1)
+          |                             ^
+      753 |     expect(recordingUpdate).toHaveBeenCalledWith('rs-1', { duration_seconds: stored })
+      754 |   })
+      755 |
+
+      at src/__tests__/integration/recording-discard-receipt.test.ts:752:29
+
+  ● the take’s duration is stamped on the recording › the FACADE door stamps it too — one behaviour, both doors
+
+    expect(jest.fn()).toHaveBeenCalledWith(...expected)
+
+    Expected: "rs-1", {"duration_seconds": 12}
+
+    Number of calls: 0
+
+      758 |
+      759 |     expect(res.status).toBe(200)
+    > 760 |     expect(recordingUpdate).toHaveBeenCalledWith('rs-1', { duration_seconds: 12 })
+          |                             ^
+      761 |   })
+      762 |
+      763 |   it('the receipt-only door stamps it as well — a SYSTEM discard is still a take', async () => {
+
+      at Object.<anonymous> (src/__tests__/integration/recording-discard-receipt.test.ts:760:29)
+
+  ● the take’s duration is stamped on the recording › the receipt-only door stamps it as well — a SYSTEM discard is still a take
+
+    expect(jest.fn()).toHaveBeenCalledWith(...expected)
+
+    Expected: "rs-1", {"duration_seconds": 12}
+
+    Number of calls: 0
+
+      764 |     await discardRecordingWithClient(fakeClient as never, webActor, SYSTEM_VALID)
+      765 |
+    > 766 |     expect(recordingUpdate).toHaveBeenCalledWith('rs-1', { duration_seconds: 12 })
+          |                             ^
+      767 |   })
+      768 |
+      769 |   it('a stamp that FAILS never fails the discard — the take is already gone', async () => {
+
+      at Object.<anonymous> (src/__tests__/integration/recording-discard-receipt.test.ts:766:29)
+
+  ● the take’s duration is stamped on the recording › a stamp that FAILS never fails the discard — the take is already gone
+
+    expect(jest.fn()).toHaveBeenCalledTimes(expected)
+
+    Expected number of calls: 1
+    Received number of calls: 0
+
+      771 |
+      772 |     expect(await staffReceipt()).toMatchObject({ ok: true, duplicate: false })
+    > 773 |     expect(recordingUpdate).toHaveBeenCalledTimes(1)
+          |                             ^
+      774 |     // The receipt — the actual deliverable — landed regardless.
+      775 |     expect(discardRows()).toHaveLength(1)
+      776 |   })
+
+      at Object.<anonymous> (src/__tests__/integration/recording-discard-receipt.test.ts:773:29)
+
+  ● the take’s duration is stamped on the recording › a duplicate discard does not re-stamp — the first one already did
+
+    expect(jest.fn()).toHaveBeenCalledTimes(expected)
+
+    Expected number of calls: 1
+    Received number of calls: 0
+
+      791 |     await staffReceipt()
+      792 |
+    > 793 |     expect(recordingUpdate).toHaveBeenCalledTimes(1)
+          |                             ^
+      794 |   })
+      795 | })
+      796 |
+
+      at Object.<anonymous> (src/__tests__/integration/recording-discard-receipt.test.ts:793:29)
+
+FAIL src/__tests__/integration/discard-reasons-read.test.ts
+  ● Console
+
+    console.log
+      Integration test environment ready
+
+      at Object.<anonymous> (src/__tests__/integration/setup/jest.setup.ts:34:9)
+
+    console.log
+        Supabase URL: https://test-local.supabase.co
+
+      at Object.<anonymous> (src/__tests__/integration/setup/jest.setup.ts:35:9)
+
+  ● the two id spaces the ledger and the roster live in › a row stamped with the staff CARD id is named through the linked profile
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "原 奏恵"
+    Received: null
+
+      215 |     const res = await listDiscardReasons()
+      216 |     if (!res.ok) throw new Error('expected ok')
+    > 217 |     expect(res.rows[0].staffName).toBe('原 奏恵')
+          |                                   ^
+      218 |   })
+      219 |
+      220 |   it('a card that links to NO profile is still named, from the card itself', async () => {
+
+      at Object.<anonymous> (src/__tests__/integration/discard-reasons-read.test.ts:217:35)
+
+  ● the two id spaces the ledger and the roster live in › a card that links to NO profile is still named, from the card itself
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "退職 一郎"
+    Received: null
+
+      225 |     const res = await listDiscardReasons()
+      226 |     if (!res.ok) throw new Error('expected ok')
+    > 227 |     expect(res.rows[0].staffName).toBe('退職 一郎')
+          |                                   ^
+      228 |   })
+      229 |
+      230 |   it('an id in NEITHER space stays unnamed — the fix invents no names', async () => {
+
+      at Object.<anonymous> (src/__tests__/integration/discard-reasons-read.test.ts:227:35)
+
+  ● the two id spaces the ledger and the roster live in › the per-staff counts name card-id rows too
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Array [
+        Object {
+          "staffId": "card-A",
+    -     "staffName": "原 奏恵",
+    +     "staffName": null,
+          "thisMonth": 2,
+        },
+        Object {
+          "staffId": "card-C",
+    -     "staffName": "退職 一郎",
+    +     "staffName": null,
+          "thisMonth": 1,
+        },
+      ]
+
+      244 |     const res = await listDiscardReasons()
+      245 |     if (!res.ok) throw new Error('expected ok')
+    > 246 |     expect(res.counts.byStaff).toEqual([
+          |                                ^
+      247 |       { staffId: 'card-A', staffName: '原 奏恵', thisMonth: 2 },
+      248 |       { staffId: 'card-C', staffName: '退職 一郎', thisMonth: 1 },
+      249 |     ])
+
+      at Object.<anonymous> (src/__tests__/integration/discard-reasons-read.test.ts:246:32)
+
+  ● the staffer’s own count (the staff half of ruling B) › counts the rows stamped with their CARD id, not only their login uuid
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 3
+    Received: 1
+
+      324 |     ledger.push(row({ id: 'mine-old', discarded_by: 'card-A', created_at: lastMonth }))
+      325 |
+    > 326 |     expect(await myDiscardCountThisMonth()).toBe(3)
+          |                                             ^
+      327 |   })
+      328 |
+      329 |   it('an identity with no card resolves to the login-uuid behaviour, never an error', async () => {
+
+      at Object.<anonymous> (src/__tests__/integration/discard-reasons-read.test.ts:326:45)
+
+PASS src/__tests__/integration/discard-transcript-actions.test.ts
+  ● Console
+
+    console.log
+      Integration test environment ready
+
+      at Object.<anonymous> (src/__tests__/integration/setup/jest.setup.ts:34:9)
+
+    console.log
+        Supabase URL: https://test-local.supabase.co
+
+      at Object.<anonymous> (src/__tests__/integration/setup/jest.setup.ts:35:9)
+
+    console.warn
+      [discard-transcript] transcribe failed: Error: 404
+          at Object.get (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:77:32)
+          at consentAllows (/Users/liam/karute-discard/src/actions/recording-discard-transcript.ts:111:45)
+          at transcribeAndPersistDiscard (/Users/liam/karute-discard/src/actions/recording-discard-transcript.ts:279:29)
+          at async Object.<anonymous> (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:243:5)
+
+      298 |         : null
+      299 |       const reference = mode === 'off' ? null : await loadStaffReferenceForStaff(settings, staffId)
+    > 300 |       const transcription = (await runTranscription({
+          |                 ^
+      301 |         audio: { url: signed.signedUrl },
+      302 |         locale: input.locale || 'ja',
+      303 |         diarize: settings?.speaker_diarization !== false,
+
+      at transcribeAndPersistDiscard (src/actions/recording-discard-transcript.ts:300:17)
+      at async Object.<anonymous> (src/__tests__/integration/discard-transcript-actions.test.ts:268:9)
+
+    console.warn
+      [discard-transcript] persist failed: Error: 404
+          at Object.get (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:77:32)
+          at consentAllows (/Users/liam/karute-discard/src/actions/recording-discard-transcript.ts:111:45)
+          at persistDiscardTranscript (/Users/liam/karute-discard/src/actions/recording-discard-transcript.ts:232:17)
+          at async Object.<anonymous> (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:244:5)
+
+      202 |         start_time: 0,
+      203 |         end_time: Math.max(0, Math.round(durationSeconds)),
+    > 204 |       },
+          |         ^
+      205 |     ],
+      206 |     { replace: true },
+      207 |   )
+
+      at persistDiscardTranscript (src/actions/recording-discard-transcript.ts:204:17)
+      at async Object.<anonymous> (src/__tests__/integration/discard-transcript-actions.test.ts:271:9)
+
+    console.warn
+      [discard-transcript] transcribe failed: Error: deepgram unreachable
+          at /Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:349:13
+          at /Users/liam/karute-discard/node_modules/jest-environment-node/node_modules/jest-mock/build/index.js:397:39
+          at /Users/liam/karute-discard/node_modules/jest-environment-node/node_modules/jest-mock/build/index.js:404:13
+          at mockRunTranscription (/Users/liam/karute-discard/node_modules/jest-environment-node/node_modules/jest-mock/build/index.js:148:19)
+          at runTranscription (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:128:42)
+          at transcribeAndPersistDiscard (/Users/liam/karute-discard/src/actions/recording-discard-transcript.ts:300:52)
+          at async Object.<anonymous> (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:351:5)
+
+      298 |         : null
+      299 |       const reference = mode === 'off' ? null : await loadStaffReferenceForStaff(settings, staffId)
+    > 300 |       const transcription = (await runTranscription({
+          |                 ^
+      301 |         audio: { url: signed.signedUrl },
+      302 |         locale: input.locale || 'ja',
+      303 |         diarize: settings?.speaker_diarization !== false,
+
+      at transcribeAndPersistDiscard (src/actions/recording-discard-transcript.ts:300:17)
+      at async Object.<anonymous> (src/__tests__/integration/discard-transcript-actions.test.ts:421:9)
+
+    console.warn
+      [discard-transcript] staged audio sweep failed: Error: storage unreachable
+          at Object.remove (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:147:35)
+          at transcribeAndPersistDiscard (/Users/liam/karute-discard/src/actions/recording-discard-transcript.ts:344:51)
+          at async Object.<anonymous> (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:482:5)
+
+      294 |       // resolved from the cookie session — they are the recorder.
+      295 |       const selfStaffId = await getCurrentUserStaffId()
+    > 296 |       const staffId = selfStaffId
+          |                         ^
+      297 |         ? await resolveSynqedStaffId(selfStaffId).catch(() => selfStaffId)
+      298 |         : null
+      299 |       const reference = mode === 'off' ? null : await loadStaffReferenceForStaff(settings, staffId)
+
+      at transcribeAndPersistDiscard (src/actions/recording-discard-transcript.ts:296:25)
+      at async Object.<anonymous> (src/__tests__/integration/discard-transcript-actions.test.ts:581:9)
+
+    console.warn
+      [discard-transcript] staged audio sweep failed: Error: storage unreachable
+          at Object.remove (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:147:35)
+          at transcribeAndPersistDiscard (/Users/liam/karute-discard/src/actions/recording-discard-transcript.ts:344:51)
+          at async Object.<anonymous> (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:489:5)
+
+      294 |       // resolved from the cookie session — they are the recorder.
+      295 |       const selfStaffId = await getCurrentUserStaffId()
+    > 296 |       const staffId = selfStaffId
+          |                         ^
+      297 |         ? await resolveSynqedStaffId(selfStaffId).catch(() => selfStaffId)
+      298 |         : null
+      299 |       const reference = mode === 'off' ? null : await loadStaffReferenceForStaff(settings, staffId)
+
+      at transcribeAndPersistDiscard (src/actions/recording-discard-transcript.ts:296:25)
+      at async Object.<anonymous> (src/__tests__/integration/discard-transcript-actions.test.ts:589:9)
+
+    console.warn
+      [discard-reasons] transcript read failed: Error: core unreachable
+          at Object.<anonymous> (/Users/liam/karute-discard/src/__tests__/integration/discard-transcript-actions.test.ts:547:30)
+          at Promise.then.completed (/Users/liam/karute-discard/node_modules/jest-circus/build/utils.js:298:28)
+          at new Promise (<anonymous>)
+          at callAsyncCircusFn (/Users/liam/karute-discard/node_modules/jest-circus/build/utils.js:231:10)
+          at _callCircusTest (/Users/liam/karute-discard/node_modules/jest-circus/build/run.js:316:40)
+          at async _runTest (/Users/liam/karute-discard/node_modules/jest-circus/build/run.js:252:3)
+          at async _runTestsForDescribeBlock (/Users/liam/karute-discard/node_modules/jest-circus/build/run.js:126:9)
+          at async _runTestsForDescribeBlock (/Users/liam/karute-discard/node_modules/jest-circus/build/run.js:121:9)
+          at async run (/Users/liam/karute-discard/node_modules/jest-circus/build/run.js:71:3)
+          at async runAndTransformResultsToJestFormat (/Users/liam/karute-discard/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)
+          at async jestAdapter (/Users/liam/karute-discard/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)
+          at async runTestInternal (/Users/liam/karute-discard/node_modules/jest-runner/build/runTest.js:367:16)
+          at async runTest (/Users/liam/karute-discard/node_modules/jest-runner/build/runTest.js:444:34)
+
+      169 |     }
+      170 |   | { ok: false; error: 'forbidden' | 'failed' }
+    > 171 |
+          | ^
+      172 | /**
+      173 |  * A2-4 — the words behind ONE discard row, read on open.
+      174 |  *
+
+      at getDiscardTranscript (src/actions/recording-discards.ts:171:17)
+      at async Object.<anonymous> (src/__tests__/integration/discard-transcript-actions.test.ts:654:9)
+
+
+Test Suites: 2 failed, 1 passed, 3 total
+Tests:       13 failed, 129 passed, 142 total
+Snapshots:   0 total
+Time:        0.408 s, estimated 1 s
+Ran all test suites matching /src\/__tests__\/integration\/discard-reasons-read.test.ts|src\/__tests__\/integration\/recording-discard-receipt.test.ts|src\/__tests__\/integration\/discard-transcript-actions.test.ts/i.

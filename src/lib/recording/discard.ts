@@ -205,6 +205,8 @@ export async function discardRecordingWithClient(
   )
   if (prior.found) return { ok: true, receiptId: prior.receiptId, duplicate: true }
 
+  await stampRecordingDuration(synqed, data)
+
   return writeDiscardReceipt(actor, data, targetId)
 }
 
@@ -246,6 +248,44 @@ export async function discardRecordingWithReasonRow(
     { ...receipt, source: 'STAFF', discardRowId: row.rowId },
     STAFF_ROW_VOUCH,
   )
+}
+
+/** BELOW-FLOOR TRUTH — the one write that makes the manager panel's existing
+ *  distinction real (names-fix 2026-08-31).
+ *
+ *  Nothing in this repo ever wrote `recordings.duration_seconds`, so
+ *  `getDiscardTranscript` read null for every discard and the panel printed
+ *  its generic 「文字起こしはありません」 even for a take that ran under the
+ *  10-second floor and was therefore NEVER transcribed. Two different facts,
+ *  one sentence. The panel already branches on the duration; this fills it in.
+ *
+ *  Here because this is the ONE point both doors pass with `data` in hand —
+ *  the web action and the facade route each reach it, the reason door through
+ *  discardRecordingWithReasonRow. Placed after the idempotency probe so a
+ *  retried discard does not re-stamp a value it already wrote.
+ *
+ *  `Math.floor`, never `Math.round`: `duration_seconds` is an Int column and
+ *  the panel's predicate is `< BELOW_FLOOR_SEC`, so flooring preserves it
+ *  exactly. Rounding would store 10 for a 9.7s take and claim it was
+ *  transcribed — the same [9.5, 10) artifact the receipt's own `duration_sec`
+ *  comment documents, which must not reach the panel's source of truth.
+ *
+ *  BEST-EFFORT BY CONTRACT: the take is already gone from the device by the
+ *  time this runs, so a duration we could not stamp costs a distinction on one
+ *  manager screen — never the discard. Every failure (a rejected write, and a
+ *  client without a `recordings` resource at all) is one warn line. */
+async function stampRecordingDuration(
+  synqed: ReturnType<typeof newSynqedClient>,
+  data: z.infer<typeof DiscardRecordingSchema>,
+): Promise<void> {
+  if (!data.recordingSessionId) return
+  try {
+    await synqed.recordings.update(data.recordingSessionId, {
+      duration_seconds: Math.floor(data.durationSeconds),
+    })
+  } catch (err) {
+    console.warn(JSON.stringify({ evt: 'discard_duration_stamp_failed', err: String(err) }))
+  }
 }
 
 /** Probe first, then create — the same check-then-write idempotency the

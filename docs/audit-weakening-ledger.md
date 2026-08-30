@@ -115,3 +115,19 @@
   on the consent-refusal path too, so a refusal leaves no litter behind ·
   Liam (⚖ 2026-08-20 kept-discards doctrine, packet
   PACKET-P5-A2-TRANSCRIPT-2026-08-31.md, karute-recording-integrity lane)
+- 2026-08-31 · SDK_WRITE_ALLOWLIST:src/lib/recording/discard.ts::recordings.update · the
+  BELOW-FLOOR half of the names fix. Nothing in this repo ever wrote
+  recordings.duration_seconds, so the manager panel printed its generic
+  「文字起こしはありません」 for a take that ran under the 10-second floor and was
+  therefore never transcribed — two different facts wearing one sentence. This
+  stamps ONE derived field, floored (Math.floor, so the panel's
+  `< BELOW_FLOOR_SEC` predicate stays exact on an Int column), from the
+  duration the receipt already reports: it adds no new fact and removes none.
+  Not silent in substance — the SAME call stack emits the recording.discard
+  receipt (writeDiscardReceipt, auditDurable, AWAITED) carrying duration_sec
+  and below_floor for this exact take, one step out; a second row would
+  double-count one act. The walker cannot see that emit for the same mechanical
+  reason as the sibling recordingDiscards.create entry: discard.ts's emitter is
+  auditDurable, not the audit()/auditWeb() pair AUDITED_CORES is seeded from ·
+  Liam (⚖ 2026-08-20 kept-discards doctrine, packet
+  PACKET-2026-08-31-NAMES-FIX.md, karute-field-issues lane)

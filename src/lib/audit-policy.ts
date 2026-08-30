@@ -391,6 +391,14 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-08-25',
   },
   {
+    file: 'src/lib/recording/discard.ts',
+    call: 'recordings.update',
+    symbols: ['stampRecordingDuration'],
+    justification:
+      "Names-fix (2026-08-31) — the below-floor half. Stamps ONE derived field, recordings.duration_seconds, onto the session the caller is discarding, from the duration the receipt already reports: it adds no new fact and takes none away. Not silent in substance — the very same call stack emits the recording.discard receipt (writeDiscardReceipt, auditDurable, AWAITED) carrying duration_sec and below_floor for this exact take, one step out, so the stamp is audited by the row the discard already writes and a second row would double-count one act. The walker cannot see that emit because discard.ts's emitter is auditDurable rather than the audit()/auditWeb() pair AUDITED_CORES is seeded from — the same reason the sibling recordingDiscards.create entry above needs a line. Best-effort and never load-bearing: a failed stamp is one warn line and the discard succeeds unchanged.",
+    dated: '2026-08-31',
+  },
+  {
     file: 'src/actions/customers.ts',
     call: 'customers.grantConsent',
     symbols: ['grantCustomerConsentWithClient'],
