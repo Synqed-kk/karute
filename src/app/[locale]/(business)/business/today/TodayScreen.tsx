@@ -1408,6 +1408,15 @@ export function TodayScreen(props: TodayProps) {
     [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
+  /** ⚖ GREPTILE RE-REVIEW (2026-08-30) — THE OTHER HALF OF THE ROVING PATTERN.
+   *  ←/→ moved focus from the first round, but the tab stop was hard-wired to
+   *  chip 0, so tabbing away and back always threw the operator back to the
+   *  first start of the strip. A roving tabindex is the pair: the LAST-focused
+   *  chip is the stop. One entry per rail (`laneKey` → that chip's `start`,
+   *  which is the chip's identity here — the index is not, because a reshaped
+   *  strip renumbers it). Empty means「未使用 → the first chip」, which is what
+   *  every rail starts as and what a stale entry falls back to. */
+  const [railStop, setRailStop] = useState<Record<string, number>>({})
 
   /** ⚖ LIAM flag 50 item 4b (2026-08-22) — WHAT IS IN THE OPERATOR'S HAND, so
    *  the strip can judge every start FOR IT.
@@ -4273,8 +4282,20 @@ export function TodayScreen(props: TodayProps) {
    *  canon's 「表示だけの個人設定」 is still true of is the STRIP — nothing here
    *  moves a booking, and a press only ever says something out loud. Each still
    *  carries its sentence as its accessible name; the strip is ONE tab stop and
-   *  ←/→ walk it (⚖ 44 fix round, blind lens 4). */
+   *  ←/→ walk it (⚖ 44 fix round, blind lens 4) — and (⚖ Greptile re-review
+   *  2026-08-30) that one stop ROVES: it is the chip last focused on this rail,
+   *  so Tab returns the operator where they were instead of to the first start.
+   *  The full pattern is therefore three parts, not two — the track's ←/→ walk,
+   *  the per-rail remembered stop that each chip's `onFocus` writes, and the
+   *  fallback that hands the stop back to chip 1 when the remembered start is
+   *  no longer on the strip. */
   function renderRail(rail: GuardRail) {
+    // ⚖ GREPTILE RE-REVIEW (2026-08-30) — the roving stop, resolved ONCE per
+    // rail rather than per chip, and guarded: a remembered start that this
+    // strip no longer has is treated as unset, so the fallback to the first
+    // chip is what runs and the strip never renders with zero tab stops.
+    const remembered = railStop[rail.laneKey]
+    const stop = rail.cells.some((c) => c.start === remembered) ? remembered : rail.cells[0]?.start
     return (
       <div
         className="guard-placement-rail"
@@ -4348,11 +4369,24 @@ export function TodayScreen(props: TodayProps) {
         {/* ⚖ 44 FIX ROUND (blind lens 4, SF4) — ONE TAB STOP FOR THE STRIP.
             A staff board is a dozen lanes of eighteen chips: tabbing through
             them one at a time is 200 stops between the board and whatever comes
-            after it. The plain toolbar pattern instead — the first chip is the
-            stop, ←/→ walk the strip, and the walk wraps because a strip is a
-            closed row of starts. No dependency and no state: the handler lives
-            on the track because a keypress on a chip bubbles to it, and the
-            chips it walks are the ones actually rendered under it. */}
+            after it. The plain toolbar pattern instead — one chip is the stop,
+            ←/→ walk the strip, and the walk wraps because a strip is a closed
+            row of starts. The handler lives on the track because a keypress on
+            a chip bubbles to it, and the chips it walks are the ones actually
+            rendered under it.
+
+            ⚖ GREPTILE RE-REVIEW (2026-08-30) — AND THE STOP ROVES, which is
+            the half that was missing. It was pinned to chip 0, so the walk was
+            free but tabbing out and back always landed on the first start
+            again. The stop is `railStop[laneKey]` now — the chip last focused
+            on THIS rail, written by the chip's own `onFocus`, which is the one
+            hook that catches the arrow walk and a mouse press alike (both are
+            correct roving semantics: the operator's last position is wherever
+            they last were). The stored value is a `start`, not an index, and a
+            start that is no longer on the strip — `railDur` changed, the board
+            reshaped — is treated as unset rather than left dangling, because a
+            stop matching NO chip would leave the whole strip unreachable by
+            Tab. Exactly one chip carries `0` on every rail, always. */}
         <div
           className="guard-rail-track"
           onKeyDown={(e) => {
@@ -4365,7 +4399,7 @@ export function TodayScreen(props: TodayProps) {
             chips[(at + step + chips.length) % chips.length].focus()
           }}
         >
-          {rail.cells.map((c, i) => {
+          {rail.cells.map((c) => {
             // ⚖ LIAM flag 50 item 4b — THE × GOES ON THE SPOT ITSELF. While
             // something is in hand every start on this lane is re-judged FOR IT
             // by the one verdict — the guard's cell composed with the room, the
@@ -4396,9 +4430,16 @@ export function TodayScreen(props: TodayProps) {
                 type="button"
                 data-start={c.start}
                 data-state={state}
-                // The roving half of the toolbar pattern above: the strip's
-                // first chip is its tab stop and the rest are reached with ←/→.
-                tabIndex={i === 0 ? 0 : -1}
+                // The roving half of the toolbar pattern above: ONE chip on
+                // this strip is its tab stop and the rest are reached with ←/→.
+                tabIndex={c.start === stop ? 0 : -1}
+                // …and `onFocus` is what makes it rove. It fires for the arrow
+                // walk and for a mouse press alike, so the remembered position
+                // is simply wherever the operator last was. The state is only
+                // written when the value actually CHANGES — a chip re-focused
+                // where it already was must not queue a render, or the walk
+                // renders on every keypress for nothing.
+                onFocus={() => setRailStop((s) => (s[rail.laneKey] === c.start ? s : { ...s, [rail.laneKey]: c.start }))}
                 // ⚖ flag 44 (2) — the 3px dot rides this attribute, so the cue
                 // and the word can never appear without each other: both are
                 // set from the same `word`, which is why the paint has no second

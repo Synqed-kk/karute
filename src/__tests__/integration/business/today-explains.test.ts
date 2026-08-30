@@ -851,9 +851,8 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
 
   it('the strip is ONE tab stop and ←/→ walk it (⚖ 44 fix round, blind lens 4)', () => {
     // A dozen lanes of eighteen chips is 200 tab stops between this board and
-    // whatever comes after it. The plain toolbar pattern instead — no dep, no
-    // state, and the walk wraps because a strip is a closed row of starts.
-    expect(SRC).toContain('tabIndex={i === 0 ? 0 : -1}')
+    // whatever comes after it. The plain toolbar pattern instead — and the walk
+    // wraps because a strip is a closed row of starts.
     expect(SRC).toContain("const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0")
     expect(SRC).toContain('chips[(at + step + chips.length) % chips.length].focus()')
     // The handler is on the TRACK — a keypress on a chip bubbles to it, and the
@@ -864,6 +863,44 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // after they became buttons.
     expect(SRC).not.toContain('The cells are guidance, not')
     expect(SRC).toContain('⚖ 44 (3) — THE CELLS ARE CONTROLS NOW')
+  })
+
+  it('⚖ Greptile re-review — the one tab stop ROVES, and cannot go missing', () => {
+    // HALF A PATTERN IS THE BUG. ←/→ moved focus from the first round, but the
+    // stop was the literal first chip — `tabIndex={i === 0 ? 0 : -1}` — so
+    // tabbing out of the board and back always threw the operator to the first
+    // start of the strip, whatever they had walked to. The stop is the chip
+    // last focused on THIS rail now, and the index-pinned spelling is pinned
+    // dead so it cannot come back.
+    expect(SRC).toContain('tabIndex={c.start === stop ? 0 : -1}')
+    expect(SRC).not.toContain('tabIndex={i === 0 ? 0 : -1}')
+    // …written by the chip's own `onFocus`, which is the ONE hook that catches
+    // the arrow walk and a mouse press alike — both are the operator's last
+    // position, which is exactly what a roving stop remembers. The `s[…] ===
+    // c.start ? s :` short-circuit is load-bearing, not tidiness: a chip
+    // re-focused where it already sits must not queue a render.
+    expect(SRC).toContain(
+      'onFocus={() => setRailStop((s) => (s[rail.laneKey] === c.start ? s : { ...s, [rail.laneKey]: c.start }))}',
+    )
+    // The remembered value is a `start`, not an index — the identity of a chip
+    // survives a reshaped strip and an index does not — and it is per rail, so
+    // one lane's walk cannot move another lane's stop.
+    expect(SRC).toContain('const [railStop, setRailStop] = useState<Record<string, number>>({})')
+    // THE STALE-START GUARD, which is what stops the fix from creating a worse
+    // bug than the one it fixes: `railDur` changes and the board reshapes, so a
+    // remembered start can stop existing. A stop matching NO chip would leave
+    // that strip with ZERO tab stops — unreachable by Tab entirely — so an
+    // unrecognised start is treated as unset and the first chip takes it back.
+    expect(SRC).toContain('const remembered = railStop[rail.laneKey]')
+    expect(SRC).toContain(
+      'const stop = rail.cells.some((c) => c.start === remembered) ? remembered : rail.cells[0]?.start',
+    )
+    // Resolved ONCE per rail, above the map — not a `.some()` per chip.
+    expect(SRC.indexOf('const stop = rail.cells.some')).toBeLessThan(SRC.indexOf('{rail.cells.map((c) => {'))
+    // ⚖ 44's N5 lesson, applied to this round: the doc above `renderRail` says
+    // what the pattern actually is. It described two parts while the code had
+    // three.
+    expect(SRC).toContain('that one stop ROVES: it is the chip last focused on this rail')
   })
 
   it('the tour sentence teaches the third face — flag 25c’s one-sentence precedent', () => {
