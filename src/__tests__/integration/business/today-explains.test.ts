@@ -732,7 +732,14 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // something. The argument defaults to empty, so with the round gate off the
     // cue is byte-identical to today's; nothing about "one source, three cues"
     // moved.
-    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, heldByLane.get(lane.key))')
+    // ⚖ PIN MIGRATED at the FIX ROUND, WITH the decision (F5, blind-final L1#5):
+    // the fourth argument is the COMMITTED world's held spans, like the second
+    // and third arguments beside it. It was the BOARD world's, and the cue's own
+    // reason for standing down is the 確保 chip drawn over it — which is drawn
+    // from the committed mask. Idle they coincide; mid-gesture they diverge, and
+    // the divergence paints flag 88's artifact. `heldHere` is that committed
+    // list, already in hand one line above in the renderer.
+    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere)')
     expect(INT).toContain('.filter(([, e]) => e.word != null)')
     // Both cues stand down while a card is in hand — the strip is answering a
     // different question then, and the chip wears the verdict's × instead.

@@ -85,6 +85,23 @@ export interface ReservedLaneMask {
 export interface ReleasedWindow {
   readonly laneKey: string
   readonly windowStart: number
+  /** ⚖ 22 / ⚖ 46, and ⚖ FIX ROUND F2 (blind-final L1#3 ≡ L2#2) — WHICH BOARD
+   *  THE MANAGER WAS LOOKING AT.
+   *
+   *  A staff lane's key is the staff member's id: byte-identical on every day
+   *  and in every store lens that person appears in, and a `windowStart` is a
+   *  minute of the day. So a release stamped with those two alone described a
+   *  window on EVERY board — day navigation is a `<Link>` inside one mounted
+   *  component, so the list rides across it, and tomorrow's 10:00 window
+   *  silently went back on sale with no operator act behind it. That is §1's
+   *  law breaking in the one direction it exists to prevent.
+   *
+   *  The two fields are the same stamp `added` carries and `onShownBoard`
+   *  compares (the screen's own site — this module never asks which board it is
+   *  answering for, and must not start). They are REQUIRED rather than optional
+   *  because an unstamped release is exactly the bug. */
+  readonly dayOffset: number
+  readonly store: string | null
 }
 
 export interface ReservedMaskInput {

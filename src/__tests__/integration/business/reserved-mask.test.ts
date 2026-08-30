@@ -243,6 +243,14 @@ function maskOf(
   return reservedMaskFor({ lanes, closeMin: CLOSE, nowMin: null, guard, gapGuardMode, book, released })
 }
 
+/** ⚖ FIX ROUND F2 — A RELEASE CARRIES THE BOARD IT WAS PRESSED ON, so the type
+ *  requires the stamp. This module never READS it (it answers for whatever
+ *  snapshot it is handed; the screen scopes the list against the board on screen
+ *  before it arrives), so the pins below carry one constant board and go on
+ *  proving the mask's own half of the fact. The scoping half is proven where it
+ *  lives, in selling-engine-flip §7. */
+const onBoard = (r: { laneKey: string; windowStart: number }): ReleasedWindow => ({ ...r, dayOffset: 0, store: null })
+
 /** THE ORACLE — the pockets and the guard ctx the RAIL builds, rebuilt here
  *  from the same three producers (`freePockets`, `laneSpans`, `newClientMask`).
  *  Every equality pin below compares the module against this, never against a
@@ -847,9 +855,9 @@ describe('8 — a released window is SUBTRACTED, and nothing else moves', () => 
     expect(JSON.stringify(maskOf(lanes, guard, 'standard', book, []))).toBe(none)
     // The identity is (lane, windowStart) WHOLE. A real lane with a start the
     // guard never enumerated releases nothing…
-    expect(JSON.stringify(maskOf(lanes, guard, 'standard', book, [{ laneKey, windowStart: spans[0].windowStart + 7 }]))).toBe(none)
+    expect(JSON.stringify(maskOf(lanes, guard, 'standard', book, [onBoard({ laneKey, windowStart: spans[0].windowStart + 7 })]))).toBe(none)
     // …and a real start on a lane that is not this one releases nothing either.
-    expect(JSON.stringify(maskOf(lanes, guard, 'standard', book, [{ laneKey: 'no-such-lane', windowStart: spans[0].windowStart }]))).toBe(none)
+    expect(JSON.stringify(maskOf(lanes, guard, 'standard', book, [onBoard({ laneKey: 'no-such-lane', windowStart: spans[0].windowStart })]))).toBe(none)
   })
 
   it('the release is LANE-SCOPED — the same start on another lane is untouched', () => {
@@ -861,7 +869,7 @@ describe('8 — a released window is SUBTRACTED, and nothing else moves', () => 
     const book = bookOf(lanes)
     const before = maskOf(lanes, guard, 'standard', book)
     const shared = before
-      .flatMap((m) => m.spans.map((s) => ({ laneKey: m.laneKey, windowStart: s.windowStart })))
+      .flatMap((m) => m.spans.map((s) => onBoard({ laneKey: m.laneKey, windowStart: s.windowStart })))
       .filter((a, _i, all) => all.filter((b) => b.windowStart === a.windowStart).length > 1)
     expect(shared.length).toBeGreaterThan(1)
     const [mine, theirs] = [shared[0], shared.find((s) => s.windowStart === shared[0].windowStart && s.laneKey !== shared[0].laneKey)!]
@@ -873,7 +881,7 @@ describe('8 — a released window is SUBTRACTED, and nothing else moves', () => 
 
   it('releasing ONE window takes that window, and the neighbours stay BYTE-IDENTICAL', () => {
     const { lanes, guard, book, laneKey, spans } = twoWindowLane()
-    const released: ReleasedWindow = { laneKey, windowStart: spans[0].windowStart }
+    const released: ReleasedWindow = onBoard({ laneKey, windowStart: spans[0].windowStart })
     const after = maskOf(lanes, guard, 'standard', book, [released])
     const lane = after.find((m) => m.laneKey === laneKey)!
     // The window is gone…
@@ -901,7 +909,7 @@ describe('8 — a released window is SUBTRACTED, and nothing else moves', () => 
     const quiet = board({ ...SWEEP, perLane: 1, seed: 99 })
     const guard = guardConfig()
     const pick = maskOf(busy, guard, 'standard').find((m) => m.spans.length > 0)!
-    const released: ReleasedWindow[] = [{ laneKey: pick.laneKey, windowStart: pick.spans[0].windowStart }]
+    const released: ReleasedWindow[] = [onBoard({ laneKey: pick.laneKey, windowStart: pick.spans[0].windowStart })]
     for (const world of [busy, quiet]) {
       const held = maskOf(world, guard, 'standard', bookOf(world), released)
       const lane = held.find((m) => m.laneKey === pick.laneKey)

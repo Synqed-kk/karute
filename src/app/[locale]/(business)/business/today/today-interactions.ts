@@ -40,8 +40,10 @@ import {
 } from '@/business/lib/canon-logic/drag-rules'
 import { minuteOf, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 // ⚖ SPEC-SELLING-ENGINE §2 — TYPE-ONLY, and it has to stay that way: the mask
-// imports `laneSpans` from this file as a VALUE, so a value import back would
-// be a real module cycle. `import type` is erased before it exists.
+// imports `laneSpans` from this file as a VALUE, and the capacity book imports
+// `allocateBed`, so a value import back to either would be a real module cycle.
+// `import type` is erased before it exists.
+import type { ReservedOffer } from './capacity-ledger'
 import type { ReservedLaneMask, ReservedSpan } from './reserved-mask'
 
 export type { DragMode, DragOrigin }
@@ -1174,6 +1176,38 @@ export function sellDrawnFor(layer: SellLayer, showPrice: boolean): SellLayer {
   return published.length === layer.cells.length ? layer : buildSellLayer(published, showPrice)
 }
 
+/** ⚖ FIX ROUND F3 (blind-final L1#2) — THE MASK AS THE SALES DOOR MAY PUBLISH
+ *  IT: the held set minus every lane the SELL door refuses outright.
+ *
+ *  The rule was already written on the board — 「a 確保 chip on a row that sells
+ *  nothing online would be the only kind of offer still standing there, and the
+ *  counter would be counting a window that is not for sale to anybody」 — and it
+ *  was enforced against ONE of the two ways a lane can sell nothing. A locked
+ *  lane was filtered; a lane with no list price was not, and `listPrice` is
+ *  `staffListPrice[member.id] ?? 0` (today-board.ts), so a real store hits it
+ *  the first time a manager adds a member without setting their price. That
+ *  lane has no sell layer and no gap layer at all — `sellStaffLanes` drops it —
+ *  yet it drew a chip whose own sub-line said 「オンラインで新規のお客様に販売中」.
+ *
+ *  ONE SPELLING, which is why this reads the answer out of `sellStaffLanes`
+ *  rather than repeating `listPrice > 0` here: the sales door publishes exactly
+ *  what the sell door would sell, and a future condition on one is a condition
+ *  on both by construction. The `locked` half stays visible in the same
+ *  expression (the function flags rather than drops them) so §9's ruled reason
+ *  for it is still readable at the site that acts on it.
+ *
+ *  The STAFF door's mask is deliberately NOT filtered this way (`heldBoard`
+ *  stays whole): the guard protects placements whatever a lane charges, and
+ *  that asymmetry is the law, not an oversight. */
+export function heldDrawnFor(
+  held: readonly ReservedLaneMask[] | undefined,
+  lanes: BoardLane[],
+  locked: string[],
+): readonly ReservedLaneMask[] {
+  const sellable = new Set(sellStaffLanes(lanes, locked).filter((l) => !l.locked).map((l) => l.key))
+  return (held ?? []).filter((m) => sellable.has(m.laneKey))
+}
+
 function tagHeldBound(cells: SellCell[], held: readonly ReservedLaneMask[]): SellCell[] {
   const byLane = heldByLane(held)
   return cells.map((c) => {
@@ -1247,7 +1281,18 @@ export function onlineOffers(input: {
   /** …and the gap layer AS DRAWN — the §5 fallback's additions included. */
   packed: readonly GapCell[]
   scraps: readonly GapCell[]
-  held: readonly ReservedLaneMask[]
+  /** ⚖ FIX ROUND F4 (blind-final L1#4 ≡ L2#8) — §4.5's OWN EMISSION, not the
+   *  mask a second time.
+   *
+   *  This used to take the mask and build reserved rows out of it inline, while
+   *  `reservedOffersFor` — the named §4.5 adapter, the thing §11's invariant
+   *  (iv) is proven against — sat beside it with zero readers. Two emission
+   *  homes for one kind, disagreeing by exactly the lanes the publication
+   *  filter removes, and the invariant was being proven on the one the screen
+   *  never read. ONE home now: the screen emits through the adapter and hands
+   *  the result here, so 「reserved offers ≡ held windows」 is a statement about
+   *  the rows the operator is actually counting. */
+  reserved: readonly ReservedOffer[]
   lanes: readonly BoardLane[]
   showPrice: boolean
 }): OnlineCounter {
@@ -1272,17 +1317,15 @@ export function onlineOffers(input: {
     {
       kind: 'reserved',
       label: '新規用に確保',
-      rows: input.held.flatMap((m) =>
-        m.spans.map((s) => ({
-          kind: 'reserved' as const,
-          laneKey: m.laneKey,
-          staff: labelOf.get(m.laneKey) ?? m.laneKey,
-          start: s.start,
-          end: s.end,
-          lo: null,
-          hi: null,
-        })),
-      ),
+      rows: input.reserved.map((o) => ({
+        kind: 'reserved' as const,
+        laneKey: o.laneKey,
+        staff: labelOf.get(o.laneKey) ?? o.laneKey,
+        start: o.start,
+        end: o.end,
+        lo: null,
+        hi: null,
+      })),
     },
   ]
   const total = groups.reduce((n, g) => n + g.rows.length, 0)
@@ -1944,7 +1987,15 @@ export function explainRails(
     rooms: RoomPolicy
     /** ⚖ R3 one world — the operator's own staged card, named as theirs. */
     stagedId: string | null
-    /** The advertised layer and the promises, as the board draws them. */
+    /** The advertised layer and the promises, as the board draws them.
+     *
+     *  ⚖ FIX ROUND F1 (blind-final L1#1 ≡ L2#1) — AS THE BOARD DRAWS THEM, and
+     *  that is now literally true. It was handed the DERIVATION, which still
+     *  contains every hour the law is withholding, so a held-bound cell nobody
+     *  can see satisfied `advertised` and 75(i)'s 「販売可能枠が出ていません」
+     *  stood down over genuinely blank track — flag 44's own defect, re-created
+     *  by the fix for flag 44's sibling. The taker lookup is unaffected: it
+     *  reads `drops`, a separate input. */
     sellCells: readonly SellCell[]
     claims: readonly GapCell[]
     /** ⚖ 75(i) — what building that layer threw away. */
@@ -1986,6 +2037,22 @@ export function explainRails(
      *  today's (the observational drop pin at today-explains.test.ts:393 stays
      *  untouched and green). */
     held?: readonly ReservedLaneMask[]
+    /** ⚖ FIX ROUND F1, second half — THE HOURS THE LAW ACTUALLY TOOK OFF THE
+     *  BOARD: the held-bound sell cells `sellDrawnFor` removed.
+     *
+     *  A held span and the sale it withholds are not the same stretch of track.
+     *  `tagHeldBound` withholds a whole SELL SLOT whenever the slot OVERLAPS a
+     *  held span, so a 90-minute hold on a 60-minute grid empties 120 minutes
+     *  of track and the chip covers 90 of them. The 30 minutes past the chip
+     *  were blank with no box, no chip and nothing said about them — and now
+     *  that `sellCells` is the PUBLISHED layer they would earn 75(i)'s bare
+     *  clause, which is true and names the wrong cause: the store's own rule
+     *  emptied that stretch, not an absent derivation.
+     *
+     *  So the clause covers exactly what the predicate took. Absent — the round
+     *  gate off, or a caller with nothing withheld — collapses the extents back
+     *  onto the held spans themselves and every sentence is unchanged. */
+    withheld?: readonly SellCell[]
   },
 ): RailExplained {
   const out: RailExplained = new Map()
@@ -2013,7 +2080,22 @@ export function explainRails(
     const roomDrops = opts.drops.filter(
       (d) => d.laneKey === rail.laneKey && d.kind === 'room' && d.takerLaneKey != null && d.takerLaneKey !== rail.laneKey,
     )
+    const withheldHere = (opts.withheld ?? []).filter((s) => s.group === 'staff' && s.laneKey === rail.laneKey)
     const heldHere = heldLanes.get(rail.laneKey)
+    // ⚖ FIX ROUND F1 — the held spans widened to the extent the WITHHOLDING
+    // reached, so the law explains exactly what it did. `dur` stays the SPAN's
+    // own length wherever the extent is quoted: the sentence quotes the store's
+    // protected dial, and a slot boundary is not a dial.
+    const heldExtents = (heldHere ?? []).map((h) => {
+      let start = h.start
+      let end = h.end
+      for (const c of withheldHere) {
+        if (!overlaps(c.h, c.h + SELL_SLOT_MIN, h.start, h.end)) continue
+        start = Math.min(start, c.h)
+        end = Math.max(end, c.h + SELL_SLOT_MIN)
+      }
+      return { start, end, dur: h.end - h.start }
+    })
     const per = new Map<number, { word: string | null; sentence: string }>()
     for (const c of rail.cells) {
       const end = c.start + opts.dur
@@ -2031,7 +2113,12 @@ export function explainRails(
       // own windows are mutually non-overlapping by construction
       // (`protectedCapacity`'s greedy is a disjoint set), so there is never a
       // second one to choose between.
-      const reserved = heldHere?.find((h) => c.start < h.end && h.start < end)
+      //
+      // ⚖ FIX ROUND F1 — asked of the EXTENT rather than the span. Two extents
+      // can touch where one 60-minute slot straddles two held windows; `find`
+      // keeps taking the first, which is the same honest ceiling the taker
+      // lookup already declares, and both windows quote the same dial anyway.
+      const reserved = heldExtents.find((h) => c.start < h.end && h.start < end)
       const taker = advertised || reserved ? undefined : roomDrops.find((d) => overlaps(d.h, d.h + SELL_SLOT_MIN, c.start, end))
       per.set(
         c.start,
@@ -2054,7 +2141,7 @@ export function explainRails(
               : null,
           adless: !advertised && reserved == null && opts.sellDisplayed,
           takerLabel: taker?.takerLaneKey != null ? (lanes.find((l) => l.key === taker.takerLaneKey)?.label ?? null) : null,
-          reservedDur: reserved ? reserved.end - reserved.start : null,
+          reservedDur: reserved ? reserved.dur : null,
         }),
       )
     }

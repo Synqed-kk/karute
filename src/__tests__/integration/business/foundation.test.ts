@@ -419,6 +419,13 @@ describe('the fixture data door', () => {
         // compile time and no module cycle exists at runtime. The pin lists it
         // because the scanner reads `from '…'` regardless of `import type`, and
         // a silent extra dependency here is exactly what it is here to catch.
+        // ⚖ PIN MIGRATED at the FIX ROUND, WITH the decision (F4): the capacity
+        // book joins it, on the same TYPE-ONLY terms and for the same reason —
+        // the counter now takes §4.5's emitted `ReservedOffer[]` instead of
+        // re-deriving reserved rows from the mask, so this file names that type.
+        // The book imports `allocateBed` from here as a VALUE, so this entry is
+        // erased at compile time and no cycle exists at runtime either.
+        './capacity-ledger',
         './reserved-mask',
         '@/business/lib/canon-logic/availability',
         '@/business/lib/canon-logic/drag-rules',

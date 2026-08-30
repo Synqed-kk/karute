@@ -829,6 +829,21 @@
    online at all (the toggle's own words), so it holds nothing to show. */
 .biz .timeline.sell-off .cell-held { display: none; }
 .biz .lane.locked .cell-held { display: none; }
+/* ⚖ FIX ROUND F6 (blind-final L2#3) — A PLACEMENT GOES THROUGH THE CHIP.
+   Every other layer on this track is `pointer-events: none`, so the track's own
+   click is what 配置モード's landing and 新規予約を作成 both run on
+   (`e.target !== e.currentTarget` and it returns). The 確保 chip deliberately
+   keeps its press — §9's ruled behaviour, and it is how the law gets said — but
+   that also made it the click TARGET over its own span, so those two paths died
+   on it with no way through. A held window is exactly the span the guard is
+   specified to WARN about: 注意して配置 (⚖ 50(d), and §7's dial (a) is the
+   shipped default) is reachable at every other refusal on this board and was
+   unreachable here, which turns the override dial off for the one case it was
+   written for. So while a placement is armed, or while a gesture is in flight,
+   the chip stands aside like every other layer; at rest it is pressable exactly
+   as ruled. The two classes are the ones the screen already sets. */
+.biz .timeline.placing .cell-held,
+.biz .timeline.dragging-live .cell-held { pointer-events: none; }
 
 /* ── スキマガード 60分配置ガイド (canon :626–686) ──────────────────────────
    An 18px status rail follows each staff lane: every exact 30-minute start,

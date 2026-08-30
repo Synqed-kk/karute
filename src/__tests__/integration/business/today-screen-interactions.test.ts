@@ -3446,7 +3446,15 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // avoid-rect. The two unmount gates this test exists for are still both here.
     // RENEGOTIATED (batch-10b): `holdPopMounted` leads. Both gates still here.
     expect(SRC).toContain('}, [holdPopMounted, holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])')
-    expect(SRC).toContain('if (collapsed.includes(lane.group)) return null')
+    // ⚖ PIN MIGRATED at the FIX ROUND, WITH the decision (F9, blind-final
+    // L2#10): `renderLane`'s two early gates are ONE named predicate now, because
+    // the 確保 chip's tour registration has to ask the same question the renderer
+    // does — picked out of the mask, it could name a lane `view` or `collapsed`
+    // had filtered out, and the 8/23 law's entry then existed on no DOM node.
+    // Both gates are still exactly here, still greppable, still enumerable for
+    // the dep array above.
+    expect(SRC).toContain("(view === 'both' || view === lane.group) && !collapsed.includes(lane.group)")
+    expect(SRC).toContain('if (!laneRendered(lane)) return null')
     // The rule is about the NODE, not about any one reason it went away.
     expect(SRC).toContain('const card = anchorId ? cardNodes(boardRef.current, anchorId)[0] : null')
     expect(SRC).toContain('      if (!at) {\n        setHoldPinned(true)')
@@ -4085,7 +4093,13 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     expect(SRC).toContain('function show(message: string, ms = TOAST_MS, action: { label: string; run: () => void } | null = null) {')
     // The label travels WITH the action, so the button cannot say 元に戻す over
     // a release — the one thing a shared slot could get wrong.
-    expect(SRC).toContain('<button className="toast-undo" type="button" onClick={toast.action.run}>{toast.action.label}</button>')
+    // ⚖ PIN MIGRATED at the FIX ROUND, WITH the decision (F9, blind-final L2#9):
+    // the action carries `aria-live="off"`. The toast is a live region, which is
+    // right for the sentence and wrong for a control — a button announced as
+    // part of a status update is one a screen-reader user hears about rather
+    // than reaches, and since E5 this slot can carry a COMMIT. The label still
+    // travels with the action; nothing else about the slot moved.
+    expect(SRC).toContain('<button className="toast-undo" type="button" aria-live="off" onClick={toast.action.run}>{toast.action.label}</button>')
     // ONE door for refusals — every one of them, greppable by name. If a future
     // round adds a refusal through `show(` it will not carry the dwell, so the
     // known refusal sentences are pinned to the door here.

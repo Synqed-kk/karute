@@ -832,8 +832,12 @@ describe('6 — the pass has exactly one consumer, and it is gated', () => {
     // ⇒ this memo returns null ⇒ `fallbackCellsFor` is never called at all.
     const screen = readFileSync(importers[0], 'utf8')
     expect(screen).toContain('if (!heldCommitted) return null')
-    expect(screen).toContain('fallback: fallbackCellsFor({')
-    expect(screen.indexOf('if (!heldCommitted) return null')).toBeLessThan(screen.indexOf('fallback: fallbackCellsFor({'))
+    // ⚖ PIN MIGRATED at the FIX ROUND, WITH the decision (F4): `salesDoor` used
+    // to be a two-field object whose second field (`reserved`) had no reader at
+    // all, so the memo IS the fallback now and the call lost its property name.
+    // Same one consumer, same gate, same order — only the wrapper went.
+    expect(screen).toContain('return fallbackCellsFor({')
+    expect(screen.indexOf('if (!heldCommitted) return null')).toBeLessThan(screen.indexOf('return fallbackCellsFor({'))
   })
 })
 

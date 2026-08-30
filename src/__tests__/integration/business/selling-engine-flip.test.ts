@@ -56,13 +56,16 @@ import {
   gapLayerFor,
   gapPackingDials,
   guardRailsFor,
+  heldDrawnFor,
   isHeldBound,
   onlineOffers,
+  onShownBoard,
   reservedClause,
   reservedSentence,
   restCueStarts,
   sellDrawnFor,
   sellLayerFor,
+  sellStaffLanes,
   type GuardRail,
   type RoomPolicy,
   type SellDrop,
@@ -416,8 +419,17 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]) {
     ? { packed: [...gap.packed, ...fallback.packed], scraps: [...gap.scraps, ...fallback.scraps] }
     : gap
   const sellDrawn = held ? sellDrawnFor(sell, true) : sell
+  // ⚖ FIX ROUND F3 + F4 — the screen's own two lines, in the screen's own order:
+  // the mask the SALES door may publish (`heldDrawnFor`, one spelling with the
+  // sell door's lanes), and §4.5's named adapter over it. ONE emission home —
+  // the object below hands the SAME array to the counter that (iv) is asserted
+  // against, so the invariant is now a statement about the rows the operator
+  // reads rather than about a field with no consumer.
+  const heldDrawn = heldDrawnFor(held, w.lanes, [])
+  const reserved = reservedOffersFor(heldDrawn)
   return {
     held,
+    heldDrawn,
     gap,
     claims,
     sell,
@@ -426,12 +438,12 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]) {
     fallback,
     gapDrawn,
     drawnClaims: fallback ? [...claims, ...fallback.claims] : claims,
-    reserved: held ? reservedOffersFor(held) : reservedOffersFor([]),
+    reserved,
     online: onlineOffers({
       sell: sellDrawn.staffBands,
       packed: held ? gapDrawn.packed : [],
       scraps: held ? gapDrawn.scraps : [],
-      held: held ?? [],
+      reserved,
       lanes: w.lanes,
       showPrice: true,
     }),
@@ -627,11 +639,27 @@ describe('1 — the HELD-SWEEP, all six invariants', () => {
     }
 
     // (iv) RESERVED OFFERS ≡ HELD WINDOWS, one per window, naming it.
-    const windows = windowsIn(held)
+    //
+    // ⚖ FIX ROUND F4 — RE-POINTED AT THE PATH THE SCREEN READS. It used to be
+    // asserted over `reservedOffersFor(held)` while the board emitted its
+    // reserved rows from a second, inline builder fed the PUBLISHED mask — so
+    // the invariant was true of a field nothing consumed and said nothing about
+    // the number the operator sees. There is one emission now, and the windows
+    // it is compared against are the PUBLISHED ones (§9's own reasoning: a
+    // window on a row nobody can buy from is not an offer). The rows the
+    // counter shows are asserted to BE that emission, so the chain runs
+    // mask → publication → emission → counter with nothing forked off it.
+    const windows = windowsIn(on.heldDrawn)
     if (on.reserved.length !== windows.length) broken.push(`(iv) reserved ${on.reserved.length} ≠ windows ${windows.length}`)
     for (const [i, o] of on.reserved.entries()) {
       const win = windows[i]
       if (o.laneKey !== win.laneKey || o.start !== win.start || o.end !== win.end) broken.push(`(iv) reserved ${i} does not name its window`)
+    }
+    const counterRows = on.online.groups.find((g) => g.kind === 'reserved')!.rows
+    if (counterRows.length !== on.reserved.length) broken.push(`(iv) counter rows ${counterRows.length} ≠ emitted ${on.reserved.length}`)
+    for (const [i, r] of counterRows.entries()) {
+      const o = on.reserved[i]
+      if (!o || r.laneKey !== o.laneKey || r.start !== o.start || r.end !== o.end) broken.push(`(iv) counter row ${i} is not the emitted offer`)
     }
 
     // (v) NO RECONCILE CLAIM OVERLAPS A WITHHELD CRUMB'S EVIDENCE — the shared
@@ -826,6 +854,31 @@ describe('3 — the counter tells the truth by kind', () => {
     }
   })
 
+  it('⚖ FIX ROUND F10 — the four-kind definition applies with the guard OFF too, ASSERTED', () => {
+    // ⚖ Q3's ruling is a TRUTH-FIX about what 「online sale」 means, and it is
+    // unconditional: 詰め込み and スキマ枠 boxes were always purchasable and were
+    // never counted. A guard-OFF store has no held windows and no withholding,
+    // and its counter still moves — which the blind round found stated NOWHERE
+    // (L1#6's counter half: the sweep records 11 vs 12 across the dial, never
+    // against the pre-round board). Implied by the rows in COUNTER-TRUTH; said
+    // out loud here, so a future round cannot quietly make it guard-conditional.
+    const w = fixtureWorld()
+    const c: Combo = { ...shipped(), mode: 'off' }
+    const on = door(w, c, maskOf(w, c))
+    const by = groupsOf(on)
+    // Nothing is held and nothing is withheld…
+    expect(by.reserved).toBe(0)
+    expect(on.reserved).toHaveLength(0)
+    expect(on.sell.cells.some(isHeldBound)).toBe(false)
+    // …the other three kinds are all still counted…
+    expect(by.packed + by.gap).toBeGreaterThan(0)
+    expect(on.online.total).toBe(by.sell + by.packed + by.gap)
+    // …and the number is therefore NOT canon's sell-only one, which is the
+    // ruling arriving at a store that never turned the guard on.
+    expect(on.online.total).toBeGreaterThan(on.sellDrawn.staffBands.length)
+    expect(on.sellDrawn.chipLabel.startsWith(`オンライン販売中 ${on.sellDrawn.staffBands.length}窓`)).toBe(true)
+  })
+
   it('the old counter counted the sell layer alone — the ruling is what moved the number', () => {
     const w = fixtureWorld()
     const c = shipped()
@@ -876,11 +929,21 @@ describe('4 — what paints, and what stops', () => {
 
   it('the chip set IS the held set, minus the lanes nobody can buy from', () => {
     const screen = SRC('TodayScreen.tsx')
-    expect(screen).toContain('(heldCommitted ?? []).filter((m) => !locked.includes(m.laneKey))')
+    // ⚖ PIN MIGRATED at the FIX ROUND, WITH the decision (F3, blind-final L1#2):
+    // the filter was half of its own rule. A locked lane was dropped; a lane
+    // with no LIST PRICE was not, and `sellStaffLanes` refuses that lane just as
+    // flatly — so the board drew a 確保 chip, and counted a window, on a row
+    // whose sub-line said 「オンラインで新規のお客様に販売中」 about nothing that
+    // was for sale. `heldDrawnFor` is the one spelling: it asks the sell door
+    // which lanes it would sell from at all.
+    expect(screen).toContain('heldDrawnFor(heldCommitted, committedLanes, locked)')
     expect(screen).toContain('new Map(heldDrawn.map((m) => [m.laneKey, m.spans]))')
     // …and the counter counts that same set, so the chips and the number can
     // never disagree about how many windows the store is holding.
-    expect(screen).toContain('held: heldDrawn,')
+    // ⚖ PIN MIGRATED at the FIX ROUND, WITH the decision (F4, L1#4 ≡ L2#8): the
+    // counter takes §4.5's EMISSION over that set rather than the set itself —
+    // one home for the reserved kind, and it is the home the screen reads.
+    expect(screen).toContain('reserved: reservedOffersFor(heldDrawn),')
   })
 
   it('空き枠表示「非表示」 takes the chips with the rest of the layer', () => {
@@ -1044,7 +1107,17 @@ describe('5 — a 確保 window answers with the law', () => {
     expect(screen).toContain('新規のお客様のために空けている時間です。押すと、確保している理由と販売に戻る条件が表示されます。')
     // One entry for a section that repeats down the board — the placement
     // strip's own rule, so the walk does not gain a step per staff member.
-    expect(screen).toContain("const firstHeldLane = heldDrawn.find((m) => m.spans.length > 0 && !locked.includes(m.laneKey))?.laneKey")
+    // ⚖ PIN MIGRATED at the FIX ROUND, WITH the decision (F9, blind-final
+    // L2#10): the lane is chosen out of the lanes the board is WALKING, in the
+    // board's own order, rather than out of the mask — a mask-order pick can
+    // name a lane `view`/`collapsed` filtered out, and then the 8/23 law's entry
+    // exists on no DOM node while other chips are on screen. Same rule, same one
+    // entry; the `locked` half is gone because `heldDrawn` has already dropped
+    // those lanes (`heldDrawnFor`, one spelling).
+    expect(screen).toContain("const firstHeldLane = drawnLanes.find(")
+    expect(screen).toContain("(l) => l.group === 'staff' && laneRendered(l) && (heldDrawnByLane.get(l.key)?.length ?? 0) > 0,")
+    // …and the renderer asks the very same question, once, by name.
+    expect(screen).toContain('if (!laneRendered(lane)) return null')
     // …and the counter's own entry moved with ⚖ Q3's definition.
     expect(screen).toContain('data-guide="いまReserveで販売中の枠数。販売可能枠・詰め込み・スキマ枠・新規用に確保をまとめた数です。')
   })
@@ -1065,7 +1138,10 @@ describe('6 — a manager releases ごろう’s held window, and the board re-d
     const book = bookOf(w)
     const before = maskOf(w, c, book)
     const window = before.find((m) => m.laneKey === GORO)!.spans[0]
-    const released: ReleasedWindow[] = [{ laneKey: GORO, windowStart: window.windowStart }]
+    // ⚖ FIX ROUND F2 — a release names the BOARD it was pressed on as well as
+    // the window; this scene is one board, so the stamp is a constant here and
+    // the day/store scoping is proven on its own in §7.
+    const released: ReleasedWindow[] = [{ laneKey: GORO, windowStart: window.windowStart, dayOffset: 0, store: STORE_A }]
     return { w, c, book, before, window, released, after: maskOf(w, c, book, released) }
   }
 
@@ -1212,7 +1288,365 @@ describe('6 — a manager releases ごろう’s held window, and the board re-d
     // ⚖ THE LOG, priced honestly — §7(a)'s own wording, at the write site.
     expect(screen).toContain('⚠ RECONNECT')
     // ONE FACT, TWO SNAPSHOTS: both world instances take the same list.
-    expect(screen.match(/^ {12}released,$/gm)).toHaveLength(2)
+    // ⚖ PIN MIGRATED at the FIX ROUND, WITH the decision (F2, L1#3 ≡ L2#2): the
+    // list both doors receive is the BOARD-SCOPED one. Still one fact and two
+    // snapshots — what changed is that the fact now names the board it is true
+    // of, so a release cannot travel to tomorrow or to the other store.
+    expect(screen.match(/^ {12}released: releasedHere,$/gm)).toHaveLength(2)
+    expect(screen).toContain('const releasedHere = useMemo(\n    () => released.filter((r) => onShownBoard(r, board)),')
+  })
+})
+
+// ── 7 · THE FIX ROUND (F1–F11, blind-final ADJUDICATION 2026-08-31) ─────────
+
+/** The final blind round read this branch with five lenses and found the law
+ *  sound and its PUBLICATION BOUNDARY leaky: one surface still reading the
+ *  pre-withholding layer, the mask published on lanes that can never sell, a
+ *  manager's release escaping its own board, two emission homes for one kind,
+ *  two worlds mixed inside one call, and the override door shut over exactly the
+ *  spans the dial exists for. Every fix below carries the lens's own repro as
+ *  its red case — asserted BOTH ways where the old wiring can still be spelled,
+ *  so nothing here is a test that would have passed before. */
+describe('7 — the fix round: the publication boundary', () => {
+  const PROTECTED = 90
+  const LANE = 'p-01'
+  const BED = 'bed-01'
+
+  /** ⚖ F1's SCENE, the blind round's own: a 150-minute pocket at 10:00 on a
+   *  60-minute grid, holding ONE 90-minute 新規 window at its head.
+   *
+   *  The arithmetic is the whole finding. The window is 10:00–11:30. The sale
+   *  withheld is every 60-minute SLOT that OVERLAPS it — 10:00 AND 11:00 — so
+   *  the board stops drawing 10:00–12:00 while the chip covers 10:00–11:30. The
+   *  hour from 11:30 is blank track: no box, no chip, no name tag. The rail chip
+   *  over it said ✓ and nothing else, because the invisible 11:00 cell still
+   *  satisfied `advertised`. Flag 44's own defect, re-created by the fix for its
+   *  sibling.
+   *
+   *  WHY THE STORE'S 最小販売枠 FLOOR IS 90 HERE, and it is not a thumb on the
+   *  scale: at the fixture's own 30-minute floor the gap layer fills the
+   *  remainder with a スキマ枠 and the stretch is not blank at all — which is the
+   *  board working, and it is why this defect is invisible on the fixture. The
+   *  floor is a per-store dial; a store whose floor is longer than the remainder
+   *  gets no box, and then the only thing that can explain the emptiness is the
+   *  law. Measured, not assumed: the assertions below read the layers.
+   *
+   *  Not on the fixture at all: its six lanes make no pocket of this shape,
+   *  which is exactly why the lens had to build one. */
+  const boundaryWorld = (): World => ({
+    name: 'F1 boundary pocket',
+    lanes: [
+      lane({
+        key: LANE,
+        group: 'staff',
+        label: '見本 01',
+        items: [
+          item({ key: 'a', kind: 'booking', startMin: 540, endMin: 600 }),
+          item({ key: 'b', kind: 'booking', startMin: 750, endMin: 1080 }),
+        ],
+      }),
+      lane({ key: BED, group: 'beds', label: 'ベッド1', roomClass: 'standard', items: [] }),
+    ],
+    hours: SYNTH_HOURS,
+    now: null,
+    rooms: REAL.rooms,
+    cleanup: { [BED]: 0 },
+    minSellableMin: 90,
+  })
+
+  const lawCombo = (): Combo => ({
+    gridMin: 60,
+    sessionMin: REAL.guard.standardSessionMin,
+    gapFillMin: REAL.guard.gapFillMinMin,
+    protectedMin: PROTECTED,
+    mode: 'standard',
+    axis: 'law',
+  })
+
+  it('F1 — the boundary stub: the law explains exactly what it took, and the ✓ over nothing is gone', () => {
+    const w = boundaryWorld()
+    const c = lawCombo()
+    const book = bookOf(w)
+    const held = maskOf(w, c, book)
+    const on = door(w, c, held)
+
+    // The scene is the one the finding describes, measured rather than assumed:
+    // ONE held window at 10:00–11:30…
+    const spans = held.find((m) => m.laneKey === LANE)!.spans
+    expect(spans.map((s) => span(s.start, s.end))).toEqual(['10:00-11:30'])
+    // …and TWO withheld hours, 10:00 and 11:00: 120 minutes of sale taken for a
+    // 90-minute hold. That difference is the gap the chip cannot cover.
+    const withheld = on.sell.cells.filter(isHeldBound)
+    expect(withheld.filter((s) => s.group === 'staff').map((s) => hhmm(s.h))).toEqual(['10:00', '11:00'])
+    // …and the board really does draw NOTHING there: no published sell hour and
+    // no gap box either, so 11:30–12:30 is empty track under a ✓.
+    expect(on.sellDrawn.cells.filter((s) => s.laneKey === LANE && s.group === 'staff')).toEqual([])
+    expect(on.drawnClaims.filter((g) => g.laneKey === LANE)).toEqual([])
+
+    const rs = railsOf(w, c, book)
+    // The 11:30 chip is CLEAN — this is a ✓ over nothing, not a refusal that was
+    // going to say something anyway.
+    expect(rs.find((r) => r.laneKey === LANE)!.cells.find((cell) => cell.start === 690)!.state).toBe('safe')
+    const sentenceAt = (sellCells: typeof on.sell.cells, withheldCells?: typeof withheld) =>
+      explainRails(rs, w.lanes, {
+        dur: REAL.guard.standardSessionMin,
+        handId: null,
+        rooms: w.rooms,
+        stagedId: null,
+        sellCells,
+        claims: on.drawnClaims,
+        drops: on.drops,
+        inHand: false,
+        sellDisplayed: true,
+        held,
+        withheld: withheldCells,
+      })
+        .get(LANE)!
+        .get(690)!.sentence
+
+    // RED — the wiring the blind round found. 11:30 is blank track under a ✓
+    // that explains nothing: no 確保 clause (the SPAN ended at 11:30) and no
+    // 「販売可能枠が出ていません」 either, because the withheld 11:00 cell is in
+    // the derivation this call was handed and made the start 「advertised」.
+    const before = sentenceAt(on.sell.cells, undefined)
+    expect(before).not.toContain('確保しています')
+    expect(before).not.toContain('販売可能枠が出ていません')
+
+    // HALF A alone — reading the PUBLISHED layer makes the emptiness sayable,
+    // and 75(i) says it. True, and the wrong cause: the store's own rule emptied
+    // this stretch, not an absent derivation. This is why F1 has two halves.
+    expect(sentenceAt(on.sellDrawn.cells, undefined)).toContain('この開始には販売可能枠が出ていません')
+
+    // GREEN — both halves. The clause covers the extent the predicate took, and
+    // it still quotes the SPAN's own duration, because the dial is the span's.
+    const after = sentenceAt(on.sellDrawn.cells, withheld)
+    expect(after).toContain(reservedClause(PROTECTED))
+    expect(after).not.toContain('販売可能枠が出ていません')
+
+    // …and the widening is BOUNDED by the withholding: a start whose window
+    // clears the last withheld slot hears nothing about the law.
+    const whole = explainRails(rs, w.lanes, {
+      dur: REAL.guard.standardSessionMin,
+      handId: null,
+      rooms: w.rooms,
+      stagedId: null,
+      sellCells: on.sellDrawn.cells,
+      claims: on.drawnClaims,
+      drops: on.drops,
+      inHand: false,
+      sellDisplayed: true,
+      held,
+      withheld,
+    }).get(LANE)!
+    for (const [start, e] of whole) {
+      if (start >= 720 || start + REAL.guard.standardSessionMin <= 600) {
+        expect({ at: hhmm(start), law: e.sentence.includes('確保しています') }).toEqual({ at: hhmm(start), law: false })
+      }
+    }
+  })
+
+  it('F1 — and the screen is wired that way: the published layer, and what it withheld', () => {
+    const screen = SRC('TodayScreen.tsx')
+    expect(screen).toContain('sellCells: sellDrawn.cells,')
+    expect(screen).toContain('withheld: sell.cells.filter(isHeldBound),')
+    // The DERIVATION still exists and is still what the fallback's survivor set
+    // reads — the two inputs above are two halves of one fact, not two worlds.
+    expect(screen).toContain('survivors: sell.cells,')
+  })
+
+  /** ⚖ F2 — the release that escaped its own board. */
+  it('F2 — a release names the board it was pressed on, and reaches no other', () => {
+    const w = fixtureWorld()
+    const c = shipped()
+    const book = bookOf(w)
+    const before = maskOf(w, c, book)
+    const pick = before.find((m) => m.spans.length > 0)!
+    const today = { dayOffset: 0, store: STORE_A }
+    const release: ReleasedWindow = { laneKey: pick.laneKey, windowStart: pick.spans[0].windowStart, ...today }
+
+    // The stamp is the ⚖ 22 / ⚖ 46 pair, compared by the board's own predicate.
+    expect(onShownBoard(release, today)).toBe(true)
+    expect(onShownBoard(release, { dayOffset: 1, store: STORE_A })).toBe(false)
+    expect(onShownBoard(release, { dayOffset: 0, store: 'store-b' })).toBe(false)
+
+    // A staff lane's key is the staff member's id and `windowStart` a minute of
+    // the day, so the UNSCOPED list — the one that shipped — releases this
+    // window on every board the person appears on. That is the finding.
+    const startsOn = (masks: readonly ReservedLaneMask[]) =>
+      masks.find((m) => m.laneKey === pick.laneKey)!.spans.map((s) => s.windowStart)
+    expect(startsOn(maskOf(w, c, book, [release]))).not.toContain(release.windowStart)
+
+    // SCOPED — the screen's own filter, applied to the same fact. On the board
+    // it was pressed on the window is released; on tomorrow's, and on the other
+    // store's, the mask is byte-identical to the untouched one.
+    const scoped = (shown: { dayOffset: number; store: string | null }) =>
+      maskOf(w, c, book, [release].filter((r) => onShownBoard(r, shown)))
+    expect(startsOn(scoped(today))).not.toContain(release.windowStart)
+    for (const elsewhere of [{ dayOffset: 1, store: STORE_A }, { dayOffset: 0, store: 'store-b' }]) {
+      expect(JSON.stringify(scoped(elsewhere))).toBe(JSON.stringify(before))
+    }
+  })
+
+  /** ⚖ F3 — a lane that sells nothing online, wearing a 確保 chip. */
+  const pricelessWorld = (): World => {
+    const w = boundaryWorld()
+    return { ...w, name: 'F3 price-less lane', lanes: [lane({ ...w.lanes[0], listPrice: 0 }), w.lanes[1]] }
+  }
+
+  it('F3 — the mask is published only on lanes the SELL door would sell from', () => {
+    const w = pricelessWorld()
+    const c = lawCombo()
+    const held = maskOf(w, c)
+
+    // `listPrice` is `staffListPrice[member.id] ?? 0` on the real board, so this
+    // is a member a manager added without setting a price — not an exotic case.
+    expect(w.lanes[0].listPrice).toBe(0)
+    // The MASK is unchanged: the guard protects placements whatever a lane
+    // charges, and the staff door reads this set whole (that asymmetry is the
+    // law — `heldBoard` is deliberately not filtered).
+    expect(held.find((m) => m.laneKey === LANE)!.spans.length).toBeGreaterThan(0)
+    // …and the SELL door refuses the lane outright, so it has no sell layer and
+    // no gap layer at all.
+    expect(sellStaffLanes(w.lanes, []).map((l) => l.key)).not.toContain(LANE)
+    expect(door(w, c, held).sellDrawn.cells).toEqual([])
+
+    // RED — the filter that shipped tested only `locked`, so the chip stood, and
+    // the counter counted, on a row that is not for sale to anybody.
+    expect(held.filter((m) => !([] as string[]).includes(m.laneKey)).map((m) => m.laneKey)).toContain(LANE)
+    // GREEN — one spelling, asked of the sell door itself.
+    expect(heldDrawnFor(held, w.lanes, []).map((m) => m.laneKey)).not.toContain(LANE)
+    // …and the locked half is the same answer through the same door.
+    expect(heldDrawnFor(maskOf(boundaryWorld(), c), boundaryWorld().lanes, [LANE]).map((m) => m.laneKey)).not.toContain(LANE)
+    expect(heldDrawnFor(maskOf(boundaryWorld(), c), boundaryWorld().lanes, []).map((m) => m.laneKey)).toContain(LANE)
+  })
+
+  it('F4 — ONE emission home for the reserved kind, and it is the one the counter reads', () => {
+    const w = pricelessWorld()
+    const c = lawCombo()
+    const held = maskOf(w, c)
+    const on = door(w, c, held)
+
+    // The two homes disagreed by exactly this set: the dead `salesDoor.reserved`
+    // was built from the mask BEFORE publication, the counter's own rows from
+    // after it. On this board that is one window against none.
+    expect(reservedOffersFor(held)).toHaveLength(1)
+    expect(on.reserved).toHaveLength(0)
+    // The counter's rows ARE the emission, object for object — no second builder.
+    const rows = on.online.groups.find((g) => g.kind === 'reserved')!.rows
+    expect(rows.map((r) => `${r.laneKey}@${r.start}`)).toEqual(on.reserved.map((o) => `${o.laneKey}@${o.start}`))
+    // …and on a board where the lane CAN sell, the same chain carries the window
+    // all the way to the row (so the assertion above is not vacuously empty).
+    const sellable = door(boundaryWorld(), c, maskOf(boundaryWorld(), c))
+    expect(sellable.reserved).toHaveLength(1)
+    expect(sellable.online.groups.find((g) => g.kind === 'reserved')!.rows).toHaveLength(1)
+
+    // …and the dead field is gone from the screen rather than left computing:
+    // exactly one CALL, and it is the counter's.
+    const screen = SRC('TodayScreen.tsx')
+    expect(screen).not.toContain('reserved: reservedOffersFor(heldCommitted),')
+    expect(screen.match(/^ +reserved: reservedOffersFor\(heldDrawn\),$/gm)).toHaveLength(1)
+    expect(screen.match(/^ +[a-zA-Z]*:? ?reservedOffersFor\(/gm)).toHaveLength(1)
+  })
+
+  it('F5 — the rest cue is told the world the chip is drawn from', () => {
+    // The exact artifact, at the helper: a start whose chip wears a word, no box
+    // over it, and a 確保 chip covering it in the COMMITTED world. Fed the
+    // committed spans the cue stands down; fed the BOARD world's — which
+    // diverges mid-gesture whenever a drag writes `live` with nothing in hand —
+    // it paints a quarter-strength 清掃 hatch under the chip, which is flag 88's
+    // artifact one layer along.
+    const worded = new Map([[600, { word: '新規用' }]])
+    const committed = [{ start: 600, end: 690, windowStart: 600 }]
+    expect(restCueStarts(worded, [], [], committed)).toEqual([])
+    expect(restCueStarts(worded, [], [], [])).toEqual([600])
+    // The screen hands it `heldHere`, which is the committed list the chip on
+    // the line above is drawn from…
+    const screen = SRC('TodayScreen.tsx')
+    expect(screen).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere)')
+    // …and the board world's per-lane index is GONE, not merely unused: a second
+    // held index on this screen is how the two worlds get mixed again.
+    expect(screen).not.toContain('heldByLane')
+  })
+
+  it('F6 — 配置モード reaches through the chip, and the chip keeps its press at rest', () => {
+    const css = readFileSync(join(process.cwd(), HERE, 'today.css'), 'utf8')
+    const screen = SRC('TodayScreen.tsx')
+    // The refusal the dial exists for is REACHABLE over a held span now. Every
+    // other layer on this track is `pointer-events: none`, so 配置モード's
+    // landing and 新規予約を作成 both run on the TRACK's own click — and the
+    // click returns unless the track is the target.
+    expect(screen).toContain('if (e.target !== e.currentTarget || dragRef.current || blockDragRef.current) return')
+    expect(css).toContain('.biz .timeline.placing .cell-held,\n.biz .timeline.dragging-live .cell-held { pointer-events: none; }')
+    // Both classes are ones the screen already sets — no new switch.
+    expect(screen).toContain("placing ? 'placing' : ''")
+    expect(screen).toContain("dragLen != null || live || blockLive ? 'dragging-live' : ''")
+    // AT REST the press is untouched: §9's ruled behaviour, and the only thing
+    // that says the law out loud on this row.
+    const rule = css.slice(css.indexOf('.biz .cell-held {'), css.indexOf('.biz .cell-held .held-title'))
+    expect(rule).not.toContain('pointer-events')
+    expect(screen).toContain('onClick={() => releaseAsk(lane.key, h)}')
+  })
+
+  it('F7 — the header chip names its kind, so the board carries ONE total', () => {
+    const screen = SRC('TodayScreen.tsx')
+    // ⚖ Q3's one number is the board head's. This chip counts one of its four
+    // kinds and now says which, in the board's own 案C word — the same word its
+    // group wears in the press-open breakdown.
+    expect(screen).toContain('公開中の販売可能枠 {sellDrawn.staffBands.length}枠')
+    expect(screen).not.toContain('>公開中 {')
+    const w = fixtureWorld()
+    const on = door(w, shipped(), maskOf(w, shipped()))
+    expect(on.online.groups.find((g) => g.kind === 'sell')!.label).toBe('販売可能枠')
+    // The number and its layer are untouched — this fix is the WORD.
+    expect(on.online.groups.find((g) => g.kind === 'sell')!.rows).toHaveLength(on.sellDrawn.staffBands.length)
+  })
+
+  it('F8 — a 新規用に確保 row says why it has no price', () => {
+    const w = fixtureWorld()
+    const on = door(w, shipped(), maskOf(w, shipped()))
+    const rows = on.online.groups.find((g) => g.kind === 'reserved')!.rows
+    expect(rows.length).toBeGreaterThan(0)
+    // Priced at take, out of the store's own session price — `ReservedOffer`
+    // carries no price on purpose, so the ROW has to say so rather than end bare
+    // in a list where every other row ends in a price or in 価格未設定.
+    for (const r of rows) expect({ lo: r.lo, hi: r.hi }).toEqual({ lo: null, hi: null })
+    expect(SRC('TodayScreen.tsx')).toContain("g.kind === 'reserved' ? ' · 価格は予約時に決定' : ' · 価格未設定'")
+  })
+
+  it('F9 — the tour step registers on a lane that is on screen, and the action is reachable', () => {
+    const screen = SRC('TodayScreen.tsx')
+    // The registration and the renderer ask ONE question about whether a lane is
+    // on the board, so a ベッド view or a collapsed スタッフ group can no longer
+    // leave the 8/23 entry on no DOM node at all.
+    expect(screen).toContain("(view === 'both' || view === lane.group) && !collapsed.includes(lane.group)")
+    expect(screen).toContain('if (!laneRendered(lane)) return null')
+    expect(screen).toContain('laneRendered(l) && (heldDrawnByLane.get(l.key)?.length ?? 0) > 0')
+    // …and the toast's one action slot is navigated rather than announced: since
+    // E5 it can carry a COMMIT, and a button inside a live region is one a
+    // screen-reader user hears about rather than reaches.
+    expect(screen).toContain('<button className="toast-undo" type="button" aria-live="off"')
+    // The dwell is the standing one for both callers — ⚖ 47, unchanged.
+    expect(screen.match(/show\([^)]*REFUSAL_MS, \{/g)).toHaveLength(2)
+  })
+
+  it('F11 — §7(a)’s override log hook exists at the verdict site, beside the release’s', () => {
+    const screen = SRC('TodayScreen.tsx')
+    // §7(a): 「The build ships the log hook at the verdict site; the REAL audit
+    // write lands with the board's real-data reconnection and is named on the
+    // RECONNECT registry now.」 E5 built it for ⚖ Q5's release and nobody built
+    // it for the ordinary staff placement override — level (a), the default
+    // every store ships with — and no step audit caught the miss.
+    expect(screen.match(/⚠ RECONNECT/g)).toHaveLength(2)
+    // It sits on the CHOKEPOINT: all four override paths (the drop's `land`, the
+    // nudge's `land`, 配置モード and the shelf chip through `askGuard`) hand
+    // their commit in as `run.override`, and this is where the press reaches it.
+    const hook = screen.indexOf('§7(a)')
+    expect(hook).toBeGreaterThan(-1)
+    expect(screen.indexOf("override: props.canOverride && escalate && v.floor === 'policy'")).toBeGreaterThan(hook)
+    expect(screen.slice(hook, hook + 1400)).toContain('⚠ RECONNECT')
+    // …and it is representational, exactly as the release's is: no audit write
+    // is reachable from this fixture-sealed board, and nothing pretends one is.
+    expect(screen).not.toMatch(/\baudit(Write|Log)\(|\btrack\(|\btelemetry\b/)
   })
 })
 
@@ -1271,7 +1705,15 @@ describe('the artifacts', () => {
       '#        it does not have today (GORO-TWO-ENDINGS pins the receipt). That is',
       '#        Liam’s call at the preview and one `&&` either way; the sweep',
       '#        asserts the addition rather than assuming it away.',
-      '#  (iv)  reserved offers ≡ held windows, one per window, naming it.',
+      '#  (iv)  reserved offers ≡ held windows, one per window, naming it — and',
+      '#        ⚖ FIX ROUND F4: the windows are the PUBLISHED ones and the offers',
+      '#        are the ones the COUNTER shows. It used to be asserted over a',
+      '#        `salesDoor.reserved` field with no reader on the screen at all,',
+      '#        while the counter built reserved rows from a second inline builder',
+      '#        fed the published mask — so the invariant was true of a dead path',
+      '#        and silent about the number the operator reads. One emission home',
+      '#        now: mask → publication → `reservedOffersFor` → counter, asserted',
+      '#        end to end on every row.',
       '#  (v)   no reconcile claim covers held space, and the claims book reports no',
       '#        room double-claim over everything the board now DRAWS (the shared-',
       '#        context proof, fallback additions included).',
@@ -1376,6 +1818,25 @@ describe('the artifacts', () => {
       '# The guard=off rows are the honest before/after for the ruling on its own:',
       '# no reserved windows, no withholding, and the number still moves — because',
       '# 詰め込み and スキマ枠 were always on sale and were never counted.',
+      '#',
+      '# ⚖ FIX ROUND F10 — AND THAT LAST SENTENCE IS NOW AN ASSERTION, not a note.',
+      '# The blind round (L1#6, counter half) found the guard-OFF consequence of ⚖',
+      '# Q3 stated nowhere: the rows above record 11 against 12 across the dial and',
+      '# never against the PRE-ROUND board, so a reader could take the four-kind',
+      '# definition for something the guard switches on. It is not. Q3 is a',
+      '# truth-fix about what 「on sale online」 MEANS, and it is unconditional — a',
+      '# store that never turned the guard on has no held windows, no withholding,',
+      '# and a counter that still counts 詰め込み and スキマ枠 because a customer',
+      '# can buy them. Asserted in §3 (「the four-kind definition applies with the',
+      '# guard OFF too」): reserved = 0, withheld = none, total = sell + packed +',
+      '# gap, and total > canon\u2019s own sell-only chipLabel. A future round cannot',
+      '# make the definition guard-conditional without turning that test red.',
+      '#',
+      '# ⚠ NOT THE SAME QUESTION AS dev-4, which stays OPEN for Liam: dev-4 is',
+      '# whether the §5 FALLBACK should fire on a guard-off store (¥9,020 of',
+      '# fragments it does not have today). This is about the COUNTER\u2019S',
+      '# DEFINITION, which ⚖ Q3 already ruled. Two dials, two questions; the',
+      '# artifact says both so neither rides under the other.',
     ])
   })
 })

@@ -456,8 +456,12 @@ describe('§2 — reconciled before the layer is built, never in the renderer', 
     // heading is now the sell GROUP of the ruled by-kind breakdown (⚖ 8/30 Q3),
     // and its rows are fed from this same `sellDrawn.staffBands` — the counter's
     // own memo is the fourth line below, which is where that surface now lives.
+    // ⚖ PIN MIGRATED at the FIX ROUND, WITH the decision (F7, blind-final L2#4):
+    // the header chip NAMES ITS KIND. It reads the same layer it always did and
+    // counts the same bands; ⚖ Q3 made the board head a total over four kinds,
+    // and an unqualified 公開中 beside it read as a second, disagreeing total.
     for (const surface of [
-      '公開中 {sellDrawn.staffBands.length}枠',
+      '公開中の販売可能枠 {sellDrawn.staffBands.length}枠',
       '<b>{sellDrawn.staffBands.length}枠</b>',
       'priceButtonCaption(sellDrawn.staffBands.length',
       'sell: sellDrawn.staffBands,',
