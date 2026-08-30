@@ -87,6 +87,7 @@ jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, get
 import { POST as jobPOST } from '@/app/api/app/v1/recordings/job/route'
 import { GET as jobGET } from '@/app/api/app/v1/recordings/job/[sessionId]/route'
 import { REVOCATION_SENSITIVE_ENDPOINTS } from '@/lib/auth/revocation'
+import { conformingKey, refusedKeys } from './helpers/recording-key-fixtures'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -106,9 +107,10 @@ const sessionRoute = (sessionId = 'sess-1') => ({ params: Promise.resolve({ sess
 const jreq = (method: string, headers: Record<string, string>, body?: unknown) =>
   new Request('https://s/x', { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
 
-// audioPath MUST carry this caller's tenant prefix — the upload-url facade only
-// ever mints `app_${businessId}_*` (businessId here = 'business-1').
-const validBody = { recordingSessionId: 'sess-1', customerId: 'cust-1', audioPath: 'app_business-1_take-1.webm' }
+// audioPath MUST be EXACTLY a key minted for this caller — the upload-url facade
+// only ever mints `app_${businessId}_<uuid>.webm` (businessId here = 'business-1').
+const OWN_KEY = conformingKey('business-1')
+const validBody = { recordingSessionId: 'sess-1', customerId: 'cust-1', audioPath: OWN_KEY }
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -142,28 +144,36 @@ describe('POST recordings/job (enqueue)', () => {
     expect(call.recording_session_id).toBe('sess-1')
     expect(call.payload).toMatchObject({
       customer_id: 'cust-1',
-      audio_path: 'app_business-1_take-1.webm',
+      audio_path: OWN_KEY,
       staff_id: 'synqed-auth-user-1',
     })
   })
 
-  it('cross-tenant audioPath → 404, no enqueue (the service-role read/delete gate)', async () => {
-    // A path carrying ANOTHER business's prefix must never reach the worker's
-    // service-role signed-URL mint. Mirrors the transcribe twin's guard.
-    const res = await jobPOST(
-      jreq('POST', { ...auth, ...idem }, { ...validBody, audioPath: 'app_business-2_stolen.webm' }),
-      noRoute,
-    )
-    expect(res.status).toBe(404)
-    expect(jobsEnqueue).not.toHaveBeenCalled()
-  })
+  // One row per grammar class (helpers/recording-key-fixtures). Half carry this
+  // caller's OWN prefix — the bare `startsWith` this gate used to be took every
+  // one of those straight to the worker's service-role mint and delete.
+  it.each(refusedKeys('business-1'))(
+    'refuses %s → 404, no enqueue (the service-role read/delete gate)',
+    async (_label, audioPath) => {
+      const res = await jobPOST(
+        jreq('POST', { ...auth, ...idem }, { ...validBody, audioPath }),
+        noRoute,
+      )
+      expect(res.status).toBe(404)
+      expect(jobsEnqueue).not.toHaveBeenCalled()
+    },
+  )
 
-  it('untenanted (web rec_*) audioPath → 404, no enqueue (facade is the app arm)', async () => {
+  it('a non-string audioPath is refused by the schema, before the fence → 400', async () => {
+    // The grammar's typeof guard is proved on the server-action arm
+    // (recording-jobs-tenant-key.test.ts), where the argument is raw JSON. Here
+    // zod's `z.string()` meets a non-string first — what matters is it never
+    // becomes an enqueue either way.
     const res = await jobPOST(
-      jreq('POST', { ...auth, ...idem }, { ...validBody, audioPath: 'rec_1.webm' }),
+      jreq('POST', { ...auth, ...idem }, { ...validBody, audioPath: 12345 }),
       noRoute,
     )
-    expect(res.status).toBe(404)
+    expect(res.status).toBe(400)
     expect(jobsEnqueue).not.toHaveBeenCalled()
   })
 
