@@ -205,9 +205,7 @@ export async function discardRecordingWithClient(
   )
   if (prior.found) return { ok: true, receiptId: prior.receiptId, duplicate: true }
 
-  await stampRecordingDuration(synqed, data)
-
-  return writeDiscardReceipt(actor, data, targetId)
+  return writeDiscardReceipt(synqed, actor, data, targetId)
 }
 
 /** The STAFF door (P5-A): the written reason lands in core FIRST, then the
@@ -259,10 +257,22 @@ export async function discardRecordingWithReasonRow(
  *  10-second floor and was therefore NEVER transcribed. Two different facts,
  *  one sentence. The panel already branches on the duration; this fills it in.
  *
- *  Here because this is the ONE point both doors pass with `data` in hand —
+ *  On this path because it is the ONE both doors pass with `data` in hand —
  *  the web action and the facade route each reach it, the reason door through
- *  discardRecordingWithReasonRow. Placed after the idempotency probe so a
- *  retried discard does not re-stamp a value it already wrote.
+ *  discardRecordingWithReasonRow. Past the idempotency probe, so a retried
+ *  discard does not re-stamp a value it already wrote.
+ *
+ *  AFTER THE RECEIPT, NEVER BEFORE (fix round 1, FIX-3). Called from
+ *  writeDiscardReceipt PAST its failure guard, so it runs only once the awaited
+ *  durable recording.discard row has actually landed in core. Stamping first
+ *  left a receipt-failed discard as a session carrying a fresh duration with no
+ *  audit row for the request that wrote it — the manager panel would then
+ *  narrate a discard the ledger never recorded. A receipt-failed discard now
+ *  stamps nothing and retries whole. The cost is honest and ACCEPTED: one
+ *  serialized best-effort round-trip on a path that already awaits core four
+ *  times, so it changes nothing in class — and it still can never FAIL the
+ *  discard, because every failure here is one warn line and the caller's result
+ *  is returned unchanged.
  *
  *  `Math.floor`, never `Math.round`: `duration_seconds` is an Int column and
  *  the panel's predicate is `< BELOW_FLOOR_SEC`, so flooring preserves it
@@ -385,8 +395,13 @@ async function findPriorReceipt(
 
 /** The ONE write. Kept its own function so every success return is lexically
  *  dominated by the emit (the emitSave idiom, src/actions/karute.ts) — the
- *  proof suite's emission walker reads this shape directly. */
+ *  proof suite's emission walker reads this shape directly.
+ *
+ *  It also owns the below-floor stamp (fix round 1), because THIS is where
+ *  "the receipt landed" is a fact rather than a hope — see
+ *  stampRecordingDuration. */
 async function writeDiscardReceipt(
+  synqed: ReturnType<typeof newSynqedClient>,
   actor: DiscardRecordingActor,
   data: z.infer<typeof DiscardRecordingSchema>,
   targetId: string,
@@ -458,6 +473,10 @@ async function writeDiscardReceipt(
   // never a success with a missing row. (The client half — keep the take
   // until the receipt is confirmed — is A3.)
   if (!receipt.ok) return { ok: false, error: 'receipt_write_failed' }
+
+  // ONLY NOW. The receipt has landed, so the stamp can no longer outlive the
+  // audit row that explains it (fix round 1, FIX-3).
+  await stampRecordingDuration(synqed, data)
 
   // Core's row id when it hands one back, else the boundary-minted request id
   // that rode into detail.request_id — either way the row is findable.

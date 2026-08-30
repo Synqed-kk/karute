@@ -22,10 +22,7 @@
 import { newSynqedClient } from '@/lib/synqed/client'
 import { getMyCapabilities, ensureCapability } from '@/lib/auth/require-permission'
 import { getBusinessId, getCurrentUserStaffId, staffListByBusinessOrThrow } from '@/lib/staff'
-import {
-  lookupSynqedStaffIdForBusiness,
-  synqedStaffCardsForBusiness,
-} from '@/lib/synqed/staff-map'
+import { synqedStaffCardsForBusiness } from '@/lib/synqed/staff-map'
 
 /** One row of the 破棄の記録 list. Ids resolved to names server-side, because
  *  these rows are business-wide while a clamped caller's own roster is not. */
@@ -130,7 +127,15 @@ export async function listDiscardReasons(): Promise<ListDiscardReasonsResult> {
       // Already graceful by contract — [] on any failure, never a throw.
       synqedStaffCardsForBusiness(businessId),
     ])
-    const profileNames = new Map(roster.map((s) => [s.id, s.full_name]))
+    // A BLANK profile name is not a name. `'' ?? card.name` is `''`, so a
+    // linked card whose profile carries an empty (or whitespace-only)
+    // full_name lost the card's own name too and read 担当者不明 on a row we
+    // could have named honestly. Normalised here, at the one place the profile
+    // side is built, so both the card fallback below and the profile-keyed
+    // rows get the same answer.
+    const profileNames = new Map<string, string | null>(
+      roster.map((s) => [s.id, s.full_name?.trim() ? s.full_name : null]),
+    )
     const nameById = new Map(profileNames)
     for (const card of cards) {
       // The profile's own full_name when the card is linked — that is the name
@@ -279,17 +284,23 @@ export async function myDiscardCountThisMonth(): Promise<number | null> {
     if (!businessId || !staffId) return null
     const synqed = newSynqedClient(businessId)
 
-    // The viewer's OTHER id. `staffId` is the login uuid, but core stamps the
-    // staff CARD id onto every ledger row — matching on the uuid alone counted
-    // zero of the viewer's own discards. NO-CREATE lookup on purpose (the
-    // resolve* twins mint a staff record on a miss, which a read must never
-    // do); null is tolerated and simply leaves today's uuid-only behaviour.
-    const cardId = await lookupSynqedStaffIdForBusiness(staffId, businessId).catch(
-      (err: unknown) => {
-        console.warn('[discard-reasons] own card-id lookup degraded:', err)
-        return null
-      },
-    )
+    // EVERY id this viewer is known by. `staffId` is the login uuid, but core
+    // stamps the staff CARD id onto every ledger row — matching on the uuid
+    // alone counted zero of the viewer's own discards.
+    //
+    // Resolved by FILTERING the cached card roster, never by a resolver, for
+    // two reasons. (1) This read carries NO capability gate at all — it is
+    // self-knowledge by ⚖ ruling — so nothing reachable from it may write.
+    // `lookupSynqedStaffIdForBusiness` looks read-only and is not: on an
+    // email-only match it fires a core `staff.update` self-heal, which put a
+    // core WRITE behind a gate-free read. (2) It answers with the FIRST
+    // matching card and stops, so a viewer linked from TWO cards (a re-invite,
+    // a store move, an import) had half their own month missing. Both cured by
+    // taking all of them. `synqedStaffCardsForBusiness` is [] on any failure by
+    // contract, which simply leaves today's uuid-only count — never a null.
+    const cards = await synqedStaffCardsForBusiness(businessId)
+    const myIds = new Set<string>([staffId])
+    for (const card of cards) if (card.user_id === staffId) myIds.add(card.id)
 
     const monthFloor = startOfThisMonth(new Date())
     let mine = 0
@@ -301,7 +312,7 @@ export async function myDiscardCountThisMonth(): Promise<number | null> {
       })
       const batch = res?.events ?? []
       for (const e of batch) {
-        const isMine = e?.discarded_by === staffId || (!!cardId && e?.discarded_by === cardId)
+        const isMine = !!e?.discarded_by && myIds.has(e.discarded_by)
         if (isMine && Date.parse(e.created_at) >= monthFloor) mine += 1
       }
       if (batch.length === 0 || page * PAGE_SIZE >= (res?.total ?? 0)) break

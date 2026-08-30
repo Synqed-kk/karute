@@ -123,11 +123,18 @@
   stamps ONE derived field, floored (Math.floor, so the panel's
   `< BELOW_FLOOR_SEC` predicate stays exact on an Int column), from the
   duration the receipt already reports: it adds no new fact and removes none.
-  Not silent in substance — the SAME call stack emits the recording.discard
-  receipt (writeDiscardReceipt, auditDurable, AWAITED) carrying duration_sec
-  and below_floor for this exact take, one step out; a second row would
-  double-count one act. The walker cannot see that emit for the same mechanical
-  reason as the sibling recordingDiscards.create entry: discard.ts's emitter is
-  auditDurable, not the audit()/auditWeb() pair AUDITED_CORES is seeded from ·
-  Liam (⚖ 2026-08-20 kept-discards doctrine, packet
-  PACKET-2026-08-31-NAMES-FIX.md, karute-field-issues lane)
+  Not silent in substance, and (fix round 1, ADJUDICATION-NAMES-FIX-ROUND1.md
+  ruling FIX-3) not merely in the same call stack but strictly AFTER the emit:
+  writeDiscardReceipt calls the stamp PAST its own failure guard, so it fires
+  only once the awaited durable recording.discard row carrying duration_sec and
+  below_floor for this exact take has actually landed. There is therefore no state
+  in which a stamped duration exists without the audit row for the request that
+  wrote it; a receipt-failed discard stamps nothing and retries whole. A second
+  row here would double-count one act. The walker cannot see that emit for the
+  same mechanical reason as the sibling recordingDiscards.create entry:
+  discard.ts's emitter is auditDurable, not the audit()/auditWeb() pair
+  AUDITED_CORES is seeded from. The ordering costs one serialized best-effort
+  round-trip on a path that already awaits core four times — accepted — and the
+  stamp still can never fail the discard: every failure is one warn line and the
+  result is returned unchanged · Liam (⚖ 2026-08-20 kept-discards doctrine,
+  packet PACKET-2026-08-31-NAMES-FIX.md, karute-field-issues lane)

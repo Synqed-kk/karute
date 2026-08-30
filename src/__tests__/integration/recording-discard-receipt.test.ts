@@ -196,6 +196,7 @@ import { discardRecordingReceipt, discardRecordingWithReason } from '@/actions/r
 import { discardRecordingWithClient, discardRecordingWithReasonRow } from '@/lib/recording/discard'
 import { POST as discardPOST } from '@/app/api/app/v1/recordings/discard/route'
 import { FACADE_AUDIT_MAP } from '@/lib/audit'
+import { BELOW_FLOOR_SEC } from '@/lib/recording/discard-floor'
 
 // ── Bearer plumbing (same shape as app-api-recording-consent.test.ts) ───────
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
@@ -740,6 +741,10 @@ describe('the take’s duration is stamped on the recording', () => {
   it.each([
     [9.7, 9],
     [9.99, 9],
+    // The floor ITSELF (fix round 1, FIX-6). Exactly 10.0 is the one value the
+    // whole distinction turns on: it must stamp 10 and therefore read as a
+    // NORMAL absence, not the below-floor sentence.
+    [10, 10],
     [0.4, 0],
     [12.4, 12],
     [600, 600],
@@ -791,6 +796,33 @@ describe('the take’s duration is stamped on the recording', () => {
     await staffReceipt()
 
     expect(recordingUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it('a FAILED receipt stamps nothing — no row is left claiming a duration no audit line backs', async () => {
+    // Fix round 1, FIX-3. The stamp used to run BEFORE the receipt attempt, so
+    // a dropped durable write left a session carrying a freshly written
+    // duration with no recording.discard row for that request — the panel
+    // would then narrate a discard the ledger never recorded. The stamp now
+    // fires only after the awaited receipt has actually landed.
+    logFails.next = true
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const res = await staffReceipt()
+    warn.mockRestore()
+
+    expect(res).toEqual({ ok: false, error: 'receipt_write_failed' })
+    expect(recordingUpdate).not.toHaveBeenCalled()
+  })
+
+  // The floor is an INTEGER, and the equivalence the whole below-floor half
+  // rests on holds only because it is: `Math.floor(x) < N` ⟺ `x < N` for
+  // integer N. The stamp writes `Math.floor(duration)` into an Int column and
+  // the panel asks `duration_seconds < BELOW_FLOOR_SEC` — a fractional floor
+  // (7.5) would silently split the two apart, calling a 7.8s take below-floor
+  // at the panel while the stamped 7 says the same thing for a different
+  // reason, and a 7.2s take the other way round. Pinned so the constant cannot
+  // move to a fraction without this failing first.
+  it('BELOW_FLOOR_SEC is an integer — the stamp’s floor and the panel’s predicate agree', () => {
+    expect(Number.isInteger(BELOW_FLOOR_SEC)).toBe(true)
   })
 })
 

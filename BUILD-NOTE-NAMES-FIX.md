@@ -358,3 +358,58 @@ against main and reads the ledger line:
 
 One weakening (the `recordings.update` allowlist entry), matched 1:1 by the
 appended ledger line. The owner-approval half only fires in CI, on the PR.
+
+---
+
+## Correction — 2026-08-31, fix round 1
+
+Written after the blind round on `4b2bd125`
+(`ADJUDICATION-NAMES-FIX-ROUND1.md`). Everything above stands as the record of
+what `4b2bd125` did; these two lines correct it.
+
+**D-2's point 2 was FALSE as written (L4-G5).** It claimed "several existing
+fakes hand this module a client with **no** `recordings` property at all (the
+thin-port and receipt tests), so the synchronous throw is a real shape". Neither
+citation supports it: `thin-recording-discard-port.test.ts` never constructs a
+synqed client at all, and `recording-discard-receipt.test.ts`'s `fakeClient` was
+**given** `recordings: { update: recordingUpdate }` by that same commit. So no
+test in this repo hands `discard.ts` a `recordings`-less client, and the claim
+should not have been made.
+
+The CODE claim it was defending is nonetheless true by construction — the
+`synqed.recordings.update` property access sits inside `stampRecordingDuration`'s
+`try`, so a client without the resource throws synchronously into that catch and
+the discard continues. The blind round verified that property directly.
+
+**The `await`-over-`after()` decision stands**, on D-2's point 1 (the
+serverless-freeze / unhandled-rejection rationale: `void`-ing a rejectable
+promise needs a `.catch` *plus* an outer `try`, to save one round-trip on a
+screen nobody is watching) and point 3 (deterministic tests). Only the false
+citation is withdrawn.
+
+**FIX-3 reordered the stamp.** As of the fix-round commit,
+`stampRecordingDuration` runs only once the awaited durable receipt has actually
+landed — so the stamp is now the *fifth* awaited core round-trip on the path
+rather than the fourth, and a receipt-failed discard stamps nothing at all. The
+function comment, the `SDK_WRITE_ALLOWLIST` justification and the ledger entry
+were amended to that exact guarantee. Latency cost accepted per the
+adjudication; no timeout machinery.
+
+Its HOME moved one frame in, and the proof suite is why. The obvious caller-side
+shape —
+
+```ts
+const result = await writeDiscardReceipt(actor, data, targetId)
+if (result.ok) await stampRecordingDuration(synqed, data)
+return result
+```
+
+— fails `audit-coveredby.test.ts`: `return result` is a bare identifier, so the
+emission walker can no longer see `discardRecordingWithClient`'s success return
+as lexically dominated by the emit (it had been reading the
+`return writeDiscardReceipt(...)` call-through). That invariant is not
+negotiable, so the stamp lives **inside** `writeDiscardReceipt`, immediately
+past its `if (!receipt.ok)` guard, and `discardRecordingWithClient` keeps its
+call-through return unchanged (`writeDiscardReceipt` gained a `synqed`
+parameter). Same guarantee, stated where "the receipt landed" is a fact instead
+of a hope — and the walker's own header comment on that function now says so.
