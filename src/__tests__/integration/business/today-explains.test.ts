@@ -908,7 +908,7 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
     // And no guard wording reaches a guard-off store's tour entry: the clause is
     // the WHOLE sentence there, so it had to be true standing alone.
     expect(SRC).toContain('const LAYER_LEGEND_GUIDE =')
-    expect(SRC).toContain('スタッフの行に並ぶ価格箱には種類の名前が付いていて、その言葉の意味はこの帯に書いてあります。')
+    expect(SRC).toContain('スタッフの行に並ぶ価格箱には種類ごとの名前が付いていて、それぞれの意味はこの帯で確認できます。')
     expect(SRC).toContain('各スタッフの下に細い帯が出ているときは、その帯の説明をご覧ください。${LAYER_LEGEND_GUIDE}`')
     expect(SRC).toContain('                : LAYER_LEGEND_GUIDE')
   })

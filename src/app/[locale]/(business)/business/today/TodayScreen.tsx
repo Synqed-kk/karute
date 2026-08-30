@@ -429,15 +429,14 @@ const WD = ['日', '月', '火', '水', '木', '金', '土']
 const LABEL_DEFAULT = 112
 
 /** ⚖ LABELS RULING (Liam 8/30, 案C) — the tour's clause for the layer legend.
- *  ⚠ JP-DRAFT: the only NEW sentence this round wrote. The three words and their
- *  three meanings in the band below are carried verbatim from the mock, which
- *  passed a native read on 2026-08-26; this one sentence did not exist there and
- *  has not been through that pass. Its vocabulary (価格箱 / 並ぶ) is the mock's
- *  own, so the reading is the only thing outstanding.
+ *  ⚖ NATIVE PASS (2026-08-30): the appended home repeated 「〜の意味は…この帯に
+ *  書いてあります」 two sentences apart, so this pass changes the verb and
+ *  pattern — …確認できます — to kill the echo; 種類ごとの／それぞれの tighten
+ *  the referents. The guard-off title 価格箱 was confirmed to read natural.
  *  ONE string, TWO homes: it is appended to the guard band's sentence at a
  *  guarded store and stands alone at a guard-off one, which is why it says
  *  「意味は」 rather than 「意味も」 — it has to be true with nothing before it. */
-const LAYER_LEGEND_GUIDE = 'スタッフの行に並ぶ価格箱には種類の名前が付いていて、その言葉の意味はこの帯に書いてあります。'
+const LAYER_LEGEND_GUIDE = 'スタッフの行に並ぶ価格箱には種類ごとの名前が付いていて、それぞれの意味はこの帯で確認できます。'
 
 const boxOf = (r: { left: number; top: number; width: number; height: number }): SpotRect =>
   ({ left: r.left, top: r.top, width: r.width, height: r.height })
