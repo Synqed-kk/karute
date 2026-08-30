@@ -25,6 +25,8 @@
 //      is exactly when a board that cannot explain itself does the most damage.
 //   §6 the rest cues are ONE decision: the dot and the hatch appear exactly
 //      where the word does, because all three are read off the same value.
+//   §9 ⚖ flag 87: a staged change re-solves its room from the room the booking
+//      OWNS, so a round trip puts the board back byte for byte.
 //
 // THE BOARD UNDER TEST IS THE REAL ONE for §5: `TodayPage` is executed and the
 // props it hands `TodayScreen` are read, so the lanes, rooms, hours and dials
@@ -46,23 +48,29 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import { STORE_A } from '@/business/lib/fixtures'
 import { bedTruthViews } from '@/app/[locale]/(business)/business/today/capacity-ledger'
-import { clampPriceInputs } from '@/business/lib/canon-logic/pricing'
+import { clampPriceInputs, money } from '@/business/lib/canon-logic/pricing'
 import type { GapCell, SellCell } from '@/business/lib/canon-logic/availability'
 import {
   allocateBed,
+  applyMoves,
   explainRails,
   gapLayerFor,
   guardRailsFor,
+  pairLanesOf,
   railExplain,
+  seedBed,
   sellLayerFor,
+  sidesAt,
   type GuardRail,
+  type Move,
+  type Moves,
   type RailCell,
   type RoomPolicy,
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
-import { place, type BoardItem, type BoardLane } from '@/business/lib/today-board'
+import { minuteOf, place, type BoardItem, type BoardLane } from '@/business/lib/today-board'
 
 const service = createServiceClient as jest.Mock
 const supabase = createClient as jest.Mock
@@ -964,5 +972,228 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
     expect(CSS).toContain('background: rgba(130, 151, 233, calc(.04 + var(--tier) * .03));')
     expect(CSS).toContain('.biz .cell-packed { position: absolute; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); border-radius: 4px; pointer-events: none; display: flex; align-items: flex-end; padding: 3px 5px; background: rgba(130, 151, 233, .18);')
     expect(CSS).toContain('background: rgba(232, 130, 60, .09); z-index: 0; }')
+  })
+})
+
+// ── §9 ─────────────────────────────────────────────────────────────────────
+// ⚖ LIAM flag 87 (2026-08-30) — THE ROOM NEVER CAME HOME.
+//
+// WHAT WENT WRONG (pre-existing, and root-caused rather than patched). ⚖ 51
+// re-solves the bed at EVERY landing and `allocateBed` keeps the carried room
+// when it is free — but the room it was handed came from `sidesAt`, which reads
+// the board AS IT STANDS. Once something is staged, that board is the staged
+// one, so a second gesture on the same booking carried the OUTBOUND leg's
+// borrowed room instead of the booking's own. Drag a card off its room and back
+// again and the borrowed room was kept for good; `bedMoves` claimed it, and
+// every box that depended on the room the booking actually vacated died —
+// honestly, about a move the operator had already undone.
+//
+// Neither `reconcileSellCells` nor keep-if-free was wrong: the SEED was. The
+// origin is already snapped at the first gesture's pointerdown, both sides
+// (`PendingChange.bedOrigin`), so `seedBed` prefers it and nothing else moves.
+//
+// HOW THIS IS PROVED WITHOUT A RENDERER. The four lines of `land()` that decide
+// a room are `pairLanesOf` → `sidesAt` → `seedBed` → `allocateBed`, every one of
+// them exported and pure, and `stage()`'s writes are two `Moves` entries. So the
+// gesture is replayed here on the REAL fixture board and the whole advertised
+// face of the day is read back through the same two layer builders the screen
+// uses. The keyboard nudge is the SAME four lines (pinned below, byte for byte),
+// which is what makes one replay stand for both landings.
+describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS', () => {
+  const SRC = readFileSync(
+    join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
+    'utf8',
+  )
+
+  /** What `stage()` writes, and the one field of `pending` a room solve reads. */
+  interface Staged {
+    moves: Moves
+    bedMoves: Moves
+    pending: { id: string; bedOrigin?: Move } | null
+  }
+  const REST: Staged = { moves: {}, bedMoves: {}, pending: null }
+
+  /** The screen's `boardLanes` at rest: `placedLanes` is `props.lanes` while no
+   *  block has been dragged, and nothing is parked, added or in flight. */
+  const boardOf = (s: Staged) => applyMoves(REAL.lanes, s.moves, [], [], REAL.hours, s.bedMoves)
+
+  const span = (start: number, end: number) => place(start, end, REAL.hours)
+
+  /** ONE STAFF-ROW LANDING — `land()` (TodayScreen :2657-2691) and the keyboard
+   *  nudge's `land()` (:3423-3435), which are one spelling. `seeded: false` is
+   *  the pre-flag-87 line, which is how the counterfactual's red half is taken. */
+  function landOn(s: Staged, id: string, targetLane: string, at: { x: number; w: number }, seeded = true): Staged {
+    const board = boardOf(s)
+    const item = board.flatMap((l) => l.items).find((i) => i.caseId === id)!
+    const home = pairLanesOf(board, id, { x: item.x, w: item.w })
+    const sides = sidesAt(home, 'staff', targetLane)
+    const carried = seeded ? seedBed(s.pending, id, sides.bedLane) : sides.bedLane
+    const solved = allocateBed(board, {
+      id,
+      currentBed: carried,
+      stores: board.find((l) => l.key === sides.staffLane)?.stores ?? null,
+      vip: item.category === 'vip',
+      start: minuteOf(at.x, REAL.hours),
+      end: minuteOf(at.x + at.w, REAL.hours),
+      policy: REAL.rooms,
+      stagedId: s.pending?.id ?? null,
+    })
+    // ⚖ 47 — a refusal changes nothing, so a scene that produces one is a scene
+    // that proves nothing about the seed. None of these do.
+    expect(solved.refusal).toBeNull()
+    return {
+      moves: { ...s.moves, [id]: { laneKey: sides.staffLane!, ...at } },
+      bedMoves: { ...s.bedMoves, [id]: { laneKey: solved.laneKey!, ...at } },
+      // ⚖ 50(d) — a second gesture on the same staged change KEEPS the first
+      // gesture's origin, which is the record this whole fix rests on.
+      pending: s.pending?.id === id ? s.pending : { id, bedOrigin: home.bed ?? undefined },
+    }
+  }
+
+  /** THE WHOLE ADVERTISED FACE OF THE DAY, both layers, every lane — with the
+   *  ROOM and the PRICE on every line, so a room that moved shows up as a
+   *  changed line rather than as a count that happens to still match. */
+  function inventory(lanes: BoardLane[]): string[] {
+    const price = clampPriceInputs(REAL.dialogs.pricing.hqMax, REAL.dialogs.pricing.base, REAL.dialogs.pricing)
+    const depth = Math.round((1 - price.lo / price.hi) * 100)
+    const gap = gapLayerFor(lanes, {
+      gridMin: REAL.sell.gridMin,
+      sessionMin: REAL.guard.standardSessionMin,
+      gapFillMin: REAL.guard.gapFillMinMin,
+      gapFillDiscountPct: REAL.guard.gapFillDiscountPct,
+      minSellableMin: REAL.guard.minSellableMin ?? 0,
+      nowMinute: REAL.sell.nowMinute,
+      locked: [],
+      frame: { hi: price.hi, lo: price.lo, hqMin: REAL.dialogs.pricing.hqMin, hqMax: REAL.dialogs.pricing.hqMax },
+      depth,
+      guard: REAL.guard.config,
+    })
+    const claims = [...gap.packed, ...gap.scraps]
+    const sell = sellLayerFor(lanes, REAL.hours, {
+      gridMin: REAL.sell.gridMin,
+      nowMinute: REAL.sell.nowMinute,
+      locked: [],
+      showPrice: true,
+      hi: price.hi,
+      hqMin: REAL.dialogs.pricing.hqMin,
+      depth,
+      reconcile: { claims, rooms: REAL.rooms, cleanupMinutesByBed: REAL.bedCleanupMinutes },
+    })
+    const yen = (p: number | null) => (p == null ? '—' : money(p))
+    return [
+      ...sell.cells.map((c) => `SELL ${c.laneKey} ${clock(c.h)} on ${c.resourceKey} ${yen(c.price)}`),
+      ...gap.packed.map((c) => `PACK ${c.laneKey} ${clock(c.s)}-${clock(c.e)} on ${c.resourceKey} ${yen(c.price)}`),
+      ...gap.scraps.map((c) => `SCRAP ${c.laneKey} ${clock(c.s)}-${clock(c.e)} on ${c.resourceKey} ${yen(c.price)}`),
+    ].sort()
+  }
+
+  /** Which room every booking is drawn in — the server's answer at rest. */
+  const occupancy = (lanes: BoardLane[]) =>
+    lanes
+      .filter((l) => l.group === 'beds')
+      .flatMap((l) => l.items.filter((i) => i.caseId != null).map((i) => `${i.caseId} ${l.key}`))
+      .sort()
+
+  // apt-28 is 見本 ゆうすけ's 16:00 half hour in ベッド3 (the 個室). ベッド3 is
+  // busy at 11:00 — apt-25 has it — so the outbound leg is FORCED off it, which
+  // is what makes the return leg a real question rather than a no-op.
+  // Lazily, both of them: `REAL` is assembled in `beforeAll` and a describe body
+  // runs before that.
+  const HOME = () => span(960, 990)
+  const OUT = () => span(660, 690)
+
+  it('THE COUNTERFACTUAL: a round trip puts the board back byte for byte', () => {
+    const base = inventory(REAL.lanes)
+    // The named casualty, alive at rest — the 16:00 hour 見本 しろう's row
+    // advertises ON ベッド3's neighbour, which only survives while apt-28 is in
+    // the room it belongs in.
+    expect(base).toContain('SELL p-04 16:00 on bed-01 ¥8,060')
+
+    // OUTBOUND, and honest: ベッド3 is taken at 11:00, so keep-if-free fails and
+    // the allocator hands out a free room. Nothing about this leg changes.
+    const out = landOn(REST, 'apt-28', 'c-03', OUT())
+    expect(out.bedMoves['apt-28'].laneKey).toBe('bed-01')
+    expect(out.pending).toEqual({ id: 'apt-28', bedOrigin: { laneKey: 'bed-03', x: HOME().x, w: HOME().w } })
+
+    // BACK. The seed is the change's own origin room, which is free at 16:00,
+    // so keep-if-free keeps it — and every layer is exactly where it started.
+    const back = landOn(out, 'apt-28', 'c-03', HOME())
+    // The INVENTORY first and the room second: the layers are the pin, the room
+    // is only the explanation for them (and an assertion that fires first hides
+    // the one that matters from every red run after it).
+    expect(JSON.stringify(inventory(boardOf(back)))).toBe(JSON.stringify(base))
+    expect(occupancy(boardOf(back))).toEqual(occupancy(REAL.lanes))
+    expect(back.bedMoves['apt-28'].laneKey).toBe('bed-03')
+  })
+
+  it('THE OTHER HALF OF IT: without the seed the borrowed room is kept for good', () => {
+    // The exact defect Liam saw, reproduced on the same board by changing the
+    // one line — which is what makes the pin above a counterfactual rather than
+    // a scene that was always going to pass.
+    const out = landOn(REST, 'apt-28', 'c-03', OUT(), false)
+    const back = landOn(out, 'apt-28', 'c-03', HOME(), false)
+    expect(back.bedMoves['apt-28'].laneKey).toBe('bed-01')
+    expect(inventory(boardOf(back))).not.toContain('SELL p-04 16:00 on bed-01 ¥8,060')
+    expect(occupancy(boardOf(back))).not.toEqual(occupancy(REAL.lanes))
+  })
+
+  it('a busy origin gets a FRESH SOLVE on return, never a blind restore', () => {
+    // 14:30, where ベッド3 is 見本 ゆうこ's (apt-29, 14:05–15:05): the outbound
+    // leg is re-bedded, and so is the leg back — the seed is a candidate the
+    // allocator judges, not an instruction it obeys.
+    const out = landOn(REST, 'apt-28', 'c-03', span(870, 900))
+    expect(out.bedMoves['apt-28'].laneKey).not.toBe('bed-03')
+    const back = landOn(out, 'apt-28', 'c-03', span(840, 870))
+    expect(back.bedMoves['apt-28'].laneKey).not.toBe('bed-03')
+  })
+
+  it('the keyboard leg brings the room home too — one spelling, two gestures', () => {
+    // Shift/Alt+Arrow moves ONE EDGE by 30 minutes and is otherwise the same
+    // landing, so a trip that leaves by pointer and comes back through a widened
+    // span still lands in the booking's own room. Without the seed it keeps the
+    // borrowed one: ベッド1 is free across 16:00–17:00 too.
+    const out = landOn(REST, 'apt-28', 'c-03', OUT())
+    const wider = landOn(out, 'apt-28', 'c-03', span(660, 720))
+    const back = landOn(wider, 'apt-28', 'c-03', span(960, 1020))
+    expect(back.bedMoves['apt-28'].laneKey).toBe('bed-03')
+    const red = landOn(landOn(landOn(REST, 'apt-28', 'c-03', OUT(), false), 'apt-28', 'c-03', span(660, 720), false), 'apt-28', 'c-03', span(960, 1020), false)
+    expect(red.bedMoves['apt-28'].laneKey).toBe('bed-01')
+  })
+
+  it('the seed changes NOTHING outside a staged change on this very booking', () => {
+    const origin: Move = { laneKey: 'bed-02', x: 0, w: 0 }
+    // Nothing staged: the carried room is the answer, exactly as before.
+    expect(seedBed(null, 'apt-28', 'bed-03')).toBe('bed-03')
+    // A staged change on ANOTHER booking is not this one's origin.
+    expect(seedBed({ id: 'apt-29', bedOrigin: origin }, 'apt-28', 'bed-03')).toBe('bed-03')
+    // Staged with no bed row at the origin (⚖ 45's own clause — a booking with
+    // no room, or a creation): the staged room is the only room there is.
+    expect(seedBed({ id: 'apt-28' }, 'apt-28', 'bed-01')).toBe('bed-01')
+    // …and a booking with no room on either side stays roomless, which is the
+    // null `currentBed` ⚖ 59 requires the allocator to be asked with.
+    expect(seedBed({ id: 'apt-28' }, 'apt-28', null)).toBeNull()
+    // Staged on this booking, with an origin: the origin wins.
+    expect(seedBed({ id: 'apt-28', bedOrigin: origin }, 'apt-28', 'bed-01')).toBe('bed-02')
+  })
+
+  it('BOTH landing sites carry the seed, and the two excluded solves are untouched', () => {
+    // The drop and the keyboard nudge, byte for byte — this is the parity claim
+    // the replay above stands on.
+    expect(SRC).toContain(
+      "const bed = solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.category === 'vip', at)",
+    )
+    expect(SRC).toContain(
+      "const bed = solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.category === 'vip', next)",
+    )
+    // ⛔ DELIBERATELY EXCLUDED. A 次回予約 placement and a shelf chip are FIRST
+    // landings: neither has a staged change of its own to have an origin from,
+    // and 配置モード's solve is asked with no room at all. Different semantics,
+    // and they stay byte-untouched.
+    expect(SRC).toContain('solveBed(lane.key, null, null, false, place(start, end, hours))')
+    expect(SRC).toContain(
+      "solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
+    )
+    expect(SRC.match(/seedBed\(/g) ?? []).toHaveLength(2)
+    expect(SRC.match(/solveBed\(/g) ?? []).toHaveLength(5)
   })
 })

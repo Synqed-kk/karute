@@ -4540,8 +4540,12 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
       // the room search to that person's own store.
       // RENEGOTIATED AGAIN (batch-9, ⚖ 50(d)): and whether this landing was
       // placed THROUGH a 置けない, because an override has to reach the room too.
-      "solveBed(on.staffLane, ctx.id, on.bedLane, item.category === 'vip', at)",
-      "solveBed(on.staffLane, id, on.bedLane, item.category === 'vip', next)",
+      // RENEGOTIATED ONCE MORE (⚖ flag 87, 2026-08-30): the two BOOKING landings
+      // seed the carried room through `seedBed`, because `sidesAt` reads the
+      // board as it stands and that board is the STAGED one once a change is
+      // open. The other two are first landings and are byte-untouched.
+      "solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.category === 'vip', at)",
+      "solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.category === 'vip', next)",
       'solveBed(lane.key, null, null, false, place(start, end, hours))',
       "solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
     ]) {
@@ -5140,8 +5144,11 @@ describe('BATCH-10 W1 — the trivial trio: bed solve, proxy paint, block step',
     // the same inverted guard: the pointer release and the keyboard nudge.
     const land = SRC.slice(SRC.indexOf('const land = (override: string | null, at:'), SRC.indexOf('const v = verdictAtLanding(ask)'))
     expect(land).toContain("if (ctx.group !== 'beds') {")
+    // The window is the nudge's `land` up to its `stage(` — a fixed character
+    // count went stale the moment ⚖ 87 added three comment lines above the
+    // guard, which is a pin measuring the wrong thing.
     const nudge = SRC.slice(SRC.indexOf('const land = (override: string | null) => {'))
-    expect(nudge.slice(0, 400)).toContain("if (lane.group !== 'beds') {")
+    expect(nudge.slice(0, nudge.indexOf('stage(id, on, next,'))).toContain("if (lane.group !== 'beds') {")
     // …and NEITHER landing still tests the carried room before solving.
     expect(SRC).not.toContain("!== 'beds' && on.bedLane")
   })

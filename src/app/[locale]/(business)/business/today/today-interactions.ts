@@ -107,6 +107,38 @@ export function sidesAt(
   }
 }
 
+/** ⚖ LIAM flag 87 (2026-08-30) — THE ROOM THE BOOKING OWNS, not the room a
+ *  half-finished change left it standing in.
+ *
+ *  ⚖ 51 re-solves the bed at EVERY landing, and `allocateBed`'s first rule is
+ *  keep-if-free: the booking's CURRENT room wins when it is free at the new
+ *  span. `sidesAt` above reads that room off the board as it STANDS — which,
+ *  once something is staged, is the outbound leg's room and not the booking's
+ *  own. So a card dragged off its room and back again kept the room the detour
+ *  had to borrow, `bedMoves` claimed it permanently, and every box that
+ *  depended on the room the booking actually vacated died honestly about a move
+ *  the operator had already undone.
+ *
+ *  Neither half of that was wrong on its own: keep-if-free is the right rule and
+ *  the reconciliation was answering the board it was given. The SEED was wrong.
+ *  The origin is already snapped, both sides, at the first gesture's pointerdown
+ *  (`PendingChange.bedOrigin` — canon's per-element snap, the same record 元に
+ *  戻す restores from), so the fix is to prefer it and change nothing else:
+ *
+ *    · nothing staged → no origin to prefer, and the landing solves exactly as
+ *      it always has;
+ *    · an OUTBOUND leg stays honest → the origin room is busy at the new span,
+ *      keep-if-free fails there, and the fresh solve fires as before;
+ *    · a booking that never had a bed row at all carries no `bedOrigin` (⚖ 45's
+ *      own clause), and then the staged room is the only room there is. */
+export function seedBed(
+  pending: { id: string; bedOrigin?: Move } | null,
+  id: string,
+  staged: string | null,
+): string | null {
+  return pending?.id === id ? (pending.bedOrigin?.laneKey ?? staged) : staged
+}
+
 // ── DOM readers ────────────────────────────────────────────────────────────
 
 /** canon `dragStart` (:4435) — which edge did the pointer grab? */

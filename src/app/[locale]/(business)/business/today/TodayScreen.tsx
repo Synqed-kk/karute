@@ -110,6 +110,7 @@ import {
   sharesStore,
   sellLayerFor,
   sidesAt,
+  seedBed,
   seedSpanIn,
   slotStartAt,
   unparkOutcome,
@@ -2677,8 +2678,12 @@ export function TodayScreen(props: TodayProps) {
       // nothing stages — the same answer `placeNextVisit` (:3210) and
       // `placeFromShelf` (:3311) have always given, so all four paths obey one
       // law rather than two. It used to keep the carried room and stage anyway.
+      // ⚖ LIAM flag 87 (2026-08-30) — and the room it CARRIES is its own, not
+      // the one an unconfirmed outbound leg parked it in. `sidesAt` reads the
+      // board as it stands, which while something is staged is the staged
+      // board; `seedBed` prefers the origin this very change snapped.
       if (ctx.group !== 'beds') {
-        const bed = solveBed(on.staffLane, ctx.id, on.bedLane, item.category === 'vip', at)
+        const bed = solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.category === 'vip', at)
         if (bed == null) return
         on.bedLane = bed
       }
@@ -3426,8 +3431,11 @@ export function TodayScreen(props: TodayProps) {
       // on a room-less booking reproduced the em-dash without a pointer.
       // ⚖ 73 — the same law as the drop's (`land`, :2222): a room that is gone
       // is a full house, and nothing stages into one.
+      // ⚖ flag 87 — the same seed as the drop's (`land`, :2681): a nudge on a
+      // staged card is a second landing of one change, so it re-solves from the
+      // change's own origin room rather than from the leg before it.
       if (lane.group !== 'beds') {
-        const bed = solveBed(on.staffLane, id, on.bedLane, item.category === 'vip', next)
+        const bed = solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.category === 'vip', next)
         if (bed == null) return
         on.bedLane = bed
       }
