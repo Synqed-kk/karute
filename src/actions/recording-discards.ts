@@ -149,6 +149,66 @@ export async function listDiscardReasons(): Promise<ListDiscardReasonsResult> {
   }
 }
 
+export type GetDiscardTranscriptResult =
+  | {
+      ok: true
+      /** Empty when the discard kept no words — see the three states A2-4
+       *  renders. `durationSeconds` is what separates "the recording was under
+       *  the floor" from "there is simply no transcript". */
+      segments: { text: string }[]
+      durationSeconds: number | null
+    }
+  | { ok: false; error: 'forbidden' | 'failed' }
+
+/**
+ * A2-4 — the words behind ONE discard row, read on open.
+ *
+ * ⚖ 8/25 ruling A: the written reason is the staffer's CLAIM, and this is what
+ * a manager checks it against. Same `staff.manage` gate as the list above,
+ * enforced server-side; the lazy per-row read is why it is a separate action
+ * (the list screen must not pay an N+1 for text nobody has opened).
+ *
+ * Missing pieces degrade to nulls rather than failing the read — a discard from
+ * before A2-2, a consent-refused take and a swept session row are all legitimate
+ * "no words" answers, and the section says so honestly instead of guessing.
+ */
+export async function getDiscardTranscript(
+  recordingSessionId: string,
+): Promise<GetDiscardTranscriptResult> {
+  try {
+    const caps = await getMyCapabilities()
+    ensureCapability(caps, 'staff.manage')
+  } catch {
+    return { ok: false, error: 'forbidden' }
+  }
+
+  try {
+    const businessId = await getBusinessId()
+    if (!businessId) return { ok: false, error: 'forbidden' }
+    const synqed = newSynqedClient(businessId)
+
+    const [segments, recording] = await Promise.all([
+      synqed.recordings
+        .listSegments(recordingSessionId)
+        .then((r) => r?.segments ?? [])
+        .catch(() => []),
+      synqed.recordings.get(recordingSessionId).catch(() => null),
+    ])
+
+    return {
+      ok: true,
+      segments: segments
+        .sort((a, b) => a.segment_index - b.segment_index)
+        .map((s) => ({ text: s.text }))
+        .filter((s) => !!s.text?.trim()),
+      durationSeconds: recording?.duration_seconds ?? null,
+    }
+  } catch (err) {
+    console.warn('[discard-reasons] transcript read failed:', err)
+    return { ok: false, error: 'failed' }
+  }
+}
+
 /**
  * The staffer's OWN discard count for the current month (⚖ 8/25 ruling B, the
  * staff half): everyone can see their own number, and only their own.

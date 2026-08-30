@@ -2304,7 +2304,14 @@
       "loading": "Loading…",
       "loadFailed": "Could not load the discard records.",
       "empty": "No discards have been recorded yet.",
-      "truncated": "Older records are not shown — there are too many to list."
+      "truncated": "Older records are not shown — there are too many to list.",
+      "transcriptShow": "Show what was recorded",
+      "transcriptHide": "Close",
+      "transcriptTitle": "Transcript (full)",
+      "transcriptLoading": "Loading the transcript…",
+      "transcriptFailed": "Could not load the transcript.",
+      "transcriptBelowFloor": "The recording was under {n} seconds, so there is no transcript.",
+      "transcriptNone": "No transcript was kept for this recording."
     },
     "auditLog": {
       "label": "Audit log",

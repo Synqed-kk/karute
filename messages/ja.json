@@ -2304,7 +2304,14 @@
       "loading": "読み込んでいます…",
       "loadFailed": "破棄の記録を読み込めませんでした。",
       "empty": "破棄の記録はまだありません。",
-      "truncated": "件数が多いため、古い記録は表示していません。"
+      "truncated": "件数が多いため、古い記録は表示していません。",
+      "transcriptShow": "録音の内容を見る",
+      "transcriptHide": "閉じる",
+      "transcriptTitle": "文字起こし（全文）",
+      "transcriptLoading": "文字起こしを読み込んでいます…",
+      "transcriptFailed": "文字起こしを読み込めませんでした。",
+      "transcriptBelowFloor": "{n}秒未満の録音のため、文字起こしはありません。",
+      "transcriptNone": "この録音の文字起こしは残っていません。"
     },
     "auditLog": {
       "label": "監査ログ",
