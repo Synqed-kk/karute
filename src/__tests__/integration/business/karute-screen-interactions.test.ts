@@ -174,7 +174,7 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
     // anybody wrote, and the browser probe measures it; here the SOURCE proves
     // the two sets are genuinely different sets.
     const listSide = ['担当でしぼる', 'カルテを探す', '状態でしぼる', 'カルテの一覧']
-    const recordSide = ['お客様とカルテ', 'セッションの結果', '本日のセッション', '詳細記録', '録音・文字起こし', '記録の履歴']
+    const recordSide = ['いまいる場所', 'お客様とカルテ', 'セッションの結果', 'この記録の中を移動', '本日のセッション', '詳細記録', '録音・文字起こし', '記録の履歴']
     const titles = DECLARATIONS.map((d) => d.title)
     for (const t of [...listSide, ...recordSide]) expect(titles).toContain(t)
     // …and the shared head belongs to neither side, which is why it is declared
@@ -186,6 +186,25 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
     for (const title of ['さらに表示', 'カルテのないお客様', '破棄されたカルテ', '写真記録', 'AI提案メッセージ', 'カルテがありません']) {
       expect(DECLARATIONS.map((d) => d.title)).toContain(title)
     }
+  })
+
+  it('⚖ THE DESIGN ROUND’s two new functions DECLARE THEMSELVES, on the day they land', () => {
+    // Liam's 8/23 rule in its own words: "when I add a function it should
+    // automatically pick it up". The breadcrumb and the sticky strip are the two
+    // things this round added that a reader can see and act on, so both are
+    // steps on the walk — and the breadcrumb declares on a <nav>, which the
+    // engine picks up exactly as it picks up a <section>.
+    const titles = DECLARATIONS.map((d) => d.title)
+    expect(titles).toContain('いまいる場所')
+    expect(titles).toContain('この記録の中を移動')
+    const nav = openingTags(SRC_CODE, 'nav')
+    expect(nav.length).toBe(1)
+    expect(nav[0].text).toContain('data-guide-title="いまいる場所"')
+    // …and the strip's own explanation says the thing a reader would otherwise
+    // have to discover: that the 目次 shrinks with the record.
+    const strip = DECLARATIONS.find((d) => d.title === 'この記録の中を移動')!
+    expect(strip.text).toContain('目次')
+    expect(strip.text).toContain('この記録にある項目だけ')
   })
 })
 
@@ -332,13 +351,21 @@ describe('the room’s own client rules', () => {
   })
 
   it('the screen writes NOTHING — every piece of client state is browsing', () => {
-    // ELEVEN, and every one of them is browsing: the three narrowing controls,
-    // the walk's depth, the open record, the disclosed warning, and the five the
-    // tour needs to draw itself. Nothing staged, nothing to survive a navigation.
+    // TWELVE, and every one of them is browsing: the three narrowing controls,
+    // the walk's depth, the open record, the disclosed warning, WHICH SECTION
+    // THE 目次 IS POINTING AT, and the five the tour needs to draw itself.
+    // Nothing staged, nothing to survive a navigation.
+    //
+    // ⚖ PIN MOVED IN THE DESIGN ROUND, 11 → 12, and it moved for `setHere`. The
+    // sticky strip's 目次 has to say which section the reader is on; that answer
+    // is READ FROM THE SCROLL POSITION and rendered as a highlight, so it is
+    // browsing in exactly the sense this pin means — it changes what is on
+    // screen and writes nothing. The list below is what keeps the count honest:
+    // a twelfth state that was NOT `setHere` would fail here even at 12.
     const states = [...SRC_CODE.matchAll(/useState[<(]/g)].length
-    expect(states).toBe(11)
+    expect(states).toBe(12)
     for (const s of [
-      'setScope', 'setFilter', 'setQuery', 'setSteps', 'setSelected', 'setReassignOpen',
+      'setScope', 'setFilter', 'setQuery', 'setSteps', 'setSelected', 'setReassignOpen', 'setHere',
       'setTourIdx', 'setTourTick', 'setTourStep', 'setTourPos', 'setTourHover',
     ]) {
       expect(SRC_CODE).toContain(s)
@@ -367,8 +394,12 @@ describe('the room’s own client rules', () => {
     expect(SRC_CODE).toContain('openedFrom.current = `krRow-${r.id}`')
   })
 
-  it('the reassign warning belongs to the record it was opened on', () => {
-    expect(SRC_CODE).toContain('useEffect(() => { setReassignOpen(false) }, [selected])')
+  it('the reassign warning belongs to the record it was opened on — and so does the 目次’s mark', () => {
+    // ⚖ PIN WIDENED IN THE DESIGN ROUND. The one-line effect became two lines
+    // because the 目次's own highlight is the same class of state: opening
+    // another record with either still set shows one record's state over another
+    // record's identity. Both are asserted, on the same `[selected]` dependency.
+    expect(SRC_CODE).toMatch(/useEffect\(\(\) => \{\s*\n\s*setReassignOpen\(false\)\s*\n\s*setHere\(null\)\s*\n\s*\}, \[selected\]\)/)
   })
 
   it('one screen at a time is STATE, and the sheet is what hides the other one', () => {

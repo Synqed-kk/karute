@@ -410,6 +410,24 @@ describe('⚖ STORE ISOLATION, both directions, and LEAVES NOTHING BEHIND', () =
     expect(b).not.toContain('肩から背中の張り')
     // …nor a customer only the other store ever served.
     expect(b).not.toContain('見本 そら')
+    // ⚖ THE DESIGN ROUND ADDED A CONTACT ROW, SO THE CLAMP HAS TO COVER IT.
+    // A phone number is the one field on the new person header that is not
+    // derivable from anything already in the payload, so the isolation proof is
+    // asked about it directly — and the customers to ask about are DERIVED from
+    // the two lenses rather than named, so a fixture change cannot quietly turn
+    // this into a pin about nobody.
+    const aRows = (await karuteProps({ locale: 'ja', store: STORE_A })).props.rows
+    // A contact belongs in this payload ONLY for a person this desk has a record
+    // of. Everybody else's — the other store's customers, and this store's own
+    // record-less ones, who appear in the reveal by NAME and must not appear by
+    // telephone — is a stranger, and a stranger's number must be nowhere in it.
+    const named = new Set(aRows.map((r) => r.customerId))
+    const strangers = customers.filter((c) => !named.has(c.id) && c.phone)
+    expect(strangers.length).toBeGreaterThan(0)
+    for (const c of strangers) expect({ id: c.id, leaked: a.includes(c.phone!) }).toEqual({ id: c.id, leaked: false })
+    // …and the reader's OWN store's contacts really are there, or the pin above
+    // would be true because nobody ships a phone number at all.
+    expect(aRows.some((r) => r.phone !== null && a.includes(r.phone))).toBe(true)
   })
 
   it('a 破棄済み record’s reason and content are nowhere in a staff member’s payload', async () => {
@@ -1027,7 +1045,23 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // engages cannot discriminate a correct sticky inset from a wrong one, so the
     // mechanism is gone rather than shipped as a lever nobody can operate.
     expect(CSS_CODE).not.toMatch(/overflow-x\s*:/)
-    expect(CSS_CODE).not.toMatch(/position:\s*sticky/)
+    // ⚖ PIN MOVED IN THE DESIGN ROUND, AND NARROWED RATHER THAN DROPPED. It used
+    // to read `not.toMatch(/position:\s*sticky/)`, which was the right pin while
+    // the only sticky the room could have wanted was K-9's FROZEN COLUMN — a
+    // mechanism that only means anything inside a scroller the room would have
+    // had to own. The approved design round adds a sticky CONTEXT STRIP, which
+    // owns no scroller at all: it pins to the PAGE's own scroll, the one the
+    // ruling says the page keeps. So the property is allowed on exactly one
+    // selector and the LIST is what is pinned — a second sticky, or a sticky on
+    // anything inside the table, still fails here.
+    const stickies = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*position:\s*sticky[^}]*\}/g)].map((m) => m[1].trim())
+    expect(stickies).toEqual(['.biz .pg-karute .kr-strip'])
+    // …and it parks under the SHELL's own topbar rather than at the viewport
+    // top, which is the number that decides whether it covers the thing it is
+    // supposed to sit beside (business-shell.css states 62px / z-index 5).
+    const shellCss = read('src/app/[locale]/(business)/business-shell.css')
+    expect(shellCss).toMatch(/\.biz \.topbar \{[\s\S]*?min-height: 62px/)
+    expect(CSS_CODE).toMatch(/\.kr-strip \{[\s\S]*?top: 62px;[\s\S]*?z-index: 4;/)
     // Declarations only — `@media (min-width: 1400px)` is a BAND, not a floor.
     // ⚠ ANY px COUNT, not just three digits (F-K12): `[1-9]\d\dpx` matched
     // 100–999 and walked straight past `min-width: 1200px`, which is the WORSE
@@ -1226,7 +1260,15 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
         if (name && !name.startsWith('kr-') && /^[a-z][\w-]*$/.test(name)) rendered.add(name)
       }
     }
-    expect([...rendered].sort()).toEqual(['btn', 'good', 'indigo', 'pill'])
+    // ⚖ PIN MOVED IN THE DESIGN ROUND, AND IT MOVED THE RIGHT WAY. It used to
+    // read `['btn', 'good', 'indigo', 'pill']`: 手書き borrowed `.pill`, 同意確認済
+    // borrowed `.pill.good` and the LINE tag borrowed `.pill.indigo`. The
+    // approved mock spells all three to the PHONE's own values — a gray outline
+    // chip, an emerald wash and a green word — so they are now `kr-hand` /
+    // `kr-consent` / `kr-channel`, and the shared surface a neighbour could ever
+    // reach SHRANK from four names to one. That is the fence getting smaller,
+    // not a rule being relaxed.
+    expect([...rendered].sort()).toEqual(['btn'])
     // …plus the two the screen does not spell as a literal: the ROUTE WRAPPER,
     // and the pill TONES, which arrive as props because the state that picks
     // them is decided once in `karute.ts` and rendered wherever it is needed.
@@ -1281,6 +1323,177 @@ describe('the room reaches into no phone runtime, and mirrors the contract with 
     const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
     expect(props.selfStaffId).toBe(operator.staff_id)
     expect(props.selfLabel).toBe(`自分（${operator.name}）`)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ THE DESIGN ROUND — the recognition floor, pinned to the phone', () => {
+  it('every drawer the phone can emit has a tone HERE, and no tone exists for a drawer it cannot', () => {
+    // ⚠ DERIVED FROM THE LIB, NOT LISTED. The eight drawers are `CATEGORY_ORDER`'s;
+    // the sheet keys its tone off the SAME id the model carries, so a drawer the
+    // phone adds later arrives with no rule and paints the neutral default —
+    // never mis-coloured as somebody else's drawer. Both directions are asked:
+    // every category has a rule, and every rule names a real category.
+    const toned = [...CSS_CODE.matchAll(/\[data-cat="([^"]+)"\]/g)].map((m) => m[1])
+    expect([...new Set(toned)].sort()).toEqual([...CATEGORY_ORDER].sort())
+    expect(toned.length).toBe(CATEGORY_ORDER.length)
+  })
+
+  it('the chip and its bullets read ONE tone — a colour cannot disagree with itself', () => {
+    // The mock's own central claim: 「行頭の点も同じ色」. It is true here because
+    // BOTH read the same custom property off the drawer, rather than because two
+    // literals happen to match today (⚖ A8).
+    expect(CSS_CODE).toMatch(/\.kr-cat-chip \{[^}]*background: var\(--kr-tone-bg\)[^}]*color: var\(--kr-tone-ink\)/)
+    expect(CSS_CODE).toMatch(/\.kr-dot \{[^}]*background: var\(--kr-tone-ink\)/)
+    // …and every `[data-cat]` rule sets the PAIR, so a half-declared drawer
+    // (chip coloured, bullet neutral) fails here.
+    for (const m of CSS_CODE.matchAll(/\[data-cat="([^"]+)"\] \{([^}]*)\}/g)) {
+      expect({ cat: m[1], bg: m[2].includes('--kr-tone-bg:'), ink: m[2].includes('--kr-tone-ink:') })
+        .toEqual({ cat: m[1], bg: true, ink: true })
+    }
+  })
+
+  it('the eight tones are the PHONE’s literal values, not a repaint of them', () => {
+    // Spot-checked against `CurrentSessionCard.tsx`'s CATEGORY_TONE, read from
+    // the phone file itself rather than restated — if the phone retints a drawer
+    // this fails on the day it happens, which is the whole point of a floor.
+    const phone = read('src/components/karute/redesign/detail/CurrentSessionCard.tsx')
+    const tones = Object.fromEntries(
+      [...phone.matchAll(/^\s*(\w+): \{ bg: '([^']+)', text: '([^']+)' \},$/gm)].map((m) => [m[1], { bg: m[2], text: m[3] }]),
+    )
+    expect(Object.keys(tones).sort()).toEqual([...CATEGORY_ORDER].sort())
+    // Compared as COLOURS, not as characters: the phone writes `0.18` and CSS
+    // convention writes `.18`, and a pin that failed on that would be a pin
+    // about typography.
+    const norm = (v: string) => v.replace(/\s+/g, '').replace(/(^|[^\d])0\./g, '$1.').toLowerCase()
+    const rules = Object.fromEntries(
+      [...CSS_CODE.matchAll(/\[data-cat="([^"]+)"\] \{([^}]*)\}/g)].map((m) => [m[1], m[2]]),
+    )
+    for (const cat of CATEGORY_ORDER) {
+      expect({
+        cat,
+        bg: norm(rules[cat] ?? '').includes(`--kr-tone-bg:${norm(tones[cat].bg)};`),
+        ink: norm(rules[cat] ?? '').includes(`--kr-tone-ink:${norm(tones[cat].text)};`),
+      }).toEqual({ cat, bg: true, ink: true })
+    }
+  })
+
+  it('the amber pencil still means “a person rewrote this”, now on the GLYPH', () => {
+    // ⚖ PIN MOVED. The pencil used to keep the shell's bordered `.btn` square, so
+    // the amber signal was a BORDER colour; the approved mock carries the phone's
+    // own ghost glyph, so the signal is the glyph's colour
+    // (CurrentSessionCard.tsx:233 text-amber-600 = #d97706). What must NOT move
+    // is that the edited state is visibly different from the resting one and
+    // that the control still LOOKS refused.
+    expect(CSS_CODE).toMatch(/--kr-amber: #d97706;/)
+    expect(CSS_CODE).toMatch(/\.kr-pencil \{[^}]*color: var\(--kr-ghost\)/)
+    expect(CSS_CODE).toMatch(/\.kr-pencil\.is-edited \{ color: var\(--kr-amber\); \}/)
+    // The refusal cue is the shell's dim + not-allowed, which the pencil keeps by
+    // carrying `.btn` — and it cannot stop carrying it, because `refused()` is
+    // what puts it there (F-K1's fix, pinned above).
+    expect(SCREEN_CODE).toContain("className: 'kr-pencil',")
+  })
+
+  it('⚖ ONE BLUE, and it is R13’s own — never the shell’s indigo', () => {
+    expect(CSS_CODE).toMatch(/--kr-accent: #2563eb;/)
+    // The room used to spend `var(--indigo)` (#3f5be8, the shell's) on the ⇆, the
+    // avatar and the pressed chip. Two blues on one page is the thing the mock
+    // settled, so the room now spends exactly one.
+    expect(CSS_CODE).not.toContain('var(--indigo)')
+    expect(CSS_CODE).not.toContain('var(--commit-')
+    expect(CSS_CODE).not.toContain('#3f5be8')
+    // …and the accent is only ever on something a person can press, or on a wash
+    // (⚖ the one-way accent law). Every saturated use, enumerated from the sheet.
+    const accented = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*var\(--kr-accent\)[^}]*\}/g)].map((m) => m[1].trim())
+    const pressable = /kr-help|kr-chip|kr-filter|kr-jump|kr-contact a|kr-crumb a|kr-swap|kr-commit/
+    expect(accented.filter((s) => !pressable.test(s))).toEqual([])
+  })
+
+  it('the 目次 is the RECORD’s own shape — it can only name a section that renders', () => {
+    // The entries and the sections are decided by the SAME questions, written
+    // once each. A 目次 line for a card the record does not have would be a
+    // second opinion about what this record holds (⚖ A8), and the mock's own
+    // sparse example is exactly this case.
+    for (const [entry, section] of [
+      ["if (current.discard) out.push({ id: 'krSecDiscard'", '{current.discard && ('],
+      ["if (current.aiMessage) out.push({ id: 'krSecMessage'", '{current.aiMessage && ('],
+      ["if (current.photos.length > 0) out.push({ id: 'krSecPhotos'", '{current.photos.length > 0 && ('],
+    ] as const) {
+      expect({ entry, has: SCREEN_CODE.includes(entry) }).toEqual({ entry, has: true })
+      expect({ section, has: SCREEN_CODE.includes(section) }).toEqual({ section, has: true })
+    }
+    // …and every id the 目次 jumps to is an id the record really prints.
+    const jumps = [...SCREEN_CODE.matchAll(/out\.push\(\{ id: '(krSec\w+)'/g)].map((m) => m[1])
+    expect(jumps.length).toBe(7)
+    for (const id of jumps) expect({ id, printed: SCREEN_CODE.includes(`id="${id}"`) }).toEqual({ id, printed: true })
+  })
+
+  it('the jump clears the strip that would otherwise hide what it jumped to', () => {
+    // A sticky header and an anchor jump disagree by default: the browser puts
+    // the target's top at the viewport top, which is underneath the strip — the
+    // classic sticky-header defect, where the anchor scrolls the heading under
+    // the bar that was supposed to help you find it. The clearance is the
+    // topbar's 62 plus the strip's own height plus air, and EVERY jumpable
+    // section states it, so a card added later cannot land under the bar.
+    const cleared = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*scroll-margin-top: (\d+)px[^}]*\}/g)]
+      .map((m) => ({ sel: m[1].trim(), px: Number(m[2]) }))
+    expect(cleared.length).toBeGreaterThan(0)
+    for (const c of cleared) expect({ sel: c.sel, clears: c.px > 62 }).toEqual({ sel: c.sel, clears: true })
+    // …and the three card families a 目次 entry can point at all carry it.
+    for (const name of ['kr-identity', 'kr-discarded', 'kr-card']) {
+      expect({ name, cleared: cleared.some((c) => c.sel.includes(name)) }).toEqual({ name, cleared: true })
+    }
+  })
+
+  it('the 目次 highlight is THE JUMP, not a guess about scroll position', () => {
+    // ⚠ THE FIRST CUT WAS A SCROLL-SPY, AND THE PROBE KILLED IT. The record is a
+    // two-column grid, so 本日のセッション and 詳細記録 start at the SAME y —
+    // jumping to the right column left both straddling the line and every jump
+    // after the first read as 本日のセッション (measured, probe K). Geometry has
+    // no answer when two cards are side by side; which entry was pressed has
+    // exactly one. So there is no observer and no scroll listener here.
+    expect(SCREEN_CODE).toContain('onClick={() => setHere(t.id)}')
+    expect(SCREEN_CODE).toContain("aria-current={here === t.id ? 'location' : undefined}")
+    expect(SCREEN_CODE).not.toContain('IntersectionObserver')
+    // …and it belongs to the record it was taken on, like the warning beside it.
+    expect(SCREEN_CODE).toMatch(/setReassignOpen\(false\)\s*\n\s*setHere\(null\)\s*\n\s*\}, \[selected\]\)/)
+  })
+
+  it('↑↓ is a VIEW gesture — it moves focus and writes nothing', () => {
+    expect(SCREEN_CODE).toContain("if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return")
+    expect(SCREEN_CODE).toContain('next.focus()')
+    // No state, no selection model, no roving tabindex: every row keeps its
+    // natural tab stop, so the arrows ADD a way to move rather than replacing
+    // the one the room already proved (the ← focus handover still works because
+    // the row that opened the record is still the row that was pressed).
+    expect(SCREEN_CODE).not.toMatch(/tabIndex/)
+    expect(SCREEN_CODE).toContain('<div className="kr-table" onKeyDown={walkRows}>')
+  })
+
+  it('the contact row links to the person, and NEVER to a page that does not exist', () => {
+    // ⚖ DEVIATION K-22, pinned so it cannot drift back. The mock draws the middle
+    // breadcrumb as a link to the customer's own page; Business has no
+    // customer-profile page yet, so the crumb names the person as TEXT and the
+    // one link in the row is 顧客, which really is the list — and it spends the
+    // same href every other 顧客 pointer in this room spends (⚖ A8).
+    expect(SCREEN_CODE).toContain('<span className="kr-crumb-who">')
+    const crumb = /<nav\s+className="kr-crumb"[\s\S]*?<\/nav>/.exec(SCREEN_CODE)?.[0] ?? ''
+    expect(crumb.length).toBeGreaterThan(200)
+    expect([...crumb.matchAll(/<Link href=\{([^}]*)\}/g)].map((m) => m[1])).toEqual(['current.customersHref'])
+    // tel:/mailto: are the phone's own two, and they are the only hrefs in the
+    // room that are not the 顧客 list.
+    const hrefs = [...SCREEN_CODE.matchAll(/href=\{`([^`]*)`\}/g)].map((m) => m[1])
+    expect(hrefs.sort()).toEqual(['#${t.id}', 'mailto:${current.email}', 'tel:${current.phone}'])
+  })
+
+  it('a customer with no phone or mail gets NO link, never an empty one', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    for (const r of props.rows) {
+      const c = customers.find((x) => x.id === r.customerId)!
+      expect({ id: r.id, phone: r.phone, email: r.email }).toEqual({ id: r.id, phone: c.phone, email: c.email })
+    }
+    expect(SCREEN_CODE).toContain('{current.phone && (')
+    expect(SCREEN_CODE).toContain('{current.email && (')
   })
 })
 

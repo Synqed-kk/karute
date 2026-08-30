@@ -5,19 +5,31 @@
 // TABLE, canon's own (MOCK-karute-list.html) — never squeezed into a 380px queue
 // column beside a detail, which is the one shape that ruling names. So the room
 // shows ONE SCREEN AT A TIME at every width, exactly as canon's two pages do: the
-// table, or the record, with ← カルテ一覧 between them. The 受信トレイ template's
-// grammar applies to everything else — the head, the quiet filters,
-// counters-as-filters, facts left / evidence right inside the record, full-width
-// history beneath, the designed empty states, the ? tour and the full ladder.
+// table, or the record, with ← カルテ一覧 between them.
+//
+// ⚖ THE DESIGN ROUND (Liam 8/30 evening, MOCK-KARUTE-DESIGN-2026-08-30.html).
+// The body below is the proven one; the CLOTHES are the approved mock's, and the
+// mock's own two laws decide what changed and what could not:
+//   (a) THE RECOGNITION FLOOR — a staff member who writes a line on the phone
+//       must READ it here in the same words, the same colours and the same
+//       order. The eight category chips carry `CurrentSessionCard.tsx:46-61`'s
+//       palette VERBATIM, each line's bullet is that chip's own ink, the section
+//       names are unchanged, the band icons are the phone's, and 手書き / the
+//       amber pencil / 同意確認済 mean exactly what they mean on the phone.
+//   (b) DESIGNED AS A COMPUTER PROGRAM — a sticky context strip carrying an
+//       in-record 目次 that lists ONLY the sections this record actually has,
+//       the drawers flowing in two columns instead of one tall stack, and ↑↓
+//       walking the table's rows. Those are the desk's idioms, not the phone's.
 //
 // WHAT IS CLIENT STATE HERE, AND NOTHING ELSE: the search box, which staff scope
 // and which state filter are pressed, how many windows back the walk has gone,
-// which record is open, whether the reassign warning is disclosed, and which step
-// of the 画面の説明 tour the reader is on. Every one is pure browsing — none of
-// them writes anything. Every control canon has that WOULD write ships refused
-// with its own reason, so there is no staged state for a provider to hold above
-// this component. Stated rather than assumed: if any of them is ever connected,
-// its staged result belongs above this component, not inside it (flag 30's class).
+// which record is open, whether the reassign warning is disclosed, which section
+// the 目次 is pointing at, and which step of the 画面の説明 tour the reader is
+// on. Every one is pure browsing — none of them writes anything. Every control
+// canon has that WOULD write ships refused with its own reason, so there is no
+// staged state for a provider to hold above this component. Stated rather than
+// assumed: if any of them is ever connected, its staged result belongs above
+// this component, not inside it (flag 30's class).
 //
 // CLASS NAMES ARE PREFIXED `kr-` ON PURPOSE. App Router leaves every sibling
 // room's stylesheet in the document after a client-side navigation, and 今日の
@@ -27,11 +39,15 @@
 // `.spot-card`…). A fence that has to enumerate sixty shared names rots as the
 // neighbours grow; not colliding at all cannot. `page` / `h1` / `btn` are the
 // SHELL's and restated here, so those three are fenced in karute.css at four
-// levels; `pill` is also the shell's, but this sheet never restates a property
-// on it, so there is nothing here to collide.
+// levels. ⚖ THE DESIGN ROUND SHRANK THIS SURFACE rather than growing it: the
+// three chips this room used to borrow from the shell (`pill` for 手書き,
+// `pill good` for 同意確認済, `pill indigo` for LINE) are now the room's own
+// `kr-hand` / `kr-consent` / `kr-line`, spelled to the phone's values. `btn` is
+// the ONLY shell class the markup still names; the state and outcome pill tones
+// still arrive as PROPS, decided once in `karute.ts`.
 
 import Link from 'next/link'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import {
   keepCardOffHeading,
@@ -50,7 +66,59 @@ import {
  *  order. */
 const ROOT = 'page pg-karute'
 
+/** THE PHONE'S OWN ICONS (lucide-react — the app's icon library), inlined as
+ *  geometry so this room adds no dependency, no bundle and no request. Every one
+ *  is DECORATIVE: the word beside it is what a screen reader reads, which is why
+ *  they are all `aria-hidden`. Names are the lucide names, so the phone file
+ *  each one came from can be checked against the same word. */
+const ICONS = {
+  chevron: <path d="m9 18 6-6-6-6" />,
+  visits: <><rect x="8" y="2" width="8" height="4" rx="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /></>,
+  heart: <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />,
+  calendar: <><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></>,
+  phone: <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />,
+  mail: <><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 6L2 7" /></>,
+  user: <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></>,
+  swap: <path d="M8 3 4 7l4 4M4 7h16m-4 14 4-4-4-4M20 17H4" />,
+  redo: <><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" /></>,
+  pencil: <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />,
+  file: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" /></>,
+  message: <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z" />,
+  image: <><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></>,
+  mic: <><rect x="9" y="2" width="6" height="11" rx="3" /><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4" /></>,
+  clock: <><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></>,
+  check: <><circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" /></>,
+  send: <><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /></>,
+  ticket: <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" />,
+  trash: <><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></>,
+} as const
+
+function Icon({ name, size = 12, weight = 2 }: { name: keyof typeof ICONS; size?: number; weight?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={weight}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {ICONS[name]}
+    </svg>
+  )
+}
+
 export interface KaruteEntryProps {
+  /** ⚖ THE RECOGNITION FLOOR's own key. The line's drawer, carried as the
+   *  phone's own category id so the chip and its bullet can read ONE tone from
+   *  the sheet (`[data-cat="…"]`) rather than the screen carrying a second copy
+   *  of `CATEGORY_TONE`. The eight ids are `CATEGORY_ORDER`'s, and the room's
+   *  suite derives the tone census FROM that list. */
+  category: string
   label: string
   text: string
   handwritten: boolean
@@ -63,6 +131,10 @@ export interface KaruteRowProps {
   furigana: string | null
   memberNumber: string
   mark: string
+  /** The person header's contact row — the phone's own `CustomerHeaderCard`
+   *  links, and `null` when the customer has none rather than an empty link. */
+  phone: string | null
+  email: string | null
   staffId: string | null
   staffName: string
   service: string
@@ -149,8 +221,9 @@ const samePos = (a: { hole: SpotRect; top: number; left: number }, b: { hole: Sp
   a.hole.width === b.hole.width && a.hole.height === b.hole.height
 
 /** ⚖ 顧客一覧 — ONE label and ONE href source, read by every place this room
- *  points at the person: the record's name, and the reveal row. Two spellings
- *  would let one of them describe a different destination from the other (A8). */
+ *  points at the person: the record's name, the breadcrumb, and the reveal row.
+ *  Two spellings would let one of them describe a different destination from the
+ *  other (A8). */
 const CUSTOMERS_LABEL = '顧客一覧で確認'
 
 /** カルテの顧客変更's warning, in the phone app's OWN words (messages/ja.json
@@ -172,6 +245,22 @@ export function KaruteScreen(props: KaruteProps) {
   const [steps, setSteps] = useState(1)
   const [selected, setSelected] = useState<string | null>(null)
   const [reassignOpen, setReassignOpen] = useState(false)
+  /** ⚖ THE DESIGN ROUND — WHICH 目次 ENTRY THE READER TOOK. Browsing, like every
+   *  other piece of state here: it lights a control and writes nothing.
+   *
+   *  ⚠ AND IT IS THE JUMP, NOT A SCROLL POSITION — measured, not assumed. The
+   *  first cut was an IntersectionObserver picking "the first section still
+   *  below the strip", the ordinary scroll-spy. It CANNOT work in this record,
+   *  and the probe proved it: the record is a TWO-COLUMN grid, so 本日のセッション
+   *  and 詳細記録 begin at the same y — jumping to the right column's first card
+   *  leaves both sections straddling the line, and every jump after the first
+   *  read as 本日のセッション. Geometry has no answer to give here, because the
+   *  question 「which one am I on」 genuinely has two answers when two cards are
+   *  side by side. What DOES have one answer is which entry the reader pressed,
+   *  which is also what the pressed-state on a nav control means everywhere
+   *  else. So the highlight is the jump, it says so, and there is no observer,
+   *  no scroll listener and no clearance constant to keep in sync with a sheet. */
+  const [here, setHere] = useState<string | null>(null)
   // ⚖ Liam 8/23 — 画面の説明. The step the tour is on, `-1` when it is closed.
   const [tourIdx, setTourIdx] = useState(-1)
   const [tourTick, setTourTick] = useState(0)
@@ -242,6 +331,41 @@ export function KaruteScreen(props: KaruteProps) {
   const current = props.rows.find((r) => r.id === selected) ?? null
   const detailOpen = current !== null
 
+  /** ⚖ THE 目次 IS THE RECORD'S OWN SHAPE, not a menu anybody maintains. Exactly
+   *  the data-presence rule the SECTIONS already obey, applied one level up: a
+   *  record with no photos has no 写真記録 card AND no 写真記録 entry, so a
+   *  sparse record gets a short 目次 rather than six links, two of which go
+   *  nowhere. The mock's own second example is this case ("項目が4つなので目次も
+   *  4つ"). */
+  const toc = useMemo(() => {
+    if (current === null) return []
+    const out: Array<{ id: string; label: string }> = []
+    if (current.discard) out.push({ id: 'krSecDiscard', label: '破棄されたカルテ' })
+    out.push({ id: 'krSecSession', label: '本日のセッション' })
+    out.push({ id: 'krSecSummary', label: '詳細記録' })
+    if (current.aiMessage) out.push({ id: 'krSecMessage', label: 'AI提案メッセージ' })
+    if (current.photos.length > 0) out.push({ id: 'krSecPhotos', label: '写真記録' })
+    out.push({ id: 'krSecRecording', label: '録音・文字起こし' })
+    out.push({ id: 'krSecHistory', label: '記録の履歴' })
+    return out
+  }, [current])
+
+  /** ⚖ THE DRAWERS, GROUPED. `buildRecords` already emits the entries in
+   *  `CATEGORY_ORDER` and every line carries its own category, so grouping is a
+   *  RUN-LENGTH pass over a list that is already sorted — no second ordering
+   *  opinion, and no way for this screen to disagree with the phone about which
+   *  drawer a line lives in. The count rides the chip only from two lines up:
+   *  「気になる点 1」 on a drawer with one line is noise (the mock's rule). */
+  const drawers = useMemo(() => {
+    const out: Array<{ category: string; label: string; lines: KaruteEntryProps[] }> = []
+    for (const e of current?.entries ?? []) {
+      const last = out[out.length - 1]
+      if (last && last.category === e.category) last.lines.push(e)
+      else out.push({ category: e.category, label: e.label, lines: [e] })
+    }
+    return out
+  }, [current])
+
   // ⚖ THE SWAP MUST NOT STRAND THE READER. Opening a record hides the table —
   // including the row that was focused — and going back hides the record, so in
   // both directions the browser would drop focus to <body> and a keyboard reader
@@ -266,10 +390,13 @@ export function KaruteScreen(props: KaruteProps) {
     if (selected !== null && !matched.some((r) => r.id === selected)) setSelected(null)
   }, [matched, selected])
 
-  // The warning belongs to the record it was opened on. Opening another record
-  // with a disclosed warning still up would show one record's warning over
-  // another record's identity.
-  useEffect(() => { setReassignOpen(false) }, [selected])
+  // The warning belongs to the record it was opened on, and so does the 目次's
+  // own highlight: opening another record with either still set would show one
+  // record's state over another record's identity.
+  useEffect(() => {
+    setReassignOpen(false)
+    setHere(null)
+  }, [selected])
 
   /** Narrowing the list starts the walk again. A reader who filters to 下書き
    *  and finds three windows already open is being shown a span they asked
@@ -283,6 +410,26 @@ export function KaruteScreen(props: KaruteProps) {
     setSteps(1)
   }
 
+  /** ⚖ THE DESK'S OWN GESTURE (the mock's labelled proposal). ↑↓ walk the rows
+   *  and Enter opens — reading a table row by row is what a computer is faster
+   *  at, and a reader who has both hands on a keyboard should not have to reach
+   *  for a mouse to do it. PURE VIEW: it moves FOCUS and writes nothing, and it
+   *  is an ADDITION to the existing contract rather than a replacement — every
+   *  row keeps its natural tab stop, so Tab still walks them exactly as before
+   *  and the row that ← returns to is still the row that was pressed. */
+  const walkRows = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+    const rows = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('.kr-row')]
+    const at = rows.indexOf(document.activeElement as HTMLButtonElement)
+    if (at < 0) return
+    const next = rows[e.key === 'ArrowDown' ? at + 1 : at - 1]
+    if (!next) return
+    // Only once a row really moves: at the ends the arrow keeps its ordinary
+    // meaning and the page scrolls, which is what a reader expects.
+    e.preventDefault()
+    next.focus()
+  }
+
   // ── ⚖ Liam 8/23 — 画面の説明 (the guided tour) ─────────────────────────────
 
   /** THE ROOM'S TOUR, on the family's shared engine (`@/business/lib/guide`).
@@ -294,6 +441,8 @@ export function KaruteScreen(props: KaruteProps) {
    *  the walk and out of the N/M count by itself. That is Liam's "when I add a
    *  function it should automatically pick it up", and it is why the room's gate
    *  is a census of what the DOM declares rather than a table anyone maintains.
+   *  The design round's two new functions — the breadcrumb and the sticky strip
+   *  with its 目次 — join by the same rule, on the same day they land.
    *
    *  The walk is scoped to the ROOM's own root rather than the document: the
    *  shell's rail and topbar are not this page. */
@@ -337,8 +486,9 @@ export function KaruteScreen(props: KaruteProps) {
   // ONE keyboard listener for the two things that can be open, innermost first:
   // while the tour is up it owns Escape (and the arrows walk the ring), and only
   // once it is closed does Escape reach the open record. Two listeners would
-  // both fire on one Escape and close both at once. Bound only while something
-  // IS open, and removed with it.
+  // both fire on one Escape and close both at once.  Bound only while something
+  // IS open, and removed with it. The table's own ↑↓ is a LOCAL handler on the
+  // table rather than a third document listener, so it cannot reach either.
   useEffect(() => {
     if (!detailOpen && !tourOpen) return
     const onKey = (e: KeyboardEvent) => {
@@ -531,7 +681,7 @@ export function KaruteScreen(props: KaruteProps) {
         {/* QUIET TEXT, not buttons: a filter narrows a view, it does not act, so
             it gets no border and no fill — selected is an accent label plus a
             2px accent underline. The strip wraps rather than panning, so no
-            container here owns an axis at all (⚖ page-scroll). */}
+            container here owns an axis (⚖ page-scroll). */}
         <section
           className="kr-filters"
           aria-label="状態でしぼる"
@@ -571,7 +721,7 @@ export function KaruteScreen(props: KaruteProps) {
             className="kr-table-sec"
             aria-labelledby="krTableTitle"
             data-guide-title="カルテの一覧"
-            data-guide="施術の記録が新しい順に並びます。日付・お客様・状態・サービス・担当の5列で、行を押すとその1件が開きます。破棄されたカルテも灰色のまま残ります — 記録を消さないことが、この一覧の役目です。"
+            data-guide="施術の記録が新しい順に並びます。日付・お客様・状態・サービス・担当の5列で、行を押すとその1件が開きます。上下の矢印キーでも行を移動でき、Enterでその1件が開きます。破棄されたカルテも灰色のまま残ります。"
           >
             <h2 className="kr-sec-title" id="krTableTitle">
               カルテの一覧
@@ -582,7 +732,7 @@ export function KaruteScreen(props: KaruteProps) {
                 own ladder measured (deviation K-9: the pan the packet asked for
                 engaged by 4px in the tightest reachable state, so it is gone
                 rather than shipped as a lever nobody can operate). */}
-            <div className="kr-table">
+            <div className="kr-table" onKeyDown={walkRows}>
                 {/* Column names for a sighted reader. `aria-hidden` because the
                     rows are BUTTONS rather than table cells: a screen reader
                     reads each row as one item, and each row's accessible name
@@ -644,19 +794,18 @@ export function KaruteScreen(props: KaruteProps) {
                     </button>
                   ))
                 )}
+                {walk.hidden > 0 && (
+                  <div
+                    className="kr-more"
+                    data-guide-title="さらに表示"
+                    data-guide="この一覧は新しい日付から順に、2週間ぶんずつさかのぼって読み込みます。押すと、さらに前の期間のカルテが下に追加されます。"
+                  >
+                    <button className="btn" type="button" onClick={() => setSteps((s) => s + 1)}>
+                      さらに表示（あと{walk.hidden}件）
+                    </button>
+                  </div>
+                )}
             </div>
-
-            {walk.hidden > 0 && (
-              <div
-                className="kr-more"
-                data-guide-title="さらに表示"
-                data-guide="この一覧は新しい日付から順に、2週間ぶんずつさかのぼって読み込みます。押すと、さらに前の期間のカルテが下に追加されます。"
-              >
-                <button className="btn" type="button" onClick={() => setSteps((s) => s + 1)}>
-                  さらに表示（あと{walk.hidden}件）
-                </button>
-              </div>
-            )}
           </section>
         )}
 
@@ -688,97 +837,197 @@ export function KaruteScreen(props: KaruteProps) {
       {/* ═══ THE RECORD ═══ */}
       {current && (
         <div className="kr-detail">
-          <button className="kr-back" type="button" ref={backRef} onClick={() => setSelected(null)}>
-            ← カルテ一覧
-          </button>
-
-          {/* ⚖ THE PERSON HEADER IS THE CUSTOMER-PROFILE IDENTITY HEADER, one
-              structure for the family (Liam 8/23 final): avatar, name with the
-              カルテ番号 beside it, a wrapping meta row, the contact row, the
-              担当 line, and a top-right action slot — the same skeleton as the
-              phone's `CustomerHeaderCard`, which is itself the exact clone of
-              `CustomerIdentityCard`. Business has no customer-profile header
-              yet; this is the one the 顧客 room adopts in the sweep (K-6). */}
-          <section
-            className="kr-identity"
-            aria-labelledby="krIdentityName"
-            data-guide-title="お客様とカルテ"
-            data-guide="このカルテのお客様と、記録そのものの情報です。名前の横がカルテ番号、その下が来店回数・前回のご来店・この施術日です。"
+          {/* ⚖ THE DESIGN ROUND — the phone's own `DetailBreadcrumb` shape: where
+              this record sits, said in words, with ← カルテ一覧 on the far side.
+              ⚠ THE MIDDLE CRUMB IS TEXT, NOT A LINK, and deliberately (K-22).
+              The mock draws it as a link to the person's own page; Business has
+              no customer-profile page yet, so a link would either go somewhere
+              that does not exist or quietly land on the 顧客 LIST while naming
+              one person — a crumb that lies about its own destination. The one
+              link here is 顧客, which really is the list, and it spends the same
+              href every other 顧客 pointer in this room spends (⚖ A8). */}
+          <nav
+            className="kr-crumb"
+            aria-label="いまいる場所"
+            data-guide-title="いまいる場所"
+            data-guide="いま開いているカルテが、どのお客様のどの日の記録かを示す行です。左の「顧客」から顧客一覧へ戻れます。右の「カルテ一覧」を押すと、さっきの表に戻ります。"
           >
-            <div className="kr-id-row">
-              <span className={`kr-avatar${current.mark.length > 2 ? ' long' : ''}`} aria-hidden="true">{current.mark}</span>
-              <div className="kr-id-main">
-                <div className="kr-id-nameline">
-                  <h2 id="krIdentityName">{current.customerName}様</h2>
-                  <span className="kr-id-no">{current.id}</span>
+            <Link href={current.customersHref}>顧客</Link>
+            <Icon name="chevron" size={14} />
+            <span className="kr-crumb-who">
+              {current.customerName}様 <span className="kr-crumb-no">{current.memberNumber}</span>
+            </span>
+            <Icon name="chevron" size={14} />
+            <span className="kr-crumb-cur">カルテ {current.dateLongLabel}</span>
+            <button className="kr-back" type="button" ref={backRef} onClick={() => setSelected(null)}>
+              ← カルテ一覧
+            </button>
+          </nav>
+
+          <div className="kr-topband">
+            {/* ⚖ THE PERSON HEADER IS THE CUSTOMER-PROFILE IDENTITY HEADER, one
+                structure for the family (Liam 8/23 final): avatar, name with the
+                カルテ番号 beside it, a wrapping meta row, the contact row, the
+                担当 line, and a top-right action slot — the same skeleton as the
+                phone's `CustomerHeaderCard`, which is itself the exact clone of
+                `CustomerIdentityCard`. Business has no customer-profile header
+                yet; this is the one the 顧客 room adopts in the sweep (K-6). */}
+            <section
+              className="kr-identity"
+              aria-labelledby="krIdentityName"
+              data-guide-title="お客様とカルテ"
+              data-guide="このカルテのお客様と、記録そのものの情報です。名前の横がカルテ番号と状態、その下が来店回数・前回のご来店・この施術日、さらに下が連絡先です。"
+            >
+              <div className="kr-id-row">
+                <span className={`kr-avatar${current.mark.length > 2 ? ' long' : ''}`} aria-hidden="true">{current.mark}</span>
+                <div className="kr-id-main">
+                  <div className="kr-id-nameline">
+                    <h2 id="krIdentityName">{current.customerName}様</h2>
+                    <Icon name="chevron" size={14} />
+                    <span className="kr-id-no">{current.id}</span>
+                    <span className={current.statePill}>{current.stateLabel}</span>
+                  </div>
+                  <div className="kr-id-meta">
+                    <span><Icon name="visits" />{current.visitLabel}</span>
+                    {current.lastVisitLabel && <span><Icon name="heart" />前回 {current.lastVisitLabel}</span>}
+                    <span><Icon name="calendar" />施術日 {current.dateLongLabel} {current.timeLabel}</span>
+                  </div>
+                  <div className="kr-id-meta kr-contact">
+                    {current.phone && (
+                      <span><Icon name="phone" /><a href={`tel:${current.phone}`}>{current.phone}</a></span>
+                    )}
+                    {current.email && (
+                      <span><Icon name="mail" /><a href={`mailto:${current.email}`}>{current.email}</a></span>
+                    )}
+                    <span><Icon name="user" />顧客番号 {current.memberNumber}</span>
+                    {current.furigana && <span>{current.furigana}</span>}
+                  </div>
+                  <div className="kr-id-staff">
+                    担当 <b>{current.staffName}</b> ・ {current.service} ・ 予約 {current.bookingNo}
+                  </div>
                 </div>
-                <div className="kr-id-meta">
-                  <span>{current.visitLabel}</span>
-                  {current.lastVisitLabel && <span>前回 {current.lastVisitLabel}</span>}
-                  <span>施術日 {current.dateLongLabel} {current.timeLabel}</span>
-                </div>
-                <div className="kr-id-meta">
-                  <span>顧客番号 {current.memberNumber}</span>
-                  {current.furigana && <span>{current.furigana}</span>}
-                </div>
-                <div className="kr-id-staff">
-                  担当 <b>{current.staffName}</b> ・ {current.service} ・ 予約 {current.bookingNo}
+                <div className="kr-id-actions">
+                  <Link className="btn" href={current.customersHref}>
+                    {CUSTOMERS_LABEL}
+                  </Link>
+                  {/* ⚖ カルテの顧客変更 (registry ②). RIGHTS-GATED AND HIDDEN, never
+                      shown-and-refused: a staff member without the capability does
+                      not see it at all, exactly as the phone hides
+                      `ReassignCustomerAction`. Canon's quiet ⇆ glyph — no pill, no
+                      border, no fill (Liam 8/23: "just the blue arrow thing"). */}
+                  {props.canReassign && (
+                    <button
+                      className="kr-swap"
+                      type="button"
+                      aria-label="顧客を変更"
+                      title="顧客を変更"
+                      aria-expanded={reassignOpen}
+                      aria-controls="krReassign"
+                      onClick={() => setReassignOpen((o) => !o)}
+                    >
+                      <Icon name="swap" size={18} />
+                    </button>
+                  )}
                 </div>
               </div>
-              <div className="kr-id-actions">
-                <Link className="btn" href={current.customersHref}>
-                  {CUSTOMERS_LABEL}
-                </Link>
-                {/* ⚖ カルテの顧客変更 (registry ②). RIGHTS-GATED AND HIDDEN, never
-                    shown-and-refused: a staff member without the capability does
-                    not see it at all, exactly as the phone hides
-                    `ReassignCustomerAction`. Canon's quiet ⇆ glyph — no pill, no
-                    border, no fill (Liam 8/23: "just the blue arrow thing"). */}
-                {props.canReassign && (
-                  <button
-                    className="kr-swap"
-                    type="button"
-                    aria-label="顧客を変更"
-                    title="顧客を変更"
-                    aria-expanded={reassignOpen}
-                    aria-controls="krReassign"
-                    onClick={() => setReassignOpen((o) => !o)}
-                  >
-                    ⇆
+              {/* THE WARNING STEP, disclosed in place — no dialog, nothing to
+                  outrun (⚖ 47). The flow's next step is a store-scoped picker and
+                  an honest confirm that writes an audit row from→to; both land at
+                  RECONNECT, so the walk stops HERE and says so. */}
+              {props.canReassign && reassignOpen && (
+                <div className="kr-warn" id="krReassign" role="group" aria-label="カルテを別の顧客へ変更">
+                  <strong>カルテを別の顧客へ変更</strong>
+                  {REASSIGN_WARNING.map((line) => (
+                    <p key={line}>{line}</p>
+                  ))}
+                  <div className="kr-warn-foot">
+                    <button {...refused('続ける', props.refusals.reassign)}>続ける</button>
+                    <button className="btn" type="button" onClick={() => setReassignOpen(false)}>
+                      戻る
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {/* ⚖ THE DESIGN ROUND — 結果 IS THE HEADER'S RIGHT SHOULDER. A person
+                reading records at a desk checks three things first: whose, when,
+                and how it ended. The mock puts all three at one height, so the
+                third stops being a card the reader has to scroll to.
+                破棄済み records carry no outcome for ANY reader (⚖ R2 — a
+                discarded record feeds no number), so the section is not there to
+                be explained and drops out of the walk by itself. */}
+            {!current.discard && (
+              <section
+                className="kr-outcome"
+                aria-labelledby="krOutcomeTitle"
+                data-guide-title="セッションの結果"
+                data-guide="この施術がどう終わったかの記録です。成約と不成約は成約率に入り、通常ご来店は入りません。仮カルテのままだと14日後に自動で不成約になります。"
+              >
+                <h2 className="kr-sec-title" id="krOutcomeTitle">セッションの結果</h2>
+                <div className="kr-outcome-body">
+                  <span className={current.outcomePill}>{current.outcomeLabel}</span>
+                  <button {...refused('結果を変更', props.refusals.outcome, { 'aria-describedby': footnoteId! })}>
+                    <Icon name="pencil" />結果を変更
                   </button>
+                </div>
+                {current.outcomeNote && <p className="kr-note">{current.outcomeNote}</p>}
+                {current.ticketLine && (
+                  <p className="kr-note kr-ticket"><Icon name="ticket" />{current.ticketLine}</p>
                 )}
-              </div>
-            </div>
-            {/* THE WARNING STEP, disclosed in place — no dialog, nothing to
-                outrun (⚖ 47). The flow's next step is a store-scoped picker and
-                an honest confirm that writes an audit row from→to; both land at
-                RECONNECT, so the walk stops HERE and says so. */}
-            {props.canReassign && reassignOpen && (
-              <div className="kr-warn" id="krReassign" role="group" aria-label="カルテを別の顧客へ変更">
-                <strong>カルテを別の顧客へ変更</strong>
-                {REASSIGN_WARNING.map((line) => (
-                  <p key={line}>{line}</p>
-                ))}
-                <div className="kr-warn-foot">
-                  <button {...refused('続ける', props.refusals.reassign)}>続ける</button>
-                  <button className="btn" type="button" onClick={() => setReassignOpen(false)}>
-                    戻る
-                  </button>
-                </div>
-              </div>
+              </section>
             )}
+          </div>
+
+          {/* ⚖ THE DESIGN ROUND — THE STICKY CONTEXT STRIP. Reading one record on
+              a computer means scrolling past a person's name and then reading
+              four cards without it; the strip keeps 「誰の・どの日か」 on screen
+              the whole way down, and carries the record's own 目次 beside it.
+              It parks under the shell's 62px topbar rather than at the viewport
+              top (business-shell.css:146-149), and it owns NO scroller of its own
+              — the page still owns every axis (⚖ page-scroll). */}
+          <section
+            className="kr-strip"
+            aria-label="この記録の中を移動"
+            data-guide-title="この記録の中を移動"
+            data-guide="下へ読み進んでも上に残る帯です。左が「誰のどの日のカルテか」、右がこの1件の目次で、押すとその場所へ飛びます。目次にはこの記録にある項目だけが出るので、記録が少ないカルテでは目次も短くなります。"
+          >
+            <span className="kr-strip-ctx">
+              {current.customerName}様 <span className="kr-strip-no">{current.id}</span>
+              <span className="kr-strip-d">・ {current.dateLongLabel}</span>
+            </span>
+            <span className="kr-strip-label">この中を移動</span>
+            <span className="kr-jumps">
+              {toc.map((t) => (
+                <a
+                  key={t.id}
+                  className="kr-jump"
+                  href={`#${t.id}`}
+                  aria-current={here === t.id ? 'location' : undefined}
+                  onClick={() => setHere(t.id)}
+                >
+                  {t.label}
+                </a>
+              ))}
+            </span>
           </section>
 
           {/* ⚖ 破棄 (Liam 8/20). The row is kept, in full, for everyone — and
-              what a reader may READ of it is the only thing that changes. */}
+              what a reader may READ of it is the only thing that changes.
+              ⚠ AND IT STAYS GRAY (K-23). The mock draws a gold-bordered banner
+              here; the mock never had a discarded record to draw, and ⚖ Liam
+              8/25 ruling B is explicit that 破棄済み is a plain fact and never a
+              warning colour — a staffer must never hesitate to throw away a
+              genuinely bad take to protect a row's colour. The ruling wins. */}
           {current.discard && (
             <section
               className="kr-discarded"
+              id="krSecDiscard"
               aria-label="破棄されたカルテ"
               data-guide-title="破棄されたカルテ"
               data-guide="このカルテは破棄されています。破棄しても記録は消えず、一覧にも灰色のまま残ります。破棄した人・日時と、その理由は店舗管理者が確認できます。"
             >
-              <strong>このカルテは破棄されています</strong>
+              <strong><Icon name="trash" size={13} />このカルテは破棄されています</strong>
               <p>
                 {current.discard.whenLabel} ・ {current.discard.by}
               </p>
@@ -800,93 +1049,92 @@ export function KaruteScreen(props: KaruteProps) {
             </section>
           )}
 
-          {/* 破棄済み records carry no outcome for ANY reader (⚖ R2 — a
-              discarded record feeds no number), so the section is not there to
-              be explained and drops out of the walk by itself. */}
-          {!current.discard && (
-            <section
-              className="kr-outcome"
-              aria-labelledby="krOutcomeTitle"
-              data-guide-title="セッションの結果"
-              data-guide="この施術がどう終わったかの記録です。成約と不成約は成約率に入り、通常ご来店は入りません。仮カルテのままだと14日後に自動で不成約になります。"
-            >
-              <div className="kr-sec-head">
-                <h2 className="kr-sec-title" id="krOutcomeTitle">セッションの結果</h2>
-                <button {...refused('結果を変更', props.refusals.outcome, { 'aria-describedby': footnoteId! })}>
-                  結果を変更
-                </button>
-              </div>
-              <div className="kr-outcome-body">
-                <span className={current.outcomePill}>{current.outcomeLabel}</span>
-                {current.outcomeNote && <p className="kr-note">{current.outcomeNote}</p>}
-                {current.ticketLine && <p className="kr-note">{current.ticketLine}</p>}
-              </div>
-            </section>
-          )}
-
           {/* FACTS LEFT, EVIDENCE RIGHT — the template's grammar, and also the
               phone's own two-column split, so a staff member reading one record
               through two doors finds the same things in the same places. */}
           <div className="kr-grid">
             <div className="kr-col">
               <section
-                className="kr-session"
+                className="kr-card kr-session"
+                id="krSecSession"
                 aria-labelledby="krSessionTitle"
                 data-guide-title="本日のセッション"
-                data-guide="施術中に記録された内容が、決まった8つの引き出しに分かれて並びます。「手書き」がついているものはスタッフが自分で書いた内容で、AIの再生成では上書きされません。"
+                data-guide="施術中に記録された内容が、決まった8つの引き出しに分かれて並びます。引き出しごとに決まった色がつき、行頭の点も同じ色です。「手書き」がついているものはスタッフが自分で書いた内容で、AIの再生成では上書きされません。"
               >
-                <div className="kr-sec-head">
+                <div className="kr-cardhead">
                   <h2 className="kr-sec-title" id="krSessionTitle">本日のセッション</h2>
                   <button {...refused('AIで再生成', props.refusals.regenerate, { 'aria-describedby': footnoteId! })}>
-                    AIで再生成
+                    <Icon name="redo" />AIで再生成
                   </button>
+                  <span className="kr-tail">{current.dateLongLabel}</span>
                 </div>
-                {current.entries.length === 0 ? (
+                {drawers.length === 0 ? (
                   <p className="kr-none">
                     {current.discard
                       ? '記入内容は店舗管理者のみが確認できます。'
                       : 'このカルテにはまだ何も記入されていません。'}
                   </p>
                 ) : (
-                  <ul className="kr-entries">
-                    {current.entries.map((e, i) => (
-                      <li key={`${e.label}-${i}`}>
-                        <div className="kr-entry-head">
-                          <span className="kr-entry-label">{e.label}</span>
-                          {e.handwritten && <span className="pill">手書き</span>}
-                          <button
-                            {...refused(`${e.label}を編集`, props.refusals.entry, {
-                              'aria-describedby': footnoteId!,
-                              className: 'kr-pencil',
-                            })}
-                          >
-                            ✎
-                          </button>
+                  /* ⚖ TWO COLUMNS, FLOWED (the desk's call). The drawers hold
+                     wildly different amounts, so one tall stack leaves a column
+                     of white after every short one. `column-count` FLOWS them —
+                     each drawer stays whole (`break-inside: avoid`) and the eye
+                     sweeps left-right instead of scrolling past gaps. The colour
+                     is what makes two columns readable rather than confusing. */
+                  <div className="kr-cats">
+                    {drawers.map((d) => (
+                      <div className="kr-cat" key={d.category} data-cat={d.category}>
+                        <div className="kr-cat-head">
+                          <span className="kr-cat-chip">{d.label}</span>
+                          {/* ⚖ SELF-EXPLAINING, AND ONLY WHEN IT SAYS SOMETHING.
+                              「気になる点 1」 is noise on a drawer holding one
+                              line; from two up, the number is the reader's cue
+                              that there is more than the first line. */}
+                          {d.lines.length > 1 && <span className="kr-cat-count">{d.lines.length}件</span>}
                         </div>
-                        <p>{e.text}</p>
-                      </li>
+                        <ul className="kr-lines">
+                          {d.lines.map((e, i) => (
+                            <li key={`${e.category}-${i}`}>
+                              <span className="kr-dot" aria-hidden="true" />
+                              <span className="kr-line-text">{e.text}</span>
+                              {e.handwritten && <span className="kr-hand">手書き</span>}
+                              <button
+                                {...refused(`${e.label}を編集`, props.refusals.entry, {
+                                  'aria-describedby': footnoteId!,
+                                  className: 'kr-pencil',
+                                })}
+                              >
+                                <Icon name="pencil" />
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                 )}
               </section>
             </div>
 
             <div className="kr-col">
               <section
-                className="kr-summary"
+                className="kr-card kr-summary"
+                id="krSecSummary"
                 aria-labelledby="krSummaryTitle"
                 data-guide-title="詳細記録"
-                data-guide="記入内容からAIがまとめた要約です。スタッフが書き直した場合はえんぴつの色が変わり、下の履歴に誰がいつ直したかが残ります。"
+                data-guide="記入内容からAIがまとめた要約です。カードの頭の水色の帯と書類のしるしは、スマホと同じ目印です。スタッフが書き直した場合はえんぴつが琥珀色になり、下の履歴に誰がいつ直したかが残ります。"
               >
-                <div className="kr-sec-head">
+                <div className="kr-band">
+                  <Icon name="file" size={14} />
                   <h2 className="kr-sec-title" id="krSummaryTitle">詳細記録</h2>
+                  <span className="kr-tail">{current.dateLongLabel}</span>
                   <button
                     {...refused('詳細記録を編集', props.refusals.summary, {
                       'aria-describedby': footnoteId!,
                       className: `kr-pencil${current.summaryEdited ? ' is-edited' : ''}`,
                     })}
                   >
-                    ✎
+                    <Icon name="pencil" />
                   </button>
                 </div>
                 {current.summaryBullets.length === 0 ? (
@@ -900,19 +1148,52 @@ export function KaruteScreen(props: KaruteProps) {
                 )}
               </section>
 
+              {current.aiMessage && (
+                <section
+                  className="kr-card kr-message"
+                  id="krSecMessage"
+                  aria-labelledby="krMessageTitle"
+                  data-guide-title="AI提案メッセージ"
+                  data-guide="施術のあとにお送りする文面の下書きです。帯の右に、誰にどの手段で送る予定かが出ます。送信は止めてありますが、何が送られる予定だったのかは隠さずに出します。"
+                >
+                  <div className="kr-band">
+                    <Icon name="message" size={14} />
+                    <h2 className="kr-sec-title" id="krMessageTitle">AI提案メッセージ</h2>
+                    <span className="kr-tail">
+                      {current.customerName} ・ 送信予定 <span className="kr-channel">LINE</span>
+                    </span>
+                  </div>
+                  {/* Shown, then refused. Hiding what the room WOULD send would
+                      make the refusal unreadable — ⚖ 47 asks the opposite. */}
+                  <p className="kr-draft">
+                    {current.customerName}様、{current.aiMessage}
+                  </p>
+                  <div className="kr-act-row">
+                    <button {...refused('編集', props.refusals.message, { 'aria-describedby': footnoteId! })}>
+                      <Icon name="pencil" size={13} />編集
+                    </button>
+                    <button {...refused('承認して送信', props.refusals.send, { 'aria-describedby': footnoteId!, className: 'kr-commit' })}>
+                      <Icon name="send" size={14} />承認して送信
+                    </button>
+                  </div>
+                </section>
+              )}
+
               {/* 写真記録 — captions and counts, from the record's own facts. The
                   viewer and the before/after comparison are registry ③, so the
                   tile refuses with its reason rather than opening nothing. */}
               {current.photos.length > 0 && (
                 <section
-                  className="kr-photos"
+                  className="kr-card kr-photos"
+                  id="krSecPhotos"
                   aria-labelledby="krPhotosTitle"
                   data-guide-title="写真記録"
                   data-guide="このセッションで撮影した写真の記録です。いまは枚数と説明だけを表示しています。全期間の写真は顧客のページにまとまります。"
                 >
-                  <div className="kr-sec-head">
+                  <div className="kr-band">
+                    <Icon name="image" size={14} />
                     <h2 className="kr-sec-title" id="krPhotosTitle">写真記録</h2>
-                    <span className="kr-count">{current.photoCountLabel}</span>
+                    <span className="kr-tail">{current.photoCountLabel}</span>
                   </div>
                   <ul className="kr-photo-list">
                     {current.photos.map((p, i) => (
@@ -927,46 +1208,31 @@ export function KaruteScreen(props: KaruteProps) {
                 </section>
               )}
 
-              {current.aiMessage && (
-                <section
-                  className="kr-message"
-                  aria-labelledby="krMessageTitle"
-                  data-guide-title="AI提案メッセージ"
-                  data-guide="施術のあとにお送りする文面の下書きです。送信は止めてありますが、何が送られる予定だったのかは隠さずに出します。"
-                >
-                  <div className="kr-sec-head">
-                    <h2 className="kr-sec-title" id="krMessageTitle">AI提案メッセージ</h2>
-                    <span className="pill indigo">LINE</span>
-                  </div>
-                  {/* Shown, then refused. Hiding what the room WOULD send would
-                      make the refusal unreadable — ⚖ 47 asks the opposite. */}
-                  <p className="kr-draft">
-                    {current.customerName}様、{current.aiMessage}
-                  </p>
-                  <div className="kr-act-row">
-                    <button {...refused('編集', props.refusals.message, { 'aria-describedby': footnoteId! })}>編集</button>
-                    <button {...refused('承認して送信', props.refusals.send, { 'aria-describedby': footnoteId! })}>
-                      承認して送信
-                    </button>
-                  </div>
-                </section>
-              )}
-
+              {/* ⚖ OPEN, NOT FOLDED (the desk's call, approved with the mock).
+                  The phone collapses this card because a phone is narrow; the
+                  content is two sentences, and asking a reader at a desk to
+                  press something to see two sentences buys nothing. */}
               <section
-                className="kr-recording"
+                className="kr-card kr-recording"
+                id="krSecRecording"
                 aria-labelledby="krRecordingTitle"
                 data-guide-title="録音・文字起こし"
                 data-guide="この施術に録音があるかどうかと、録音の同意が確認できているかどうかです。文字起こしそのものの閲覧は店舗の設定で決まる仕組みで、この画面にはまだつないでいません。"
               >
-                <div className="kr-sec-head">
+                <div className="kr-band">
+                  <Icon name="mic" size={14} />
                   <h2 className="kr-sec-title" id="krRecordingTitle">録音・文字起こし</h2>
-                  {current.consentLabel && <span className="pill good">{current.consentLabel}</span>}
+                  {current.consentLabel && (
+                    <span className="kr-consent"><Icon name="check" size={11} weight={2.5} />{current.consentLabel}</span>
+                  )}
                 </div>
-                <p className="kr-note">{current.recordingLine}</p>
-                {/* ⚖ Liam 8/30 D3 — the honest line, and never a hardcoded rule
-                    about who may read a transcript. The room opens no transcript
-                    door in either mode of the setting (registry ⑤). */}
-                <p className="kr-note">文字起こしの閲覧は店舗の設定に従います（未接続）。</p>
+                <div className="kr-card-body">
+                  <p className="kr-note">{current.recordingLine}</p>
+                  {/* ⚖ Liam 8/30 D3 — the honest line, and never a hardcoded rule
+                      about who may read a transcript. The room opens no transcript
+                      door in either mode of the setting (registry ⑤). */}
+                  <p className="kr-note">文字起こしの閲覧は店舗の設定に従います（未接続）。</p>
+                </div>
               </section>
             </div>
           </div>
@@ -984,14 +1250,16 @@ export function KaruteScreen(props: KaruteProps) {
               a discarded record — the discard itself, which is the entry a
               manager is looking for when they open one. */}
           <section
-            className="kr-history"
+            className="kr-card kr-history"
+            id="krSecHistory"
             aria-labelledby="krHistoryTitle"
             data-guide-title="記録の履歴"
             data-guide="このカルテに対して行われたことの記録です。新しいものが上で、要約を直した記録や破棄した記録が残ります。"
           >
-            <div className="kr-sec-head">
+            <div className="kr-band">
+              <Icon name="clock" size={14} />
               <h2 className="kr-sec-title" id="krHistoryTitle">記録の履歴</h2>
-              <span className="kr-order">新しい順</span>
+              <span className="kr-tail">新しい順</span>
             </div>
             {current.history.length === 0 ? (
               <p className="kr-none">このカルテの操作履歴はまだ記録されていません。</p>

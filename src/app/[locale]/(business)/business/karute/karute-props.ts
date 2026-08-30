@@ -167,6 +167,10 @@ export async function karuteProps({ locale, store, world }: KarutePropsInput): P
 
   const dayOf = (dayKey: number) => new Date(dayKey * 86_400_000)
   const census = monthCensus(models, y, m)
+  /** The lens's own customers, by id. `listCustomers(lens)` is the SAME clamped
+   *  read every other fact on a row comes through, so a contact detail cannot
+   *  reach a row the clamp already refused. */
+  const contact = new Map(customers.map((c) => [c.id, { phone: c.phone, email: c.email }]))
 
   const rows: KaruteRowProps[] = models.map((r) => {
     return {
@@ -176,6 +180,15 @@ export async function karuteProps({ locale, store, world }: KarutePropsInput): P
       furigana: r.furigana,
       memberNumber: r.memberNumber,
       mark: r.mark,
+      // ⚖ THE DESIGN ROUND — the person header's contact row, the phone's own
+      // (`CustomerHeaderCard`). Read from the SAME store-clamped customer the
+      // rest of the row is read from, so the isolation proof covers it by
+      // construction: another store's customer never enters `contactOf`'s map,
+      // and its pin now scans the payload for the other store's phone and mail
+      // as well as its names. `null` where the customer has none — an empty
+      // link is a lever with nowhere to go.
+      phone: contact.get(r.customerId)?.phone ?? null,
+      email: contact.get(r.customerId)?.email ?? null,
       staffId: r.staffId,
       staffName: r.staffName,
       service: r.service,
@@ -205,7 +218,12 @@ export async function karuteProps({ locale, store, world }: KarutePropsInput): P
           : r.entries.length === 0
             ? 'まだ何も記入されていません'
             : 'AIの要約はまだ作成されていません',
-      entries: r.entries.map((e) => ({ label: e.label, text: e.text, handwritten: e.handwritten })),
+      // ⚖ THE RECOGNITION FLOOR — the drawer's own id rides along beside its
+      // label, so the screen can paint the phone's exact tone for it without
+      // holding a second copy of `CATEGORY_TONE`, and without ever deciding
+      // which drawer a line belongs to (that is `buildRecords`'s answer, and
+      // this is a serializer).
+      entries: r.entries.map((e) => ({ category: e.category, label: e.label, text: e.text, handwritten: e.handwritten })),
       summaryBullets: r.summaryBullets,
       summaryEdited: r.summaryEdited,
       // NEWEST FIRST — the order the section names out loud, decided ONCE in
