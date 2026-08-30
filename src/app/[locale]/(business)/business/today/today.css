@@ -735,6 +735,14 @@
 .biz .cell-nametag { position: absolute; top: 3px; left: 5px; right: 3px; font-size: 8px; font-weight: 700; line-height: 1; letter-spacing: -.2px; white-space: nowrap; overflow: hidden; opacity: .55; pointer-events: none; }
 .biz .cell-price .cell-nametag, .biz .cell-packed .cell-nametag { color: var(--indigo); }
 .biz .cell-packed.crumb .cell-nametag, .biz .cell-gapfill .cell-nametag { color: var(--orange-line); }
+/* ⚖ LIAM RULING (2026-08-30) — 表示設定 ▸ 種類の名札, default ON. The same
+   three-part mechanism as `hide-time` / `hide-tkt` / `hide-slot-prices`: a
+   boolean on the screen, a class on `.timeline`, one rule here. ONE switch for
+   both rows, so the class reaches every tag on the board and there is no second
+   selector to keep in step with it. The band's own legend is NOT hidden with
+   them (default, stated in the screen's comment): the tags go, the three
+   COLOURS stay, so the key to them has to stay too. */
+.biz .timeline.hide-nametags .cell-nametag { display: none; }
 .biz .timeline.sell-drag .cell-packed { opacity: 0; }
 .biz .timeline.sell-off .cell-packed { display: none; }
 .biz .timeline.sell-tint.dragging-live .cell-packed,

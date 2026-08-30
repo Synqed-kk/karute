@@ -755,6 +755,14 @@ export function TodayScreen(props: TodayProps) {
   const [showTime, setShowTime] = useState(true)
   const [showTicket, setShowTicket] = useState(true)
   const [showSlotPrice, setShowSlotPrice] = useState(true)
+  /** ⚖ LIAM RULING (2026-08-30) — 種類の名札, ON by default. The words are the
+   *  8/30 案C ruling and they are what makes three washes three products, so the
+   *  board wears them until somebody says otherwise; the switch is for the店 that
+   *  already knows its layers and wants the boxes bare. ONE switch for both rows
+   *  (Fable default — a staff/bed split was offered to Liam and not taken).
+   *  Same three-part mechanism as its siblings above: a boolean, a class on
+   *  `.timeline`, one CSS rule. No new machinery. */
+  const [showNametags, setShowNametags] = useState(true)
   const [sellMode, setSellMode] = useState<'tint' | 'drag' | 'off'>('tint')
   const [guideMode, setGuideMode] = useState<'selected' | 'drag' | 'hidden'>('selected')
   const [selected, setSelected] = useState<string | null>(null)
@@ -3939,6 +3947,7 @@ export function TodayScreen(props: TodayProps) {
     showTime ? '' : 'hide-time',
     showTicket ? '' : 'hide-tkt',
     showSlotPrice ? '' : 'hide-slot-prices',
+    showNametags ? '' : 'hide-nametags',
     `sell-${sellMode}`,
     // ⚖ Liam flag 27 (2026-08-20) — THE DEGRADE VALVE IS OFF, and this is a
     // deliberate overturn of canon's E9c (:5369–5372), not a port gap. Canon
@@ -4797,6 +4806,24 @@ export function TodayScreen(props: TodayProps) {
                     <label><input type="checkbox" checked={showTime} onChange={() => setShowTime((v) => !v)} /> 時間・メニュー</label>
                     <label><input type="checkbox" checked={showTicket} onChange={() => setShowTicket((v) => !v)} /> チケット・価格</label>
                     <label><input type="checkbox" checked={showSlotPrice} onChange={() => setShowSlotPrice((v) => !v)} /> 空き枠の価格（Reserve動的価格ON時）</label>
+                    {/* ⚖ LIAM RULING (2026-08-30) — the 案C words get a switch, ON
+                        by default. It sits beside 空き枠の価格 because that is its
+                        actual sibling: the same three price boxes, one dial for
+                        their money and one for their name.
+                        DEFAULT, noted rather than left to be rediscovered: the
+                        BAND LEGEND stays put when the tags are off. It teaches
+                        the three COLOURS, which are still on the board — hiding
+                        the key to a code the board is still speaking would be the
+                        opposite of what this switch is for.
+                        ⚠ JP-DRAFT — the tour title and its sentence below are
+                        Claude-drafted and await the native micro-pass. The row's
+                        own label 「種類の名札」 is Liam's ruled wording. */}
+                    <label
+                      data-guide-title="種類の名札"
+                      data-guide="価格箱に付く「販売可能枠」「詰め込み」「スキマ枠」の小さな文字を出すかどうかを切り替えます。消しても箱の色と、下の帯にある色の説明はそのまま残ります。"
+                    >
+                      <input type="checkbox" checked={showNametags} onChange={() => setShowNametags((v) => !v)} /> 種類の名札
+                    </label>
 
                     <strong>販売可能枠の表示（店舗設定・業種プロファイルが初期値）</strong>
                     <div className="density-seg" role="group" aria-label="販売可能枠の表示">

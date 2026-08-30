@@ -1017,10 +1017,11 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
       expect(CSS).toContain(`.biz .timeline.hide-slot-prices .${box} i { display: none; }`)
     }
     expect(CSS).not.toMatch(/hide-slot-prices[^\n]*cell-nametag/)
-    // Nothing hides the tag on its own at all: it lives INSIDE the box, so the
-    // dials that remove a box remove it, and there is no second switch to keep
-    // in sync with them.
-    expect(CSS).not.toMatch(/^[^\n]*\.cell-nametag[^\n]*display: none/m)
+    // ⚖ LIAM RULING (2026-08-30) — the tag DOES have a switch of its own now
+    // (種類の名札, below), and it is the only one: exactly one rule in the whole
+    // stylesheet hides the tag directly, so the dials that remove a BOX still
+    // remove it by removing the box, and nothing else can reach it sideways.
+    expect(CSS.match(/^[^\n]*\.cell-nametag[^\n]*display: none/gm) ?? []).toHaveLength(1)
     expect(CSS).toContain('.biz .timeline.sell-off .cell-price { display: none; }')
     expect(CSS).toContain('.biz .timeline.sell-off .cell-packed { display: none; }')
     expect(CSS).toContain('.biz .lane.locked .cell-price { display: none; }')
@@ -1050,6 +1051,43 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
     expect(CSS).toContain('background: rgba(130, 151, 233, calc(.04 + var(--tier) * .03));')
     expect(CSS).toContain('.biz .cell-packed { position: absolute; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); border-radius: 4px; pointer-events: none; display: flex; align-items: flex-end; padding: 3px 5px; background: rgba(130, 151, 233, .18);')
     expect(CSS).toContain('background: rgba(232, 130, 60, .09); z-index: 0; }')
+  })
+
+  // ⚖ LIAM RULING (2026-08-30) — 表示設定 ▸ 種類の名札, one switch, default ON.
+  it('the 種類の名札 switch is its siblings’ own three-part mechanism, default ON', () => {
+    // 1 — THE STATE, declared ON. `useState(true)` is the default, and it is
+    // pinned as the literal rather than inferred from a checkbox being checked.
+    expect(SRC).toContain('const [showNametags, setShowNametags] = useState(true)')
+    // 2 — THE CLASS, in the same list and the same polarity as its three
+    // siblings: the boolean is what shows the tags, so the CLASS is the hiding
+    // one and an unset state can never blank the board.
+    expect(SRC).toContain("    showSlotPrice ? '' : 'hide-slot-prices',\n    showNametags ? '' : 'hide-nametags',")
+    // 3 — THE RULE. Exactly the sibling shape, and — the point of ONE switch —
+    // it names no row group, so `.timeline` carries the class once and BOTH the
+    // staff boxes and the bed boxes lose their tags together. A selector that
+    // mentioned a group is how this would silently become two switches.
+    expect(CSS).toContain('.biz .timeline.hide-nametags .cell-nametag { display: none; }')
+    expect(CSS).not.toMatch(/hide-nametags[^\n]*(lane|\.staff|\.beds)/)
+    // …and the render has no row branch left for it to disagree with (§8's
+    // inverted pin above holds the other end of this).
+    expect(SRC).not.toMatch(/hide-nametags[^\n]*c\.group/)
+
+    // THE ROW ITSELF, in the 表示設定 popover beside its sibling dial.
+    expect(SRC).toContain('<input type="checkbox" checked={showNametags} onChange={() => setShowNametags((v) => !v)} /> 種類の名札')
+    const pop = SRC.slice(SRC.indexOf('<strong>予約カードの表示項目（店舗設定）</strong>'))
+    expect(pop.indexOf('種類の名札')).toBeGreaterThan(pop.indexOf('空き枠の価格'))
+
+    // ⚖ 8/23 GUIDED-TOUR LAW — a new function declares itself the same round.
+    // ⚠ JP-DRAFT: both strings await the native micro-pass.
+    expect(SRC).toContain('data-guide-title="種類の名札"')
+    expect(SRC).toContain(
+      'data-guide="価格箱に付く「販売可能枠」「詰め込み」「スキマ枠」の小さな文字を出すかどうかを切り替えます。消しても箱の色と、下の帯にある色の説明はそのまま残ります。"',
+    )
+
+    // THE DEFAULT THE RULING NAMES: the band legend is NOT hidden with the tags.
+    // The colours survive the switch, so the key to them has to as well —
+    // pinned by the absence of any rule that reaches the legend from the class.
+    expect(CSS).not.toMatch(/hide-nametags[^\n]*(layer-legend|guard-band|lk-)/)
   })
 })
 
