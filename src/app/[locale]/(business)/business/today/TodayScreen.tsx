@@ -2092,7 +2092,15 @@ export function TodayScreen(props: TodayProps) {
    *  `from` is the two-sided origin, and it is what 元に戻す restores. */
   function stage(
     id: string,
-    at: { staffLane: string | null; bedLane: string | null },
+    at: {
+      staffLane: string | null
+      bedLane: string | null
+      /** ⚖ flag 87 fix round — set ONLY by the explicit room-choice gesture (a
+       *  bed-row drag onto another room), which is the one landing that reaches
+       *  here without a `solveBed` behind it. `undefined` from every other
+       *  landing means "no opinion", never "forget the one they gave". */
+      bedChosen?: string
+    },
     span: { x: number; w: number },
     from: PairLanes,
     /** ⚖ Liam flag 50(d) — the red sentence this landing was placed THROUGH, on
@@ -2101,7 +2109,7 @@ export function TodayScreen(props: TodayProps) {
      *  exactly the one row it escalated. */
     override: string | null = null,
   ) {
-    const { staffLane, bedLane } = at
+    const { staffLane, bedLane, bedChosen } = at
     if (staffLane) setMoves((was) => ({ ...was, [id]: { laneKey: staffLane, ...span } }))
     if (bedLane) setBedMoves((was) => ({ ...was, [id]: { laneKey: bedLane, ...span } }))
     // ⚖ 46 forerunner kept under batch-6's two-sided rewrite: the stamp is
@@ -2120,8 +2128,15 @@ export function TodayScreen(props: TodayProps) {
           // but takes this landing's own escalation: the operator may drag a
           // staged card off a red spot, and the surface must stop saying it was
           // overridden once it no longer is.
-          (was.override === (override ?? undefined) ? was : { ...was, override: override ?? undefined })
-        : { id, origin: from.staff ?? { laneKey: '', x: 0, w: 0 }, bedOrigin: from.bed ?? undefined, ...boardStamp, override: override ?? undefined },
+          // ⚖ flag 87 fix round — and the ROOM THEY CHOSE outlives the gestures
+          // that follow it. `bedChosen ?? was.bedChosen` is the whole rule: a
+          // bed-row drag replaces it, everything else leaves it standing. Written
+          // the other way round it would be cleared by the very time adjustment
+          // this fix exists to survive.
+          (was.override === (override ?? undefined) && (bedChosen ?? was.bedChosen) === was.bedChosen
+            ? was
+            : { ...was, override: override ?? undefined, bedChosen: bedChosen ?? was.bedChosen })
+        : { id, origin: from.staff ?? { laneKey: '', x: 0, w: 0 }, bedOrigin: from.bed ?? undefined, bedChosen, ...boardStamp, override: override ?? undefined },
     )
     // ⚖ 74 — a fresh landing is a fresh question, so an id opened a moment ago
     // may not answer for it.
@@ -2650,6 +2665,16 @@ export function TodayScreen(props: TodayProps) {
     // the bed is what the board owes them. A 満室 refusal changes nothing — the
     // pair goes back where it stood, exactly as the two refusals above do.
     const sides = sidesAt(ctx.home, ctx.group, targetLane)
+    // ⚖ FLAG 87 FIX ROUND (2026-08-30) — THE ONE GESTURE THAT CHOOSES A ROOM,
+    // recorded as the operator's. A bed-row drag onto ANOTHER room is the
+    // deliberate-choice path (`solveBed`'s own doc: it is never called on one),
+    // and flag 87's origin preference was outranking it: the next time
+    // adjustment re-solved from the origin room and keep-if-free silently put
+    // the booking back. `laneChanged` is the honest test — a bed-row drag that
+    // re-times a card inside the room it already stands in has chosen nothing,
+    // and treating it as a choice would pin whatever room the outbound leg
+    // borrowed, which is flag 87 itself coming back through the bed row.
+    const bedChosen = ctx.group === 'beds' && laneChanged ? (sides.bedLane ?? undefined) : undefined
     // ⚖ LIAM flag 50(d) (2026-08-22) — RELEASE OVER RED NEVER PLACES. The one
     // verdict answers the release exactly as it answered the cursor a frame ago,
     // so what the word promised is what happens. His ruling in his own words:
@@ -2665,7 +2690,7 @@ export function TodayScreen(props: TodayProps) {
       span,
     }
     const land = (override: string | null, at: { x: number; w: number }) => {
-      const on = { ...sides }
+      const on = { ...sides, bedChosen }
       // ⚖ 51 — the room is solved at the landing, exactly as before. The verdict
       // has already proven a room exists (or named the 満室 that stopped this),
       // so this solve cannot speak a second refusal over the first.
@@ -2690,7 +2715,8 @@ export function TodayScreen(props: TodayProps) {
       // ⚖ LIAM flag 87 (2026-08-30) — and the room it CARRIES is its own, not
       // the one an unconfirmed outbound leg parked it in. `sidesAt` reads the
       // board as it stands, which while something is staged is the staged
-      // board; `seedBed` prefers the origin this very change snapped.
+      // board; `seedBed` prefers the room the operator chose by hand, then the
+      // origin this very change snapped, then that staged board.
       if (ctx.group !== 'beds') {
         const bed = solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.category === 'vip', at)
         if (bed == null) return
@@ -3442,7 +3468,9 @@ export function TodayScreen(props: TodayProps) {
       // is a full house, and nothing stages into one.
       // ⚖ flag 87 — the same seed as the drop's (`land`, :2681): a nudge on a
       // staged card is a second landing of one change, so it re-solves from the
-      // change's own origin room rather than from the leg before it.
+      // change's own origin room rather than from the leg before it — and from
+      // the operator's own room ahead of both, which is why these keys pass no
+      // `bedChosen` of their own: an edge nudge is a time, not a room.
       if (lane.group !== 'beds') {
         const bed = solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.category === 'vip', next)
         if (bed == null) return

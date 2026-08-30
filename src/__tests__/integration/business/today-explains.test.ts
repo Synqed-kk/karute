@@ -1142,7 +1142,7 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
   interface Staged {
     moves: Moves
     bedMoves: Moves
-    pending: { id: string; bedOrigin?: Move } | null
+    pending: { id: string; bedOrigin?: Move; bedChosen?: string } | null
   }
   const REST: Staged = { moves: {}, bedMoves: {}, pending: null }
 
@@ -1180,6 +1180,32 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
       // ⚖ 50(d) — a second gesture on the same staged change KEEPS the first
       // gesture's origin, which is the record this whole fix rests on.
       pending: s.pending?.id === id ? s.pending : { id, bedOrigin: home.bed ?? undefined },
+    }
+  }
+
+  /** ONE BED-ROW LANDING — the OTHER gesture, and the only one that CHOOSES a
+   *  room. `land()` skips the solve entirely on it (`if (ctx.group !== 'beds')`)
+   *  because the operator has already said which room out loud, and `stage()`
+   *  records that room on the staged change. `records: false` is this half's
+   *  counterfactual switch, exactly as `seeded` is the seed's: it takes the
+   *  recording site away and leaves every other line standing. */
+  function landOnBed(s: Staged, id: string, targetBed: string, at: { x: number; w: number }, records = true): Staged {
+    const board = boardOf(s)
+    const item = board.flatMap((l) => l.items).find((i) => i.caseId === id)!
+    const home = pairLanesOf(board, id, { x: item.x, w: item.w })
+    const sides = sidesAt(home, 'beds', targetBed)
+    // The screen's `ctx.group === 'beds' && laneChanged`: a bed-row drag that
+    // re-times a card inside the room it already stands in has chosen nothing.
+    const chosen = records && sides.bedLane !== home.bed?.laneKey ? (sides.bedLane ?? undefined) : undefined
+    return {
+      moves: { ...s.moves, [id]: { laneKey: sides.staffLane!, ...at } },
+      bedMoves: { ...s.bedMoves, [id]: { laneKey: sides.bedLane!, ...at } },
+      // `bedChosen ?? was.bedChosen` — `stage()`'s own line: a later choice
+      // replaces this one, and no other landing may clear it.
+      pending:
+        s.pending?.id === id
+          ? { ...s.pending, bedChosen: chosen ?? s.pending.bedChosen }
+          : { id, bedOrigin: home.bed ?? undefined, bedChosen: chosen },
     }
   }
 
@@ -1293,6 +1319,91 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     expect(red.bedMoves['apt-28'].laneKey).toBe('bed-01')
   })
 
+  // ── the fix round (Greptile 4/5, adjudicated REAL) ────────────────────────
+  // WHAT THE SEED GOT WRONG IN ITS TURN. ⚖ 87 prefers the booking's own origin
+  // room over the board as it stands, which is right about a room the BOARD
+  // chose — an outbound leg's borrowed room answers a question the operator
+  // never asked. It is wrong about a room the OPERATOR chose: a bed-row drag is
+  // the one gesture that says WHICH ROOM (`solveBed` is not even called on it),
+  // and preferring the origin over it meant the next TIME adjustment — a
+  // staff-row drag, a Shift/Alt+Arrow — re-solved from the origin, keep-if-free
+  // kept it, and the operator's own choice was undone by a gesture that was not
+  // about rooms at all.
+  //
+  // 12:00–12:30, where all three rooms are free: the staff leg keeps ベッド3
+  // (⚖ 87's origin preference, working), so the bed-row drag that follows is a
+  // real change of room rather than a no-op the board would have made anyway.
+  const MID = () => span(720, 750)
+
+  it("THE OPERATOR'S OWN ROOM SURVIVES THE NEXT TIME ADJUSTMENT", () => {
+    const moved = landOn(REST, 'apt-28', 'c-03', MID())
+    expect(moved.bedMoves['apt-28'].laneKey).toBe('bed-03')
+
+    // The bed-row drag: 「ベッド1」, out loud. No solve runs, and the change now
+    // carries the room beside the origin it already had.
+    const chosen = landOnBed(moved, 'apt-28', 'bed-01', MID())
+    expect(chosen.bedMoves['apt-28'].laneKey).toBe('bed-01')
+    expect(chosen.pending).toEqual({
+      id: 'apt-28',
+      bedOrigin: { laneKey: 'bed-03', x: HOME().x, w: HOME().w },
+      bedChosen: 'bed-01',
+    })
+
+    // …and then a TIME adjustment — the right edge out to 13:00, which is not an
+    // opinion about rooms. ベッド3 is free across it, so the origin preference
+    // would have taken the booking straight back into it.
+    const nudged = landOn(chosen, 'apt-28', 'c-03', span(720, 780))
+    expect(nudged.bedMoves['apt-28'].laneKey).toBe('bed-01')
+    // The choice is not spent by being obeyed once: the NEXT landing gets it too.
+    expect(nudged.pending?.bedChosen).toBe('bed-01')
+  })
+
+  it('THE OTHER HALF OF IT: without the recording the origin silently takes it back', () => {
+    // The reviewer's exact scenario with the recording site neutered — the same
+    // three gestures on the same board, and the room the operator picked is gone
+    // one nudge later.
+    const chosen = landOnBed(landOn(REST, 'apt-28', 'c-03', MID()), 'apt-28', 'bed-01', MID(), false)
+    expect(chosen.bedMoves['apt-28'].laneKey).toBe('bed-01')
+    expect(chosen.pending?.bedChosen).toBeUndefined()
+    const nudged = landOn(chosen, 'apt-28', 'c-03', span(720, 780))
+    expect(nudged.bedMoves['apt-28'].laneKey).toBe('bed-03')
+  })
+
+  it('a busy CHOSEN room gets the same fresh solve a busy origin gets', () => {
+    const chosen = landOnBed(landOn(REST, 'apt-28', 'c-03', MID()), 'apt-28', 'bed-01', MID())
+    // 14:30–15:00: ベッド1 is 見本 しろう's 仮押さえ (apt-26) and ベッド3 is
+    // apt-29's, so neither the choice nor the origin can be kept — the seed is a
+    // candidate the allocator judges, never an instruction it obeys, and the
+    // popover names the room it actually landed in.
+    const later = landOn(chosen, 'apt-28', 'c-03', span(870, 900))
+    expect(later.bedMoves['apt-28'].laneKey).toBe('bed-02')
+    // Refused ≠ forgotten: it is judged again at the next span, as the origin is.
+    expect(later.pending?.bedChosen).toBe('bed-01')
+  })
+
+  it('a bed-row drag INSIDE the same room chooses nothing', () => {
+    // That gesture is a re-time on the bed row, and reading it as a choice would
+    // pin whichever room the outbound leg borrowed — ⚖ 87 itself, coming back
+    // through the other row. The round trip still comes home.
+    const out = landOn(REST, 'apt-28', 'c-03', OUT())
+    expect(out.bedMoves['apt-28'].laneKey).toBe('bed-01')
+    const retimed = landOnBed(out, 'apt-28', 'bed-01', span(690, 720))
+    expect(retimed.pending?.bedChosen).toBeUndefined()
+    expect(landOn(retimed, 'apt-28', 'c-03', HOME()).bedMoves['apt-28'].laneKey).toBe('bed-03')
+  })
+
+  it('the three rungs are ordered by WHO decided the room', () => {
+    const origin: Move = { laneKey: 'bed-02', x: 0, w: 0 }
+    // The operator's own room outranks the booking's origin…
+    expect(seedBed({ id: 'apt-28', bedOrigin: origin, bedChosen: 'bed-01' }, 'apt-28', 'bed-03')).toBe('bed-01')
+    // …and it stands alone on a change that never had a bed row to snap.
+    expect(seedBed({ id: 'apt-28', bedChosen: 'bed-01' }, 'apt-28', 'bed-03')).toBe('bed-01')
+    // A choice made on ANOTHER booking's staged change is not this one's.
+    expect(seedBed({ id: 'apt-29', bedChosen: 'bed-01' }, 'apt-28', 'bed-03')).toBe('bed-03')
+    // No choice made: ⚖ 87's own order, unchanged.
+    expect(seedBed({ id: 'apt-28', bedOrigin: origin }, 'apt-28', 'bed-03')).toBe('bed-02')
+  })
+
   it('the seed changes NOTHING outside a staged change on this very booking', () => {
     const origin: Move = { laneKey: 'bed-02', x: 0, w: 0 }
     // Nothing staged: the carried room is the answer, exactly as before.
@@ -1328,5 +1439,27 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     )
     expect(SRC.match(/seedBed\(/g) ?? []).toHaveLength(2)
     expect(SRC.match(/solveBed\(/g) ?? []).toHaveLength(5)
+  })
+
+  it('the RECORDING is the bed-row drag alone, and no other landing can clear it', () => {
+    // The replay above stands on these four lines the way it stands on the two
+    // `solveBed` spellings: the harness is `stage()`'s writes by hand, so the
+    // wiring is pinned here rather than executed.
+    //
+    // ONE write, gated on the gesture that chooses a room…
+    expect(SRC).toContain(
+      "const bedChosen = ctx.group === 'beds' && laneChanged ? (sides.bedLane ?? undefined) : undefined",
+    )
+    expect(SRC).toContain('const on = { ...sides, bedChosen }')
+    // …carried onto the change, and PRESERVED by every landing that follows.
+    // Written `bedChosen` alone, either line would be cleared by the very time
+    // adjustment this fix exists to survive.
+    expect(SRC).toContain('bedChosen: bedChosen ?? was.bedChosen')
+    expect(SRC).toContain('bedOrigin: from.bed ?? undefined, bedChosen,')
+    // The keyboard nudge spells its sides WITHOUT one, which is how an edge
+    // nudge says it has no opinion about rooms.
+    const nudge = SRC.slice(SRC.indexOf('function onCardKeyDown('), SRC.indexOf('function park('))
+    expect(nudge).toContain('const on = { ...sides }')
+    expect(nudge).not.toContain('bedChosen:')
   })
 })

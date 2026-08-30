@@ -130,13 +130,34 @@ export function sidesAt(
  *    · an OUTBOUND leg stays honest → the origin room is busy at the new span,
  *      keep-if-free fails there, and the fresh solve fires as before;
  *    · a booking that never had a bed row at all carries no `bedOrigin` (⚖ 45's
- *      own clause), and then the staged room is the only room there is. */
+ *      own clause), and then the staged room is the only room there is.
+ *
+ *  ⚖ FLAG 87 FIX ROUND (Greptile 4/5, 2026-08-30) — AND A ROOM THE OPERATOR
+ *  PICKED OUT LOUD OUTRANKS BOTH. The clause above is right about a room the
+ *  BOARD chose — an outbound leg's borrowed room is the allocator's answer to a
+ *  question the operator never asked. A bed-row drag is not that: it is the
+ *  operator saying WHICH ROOM, and `solveBed` is not even called on it (its own
+ *  doc: 「A BED-ROW drag never calls this」). Preferring the origin over it meant
+ *  the very next TIME adjustment — a staff-row drag, a Shift/Alt+Arrow — re-solved
+ *  from the origin room, keep-if-free kept it, and the operator's choice was
+ *  silently undone by a gesture that was not about rooms at all.
+ *
+ *  So the seed has three rungs, and they are ordered by WHO decided:
+ *    1. `bedChosen` — the operator, by hand, on this very staged change;
+ *    2. `bedOrigin` — the booking's own room, which is what it owns while a
+ *       change is open;
+ *    3. `staged` — the board as it stands, which is all there is when nothing
+ *       is staged.
+ *  Every rung is still a CANDIDATE, never an instruction: `allocateBed` judges
+ *  it, so a chosen room that is busy at the new span loses keep-if-free and the
+ *  fresh solve fires exactly as it does for a busy origin. */
 export function seedBed(
-  pending: { id: string; bedOrigin?: Move } | null,
+  pending: { id: string; bedOrigin?: Move; bedChosen?: string } | null,
   id: string,
   staged: string | null,
 ): string | null {
-  return pending?.id === id ? (pending.bedOrigin?.laneKey ?? staged) : staged
+  if (pending?.id !== id) return staged
+  return pending.bedChosen ?? pending.bedOrigin?.laneKey ?? staged
 }
 
 // ── DOM readers ────────────────────────────────────────────────────────────
