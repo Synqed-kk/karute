@@ -125,6 +125,11 @@ describe('破棄の記録 — the row opens onto what was recorded', () => {
     await renderAndOpen()
     expect(screen.getByText(t('transcriptBelowFloor', { n: 10 }))).toBeInTheDocument()
     expect(screen.queryByText(t('transcriptNone'))).toBeNull()
+    // Rendering the right KEY is not the property — this state exists to say
+    // that nothing was ever transcribed (⚖ the spend gate), which is a
+    // different fact from "the words were not kept". Pinned on the sentence,
+    // because a key comparison passes whatever the sentence happens to say.
+    expect(t('transcriptBelowFloor', { n: 10 })).toContain('行っていません')
   })
 
   it('no words and no duration to explain them: the plain honest absence', async () => {
@@ -149,6 +154,43 @@ describe('破棄の記録 — the row opens onto what was recorded', () => {
     getDiscardTranscript.mockRejectedValue(new Error('offline'))
     await renderAndOpen()
     expect(screen.getByText(t('transcriptFailed'))).toBeInTheDocument()
+  })
+
+  it('both halves are labelled — the claim as well as the evidence', async () => {
+    // ⚖ 8/25 ruling A: the manager reads the staffer's CLAIM against the
+    // EVIDENCE. An opened row is two runs of Japanese prose, and only labelling
+    // the lower one let the reason read as part of the system's record.
+    getDiscardTranscript.mockResolvedValue({
+      ok: true,
+      segments: [{ text: '本日はご来店ありがとうございます。' }],
+      durationSeconds: 125,
+    })
+    await renderAndOpen()
+    expect(screen.getByText(t('reasonLabel'))).toBeInTheDocument()
+    expect(screen.getByText(t('transcriptTitle'))).toBeInTheDocument()
+  })
+
+  it('re-opening after a FAILED read tries again — a failure is not an answer', async () => {
+    // Caching the error like a success made a recoverable blip look settled:
+    // 「読み込めませんでした」 stood until a full page reload, and the row is the
+    // only retry affordance this screen has.
+    getDiscardTranscript.mockRejectedValueOnce(new Error('offline'))
+    await renderAndOpen()
+    expect(screen.getByText(t('transcriptFailed'))).toBeInTheDocument()
+
+    getDiscardTranscript.mockResolvedValue({
+      ok: true,
+      segments: [{ text: '本日はご来店ありがとうございます。' }],
+      durationSeconds: 125,
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText(t('transcriptHide')))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText(t('transcriptShow')))
+    })
+    expect(getDiscardTranscript).toHaveBeenCalledTimes(2)
+    expect(screen.getByText('本日はご来店ありがとうございます。')).toBeInTheDocument()
   })
 
   it('closing and re-opening a row does not re-read core', async () => {

@@ -2295,7 +2295,7 @@
     "discardReasons": {
       "label": "Discard records",
       "title": "Discard records",
-      "description": "The reasons staff gave when discarding a recording. Visible to managers only.",
+      "description": "A record of why recordings were discarded, together with the transcript of each one. Only managers can read it.",
       "byStaffTitle": "By staff member (this month)",
       "countThisMonth": "Discarded this month: {count}",
       "countTotal": "Discards on record: {count} in total",
@@ -2305,13 +2305,14 @@
       "loadFailed": "Could not load the discard records.",
       "empty": "No discards have been recorded yet.",
       "truncated": "Older records are not shown — there are too many to list.",
-      "transcriptShow": "Show what was recorded",
+      "reasonLabel": "Reason written by the staff member",
+      "transcriptShow": "Show the transcript",
       "transcriptHide": "Close",
       "transcriptTitle": "Transcript (full)",
       "transcriptLoading": "Loading the transcript…",
       "transcriptFailed": "Could not load the transcript.",
-      "transcriptBelowFloor": "The recording was under {n} seconds, so there is no transcript.",
-      "transcriptNone": "No transcript was kept for this recording."
+      "transcriptBelowFloor": "The recording was under {n} seconds, so it was never transcribed.",
+      "transcriptNone": "There is no transcript for this recording."
     },
     "auditLog": {
       "label": "Audit log",
@@ -2578,7 +2579,7 @@
     "consentTemplatePlaceholder": "We record this consultation to improve your care…",
     "subscriptionDescription": "Plan, billing, payment method",
     "auditLogDescription": "Access history — APPI compliance + governance",
-    "discardReasonsDescription": "Why recordings were discarded",
+    "discardReasonsDescription": "Why recordings were discarded, with transcripts",
     "storesTab": "Stores",
     "storesDescription": "Manage and add stores",
     "coachingTabDescription": "Coaching settings — coming soon.",

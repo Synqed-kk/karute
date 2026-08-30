@@ -23,10 +23,14 @@
 // they are read side by side, in the same row.
 //
 // ABSENCE IS NEVER A PLACEHOLDER. Three honest answers, no invention: the words
-// when they were kept, "the recording was too short" when the take was under the
-// accidental-tap floor (nothing was ever transcribed — the ⚖ spend gate), and a
-// plain "no transcript" for everything else (a discard from before A2-2, a
-// customer who never consented, a session row already swept).
+// when they were kept, "the recording was never transcribed" when the take was
+// under the accidental-tap floor (the ⚖ spend gate — a fact about what was
+// done, not about what survived), and a plain "there is no transcript" for
+// everything else (a discard from before A2-2, a customer who never consented,
+// a session row already swept). None of them says the words were LOST: three of
+// those four populations never had any. And a read that failed is none of the
+// three — it says so on its own, because "we could not look" is not an answer
+// about the words (getDiscardTranscript refuses to turn one into the other).
 //
 // NOT IN THIS ROUND: the ✓確認済み mark (the SDK's discard row has no update
 // surface — create/list only, verified 1.28.0, so it has no durable home), and
@@ -65,7 +69,12 @@ export function DiscardReasonsSection() {
   function toggleRow(row: DiscardReasonRow) {
     const next = openId === row.id ? null : row.id
     setOpenId(next)
-    if (!next || transcripts[row.id]) return
+    // A cached SUCCESS is kept — re-opening a row must not re-read core. A
+    // cached ERROR is not an answer, so re-opening retries it: the row is the
+    // only retry affordance this screen has, and a failure that stuck until a
+    // full page reload read as a settled outcome.
+    const cached = transcripts[row.id]
+    if (!next || (cached && cached.kind !== 'error')) return
     setTranscripts((prev) => ({ ...prev, [row.id]: { kind: 'loading' } }))
     const put = (s: TranscriptState) => setTranscripts((prev) => ({ ...prev, [row.id]: s }))
     void getDiscardTranscript(row.recordingSessionId).then(
@@ -196,6 +205,14 @@ export function DiscardReasonsSection() {
                       <span className="text-xs font-medium text-foreground">
                         {r.staffName ?? t('unknownStaff')}
                       </span>
+                    </span>
+                    {/* Both halves are labelled, the mock's own shape: ⚖ 8/25
+                        ruling A is that the manager reads the CLAIM against the
+                        EVIDENCE, and an opened row is two runs of Japanese prose
+                        — leaving the upper one unnamed lets a skimming reader
+                        take the staffer's words for the system's record. */}
+                    <span className="text-[11px] font-medium text-muted-foreground">
+                      {t('reasonLabel')}
                     </span>
                     {/* The whole reason, never truncated: a manager reading half
                         an explanation is the failure this screen exists to fix. */}
