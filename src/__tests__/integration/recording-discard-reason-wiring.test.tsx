@@ -97,8 +97,13 @@ jest.mock('@synqed-kk/ui', () => {
  *  (no banner renders); the banner-origin describe block below sets a
  *  below-floor take so RecoveryBanner's belowFloor discard link appears. */
 let mockRecoverableTake: Record<string, unknown> | null = null
+const mockStampDiscardPending = jest.fn(async (_takeId: string, _pending: unknown) => true)
 jest.mock('@/lib/karute/take-store', () => ({
   appendTakeSegment: jest.fn(),
+  // A2-2 — the discard-transcript register.
+  stampDiscardPending: (takeId: string, pending: unknown) =>
+    mockStampDiscardPending(takeId, pending),
+  listPendingDiscardTakes: jest.fn(async () => []),
   createTake: jest.fn(),
   deleteTake: jest.fn(),
   stampTakeSession: jest.fn(),
@@ -109,6 +114,26 @@ jest.mock('@/lib/karute/take-store', () => ({
   loadTakeBlob: jest.fn(async () => new Blob(['audio'])),
   // The logout-wipe test runs the REAL wipeSessionVault through this module.
   clearOwnTakes: jest.fn(async () => {}),
+}))
+/** A2-2 — the persist seam. These tests are about WHAT the record page hands
+ *  it and what it lets the page delete; the module's own behaviour (the
+ *  support gate, the stamp, the staging run) is proven in
+ *  discard-transcript-persist.test.ts. */
+let mockDiscardTranscriptSupported = true
+const mockPersistReviewDiscard = jest.fn(
+  async (_takeId: string | null | undefined, _pending: unknown, _transcript: string) => true,
+)
+const mockRunDiscardTranscript = jest.fn(async (_takeId: string, _pending: unknown) => {})
+jest.mock('@/lib/recording/discard-transcript', () => ({
+  discardTranscriptSupported: () => mockDiscardTranscriptSupported,
+  persistReviewDiscardTranscript: (
+    takeId: string | null | undefined,
+    pending: unknown,
+    transcript: string,
+  ) => mockPersistReviewDiscard(takeId, pending, transcript),
+  runDiscardTranscript: (takeId: string, pending: unknown) =>
+    mockRunDiscardTranscript(takeId, pending),
+  sweepDiscardTranscripts: jest.fn(async () => {}),
 }))
 jest.mock('@/lib/karute/draft', () => ({
   loadDraft: jest.fn(async () => null),
@@ -138,6 +163,9 @@ jest.mock('@/lib/global-recorder', () => ({
   },
 }))
 let mockRecState: 'idle' | 'recording' | 'paused' | 'recorded' = 'recorded'
+/** A2-2: the recorder take's length. 60 s (well above BELOW_FLOOR_SEC) unless a
+ *  test asks for an accidental tap. */
+let mockDurationMs = 60_000
 /** The bound customer. null for every case except the photo-deletion window —
  *  session photos only exist for a take bound to a customer. */
 let mockTarget: { customerId: string; customerName: string } | null = null
@@ -148,7 +176,7 @@ const mockAwaitSession = jest.fn(async (): Promise<string | null> => 'sess-live'
 jest.mock('@/hooks/use-global-recorder', () => ({
   useGlobalRecorder: () => ({
     state: mockRecState,
-    result: mockRecState === 'recorded' ? { blob: new Blob(['a']), durationMs: 60_000 } : null,
+    result: mockRecState === 'recorded' ? { blob: new Blob(['a']), durationMs: mockDurationMs } : null,
     error: null,
     stream: null,
     startedAt: mockRecState === 'idle' ? null : Date.now(),
@@ -284,6 +312,10 @@ beforeEach(() => {
   jest.clearAllMocks()
   resetInbox()
   mockRecState = 'recorded'
+  mockDurationMs = 60_000
+  mockDiscardTranscriptSupported = true
+  mockStampDiscardPending.mockImplementation(async () => true)
+  mockPersistReviewDiscard.mockImplementation(async () => true)
   mockPipelineState = 'idle'
   mockPipelineErrorCode = 'empty-transcript'
   mockServerOwned = false
@@ -992,5 +1024,195 @@ describe('a below-floor take offered at the banner (banner origin)', () => {
       for (let i = 0; i < 8; i++) await Promise.resolve()
     })
     expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ── 7. A2-2 — the WORDS of a reasoned discard ────────────────────────────
+// ⚖ 8/20: a reasoned discard above the accidental-tap floor keeps what was
+// said, so a manager reads the transcript beside the claim. The property under
+// test here is the same one section 1 tests for the reason row: NOTHING is
+// thrown away before the trace exists — and now the audio counts as trace until
+// its words have landed.
+
+describe('A2-2 — persisting the words at discard', () => {
+  const takeStore = () =>
+    jest.requireMock('@/lib/karute/take-store') as { deleteTake: jest.Mock }
+
+  describe('the 破棄 button (recorder origin)', () => {
+    it('above the floor: the take is REGISTERED and held back, not deleted', async () => {
+      recorderTake.takeId = 'take-1'
+      await renderPage()
+      await tapDiscard('discard')
+      await writeReason()
+      await confirmReason()
+
+      expect(mockStampDiscardPending).toHaveBeenCalledTimes(1)
+      expect(mockStampDiscardPending.mock.calls[0]).toEqual([
+        'take-1',
+        expect.objectContaining({
+          recordingSessionId: RECORDER_SESSION,
+          durationSeconds: 60,
+          locale: 'ja',
+        }),
+      ])
+      // The audio survives the discard — only the persist run may delete it.
+      expect(mockDiscardRecording).toHaveBeenCalledWith({ keepTake: true })
+      expect(takeStore().deleteTake).not.toHaveBeenCalled()
+      // …and the persist is kicked immediately, not left to the next mount.
+      expect(mockRunDiscardTranscript).toHaveBeenCalledTimes(1)
+      expect(mockRunDiscardTranscript.mock.calls[0][0]).toBe('take-1')
+    })
+
+    it('BELOW the floor: nothing is registered and the take goes, exactly as before', async () => {
+      recorderTake.takeId = 'take-1'
+      mockDurationMs = 5_000 // an accidental tap — under BELOW_FLOOR_SEC
+      await renderPage()
+      await tapDiscard('discard')
+      await writeReason()
+      await confirmReason()
+
+      // ⚖ the spend gate: an accidental tap never reaches a transcription bill.
+      expect(mockStampDiscardPending).not.toHaveBeenCalled()
+      expect(mockRunDiscardTranscript).not.toHaveBeenCalled()
+      expect(mockDiscardRecording).toHaveBeenCalledWith({ keepTake: false })
+    })
+
+    it('a world with nowhere to persist (the phone) keeps nothing back', async () => {
+      recorderTake.takeId = 'take-1'
+      mockDiscardTranscriptSupported = false
+      await renderPage()
+      await tapDiscard('discard')
+      await writeReason()
+      await confirmReason()
+
+      expect(mockStampDiscardPending).not.toHaveBeenCalled()
+      expect(mockRunDiscardTranscript).not.toHaveBeenCalled()
+      expect(mockDiscardRecording).toHaveBeenCalledWith({ keepTake: false })
+    })
+
+    it('a register that cannot be written lets the take go rather than orphan it', async () => {
+      recorderTake.takeId = 'take-1'
+      mockStampDiscardPending.mockImplementationOnce(async () => false)
+      await renderPage()
+      await tapDiscard('discard')
+      await writeReason()
+      await confirmReason()
+
+      // Nothing will ever collect this audio, so keeping it back would only
+      // leave a discarded take sitting in the store until the TTL.
+      expect(mockDiscardRecording).toHaveBeenCalledWith({ keepTake: false })
+      expect(mockRunDiscardTranscript).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('ReviewScreen’s 破棄 (review origin)', () => {
+    it('persists the words already in hand BEFORE anything deletes the audio', async () => {
+      mockPipelineState = 'review'
+      let releasePersist: (v: boolean) => void = () => {}
+      mockPersistReviewDiscard.mockImplementationOnce(
+        () => new Promise<boolean>((res) => { releasePersist = res }),
+      )
+      await renderPage()
+      await tapDiscard('review-discard')
+      await writeReason()
+      await confirmReason()
+
+      // Core has accepted the discard, the persist is in flight — and the take
+      // is still there. This ordering IS the feature: a delete that beat the
+      // persist would destroy the only copy of the words.
+      expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
+      expect(takeStore().deleteTake).not.toHaveBeenCalled()
+      expect(mockPipelineReset).not.toHaveBeenCalled()
+      // The pipeline's own transcript is what gets handed over — no re-run.
+      expect(mockPersistReviewDiscard.mock.calls[0]).toEqual([
+        'take-1',
+        expect.objectContaining({ recordingSessionId: PIPELINE_SESSION, durationSeconds: 60 }),
+        't',
+      ])
+
+      await act(async () => {
+        releasePersist(true)
+        for (let i = 0; i < 8; i++) await Promise.resolve()
+      })
+      expect(takeStore().deleteTake).toHaveBeenCalledWith('take-1')
+      expect(mockPipelineReset).toHaveBeenCalledTimes(1)
+    })
+
+    it('a persist that failed keeps the take for the audio retry — the UI cleanup still runs', async () => {
+      mockPipelineState = 'review'
+      mockPersistReviewDiscard.mockImplementationOnce(async () => false)
+      await renderPage()
+      await tapDiscard('review-discard')
+      await writeReason()
+      await confirmReason()
+
+      // The words did not land, so the audio they can be recovered from stays.
+      expect(takeStore().deleteTake).not.toHaveBeenCalled()
+      // Everything else about the discard completed — the take is not offered
+      // back (the register excludes it) and the pipeline is idle again.
+      const { clearDraft } = jest.requireMock('@/lib/karute/draft') as { clearDraft: jest.Mock }
+      expect(clearDraft).toHaveBeenCalledTimes(1)
+      expect(mockPipelineReset).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  // The negative census. These three arms have no words to keep — by
+  // definition, not by omission — and must behave exactly as they did before
+  // A2-2 existed.
+  describe('the arms that keep NOTHING', () => {
+    it('pipeline-error (the empty-transcript refusal): nothing registered, take deleted', async () => {
+      mockPipelineState = 'error'
+      await renderPage()
+      await tapDiscard('discardTakeAction')
+      await writeReason()
+      await confirmReason()
+
+      expect(mockStampDiscardPending).not.toHaveBeenCalled()
+      expect(mockPersistReviewDiscard).not.toHaveBeenCalled()
+      expect(mockRunDiscardTranscript).not.toHaveBeenCalled()
+      expect(takeStore().deleteTake).toHaveBeenCalledWith('take-1')
+    })
+
+    it('banner (a below-floor take at the recovery offer): nothing registered, take deleted', async () => {
+      mockRecState = 'idle'
+      mockRecoverableTake = {
+        takeId: 'take-bf',
+        target: {
+          customerId: 'cust-bf',
+          customerName: 'テスト花子',
+          karuteNumber: '#00099',
+          appointmentId: 'appt-bf',
+        },
+        recordingSessionId: 'sess-bf',
+        mimeType: 'audio/webm',
+        startedAt: Date.parse('2026-08-26T05:00:00Z'),
+        updatedAt: Date.parse('2026-08-26T05:00:05Z'),
+      }
+      await renderPage()
+      await waitFor(() => screen.getByText('discardTakeAction'))
+      await tapDiscard('discardTakeAction')
+      await writeReason()
+      await confirmReason()
+
+      expect(mockStampDiscardPending).not.toHaveBeenCalled()
+      expect(mockPersistReviewDiscard).not.toHaveBeenCalled()
+      expect(mockRunDiscardTranscript).not.toHaveBeenCalled()
+      expect(takeStore().deleteTake).toHaveBeenCalledWith('take-bf')
+    })
+
+    it('a REFUSED discard registers nothing — the words follow the trace, never precede it', async () => {
+      recorderTake.takeId = 'take-1'
+      mockDiscardWithReason.mockImplementationOnce(
+        async () => ({ ok: false, error: 'failed' }) as never,
+      )
+      await renderPage()
+      await tapDiscard('discard')
+      await writeReason()
+      await confirmReason()
+
+      expect(mockStampDiscardPending).not.toHaveBeenCalled()
+      expect(mockRunDiscardTranscript).not.toHaveBeenCalled()
+      expect(mockDiscardRecording).not.toHaveBeenCalled()
+    })
   })
 })
