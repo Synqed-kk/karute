@@ -822,6 +822,7 @@
     "recoverAlreadyRedeemed": "This visit's pack session is already used",
     "recoverBurnCheckFailed": "Could not check the pack. Please try again.",
     "recoverPackSaleLost": "The pack sale was lost. Please register it from the customer page.",
+    "discardTakeAction": "Discard recording",
     "discardReason": {
       "title": "Reason for discarding",
       "fieldLabel": "Reason",

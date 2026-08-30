@@ -36,6 +36,7 @@ import { sessionPhotoStore } from '@/lib/karute/session-photos'
 import { saveKaruteRecordInline } from '@/actions/karute'
 import { getRecoveryDayFacts } from '@/actions/recovery'
 import { discardRecordingWithReason } from '@/actions/recording-discard'
+import { BELOW_FLOOR_SEC } from '@/lib/recording/discard-floor'
 import { myDiscardCountThisMonth } from '@/actions/recording-discards'
 import type { RecoveryDayFacts } from '@/lib/karute/recovery-facts'
 import { formatCompactDateJst, hmInJst, ymdInJst } from '@/lib/date/jst'
@@ -578,11 +579,17 @@ export function RecordPageView({
   const [discardingPhotos, setDiscardingPhotos] = useState(false)
 
   // P5-A (⚖ 8/17): the REQUIRED written-reason gate. One state, one dialog,
-  // one confirm handler for BOTH deliberate-discard chokepoints — the value
-  // says only which one is asking, so the two sites cannot drift apart.
+  // one confirm handler for every deliberate-discard chokepoint — the value
+  // says only which one is asking, so the sites cannot drift apart.
   // 'recorder' = the 破棄 button on the recorded-take card (after the photos
   // confirm, when it applies); 'review' = ReviewScreen's 破棄.
-  const [discardReasonFor, setDiscardReasonFor] = useState<'recorder' | 'review' | null>(null)
+  // ⚖ 8/26 rider (banner dead-loop exit): 'pipeline-error' = the empty-
+  // transcript refusal card (mirrors 'review' exactly — the take was handed
+  // to the pipeline long ago); 'banner' = a below-floor take offered at the
+  // recovery banner (its own snapshot latch — see bannerDiscardSnapshotRef).
+  const [discardReasonFor, setDiscardReasonFor] = useState<
+    'recorder' | 'review' | 'pipeline-error' | 'banner' | null
+  >(null)
   const [discardReasonSubmitting, setDiscardReasonSubmitting] = useState(false)
   const [discardReasonError, setDiscardReasonError] = useState<string | null>(null)
   // The REF is the real single-flight guard — state reads stale mid-tick, so
@@ -605,6 +612,17 @@ export function RecordPageView({
   // Same latch idiom as outcomeResolvedRef, keyed by take so it can only ever
   // stop the take it was opened for. null = no gate open for the recorder.
   const discardIntentRef = useRef<{ takeId: string | null } | null>(null)
+  // ⚖ 8/26 rider — the 'banner' origin's offer, SNAPSHOT AT OPEN (wiring spec
+  // item 2): confirm acts on this, never on live offer/offerBinding/
+  // offerDurationSec, the same read-it-first rule discardIntentRef follows.
+  // Null for every other origin.
+  const bannerDiscardSnapshotRef = useRef<{
+    takeId: string
+    recordingSessionId: string | null
+    customerId: string | null
+    appointmentId: string | null
+    durationSec: number
+  } | null>(null)
 
   // Single-flight guard for the outcome dialog's 保存: a double-tap must never
   // create two pack rows or fire two redemptions (live prod bug — the DB's
@@ -911,11 +929,24 @@ export function RecordPageView({
   // where it applies — it decides what happens to the PHOTOS — and this dialog
   // is always LAST, the final commitment gate for the discard itself.
 
-  function openDiscardReason(origin: 'recorder' | 'review') {
+  function openDiscardReason(origin: 'recorder' | 'review' | 'pipeline-error' | 'banner') {
     // Latch WHICH take this gate is for, at the moment it opens. Only the
     // recorder chokepoint can race 使用 — the review take was handed to the
     // pipeline long before, so there is nothing left to invalidate there.
     discardIntentRef.current = origin === 'recorder' ? { takeId: globalRecorder.takeId } : null
+    // ⚖ 8/26 rider — the banner offer, frozen at open. offer.kind === 'take'
+    // always holds here: onDiscard is wired only when belowFloor is true,
+    // which is itself gated on offer.kind === 'take'.
+    bannerDiscardSnapshotRef.current =
+      origin === 'banner' && offer?.kind === 'take'
+        ? {
+            takeId: offer.take.takeId,
+            recordingSessionId: offer.take.recordingSessionId,
+            customerId: offerBinding?.customerId ?? null,
+            appointmentId: offerBinding?.appointmentId ?? null,
+            durationSec: offerDurationSec,
+          }
+        : null
     setDiscardReasonError(null)
     setDiscardReasonFor(origin)
   }
@@ -931,7 +962,7 @@ export function RecordPageView({
   }
 
   /**
-   * The one confirm handler for both chokepoints.
+   * The one confirm handler for every chokepoint.
    *
    * FAILS CLOSED, deliberately. A deliberate discard is the one recording
    * event that leaves no trace anywhere else, so if the trace cannot be
@@ -948,28 +979,88 @@ export function RecordPageView({
     setDiscardReasonSubmitting(true)
     setDiscardReasonError(null)
     try {
+      // A banner gate with no frozen snapshot must fail closed HERE — never
+      // fall through to the recorder arm below, which would act on the LIVE
+      // recorder singleton (awaitRecordingSessionId/globalRecorder.takeId/
+      // result/saveBinding) for a take that gate was never opened for. Not
+      // reachable through today's wiring (onDiscard only wires for a
+      // below-floor take, and openDiscardReason snapshots in the same
+      // closure), but a wrong-subject fall-through is exactly what every
+      // other latch in this function guards against.
+      if (origin === 'banner' && !bannerDiscardSnapshotRef.current) {
+        setDiscardReasonError(t('discardReason.failed'))
+        return
+      }
+      // Line-audit BLOCKER-2: the auto-finish effect can start a recovery
+      // save with NO tap at all, and this dialog outlives the banner (it
+      // renders from the main return, independent of the banner's `{offer &&
+      // ...}` guard). A take the pipeline is already processing — or has
+      // already saved and deleted — must never receive a reason row: a
+      // discard row filed against a SAVED session would outrank the record
+      // in the inbox fold (evidence corruption). `recoveredTake` is read
+      // here, pre-await, off THIS render's closure — the same freshness the
+      // shipped takeChanged check gets from reading globalRecorder.takeId
+      // live; no new ref needed.
+      //
+      // THE FULL SEAL (Greptile P1, resolved): this check alone does not
+      // cover a save that starts DURING the awaits below (the mint retry).
+      // It doesn't need to — the awaits are protected from the OTHER side.
+      // discardReasonSubmittingRef.current is set true above, before any
+      // await, and startRecoveryFlow refuses to start ANY save (tap, inbox,
+      // auto-finish, repoint continuation — every entry routes through it)
+      // while that ref is true. So a save can exist at this gate only if it
+      // started BEFORE this confirm call began, which this pre-await check
+      // already catches on the live ref. A dedicated post-await recheck was
+      // built and mutation-tested here first; the mutation run proved it
+      // vacuous (removing it changed no test outcome), because the reverse
+      // guard already makes its precondition unreachable. Removed rather
+      // than shipped as armor that cannot fire.
+      if (
+        origin === 'banner' &&
+        (recoverySavingRef.current ||
+          recoveredTake?.takeId !== bannerDiscardSnapshotRef.current?.takeId)
+      ) {
+        setDiscardReasonError(t('discardReason.takeChanged'))
+        return
+      }
       // Live singleton, not the render snapshot — same rule the rest of this
       // component follows for anything read across an await.
       const ctx = globalPipeline.context
+      // ⚖ 8/26 rider: 'pipeline-error' mirrors 'review' EXACTLY — both key off
+      // the pipeline's captured context, because in both cases the take was
+      // handed to the pipeline long before this gate opened.
+      const ctxKeyed = origin === 'review' || origin === 'pipeline-error'
+      const bannerSnap = origin === 'banner' ? bannerDiscardSnapshotRef.current : null
       // The recorder mints its session id in parallel with getUserMedia, so a
       // fast discard can beat it (G14). Bounded await, exactly as the save
-      // path does; the review path's take was already handed off with whatever
-      // id it had, so there is nothing left to wait for there.
-      let recordingSessionId =
-        origin === 'review' ? (ctx?.recordingSessionId ?? null) : await awaitRecordingSessionId()
+      // path does; the ctx-keyed arms' take was already handed off with
+      // whatever id it had, and the banner arm reads its own frozen snapshot —
+      // neither has anything left to wait for on the LIVE recorder.
+      let recordingSessionId = ctxKeyed
+        ? (ctx?.recordingSessionId ?? null)
+        : bannerSnap
+          ? bannerSnap.recordingSessionId
+          : await awaitRecordingSessionId()
       if (!recordingSessionId) {
         // Not "slow" — FAILED. The mint runs once at start() and its promise
         // stays settled, so awaiting it again can only ever return null again;
         // without this the gate dead-ends forever and its retry copy lies. ONE
-        // re-mint, bounded the same way, then fail closed honestly. The review
-        // arm keys off the pipeline context because the recorder was reset at
-        // hand-off and no longer knows this take's customer or take id.
-        recordingSessionId =
-          origin === 'review'
+        // re-mint, bounded the same way, then fail closed honestly. The
+        // ctx-keyed arms key off the pipeline context because the recorder was
+        // reset at hand-off and no longer knows this take's customer or take
+        // id; the banner arm keys off its own snapshot for the same reason —
+        // its take is not the recorder's live one either.
+        recordingSessionId = ctxKeyed
+          ? await globalRecorder.retryRecordingSessionMint({
+              customerId: ctx?.appointmentCustomerId ?? null,
+              appointmentId: ctx?.appointmentId ?? null,
+              takeId: ctx?.takeId ?? null,
+            })
+          : bannerSnap
             ? await globalRecorder.retryRecordingSessionMint({
-                customerId: ctx?.appointmentCustomerId ?? null,
-                appointmentId: ctx?.appointmentId ?? null,
-                takeId: ctx?.takeId ?? null,
+                customerId: bannerSnap.customerId,
+                appointmentId: bannerSnap.appointmentId,
+                takeId: bannerSnap.takeId,
               })
             : await globalRecorder.retryRecordingSessionMint()
       }
@@ -987,17 +1078,30 @@ export function RecordPageView({
       }
       const res = await discardRecordingWithReason({
         recordingSessionId,
-        takeId: (origin === 'review' ? ctx?.takeId : globalRecorder.takeId) ?? null,
+        takeId:
+          (ctxKeyed ? ctx?.takeId : bannerSnap ? bannerSnap.takeId : globalRecorder.takeId) ??
+          null,
         reason,
-        durationSeconds:
-          origin === 'review' ? (ctx?.duration ?? 0) : (result?.durationMs ?? 0) / 1000,
+        durationSeconds: ctxKeyed
+          ? (ctx?.duration ?? 0)
+          : bannerSnap
+            ? bannerSnap.durationSec
+            : (result?.durationMs ?? 0) / 1000,
         // `|| null`: a walk-in target carries id='' — the same coercion the
         // save binding does, so the receipt records null rather than ''.
         customerId:
-          (origin === 'review' ? ctx?.appointmentCustomerId : saveBinding.customerId) || null,
+          (ctxKeyed
+            ? ctx?.appointmentCustomerId
+            : bannerSnap
+              ? bannerSnap.customerId
+              : saveBinding.customerId) || null,
         appointmentId:
-          (origin === 'review' ? ctx?.appointmentId : saveBinding.appointmentId) || null,
-        pipeline: origin === 'review' && globalPipeline.serverOwned ? 'server' : 'in_tab',
+          (ctxKeyed
+            ? ctx?.appointmentId
+            : bannerSnap
+              ? bannerSnap.appointmentId
+              : saveBinding.appointmentId) || null,
+        pipeline: ctxKeyed && globalPipeline.serverOwned ? 'server' : 'in_tab',
         jobState: null,
       })
       if (!res.ok) {
@@ -1008,7 +1112,32 @@ export function RecordPageView({
       // Ids read BEFORE the await, handed in — the same read-it-first rule
       // proceedDiscard obeys for the recorder singleton.
       if (origin === 'review') finishReviewDiscard(recordingSessionId, ctx?.takeId)
-      else {
+      else if (origin === 'pipeline-error') {
+        // Line-audit BLOCKER-1: this origin never owns a draft.
+        // finishReviewDiscard's clearDraft() is correct for 'review' — draft.ts
+        // is single-slot, and ReviewScreen (saveDraft's only caller in the
+        // repo) has just written THIS run's draft, so the clear can only ever
+        // hit its own. A pipeline-error run never reached 'review' (the run
+        // threw, or the server job never had a client-side result at all), so
+        // it never wrote a draft — clearDraft() here could only destroy a
+        // FOREIGN crash-surviving draft from an unrelated earlier session.
+        // Inline cleanup, scoped to this run's own take only.
+        if (ctx?.takeId) void deleteTake(ctx.takeId)
+        setRecoveredTake((prev) => (prev && prev.takeId === ctx?.takeId ? null : prev))
+        globalPipeline.reset()
+      } else if (bannerSnap) {
+        // ⚖ 8/26 rider case (b): idle cleanup only — no pipeline reset (nothing
+        // is running); harmless if added, but pointless, so it stays out.
+        void deleteTake(bannerSnap.takeId)
+        // SHOULD-FIX-3: keyed to the snapshot, not unconditional — a take
+        // swap during the awaits above (handleInboxSaveTake promoting a
+        // different take into recoveredTake) must clear THAT offer, never a
+        // take this confirm never touched. Defense in depth behind the
+        // BLOCKER-2 guard above, which already refuses a swap caught before
+        // the awaits; this covers one that lands during them.
+        setRecoveredTake((prev) => (prev && prev.takeId === bannerSnap.takeId ? null : prev))
+        setRepointed(null)
+      } else {
         // The photos die HERE, past the gate — never before it. Still ahead of
         // proceedDiscard() because its discardRecording() wipes the strip these
         // reads depend on (the ordering constraint that was always in this
@@ -1022,9 +1151,10 @@ export function RecordPageView({
       // still 'recorded' and useRecordingGen had not moved yet, so for the
       // whole deletion window a 使用 tap passed every guard and handed
       // transcription a take the SERVER HAD ALREADY DISCARDED. The latch has
-      // to outlive the window it was built to cover. (The review arm never had
-      // a latch to release — openDiscardReason sets null for it — so this is a
-      // no-op there, kept on the shared line so the two arms cannot drift.)
+      // to outlive the window it was built to cover. (The review/pipeline-
+      // error/banner arms never had a latch to release — openDiscardReason
+      // sets null for all three — so this is a no-op there, kept on the
+      // shared line so the arms cannot drift.)
       discardIntentRef.current = null
     } finally {
       discardReasonSubmittingRef.current = false
@@ -1495,7 +1625,25 @@ export function RecordPageView({
    *  argument; nothing re-reads `offer`/`destination`/`ticket` from render
    *  scope, so the flow survives whatever the page does underneath it. */
   function startRecoveryFlow(dest: RecoveryDestination, autoFinish = false) {
-    if (recoverySavingRef.current || !offer || !offerDayYmd || factsBlockSave) return
+    // Greptile P1, reverse direction: a save must not START while a discard
+    // gate is mid-commit — confirmDiscardReason's pre-await check (above the
+    // mint retry) only catches a save already running BEFORE the confirm;
+    // this closes the other side by refusing any NEW save for as long as
+    // discardReasonSubmittingRef stays true, which spans the discard's own
+    // server round-trip too. The two guards together are the whole seal — no
+    // save can start anywhere between a discard confirm and its landing.
+    // Accepted: if this spends the auto-finish attempt (autoRunRef) while a
+    // discard is submitting, that's fine — a failed discard leaves the take
+    // at the banner for a manual save, a successful one leaves nothing to
+    // save.
+    if (
+      recoverySavingRef.current ||
+      discardReasonSubmittingRef.current ||
+      !offer ||
+      !offerDayYmd ||
+      factsBlockSave
+    )
+      return
     // Recomputed for THIS destination rather than reusing the render's
     // `ticket`: a pick made in the picker lands here before React has
     // re-rendered with the new destination, and a stale null pack would hide a
@@ -2527,6 +2675,14 @@ export function RecordPageView({
           code={pipeline.error}
           onCancel={() => globalPipeline.reset()}
           onRetry={() => globalPipeline.retry()}
+          // ⚖ 8/26 rider, ruled case (a): the refusal is known and the run
+          // still has a take — the exact surface the field's dead loop passes
+          // through (banner save → empty-transcript → キャンセル → re-offer).
+          onDiscard={
+            pipeline.error === 'empty-transcript' && pipeline.context?.takeId
+              ? () => openDiscardReason('pipeline-error')
+              : undefined
+          }
         />
       )}
 
@@ -2574,6 +2730,20 @@ export function RecordPageView({
           saving={recoverySaving}
           // Disabled while the day's truth is still in flight.
           saveDisabled={factsBlockSave}
+          // ⚖ 8/26 rider, ruled case (b): below-floor TAKES only — a draft
+          // always carries a transcript, so it never qualifies.
+          // ponytail: the floor reads offerDurationSec — a store-timestamp
+          // delta (~5s flush granularity, take-store.ts), not a measured
+          // audio length. Accepted: it's the SAME number the receipt's
+          // durationSeconds carries (below), so the UI gate and the below_floor
+          // flag can never disagree — a late-landing chunk only ever loses the
+          // exit (surface (a) still covers it), never fabricates one.
+          belowFloor={offer.kind === 'take' && offerDurationSec < BELOW_FLOOR_SEC}
+          onDiscard={
+            offer.kind === 'take' && offerDurationSec < BELOW_FLOOR_SEC
+              ? () => openDiscardReason('banner')
+              : undefined
+          }
         />
       )}
 
