@@ -130,6 +130,14 @@ export interface PendingChange {
    *  which meant a bed-side move had nothing to revert the person to. Absent for
    *  a booking with no bed row, and for a creation (whose 元に戻す deletes it). */
   bedOrigin?: Move
+  /** ⚖ flag 87 fix round (2026-08-30) — THE ROOM THE OPERATOR PICKED BY HAND,
+   *  as opposed to the one the allocator solved for them. Written only by a
+   *  BED-ROW drag that actually changed room — the one gesture that says WHICH
+   *  ROOM out loud — replaced by a later such drag, and never cleared by a time
+   *  adjustment, because a staff-row drag or a Shift/Alt+Arrow is not an opinion
+   *  about rooms. `seedBed` reads it ahead of `bedOrigin`; absent on every
+   *  change nobody has bed-dragged. */
+  bedChosen?: string
   dayOffset: number
   dayLabel: string
   /** ⚖ 46 forerunner — the board it is staged on. Without it the bar re-ran its
