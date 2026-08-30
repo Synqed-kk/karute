@@ -47,7 +47,7 @@
 // still arrive as PROPS, decided once in `karute.ts`.
 
 import Link from 'next/link'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import {
   keepCardOffHeading,
@@ -271,6 +271,9 @@ export function KaruteScreen(props: KaruteProps) {
   // pressed, so ← can put focus back exactly where it came from.
   const backRef = useRef<HTMLButtonElement>(null)
   const openedFrom = useRef<string | null>(null)
+  // …and the ⇆ that discloses the 顧客変更 warning, for the same reason: the
+  // warning's own controls are gone from the DOM the moment it closes.
+  const swapRef = useRef<HTMLButtonElement>(null)
 
   // The tour's own nodes: the room root it walks, the ? it came from and goes
   // back to, the card it measures, and the 次へ it hands the keyboard.
@@ -419,20 +422,36 @@ export function KaruteScreen(props: KaruteProps) {
    *
    *  ⚠ AND THE FIX IS NOT A SECOND CONSTANT. There is no CSS way to read one
    *  element's height from another's rule, so the height is measured here and
-   *  written onto the room root as `--kr-strip-h`; the sheet spends it beside
-   *  the strip's own sticky offset, which it already owns. A ResizeObserver on
-   *  the strip catches BOTH things that change it — the viewport crossing a
-   *  wrap point, and a record whose 目次 is a different length — with one
-   *  listener and no width table for anyone to keep in sync. */
+   *  written as `--kr-strip-h`; the sheet spends it beside the strip's own
+   *  sticky offset, which it already owns. A ResizeObserver on the strip
+   *  catches BOTH things that change it — the viewport crossing a wrap point,
+   *  and a record whose 目次 is a different length — with one listener and no
+   *  width table for anyone to keep in sync.
+   *
+   *  ⚠ IT IS WRITTEN ON THE SCROLLING ROOT, AND THAT IS THE F5-4 FIX. The
+   *  clearance used to be `scroll-margin-top` on every landing CARD, which
+   *  answers the 目次 jump and nothing else: browser focus-scrolling scrolls
+   *  the focused DESCENDANT, and a button inside a card carries no margin of
+   *  its own — so tabbing to 詳細記録を編集 at 1280 parked 20 of its 28 pixels
+   *  under the same bar the cards clear. One home answers both: the room's page
+   *  scrolls the DOCUMENT (⚖ page-scroll), so the clearance belongs to the
+   *  document as `scroll-padding-top`, and every anchor jump and every focus
+   *  scroll obeys it without a single per-element rule. The measurement has to
+   *  live where the scroller can read it, so it is set on `documentElement` —
+   *  the room's own `--kr-` prefix, and removed again when the record closes,
+   *  so nothing of this room outlives it. */
   useLayoutEffect(() => {
     const strip = stripRef.current
-    const root = rootRef.current
-    if (!strip || !root) return
+    if (!strip) return
+    const root = document.documentElement
     const measure = () => root.style.setProperty('--kr-strip-h', `${strip.getBoundingClientRect().height}px`)
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(strip)
-    return () => ro.disconnect()
+    return () => {
+      ro.disconnect()
+      root.style.removeProperty('--kr-strip-h')
+    }
   }, [detailOpen])
 
   /** Narrowing the list starts the walk again. A reader who filters to 下書き
@@ -520,12 +539,31 @@ export function KaruteScreen(props: KaruteProps) {
     setTourPos((was) => (was && samePos(was, next) ? was : next))
   }, [tourIdx, tourTick, tourStep])
 
-  // ONE keyboard listener for the two things that can be open, innermost first:
-  // while the tour is up it owns Escape (and the arrows walk the ring), and only
-  // once it is closed does Escape reach the open record. Two listeners would
-  // both fire on one Escape and close both at once.  Bound only while something
-  // IS open, and removed with it. The table's own ↑↓ is a LOCAL handler on the
-  // table rather than a third document listener, so it cannot reach either.
+  /** ⚠ THE WAY OUT OF THE WARNING IS ONE FUNCTION, NOT TWO (F5-2 · F5-3). The
+   *  顧客変更 disclosure has two exits — its own 戻る and the Escape key — and
+   *  they disagreed: 戻る closed the warning and dropped focus onto `<body>`,
+   *  because the button it was pressed on is gone from the DOM by the next
+   *  paint; Escape closed the warning AND the record underneath it. Both go
+   *  through here now, so the two ways out of one box cannot drift apart, and
+   *  focus returns to the ⇆ that opened it — the room's own pattern everywhere
+   *  else (← on open, the row on close, 次へ and the ? on the tour). The focus
+   *  is taken BEFORE the state change lands, while the warning is still on
+   *  screen, so nothing is ever focused into a subtree that is being removed. */
+  const closeReassign = useCallback(() => {
+    swapRef.current?.focus()
+    setReassignOpen(false)
+  }, [])
+
+  // ONE keyboard listener for the THREE things that can be open, innermost
+  // first: while the tour is up it owns Escape (and the arrows walk the ring);
+  // once it is closed Escape reaches the 顧客変更 warning; and only when that is
+  // closed too does it reach the record. Two listeners would both fire on one
+  // Escape and close two layers at once — and so did ONE listener that knew
+  // about only two of the three, which is exactly what F5-2 measured: a single
+  // press backed the reader out of the rights-gated, audit-logged flow AND out
+  // of the record they were reading. Bound only while something IS open, and
+  // removed with it. The table's own ↑↓ is a LOCAL handler on the table rather
+  // than a fourth document listener, so it cannot reach any of them.
   useEffect(() => {
     if (!detailOpen && !tourOpen) return
     const onKey = (e: KeyboardEvent) => {
@@ -535,11 +573,13 @@ export function KaruteScreen(props: KaruteProps) {
         if (e.key === 'ArrowLeft') setTourIdx((i) => wrapStep(i - 1, tourRectsRef.current.length))
         return
       }
-      if (e.key === 'Escape') setSelected(null)
+      if (e.key !== 'Escape') return
+      if (reassignOpen) closeReassign()
+      else setSelected(null)
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [detailOpen, tourOpen])
+  }, [detailOpen, tourOpen, reassignOpen, closeReassign])
 
   // The hole is drawn in viewport coordinates, so anything that moves the page
   // under it — a scroll, a resize, the ≤743 band arriving — has to re-measure.
@@ -609,11 +649,22 @@ export function KaruteScreen(props: KaruteProps) {
     <div className={`${ROOT}${detailOpen ? ' is-detail' : ''}`} ref={rootRef}>
       {/* STEP 0. The head declares itself like every other section, so the walk
           opens on what this page is FOR before it starts pointing at parts of
-          it — which is where the standing explainer paragraph went. */}
+          it — which is where the standing explainer paragraph went.
+
+          ⚠ AND ITS SENTENCE IS TRUE ON BOTH SCREENS (F5-1). The head is the one
+          declaration this room renders on the table AND inside a record, so a
+          sentence about rows, about searching or about a button that is not
+          there would be the tour telling a reader about a surface they cannot
+          see — the same defect the furniture below was moved for. What stays
+          here is what never stops being true: what this page is, where the
+          records come from, and how the two screens swap. Everything that
+          belongs to ONE screen is declared on that screen's own element and
+          drops with it, which is the room's standing rule rather than a new
+          one. */}
       <header
         className="kr-head"
         data-guide-title="カルテ"
-        data-guide="この店舗で行った施術の記録が、新しい順に並ぶ画面です。カルテはスマホのアプリで施術中に作られ、この画面ではそれを読み返せます。行を選ぶと1件の中身が開きます。＋新規カルテからは、このパソコンでも同じ手順でカルテを作れるようになります。"
+        data-guide="この店舗で行った施術の記録を読む画面です。カルテはスマホのアプリで施術中に作られ、この画面ではそれを読み返せます。一覧から1件を選ぶとその中身が開き、「カルテ一覧」で表に戻ります。"
       >
         <div className="kr-eyebrow">{props.dateline}</div>
         <div className="kr-titleline">
@@ -636,73 +687,102 @@ export function KaruteScreen(props: KaruteProps) {
             ?
           </button>
         </div>
-        <p className="kr-subtitle">{props.subtitle}</p>
-        {/* ⚖ THE HONEST STATUS LINE (§7a) + ⚖ self-explaining numbers: three
-            labelled facts, each saying WHAT it counts — the store's real month
-            census, how many records the current narrowing matches, and how many
-            of those the walk has actually put on screen.
-            ⚠ 条件に一致 IS THERE BECAUSE TWO NUMBERS WERE NOT ENOUGH. 「今月 30件・
-            表示中 200件」 is what the 200-record world printed on the first probe
-            run: both figures were true, and side by side they read as a
-            contradiction, because 今月 is a MONTH and 表示中 is a LIST. The
-            middle number is what 表示中 is a fraction OF, so the pair stops
-            inviting a comparison it was never making.
-            It is `matched.length` — the SAME call the pressed chip's own count
-            reads, rendered twice rather than counted twice (⚖ A8). */}
-        {/* ⚖ THE CANON MOCK'S LIST TOOLBAR (MOCK-karute-list.html:113 · 344-347):
-            the count line and the room's primary action on ONE row — which is
-            also the PHONE's own pairing, status line then ＋新規カルテ
-            (KaruteRecordListView.tsx:968-1002). The mock draws the pair above
-            the subtitle; this room's subtitle comes first and the count line
-            after it, and that order is left alone — 「paired with the title,
-            before every filter」 is what the canon actually asks for, and both
-            are still true here. */}
-        <div className="kr-toolbar">
-          <p className="kr-status" role="status" aria-live="polite">
-            {props.monthLabel}・条件に一致 {matched.length}件・表示中 {visible.length}件
-          </p>
-          {/* ═══ ⚖ LIAM 8/31 — ＋新規カルテ RETURNS TO THE COMPUTER DOOR ═══
-              (deviation K-5, overturned; registry ⑩)
+        {/* ═══ ⚠ THE LIST'S OWN FURNITURE, ON THE LIST ONLY (F5-1) ═══
+            ⚖ D2 (one screen at a time) reaches the HEAD too, and the honest
+            status line is what makes it a law rather than a preference: the
+            room's own rule is 「the head can never claim a number the list is
+            not showing」, and with a record open 表示中 8件 was printed over a
+            screen showing one record and zero rows. The subtitle beside it
+            described 一覧・行・検索・絞り込み, none of which were there, and the
+            round before this one added a third list-scoped element — the
+            loudest one, a primary ACTION.
+            So the three of them render on the LIST and nowhere else. What the
+            head keeps on both screens is the page's identity — the eyebrow,
+            the カルテ title and the ? that opens the walk; the record screen's
+            own context is its breadcrumb, its person header and its sticky
+            strip, which is where canon's second PAGE puts it too. */}
+        {!detailOpen && (
+          <>
+            <p className="kr-subtitle">{props.subtitle}</p>
+            {/* ⚖ THE HONEST STATUS LINE (§7a) + ⚖ self-explaining numbers: three
+                labelled facts, each saying WHAT it counts — the store's real month
+                census, how many records the current narrowing matches, and how many
+                of those the walk has actually put on screen.
+                ⚠ 条件に一致 IS THERE BECAUSE TWO NUMBERS WERE NOT ENOUGH. 「今月 30件・
+                表示中 200件」 is what the 200-record world printed on the first probe
+                run: both figures were true, and side by side they read as a
+                contradiction, because 今月 is a MONTH and 表示中 is a LIST. The
+                middle number is what 表示中 is a fraction OF, so the pair stops
+                inviting a comparison it was never making.
+                It is `matched.length` — the SAME call the pressed chip's own count
+                reads, rendered twice rather than counted twice (⚖ A8). */}
+            {/* ⚖ THE CANON MOCK'S LIST TOOLBAR (MOCK-karute-list.html:113 · 344-347):
+                the count line and the room's primary action on ONE row — which is
+                also the PHONE's own pairing, status line then ＋新規カルテ
+                (KaruteRecordListView.tsx:968-1002). The mock draws the pair above
+                the subtitle; this room's subtitle comes first and the count line
+                after it, and that order is left alone — 「paired with the title,
+                before every filter」 is what the canon actually asks for, and both
+                are still true here.
+                ⚠ AND IT DECLARES ITSELF (F5-1). The head's own sentence has to be
+                true on both screens, so the two things that belong to the LIST —
+                what the three numbers count, and the create lever — are explained
+                HERE, on the element that carries them. A step that renders is a
+                step that is explained; this one drops out of the walk with the
+                toolbar, by the same rule every conditional section already
+                obeys. */}
+            <div
+              className="kr-toolbar"
+              data-guide-title="件数と新規カルテ"
+              data-guide="いまこの画面に何件出ているかと、新しいカルテを作るボタンです。今月の件数・いまの条件に一致した件数・画面に出ている件数の3つを、それぞれ何の数かを書いて並べています。＋新規カルテからは、このパソコンでも同じ手順でカルテを作れるようになります。"
+            >
+              <p className="kr-status" role="status" aria-live="polite">
+                {props.monthLabel}・条件に一致 {matched.length}件・表示中 {visible.length}件
+              </p>
+              {/* ═══ ⚖ LIAM 8/31 — ＋新規カルテ RETURNS TO THE COMPUTER DOOR ═══
+                  (deviation K-5, overturned; registry ⑩)
 
-              HIS REASONING, RECORDED WHERE THE LEVER LIVES: many businesses do
-              not allow staff to carry phones on the floor, so those staff work
-              COMPUTER-PRIMARY. A room that answers 「create it on the phone」
-              answers with a device half the field cannot reach mid-shift. The
-              computer is a FIRST-CLASS DOOR, not a read-back window onto the
-              phone's records — and creating a record is exactly the kind of
-              work a first-class door owns.
+                  HIS REASONING, RECORDED WHERE THE LEVER LIVES: many businesses do
+                  not allow staff to carry phones on the floor, so those staff work
+                  COMPUTER-PRIMARY. A room that answers 「create it on the phone」
+                  answers with a device half the field cannot reach mid-shift. The
+                  computer is a FIRST-CLASS DOOR, not a read-back window onto the
+                  phone's records — and creating a record is exactly the kind of
+                  work a first-class door owns.
 
-              ⚠ THE ROOM STILL WRITES NOTHING, so this is a REFUSED lever with
-              the room's full grammar (`refused()`): its own honest sentence on
-              the accessible name AND the title, saying the creation is coming
-              to THIS door rather than that creation belongs to the phone.
+                  ⚠ THE ROOM STILL WRITES NOTHING, so this is a REFUSED lever with
+                  the room's full grammar (`refused()`): its own honest sentence on
+                  the accessible name AND the title, saying the creation is coming
+                  to THIS door rather than that creation belongs to the phone.
 
-              REGISTRY ⑩ — THE RECONNECT CONTRACT IS THE APP'S OWN CREATE PATH,
-              cited, never guessed:
-              · the lever's twin — `src/components/karute/spike-lifted/list/
-                KaruteRecordListView.tsx:988` opens `NewKaruteDialog`, which
-                calls `createManualKaruteRecord` (`src/actions/karute.ts:932`):
-                `records.write`, and `records.delete` to record FOR another
-                staff member (:943-958). That gate is the contract, not a new one.
-              · the store/booking join every writer already shares —
-                `resolveKaruteStoreId` (`src/actions/karute.ts:68`), spent by
-                `saveKaruteRecord` (:333) and `saveKaruteRecordInline` (:463).
-              · #646's shared write guard, on all four record-creation paths:
-                `durationMinutesFromSeconds` (`src/lib/karute/duration-minutes
-                .ts:7`) — actions :357 and :482, the facade POST
-                (`src/app/api/app/v1/karute/route.ts:130`), and the server
-                recording pipeline (`src/lib/jobs/process-recording.ts:320`).
-              · ⚠ AND THE ONE OPEN SEAM, NAMED RATHER THAN ASSUMED: manual
-                creation passes NO appointment (`karute.ts:965` hands
-                `resolveKaruteStoreId` a `null`, so the store falls to the
-                viewer's active-store cookie), while THIS room resolves a
-                record's person, day, store, staff and menu THROUGH its booking
-                (`fixtures-karute.ts:11-13`, `buildRecords`). Which booking a
-                computer-created record hangs off is the question ⑩ has to
-                answer at reconnect. It is a contract to settle, not a lever to
-                half-build here. */}
-          <button {...refused('＋ 新規カルテ', props.refusals.create, { className: 'kr-new' })}>＋ 新規カルテ</button>
-        </div>
+                  REGISTRY ⑩ — THE RECONNECT CONTRACT IS THE APP'S OWN CREATE PATH,
+                  cited, never guessed:
+                  · the lever's twin — `src/components/karute/spike-lifted/list/
+                    KaruteRecordListView.tsx:988` opens `NewKaruteDialog`, which
+                    calls `createManualKaruteRecord` (`src/actions/karute.ts:932`):
+                    `records.write`, and `records.delete` to record FOR another
+                    staff member (:943-958). That gate is the contract, not a new one.
+                  · the store/booking join every writer already shares —
+                    `resolveKaruteStoreId` (`src/actions/karute.ts:68`), spent by
+                    `saveKaruteRecord` (:333) and `saveKaruteRecordInline` (:463).
+                  · #646's shared write guard, on all four record-creation paths:
+                    `durationMinutesFromSeconds` (`src/lib/karute/duration-minutes
+                    .ts:7`) — actions :357 and :482, the facade POST
+                    (`src/app/api/app/v1/karute/route.ts:130`), and the server
+                    recording pipeline (`src/lib/jobs/process-recording.ts:320`).
+                  · ⚠ AND THE ONE OPEN SEAM, NAMED RATHER THAN ASSUMED: manual
+                    creation passes NO appointment (`karute.ts:965` hands
+                    `resolveKaruteStoreId` a `null`, so the store falls to the
+                    viewer's active-store cookie), while THIS room resolves a
+                    record's person, day, store, staff and menu THROUGH its booking
+                    (`fixtures-karute.ts:11-13`, `buildRecords`). Which booking a
+                    computer-created record hangs off is the question ⑩ has to
+                    answer at reconnect. It is a contract to settle, not a lever to
+                    half-build here. */}
+              <button {...refused('＋ 新規カルテ', props.refusals.create, { className: 'kr-new' })}>＋ 新規カルテ</button>
+            </div>
+          </>
+        )}
       </header>
 
       {props.noticeLines.length > 0 && (
@@ -1012,6 +1092,7 @@ export function KaruteScreen(props: KaruteProps) {
                     <button
                       className="kr-swap"
                       type="button"
+                      ref={swapRef}
                       aria-label="顧客を変更"
                       title="顧客を変更"
                       aria-expanded={reassignOpen}
@@ -1035,7 +1116,7 @@ export function KaruteScreen(props: KaruteProps) {
                   ))}
                   <div className="kr-warn-foot">
                     <button {...refused('続ける', props.refusals.reassign)}>続ける</button>
-                    <button className="btn" type="button" onClick={() => setReassignOpen(false)}>
+                    <button className="btn" type="button" onClick={closeReassign}>
                       戻る
                     </button>
                   </div>
@@ -1079,19 +1160,34 @@ export function KaruteScreen(props: KaruteProps) {
               It parks under the shell's 62px topbar rather than at the viewport
               top (business-shell.css:146-149), and it owns NO scroller of its own
               — the page still owns every axis (⚖ page-scroll). */}
+          {/* ⚠ THE BAND AND ITS 目次 DECLARE SEPARATELY (F5-5), because one of
+              them is not always there. `.kr-jumps` is `display: none` at ≤743
+              — the phone band gives up the 目次 and keeps the context — while
+              the band itself stays, so a single declaration on the band was a
+              tour card explaining a control the reader could not see. The 目次
+              now explains ITSELF, on the element that is hidden, and drops out
+              of the walk and out of the N/M count by the room's own standing
+              rule rather than by a width test anybody has to maintain.
+              ⚠ AND THE BAND'S OWN SENTENCE IS WIDTH-HONEST: it is sticky from
+              744 up and static below, so the sentence says which is which
+              rather than promising a behaviour half the widths do not have. */}
           <section
             className="kr-strip"
             ref={stripRef}
-            aria-label="この記録の中を移動"
-            data-guide-title="この記録の中を移動"
-            data-guide="下へ読み進んでも上に残る帯です。左が「誰のどの日のカルテか」、右がこの1件の目次で、押すとその場所へ飛びます。目次にはこの記録にある項目だけが出るので、記録が少ないカルテでは目次も短くなります。"
+            aria-label="いま開いているカルテ"
+            data-guide-title="いま開いているカルテ"
+            data-guide="いま開いているカルテが、どのお客様のどの日の記録かを示す帯です。画面が広いときは、下へ読み進んでもこの帯だけ上に残るので、カードを読んでいる途中で誰の記録か分からなくなりません。"
           >
             <span className="kr-strip-ctx">
               {current.customerName}様 <span className="kr-strip-no">{current.id}</span>
               <span className="kr-strip-d">・ {current.dateLongLabel}</span>
             </span>
             <span className="kr-strip-label">この中を移動</span>
-            <span className="kr-jumps">
+            <span
+              className="kr-jumps"
+              data-guide-title="この記録の中を移動"
+              data-guide="この1件の目次です。押すとその場所へ飛びます。目次にはこの記録にある項目だけが出るので、記録が少ないカルテでは目次も短くなります。"
+            >
               {toc.map((t) => (
                 <a
                   key={t.id}

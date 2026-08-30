@@ -173,12 +173,17 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
     // not the walk on the other. That is the engine's law rather than a branch
     // anybody wrote, and the browser probe measures it; here the SOURCE proves
     // the two sets are genuinely different sets.
-    const listSide = ['担当でしぼる', 'カルテを探す', '状態でしぼる', 'カルテの一覧']
+    // ⚠ 件数と新規カルテ JOINED THE LIST SIDE ON F5-1. The count line and the
+    // create lever used to sit under the head's own declaration, which renders on
+    // BOTH screens — so the head's card explained a button and a set of numbers
+    // that the record screen does not have. They are declared on their own
+    // toolbar now, and drop out of the walk with it.
+    const listSide = ['担当でしぼる', 'カルテを探す', '状態でしぼる', 'カルテの一覧', '件数と新規カルテ']
     // ⚠ 「録音 ・ 文字起こし」 IS SPACED HERE NOW (DL-6). The room used to print
     // the name closed up; the PHONE's own card spells it with the spaces
     // (`karuteDetail.transcript.title`), and the recognition floor asks this room
     // to carry the phone's section names, not a tidier version of them.
-    const recordSide = ['いまいる場所', 'お客様とカルテ', 'セッションの結果', 'この記録の中を移動', '本日のセッション', '詳細記録', '録音 ・ 文字起こし', '記録の履歴']
+    const recordSide = ['いまいる場所', 'お客様とカルテ', 'セッションの結果', 'いま開いているカルテ', 'この記録の中を移動', '本日のセッション', '詳細記録', '録音 ・ 文字起こし', '記録の履歴']
     const titles = DECLARATIONS.map((d) => d.title)
     for (const t of [...listSide, ...recordSide]) expect(titles).toContain(t)
     // …and the shared head belongs to neither side, which is why it is declared
@@ -204,11 +209,35 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
     const nav = openingTags(SRC_CODE, 'nav')
     expect(nav.length).toBe(1)
     expect(nav[0].text).toContain('data-guide-title="いまいる場所"')
-    // …and the strip's own explanation says the thing a reader would otherwise
+    // …and the 目次's own explanation says the thing a reader would otherwise
     // have to discover: that the 目次 shrinks with the record.
-    const strip = DECLARATIONS.find((d) => d.title === 'この記録の中を移動')!
-    expect(strip.text).toContain('目次')
-    expect(strip.text).toContain('この記録にある項目だけ')
+    const jumps = DECLARATIONS.find((d) => d.title === 'この記録の中を移動')!
+    expect(jumps.text).toContain('目次')
+    expect(jumps.text).toContain('この記録にある項目だけ')
+  })
+
+  it('the 目次’s card is declared ON the 目次, so it drops with it at ≤743 (F5-5)', () => {
+    // `.kr-jumps` is `display: none` at ≤743 — the phone band gives up the 目次
+    // and keeps the context — while the BAND around it stays. One declaration on
+    // the band therefore described a control a phone reader cannot see: 「右がこの
+    // 1件の目次で、押すとその場所へ飛びます」 on a screen with no 目次 at all.
+    // The declaration sits on the hidden element now, so it leaves the walk by the
+    // room's own standing rule rather than by a width test anyone maintains.
+    expect(SRC_CODE).toMatch(
+      /className="kr-jumps"\s*\n\s*data-guide-title="この記録の中を移動"\s*\n\s*data-guide="[^"]*目次[^"]*"/,
+    )
+    expect(CSS_CODE).toMatch(/\.kr-jumps \{ display: none; \}/)
+    // …and the BAND's own card no longer mentions the 目次 in any spelling.
+    const band = DECLARATIONS.find((d) => d.title === 'いま開いているカルテ')!
+    expect(band).toBeDefined()
+    for (const word of ['目次', '飛びます', '右が']) {
+      expect({ word, inBand: band.text.includes(word) }).toEqual({ word, inBand: false })
+    }
+    // …and the one behaviour it does claim is width-honest: the band is sticky
+    // from 744 up and sits in the flow below, so the sentence says which is which
+    // rather than promising a bar that stays on a screen where it does not.
+    expect(band.text).toContain('画面が広いときは')
+    expect(CSS_CODE).toMatch(/\.kr-strip \{ position: static;/)
   })
 })
 
@@ -237,11 +266,41 @@ describe('the ? is wired to the FAMILY engine, not to a copy of it', () => {
     expect(SRC_CODE).toContain('spotTargets(rootRef.current)')
   })
 
-  it('ONE keyboard listener, innermost-first: the tour owns Escape while it is up', () => {
+  it('ONE keyboard listener, innermost-first: tour → 顧客変更の警告 → the record', () => {
     // Two listeners would both fire on one Escape and close the record AND the
     // walk at once.
     expect(SRC_CODE.match(/document\.addEventListener\('keydown'/g)?.length).toBe(1)
     expect(SRC_CODE).toMatch(/if \(tourOpen\) \{[\s\S]*?Escape[\s\S]*?return[\s\S]*?\}/)
+    // ⚠ THERE ARE THREE LAYERS, AND THE ORDERING KNEW ABOUT TWO (F5-2). The
+    // 顧客変更 disclosure sits INSIDE the open record, so one Escape backed the
+    // reader out of a rights-gated, audit-logged flow AND out of the record they
+    // were reading — while the disclosure's own 戻る closed just the warning. The
+    // two ways out of one box disagreed; the innermost one is answered first now.
+    expect(SRC_CODE).toMatch(
+      /if \(e\.key !== 'Escape'\) return\s*\n\s*if \(reassignOpen\) closeReassign\(\)\s*\n\s*else setSelected\(null\)/,
+    )
+    // …and the listener re-binds when that layer opens, or the branch above reads
+    // a `reassignOpen` frozen at the value it had when the record opened.
+    expect(SRC_CODE).toMatch(/\}, \[detailOpen, tourOpen, reassignOpen, closeReassign\]\)/)
+  })
+
+  it('the warning’s two exits are ONE function, and it hands focus back to the ⇆ (F5-3)', () => {
+    // 戻る removes itself from the DOM, so closing without moving focus drops a
+    // keyboard reader onto <body> and restarts them at the top of the document.
+    // This room moves focus deliberately everywhere else — into ← on record open,
+    // back onto the row on close, onto 次へ when the tour opens, back onto the ?
+    // when it closes — and this was the one exit that did not.
+    expect(SRC_CODE).toContain('const closeReassign = useCallback(() => {')
+    expect(SRC_CODE).toContain('swapRef.current?.focus()')
+    expect(SRC_CODE).toContain('ref={swapRef}')
+    expect(SRC_CODE).toContain('onClick={closeReassign}')
+    // The focus is taken BEFORE the state change, while the warning is still on
+    // screen — nothing is ever focused into a subtree that is being removed.
+    expect(SRC_CODE).toMatch(/swapRef\.current\?\.focus\(\)\s*\n\s*setReassignOpen\(false\)/)
+    // Exactly two closings exist: this one, and the record swap that clears the
+    // warning with the record it belonged to. A third spelling would be a second
+    // contract, and only one of them would move focus.
+    expect(SRC_CODE.match(/setReassignOpen\(false\)/g)?.length).toBe(2)
   })
 
   it('the keyboard is never stranded — focus goes to 次へ and comes back to the ?', () => {

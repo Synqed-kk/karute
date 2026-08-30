@@ -908,6 +908,56 @@ describe('every write is REFUSED, with its own reason, and there is no delete le
     expect(props.refusals.create).toMatch(/できるようになります|有効になります/)
   })
 
+  it('⚖ D2 REACHES THE HEAD — the list’s furniture renders on the LIST ONLY (F5-1)', () => {
+    // With a record open the head still printed the LIST's furniture above the
+    // breadcrumb: a subtitle about 一覧・行・検索・絞り込み, a status line claiming
+    // 表示中 8件 over a screen showing one record and zero rows, and — after the
+    // button round — the list's primary ACTION. The room's own law is the one
+    // that decides it: 「the head can never claim a number the list is not
+    // showing」 (karute-props.ts, the monthLabel comment), which is ⚖ §7a's honest
+    // statusLine and ⚖ 8/25's self-explaining numbers, broken on one of the two
+    // screens. ONE guard, on the state the room already has.
+    const headAt = SCREEN_CODE.indexOf('<header')
+    const guardAt = SCREEN_CODE.indexOf('{!detailOpen && (')
+    const headEnd = SCREEN_CODE.indexOf('</header>')
+    expect(guardAt).toBeGreaterThan(headAt)
+    expect(headEnd).toBeGreaterThan(guardAt)
+    // One guard, and it is the head's LAST child — so everything from it to the
+    // end of the head is exactly what the record screen does not get.
+    expect(SCREEN_CODE.match(/\{!detailOpen && \(/g)?.length).toBe(1)
+    const listOnly = SCREEN_CODE.slice(guardAt, headEnd)
+    const bothScreens = SCREEN_CODE.slice(headAt, guardAt)
+    // THE LIST SCREEN keeps all three, and each is stated exactly once in the
+    // room, so none of them can be rendered a second time outside the guard.
+    for (const part of ['className="kr-subtitle"', 'className="kr-status"', 'className="kr-toolbar"', "className: 'kr-new'"]) {
+      expect({ part, onTheList: listOnly.includes(part) }).toEqual({ part, onTheList: true })
+      expect({ part, stated: SCREEN_CODE.split(part).length - 1 }).toEqual({ part, stated: 1 })
+    }
+    // THE RECORD SCREEN keeps the page's identity — the eyebrow, the カルテ title
+    // and the ? that opens the walk. The record's own context is its breadcrumb,
+    // its person header and its sticky strip, which all live inside `.kr-detail`.
+    for (const part of ['className="kr-eyebrow"', 'className="kr-titleline"', '<h1>カルテ</h1>', 'className="kr-help"']) {
+      expect({ part, onBothScreens: bothScreens.includes(part) }).toEqual({ part, onBothScreens: true })
+    }
+  })
+
+  it('the head’s own tour card is true on BOTH screens (F5-1)', () => {
+    // The head is the ONE declaration this room renders on the table and inside a
+    // record, so its sentence may not name a control only one of them has —
+    // otherwise the walk itself repeats the defect the furniture was moved for.
+    const head = /data-guide-title="カルテ"\s*\n\s*data-guide="([^"]*)"/.exec(SCREEN_CODE)
+    expect(head).not.toBeNull()
+    for (const word of ['検索', '絞り込み', '＋新規カルテ', '並ぶ画面']) {
+      expect({ word, inHead: head![1].includes(word) }).toEqual({ word, inHead: false })
+    }
+    // …and the sentence about the create lever moved to the toolbar's own
+    // declaration, which renders on the list and drops with it.
+    const toolbar = /data-guide-title="件数と新規カルテ"\s*\n\s*data-guide="([^"]*)"/.exec(SCREEN_CODE)
+    expect(toolbar).not.toBeNull()
+    expect(toolbar![1]).toContain('＋新規カルテからは、このパソコンでも同じ手順でカルテを作れるようになります。')
+    expect(SCREEN_CODE.slice(SCREEN_CODE.indexOf('{!detailOpen && ('))).toContain('data-guide-title="件数と新規カルテ"')
+  })
+
   it('the page does not both OFFER the button and explain its absence', () => {
     // The head used to argue the lever away — in the subtitle's own comment and
     // in the tour's opening card ('この画面はそれを読み返すためのもの'). A page that
@@ -1098,10 +1148,28 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // measured because CSS cannot read one element's box from another's rule,
     // so the pin covers both ends: the sheet spends the two tokens, and the
     // screen really writes the measurement onto the room root.
-    expect(CSS_CODE).toMatch(/scroll-margin-top: calc\(var\(--kr-strip-top\) \+ var\(--kr-strip-h\) \+ 14px\);/)
-    expect(CSS_CODE).not.toMatch(/scroll-margin-top:\s*\d{3}px/)
+    // ⚠ PIN MOVED AGAIN BY F5-4, AND ONTO THE SCROLLER. `scroll-margin-top` on
+    // each landing CARD answers a 目次 jump and nothing else: the browser scrolls
+    // the focused DESCENDANT, and a button inside a card carries no margin of its
+    // own, so a focused control still parked under the strip. `scroll-padding` is
+    // a property of the SCROLL CONTAINER — one declaration, every reason the
+    // browser ever scrolls — and the room's container is the document, because
+    // this page owns no axis of its own (⚖ page-scroll).
+    expect(CSS_CODE).toMatch(/scroll-padding-top: calc\(var\(--kr-strip-top\) \+ var\(--kr-strip-h\) \+ 14px\);/)
+    expect(CSS_CODE).toMatch(/html:has\(\.biz \.page\.pg-karute\) \{/)
+    // …and the per-element margins are GONE rather than kept beside it: two homes
+    // for one clearance is how the flat 124px drifted out of sync in the first
+    // place.
+    expect(CSS_CODE).not.toMatch(/scroll-margin-top/)
+    expect(CSS_CODE).not.toMatch(/scroll-padding-top:\s*\d{3}px/)
+    // The measurement has to reach the scroller, or the calc above spends the
+    // JS-OFF fallback for ever.
+    expect(SCREEN_CODE).toContain('const root = document.documentElement')
     expect(SCREEN_CODE).toContain("root.style.setProperty('--kr-strip-h'")
     expect(SCREEN_CODE).toContain('new ResizeObserver(measure)')
+    // …and it is taken back when the record closes: this room writes one property
+    // outside its own root and cleans it up itself.
+    expect(SCREEN_CODE).toContain("root.style.removeProperty('--kr-strip-h')")
     // Declarations only — `@media (min-width: 1400px)` is a BAND, not a floor.
     // ⚠ ANY px COUNT, not just three digits (F-K12): `[1-9]\d\dpx` matched
     // 100–999 and walked straight past `min-width: 1200px`, which is the WORSE
@@ -1477,21 +1545,33 @@ describe('⚖ THE DESIGN ROUND — the recognition floor, pinned to the phone', 
     for (const id of jumps) expect({ id, printed: SCREEN_CODE.includes(`id="${id}"`) }).toEqual({ id, printed: true })
   })
 
-  it('the jump clears the strip that would otherwise hide what it jumped to', () => {
-    // A sticky header and an anchor jump disagree by default: the browser puts
-    // the target's top at the viewport top, which is underneath the strip — the
+  it('EVERY scroll clears the strip — the jump AND the focus ring (F5-4)', () => {
+    // A sticky header and a scroll disagree by default: the browser puts the
+    // target's top at the viewport top, which is underneath the strip — the
     // classic sticky-header defect, where the anchor scrolls the heading under
-    // the bar that was supposed to help you find it. The clearance is the
-    // topbar's 62 plus the strip's own height plus air, and EVERY jumpable
-    // section states it, so a card added later cannot land under the bar.
-    const cleared = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*scroll-margin-top: (\d+)px[^}]*\}/g)]
-      .map((m) => ({ sel: m[1].trim(), px: Number(m[2]) }))
-    expect(cleared.length).toBeGreaterThan(0)
-    for (const c of cleared) expect({ sel: c.sel, clears: c.px > 62 }).toEqual({ sel: c.sel, clears: true })
-    // …and the three card families a 目次 entry can point at all carry it.
-    for (const name of ['kr-identity', 'kr-discarded', 'kr-card']) {
-      expect({ name, cleared: cleared.some((c) => c.sel.includes(name)) }).toEqual({ name, cleared: true })
+    // the bar that was supposed to help you find it.
+    //
+    // ⚠ AND 「THE JUMP」 WAS ONLY HALF THE QUESTION (F5-4). The old fix stated the
+    // clearance as `scroll-margin-top` on the CARDS, which is the landing target
+    // of an anchor jump — but browser FOCUS-scrolling scrolls the focused
+    // DESCENDANT, and a button inside a card carries no margin of its own. Tabbing
+    // to 詳細記録を編集 at 1280 put it at y=114 under a strip stuck at 62…135:
+    // 20 of its 28 pixels painted over, the focus ring effectively invisible.
+    // `scroll-padding` belongs to the SCROLL CONTAINER and covers every reason the
+    // browser scrolls, so there is exactly ONE clearance in this sheet now.
+    const padded = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*scroll-padding-top:([^;]+);[^}]*\}/g)]
+      .map((m) => ({ sel: m[1].trim().split('\n').pop()!.trim(), value: m[2].trim() }))
+    // Two: the derived one, and the ≤743 band where the strip is in the flow.
+    expect(padded.length).toBe(2)
+    for (const p of padded) {
+      expect({ sel: p.sel, onTheScroller: p.sel.startsWith('html:has(') }).toEqual({ sel: p.sel, onTheScroller: true })
     }
+    // …and it is DERIVED from the strip rather than tuned to one band: the
+    // topbar's own offset plus the strip's MEASURED height plus air.
+    expect(padded[0].value).toBe('calc(var(--kr-strip-top) + var(--kr-strip-h) + 14px)')
+    // The room states no second clearance anywhere — not on the cards it used to
+    // ride on, and not on any descendant either.
+    expect(CSS_CODE).not.toMatch(/scroll-margin/)
   })
 
   it('the 目次 highlight is THE JUMP, not a guess about scroll position', () => {
