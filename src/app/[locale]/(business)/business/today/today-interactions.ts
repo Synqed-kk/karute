@@ -3099,6 +3099,40 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   return { kind: 'clean', floor: null, label: VERDICT_WORD.clean, reason: null, cell, bedLane, checks }
 }
 
+/** ⚖ RULING 91 / SPEC-SELLING-ENGINE §7 — THE PERMISSION DIAL'S THREE LEVELS,
+ *  on the store's EXISTING home. r1 of the spec invented a second dial; the app
+ *  already had one — `storeBookingPolicy.overridePolicy` (roles + the per-staff
+ *  `lockedOut`, ⚖ Liam 2026-08-22 flag 50(d)) — so ruling 91 EXTENDS it rather
+ *  than competing with it, and there is no precedence puzzle to solve.
+ *
+ *  It sits beside the verdict because it answers the verdict's last question:
+ *  `policy` is the only floor an operator may be given authority over (a `hard`
+ *  floor is the engine's own word for impossible), and this says whether THIS
+ *  operator has it. The board is handed the answer, never the policy — a
+ *  locked-out staff member is not shown a 「注意して配置」 they would only be
+ *  refused for pressing.
+ *
+ *  ⚖ DEFAULT (a), RULED 8/30 late night: staff may override with a warning.
+ *  `lockedOut` composes with every level and answers FIRST — a store that named
+ *  a person has named them whatever their role says.
+ *
+ *  ⚖ 'needs-approval' IS EXPRESSIBLE AND UNREACHABLE, deliberately. §7(b) — a
+ *  real request→approve moment — is priced honestly: staged holds are
+ *  session-local React state (the screen's own toast says so), so (b) needs
+ *  server-backed request state that does not exist, and the request must not
+ *  alter the board until approved. It is built when a store can actually dial to
+ *  it; until the policy carries an approval level, nothing here can return it.
+ *  The word lives in the type so the dial's vocabulary is one thing, not two. */
+export type OverrideLevel = 'allow-warned' | 'needs-approval' | 'refuse'
+
+export function overrideLevelFor(
+  policy: { roles: readonly string[]; lockedOut: readonly string[] },
+  operator: { role: string; staff_id: string },
+): OverrideLevel {
+  if (policy.lockedOut.includes(operator.staff_id)) return 'refuse'
+  return policy.roles.includes(operator.role) ? 'allow-warned' : 'refuse'
+}
+
 /** ⚖ LIAM flag 50(d) (2026-08-22) — WHAT AN OVERRIDE IS ALLOWED TO BUY.
  *
  *  「注意して配置」 confirms DESPITE the one row it overrode and nothing else: a

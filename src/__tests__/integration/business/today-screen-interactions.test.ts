@@ -78,6 +78,7 @@ import {
   bedClassCell,
   nearestFreeStarts,
   needsPrivateRoom,
+  overrideLevelFor,
   pinInViewport,
   type GuardRail,
   type LandingVerdict,
@@ -4999,6 +5000,12 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     expect(opsConfig.overridePolicy.lockedOut).toEqual([])
     expect(SRC).not.toContain('店舗管理者')
     expect(INT).not.toContain('店舗管理者')
+    // ⚖ ruling 91 / spec §7 — the same authority, read through the dial's own
+    // three-level consult. (a) is the shipped default, `lockedOut` answers
+    // first whatever the role says, and a role the store left out is refused.
+    expect(overrideLevelFor(opsConfig.overridePolicy, { role: 'スタッフ', staff_id: 'p-04' })).toBe('allow-warned')
+    expect(overrideLevelFor({ roles: ['スタッフ'], lockedOut: ['p-04'] }, { role: 'スタッフ', staff_id: 'p-04' })).toBe('refuse')
+    expect(overrideLevelFor({ roles: ['店舗管理者'], lockedOut: [] }, { role: 'スタッフ', staff_id: 'p-04' })).toBe('refuse')
   })
 
   // ── the override, and exactly what it buys ───────────────────────────────

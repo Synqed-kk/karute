@@ -220,6 +220,67 @@ export const pricingRule = {
   protected: { ticket: 4, vip: 2, walkin: 3 },
 }
 
+/** 店舗の予約ポリシー — THE STORE'S OWN DIALS, one object (SPEC-SELLING-ENGINE
+ *  §6). Core already owns this record: `StoreBookingPolicy` on the SDK, whose
+ *  field spellings this mirrors, plus the two app-side extensions this round
+ *  defined. Everything the selling engine runs off is read from HERE — the
+ *  protected duration, the guard mode, who may override a 置けない — so a store
+ *  that changes its policy changes the whole law at once and no component ever
+ *  carries a dial of its own.
+ *
+ *  ⚖ RECONNECT — `StorePolicyClient` (@synqed-kk/client ≥1.28,
+ *  `storePolicies.get(storeId)`; ZERO consumers in this app today) REPLACES this
+ *  object. One-file swap, because the shape below is core's: the read lands
+ *  here, `opsConfig` keeps deriving, and nothing downstream moves. The two
+ *  extension fields ride the small Anthony build order that mirrors them on
+ *  `StoreBookingPolicy` (spec §12); until it lands the sealed fixture world
+ *  carries the defaults. */
+export const storeBookingPolicy = {
+  /** core `gap_guard_mode` ('OFF' | 'STANDARD' | 'STRICT' on the wire; the
+   *  board's lowercase spelling here, one mapping line at the reconnect).
+   *
+   *  ⚖ Liam 2026-08-20: the guard SHIPS ON in the fixture world. Canon's own
+   *  copy leaves this 'off' and puts the 配置ガイド behind a page-local demo
+   *  chip, which made the 表示設定 toggle a dead lever — it flipped the copy
+   *  and rendered nothing. Standard is the honest default for a board whose
+   *  whole subject is what can and cannot be placed. */
+  gapGuardMode: 'standard' as 'off' | 'standard' | 'strict',
+  /** core `new_client_session_minutes` — 新規のお客様のために確保する長さ. The
+   *  ONE number the held windows, the rail's clause and the refusal dialog are
+   *  all quoting; nothing on the board spells a protected duration itself. */
+  newClientSessionMinutes: 90,
+  /** ⚠SETTINGS-BATCH — 「置けない」場所への上書き権限 (⚖ Liam 2026-08-22, flag
+   *  50(d), his own words: 「設定で、権限によって上書きできる／できないを変えら
+   *  れるように。いつも変な場所に置いてしまうスタッフは上書き不可にできて、店長
+   *  なら上書きできる」).
+   *
+   *  Two dials, and they are DATA for the same reason the room policy is: who may
+   *  place over a refusal is a store's judgement about its own people, and a
+   *  component that hardcoded a role would make every store the same store. Both
+   *  are Fable defaults and OVERTURNABLE; the 店舗設定 control ships with the
+   *  settings batch (role dial + the per-staff list, with the mistake-proofing
+   *  law's guardrails — a store may not lock out everyone). */
+  overridePolicy: {
+    /** 上書きできる役職. His base sentence is that a person CAN override with a
+     *  warning, so plain スタッフ are in by default; the dial is what a store
+     *  reaches for when it wants the escalation to stop at 店長. */
+    roles: ['オーナー', '店舗管理者', 'スタッフ'] as readonly string[],
+    /** 個別ロックアウト — staff_id で名指し. His 「いつも変な場所に置くスタッフ」. */
+    lockedOut: [] as readonly string[],
+  },
+  /** ⚠SETTINGS-BATCH — 確保枠の会員ランク開放 (⚖ Liam 2026-08-30 late night,
+   *  spec §13 Q4, overruling the spec's own recommendation: regular customers
+   *  CANNOT book the standard slots inside a held window online, and a store may
+   *  open those slots to customers at or above a chosen rank — 「better to save
+   *  them for new customers」, so the dial DEFAULTS CLOSED).
+   *
+   *  VALUE ONLY at this tip: zero readers, so zero behaviour changes today. The
+   *  screen joins the settings round beside the other guard dials (§6), and the
+   *  reader is the one `isHeldBound` already names — eligibility is
+   *  server-derived rank, never request-carried (the golden-time precedent). */
+  heldRankAccess: 'closed' as 'closed' | 'silver' | 'gold' | 'platinum',
+}
+
 /** スキマガード / Reserve受付 dials (canon `opsConfig`). The board never
  *  advertises a start Reserve's own rules could not take, so the customer-facing
  *  grid lives here rather than in the board's own code. */
@@ -249,13 +310,12 @@ export const opsConfig = {
    *  and a 20-minute orphan is not stock — it is the phone call that costs the
    *  hour. The 店舗設定 control for it ships with the settings batch. */
   minSellableMin: 30,
-  /** ⚖ Liam 2026-08-20: the guard SHIPS ON in the fixture world. Canon's own
-   *  copy leaves this 'off' and puts the 配置ガイド behind a page-local demo
-   *  chip, which made the 表示設定 toggle a dead lever — it flipped the copy
-   *  and rendered nothing. Standard is the honest default for a board whose
-   *  whole subject is what can and cannot be placed. */
-  gapGuardMode: 'standard' as 'off' | 'standard' | 'strict',
-  newClientSessionMin: 90,
+  /** DERIVED — §6's one dial home. Both values live on `storeBookingPolicy`
+   *  (core's record, core's spellings); these two lines are this file's own
+   *  shorter names for them, kept because the whole board already reads them.
+   *  The number moves house, it does not change. */
+  gapGuardMode: storeBookingPolicy.gapGuardMode,
+  newClientSessionMin: storeBookingPolicy.newClientSessionMinutes,
   leadTimeMin: 60,
   /** ⚠SETTINGS-BATCH — 部屋の自動割り当てポリシー (⚖ Liam 2026-08-21, flag 51:
    *  「people are chosen, rooms are solved」). The bed is re-solved at every
@@ -271,25 +331,11 @@ export const opsConfig = {
     /** 通常の予約が個室を取れるのは、施術室に空きがないときだけ. */
     privateIsLastResort: true,
   },
-  /** ⚠SETTINGS-BATCH — 「置けない」場所への上書き権限 (⚖ Liam 2026-08-22, flag
-   *  50(d), his own words: 「設定で、権限によって上書きできる／できないを変えら
-   *  れるように。いつも変な場所に置いてしまうスタッフは上書き不可にできて、店長
-   *  なら上書きできる」).
-   *
-   *  Two dials, and they are DATA for the same reason the room policy is: who may
-   *  place over a refusal is a store's judgement about its own people, and a
-   *  component that hardcoded a role would make every store the same store. Both
-   *  are Fable defaults and OVERTURNABLE; the 店舗設定 control ships with the
-   *  settings batch (role dial + the per-staff list, with the mistake-proofing
-   *  law's guardrails — a store may not lock out everyone). */
-  overridePolicy: {
-    /** 上書きできる役職. His base sentence is that a person CAN override with a
-     *  warning, so plain スタッフ are in by default; the dial is what a store
-     *  reaches for when it wants the escalation to stop at 店長. */
-    roles: ['オーナー', '店舗管理者', 'スタッフ'] as readonly string[],
-    /** 個別ロックアウト — staff_id で名指し. His 「いつも変な場所に置くスタッフ」. */
-    lockedOut: [] as readonly string[],
-  },
+  /** DERIVED — §6's one dial home. The ⚖ 50(d) object MOVED to
+   *  `storeBookingPolicy` (its comment travelled with it); this alias stays
+   *  because `readDayPlanes` hands the board `opsConfig` and every existing
+   *  reader asks it for the policy. Same object, one home. */
+  overridePolicy: storeBookingPolicy.overridePolicy,
 }
 
 /** レジ (ask T-08). The aggregates the money band shows that no booking row

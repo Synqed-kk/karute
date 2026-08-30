@@ -369,8 +369,14 @@ describe('the fixture data door', () => {
       // `resources`, so the page still reads its data through the door. Same
       // shape as 受信トレイ's prop assembler two entries down, which imports the
       // same module for the same reason.
+      // ⚖ PKT-E4 / spec §7 — `today-interactions` joins the list for
+      // `overrideLevelFor` and nothing else: a pure function over the store's
+      // own dial and this operator's role, so the page still reads its DATA
+      // through the door (this import carries none). Same shape as
+      // `bedSecuredProof` above.
       'src/app/[locale]/(business)/business/today/page.tsx': [
         './TodayScreen',
+        './today-interactions',
         './today.css',
         '@/business/lib/admission',
         '@/business/lib/clock',

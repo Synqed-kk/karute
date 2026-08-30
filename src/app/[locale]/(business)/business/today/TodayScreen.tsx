@@ -4494,7 +4494,7 @@ export function TodayScreen(props: TodayProps) {
                   data-guide-title={firstHeldLane === lane.key && h === heldHere[0] ? '新規用に確保' : undefined}
                   data-guide={
                     firstHeldLane === lane.key && h === heldHere[0]
-                      ? '新規のお客様のために空けている時間です。押すと確保している理由と、販売に戻る条件が出ます。'
+                      ? '新規のお客様のために空けている時間です。押すと、確保している理由と販売に戻る条件が表示されます。'
                       : undefined
                   }
                   // ⚖ PKT-E3B-FLIP §5 — the press answers with the LAW: the

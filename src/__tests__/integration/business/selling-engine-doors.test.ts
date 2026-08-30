@@ -1106,6 +1106,8 @@ interface PerfRow {
   maskMs: number
   /** …and asked a second time on the same book. */
   reMs: number
+  /** The second read's OWN handle count — the assertable half of `reMs`. */
+  reHandles: number
   windows: number
   /** Lanes that hold at least one window — a store-isolated HQ board holds far
    *  fewer than a single-store one, and the row would look wrong without it. */
@@ -1182,9 +1184,11 @@ describe('7 — the mask is built once per world per frame, and what it costs', 
       const held = maskOf(w, c, book)
       const maskMs = Number(process.hrtime.bigint() - t1) / 1e6
       // COLUMN 3 — the SAME mask again on the same book, which is what a second
-      // reader in one frame would pay. It should be the cheap one.
+      // reader in one frame would pay. It should be the cheap one. Counted as
+      // well as clocked: the assertion below is on the COUNT (see it there).
+      const reRead = counting(raw)
       const t2 = process.hrtime.bigint()
-      maskOf(w, c, raw)
+      maskOf(w, c, reRead.book)
       const reMs = Number(process.hrtime.bigint() - t2) / 1e6
       PERF_ROWS.push({
         what: r.what,
@@ -1193,6 +1197,7 @@ describe('7 — the mask is built once per world per frame, and what it costs', 
         bookMs: Math.round(bookMs * 100) / 100,
         maskMs: Math.round(maskMs * 100) / 100,
         reMs: Math.round(reMs * 100) / 100,
+        reHandles: reRead.handles(),
         windows: windowsIn(held).length,
         feasibleLanes: held.filter((m) => m.spans.length > 0).length,
         handles: handles(),
@@ -1204,10 +1209,15 @@ describe('7 — the mask is built once per world per frame, and what it costs', 
     // wall-clock on a shared machine is evidence, never a gate.
     expect(PERF_ROWS).toHaveLength(5)
     expect(PERF_ROWS.every((r) => r.handles === r.lanes)).toBe(true)
-    // …and the second read of one world is never the expensive one: whatever the
-    // machine's absolute numbers are, re-asking a warm book must not cost more
-    // than the cold walk did. This one IS asserted — it is a shape, not a clock.
-    expect(PERF_ROWS.every((r) => r.reMs <= Math.max(r.maskMs, 1))).toBe(true)
+    // …and the second read of one world is never the expensive one: re-asking a
+    // warm book must not cost more than the cold walk did. ASSERTED IN HANDLES,
+    // not in milliseconds (⚖ PKT-E4 §3 rider, E3b audit deviation 5): the claim
+    // was always 'the book's cache is real', which is a CALL COUNT, and two
+    // sub-millisecond walks compared on a wall clock are a coin flip under
+    // parallel jest workers — the old `reMs <= maskMs` form failed on a shared
+    // machine and passed alone, at BASE as well as at tip. The stopwatch stays
+    // in the artifact as evidence; the gate is the count.
+    expect(PERF_ROWS.every((r) => r.reHandles <= r.handles)).toBe(true)
     // …and the stopwatch was really running: a zeroed table would satisfy every
     // assertion above and say nothing. The biggest board has to take some time.
     expect(PERF_ROWS[PERF_ROWS.length - 1].bookMs).toBeGreaterThan(0)

@@ -1027,7 +1027,8 @@ describe('5 — a 確保 window answers with the law', () => {
   it('⚖ 8/23 guided-tour law — the chip registers itself, ONCE', () => {
     const screen = SRC('TodayScreen.tsx')
     expect(screen).toContain('data-guide-title={firstHeldLane === lane.key && h === heldHere[0] ? \'新規用に確保\' : undefined}')
-    expect(screen).toContain('新規のお客様のために空けている時間です。押すと確保している理由と、販売に戻る条件が出ます。')
+    // ⚖ PKT-E4 §3 rider — the native pass's rewrite, adopted verbatim (8/31).
+    expect(screen).toContain('新規のお客様のために空けている時間です。押すと、確保している理由と販売に戻る条件が表示されます。')
     // One entry for a section that repeats down the board — the placement
     // strip's own rule, so the walk does not gain a step per staff member.
     expect(screen).toContain("const firstHeldLane = heldDrawn.find((m) => m.spans.length > 0 && !locked.includes(m.laneKey))?.laneKey")
