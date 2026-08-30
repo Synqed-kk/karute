@@ -897,7 +897,8 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
 // only react/next/node specifiers, so there is no renderer here and the render
 // pass is pinned at its source. What that buys is real all the same: the three
 // mutations this section is built against (a word mapped to the wrong layer, a
-// tag leaking onto the bed rows, the legend dropped) each change one of these
+// staff guard put back on the tags — ⚖ 8/30 ruled them onto the bed rows and
+// the pin inverted with it — the legend dropped) each change one of these
 // exact strings.
 describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains it', () => {
   const SRC = readFileSync(
@@ -911,13 +912,13 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
 
   it('each layer wears its own word — and a crumb is 詰め込み, off the same value as its colour', () => {
     // 販売可能枠 is its own render pass and says so outright.
-    expect(SRC).toContain(`{c.group === 'staff' && <span className="cell-nametag">販売可能枠</span>}`)
+    expect(SRC).toContain(`<span className="cell-nametag">販売可能枠</span>`)
     // The gap pass carries BOTH remaining words, and the branch that picks
     // between them is `packedHere` — the SAME value the class attribute above it
     // uses to choose `cell-packed` over `cell-gapfill`. One read, so the word
     // and the fill cannot drift apart.
     expect(SRC).toContain(
-      `{c.group === 'staff' && <span className="cell-nametag">{packedHere ? '詰め込み' : 'スキマ枠'}</span>}`,
+      `<span className="cell-nametag">{packedHere ? '詰め込み' : 'スキマ枠'}</span>`,
     )
     expect(SRC).toContain(
       "className={`${packedHere ? 'cell-packed' : 'cell-gapfill'}${crumbHere ? ' crumb' : ''}",
@@ -930,18 +931,25 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
     expect(SRC).not.toMatch(/cell-nametag">\{crumbHere/)
   })
 
-  it('the tag is the STAFF row’s alone — every one of them is behind that guard', () => {
-    // ⚖ Fable default (overturnable): bed-row boxes stay wordless. They carry no
-    // text at all today, and the mock's own footnote left them an open question
-    // rather than answering it. Machine-checked rather than spot-checked: every
-    // occurrence of the class in the file is preceded by the staff guard, so a
-    // fourth tag added anywhere without one fails here.
+  it('⚖ 8/30 — EVERY row wears the tag, and the PRICE is still the staff row’s alone', () => {
+    // ⚖ LIAM RULING (2026-08-30), overturning the Fable default this test used
+    // to pin the other way round: bed-row boxes were wordless, and he ruled that
+    // 「bed rows having the tags might be useful」. A bed box carries no price
+    // text, so the tag is the only thing that can tell three anonymous washes
+    // apart down there — which is 案C's whole complaint, one row down.
+    //
+    // Machine-checked rather than spot-checked, in BOTH directions: both tags
+    // exist, and NEITHER carries the staff guard, so re-adding one anywhere
+    // fails here.
     const tags = SRC.match(/className="cell-nametag"/g) ?? []
     const guarded = SRC.match(/\{c\.group === 'staff' && <span className="cell-nametag"/g) ?? []
     expect(tags).toHaveLength(2)
-    expect(guarded).toHaveLength(tags.length)
-    // The bed rows' own wordlessness is the same guard on the price text, which
-    // has been there all along — the tag simply joined it.
+    expect(guarded).toHaveLength(0)
+    // …and the guard did NOT come off the money. A bed row advertises no price
+    // and never has; both price texts keep the guard the tags just lost, which
+    // is what makes 「the tag is a bed box's only text」 true rather than hoped.
+    const priced = SRC.match(/\{c\.group === 'staff' && (c\.price != null && )?<i>/g) ?? []
+    expect(priced).toHaveLength(2)
     expect(SRC).toContain(`{c.group === 'staff' && c.price != null && <i>{money(c.price)}</i>}`)
   })
 

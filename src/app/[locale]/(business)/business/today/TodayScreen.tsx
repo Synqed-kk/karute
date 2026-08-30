@@ -4161,13 +4161,19 @@ export function TodayScreen(props: TodayProps) {
                 >
                   {/* ⚖ LABELS RULING (Liam 8/30, 案C) — THE BOX SAYS WHAT KIND
                       IT IS. Three washes on one row read as one price moving on
-                      its own; the word is what makes them three products. It is
-                      the STAFF row's alone — a bed-row box carries no text at
-                      all today, and the mock left that an open question.
+                      its own; the word is what makes them three products.
                       It names the KIND, not the price, so 価格を隠す (which hides
                       the `<i>` only) leaves it standing; 空き枠表示 off removes
-                      the whole box and takes the tag with it. */}
-                  {c.group === 'staff' && <span className="cell-nametag">販売可能枠</span>}
+                      the whole box and takes the tag with it.
+                      ⚖ LIAM RULING (2026-08-30) — AND THE BED ROWS WEAR IT TOO.
+                      The mock left them an open question and the build's answer
+                      was a staff-only guard; he closed it the other way. A bed
+                      box carries no price text, so before this the operator was
+                      reading three anonymous washes down there with nothing to
+                      tell them apart — the exact complaint 案C exists to answer,
+                      one row down. The colours were already keyed by the box
+                      class on every row, so the word is all that was missing. */}
+                  <span className="cell-nametag">販売可能枠</span>
                   {c.group === 'staff' && c.price != null && <i>{money(c.price)}</i>}
                 </span>
               )
@@ -4201,8 +4207,10 @@ export function TodayScreen(props: TodayProps) {
                       the same `packedHere` the FILL is: a crumb IS 詰め込み (the
                       mock's masthead says so — orange reports the SHAPE of the
                       leftover, not a different layer), so the word needs no
-                      branch of its own and cannot drift from the colour. */}
-                  {c.group === 'staff' && <span className="cell-nametag">{packedHere ? '詰め込み' : 'スキマ枠'}</span>}
+                      branch of its own and cannot drift from the colour.
+                      ⚖ LIAM RULING (2026-08-30) — ungated, same as the sell box
+                      above it: the bed rows wear the word too. */}
+                  <span className="cell-nametag">{packedHere ? '詰め込み' : 'スキマ枠'}</span>
                   {c.group === 'staff' && <i>{packedHere ? `${money(c.price)}（${c.e - c.s}分）` : money(c.price)}</i>}
                 </span>
               )
