@@ -801,14 +801,39 @@ function walk(dir: string): string[] {
   )
 }
 
-describe('6 — the pass is dark', () => {
-  it('nothing in src/ imports fallback-cells except this suite', () => {
+describe('6 — the pass has exactly one consumer, and it is gated', () => {
+  /** ⚖ PIN MIGRATED at E3a, WITH the decision (SPEC-SELLING-ENGINE §12).
+   *
+   *  At E2 this read 「nothing in src/ imports fallback-cells」 and that was the
+   *  whole point: the module shipped DARK, zero consumers, so nothing on the
+   *  board could move. E3a is the round that wires it, so the pin becomes what
+   *  the darkness was always standing in for — ONE consumer, at the screen
+   *  boundary, behind the round gate. Relaxing it to "some importers are fine"
+   *  would have thrown the invariant away instead of moving it. */
+  it('exactly one consumer — the screen — and its call is behind the round gate', () => {
     const importers = walk(join(process.cwd(), 'src'))
       .filter((f) => /\.tsx?$/.test(f))
       .filter((f) => !f.endsWith('fallback-cells.ts') && !f.endsWith('fallback-cells.test.ts'))
-      .filter((f) => /from '[^']*fallback-cells'|require\([^)]*fallback-cells/.test(readFileSync(f, 'utf8')))
+      // ⚠ `from ["']` rather than `from '`: the phone-safety import scanner
+      // (business-isolation.test.ts) reads THIS file with its own naive
+      // `from\s*'([^'\n]+)'`, so a literal `from '…` inside a regex here is
+      // parsed as an import of the bare package `[^`. E2 shipped that shape and
+      // it went red the moment the suite was run outside the `business/` folder
+      // — found here at E3a, fixed at the character that caused it.
+      .filter((f) => /from ["'][^"']*fallback-cells["']|require\([^)]*fallback-cells/.test(readFileSync(f, 'utf8')))
       .map((f) => f.slice(process.cwd().length + 1))
-    expect(importers).toEqual([])
+      // Batteries are not consumers: a suite that drives the pass is what
+      // proves it, and E3a's own reads it beside this one. The invariant is
+      // about the PRODUCT — how many places on the board can reach the pass.
+      .filter((f) => !f.includes('__tests__'))
+    expect(importers).toEqual(['src/app/[locale]/(business)/business/today/TodayScreen.tsx'])
+    // …and the pass runs ONLY when the sales door has a mask, which it only has
+    // when `SELLING_ENGINE_LAW` is on. Gate off ⇒ `heldCommitted` is undefined
+    // ⇒ this memo returns null ⇒ `fallbackCellsFor` is never called at all.
+    const screen = readFileSync(importers[0], 'utf8')
+    expect(screen).toContain('if (!heldCommitted) return null')
+    expect(screen).toContain('fallback: fallbackCellsFor({')
+    expect(screen.indexOf('if (!heldCommitted) return null')).toBeLessThan(screen.indexOf('fallback: fallbackCellsFor({'))
   })
 })
 

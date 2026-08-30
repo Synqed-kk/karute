@@ -1237,10 +1237,24 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     const wrapper = SRC.indexOf('export function bedViewsFor(')
     expect(wrapper).toBeGreaterThan(-1)
     expect(SRC.indexOf('bedTruthViews(', wrapper)).toBeGreaterThan(wrapper)
-    // …and the wrapper is CALLED exactly twice: the frame's book, and ⚖ 39's own
-    // book for a caller that handed in a different board. A third call site is a
-    // third world. (+1 for the definition itself.)
-    expect(SRC.split('bedViewsFor(').length - 1).toBe(3)
+    // …and the wrapper is CALLED exactly three times: the frame's book, ⚖ 39's
+    // own book for a caller that handed in a different board, and — ⚖ PIN
+    // MIGRATED at E3a, WITH the decision — the COMMITTED world's book.
+    //
+    // R3's invariant is unchanged and this is not a loophole in it: what it
+    // forbids is a reader helping itself to a world nobody named. SPEC-SELLING-
+    // ENGINE §2 names this one. It requires ONE mask builder over TWO world
+    // instances — the sales door prices the COMMITTED board (the measured WO-2d
+    // ruling, pinned two describes above) and the staff door's verdicts read the
+    // BOARD world — so a mask for the sales door cannot be answered out of the
+    // frame's book without handing the priced layers the pointer's position,
+    // which is the very thing this file's tripwire exists to stop.
+    //
+    // It is also GATED: the call sits behind `SELLING_ENGINE_LAW`, so until E3b
+    // flips it there is no third book at runtime at all. Both halves asserted —
+    // the count, and that the new site is the gated one. (+1 for the definition.)
+    expect(SRC.split('bedViewsFor(').length - 1).toBe(4)
+    expect(SRC).toContain('SELLING_ENGINE_LAW ? bedViewsFor(committedLanes, props.rooms, ledgerFrame, null).world : null')
   })
 })
 

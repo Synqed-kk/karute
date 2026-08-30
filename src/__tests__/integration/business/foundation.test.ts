@@ -385,6 +385,17 @@ describe('the fixture data door', () => {
         // `capacityLedgerShadow` (default OFF). The screen's only new
         // dependency this round, and R3 turns it into the real one.
         './capacity-ledger',
+        // ⚖ SPEC-SELLING-ENGINE §12, E3a — THE SELLING ENGINE'S THREE MODULES,
+        // wired here at the screen boundary and nowhere else. `reserved-mask` is
+        // the ONE derivation home for the held set (§2, built once per world per
+        // frame); `fallback-cells` is the §5 fragment pass over what R4's
+        // reconcile dropped; `selling-engine-gate` is the round's construction
+        // gate, read on this screen and read nowhere below it — every seam takes
+        // the mask as a parameter, so the gate has exactly one home. The screen
+        // gains no OTHER dependency: this is a wiring round.
+        './fallback-cells',
+        './reserved-mask',
+        './selling-engine-gate',
         './today-interactions',
         '@/business/lib/canon-logic/drag-rules',
         '@/business/lib/canon-logic/gap-guard',
@@ -397,6 +408,12 @@ describe('the fixture data door', () => {
         'react',
       ],
       'src/app/[locale]/(business)/business/today/today-interactions.ts': [
+        // ⚖ E3a — TYPE-ONLY, and the direction matters: the mask imports
+        // `laneSpans` from this file as a VALUE, so this entry is erased at
+        // compile time and no module cycle exists at runtime. The pin lists it
+        // because the scanner reads `from '…'` regardless of `import type`, and
+        // a silent extra dependency here is exactly what it is here to catch.
+        './reserved-mask',
         '@/business/lib/canon-logic/availability',
         '@/business/lib/canon-logic/drag-rules',
         '@/business/lib/canon-logic/gap-guard',

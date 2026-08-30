@@ -724,7 +724,15 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // (⚖ flag 88): the SOURCE of all three is still one value, and what the
     // helper adds is a narrowing of the PAINT, never a second reading of the
     // engine. The filter is pinned at its new home.
-    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere)')
+    // ⚖ PIN MIGRATED at E3a, WITH the decision (SPEC-SELLING-ENGINE §2's
+    // consumer registry, (c)): the call grew a FOURTH argument, this lane's
+    // 新規用に確保 spans. It is the same narrowing, for the same reason flag 88
+    // gave — a quarter-strength wash under something the board is deliberately
+    // drawing says the opposite of that drawing — and E3b's 確保 chip is that
+    // something. The argument defaults to empty, so with the round gate off the
+    // cue is byte-identical to today's; nothing about "one source, three cues"
+    // moved.
+    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, heldByLane.get(lane.key))')
     expect(INT).toContain('.filter(([, e]) => e.word != null)')
     // Both cues stand down while a card is in hand — the strip is answering a
     // different question then, and the chip wears the verdict's × instead.

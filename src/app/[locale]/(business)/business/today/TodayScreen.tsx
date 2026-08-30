@@ -84,6 +84,7 @@ import {
   proxyTransform,
   stretchOrCarry,
   gapLayerFor,
+  gapPackingDials,
   guardCheckRow,
   guardCheckRowBesideOffer,
   guardRailsFor,
@@ -127,7 +128,10 @@ import {
   type RoomPolicy,
   type SellDrop,
 } from './today-interactions'
-import { bedTruthViews, type BedTruth, type DayFrame } from './capacity-ledger'
+import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'
+import { fallbackCellsFor } from './fallback-cells'
+import { reservedMaskFor } from './reserved-mask'
+import { SELLING_ENGINE_LAW } from './selling-engine-gate'
 
 const HINT = '見本データのため実行できません'
 
@@ -1246,6 +1250,77 @@ export function TodayScreen(props: TodayProps) {
     [price.hi, price.lo, dialogs.pricing.hqMin, dialogs.pricing.hqMax],
   )
 
+  /** The ONE clock the book is built on — the same three numbers the sell, gap
+   *  and guard layers each read their own way (see capacity-ledger's `DayFrame`).
+   *  Its own memo so the book below is not rebuilt by an `hours` object that
+   *  merely re-rendered. */
+  const ledgerFrame = useMemo<DayFrame>(
+    () => ({ openMin: hours.open, closeMin: hours.close, nowMin: props.sell.nowMinute ?? hours.open }),
+    [hours.open, hours.close, props.sell.nowMinute],
+  )
+
+  /** ⚖ SPEC-SELLING-ENGINE §2 — THE HELD SET FOR THE SALES DOOR: the COMMITTED
+   *  world's instance, built ONCE per frame, here at the screen boundary.
+   *
+   *  WHY COMMITTED. Prices read the settled board — the measured WO-2d ruling
+   *  the tripwire pins guard — so the mask the priced layers mask themselves
+   *  against has to be the settled board's too, or a card in flight would move
+   *  what the store is holding for a 新規 while the operator is still deciding.
+   *  The staff door's instance is the BOARD world and is built below, out of the
+   *  frame's own book; one builder, two snapshots (spec §2).
+   *
+   *  WHY HERE AND NOT DEEPER. The guard probes the feasibility callback
+   *  thousands of times per frame; a mask built inside a predicate, a handler or
+   *  a pointer frame is a mask per ask. Construction is a memo — the same
+   *  discipline the capacity book itself is under — and every seam below takes
+   *  the answer as a parameter.
+   *
+   *  ⚖ E3a — `SELLING_ENGINE_LAW` is the ROUND GATE and it is read HERE and in
+   *  exactly one other place (the board world's, below). OFF ⇒ `undefined` ⇒
+   *  every seam falls through to the code that shipped, which is what the
+   *  gated-off parity proof asserts byte for byte. A guard-off STORE is a
+   *  separate and independent no-op: `reservedMaskFor` returns empty before it
+   *  touches the book. */
+  const committedBook = useMemo(
+    // ⚖ R3's ONE DOOR, obeyed rather than worked around: `bedViewsFor` is the
+    // only way into the book on this screen, and `null` is the honest hand for a
+    // world nobody is holding anything out of.
+    () => (SELLING_ENGINE_LAW ? bedViewsFor(committedLanes, props.rooms, ledgerFrame, null).world : null),
+    [committedLanes, props.rooms, ledgerFrame],
+  )
+  const heldCommitted = useMemo(
+    () =>
+      committedBook
+        ? reservedMaskFor({
+            lanes: committedLanes,
+            closeMin: hours.close,
+            nowMin: props.sell.nowMinute,
+            guard: props.guard.config,
+            gapGuardMode: props.guard.mode,
+            book: committedBook,
+          })
+        : undefined,
+    [committedBook, committedLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode],
+  )
+
+  /** THE PACKING DIALS, ONE SPELLING (⚖ spec §5). `gapLayerFor` derives the
+   *  layer from them and the fragment fallback calls the very same UNCHANGED
+   *  engine with them — two passes, one set of prices and one decomposition, so
+   *  a fallback fragment can never cost something the layer above it would not. */
+  const gapDials = useMemo(
+    () => ({
+      gridMin: props.sell.gridMin,
+      sessionMin: props.guard.standardSessionMin,
+      gapFillMin: props.guard.gapFillMinMin,
+      gapFillDiscountPct: props.guard.gapFillDiscountPct,
+      nowMinute: props.sell.nowMinute,
+      frame,
+      depth,
+      guard: props.guard.config,
+    }),
+    [props.sell, props.guard, frame, depth],
+  )
+
   /** スキマ枠 + 詰め込みセッション — canon renders them from the same board pass
    *  as the normal layer (renderPublicLayer → renderGapFillLayer :5402).
    *
@@ -1259,18 +1334,15 @@ export function TodayScreen(props: TodayProps) {
   const gap = useMemo(
     () =>
       gapLayerFor(committedLanes, {
-        gridMin: props.sell.gridMin,
-        sessionMin: props.guard.standardSessionMin,
-        gapFillMin: props.guard.gapFillMinMin,
-        gapFillDiscountPct: props.guard.gapFillDiscountPct,
+        ...gapDials,
         minSellableMin: props.guard.minSellableMin,
-        nowMinute: props.sell.nowMinute,
         locked,
-        frame,
-        depth,
-        guard: props.guard.config,
+        // ⚖ spec §4.1 — the held set masks the INPUT SPACE, upstream of every
+        // price. A held minute is never a candidate, so nothing downstream has
+        // to un-derive one.
+        held: heldCommitted,
       }),
-    [committedLanes, props.sell, props.guard, locked, frame, depth],
+    [committedLanes, gapDials, props.guard.minSellableMin, locked, heldCommitted],
   )
 
   /** ⚖ R4 — the スキマ枠/詰め込み boxes as ONE list of promises. Both layers
@@ -1310,6 +1382,9 @@ export function TodayScreen(props: TodayProps) {
           cleanupMinutesByBed: props.bedCleanupMinutes,
           onDrop: (d) => sellDrops.push(d),
         },
+        // ⚖ spec §4.2 Q4 — the standard hours INSIDE a held window stay derived
+        // and are marked held-bound. Nothing paints the mark this round.
+        held: heldCommitted,
       })
       return { sell, sellDrops }
     },
@@ -1325,7 +1400,51 @@ export function TodayScreen(props: TodayProps) {
       gapClaims,
       props.rooms,
       props.bedCleanupMinutes,
+      heldCommitted,
     ],
+  )
+
+  /** ⚖ SPEC-SELLING-ENGINE §5 + §4.5 — THE REST OF THE SALES DOOR, in the one
+   *  order the council's cycle analysis allows: the gap layer promised, the sell
+   *  layer reconciled against those promises, and only THEN the fallback over
+   *  what the reconcile threw away — additions-only, against that SAME claims
+   *  context. Nothing here feeds back into the reconcile, which is what keeps
+   *  R4's one-offer-per-bed invariant closed by construction.
+   *
+   *  `reserved` rides along because it is the same emission: ONE offer per held
+   *  window, advisory, claiming nothing (§4.5). E3b paints it and the counter
+   *  counts it; this round only proves it comes out right. */
+  const salesDoor = useMemo(() => {
+    if (!heldCommitted) return null
+    return {
+      fallback: fallbackCellsFor({
+        lanes: committedLanes,
+        closeMin: hours.close,
+        dropped: sellDrops,
+        survivors: sell.cells,
+        claims: gapClaims,
+        cleanupMinutesByBed: props.bedCleanupMinutes,
+        rooms: props.rooms,
+        held: heldCommitted,
+        dials: gapPackingDials(committedLanes, gapDials),
+      }),
+      reserved: reservedOffersFor(heldCommitted),
+    }
+  }, [heldCommitted, committedLanes, hours.close, sellDrops, sell, gapClaims, props.bedCleanupMinutes, props.rooms, gapDials])
+
+  /** WHAT THE BOARD DRAWS, and what the explanation layer reads as promised:
+   *  the gap layer plus the fallback's additions. Gate off ⇒ the same objects,
+   *  by identity, so nothing downstream can tell this seam exists. */
+  const gapDrawn = useMemo(
+    () =>
+      salesDoor
+        ? { packed: [...gap.packed, ...salesDoor.fallback.packed], scraps: [...gap.scraps, ...salesDoor.fallback.scraps] }
+        : gap,
+    [gap, salesDoor],
+  )
+  const drawnClaims = useMemo(
+    () => (salesDoor ? [...gapClaims, ...salesDoor.fallback.claims] : gapClaims),
+    [gapClaims, salesDoor],
   )
 
   /** The 配置ガイド. `guardOn` is the STORE's protection policy; `guideMode` is
@@ -1356,14 +1475,6 @@ export function TodayScreen(props: TodayProps) {
    *  actually in the operator's hand may be lifted out of the world, and only for
    *  the question "may the thing I am holding go here". */
   const handId = live?.id ?? null
-  /** The ONE clock the book is built on — the same three numbers the sell, gap
-   *  and guard layers each read their own way (see capacity-ledger's `DayFrame`).
-   *  Its own memo so the book below is not rebuilt by an `hours` object that
-   *  merely re-rendered. */
-  const ledgerFrame = useMemo<DayFrame>(
-    () => ({ openMin: hours.open, closeMin: hours.close, nowMin: props.sell.nowMinute ?? hours.open }),
-    [hours.open, hours.close, props.sell.nowMinute],
-  )
   /** THE CAPACITY BOOK, BUILT ONCE PER FRAME. Both worlds come out of one call,
    *  and the second only exists while a hand is holding something. Construction
    *  is a memo and never a predicate, a pointer frame or a drag handler: the
@@ -1384,6 +1495,31 @@ export function TodayScreen(props: TodayProps) {
       bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, props.rooms, ledgerFrame, handId), lanes, askerId),
     [boardLanes, props.rooms, ledger, ledgerFrame, handId],
   )
+  /** ⚖ SPEC-SELLING-ENGINE §2 — THE HELD SET FOR THE STAFF DOOR: the same
+   *  builder, the BOARD world's snapshot, out of the frame's own book. One
+   *  builder, two worlds; the sales door's instance is above.
+   *
+   *  It is built from `ledger.world`, which is the book `bedDoorFor(null)`
+   *  answers out of — so the mask below and the rail's own protected-window
+   *  callback are two readings of ONE bed truth and cannot disagree about what
+   *  is held. That agreement IS the law (spec §1). */
+  const heldBoard = useMemo(
+    () =>
+      SELLING_ENGINE_LAW
+        ? reservedMaskFor({
+            lanes: boardLanes,
+            closeMin: hours.close,
+            nowMin: props.sell.nowMinute,
+            guard: props.guard.config,
+            gapGuardMode: props.guard.mode,
+            book: ledger.world,
+          })
+        : undefined,
+    [boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger],
+  )
+  /** The held spans of ONE lane, for the renderer's rest cue. Keyed once per
+   *  frame rather than searched per lane per paint. */
+  const heldByLane = useMemo(() => new Map((heldBoard ?? []).map((m) => [m.laneKey, m.spans])), [heldBoard])
   const rails = useMemo<GuardRail[]>(
     () =>
       guardOn
@@ -1403,6 +1539,12 @@ export function TodayScreen(props: TodayProps) {
             // here. `bedDoorFor(null)` is that question in the book's words.
             excludeId: handId,
             placementFeasible: bedDoorFor(handId),
+            // ⚖ spec §3.1 — 「does the real world publish a protected window
+            // starting here」, answered by the SAME `newClientMask` door the
+            // reserved mask above is built from. A new client is never the card
+            // in hand, so this asks `bedDoorFor(null)` — the world, not the
+            // world-minus-hand — which is exactly the book `heldBoard` reads.
+            protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,
           })
         : [],
     [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],
@@ -1489,12 +1631,15 @@ export function TodayScreen(props: TodayProps) {
         // rather than as a stranger's.
         stagedId: pending?.id ?? null,
         sellCells: sell.cells,
-        claims: gapClaims,
+        claims: drawnClaims,
         drops: sellDrops,
         inHand: inHand != null,
         sellDisplayed: sellMode !== 'off',
+        // ⚖ spec §2(c) — the held set is FIRST-CLASS here: a 新規用に確保 window
+        // is not an unexplained hole, so 75(i)'s clauses stand down over it.
+        held: heldBoard,
       }),
-    [rails, boardLanes, railDur, handId, props.rooms, pending?.id, sell, gapClaims, sellDrops, inHand, sellMode],
+    [rails, boardLanes, railDur, handId, props.rooms, pending?.id, sell, drawnClaims, sellDrops, inHand, sellMode, heldBoard],
   )
 
   const openCards = props.cards.filter((c) => c.state === 'open' && !resolved.includes(c.id))
@@ -4030,7 +4175,9 @@ export function TodayScreen(props: TodayProps) {
     const isLocked = locked.includes(lane.key)
     const onThisLane = <T extends { group: string; laneKey: string; resourceKey: string }>(c: T) =>
       c.group !== lane.group ? false : lane.group === 'staff' ? c.laneKey === lane.key : c.resourceKey === lane.key
-    const gapHere = [...gap.packed, ...gap.scraps].filter(onThisLane)
+    // ⚖ spec §5 — `gapDrawn` is the gap layer PLUS the fragment fallback's
+    // additions. Gate off it is `gap` itself, by identity.
+    const gapHere = [...gapDrawn.packed, ...gapDrawn.scraps].filter(onThisLane)
     // ⚖ R4 (2026-08-25, corrected in the fix round) — canon
     // `suppressOverlappingSellableCells` (:5039) USED TO LIVE HERE, as
     // `.filter((c) => !gapHere.some(…))`. It MOVED, both of its halves, into
@@ -4064,7 +4211,10 @@ export function TodayScreen(props: TodayProps) {
      *  honestly be advertised at one length and refused at another). */
     const explainedHere = railExplained.get(lane.key)
     const restCues =
-      lane.group === 'staff' && !inHand && explainedHere ? restCueStarts(explainedHere, cells, gapHere) : []
+      lane.group === 'staff' && !inHand && explainedHere
+        ? // ⚖ spec §2(c) — …and a 新規用に確保 span is not empty track either.
+          restCueStarts(explainedHere, cells, gapHere, heldByLane.get(lane.key))
+        : []
     // canon `lane.insertAdjacentElement("afterend", rail)` (:7566): the rail is
     // the lane's SIBLING, not its child. A `.lane` is a two-column grid, so a
     // third child lands in the label column and the strip collapses to a sliver.
@@ -4227,7 +4377,7 @@ export function TodayScreen(props: TodayProps) {
           {!isLocked &&
             gapHere.map((c) => {
               const span = place(c.s, c.e, hours)
-              const packedHere = gap.packed.includes(c)
+              const packedHere = gapDrawn.packed.includes(c)
               // ⚖ Liam flag 38 / BATCH-5 R6 — COLOUR CARRIES MEANING, BORDERS
               // CARRY DRAG STATE. A full-length session is the product: blue.
               // Anything shorter is a leftover the residue broke off — the same

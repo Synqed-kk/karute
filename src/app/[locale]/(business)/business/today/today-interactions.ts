@@ -17,6 +17,7 @@ import {
   deriveSellableCells,
   freePockets,
   type GapCell,
+  type GapPackingInput,
   type SellCell,
   type SellLayer,
   type SellResourceLane,
@@ -37,8 +38,26 @@ import {
   type DragOrigin,
 } from '@/business/lib/canon-logic/drag-rules'
 import { minuteOf, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
+// ⚖ SPEC-SELLING-ENGINE §2 — TYPE-ONLY, and it has to stay that way: the mask
+// imports `laneSpans` from this file as a VALUE, so a value import back would
+// be a real module cycle. `import type` is erased before it exists.
+import type { ReservedLaneMask, ReservedSpan } from './reserved-mask'
 
 export type { DragMode, DragOrigin }
+
+/** ⚖ SPEC-SELLING-ENGINE §2 — THE HELD SET, INDEXED BY LANE, once per pass.
+ *
+ *  Every seam below reads the mask the same way and none of them derives it: an
+ *  ABSENT mask is the round gate OFF (`selling-engine-gate.ts`), and it means
+ *  today's board exactly — no lane has held spans, so every test below is false
+ *  and every branch falls through to the code that shipped. */
+const heldByLane = (held: readonly ReservedLaneMask[] | undefined): Map<string, readonly ReservedSpan[]> =>
+  new Map((held ?? []).map((m) => [m.laneKey, m.spans]))
+
+/** Half-open on both sides, the same `overlaps` grammar as everything else on
+ *  this board: a span that ENDS at a held window's start is not inside it. */
+const insideHeld = (spans: readonly ReservedSpan[] | undefined, s: number, e: number): boolean =>
+  spans != null && spans.some((h) => s < h.end && h.start < e)
 
 /** A card that has been moved from where the server placed it: the lane it now
  *  sits on, and the span it now covers.
@@ -1075,6 +1094,9 @@ export function sellLayerFor(
     depth: number
     /** ⚖ R4 — the other layer's finished promises. See `SellReconcile`. */
     reconcile?: SellReconcile
+    /** ⚖ SPEC-SELLING-ENGINE §4.2 Q4 — the held set for THIS world. Absent =
+     *  the round gate is off and the layer is byte-identical to today's. */
+    held?: readonly ReservedLaneMask[]
   },
 ): SellLayer {
   const staffLanes = sellStaffLanes(lanes, opts.locked)
@@ -1093,7 +1115,41 @@ export function sellLayerFor(
   // cells, and a layer built from boxes the screen then declines to draw is a
   // board that counts what it does not show.
   const cells = opts.reconcile ? reconcileSellCells(raw, lanes, opts.reconcile) : raw
-  return buildSellLayer(cells, opts.showPrice)
+  // ⚖ Q4 — TAGGED, NOT WITHHELD, and the difference is the whole ruling. A
+  // standard hour inside a held window is exactly what a rank-opened store or a
+  // release sells, so it stays derived and the layer keeps counting it; what it
+  // may not do is reach a regular customer's online feed. That filter is the
+  // offer feed's (§8) and the paint is E3b's — this seam only computes the fact.
+  return buildSellLayer(opts.held ? tagHeldBound(cells, opts.held) : cells, opts.showPrice)
+}
+
+/** ⚖ SPEC-SELLING-ENGINE §4.2 Q4 — AN ADVERTISED HOUR THAT LIES INSIDE A 新規用に
+ *  確保 WINDOW, said on the cell rather than re-derived by whoever asks.
+ *
+ *  It rides through `buildSellLayer` because canon's own tiering pass copies
+ *  each cell (`cells.map((c) => ({ ...c, tier }))`, availability.ts:206), so the
+ *  layer's `cells` carry it without canon knowing the field exists — which is
+ *  what keeps this app-side and canon frozen. Read it through `isHeldBound`;
+ *  never test the property by hand. */
+export interface HeldBoundSellCell extends SellCell {
+  readonly heldBound: true
+}
+
+/** The one reader. `SellCell` is canon's type and cannot grow a field, so the
+ *  tag is structurally invisible to the type — one narrow door beats every
+ *  consumer writing its own cast. */
+export const isHeldBound = (c: SellCell): boolean => (c as { heldBound?: unknown }).heldBound === true
+
+function tagHeldBound(cells: SellCell[], held: readonly ReservedLaneMask[]): SellCell[] {
+  const byLane = heldByLane(held)
+  return cells.map((c) => {
+    // Both emissions of one offer carry the STAFF lane key (availability.ts
+    // :126-134), so the pair is tagged together and the bed row can never
+    // disagree with the row it is drawn under.
+    if (!insideHeld(byLane.get(c.laneKey), c.h, c.h + SELL_SLOT_MIN)) return c
+    const tagged: HeldBoundSellCell = { ...c, heldBound: true }
+    return tagged
+  })
 }
 
 /** ⚖ BATCH-5 R1 (Liam 2026-08-21) — WHICH BOXES ARE CRUMBS. A packed box the
@@ -1136,6 +1192,46 @@ function combineCrumbs(cells: GapCell[], sessionMin: number, priceUnion: (laneKe
   return out
 }
 
+/** EVERY DIAL THE PACKING ENGINE TAKES, spelled ONCE.
+ *
+ *  ⚖ SPEC-SELLING-ENGINE §5 — the fragment fallback calls the same UNCHANGED
+ *  `deriveGapPackingCells` with a clipped input lane, so it needs the identical
+ *  bundle: the same guard engine's `fillableExactly`/`fillDecomposition`, the
+ *  same two price closures over the same frame and depth. Re-spelling them at
+ *  the screen would be a second pricing home, and two homes for one price is
+ *  how a fallback box comes to cost something the layer above it does not.
+ *
+ *  So `gapLayerFor` derives them here and the fallback pass is handed the very
+ *  same function's answer. The lane list is the argument because `listPrice` is
+ *  a BoardLane fact and canon's `SellStaffLane` carries it separately. */
+export function gapPackingDials(
+  lanes: BoardLane[],
+  opts: {
+    gridMin: number
+    sessionMin: number
+    gapFillMin: number
+    gapFillDiscountPct: number
+    nowMinute: number | null
+    frame: PriceFrame
+    depth: number
+    guard: GuardConfig
+  },
+): Omit<GapPackingInput, 'staffLanes' | 'resourceLanes'> {
+  const engine = createGapGuard(opts.guard)
+  const byKey = new Map(lanes.map((l) => [l.key, l]))
+  const listOf = (lane: SellStaffLane) => byKey.get(lane.key)?.listPrice ?? 0
+  return {
+    gridMin: opts.gridMin,
+    sessionMin: opts.sessionMin,
+    gapFillMin: opts.gapFillMin,
+    now: opts.nowMinute,
+    fillableExactly: engine.fillableExactly,
+    fillDecomposition: engine.fillDecomposition,
+    packedPrice: (lane, s, e) => packedPrice(listOf(lane), s, e, opts.frame, opts.depth),
+    gapFillPrice: (lane, s, e) => gapFillPrice(listOf(lane), s, e, opts.frame, opts.depth, opts.gapFillDiscountPct),
+  }
+}
+
 /** The スキマ枠 (orange, discounted) and 詰め込みセッション (blue, full price)
  *  layers, derived from the same board reading as everything else. Canon's own
  *  label carries the LENGTH beside the price on a packed cell — ¥8,650（60分）
@@ -1159,24 +1255,40 @@ export function gapLayerFor(
      *  than two things that each fall short. A store dial (the 店舗設定 control
      *  ships with the settings batch); absent = no floor. */
     minSellableMin?: number
+    /** ⚖ SPEC-SELLING-ENGINE §4.1 — the held set for THIS world, applied
+     *  UPSTREAM (see `withheld` below). Absent = the round gate is off and the
+     *  layer is byte-identical to today's. */
+    held?: readonly ReservedLaneMask[]
   },
 ): { packed: GapCell[]; scraps: GapCell[] } {
-  const engine = createGapGuard(opts.guard)
   const byKey = new Map(lanes.map((l) => [l.key, l]))
-  const listOf = (lane: SellStaffLane) => byKey.get(lane.key)?.listPrice ?? 0
   const priceUnion = (laneKey: string, s: number, e: number) =>
     packedPrice(byKey.get(laneKey)?.listPrice ?? 0, s, e, opts.frame, opts.depth)
+  /** ⚖ SPEC-SELLING-ENGINE §4.1, council-corrected — CAPACITY PROTECTION IS
+   *  PRICE-FREE AND SITS UPSTREAM OF EMISSION. A downstream filter would have to
+   *  drop boxes the reconcile had already priced and re-bedded, which re-opens
+   *  R4's double-claim class one layer down; masking the INPUT SPACE cannot,
+   *  because a held minute is simply never a candidate.
+   *
+   *  The mask is spelled as OCCUPANCY, which is the only vocabulary
+   *  `deriveGapPackingCells` has for "this minute is not yours": it cuts its
+   *  pockets out of `lane.occupied` (availability.ts:429) exactly as the rail
+   *  does. A held span is NOT a break — no `isBreak` — so it walls nothing and a
+   *  residue beside it stays the loss it really is. */
+  const staffLanes = sellStaffLanes(lanes, opts.locked)
+  const held = opts.held ? heldByLane(opts.held) : null
+  const withheld = held
+    ? staffLanes.map((l) => {
+        const spans = held.get(l.key)
+        return spans && spans.length > 0
+          ? { ...l, occupied: [...l.occupied, ...spans.map((h) => ({ start: h.start, end: h.end }))] }
+          : l
+      })
+    : staffLanes
   const raw = deriveGapPackingCells({
-    staffLanes: sellStaffLanes(lanes, opts.locked),
+    ...gapPackingDials(lanes, opts),
+    staffLanes: withheld,
     resourceLanes: sellResourceLanes(lanes),
-    gridMin: opts.gridMin,
-    sessionMin: opts.sessionMin,
-    gapFillMin: opts.gapFillMin,
-    now: opts.nowMinute,
-    fillableExactly: engine.fillableExactly,
-    fillDecomposition: engine.fillDecomposition,
-    packedPrice: (lane, s, e) => packedPrice(listOf(lane), s, e, opts.frame, opts.depth),
-    gapFillPrice: (lane, s, e) => gapFillPrice(listOf(lane), s, e, opts.frame, opts.depth, opts.gapFillDiscountPct),
   })
   const floor = opts.minSellableMin ?? 0
   const sellable = (c: GapCell) => c.e - c.s >= floor
@@ -1300,15 +1412,42 @@ export interface RailInput {
    *  bed-feasible; leaving the field undefined reproduces it exactly, because
    *  the engine only consults a callback that is there (gap-guard :271-272). */
   placementFeasible?: (lane: BoardLane, start: number, dur: number) => boolean
+  /** ⚖ SPEC-SELLING-ENGINE §3.1 — THE GUARD IS TOLD WHETHER ITS 新規 WINDOW HAS
+   *  A ROOM, which is the OTHER half of flag 76 and the refusal side of flag 49.
+   *
+   *  `placementFeasible` above answers 「can the card being placed occupy this
+   *  span」. This one answers 「does the real world publish a protected window
+   *  starting here」 (gap-guard :52) — a different question about a different
+   *  subject, and canon has always had the slot for it (`protectedWindows`
+   *  :192-206) with nothing wired into it. Unwired, the guard counts protected
+   *  capacity it cannot deliver: it refuses a placement to save a 新規 window no
+   *  room could ever host, and it stays silent over one it could.
+   *
+   *  IT IS THE SAME QUESTION THE MASK IS BUILT FROM — the board world's
+   *  `newClientMask` through `bedDoor(…, null)` — so the rail and the sales door
+   *  answer out of one held set rather than two derivations free to disagree.
+   *  That is the whole of the law (spec §1's closing clause).
+   *
+   *  ⚠ IT ALSO MOVES THE ENUMERATION ONTO THE LATTICE. With a callback the walk
+   *  starts at `ceil(pocket.s / 5) * 5` instead of the pocket's own minute
+   *  (gap-guard :195), so counts move for TWO reasons and the §3.3 table must
+   *  keep them in two columns — see E3a-proof/RAIL-DELTA.
+   *
+   *  ABSENT = today's rail exactly (the round gate off): canon consults a
+   *  callback only when there is one, and a store with no rooms configured has
+   *  none to consult either way. */
+  protectedWindowFeasible?: (lane: BoardLane, start: number, dur: number) => boolean
 }
 
 /** The engine's ctx for ONE staff lane — canon `ctxFor` (:7278). The clock the
  *  lead-time exemption reads, and the rooms. */
 function railCtx(lane: BoardLane, input: RailInput): GuardContext {
   const feasible = input.placementFeasible
+  const held = input.protectedWindowFeasible
   return {
     now: input.nowMinute ?? undefined,
     placementFeasible: feasible ? (start, dur) => feasible(lane, start, dur) : undefined,
+    protectedWindowFeasible: held ? (start, dur) => held(lane, start, dur) : undefined,
   }
 }
 
@@ -1647,11 +1786,26 @@ export function explainRails(
      *  「ドラッグ中のみ」 is NOT gated here: that layer exists and is revealed by
      *  the gesture, and a gesture already empties this map. */
     sellDisplayed: boolean
+    /** ⚖ SPEC-SELLING-ENGINE §2's registry, consumer (c) — THE HELD SET FOR THIS
+     *  WORLD, so a 新規用に確保 window is FIRST-CLASS here rather than an absence
+     *  this file has to invent a reason for.
+     *
+     *  Without it the two 75(i) clauses fire over exactly the space the law is
+     *  holding: 「この開始には販売可能枠が出ていません」 under the 確保 chip E3b
+     *  paints, or worse, 「ベッドは別のスタッフ（…）の枠が使う」 — naming a
+     *  stranger for an emptiness the STORE'S OWN RULE caused. Flag 88's
+     *  suppress-under-a-box grammar, extended to the reserved kind.
+     *
+     *  Absent = the round gate is off and every sentence is byte-identical to
+     *  today's (the observational drop pin at today-explains.test.ts:393 stays
+     *  untouched and green). */
+    held?: readonly ReservedLaneMask[]
   },
 ): RailExplained {
   const out: RailExplained = new Map()
   if (opts.inHand) return out
   const overlaps = (aS: number, aE: number, bS: number, bE: number) => aS < bE && bS < aE
+  const heldLanes = heldByLane(opts.held)
   for (const rail of rails) {
     const staff = lanes.find((l) => l.key === rail.laneKey && l.group === 'staff')
     // Per lane, once — the ad-less test below is asked per cell and these three
@@ -1673,13 +1827,20 @@ export function explainRails(
     const roomDrops = opts.drops.filter(
       (d) => d.laneKey === rail.laneKey && d.kind === 'room' && d.takerLaneKey != null && d.takerLaneKey !== rail.laneKey,
     )
+    const heldHere = heldLanes.get(rail.laneKey)
     const per = new Map<number, { word: string | null; sentence: string }>()
     for (const c of rail.cells) {
       const end = c.start + opts.dur
       const advertised =
         sellHere.some((s) => overlaps(s.h, s.h + SELL_SLOT_MIN, c.start, end)) ||
         gapHere.some((g) => overlaps(g.s, g.e, c.start, end))
-      const taker = advertised ? undefined : roomDrops.find((d) => overlaps(d.h, d.h + SELL_SLOT_MIN, c.start, end))
+      // ⚖ §2(c) — HELD IS NOT AD-LESS. It is kept apart from `advertised`
+      // deliberately: nothing IS advertised here, and calling it so would be the
+      // second reading of one fact this file keeps warning about. What it does
+      // is answer 75(i)'s question — 「why is this window empty」 — with the law,
+      // which is E3b's chip to say and never a taker's name.
+      const reserved = insideHeld(heldHere, c.start, end)
+      const taker = advertised || reserved ? undefined : roomDrops.find((d) => overlaps(d.h, d.h + SELL_SLOT_MIN, c.start, end))
       per.set(
         c.start,
         railExplain(c, opts.dur, {
@@ -1699,7 +1860,7 @@ export function explainRails(
                   stagedId: opts.stagedId,
                 })
               : null,
-          adless: !advertised && opts.sellDisplayed,
+          adless: !advertised && !reserved && opts.sellDisplayed,
           takerLabel: taker?.takerLaneKey != null ? (lanes.find((l) => l.key === taker.takerLaneKey)?.label ?? null) : null,
         }),
       )
@@ -1733,12 +1894,20 @@ export function restCueStarts(
   sellHere: readonly SellCell[],
   /** …and its 詰め込み／スキマ枠 promises, which advertise the span they draw. */
   gapHere: readonly GapCell[],
+  /** ⚖ SPEC-SELLING-ENGINE §2's registry, consumer (c) — …and its 新規用に確保
+   *  spans, which are not empty track either. E3b paints the 確保 chip over
+   *  them; a quarter-strength 清掃 wash under that chip is flag 88's artifact
+   *  reappearing one layer along, so the cue stands down over a held span for
+   *  the same reason it stands down over a price box. EMPTY = the round gate is
+   *  off and the cue is byte-identical to today's. */
+  heldHere: readonly ReservedSpan[] = [],
 ): number[] {
   // 30 is the rail's own step and so the cue's own width — the same span
   // `renderLane` gives the mark it paints from each start returned here.
   const covered = (start: number) =>
     sellHere.some((s) => s.h < start + 30 && start < s.h + SELL_SLOT_MIN) ||
-    gapHere.some((g) => g.s < start + 30 && start < g.e)
+    gapHere.some((g) => g.s < start + 30 && start < g.e) ||
+    heldHere.some((h) => h.start < start + 30 && start < h.end)
   return [...explained]
     .filter(([, e]) => e.word != null)
     .map(([start]) => start)

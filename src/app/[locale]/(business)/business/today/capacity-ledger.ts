@@ -58,6 +58,10 @@
 import type { GapCell, SellCell } from '@/business/lib/canon-logic/availability'
 import { SELL_SLOT_MIN } from '@/business/lib/canon-logic/pricing'
 import type { BoardLane } from '@/business/lib/today-board'
+// ⚖ SPEC-SELLING-ENGINE §2 — TYPE-ONLY. The mask imports `BedTruth` from this
+// file (also type-only) and `laneSpans` from today-interactions as a value; a
+// value import in either direction here would be a real module cycle.
+import type { ReservedLaneMask } from './reserved-mask'
 import { allocateBed, roomFitsClass, sharesStore, type RoomPolicy } from './today-interactions'
 
 /** The day lattice every capacity question is asked on, in minutes. Same step
@@ -575,6 +579,20 @@ export function bedTruthViews(
 
 // ── PHASE 2 — CLAIMS ────────────────────────────────────────────────────────
 
+/** ⚖ SPEC-SELLING-ENGINE §4.5 — WHAT KIND OF THING THE BOARD IS OFFERING, in
+ *  one vocabulary, because §8 makes the emitted offer set the Reserve feed and a
+ *  feed with two spellings of its own kinds is a feed that will disagree with
+ *  itself.
+ *
+ *  `reserved` is the third kind and it is ADVISORY: a held 新規 window offered
+ *  whole (spec §1 — held space is not dead space), 新規-only, naming a lane and
+ *  a span and NO room. It **never claims a bed** — the room is solved at TAKE
+ *  and core's `EXCLUDE` constraint is the final judge — so it may sit on the
+ *  same span as a sell option without that being a double-claim: that is the
+ *  ruled options-menu case, not a collision. `buildClaims` refuses one outright
+ *  rather than trusting a caller to remember. */
+export type OfferKind = 'sell' | 'gap' | 'reserved'
+
 /** One advertised box, as the sell/gap layers emit them. The SAME offer is
  *  emitted twice — once for the staff lane it is drawn on, once for the bed
  *  row — and the book counts it once. */
@@ -583,7 +601,7 @@ export interface OfferInput {
   resourceKey: string
   start: number
   end: number
-  kind: 'sell' | 'gap'
+  kind: OfferKind
   /** The lane the box is drawn on (a staff lane or the bed row itself). */
   laneKey: string
 }
@@ -592,8 +610,34 @@ export interface Claim {
   resourceKey: string
   startMin: number
   endMin: number
-  kind: 'sell' | 'gap'
+  kind: OfferKind
   laneKey: string
+}
+
+/** ⚖ §4.5 — ONE OFFER PER HELD WINDOW: the whole protected-duration 新規
+ *  session the flag-49 re-hit says held space IS 「offered to 新規 in Reserve」,
+ *  never the window sold piecewise.
+ *
+ *  No room and no price on purpose. The room is solved at take (see `OfferKind`)
+ *  and the price is the store's own session price, which the take path reads —
+ *  putting either here would be this layer inventing a promise it cannot keep. */
+export interface ReservedOffer {
+  readonly kind: 'reserved'
+  readonly laneKey: string
+  readonly start: number
+  readonly end: number
+}
+
+/** Every held window in the mask, as offers — ONE per window, in the mask's own
+ *  order. Written as a straight map rather than a re-enumeration so 「reserved
+ *  offers ≡ held windows」 is true by construction and not a count somebody has
+ *  to keep re-checking. */
+export function reservedOffersFor(held: readonly ReservedLaneMask[]): readonly ReservedOffer[] {
+  return Object.freeze(
+    held.flatMap((m) =>
+      m.spans.map((s) => Object.freeze<ReservedOffer>({ kind: 'reserved', laneKey: m.laneKey, start: s.start, end: s.end })),
+    ),
+  )
 }
 
 /** Two claims the same room cannot honour: they overlap, or they sit closer
@@ -672,6 +716,15 @@ export function buildClaims(truth: BedTruth, offers: readonly OfferInput[]): Cla
    *     `violations` never saw the overlap. */
   const byRoom = new Map<string, Claim[]>()
   for (const o of offers) {
+    // ⚖ SPEC-SELLING-ENGINE §4.5 — RESERVED NEVER CLAIMS, made unsayable rather
+    // than promised in a comment. A held 新規 window is an advertisement whose
+    // room is solved at take; letting one into the book would set it competing
+    // with the very boxes the law holds the space FOR, and every violation the
+    // book then reported would be an invention. The dedup key below is
+    // untouched for the two kinds that do claim.
+    if (o.kind === 'reserved') {
+      throw new Error('capacity-ledger: a reserved 新規 window is advisory — it never claims a room')
+    }
     // The sell engine emits `bed?.key ?? ''` on a store with no rooms
     // configured. Collapsing every such offer into one nameless room would
     // invent conflicts between unrelated boxes; the caller filters first.

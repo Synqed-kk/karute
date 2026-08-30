@@ -1410,7 +1410,7 @@ describe('11 — what the book refuses, and what it exports', () => {
     expect(Object.isFrozen(truth.frame)).toBe(true)
   })
 
-  it('the module’s door is exactly three functions and one constant', () => {
+  it('the module’s door is exactly four functions and one constant', () => {
     const doors = Object.keys(ledger).filter((k) => k !== '__esModule').sort()
     // ⚖ R4 (2026-08-25) — `boardOffers` joined the door, and the pin moved WITH
     // the decision rather than being relaxed to a subset check. It is Phase 2's
@@ -1418,7 +1418,17 @@ describe('11 — what the book refuses, and what it exports', () => {
     // (a run of sell options on one room is ONE claim on that room's time; every
     // スキマ枠 box is its own). It reads nothing and builds nothing, so it opens
     // no world — which is what this pin exists to protect.
-    expect(doors).toEqual(['LATTICE_STEP_MIN', 'bedTruthViews', 'boardOffers', 'buildClaims'])
+    //
+    // ⚖ SPEC-SELLING-ENGINE §4.5 (E3a) — `reservedOffersFor` joined it on the
+    // same terms, and the pin moved WITH that decision. It is the emission
+    // adapter for the THIRD offer kind: one advisory 新規 offer per held window,
+    // a straight map over the mask so 「reserved offers ≡ held windows」 is true
+    // by construction. It reads nothing, builds no world, and — the law that
+    // matters — never claims a room: `buildClaims` throws on a reserved offer
+    // rather than trusting a caller to remember (pinned in this file's §-claims
+    // block). A pure adapter beside `boardOffers`, which is the only kind of
+    // function this door has ever admitted.
+    expect(doors).toEqual(['LATTICE_STEP_MIN', 'bedTruthViews', 'boardOffers', 'buildClaims', 'reservedOffersFor'])
     // The world-builders are NOT among them: exported, either one would be the
     // free exclusion that produced the three-world board.
     expect((ledger as Record<string, unknown>).buildBedTruth).toBeUndefined()
