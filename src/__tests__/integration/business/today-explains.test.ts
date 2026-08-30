@@ -23,8 +23,10 @@
 //      board, every blocked chip says something and every sentence carries its
 //      own window. At most of those combinations the sell layer is EMPTY, which
 //      is exactly when a board that cannot explain itself does the most damage.
-//   §6 the rest cues are ONE decision: the dot and the hatch appear exactly
-//      where the word does, because all three are read off the same value.
+//   §6 the rest cues are ONE decision: the dot and the hatch are read off the
+//      same value the word is — and (⚖ flag 88) the LANE HATCH additionally
+//      paints on empty track only, because a wash under a price box says the
+//      opposite of the box.
 //   §9 ⚖ flag 87: a staged change re-solves its room from the room the booking
 //      OWNS, so a round trip puts the board back byte for byte.
 //
@@ -58,6 +60,7 @@ import {
   guardRailsFor,
   pairLanesOf,
   railExplain,
+  restCueStarts,
   seedBed,
   sellLayerFor,
   sidesAt,
@@ -700,6 +703,10 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
     'utf8',
   )
+  const INT = readFileSync(
+    join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'),
+    'utf8',
+  )
   const CSS = readFileSync(
     join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'),
     'utf8',
@@ -710,8 +717,12 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     expect(SRC).toContain('<i>{word ?? label}</i>')
     // …the dot rides `data-reason`, which is set from that SAME value…
     expect(SRC).toContain('data-reason={word ? (c.reason ?? undefined) : undefined}')
-    // …and the hatch is the same filter, one row up.
-    expect(SRC).toContain('[...explainedHere].filter(([, e]) => e.word != null).map(([start]) => start)')
+    // …and the hatch starts from the same filter, now inside `restCueStarts`
+    // (⚖ flag 88): the SOURCE of all three is still one value, and what the
+    // helper adds is a narrowing of the PAINT, never a second reading of the
+    // engine. The filter is pinned at its new home.
+    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere)')
+    expect(INT).toContain('.filter(([, e]) => e.word != null)')
     // Both cues stand down while a card is in hand — the strip is answering a
     // different question then, and the chip wears the verdict's × instead.
     expect(SRC).toContain('const word = v ? null : (explained?.word ?? null)')
@@ -721,6 +732,57 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // behaviour; this is the wiring that reaches it).
     expect(SRC).toContain('inHand: inHand != null,')
     expect(SRC).toContain("sellDisplayed: sellMode !== 'off',")
+  })
+
+  // ⚖ LIAM flag 88 (2026-08-30) — THE HATCH PAINTS ON EMPTY TRACK ONLY.
+  //
+  // Liam read the wash under a price box as a rendering artifact, and the ruled
+  // mock agrees with him: it hatched empty track and nothing else. What narrows
+  // is the LANE PAINT alone — the chip's word and dot are untouched, because a
+  // start really can be advertised at one length and refused at another. So
+  // word-without-hatch is legal from this round on, and legal EXACTLY where a
+  // box overlaps: the paired-appearance pin for empty spans is the first
+  // assertion below and may never weaken.
+  const worded = (...starts: number[]): ReadonlyMap<number, { word: string | null }> =>
+    new Map(starts.map((s) => [s, { word: '満室' }] as [number, { word: string | null }]))
+  const sellAt = (h: number): SellCell => ({
+    laneKey: 'p-01', resourceKey: 'bed-01', group: 'staff', staff: 'p-01', bed: 'ベッド1', h, price: 7000, tier: 2,
+  })
+  const gapAt = (s: number, e: number): GapCell => ({
+    laneKey: 'p-01', resourceKey: 'bed-01', group: 'staff', staff: 'p-01', s, e, price: 5000,
+  })
+
+  it('⚖ 88 — a cue under an advertised box is dropped; a cue on empty track stands', () => {
+    const cues = worded(600, 630, 660, 690)
+    // NOTHING ADVERTISED: every worded start keeps its hatch, which is §6's own
+    // pairing and the assertion this whole section exists for.
+    expect(restCueStarts(cues, [], [])).toEqual([600, 630, 660, 690])
+    // One 販売可能枠 covers TWO half hours — the box is a standard hour wide.
+    expect(restCueStarts(cues, [sellAt(630)], [])).toEqual([600, 690])
+    // A 詰め込み／スキマ枠 promise advertises the span it draws, no more: an
+    // offer is an offer, whichever layer drew it.
+    expect(restCueStarts(cues, [], [gapAt(660, 690)])).toEqual([600, 630, 690])
+    // Both layers at once, and what survives is the genuinely empty start.
+    expect(restCueStarts(cues, [sellAt(600)], [gapAt(690, 720)])).toEqual([660])
+  })
+
+  it('⚖ 88 — the WORD is not narrowed with the paint, and the overlap is half-open', () => {
+    // A start the engine did not word never grows a cue, box or no box: the
+    // source of all three faces is still the one value.
+    const mixed: ReadonlyMap<number, { word: string | null }> = new Map([
+      [600, { word: null }],
+      [630, { word: '新規' }],
+    ])
+    expect(restCueStarts(mixed, [], [])).toEqual([630])
+    // A box that ENDS at the cue's start is not over it…
+    expect(restCueStarts(worded(660), [], [gapAt(630, 660)])).toEqual([660])
+    // …and one that BEGINS at the cue's end is not either.
+    expect(restCueStarts(worded(660), [], [gapAt(690, 720)])).toEqual([660])
+    // One minute of overlap on either side IS overlap.
+    expect(restCueStarts(worded(660), [], [gapAt(630, 661)])).toEqual([])
+    expect(restCueStarts(worded(660), [], [gapAt(689, 720)])).toEqual([])
+    // The sell box's hour at both of its edges, so the 60 cannot drift to 30.
+    expect(restCueStarts(worded(570, 600, 630, 660), [sellAt(600)], [])).toEqual([570, 660])
   })
 
   it('the hatch never outlives the strip that explains it, and the marks are the price boxes’ own', () => {

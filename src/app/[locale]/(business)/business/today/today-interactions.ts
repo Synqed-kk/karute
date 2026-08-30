@@ -1681,6 +1681,42 @@ export function explainRails(
   return out
 }
 
+/** ⚖ LIAM flag 88 (2026-08-30) — THE HATCH IS ABOUT EMPTY TRACK, and only that.
+ *
+ *  The rest cue is the quarter-strength 清掃 wash `renderLane` paints under the
+ *  half hours whose chip wears a word: 「this 30 minutes is refused, and what
+ *  refuses it is not drawn on this row」. Painted UNDER a 販売可能枠 / 詰め込み /
+ *  スキマ枠 box it contradicts the box on top of it, and Liam read exactly that
+ *  as a rendering artifact — the ruled mock only ever hatched genuinely empty
+ *  track.
+ *
+ *  So the WORD does not narrow and the dot does not narrow: a start really can
+ *  be advertised at one length and refused at another (a 30-minute スキマ枠 on a
+ *  row with no room for a 60-minute session), and the chip is where that is
+ *  said. Only the LANE PAINT narrows, because the lane is where the two
+ *  drawings would sit on top of each other.
+ *
+ *  Half-open on both sides, the same `overlaps` grammar as everything else that
+ *  compares spans on this board: a box that ENDS at the cue's start is not over
+ *  it, and one that BEGINS at the cue's end is not either. */
+export function restCueStarts(
+  explained: ReadonlyMap<number, { word: string | null }>,
+  /** This lane's advertised hours, spanning `[h, h + SELL_SLOT_MIN)`. */
+  sellHere: readonly SellCell[],
+  /** …and its 詰め込み／スキマ枠 promises, which advertise the span they draw. */
+  gapHere: readonly GapCell[],
+): number[] {
+  // 30 is the rail's own step and so the cue's own width — the same span
+  // `renderLane` gives the mark it paints from each start returned here.
+  const covered = (start: number) =>
+    sellHere.some((s) => s.h < start + 30 && start < s.h + SELL_SLOT_MIN) ||
+    gapHere.some((g) => g.s < start + 30 && start < g.e)
+  return [...explained]
+    .filter(([, e]) => e.word != null)
+    .map(([start]) => start)
+    .filter((start) => !covered(start))
+}
+
 /** ⚖ LIAM flag 58 RIDER (2026-08-22) — AN ENGINE START IS NOT YET AN OFFER.
  *
  *  The guard walks a FIVE-minute lattice (`LATTICE_STEP_MIN`, gap-guard :28) and

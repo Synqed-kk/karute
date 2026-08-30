@@ -105,6 +105,7 @@ import {
   pairLanesOf,
   parkChipText,
   pinInViewport,
+  restCueStarts,
   explainRails,
   sameStore,
   sharesStore,
@@ -4009,12 +4010,15 @@ export function TodayScreen(props: TodayProps) {
      *  micro-word chips and no others — one condition, read off the same map the
      *  word is — and it is a REST cue, so it stands down the moment a card is in
      *  hand and the strip starts answering a different question. A locked lane
-     *  has no rail at all, so it has no entry here and paints nothing. */
+     *  has no rail at all, so it has no entry here and paints nothing.
+     *
+     *  ⚖ LIAM flag 88 (2026-08-30) — AND IT PAINTS ON EMPTY TRACK ONLY. A cue
+     *  under a price box says the opposite of the box; `restCueStarts` drops
+     *  those half hours, and the chip's word and dot are untouched (a start can
+     *  honestly be advertised at one length and refused at another). */
     const explainedHere = railExplained.get(lane.key)
     const restCues =
-      lane.group === 'staff' && !inHand && explainedHere
-        ? [...explainedHere].filter(([, e]) => e.word != null).map(([start]) => start)
-        : []
+      lane.group === 'staff' && !inHand && explainedHere ? restCueStarts(explainedHere, cells, gapHere) : []
     // canon `lane.insertAdjacentElement("afterend", rail)` (:7566): the rail is
     // the lane's SIBLING, not its child. A `.lane` is a two-column grid, so a
     // third child lands in the label column and the strip collapses to a sliver.
