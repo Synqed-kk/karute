@@ -133,7 +133,7 @@ import {
 } from './today-interactions'
 import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'
 import { fallbackCellsFor } from './fallback-cells'
-import { reservedMaskFor } from './reserved-mask'
+import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'
 import { SELLING_ENGINE_LAW } from './selling-engine-gate'
 
 const HINT = '見本データのため実行できません'
@@ -270,7 +270,12 @@ export function bedDoor(
  *  wording. An ordinary confirmation is unchanged at 3.2s. */
 const TOAST_MS = 3200
 const REFUSAL_MS = 7000
-const EMPTY_TOAST = { text: '', ms: TOAST_MS, n: 0, undo: null as (() => void) | null }
+/** ⚖ flag 64's one optional slot, NAMED for what it is (E5). It shipped as
+ *  `undo` because the delete was the only caller; ruling Q5's release is the
+ *  second, and it is a COMMIT rather than a way back — so the slot carries its
+ *  own label instead of the surface growing a second kind. Still one action,
+ *  still one button, still the toast the board already has. */
+const EMPTY_TOAST = { text: '', ms: TOAST_MS, n: 0, action: null as { label: string; run: () => void } | null }
 
 export interface DecisionCard {
   id: string
@@ -370,6 +375,11 @@ export interface TodayProps {
    *  own role and staff_id, so the board never decides authority for itself and
    *  a locked-out staff member simply never sees the action. */
   canOverride: boolean
+  /** ⚖ SPEC-SELLING-ENGINE §1 / ruling Q5 (E5). May THIS viewer release a 確保
+   *  window for sale early? Answered on the server from the operator's own role
+   *  (`canReleaseHeld`), the same way `canOverride` above is: staff see the
+   *  law sentence alone, managers see it with the one action beside it. */
+  canReleaseHeld: boolean
   closedWeekdayLabel: string
   ops: {
     total: string
@@ -776,6 +786,15 @@ export function TodayScreen(props: TodayProps) {
   const [settled, setSettled] = useState<string[]>([])
   const [resolved, setResolved] = useState<string[]>([])
   const [proposalSent, setProposalSent] = useState(false)
+  /** ⚖ SPEC-SELLING-ENGINE §1's Release clause, MANUAL half (ruling Q5, E5) —
+   *  THE 確保 WINDOWS THIS SESSION HAS PUT BACK ON SALE, beside every other
+   *  staged write on this board and exactly as real as they are: session-local,
+   *  gone on reload, and the toast says so in as many words.
+   *
+   *  It is a list of FACTS, not a mask: both world instances below take it as an
+   *  input and re-derive, so held-ness stays derived per frame (§1) and the two
+   *  doors cannot be handed two different answers. */
+  const [released, setReleased] = useState<readonly ReleasedWindow[]>([])
   const [calMonth, setCalMonth] = useState(0)
   /** ⚖ Liam flag 47 (2026-08-21) — A REFUSAL HAS TO BE READABLE. Every message
    *  on this board dwelt for the same 3.2s, which is right for 「置きました」 —
@@ -785,7 +804,7 @@ export function TodayScreen(props: TodayProps) {
    *  own dwell, and `n` re-arms the timer when the SAME refusal is earned twice
    *  in a row (pressing the same illegal slot again used to say nothing at all,
    *  because the state never changed). */
-  const [toast, setToast] = useState<{ text: string; ms: number; n: number; undo: (() => void) | null }>(EMPTY_TOAST)
+  const [toast, setToast] = useState<{ text: string; ms: number; n: number; action: { label: string; run: () => void } | null }>(EMPTY_TOAST)
   /** ⚖ Liam flag 64 — the dialog now carries a HANDLE on the block, not only
    *  strings about it. Without `key` there was nothing for 削除 to name, which
    *  is the second half of why the button was dead. */
@@ -1301,9 +1320,13 @@ export function TodayScreen(props: TodayProps) {
             guard: props.guard.config,
             gapGuardMode: props.guard.mode,
             book: committedBook,
+            // ⚖ E5 — ONE FACT, TWO SNAPSHOTS: the same released list reaches the
+            // board world's instance below, so a window a manager put back on
+            // sale is released at both doors or at neither.
+            released,
           })
         : undefined,
-    [committedBook, committedLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode],
+    [committedBook, committedLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, released],
   )
 
   /** THE PACKING DIALS, ONE SPELLING (⚖ spec §5). `gapLayerFor` derives the
@@ -1559,9 +1582,10 @@ export function TodayScreen(props: TodayProps) {
             guard: props.guard.config,
             gapGuardMode: props.guard.mode,
             book: ledger.world,
+            released,
           })
         : undefined,
-    [boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger],
+    [boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, released],
   )
   /** The held spans of ONE lane, for the renderer's rest cue. Keyed once per
    *  frame rather than searched per lane per paint. */
@@ -1699,9 +1723,14 @@ export function TodayScreen(props: TodayProps) {
    *  "undo")`, :4338), so the one door grew an optional action rather than the
    *  delete growing a second surface. Every existing caller passes nothing and
    *  is byte-identical; a refusal never carries one, because there is nothing
-   *  to take back. */
-  function show(message: string, ms = TOAST_MS, undo: (() => void) | null = null) {
-    setToast((was) => ({ text: message, ms, n: was.n + 1, undo }))
+   *  to take back.
+   *
+   *  ⚖ E5 — AND IT IS THE BOARD'S CONFIRM-WITH-ONE-ACTION SURFACE, which is why
+   *  ruling Q5's release opens THIS and not a new dialog: a sentence, one
+   *  button, the operator's own choice to press it. The action now names itself
+   *  (the delete says 元に戻す, the release says what it releases). */
+  function show(message: string, ms = TOAST_MS, action: { label: string; run: () => void } | null = null) {
+    setToast((was) => ({ text: message, ms, n: was.n + 1, action }))
   }
 
   /** ⚖ Liam flag 47 — THE LANE INVARIANT, IN ONE FUNCTION: *a refusal changes
@@ -1748,6 +1777,45 @@ export function TodayScreen(props: TodayProps) {
     setProposalSent(true)
     recoveryRef.current?.close()
     show('担当変更案をこの画面の中だけで送信済みにしました。再読み込みすると戻ります')
+  }
+
+  /** ⚖ SPEC-SELLING-ENGINE §1's Release clause, MANUAL half (ruling Q5, Liam
+   *  8/30: release is automatic AND a manager button, logged) — WHAT A 確保 CHIP
+   *  DOES WHEN IT IS PRESSED.
+   *
+   *  Everybody gets the law (E3b's shipped answer, unchanged). A MANAGER gets it
+   *  with one action beside it, in the board's own confirm-with-one-action
+   *  surface — the toast that already carries the block delete's undo — because
+   *  a release deserves a decision, not a second dialog system. `canReleaseHeld`
+   *  was answered on the server (page.tsx) from the operator's own role, so a
+   *  staff member never sees an action they would only be refused for.
+   *
+   *  ⚖ 47's long dwell, third member of the class: this toast is the only place
+   *  the action exists, so it lives long enough to be REACHED — the same
+   *  measured reason the block-delete undo does. */
+  function releaseAsk(laneKey: string, span: ReservedSpan) {
+    const law = reservedSentence(span.start, span.end)
+    if (!props.canReleaseHeld) {
+      show(law)
+      return
+    }
+    show(law, REFUSAL_MS, {
+      label: 'この確保を解除して販売に出す',
+      run: () => {
+        // ⚖ THE RELEASE IS LOGGED — priced honestly as NEW work, exactly as §7(a)
+        // prices the override log: no audit write is reachable from this board
+        // today (it is fixture-sealed; the 監査 lines are demo copy). ⚠ RECONNECT
+        // — the real write lands with the board's real-data reconnection and
+        // records the operator, the lane, the window and the time; this is the
+        // site it hangs off, and the name is on the registry now.
+        setReleased((was) =>
+          was.some((r) => r.laneKey === laneKey && r.windowStart === span.windowStart)
+            ? was
+            : [...was, { laneKey, windowStart: span.windowStart }],
+        )
+        show('確保を解除しました。再読み込みすると戻ります')
+      },
+    })
   }
 
   // ── the 仮押さえ gate ─────────────────────────────────────────────────────
@@ -4501,7 +4569,7 @@ export function TodayScreen(props: TodayProps) {
                   // window, the store's own duration and the release rule. One
                   // composer with the rail chip's clause under it, so the board
                   // cannot word its own rule two ways.
-                  onClick={() => show(reservedSentence(h.start, h.end))}
+                  onClick={() => releaseAsk(lane.key, h)}
                 >
                   <span className="held-title">新規用に確保</span>
                   <span className="held-sub">{h.end - h.start}分・オンラインで新規のお客様に販売中</span>
@@ -4888,9 +4956,12 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ 47's long dwell, second member of the class: this toast is the only way
     // back, so it lives long enough to be REACHED (see REFUSAL_MS above). The
     // restore confirmation that follows is an ordinary one and stays brief.
-    show(`${info.title}を削除しました`, REFUSAL_MS, () => {
-      setBlockDeleted((was) => was.filter((k) => k !== info.key))
-      show(`${info.title}を元に戻しました`)
+    show(`${info.title}を削除しました`, REFUSAL_MS, {
+      label: '元に戻す',
+      run: () => {
+        setBlockDeleted((was) => was.filter((k) => k !== info.key))
+        show(`${info.title}を元に戻しました`)
+      },
     })
   }
 
@@ -6195,8 +6266,12 @@ export function TodayScreen(props: TodayProps) {
           cost the fade the rest of this board's surfaces all have. */}
       <div className={`toast${toast.text ? ' show' : ''}`} role="status" aria-live="polite" aria-atomic="true">
         {toast.text}
-        {toast.undo && (
-          <button className="toast-undo" type="button" onClick={toast.undo}>元に戻す</button>
+        {/* ⚖ E5 — `.toast-undo` is the toast's ONE action slot and keeps its
+            shipped name and dress (accent text, never a fill — R13); what
+            changed is that the label travels with the action instead of being
+            spelled here, because the slot now has two callers. */}
+        {toast.action && (
+          <button className="toast-undo" type="button" onClick={toast.action.run}>{toast.action.label}</button>
         )}
       </div>
     </div>

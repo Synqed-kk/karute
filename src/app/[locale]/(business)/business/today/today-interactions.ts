@@ -3133,6 +3133,27 @@ export function overrideLevelFor(
   return policy.roles.includes(operator.role) ? 'allow-warned' : 'refuse'
 }
 
+/** ⚖ SPEC-SELLING-ENGINE §1's Release clause, MANUAL half (ruling Q5, 8/30:
+ *  release is automatic AND a manager button, logged) — WHO MAY PRESS IT.
+ *
+ *  Manager-level per Q5 — read off the ROLES HOME rather than spelled here.
+ *  ⚠SETTINGS-BATCH's law binds this exactly as it binds the override consult
+ *  above: the authority is DATA (`storeBookingPolicy.releaseHeldRoles`, beside
+ *  the override policy), never a literal on the board, so a store that names a
+ *  different set of people changes its settings and not this file. A staff
+ *  member pressing a 確保 chip gets the law sentence and nothing else, which is
+ *  E3b's shipped behaviour unchanged.
+ *
+ *  ⚖ IT IS ITS OWN LIST, NOT A READING OF THE OVERRIDE DIAL, deliberately.
+ *  `overrideLevelFor` above answers 「may this person place over a 置けない」 —
+ *  a different question about a different gesture — and a store that let
+ *  スタッフ override placements (the shipped default (a)) has not thereby said
+ *  staff may put the store's 新規 window back on sale. The settings round gives
+ *  the list its 店舗設定 control beside the override dial; this predicate is
+ *  where a LEVEL (rather than a list) would land if Liam ever asks for one. */
+export const canReleaseHeld = (roles: readonly string[], operator: { role: string }): boolean =>
+  roles.includes(operator.role)
+
 /** ⚖ LIAM flag 50(d) (2026-08-22) — WHAT AN OVERRIDE IS ALLOWED TO BUY.
  *
  *  「注意して配置」 confirms DESPITE the one row it overrode and nothing else: a

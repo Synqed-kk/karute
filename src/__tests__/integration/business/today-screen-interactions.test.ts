@@ -4077,8 +4077,15 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     // one). `n` is untouched, and a REFUSAL never carries one: `refuse` passes
     // no third argument, so there is nothing to take back on a refusal by
     // construction, not by convention.
-    expect(SRC).toContain('setToast((was) => ({ text: message, ms, n: was.n + 1, undo }))')
-    expect(SRC).toContain('function show(message: string, ms = TOAST_MS, undo: (() => void) | null = null) {')
+    // ⚖ E5 (SPEC-SELLING-ENGINE §1 / ruling Q5) — the slot is NAMED now, because
+    // it has a second caller whose action is a commit rather than a way back.
+    // Still ONE optional action, still the same door, and `refuse` still passes
+    // no third argument.
+    expect(SRC).toContain('setToast((was) => ({ text: message, ms, n: was.n + 1, action }))')
+    expect(SRC).toContain('function show(message: string, ms = TOAST_MS, action: { label: string; run: () => void } | null = null) {')
+    // The label travels WITH the action, so the button cannot say 元に戻す over
+    // a release — the one thing a shared slot could get wrong.
+    expect(SRC).toContain('<button className="toast-undo" type="button" onClick={toast.action.run}>{toast.action.label}</button>')
     // ONE door for refusals — every one of them, greppable by name. If a future
     // round adds a refusal through `show(` it will not carry the dwell, so the
     // known refusal sentences are pinned to the door here.
@@ -4109,18 +4116,28 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
    *  2026-08-22): at 3.2s the block-delete undo expired mid-reach and the click
    *  landed on the empty track underneath, opening 新規予約を作成. A destructive
    *  act whose way back must be FOUND inside 3.2s is the same complaint that
-   *  bought refusals their 7s. Only the undo-carrying toast joins the class. */
-  it('⚖ 47 — the toast that carries a way back lives as long as a refusal', () => {
-    expect(SRC).toContain('show(`${info.title}を削除しました`, REFUSAL_MS, () => {')
-    // The value has ONE home — the delete does not mint a dwell of its own.
+   *  bought refusals their 7s. Only an ACTION-carrying toast joins the class.
+   *
+   *  ⚖ 47's class, THIRD MEMBER (E5, SPEC-SELLING-ENGINE §1 / ruling Q5): the
+   *  manager's 確保 release. Same measured reason, arrived at from the other
+   *  side — the toast is the only place the action exists, so it has to be
+   *  REACHED rather than glanced at. The class grew WITH a ruling; it did not
+   *  grow quietly, which is what the count below exists to catch. */
+  it('⚖ 47 — the toast that carries an ACTION lives as long as a refusal', () => {
+    expect(SRC).toContain('show(`${info.title}を削除しました`, REFUSAL_MS, {')
+    expect(SRC).toContain('show(law, REFUSAL_MS, {')
+    // The value has ONE home — neither caller mints a dwell of its own.
     expect(SRC).not.toMatch(/show\([^\n]*,\s*7000/)
     // …and ORDINARY toasts are untouched: the restore confirmation that follows
-    // the undo takes the default, and nothing else in the file asks for the
-    // long dwell except `refuse` and this one line.
+    // the undo takes the default, and so does the release's own confirmation.
     expect(SRC).toContain('show(`${info.title}を元に戻しました`)')
-    // Exactly TWO callers ask for the long dwell: the refusal door and this one
-    // undo. A third would mean the class quietly grew.
-    expect(SRC.match(/, REFUSAL_MS/g)).toHaveLength(2)
+    expect(SRC).toContain("show('確保を解除しました。再読み込みすると戻ります')")
+    // Exactly THREE callers ask for the long dwell: the refusal door, the delete
+    // undo and the release action. A fourth would mean the class grew quietly.
+    expect(SRC.match(/, REFUSAL_MS/g)).toHaveLength(3)
+    // ⚖ E5 — and the staff branch is NOT in the class: no action, no long dwell,
+    // which is E3b's shipped behaviour byte for byte.
+    expect(SRC).toContain('if (!props.canReleaseHeld) {\n      show(law)\n      return\n    }')
   })
 
   it('⚖ 47 — cross-day placement is what canon promises, and nothing gates on the day', () => {

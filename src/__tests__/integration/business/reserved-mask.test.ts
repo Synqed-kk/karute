@@ -26,6 +26,10 @@
 //   §6 THE SWEEP — the widened matrix, written out as HELD-SWEEP-e1.
 //   §7 COST — the mask's build measured at 6/15/25/30 staff plus one 100-lane
 //      本部 row, with the book's `newClientMask` lookups asserted bounded.
+//   §8 THE MANUAL RELEASE (E5, ruling Q5) — a released window is an INPUT FACT
+//      SUBTRACTED AFTER THE ENUMERATION: the window goes, every neighbour stays
+//      byte-identical, the identity is (lane, windowStart) whole, and absent is
+//      E1's answer to the byte.
 //
 // ⚠ THE OTHER THREE INVARIANTS ARE NOT HERE, AND CANNOT BE. Spec §11.3 asks
 // for six; (i) "every withheld crumb lies inside a held span", (iv) "reserved
@@ -52,6 +56,7 @@ import {
 import {
   reservedMaskFor,
   type GapGuardMode,
+  type ReleasedWindow,
   type ReservedLaneMask,
 } from '@/app/[locale]/(business)/business/today/reserved-mask'
 import { laneSpans, type RoomPolicy } from '@/app/[locale]/(business)/business/today/today-interactions'
@@ -231,8 +236,11 @@ function maskOf(
   guard: GuardConfig | null,
   gapGuardMode: GapGuardMode,
   book: BedTruth = bookOf(lanes),
+  /** ⚖ E5 — absent is E1's call, unchanged: every existing caller passes
+   *  nothing and gets the array the enumeration built. */
+  released?: readonly ReleasedWindow[],
 ): readonly ReservedLaneMask[] {
-  return reservedMaskFor({ lanes, closeMin: CLOSE, nowMin: null, guard, gapGuardMode, book })
+  return reservedMaskFor({ lanes, closeMin: CLOSE, nowMin: null, guard, gapGuardMode, book, released })
 }
 
 /** THE ORACLE — the pockets and the guard ctx the RAIL builds, rebuilt here
@@ -796,5 +804,108 @@ describe('7 — the cost of the mask, measured rather than asserted in prose', (
         '# board hot on a real screen — not to a dark builder.',
       ].join('\n'),
     )
+  })
+})
+
+// ── 8 · THE MANUAL RELEASE (E5, ⚖ ruling Q5) ────────────────────────────────
+
+/** ⚖ SPEC-SELLING-ENGINE §1's Release clause, MANUAL half. A manager releasing
+ *  a held window early does NOT mutate the mask — held-ness stays derived per
+ *  frame, and the release is a FACT the derivation consumes. These pins are the
+ *  ones that hold the design in place: the subtraction happens AFTER the guard
+ *  has enumerated, so a release changes what is HELD and never what is FORMABLE.
+ *
+ *  Written to be mutation-provable, like every pin above: drop either half of
+ *  the (lane, windowStart) identity and one of the identity pins turns red, and
+ *  count the spans a second way and the derived-count pin does.
+ *
+ *  ⚠ ON THE ORDERING MUTANT, honestly (measured in E5's mutation run): carving
+ *  an ENUMERATED window out of the pocket before the greedy runs leaves this
+ *  greedy's other windows exactly where they were — earliest-finish scanned
+ *  left to right on the lattice re-selects the same starts either side of the
+ *  hole. What that mutant DOES break is the pin below that a release matching
+ *  nothing changes nothing: a carve happens whether or not the guard ever
+ *  enumerated the window, so a phantom release moves real windows. The
+ *  neighbour byte-identity is asserted anyway — it is the property the ordering
+ *  guarantees on every board, not only on the ones this greedy forgives. */
+describe('8 — a released window is SUBTRACTED, and nothing else moves', () => {
+  /** A lane the SWEEP board holds MORE THAN ONE window on — the only board
+   *  shape that can prove the ordering claim, since the claim is about what
+   *  happens to the OTHER windows. */
+  function twoWindowLane(): { lanes: BoardLane[]; guard: GuardConfig; book: BedTruth; laneKey: string; spans: readonly { start: number; end: number; windowStart: number }[] } {
+    const lanes = board(SWEEP)
+    const guard = guardConfig()
+    const book = bookOf(lanes)
+    const hit = maskOf(lanes, guard, 'standard', book).find((m) => m.spans.length > 1)
+    expect(hit).toBeDefined()
+    return { lanes, guard, book, laneKey: hit!.laneKey, spans: hit!.spans }
+  }
+
+  it('absent, empty, and a release that matches nothing are all E1’s answer — byte for byte', () => {
+    const { lanes, guard, book, laneKey, spans } = twoWindowLane()
+    const none = JSON.stringify(maskOf(lanes, guard, 'standard', book))
+    expect(JSON.stringify(maskOf(lanes, guard, 'standard', book, []))).toBe(none)
+    // The identity is (lane, windowStart) WHOLE. A real lane with a start the
+    // guard never enumerated releases nothing…
+    expect(JSON.stringify(maskOf(lanes, guard, 'standard', book, [{ laneKey, windowStart: spans[0].windowStart + 7 }]))).toBe(none)
+    // …and a real start on a lane that is not this one releases nothing either.
+    expect(JSON.stringify(maskOf(lanes, guard, 'standard', book, [{ laneKey: 'no-such-lane', windowStart: spans[0].windowStart }]))).toBe(none)
+  })
+
+  it('the release is LANE-SCOPED — the same start on another lane is untouched', () => {
+    // Two staff lanes holding a window at the SAME start is the ordinary case on
+    // a roster where everybody works the same shift; a release that dropped the
+    // lane half of the key would empty the whole board's 14:30.
+    const lanes = board(SWEEP)
+    const guard = guardConfig()
+    const book = bookOf(lanes)
+    const before = maskOf(lanes, guard, 'standard', book)
+    const shared = before
+      .flatMap((m) => m.spans.map((s) => ({ laneKey: m.laneKey, windowStart: s.windowStart })))
+      .filter((a, _i, all) => all.filter((b) => b.windowStart === a.windowStart).length > 1)
+    expect(shared.length).toBeGreaterThan(1)
+    const [mine, theirs] = [shared[0], shared.find((s) => s.windowStart === shared[0].windowStart && s.laneKey !== shared[0].laneKey)!]
+    const after = maskOf(lanes, guard, 'standard', book, [mine])
+    const startsOn = (masks: readonly ReservedLaneMask[], key: string) => masks.find((m) => m.laneKey === key)!.spans.map((s) => s.windowStart)
+    expect(startsOn(after, mine.laneKey)).not.toContain(mine.windowStart)
+    expect(startsOn(after, theirs.laneKey)).toContain(theirs.windowStart)
+  })
+
+  it('releasing ONE window takes that window, and the neighbours stay BYTE-IDENTICAL', () => {
+    const { lanes, guard, book, laneKey, spans } = twoWindowLane()
+    const released: ReleasedWindow = { laneKey, windowStart: spans[0].windowStart }
+    const after = maskOf(lanes, guard, 'standard', book, [released])
+    const lane = after.find((m) => m.laneKey === laneKey)!
+    // The window is gone…
+    expect(lane.spans.map((s) => s.windowStart)).not.toContain(released.windowStart)
+    expect(lane.spans).toHaveLength(spans.length - 1)
+    // …the count is DERIVED from what is left, never counted a second way…
+    expect(lane.protectedCount).toBe(lane.spans.length)
+    // …and every OTHER window on that lane is the same object's worth of bytes.
+    // THIS is the ordering claim: the greedy ran over the whole pocket first, so
+    // it never re-packed itself around the hole the release made.
+    expect(JSON.stringify(lane.spans)).toBe(JSON.stringify(spans.slice(1)))
+    // Every lane the release did not name is untouched, whole.
+    const before = maskOf(lanes, guard, 'standard', book)
+    for (const m of after.filter((x) => x.laneKey !== laneKey)) {
+      expect(JSON.stringify(m)).toBe(JSON.stringify(before.find((b) => b.laneKey === m.laneKey)))
+    }
+  })
+
+  it('ONE fact, TWO snapshots — the same released list answers for two worlds', () => {
+    // ⚖ spec §2's two instances: the sales door reads the committed world and
+    // the staff door the board world. A release is handed to BOTH, so a window
+    // is released at both doors or at neither — the disagreement the mask exists
+    // to make impossible.
+    const busy = board(SWEEP)
+    const quiet = board({ ...SWEEP, perLane: 1, seed: 99 })
+    const guard = guardConfig()
+    const pick = maskOf(busy, guard, 'standard').find((m) => m.spans.length > 0)!
+    const released: ReleasedWindow[] = [{ laneKey: pick.laneKey, windowStart: pick.spans[0].windowStart }]
+    for (const world of [busy, quiet]) {
+      const held = maskOf(world, guard, 'standard', bookOf(world), released)
+      const lane = held.find((m) => m.laneKey === pick.laneKey)
+      expect(lane?.spans.map((s) => s.windowStart) ?? []).not.toContain(released[0].windowStart)
+    }
   })
 })

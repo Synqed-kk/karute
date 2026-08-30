@@ -268,6 +268,23 @@ export const storeBookingPolicy = {
     /** 個別ロックアウト — staff_id で名指し. His 「いつも変な場所に置くスタッフ」. */
     lockedOut: [] as readonly string[],
   },
+  /** ⚠SETTINGS-BATCH — 確保枠を早めに販売へ戻せる役職 (⚖ SPEC-SELLING-ENGINE §1's
+   *  Release clause, ruling Q5 8/30: release is automatic AND a manager button,
+   *  logged).
+   *
+   *  Q5 said 「manager」, and on this family's own role vocabulary that is
+   *  オーナー / 店舗管理者 — the same two 売上分析 (`viewRoles`) and 人件費
+   *  (`laborCostRoles`) already gate to. It is DATA for the same reason the
+   *  override roles beside it are: who may put a held window back on sale is a
+   *  store's judgement about its own people, and a component that spelled a role
+   *  would make every store the same store (⚠SETTINGS-BATCH, pinned).
+   *
+   *  A SEPARATE LIST from `overridePolicy.roles` on purpose: the shipped
+   *  override default (a) includes スタッフ, and letting a staff member place
+   *  over a 置けない is not the same permission as letting them release the
+   *  store's 新規 window. Fable default, OVERTURNABLE; the 店舗設定 control ships
+   *  with the settings batch beside the override dial. */
+  releaseHeldRoles: ['オーナー', '店舗管理者'] as readonly string[],
   /** ⚠SETTINGS-BATCH — 確保枠の会員ランク開放 (⚖ Liam 2026-08-30 late night,
    *  spec §13 Q4, overruling the spec's own recommendation: regular customers
    *  CANNOT book the standard slots inside a held window online, and a store may
@@ -336,6 +353,8 @@ export const opsConfig = {
    *  because `readDayPlanes` hands the board `opsConfig` and every existing
    *  reader asks it for the policy. Same object, one home. */
   overridePolicy: storeBookingPolicy.overridePolicy,
+  /** DERIVED — the same alias, for ruling Q5's own list (E5). */
+  releaseHeldRoles: storeBookingPolicy.releaseHeldRoles,
 }
 
 /** レジ (ask T-08). The aggregates the money band shows that no booking row

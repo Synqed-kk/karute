@@ -47,10 +47,11 @@ import { join } from 'node:path'
 import { boardOffers, buildClaims, reservedOffersFor, type BedTruth } from '@/app/[locale]/(business)/business/today/capacity-ledger'
 import { fallbackCellsFor, type FallbackResult } from '@/app/[locale]/(business)/business/today/fallback-cells'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
-import { reservedMaskFor, type ReservedLaneMask } from '@/app/[locale]/(business)/business/today/reserved-mask'
+import { reservedMaskFor, type ReleasedWindow, type ReservedLaneMask } from '@/app/[locale]/(business)/business/today/reserved-mask'
 import { SELLING_ENGINE_LAW } from '@/app/[locale]/(business)/business/today/selling-engine-gate'
 import { bedDoor, bedViewsFor, TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import {
+  canReleaseHeld,
   explainRails,
   gapLayerFor,
   gapPackingDials,
@@ -70,6 +71,7 @@ import { type GapCell } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext } from '@/business/lib/canon-logic/gap-guard'
 import { clampPriceInputs, SELL_SLOT_MIN } from '@/business/lib/canon-logic/pricing'
 import { STORE_A } from '@/business/lib/fixtures'
+import { opsConfig } from '@/business/lib/fixtures-today'
 import { cleanupBlocks, hhmm, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -344,7 +346,14 @@ function priceOf() {
 const frameOf = (w: World) => ({ openMin: w.hours.open, closeMin: w.hours.close, nowMin: w.now ?? w.hours.open })
 const bookOf = (w: World): BedTruth => bedViewsFor(w.lanes, w.rooms, frameOf(w), null).world
 
-const maskOf = (w: World, c: Combo, book: BedTruth = bookOf(w)): readonly ReservedLaneMask[] =>
+const maskOf = (
+  w: World,
+  c: Combo,
+  book: BedTruth = bookOf(w),
+  /** ⚖ E5 (ruling Q5) — the windows a manager has released. Absent everywhere
+   *  above: E3b's answer is unchanged by construction. */
+  released?: readonly ReleasedWindow[],
+): readonly ReservedLaneMask[] =>
   reservedMaskFor({
     lanes: w.lanes,
     closeMin: w.hours.close,
@@ -352,6 +361,7 @@ const maskOf = (w: World, c: Combo, book: BedTruth = bookOf(w)): readonly Reserv
     guard: configOf(c),
     gapGuardMode: c.mode,
     book,
+    released,
   })
 
 const windowsIn = (held: readonly ReservedLaneMask[]) => held.flatMap((m) => m.spans.map((s) => ({ laneKey: m.laneKey, ...s })))
@@ -1020,8 +1030,11 @@ describe('5 — a 確保 window answers with the law', () => {
       }
     }
     // ⚖ 44's precedent: a state that answers a press is a button wearing no
-    // button dress. The chip's press is the law's own sentence.
-    expect(SRC('TodayScreen.tsx')).toContain('onClick={() => show(reservedSentence(h.start, h.end))}')
+    // button dress. The chip's press is the law's own sentence — composed in
+    // `releaseAsk`, which is where E5 hung ruling Q5's manager action beside it
+    // (§6 below pins both halves).
+    expect(SRC('TodayScreen.tsx')).toContain('onClick={() => releaseAsk(lane.key, h)}')
+    expect(SRC('TodayScreen.tsx')).toContain('const law = reservedSentence(span.start, span.end)')
   })
 
   it('⚖ 8/23 guided-tour law — the chip registers itself, ONCE', () => {
@@ -1034,6 +1047,172 @@ describe('5 — a 確保 window answers with the law', () => {
     expect(screen).toContain("const firstHeldLane = heldDrawn.find((m) => m.spans.length > 0 && !locked.includes(m.laneKey))?.laneKey")
     // …and the counter's own entry moved with ⚖ Q3's definition.
     expect(screen).toContain('data-guide="いまReserveで販売中の枠数。販売可能枠・詰め込み・スキマ枠・新規用に確保をまとめた数です。')
+  })
+})
+
+// ── 6 · THE MANAGER'S RELEASE (E5, ⚖ ruling Q5) ─────────────────────────────
+
+/** ⚖ SPEC-SELLING-ENGINE §1's Release clause, MANUAL half — the last ruled
+ *  piece of the law, end to end on the fixture at the store's shipped dials.
+ *  §2 above pinned the two ごろう endings the LAW produces; this is the third,
+ *  the one a manager produces on purpose. */
+describe('6 — a manager releases ごろう’s held window, and the board re-derives', () => {
+  const GORO = 'p-05'
+
+  const scene = () => {
+    const w = fixtureWorld()
+    const c = shipped()
+    const book = bookOf(w)
+    const before = maskOf(w, c, book)
+    const window = before.find((m) => m.laneKey === GORO)!.spans[0]
+    const released: ReleasedWindow[] = [{ laneKey: GORO, windowStart: window.windowStart }]
+    return { w, c, book, before, window, released, after: maskOf(w, c, book, released) }
+  }
+
+  const bandsOf = (d: Door, laneKey: string) => d.sellDrawn.staffBands.filter((b) => b.laneKey === laneKey)
+  const rowsOf = (d: Door, kind: string) => d.online.groups.find((g) => g.kind === kind)?.rows ?? []
+
+  /** The scene, written out — the same discipline the three artifacts below
+   *  follow: a claim a reader can check without running the suite. */
+  afterAll(() => {
+    const dir = process.env.E5_EVIDENCE_DIR ?? ''
+    if (!dir) return
+    const { w, c, before, after, window } = scene()
+    const held = door(w, c, before)
+    const freed = door(w, c, after)
+    const kinds = (d: Door) => d.online.groups.map((g) => `${g.label}=${g.rows.length}`).join(' · ')
+    const cells = (d: Door) =>
+      d.sellDrawn.cells.filter((x) => x.group === 'staff' && x.laneKey === GORO).map((x) => `${hhmm(x.h)} ${x.resourceKey} ¥${x.price}`).sort().join(', ')
+    const spansOf = (masks: readonly ReservedLaneMask[]) =>
+      masks.filter((m) => m.spans.length > 0).map((m) => `${m.laneKey} ${m.spans.map((s) => span(s.start, s.end)).join(',')}`).join(' | ')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, `RELEASE-SCENE-${process.env.E5_SHA ?? 'unstamped'}.txt`),
+      [
+        '# RELEASE-SCENE — ⚖ ruling Q5’s manual release, on the fixture at the store’s shipped dials',
+        `# tip: ${process.env.E5_SHA ?? 'unstamped'}`,
+        `# released: ${GORO} (見本 ごろう) windowStart=${window.windowStart} (${span(window.start, window.end)})`,
+        '#',
+        `held  spans   ${spansOf(before)}`,
+        `freed spans   ${spansOf(after)}`,
+        '#',
+        `held  ${GORO} sell   ${cells(held)}`,
+        `freed ${GORO} sell   ${cells(freed)}`,
+        `held  ${GORO} band   ${bandsOf(held, GORO).map((b) => `${hhmm(b.hStart)}-${hhmm(b.hEnd)} ¥${b.lo}-¥${b.hi}`).join(', ')}`,
+        `freed ${GORO} band   ${bandsOf(freed, GORO).map((b) => `${hhmm(b.hStart)}-${hhmm(b.hEnd)} ¥${b.lo}-¥${b.hi}`).join(', ')}`,
+        '#',
+        `held  counter   ${held.online.total}窓 — ${kinds(held)}`,
+        `freed counter   ${freed.online.total}窓 — ${kinds(freed)}`,
+        '#',
+        '# THE ORDERING CLAIM, written out: every lane the release did not name has',
+        '# byte-identical spans above, because the guard enumerated the whole board',
+        '# BEFORE the subtraction ran. A release changes what is HELD, never what is',
+        '# FORMABLE.',
+      ].join('\n'),
+    )
+  })
+
+  it('the chip is gone, and its hours publish at full price', () => {
+    const { w, c, before, window, after } = scene()
+    // §2's own scene: ごろう is held 14:30–16:00, the one window on that lane.
+    expect(span(window.start, window.end)).toBe('14:30-16:00')
+    expect(after.find((m) => m.laneKey === GORO)!.spans).toEqual([])
+    expect(after.find((m) => m.laneKey === GORO)!.protectedCount).toBe(0)
+
+    const held = door(w, c, before)
+    const freed = door(w, c, after)
+    // THE 15:00 HOUR COMES BACK. It was derived all along (the law withheld it
+    // from the published layer, §4.2 Q4); the release publishes it — at FULL
+    // price, on the same bed, because a released window is ordinary stock and
+    // not a discount.
+    const cellsOn = (d: Door) =>
+      d.sellDrawn.cells.filter((x) => x.group === 'staff' && x.laneKey === GORO).map((x) => `${hhmm(x.h)} ${x.resourceKey} ¥${x.price}`).sort()
+    expect(cellsOn(held)).toEqual(['16:00 bed-02 ¥9220'])
+    expect(cellsOn(freed)).toEqual(['15:00 bed-02 ¥8810', '16:00 bed-02 ¥9220'])
+    // …and the BAND the sales door publishes grows to cover it rather than a
+    // second band appearing beside it: one offer per span, still.
+    expect(bandsOf(held, GORO).map((b) => [b.hStart, b.hEnd, b.lo, b.hi])).toEqual([[960, 1020, 9220, 9220]])
+    expect(bandsOf(freed, GORO).map((b) => [b.hStart, b.hEnd, b.lo, b.hi])).toEqual([[900, 1020, 8810, 9220]])
+    // The release buys the store an hour it could not sell a minute earlier —
+    // TWO cells for the one offer, because a staff hour paints on its own row
+    // and on its bed's (one offer, one staff lane key, two emissions: the same
+    // pair §3's rank-dial pin counts on).
+    expect(freed.sellDrawn.cells.length).toBe(held.sellDrawn.cells.length + 2)
+    expect(freed.sellDrawn.cells.filter((x) => x.laneKey === GORO && x.h === 900)).toHaveLength(2)
+  })
+
+  it('the OTHER held windows are byte-identical — the release changes what is HELD, not what is FORMABLE', () => {
+    const { before, after } = scene()
+    // ⚠ THE ORDERING PIN. The greedy enumerated the whole board first and the
+    // subtraction ran after it, so releasing ごろう's window left every other
+    // lane's spans exactly where the guard put them. (The mutant that feeds a
+    // release back into the pockets is caught by reserved-mask.test.ts §8 —
+    // see its header for what E5's mutation run actually measured.)
+    for (const m of after.filter((x) => x.laneKey !== GORO)) {
+      expect(JSON.stringify(m)).toBe(JSON.stringify(before.find((b) => b.laneKey === m.laneKey)))
+    }
+    // Three neighbours, really there — an empty loop would prove nothing.
+    expect(after.filter((m) => m.laneKey !== GORO && m.spans.length > 0)).toHaveLength(3)
+  })
+
+  it('the counter tells the truth about it: 確保 −1, and no other kind moves a row', () => {
+    const { w, c, before, after } = scene()
+    const held = door(w, c, before)
+    const freed = door(w, c, after)
+    expect(rowsOf(held, 'reserved')).toHaveLength(4)
+    expect(rowsOf(freed, 'reserved')).toHaveLength(3)
+    expect(rowsOf(freed, 'reserved').some((r) => r.laneKey === GORO)).toBe(false)
+    // ⚖ Q3's one number counts what is purchasable online, so it falls by the
+    // one window that stopped being a 新規-only offer — and the hour it freed
+    // joined a band that was already counted, which is why the total moves by
+    // exactly one and not by two.
+    expect([held.online.total, freed.online.total]).toEqual([9, 8])
+    // The other three kinds are the same rows, to the byte: nothing re-bedded,
+    // nothing re-priced, no fragment appeared or vanished on the rebound.
+    for (const kind of ['packed', 'gap']) {
+      expect(JSON.stringify(rowsOf(freed, kind))).toBe(JSON.stringify(rowsOf(held, kind)))
+    }
+    expect(freed.drops.filter((d) => d.laneKey === GORO)).toEqual([])
+    // The sell group keeps its ONE row and that row grew, which is the honest
+    // shape of the change (a wider band, not a second offer).
+    expect(rowsOf(freed, 'sell')).toHaveLength(1)
+    expect([rowsOf(held, 'sell')[0].start, rowsOf(freed, 'sell')[0].start]).toEqual([960, 900])
+  })
+
+  it('the ROLE GATE — a manager sees the action, a staff member sees the law alone', () => {
+    // Both directions, on the predicate itself, at the store's own list.
+    expect(canReleaseHeld(opsConfig.releaseHeldRoles, { role: '店舗管理者' })).toBe(true)
+    expect(canReleaseHeld(opsConfig.releaseHeldRoles, { role: 'オーナー' })).toBe(true)
+    expect(canReleaseHeld(opsConfig.releaseHeldRoles, { role: 'スタッフ' })).toBe(false)
+    // ⚠SETTINGS-BATCH — the authority is DATA. The board and its interactions
+    // never spell a role; the store's list does, and the settings round gives it
+    // a control. (The same law the override dial is pinned to.)
+    expect(SRC('TodayScreen.tsx')).not.toContain('店舗管理者')
+    expect(SRC('today-interactions.ts')).not.toContain('店舗管理者')
+    // …and it is NOT the override dial: the shipped override default lets
+    // スタッフ place over a 置けない, and that must not buy them a release.
+    expect(opsConfig.overridePolicy.roles).toContain('スタッフ')
+    expect(opsConfig.releaseHeldRoles).not.toContain('スタッフ')
+  })
+
+  it('the board asks the gate ONCE, on the server’s answer, and the staff branch is E3b unchanged', () => {
+    const screen = SRC('TodayScreen.tsx')
+    // One consumption, like `canOverride` — a second gate elsewhere would split
+    // the authority across two lines.
+    expect(screen.match(/props\.canReleaseHeld/g)).toHaveLength(1)
+    expect(screen).toContain('if (!props.canReleaseHeld) {\n      show(law)\n      return\n    }')
+    // The manager's action is the board's EXISTING confirm-with-one-action
+    // surface (the toast that already carries the block delete's undo) — no new
+    // dialog system, ⚖ PKT-E5.
+    expect(screen).toContain("label: 'この確保を解除して販売に出す',")
+    expect(screen).toContain("show('確保を解除しました。再読み込みすると戻ります')")
+    // The write is SESSION-LOCAL, like every write on this fixture-sealed board,
+    // and the toast says so in the standing words.
+    expect(screen).toContain('const [released, setReleased] = useState<readonly ReleasedWindow[]>([])')
+    // ⚖ THE LOG, priced honestly — §7(a)'s own wording, at the write site.
+    expect(screen).toContain('⚠ RECONNECT')
+    // ONE FACT, TWO SNAPSHOTS: both world instances take the same list.
+    expect(screen.match(/^ {12}released,$/gm)).toHaveLength(2)
   })
 })
 

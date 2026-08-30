@@ -53,7 +53,7 @@ import {
   type BoardBooking,
   type BuildInput,
 } from '@/business/lib/today-board'
-import { overrideLevelFor } from './today-interactions'
+import { canReleaseHeld, overrideLevelFor } from './today-interactions'
 import { TodayScreen, type DecisionCard, type InspectorCase, type TodayProps } from './TodayScreen'
 import './today.css'
 
@@ -463,6 +463,11 @@ export default async function TodayPage({
     // this is the byte-identical answer the two lines it replaced gave; the
     // levels are what a store's settings screen will move.
     canOverride: overrideLevelFor(planes.opsConfig.overridePolicy, shell.operator) === 'allow-warned',
+    // ⚖ SPEC-SELLING-ENGINE §1 / ruling Q5 (E5) — WHO MAY RELEASE A 確保 WINDOW
+    // EARLY, decided ONCE, here, from this operator's own role. Same discipline
+    // as the line above: the board is handed the ANSWER, never the rule, so a
+    // staff member is never shown an action they would only be refused for.
+    canReleaseHeld: canReleaseHeld(planes.opsConfig.releaseHeldRoles, shell.operator),
     closedWeekdayLabel: WEEKDAY_WORD[planes.closedWeekday],
     ops: {
       total: yen(totals.total),

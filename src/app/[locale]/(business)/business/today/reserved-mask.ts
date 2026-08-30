@@ -77,6 +77,16 @@ export interface ReservedLaneMask {
   readonly protectedCount: number
 }
 
+/** ONE window a manager has released early (⚖ spec §1's Release clause, Q5's
+ *  manual half — E5). The lane and the guard's own `windowStart` ARE the
+ *  identity: `windowStart` exists on `ReservedSpan` as exactly this provenance
+ *  link, so a release names the guard's own answer back to it and nothing has
+ *  to invent a second key. */
+export interface ReleasedWindow {
+  readonly laneKey: string
+  readonly windowStart: number
+}
+
 export interface ReservedMaskInput {
   /** THE WORLD. Committed occupancy at E1; a world instance at E3a. */
   lanes: readonly BoardLane[]
@@ -89,6 +99,17 @@ export interface ReservedMaskInput {
   gapGuardMode: GapGuardMode
   /** The capacity book for THIS world — the bed truth the callback answers from. */
   book: BedTruth
+  /** ⚖ SPEC-SELLING-ENGINE §1's Release clause, MANUAL half (ruling Q5, E5) —
+   *  THE WINDOWS A MANAGER HAS ALREADY PUT BACK ON SALE.
+   *
+   *  A release is an INPUT FACT this derivation consumes, never a mutation of
+   *  the mask: held-ness stays derived per frame (§1 is not broken), and the
+   *  same list is handed to BOTH world instances so one fact produces two
+   *  snapshots rather than two opinions.
+   *
+   *  Absent (or empty) is today's code, byte for byte — the spans array the
+   *  enumeration built is the array that ships. */
+  released?: readonly ReleasedWindow[]
 }
 
 const EMPTY: readonly ReservedLaneMask[] = Object.freeze([])
@@ -157,7 +178,25 @@ export function reservedMaskFor(input: ReservedMaskInput): readonly ReservedLane
         spans.push(Object.freeze({ start: windowStart, end: windowStart + protectedDur, windowStart }))
       }
     }
-    out.push(Object.freeze({ laneKey: lane.key, spans: Object.freeze(spans), protectedCount: spans.length }))
+    // ⚖ SUBTRACTION HAPPENS AFTER ENUMERATION, and the order IS the rule. The
+    // enumeration is the GUARD'S — the greedy maximum disjoint set over the
+    // pocket — and a release changes what is HELD, not what is FORMABLE. Feed a
+    // release back into the pocket and the greedy would be answering a question
+    // nobody asked; here it answers the same question it always did, and the
+    // release is taken out of the ANSWER.
+    //
+    // ⚠ MEASURED, not assumed (E5's mutation run). On this greedy — earliest
+    // finish, scanned left to right on the lattice — carving an ENUMERATED
+    // window out of the pocket first happens to leave the neighbours where they
+    // were, so that mutant is caught by a different pin: a release naming a
+    // window the guard never enumerated would carve a real hole and move real
+    // windows. Both pins live in reserved-mask.test.ts §8, and the neighbour
+    // byte-identity they assert is the property this order guarantees for
+    // every board, not only for the ones the greedy happens to forgive.
+    const kept = input.released?.length
+      ? spans.filter((s) => !input.released!.some((r) => r.laneKey === lane.key && r.windowStart === s.windowStart))
+      : spans
+    out.push(Object.freeze({ laneKey: lane.key, spans: Object.freeze(kept), protectedCount: kept.length }))
   }
   return Object.freeze(out)
 }
