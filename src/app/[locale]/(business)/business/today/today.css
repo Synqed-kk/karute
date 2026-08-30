@@ -113,6 +113,12 @@
 .biz .sell-shelf button { display: block; width: 100%; padding: 5px 8px; border: 0; border-radius: 6px; background: none; color: var(--ink); font-size: 12px; text-align: left; }
 .biz .sell-shelf button:hover { background: rgba(130, 151, 233, .1); }
 .biz .sell-shelf button b { color: var(--indigo); font-weight: 600; }
+/* ⚖ Q3's by-kind breakdown (Liam 8/30) — the shelf carries FOUR headings now
+   instead of one, and `.fields-pop`'s uniform 7px grid gap would run them into
+   the rows above them. A little air over every heading but the first is the
+   whole change: the groups read as groups without a rule, a colour or a second
+   type size being introduced to say so. */
+.biz .sell-shelf strong:not(:first-child) { margin-top: 5px; }
 
 .biz .help-toggle {
   display: grid;
@@ -813,7 +819,7 @@
   cursor: pointer;
   touch-action: manipulation;
 }
-.biz .cell-held .held-title { font-size: 10px; font-weight: 700; line-height: 1; color: #475569; white-space: nowrap; }
+.biz .cell-held .held-title { font-size: 10px; font-weight: 700; line-height: 1; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .biz .cell-held .held-sub { font-size: 9px; line-height: 1.2; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 /* 表示設定 ▸ 空き枠表示「非表示」 takes the whole sell layer off the board, and
    the 確保 chip goes with it — the operator asked for a board with no window
