@@ -1133,6 +1133,19 @@ export const discardRecordingWithReason = async (
   }
 }
 
+// A2-2 — the WORDS behind a reasoned discard. NOT AVAILABLE ON THE PHONE THIS
+// ROUND: both persist actions read core through a 'use server' client and the
+// thin shell would need its own facade route before it could ask the same
+// thing. Unreachable rather than merely stubbed — the record page checks
+// `supportsDiscardTranscript` (false on this port) BEFORE it keeps any take
+// back, so a phone discard behaves exactly as it did before A2-2. These entries
+// exist because the boundary plugin substitutes this module for every
+// src/actions/ import: without the names the thin BUILD fails, which is the
+// gate working, not a workaround.
+const discardTranscriptUnsupported = async () => ({ skipped: 'unsupported' }) as const
+export const persistDiscardTranscript = discardTranscriptUnsupported
+export const transcribeAndPersistDiscard = discardTranscriptUnsupported
+
 // 破棄の記録 — the staffer's OWN monthly discard count (⚖ 8/25 ruling B, staff
 // half). NOT AVAILABLE ON THE PHONE THIS ROUND: the web action reads core's
 // discard ledger through a 'use server' client, and the thin shell would need

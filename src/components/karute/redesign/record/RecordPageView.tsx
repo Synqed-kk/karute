@@ -16,9 +16,17 @@ import {
   listOwnTakes,
   loadTakeBlob,
   readTakeOutcome,
+  stampDiscardPending,
   stampTakeOutcome,
+  type DiscardPending,
   type RecoverableTake,
 } from '@/lib/karute/take-store'
+import {
+  discardTranscriptSupported,
+  persistReviewDiscardTranscript,
+  runDiscardTranscript,
+  sweepDiscardTranscripts,
+} from '@/lib/recording/discard-transcript'
 import { loadInbox, useRecordingsInbox } from '@/lib/recordings/inbox-store'
 import type { InboxRow } from '@/lib/recordings/inbox'
 import { globalRecorder } from '@/lib/global-recorder'
@@ -715,6 +723,13 @@ export function RecordPageView({
     }
   }, [])
 
+  // A2-2: finish any discard whose words a reload left owing. Fire-and-forget —
+  // it touches nothing this page renders (a stamped take is already excluded
+  // from every offer above), so there is nothing to cancel on unmount.
+  useEffect(() => {
+    void sweepDiscardTranscripts()
+  }, [])
+
   // 録音履歴 (Build F1) — the folded inbox. Mounting subscribes AND fetches, so
   // every navigation onto this page recomputes; the store also refreshes itself
   // when a pipeline run ends.
@@ -899,7 +914,10 @@ export function RecordPageView({
   // SYSTEM/abandoned cleanup is untouched — deleteRecordingSessionWithClient
   // keeps its other call sites (the recordings action + the facade route).
 
-  function proceedDiscard() {
+  /** `keepTake` (A2-2): the take has been stamped `discardPending` and its audio
+   *  is owed to the discard record — the persist run deletes it, not this. Every
+   *  other discard still takes the audio with it, exactly as before. */
+  function proceedDiscard(keepTake = false) {
     toastDroppedErrorPhotos()
     // A2-1: NO session cleanup here any more. The reason row keys on this
     // session id, so deleting the row would delete the trace.
@@ -912,7 +930,7 @@ export function RecordPageView({
     // belt reset — see handleStartRecording
     resolvingOutcomeRef.current = false
     setResolvingOutcome(false)
-    discardRecording()
+    discardRecording({ keepTake })
     setPhase('idle')
   }
 
@@ -1072,15 +1090,19 @@ export function RecordPageView({
       // race while the dialog was open, that take is already in transcription —
       // discarding it here would file a reason for audio the pipeline still
       // owns. Say so instead of failing silently or acting on the wrong take.
-      if (origin === 'recorder' && globalRecorder.takeId !== discardIntentRef.current?.takeId) {
+      // Read ONCE, here, and reused by everything below that acts on the
+      // recorder's take: this line is where the live singleton is proven to
+      // still be this gate's subject, so a second read further down would be a
+      // value nothing checked.
+      const liveTakeId = globalRecorder.takeId
+      if (origin === 'recorder' && liveTakeId !== discardIntentRef.current?.takeId) {
         setDiscardReasonError(t('discardReason.takeChanged'))
         return
       }
       const res = await discardRecordingWithReason({
         recordingSessionId,
         takeId:
-          (ctxKeyed ? ctx?.takeId : bannerSnap ? bannerSnap.takeId : globalRecorder.takeId) ??
-          null,
+          (ctxKeyed ? ctx?.takeId : bannerSnap ? bannerSnap.takeId : liveTakeId) ?? null,
         reason,
         durationSeconds: ctxKeyed
           ? (ctx?.duration ?? 0)
@@ -1108,11 +1130,49 @@ export function RecordPageView({
         setDiscardReasonError(t('discardReason.failed'))
         return
       }
-      setDiscardReasonFor(null)
+      // The review arm closes its own dialog, in its tail — see below. Every
+      // other arm keeps the close-then-act order it always had.
+      if (origin !== 'review') setDiscardReasonFor(null)
       // Ids read BEFORE the await, handed in — the same read-it-first rule
       // proceedDiscard obeys for the recorder singleton.
-      if (origin === 'review') finishReviewDiscard(recordingSessionId, ctx?.takeId)
-      else if (origin === 'pipeline-error') {
+      if (origin === 'review') {
+        // A2-2: the words are already IN HAND — this take was transcribed in-tab
+        // long before the gate opened, and globalPipeline only resets inside
+        // finishReviewDiscard below. Persist them BEFORE anything deletes the
+        // audio; on a failure the take is stamped and kept back instead, so
+        // finishReviewDiscard is handed no take id to delete and the audio
+        // retry can still run.
+        //
+        // THE DIALOG STAYS UP FOR THE WHOLE ROUND-TRIP. globalPipeline.reset()
+        // lives inside finishReviewDiscard, so until it runs the page is still
+        // rendering ReviewScreen — and ReviewScreen's 保存 is a SECOND save
+        // writer that knows nothing about discardReasonSubmittingRef (the
+        // reverse guard covers startRecoveryFlow, not it). Closing the modal
+        // first left that 保存 live for the length of the persist: a tap there
+        // filed a real karute against a session that already carries a staff
+        // discard row (evidence corruption, doctrine R2) and raced onSaved's
+        // deleteTake against the stamp, losing the audio either way. The
+        // submitting-locked, backdrop-sealed dialog is the fence.
+        const pending: DiscardPending = {
+          recordingSessionId,
+          durationSeconds: ctx?.duration ?? 0,
+          locale,
+          stampedAt: Date.now(),
+        }
+        const keepTake = !(await persistReviewDiscardTranscript(
+          ctx?.takeId,
+          pending,
+          globalPipeline.result?.transcript ?? '',
+        ))
+        setDiscardReasonFor(null)
+        finishReviewDiscard(recordingSessionId, keepTake ? null : ctx?.takeId)
+        // The kept take is stamped, and reset() above is a re-render, not a
+        // remount — the mount sweep will not run again in this page life. Kick
+        // the audio retry now, exactly as the recorder arm does: waiting for a
+        // navigation away and back risks the 7-day TTL pruning words that were
+        // in hand and free at the moment of failure.
+        if (keepTake && ctx?.takeId) void runDiscardTranscript(ctx.takeId, pending)
+      } else if (origin === 'pipeline-error') {
         // Line-audit BLOCKER-1: this origin never owns a draft.
         // finishReviewDiscard's clearDraft() is correct for 'review' — draft.ts
         // is single-slot, and ReviewScreen (saveDraft's only caller in the
@@ -1138,12 +1198,46 @@ export function RecordPageView({
         setRecoveredTake((prev) => (prev && prev.takeId === bannerSnap.takeId ? null : prev))
         setRepointed(null)
       } else {
+        // A2-2 (⚖ 8/20): ABOVE the accidental-tap floor a reasoned discard keeps
+        // its words. Nothing here has been transcribed yet, so the audio is what
+        // the words have to come from — stamp the take BEFORE anything can
+        // delete it (the stamp is what survives a crash, and what keeps a
+        // discarded take out of every recovery offer), then hold it back from
+        // proceedDiscard until the persist run lands.
+        //
+        // BELOW the floor nothing is kept and nothing is transcribed (⚖ spend
+        // gate): an accidental tap has no words worth a Deepgram call, and the
+        // take goes with the discard exactly as it always did. Same on the
+        // phone, which has no route to persist through this round.
+        //
+        // The stamp's span, honestly: it is written AFTER core accepted the
+        // discard, so a crash in that window leaves the discard filed and the
+        // take unstamped — offered back as a normal recovery. Pre-existing
+        // shape, not closed here; closing it means stamping before the server
+        // call and unstamping on refusal.
+        //
+        // takeId is the id proven live at the takeChanged guard above — the
+        // same read the payload used, never a second look at the singleton.
+        const takeId = liveTakeId
+        const durationSeconds = (result?.durationMs ?? 0) / 1000
+        const pending: DiscardPending = {
+          recordingSessionId,
+          durationSeconds,
+          locale,
+          stampedAt: Date.now(),
+        }
+        const keepTake =
+          takeId !== null &&
+          durationSeconds >= BELOW_FLOOR_SEC &&
+          discardTranscriptSupported() &&
+          (await stampDiscardPending(takeId, pending))
         // The photos die HERE, past the gate — never before it. Still ahead of
         // proceedDiscard() because its discardRecording() wipes the strip these
         // reads depend on (the ordering constraint that was always in this
         // file; only the starting line moved).
         await runPendingPhotoDelete()
-        proceedDiscard()
+        proceedDiscard(keepTake)
+        if (keepTake && takeId) void runDiscardTranscript(takeId, pending)
       }
       // Latch released LAST — after proceedDiscard, never before it (fix round
       // 2). It used to clear the moment core accepted the discard, i.e. ahead

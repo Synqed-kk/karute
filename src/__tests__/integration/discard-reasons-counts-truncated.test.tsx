@@ -31,6 +31,8 @@ jest.mock('next-intl', () => ({
 const listDiscardReasons = jest.fn()
 jest.mock('@/actions/recording-discards', () => ({
   listDiscardReasons: () => listDiscardReasons(),
+  // A2-4: read only when a row is OPENED, which nothing here does.
+  getDiscardTranscript: jest.fn(async () => ({ ok: true, segments: [], durationSeconds: null })),
 }))
 
 import { DiscardReasonsSection } from '@/components/settings/redesign/sections/DiscardReasonsSection'

@@ -70,6 +70,15 @@ function startOfThisMonth(now: Date): number {
   return new Date(now.getFullYear(), now.getMonth(), 1).getTime()
 }
 
+/** SynqedError's HTTP status, duck-typed — same reason as store-clamp.ts's own:
+ *  a VALUE import of the SDK class pulls the ESM-only package into jest, and
+ *  instanceof is fragile across module instances. A network TypeError has no
+ *  numeric status, so it is correctly not an upstream answer. */
+function upstreamStatus(err: unknown): number | null {
+  const status = (err as { status?: unknown } | null)?.status
+  return typeof status === 'number' ? status : null
+}
+
 export async function listDiscardReasons(): Promise<ListDiscardReasonsResult> {
   try {
     const caps = await getMyCapabilities()
@@ -145,6 +154,86 @@ export async function listDiscardReasons(): Promise<ListDiscardReasonsResult> {
     }
   } catch (err) {
     console.warn('[discard-reasons] list failed:', err)
+    return { ok: false, error: 'failed' }
+  }
+}
+
+export type GetDiscardTranscriptResult =
+  | {
+      ok: true
+      /** Empty when the discard kept no words — see the three states A2-4
+       *  renders. `durationSeconds` is what separates "the recording was under
+       *  the floor" from "there is simply no transcript". */
+      segments: { text: string }[]
+      durationSeconds: number | null
+    }
+  | { ok: false; error: 'forbidden' | 'failed' }
+
+/**
+ * A2-4 — the words behind ONE discard row, read on open.
+ *
+ * ⚖ 8/25 ruling A: the written reason is the staffer's CLAIM, and this is what
+ * a manager checks it against. Same `staff.manage` gate as the list above,
+ * enforced server-side; the lazy per-row read is why it is a separate action
+ * (the list screen must not pay an N+1 for text nobody has opened).
+ *
+ * Missing pieces degrade to nulls rather than failing the read — a discard from
+ * before A2-2, a consent-refused take and a swept session row are all legitimate
+ * "no words" answers, and the section says so honestly instead of guessing. A
+ * read that FAILED is not one of them: it answers `ok:false` and the section
+ * says it could not look (see the catch below).
+ *
+ * SCOPE, deliberately: this reads segments for ANY session id a `staff.manage`
+ * caller names. That equals the discard doctrine's intent only because the A2-2
+ * actions are the sole writers of segments in this repo — a kept recording's
+ * transcript lives on its karute record, never here. Any FUTURE segments writer
+ * puts other recordings' words behind this gate and must revisit the scope.
+ */
+export async function getDiscardTranscript(
+  recordingSessionId: string,
+): Promise<GetDiscardTranscriptResult> {
+  try {
+    const caps = await getMyCapabilities()
+    ensureCapability(caps, 'staff.manage')
+  } catch {
+    return { ok: false, error: 'forbidden' }
+  }
+
+  try {
+    const businessId = await getBusinessId()
+    if (!businessId) return { ok: false, error: 'forbidden' }
+    const synqed = newSynqedClient(businessId)
+
+    const [segments, recording] = await Promise.all([
+      // A FAILED READ IS NOT AN ABSENCE. A blanket catch here answered
+      // `{ok:true, segments:[]}` for a 500, a timeout or a mid-deploy blip, and
+      // the section printed 「文字起こしはありません」 — a claim about the words
+      // on a screen whose whole job is checking a staffer's claim. Only core's
+      // own "there is no such recording" (404 — a swept session row, one of the
+      // legitimate no-words populations in the docstring above) is an answer;
+      // everything else propagates and the section says it could not look.
+      synqed.recordings
+        .listSegments(recordingSessionId)
+        .then((r) => r?.segments ?? [])
+        .catch((err: unknown) => {
+          if (upstreamStatus(err) === 404) return []
+          throw err
+        }),
+      // Metadata stays best-effort: a duration we cannot read costs the
+      // below-floor distinction, never the honesty of the words themselves.
+      synqed.recordings.get(recordingSessionId).catch(() => null),
+    ])
+
+    return {
+      ok: true,
+      segments: segments
+        .sort((a, b) => a.segment_index - b.segment_index)
+        .map((s) => ({ text: s.text }))
+        .filter((s) => !!s.text?.trim()),
+      durationSeconds: recording?.duration_seconds ?? null,
+    }
+  } catch (err) {
+    console.warn('[discard-reasons] transcript read failed:', err)
     return { ok: false, error: 'failed' }
   }
 }

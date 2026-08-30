@@ -116,6 +116,10 @@ let takeOverride: Record<string, unknown> | null = null
 let stampedAnswer: Record<string, unknown> | null = null
 const mockStampTakeOutcome = jest.fn(async () => {})
 jest.mock('@/lib/karute/take-store', () => ({
+  // A2-2: the discard-transcript register. Default false/[] = nothing is
+  // held back, so every case below behaves exactly as it did pre-A2-2.
+  stampDiscardPending: jest.fn(async () => false),
+  listPendingDiscardTakes: jest.fn(async () => []),
   appendTakeSegment: jest.fn(),
   createTake: jest.fn(),
   deleteTake: jest.fn(),

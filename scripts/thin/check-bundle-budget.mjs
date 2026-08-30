@@ -216,7 +216,22 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // recorder's in-flight mint guard and one i18n key in both locales). Real
 // headroom is therefore 2,949 B — not the 4,782 B the raise above recorded,
 // which was taken at the PRE-merge tip and is kept only as its history.
-const BUDGET_BYTES = 1_997_000
+// Raised 2026-08-31 at packet P5-A2 (A2-2, the words behind a reasoned
+// discard). Measured with the same emptied-thin/dist method, at tip 4833a77e:
+// 1,996,004 B before (the script's own 1949.2 KB line) → 1,999,108 B after,
+// +3,104 B. Honest feature volume, and none of it is the manager screen: the
+// 破棄の記録 section stays excluded (PENDING_SECTION_FILES) and its A2-4
+// transcript view ships nowhere near this bundle. What DOES land is the record
+// page's own share — the discard-transcript register in take-store, the
+// client persist module, the recorder/review arm wiring, and the two new
+// i18n key blocks in both locales.
+// The phone cannot USE any of it this round (viteRecordingPort's
+// supportsDiscardTranscript is false — there is no facade route yet), which is
+// exactly what the queue item 2 facade work would turn on; the code is shared
+// with the web arm, so it is bundled either way.
+// Ceiling set 3,892 B above the measurement, same low-headroom convention as
+// the raises above.
+const BUDGET_BYTES = 2_003_000
 
 let dir
 try {
