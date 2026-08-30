@@ -22,6 +22,7 @@
 import { newSynqedClient } from '@/lib/synqed/client'
 import { getMyCapabilities, ensureCapability } from '@/lib/auth/require-permission'
 import { getBusinessId, getCurrentUserStaffId, staffListByBusinessOrThrow } from '@/lib/staff'
+import { synqedStaffCardsForBusiness } from '@/lib/synqed/staff-map'
 
 /** One row of the 破棄の記録 list. Ids resolved to names server-side, because
  *  these rows are business-wide while a clamped caller's own roster is not. */
@@ -111,11 +112,40 @@ export async function listDiscardReasons(): Promise<ListDiscardReasonsResult> {
     // Names join at read time: rows store ids only, and these are business-wide
     // while the caller's own roster array may be store-clamped. Degrades to
     // "name unknown" rather than failing the whole read.
-    const roster = await staffListByBusinessOrThrow(businessId).catch((err: unknown) => {
-      console.warn('[discard-reasons] staff name fill degraded:', err)
-      return [] as Awaited<ReturnType<typeof staffListByBusinessOrThrow>>
-    })
-    const nameById = new Map(roster.map((s) => [s.id, s.full_name]))
+    //
+    // TWO ID SPACES, and the ledger holds the one karute does not use. Core
+    // normalises `discarded_by` to the synqed staff CARD id on write, while
+    // `staffListByBusinessOrThrow` is Supabase PROFILES keyed by login uuid —
+    // so a profiles-only map matched nothing and every row read 担当者不明.
+    // The map is therefore keyed by BOTH: the card id (what rows actually
+    // carry) and the profile id (kept so any odd historical row still names).
+    const [roster, cards] = await Promise.all([
+      staffListByBusinessOrThrow(businessId).catch((err: unknown) => {
+        console.warn('[discard-reasons] staff name fill degraded:', err)
+        return [] as Awaited<ReturnType<typeof staffListByBusinessOrThrow>>
+      }),
+      // Already graceful by contract — [] on any failure, never a throw.
+      synqedStaffCardsForBusiness(businessId),
+    ])
+    // A BLANK profile name is not a name. `'' ?? card.name` is `''`, so a
+    // linked card whose profile carries an empty (or whitespace-only)
+    // full_name lost the card's own name too and read 担当者不明 on a row we
+    // could have named honestly. Normalised here, at the one place the profile
+    // side is built, so both the card fallback below and the profile-keyed
+    // rows get the same answer.
+    const profileNames = new Map<string, string | null>(
+      roster.map((s) => [s.id, s.full_name?.trim() ? s.full_name : null]),
+    )
+    const nameById = new Map(profileNames)
+    for (const card of cards) {
+      // The profile's own full_name when the card is linked — that is the name
+      // the rest of karute shows. Else the card's own name, so a departed or
+      // unlinked staffer is still named honestly instead of erased. Read from
+      // `profileNames`, never from the map being written, so the answer cannot
+      // depend on roster order.
+      const name = (card.user_id ? profileNames.get(card.user_id) : null) ?? card.name
+      if (name) nameById.set(card.id, name)
+    }
 
     const rows: DiscardReasonRow[] = events
       .filter((e) => e?.id && e.reason)
@@ -254,6 +284,24 @@ export async function myDiscardCountThisMonth(): Promise<number | null> {
     if (!businessId || !staffId) return null
     const synqed = newSynqedClient(businessId)
 
+    // EVERY id this viewer is known by. `staffId` is the login uuid, but core
+    // stamps the staff CARD id onto every ledger row — matching on the uuid
+    // alone counted zero of the viewer's own discards.
+    //
+    // Resolved by FILTERING the cached card roster, never by a resolver, for
+    // two reasons. (1) This read carries NO capability gate at all — it is
+    // self-knowledge by ⚖ ruling — so nothing reachable from it may write.
+    // `lookupSynqedStaffIdForBusiness` looks read-only and is not: on an
+    // email-only match it fires a core `staff.update` self-heal, which put a
+    // core WRITE behind a gate-free read. (2) It answers with the FIRST
+    // matching card and stops, so a viewer linked from TWO cards (a re-invite,
+    // a store move, an import) had half their own month missing. Both cured by
+    // taking all of them. `synqedStaffCardsForBusiness` is [] on any failure by
+    // contract, which simply leaves today's uuid-only count — never a null.
+    const cards = await synqedStaffCardsForBusiness(businessId)
+    const myIds = new Set<string>([staffId])
+    for (const card of cards) if (card.user_id === staffId) myIds.add(card.id)
+
     const monthFloor = startOfThisMonth(new Date())
     let mine = 0
     for (let page = 1; page <= MAX_PAGES; page++) {
@@ -264,7 +312,8 @@ export async function myDiscardCountThisMonth(): Promise<number | null> {
       })
       const batch = res?.events ?? []
       for (const e of batch) {
-        if (e?.discarded_by === staffId && Date.parse(e.created_at) >= monthFloor) mine += 1
+        const isMine = !!e?.discarded_by && myIds.has(e.discarded_by)
+        if (isMine && Date.parse(e.created_at) >= monthFloor) mine += 1
       }
       if (batch.length === 0 || page * PAGE_SIZE >= (res?.total ?? 0)) break
       // Past the cap the ledger was only partly read, so `mine` is a FLOOR and

@@ -133,9 +133,17 @@ class ThisSensitiveDiscardClient {
   }
 }
 
+/** The below-floor stamp (names-fix 2026-08-31): the ONE recordings write this
+ *  path makes. Kept a bare jest.fn — its ARGUMENTS are the whole claim. */
+const recordingUpdate = jest.fn(async (id: string, input: Record<string, unknown>) => ({
+  id,
+  ...input,
+}))
+
 const fakeClient = {
   audit: new ThisSensitiveAuditClient(auditLog, auditList),
   recordingDiscards: new ThisSensitiveDiscardClient(discardCreate, discardList),
+  recordings: { update: recordingUpdate },
 }
 
 // forwardToCore's own dynamically-imported client (the durable WRITE).
@@ -188,6 +196,7 @@ import { discardRecordingReceipt, discardRecordingWithReason } from '@/actions/r
 import { discardRecordingWithClient, discardRecordingWithReasonRow } from '@/lib/recording/discard'
 import { POST as discardPOST } from '@/app/api/app/v1/recordings/discard/route'
 import { FACADE_AUDIT_MAP } from '@/lib/audit'
+import { BELOW_FLOOR_SEC } from '@/lib/recording/discard-floor'
 
 // ── Bearer plumbing (same shape as app-api-recording-consent.test.ts) ───────
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
@@ -717,6 +726,103 @@ describe('below_floor derivation', () => {
       error: 'validation',
     })
     expect(discardRows()).toHaveLength(0)
+  })
+})
+
+// ── the below-floor stamp (names-fix 2026-08-31) ───────────────────────────
+// The receipt's below_floor flag above is written into an AUDIT row, which the
+// manager panel never reads. The panel asks core for the recording and branches
+// on `duration_seconds` — a column nothing in this repo had ever written, so it
+// was null for every discard and a sub-floor take (never transcribed, by the ⚖
+// spend gate) printed the same sentence as one whose words were simply not
+// kept. These pin the write that makes the two distinguishable.
+
+describe('the take’s duration is stamped on the recording', () => {
+  it.each([
+    [9.7, 9],
+    [9.99, 9],
+    // The floor ITSELF (fix round 1, FIX-6). Exactly 10.0 is the one value the
+    // whole distinction turns on: it must stamp 10 and therefore read as a
+    // NORMAL absence, not the below-floor sentence.
+    [10, 10],
+    [0.4, 0],
+    [12.4, 12],
+    [600, 600],
+  ])('%ss of audio is stamped as %s — FLOORED, never rounded', async (durationSeconds, stored) => {
+    // Rounding would store 10 for a 9.7s take and put it on the wrong side of
+    // the panel's `< BELOW_FLOOR_SEC` predicate — a claim that words exist for
+    // a take that was never sent to transcription at all.
+    await staffReceipt({ durationSeconds })
+
+    expect(recordingUpdate).toHaveBeenCalledTimes(1)
+    expect(recordingUpdate).toHaveBeenCalledWith('rs-1', { duration_seconds: stored })
+  })
+
+  it('the FACADE door stamps it too — one behaviour, both doors', async () => {
+    const res = await post(WITH_REASON)
+
+    expect(res.status).toBe(200)
+    expect(recordingUpdate).toHaveBeenCalledWith('rs-1', { duration_seconds: 12 })
+  })
+
+  it('the receipt-only door stamps it as well — a SYSTEM discard is still a take', async () => {
+    await discardRecordingWithClient(fakeClient as never, webActor, SYSTEM_VALID)
+
+    expect(recordingUpdate).toHaveBeenCalledWith('rs-1', { duration_seconds: 12 })
+  })
+
+  it('a stamp that FAILS never fails the discard — the take is already gone', async () => {
+    recordingUpdate.mockRejectedValueOnce(new Error('core unreachable'))
+
+    expect(await staffReceipt()).toMatchObject({ ok: true, duplicate: false })
+    expect(recordingUpdate).toHaveBeenCalledTimes(1)
+    // The receipt — the actual deliverable — landed regardless.
+    expect(discardRows()).toHaveLength(1)
+  })
+
+  it('a pre-mint take has no session to stamp, and nothing is written', async () => {
+    await discardRecordingWithClient(fakeClient as never, webActor, {
+      ...SYSTEM_VALID,
+      recordingSessionId: null,
+      takeId: 'take-9',
+    })
+
+    expect(recordingUpdate).not.toHaveBeenCalled()
+    expect(discardRows()).toHaveLength(1)
+  })
+
+  it('a duplicate discard does not re-stamp — the first one already did', async () => {
+    await staffReceipt()
+    await staffReceipt()
+
+    expect(recordingUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it('a FAILED receipt stamps nothing — no row is left claiming a duration no audit line backs', async () => {
+    // Fix round 1, FIX-3. The stamp used to run BEFORE the receipt attempt, so
+    // a dropped durable write left a session carrying a freshly written
+    // duration with no recording.discard row for that request — the panel
+    // would then narrate a discard the ledger never recorded. The stamp now
+    // fires only after the awaited receipt has actually landed.
+    logFails.next = true
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const res = await staffReceipt()
+    warn.mockRestore()
+
+    expect(res).toEqual({ ok: false, error: 'receipt_write_failed' })
+    expect(recordingUpdate).not.toHaveBeenCalled()
+  })
+
+  // The floor is an INTEGER, and the equivalence the whole below-floor half
+  // rests on holds only because it is: `Math.floor(x) < N` ⟺ `x < N` for
+  // integer N. The stamp writes `Math.floor(duration)` into an Int column and
+  // the panel asks `duration_seconds < BELOW_FLOOR_SEC` — a fractional floor
+  // (7.5) would silently split the two apart, calling a 7.8s take below-floor
+  // at the panel while the stamped 7 says the same thing for a different
+  // reason, and a 7.2s take the other way round. Pinned so the constant cannot
+  // move to a fraction without this failing first.
+  it('BELOW_FLOOR_SEC is an integer — the stamp’s floor and the panel’s predicate agree', () => {
+    expect(Number.isInteger(BELOW_FLOOR_SEC)).toBe(true)
   })
 })
 

@@ -16,11 +16,26 @@ import { createServiceClient } from '@/lib/supabase/service'
 // O(map). Long TTL by design — staff onboarding is rare; staff mutations
 // invalidate via the existing 'staff-list' tag.
 
-interface StaffEntry {
+export interface StaffEntry {
   id: string
   user_id: string | null
   email: string | null
+  /** The CARD's own name. The honest fallback when the card links to no
+   *  profile (a departed staffer, or a teammate created from Settings before
+   *  the self-heal patch ran) — see synqedStaffCardsForBusiness below. */
+  name: string | null
 }
+
+/** Core rejects a page_size above 200 on this family (the validator z
+ *  .max(200)s it) — it does NOT clamp; it 400s. */
+const PAGE_SIZE = 200
+/** ponytail: 25 pages = 5,000 staff cards — current AND historical (departed
+ *  staff keep cards), far beyond any real roster. Past that the roster
+ *  truncates: later cards' discard rows fall back to the honest "name
+ *  unknown" contract (this function's own callers already degrade that way)
+ *  rather than the read failing outright — a warn suffices because
+ *  truncation only ever costs a NAME, never the read itself. */
+const MAX_PAGES = 25
 
 const synqedStaffListByBusiness = unstable_cache(
   async (businessId: string): Promise<StaffEntry[]> => {
@@ -30,17 +45,39 @@ const synqedStaffListByBusiness = unstable_cache(
       throw new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
     }
     const client = new SynqedClient({ baseUrl, apiKey, businessId })
-    const result = await client.staff.list({ page_size: 200 })
-    return result.staff.map((s) => ({
-      id: s.id,
-      user_id: (s as { user_id?: string | null }).user_id ?? null,
-      email: (s as { email?: string | null }).email ?? null,
-    }))
+    const staff: StaffEntry[] = []
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const result = await client.staff.list({ page, page_size: PAGE_SIZE })
+      const batch = result.staff.map((s) => ({
+        id: s.id,
+        user_id: (s as { user_id?: string | null }).user_id ?? null,
+        email: (s as { email?: string | null }).email ?? null,
+        name: (s as { name?: string | null }).name ?? null,
+      }))
+      staff.push(...batch)
+      // `?? 0` mirrors recording-discards.ts's listDiscardReasons loop: a
+      // fixture/response with no `total` field defaults to 0, so a non-empty
+      // first batch still terminates the loop after one call — the existing
+      // single-page callers keep their exactly-one-call contract.
+      if (batch.length === 0 || staff.length >= (result.total ?? 0)) break
+      if (page === MAX_PAGES) {
+        console.warn(JSON.stringify({
+          msg: '[staff-map] staff roster truncated at the page cap — cards past this point degrade to "name unknown", the read itself never fails',
+          businessId,
+          pages: MAX_PAGES,
+          cardsRead: staff.length,
+        }))
+      }
+    }
+    return staff
   },
   // Mirrors the staff-list cache TTL in src/lib/staff.ts — staff churn is
   // a once-in-a-while admin event, and every staff mutation already bumps
   // the 'staff-list' tag, so the day-long TTL is just a backstop.
-  ['synqed-staff-list-v2'],
+  // v3: `name` joined the entry shape (names-fix 2026-08-31). The key bump is
+  // what stops a v2 entry — same tenant, no `name` — from serving a whole TTL
+  // window of nameless cards to the 破棄の記録 read below.
+  ['synqed-staff-list-v3'],
   { revalidate: 86400, tags: ['staff-list'] },
 )
 
@@ -125,6 +162,30 @@ export async function lookupProfileIdForSynqedStaffIdForBusiness(
   } catch (err) {
     console.warn('[staff-map] forward lookup failed — keeping original staff id', err)
     return null
+  }
+}
+
+/** The whole roster in the CARD id space, read-only: `id` (the synqed-core
+ *  staff/card id), `user_id` (the linked Supabase profile, or null) and the
+ *  card's own `name`. No self-heal, no create, no extra fetch — just the
+ *  cached list.
+ *
+ *  WHY IT EXISTS. Core normalises `recording_discards.discarded_by` to the
+ *  CARD id on write (recording-discard.service.ts: it accepts either identity
+ *  form and stores staff.id), while karute's own rosters are keyed by
+ *  profile/login uuid. A name join built on profiles alone therefore matched
+ *  nothing and every ledger row read 担当者不明. Callers key their map by BOTH
+ *  id spaces off these rows.
+ *
+ *  Degrades to [] (warn) exactly like the forward lookup above: every caller
+ *  is a READ path that worked before this existed, and a roster we could not
+ *  fetch must cost a name, never the read. */
+export async function synqedStaffCardsForBusiness(businessId: string): Promise<StaffEntry[]> {
+  try {
+    return await synqedStaffListByBusiness(businessId)
+  } catch (err) {
+    console.warn('[staff-map] card roster read failed — names degrade to unknown', err)
+    return []
   }
 }
 

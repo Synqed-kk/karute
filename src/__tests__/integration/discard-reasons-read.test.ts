@@ -54,15 +54,58 @@ jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: async () => fakeClient,
 }))
 
+/** THE CORE STAFF ROSTER — the CARD id space. Core normalises a discard's
+ *  `discarded_by` to staff.id (the card), while `staffListByBusinessOrThrow`
+ *  below is Supabase PROFILES keyed by login uuid. The whole names defect lived
+ *  in the gap, so the fake has to hold both sides for real: cards that link to
+ *  a profile, a card that links to none, and a roster read that fails. */
+const staffCards = {
+  current: [] as { id: string; user_id: string | null; email: string | null; name: string | null }[],
+  listRejects: false,
+}
+/** Module-level so the WRITE is assertable. `staff.update` is the self-heal
+ *  patch the old card lookup could fire from these read paths — the count now
+ *  has to prove it never writes at all (fix round 1, FIX-1). */
+const mockStaffUpdate = jest.fn(async () => ({}))
+jest.mock('@synqed-kk/client', () => ({
+  SynqedClient: jest.fn().mockImplementation(() => ({
+    staff: {
+      // Pages for real, mirroring the recordingDiscards fake above: a roster
+      // fixture with more than one page's worth of cards is the only way to
+      // catch a caller that reads page 1 and calls it done.
+      list: jest.fn(async (q: Record<string, unknown> = {}) => {
+        if (staffCards.listRejects) throw new Error('core roster unreachable')
+        const page = Number(q.page ?? 1)
+        const pageSize = Number(q.page_size ?? 200)
+        const staff = staffCards.current.slice((page - 1) * pageSize, page * pageSize)
+        return { staff, total: staffCards.current.length, page, page_size: pageSize }
+      }),
+      update: mockStaffUpdate,
+    },
+  })),
+}))
+/** staff-map's email fallback reads profiles through the service client.
+ *  `profileRow.current` is normally null — a clean miss, which is what the
+ *  user_id-link cases want. A test that needs the EMAIL branch (the one that
+ *  self-heals) sets a row here. */
+const profileRow = { current: null as { email: string | null } | null }
+jest.mock('@/lib/supabase/service', () => ({
+  createServiceClient: () => ({
+    from: () => ({
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: profileRow.current }) }) }),
+    }),
+  }),
+}))
+
 const capabilities = { current: new Set<string>(['staff.manage']) }
 const staffId = { current: 'staff-A' as string | null }
+/** The PROFILES roster (login-uuid space). Configurable so the blank-name
+ *  population below is a real roster answer, not a stub of the join. */
+const staffList = { current: [] as { id: string; full_name: string | null }[] }
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'business-1'),
   getCurrentUserStaffId: jest.fn(async () => staffId.current),
-  staffListByBusinessOrThrow: jest.fn(async () => [
-    { id: 'staff-A', full_name: '原 奏恵' },
-    { id: 'staff-B', full_name: '佐藤 美咲' },
-  ]),
+  staffListByBusinessOrThrow: jest.fn(async () => staffList.current),
 }))
 jest.mock('@/lib/auth/require-permission', () => {
   const actual = jest.requireActual('@/lib/auth/require-permission')
@@ -92,10 +135,24 @@ function row(over: Partial<LedgerRow> & { id: string }): LedgerRow {
 }
 
 beforeEach(() => {
+  jest.clearAllMocks()
   ledger.length = 0
   listSeen.length = 0
   capabilities.current = new Set(['staff.manage'])
   staffId.current = 'staff-A'
+  staffCards.listRejects = false
+  profileRow.current = null
+  staffList.current = [
+    { id: 'staff-A', full_name: '原 奏恵' },
+    { id: 'staff-B', full_name: '佐藤 美咲' },
+  ]
+  staffCards.current = [
+    // Linked: the card the ledger stamps, pointing at the profile whose name
+    // the rest of karute shows.
+    { id: 'card-A', user_id: 'staff-A', email: 'hara@salon.test', name: '原 カナエ' },
+    // Unlinked: a teammate created from Settings, or one whose profile is gone.
+    { id: 'card-C', user_id: null, email: null, name: '退職 一郎' },
+  ]
 })
 
 describe('the manager gate', () => {
@@ -164,6 +221,113 @@ describe('what the list carries', () => {
   })
 })
 
+// The names defect (fixed 2026-08-31). Every row this screen shows was written
+// by core, and core stores the staff CARD id on `discarded_by` — never the
+// login uuid the profiles roster is keyed by. The join read one id space and
+// the rows carried the other, so a manager opening 破棄の記録 saw 担当者不明
+// against every single reason and could not tell who had written what.
+describe('the two id spaces the ledger and the roster live in', () => {
+  it('a row stamped with the staff CARD id is named through the linked profile', async () => {
+    ledger.push(row({ id: '1', discarded_by: 'card-A' }))
+
+    const res = await listDiscardReasons()
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.rows[0].staffName).toBe('原 奏恵')
+  })
+
+  it('a card that links to NO profile is still named, from the card itself', async () => {
+    // Departed or Settings-created. Erasing them would hide who wrote the
+    // reason on exactly the rows a manager is most likely to be checking.
+    ledger.push(row({ id: '1', discarded_by: 'card-C' }))
+
+    const res = await listDiscardReasons()
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.rows[0].staffName).toBe('退職 一郎')
+  })
+
+  it('a linked profile whose name is BLANK falls through to the card’s own name', async () => {
+    // `'' ?? card.name` is `''`, not the card name — a linked card whose
+    // profile carries an empty (or whitespace-only) full_name therefore lost
+    // BOTH names and read 担当者不明, on a row we could name honestly.
+    staffCards.current = [
+      { id: 'card-blank', user_id: 'staff-blank', email: null, name: '空欄 花子' },
+    ]
+    staffList.current = [{ id: 'staff-blank', full_name: '   ' }]
+    ledger.push(row({ id: '1', discarded_by: 'card-blank' }))
+
+    const res = await listDiscardReasons()
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.rows[0].staffName).toBe('空欄 花子')
+  })
+
+  it('an id in NEITHER space stays unnamed — the fix invents no names', async () => {
+    ledger.push(row({ id: '1', discarded_by: 'card-nobody' }))
+
+    const res = await listDiscardReasons()
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.rows).toHaveLength(1)
+    expect(res.rows[0].staffName).toBeNull()
+  })
+
+  it('the per-staff counts name card-id rows too', async () => {
+    ledger.push(row({ id: 'a', discarded_by: 'card-A', created_at: thisMonth(2) }))
+    ledger.push(row({ id: 'b', discarded_by: 'card-A', created_at: thisMonth(3) }))
+    ledger.push(row({ id: 'c', discarded_by: 'card-C', created_at: thisMonth(4) }))
+
+    const res = await listDiscardReasons()
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.counts.byStaff).toEqual([
+      { staffId: 'card-A', staffName: '原 奏恵', thisMonth: 2 },
+      { staffId: 'card-C', staffName: '退職 一郎', thisMonth: 1 },
+    ])
+  })
+
+  it('a CARD roster that cannot be read costs names, never the read', async () => {
+    // The pre-existing degrade contract, extended to the second roster: rows
+    // render, only the name is unknown. Profile-keyed rows still name.
+    staffCards.listRejects = true
+    ledger.push(row({ id: '1', discarded_by: 'card-A' }))
+    ledger.push(row({ id: '2', discarded_by: 'staff-B' }))
+
+    const res = await listDiscardReasons()
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.rows).toHaveLength(2)
+    expect(res.rows.find((r) => r.id === '1')?.staffName).toBeNull()
+    expect(res.rows.find((r) => r.id === '2')?.staffName).toBe('佐藤 美咲')
+  })
+})
+
+// The pagination defect (fixed 2026-08-31). synqedStaffListByBusiness fetched
+// staff.list ONCE at page_size 200; core paginates and its validator caps
+// page_size at 200, so a business with a 200+ card roster (current +
+// historical — departed staff keep cards) silently lost every card past the
+// first page. Those cards' rows read 担当者不明 and their own self-count
+// undercounted, with no error anywhere.
+describe('the staff roster paginates past 200 cards', () => {
+  it('a card that only exists on page 2 still names its row and its own count', async () => {
+    // 250 cards total: 200 fill page 1, the viewer's own card sits at #201 —
+    // page 2 — followed by 49 more filler cards. A single-page read drops the
+    // viewer's card entirely.
+    const filler = (label: string, n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        id: `${label}-${i}`,
+        user_id: null,
+        email: null,
+        name: null,
+      }))
+    const page2Card = { id: 'card-page2', user_id: 'staff-page2', email: null, name: '二頁 太郎' }
+    staffCards.current = [...filler('filler-a', 200), page2Card, ...filler('filler-b', 49)]
+    staffId.current = 'staff-page2'
+    ledger.push(row({ id: 'row-page2', discarded_by: 'card-page2', created_at: thisMonth(2) }))
+
+    const res = await listDiscardReasons()
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.rows[0].staffName).toBe('二頁 太郎')
+
+    expect(await myDiscardCountThisMonth()).toBe(1)
+  })
+})
+
 // ⚖ 8/25 ruling B: counts are LABELLED PLAIN FACTS. These assert the numbers
 // are right; the rendering law (no red, no threshold, no ranking colour) lives
 // in the section component.
@@ -211,6 +375,72 @@ describe('the staffer’s own count (the staff half of ruling B)', () => {
     ledger.push(row({ id: 'mine' }))
 
     expect(await myDiscardCountThisMonth()).toBeNull()
+  })
+
+  // Same defect as the names join, one action over: the viewer's identity here
+  // is their login uuid, and every row core wrote carries their CARD id — so a
+  // staffer who had discarded takes all month was shown a 0.
+  it('counts the rows stamped with their CARD id, not only their login uuid', async () => {
+    ledger.push(row({ id: 'mine-card-1', discarded_by: 'card-A', created_at: thisMonth(2) }))
+    ledger.push(row({ id: 'mine-card-2', discarded_by: 'card-A', created_at: thisMonth(5) }))
+    ledger.push(row({ id: 'mine-uuid', discarded_by: 'staff-A', created_at: thisMonth(6) }))
+    ledger.push(row({ id: 'theirs', discarded_by: 'card-C', created_at: thisMonth(6) }))
+    ledger.push(row({ id: 'mine-old', discarded_by: 'card-A', created_at: lastMonth }))
+
+    expect(await myDiscardCountThisMonth()).toBe(3)
+  })
+
+  it('an identity with no card resolves to the login-uuid behaviour, never an error', async () => {
+    staffCards.current = []
+    ledger.push(row({ id: 'mine', discarded_by: 'staff-A' }))
+    ledger.push(row({ id: 'card', discarded_by: 'card-A' }))
+
+    expect(await myDiscardCountThisMonth()).toBe(1)
+  })
+
+  // ── fix round 1, FIX-1: the count reads the roster, it does not resolve ────
+
+  it('a viewer linked from TWO cards counts the rows under BOTH', async () => {
+    // The old resolver answered with the FIRST card whose user_id matched and
+    // stopped, so a staffer holding two cards (a re-invite, a store move, an
+    // import) had half their own month silently missing.
+    staffCards.current = [
+      { id: 'card-A', user_id: 'staff-A', email: 'hara@salon.test', name: '原 カナエ' },
+      { id: 'card-A2', user_id: 'staff-A', email: 'hara@salon.test', name: '原 カナエ' },
+    ]
+    ledger.push(row({ id: 'first', discarded_by: 'card-A', created_at: thisMonth(2) }))
+    ledger.push(row({ id: 'second', discarded_by: 'card-A2', created_at: thisMonth(3) }))
+    ledger.push(row({ id: 'uuid', discarded_by: 'staff-A', created_at: thisMonth(4) }))
+    ledger.push(row({ id: 'theirs', discarded_by: 'card-C', created_at: thisMonth(5) }))
+
+    expect(await myDiscardCountThisMonth()).toBe(3)
+  })
+
+  it('reading your own number writes NOTHING — no self-heal patch, no core write', async () => {
+    // The old resolver's email fallback fired a core `staff.update` self-heal.
+    // This read carries no capability gate at all, so any practitioner opening
+    // their own history could reach a core WRITE — wider than the write's own
+    // allowlist justification describes. The roster filter cannot: it reads the
+    // cached card list and nothing else.
+    staffCards.current = [
+      { id: 'card-email-only', user_id: null, email: 'hara@salon.test', name: '原 カナエ' },
+    ]
+    profileRow.current = { email: 'hara@salon.test' }
+    ledger.push(row({ id: 'mine', discarded_by: 'staff-A' }))
+
+    expect(await myDiscardCountThisMonth()).toBe(1)
+    expect(mockStaffUpdate).not.toHaveBeenCalled()
+  })
+
+  it('a card roster that cannot be read degrades to the login uuid — never null', async () => {
+    // The degrade contract the names join already keeps, one action over: a
+    // roster we cannot fetch costs the card-id half of the count, never the
+    // number itself. Null here would blank a header the staffer can read.
+    staffCards.listRejects = true
+    ledger.push(row({ id: 'mine', discarded_by: 'staff-A', created_at: thisMonth(2) }))
+    ledger.push(row({ id: 'card', discarded_by: 'card-A', created_at: thisMonth(3) }))
+
+    expect(await myDiscardCountThisMonth()).toBe(1)
   })
 
   // Same rule one step further out: past the page cap the read has only seen
