@@ -12,10 +12,17 @@ export function PipelineErrorCard({
   code,
   onCancel,
   onRetry,
+  onDiscard,
 }: {
   code: PipelineErrorCode | null
   onCancel: () => void
   onRetry: () => void
+  /** ⚖ 8/26 rider — the moment this refusal is known is the moment the
+   *  banner-dead-loop ruling's condition (a) is proven, so the discard exit
+   *  lives here. Gated on `code` too (not just presence), so a caller passing
+   *  it for the wrong code can never widen the byte-identical contract for
+   *  every other code. */
+  onDiscard?: () => void
 }) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
@@ -47,6 +54,17 @@ export function PipelineErrorCard({
             {tc('retry')}
           </button>
         </div>
+        {code === 'empty-transcript' && onDiscard && (
+          <button
+            type="button"
+            onClick={onDiscard}
+            // SHOULD-FIX-4: same scale as the キャンセル/再試行 pair above it
+            // (px-*/py-*/text-sm) — a real tap target, not a 16px sliver.
+            className="mt-3 px-4 py-2 text-sm font-medium text-destructive underline underline-offset-2"
+          >
+            {t('discardTakeAction')}
+          </button>
+        )}
       </div>
     </div>
   )
