@@ -165,9 +165,13 @@ async function hasStaffDiscard(synqed: Core, recordingSessionId: string): Promis
  *     compared: the staff-card / login-uuid id split makes a strict compare
  *     refuse honest callers);
  *   - the ⚖ spend floor is decided at the call site, on a client-sent duration.
- *     The server has no authoritative one — `recordings.duration_seconds` is
- *     never written today — so a crafted call can transcribe a sub-floor take.
- *     Money, not evidence; a server-side floor waits on that column.
+ *     The server still has no AUTHORITATIVE one, so a crafted call can
+ *     transcribe a sub-floor take. `recordings.duration_seconds` is written as
+ *     of the names fix (2026-08-31), but only by the discard path and only from
+ *     the duration that same client reported — client-reported, not
+ *     server-derived, and not written at all until the discard's receipt has
+ *     landed. Flooring it against itself would prove nothing. Money, not
+ *     evidence; a server-side floor waits on a duration core measures.
  * Custody of the first-write claim is core-side work (P5-B), not something this
  * action can close.
  *
@@ -246,8 +250,10 @@ export async function persistDiscardTranscript(input: {
  *
  * Below the accidental-tap floor this is never called at all (⚖ spend gate);
  * that decision lives at the call site, with the floor constant, and the server
- * cannot re-check it — `recordings.duration_seconds` is never written, so there
- * is no authoritative duration here to floor against (see alreadyLanded).
+ * still cannot re-check it. `recordings.duration_seconds` does get written now
+ * (the names fix, 2026-08-31), but the discard path stamps it from the SAME
+ * client-reported duration — so it is a record of what the client said, not an
+ * authoritative measurement to floor against (see alreadyLanded).
  */
 export async function transcribeAndPersistDiscard(input: {
   recordingSessionId: string

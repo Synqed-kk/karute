@@ -132,6 +132,18 @@ describe('破棄の記録 — the row opens onto what was recorded', () => {
     expect(t('transcriptBelowFloor', { n: 10 })).toContain('行っていません')
   })
 
+  it('EXACTLY the floor is not under it — 10s reads as the plain absence', async () => {
+    // Fix round 1, FIX-6. The floor is `< 10`, so a take of exactly 10.0s WAS
+    // sent to transcription — its silence is "the words were not kept", never
+    // "nothing was ever recorded". The boundary is the one value the two
+    // sentences meet at, and a predicate loosened to `<=` would put a
+    // transcribed take on the untranscribed side of it.
+    getDiscardTranscript.mockResolvedValue({ ok: true, segments: [], durationSeconds: 10 })
+    await renderAndOpen()
+    expect(screen.getByText(t('transcriptNone'))).toBeInTheDocument()
+    expect(screen.queryByText(t('transcriptBelowFloor', { n: 10 }))).toBeNull()
+  })
+
   it('no words and no duration to explain them: the plain honest absence', async () => {
     getDiscardTranscript.mockResolvedValue({ ok: true, segments: [], durationSeconds: null })
     await renderAndOpen()

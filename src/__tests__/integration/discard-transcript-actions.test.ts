@@ -513,6 +513,21 @@ describe('getDiscardTranscript — the manager-only read', () => {
     })
   })
 
+  // THE LAYER #798 MOCKED PAST. The component test stubs getDiscardTranscript
+  // wholesale, so "under the floor" rendered from a hand-written duration and
+  // nothing proved the action carries core's. Mocked at the SDK seam
+  // (recordings.get), it is the real path — and the value pinned here is the
+  // one the panel branches on: a sub-floor duration must arrive intact, not as
+  // the null that made every discard print the generic absence instead.
+  it('carries a BELOW-FLOOR duration through from recordings.get, unchanged', async () => {
+    recordingRow = { duration_seconds: 9, customer_id: 'cust-1' }
+    await expect(getDiscardTranscript(SESSION)).resolves.toEqual({
+      ok: true,
+      segments: [],
+      durationSeconds: 9,
+    })
+  })
+
   it('absence is honest, never invented: no segments and no readable session → nulls, not an error', async () => {
     recordingRow = null
     await expect(getDiscardTranscript(SESSION)).resolves.toEqual({

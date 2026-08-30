@@ -26,7 +26,18 @@ import {
  *  receipts). No finer capability check: the discard ACL matrix is Phase B
  *  (B6). Cross-tenant is impossible via the business-scoped client;
  *  within-tenant misattribution is staff-authenticated audit noise, accepted
- *  for Phase A receipts. */
+ *  for Phase A receipts.
+ *
+ *  That accepted class now includes ONE DISPLAYED value, not only audit rows
+ *  (names-fix 2026-08-31): the same call writes recordings.duration_seconds on
+ *  the named session, and the 破棄の記録 panel reads it to say whether a take
+ *  ran under the transcription floor. Core fences the write to the business,
+ *  never to the session's owner, so a within-tenant caller can in principle
+ *  stamp a colleague's session — a derived integer, from the duration that
+ *  caller reported, on a session they are authenticated to discard anyway.
+ *  Same acceptance, one surface wider, and the real fix is core-side ownership
+ *  fencing on recordings.update (queued for Anthony), never an app-side
+ *  build-around. */
 export async function discardRecordingReceipt(input: unknown): Promise<DiscardRecordingResult> {
   const door = await openDiscardDoor()
   if (!door.ok) return door.result
