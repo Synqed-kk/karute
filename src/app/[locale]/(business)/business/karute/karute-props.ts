@@ -208,16 +208,27 @@ export async function karuteProps({ locale, store, world }: KarutePropsInput): P
       entries: r.entries.map((e) => ({ label: e.label, text: e.text, handwritten: e.handwritten })),
       summaryBullets: r.summaryBullets,
       summaryEdited: r.summaryEdited,
-      summaryEdits: r.summaryEdits.map((e) => ({
-        when: `${fmtDay.format(dayOf(r.dayKey))} ${hhmm(e.minute)}`,
-        by: e.by,
-        note: e.note,
+      // NEWEST FIRST — the order the section names out loud, decided ONCE in
+      // `buildRecords` over the merged event list rather than by rendering a
+      // discard row above an unsorted edit array (F-K7).
+      history: r.history.map((h) => ({
+        when: `${fmtDay.format(dayOf(r.dayKey))} ${hhmm(h.minute)}`,
+        what: h.kind === 'discard' ? 'カルテを破棄' : '詳細記録を編集',
+        detail: h.note
+          ? `${h.by} ・ ${h.note}`
+          : h.kind === 'discard'
+            ? `${h.by} ・ 理由は店舗管理者のみが確認できます`
+            : h.by,
       })),
       photos: r.photos.map((p) => ({ category: p.category, caption: p.caption })),
       // ⚖ SELF-EXPLAINING NUMBERS (Liam 8/25): the count says WHAT it counts,
-      // and it counts THIS session's photos — the customer's whole history
-      // lives on the 顧客 surface, which the line below says out loud.
-      photoCountLabel: `このセッションの写真 ${r.photos.length}枚`,
+      // and it counts THIS session's photos.
+      // ⚠ …AND IT IS OMITTED, NEVER ZERO, for a reader whose own permission
+      // emptied the array (F-K14). The photos array is redacted above this line,
+      // so 「写真 0枚」 to a staff member reading a discarded record would be a
+      // number their permission made false — the same 「failed count OMITTED,
+      // never 0」 instinct ⚖ §7a applies to counts.
+      photoCountLabel: r.contentWithheld ? null : `このセッションの写真 ${r.photos.length}枚`,
       aiMessage: r.aiMessage,
       // 「—」 IS NOT 「同意なし」, and neither is 「録音なし」: three states, three
       // sentences (the 受信トレイ consent lesson, carried).
@@ -247,6 +258,14 @@ export async function karuteProps({ locale, store, world }: KarutePropsInput): P
             whenLabel: `${fmtDay.format(dayOf(r.dayKey))} ${hhmm(r.discarded.at)}`,
             by: r.discarded.by,
             reason: r.discarded.reason,
+            // ⚖ 8/20's build requirement (b): R2 keeps a discarded record out of
+            // every NUMBER, and money never auto-reverses — so a manager still
+            // has to be told a ticket was consumed, or the correction they own
+            // is one they cannot know to make. Manager-gated above the
+            // serializer like the reason itself (F-K6).
+            ticketNote: r.discarded.hadTicketBurn
+              ? '破棄前にこのセッションで回数券を1回消化していました。返却の要否をご確認ください。'
+              : null,
           }
         : null,
       visitLabel: `来店${r.visitNumber}回目`,
@@ -262,6 +281,23 @@ export async function karuteProps({ locale, store, world }: KarutePropsInput): P
     // ＋新規カルテ sentence: creating a record is the phone's job — the computer
     // door reads records back, and a create button here would be a lever with
     // nowhere to go (registry-free by design, and the head says so).
+    //
+    // ⚠ TWO MORE CANON SECTIONS ARE DELIBERATELY ABSENT, argued here because the
+    // room's other omissions are (F-K15):
+    // · AI体調予測 (MOCK-karute-detail.html:509-524) is an always-visible
+    //   「対応予定」 slot rendering the app's own preview STUB — a faux confidence
+    //   bar over data no fixture can derive. ⚖ 8/17 (the disconnected-depth
+    //   overturn) ships discovered/speculative surfaces OFF, and a poster of a
+    //   feature is the "not a tool" class the room-3 zero-state was rebuilt to
+    //   end. It is not a registry line because there is no contract to reconnect
+    //   — the prediction does not exist on either door yet.
+    // · AIコーチング (:562-582) is a Layer-1 STAFF-PRIVATE surface: the phone
+    //   hides it from owners outright, its suggestions are `null` in the app
+    //   today, and packet §0-5 routes coaching's own laws
+    //   (project_voice_recognition_isolation · coaching_design_principle) to the
+    //   phone rather than here. Building a staff-private panel on the computer
+    //   door — the one every manager reads — is the wrong home for it, so it is
+    //   omitted rather than gated.
     subtitle:
       '施術記録の一覧です。行を選ぶと、記入内容・詳細記録・写真・結果をまとめて確認できます。検索や絞り込みは表示が変わるだけで、記録の内容は変わりません。',
     filters: FILTERS,

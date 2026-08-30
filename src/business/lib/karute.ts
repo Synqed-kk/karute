@@ -360,10 +360,19 @@ export interface KaruteRecordModel {
   summaryBullets: string[]
   /** True when a person rewrote the AI's summary — the amber pencil. */
   summaryEdited: boolean
-  /** 編集履歴, with each editor's NAME resolved through the roster — the plane
-   *  holds only their id, so the room can never print a name the world does not
-   *  agree with, and an editor the lens cannot resolve is not named at all. */
-  summaryEdits: Array<{ minute: number; by: string; note: string }>
+  /** 記録の履歴 — the record's own events, NEWEST FIRST, which is what the
+   *  section says out loud. Built as ONE sorted list rather than a discard row
+   *  printed above an unsorted edit array: a section that claims an order its
+   *  own rendering does not produce is §A.8's class, and it goes wrong the day a
+   *  record has both a discard and an edit (B1-4).
+   *  Each actor's NAME is resolved through the roster — the plane holds only
+   *  their id, so the room can never print a name the world does not agree with,
+   *  and an actor the lens cannot resolve is not named at all. */
+  history: Array<{ minute: number; kind: 'discard' | 'edit'; by: string; note: string | null }>
+  /** True when this reader may not read the record's content. Carried so a COUNT
+   *  is never computed from a redacted array — a permission-made 0 is a false
+   *  number, and ⚖ §7a's 「omit, never 0」 applies to it (B2-3). */
+  contentWithheld: boolean
   photos: FixtureKarutePhoto[]
   aiMessage: string | null
   /** 同意確認済 — `null` when the session was never recorded at all. */
@@ -374,7 +383,17 @@ export interface KaruteRecordModel {
   /** ⚖ 破棄. The row's own facts (who, when) are the census and stay for
    *  everyone; the REASON is withheld from a reader who may not read it — and
    *  withheld HERE, before anything is serialized, never by the screen. */
-  discarded: { at: number; by: string; reason: string | null } | null
+  discarded: {
+    at: number
+    by: string
+    reason: string | null
+    /** ⚖ 8/20's stress-test build requirement (b): a discarded record that HAD a
+     *  ticket burn must still tell a manager so, because money never
+     *  auto-reverses and the correction is theirs to make. Derived BEFORE the R2
+     *  null-out — R2 keeps the burn out of every NUMBER, it does not erase the
+     *  fact that one happened. `false` for a reader who may not read content. */
+    hadTicketBurn: boolean
+  } | null
   /** 来店回数 as of this session, counted from the world's completed bookings —
    *  the phone's `visit_count`, derived rather than stored (the same reason
    *  `listVisits` rebuilds visits from bookings). */
@@ -497,9 +516,20 @@ export function buildRecords(input: BuildRecordsInput): KaruteRecordModel[] {
       // an empty line is not an item.
       summaryBullets: readable && summaryText ? summaryText.split('\n').map((l) => l.trim()).filter(Boolean) : [],
       summaryEdited: readable && record.summary_edited !== null,
-      summaryEdits: readable
-        ? record.summary_edits.map((e) => ({ minute: e.minute, by: nameOf(e.by_staff_id), note: e.note }))
-        : [],
+      history: [
+        ...(record.discarded
+          ? [{
+              minute: record.discarded.minute,
+              kind: 'discard' as const,
+              by: nameOf(record.discarded.by_staff_id),
+              reason: access.discardContent ? record.discarded.reason : null,
+            }].map((d) => ({ minute: d.minute, kind: d.kind, by: d.by, note: d.reason }))
+          : []),
+        ...(readable
+          ? record.summary_edits.map((e) => ({ minute: e.minute, kind: 'edit' as const, by: nameOf(e.by_staff_id), note: e.note }))
+          : []),
+      ].sort((a, b) => b.minute - a.minute),
+      contentWithheld: !readable,
       photos: readable ? record.photos : [],
       aiMessage: readable ? record.ai_message : null,
       consentOnFile: record.recording ? record.recording.consent : null,
@@ -515,6 +545,8 @@ export function buildRecords(input: BuildRecordsInput): KaruteRecordModel[] {
             at: record.discarded.minute,
             by: nameOf(record.discarded.by_staff_id),
             reason: access.discardContent ? record.discarded.reason : null,
+            // Read off the PLANE, not off the R2-nulled model field above.
+            hadTicketBurn: access.discardContent && record.ticket_redeemed,
           }
         : null,
       visitNumber: index >= 0 ? index + 1 : 1,
@@ -523,6 +555,54 @@ export function buildRecords(input: BuildRecordsInput): KaruteRecordModel[] {
   }
 
   return models.sort((a, b) => (b.dayKey - a.dayKey) || a.id.localeCompare(b.id))
+}
+
+// ── the tour card's room-local placement correction ─────────────────────────
+
+interface Box { left: number; top: number; width: number; height: number }
+
+/**
+ * ⚠ ROOM-LOCAL CORRECTION to the SHARED engine's documented LAST RESORT.
+ *
+ * `spotCardAt` (`@/business/lib/guide`) places the tour card below the target,
+ * else above it, else BESIDE it — and when a region has no free side at all its
+ * last resort is `Math.max(10, target.left - card.width - 12)`, which puts the
+ * card on top of the thing it is explaining. That is unreachable for most rooms
+ * and unavoidable for this one: a full-page records table and an eight-drawer
+ * session card are both FULL-WIDTH and TALLER THAN THE VIEWPORT, so neither has
+ * a free side. Measured on the shipped tip: at 390 the card sat 223×226px over
+ * 「カルテの一覧」 including its own heading; at 1280 it clipped the section
+ * title to 「ルテの一覧」.
+ *
+ * The engine is ONE SHARED HOME for every Business page and is FROZEN for this
+ * room, so the correction lives here — the register room's D-M2 precedent
+ * (room-local now, engine fix queued). It is deliberately the SMALLEST one that
+ * fixes the actual failure: the card keeps the x the engine chose, and only its
+ * TOP moves, to whichever viewport edge is farther from the target's heading
+ * zone. Keeping x matters — pushing the card sideways at 1280 would turn a 23px
+ * sliver into a 300px overlap.
+ *
+ * A card that does not sit over the heading is returned untouched, so every
+ * ordinary step still gets exactly the engine's answer.
+ */
+export function keepCardOffHeading(
+  at: { top: number; left: number },
+  card: { width: number; height: number },
+  target: Box,
+  viewport: { width: number; height: number },
+  /** A section's heading lives in its first rows; 64px covers the room's own
+   *  `.kr-sec-title` line plus its margin at every band. */
+  headingZone = 64,
+): { top: number; left: number } {
+  const zoneTop = target.top
+  const zoneBottom = target.top + Math.min(headingZone, target.height)
+  const overlapsX = at.left < target.left + target.width && at.left + card.width > target.left
+  const overlapsHeading = at.top < zoneBottom && at.top + card.height > zoneTop
+  if (!overlapsX || !overlapsHeading) return at
+  const zoneMid = (zoneTop + zoneBottom) / 2
+  const room = { top: zoneMid, bottom: viewport.height - zoneMid }
+  const top = room.bottom >= room.top ? viewport.height - card.height - 10 : 10
+  return { top: Math.max(10, top), left: at.left }
 }
 
 // ── 記録のないお客様 — the quiet reveal, never a standing section ─────────────

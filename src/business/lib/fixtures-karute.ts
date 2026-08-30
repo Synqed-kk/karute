@@ -195,7 +195,7 @@ export const records: FixtureKaruteRecord[] = [
     recording: { consent: true },
     outcome: { status: 'success', reason: null },
     ticket_redeemed: false,
-  discarded: null,
+    discarded: null,
   },
   {
     // TODAY, 銀座 — written up, but the AI has not produced a summary yet.
@@ -370,6 +370,31 @@ export const records: FixtureKaruteRecord[] = [
     ticket_redeemed: false,
     discarded: null,
   },
+  {
+    // ⚠ THE OPERATOR'S OWN RECORD (F-K2). 見本 あずさ is the signed-in
+    // 店舗管理者, and until the world gained her one completed session (apt-35)
+    // the 担当 row's 自分 chip could never match anything: one of canon's three
+    // narrowing controls, permanently 0件, unable to be seen working by anybody
+    // — a reader, a screenshot, or a count-law proof. ⚖ 8/9 fixes that at the
+    // DATA. A manager who also treats is the ordinary shape of a small shop.
+    id: 'K-0014',
+    appointment_id: 'apt-35',
+    entries: [
+      { category: 'concern', text: '前回より脚のだるさが軽い、とのこと。', author: 'staff' },
+      { category: 'treatment', text: '脚のむくみを中心に60分。前回と同じ流れで進めました。', author: 'ai' },
+      { category: 'next', text: '同じ間隔での次回来店をご提案しました。', author: 'ai' },
+    ],
+    summary_ai: '脚のだるさは前回より軽減。むくみを中心に60分の施術を行い、同じ間隔での次回来店をご提案。',
+    summary_edited: null,
+    summary_edits: [],
+    summary_state: 'confirmed',
+    photos: [],
+    ai_message: null,
+    recording: { consent: true },
+    outcome: { status: 'revisit', reason: null },
+    ticket_redeemed: false,
+    discarded: null,
+  },
 
   // ── 代官山. Three records the 銀座 lens must never see, and three the 代官山
   //    lens must see WITHOUT any of 銀座's (⚖ the 8/17 store-isolation law,
@@ -430,19 +455,14 @@ export const records: FixtureKaruteRecord[] = [
   },
 ]
 
-/** ⚠SETTINGS-BATCH — 文字起こしの公開範囲 (dial #16, DIAL-HOME-MAP (b3);
- *  ⚖ Liam 8/30 D3). A business chooses whether a staff member's recording
- *  transcript is private to them or readable by their managers. DEFAULT PRIVATE,
- *  and at reconnect the choice is enforced SERVER-SIDE at the data door — never
- *  by a client-side branch over a transcript the browser was already handed.
- *
- *  THE ROOM READS THIS AND STILL OPENS NO DOOR (v1, both modes): the record
- *  plane holds no transcript at all, so there is nothing here for a mis-set dial
- *  to leak. What the value buys today is the room's HONESTY — the notice says
- *  the viewing rule follows the store's setting rather than claiming a rule this
- *  room does not enforce (registry ⑤).
- *
- *  ⚠ RECONNECT: the 店舗設定 control ships with the settings batch and reads
- *  THIS value; the core contract ask is parked on the Anthony build-order queue.
- *  Nothing in the room hardcodes a transcript rule. */
-export const transcriptVisibility: 'private' | 'managers' = 'private'
+/* ⚠SETTINGS-BATCH — 文字起こしの公開範囲 (dial #16, DIAL-HOME-MAP (b3);
+   ⚖ Liam 8/30 D3) IS DELIBERATELY NOT DECLARED HERE. An earlier cut exported the
+   value with a comment claiming the room read it; nothing imported it, so the
+   comment asserted a wiring that did not exist and a reader at reconnect would
+   have believed the dial was already threaded (B1-6 / B2-2).
+   The room's D3 honesty is real and lives in ONE place — `permissionNotice`
+   (karute.ts), which states 「文字起こしの閲覧は店舗の設定に従います（未接続）」
+   for every reader and never decides the rule itself. The dial's home is the
+   settings batch and registry ⑤; the record plane holds no transcript at all,
+   so there is nothing here for it to gate. One truth, one home. */
+

@@ -70,6 +70,20 @@ const SCREEN_CODE = stripComments(SCREEN_SRC)
 const PROPS_CODE = stripComments(PROPS_SRC)
 const CSS_CODE = CSS_SRC.replace(/\/\*[\s\S]*?\*\//g, '')
 
+/** THE ONE PARSER (F-K11) — see the fence describe below for why splitting on
+ *  '}' alone is blind to the first rule of every @media block. */
+const allSelectors = (src: string) =>
+  src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/@(?:keyframes|font-face|counter-style|property)[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '')
+    .replace(/@(?:media|supports|layer|container)[^{]*\{/g, '')
+    .split('}')
+    .flatMap((block) => {
+      const i = block.indexOf('{')
+      return i < 0 ? [] : block.slice(0, i).split(',').map((x) => x.trim()).filter(Boolean)
+    })
+    .filter((x) => !x.startsWith('@'))
+
 const NOW = new Date()
 const TODAY = jstDayKey(NOW)
 const YMD = jstYmd(NOW)
@@ -152,7 +166,7 @@ describe('⚠ THE FIXTURE FENCE — the plane ADDS, and states nothing the world
       'cus-08', 'cus-09', 'cus-10', 'cus-11', 'thin-01', 'thin-02',
     ])
     expect(staff.map((s) => s.id)).toEqual(['p-01', 'p-02', 'c-03', 'p-04', 'p-05', 'p-06', 'p-09'])
-    expect(appointments(NOW).length).toBe(33)
+    expect(appointments(NOW).length).toBe(34)
   })
 })
 
@@ -259,6 +273,31 @@ describe('the record’s state — one home, canon’s own precedence', () => {
     expect(stateOf({ entries: e, summary_ai: 'x', summary_state: 'draft', discarded: null })).toBe('draft')
     expect(stateOf({ entries: e, summary_ai: 'x', summary_state: 'confirmed', discarded: null })).toBe('summarized')
   })
+  it('⚖ 記録の履歴 really is 新しい順 — proven on a record that has BOTH (F-K7)', () => {
+    // The section printed 「新しい順」 and sorted nothing: the discard row was
+    // rendered first unconditionally, then the edits in array order. Unreachable
+    // in the shipped world (the discarded record has no edits), which is exactly
+    // why it needs a crafted one — a claim its own rendering does not produce.
+    const crafted = recordPlane.map((r) =>
+      r.id === 'K-0005'
+        ? {
+            ...r,
+            summary_edits: [
+              { minute: 9 * 60, by_staff_id: 'p-01', note: '破棄より前の編集' },
+              { minute: 23 * 60, by_staff_id: 'p-06', note: '破棄より後の編集' },
+            ],
+          }
+        : r,
+    )
+    const row = world({ records: crafted }).find((r) => r.id === 'K-0005')!
+    expect(row.history.map((h) => h.minute)).toEqual([23 * 60, 12 * 60 + 20, 9 * 60])
+    expect(row.history.map((h) => h.kind)).toEqual(['edit', 'discard', 'edit'])
+    // Strictly descending, whatever the world hands it.
+    for (let i = 1; i < row.history.length; i += 1) {
+      expect(row.history[i - 1].minute).toBeGreaterThanOrEqual(row.history[i].minute)
+    }
+  })
+
   it('⚖ 破棄済み IS NEVER A WARNING COLOUR (Liam 8/25 ruling B’s rendering law)', () => {
     // A staffer must never hesitate to throw away a genuinely bad take in order
     // to protect the colour of a row.
@@ -293,11 +332,19 @@ describe('⚖ THE DISCARD DOCTRINE (Liam 8/20 ①②③ + R2 + 8/25 ruling B)', 
     expect(asStaff.photos).toEqual([])
     expect(asStaff.aiMessage).toBeNull()
     expect(asStaff.preview).toBeNull()
-    expect(asStaff.discarded).toEqual({ at: expect.any(Number), by: '見本 はなこ', reason: null })
+    expect(asStaff.discarded).toEqual({ at: expect.any(Number), by: '見本 はなこ', reason: null, hadTicketBurn: false })
+    // ⚖ 8/20 (b) — the ticket SIGNAL is a manager read like the reason, so it is
+    // withheld above the serializer too, and its absence is measured (F-K6).
+    expect(asStaff.contentWithheld).toBe(true)
+    expect(asStaff.history.every((h) => h.note === null)).toBe(true)
 
     const asManager = world().find((r) => r.id === 'K-0005')!
     expect(asManager.discarded!.reason).toContain('別のお客様の予約')
     expect(asManager.entries.length).toBe(1)
+    expect(asManager.contentWithheld).toBe(false)
+    // The manager IS told a ticket was consumed — R2 keeps it out of every
+    // number, it does not erase the fact the correction is owed (F-K6).
+    expect(asManager.discarded!.hadTicketBurn).toBe(true)
   })
 
   it('③ the written reason is free text, attached to the row, and never a menu', () => {
@@ -345,6 +392,7 @@ describe('⚖ STORE ISOLATION, both directions, and LEAVES NOTHING BEHIND', () =
     const b = await karuteProps({ locale: 'ja', store: STORE_B })
     expect(a.props.rows.map((r) => r.id).sort()).toEqual([
       'K-0001', 'K-0002', 'K-0003', 'K-0004', 'K-0005', 'K-0006', 'K-0007', 'K-0008', 'K-0009', 'K-0010',
+      'K-0014',
     ])
     expect(b.props.rows.map((r) => r.id).sort()).toEqual(['K-0011', 'K-0012', 'K-0013'])
   })
@@ -424,6 +472,24 @@ describe('⚖ THE PILL/COUNT LAW — a count is what its own tap reveals', () =>
         expect(revealed.every((r) => matchesFilter(r, f.key))).toBe(true)
         expect(scoped.filter((r) => matchesFilter(r, f.key)).length).toBe(revealed.length)
       }
+    }
+  })
+
+  it('⚖ the 担当 scope law is proven on a NON-EMPTY self set (F-K2 / B3-3)', async () => {
+    // The count law's scope half used to reduce to `0 === 0 + 0`: the operator
+    // staffed no completed session anywhere in the world, so 自分 was 0件 in
+    // every lens and the guard could not bite. The world now gives her one
+    // (apt-35), which is also what lets a reader SEE the filter work.
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    const mine = props.rows.filter((r) => r.staffId === props.selfStaffId)
+    expect(mine.length).toBeGreaterThan(0)
+    expect(mine.every((r) => r.staffName === operator.name)).toBe(true)
+    // …and it is a STRICT subset, so the chip really narrows rather than
+    // agreeing with 全スタッフ by accident.
+    expect(mine.length).toBeLessThan(props.rows.length)
+    for (const f of FILTERS) {
+      const revealed = mine.filter((r) => matchesFilter(r, f.key))
+      expect(revealed.every((r) => matchesFilter(r, f.key) && r.staffId === props.selfStaffId)).toBe(true)
     }
   })
 
@@ -595,6 +661,22 @@ describe('⚖ CHUNK-LOADING + ANY-ROSTER-SIZE — the windowed backward walk at 
     expect(windowRows(rows, 0).visible.length).toBe(2)
   })
 
+  it('⚖ A SEARCH IS A LOOKUP — its matches are never hidden behind the walk (F-K10)', async () => {
+    // Canon's pager never hid a search result. Here the window was applied AFTER
+    // the search, so looking a customer up showed their newest record and put
+    // the rest behind さらに表示 (「見本 いつき」 matched 2, showed 1).
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    const q = '見本 いつき'
+    const matches = props.rows.filter((r) => matchesSearch(r, q))
+    expect(matches.length).toBeGreaterThan(1)
+    // …and they genuinely span more than one window, or the pin proves nothing.
+    expect(matches[0].dayKey - matches[matches.length - 1].dayKey).toBeGreaterThan(WINDOW_DAYS)
+    // The windowed walk WOULD hide them; the screen bypasses it while searching.
+    expect(windowRows(matches, 1).hidden).toBeGreaterThan(0)
+    expect(SCREEN_CODE).toContain("const searching = query.trim() !== ''")
+    expect(SCREEN_CODE).toContain('searching ? { visible: matched, hidden: 0, cutoff: null } : windowRows(matched, steps)')
+  })
+
   it('the demo world’s own walk shows the recent fortnight and names the rest', async () => {
     const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
     const walk = windowRows(props.rows, 1)
@@ -734,6 +816,40 @@ describe('every write is REFUSED, with its own reason, and there is no delete le
     expect(props.actionFootnote).toContain('実データ接続後に有効になります')
   })
 
+  it('every refusal is WIRED to the control it names, not merely present', () => {
+    // ⚠ A SWAPPED REASON SURVIVED EVERY PIN (F-K12). The suite proved the eight
+    // sentences were distinct and that the helper puts one on `aria-label`; the
+    // probe proved each label held an em-dash. Nothing tied a reason to ITS
+    // control, so the photo tile could tell a reader that 記入内容 cannot be
+    // edited and stay green. Each call site is now pinned to its own key.
+    const wiring: Array<[string, string]> = [
+      ['を編集`, props.refusals.entry', 'entry'],
+      ["'詳細記録を編集', props.refusals.summary", 'summary'],
+      ["'AIで再生成', props.refusals.regenerate", 'regenerate'],
+      ["'編集', props.refusals.message", 'message'],
+      ["'承認して送信', props.refusals.send", 'send'],
+      ["'結果を変更', props.refusals.outcome", 'outcome'],
+      ["'続ける', props.refusals.reassign", 'reassign'],
+      ['${p.caption}`, props.refusals.photo', 'photo'],
+    ]
+    for (const [call, key] of wiring) {
+      expect({ key, wired: SCREEN_CODE.includes(call) }).toEqual({ key, wired: true })
+    }
+    // …and every refusal key the props expose is spent exactly once.
+    const used = [...SCREEN_CODE.matchAll(/props\.refusals\.(\w+)/g)].map((m) => m[1]).sort()
+    expect(used).toEqual(['entry', 'message', 'outcome', 'photo', 'reassign', 'regenerate', 'send', 'summary'])
+  })
+
+  it('⚠ NO CALL SITE WRITES className AFTER the refused() spread (F-K1)', () => {
+    // The bug this pin exists for: `{...refused(…)} className="kr-pencil"` — the
+    // later JSX prop wins, `.btn` never reaches the DOM, and the control loses
+    // every refusal cue while still LOOKING pressable (cursor: pointer).
+    expect(SCREEN_CODE).not.toMatch(/\{\.\.\.refused\([\s\S]{0,400}?\)\}\s*\n?\s*className=/)
+    // The helper merges instead, and states the merge AFTER its own spread so an
+    // `extra.className` cannot overwrite it either.
+    expect(SCREEN_CODE).toContain("className: ['btn', className].filter(Boolean).join(' '),")
+  })
+
   it('every refused control carries its reason on its ACCESSIBLE NAME, not on title alone', () => {
     // A title-only refusal is invisible to exactly the reader who cannot see
     // that the button is dead (the room-3 F4 lesson).
@@ -822,7 +938,7 @@ describe('the props the screen is handed — strings, and no second clock', () =
   it('⚖ SELF-EXPLAINING NUMBERS — every count on the page says what it counts', async () => {
     const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
     expect(props.monthLabel).toMatch(/^カルテ 今月 /)
-    expect(props.rows.every((r) => r.photoCountLabel.startsWith('このセッションの写真 '))).toBe(true)
+    expect(props.rows.every((r) => r.photoCountLabel === null || r.photoCountLabel.startsWith('このセッションの写真 '))).toBe(true)
     // The chips print 「N件」, never a bare figure.
     expect(SCREEN_CODE).toMatch(/<b>\{scopeCounts\.all\}<\/b>件/)
     expect(SCREEN_CODE).toMatch(/<b>\{filterCounts\.get\(f\.key\) \?\? 0\}<\/b>件/)
@@ -909,8 +1025,11 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     expect(CSS_CODE).not.toMatch(/overflow-x\s*:/)
     expect(CSS_CODE).not.toMatch(/position:\s*sticky/)
     // Declarations only — `@media (min-width: 1400px)` is a BAND, not a floor.
+    // ⚠ ANY px COUNT, not just three digits (F-K12): `[1-9]\d\dpx` matched
+    // 100–999 and walked straight past `min-width: 1200px`, which is the WORSE
+    // version of the same defect (proven: a four-digit floor passed 120/120).
     const declarations = CSS_CODE.replace(/@media[^{]*\{/g, '{')
-    expect(declarations).not.toMatch(/min-width\s*:\s*[1-9]\d\dpx/)
+    expect(declarations).not.toMatch(/min-width\s*:\s*\d{3,}px/)
     expect(SCREEN_CODE).not.toContain('kr-table-wrap')
   })
 
@@ -941,13 +1060,17 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
   })
 
   it('every rule is scoped — nothing here can reach a neighbour', () => {
-    const selectors = CSS_CODE.split('}')
-      .map((b) => b.slice(0, b.indexOf('{')).trim())
-      .filter((s) => s !== '' && !s.startsWith('@'))
-      .flatMap((s) => s.split(',').map((x) => x.trim()))
-      .filter(Boolean)
-    const unscoped = selectors.filter((s) => !s.includes('pg-karute'))
+    // ⚠ USES THE FIXED PARSER (F-K11). The old inline splitter could not see the
+    // first rule of a media block, so 「nothing here can reach a neighbour」 was
+    // true either because it is, or because the unscoped rule happened to sit
+    // first inside an @media — the room-2 BLOCKER's own shape.
+    const unscoped = allSelectors(CSS_SRC).filter((s) => !s.includes('pg-karute'))
     expect({ unscoped }).toEqual({ unscoped: [] })
+    // …and the parser really does see inside media blocks, or the pin above is
+    // vacuous again: this room states rules in seven of them.
+    expect(allSelectors(CSS_SRC).length).toBeGreaterThan(
+      CSS_SRC.split('}').length - CSS_SRC.split('@media').length,
+    )
   })
 
   it('⚖ R13 — no black-filled interactive element anywhere in the room', () => {
@@ -979,9 +1102,20 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () => {
   const BIZ = join(process.cwd(), 'src/app/[locale]/(business)')
+  const stripCss = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '')
+  /** ⚠ WALKS THE AT-RULES INSTEAD OF SPLITTING BLINDLY (F-K11). The first cut
+   *  did `src.split('}')` then `slice(0, indexOf('{'))` — and for the FIRST rule
+   *  inside any `@media` block the first `{` found is the media query's OWN
+   *  brace, so the selector was never seen at all. Seven selectors per sheet
+   *  were invisible, including a bare `.biz .guard-rail-cell` in today.css: the
+   *  exact shape the fence exists to catch. A planted unscoped rule at the top
+   *  of a media block passed every pin (proven red-run in the evidence).
+   *  Conditional groups lose their PRELUDE and keep their rules; keyframes and
+   *  font-face blocks go entirely, so `from`/`to` never read as selectors. */
   const selectorsOf = (src: string) =>
-    src
-      .replace(/\/\*[\s\S]*?\*\//g, '')
+    stripCss(src)
+      .replace(/@(?:keyframes|font-face|counter-style|property)[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '')
+      .replace(/@(?:media|supports|layer|container)[^{]*\{/g, '')
       .split('}')
       .flatMap((block) => {
         const i = block.indexOf('{')
@@ -1156,7 +1290,7 @@ describe('the room survives real time passing (⚖ L-6)', () => {
       customers, menus, staff,
       todayKey: jstDayKey(later), todayWeekday: jstYmd(later).wd, access: MANAGER,
     })
-    expect(rows.length).toBe(10)
+    expect(rows.length).toBe(11)
   })
 
   it('is still populated 400 days from now', () => {
@@ -1167,7 +1301,7 @@ describe('the room survives real time passing (⚖ L-6)', () => {
       customers, menus, staff,
       todayKey: jstDayKey(later), todayWeekday: jstYmd(later).wd, access: MANAGER,
     })
-    expect(rows.length).toBe(10)
+    expect(rows.length).toBe(11)
     // …and the newest one is still today's, not a date that expired in 2026.
     expect(rows[0].dayKey).toBe(jstDayKey(later))
   })

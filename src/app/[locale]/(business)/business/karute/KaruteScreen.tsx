@@ -34,7 +34,7 @@ import Link from 'next/link'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import {
-  FILTERS,
+  keepCardOffHeading,
   matchesFilter,
   matchesReveal,
   matchesSearch,
@@ -81,9 +81,11 @@ export interface KaruteRowProps {
   entries: KaruteEntryProps[]
   summaryBullets: string[]
   summaryEdited: boolean
-  summaryEdits: Array<{ when: string; by: string; note: string }>
+  history: Array<{ when: string; what: string; detail: string }>
   photos: Array<{ category: string; caption: string }>
-  photoCountLabel: string
+  /** `null` when the reader's own permission emptied the photo array — a count
+   *  they made zero is omitted, never printed as 0 (F-K14). */
+  photoCountLabel: string | null
   aiMessage: string | null
   recordingLine: string
   consentLabel: string | null
@@ -91,7 +93,7 @@ export interface KaruteRowProps {
   outcomePill: string
   outcomeNote: string | null
   ticketLine: string | null
-  discard: { whenLabel: string; by: string; reason: string | null } | null
+  discard: { whenLabel: string; by: string; reason: string | null; ticketNote: string | null } | null
   visitLabel: string
   lastVisitLabel: string | null
   customersHref: string
@@ -197,7 +199,17 @@ export function KaruteScreen(props: KaruteProps) {
   )
   const searched = useMemo(() => scoped.filter((r) => matchesSearch(r, query)), [scoped, query])
   const matched = useMemo(() => searched.filter((r) => matchesFilter(r, filter)), [searched, filter])
-  const walk = useMemo(() => windowRows(matched, steps), [matched, steps])
+  /** ⚠ A SEARCH OPENS THE WALK (F-K10). The window is a recent-stretch read —
+   *  the right shape for browsing, and the wrong one for a lookup: typing a
+   *  customer's name showed their newest record and hid the rest behind
+   *  さらに表示 (「見本 いつき」 matched 2, showed 1). Canon's pager never hid a
+   *  search result. Filters and scope alone keep the windowed walk, because
+   *  those ARE browsing. */
+  const searching = query.trim() !== ''
+  const walk = useMemo(
+    () => (searching ? { visible: matched, hidden: 0, cutoff: null } : windowRows(matched, steps)),
+    [matched, steps, searching],
+  )
   const visible = walk.visible
 
   /** ⚖ THE PILL/COUNT LAW (packet §7b-3): a count beside a tappable filter shows
@@ -313,7 +325,11 @@ export function KaruteScreen(props: KaruteProps) {
     setTourStep((was) => (was && sameStep(was, nextStep) ? was : nextStep))
     const card = tourCardRef.current
     const size = { width: card?.offsetWidth || 300, height: card?.offsetHeight || 160 }
-    const at = spotCardAt(boxOf(r), size, { width: window.innerWidth, height: window.innerHeight })
+    const viewport = { width: window.innerWidth, height: window.innerHeight }
+    // The engine's answer, then this room's correction for the one shape it
+    // cannot place: a full-width section taller than the viewport, where the
+    // last-resort clamp puts the card over its own heading (F-K5).
+    const at = keepCardOffHeading(spotCardAt(boxOf(r), size, viewport), size, boxOf(r), viewport)
     const next = { hole: { left: r.left - 5, top: r.top - 5, width: r.width + 10, height: r.height + 10 }, ...at }
     setTourPos((was) => (was && samePos(was, next) ? was : next))
   }, [tourIdx, tourTick, tourStep])
@@ -374,15 +390,33 @@ export function KaruteScreen(props: KaruteProps) {
    *  the control stays focusable so its reason is reachable by keyboard and
    *  screen reader — the shell's own standing-hint treatment, one step better.
    *  The reason rides the ACCESSIBLE NAME as well as the title, because a
-   *  screen reader drops `title` once `aria-describedby` is present. */
-  const refused = (label: string, reason: string, extra?: Record<string, string>) => ({
-    className: 'btn',
-    type: 'button' as const,
-    'aria-disabled': 'true' as const,
-    title: reason,
-    'aria-label': `${label} — ${reason}`,
-    ...extra,
-  })
+   *  screen reader drops `title` once `aria-describedby` is present.
+   *
+   *  ⚠ THE CLASSES ARE MERGED HERE, and a call site must never write `className`
+   *  after this spread. It used to: both ✎ pencils wrote `className="kr-pencil"`
+   *  after `{...refused(...)}`, the later JSX prop won, and `.btn` never reached
+   *  the DOM — so the room's most-repeated refusal was the ONLY one that did not
+   *  look refused (measured: `cursor: pointer` on a refused control, no dim, no
+   *  border, UA `ButtonFace`, and the amber "a person rewrote this" pencil
+   *  painting a border-color onto a border that did not exist). Fixed at the
+   *  helper so it cannot recur (F-K1). */
+  const refused = (
+    label: string,
+    reason: string,
+    extra?: { className?: string; 'aria-describedby'?: string },
+  ) => {
+    const { className, ...rest } = extra ?? {}
+    return {
+      type: 'button' as const,
+      'aria-disabled': 'true' as const,
+      title: reason,
+      'aria-label': `${label} — ${reason}`,
+      ...rest,
+      // LAST, and after the spread: a caller passes its classes IN, and cannot
+      // write `className` over the merge afterwards.
+      className: ['btn', className].filter(Boolean).join(' '),
+    }
+  }
 
   return (
     <div className={`${ROOT}${detailOpen ? ' is-detail' : ''}`} ref={rootRef}>
@@ -628,7 +662,7 @@ export function KaruteScreen(props: KaruteProps) {
 
         {/* ⚖ §7a — ONE QUIET REVEAL ROW, and only while searching. A records
             page shows records; a person with none is not a row in the table. */}
-        {query.trim() !== '' && revealed.length > 0 && (
+        {searching && revealed.length > 0 && (
           <section
             className="kr-reveal"
             aria-label="カルテのないお客様"
@@ -756,6 +790,13 @@ export function KaruteScreen(props: KaruteProps) {
               <p className="kr-discard-note">
                 破棄されたカルテは、成約率・回数券の消化・AIの学習には使われません。記録として残るだけです。
               </p>
+              {/* ⚖ 8/20 build requirement (b) — R2 keeps this record out of every
+                  number, and money never auto-reverses, so the manager who owns
+                  the correction has to be told it is owed. Manager-gated above
+                  the serializer (F-K6). */}
+              {current.discard.ticketNote && (
+                <p className="kr-discard-ticket">{current.discard.ticketNote}</p>
+              )}
             </section>
           )}
 
@@ -814,8 +855,10 @@ export function KaruteScreen(props: KaruteProps) {
                           <span className="kr-entry-label">{e.label}</span>
                           {e.handwritten && <span className="pill">手書き</span>}
                           <button
-                            {...refused(`${e.label}を編集`, props.refusals.entry, { 'aria-describedby': footnoteId! })}
-                            className="kr-pencil"
+                            {...refused(`${e.label}を編集`, props.refusals.entry, {
+                              'aria-describedby': footnoteId!,
+                              className: 'kr-pencil',
+                            })}
                           >
                             ✎
                           </button>
@@ -838,8 +881,10 @@ export function KaruteScreen(props: KaruteProps) {
                 <div className="kr-sec-head">
                   <h2 className="kr-sec-title" id="krSummaryTitle">詳細記録</h2>
                   <button
-                    {...refused('詳細記録を編集', props.refusals.summary, { 'aria-describedby': footnoteId! })}
-                    className={`kr-pencil${current.summaryEdited ? ' is-edited' : ''}`}
+                    {...refused('詳細記録を編集', props.refusals.summary, {
+                      'aria-describedby': footnoteId!,
+                      className: `kr-pencil${current.summaryEdited ? ' is-edited' : ''}`,
+                    })}
                   >
                     ✎
                   </button>
@@ -872,7 +917,7 @@ export function KaruteScreen(props: KaruteProps) {
                   <ul className="kr-photo-list">
                     {current.photos.map((p, i) => (
                       <li key={i}>
-                        <button {...refused(`${p.category} ${p.caption}`, props.refusals.photo)} className="kr-photo">
+                        <button {...refused(`${p.category} ${p.caption}`, props.refusals.photo, { className: 'kr-photo' })}>
                           <span className="kr-photo-cat">{p.category}</span>
                           <span className="kr-photo-cap">{p.caption}</span>
                         </button>
@@ -948,30 +993,16 @@ export function KaruteScreen(props: KaruteProps) {
               <h2 className="kr-sec-title" id="krHistoryTitle">記録の履歴</h2>
               <span className="kr-order">新しい順</span>
             </div>
-            {current.discard === null && current.summaryEdits.length === 0 ? (
+            {current.history.length === 0 ? (
               <p className="kr-none">このカルテの操作履歴はまだ記録されていません。</p>
             ) : (
               <div className="kr-hist-rows">
-                {current.discard && (
-                  <div className="kr-hist-row">
-                    <time>{current.discard.whenLabel}</time>
-                    <span>
-                      <strong>カルテを破棄</strong>
-                      <span>
-                        {current.discard.by}
-                        {current.discard.reason ? ` ・ ${current.discard.reason}` : ' ・ 理由は店舗管理者のみが確認できます'}
-                      </span>
-                    </span>
-                  </div>
-                )}
-                {current.summaryEdits.map((h, i) => (
+                {current.history.map((h, i) => (
                   <div className="kr-hist-row" key={i}>
                     <time>{h.when}</time>
                     <span>
-                      <strong>詳細記録を編集</strong>
-                      <span>
-                        {h.by} ・ {h.note}
-                      </span>
+                      <strong>{h.what}</strong>
+                      <span>{h.detail}</span>
                     </span>
                   </div>
                 ))}
