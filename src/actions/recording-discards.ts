@@ -70,6 +70,15 @@ function startOfThisMonth(now: Date): number {
   return new Date(now.getFullYear(), now.getMonth(), 1).getTime()
 }
 
+/** SynqedError's HTTP status, duck-typed — same reason as store-clamp.ts's own:
+ *  a VALUE import of the SDK class pulls the ESM-only package into jest, and
+ *  instanceof is fragile across module instances. A network TypeError has no
+ *  numeric status, so it is correctly not an upstream answer. */
+function upstreamStatus(err: unknown): number | null {
+  const status = (err as { status?: unknown } | null)?.status
+  return typeof status === 'number' ? status : null
+}
+
 export async function listDiscardReasons(): Promise<ListDiscardReasonsResult> {
   try {
     const caps = await getMyCapabilities()
@@ -170,7 +179,9 @@ export type GetDiscardTranscriptResult =
  *
  * Missing pieces degrade to nulls rather than failing the read — a discard from
  * before A2-2, a consent-refused take and a swept session row are all legitimate
- * "no words" answers, and the section says so honestly instead of guessing.
+ * "no words" answers, and the section says so honestly instead of guessing. A
+ * read that FAILED is not one of them: it answers `ok:false` and the section
+ * says it could not look (see the catch below).
  *
  * SCOPE, deliberately: this reads segments for ANY session id a `staff.manage`
  * caller names. That equals the discard doctrine's intent only because the A2-2
@@ -194,10 +205,22 @@ export async function getDiscardTranscript(
     const synqed = newSynqedClient(businessId)
 
     const [segments, recording] = await Promise.all([
+      // A FAILED READ IS NOT AN ABSENCE. A blanket catch here answered
+      // `{ok:true, segments:[]}` for a 500, a timeout or a mid-deploy blip, and
+      // the section printed 「文字起こしはありません」 — a claim about the words
+      // on a screen whose whole job is checking a staffer's claim. Only core's
+      // own "there is no such recording" (404 — a swept session row, one of the
+      // legitimate no-words populations in the docstring above) is an answer;
+      // everything else propagates and the section says it could not look.
       synqed.recordings
         .listSegments(recordingSessionId)
         .then((r) => r?.segments ?? [])
-        .catch(() => []),
+        .catch((err: unknown) => {
+          if (upstreamStatus(err) === 404) return []
+          throw err
+        }),
+      // Metadata stays best-effort: a duration we cannot read costs the
+      // below-floor distinction, never the honesty of the words themselves.
       synqed.recordings.get(recordingSessionId).catch(() => null),
     ])
 

@@ -39,8 +39,16 @@ const RECORDING_CONSENT_POLICY_VERSION = jest.requireActual('@/lib/consent')
 const ledger: { recording_session_id: string; source: string; reason: string | null }[] = []
 const segmentSets: { text: string; start_time: number; end_time: number; segment_index: number }[][] =
   []
-let consentRow: { policy_version: string } | null = { policy_version: '' }
-let recordingRow: { duration_seconds: number | null } | null = null
+/** Consent BY CUSTOMER ID — the whole point of deriving the customer from the
+ *  session row is that these two can disagree, so the fake has to be able to
+ *  answer differently for two people. */
+let consentByCustomer: Record<string, { policy_version: string } | null> = {}
+/** The session row. `customer_id` is the record-time binding the consent gate
+ *  reads; a client-named customer must never be able to steer it. */
+let recordingRow: { duration_seconds: number | null; customer_id: string | null } | null = null
+/** Set to make recordingDiscards.list IGNORE the session filter — a core-side
+ *  regression the fake would otherwise hide from the fence. */
+let listIgnoresSessionFilter = false
 const upsertSeen: { id: string; options: unknown }[] = []
 
 const fakeClient = {
@@ -49,7 +57,9 @@ const fakeClient = {
       const events = ledger.filter(
         (r) =>
           (!q.source || r.source === q.source) &&
-          (!q.recording_session_id || r.recording_session_id === q.recording_session_id),
+          (listIgnoresSessionFilter ||
+            !q.recording_session_id ||
+            r.recording_session_id === q.recording_session_id),
       )
       return { events, total: events.length, page: 1, page_size: 200 }
     },
@@ -69,7 +79,7 @@ const fakeClient = {
     },
   },
   customers: {
-    getConsent: async () => ({ consent: consentRow }),
+    getConsent: async (id: string) => ({ consent: consentByCustomer[id] ?? null }),
   },
   orgSettings: { get: async () => ({ settings: {} }) },
 }
@@ -142,15 +152,25 @@ const SESSION = 'sess-1'
 const OWN_PATH = 'app_business-1_11111111-2222-3333-4444-555555555555.webm'
 const FOREIGN_PATH = 'app_business-9_11111111-2222-3333-4444-555555555555.webm'
 
-const staged = (over: Partial<Parameters<typeof transcribeAndPersistDiscard>[0]> = {}) =>
+/** `over` is deliberately loose: several cases below hand the action a
+ *  `customerId` it no longer declares, to prove a client-named customer is
+ *  IGNORED rather than merely unused. */
+const staged = (over: Record<string, unknown> = {}) =>
   transcribeAndPersistDiscard({
     recordingSessionId: SESSION,
     audioPath: OWN_PATH,
-    customerId: 'cust-1',
     durationSeconds: 62,
     locale: 'ja',
     ...over,
-  })
+  } as Parameters<typeof transcribeAndPersistDiscard>[0])
+
+const review = (over: Record<string, unknown> = {}) =>
+  persistDiscardTranscript({
+    recordingSessionId: SESSION,
+    transcript: 'すでに文字起こし済みの内容',
+    durationSeconds: 62,
+    ...over,
+  } as Parameters<typeof persistDiscardTranscript>[0])
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -159,8 +179,10 @@ beforeEach(() => {
   upsertSeen.length = 0
   removed.length = 0
   removeThrows = false
-  recordingRow = null
-  consentRow = { policy_version: RECORDING_CONSENT_POLICY_VERSION }
+  listIgnoresSessionFilter = false
+  // The session is bound to cust-1 at record time, and cust-1 consented.
+  recordingRow = { duration_seconds: null, customer_id: 'cust-1' }
+  consentByCustomer = { 'cust-1': { policy_version: RECORDING_CONSENT_POLICY_VERSION } }
   capabilities.current = new Set(['records.write', 'staff.manage'])
   ledger.push({ recording_session_id: SESSION, source: 'STAFF', reason: '録り直します' })
 })
@@ -169,7 +191,7 @@ beforeEach(() => {
 
 describe('the consent gate (⚖ 8/20 ⑤) refuses BEFORE it spends', () => {
   it('a stale consent version: skipped, and ZERO transcription calls', async () => {
-    consentRow = { policy_version: 'v1-2026-01' }
+    consentByCustomer = { 'cust-1': { policy_version: 'v1-2026-01' } }
     await expect(staged()).resolves.toEqual({ skipped: 'consent' })
     expect(mockRunTranscription).not.toHaveBeenCalled()
     expect(segmentSets).toEqual([])
@@ -178,30 +200,68 @@ describe('the consent gate (⚖ 8/20 ⑤) refuses BEFORE it spends', () => {
   })
 
   it('no consent row at all: skipped, and ZERO transcription calls', async () => {
-    consentRow = null
+    consentByCustomer = {}
     await expect(staged()).resolves.toEqual({ skipped: 'consent' })
     expect(mockRunTranscription).not.toHaveBeenCalled()
     expect(segmentSets).toEqual([])
   })
 
-  it('a customer-less (walk-in) take: skipped without even asking core', async () => {
-    await expect(staged({ customerId: null })).resolves.toEqual({ skipped: 'consent' })
-    await expect(staged({ customerId: '' })).resolves.toEqual({ skipped: 'consent' })
+  it('a customer-less (walk-in) session: skipped without even asking core', async () => {
+    recordingRow = { duration_seconds: null, customer_id: null }
+    await expect(staged()).resolves.toEqual({ skipped: 'consent' })
+    await expect(review()).resolves.toEqual({ skipped: 'consent' })
     expect(mockRunTranscription).not.toHaveBeenCalled()
     expect(segmentSets).toEqual([])
   })
 
   it('the review path is gated the same way — words in hand are still the customer’s', async () => {
-    consentRow = null
-    await expect(
-      persistDiscardTranscript({
-        recordingSessionId: SESSION,
-        transcript: 'すでに文字起こし済みの内容',
-        durationSeconds: 62,
-        customerId: 'cust-1',
-      }),
-    ).resolves.toEqual({ skipped: 'consent' })
+    consentByCustomer = {}
+    await expect(review()).resolves.toEqual({ skipped: 'consent' })
     expect(segmentSets).toEqual([])
+  })
+
+  it('a session row that cannot be READ is not a consent answer — it is a retry', async () => {
+    // Fail closed means "no consent", not "we could not ask". The caller keeps
+    // its take and comes back; answering `skipped` would delete the audio on a
+    // blip.
+    recordingRow = null
+    await expect(staged()).resolves.toEqual({ error: 'failed' })
+    await expect(review()).resolves.toEqual({ error: 'failed' })
+    expect(mockRunTranscription).not.toHaveBeenCalled()
+    expect(segmentSets).toEqual([])
+  })
+})
+
+// ── 1b. The consent customer comes off the SESSION, not the caller ───────
+
+describe('a client-named customer cannot widen consent', () => {
+  it('the staged door ignores it: the SESSION’s customer is the one asked', async () => {
+    // The session belongs to someone who never consented; the caller names a
+    // customer who did. Nothing downstream would contradict a wrong id — it is
+    // written nowhere — so this was a free lever, and it must be dead.
+    recordingRow = { duration_seconds: null, customer_id: 'cust-refused' }
+    consentByCustomer = {
+      'cust-1': { policy_version: RECORDING_CONSENT_POLICY_VERSION },
+      'cust-refused': null,
+    }
+    await expect(staged({ customerId: 'cust-1' })).resolves.toEqual({ skipped: 'consent' })
+    expect(mockRunTranscription).not.toHaveBeenCalled()
+    expect(segmentSets).toEqual([])
+  })
+
+  it('the review door ignores it too', async () => {
+    recordingRow = { duration_seconds: null, customer_id: 'cust-refused' }
+    consentByCustomer = {
+      'cust-1': { policy_version: RECORDING_CONSENT_POLICY_VERSION },
+      'cust-refused': null,
+    }
+    await expect(review({ customerId: 'cust-1' })).resolves.toEqual({ skipped: 'consent' })
+    expect(segmentSets).toEqual([])
+  })
+
+  it('and the reverse: a wrong client id cannot BLOCK a consenting session either', async () => {
+    await expect(staged({ customerId: 'cust-refused' })).resolves.toEqual({ ok: true })
+    expect(segmentSets[0][0].text).toBe('こんにちは、本日はありがとうございます')
   })
 })
 
@@ -233,7 +293,6 @@ describe('words are persisted ONLY onto an already-discarded session', () => {
         recordingSessionId: SESSION,
         transcript: 'x',
         durationSeconds: 1,
-        customerId: 'cust-1',
       }),
     ).resolves.toEqual({ error: 'not_discarded' })
     expect(mockRunTranscription).not.toHaveBeenCalled()
@@ -244,6 +303,60 @@ describe('words are persisted ONLY onto an already-discarded session', () => {
     ledger.length = 0
     ledger.push({ recording_session_id: SESSION, source: 'SYSTEM', reason: null })
     await expect(staged()).resolves.toEqual({ error: 'not_discarded' })
+  })
+
+  it('the fence re-checks the session id in CODE, not only in the query', async () => {
+    // A core that stopped honouring the session filter would hand back another
+    // session's discard row, and the probe would pass for every session in a
+    // business that has one reasoned discard. The fake implements the filter
+    // faithfully, so only a fake that DELIBERATELY ignores it can prove the
+    // re-check exists.
+    listIgnoresSessionFilter = true
+    ledger.length = 0
+    ledger.push({ recording_session_id: 'some-other-session', source: 'STAFF', reason: '別件' })
+    await expect(staged()).resolves.toEqual({ error: 'not_discarded' })
+    await expect(review()).resolves.toEqual({ error: 'not_discarded' })
+    expect(mockRunTranscription).not.toHaveBeenCalled()
+    expect(segmentSets).toEqual([])
+  })
+
+  it('a refusal past the tenant fence still sweeps the object the client staged', async () => {
+    // The client uploads BEFORE it calls, so every exit past the fence owns the
+    // cleanup — otherwise a discarded recording's audio sits in the bucket and
+    // the next sweep uploads another one.
+    ledger.length = 0
+    await expect(staged()).resolves.toEqual({ error: 'not_discarded' })
+    expect(removed).toEqual([OWN_PATH])
+  })
+
+  it('a transcription that THROWS still sweeps it, and still reports the failure', async () => {
+    mockRunTranscription.mockImplementationOnce(async () => {
+      throw new Error('deepgram unreachable')
+    })
+    await expect(staged()).resolves.toEqual({ error: 'failed' })
+    expect(removed).toEqual([OWN_PATH])
+  })
+})
+
+// ── 3b. The capability gate on both write doors ──────────────────────────
+
+describe('records.write is required, and a denial is TERMINAL', () => {
+  it('the staged door: forbidden, never a retryable failure', async () => {
+    capabilities.current = new Set(['staff.manage'])
+    // `forbidden` is what the client settles the take on. Reported as `failed`,
+    // a caller who can never succeed re-staged the whole audio on every
+    // record-page mount until the take-store TTL pruned it.
+    await expect(staged()).resolves.toEqual({ error: 'forbidden' })
+    expect(mockRunTranscription).not.toHaveBeenCalled()
+    expect(segmentSets).toEqual([])
+    // Nothing was read, and nothing was touched in storage either.
+    expect(removed).toEqual([])
+  })
+
+  it('the review door: forbidden too', async () => {
+    capabilities.current = new Set(['staff.manage'])
+    await expect(review()).resolves.toEqual({ error: 'forbidden' })
+    expect(segmentSets).toEqual([])
   })
 })
 
@@ -279,7 +392,6 @@ describe('what actually lands', () => {
         recordingSessionId: SESSION,
         transcript: '  すでに文字起こし済みの内容  ',
         durationSeconds: 62,
-        customerId: 'cust-1',
       }),
     ).resolves.toEqual({ ok: true })
     expect(mockRunTranscription).not.toHaveBeenCalled()
@@ -311,7 +423,6 @@ describe('a transcript that already landed is never replaced', () => {
         recordingSessionId: SESSION,
         transcript: 'お客様は特に何もおっしゃっていませんでした',
         durationSeconds: 62,
-        customerId: 'cust-1',
       }),
     ).resolves.toEqual({ ok: true })
     expect(segmentSets).toHaveLength(1)
@@ -330,7 +441,7 @@ describe('a failed staged-audio sweep does not fail the persist', () => {
   })
 
   it('a consent refusal stays a settled skip, never a retryable error', async () => {
-    consentRow = null
+    consentByCustomer = {}
     removeThrows = true
     await expect(staged()).resolves.toEqual({ skipped: 'consent' })
     expect(mockRunTranscription).not.toHaveBeenCalled()
@@ -351,7 +462,7 @@ describe('getDiscardTranscript — the manager-only read', () => {
 
   it('returns the words a manager checks the written reason against', async () => {
     await staged()
-    recordingRow = { duration_seconds: 62 }
+    recordingRow = { duration_seconds: 62, customer_id: 'cust-1' }
     await expect(getDiscardTranscript(SESSION)).resolves.toEqual({
       ok: true,
       segments: [{ text: 'こんにちは、本日はありがとうございます' }],
@@ -360,6 +471,30 @@ describe('getDiscardTranscript — the manager-only read', () => {
   })
 
   it('absence is honest, never invented: no segments and no readable session → nulls, not an error', async () => {
+    recordingRow = null
+    await expect(getDiscardTranscript(SESSION)).resolves.toEqual({
+      ok: true,
+      segments: [],
+      durationSeconds: null,
+    })
+  })
+
+  it('a segments read that FAILED is a failure, never an empty answer', async () => {
+    // The section prints one of the two absence sentences for `segments: []`.
+    // Answering that for a 500 or a timeout tells the manager something about
+    // the WORDS when the truth is "we could not look" — on the one screen whose
+    // job is checking a staffer's claim.
+    jest
+      .spyOn(fakeClient.recordings, 'listSegments')
+      .mockRejectedValueOnce(new Error('core unreachable'))
+    await expect(getDiscardTranscript(SESSION)).resolves.toEqual({ ok: false, error: 'failed' })
+  })
+
+  it('…but core’s own 404 IS an answer: a swept session row has no words', async () => {
+    jest
+      .spyOn(fakeClient.recordings, 'listSegments')
+      .mockRejectedValueOnce(Object.assign(new Error('not found'), { status: 404 }))
+    recordingRow = null
     await expect(getDiscardTranscript(SESSION)).resolves.toEqual({
       ok: true,
       segments: [],

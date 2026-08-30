@@ -52,7 +52,6 @@ import {
 
 const PENDING = {
   recordingSessionId: 'sess-1',
-  customerId: 'cust-1',
   durationSeconds: 62,
   locale: 'ja',
   stampedAt: 1_756_000_000_000,
@@ -91,11 +90,12 @@ describe('the world gate', () => {
 describe('the review path (words already in hand)', () => {
   it('persists and reports the take deletable', async () => {
     await expect(persistReviewDiscardTranscript('take-1', PENDING, 'words')).resolves.toBe(true)
+    // No customer travels from the client: the consent gate reads the session
+    // row server-side, so there is no id here to name the wrong person with.
     expect(mockPersistDiscardTranscript).toHaveBeenCalledWith({
       recordingSessionId: 'sess-1',
       transcript: 'words',
       durationSeconds: 62,
-      customerId: 'cust-1',
     })
     expect(mockStampDiscardPending).not.toHaveBeenCalled()
   })
@@ -110,6 +110,15 @@ describe('the review path (words already in hand)', () => {
     mockPersistDiscardTranscript.mockImplementationOnce(async () => ({ error: 'failed' }))
     await expect(persistReviewDiscardTranscript('take-1', PENDING, 'words')).resolves.toBe(false)
     expect(mockStampDiscardPending).toHaveBeenCalledWith('take-1', PENDING)
+  })
+
+  it('a TERMINAL refusal is settled here too — stamping would buy one wasted upload', async () => {
+    for (const error of ['not_discarded', 'forbidden'] as const) {
+      jest.clearAllMocks()
+      mockPersistDiscardTranscript.mockImplementationOnce(async () => ({ error }))
+      await expect(persistReviewDiscardTranscript('take-1', PENDING, 'words')).resolves.toBe(true)
+      expect(mockStampDiscardPending).not.toHaveBeenCalled()
+    }
   })
 
   it('a transport-level throw is a failure too, not an unhandled rejection', async () => {
@@ -140,7 +149,6 @@ describe('the audio path', () => {
     expect(mockTranscribeAndPersistDiscard).toHaveBeenCalledWith({
       recordingSessionId: 'sess-1',
       audioPath: 'app_business-1_staged.webm',
-      customerId: 'cust-1',
       durationSeconds: 62,
       locale: 'ja',
     })
@@ -157,6 +165,40 @@ describe('the audio path', () => {
     mockTranscribeAndPersistDiscard.mockImplementationOnce(async () => ({ error: 'failed' }))
     await runDiscardTranscript('take-1', PENDING)
     expect(mockDeleteTake).not.toHaveBeenCalled()
+  })
+
+  it('a TERMINAL refusal settles it — no retry can ever change the answer', async () => {
+    // `not_discarded` (no reasoned discard on that session — the words have no
+    // home) and `forbidden` (the caller lacks the capability, or the key is not
+    // this tenant's) cannot become true on a later mount. Kept, they re-staged
+    // the whole audio on every record-page mount for seven days.
+    for (const error of ['not_discarded', 'forbidden'] as const) {
+      jest.clearAllMocks()
+      mockTranscribeAndPersistDiscard.mockImplementationOnce(async () => ({ error }))
+      await runDiscardTranscript('take-1', PENDING)
+      expect(mockDeleteTake).toHaveBeenCalledWith('take-1')
+    }
+  })
+
+  it('a take already in flight is not staged a second time', async () => {
+    // The sweep fires on EVERY record-page mount and the discard arm kicks its
+    // own run: navigating away and back inside a long transcription used to pay
+    // Deepgram twice for the same audio.
+    let release: () => void = () => {}
+    mockTranscribeAndPersistDiscard.mockImplementationOnce(
+      () => new Promise((res) => { release = () => res({ ok: true }) }),
+    )
+    const first = runDiscardTranscript('take-1', PENDING)
+    for (let i = 0; i < 8; i++) await Promise.resolve()
+    await runDiscardTranscript('take-1', PENDING)
+    expect(mockStageForJob).toHaveBeenCalledTimes(1)
+    expect(mockTranscribeAndPersistDiscard).toHaveBeenCalledTimes(1)
+
+    release()
+    await first
+    // …and the guard is released with the run, so a later retry still works.
+    await runDiscardTranscript('take-1', PENDING)
+    expect(mockStageForJob).toHaveBeenCalledTimes(2)
   })
 
   it('audio that is gone (or belongs to another signed-in staffer) is left alone', async () => {

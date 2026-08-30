@@ -610,7 +610,6 @@ describe('take durability — outcome survives the crash (R-B3)', () => {
 describe('take durability — the discard-transcript register (A2-2)', () => {
   const PENDING = {
     recordingSessionId: 'sess-9',
-    customerId: 'cust-1',
     durationSeconds: 62,
     locale: 'ja',
     stampedAt: 1_756_000_000_000,

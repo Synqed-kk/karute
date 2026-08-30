@@ -1055,6 +1055,10 @@ describe('A2-2 — persisting the words at discard', () => {
           locale: 'ja',
         }),
       ])
+      // No customer id travels with the register: the consent gate reads the
+      // session row server-side, so there is nothing here to name the wrong
+      // person with — including after a reload, out of the store.
+      expect(mockStampDiscardPending.mock.calls[0][1]).not.toHaveProperty('customerId')
       // The audio survives the discard — only the persist run may delete it.
       expect(mockDiscardRecording).toHaveBeenCalledWith({ keepTake: true })
       expect(takeStore().deleteTake).not.toHaveBeenCalled()
@@ -1123,6 +1127,14 @@ describe('A2-2 — persisting the words at discard', () => {
       expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
       expect(takeStore().deleteTake).not.toHaveBeenCalled()
       expect(mockPipelineReset).not.toHaveBeenCalled()
+      // …AND THE DIALOG IS STILL UP. Until globalPipeline.reset() runs (inside
+      // finishReviewDiscard, after this await) the page is still rendering
+      // ReviewScreen, whose 保存 is a second save writer that knows nothing
+      // about the discard. The submitting-locked dialog is the only thing
+      // fencing it: closing first left 保存 live for the whole round-trip, and a
+      // tap there filed a karute against a session that already carries a staff
+      // discard row.
+      expect(reasonGate()).not.toBeNull()
       // The pipeline's own transcript is what gets handed over — no re-run.
       expect(mockPersistReviewDiscard.mock.calls[0]).toEqual([
         'take-1',
@@ -1136,6 +1148,9 @@ describe('A2-2 — persisting the words at discard', () => {
       })
       expect(takeStore().deleteTake).toHaveBeenCalledWith('take-1')
       expect(mockPipelineReset).toHaveBeenCalledTimes(1)
+      expect(reasonGate()).toBeNull()
+      // The words landed, so there is nothing to retry.
+      expect(mockRunDiscardTranscript).not.toHaveBeenCalled()
     })
 
     it('a persist that failed keeps the take for the audio retry — the UI cleanup still runs', async () => {
@@ -1146,6 +1161,15 @@ describe('A2-2 — persisting the words at discard', () => {
       await writeReason()
       await confirmReason()
 
+      // …and the retry is KICKED NOW, not left to the next mount. reset() is a
+      // re-render, not a remount, so the mount sweep will not run again in this
+      // page life: waiting for a navigation away and back risks the 7-day TTL
+      // pruning words that were in hand and free at the moment of failure.
+      expect(mockRunDiscardTranscript).toHaveBeenCalledTimes(1)
+      expect(mockRunDiscardTranscript.mock.calls[0][0]).toBe('take-1')
+      expect(mockRunDiscardTranscript.mock.calls[0][1]).toEqual(
+        expect.objectContaining({ recordingSessionId: PIPELINE_SESSION, durationSeconds: 60 }),
+      )
       // The words did not land, so the audio they can be recovered from stays.
       expect(takeStore().deleteTake).not.toHaveBeenCalled()
       // Everything else about the discard completed — the take is not offered

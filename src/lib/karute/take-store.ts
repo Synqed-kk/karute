@@ -95,8 +95,6 @@ export type TakeMeta = {
  *  recorded). */
 export type DiscardPending = {
   recordingSessionId: string
-  /** null for a walk-in / customer-less take — the consent gate refuses those. */
-  customerId: string | null
   durationSeconds: number
   locale: string
   stampedAt: number
