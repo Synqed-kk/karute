@@ -70,9 +70,15 @@ const mockStaffUpdate = jest.fn(async () => ({}))
 jest.mock('@synqed-kk/client', () => ({
   SynqedClient: jest.fn().mockImplementation(() => ({
     staff: {
-      list: jest.fn(async () => {
+      // Pages for real, mirroring the recordingDiscards fake above: a roster
+      // fixture with more than one page's worth of cards is the only way to
+      // catch a caller that reads page 1 and calls it done.
+      list: jest.fn(async (q: Record<string, unknown> = {}) => {
         if (staffCards.listRejects) throw new Error('core roster unreachable')
-        return { staff: staffCards.current }
+        const page = Number(q.page ?? 1)
+        const pageSize = Number(q.page_size ?? 200)
+        const staff = staffCards.current.slice((page - 1) * pageSize, page * pageSize)
+        return { staff, total: staffCards.current.length, page, page_size: pageSize }
       }),
       update: mockStaffUpdate,
     },
@@ -288,6 +294,37 @@ describe('the two id spaces the ledger and the roster live in', () => {
     expect(res.rows).toHaveLength(2)
     expect(res.rows.find((r) => r.id === '1')?.staffName).toBeNull()
     expect(res.rows.find((r) => r.id === '2')?.staffName).toBe('佐藤 美咲')
+  })
+})
+
+// The pagination defect (fixed 2026-08-31). synqedStaffListByBusiness fetched
+// staff.list ONCE at page_size 200; core paginates and its validator caps
+// page_size at 200, so a business with a 200+ card roster (current +
+// historical — departed staff keep cards) silently lost every card past the
+// first page. Those cards' rows read 担当者不明 and their own self-count
+// undercounted, with no error anywhere.
+describe('the staff roster paginates past 200 cards', () => {
+  it('a card that only exists on page 2 still names its row and its own count', async () => {
+    // 250 cards total: 200 fill page 1, the viewer's own card sits at #201 —
+    // page 2 — followed by 49 more filler cards. A single-page read drops the
+    // viewer's card entirely.
+    const filler = (label: string, n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        id: `${label}-${i}`,
+        user_id: null,
+        email: null,
+        name: null,
+      }))
+    const page2Card = { id: 'card-page2', user_id: 'staff-page2', email: null, name: '二頁 太郎' }
+    staffCards.current = [...filler('filler-a', 200), page2Card, ...filler('filler-b', 49)]
+    staffId.current = 'staff-page2'
+    ledger.push(row({ id: 'row-page2', discarded_by: 'card-page2', created_at: thisMonth(2) }))
+
+    const res = await listDiscardReasons()
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.rows[0].staffName).toBe('二頁 太郎')
+
+    expect(await myDiscardCountThisMonth()).toBe(1)
   })
 })
 

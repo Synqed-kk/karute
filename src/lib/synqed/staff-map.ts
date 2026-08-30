@@ -26,6 +26,17 @@ export interface StaffEntry {
   name: string | null
 }
 
+/** Core rejects a page_size above 200 on this family (the validator z
+ *  .max(200)s it) — it does NOT clamp; it 400s. */
+const PAGE_SIZE = 200
+/** ponytail: 25 pages = 5,000 staff cards — current AND historical (departed
+ *  staff keep cards), far beyond any real roster. Past that the roster
+ *  truncates: later cards' discard rows fall back to the honest "name
+ *  unknown" contract (this function's own callers already degrade that way)
+ *  rather than the read failing outright — a warn suffices because
+ *  truncation only ever costs a NAME, never the read itself. */
+const MAX_PAGES = 25
+
 const synqedStaffListByBusiness = unstable_cache(
   async (businessId: string): Promise<StaffEntry[]> => {
     const baseUrl = process.env.SYNQED_CORE_URL
@@ -34,13 +45,31 @@ const synqedStaffListByBusiness = unstable_cache(
       throw new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
     }
     const client = new SynqedClient({ baseUrl, apiKey, businessId })
-    const result = await client.staff.list({ page_size: 200 })
-    return result.staff.map((s) => ({
-      id: s.id,
-      user_id: (s as { user_id?: string | null }).user_id ?? null,
-      email: (s as { email?: string | null }).email ?? null,
-      name: (s as { name?: string | null }).name ?? null,
-    }))
+    const staff: StaffEntry[] = []
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const result = await client.staff.list({ page, page_size: PAGE_SIZE })
+      const batch = result.staff.map((s) => ({
+        id: s.id,
+        user_id: (s as { user_id?: string | null }).user_id ?? null,
+        email: (s as { email?: string | null }).email ?? null,
+        name: (s as { name?: string | null }).name ?? null,
+      }))
+      staff.push(...batch)
+      // `?? 0` mirrors recording-discards.ts's listDiscardReasons loop: a
+      // fixture/response with no `total` field defaults to 0, so a non-empty
+      // first batch still terminates the loop after one call — the existing
+      // single-page callers keep their exactly-one-call contract.
+      if (batch.length === 0 || staff.length >= (result.total ?? 0)) break
+      if (page === MAX_PAGES) {
+        console.warn(JSON.stringify({
+          msg: '[staff-map] staff roster truncated at the page cap — cards past this point degrade to "name unknown", the read itself never fails',
+          businessId,
+          pages: MAX_PAGES,
+          cardsRead: staff.length,
+        }))
+      }
+    }
+    return staff
   },
   // Mirrors the staff-list cache TTL in src/lib/staff.ts — staff churn is
   // a once-in-a-while admin event, and every staff mutation already bumps
