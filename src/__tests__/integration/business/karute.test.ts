@@ -1016,12 +1016,16 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
   it('NOT ONE container owns an axis — not even X (deviation K-9)', () => {
     // The packet asked for a table that pans sideways with a frozen 日付 column.
     // It was built, and then MEASURED: the shell collapses its rail to 76px
-    // below 1024, so the narrowest reachable content box is ~628px against a
-    // five-column minimum of ~556px — the columns fit at every width, in both
-    // rail states, and below 744 the phone band turns the table into cards. The
-    // pan engaged by FOUR PIXELS, which no reader can perform and which cannot
-    // discriminate a correct sticky inset from a wrong one, so the mechanism is
-    // gone rather than shipped as a lever nobody can operate.
+    // below 1024, so the narrowest reachable content box is 628px against a
+    // five-column BOX minimum of 586px — 556px of grid tracks PLUS the row's own
+    // 28px of horizontal padding and the table's 2px of border, which leaves 42px
+    // of slack rather than the 72px a track-only figure implies. The columns fit
+    // at every width, in both rail states, and below 744 the phone band turns the
+    // table into cards. The probe's survey is the argument: nine widths × two
+    // rail states = 18 combinations, OVERFLOW 0 IN EVERY ONE (verdict
+    // `B · deviation K-9`, rows at `probes.scale.panSurvey`). A pan that never
+    // engages cannot discriminate a correct sticky inset from a wrong one, so the
+    // mechanism is gone rather than shipped as a lever nobody can operate.
     expect(CSS_CODE).not.toMatch(/overflow-x\s*:/)
     expect(CSS_CODE).not.toMatch(/position:\s*sticky/)
     // Declarations only — `@media (min-width: 1400px)` is a BAND, not a floor.

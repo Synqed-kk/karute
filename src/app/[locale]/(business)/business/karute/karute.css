@@ -64,14 +64,19 @@
    (62+170+100+112+76 + 4×9px gaps) PLUS the row's own 28px of horizontal padding
    and the table's 2px of border, which is the box the 628px actually has to
    contain. 42px of slack, not the 72px a track-only figure implies. The columns
-   FIT, at every width, in both rail states; below 744 the phone band turns the table into
-   cards and the question stops existing. The pan engaged by FOUR PIXELS in the
-   tightest state, which is a scroll no reader can perform and a proof that
-   cannot tell a correct sticky inset from a wrong one. A mechanism nobody can
-   observe working is the dead-lever class, so it is gone rather than shipped
-   with a pin that would be true for the wrong reason. The columns are
-   minmax()-based and WRAP, which the longest-string world proves at every
-   width. */
+   FIT, at every width, in both rail states; below 744 the phone band turns the
+   table into cards and the question stops existing.
+
+   THE SURVEY IS THE WHOLE ARGUMENT, AND IT IS THE ONLY ONE STATED HERE. The
+   probe walks 1586 · 1280 · 1180 · 1024 · 940 · 820 · 800 · 768 · 744, each in
+   BOTH rail states, and measures the table's own scrollWidth against its
+   parent's clientWidth: 18 combinations, OVERFLOW 0 IN EVERY ONE (probe verdict
+   `B · deviation K-9`, raw rows at `probes.scale.panSurvey` in
+   PROBE-RESULTS.json). A pan that never engages is a lever nobody can operate
+   and a proof that cannot tell a correct sticky inset from a wrong one, so the
+   mechanism is gone rather than shipped with a pin that would be true for the
+   wrong reason. The columns are minmax()-based and WRAP, which the
+   longest-string world proves at every width. */
 
 /* ── the fence: the three shared names this room still uses ────────────────── */
 /* Four levels (`.biz .page.pg-karute …`) rather than three, because a sibling's
@@ -487,8 +492,16 @@
   .biz .pg-karute .kr-spot-foot button { min-height: 44px; }
   /* The pencils keep their 28px PAINT — nine 44px squares would swamp the
      session card — and grow their HIT BOX instead, which is what a touch target
-     is. Exactly the treatment the room already gives the `?` mark. */
-  .biz .pg-karute .kr-pencil { position: relative; }
+     is. Exactly the treatment the room already gives the `?` mark.
+     ⚠ AND THE PAINT HAS TO BE SAID AT FOUR LEVELS, OR IT IS NOT WHAT SHIPS.
+     F-K1 gave the pencil `.btn`, which puts it under the blanket floor above
+     (`.biz .page.pg-karute .btn`, four classes); the base rule's `min-height: 0`
+     is three and loses, so `min-height` beat `height` and the button PAINTED
+     28 WIDE × 44 TALL — a narrow vertical pill, not the square this comment
+     promised (measured at 743/480/390). Restated here at the blanket's own
+     specificity and after it, so the paint is a 28px square again and the ≥44px
+     floor is carried by the ::after alone, which is the whole point. */
+  .biz .page.pg-karute .kr-pencil { position: relative; min-height: 28px; }
   .biz .pg-karute .kr-pencil::after {
     /* 46, not 44: the floor is ≥44 and a box sized EXACTLY 44 reads 43 or 45
        depending on which side the hit-test samples first. Margin above the bar
