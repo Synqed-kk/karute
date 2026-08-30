@@ -38,6 +38,16 @@ const InboxSessionSchema = z.object({
    *  is a different fact from "there is no job". */
   jobProbeFailed: z.boolean(),
   jobLastError: z.string().nullable(),
+  /** The shared reader computes this from ONE batched discard-ledger read
+   *  (inbox-read.ts) — zod object schemas STRIP unknown keys on `.parse`, so
+   *  without this field the flag never left this facade door, silently
+   *  hiding a staff member's discarded take from phones (it renders correctly
+   *  everywhere else, since the web server action reads the fold's output
+   *  directly, with no DTO in between). `nullish` on purpose, matching
+   *  `customerName`'s idiom above: an old baked bundle's payload without this
+   *  key stays valid, and the fold already treats absence as "not
+   *  discarded". */
+  discardedByStaff: z.boolean().nullish(),
 })
 
 export const RecordingsInboxDTO = z.object({

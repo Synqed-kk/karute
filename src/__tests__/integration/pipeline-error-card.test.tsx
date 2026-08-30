@@ -51,3 +51,45 @@ describe('PipelineErrorCard (localized pipeline failures)', () => {
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
 })
+
+// ⚖ 8/26 rider (banner dead-loop exit), ruled case (a): the discard exit
+// renders ONLY on empty-transcript + an onDiscard handler — every other code,
+// or no handler, stays byte-identical to today.
+describe('the discard exit (⚖ 8/26 rider)', () => {
+  it('renders and fires only when code is empty-transcript AND onDiscard is provided', () => {
+    const onDiscard = jest.fn()
+    const { rerender } = render(
+      <PipelineErrorCard
+        code="empty-transcript"
+        onCancel={noop}
+        onRetry={noop}
+        onDiscard={onDiscard}
+      />,
+    )
+    fireEvent.click(screen.getByText('録音を破棄する'))
+    expect(onDiscard).toHaveBeenCalledTimes(1)
+
+    // No onDiscard → byte-identical to today, even for the qualifying code.
+    rerender(<PipelineErrorCard code="empty-transcript" onCancel={noop} onRetry={noop} />)
+    expect(screen.queryByText('録音を破棄する')).toBeNull()
+  })
+
+  it('never renders for a non-qualifying code, even when onDiscard is provided', () => {
+    const onDiscard = jest.fn()
+    const { rerender } = render(
+      <PipelineErrorCard code="unknown" onCancel={noop} onRetry={noop} onDiscard={onDiscard} />,
+    )
+    expect(screen.queryByText('録音を破棄する')).toBeNull()
+    rerender(
+      <PipelineErrorCard
+        code="consent-required"
+        onCancel={noop}
+        onRetry={noop}
+        onDiscard={onDiscard}
+      />,
+    )
+    expect(screen.queryByText('録音を破棄する')).toBeNull()
+    rerender(<PipelineErrorCard code={null} onCancel={noop} onRetry={noop} onDiscard={onDiscard} />)
+    expect(screen.queryByText('録音を破棄する')).toBeNull()
+  })
+})

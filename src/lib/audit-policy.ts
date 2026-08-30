@@ -447,6 +447,22 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-07-27',
   },
   {
+    file: 'src/actions/recording-discard-transcript.ts',
+    call: 'recordings.upsertSegments',
+    symbols: ['writeTranscript'],
+    justification:
+      "A2-2 (packet P5-A2): the WORDS of an ALREADY-AUDITED action. The staff discard that authorises this write emitted its own recording.discard receipt moments earlier (src/lib/recording/discard.ts, AUDITED_CORES — carrying discard_row_id, duration_sec and below_floor), and both callers refuse to write at all unless that STAFF discard row already exists. A second row here would double-count one act. ⚖ 8/17 doc law also forbids the CONTENT reaching an audit detail, which is exactly what this call persists — the segments are read back through getDiscardTranscript's staff.manage gate, never through the audit log.",
+    dated: '2026-08-31',
+  },
+  {
+    file: 'src/actions/recording-discard-transcript.ts',
+    call: 'storage.recordings.remove',
+    symbols: ['transcribeAndPersistDiscard'],
+    justification:
+      'Best-effort cleanup of the staged audio object right after the discard transcription resolves — the same timing and the same reasoning as recording-upload.ts#removeRecordingObject and the facade transcribe route below (read-then-delete; the worker posture). Not itself a business action: the audited action is the recording.discard receipt this transcription belongs to.',
+    dated: '2026-08-31',
+  },
+  {
     file: 'src/actions/recording-upload.ts',
     call: 'storage.recordings.remove',
     symbols: ['removeRecordingObject'],

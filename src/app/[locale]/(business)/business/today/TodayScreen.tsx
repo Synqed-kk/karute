@@ -105,10 +105,13 @@ import {
   pairLanesOf,
   parkChipText,
   pinInViewport,
+  restCueStarts,
+  explainRails,
   sameStore,
   sharesStore,
   sellLayerFor,
   sidesAt,
+  seedBed,
   seedSpanIn,
   slotStartAt,
   unparkOutcome,
@@ -122,6 +125,7 @@ import {
   type PairLanes,
   type RailCell,
   type RoomPolicy,
+  type SellDrop,
 } from './today-interactions'
 import { bedTruthViews, type BedTruth, type DayFrame } from './capacity-ledger'
 
@@ -425,6 +429,16 @@ const WD = ['日', '月', '火', '水', '木', '金', '土']
  *  The divider's first drag starts from whatever is computed, and falls back to
  *  this when the property has not been resolved yet. */
 const LABEL_DEFAULT = 112
+
+/** ⚖ LABELS RULING (Liam 8/30, 案C) — the tour's clause for the layer legend.
+ *  ⚖ NATIVE PASS (2026-08-30): the appended home repeated 「〜の意味は…この帯に
+ *  書いてあります」 two sentences apart, so this pass changes the verb and
+ *  pattern — …確認できます — to kill the echo; 種類ごとの／それぞれの tighten
+ *  the referents. The guard-off title 価格箱 was confirmed to read natural.
+ *  ONE string, TWO homes: it is appended to the guard band's sentence at a
+ *  guarded store and stands alone at a guard-off one, which is why it says
+ *  「意味は」 rather than 「意味も」 — it has to be true with nothing before it. */
+const LAYER_LEGEND_GUIDE = 'スタッフの行に並ぶ価格箱には種類ごとの名前が付いていて、それぞれの意味はこの帯で確認できます。'
 
 const boxOf = (r: { left: number; top: number; width: number; height: number }): SpotRect =>
   ({ left: r.left, top: r.top, width: r.width, height: r.height })
@@ -741,6 +755,14 @@ export function TodayScreen(props: TodayProps) {
   const [showTime, setShowTime] = useState(true)
   const [showTicket, setShowTicket] = useState(true)
   const [showSlotPrice, setShowSlotPrice] = useState(true)
+  /** ⚖ LIAM RULING (2026-08-30) — 種類の名札, ON by default. The words are the
+   *  8/30 案C ruling and they are what makes three washes three products, so the
+   *  board wears them until somebody says otherwise; the switch is for the店 that
+   *  already knows its layers and wants the boxes bare. ONE switch for both rows
+   *  (Fable default — a staff/bed split was offered to Liam and not taken).
+   *  Same three-part mechanism as its siblings above: a boolean, a class on
+   *  `.timeline`, one CSS rule. No new machinery. */
+  const [showNametags, setShowNametags] = useState(true)
   const [sellMode, setSellMode] = useState<'tint' | 'drag' | 'off'>('tint')
   const [guideMode, setGuideMode] = useState<'selected' | 'drag' | 'hidden'>('selected')
   const [selected, setSelected] = useState<string | null>(null)
@@ -1256,9 +1278,18 @@ export function TodayScreen(props: TodayProps) {
    *  the pair itself, so this is the concatenation and nothing more. */
   const gapClaims = useMemo(() => [...gap.packed, ...gap.scraps], [gap])
 
-  const sell = useMemo(
-    () =>
-      sellLayerFor(committedLanes, hours, {
+  /** ⚖ 75(i) — THE LAYER, AND WHAT BUILDING IT THREW AWAY.
+   *
+   *  One call, two results. The drops are collected INSIDE the memo rather than
+   *  by a second `sellLayerFor` run: the derivation is the expensive half of
+   *  this screen's frame, and running it twice to hear the same answer is the
+   *  disease every other seam on this board is written against. The array is
+   *  minted here and never escapes except as a value, so the memo stays a pure
+   *  function of its dependencies. */
+  const { sell, sellDrops } = useMemo(
+    () => {
+      const sellDrops: SellDrop[] = []
+      const sell = sellLayerFor(committedLanes, hours, {
         gridMin: props.sell.gridMin,
         nowMinute: props.sell.nowMinute,
         locked,
@@ -1273,8 +1304,15 @@ export function TodayScreen(props: TodayProps) {
         // counts were already computed — so the header could say 22 windows while
         // one box was on screen, and a cross-row collision (p-05's hour and
         // p-06's スキマ枠 both on ベッド2) was invisible to it.
-        reconcile: { claims: gapClaims, rooms: props.rooms, cleanupMinutesByBed: props.bedCleanupMinutes },
-      }),
+        reconcile: {
+          claims: gapClaims,
+          rooms: props.rooms,
+          cleanupMinutesByBed: props.bedCleanupMinutes,
+          onDrop: (d) => sellDrops.push(d),
+        },
+      })
+      return { sell, sellDrops }
+    },
     [
       committedLanes,
       hours,
@@ -1370,6 +1408,15 @@ export function TodayScreen(props: TodayProps) {
     [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
+  /** ⚖ GREPTILE RE-REVIEW (2026-08-30) — THE OTHER HALF OF THE ROVING PATTERN.
+   *  ←/→ moved focus from the first round, but the tab stop was hard-wired to
+   *  chip 0, so tabbing away and back always threw the operator back to the
+   *  first start of the strip. A roving tabindex is the pair: the LAST-focused
+   *  chip is the stop. One entry per rail (`laneKey` → that chip's `start`,
+   *  which is the chip's identity here — the index is not, because a reshaped
+   *  strip renumbers it). Empty means「未使用 → the first chip」, which is what
+   *  every rail starts as and what a stale entry falls back to. */
+  const [railStop, setRailStop] = useState<Record<string, number>>({})
 
   /** ⚖ LIAM flag 50 item 4b (2026-08-22) — WHAT IS IN THE OPERATOR'S HAND, so
    *  the strip can judge every start FOR IT.
@@ -1414,6 +1461,41 @@ export function TodayScreen(props: TodayProps) {
     }
     return null
   }, [live, proxy, parkChips, boardLanes, props.store])
+
+  /** ⚖ LIAM flag 44 + rider 75(i) — EVERY CHIP'S WORD AND ITS SENTENCE, worked
+   *  out once per frame instead of once per press.
+   *
+   *  The rail is the one surface on this board that states a refusal and names
+   *  nothing, and two of the three things that cause one are invisible on the
+   *  row it sits under (a full house lives on the bed rows; the guard is a rule
+   *  and has no card at all). `explainRails` is what makes them sayable — the
+   *  10px word the chip wears at rest and the whole sentence it answers a press
+   *  with — and it lives beside its own composer rather than here, for the
+   *  reason that file states: this answer is asked across twelve dial
+   *  combinations on boards whose sell layer is empty, and a DOM test would
+   *  prove nothing about any of them.
+   *
+   *  Everything below is the board's own inputs to it. It sits AFTER `inHand`
+   *  because the gesture is one of them: while a card is in hand the strip is
+   *  answering a different question and this map is not read at all (⚖ 44 fix
+   *  round, blind lens 4). */
+  const railExplained = useMemo(
+    () =>
+      explainRails(rails, boardLanes, {
+        dur: railDur,
+        handId,
+        rooms: props.rooms,
+        // ⚖ R3 one world — the operator's own staged card is named as theirs
+        // rather than as a stranger's.
+        stagedId: pending?.id ?? null,
+        sellCells: sell.cells,
+        claims: gapClaims,
+        drops: sellDrops,
+        inHand: inHand != null,
+        sellDisplayed: sellMode !== 'off',
+      }),
+    [rails, boardLanes, railDur, handId, props.rooms, pending?.id, sell, gapClaims, sellDrops, inHand, sellMode],
+  )
 
   const openCards = props.cards.filter((c) => c.state === 'open' && !resolved.includes(c.id))
   const unresolved = openCards.length
@@ -2019,7 +2101,15 @@ export function TodayScreen(props: TodayProps) {
    *  `from` is the two-sided origin, and it is what 元に戻す restores. */
   function stage(
     id: string,
-    at: { staffLane: string | null; bedLane: string | null },
+    at: {
+      staffLane: string | null
+      bedLane: string | null
+      /** ⚖ flag 87 fix round — set ONLY by the explicit room-choice gesture (a
+       *  bed-row drag onto another room), which is the one landing that reaches
+       *  here without a `solveBed` behind it. `undefined` from every other
+       *  landing means "no opinion", never "forget the one they gave". */
+      bedChosen?: string
+    },
     span: { x: number; w: number },
     from: PairLanes,
     /** ⚖ Liam flag 50(d) — the red sentence this landing was placed THROUGH, on
@@ -2028,7 +2118,7 @@ export function TodayScreen(props: TodayProps) {
      *  exactly the one row it escalated. */
     override: string | null = null,
   ) {
-    const { staffLane, bedLane } = at
+    const { staffLane, bedLane, bedChosen } = at
     if (staffLane) setMoves((was) => ({ ...was, [id]: { laneKey: staffLane, ...span } }))
     if (bedLane) setBedMoves((was) => ({ ...was, [id]: { laneKey: bedLane, ...span } }))
     // ⚖ 46 forerunner kept under batch-6's two-sided rewrite: the stamp is
@@ -2047,8 +2137,15 @@ export function TodayScreen(props: TodayProps) {
           // but takes this landing's own escalation: the operator may drag a
           // staged card off a red spot, and the surface must stop saying it was
           // overridden once it no longer is.
-          (was.override === (override ?? undefined) ? was : { ...was, override: override ?? undefined })
-        : { id, origin: from.staff ?? { laneKey: '', x: 0, w: 0 }, bedOrigin: from.bed ?? undefined, ...boardStamp, override: override ?? undefined },
+          // ⚖ flag 87 fix round — and the ROOM THEY CHOSE outlives the gestures
+          // that follow it. `bedChosen ?? was.bedChosen` is the whole rule: a
+          // bed-row drag replaces it, everything else leaves it standing. Written
+          // the other way round it would be cleared by the very time adjustment
+          // this fix exists to survive.
+          (was.override === (override ?? undefined) && (bedChosen ?? was.bedChosen) === was.bedChosen
+            ? was
+            : { ...was, override: override ?? undefined, bedChosen: bedChosen ?? was.bedChosen })
+        : { id, origin: from.staff ?? { laneKey: '', x: 0, w: 0 }, bedOrigin: from.bed ?? undefined, bedChosen, ...boardStamp, override: override ?? undefined },
     )
     // ⚖ 74 — a fresh landing is a fresh question, so an id opened a moment ago
     // may not answer for it.
@@ -2428,8 +2525,15 @@ export function TodayScreen(props: TodayProps) {
     })
     // ⚖ Liam flag 50 — AND THE WORD AT THE CURSOR, written straight to the node.
     // Same discipline as the transform above it: React renders the element once
-    // per gesture and never sees the verdict change, so a board this dense pays
-    // nothing per pointer frame for it.
+    // per gesture and never sees the verdict change, so the cursor word itself
+    // costs nothing per pointer frame.
+    // ⚖ 44 FIX ROUND (blind lens 4, SF2) — and this comment used to claim that
+    // of the whole BOARD, which was never true: `setLive` below moves
+    // `liveMoves` → `boardLanes` → `rails`, so the strips are re-derived on
+    // every frame of a drag, and for one round `railExplained` ran an
+    // `allocateBed` per bed-refused chip inside that. It early-returns on the
+    // gesture now (see `explainRails`); the rails themselves still re-derive,
+    // which is what makes the × follow the pointer.
     paintProxyVerdict(ctx, span)
   }
 
@@ -2570,6 +2674,16 @@ export function TodayScreen(props: TodayProps) {
     // the bed is what the board owes them. A 満室 refusal changes nothing — the
     // pair goes back where it stood, exactly as the two refusals above do.
     const sides = sidesAt(ctx.home, ctx.group, targetLane)
+    // ⚖ FLAG 87 FIX ROUND (2026-08-30) — THE ONE GESTURE THAT CHOOSES A ROOM,
+    // recorded as the operator's. A bed-row drag onto ANOTHER room is the
+    // deliberate-choice path (`solveBed`'s own doc: it is never called on one),
+    // and flag 87's origin preference was outranking it: the next time
+    // adjustment re-solved from the origin room and keep-if-free silently put
+    // the booking back. `laneChanged` is the honest test — a bed-row drag that
+    // re-times a card inside the room it already stands in has chosen nothing,
+    // and treating it as a choice would pin whatever room the outbound leg
+    // borrowed, which is flag 87 itself coming back through the bed row.
+    const bedChosen = ctx.group === 'beds' && laneChanged ? (sides.bedLane ?? undefined) : undefined
     // ⚖ LIAM flag 50(d) (2026-08-22) — RELEASE OVER RED NEVER PLACES. The one
     // verdict answers the release exactly as it answered the cursor a frame ago,
     // so what the word promised is what happens. His ruling in his own words:
@@ -2585,7 +2699,7 @@ export function TodayScreen(props: TodayProps) {
       span,
     }
     const land = (override: string | null, at: { x: number; w: number }) => {
-      const on = { ...sides }
+      const on = { ...sides, bedChosen }
       // ⚖ 51 — the room is solved at the landing, exactly as before. The verdict
       // has already proven a room exists (or named the 満室 that stopped this),
       // so this solve cannot speak a second refusal over the first.
@@ -2607,8 +2721,13 @@ export function TodayScreen(props: TodayProps) {
       // nothing stages — the same answer `placeNextVisit` (:3210) and
       // `placeFromShelf` (:3311) have always given, so all four paths obey one
       // law rather than two. It used to keep the carried room and stage anyway.
+      // ⚖ LIAM flag 87 (2026-08-30) — and the room it CARRIES is its own, not
+      // the one an unconfirmed outbound leg parked it in. `sidesAt` reads the
+      // board as it stands, which while something is staged is the staged
+      // board; `seedBed` prefers the room the operator chose by hand, then the
+      // origin this very change snapped, then that staged board.
       if (ctx.group !== 'beds') {
-        const bed = solveBed(on.staffLane, ctx.id, on.bedLane, item.category === 'vip', at)
+        const bed = solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.category === 'vip', at)
         if (bed == null) return
         on.bedLane = bed
       }
@@ -3356,8 +3475,13 @@ export function TodayScreen(props: TodayProps) {
       // on a room-less booking reproduced the em-dash without a pointer.
       // ⚖ 73 — the same law as the drop's (`land`, :2222): a room that is gone
       // is a full house, and nothing stages into one.
+      // ⚖ flag 87 — the same seed as the drop's (`land`, :2681): a nudge on a
+      // staged card is a second landing of one change, so it re-solves from the
+      // change's own origin room rather than from the leg before it — and from
+      // the operator's own room ahead of both, which is why these keys pass no
+      // `bedChosen` of their own: an edge nudge is a time, not a room.
       if (lane.group !== 'beds') {
-        const bed = solveBed(on.staffLane, id, on.bedLane, item.category === 'vip', next)
+        const bed = solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.category === 'vip', next)
         if (bed == null) return
         on.bedLane = bed
       }
@@ -3860,6 +3984,7 @@ export function TodayScreen(props: TodayProps) {
     showTime ? '' : 'hide-time',
     showTicket ? '' : 'hide-tkt',
     showSlotPrice ? '' : 'hide-slot-prices',
+    showNametags ? '' : 'hide-nametags',
     `sell-${sellMode}`,
     // ⚖ Liam flag 27 (2026-08-20) — THE DEGRADE VALVE IS OFF, and this is a
     // deliberate overturn of canon's E9c (:5369–5372), not a port gap. Canon
@@ -3924,6 +4049,22 @@ export function TodayScreen(props: TodayProps) {
     // LAYER rather than of the paint, which is what makes those four honest.
     const cells = sell.cells.filter(onThisLane)
     const rail = railByLane.get(lane.key)
+    /** ⚖ flag 44 (2) — WHERE THE INVISIBLE BLOCKER ACTUALLY IS. A chip wearing
+     *  満室/清掃/新規 is refusing over something that is not drawn on this row,
+     *  so the row itself says which 30 minutes are meant: a quarter-strength
+     *  wash of the board's own 清掃 hatch, and nothing louder. Exactly the
+     *  micro-word chips and no others — one condition, read off the same map the
+     *  word is — and it is a REST cue, so it stands down the moment a card is in
+     *  hand and the strip starts answering a different question. A locked lane
+     *  has no rail at all, so it has no entry here and paints nothing.
+     *
+     *  ⚖ LIAM flag 88 (2026-08-30) — AND IT PAINTS ON EMPTY TRACK ONLY. A cue
+     *  under a price box says the opposite of the box; `restCueStarts` drops
+     *  those half hours, and the chip's word and dot are untouched (a start can
+     *  honestly be advertised at one length and refused at another). */
+    const explainedHere = railExplained.get(lane.key)
+    const restCues =
+      lane.group === 'staff' && !inHand && explainedHere ? restCueStarts(explainedHere, cells, gapHere) : []
     // canon `lane.insertAdjacentElement("afterend", rail)` (:7566): the rail is
     // the lane's SIBLING, not its child. A `.lane` is a two-column grid, so a
     // third child lands in the label column and the strip collapses to a sliver.
@@ -4037,6 +4178,21 @@ export function TodayScreen(props: TodayProps) {
             )
           }}
         >
+          {/* Under everything the board is SELLING — a cue about why a space is
+              empty may never sit on top of an offer. `--x`/`--w` is the same
+              positioning grammar `.cell-price` uses; 30 is the rail's own step
+              (`stepMin`, where the cells are built). */}
+          {restCues.map((start) => {
+            const span = place(start, start + 30, hours)
+            return (
+              <span
+                className="cell-rest-cue"
+                key={`cue-${start}`}
+                aria-hidden="true"
+                style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
+              />
+            )
+          })}
           {!isLocked &&
             cells.map((c) => {
               const span = place(c.h, c.h + 60, hours)
@@ -4049,6 +4205,21 @@ export function TodayScreen(props: TodayProps) {
                   aria-hidden="true"
                   style={{ '--x': `${span.x}%`, '--w': `${span.w}%`, '--tier': c.tier } as React.CSSProperties}
                 >
+                  {/* ⚖ LABELS RULING (Liam 8/30, 案C) — THE BOX SAYS WHAT KIND
+                      IT IS. Three washes on one row read as one price moving on
+                      its own; the word is what makes them three products.
+                      It names the KIND, not the price, so 価格を隠す (which hides
+                      the `<i>` only) leaves it standing; 空き枠表示 off removes
+                      the whole box and takes the tag with it.
+                      ⚖ LIAM RULING (2026-08-30) — AND THE BED ROWS WEAR IT TOO.
+                      The mock left them an open question and the build's answer
+                      was a staff-only guard; he closed it the other way. A bed
+                      box carries no price text, so before this the operator was
+                      reading three anonymous washes down there with nothing to
+                      tell them apart — the exact complaint 案C exists to answer,
+                      one row down. The colours were already keyed by the box
+                      class on every row, so the word is all that was missing. */}
+                  <span className="cell-nametag">販売可能枠</span>
                   {c.group === 'staff' && c.price != null && <i>{money(c.price)}</i>}
                 </span>
               )
@@ -4078,6 +4249,14 @@ export function TodayScreen(props: TodayProps) {
                       LENGTH beside the price — ¥8,650（60分）— because a wide
                       full-price box would otherwise read as a merged hour band.
                       A スキマ枠 is one offer, so it carries the price alone. */}
+                  {/* ⚖ LABELS RULING (Liam 8/30, 案C) — the same word, read off
+                      the same `packedHere` the FILL is: a crumb IS 詰め込み (the
+                      mock's masthead says so — orange reports the SHAPE of the
+                      leftover, not a different layer), so the word needs no
+                      branch of its own and cannot drift from the colour.
+                      ⚖ LIAM RULING (2026-08-30) — ungated, same as the sell box
+                      above it: the bed rows wear the word too. */}
+                  <span className="cell-nametag">{packedHere ? '詰め込み' : 'スキマ枠'}</span>
                   {c.group === 'staff' && <i>{packedHere ? `${money(c.price)}（${c.e - c.s}分）` : money(c.price)}</i>}
                 </span>
               )
@@ -4096,10 +4275,29 @@ export function TodayScreen(props: TodayProps) {
   /** canon `renderSlotBoxes` (:7543). An 18px strip under each staff lane that
    *  shows every exact 30-minute start and what placing a standard session
    *  there would do to the protected 新規 window: purple ✓ keeps it, amber △
-   *  costs the least available, grey — is refused. The cells are guidance, not
-   *  controls (canon's own copy: 「表示だけの個人設定」), so each carries its
-   *  sentence as its accessible name and nothing here can move a booking. */
+   *  costs the least available, grey — is refused.
+   *
+   *  ⚖ 44 (3) — THE CELLS ARE CONTROLS NOW, and this comment said otherwise for
+   *  a round. They are buttons that answer a press with their own sentence; what
+   *  canon's 「表示だけの個人設定」 is still true of is the STRIP — nothing here
+   *  moves a booking, and a press only ever says something out loud. Each still
+   *  carries its sentence as its accessible name; the strip is ONE tab stop and
+   *  ←/→ walk it (⚖ 44 fix round, blind lens 4) — and (⚖ Greptile re-review
+   *  2026-08-30) that one stop ROVES: it is the chip last focused on this rail,
+   *  so Tab returns the operator where they were instead of to the first start.
+   *  The full pattern is therefore three parts, not two — the track's ←/→ walk,
+   *  the per-rail remembered stop that each chip's `onFocus` writes, and the
+   *  fallback that hands the stop back to chip 1 when the remembered start is
+   *  no longer on the strip — the start set only moves if the store's hours or
+   *  the 30-min step change, so this is dormant until per-store hours land; it
+   *  exists because that failure mode is a strip with zero tab stops. */
   function renderRail(rail: GuardRail) {
+    // ⚖ GREPTILE RE-REVIEW (2026-08-30) — the roving stop, resolved ONCE per
+    // rail rather than per chip, and guarded: a remembered start that this
+    // strip no longer has is treated as unset, so the fallback to the first
+    // chip is what runs and the strip never renders with zero tab stops.
+    const remembered = railStop[rail.laneKey]
+    const stop = rail.cells.some((c) => c.start === remembered) ? remembered : rail.cells[0]?.start
     return (
       <div
         className="guard-placement-rail"
@@ -4140,8 +4338,28 @@ export function TodayScreen(props: TodayProps) {
               // is true of a HARD floor and false of a policy one, where
               // 注意して配置 places exactly what the × sat on. The passed wording
               // is true on both: the drop does not land, and the board says why.
+              //
+              // ⚖ LIAM RULING (2026-08-30) — the quoted chip label below is 新規用
+              // now, for the reason `railExplain` records: bare 新規 is this board's
+              // own カテゴリー word and it inverted on him live. This note sits ABOVE
+              // the key deliberately — §8's tour pin reads a fixed-length slice from
+              // `'data-guide':`, so prose added UNDER it pushes the sentence's own
+              // tail out of the window the pin can see.
               'data-guide':
-                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。`,
+                // ⚖ FLAGS 25c precedent again (flag 44, 2026-08-26): the strip
+                // grew a third face — a word at rest, a press that answers, and
+                // a faint mark on the lane above — and all three are READINGS of
+                // surfaces already on the tour, so the delta is one sentence
+                // rather than a new step. The hatch has no other home to be
+                // explained in, which is why it is named here explicitly.
+                //
+                // ⚖ NATIVE PASS (2026-08-26) — ふさがっている WAS FALSE FOR ONE
+                // OF THE THREE. 新規用 is a guard HOLD — the slot is empty and
+                // being kept that way for a 新規 window — so "occupied" was a
+                // plain untruth about it. 置けない is true of all three, and the
+                // hatch is now its own sentence: it APPEARS, it is not a
+                // standing mark the operator should hunt for.
+                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、何時から何時までを判定したかと、その理由を表示します。「満室」「清掃」「新規用」の小さな文字と点が付いたコマは、この行には見えない事情で置けないという意味です。そのときは、すぐ上の行に薄い斜線が出て、その30分を示します。`,
             }
           : {})}
       >
@@ -4150,7 +4368,41 @@ export function TodayScreen(props: TodayProps) {
             operator's hand, because a ✓ that means "a 60 would fit" while they
             carry a 90 is the disagreement flag 54 is made of. */}
         <span className="guard-rail-label">{railDur}分配置</span>
-        <div className="guard-rail-track">
+        {/* ⚖ 44 FIX ROUND (blind lens 4, SF4) — ONE TAB STOP FOR THE STRIP.
+            A staff board is a dozen lanes of eighteen chips: tabbing through
+            them one at a time is 200 stops between the board and whatever comes
+            after it. The plain toolbar pattern instead — one chip is the stop,
+            ←/→ walk the strip, and the walk wraps because a strip is a closed
+            row of starts. The handler lives on the track because a keypress on
+            a chip bubbles to it, and the chips it walks are the ones actually
+            rendered under it.
+
+            ⚖ GREPTILE RE-REVIEW (2026-08-30) — AND THE STOP ROVES, which is
+            the half that was missing. It was pinned to chip 0, so the walk was
+            free but tabbing out and back always landed on the first start
+            again. The stop is `railStop[laneKey]` now — the chip last focused
+            on THIS rail, written by the chip's own `onFocus`, which is the one
+            hook that catches the arrow walk and a mouse press alike (both are
+            correct roving semantics: the operator's last position is wherever
+            they last were). The stored value is a `start`, not an index, and a
+            start that is no longer on the strip — which only happens if the
+            store's hours or the 30-min step move (dormant today: hours are
+            still a constant, this lands with per-store hours) — is treated as
+            unset rather than left dangling, because a stop matching NO chip
+            would leave the whole strip unreachable by Tab. Exactly one chip
+            carries `0` on every rail, always. */}
+        <div
+          className="guard-rail-track"
+          onKeyDown={(e) => {
+            const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
+            if (step === 0) return
+            const chips = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('.guard-rail-cell')]
+            const at = chips.findIndex((n) => n === document.activeElement)
+            if (at < 0) return
+            e.preventDefault()
+            chips[(at + step + chips.length) % chips.length].focus()
+          }}
+        >
           {rail.cells.map((c) => {
             // ⚖ LIAM flag 50 item 4b — THE × GOES ON THE SPOT ITSELF. While
             // something is in hand every start on this lane is re-judged FOR IT
@@ -4166,18 +4418,77 @@ export function TodayScreen(props: TodayProps) {
             const label = v
               ? (v.kind === 'blocked' ? '×' : v.kind === 'caution' ? `△${hhmm(c.start)}` : `✓${hhmm(c.start)}`)
               : c.label
+            // ⚖ flag 44 — the chip's own reading of itself. The WORD is a
+            // rest-state cue and the mid-drag face belongs to the verdict (the
+            // × is the answer to a different question), so it is dropped for
+            // exactly as long as something is in hand; the SENTENCE stays, and
+            // the verdict's own reason outranks it while one exists.
+            const explained = railExplained.get(rail.laneKey)?.get(c.start) ?? null
+            const word = v ? null : (explained?.word ?? null)
+            const sentence = v?.reason ?? explained?.sentence ?? c.sentence
             return (
-              <span
+              <button
                 // ⚖ flag 50(c) — canon's `.aimed`, in sync with the dashed landing.
                 className={`guard-rail-cell ${state === 'safe' ? 'guard-slot safe' : state}${v?.kind === 'blocked' ? ' inert' : ''}${aimed?.laneKey === rail.laneKey && aimed.start === c.start ? ' aimed' : ''}`}
                 key={c.start}
+                type="button"
                 data-start={c.start}
                 data-state={state}
-                role="img"
-                aria-label={`${rail.laneLabel}、${hhmm(c.start)}。${v?.reason ?? c.sentence}`}
+                // The roving half of the toolbar pattern above: ONE chip on
+                // this strip is its tab stop and the rest are reached with ←/→.
+                tabIndex={c.start === stop ? 0 : -1}
+                // …and `onFocus` is what makes it rove. It fires for the arrow
+                // walk and for a mouse press alike, so the remembered position
+                // is simply wherever the operator last was. The state is only
+                // written when the value actually CHANGES — a chip re-focused
+                // where it already was must not queue a render, or the walk
+                // renders on every keypress for nothing.
+                onFocus={() => setRailStop((s) => (s[rail.laneKey] === c.start ? s : { ...s, [rail.laneKey]: c.start }))}
+                // ⚖ flag 44 (2) — the 3px dot rides this attribute, so the cue
+                // and the word can never appear without each other: both are
+                // set from the same `word`, which is why the paint has no second
+                // condition to drift from.
+                data-reason={word ? (c.reason ?? undefined) : undefined}
+                aria-label={`${rail.laneLabel}、${hhmm(c.start)}。${sentence}`}
+                // ⚖ flag 44 (3) — CANON'S OWN PRESS-ANSWERS-WITH-A-SENTENCE, the
+                // absence hatch's (:4249). The strip was a `role="img"` that
+                // carried its explanation where only a screen reader could reach
+                // it; every chip is now pressable and says the same sentence out
+                // loud.
+                //
+                // `onClick`, NOT the precedent's `onPointerDown` — and the
+                // difference is the ELEMENT, not the behaviour. The absence
+                // hatch is a `<span role="note">`: it can never be focused, so
+                // pointerdown is the only press it has. These are real buttons,
+                // and a button that answers a mouse and ignores Enter is a
+                // control lying about being one. A click covers both, because
+                // the keyboard synthesises one.
+                //
+                // It stays a REST affordance: a click arriving while a card or a
+                // block is in flight is the tail of THAT gesture, not a question
+                // about this start.
+                //
+                // ⚖ 44 FIX ROUND (blind lenses 1 F7 + 4 N1) — WHAT ACTUALLY
+                // PROTECTS THIS, said correctly. The PRIMARY mechanism is the
+                // click TARGET: the strip is the lane's SIBLING, no gesture on
+                // this board starts on a chip, and a release retargets onto the
+                // element under the pointer — so a drag that ends over the strip
+                // never dispatches a click on a chip in the first place. The
+                // guard below was therefore reached with both refs already
+                // cleared by their own pointerup, which made it dead code
+                // dressed as a safety net. It is a real one now: the same three
+                // conditions the track's own click window uses (:4043-4044) —
+                // both drag refs, the CHIP drag's ref, and canon's
+                // `suppressClickUntil` window, which is the only one of the four
+                // that can still be true when a synthetic click lands here.
+                onClick={(e) => {
+                  if (dragRef.current || blockDragRef.current || chipDragRef.current) return
+                  if (e.timeStamp < suppressClickUntil.current) return
+                  show(sentence)
+                }}
               >
-                <i>{label}</i>
-              </span>
+                <i>{word ?? label}</i>
+              </button>
             )
           })}
         </div>
@@ -4568,6 +4879,26 @@ export function TodayScreen(props: TodayProps) {
                     <label><input type="checkbox" checked={showTime} onChange={() => setShowTime((v) => !v)} /> 時間・メニュー</label>
                     <label><input type="checkbox" checked={showTicket} onChange={() => setShowTicket((v) => !v)} /> チケット・価格</label>
                     <label><input type="checkbox" checked={showSlotPrice} onChange={() => setShowSlotPrice((v) => !v)} /> 空き枠の価格（Reserve動的価格ON時）</label>
+                    {/* ⚖ LIAM RULING (2026-08-30) — the 案C words get a switch, ON
+                        by default. It sits beside 空き枠の価格 because that is its
+                        actual sibling: the same three price boxes, one dial for
+                        their money and one for their name.
+                        DEFAULT, noted rather than left to be rediscovered: the
+                        BAND LEGEND stays put when the tags are off. It teaches
+                        the three COLOURS, which are still on the board — hiding
+                        the key to a code the board is still speaking would be the
+                        opposite of what this switch is for.
+                        ⚖ NATIVE PASS (2026-08-30) — tour sentence set to its
+                        native-confirmed final wording. Register matches the
+                        表示/非表示 pair used by this row's siblings; 小さな文字 →
+                        名札 ties the sentence back to the row's own label
+                        「種類の名札」 (confirmed). */}
+                    <label
+                      data-guide-title="種類の名札"
+                      data-guide="価格箱に付く「販売可能枠」「詰め込み」「スキマ枠」の名札を表示するかどうかを切り替えます。非表示にしても、箱の色と下の帯にある色の説明はそのまま残ります。"
+                    >
+                      <input type="checkbox" checked={showNametags} onChange={() => setShowNametags((v) => !v)} /> 種類の名札
+                    </label>
 
                     <strong>販売可能枠の表示（店舗設定・業種プロファイルが初期値）</strong>
                     <div className="density-seg" role="group" aria-label="販売可能枠の表示">
@@ -4618,7 +4949,8 @@ export function TodayScreen(props: TodayProps) {
                       <span><i />確定・施術</span>
                       <span className="needs"><i />要対応</span>
                       <span className="hold"><i />仮押さえ</span>
-                      <span className="public"><i />販売可能</span>
+                      <span className="public"><i />販売可能枠</span>
+                      <span className="packed"><i />詰め込み</span>
                       <span className="gapfill"><i />スキマ枠</span>
                       {guardOn && <span className="guard"><i />スキマガード</span>}
                       <span className="cat-legend" aria-label="店舗設定の予約カテゴリー色">
@@ -4655,37 +4987,70 @@ export function TodayScreen(props: TodayProps) {
             </div>
           </div>
 
-          {/* 守るもの — canon's #guardDemoHonesty band (:1855), verbatim. It
-              only exists while the store's protection policy is on, and the
-              guide's own 非表示 setting never removes it: the legend explains a
+          {/* 守るもの — canon's #guardDemoHonesty band (:1855), verbatim. The
+              KEYS only exist while the store's protection policy is on, and the
+              guide's own 非表示 setting never removes them: the legend explains a
               RULE that is still running, not the strip that draws it. */}
-          {guardOn && (
-            <div
-              className="guard-band"
-              role="note"
-              data-guide-title="スキマガード"
-              // ⚖ FIX-9 — ONE HOME. This band owns the ✓/△/— key and the rule
-              // behind it; it used to also describe what the strip judges, in
-              // wording that went stale the moment R3 changed the question and
-              // that hardcoded 60 besides. It points at the strip's own entry
-              // now instead of restating it. (⚖ NATIVE PASS 2026-08-25: and it
-              // names the strip by where it IS rather than by a length, so the
-              // sentence stays true at every store dial.)
-              data-guide="新規のお客様のための時間を守る仕組みです。記号の意味は、この帯に書いてあります。各スタッフの下に細い帯が出ているときは、その帯の説明をご覧ください。"
-            >
-              <span className="protected-key">守るもの: {props.guard.protectedLabel}{props.guard.protectedDurationMin}分</span>
-              <span className="guard-key">紫 ✓ = 空きを減らさない</span>
-              <span className="guard-key degraded-key">橙 △ = 空きが減るが置ける（損を減らす）</span>
-              <span className="guard-key blocked-key">灰 — = 置けません</span>
-              <span className="guard-band-note">
-                {guideMode === 'selected'
-                  ? `下の「${railDur}分配置」で、ドラッグ前に全開始を確認できます。`
-                  : guideMode === 'drag'
-                    ? `下の「${railDur}分配置」は、ドラッグ中だけ表示します。`
-                    : '細い配置ガイドは非表示です。ドラッグ中の判定と店舗の保護ルールは残ります。'}
-              </span>
+          {/* ⚖ LABELS RULING (Liam 8/30, 案C) — AND THE THREE WORDS' ONE HOME.
+              The whole band used to be gated on `guardOn`. The legend is not
+              about the guard: a guard-off store still draws all three kinds of
+              price box, so it still needs the one place where the words mean
+              something. So the CONTAINER is unconditional now and the guard keys
+              are the part that comes and goes — one class, one legend, two
+              conditions, rather than a second band that would put 記号の意味 in
+              two places and break the ONE HOME rule above. */}
+          <div
+            className={`guard-band${guardOn ? '' : ' legend-only'}`}
+            role="note"
+            data-guide-title={guardOn ? 'スキマガード' : '価格箱'}
+            // ⚖ FIX-9 — ONE HOME. This band owns the ✓/△/— key and the rule
+            // behind it; it used to also describe what the strip judges, in
+            // wording that went stale the moment R3 changed the question and
+            // that hardcoded 60 besides. It points at the strip's own entry
+            // now instead of restating it. (⚖ NATIVE PASS 2026-08-25: and it
+            // names the strip by where it IS rather than by a length, so the
+            // sentence stays true at every store dial.)
+            // ⚖ LABELS RULING — and the legend's clause rides the SAME sentence,
+            // because the words and the symbols now share this one band. At a
+            // guard-off store the clause is the whole sentence: no 記号 exist to
+            // be explained, so promising them would be a plain untruth.
+            data-guide={
+              guardOn
+                ? `新規のお客様のための時間を守る仕組みです。記号の意味は、この帯に書いてあります。各スタッフの下に細い帯が出ているときは、その帯の説明をご覧ください。${LAYER_LEGEND_GUIDE}`
+                : LAYER_LEGEND_GUIDE
+            }
+          >
+            {guardOn && (
+              <>
+                <span className="protected-key">守るもの: {props.guard.protectedLabel}{props.guard.protectedDurationMin}分</span>
+                <span className="guard-key">紫 ✓ = 空きを減らさない</span>
+                <span className="guard-key degraded-key">橙 △ = 空きが減るが置ける（損を減らす）</span>
+                <span className="guard-key blocked-key">灰 — = 置けません</span>
+                <span className="guard-band-note">
+                  {guideMode === 'selected'
+                    ? `下の「${railDur}分配置」で、ドラッグ前に全開始を確認できます。`
+                    : guideMode === 'drag'
+                      ? `下の「${railDur}分配置」は、ドラッグ中だけ表示します。`
+                      : '細い配置ガイドは非表示です。ドラッグ中の判定と店舗の保護ルールは残ります。'}
+                </span>
+              </>
+            )}
+            {/* ⚖ LABELS RULING (Liam 8/30, 案C) — 案C's one line. The word on
+                every box, and its meaning here, once. The three glosses are the
+                mock's own, carried VERBATIM: they passed a native read on
+                2026-08-26 across three rounds, so re-writing them here would
+                throw that away. The swatches are the boxes' own fills (the sell
+                one at tier 2, the wash the board actually paints most); the
+                1px rings are the band's own key grammar (`.guard-key::before`),
+                not the boxes' — a 10% wash on the band's #f7f7f9 has nothing to
+                sit against otherwise, and the layer wears no border at rest by
+                ⚖ flag 39. No new colour on either count. */}
+            <div className="layer-legend">
+              <span className="lk lk-sell"><i /><b>販売可能枠</b><span>いま出ている価格で売り出している1時間</span></span>
+              <span className="lk lk-packed"><i /><b>詰め込み</b><span>空きに収めた1回分（満額）</span></span>
+              <span className="lk lk-scrap"><i /><b>スキマ枠</b><span>余った時間の割引枠</span></span>
             </div>
-          )}
+          </div>
 
           <div className="board-body">
             <div className="board-main">

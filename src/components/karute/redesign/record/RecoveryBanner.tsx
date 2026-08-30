@@ -66,6 +66,13 @@ export interface RecoveryBannerProps {
   onRetryFacts?: () => void
   /** Save is not available yet (facts still loading, or failed). */
   saveDisabled?: boolean
+  /**
+   * ⚖ 8/26 rider, ruled case (b) — a TAKE under the accidental-tap floor
+   * (discard-floor.ts). Draft offers never carry this: a draft has a
+   * transcript, so discard-from-banner is ruled for takes only.
+   */
+  belowFloor?: boolean
+  onDiscard?: () => void
 }
 
 export function RecoveryBanner({
@@ -84,6 +91,8 @@ export function RecoveryBanner({
   factsFailed = false,
   onRetryFacts,
   saveDisabled = false,
+  belowFloor = false,
+  onDiscard,
 }: RecoveryBannerProps) {
   const t = useTranslations('recording')
 
@@ -176,6 +185,22 @@ export function RecoveryBanner({
       <p className="mt-2 px-0.5 text-[11.5px] leading-relaxed text-amber-800 dark:text-amber-300/90">
         {bound ? t('recoverCaption') : t('recoverCaptionUnbound', { date: dayLabel })}
       </p>
+
+      {/* ⚖ 8/26 rider, ruled case (b) — below-floor takes only. 保存する stays
+          the sole action for every other offer (④'s anti-bury rationale). */}
+      {belowFloor && onDiscard && (
+        <button
+          type="button"
+          onClick={onDiscard}
+          // BLOCKER-2: same lock as 変更/保存する — a recovery save can be
+          // in flight (the auto-finish effect starts one with no tap at all),
+          // and this button must not be tappable while it is.
+          disabled={saving}
+          className="mt-2 rounded-lg px-2 py-1 text-[12.5px] font-semibold text-destructive underline underline-offset-2 disabled:opacity-50"
+        >
+          {t('discardTakeAction')}
+        </button>
+      )}
     </div>
   )
 }

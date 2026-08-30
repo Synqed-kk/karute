@@ -226,6 +226,9 @@
 .biz .legend .needs i { background: var(--red-soft); border-color: #e6a09a; }
 .biz .legend .hold i { background: var(--orange-soft); border-color: #ecc9a4; }
 .biz .legend .public i { background: #f7f9ff; border: 1px dashed #a9b7ef; }
+/* 詰め込み — no new colour: the exact fill .cell-packed paints itself, with a
+   dashed ring in the box's own text colour (var(--indigo), same as .cell-packed i). */
+.biz .legend .packed i { background: rgba(130, 151, 233, .18); border: 1px dashed var(--indigo); }
 /* canon :427-429 — the two window layers get their own swatches, and the guard
    row only exists while the store's protection policy is on. */
 .biz .legend .gapfill i { background: var(--orange-soft); border: 1px dashed var(--orange-line); }
@@ -642,6 +645,24 @@
   z-index: 0;
 }
 .biz .cell-price i { font-style: normal; font-size: 10px; font-weight: 600; color: var(--indigo); opacity: .7; line-height: 1; }
+/* ⚖ flag 44 (2) — WHERE THE INVISIBLE BLOCKER IS. The 60分配置 chip under this
+   row can refuse over something that is not drawn here at all (a full house
+   lives on the bed rows; the guard is a rule and has no card), so the row says
+   which 30 minutes it means. THE BOARD'S OWN 清掃 HATCH at a quarter strength —
+   the identical `135deg / 4px / 8px` grammar and the identical two colours as
+   `.event.cleanup` (:595), no new colour anywhere — because these minutes are
+   most often exactly that, and because a cue nobody has seen before is a second
+   thing to learn. `z-index: 0` and `pointer-events: none` put it under every
+   offer and under every card: it explains empty space, it never covers a sale.
+
+   ⚖ 44 FIX ROUND (blind lenses 2 + 4, N3) — THE INSET GRAMMAR IS `.cell-price`'s,
+   to the pixel: `top/bottom: 4px`, `left: calc(var(--x) + 1px)`,
+   `width: calc(var(--w) - 2px)`, `border-radius: 4px`. It shipped full-bleed
+   (`top/bottom: 0`, no radius), which drew a band running the row's whole height
+   and poking 1px past both edges of the boxes it sits under — a second geometry
+   on a layer whose whole point is that it is the same layer. The signed-off mock
+   is discrete rounded marks; these are those. */
+.biz .cell-rest-cue { position: absolute; z-index: 0; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); border-radius: 4px; background: repeating-linear-gradient(135deg, #ebe6e0 0 4px, #f4f1ec 4px 8px); opacity: .25; pointer-events: none; }
 .biz .timeline.sell-drag .cell-price { opacity: 0; }
 .biz .timeline.sell-off .cell-price { display: none; }
 /* ⚖ Liam 2026-08-20 — LENGTH-MATCHED EMPHASIS, superseding canon's uniform
@@ -703,6 +724,28 @@
 .biz .cell-packed.crumb { background: rgba(232, 130, 60, .13); }
 .biz .cell-packed.crumb i { color: var(--orange-line); opacity: .95; }
 .biz .timeline.hide-slot-prices .cell-packed i { display: none; }
+/* ⚖ LABELS RULING (Liam 8/30, 案C) — THE NAME TAG, lifted from the signed-off
+   mock (mock-layer-labels/MOCK-LAYER-LABELS-2026-08-26.html, `.nametag`). NO NEW
+   COLOUR: it is the box's OWN text colour at 55%, which is why the two rules
+   below are the box colours over again and nothing else. Absolute, so it sits in
+   the box's top-left while the flex row keeps the price at the bottom
+   (`align-items: flex-end`) — the two can never collide. A narrow box clips the
+   word at `overflow: hidden` rather than growing: a box's width is the offer's
+   length and may not be moved by a label. `pointer-events: none` like everything
+   on this layer — the tag explains a sale, it is not a control.
+   The price dial hides the `<i>` above and deliberately not this: the tag names
+   the KIND of box, which is still true when the number is hidden. */
+.biz .cell-nametag { position: absolute; top: 3px; left: 5px; right: 3px; font-size: 8px; font-weight: 700; line-height: 1; letter-spacing: -.2px; white-space: nowrap; overflow: hidden; opacity: .55; pointer-events: none; }
+.biz .cell-price .cell-nametag, .biz .cell-packed .cell-nametag { color: var(--indigo); }
+.biz .cell-packed.crumb .cell-nametag, .biz .cell-gapfill .cell-nametag { color: var(--orange-line); }
+/* ⚖ LIAM RULING (2026-08-30) — 表示設定 ▸ 種類の名札, default ON. The same
+   three-part mechanism as `hide-time` / `hide-tkt` / `hide-slot-prices`: a
+   boolean on the screen, a class on `.timeline`, one rule here. ONE switch for
+   both rows, so the class reaches every tag on the board and there is no second
+   selector to keep in step with it. The band's own legend is NOT hidden with
+   them (default, stated in the screen's comment): the tags go, the three
+   COLOURS stay, so the key to them has to stay too. */
+.biz .timeline.hide-nametags .cell-nametag { display: none; }
 .biz .timeline.sell-drag .cell-packed { opacity: 0; }
 .biz .timeline.sell-off .cell-packed { display: none; }
 .biz .timeline.sell-tint.dragging-live .cell-packed,
@@ -732,12 +775,31 @@
 .biz .guard-placement-rail { display: grid; grid-template-columns: var(--label) minmax(0, 1fr); height: 18px; min-height: 18px; border-bottom: 1px solid var(--row); background: #fff; }
 .biz .guard-rail-label { position: sticky; left: 0; z-index: 7; display: flex; align-items: center; padding: 0 8px 0 11px; border-right: 1px solid var(--section); background: #fafafb; color: #666670; font-size: 9px; font-weight: 800; white-space: nowrap; }
 .biz .guard-rail-track { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 0; min-width: 0; padding: 2px 0; background: #fff; }
-.biz .guard-rail-cell { position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; height: 14px; padding: 0; box-sizing: border-box; border-radius: 2px; font-family: inherit; font-size: 9px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.6px; white-space: nowrap; overflow: hidden; touch-action: manipulation; }
+/* ⚖ flag 44 (3) — THE CHIPS ARE BUTTONS NOW. They were `role="img"` spans
+   carrying their explanation where only a screen reader could reach it; every
+   one of them answers a press with that sentence. `appearance`/`margin` are the
+   UA button dress being taken back off — the paint below is unchanged, and the
+   14px height is load-bearing (the strip is 18px and the micro-word must not
+   grow it, which is what `overflow: hidden` has always been here for). */
+.biz .guard-rail-cell { position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; height: 14px; margin: 0; padding: 0; box-sizing: border-box; appearance: none; -webkit-appearance: none; border-radius: 2px; font-family: inherit; font-size: 9px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.6px; white-space: nowrap; overflow: hidden; touch-action: manipulation; }
 .biz .guard-rail-cell:not(:last-child)::before { content: ""; position: absolute; z-index: 1; right: 0; top: 1px; bottom: 1px; width: 1px; background: rgba(255, 255, 255, .8); pointer-events: none; }
 .biz .guard-rail-cell i { font: inherit; color: inherit; white-space: nowrap; }
 .biz .guard-rail-cell.guard-slot { border: 1px solid #7656a8; background: var(--guard-soft); color: var(--guard-dark); cursor: pointer; }
 .biz .guard-rail-cell.degraded { border: 1px solid #cf8427; background: #fff0d9; color: #8b4e06; cursor: pointer; }
-.biz .guard-rail-cell.blocked { border: 1px solid #e0e0e5; background: #f2f2f4; color: #8a8a93; }
+/* ⚖ flag 44 (3) — CURSOR HONESTY ON THE — CHIP. A refused chip is now the one
+   that has the most to say, so it stops reading as inert. (The board-wide
+   cursor sweep is R8's; this is the rail's own half, and it is here because the
+   press it advertises exists.) */
+.biz .guard-rail-cell.blocked { border: 1px solid #e0e0e5; background: #f2f2f4; color: #8a8a93; cursor: pointer; }
+/* ⚖ flag 44 (1)+(2) — THE ENTIRE REST BUDGET: a 10px word and a 3px dot.
+   ⚖ big-tech simplicity — calm at rest, explanation on demand. No new colour on
+   either: the word is the blocked family's own grey (`currentColor`, #8a8a93)
+   and so is the dot, dimmed. `[data-reason]` is set by the render pass from the
+   SAME value that chooses the word, so the two can never appear apart.
+   The word replaces the bare 「—」 rather than joining it: 「—」 states a
+   refusal and names nothing, which is the whole of Liam's complaint. */
+.biz .guard-rail-cell[data-reason] i { font-size: 10px; font-weight: 800; letter-spacing: -.5px; }
+.biz .guard-rail-cell[data-reason]::after { content: ""; position: absolute; z-index: 2; top: 2px; right: 2.5px; width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: .5; pointer-events: none; }
 /* ⚖ Liam flag 50(c) — `.aimed` is canon's third selector on this exact rule
    (:667): the chip the drag is pointing at wears the hover treatment, so the
    dashed landing preview and the 60分配置 strip say the same thing at the same
@@ -757,15 +819,37 @@
    At rest the strip has no `.inert` anywhere and is byte-identical to canon's. */
 .biz .guard-rail-cell.inert { border-color: #e6a09a; background: var(--red-soft); color: var(--red-dark); }
 .biz .guard-rail-cell.inert i { font-size: 11px; letter-spacing: 0; }
-.biz .guard-rail-cell:hover:not(.blocked), .biz .guard-rail-cell:focus-visible, .biz .guard-rail-cell.aimed { outline: 0; filter: brightness(.94); box-shadow: inset 0 0 0 1px currentColor, 0 0 0 2px rgba(85, 60, 143, .18); }
-.biz button.guard-rail-cell:focus { z-index: 6; outline: 2px solid var(--select-line); outline-offset: 1px; filter: brightness(.94); box-shadow: inset 0 0 0 1px currentColor, 0 0 0 3px #fff; }
+/* ⚖ flag 44 (3) — `:not(.blocked)` is GONE. It was true of a strip whose grey
+   chips did nothing; now they are the ones carrying the answer, and a control
+   that goes quiet under the cursor is the cursor lying about what a press does.
+   `.aimed` was never excluded here (see the note above) and is unchanged. */
+.biz .guard-rail-cell:hover, .biz .guard-rail-cell:focus-visible, .biz .guard-rail-cell.aimed { outline: 0; filter: brightness(.94); box-shadow: inset 0 0 0 1px currentColor, 0 0 0 2px rgba(85, 60, 143, .18); }
+/* ⚖ 44 FIX ROUND (blind lens 4, SF3) — `:focus-visible`, not `:focus`. A chip is
+   a real button now, so a MOUSE press focuses it, and a plain `:focus` ring
+   meant every press left a 2px outline the operator never asked for — dead CSS
+   for the round it shipped in (the keyboard case is already carried by the
+   `:focus-visible` rule above; this one only adds the visible ring the rest of
+   this board gives a keyboard landing). */
+.biz button.guard-rail-cell:focus-visible { z-index: 6; outline: 2px solid var(--select-line); outline-offset: 1px; filter: brightness(.94); box-shadow: inset 0 0 0 1px currentColor, 0 0 0 3px #fff; }
 @media (max-width: 1200px) {
   .biz .guard-rail-cell { font-size: 8px; letter-spacing: -.6px; }
+  /* ⚖ 44 FIX ROUND (blind lens 4, N2) — the 10px micro-word is the WIDEST thing
+     the strip can carry, so it is the one that most needs the narrow-viewport
+     shrink, and it was the one rule that did not honour it: at 1200px the 3px
+     dot sat on the second glyph of 満室. */
+  .biz .guard-rail-cell[data-reason] i { font-size: 8px; }
   .biz .guard-rail-label { padding-left: 8px; font-size: 8.5px; }
 }
 @media (min-width: 1400px) { .biz .guard-rail-cell { font-size: 10px; letter-spacing: -.5px; } }
+/* ⚖ 44 FIX ROUND (blind lens 4, SF1) — THE CUE GOES WITH THE STRIP IT EXPLAINS.
+   The hatch means 「the chip below is refusing over something you cannot see on
+   this row」, so with the 配置ガイド dial turned to 非表示 or ドラッグ中のみ there
+   is no chip below and the mark is an unexplained smudge on the lane. Same two
+   selectors, so the mark can never outlive the strip. */
 .biz .timeline.guard-guide-mode-drag:not(.guard-guide-aiming) .guard-placement-rail,
-.biz .timeline.guard-guide-mode-hidden .guard-placement-rail { display: none; }
+.biz .timeline.guard-guide-mode-drag:not(.guard-guide-aiming) .cell-rest-cue,
+.biz .timeline.guard-guide-mode-hidden .guard-placement-rail,
+.biz .timeline.guard-guide-mode-hidden .cell-rest-cue { display: none; }
 
 /* 守るもの — the legend band that names what the rail is protecting (canon
    :1282–1294 + the #guardDemoHonesty markup at :1855). */
@@ -778,6 +862,31 @@
 .biz .guard-band .blocked-key::before { border-color: #d7d7dc; background: #f2f2f4; }
 .biz .guard-band .protected-key { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 7px; background: var(--guard-soft); color: var(--guard-dark); font-weight: 800; }
 .biz .guard-band .guard-band-note { font-weight: 500; color: var(--ink-2); }
+/* ⚖ fresh-eyes finding 8/30, Fable default (overturnable) — a guard-off store
+   draws NO keys, so the dashed line under the legend (which separates the
+   legend FROM THE KEYS) and the left edge's guard purple both justify
+   nothing: the separator goes when the keys do, and the edge stays (band
+   grammar) but drops to neutral instead of a guard colour the store doesn't
+   have. */
+.biz .guard-band.legend-only { border-left-color: var(--control); }
+.biz .guard-band.legend-only .layer-legend { margin-top: 0; padding-top: 0; border-top: 0; }
+/* ⚖ LABELS RULING (Liam 8/30, 案C) — 案C's one line, lifted from the mock's
+   `.layer-legend` family. `flex-basis: 100%` in the band's own wrap flow puts it
+   on its own row under the keys, and the dashed rule says it is a second subject
+   in the same home rather than a fourth key. The word wears its box's colour and
+   the meaning stays muted, so the eye pairs word↔box and reads the gloss once.
+   The swatch is a plain `<i>`: the band's `.guard-key::before` swatch is the
+   same 20×14/3px chip, and these carry a fill instead of a class each. */
+.biz .layer-legend { display: flex; flex-basis: 100%; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-top: 2px; padding-top: 9px; border-top: 1px dashed var(--control); font-weight: 700; }
+.biz .layer-legend .lk { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; }
+.biz .layer-legend .lk i { width: 20px; height: 14px; border-radius: 3px; flex: none; }
+.biz .layer-legend .lk b { font-weight: 800; }
+.biz .layer-legend .lk span { color: var(--muted); font-weight: 600; }
+.biz .layer-legend .lk-sell b, .biz .layer-legend .lk-packed b { color: var(--indigo); }
+.biz .layer-legend .lk-scrap b { color: var(--orange-line); }
+.biz .layer-legend .lk-sell i { background: rgba(130, 151, 233, .10); box-shadow: inset 0 0 0 1px rgba(63, 91, 232, .22); }
+.biz .layer-legend .lk-packed i { background: rgba(130, 151, 233, .18); box-shadow: inset 0 0 0 1px rgba(63, 91, 232, .22); }
+.biz .layer-legend .lk-scrap i { background: rgba(232, 130, 60, .09); box-shadow: inset 0 0 0 1px rgba(232, 130, 60, .35); }
 
 /* 配置の相談 — canon's refusal dialog (:741–751). A refused placement never
    moves: the板 names the engine's real reason and offers the feasible starts

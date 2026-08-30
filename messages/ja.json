@@ -822,6 +822,7 @@
     "recoverAlreadyRedeemed": "この来店の回数券はすでに消化済みです",
     "recoverBurnCheckFailed": "回数券の確認ができませんでした。もう一度お試しください",
     "recoverPackSaleLost": "回数券の販売登録が失われました。お客様ページから登録してください",
+    "discardTakeAction": "録音を破棄する",
     "discardReason": {
       "title": "録音を破棄する理由",
       "fieldLabel": "理由",
@@ -2294,7 +2295,7 @@
     "discardReasons": {
       "label": "破棄の記録",
       "title": "破棄の記録",
-      "description": "録音を破棄した際の理由の記録です。内容は管理者のみ閲覧できます。",
+      "description": "録音を破棄した際の理由と、その録音の文字起こしの記録です。内容は管理者のみ閲覧できます。",
       "byStaffTitle": "スタッフ別（今月）",
       "countThisMonth": "今月の破棄 {count}件",
       "countTotal": "記録されている破棄 全{count}件",
@@ -2303,7 +2304,15 @@
       "loading": "読み込んでいます…",
       "loadFailed": "破棄の記録を読み込めませんでした。",
       "empty": "破棄の記録はまだありません。",
-      "truncated": "件数が多いため、古い記録は表示していません。"
+      "truncated": "件数が多いため、古い記録は表示していません。",
+      "reasonLabel": "スタッフの記入した理由",
+      "transcriptShow": "文字起こしを見る",
+      "transcriptHide": "閉じる",
+      "transcriptTitle": "文字起こし（全文）",
+      "transcriptLoading": "文字起こしを読み込んでいます…",
+      "transcriptFailed": "文字起こしを読み込めませんでした。",
+      "transcriptBelowFloor": "録音が{n}秒未満のため、文字起こしは行っていません。",
+      "transcriptNone": "この録音の文字起こしはありません。"
     },
     "auditLog": {
       "label": "監査ログ",
@@ -2570,7 +2579,7 @@
     "consentTemplatePlaceholder": "本日のご相談内容を、よりよいケアのために録音いたします…",
     "subscriptionDescription": "プラン・請求・支払い方法の管理",
     "auditLogDescription": "アクセス履歴 — APPI準拠と社内ガバナンス",
-    "discardReasonsDescription": "録音を破棄した理由の記録",
+    "discardReasonsDescription": "録音を破棄した理由と文字起こしの記録",
     "storesTab": "店舗",
     "storesDescription": "店舗の管理と追加",
     "coachingTabDescription": "コーチング設定は近日公開。",

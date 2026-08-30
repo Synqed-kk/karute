@@ -27,6 +27,15 @@ export interface RecordingPipelinePort {
    */
   supportsServerJob: boolean
   /**
+   * Whether this world can persist the WORDS of a reasoned discard (A2-2).
+   * Web: yes — the record page calls the server actions directly. Thin: no —
+   * the phone reaches server code only through facade routes and this family
+   * has none yet, so a phone discard behaves exactly as it did before A2-2
+   * (reason row only, take deleted at the gate). Read BEFORE any take is kept
+   * back, so the phone never holds audio for a collection that cannot happen.
+   */
+  supportsDiscardTranscript: boolean
+  /**
    * Upload the take and return the transcribe-leg request body + a cleanup fn.
    * Both arms PUT the blob to a service-minted signed upload URL; they differ in
    * what the transcribe leg is handed. Web mints a signed READ url server-side
@@ -91,6 +100,7 @@ export const webRecordingPort: RecordingPipelinePort = {
   // the blocker — stageForJob now mints `app_${businessId}_*` like thin, so the
   // flip to true is a separate decision, not a safety fix. See the flag doc.
   supportsServerJob: false,
+  supportsDiscardTranscript: true,
   async prepareTranscription(blob) {
     const { mintRecordingUploadUrl, mintRecordingReadUrl, removeRecordingObject } =
       await uploadActions()

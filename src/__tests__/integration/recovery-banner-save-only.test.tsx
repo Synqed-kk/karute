@@ -116,6 +116,10 @@ let takeOverride: Record<string, unknown> | null = null
 let stampedAnswer: Record<string, unknown> | null = null
 const mockStampTakeOutcome = jest.fn(async () => {})
 jest.mock('@/lib/karute/take-store', () => ({
+  // A2-2: the discard-transcript register. Default false/[] = nothing is
+  // held back, so every case below behaves exactly as it did pre-A2-2.
+  stampDiscardPending: jest.fn(async () => false),
+  listPendingDiscardTakes: jest.fn(async () => []),
   appendTakeSegment: jest.fn(),
   createTake: jest.fn(),
   deleteTake: jest.fn(),
@@ -336,6 +340,80 @@ describe('the banner offers ONE action and no way to destroy the recording', () 
     const buttons = within(banner()).getAllByRole('button')
     expect(buttons.map((b) => b.textContent)).toEqual(['recoverRepoint', 'recoverSaveAction'])
     expect(screen.queryByText('recoverDiscard')).toBeNull()
+  })
+
+  // ⚖ 8/26 rider — the ONE exception to ④'s pin: a TAKE under the
+  // accidental-tap floor (BELOW_FLOOR_SEC, discard-floor.ts) offers a discard
+  // exit alongside 保存する. Every other take/draft keeps save-only.
+  it('a below-floor TAKE (<10s) is the ONE exception — it offers a discard exit too', async () => {
+    takeOverride = { ...TAKE, updatedAt: TAKE.startedAt + 5_000 } // 5s
+    await renderPage()
+    const buttons = within(banner()).getAllByRole('button')
+    expect(buttons.map((b) => b.textContent)).toEqual([
+      'recoverRepoint',
+      'recoverSaveAction',
+      'discardTakeAction',
+    ])
+  })
+
+  it('a below-floor DRAFT never offers discard — a draft always has a transcript', async () => {
+    offerTake = false
+    offerDraft = {
+      transcript: 't',
+      summary: 's',
+      entries: [],
+      duration: 5, // under the floor, but draft-kind is never eligible
+      appointmentId: 'appt-1',
+      appointmentCustomerId: 'cust-1',
+      recordingSessionId: 'sess-1',
+      takeId: 'take-1',
+      savedAt: Date.parse('2026-08-18T05:45:00Z'),
+    }
+    await renderPage()
+    const buttons = within(banner()).getAllByRole('button')
+    expect(buttons.map((b) => b.textContent)).toEqual(['recoverRepoint', 'recoverSaveAction'])
+    expect(screen.queryByText('discardTakeAction')).toBeNull()
+  })
+
+  it('the below-floor discard exit opens the written-reason gate', async () => {
+    takeOverride = { ...TAKE, updatedAt: TAKE.startedAt + 5_000 }
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('discardTakeAction'))
+      await Promise.resolve()
+    })
+    expect(screen.getByText('discardReason.title')).toBeTruthy()
+  })
+
+  // SHOULD-FIX-6 — the boundary itself: BELOW_FLOOR_SEC=10, gate is `<`, not
+  // `<=`. Deltas are exact seconds (9000/10000/11000ms) so
+  // Math.max(1, Math.round(delta / 1000)) lands unambiguously on 9/10/11 —
+  // no half-second rounding ambiguity to account for.
+  it('9s: below the floor — the exit shows', async () => {
+    takeOverride = { ...TAKE, updatedAt: TAKE.startedAt + 9_000 }
+    await renderPage()
+    const buttons = within(banner()).getAllByRole('button')
+    expect(buttons.map((b) => b.textContent)).toEqual([
+      'recoverRepoint',
+      'recoverSaveAction',
+      'discardTakeAction',
+    ])
+  })
+
+  it('exactly 10s (the floor itself): NOT below it — save-only', async () => {
+    takeOverride = { ...TAKE, updatedAt: TAKE.startedAt + 10_000 }
+    await renderPage()
+    const buttons = within(banner()).getAllByRole('button')
+    expect(buttons.map((b) => b.textContent)).toEqual(['recoverRepoint', 'recoverSaveAction'])
+    expect(screen.queryByText('discardTakeAction')).toBeNull()
+  })
+
+  it('11s: above the floor — save-only', async () => {
+    takeOverride = { ...TAKE, updatedAt: TAKE.startedAt + 11_000 }
+    await renderPage()
+    const buttons = within(banner()).getAllByRole('button')
+    expect(buttons.map((b) => b.textContent)).toEqual(['recoverRepoint', 'recoverSaveAction'])
+    expect(screen.queryByText('discardTakeAction')).toBeNull()
   })
 
   it('an UNBOUND take asks for a customer instead of a 保存先 row', async () => {

@@ -34,6 +34,7 @@
 import { z } from 'zod'
 import { auditDurable } from '@/lib/audit'
 import type { newSynqedClient } from '@/lib/synqed/client'
+import { BELOW_FLOOR_SEC } from './discard-floor'
 
 // Same F8 hygiene as the sibling recording schemas (record-schemas.ts): every
 // field capped from birth, `.strict()` so an unknown key is REFUSED rather
@@ -45,12 +46,6 @@ const MAX_ID_CHARS = 200
 /** The written reason is CONTENT — it lives in the core discard row and never
  *  in `detail`. Capped here and at the textarea that produces it. */
 const MAX_REASON_CHARS = 2_000
-
-/** The accidental-tap floor (spec §3.5, ▶ spec-call: 10 seconds): below this,
- *  no transcription runs and the receipt records the take as sub-floor. The
- *  client reports only the DURATION — the flag is derived here, so a receipt
- *  can never carry a floor claim that disagrees with its own duration. */
-const BELOW_FLOOR_SEC = 10
 
 /** What both shapes describe about the take itself. Spread into each member
  *  of the union below so the two receipts can never drift apart. */

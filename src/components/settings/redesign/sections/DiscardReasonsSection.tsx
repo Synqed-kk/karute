@@ -16,22 +16,42 @@
 // discard a recording they should discard. Same reason there is no sorting
 // control that would turn the per-staff list into a leaderboard.
 //
-// NOT IN THIS ROUND (deferred with the transcript view, packet item A2-4):
-// the ✓確認済み mark and the 録音内容なし empty state, and the mock's
-// per-row duration + customer name. The first two pair with the opened-row
-// transcript the mock shows below the list. The last two are not on
-// `recordingDiscards.list` — the SDK row carries id / session / source /
-// discarded_by / reason / created_at only, so rendering them would cost one
-// `recordings.get` per row (an N+1 on a screen whose whole job is a list).
+// A2-4 (packet P5-A2): a row OPENS onto the transcript of what was thrown away
+// — read lazily, one row at a time, so the list itself never pays an N+1 for
+// text nobody has asked for. ⚖ 8/25 ruling A: the written reason is the
+// staffer's CLAIM and the transcript is what a manager checks it against, so
+// they are read side by side, in the same row.
+//
+// ABSENCE IS NEVER A PLACEHOLDER. Three honest answers, no invention: the words
+// when they were kept, "the recording was never transcribed" when the take was
+// under the accidental-tap floor (the ⚖ spend gate — a fact about what was
+// done, not about what survived), and a plain "there is no transcript" for
+// everything else (a discard from before A2-2, a customer who never consented,
+// a session row already swept). None of them says the words were LOST: three of
+// those four populations never had any. And a read that failed is none of the
+// three — it says so on its own, because "we could not look" is not an answer
+// about the words (getDiscardTranscript refuses to turn one into the other).
+//
+// NOT IN THIS ROUND: the ✓確認済み mark (the SDK's discard row has no update
+// surface — create/list only, verified 1.28.0, so it has no durable home), and
+// the mock's per-row duration + customer name (not on `recordingDiscards.list`,
+// which carries id / session / source / discarded_by / reason / created_at only).
 
 import { useEffect, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { Loader2 } from 'lucide-react'
 import {
   listDiscardReasons,
+  getDiscardTranscript,
   type DiscardReasonCounts,
   type DiscardReasonRow,
 } from '@/actions/recording-discards'
+import { BELOW_FLOOR_SEC } from '@/lib/recording/discard-floor'
+
+type TranscriptState =
+  | { kind: 'loading' }
+  | { kind: 'error' }
+  | { kind: 'ready'; segments: { text: string }[]; durationSeconds: number | null }
 
 export function DiscardReasonsSection() {
   const t = useTranslations('settings.discardReasons')
@@ -41,6 +61,34 @@ export function DiscardReasonsSection() {
     | { kind: 'error' }
     | { kind: 'ready'; rows: DiscardReasonRow[]; counts: DiscardReasonCounts; truncated: boolean }
   >({ kind: 'loading' })
+  /** One row open at a time — the transcript is read to be read, not skimmed. */
+  const [openId, setOpenId] = useState<string | null>(null)
+  /** Kept per row once fetched: re-opening a row must not re-read core. */
+  const [transcripts, setTranscripts] = useState<Record<string, TranscriptState>>({})
+
+  function toggleRow(row: DiscardReasonRow) {
+    const next = openId === row.id ? null : row.id
+    setOpenId(next)
+    // A cached SUCCESS is kept — re-opening a row must not re-read core. A
+    // cached ERROR is not an answer, so re-opening retries it: the row is the
+    // only retry affordance this screen has, and a failure that stuck until a
+    // full page reload read as a settled outcome.
+    const cached = transcripts[row.id]
+    if (!next || (cached && cached.kind !== 'error')) return
+    setTranscripts((prev) => ({ ...prev, [row.id]: { kind: 'loading' } }))
+    const put = (s: TranscriptState) => setTranscripts((prev) => ({ ...prev, [row.id]: s }))
+    void getDiscardTranscript(row.recordingSessionId).then(
+      (res) =>
+        put(
+          res.ok
+            ? { kind: 'ready', segments: res.segments, durationSeconds: res.durationSeconds }
+            : { kind: 'error' },
+        ),
+      // Same transport-failure rule as the list read below: a rejection is a
+      // failure, not a spinner that never ends.
+      () => put({ kind: 'error' }),
+    )
+  }
 
   useEffect(() => {
     let alive = true
@@ -139,20 +187,48 @@ export function DiscardReasonsSection() {
           ) : (
             <ul className="divide-y divide-border/60 rounded-xl border border-border bg-card">
               {state.rows.map((r) => (
-                <li key={r.id} className="flex flex-col gap-1.5 px-4 py-3">
-                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-                    <span className="text-xs text-muted-foreground">
-                      {fmt.format(new Date(r.createdAt))}
+                <li key={r.id}>
+                  {/* The row IS the control (mock A-6's opened row). A neutral
+                      tappable row, deliberately quiet — the one-way accent law
+                      lets a pressable be quieter than accent, and nothing on
+                      this screen should read as an alarm. */}
+                  <button
+                    type="button"
+                    onClick={() => toggleRow(r)}
+                    aria-expanded={openId === r.id}
+                    className="flex w-full flex-col gap-1.5 px-4 py-3 text-left transition-colors hover:bg-muted/40"
+                  >
+                    <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                      <span className="text-xs text-muted-foreground">
+                        {fmt.format(new Date(r.createdAt))}
+                      </span>
+                      <span className="text-xs font-medium text-foreground">
+                        {r.staffName ?? t('unknownStaff')}
+                      </span>
                     </span>
-                    <span className="text-xs font-medium text-foreground">
-                      {r.staffName ?? t('unknownStaff')}
+                    {/* Both halves are labelled, the mock's own shape: ⚖ 8/25
+                        ruling A is that the manager reads the CLAIM against the
+                        EVIDENCE, and an opened row is two runs of Japanese prose
+                        — leaving the upper one unnamed lets a skimming reader
+                        take the staffer's words for the system's record. */}
+                    <span className="text-[11px] font-medium text-muted-foreground">
+                      {t('reasonLabel')}
                     </span>
-                  </div>
-                  {/* The whole reason, never truncated: a manager reading half
-                      an explanation is the failure this screen exists to fix. */}
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-                    {r.reason}
-                  </p>
+                    {/* The whole reason, never truncated: a manager reading half
+                        an explanation is the failure this screen exists to fix. */}
+                    <span className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                      {r.reason}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {t(openId === r.id ? 'transcriptHide' : 'transcriptShow')}
+                    </span>
+                  </button>
+
+                  {openId === r.id && (
+                    <div className="border-t border-border/60 px-4 py-3">
+                      <TranscriptPanel state={transcripts[r.id]} t={t} />
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -164,5 +240,47 @@ export function DiscardReasonsSection() {
         </>
       )}
     </div>
+  )
+}
+
+/** The opened row's other half. Plain fact in plain type — no warning colours,
+ *  no badge, no threshold (⚖ 8/25 ruling B): this is evidence a manager reads,
+ *  not a verdict the screen hands them. */
+function TranscriptPanel({
+  state,
+  t,
+}: {
+  state: TranscriptState | undefined
+  t: (key: string, values?: Record<string, number>) => string
+}) {
+  if (!state || state.kind === 'loading') {
+    return (
+      <p className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" aria-hidden />
+        {t('transcriptLoading')}
+      </p>
+    )
+  }
+  if (state.kind === 'error') {
+    return <p className="text-xs text-muted-foreground">{t('transcriptFailed')}</p>
+  }
+  if (state.segments.length === 0) {
+    // Under the floor NOTHING was ever transcribed (the ⚖ spend gate), which is
+    // a different fact from "the words were not kept" — say which one it is.
+    const belowFloor =
+      state.durationSeconds !== null && state.durationSeconds < BELOW_FLOOR_SEC
+    return (
+      <p className="text-xs text-muted-foreground">
+        {belowFloor ? t('transcriptBelowFloor', { n: BELOW_FLOOR_SEC }) : t('transcriptNone')}
+      </p>
+    )
+  }
+  return (
+    <>
+      <p className="text-[11px] font-medium text-muted-foreground">{t('transcriptTitle')}</p>
+      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+        {state.segments.map((s) => s.text).join('\n\n')}
+      </p>
+    </>
   )
 }

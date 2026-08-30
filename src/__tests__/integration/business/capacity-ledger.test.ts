@@ -334,7 +334,7 @@ describe('1 — the book wraps the one bed search and never disagrees with it', 
         end: start + dur,
         policy: POLICY,
       })
-      expect({ laneKey: book.laneKey, refusal: book.refusal }).toEqual(direct)
+      expect({ laneKey: book.laneKey, refusal: book.refusal }).toEqual({ laneKey: direct.laneKey, refusal: direct.refusal })
       if (book.laneKey === null) refusals += 1
       else placements += 1
     }

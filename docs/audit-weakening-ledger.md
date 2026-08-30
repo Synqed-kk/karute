@@ -93,3 +93,25 @@
   required-written-reason ruling + ⚖ 2026-08-20 kept-discards doctrine; build
   adjudicated in the P5-A 4-lens blind round + fix round,
   ADJUDICATION-P5A-ROUND1-2026-08-26.md, karute-recording-integrity lane)
+- 2026-08-31 · SDK_WRITE_ALLOWLIST:src/actions/recording-discard-transcript.ts::recordings.upsertSegments · the
+  WORDS of an already-audited action (A2-2). The staff discard that authorises
+  this write emitted its own recording.discard receipt moments earlier
+  (src/lib/recording/discard.ts, AUDITED_CORES — carrying discard_row_id,
+  duration_sec and below_floor), and BOTH callers refuse to write at all unless
+  that STAFF discard row already exists (a list probe on
+  recording_session_id + source:'STAFF', pinned by discard-transcript-actions
+  .test.ts). A second row here would double-count one act. The ⚖ 8/17 doc law
+  also forbids the CONTENT reaching an audit detail, which is precisely what
+  this call persists — the segments are read back through
+  getDiscardTranscript's staff.manage gate, never through the audit log ·
+  Liam (⚖ 2026-08-20 kept-discards doctrine + ⚖ 2026-08-25 ruling A, packet
+  PACKET-P5-A2-TRANSCRIPT-2026-08-31.md, karute-recording-integrity lane)
+- 2026-08-31 · SDK_WRITE_ALLOWLIST:src/actions/recording-discard-transcript.ts::storage.recordings.remove · best-effort
+  cleanup of the staged audio object right after the discard transcription
+  resolves — identical timing and reasoning to the two entries already
+  allowlisted for the same call (src/actions/recording-upload.ts
+  #removeRecordingObject and src/app/api/app/v1/ai/transcribe/route.ts#POST):
+  read-then-delete, the worker's posture, not itself a business action. Fires
+  on the consent-refusal path too, so a refusal leaves no litter behind ·
+  Liam (⚖ 2026-08-20 kept-discards doctrine, packet
+  PACKET-P5-A2-TRANSCRIPT-2026-08-31.md, karute-recording-integrity lane)

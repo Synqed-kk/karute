@@ -44,6 +44,17 @@ type RecordingRow = {
   created_at: string
 }
 type KaruteRow = { id: string; recording_session_id: string | null; staff_id: string }
+// SDK shape (recording-discards.d.ts's RecordingDiscardEvent) isn't a public
+// export of @synqed-kk/client — inbox-read.ts only reads recording_session_id
+// off it, but the mock still needs the full row shape to type-check.
+type DiscardEventRow = {
+  id: string
+  recording_session_id: string
+  source: 'STAFF' | 'SYSTEM'
+  discarded_by: string | null
+  reason: string | null
+  created_at: string
+}
 
 const recordingRows = { current: [] as RecordingRow[] }
 const karuteRows = { current: [] as KaruteRow[] }
@@ -91,7 +102,14 @@ const fakeClient = {
   // sessions a staff member deliberately threw away. Empty here — these suites
   // are about the customer-name fill / the facade envelope, not discards.
   recordingDiscards: {
-    list: jest.fn(async () => ({ events: [], total: 0, page: 1, page_size: 200 })),
+    list: jest.fn(
+      async (): Promise<{
+        events: DiscardEventRow[]
+        total: number
+        page: number
+        page_size: number
+      }> => ({ events: [], total: 0, page: 1, page_size: 200 }),
+    ),
   },
   stores: { get: storesGet },
   staffStores: { get: staffStoresGet },
@@ -112,6 +130,7 @@ jest.mock('@/lib/customers/cached', () => ({
 import { GET } from '@/app/api/app/v1/recordings/inbox/route'
 import { DELETE as SESSION_DELETE } from '@/app/api/app/v1/recordings/session/[id]/route'
 import { FACADE_AUDIT_MAP } from '@/lib/audit'
+import { RecordingsInboxDTO } from '@/lib/app-api/recordings-inbox-dto'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -355,6 +374,7 @@ describe('GET recordings/inbox — the join', () => {
       'createdAt',
       'customerId',
       'customerName',
+      'discardedByStaff',
       'durationSeconds',
       'jobLastError',
       'jobProbeFailed',
@@ -394,6 +414,62 @@ describe('GET recordings/inbox — the join', () => {
     listRecordings.mockRejectedValue(new Error('core down'))
     const res = await GET(req(), noRoute)
     expect(res.status).toBe(502)
+  })
+})
+
+// Field bug 2026-08-30: zod object schemas strip unknown keys, so the
+// discard ledger flag the shared reader computes (inbox-read.ts:189) was
+// silently dropped at this facade door — a discarded take masqueraded as a
+// failed one on phones while the web arm (no DTO in between) rendered it
+// correctly. These pin the fix at the layer that actually broke: the facade
+// response, not the shared reader or the fold (both already correct).
+describe('GET recordings/inbox — discardedByStaff reaches the facade payload', () => {
+  it('a session the ledger marked discarded carries discardedByStaff: true through the facade DTO', async () => {
+    const discardsList = fakeClient.recordingDiscards.list
+    discardsList.mockResolvedValueOnce({
+      events: [
+        {
+          id: 'discard-1',
+          recording_session_id: 'sess-mine',
+          source: 'STAFF',
+          discarded_by: 'auth-user-1',
+          reason: 'wrong customer',
+          created_at: nowIso(60),
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 200,
+    })
+    const res = await GET(req(), noRoute)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      sessions: Array<{ recordingSessionId: string; discardedByStaff?: boolean }>
+    }
+    const row = body.sessions.find((s) => s.recordingSessionId === 'sess-mine')
+    expect(row?.discardedByStaff).toBe(true)
+  })
+
+  it('the DTO layer never invents a false — a session the input omits the key for stays undefined', () => {
+    // Unit-level on the schema itself: the fold already treats absence as
+    // "not discarded" (inbox.ts's `if (s.discardedByStaff)` truthy check), so
+    // the DTO's only job is honesty about what it was actually given, never a
+    // `.default(false)` that would paper over a caller that omitted the field.
+    const parsed = RecordingsInboxDTO.parse({
+      sessions: [
+        {
+          recordingSessionId: 'sess-x',
+          customerId: null,
+          createdAt: nowIso(1),
+          durationSeconds: null,
+          karuteRecordId: null,
+          jobStatus: null,
+          jobProbeFailed: false,
+          jobLastError: null,
+        },
+      ],
+    })
+    expect(parsed.sessions[0].discardedByStaff).toBeUndefined()
   })
 })
 
