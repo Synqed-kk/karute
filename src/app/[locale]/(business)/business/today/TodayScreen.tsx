@@ -4870,7 +4870,7 @@ export function TodayScreen(props: TodayProps) {
               conditions, rather than a second band that would put 記号の意味 in
               two places and break the ONE HOME rule above. */}
           <div
-            className="guard-band"
+            className={`guard-band${guardOn ? '' : ' legend-only'}`}
             role="note"
             data-guide-title={guardOn ? 'スキマガード' : '価格箱'}
             // ⚖ FIX-9 — ONE HOME. This band owns the ✓/△/— key and the rule

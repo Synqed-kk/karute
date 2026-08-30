@@ -895,16 +895,25 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
     // policy still draws all three kinds of box — so the CONTAINER is
     // unconditional now and the guard KEYS are what comes and goes.
     expect(SRC).toContain(
-      '          <div\n            className="guard-band"\n            role="note"\n' +
+      '          <div\n            className={`guard-band${guardOn ? \'\' : \' legend-only\'}`}\n            role="note"\n' +
         `            data-guide-title={guardOn ? 'スキマガード' : '価格箱'}`,
     )
     // The old gating shape is pinned dead: the whole band behind `guardOn`.
     expect(SRC).not.toContain('{guardOn && (\n            <div\n              className="guard-band"')
     // One legend, and it is OUTSIDE the guarded fragment.
     expect((SRC.match(/className="layer-legend"/g) ?? [])).toHaveLength(1)
-    const band = SRC.slice(SRC.indexOf('className="guard-band"'))
+    const band = SRC.slice(SRC.indexOf('className={`guard-band'))
     expect(band.indexOf('className="layer-legend"')).toBeGreaterThan(band.indexOf('{guardOn && ('))
     expect(band.indexOf('className="layer-legend"')).toBeGreaterThan(band.indexOf('className="guard-band-note"'))
+    // ⚖ fresh-eyes finding 8/30 — a guard-off store draws no keys, so the
+    // dashed separator above the legend and the guard-purple left edge both
+    // lose their referent. `.legend-only` neutralizes both; it is present
+    // exactly when the guard is off, and absent when it is on.
+    expect(SRC).toContain("className={`guard-band${guardOn ? '' : ' legend-only'}`}")
+    expect(CSS).toContain('.biz .guard-band.legend-only { border-left-color: var(--control); }')
+    expect(CSS).toContain(
+      '.biz .guard-band.legend-only .layer-legend { margin-top: 0; padding-top: 0; border-top: 0; }',
+    )
     // And no guard wording reaches a guard-off store's tour entry: the clause is
     // the WHOLE sentence there, so it had to be true standing alone.
     expect(SRC).toContain('const LAYER_LEGEND_GUIDE =')

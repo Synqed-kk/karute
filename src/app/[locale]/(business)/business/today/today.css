@@ -851,6 +851,14 @@
 .biz .guard-band .blocked-key::before { border-color: #d7d7dc; background: #f2f2f4; }
 .biz .guard-band .protected-key { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 7px; background: var(--guard-soft); color: var(--guard-dark); font-weight: 800; }
 .biz .guard-band .guard-band-note { font-weight: 500; color: var(--ink-2); }
+/* ⚖ fresh-eyes finding 8/30, Fable default (overturnable) — a guard-off store
+   draws NO keys, so the dashed line under the legend (which separates the
+   legend FROM THE KEYS) and the left edge's guard purple both justify
+   nothing: the separator goes when the keys do, and the edge stays (band
+   grammar) but drops to neutral instead of a guard colour the store doesn't
+   have. */
+.biz .guard-band.legend-only { border-left-color: var(--control); }
+.biz .guard-band.legend-only .layer-legend { margin-top: 0; padding-top: 0; border-top: 0; }
 /* ⚖ LABELS RULING (Liam 8/30, 案C) — 案C's one line, lifted from the mock's
    `.layer-legend` family. `flex-basis: 100%` in the band's own wrap flow puts it
    on its own row under the keys, and the dashed rule says it is a second subject
