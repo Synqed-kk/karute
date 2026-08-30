@@ -219,10 +219,11 @@ async function forwardToCore(e: AuditEvent, businessId: string): Promise<{ ok: b
 // enforced by the compiler instead of a scan. Both call forms
 // (`facadeHandler('key', fn)` and `facadeHandler<Params>('key', fn)`) bind
 // to it identically; CP1's fixture test (src/lib/app-api/__typetests__/
-// facade-endpoint-key.ts) pins that both forms stay covered. Census: 75 keys
-// across 31 plain + 44 generic call sites, re-derived from source by the
+// facade-endpoint-key.ts) pins that both forms stay covered. Census: 90 keys
+// across 39 plain + 51 generic call sites, re-derived from source by the
 // totality test (facade-audit-totality.test.ts) — that test fails loud if
-// this union drifts from src/app/api/**.
+// this union drifts from src/app/api/**. (The figure had drifted to a stale
+// 75/31/44 before the 破棄の記録 facade pair; re-counted from source here.)
 export type FacadeEndpointKey =
   | 'ai.chat'
   | 'ai.extract'
@@ -282,6 +283,8 @@ export type FacadeEndpointKey =
   | 'permissions.get'
   | 'permissions.update'
   | 'recordings.discard'
+  | 'recordings.discards.list'
+  | 'recordings.discards.transcript'
   | 'recordings.inbox'
   | 'recordings.job.enqueue'
   | 'recordings.job.status'
@@ -480,6 +483,15 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // transcript and no summary, and each action it leads to (the recovery save,
   // the retry) is audited at its own chokepoint.
   'recordings.inbox': { kind: 'skip', category: 'recording', action: '' },
+  // 破棄の記録 (packet P5-A A-6 / A2-4) — the manager's LIST of written discard
+  // reasons and the per-row transcript behind an opened one. Both are pure
+  // reads and both skip, at web parity: the web actions
+  // (listDiscardReasons/getDiscardTranscript) emit nothing at all, and ⚖ 8/17
+  // doc law keeps the reason TEXT out of audit details regardless — the reason
+  // lives in core's discard row, which is exactly why this screen exists. The
+  // discard itself is audited at its own choke point ('recordings.discard').
+  'recordings.discards.list': { kind: 'skip', category: 'recording', action: '' },
+  'recordings.discards.transcript': { kind: 'skip', category: 'recording', action: '' },
 
   // screens.dashboard (§3.1 D4, Liam-confirmed): the attention cards render a
   // one-line per-customer memo preview (attention.ts:142-144) and AI-generated

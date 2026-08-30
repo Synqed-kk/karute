@@ -231,7 +231,24 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // with the web arm, so it is bundled either way.
 // Ceiling set 3,892 B above the measurement, same low-headroom convention as
 // the raises above.
-const BUDGET_BYTES = 2_003_000
+// Raised 2026-08-31 at the phone-facade packet — 設定→破棄の記録 goes LIVE on
+// the phone: the manager section's two reads gained facade routes + port twins,
+// so DiscardReasonsSection leaves PENDING_SECTION_FILES and finally ships in
+// this bundle (the section itself, its 11-key i18n block was already here).
+// Measured with the emptied-thin/dist method, deterministic across two clean
+// builds on BOTH sides: base 5635ae08 = 1,999,357 B, tip = 2,004,832 B,
+// feature cost +5,475 B. The prior 2,003,000 ceiling had 3,643 B left at that
+// base, so the overage is 1,832 B. Report-only per ⚖ 8/25 — raised and
+// recorded, never gated.
+//
+// FILED RIDER EXECUTED HERE: this entry records no "ceiling set N B above the
+// measurement" figure, and later entries should not either. That number was
+// hand-maintained and went stale on the very next commit — the 8/30
+// RE-MEASURED block above exists only to correct one of them. Headroom is
+// whatever `node scripts/thin/check-bundle-budget.mjs` prints against a fresh
+// build TODAY; the numbers worth writing down are the ones a raise actually
+// measured. Prior entries keep theirs as history.
+const BUDGET_BYTES = 2_009_000
 
 let dir
 try {
