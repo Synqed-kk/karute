@@ -4288,7 +4288,9 @@ export function TodayScreen(props: TodayProps) {
    *  The full pattern is therefore three parts, not two — the track's ←/→ walk,
    *  the per-rail remembered stop that each chip's `onFocus` writes, and the
    *  fallback that hands the stop back to chip 1 when the remembered start is
-   *  no longer on the strip. */
+   *  no longer on the strip — the start set only moves if the store's hours or
+   *  the 30-min step change, so this is dormant until per-store hours land; it
+   *  exists because that failure mode is a strip with zero tab stops. */
   function renderRail(rail: GuardRail) {
     // ⚖ GREPTILE RE-REVIEW (2026-08-30) — the roving stop, resolved ONCE per
     // rail rather than per chip, and guarded: a remembered start that this
@@ -4383,10 +4385,12 @@ export function TodayScreen(props: TodayProps) {
             hook that catches the arrow walk and a mouse press alike (both are
             correct roving semantics: the operator's last position is wherever
             they last were). The stored value is a `start`, not an index, and a
-            start that is no longer on the strip — `railDur` changed, the board
-            reshaped — is treated as unset rather than left dangling, because a
-            stop matching NO chip would leave the whole strip unreachable by
-            Tab. Exactly one chip carries `0` on every rail, always. */}
+            start that is no longer on the strip — which only happens if the
+            store's hours or the 30-min step move (dormant today: hours are
+            still a constant, this lands with per-store hours) — is treated as
+            unset rather than left dangling, because a stop matching NO chip
+            would leave the whole strip unreachable by Tab. Exactly one chip
+            carries `0` on every rail, always. */}
         <div
           className="guard-rail-track"
           onKeyDown={(e) => {

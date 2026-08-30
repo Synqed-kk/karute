@@ -887,7 +887,8 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // one lane's walk cannot move another lane's stop.
     expect(SRC).toContain('const [railStop, setRailStop] = useState<Record<string, number>>({})')
     // THE STALE-START GUARD, which is what stops the fix from creating a worse
-    // bug than the one it fixes: `railDur` changes and the board reshapes, so a
+    // bug than the one it fixes: the start set only moves if the store's hours
+    // or the 30-min step change — dormant today, hours are a constant — so a
     // remembered start can stop existing. A stop matching NO chip would leave
     // that strip with ZERO tab stops — unreachable by Tab entirely — so an
     // unrecognised start is treated as unset and the first chip takes it back.
