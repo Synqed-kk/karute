@@ -72,9 +72,13 @@
    markup — freshly, on every run.
 
    ⚖ FOCUS IS THE SHELL'S, AND IT IS ALREADY RIGHT (`business-shell.css:107-111`,
-   3px accent at 2px offset, `:focus-visible` only). Restating it here would be a
-   second home for one verdict, so it is deliberately NOT carried — including for
-   the table's new ↑↓ walk, which moves focus and lets the shell paint it.
+   3px ring at 2px offset, `:focus-visible` only). Restating it here would be a
+   second home for one verdict, so it is deliberately NOT carried — with ONE
+   named exception, argued at its own rule below: `.kr-row:focus-visible`. The
+   row is the ↑↓ walk's only visual state and the one control whose box is the
+   full width of a bordered card, so the mock draws that one state INSET and in
+   R13's #2563eb; the shell's ring is what every other control in this room
+   still gets, and the probe measures both halves of that sentence.
 
    ⚠ …BUT A RING THE ROOM CLIPS IS NOT A RING (the room-3 F2 lesson). The shell
    paints 3px OUTSIDE the control at 2px offset — 5px of paint beyond the box —
@@ -128,6 +132,19 @@
   --kr-emerald: #059669;                     /* 同意チップ ink */
   --kr-emerald-soft: rgba(16, 185, 129, .15);/* RecordingTranscriptCard.tsx:59 */
   --kr-ghost: rgba(107, 114, 128, .4);       /* the phone's resting ✎ */
+  /* ⚖ THE STRIP'S OWN GEOMETRY, STATED ONCE AND SPENT TWICE (DL-1). The strip
+     parks on `--kr-strip-top`, and a 目次 jump has to clear the same offset PLUS
+     whatever the strip is actually tall — so both numbers live here rather than
+     being restated as a tuned clearance further down.
+     ⚠ `--kr-strip-h` IS MEASURED, NOT TUNED: the screen writes the strip's real
+     height onto this element on every layout (a ResizeObserver on the strip
+     itself, KaruteScreen). The value below is the JS-OFF FALLBACK only — the
+     jumps are real `<a href="#…">` and work without hydration — and it is the
+     strip's TWO-ROW height on purpose: a fallback that errs toward too MUCH
+     clearance can never bury the card, which is the whole defect this
+     mechanism exists to kill. */
+  --kr-strip-top: 62px;                      /* business-shell.css:146-149's 62px floor */
+  --kr-strip-h: 73px;
   /* the drawers' own eight tones — CurrentSessionCard.tsx:46-61, VERBATIM */
   --kr-tone-bg: rgba(136, 135, 128, .18);
   --kr-tone-ink: #5f5e5a;
@@ -238,6 +255,18 @@
 /* The pointer's own hint — a wash of the one blue, never a gray. It says "this
    is the row you would open", which is the thing a mouse reader is asking. */
 .biz .pg-karute .kr-row:hover { background: var(--kr-row-wash); }
+/* ⚖ DL-2 — THE ROW IS THE ONE CONTROL THAT TAKES ITS FOCUS STATE FROM THE MOCK.
+   Everywhere else focus is the shell's and deliberately not restated (see the
+   head note); this row is the exception, for two reasons the mock states with
+   it. The ↑↓ walk is the desk idiom this round exists for and this ring is its
+   ONLY visual state — and it is the one control whose box is the full width of
+   a bordered card, so an OUTSIDE ring paints half of itself over the table's
+   own edge and its rounded corners. The mock draws it inset and in R13's blue
+   (`.mk-row.is-focus`: `inset 0 0 0 2px var(--accent)`).
+   ⚠ SAID AS AN OUTLINE WITH A NEGATIVE OFFSET, NOT AS THE MOCK'S BOX-SHADOW:
+   the paint is identical, and forced-colors mode — which drops every shadow and
+   keeps every outline — still has a focus indicator to show. */
+.biz .pg-karute .kr-row:focus-visible { outline: 2px solid var(--kr-accent); outline-offset: -2px; }
 /* ⚖ 破棄済み IS GRAY, AND GRAY IS ALL IT IS (Liam 8/25 ruling B's rendering law):
    a plain fact, never a warning — no red, no threshold, no grade. A staffer must
    never hesitate to throw away a genuinely bad take to protect a row's colour. */
@@ -338,8 +367,17 @@
 .biz .pg-karute .kr-card {
   margin-bottom: 14px; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: #fff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, .05);
-  /* the 目次's jump has to clear the strip that hides the target's own heading */
-  scroll-margin-top: 124px;
+  /* ⚠ THE JUMP'S CLEARANCE FOLLOWS THE STRIP, IT DOES NOT GUESS AT IT (DL-1).
+     This used to be a flat `124px`, tuned to the ONE-row strip at ≥1280 — and
+     the strip wraps to two rows from 1180 all the way down to 744, every one of
+     which is an approved width (`.pg-karute` is on the shell's `min-width: 0`
+     opt-in list). At a two-row strip the jumped-to card landed ELEVEN PIXELS
+     UNDER it: top border, rounded corners and the top of the tinted band cut by
+     the bar that was supposed to help you find the section. Measured on the
+     rendered page at seven widths.
+     The two terms are the strip's own, declared once above — so the clearance
+     cannot drift out of sync with the strip the way a constant did. */
+  scroll-margin-top: calc(var(--kr-strip-top) + var(--kr-strip-h) + 14px);
 }
 .biz .pg-karute .kr-identity { padding: 15px 17px 16px; }
 .biz .pg-karute .kr-outcome { padding: 13px 15px 14px; }
@@ -350,12 +388,18 @@
   background: #f4f4f5; color: var(--ink); font-size: 15px; font-weight: 700;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, .05);
 }
-/* ⚠ A FLEX BASIS SMALL ENOUGH TO SHARE THE AVATAR'S LINE. `flex-basis: auto` is
-   the content's width, and a wrapping flex container breaks the line on the
+/* ⚠ A FLEX BASIS THAT CANNOT BE TOO WIDE FOR THE ROW. `flex-basis: auto` is the
+   content's width, and a wrapping flex container breaks the line on the
    HYPOTHETICAL size before it shrinks anything — so at 820, where the person
    card is ~440px, the name block took its own row and left the avatar sitting
-   alone above it (measured in this round's own first shots). */
-.biz .pg-karute .kr-id-main { min-width: 0; flex: 1 1 200px; }
+   alone above it (measured in this round's own first shots).
+   ⚠ AND `200px` WAS STILL A GUESS AT A WIDTH (DL-5): at 390 the row is 252px
+   wide and the 46px avatar plus its 11px gap leave 195 — five pixels short, so
+   the same wrap came back on the standard iPhone width, and worse below it.
+   A basis of ZERO has no hypothetical size to break on at ANY width: the block
+   grows into whatever the avatar leaves, which is what it was always meant to
+   do, and there is no number here left to be wrong. */
+.biz .pg-karute .kr-id-main { min-width: 0; flex: 1 1 0; }
 .biz .pg-karute .kr-id-nameline { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .biz .pg-karute .kr-id-nameline h2 { margin: 0; font-size: 22px; font-weight: 600; line-height: 1.3; letter-spacing: -.015em; overflow-wrap: anywhere; }
 .biz .pg-karute .kr-id-nameline svg { color: var(--muted); flex: none; }
@@ -398,7 +442,7 @@
 .biz .pg-karute .kr-discarded {
   margin-bottom: 14px; padding: 12px 14px; border: 1px solid var(--card); border-left: 3px solid var(--quiet);
   border-radius: 0 11px 11px 0; background: #f7f7f8; color: var(--ink-3); font-size: 12.5px; line-height: 1.65;
-  scroll-margin-top: 124px;
+  scroll-margin-top: calc(var(--kr-strip-top) + var(--kr-strip-h) + 14px);
 }
 .biz .pg-karute .kr-discarded strong { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; color: var(--ink-2); font-size: 14px; }
 .biz .pg-karute .kr-discarded p { margin: 0; }
@@ -419,7 +463,7 @@
    the shell nor the walk is ever covered by it. */
 .biz .pg-karute .kr-strip {
   position: sticky;
-  top: 62px;
+  top: var(--kr-strip-top);
   z-index: 4;
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
   margin: 0 -28px 16px; padding: 9px 28px 10px;
@@ -450,7 +494,14 @@
 }
 .biz .pg-karute .kr-band > svg { color: var(--kr-band-ink); flex: none; }
 .biz .pg-karute .kr-band .kr-sec-title { font-size: 11px; font-weight: 700; letter-spacing: .12em; color: var(--muted); }
-.biz .pg-karute .kr-tail { margin-left: auto; color: var(--muted); font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
+/* ⚠ AND THE BAND'S TAIL CARRIES THE WRAP GUARD TOO (DL-4). The design round put
+   `{customerName}` into this node — 「{name} ・ 送信予定 LINE」 — which made it a
+   surface that prints text a person typed, and the F-K4 law above covers every
+   one of those. It was the only such node in the room still computing
+   `overflow-wrap: normal`: a 32-character unbroken latin name pushed the PAGE
+   34px sideways at 390. Latent behind an all-Japanese demo world, exactly as
+   F-K4 was. */
+.biz .pg-karute .kr-tail { margin-left: auto; color: var(--muted); font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 /* the plain (band-less) card head — 本日のセッション is the one card whose header
    is a real heading rather than a tinted strip, because the colour in that card
    belongs to the drawers inside it */

@@ -1061,7 +1061,24 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // supposed to sit beside (business-shell.css states 62px / z-index 5).
     const shellCss = read('src/app/[locale]/(business)/business-shell.css')
     expect(shellCss).toMatch(/\.biz \.topbar \{[\s\S]*?min-height: 62px/)
-    expect(CSS_CODE).toMatch(/\.kr-strip \{[\s\S]*?top: 62px;[\s\S]*?z-index: 4;/)
+    // ⚠ PIN MOVED IN DESIGN ROUND 2, AND STRENGTHENED RATHER THAN LOOSENED. The
+    // 62 used to be written on the strip's own rule and NOWHERE else — which is
+    // exactly how the 目次's jump clearance drifted out of sync with it (DL-1:
+    // a flat `scroll-margin-top: 124px` tuned to a one-row strip, against a
+    // strip that wraps to two rows at every width from 1180 down to 744). The
+    // number is now a token, and BOTH halves are pinned: the token states the
+    // shell's own 62, and the strip spends the token instead of restating it.
+    expect(CSS_CODE).toMatch(/--kr-strip-top: 62px;/)
+    expect(CSS_CODE).toMatch(/\.kr-strip \{[\s\S]*?top: var\(--kr-strip-top\);[\s\S]*?z-index: 4;/)
+    // …and the jump's clearance is DERIVED from the strip — its own offset plus
+    // its MEASURED height — rather than tuned to one width band. The height is
+    // measured because CSS cannot read one element's box from another's rule,
+    // so the pin covers both ends: the sheet spends the two tokens, and the
+    // screen really writes the measurement onto the room root.
+    expect(CSS_CODE).toMatch(/scroll-margin-top: calc\(var\(--kr-strip-top\) \+ var\(--kr-strip-h\) \+ 14px\);/)
+    expect(CSS_CODE).not.toMatch(/scroll-margin-top:\s*\d{3}px/)
+    expect(SCREEN_CODE).toContain("root.style.setProperty('--kr-strip-h'")
+    expect(SCREEN_CODE).toContain('new ResizeObserver(measure)')
     // Declarations only — `@media (min-width: 1400px)` is a BAND, not a floor.
     // ⚠ ANY px COUNT, not just three digits (F-K12): `[1-9]\d\dpx` matched
     // 100–999 and walked straight past `min-width: 1200px`, which is the WORSE
@@ -1405,7 +1422,12 @@ describe('⚖ THE DESIGN ROUND — the recognition floor, pinned to the phone', 
     // …and the accent is only ever on something a person can press, or on a wash
     // (⚖ the one-way accent law). Every saturated use, enumerated from the sheet.
     const accented = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*var\(--kr-accent\)[^}]*\}/g)].map((m) => m[1].trim())
-    const pressable = /kr-help|kr-chip|kr-filter|kr-jump|kr-contact a|kr-crumb a|kr-swap|kr-commit/
+    // ⚠ `kr-row:focus-visible` JOINED THE LIST IN DESIGN ROUND 2 (DL-2), and the
+    // row is the most pressable thing on the screen — it is the `<button>` that
+    // opens a record, and the ↑↓ walk's only visual state. The pin names the
+    // STATE rather than the element, so a resting row that started painting the
+    // accent would still fail here.
+    const pressable = /kr-help|kr-chip|kr-filter|kr-jump|kr-contact a|kr-crumb a|kr-swap|kr-commit|kr-row:focus-visible/
     expect(accented.filter((s) => !pressable.test(s))).toEqual([])
   })
 

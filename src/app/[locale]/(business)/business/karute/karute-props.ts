@@ -287,7 +287,12 @@ export async function karuteProps({ locale, store, world }: KarutePropsInput): P
           }
         : null,
       visitLabel: `来店${r.visitNumber}回目`,
-      lastVisitLabel: r.previousDayKey === null ? null : fmtDay.format(dayOf(r.previousDayKey)),
+      // ⚠ THE LONG FORM, LIKE THE 施術日 BESIDE IT (DL-6). This was the SHORT one,
+      // so the person header printed 「前回 8月8日」 next to 「施術日 2026年8月30日
+      // (日)」 — two spellings of one kind of fact, on one row, one of them
+      // without the year the reader needs to judge how long ago it was. The mock
+      // prints both long.
+      lastVisitLabel: r.previousDayKey === null ? null : fmtDayLong.format(dayOf(r.previousDayKey)),
       customersHref,
     }
   })

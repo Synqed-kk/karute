@@ -274,6 +274,7 @@ export function KaruteScreen(props: KaruteProps) {
   // The tour's own nodes: the room root it walks, the ? it came from and goes
   // back to, the card it measures, and the 次へ it hands the keyboard.
   const rootRef = useRef<HTMLDivElement>(null)
+  const stripRef = useRef<HTMLElement>(null)
   const helpRef = useRef<HTMLButtonElement>(null)
   const tourCardRef = useRef<HTMLDivElement>(null)
   const tourNextRef = useRef<HTMLButtonElement>(null)
@@ -345,7 +346,14 @@ export function KaruteScreen(props: KaruteProps) {
     out.push({ id: 'krSecSummary', label: '詳細記録' })
     if (current.aiMessage) out.push({ id: 'krSecMessage', label: 'AI提案メッセージ' })
     if (current.photos.length > 0) out.push({ id: 'krSecPhotos', label: '写真記録' })
-    out.push({ id: 'krSecRecording', label: '録音・文字起こし' })
+    /* ⚠ 「録音 ・ 文字起こし」 — SPACED, AND SPACED IN ALL THREE PLACES (DL-6).
+       The room used to print it closed up. The PHONE spells it with the spaces
+       (`karuteDetail.transcript.title`, messages/ja.json) and so does the mock's
+       own band, which makes the closed-up form a divergence from the recognition
+       floor itself. The mock writes its 目次 entry closed up — that one space is
+       argued as a deviation, because ⚖ A8 wants ONE name for one section and the
+       phone's is the name the floor asks the room to carry. */
+    out.push({ id: 'krSecRecording', label: '録音 ・ 文字起こし' })
     out.push({ id: 'krSecHistory', label: '記録の履歴' })
     return out
   }, [current])
@@ -397,6 +405,34 @@ export function KaruteScreen(props: KaruteProps) {
     setReassignOpen(false)
     setHere(null)
   }, [selected])
+
+  /** ⚖ DL-1 — THE JUMP'S CLEARANCE IS MEASURED FROM THE STRIP, NEVER TUNED TO IT.
+   *
+   *  The sheet used to hold the clearance as a flat `124px`, which is the strip
+   *  at ≥1280 (one row, 48px, under a 62px topbar) plus 14px of air. The strip
+   *  WRAPS to two rows — 73px — from 1180 all the way down to 744, because the
+   *  context, the label and the 目次 stop fitting on one line; at those widths
+   *  the strip's bottom is 135 and the constant put the card at 124. Every
+   *  jumped-to section landed ELEVEN PIXELS UNDER the bar that was supposed to
+   *  help the reader find it, at seven of the room's own approved widths.
+   *
+   *  ⚠ AND THE FIX IS NOT A SECOND CONSTANT. There is no CSS way to read one
+   *  element's height from another's rule, so the height is measured here and
+   *  written onto the room root as `--kr-strip-h`; the sheet spends it beside
+   *  the strip's own sticky offset, which it already owns. A ResizeObserver on
+   *  the strip catches BOTH things that change it — the viewport crossing a
+   *  wrap point, and a record whose 目次 is a different length — with one
+   *  listener and no width table for anyone to keep in sync. */
+  useLayoutEffect(() => {
+    const strip = stripRef.current
+    const root = rootRef.current
+    if (!strip || !root) return
+    const measure = () => root.style.setProperty('--kr-strip-h', `${strip.getBoundingClientRect().height}px`)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(strip)
+    return () => ro.disconnect()
+  }, [detailOpen])
 
   /** Narrowing the list starts the walk again. A reader who filters to 下書き
    *  and finds three windows already open is being shown a span they asked
@@ -854,8 +890,13 @@ export function KaruteScreen(props: KaruteProps) {
           >
             <Link href={current.customersHref}>顧客</Link>
             <Icon name="chevron" size={14} />
+            {/* ⚠ NO 様 IN THE CRUMB, and the mock is deliberate about it (DL-6):
+                a breadcrumb NAMES the thing you are inside, it does not address
+                the person. The heading below, which is where the room speaks to
+                the customer, keeps 様 — as the mock does on the very same
+                screen. */}
             <span className="kr-crumb-who">
-              {current.customerName}様 <span className="kr-crumb-no">{current.memberNumber}</span>
+              {current.customerName} <span className="kr-crumb-no">{current.memberNumber}</span>
             </span>
             <Icon name="chevron" size={14} />
             <span className="kr-crumb-cur">カルテ {current.dateLongLabel}</span>
@@ -988,6 +1029,7 @@ export function KaruteScreen(props: KaruteProps) {
               — the page still owns every axis (⚖ page-scroll). */}
           <section
             className="kr-strip"
+            ref={stripRef}
             aria-label="この記録の中を移動"
             data-guide-title="この記録の中を移動"
             data-guide="下へ読み進んでも上に残る帯です。左が「誰のどの日のカルテか」、右がこの1件の目次で、押すとその場所へ飛びます。目次にはこの記録にある項目だけが出るので、記録が少ないカルテでは目次も短くなります。"
@@ -1216,12 +1258,12 @@ export function KaruteScreen(props: KaruteProps) {
                 className="kr-card kr-recording"
                 id="krSecRecording"
                 aria-labelledby="krRecordingTitle"
-                data-guide-title="録音・文字起こし"
+                data-guide-title="録音 ・ 文字起こし"
                 data-guide="この施術に録音があるかどうかと、録音の同意が確認できているかどうかです。文字起こしそのものの閲覧は店舗の設定で決まる仕組みで、この画面にはまだつないでいません。"
               >
                 <div className="kr-band">
                   <Icon name="mic" size={14} />
-                  <h2 className="kr-sec-title" id="krRecordingTitle">録音・文字起こし</h2>
+                  <h2 className="kr-sec-title" id="krRecordingTitle">録音 ・ 文字起こし</h2>
                   {current.consentLabel && (
                     <span className="kr-consent"><Icon name="check" size={11} weight={2.5} />{current.consentLabel}</span>
                   )}

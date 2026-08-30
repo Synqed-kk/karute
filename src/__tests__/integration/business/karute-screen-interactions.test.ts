@@ -174,7 +174,11 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
     // anybody wrote, and the browser probe measures it; here the SOURCE proves
     // the two sets are genuinely different sets.
     const listSide = ['担当でしぼる', 'カルテを探す', '状態でしぼる', 'カルテの一覧']
-    const recordSide = ['いまいる場所', 'お客様とカルテ', 'セッションの結果', 'この記録の中を移動', '本日のセッション', '詳細記録', '録音・文字起こし', '記録の履歴']
+    // ⚠ 「録音 ・ 文字起こし」 IS SPACED HERE NOW (DL-6). The room used to print
+    // the name closed up; the PHONE's own card spells it with the spaces
+    // (`karuteDetail.transcript.title`), and the recognition floor asks this room
+    // to carry the phone's section names, not a tidier version of them.
+    const recordSide = ['いまいる場所', 'お客様とカルテ', 'セッションの結果', 'この記録の中を移動', '本日のセッション', '詳細記録', '録音 ・ 文字起こし', '記録の履歴']
     const titles = DECLARATIONS.map((d) => d.title)
     for (const t of [...listSide, ...recordSide]) expect(titles).toContain(t)
     // …and the shared head belongs to neither side, which is why it is declared
