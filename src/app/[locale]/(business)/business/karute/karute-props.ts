@@ -73,6 +73,13 @@ const REFUSAL = {
   // reader would look for it.
   reassign: '見本データのためカルテの顧客を変更できません。付け替えは監査ログに残る操作のため、実データの接続後に有効になります。',
   photo: '見本データのため写真を開けません。写真の閲覧と比較は画像の保管場所につないだあとに有効になります。',
+  // ⚖ Liam 8/31 — the ＋新規カルテ lever is BACK (deviation K-5 overturned). The
+  // reason it carries has to say the creation is COMING TO THIS DOOR, not that
+  // creation belongs to the phone: the whole point of the overturn is that the
+  // computer is a first-class door. The argument lives at the button itself
+  // (KaruteScreen, `.kr-new`); registry ⑩ is the reconnect contract.
+  create:
+    '見本データのため新規カルテを作成できません。カルテの作成は予約と結びつけて記録を新しく作る操作のため、実データの接続後に有効になります。このパソコンからも、スマホと同じ手順で作成できるようになります。',
 } as const
 
 const FOOTNOTE = '見本データのため編集・送信・記録はできません — 実データ接続後に有効になります。'
@@ -300,10 +307,15 @@ export async function karuteProps({ locale, store, world }: KarutePropsInput): P
   const props: KaruteProps = {
     dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
     lensLabel,
-    // Canon's own subtitle (MOCK-karute-list.html:348), trimmed of the mock's
-    // ＋新規カルテ sentence: creating a record is the phone's job — the computer
-    // door reads records back, and a create button here would be a lever with
-    // nowhere to go (registry-free by design, and the head says so).
+    // Canon's own subtitle (MOCK-karute-list.html:348), and it KEEPS the mock's
+    // ＋新規カルテ sentence again (⚖ Liam 8/31, K-5 overturned — the argument is
+    // at the button, KaruteScreen `.kr-new`). It was trimmed here while the room
+    // had no create lever, and a page that offers the button must not also
+    // explain its absence: the mock's 「…からのみ作成できます」 drops のみ, because
+    // the phone creates records too and this door is the second one, not the
+    // only one. Whether the lever is live today is the BUTTON's own sentence to
+    // say (⚖ A8: one fact, one home) — every other refusal in this room works
+    // exactly that way.
     //
     // ⚠ TWO MORE CANON SECTIONS ARE DELIBERATELY ABSENT, argued here because the
     // room's other omissions are (F-K15):
@@ -322,7 +334,7 @@ export async function karuteProps({ locale, store, world }: KarutePropsInput): P
     //   door — the one every manager reads — is the wrong home for it, so it is
     //   omitted rather than gated.
     subtitle:
-      '施術記録の一覧です。行を選ぶと、記入内容・詳細記録・写真・結果をまとめて確認できます。検索や絞り込みは表示が変わるだけで、記録の内容は変わりません。',
+      '施術記録の一覧です。行を選ぶと、記入内容・詳細記録・写真・結果をまとめて確認できます。新しいカルテは＋新規カルテから作成します。検索や絞り込みは表示が変わるだけで、記録の内容は変わりません。',
     filters: FILTERS,
     // Canon's 担当 scope (`SCOPE_FILTERS`), with the logged-in operator as 自分.
     selfStaffId: operator.staff_id,
@@ -360,6 +372,7 @@ export async function karuteProps({ locale, store, world }: KarutePropsInput): P
       outcome: REFUSAL.outcome,
       reassign: REFUSAL.reassign,
       photo: REFUSAL.photo,
+      create: REFUSAL.create,
     },
   }
 

@@ -202,6 +202,7 @@ export interface KaruteProps {
     outcome: string
     reassign: string
     photo: string
+    create: string
   }
 }
 
@@ -612,7 +613,7 @@ export function KaruteScreen(props: KaruteProps) {
       <header
         className="kr-head"
         data-guide-title="カルテ"
-        data-guide="この店舗で行った施術の記録が、新しい順に並ぶ画面です。カルテはスマホのアプリで施術中に作られ、この画面はそれを読み返すためのものです。行を選ぶと1件の中身が開きます。"
+        data-guide="この店舗で行った施術の記録が、新しい順に並ぶ画面です。カルテはスマホのアプリで施術中に作られ、この画面ではそれを読み返せます。行を選ぶと1件の中身が開きます。＋新規カルテからは、このパソコンでも同じ手順でカルテを作れるようになります。"
       >
         <div className="kr-eyebrow">{props.dateline}</div>
         <div className="kr-titleline">
@@ -648,9 +649,60 @@ export function KaruteScreen(props: KaruteProps) {
             inviting a comparison it was never making.
             It is `matched.length` — the SAME call the pressed chip's own count
             reads, rendered twice rather than counted twice (⚖ A8). */}
-        <p className="kr-status" role="status" aria-live="polite">
-          {props.monthLabel}・条件に一致 {matched.length}件・表示中 {visible.length}件
-        </p>
+        {/* ⚖ THE CANON MOCK'S LIST TOOLBAR (MOCK-karute-list.html:113 · 344-347):
+            the count line and the room's primary action on ONE row — which is
+            also the PHONE's own pairing, status line then ＋新規カルテ
+            (KaruteRecordListView.tsx:968-1002). The mock draws the pair above
+            the subtitle; this room's subtitle comes first and the count line
+            after it, and that order is left alone — 「paired with the title,
+            before every filter」 is what the canon actually asks for, and both
+            are still true here. */}
+        <div className="kr-toolbar">
+          <p className="kr-status" role="status" aria-live="polite">
+            {props.monthLabel}・条件に一致 {matched.length}件・表示中 {visible.length}件
+          </p>
+          {/* ═══ ⚖ LIAM 8/31 — ＋新規カルテ RETURNS TO THE COMPUTER DOOR ═══
+              (deviation K-5, overturned; registry ⑩)
+
+              HIS REASONING, RECORDED WHERE THE LEVER LIVES: many businesses do
+              not allow staff to carry phones on the floor, so those staff work
+              COMPUTER-PRIMARY. A room that answers 「create it on the phone」
+              answers with a device half the field cannot reach mid-shift. The
+              computer is a FIRST-CLASS DOOR, not a read-back window onto the
+              phone's records — and creating a record is exactly the kind of
+              work a first-class door owns.
+
+              ⚠ THE ROOM STILL WRITES NOTHING, so this is a REFUSED lever with
+              the room's full grammar (`refused()`): its own honest sentence on
+              the accessible name AND the title, saying the creation is coming
+              to THIS door rather than that creation belongs to the phone.
+
+              REGISTRY ⑩ — THE RECONNECT CONTRACT IS THE APP'S OWN CREATE PATH,
+              cited, never guessed:
+              · the lever's twin — `src/components/karute/spike-lifted/list/
+                KaruteRecordListView.tsx:988` opens `NewKaruteDialog`, which
+                calls `createManualKaruteRecord` (`src/actions/karute.ts:932`):
+                `records.write`, and `records.delete` to record FOR another
+                staff member (:943-958). That gate is the contract, not a new one.
+              · the store/booking join every writer already shares —
+                `resolveKaruteStoreId` (`src/actions/karute.ts:68`), spent by
+                `saveKaruteRecord` (:333) and `saveKaruteRecordInline` (:463).
+              · #646's shared write guard, on all four record-creation paths:
+                `durationMinutesFromSeconds` (`src/lib/karute/duration-minutes
+                .ts:7`) — actions :357 and :482, the facade POST
+                (`src/app/api/app/v1/karute/route.ts:130`), and the server
+                recording pipeline (`src/lib/jobs/process-recording.ts:320`).
+              · ⚠ AND THE ONE OPEN SEAM, NAMED RATHER THAN ASSUMED: manual
+                creation passes NO appointment (`karute.ts:965` hands
+                `resolveKaruteStoreId` a `null`, so the store falls to the
+                viewer's active-store cookie), while THIS room resolves a
+                record's person, day, store, staff and menu THROUGH its booking
+                (`fixtures-karute.ts:11-13`, `buildRecords`). Which booking a
+                computer-created record hangs off is the question ⑩ has to
+                answer at reconnect. It is a contract to settle, not a lever to
+                half-build here. */}
+          <button {...refused('＋ 新規カルテ', props.refusals.create, { className: 'kr-new' })}>＋ 新規カルテ</button>
+        </div>
       </header>
 
       {props.noticeLines.length > 0 && (

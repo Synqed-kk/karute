@@ -158,6 +158,21 @@
 /* ⚖ the honest status line. Tabular figures so the count does not jitter as the
    walk grows, and never bold — it is a fact about the page, not a headline. */
 .biz .pg-karute .kr-status { margin: 6px 0 0; color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+/* ⚖ the mock's own list toolbar (MOCK-karute-list.html:113): the count line and
+   the primary action on one row, space-between. It WRAPS, because at ≤743 the
+   count line is three labelled facts long and a nowrap row would push the page
+   sideways — the one thing this room never does. */
+.biz .pg-karute .kr-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; }
+.biz .pg-karute .kr-toolbar .kr-status { margin: 0; }
+/* ＋新規カルテ — ⚖ R13's approved recipe for a primary action (solid accent,
+   white text), shown at its real weight and REFUSED, exactly as 承認して送信 is:
+   hiding what the room would do makes the refusal unreadable (⚖ 47). The dim and
+   the not-allowed cursor come from the family's own `.biz .btn[aria-disabled]`
+   (business-shell.css:217), which `refused()`'s `.btn` merge is what earns. */
+.biz .pg-karute .kr-new {
+  flex: 0 0 auto; min-height: 38px; padding: 0 16px; border: 0; border-radius: 9px;
+  background: var(--kr-accent); color: #fff; font-size: 13px; font-weight: 600;
+}
 /* A hairline circle, never a filled one — ⚖ R13, and a help mark that shouts is
    worse than the paragraph it replaced. `[aria-expanded="true"]` means the
    GUIDED TOUR is running, which is why the mark stays lit for the whole walk. */
@@ -802,6 +817,12 @@
     transform: translate(-50%, -50%);
   }
   .biz .pg-karute .kr-search .btn { flex: 1 1 auto; }
+  /* ＋新規カルテ takes the band's own shape for a primary action — its own row,
+     full width, like 条件をクリア and 承認して送信. Left as a 148px pill under a
+     two-line count line it was the one control on the phone screen that did not
+     look like the others (measured in my own 390 read). A column here rather
+     than a stretch, so the button never shares a row at 743 either. */
+  .biz .pg-karute .kr-toolbar { flex-direction: column; align-items: stretch; }
 
   /* the table becomes cards */
   .biz .pg-karute .kr-thead { display: none; }

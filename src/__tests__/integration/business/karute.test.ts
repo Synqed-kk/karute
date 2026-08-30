@@ -819,11 +819,11 @@ describe('permissions — fail-closed, and the notice says the TRUE rule', () =>
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('every write is REFUSED, with its own reason, and there is no delete lever', () => {
-  it('all eight refusals are distinct sentences that name what they would have done', async () => {
+  it('all nine refusals are distinct sentences that name what they would have done', async () => {
     const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
     const reasons = Object.values(props.refusals)
-    expect(reasons.length).toBe(8)
-    expect(new Set(reasons).size).toBe(8)
+    expect(reasons.length).toBe(9)
+    expect(new Set(reasons).size).toBe(9)
     for (const r of reasons) {
       expect(r.length).toBeGreaterThan(30)
       expect(r).toMatch(/できません|開けません/)
@@ -849,13 +849,14 @@ describe('every write is REFUSED, with its own reason, and there is no delete le
       ["'結果を変更', props.refusals.outcome", 'outcome'],
       ["'続ける', props.refusals.reassign", 'reassign'],
       ['${p.caption}`, props.refusals.photo', 'photo'],
+      ["'＋ 新規カルテ', props.refusals.create", 'create'],
     ]
     for (const [call, key] of wiring) {
       expect({ key, wired: SCREEN_CODE.includes(call) }).toEqual({ key, wired: true })
     }
     // …and every refusal key the props expose is spent exactly once.
     const used = [...SCREEN_CODE.matchAll(/props\.refusals\.(\w+)/g)].map((m) => m[1]).sort()
-    expect(used).toEqual(['entry', 'message', 'outcome', 'photo', 'reassign', 'regenerate', 'send', 'summary'])
+    expect(used).toEqual(['create', 'entry', 'message', 'outcome', 'photo', 'reassign', 'regenerate', 'send', 'summary'])
   })
 
   it('⚠ NO CALL SITE WRITES className AFTER the refused() spread (F-K1)', () => {
@@ -889,8 +890,30 @@ describe('every write is REFUSED, with its own reason, and there is no delete le
     expect(SCREEN_SRC).toContain('破棄')
   })
 
-  it('no ＋新規カルテ lever either — records are created on the phone, in the session', () => {
-    expect(SCREEN_CODE).not.toContain('新規カルテ')
+  it('⚖ Liam 8/31 — ＋新規カルテ IS a lever here, and it is REFUSED with its OWN reason', async () => {
+    // K-5 overturned: staff on floors that ban phones work computer-primary, so
+    // the computer is a first-class door and record creation belongs on it. What
+    // the room may not do is WRITE — so the lever ships with the family's full
+    // refusal grammar rather than half a dialog.
+    expect(SCREEN_CODE).toContain("refused('＋ 新規カルテ', props.refusals.create, { className: 'kr-new' })")
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    // Its own sentence, not one borrowed from another control…
+    expect(props.refusals.create).toContain('新規カルテ')
+    for (const [key, other] of Object.entries(props.refusals)) {
+      if (key !== 'create') expect(other).not.toBe(props.refusals.create)
+    }
+    // …and it says the creation is coming to THIS door, never that creation
+    // belongs to the phone — that framing is the whole thing Liam overturned.
+    expect(props.refusals.create).toContain('パソコン')
+    expect(props.refusals.create).toMatch(/できるようになります|有効になります/)
+  })
+
+  it('the page does not both OFFER the button and explain its absence', () => {
+    // The head used to argue the lever away — in the subtitle's own comment and
+    // in the tour's opening card ('この画面はそれを読み返すためのもの'). A page that
+    // now carries the button must not also tell the reader it has none.
+    expect(SCREEN_CODE).not.toContain('読み返すためのもの')
+    expect(SCREEN_CODE).toContain('＋新規カルテからは、このパソコンでも同じ手順でカルテを作れるようになります。')
   })
 
   it('the reassign flow stops at the WARNING, in the phone app’s own words', () => {
@@ -1427,7 +1450,11 @@ describe('⚖ THE DESIGN ROUND — the recognition floor, pinned to the phone', 
     // opens a record, and the ↑↓ walk's only visual state. The pin names the
     // STATE rather than the element, so a resting row that started painting the
     // accent would still fail here.
-    const pressable = /kr-help|kr-chip|kr-filter|kr-jump|kr-contact a|kr-crumb a|kr-swap|kr-commit|kr-row:focus-visible/
+    // ⚠ `kr-new` JOINED ON 8/31 (K-5 overturned): ＋新規カルテ is the list's own
+    // commit-weight action and gets R13's approved primary recipe, exactly as
+    // 承認して送信 does. Refused is not un-pressable — every refusal in this room
+    // stays focusable on purpose, so the accent is on a control, not on decor.
+    const pressable = /kr-help|kr-chip|kr-filter|kr-jump|kr-contact a|kr-crumb a|kr-swap|kr-commit|kr-new|kr-row:focus-visible/
     expect(accented.filter((s) => !pressable.test(s))).toEqual([])
   })
 
