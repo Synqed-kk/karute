@@ -732,6 +732,7 @@
     "inbox": {
       "title": "録音履歴",
       "caption": "過去7日間の自分の録音",
+      "myDiscards": "自分が今月破棄した録音 {n}件",
       "needsAttention": "要対応 {n}件",
       "needsAttentionAria": "、要対応{n}件",
       "empty": "この7日間の録音はありません。",
@@ -744,7 +745,8 @@
         "awaitingCheck": "確認待ち",
         "processing": "処理中",
         "failed": "失敗",
-        "recoverable": "復元可能"
+        "recoverable": "復元可能",
+        "discarded": "破棄済み"
       },
       "reason": {
         "transcribing": "サーバーで文字起こし中",
@@ -819,7 +821,17 @@
     "recoverSaveFailed": "保存できませんでした。もう一度お試しください。",
     "recoverAlreadyRedeemed": "この来店の回数券はすでに消化済みです",
     "recoverBurnCheckFailed": "回数券の確認ができませんでした。もう一度お試しください",
-    "recoverPackSaleLost": "回数券の販売登録が失われました。お客様ページから登録してください"
+    "recoverPackSaleLost": "回数券の販売登録が失われました。お客様ページから登録してください",
+    "discardReason": {
+      "title": "録音を破棄する理由",
+      "fieldLabel": "理由",
+      "placeholder": "破棄する理由を入力してください（必須）",
+      "disclosure": "破棄の記録（日時・担当者・理由）が残ります。",
+      "confirm": "破棄する",
+      "submitting": "破棄中...",
+      "failed": "破棄を記録できませんでした。もう一度お試しください。",
+      "takeChanged": "この録音はすでに文字起こしに進んでいます。破棄できませんでした。"
+    }
   },
   "customers": {
     "title": "顧客",
@@ -2279,6 +2291,20 @@
       "shownLabel": "表示",
       "hiddenLabel": "非表示"
     },
+    "discardReasons": {
+      "label": "破棄の記録",
+      "title": "破棄の記録",
+      "description": "録音を破棄した際の理由の記録です。内容は管理者のみ閲覧できます。",
+      "byStaffTitle": "スタッフ別（今月）",
+      "countThisMonth": "今月の破棄 {count}件",
+      "countTotal": "記録されている破棄 全{count}件",
+      "countsTruncated": "古い記録を除いた件数です。",
+      "unknownStaff": "担当者不明",
+      "loading": "読み込んでいます…",
+      "loadFailed": "破棄の記録を読み込めませんでした。",
+      "empty": "破棄の記録はまだありません。",
+      "truncated": "件数が多いため、古い記録は表示していません。"
+    },
     "auditLog": {
       "label": "監査ログ",
       "description": "誰が・いつ・どの記録にアクセス/変更したかの記録です。",
@@ -2544,6 +2570,7 @@
     "consentTemplatePlaceholder": "本日のご相談内容を、よりよいケアのために録音いたします…",
     "subscriptionDescription": "プラン・請求・支払い方法の管理",
     "auditLogDescription": "アクセス履歴 — APPI準拠と社内ガバナンス",
+    "discardReasonsDescription": "録音を破棄した理由の記録",
     "storesTab": "店舗",
     "storesDescription": "店舗の管理と追加",
     "coachingTabDescription": "コーチング設定は近日公開。",

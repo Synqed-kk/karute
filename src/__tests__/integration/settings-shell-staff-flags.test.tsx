@@ -42,6 +42,9 @@ jest.mock('@/components/settings/redesign/sections/MenusSection', () => ({
 jest.mock('@/components/settings/redesign/sections/AuditLogSection', () => ({
   AuditLogSection: () => null,
 }))
+jest.mock('@/components/settings/redesign/sections/DiscardReasonsSection', () => ({
+  DiscardReasonsSection: () => null,
+}))
 
 const captured: Record<string, unknown>[] = []
 jest.mock('@/components/settings/redesign/sections/StaffSection', () => ({

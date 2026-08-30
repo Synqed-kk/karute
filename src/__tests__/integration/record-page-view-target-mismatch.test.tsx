@@ -58,10 +58,17 @@ jest.mock('@/hooks/use-global-recorder', () => ({
   }),
 }))
 jest.mock('@/actions/recordings', () => ({ startRecordingSession: jest.fn() }))
+// P5-A: RecordPageView imports the written-reason discard action; unmocked it
+// pulls the ESM SDK into this suite. Not exercised here.
+jest.mock('@/actions/recording-discard', () => ({ discardRecordingWithReason: jest.fn() }))
 jest.mock('@/actions/karute', () => ({ saveKaruteRecord: jest.fn() }))
 jest.mock('@/actions/customers', () => ({
   getCustomerConsent: jest.fn(async () => ({ consent: null })),
   grantCustomerConsent: jest.fn(async () => ({ ok: true })),
+}))
+jest.mock('@/actions/recording-discards', () => ({
+  myDiscardCountThisMonth: jest.fn(async () => null),
+  listDiscardReasons: jest.fn(async () => ({ ok: false, error: 'forbidden' })),
 }))
 jest.mock('@/actions/packs', () => ({
   createPackAction: jest.fn(),

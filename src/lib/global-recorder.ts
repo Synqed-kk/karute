@@ -57,6 +57,11 @@ const RUNAWAY_TICK_MS = 15_000 // how often we re-check the elapsed recording ti
 // continues memory-only exactly as before.
 const TAKE_FLUSH_MS = 5_000
 
+// How long any caller waits on the session-id mint before giving up. Shared by
+// awaitRecordingSessionId and the retry below so "bounded the same way" is a
+// fact rather than two literals that can drift apart.
+const MINT_AWAIT_MS = 1_500
+
 function getSupportedMimeType(): string {
   if (typeof MediaRecorder === 'undefined') return ''
   const formats = [
@@ -113,6 +118,23 @@ class GlobalRecorder {
    *  time can await it briefly instead of only reading whatever has resolved
    *  so far. Cleared on discard(). */
   private recordingSessionPromise: Promise<string | null> | null = null
+  /** True from the moment a mint is ISSUED until it settles. `recordingSessionId`
+   *  reads null in BOTH the failed and the still-in-flight case, so this is the
+   *  only thing that lets the retry below tell "it failed, mint again" apart
+   *  from "it is merely slow, wait for it". */
+  private recordingSessionMintInFlight = false
+  /** The take the in-flight mint will stamp, or null for "the recorder's own
+   *  live take, read at resolution" (start()'s mint, fired before the take
+   *  exists). The retry reuses an in-flight mint ONLY when it is for the same
+   *  take — a session minted for a different one would key the discard row to
+   *  the wrong recording, which is worse than the orphan row it avoids. */
+  private recordingSessionMintTakeId: string | null = null
+  /** True when the mint above was issued while ANOTHER take was still live —
+   *  the one case where the null marker must NOT be read as "the live take":
+   *  start() fires its mint before creating its own take, so a take sitting
+   *  there belongs to the PREVIOUS recording. Pins what the retry's fallback
+   *  silently assumed (start() runs with no take live). */
+  private recordingSessionMintTakeUnknown = false
   /** Staleness guard for the mint. A slow mint from recording A resolving
    *  AFTER discard()/a new start() must not stamp its id (minted for A's
    *  customer) onto recording B — bump on every start() and discard(); the
@@ -213,6 +235,57 @@ class GlobalRecorder {
       })
   }
 
+  /**
+   * The session mint itself, extracted from start() so a FAILED one can be
+   * re-run (see retryRecordingSessionMint). Assigns the held promise and
+   * returns it.
+   *
+   * Gen-guarded exactly as start()'s mint always was — this IS start()'s mint,
+   * lifted, not a second copy: a resolution whose generation is no longer
+   * current belongs to a take the user has since discarded or replaced, so its
+   * id must never be stamped onto whatever is live now.
+   */
+  private mintRecordingSession(input: {
+    customerId: string | null
+    appointmentId: string | null
+    /** Take to stamp when the mint lands. Omitted → the recorder's own live
+     *  `takeId` READ AT RESOLUTION TIME, which is what start() needs: it fires
+     *  the mint before it creates the take, so capturing the value here would
+     *  capture null. Passed explicitly by the review-path retry, whose take is
+     *  held by the pipeline rather than by this singleton. */
+    stampTakeId?: string | null
+  }): Promise<string | null> {
+    const gen = ++this.recordingSessionGen
+    this.recordingSessionMintInFlight = true
+    this.recordingSessionMintTakeId = input.stampTakeId ?? null
+    // ponytail: never cleared once start() creates its take — the retry then
+    // just mints fresh instead of sharing, which is the safe side of the trade.
+    this.recordingSessionMintTakeUnknown = input.stampTakeId == null && this.takeId !== null
+    const promise = startRecordingSession({
+      customerId: input.customerId,
+      appointmentId: input.appointmentId,
+    }).then((res) => {
+      // Stale mint (user discarded / started a new recording while this was
+      // in flight): drop it — its row belongs to a different take/customer.
+      // The flag is NOT cleared here: it belongs to whichever mint owns the
+      // current generation, and that one is still in flight.
+      if (gen !== this.recordingSessionGen) return null
+      // Settled (this call swallows every failure to null, so it never rejects).
+      this.recordingSessionMintInFlight = false
+      this.recordingSessionId = res?.id ?? null
+      // Stamp the persisted take so a crash-recovered save still dedupes.
+      // (If the meta row isn't written yet, createTake's callback re-stamps.)
+      const stampTakeId = input.stampTakeId ?? this.takeId
+      if (stampTakeId && this.recordingSessionId) {
+        void stampTakeSession(stampTakeId, this.recordingSessionId)
+      }
+      this.notify()
+      return this.recordingSessionId
+    })
+    this.recordingSessionPromise = promise
+    return promise
+  }
+
   async start(opts?: { noiseSuppression?: boolean; target?: RecordingTarget | null }) {
     this.error = null
     this.result = null
@@ -227,22 +300,9 @@ class GlobalRecorder {
     // below — a network call must NEVER block or delay the mic prompt. Held so
     // handleUseRecording can await it briefly at save time; a slow/failed mint
     // just leaves this null (save proceeds without recording_session_id).
-    const gen = ++this.recordingSessionGen
-    this.recordingSessionPromise = startRecordingSession({
+    void this.mintRecordingSession({
       customerId: this.target?.customerId ?? null,
       appointmentId: this.target?.appointmentId ?? null,
-    }).then((res) => {
-      // Stale mint (user discarded / started a new recording while this was
-      // in flight): drop it — its row belongs to a different take/customer.
-      if (gen !== this.recordingSessionGen) return null
-      this.recordingSessionId = res?.id ?? null
-      // Stamp the persisted take so a crash-recovered save still dedupes.
-      // (If the meta row isn't written yet, createTake's callback re-stamps.)
-      if (this.takeId && this.recordingSessionId) {
-        void stampTakeSession(this.takeId, this.recordingSessionId)
-      }
-      this.notify()
-      return this.recordingSessionId
     })
 
     let micStream: MediaStream
@@ -340,11 +400,67 @@ class GlobalRecorder {
    * already resolved, races the in-flight promise against `timeoutMs`
    * otherwise, or null if start() was never called / it already failed.
    */
-  async awaitRecordingSessionId(timeoutMs = 1500): Promise<string | null> {
+  async awaitRecordingSessionId(timeoutMs = MINT_AWAIT_MS): Promise<string | null> {
     if (this.recordingSessionId !== null) return this.recordingSessionId
     if (!this.recordingSessionPromise) return null
     const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs))
     return Promise.race([this.recordingSessionPromise, timeout])
+  }
+
+  /**
+   * Re-run a FAILED session mint (P5-A fix round 1).
+   *
+   * The mint runs exactly once, at start(). If it failed — offline, core 5xx —
+   * its promise is SETTLED null forever, so awaitRecordingSessionId() returns
+   * null instantly on every subsequent call. Every other caller shrugs that
+   * off (a save just proceeds without the id), but the discard gate cannot:
+   * the reason row KEYS on this id, so a failed mint used to leave the staff
+   * member unable to throw a take away at all, behind copy promising a retry
+   * that could never work.
+   *
+   * Refuses when there is nothing to mint FOR — an id already exists, or no
+   * take is held any more, in which case there is no audio this row could
+   * honestly describe. Bounded exactly like awaitRecordingSessionId.
+   *
+   * A mint that is merely SLOW is not a failed one: a second confirm tap while
+   * the first is still in flight AWAITS it rather than issuing a parallel
+   * upstream create (each new mint bumps the generation, so the previous one's
+   * row would land referenced by nothing — one orphan per tap).
+   *
+   * ponytail: a review-path retry writes its id onto this singleton like any
+   * other mint (the gen guard is what keeps that safe — a newer recording
+   * invalidates it). The recorder is idle in that case and the next start()
+   * clears the field, so the value is only ever read by the caller that asked
+   * for it. Upgrade path if a second consumer ever appears: return the id
+   * without touching the field when `stampTakeId` is someone else's take.
+   */
+  async retryRecordingSessionMint(opts?: {
+    customerId?: string | null
+    appointmentId?: string | null
+    /** The take this mint is for. Omitted → the recorder's own live take. */
+    takeId?: string | null
+    timeoutMs?: number
+  }): Promise<string | null> {
+    if (this.recordingSessionId !== null) return this.recordingSessionId
+    const takeId = opts?.takeId ?? this.takeId
+    if (!takeId) return null
+    const inFlightForThisTake =
+      this.recordingSessionMintInFlight &&
+      !this.recordingSessionMintTakeUnknown &&
+      (this.recordingSessionMintTakeId ?? this.takeId) === takeId
+        ? this.recordingSessionPromise
+        : null
+    const promise =
+      inFlightForThisTake ??
+      this.mintRecordingSession({
+        customerId: opts?.customerId ?? this.target?.customerId ?? null,
+        appointmentId: opts?.appointmentId ?? this.target?.appointmentId ?? null,
+        stampTakeId: takeId,
+      })
+    const timeout = new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), opts?.timeoutMs ?? MINT_AWAIT_MS),
+    )
+    return Promise.race([promise, timeout])
   }
 
   stop() {
@@ -403,6 +519,9 @@ class GlobalRecorder {
     this.target = null
     this.recordingSessionId = null
     this.recordingSessionPromise = null
+    this.recordingSessionMintInFlight = false
+    this.recordingSessionMintTakeId = null
+    this.recordingSessionMintTakeUnknown = false
     // Invalidate any in-flight mint so its late resolution can't stamp a
     // discarded take's session id onto the next recording.
     this.recordingSessionGen++

@@ -87,6 +87,12 @@ const fakeClient = {
   recordings: { list: listRecordings, get: recordingsGet, delete: recordingsDelete },
   karuteRecords: { list: listKarute, getByRecordingSession: getKaruteByRecordingSession },
   recordingJobs: { getByRecordingSession },
+  // P5-A item A2-3: the inbox read now also asks the discard ledger which
+  // sessions a staff member deliberately threw away. Empty here — these suites
+  // are about the customer-name fill / the facade envelope, not discards.
+  recordingDiscards: {
+    list: jest.fn(async () => ({ events: [], total: 0, page: 1, page_size: 200 })),
+  },
   stores: { get: storesGet },
   staffStores: { get: staffStoresGet },
 }

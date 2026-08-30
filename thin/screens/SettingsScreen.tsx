@@ -28,7 +28,12 @@ const parse = (raw: unknown): SettingsScreenDTOType => SettingsScreenDTO.parse(r
 // Tabs not yet ported to the shell this slice — the mechanism stays for
 // future tabs even though it's empty now. 監査ログ moved OUT at packet 17
 // §S3, スタッフ at packet 12 §B-3 S4b — both tabs are now live.
-const PENDING_TAB_IDS: readonly SettingsTabId[] = []
+// 破棄の記録 (packet P5-A A-6) ships on the COMPUTER this round: the section
+// reads core's discard ledger through a 'use server' action, and the phone
+// would need its own facade route + port entry first. 準備中 rather than
+// web-only — unlike 同期 this is "not built for the app yet", not "never
+// coming"; the approved mock is drawn at phone width.
+const PENDING_TAB_IDS: readonly SettingsTabId[] = ['discards']
 
 // Tabs that stay permanently web-only (design-parity packet 20 §S5) — 同期
 // is La-Estro-specific and structurally unreachable from the Bearer-only

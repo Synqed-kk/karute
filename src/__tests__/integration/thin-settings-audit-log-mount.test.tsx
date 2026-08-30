@@ -62,6 +62,9 @@ jest.mock('@/components/settings/redesign/sections/MenusSection', () => ({
 jest.mock('@/components/settings/redesign/sections/PacksSection', () => ({
   PacksSection: () => null,
 }))
+jest.mock('@/components/settings/redesign/sections/DiscardReasonsSection', () => ({
+  DiscardReasonsSection: () => null,
+}))
 
 const listAuditLog = jest.fn(async (_filters: Record<string, unknown>) => ({
   ok: true as const,

@@ -35,7 +35,8 @@ import { isConsentCurrent } from '@/lib/consent'
 import { sessionPhotoStore } from '@/lib/karute/session-photos'
 import { saveKaruteRecordInline } from '@/actions/karute'
 import { getRecoveryDayFacts } from '@/actions/recovery'
-import { deleteRecordingSession } from '@/actions/recordings'
+import { discardRecordingWithReason } from '@/actions/recording-discard'
+import { myDiscardCountThisMonth } from '@/actions/recording-discards'
 import type { RecoveryDayFacts } from '@/lib/karute/recovery-facts'
 import { formatCompactDateJst, hmInJst, ymdInJst } from '@/lib/date/jst'
 import type { EntryCategory } from '@/lib/karute/categories'
@@ -59,6 +60,7 @@ import { RecordButtonCard } from './RecordButtonCard'
 import { SessionPhotoCard } from './SessionPhotoCard'
 import { ConsentPill } from './ConsentPill'
 import { RecordingConsentDialog } from './RecordingConsentDialog'
+import { RecordingDiscardReasonDialog } from './RecordingDiscardReasonDialog'
 import {
   RecentRecordingsCard,
   type RecentRecording,
@@ -575,6 +577,35 @@ export function RecordPageView({
   const [showDiscardPhotosDialog, setShowDiscardPhotosDialog] = useState(false)
   const [discardingPhotos, setDiscardingPhotos] = useState(false)
 
+  // P5-A (⚖ 8/17): the REQUIRED written-reason gate. One state, one dialog,
+  // one confirm handler for BOTH deliberate-discard chokepoints — the value
+  // says only which one is asking, so the two sites cannot drift apart.
+  // 'recorder' = the 破棄 button on the recorded-take card (after the photos
+  // confirm, when it applies); 'review' = ReviewScreen's 破棄.
+  const [discardReasonFor, setDiscardReasonFor] = useState<'recorder' | 'review' | null>(null)
+  const [discardReasonSubmitting, setDiscardReasonSubmitting] = useState(false)
+  const [discardReasonError, setDiscardReasonError] = useState<string | null>(null)
+  // The REF is the real single-flight guard — state reads stale mid-tick, so
+  // two taps landing in the same tick would both pass a state check and file
+  // the discard twice (the outcome dialog's resolvingOutcomeRef precedent).
+  // The `submitting` prop and the disabled button are the visible half.
+  const discardReasonSubmittingRef = useRef(false)
+  // The photo decision, RECORDED not acted on (fix round 1). 写真も削除 used to
+  // delete the customer's photos server-side the moment the photos dialog was
+  // answered — i.e. BEFORE the reason gate, the step that is supposed to be the
+  // final commitment. Cancelling the gate (or any server refusal) then left the
+  // photos irreversibly gone with the take still sitting there. The deletion now
+  // runs from the confirm handler's success branch; this ref is the decision in
+  // the meantime, and cancel clears it.
+  const pendingPhotoDeleteRef = useRef(false)
+  // Discard-intent latch (fix round 1). While the gate is open for a recorder
+  // take, an in-flight 使用 must not hand THAT take to transcription — it used
+  // to, because proceedDiscard (which bumps useRecordingGen) now runs only
+  // after the server round-trip, leaving the whole dialog lifetime unguarded.
+  // Same latch idiom as outcomeResolvedRef, keyed by take so it can only ever
+  // stop the take it was opened for. null = no gate open for the recorder.
+  const discardIntentRef = useRef<{ takeId: string | null } | null>(null)
+
   // Single-flight guard for the outcome dialog's 保存: a double-tap must never
   // create two pack rows or fire two redemptions (live prod bug — the DB's
   // partial unique index on pack_redemptions(appointment_id) can't block the
@@ -632,6 +663,20 @@ export function RecordPageView({
   // any draft existed). A surviving draft is PREFERRED — its transcription is
   // already paid for — so the audio is offered only when no draft loads.
   const [recoveredTake, setRecoveredTake] = useState<RecoverableTake | null>(null)
+
+  // ⚖ 8/25 ruling B (staff half): the staffer sees their OWN discard count for
+  // the month, and only their own. Read once on mount, alongside the inbox it
+  // renders next to. null = unknown (never shown), never a zero we cannot back.
+  const [myDiscardsThisMonth, setMyDiscardsThisMonth] = useState<number | null>(null)
+  useEffect(() => {
+    let alive = true
+    void myDiscardCountThisMonth().then((n) => {
+      if (alive) setMyDiscardsThisMonth(n)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
   useEffect(() => {
     // Both loads are async and owner-gated at their store layer — only the
     // staff member who recorded/saved is ever offered anything (privacy on a
@@ -816,31 +861,30 @@ export function RecordPageView({
     if (dropped > 0) toast.warning(t('sessionPhotos.uploadsDropped', { n: dropped }))
   }
 
-  /**
-   * ⚠ INTERIM, deleted by P5 (see lib/recording/session-cleanup.ts). A
-   * deliberate 破棄 destroys the take and writes no karute, so its
-   * recording_sessions row is left an orphan the 録音履歴 inbox can only render
-   * as 失敗 — a false alarm in 要対応 that nobody can clear for seven days.
-   * Remove the row with it. Fire-and-forget: the discard never waits on this
-   * and never fails because of it.
-   *
-   * Wired at the DELIBERATE chokepoints only — proceedDiscard (the 破棄 button
-   * and both photo-dialog exits) and ReviewScreen's onDiscard. Explicitly NOT
-   * on the error card's キャンセル (dismiss-only, the take is KEPT and the row
-   * is still honest), settle-on-save (the row becomes 保存済み), the TTL prune,
-   * or the logout wipe (a phone-path session can still complete server-side
-   * after sign-out).
-   */
-  function cleanUpDiscardedSession(recordingSessionId: string | null | undefined) {
-    if (!recordingSessionId) return
-    void deleteRecordingSession(recordingSessionId).catch(() => {})
-  }
+  // ⚰ THE DISCARD CLEANUP IS GONE (packet item A2-1).
+  //
+  // It existed to stop a deliberate 破棄 from leaving an orphan
+  // recording_sessions row that the 録音履歴 inbox could only render as 失敗 —
+  // an unclearable false alarm in 要対応 for seven days. It solved that by
+  // HARD-DELETING the session row.
+  //
+  // P5-A made that self-defeating: the written reason lands in core's discard
+  // ledger keyed on `recording_session_id`, and this cleanup then deleted that
+  // very key moments later, fire-and-forget, with no app-side signal. The
+  // flagship deliverable could be voided ~200 ms after it landed.
+  //
+  // So the row SURVIVES a reasoned discard now, and A2-3 gives the inbox the
+  // honest thing to render for it: a grayed 破棄済み row, off the same ledger
+  // (see lib/recordings/inbox.ts). The orphan-as-失敗 problem the cleanup was
+  // built for is solved by naming the row correctly instead of destroying it.
+  //
+  // SYSTEM/abandoned cleanup is untouched — deleteRecordingSessionWithClient
+  // keeps its other call sites (the recordings action + the facade route).
 
   function proceedDiscard() {
     toastDroppedErrorPhotos()
-    // BEFORE discardRecording(), which nulls recordingSessionId on the
-    // singleton — same read-it-first rule toastDroppedErrorPhotos above obeys.
-    cleanUpDiscardedSession(globalRecorder.recordingSessionId)
+    // A2-1: NO session cleanup here any more. The reason row keys on this
+    // session id, so deleting the row would delete the trace.
     // Invalidate any in-flight handleUseRecording: its post-await body must
     // not hand a take the staff just discarded to the pipeline.
     useRecordingGen.current++
@@ -859,7 +903,154 @@ export function RecordPageView({
       setShowDiscardPhotosDialog(true)
       return
     }
-    proceedDiscard()
+    openDiscardReason('recorder')
+  }
+
+  // ── P5-A: the written-reason gate ────────────────────────────────────────
+  // Ordering (⚖ 8/17 / packet P5-A A-2): the photos confirm still comes first
+  // where it applies — it decides what happens to the PHOTOS — and this dialog
+  // is always LAST, the final commitment gate for the discard itself.
+
+  function openDiscardReason(origin: 'recorder' | 'review') {
+    // Latch WHICH take this gate is for, at the moment it opens. Only the
+    // recorder chokepoint can race 使用 — the review take was handed to the
+    // pipeline long before, so there is nothing left to invalidate there.
+    discardIntentRef.current = origin === 'recorder' ? { takeId: globalRecorder.takeId } : null
+    setDiscardReasonError(null)
+    setDiscardReasonFor(origin)
+  }
+
+  function cancelDiscardReason() {
+    if (discardReasonSubmittingRef.current) return
+    // A cancelled gate must leave NOTHING behind: no latched intent wedging the
+    // next 使用, and no armed photo deletion.
+    discardIntentRef.current = null
+    pendingPhotoDeleteRef.current = false
+    setDiscardReasonFor(null)
+    setDiscardReasonError(null)
+  }
+
+  /**
+   * The one confirm handler for both chokepoints.
+   *
+   * FAILS CLOSED, deliberately. A deliberate discard is the one recording
+   * event that leaves no trace anywhere else, so if the trace cannot be
+   * written — no session id to key the reason row on, or core refusing the row
+   * or the receipt — the discard does NOT happen. The take stays exactly where
+   * it was, the typed reason stays in the field, and the staff member can
+   * retry or cancel. Both server steps are idempotent, so a retry never files
+   * anything twice.
+   */
+  async function confirmDiscardReason(reason: string) {
+    const origin = discardReasonFor
+    if (!origin || discardReasonSubmittingRef.current) return
+    discardReasonSubmittingRef.current = true
+    setDiscardReasonSubmitting(true)
+    setDiscardReasonError(null)
+    try {
+      // Live singleton, not the render snapshot — same rule the rest of this
+      // component follows for anything read across an await.
+      const ctx = globalPipeline.context
+      // The recorder mints its session id in parallel with getUserMedia, so a
+      // fast discard can beat it (G14). Bounded await, exactly as the save
+      // path does; the review path's take was already handed off with whatever
+      // id it had, so there is nothing left to wait for there.
+      let recordingSessionId =
+        origin === 'review' ? (ctx?.recordingSessionId ?? null) : await awaitRecordingSessionId()
+      if (!recordingSessionId) {
+        // Not "slow" — FAILED. The mint runs once at start() and its promise
+        // stays settled, so awaiting it again can only ever return null again;
+        // without this the gate dead-ends forever and its retry copy lies. ONE
+        // re-mint, bounded the same way, then fail closed honestly. The review
+        // arm keys off the pipeline context because the recorder was reset at
+        // hand-off and no longer knows this take's customer or take id.
+        recordingSessionId =
+          origin === 'review'
+            ? await globalRecorder.retryRecordingSessionMint({
+                customerId: ctx?.appointmentCustomerId ?? null,
+                appointmentId: ctx?.appointmentId ?? null,
+                takeId: ctx?.takeId ?? null,
+              })
+            : await globalRecorder.retryRecordingSessionMint()
+      }
+      if (!recordingSessionId) {
+        setDiscardReasonError(t('discardReason.failed'))
+        return
+      }
+      // The take must still be the one this gate was opened for. If 使用 won the
+      // race while the dialog was open, that take is already in transcription —
+      // discarding it here would file a reason for audio the pipeline still
+      // owns. Say so instead of failing silently or acting on the wrong take.
+      if (origin === 'recorder' && globalRecorder.takeId !== discardIntentRef.current?.takeId) {
+        setDiscardReasonError(t('discardReason.takeChanged'))
+        return
+      }
+      const res = await discardRecordingWithReason({
+        recordingSessionId,
+        takeId: (origin === 'review' ? ctx?.takeId : globalRecorder.takeId) ?? null,
+        reason,
+        durationSeconds:
+          origin === 'review' ? (ctx?.duration ?? 0) : (result?.durationMs ?? 0) / 1000,
+        // `|| null`: a walk-in target carries id='' — the same coercion the
+        // save binding does, so the receipt records null rather than ''.
+        customerId:
+          (origin === 'review' ? ctx?.appointmentCustomerId : saveBinding.customerId) || null,
+        appointmentId:
+          (origin === 'review' ? ctx?.appointmentId : saveBinding.appointmentId) || null,
+        pipeline: origin === 'review' && globalPipeline.serverOwned ? 'server' : 'in_tab',
+        jobState: null,
+      })
+      if (!res.ok) {
+        setDiscardReasonError(t('discardReason.failed'))
+        return
+      }
+      setDiscardReasonFor(null)
+      // Ids read BEFORE the await, handed in — the same read-it-first rule
+      // proceedDiscard obeys for the recorder singleton.
+      if (origin === 'review') finishReviewDiscard(recordingSessionId, ctx?.takeId)
+      else {
+        // The photos die HERE, past the gate — never before it. Still ahead of
+        // proceedDiscard() because its discardRecording() wipes the strip these
+        // reads depend on (the ordering constraint that was always in this
+        // file; only the starting line moved).
+        await runPendingPhotoDelete()
+        proceedDiscard()
+      }
+      // Latch released LAST — after proceedDiscard, never before it (fix round
+      // 2). It used to clear the moment core accepted the discard, i.e. ahead
+      // of the awaited photo deletion: the dialog was closed, the phase was
+      // still 'recorded' and useRecordingGen had not moved yet, so for the
+      // whole deletion window a 使用 tap passed every guard and handed
+      // transcription a take the SERVER HAD ALREADY DISCARDED. The latch has
+      // to outlive the window it was built to cover. (The review arm never had
+      // a latch to release — openDiscardReason sets null for it — so this is a
+      // no-op there, kept on the shared line so the two arms cannot drift.)
+      discardIntentRef.current = null
+    } finally {
+      discardReasonSubmittingRef.current = false
+      setDiscardReasonSubmitting(false)
+    }
+  }
+
+  /** ReviewScreen's discard, everything after the reason has landed.
+   *
+   *  A2-1: the session cleanup that used to run here is gone for the same
+   *  reason as its recorder-side twin — the reason row keys on this session id.
+   *  `recordingSessionId` is still taken as a parameter: the inbox now needs
+   *  that row to EXIST to render its 破棄済み line, and keeping the argument
+   *  documents which session this discard belongs to at the call site. */
+  function finishReviewDiscard(
+    recordingSessionId: string | null,
+    takeId: string | null | undefined,
+  ) {
+    void recordingSessionId
+    // Deliberate discard → drop the draft + take too, or they reappear
+    // as recovery offers for a session the user intentionally threw away.
+    clearDraft()
+    if (takeId) void deleteTake(takeId)
+    setRecoveredDraft(null)
+    setRecoveredTake(null)
+    globalPipeline.reset()
   }
 
   function handleDiscardCancel() {
@@ -867,13 +1058,27 @@ export function RecordPageView({
     setShowDiscardPhotosDialog(false)
   }
 
-  async function handleDiscardDeletePhotos() {
+  /**
+   * The photo half of a discard — RUN ONLY ONCE THE DISCARD HAS LANDED.
+   *
+   * Deleting a customer's photos is irreversible and server-side, so it may not
+   * happen one step before the final commitment gate. It used to: 写真も削除
+   * deleted them the moment the photos dialog was answered, and cancelling the
+   * reason gate (or hitting any server refusal) left the photos gone with the
+   * take still sitting there — strictly worse than never having tapped.
+   *
+   * The marks still have to precede proceedDiscard(): its discardRecording()
+   * clears the store and the strip these reads depend on. That constraint never
+   * changed — only the line this work starts from.
+   */
+  async function runPendingPhotoDelete() {
+    if (!pendingPhotoDeleteRef.current) return
+    pendingPhotoDeleteRef.current = false
     const photos = sessionPhotosForDiscardDialog()
     const donePhotos = photos.filter((p) => p.status === 'done')
     // §7: an 'uploading' photo hasn't landed server-side yet — mark it for
     // delete-after-settle (the store fires the delete itself the moment
-    // that upload resolves to 'done'; nothing to do on 'error'). Marked
-    // BEFORE proceedDiscard, whose discardRecording() wipes the strip.
+    // that upload resolves to 'done'; nothing to do on 'error').
     // The onFail closure carries t() so a settle-path delete failure gets the
     // SAME toast as its done-photos twin below (n:1 — one photo per mark).
     // Firing after navigation is fine: sonner's toaster is app-global.
@@ -884,7 +1089,6 @@ export function RecordPageView({
         )
       }
     }
-    setShowDiscardPhotosDialog(false)
     setDiscardingPhotos(true)
     // Best-effort: collect failures, one toast if any fail — deleteCustomerPhoto
     // never throws (catches internally), so Promise.all is safe here.
@@ -894,12 +1098,20 @@ export function RecordPageView({
     setDiscardingPhotos(false)
     const failed = results.filter((r) => !r.success).length
     if (failed > 0) toast.error(t('sessionPhotos.discardDeleteFailed', { n: failed }))
-    proceedDiscard()
+  }
+
+  /** Records the DECISION only — see runPendingPhotoDelete for why nothing is
+   *  destroyed here. */
+  function handleDiscardDeletePhotos() {
+    pendingPhotoDeleteRef.current = true
+    setShowDiscardPhotosDialog(false)
+    openDiscardReason('recorder')
   }
 
   function handleDiscardKeepPhotos() {
+    pendingPhotoDeleteRef.current = false
     setShowDiscardPhotosDialog(false)
-    proceedDiscard()
+    openDiscardReason('recorder')
   }
   async function handleUseRecording(outcome?: SessionOutcome, outcomeSkipped = false) {
     if (!result) return
@@ -930,6 +1142,13 @@ export function RecordPageView({
       // A discard during the await bumps the generation — this take no longer
       // belongs to us; drop it instead of pipelining a discarded recording.
       if (gen !== useRecordingGen.current) return
+      // The generation only moves once the discard COMMITS, and since P5-A that
+      // is after a whole dialog round-trip. So also drop the take when a discard
+      // gate is merely OPEN for it: handing a take the staff is mid-破棄 to
+      // transcription resurfaces it as a save offer (and bills the run) — the
+      // exact outcome the doctrine forbids.
+      const discardIntent = discardIntentRef.current
+      if (discardIntent && discardIntent.takeId === globalRecorder.takeId) return
       globalPipeline.start(result.blob, {
         locale,
         customers,
@@ -2037,43 +2256,53 @@ export function RecordPageView({
     handleUseRecording(undefined, true)
   }
 
+  // P5-A: ONE element, rendered in BOTH return branches below. The two
+  // deliberate-discard chokepoints therefore share a single component instance
+  // shape, a single predicate and a single confirm handler — there is no
+  // per-site copy that could drift.
+  const discardReasonDialog = (
+    <RecordingDiscardReasonDialog
+      open={discardReasonFor !== null}
+      submitting={discardReasonSubmitting}
+      error={discardReasonError}
+      onConfirm={(reason) => void confirmDiscardReason(reason)}
+      onCancel={cancelDiscardReason}
+    />
+  )
+
   // Background pipeline finished → render the SAME ReviewScreen the old
   // blocking flow used, fed from the singleton's result + the context captured
   // at start. The top-corner chip routes here when it's ready.
   if (pipeline.state === 'review' && pipeline.result && pipeline.context) {
     return (
-      <ReviewScreen
-        transcript={pipeline.result.transcript}
-        entries={pipeline.result.entries}
-        summary={pipeline.result.summary}
-        customers={pipeline.context.customers}
-        duration={pipeline.context.duration}
-        appointmentId={pipeline.context.appointmentId}
-        appointmentCustomerId={pipeline.context.appointmentCustomerId}
-        outcome={pipeline.context.outcome}
-        recordingSessionId={pipeline.context.recordingSessionId}
-        takeId={pipeline.context.takeId}
-        onSaved={() => {
-          // Save persisted the record → drop the recovery draft (storage +
-          // in-memory) AND the persisted take, so no stale banner reoffers a
-          // finished session.
-          clearDraft()
-          if (pipeline.context?.takeId) void deleteTake(pipeline.context.takeId)
-          setRecoveredDraft(null)
-          setRecoveredTake(null)
-          globalPipeline.reset()
-        }}
-        onDiscard={() => {
-          // Deliberate discard → drop the draft + take too, or they reappear
-          // as recovery offers for a session the user intentionally threw away.
-          clearDraft()
-          cleanUpDiscardedSession(pipeline.context?.recordingSessionId)
-          if (pipeline.context?.takeId) void deleteTake(pipeline.context.takeId)
-          setRecoveredDraft(null)
-          setRecoveredTake(null)
-          globalPipeline.reset()
-        }}
-      />
+      <>
+        <ReviewScreen
+          transcript={pipeline.result.transcript}
+          entries={pipeline.result.entries}
+          summary={pipeline.result.summary}
+          customers={pipeline.context.customers}
+          duration={pipeline.context.duration}
+          appointmentId={pipeline.context.appointmentId}
+          appointmentCustomerId={pipeline.context.appointmentCustomerId}
+          outcome={pipeline.context.outcome}
+          recordingSessionId={pipeline.context.recordingSessionId}
+          takeId={pipeline.context.takeId}
+          onSaved={() => {
+            // Save persisted the record → drop the recovery draft (storage +
+            // in-memory) AND the persisted take, so no stale banner reoffers a
+            // finished session.
+            clearDraft()
+            if (pipeline.context?.takeId) void deleteTake(pipeline.context.takeId)
+            setRecoveredDraft(null)
+            setRecoveredTake(null)
+            globalPipeline.reset()
+          }}
+          // P5-A: the reason is now the gate. Nothing is dropped until it has
+          // landed — finishReviewDiscard() runs from the confirm handler.
+          onDiscard={() => openDiscardReason('review')}
+        />
+        {discardReasonDialog}
+      </>
     )
   }
 
@@ -2469,6 +2698,7 @@ export function RecordPageView({
         customerNameById={customerNameById}
         onOpenRecord={handleInboxOpenRecord}
         onSaveTake={handleInboxSaveTake}
+        myDiscardsThisMonth={myDiscardsThisMonth}
       />
 
       <LiveTranscriptCard connected={false} lines={[]} />
@@ -2930,6 +3160,10 @@ export function RecordPageView({
           </div>
         </>
       )}
+
+      {/* P5-A: the written-reason gate — the LAST dialog on every deliberate
+          discard, after the photos confirm above where that applies. */}
+      {discardReasonDialog}
     </div>
   )
 }

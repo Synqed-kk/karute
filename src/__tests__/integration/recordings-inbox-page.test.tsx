@@ -26,9 +26,16 @@ jest.mock('@/i18n/navigation', () => ({
   Link: ({ children }: { children: unknown }) => children,
 }))
 jest.mock('@/actions/recordings', () => ({ startRecordingSession: jest.fn() }))
+// P5-A: RecordPageView imports the written-reason discard action; unmocked it
+// pulls the ESM SDK into this suite. Not exercised here.
+jest.mock('@/actions/recording-discard', () => ({ discardRecordingWithReason: jest.fn() }))
 jest.mock('@/actions/karute', () => ({
   saveKaruteRecord: jest.fn(),
   saveKaruteRecordInline: jest.fn(async () => ({ id: 'karute-1' })),
+}))
+jest.mock('@/actions/recording-discards', () => ({
+  myDiscardCountThisMonth: jest.fn(async () => null),
+  listDiscardReasons: jest.fn(async () => ({ ok: false, error: 'forbidden' })),
 }))
 jest.mock('@/actions/recovery', () => ({
   getRecoveryDayFacts: jest.fn(async () => ({

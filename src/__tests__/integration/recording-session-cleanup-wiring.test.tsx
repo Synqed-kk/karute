@@ -1,27 +1,29 @@
 /**
  * @jest-environment jsdom
  *
- * Where the discard cleanup IS wired — and, just as load-bearing, where it is
- * NOT (Build F1 fix round 3).
+ * The discard cleanup is NOT wired ANYWHERE any more (packet item A2-1) — and
+ * that is now the property this file exists to hold.
  *
- * The cleanup destroys a server row, so wiring it one call site too wide is a
- * data-loss bug, not a cosmetic one. Every NOT-wired case below is a path
- * where the take survives or the record exists, and removing the session row
- * there would either erase a still-honest 処理中 row or orphan a saved karute
- * from the session it came from.
+ * HISTORY, because the inversion matters. Build F1 added a cleanup that
+ * hard-deleted the recording_sessions row on a deliberate 破棄, so the orphan
+ * row would stop showing up in 録音履歴 as an unclearable 失敗. P5-A then made
+ * the staff member WRITE why they discarded, and that written reason lands in
+ * core's discard ledger keyed on `recording_session_id` — the exact row the
+ * cleanup deleted moments later, fire-and-forget, with no app-side signal. The
+ * cleanup would have voided the flagship deliverable ~200 ms after it landed.
  *
- * WHY TWO OF THE FIVE NOT-WIRED PATHS HAVE NO TEST HERE (the TTL prune and the
- * recovery banner): they are proven by CENSUS, not by exercise. The cleanup is
- * reachable through exactly one funnel — `deleteRecordingSession` has ONE app
- * call site (RecordPageView's `cleanUpDiscardedSession`), and that helper has
- * exactly TWO call sites repo-wide, both asserted below. Nothing else in src
- * or thin can reach it, so a path that never calls the funnel cannot be made
- * to call it by a test; the two assertions here that DO exercise a not-wired
- * path (the error card, settle-on-save) earn their place because they run
- * through the same component and could plausibly regress into it. If the
- * funnel ever gains a third call site, that census breaks and these two need
- * real tests.
+ * So the session row SURVIVES a reasoned discard, and A2-3 renders it honestly
+ * (a grayed 破棄済み row off the same ledger) instead of destroying it. The
+ * orphan problem is solved by naming the row correctly, not by deleting it.
+ *
+ * The census argument is unchanged in shape and stronger in result:
+ * `deleteRecordingSession` now has ZERO call sites in RecordPageView, so no
+ * path through this component can reach it. Every case below asserts that, at
+ * the paths that used to be wired and at the paths that never were.
  */
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 jest.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }))
 jest.mock('@/i18n/navigation', () => ({
   useRouter: () => ({ replace: jest.fn(), push: jest.fn(), back: jest.fn() }),
@@ -35,6 +37,19 @@ const mockDeleteRecordingSession = jest.fn(
 jest.mock('@/actions/recordings', () => ({
   startRecordingSession: jest.fn(),
   deleteRecordingSession: (id: string) => mockDeleteRecordingSession(id),
+}))
+/** P5-A: every deliberate discard now passes the written-reason gate first,
+ *  and the cleanup only runs once that gate reports success. */
+const mockDiscardWithReason = jest.fn(async (input: unknown) => {
+  void input // the mock is input-agnostic; the ARG is what the wiring asserts on
+  return { ok: true, receiptId: 'row-1', duplicate: false } as const
+})
+jest.mock('@/actions/recording-discard', () => ({
+  discardRecordingWithReason: (input: unknown) => mockDiscardWithReason(input),
+}))
+jest.mock('@/actions/recording-discards', () => ({
+  myDiscardCountThisMonth: jest.fn(async () => null),
+  listDiscardReasons: jest.fn(async () => ({ ok: false, error: 'forbidden' })),
 }))
 jest.mock('@/actions/karute', () => ({
   saveKaruteRecord: jest.fn(),
@@ -95,10 +110,10 @@ jest.mock('@/lib/karute/draft', () => ({
 }))
 jest.mock('@/lib/karute/ai-slot-cache', () => ({ clearAiSlotCache: jest.fn() }))
 
-/** The recorder singleton's live session id — what proceedDiscard must read
- *  BEFORE discardRecording() nulls it. Inlined in the factory below: jest
- *  hoists jest.mock above every const. */
-const RECORDER_SESSION = 'sess-live'
+// The recorder singleton's live session id is inlined in the factory below
+// (jest hoists jest.mock above every const). A2-1 removed the assertions that
+// referenced it by name — nothing compares against these ids any more, because
+// the cleanup they were passed to is no longer called at all.
 jest.mock('@/lib/global-recorder', () => ({
   globalRecorder: {
     takeId: null,
@@ -127,13 +142,13 @@ jest.mock('@/hooks/use-global-recorder', () => ({
     pauseRecording: jest.fn(),
     resumeRecording: jest.fn(),
     discardRecording: (...a: unknown[]) => mockDiscardRecording(...a),
-    awaitRecordingSessionId: jest.fn(async () => null),
+    // P5-A: the reason gate bounded-awaits the mint before it will discard
+    // anything, so this must answer with the live session id.
+    awaitRecordingSessionId: jest.fn(async () => 'sess-live'),
   }),
 }))
 
-/** The pipeline's own session id — the ReviewScreen chokepoint's source.
- *  Inlined in the factories below for the same hoisting reason. */
-const PIPELINE_SESSION = 'sess-reviewed'
+// The pipeline's own session id is likewise inlined in the factories below.
 let mockPipelineState: 'idle' | 'processing' | 'review' | 'error' = 'idle'
 const mockPipelineReset = jest.fn()
 jest.mock('@/lib/global-pipeline', () => ({
@@ -224,56 +239,62 @@ beforeEach(() => {
   mockPipelineState = 'idle'
 })
 
+/** P5-A: a deliberate discard is now two taps — 破棄, then the required
+ *  written reason. `next-intl` is key-echoing in this suite, so the confirm
+ *  button's label is its key. */
+async function discardThroughReasonGate(trigger: string) {
+  await act(async () => {
+    fireEvent.click(screen.getByText(trigger))
+  })
+  await act(async () => {
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '録り直します' } })
+  })
+  await act(async () => {
+    fireEvent.click(screen.getByText('discardReason.confirm'))
+  })
+}
+
 afterEach(() => {
   cleanup()
   resetInbox()
 })
 
-describe('WIRED — the deliberate discard chokepoints', () => {
-  it('the 破棄 button cleans up the RECORDER’s session id', async () => {
+describe('A2-1 — a reasoned discard KEEPS its session row', () => {
+  it('the 破棄 button does NOT clean up: the reason row keys on that session id', async () => {
     await renderPage()
-    await act(async () => {
-      fireEvent.click(screen.getByText('discard'))
-    })
-    expect(mockDeleteRecordingSession).toHaveBeenCalledTimes(1)
-    expect(mockDeleteRecordingSession).toHaveBeenCalledWith(RECORDER_SESSION)
-    // …and the take is still discarded: the cleanup rides along, never gates.
+    await discardThroughReasonGate('discard')
+
+    expect(mockDeleteRecordingSession).not.toHaveBeenCalled()
+    // …and the take is still discarded. Keeping the row is not a half-discard:
+    // the audio goes, the explanation stays.
     expect(mockDiscardRecording).toHaveBeenCalled()
   })
 
-  it('the id is read BEFORE discardRecording() nulls it on the singleton', async () => {
-    // Ordering is the whole bug class here — a cleanup fired after the reset
-    // would silently receive null and quietly do nothing.
-    const order: string[] = []
-    mockDeleteRecordingSession.mockImplementation(async () => {
-      order.push('cleanup')
-      return { ok: true }
-    })
-    mockDiscardRecording.mockImplementation(() => order.push('discard'))
-    await renderPage()
-    await act(async () => {
-      fireEvent.click(screen.getByText('discard'))
-    })
-    expect(order).toEqual(['cleanup', 'discard'])
-  })
-
-  it('ReviewScreen’s 破棄 cleans up the PIPELINE’s session id', async () => {
+  it('ReviewScreen’s 破棄 does NOT clean up either — same reason, same rule', async () => {
     mockPipelineState = 'review'
     await renderPage()
-    await act(async () => {
-      fireEvent.click(screen.getByText('review-discard'))
-    })
-    expect(mockDeleteRecordingSession).toHaveBeenCalledTimes(1)
-    expect(mockDeleteRecordingSession).toHaveBeenCalledWith(PIPELINE_SESSION)
+    await discardThroughReasonGate('review-discard')
+
+    expect(mockDeleteRecordingSession).not.toHaveBeenCalled()
   })
 
-  it('a failed cleanup never blocks or breaks the discard', async () => {
-    mockDeleteRecordingSession.mockRejectedValue(new Error('core down'))
-    await renderPage()
-    await act(async () => {
-      fireEvent.click(screen.getByText('discard'))
-    })
-    expect(mockDiscardRecording).toHaveBeenCalled()
+  // The census, asserted rather than asserted-about. The two cases above prove
+  // the two paths a test can drive; this proves there is no THIRD path, by
+  // reading the source the way the receipt suite pins its 'use server' export
+  // set. A future edit that reintroduces the call anywhere in the component
+  // goes red here even if no test happens to drive that path.
+  it('RecordPageView does not import or call the cleanup anywhere', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'src/components/karute/redesign/record/RecordPageView.tsx'),
+      'utf8',
+    )
+
+    // Matched as CODE shapes, not bare substrings: the file's own comment
+    // explains why the cleanup left and names the server module it still lives
+    // in, and a prose mention must not fail this.
+    expect(source).not.toMatch(/import[\s\S]*?deleteRecordingSession[\s\S]*?from '@\/actions\/recordings'/)
+    expect(source).not.toMatch(/\bdeleteRecordingSession\s*\(/)
+    expect(source).not.toMatch(/\bcleanUpDiscardedSession\b/)
   })
 })
 

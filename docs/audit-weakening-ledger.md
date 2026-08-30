@@ -82,3 +82,14 @@
   entry (createSignedUploadUrl/createSignedUrl are not CP3 storage write
   methods), same as the facade precedent
   src/app/api/app/v1/recordings/upload-url/route.ts · Liam (2026-08-25 web-upload hotfix)
+- 2026-08-30 · SDK_WRITE_ALLOWLIST:src/lib/recording/discard.ts::recordingDiscards.create · server-side
+  creation of the staff discard reason row (ensureDiscardReasonRow) — the
+  ⚖-required written reason for every deliberate staff discard. Legal on three
+  counts: it is probe-first idempotent (list before create, so a double-tap
+  cannot double-create); the free-text reason is confined to the core discard
+  row and never enters audit detail (schema .strict(), pinned by four
+  independent tests); and the STAFF receipt that references the row is
+  mintable only through the internal vouch path · Liam (⚖ 2026-08-17
+  required-written-reason ruling + ⚖ 2026-08-20 kept-discards doctrine; build
+  adjudicated in the P5-A 4-lens blind round + fix round,
+  ADJUDICATION-P5A-ROUND1-2026-08-26.md, karute-recording-integrity lane)

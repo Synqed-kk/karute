@@ -39,6 +39,9 @@ jest.mock('@/i18n/navigation', () => ({
 // (same rationale review-screen-discard.test.tsx documents for
 // @/actions/customers: they pull in next/cache + the synqed client).
 jest.mock('@/actions/recordings', () => ({ startRecordingSession: jest.fn() }))
+// P5-A: RecordPageView imports the written-reason discard action; unmocked it
+// pulls the ESM SDK into this suite. Not exercised here.
+jest.mock('@/actions/recording-discard', () => ({ discardRecordingWithReason: jest.fn() }))
 // RecordPageView renders ReviewScreen (post-recording), which imports
 // @/actions/karute — a 'use server' module that pulls in next/cache and
 // (transitively) Next's server render-stream helpers, which reference
@@ -48,6 +51,10 @@ jest.mock('@/actions/karute', () => ({ saveKaruteRecord: jest.fn() }))
 jest.mock('@/actions/customers', () => ({
   getCustomerConsent: jest.fn(async () => ({ consent: null })),
   grantCustomerConsent: jest.fn(async () => ({ ok: true })),
+}))
+jest.mock('@/actions/recording-discards', () => ({
+  myDiscardCountThisMonth: jest.fn(async () => null),
+  listDiscardReasons: jest.fn(async () => ({ ok: false, error: 'forbidden' })),
 }))
 jest.mock('@/actions/packs', () => ({
   createPackAction: jest.fn(),

@@ -116,6 +116,78 @@ describe('録音履歴 — the five states', () => {
   })
 })
 
+// ── A2-3: the deliberate discard, rendered honestly ────────────────────────
+// ⚖ 8/20 doctrine. Before A2-1 the session row was hard-deleted on discard, so
+// this state could not exist; the row now survives BECAUSE the written reason
+// keys on it, and the inbox has to say what it is. G9 is the failure this
+// guards: a discarded session must never resurface as a green 保存済み row or
+// an actionable 復元可能 one offering to save audio the staff member threw away.
+describe('録音履歴 — 破棄済み (A2-3)', () => {
+  it('a session a staff member discarded reads 破棄済み, and is inert', () => {
+    const [row] = fold([session({ recordingSessionId: 's1', discardedByStaff: true })])
+
+    expect(row.state).toBe('discarded')
+    expect(row.reason).toBeNull()
+    // canRetry is the affordance flag; the card's actionFor also answers
+    // `null` for this state outright, so no button can reach the row.
+    expect(row.canRetry).toBe(false)
+  })
+
+  it('is never counted in 要対応 — the decision is made AND explained', () => {
+    const rows = fold([session({ recordingSessionId: 's1', discardedByStaff: true })])
+
+    expect(needsAttention(rows[0])).toBe(false)
+    expect(countNeedsAttention(rows)).toBe(0)
+  })
+
+  // THE G9 case, from every direction the fold can be entered.
+  it('outranks a karute record — no green 保存済み row for a discarded session', () => {
+    const [row] = fold([
+      session({ recordingSessionId: 's1', discardedByStaff: true, karuteRecordId: 'rec-1' }),
+    ])
+
+    // The state is what the chip reads, so a green 保存済み is impossible even
+    // with a record present. The id itself stays true — this module reports
+    // evidence, it does not erase it.
+    expect(row.state).toBe('discarded')
+  })
+
+  it('outranks a local take — never 復元可能, never a 保存する offer', () => {
+    const [row] = fold(
+      [session({ recordingSessionId: 's1', discardedByStaff: true })],
+      [take({ takeId: 't1', recordingSessionId: 's1' })],
+    )
+
+    expect(row.state).toBe('discarded')
+    expect(row.canRetry).toBe(false)
+  })
+
+  it.each(['QUEUED', 'RUNNING', 'DONE', 'FAILED'])(
+    'outranks job status %s — a job cannot un-discard a take',
+    (jobStatus) => {
+      const [row] = fold([
+        session({ recordingSessionId: 's1', discardedByStaff: true, jobStatus }),
+      ])
+
+      expect(row.state).toBe('discarded')
+    },
+  )
+
+  it('outranks a FAILED probe — never 失敗 for a take that was thrown away on purpose', () => {
+    const [row] = fold([
+      session({ recordingSessionId: 's1', discardedByStaff: true, jobProbeFailed: true }),
+    ])
+
+    expect(row.state).toBe('discarded')
+  })
+
+  it('absent the flag, nothing changes — the default is "not discarded"', () => {
+    const [row] = fold([session({ recordingSessionId: 's1', karuteRecordId: 'rec-1' })])
+
+    expect(row.state).toBe('saved')
+  })
+})
+
 describe('録音履歴 — precedence: record beats job beats take', () => {
   it('a record wins over a FAILED job (a retry that landed)', () => {
     const [row] = fold([
@@ -348,6 +420,8 @@ describe('録音履歴 — i18n parity for the new keys', () => {
     'state.processing',
     'state.failed',
     'state.recoverable',
+    'state.discarded',
+    'myDiscards',
     'reason.transcribing',
     'reason.unsettled',
     'reason.autoSaved',

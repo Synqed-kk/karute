@@ -47,6 +47,19 @@ jest.mock('@/i18n/navigation', () => ({
   Link: ({ children }: { children: unknown }) => children,
 }))
 jest.mock('@/actions/recordings', () => ({ startRecordingSession: jest.fn() }))
+// P5-A: RecordPageView imports the written-reason discard action; unmocked it
+// pulls the ESM SDK into this suite. Not exercised here.
+jest.mock('@/actions/recording-discard', () => ({
+  discardRecordingWithReason: jest.fn(async () => ({
+    ok: true,
+    receiptId: 'row-1',
+    duplicate: false,
+  })),
+}))
+jest.mock('@/actions/recording-discards', () => ({
+  myDiscardCountThisMonth: jest.fn(async () => null),
+  listDiscardReasons: jest.fn(async () => ({ ok: false, error: 'forbidden' })),
+}))
 jest.mock('@/actions/karute', () => ({ saveKaruteRecord: jest.fn() }))
 const mockUploadCustomerPhoto = jest.fn(
   async (_customerId: string, _fd: FormData): Promise<{ photo?: { id: string }; error?: string }> => ({
@@ -111,7 +124,9 @@ jest.mock('@/hooks/use-global-recorder', () => ({
     startRecording: jest.fn(),
     stopRecording: jest.fn(),
     discardRecording: mockDiscardRecording,
-    awaitRecordingSessionId: jest.fn(async () => null),
+    // P5-A: the written-reason gate bounded-awaits the mint and fails closed
+    // on null, so every discard test below needs a real id here.
+    awaitRecordingSessionId: jest.fn(async () => 'sess-live'),
   }),
 }))
 // §15: the save path calls globalPipeline.start() — stub the whole module
@@ -170,6 +185,17 @@ function donePhoto(overrides: Partial<SessionPhoto> = {}): SessionPhoto {
   }
 }
 
+/** P5-A: the written-reason gate is the LAST step of every deliberate
+ *  discard — it opens AFTER the photos confirm (or straight away when there
+ *  are no photos to ask about), and nothing is discarded until it is
+ *  confirmed. `next-intl` is key-echoing here, so labels are their keys. */
+function confirmDiscardReason() {
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: '録り直します' } })
+  fireEvent.click(screen.getByText('discardReason.confirm'))
+}
+const reasonGateShown = () => screen.queryByText('discardReason.title') !== null
+const photosDialogShown = () => screen.queryByText(/^sessionPhotos.discardPhotos/) !== null
+
 beforeEach(() => {
   jest.clearAllMocks()
   mockUploadCustomerPhoto.mockImplementation(async () => ({ photo: { id: 'p1' } }))
@@ -186,11 +212,16 @@ beforeEach(() => {
 })
 
 describe('RecordPageView discard — D3 discard-with-photos dialog', () => {
-  it('discard with NO session photos → proceeds straight through, no dialog', () => {
+  it('discard with NO session photos → no photos dialog, straight to the reason gate', async () => {
     render(<RecordPageView {...baseProps} />)
     fireEvent.click(screen.getByText('discard'))
-    expect(screen.queryByRole('dialog')).toBeNull()
-    expect(mockDiscardRecording).toHaveBeenCalledTimes(1)
+    expect(photosDialogShown()).toBe(false)
+    // P5-A: nothing is discarded on the tap alone any more.
+    expect(reasonGateShown()).toBe(true)
+    expect(mockDiscardRecording).not.toHaveBeenCalled()
+
+    confirmDiscardReason()
+    await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
   })
 
   it('discard WITH a done photo → shows the dialog and does NOT discard yet', () => {
@@ -212,12 +243,14 @@ describe('RecordPageView discard — D3 discard-with-photos dialog', () => {
     expect(mockDiscardRecording).not.toHaveBeenCalled()
   })
 
-  it('an ERROR-status (unfinished) photo alone does NOT trigger the dialog — only uploading/done count', () => {
+  it('an ERROR-status (unfinished) photo alone does NOT trigger the dialog — only uploading/done count', async () => {
     sessionPhotoStore.photos = [donePhoto({ status: 'error', serverId: null })]
     render(<RecordPageView {...baseProps} />)
     fireEvent.click(screen.getByText('discard'))
-    expect(screen.queryByRole('dialog')).toBeNull()
-    expect(mockDiscardRecording).toHaveBeenCalledTimes(1)
+    expect(photosDialogShown()).toBe(false)
+
+    confirmDiscardReason()
+    await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
   })
 
   // §7: the dialog description shows the COMBINED count (uploading + done).
@@ -234,7 +267,7 @@ describe('RecordPageView discard — D3 discard-with-photos dialog', () => {
     ).toBeInTheDocument()
   })
 
-  it('写真も削除 deletes each done photo (best-effort) then discards', async () => {
+  it('写真も削除 records the decision, and the photos die only PAST the reason gate', async () => {
     sessionPhotoStore.photos = [
       donePhoto({ id: 'a', serverId: 's-a' }),
       donePhoto({ id: 'b', serverId: 's-b' }),
@@ -242,10 +275,62 @@ describe('RecordPageView discard — D3 discard-with-photos dialog', () => {
     render(<RecordPageView {...baseProps} />)
     fireEvent.click(screen.getByText('discard'))
     fireEvent.click(screen.getByText('sessionPhotos.discardPhotosDelete'))
+    // The photos confirm resolves first, THEN the reason gate opens (A-2's
+    // ordering contract).
+    await waitFor(() => expect(reasonGateShown()).toBe(true))
+    // Fix round 1: answering the photos dialog decides NOTHING irreversible.
+    // The gate that follows is the commitment step, so while it is open the
+    // customer's photos must still be on the server, untouched.
+    expect(mockDeleteCustomerPhoto).not.toHaveBeenCalled()
+    expect(mockDiscardRecording).not.toHaveBeenCalled()
+
+    confirmDiscardReason()
     await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
     expect(mockDeleteCustomerPhoto).toHaveBeenCalledTimes(2)
     expect(mockDeleteCustomerPhoto).toHaveBeenCalledWith('cust-A', 's-a')
     expect(mockDeleteCustomerPhoto).toHaveBeenCalledWith('cust-A', 's-b')
+  })
+
+  // THE fix-round-1 case, and the one that made the old order indefensible:
+  // cancelling the gate used to leave the take sitting there with the
+  // customer's photos already destroyed server-side — strictly worse than
+  // never having tapped 破棄 at all.
+  it('cancelling the reason gate after 写真も削除 leaves every photo intact', async () => {
+    sessionPhotoStore.photos = [
+      donePhoto({ id: 'a', serverId: 's-a' }),
+      donePhoto({ id: 'b', serverId: 's-b' }),
+    ]
+    render(<RecordPageView {...baseProps} />)
+    fireEvent.click(screen.getByText('discard'))
+    fireEvent.click(screen.getByText('sessionPhotos.discardPhotosDelete'))
+    await waitFor(() => expect(reasonGateShown()).toBe(true))
+
+    fireEvent.click(screen.getByText('cancel'))
+
+    await waitFor(() => expect(reasonGateShown()).toBe(false))
+    expect(mockDeleteCustomerPhoto).not.toHaveBeenCalled()
+    expect(mockDiscardRecording).not.toHaveBeenCalled()
+    expect(sessionPhotoStore.photos).toHaveLength(2)
+  })
+
+  // …and the armed decision must not survive the cancel either: re-opening the
+  // gate and choosing 顧客ページに残す has to mean KEEP, not "delete anyway".
+  it('a cancelled 写真も削除 does not carry over into the next discard', async () => {
+    sessionPhotoStore.photos = [donePhoto({ id: 'a', serverId: 's-a' })]
+    render(<RecordPageView {...baseProps} />)
+    fireEvent.click(screen.getByText('discard'))
+    fireEvent.click(screen.getByText('sessionPhotos.discardPhotosDelete'))
+    await waitFor(() => expect(reasonGateShown()).toBe(true))
+    fireEvent.click(screen.getByText('cancel'))
+    await waitFor(() => expect(reasonGateShown()).toBe(false))
+
+    fireEvent.click(screen.getByText('discard'))
+    fireEvent.click(screen.getByText('sessionPhotos.discardPhotosKeep'))
+    await waitFor(() => expect(reasonGateShown()).toBe(true))
+    confirmDiscardReason()
+
+    await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
+    expect(mockDeleteCustomerPhoto).not.toHaveBeenCalled()
   })
 
   // §7 — the settle-then-delete path (mutation red-run anchor: removing the
@@ -266,6 +351,8 @@ describe('RecordPageView discard — D3 discard-with-photos dialog', () => {
     fireEvent.click(screen.getByText('discard'))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     fireEvent.click(screen.getByText('sessionPhotos.discardPhotosDelete'))
+    await waitFor(() => expect(reasonGateShown()).toBe(true))
+    confirmDiscardReason()
     await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
     // Not yet — the upload hasn't settled, nothing to delete.
     expect(mockDeleteCustomerPhoto).not.toHaveBeenCalled()
@@ -293,6 +380,8 @@ describe('RecordPageView discard — D3 discard-with-photos dialog', () => {
     render(<RecordPageView {...baseProps} />)
     fireEvent.click(screen.getByText('discard'))
     fireEvent.click(screen.getByText('sessionPhotos.discardPhotosDelete'))
+    await waitFor(() => expect(reasonGateShown()).toBe(true))
+    confirmDiscardReason()
     await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
     // No done photos in this session — the ONLY possible toast is the
     // settle-path one, so nothing else can satisfy the assertion below.
@@ -309,6 +398,8 @@ describe('RecordPageView discard — D3 discard-with-photos dialog', () => {
     render(<RecordPageView {...baseProps} />)
     fireEvent.click(screen.getByText('discard'))
     fireEvent.click(screen.getByText('sessionPhotos.discardPhotosKeep'))
+    await waitFor(() => expect(reasonGateShown()).toBe(true))
+    confirmDiscardReason()
     await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
     expect(mockDeleteCustomerPhoto).not.toHaveBeenCalled()
   })
@@ -319,6 +410,8 @@ describe('RecordPageView discard — D3 discard-with-photos dialog', () => {
     render(<RecordPageView {...baseProps} />)
     fireEvent.click(screen.getByText('discard'))
     fireEvent.click(screen.getByText('sessionPhotos.discardPhotosDelete'))
+    await waitFor(() => expect(reasonGateShown()).toBe(true))
+    confirmDiscardReason()
     await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
   })
 
@@ -371,6 +464,8 @@ describe('RecordPageView discard — D3 discard-with-photos dialog', () => {
     expect(keepBtn).toHaveAttribute('variant', 'default')
     expect(cancelBtn).toHaveAttribute('variant', 'outline')
     fireEvent.click(screen.getByText('sessionPhotos.discardPhotosKeep'))
+    await waitFor(() => expect(reasonGateShown()).toBe(true))
+    confirmDiscardReason()
     await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
     expect(mockDeleteCustomerPhoto).not.toHaveBeenCalled()
   })
@@ -388,18 +483,21 @@ describe('RecordPageView discard — D3 discard-with-photos dialog', () => {
   // §9: the honest-loss toast for 'error' photos now lives here, i18n'd —
   // fires on the explicit-discard path even when there's no D3 dialog
   // (an error-only session skips the dialog but must not skip the toast).
-  it('§9: discard with an error-status photo → i18n toast fires before discardRecording', () => {
+  it('§9: discard with an error-status photo → i18n toast fires before discardRecording', async () => {
     sessionPhotoStore.photos = [donePhoto({ status: 'error', serverId: null })]
     render(<RecordPageView {...baseProps} />)
     fireEvent.click(screen.getByText('discard'))
+    confirmDiscardReason()
+    await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
     expect(mockToastWarning).toHaveBeenCalledWith('sessionPhotos.uploadsDropped:{"n":1}')
-    expect(mockDiscardRecording).toHaveBeenCalledTimes(1)
   })
 
-  it('§9: no error photos → no drop toast', () => {
+  it('§9: no error photos → no drop toast', async () => {
     sessionPhotoStore.photos = []
     render(<RecordPageView {...baseProps} />)
     fireEvent.click(screen.getByText('discard'))
+    confirmDiscardReason()
+    await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
     expect(mockToastWarning).not.toHaveBeenCalled()
   })
 

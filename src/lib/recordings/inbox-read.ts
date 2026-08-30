@@ -25,6 +25,11 @@
  *    never advances it, so it says nothing about the pipeline.
  *  - recordingJobs has no bulk list, so job state is an N+1 over the RESIDUE
  *    (record-less sessions only), bounded by the 7-day window and capped.
+ *  - The discard ledger (P5-A, item A2-3) is ONE batched read per pass, not a
+ *    probe per row: recordingDiscards.list has no date or session-set filter,
+ *    so the only shapes available are "everything" or "one session at a time",
+ *    and the latter would be a second N+1 across the WHOLE window rather than
+ *    the residue. Sessions carrying a STAFF row render as 破棄済み.
  */
 
 import type { SynqedClient } from '@synqed-kk/client'
@@ -55,8 +60,52 @@ const MAX_JOB_PROBES = 100
  *  rows; the pool only matters on a genuinely broken tenant. */
 const PROBE_CONCURRENCY = 6
 
+/** Pages of the discard ledger read per pass. Discards are rare by nature, so
+ *  20 × 200 is years of them.
+ *  ponytail: past the cap the OLDEST discards stop being recognised and their
+ *  sessions fall back to whatever the job probe says — a 失敗 row for a take
+ *  that was deliberately thrown away. Upgrade path if a tenant ever reaches it:
+ *  ask core for a date-range (or session-set) filter on recordingDiscards.list,
+ *  which is the same gap that forces this read to be unfiltered at all. */
+const MAX_DISCARD_PAGES = 20
+
+/**
+ * Sessions in this window that a staff member deliberately discarded.
+ *
+ * Degrades to an EMPTY SET on failure, never a thrown read: a ledger blip must
+ * not blank the whole 録音履歴. The cost of degrading is that a discarded
+ * session reads as it did before P5-A for one render — honest-if-stale, and
+ * strictly better than showing the staffer nothing.
+ */
+async function readStaffDiscardedSessions(
+  synqed: Pick<SynqedClient, 'recordingDiscards'>,
+): Promise<Set<string>> {
+  const discarded = new Set<string>()
+  try {
+    for (let page = 1; page <= MAX_DISCARD_PAGES; page++) {
+      const res = await synqed.recordingDiscards.list({
+        source: 'STAFF',
+        page,
+        page_size: PAGE_SIZE,
+      })
+      const events = res?.events ?? []
+      for (const e of events) {
+        if (e?.recording_session_id) discarded.add(e.recording_session_id)
+      }
+      if (events.length === 0 || page * PAGE_SIZE >= (res?.total ?? 0)) break
+    }
+  } catch (err) {
+    console.warn('[recordings-inbox] discard ledger read degraded:', err)
+    return new Set()
+  }
+  return discarded
+}
+
 export interface InboxReadDeps {
-  synqed: Pick<SynqedClient, 'recordings' | 'karuteRecords' | 'recordingJobs'>
+  synqed: Pick<
+    SynqedClient,
+    'recordings' | 'karuteRecords' | 'recordingJobs' | 'recordingDiscards'
+  >
   /** The AUTHENTICATED actor's staff id. Never a caller-supplied parameter. */
   staffId: string
   /** Tenant key for the name fill below — the cookie arm resolves it with
@@ -109,7 +158,7 @@ export async function readRecordingsInbox({
 }: InboxReadDeps): Promise<InboxServerSession[]> {
   const from = new Date(now.getTime() - INBOX_WINDOW_MS).toISOString()
 
-  const [sessions, records] = await Promise.all([
+  const [sessions, records, discardedSessions] = await Promise.all([
     paginateDedupe((page) =>
       synqed.recordings
         .list({ staff_id: staffId, from, page, page_size: PAGE_SIZE })
@@ -120,6 +169,7 @@ export async function readRecordingsInbox({
         .list({ from, page, page_size: PAGE_SIZE })
         .then((r) => ({ items: r.karute_records, total: r.total })),
     ),
+    readStaffDiscardedSessions(synqed),
   ])
 
   const recordBySession = new Map<string, string>()
@@ -136,11 +186,14 @@ export async function readRecordingsInbox({
     jobStatus: null,
     jobProbeFailed: false,
     jobLastError: null,
+    discardedByStaff: discardedSessions.has(s.id),
   }))
 
   // Residue = the only sessions whose job state can still matter.
   const residue = rows
-    .filter((r) => !r.karuteRecordId)
+    // A discarded session's job state cannot change what the row says (the
+    // discard outranks it in the fold), so probing one is a wasted round trip.
+    .filter((r) => !r.karuteRecordId && !r.discardedByStaff)
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
   if (residue.length > 0) {
     console.info(

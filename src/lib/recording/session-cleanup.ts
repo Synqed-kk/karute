@@ -1,21 +1,31 @@
-// Deliberate-discard session cleanup (Build F1 fix round 3) — INTERIM.
+// Recording-session cleanup — NO LONGER ON THE DELIBERATE-DISCARD PATH.
 //
-// ⚠ THIS IS A STOPGAP AND IS MEANT TO BE DELETED. The doctrine-correct
-// treatment (⚖ 8/20: discards are KEPT IN FULL, rendered as grayed 破棄済み
-// rows off the core discard ledger) is P5's build, and it cannot ship yet —
-// its receipt requires a written reason (RecordDiscardInput / discard.ts's
-// DISCARD_CATEGORIES) and the reason dialog does not exist. P5 REPLACES this
-// file's wiring: when the kept-discard rows land, delete the cleanup call
-// sites and this module with them.
+// ⚖ A2-1 (P5-A fix round 1) UNWIRED THIS FROM 破棄. The open question the
+// previous version of this header raised has been answered by deciding it
+// rather than by testing core: the written reason lands in core's discard
+// ledger keyed on `recording_session_id`, and this function HARD-DELETES that
+// row. Whether core cascaded the reason away or refused the delete, the app was
+// firing a fire-and-forget destroy at the very key its flagship deliverable
+// depends on, ~200 ms after writing it, with no signal either way. So the
+// deliberate-discard call sites are gone (RecordPageView has none left; the
+// cleanup-wiring suite asserts that by census).
 //
-// WHY IT EXISTS AT ALL: a deliberate 破棄 leaves an orphan recording_sessions
-// row — the take is destroyed client-side and no karute is ever written — and
-// the 録音履歴 inbox then renders that orphan as 失敗 and counts it in 要対応
-// for seven days, with no action that can clear it. Preview QA (Dev Salon,
-// live) caught two discarded test takes stuck exactly that way. In the field
-// every routine discard would add a false alarm nobody can clear, and a badge
-// that cannot reach zero stops meaning anything. Nothing real is lost by
-// removing the row: today's 破棄 already destroys the audio and saves nothing.
+// WHAT REPLACED IT: the orphan problem this was built for — a discarded
+// session sitting in 録音履歴 as an unclearable 失敗 in 要対応 for seven days —
+// is now solved by NAMING the row instead of destroying it. A session carrying
+// a STAFF discard renders as a grayed, inert 破棄済み row off the same ledger
+// (lib/recordings/inbox.ts, item A2-3) and is never counted in 要対応. That is
+// also the ⚖ 8/20 doctrine-correct treatment, so the stopgap framing is retired
+// with it. Preview QA's two stuck test takes read correctly under this rule.
+//
+// STILL LIVE, and still needed, for the SYSTEM/abandoned paths: the recordings
+// server action and the facade route both call in here (below), and those
+// remove rows for sessions no human ever decided about. Nothing in this
+// function changed — only who calls it.
+//
+// P5-B (PACKET-P5-DISCARD-2026-08-25.md item B-1) still owns the rest: a
+// discarded take's CONTENT is destroyed exactly as before, and keeping it is
+// the core work in that packet's §3.
 //
 // ONE choke point, two doors (the discard.ts / session-mint pattern): the web
 // server action (src/actions/recordings.ts) and the facade route

@@ -732,6 +732,7 @@
     "inbox": {
       "title": "Recording history",
       "caption": "Your recordings from the past 7 days",
+      "myDiscards": "Recordings you discarded this month: {n}",
       "needsAttention": "{n} need attention",
       "needsAttentionAria": ", {n} need attention",
       "empty": "No recordings in the past 7 days.",
@@ -744,7 +745,8 @@
         "awaitingCheck": "Needs a look",
         "processing": "Processing",
         "failed": "Failed",
-        "recoverable": "Recoverable"
+        "recoverable": "Recoverable",
+        "discarded": "Discarded"
       },
       "reason": {
         "transcribing": "Transcribing on the server",
@@ -819,7 +821,17 @@
     "recoverSaveFailed": "Could not save. Please try again.",
     "recoverAlreadyRedeemed": "This visit's pack session is already used",
     "recoverBurnCheckFailed": "Could not check the pack. Please try again.",
-    "recoverPackSaleLost": "The pack sale was lost. Please register it from the customer page."
+    "recoverPackSaleLost": "The pack sale was lost. Please register it from the customer page.",
+    "discardReason": {
+      "title": "Reason for discarding",
+      "fieldLabel": "Reason",
+      "placeholder": "Enter the reason for discarding (required)",
+      "disclosure": "A discard record (date/time, staff, reason) will be kept.",
+      "confirm": "Discard",
+      "submitting": "Discarding...",
+      "failed": "Could not record the discard. Please try again.",
+      "takeChanged": "This recording has already gone to transcription, so it could not be discarded."
+    }
   },
   "customers": {
     "title": "Customers",
@@ -2279,6 +2291,20 @@
       "shownLabel": "Shown",
       "hiddenLabel": "Hidden"
     },
+    "discardReasons": {
+      "label": "Discard records",
+      "title": "Discard records",
+      "description": "The reasons staff gave when discarding a recording. Visible to managers only.",
+      "byStaffTitle": "By staff member (this month)",
+      "countThisMonth": "Discarded this month: {count}",
+      "countTotal": "Discards on record: {count} in total",
+      "countsTruncated": "These counts exclude the older records not shown.",
+      "unknownStaff": "Staff member unknown",
+      "loading": "Loading…",
+      "loadFailed": "Could not load the discard records.",
+      "empty": "No discards have been recorded yet.",
+      "truncated": "Older records are not shown — there are too many to list."
+    },
     "auditLog": {
       "label": "Audit log",
       "description": "Who accessed or changed which record, and when.",
@@ -2544,6 +2570,7 @@
     "consentTemplatePlaceholder": "We record this consultation to improve your care…",
     "subscriptionDescription": "Plan, billing, payment method",
     "auditLogDescription": "Access history — APPI compliance + governance",
+    "discardReasonsDescription": "Why recordings were discarded",
     "storesTab": "Stores",
     "storesDescription": "Manage and add stores",
     "coachingTabDescription": "Coaching settings — coming soon.",

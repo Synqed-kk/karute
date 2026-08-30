@@ -34,6 +34,19 @@ jest.mock('@/i18n/navigation', () => ({
   Link: ({ children }: { children: unknown }) => children,
 }))
 jest.mock('@/actions/recordings', () => ({ startRecordingSession: jest.fn() }))
+// P5-A: RecordPageView imports the written-reason discard action; unmocked it
+// pulls the ESM SDK into this suite. Not exercised here.
+jest.mock('@/actions/recording-discard', () => ({
+  discardRecordingWithReason: jest.fn(async () => ({
+    ok: true,
+    receiptId: 'row-1',
+    duplicate: false,
+  })),
+}))
+jest.mock('@/actions/recording-discards', () => ({
+  myDiscardCountThisMonth: jest.fn(async () => null),
+  listDiscardReasons: jest.fn(async () => ({ ok: false, error: 'forbidden' })),
+}))
 jest.mock('@/actions/karute', () => ({ saveKaruteRecord: jest.fn() }))
 // Overridable per-test (mockResolvedValueOnce) — the handleStartRecording
 // regression test below needs consent GRANTED to reach the real record-start
@@ -129,7 +142,9 @@ jest.mock('@/hooks/use-global-recorder', () => ({
     pauseRecording: jest.fn(),
     resumeRecording: jest.fn(),
     discardRecording: jest.fn(),
-    awaitRecordingSessionId: jest.fn(async () => null),
+    // P5-A: the written-reason gate bounded-awaits the mint before it will
+    // discard anything, so the take-lifecycle boundaries below need an id.
+    awaitRecordingSessionId: jest.fn(async () => 'sess-live'),
   }),
 }))
 // The real GlobalPipeline.start() would kick off a real transcription run
@@ -336,11 +351,13 @@ describe('RecordPageView — outcome dialog redemption half (F1 decouple + F2 op
       // 'discard' button out from under this explicit discard).
       fireEvent.click(screen.getByText('save'))
       fireEvent.click(screen.getByText('discard'))
+      // P5-A: 破棄 opens the written-reason gate; the discard itself only
+      // happens on confirm, after the reason has landed server-side.
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: '録り直します' } })
+      fireEvent.click(screen.getByText('discardReason.confirm'))
 
       await act(async () => {
-        await Promise.resolve()
-        await Promise.resolve()
-        await Promise.resolve()
+        for (let i = 0; i < 8; i++) await Promise.resolve()
       })
 
       // Take B: a brand new recording starts and finishes (the P1 latch —
@@ -385,10 +402,12 @@ describe('RecordPageView — outcome dialog redemption half (F1 decouple + F2 op
     // reasoning as above.
     fireEvent.click(screen.getByText('save'))
     fireEvent.click(screen.getByText('discard'))
+    // P5-A: the written-reason gate stands between the tap and the discard.
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '録り直します' } })
+    fireEvent.click(screen.getByText('discardReason.confirm'))
 
     await act(async () => {
-      await Promise.resolve()
-      await Promise.resolve()
+      for (let i = 0; i < 8; i++) await Promise.resolve()
     })
 
     // Take B: a brand new recording starts and finishes.
