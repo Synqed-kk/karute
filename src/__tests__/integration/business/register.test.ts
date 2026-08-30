@@ -2306,8 +2306,19 @@ describe('⚖ ANY-ROSTER-SIZE — the ledger holds a busy day', () => {
 describe('⚖ the sibling-sheet fence, derived FRESH from today’s sheets', () => {
   const BIZ = join(process.cwd(), 'src/app/[locale]/(business)')
   const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '')
+  /** ⚠ WALKS THE AT-RULES INSTEAD OF SPLITTING BLINDLY (F-K21, ported from room
+   *  5's identical fence). The first cut did `src.split('}')` then
+   *  `slice(0, indexOf('{'))` — and for the FIRST rule inside any `@media` block
+   *  the first `{` found is the media query's OWN brace, so that selector was
+   *  never seen at all. Seven rules per sheet were invisible here, and a planted
+   *  unscoped rule at the top of a media block passed every pin below (proven
+   *  red-run in the evidence). Conditional groups lose their PRELUDE and keep
+   *  their rules; keyframes and font-face blocks go entirely, so `from`/`to`
+   *  never read as selectors. */
   const selectorsOf = (src: string) =>
     strip(src)
+      .replace(/@(?:keyframes|font-face|counter-style|property)[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '')
+      .replace(/@(?:media|supports|layer|container)[^{]*\{/g, '')
       .split('}')
       .flatMap((block) => {
         const i = block.indexOf('{')
