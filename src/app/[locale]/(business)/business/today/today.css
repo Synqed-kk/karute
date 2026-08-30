@@ -721,6 +721,20 @@
 .biz .cell-packed.crumb { background: rgba(232, 130, 60, .13); }
 .biz .cell-packed.crumb i { color: var(--orange-line); opacity: .95; }
 .biz .timeline.hide-slot-prices .cell-packed i { display: none; }
+/* ⚖ LABELS RULING (Liam 8/30, 案C) — THE NAME TAG, lifted from the signed-off
+   mock (mock-layer-labels/MOCK-LAYER-LABELS-2026-08-26.html, `.nametag`). NO NEW
+   COLOUR: it is the box's OWN text colour at 55%, which is why the two rules
+   below are the box colours over again and nothing else. Absolute, so it sits in
+   the box's top-left while the flex row keeps the price at the bottom
+   (`align-items: flex-end`) — the two can never collide. A narrow box clips the
+   word at `overflow: hidden` rather than growing: a box's width is the offer's
+   length and may not be moved by a label. `pointer-events: none` like everything
+   on this layer — the tag explains a sale, it is not a control.
+   The price dial hides the `<i>` above and deliberately not this: the tag names
+   the KIND of box, which is still true when the number is hidden. */
+.biz .cell-nametag { position: absolute; top: 3px; left: 5px; right: 3px; font-size: 8px; font-weight: 700; line-height: 1; letter-spacing: -.2px; white-space: nowrap; overflow: hidden; opacity: .55; pointer-events: none; }
+.biz .cell-price .cell-nametag, .biz .cell-packed .cell-nametag { color: var(--indigo); }
+.biz .cell-packed.crumb .cell-nametag, .biz .cell-gapfill .cell-nametag { color: var(--orange-line); }
 .biz .timeline.sell-drag .cell-packed { opacity: 0; }
 .biz .timeline.sell-off .cell-packed { display: none; }
 .biz .timeline.sell-tint.dragging-live .cell-packed,
@@ -837,6 +851,23 @@
 .biz .guard-band .blocked-key::before { border-color: #d7d7dc; background: #f2f2f4; }
 .biz .guard-band .protected-key { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 7px; background: var(--guard-soft); color: var(--guard-dark); font-weight: 800; }
 .biz .guard-band .guard-band-note { font-weight: 500; color: var(--ink-2); }
+/* ⚖ LABELS RULING (Liam 8/30, 案C) — 案C's one line, lifted from the mock's
+   `.layer-legend` family. `flex-basis: 100%` in the band's own wrap flow puts it
+   on its own row under the keys, and the dashed rule says it is a second subject
+   in the same home rather than a fourth key. The word wears its box's colour and
+   the meaning stays muted, so the eye pairs word↔box and reads the gloss once.
+   The swatch is a plain `<i>`: the band's `.guard-key::before` swatch is the
+   same 20×14/3px chip, and these carry a fill instead of a class each. */
+.biz .layer-legend { display: flex; flex-basis: 100%; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-top: 2px; padding-top: 9px; border-top: 1px dashed var(--control); font-weight: 700; }
+.biz .layer-legend .lk { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; }
+.biz .layer-legend .lk i { width: 20px; height: 14px; border-radius: 3px; flex: none; }
+.biz .layer-legend .lk b { font-weight: 800; }
+.biz .layer-legend .lk span { color: var(--muted); font-weight: 600; }
+.biz .layer-legend .lk-sell b, .biz .layer-legend .lk-packed b { color: var(--indigo); }
+.biz .layer-legend .lk-scrap b { color: var(--orange-line); }
+.biz .layer-legend .lk-sell i { background: rgba(130, 151, 233, .10); box-shadow: inset 0 0 0 1px rgba(63, 91, 232, .22); }
+.biz .layer-legend .lk-packed i { background: rgba(130, 151, 233, .18); box-shadow: inset 0 0 0 1px rgba(63, 91, 232, .22); }
+.biz .layer-legend .lk-scrap i { background: rgba(232, 130, 60, .09); box-shadow: inset 0 0 0 1px rgba(232, 130, 60, .35); }
 
 /* 配置の相談 — canon's refusal dialog (:741–751). A refused placement never
    moves: the板 names the engine's real reason and offers the feasible starts

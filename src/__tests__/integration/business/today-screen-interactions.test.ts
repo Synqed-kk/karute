@@ -2879,7 +2879,11 @@ describe('the guided tour builds itself out of what is on screen', () => {
     // lane. ⚖ FIX-10 — pinned as what the strip actually RENDERS: the bare
     // literal used to pass off a comment, and every rendered spelling of the
     // name now carries `railDur`.
-    expect(SRC).toContain('data-guide-title="スキマガード"')
+    // ⚖ LABELS RULING (Liam 8/30, 案C) — the band is unconditional now, because
+    // the layer legend inside it is not about the guard, so its title follows the
+    // store's dial: スキマガード where there is a guard to name, 価格箱 where the
+    // band is carrying the three words alone.
+    expect(SRC).toContain("data-guide-title={guardOn ? 'スキマガード' : '価格箱'}")
     expect(SRC).toContain('<span className="guard-rail-label">{railDur}分配置</span>')
     expect(SRC).toContain("'data-guide-title': `${railDur}分配置`,")
     expect(SRC).toContain('aria-label={`${rail.laneLabel}の${railDur}分配置ガイド`}')

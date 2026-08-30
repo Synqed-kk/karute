@@ -428,6 +428,17 @@ const WD = ['日', '月', '火', '水', '木', '金', '土']
  *  this when the property has not been resolved yet. */
 const LABEL_DEFAULT = 112
 
+/** ⚖ LABELS RULING (Liam 8/30, 案C) — the tour's clause for the layer legend.
+ *  ⚠ JP-DRAFT: the only NEW sentence this round wrote. The three words and their
+ *  three meanings in the band below are carried verbatim from the mock, which
+ *  passed a native read on 2026-08-26; this one sentence did not exist there and
+ *  has not been through that pass. Its vocabulary (価格箱 / 並ぶ) is the mock's
+ *  own, so the reading is the only thing outstanding.
+ *  ONE string, TWO homes: it is appended to the guard band's sentence at a
+ *  guarded store and stands alone at a guard-off one, which is why it says
+ *  「意味は」 rather than 「意味も」 — it has to be true with nothing before it. */
+const LAYER_LEGEND_GUIDE = 'スタッフの行に並ぶ価格箱には種類の名前が付いていて、その言葉の意味はこの帯に書いてあります。'
+
 const boxOf = (r: { left: number; top: number; width: number; height: number }): SpotRect =>
   ({ left: r.left, top: r.top, width: r.width, height: r.height })
 
@@ -4137,6 +4148,15 @@ export function TodayScreen(props: TodayProps) {
                   aria-hidden="true"
                   style={{ '--x': `${span.x}%`, '--w': `${span.w}%`, '--tier': c.tier } as React.CSSProperties}
                 >
+                  {/* ⚖ LABELS RULING (Liam 8/30, 案C) — THE BOX SAYS WHAT KIND
+                      IT IS. Three washes on one row read as one price moving on
+                      its own; the word is what makes them three products. It is
+                      the STAFF row's alone — a bed-row box carries no text at
+                      all today, and the mock left that an open question.
+                      It names the KIND, not the price, so 価格を隠す (which hides
+                      the `<i>` only) leaves it standing; 空き枠表示 off removes
+                      the whole box and takes the tag with it. */}
+                  {c.group === 'staff' && <span className="cell-nametag">販売可能枠</span>}
                   {c.group === 'staff' && c.price != null && <i>{money(c.price)}</i>}
                 </span>
               )
@@ -4166,6 +4186,12 @@ export function TodayScreen(props: TodayProps) {
                       LENGTH beside the price — ¥8,650（60分）— because a wide
                       full-price box would otherwise read as a merged hour band.
                       A スキマ枠 is one offer, so it carries the price alone. */}
+                  {/* ⚖ LABELS RULING (Liam 8/30, 案C) — the same word, read off
+                      the same `packedHere` the FILL is: a crumb IS 詰め込み (the
+                      mock's masthead says so — orange reports the SHAPE of the
+                      leftover, not a different layer), so the word needs no
+                      branch of its own and cannot drift from the colour. */}
+                  {c.group === 'staff' && <span className="cell-nametag">{packedHere ? '詰め込み' : 'スキマ枠'}</span>}
                   {c.group === 'staff' && <i>{packedHere ? `${money(c.price)}（${c.e - c.s}分）` : money(c.price)}</i>}
                 </span>
               )
@@ -4832,37 +4858,70 @@ export function TodayScreen(props: TodayProps) {
             </div>
           </div>
 
-          {/* 守るもの — canon's #guardDemoHonesty band (:1855), verbatim. It
-              only exists while the store's protection policy is on, and the
-              guide's own 非表示 setting never removes it: the legend explains a
+          {/* 守るもの — canon's #guardDemoHonesty band (:1855), verbatim. The
+              KEYS only exist while the store's protection policy is on, and the
+              guide's own 非表示 setting never removes them: the legend explains a
               RULE that is still running, not the strip that draws it. */}
-          {guardOn && (
-            <div
-              className="guard-band"
-              role="note"
-              data-guide-title="スキマガード"
-              // ⚖ FIX-9 — ONE HOME. This band owns the ✓/△/— key and the rule
-              // behind it; it used to also describe what the strip judges, in
-              // wording that went stale the moment R3 changed the question and
-              // that hardcoded 60 besides. It points at the strip's own entry
-              // now instead of restating it. (⚖ NATIVE PASS 2026-08-25: and it
-              // names the strip by where it IS rather than by a length, so the
-              // sentence stays true at every store dial.)
-              data-guide="新規のお客様のための時間を守る仕組みです。記号の意味は、この帯に書いてあります。各スタッフの下に細い帯が出ているときは、その帯の説明をご覧ください。"
-            >
-              <span className="protected-key">守るもの: {props.guard.protectedLabel}{props.guard.protectedDurationMin}分</span>
-              <span className="guard-key">紫 ✓ = 空きを減らさない</span>
-              <span className="guard-key degraded-key">橙 △ = 空きが減るが置ける（損を減らす）</span>
-              <span className="guard-key blocked-key">灰 — = 置けません</span>
-              <span className="guard-band-note">
-                {guideMode === 'selected'
-                  ? `下の「${railDur}分配置」で、ドラッグ前に全開始を確認できます。`
-                  : guideMode === 'drag'
-                    ? `下の「${railDur}分配置」は、ドラッグ中だけ表示します。`
-                    : '細い配置ガイドは非表示です。ドラッグ中の判定と店舗の保護ルールは残ります。'}
-              </span>
+          {/* ⚖ LABELS RULING (Liam 8/30, 案C) — AND THE THREE WORDS' ONE HOME.
+              The whole band used to be gated on `guardOn`. The legend is not
+              about the guard: a guard-off store still draws all three kinds of
+              price box, so it still needs the one place where the words mean
+              something. So the CONTAINER is unconditional now and the guard keys
+              are the part that comes and goes — one class, one legend, two
+              conditions, rather than a second band that would put 記号の意味 in
+              two places and break the ONE HOME rule above. */}
+          <div
+            className="guard-band"
+            role="note"
+            data-guide-title={guardOn ? 'スキマガード' : '価格箱'}
+            // ⚖ FIX-9 — ONE HOME. This band owns the ✓/△/— key and the rule
+            // behind it; it used to also describe what the strip judges, in
+            // wording that went stale the moment R3 changed the question and
+            // that hardcoded 60 besides. It points at the strip's own entry
+            // now instead of restating it. (⚖ NATIVE PASS 2026-08-25: and it
+            // names the strip by where it IS rather than by a length, so the
+            // sentence stays true at every store dial.)
+            // ⚖ LABELS RULING — and the legend's clause rides the SAME sentence,
+            // because the words and the symbols now share this one band. At a
+            // guard-off store the clause is the whole sentence: no 記号 exist to
+            // be explained, so promising them would be a plain untruth.
+            data-guide={
+              guardOn
+                ? `新規のお客様のための時間を守る仕組みです。記号の意味は、この帯に書いてあります。各スタッフの下に細い帯が出ているときは、その帯の説明をご覧ください。${LAYER_LEGEND_GUIDE}`
+                : LAYER_LEGEND_GUIDE
+            }
+          >
+            {guardOn && (
+              <>
+                <span className="protected-key">守るもの: {props.guard.protectedLabel}{props.guard.protectedDurationMin}分</span>
+                <span className="guard-key">紫 ✓ = 空きを減らさない</span>
+                <span className="guard-key degraded-key">橙 △ = 空きが減るが置ける（損を減らす）</span>
+                <span className="guard-key blocked-key">灰 — = 置けません</span>
+                <span className="guard-band-note">
+                  {guideMode === 'selected'
+                    ? `下の「${railDur}分配置」で、ドラッグ前に全開始を確認できます。`
+                    : guideMode === 'drag'
+                      ? `下の「${railDur}分配置」は、ドラッグ中だけ表示します。`
+                      : '細い配置ガイドは非表示です。ドラッグ中の判定と店舗の保護ルールは残ります。'}
+                </span>
+              </>
+            )}
+            {/* ⚖ LABELS RULING (Liam 8/30, 案C) — 案C's one line. The word on
+                every box, and its meaning here, once. The three glosses are the
+                mock's own, carried VERBATIM: they passed a native read on
+                2026-08-26 across three rounds, so re-writing them here would
+                throw that away. The swatches are the boxes' own fills (the sell
+                one at tier 2, the wash the board actually paints most); the
+                1px rings are the band's own key grammar (`.guard-key::before`),
+                not the boxes' — a 10% wash on the band's #f7f7f9 has nothing to
+                sit against otherwise, and the layer wears no border at rest by
+                ⚖ flag 39. No new colour on either count. */}
+            <div className="layer-legend">
+              <span className="lk lk-sell"><i /><b>販売可能枠</b><span>いま出ている価格で売り出している1時間</span></span>
+              <span className="lk lk-packed"><i /><b>詰め込み</b><span>空きに収めた1回分（満額）</span></span>
+              <span className="lk lk-scrap"><i /><b>スキマ枠</b><span>余った時間の割引枠</span></span>
             </div>
-          )}
+          </div>
 
           <div className="board-body">
             <div className="board-main">
