@@ -1596,7 +1596,18 @@ export function TodayScreen(props: TodayProps) {
    *  It is built from `ledger.world`, which is the book `bedDoorFor(null)`
    *  answers out of — so the mask below and the rail's own protected-window
    *  callback are two readings of ONE bed truth and cannot disagree about what
-   *  is held. That agreement IS the law (spec §1). */
+   *  is held. That agreement IS the law (spec §1).
+   *
+   *  ⚖ MICROFIX N1 — AND THE SAME IS NOW TRUE ON THE OCCUPANCY AXIS. The bed
+   *  truth was shared from the first day; the POCKETS were not. `guardRailsFor`
+   *  cuts its pockets with `laneSpans(lane, excludeId)` and this mask cut its
+   *  own with `laneSpans(lane)`, so while a hand was in flight the rail had the
+   *  card lifted and the mask did not — the half of blind-final L1#5 that F5 did
+   *  not reach. `excludeId` is that lift, spelled once, in the producer both
+   *  doors already share.
+   *
+   *  ⚖ EXCLUSION IS GESTURE-ONLY, so it is passed HERE and never above: the
+   *  committed instance answers for the settled board, which is what prices read. */
   const heldBoard = useMemo(
     () =>
       SELLING_ENGINE_LAW
@@ -1608,9 +1619,10 @@ export function TodayScreen(props: TodayProps) {
             gapGuardMode: props.guard.mode,
             book: ledger.world,
             released: releasedHere,
+            excludeId: handId,
           })
         : undefined,
-    [boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere],
+    [boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],
   )
   // ⚖ FIX ROUND F5 — the board world's per-lane index is GONE, not merely
   // unused: the rest cue was its only reader and it now reads the committed
@@ -1739,11 +1751,29 @@ export function TodayScreen(props: TodayProps) {
         sellDisplayed: sellMode !== 'off',
         // ⚖ spec §2(c) — the held set is FIRST-CLASS here: a 新規用に確保 window
         // is not an unexplained hole, so 75(i)'s clauses stand down over it.
+        // THIS WORLD's instance, which is what the parameter says it is
+        // (`explainRails`, today-interactions.ts:2026): every chip on this strip
+        // was judged on the board world with the hand lifted, and after
+        // ⚖ MICROFIX N1 the mask is cut from that same occupancy — so the
+        // sentence and the chip it hangs under are one answer about one board.
         held: heldBoard,
         // ⚖ FIX ROUND F1 — …over exactly the extent the withholding reached.
-        // The derivation is where the withheld hours still exist, which is what
-        // it is FOR (§4.2 Q4: a rank-opened store or a release sells them), so
-        // the two inputs are the two halves of one fact rather than two worlds.
+        // ⚖ MICROFIX N2 — AND THIS ONE IS THE SALES DOOR'S, which is a DIFFERENT
+        // world; the line that stood here claimed the two inputs were "two
+        // halves of one fact rather than two worlds", and that was not true at
+        // this call site. The withheld hours exist in exactly one place on this
+        // screen — the committed derivation `sellDrawnFor` published from (§4.2
+        // Q4: a rank-opened store or a release sells them) — because there is no
+        // board-world sell layer and there must not be one (feeding the layers
+        // `boardLanes` made prices flicker under a moving card, :1198-1213).
+        //
+        // WHY THE PAIRING IS SOUND rather than merely unavoidable: `withheld`
+        // never reaches the sentence, only its REACH. It widens a held span out
+        // to the sell slots the publication emptied and does nothing else —
+        // `dur` stays the span's own length, so the store's dial is quoted from
+        // the held set alone. At rest the two worlds ARE one board (they differ
+        // only by `liveMoves`); mid-gesture the widening is a no-op or snaps off
+        // a committed slot, bounded by one slot either way, and no number moves.
         withheld: sell.cells.filter(isHeldBound),
       }),
     [rails, boardLanes, railDur, handId, props.rooms, pending?.id, sell, sellDrawn, drawnClaims, sellDrops, inHand, sellMode, heldBoard],
@@ -1844,7 +1874,12 @@ export function TodayScreen(props: TodayProps) {
         // today (it is fixture-sealed; the 監査 lines are demo copy). ⚠ RECONNECT
         // — the real write lands with the board's real-data reconnection and
         // records the operator, the lane, the window and the time; this is the
-        // site it hangs off, and the name is on the registry now.
+        // site it hangs off. ⚖ MICROFIX N3 — and it is recorded in the round's
+        // SPEC, not in any registry inside this tree (none exists, and this
+        // comment used to imply one): business-release-packets/
+        // evidence-transplant-batch1-20260819/WO2-today/batch14/engine-round/
+        // PKT-E5-RELEASE.md, which prices it by mirroring §7(a) of
+        // SPEC-SELLING-ENGINE-2026-08-30.md in the same folder.
         // ⚖ FIX ROUND F2 — STAMPED WITH THE BOARD IT WAS PRESSED ON, exactly as
         // `added` is. The dedup test carries the stamp too: the same lane and
         // the same window on a different day is a different fact.
@@ -3190,7 +3225,9 @@ export function TodayScreen(props: TodayProps) {
       // verdict site the spec names. 「The build ships the log hook at the
       // verdict site; the REAL audit write lands with the board's real-data
       // reconnection and is named on the RECONNECT registry now.」 That promise
-      // was kept for ⚖ Q5's release button and never built for the ordinary
+      // is QUOTED from the spec (see N3 below for where the reconnection item
+      // actually lives). It was kept for ⚖ Q5's release button and never built
+      // for the ordinary
       // staff placement override — the level (a) every store ships with — and
       // no step audit caught the miss.
       //
@@ -3207,7 +3244,16 @@ export function TodayScreen(props: TodayProps) {
       // no audit write is reachable from this board (it is fixture-sealed; the
       // 監査 lines are demo copy). The real write records the operator, the
       // lane, the span, the sentence they overrode and the time; this is the
-      // site it hangs off, and the name is on the registry now.
+      // site it hangs off.
+      //
+      // ⚖ MICROFIX N3 — WHERE THE ITEM ACTUALLY LIVES. The sentence quoted above
+      // says 「named on the RECONNECT registry now」 and there is no such
+      // registry in this tree — the promise is recorded in the round's own spec,
+      // which is the docs home for every reconnection item on this lane:
+      // business-release-packets/evidence-transplant-batch1-20260819/WO2-today/
+      // batch14/engine-round/SPEC-SELLING-ENGINE-2026-08-30.md §7(a). Do not
+      // build a registry in here to make the old wording true; the docs are the
+      // registry.
       override: props.canOverride && escalate && v.floor === 'policy' ? () => { setAdvice(null); escalate() } : null,
       // ⚖ 57 — the card sits where it was dropped while the question is open.
       // 注意して配置 stages the SAME span, so it never visibly jumps; やめる and

@@ -30,6 +30,10 @@
 //      SUBTRACTED AFTER THE ENUMERATION: the window goes, every neighbour stays
 //      byte-identical, the identity is (lane, windowStart) whole, and absent is
 //      E1's answer to the byte.
+//   §9 THE HAND (⚖ MICROFIX N1) — the live card is lifted out of the snapshot
+//      through the SAME `laneSpans` overload the rail lifts it with, so the two
+//      doors cut one occupancy for the length of a gesture; no hand is E1's
+//      answer to the byte, and the lift never reaches a second lane.
 //
 // ⚠ THE OTHER THREE INVARIANTS ARE NOT HERE, AND CANNOT BE. Spec §11.3 asks
 // for six; (i) "every withheld crumb lies inside a held span", (iv) "reserved
@@ -59,7 +63,7 @@ import {
   type ReleasedWindow,
   type ReservedLaneMask,
 } from '@/app/[locale]/(business)/business/today/reserved-mask'
-import { laneSpans, type RoomPolicy } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { guardRailsFor, laneSpans, type RoomPolicy } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { freePockets, type GuardPocketSpan } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext } from '@/business/lib/canon-logic/gap-guard'
 import { opsConfig } from '@/business/lib/fixtures-today'
@@ -239,8 +243,11 @@ function maskOf(
   /** ⚖ E5 — absent is E1's call, unchanged: every existing caller passes
    *  nothing and gets the array the enumeration built. */
   released?: readonly ReleasedWindow[],
+  /** ⚖ MICROFIX N1 — absent is E1's call, unchanged: nothing is lifted out of a
+   *  snapshot nobody is holding a card over. */
+  excludeId?: string | null,
 ): readonly ReservedLaneMask[] {
-  return reservedMaskFor({ lanes, closeMin: CLOSE, nowMin: null, guard, gapGuardMode, book, released })
+  return reservedMaskFor({ lanes, closeMin: CLOSE, nowMin: null, guard, gapGuardMode, book, released, excludeId })
 }
 
 /** ⚖ FIX ROUND F2 — A RELEASE CARRIES THE BOARD IT WAS PRESSED ON, so the type
@@ -255,13 +262,16 @@ const onBoard = (r: { laneKey: string; windowStart: number }): ReleasedWindow =>
  *  from the same three producers (`freePockets`, `laneSpans`, `newClientMask`).
  *  Every equality pin below compares the module against this, never against a
  *  hand-copied enumeration. */
-const pocketsOf = (lane: BoardLane): GuardPocketSpan[] =>
+const pocketsOf = (lane: BoardLane, exclude?: string | null): GuardPocketSpan[] =>
   freePockets({
     from: lane.window!.from,
     until: lane.window!.until,
     close: CLOSE,
     now: null,
-    occupied: laneSpans(lane),
+    // ⚖ MICROFIX N1 — `exclude` is `guardRailsFor`'s own `excludeId`
+    // (today-interactions.ts:1662). Absent, this is the oracle every §1-§8 pin
+    // above already compared against, unchanged.
+    occupied: laneSpans(lane, exclude),
   })
 
 const bedCtx = (book: BedTruth, lane: BoardLane): GuardContext => {
@@ -291,9 +301,15 @@ const bedCtx = (book: BedTruth, lane: BoardLane): GuardContext => {
  *  about why counts moved". */
 const ALWAYS_FEASIBLE: GuardContext = { protectedWindowFeasible: () => true }
 
-function startsFor(lane: BoardLane, guard: GuardConfig, mode: 'standard' | 'strict', ctx: GuardContext): number[] {
+function startsFor(
+  lane: BoardLane,
+  guard: GuardConfig,
+  mode: 'standard' | 'strict',
+  ctx: GuardContext,
+  exclude?: string | null,
+): number[] {
   const engine = createGapGuard({ ...guard, mode })
-  return pocketsOf(lane).flatMap((p) => engine.protectedCapacity(p, null, ctx).beforeStarts)
+  return pocketsOf(lane, exclude).flatMap((p) => engine.protectedCapacity(p, null, ctx).beforeStarts)
 }
 
 const guardStartsFor = (lanes: BoardLane[], lane: BoardLane, guard: GuardConfig, mode: 'standard' | 'strict') =>
@@ -914,6 +930,103 @@ describe('8 — a released window is SUBTRACTED, and nothing else moves', () => 
       const held = maskOf(world, guard, 'standard', bookOf(world), released)
       const lane = held.find((m) => m.laneKey === pick.laneKey)
       expect(lane?.spans.map((s) => s.windowStart) ?? []).not.toContain(released[0].windowStart)
+    }
+  })
+})
+
+/** ⚖ MICROFIX N1 (delta-verify c2c5c480 · the half of blind-final L1#5 that F5
+ *  did not reach) — ONE OCCUPANCY DURING A GESTURE.
+ *
+ *  `guardRailsFor` cuts its pockets with `laneSpans(lane, excludeId)`
+ *  (today-interactions.ts:1662); this module cut its own with `laneSpans(lane)`
+ *  and had no way to be told about the hand at all. So while a card was in
+ *  flight the rail had it lifted and the mask did not, and the two doors
+ *  disagreed about what was held — the rail protecting a window the mask does
+ *  not hold, which is the 確保 sentence going silent under a chip refusing for
+ *  exactly that window. Reachable in the three states the screen still explains
+ *  through (`inHand` is null for a bed-row drag, an over-shelf drag and any
+ *  stretch while `handId` is real, TodayScreen.tsx:1571/:1673).
+ *
+ *  The pins below are the same oracle discipline as §1: the mask is compared
+ *  against the RAIL'S OWN producers re-run with the exclusion, never against a
+ *  hand-copied enumeration — plus one pin on the real `guardRailsFor`, so the
+ *  claim "the rail lifts it" is proven rather than quoted. */
+describe('9 — the hand is lifted from the mask exactly as the rail lifts it', () => {
+  const GUARD = guardConfig()
+  const LANES = board(SWEEP)
+  const BOOK = bookOf(LANES)
+  const startsOn = (held: readonly ReservedLaneMask[], key: string) =>
+    held.find((m) => m.laneKey === key)?.spans.map((s) => s.windowStart) ?? []
+
+  /** The first (lane, card) pair on the sweep board whose lifting actually moves
+   *  the held set — SEARCHED, not assumed, so a fixture drift makes this pin
+   *  fail loudly instead of passing vacuously. */
+  const hand = staffLanesOf(LANES)
+    .flatMap((l) => l.items.map((i) => ({ lane: l, id: i.caseId! })))
+    .find(
+      ({ lane, id }) =>
+        JSON.stringify(startsFor(lane, GUARD, 'standard', bedCtx(BOOK, lane))) !==
+        JSON.stringify(startsFor(lane, GUARD, 'standard', bedCtx(BOOK, lane), id)),
+    )
+
+  it('the fixture really holds such a card (the pin is not vacuous)', () => {
+    expect(hand).toBeDefined()
+  })
+
+  it('RED at c2c5c480, GREEN at the tip — the mask answers from the rail’s occupancy', () => {
+    const { lane, id } = hand!
+    // The RAIL's held set for this lane while that card is in hand: its own
+    // three producers (`freePockets` · `laneSpans(lane, excludeId)` ·
+    // `newClientMask`), which is exactly what `guardRailsFor` runs.
+    const rail = startsFor(lane, GUARD, 'standard', bedCtx(BOOK, lane), id)
+
+    // RED — the mask that shipped at c2c5c480 could not be told about the hand,
+    // so mid-gesture the two doors held different windows.
+    expect(startsOn(maskOf(LANES, GUARD, 'standard', BOOK), lane.key)).not.toEqual(rail)
+    // GREEN — handed the same id, the two derivations are one answer.
+    expect(startsOn(maskOf(LANES, GUARD, 'standard', BOOK, undefined, id), lane.key)).toEqual(rail)
+  })
+
+  it('and it really is the RAIL that lifts it — `guardRailsFor`, not a re-spelling', () => {
+    const { lane, id } = hand!
+    const railCells = (excludeId: string | null) =>
+      guardRailsFor(LANES, {
+        open: OPEN,
+        close: CLOSE,
+        stepMin: 30,
+        dur: SHIPPED_SESSION,
+        protectedDur: SHIPPED_PROTECTED,
+        nowMinute: null,
+        locked: [],
+        guard: GUARD,
+        excludeId,
+        // The same bed truth the mask is built from — spec §1's one held set.
+        protectedWindowFeasible: (l, start, dur) => BOOK.newClientMask(l, dur)(start),
+      }).find((r) => r.laneKey === lane.key)!.cells
+
+    expect(JSON.stringify(railCells(id))).not.toBe(JSON.stringify(railCells(null)))
+  })
+
+  it('no hand ⇒ byte-identical to the call that shipped', () => {
+    const shipped = maskOf(LANES, GUARD, 'standard', BOOK)
+    for (const nobody of [null, undefined, ''] as const) {
+      expect(JSON.stringify(maskOf(LANES, GUARD, 'standard', BOOK, undefined, nobody))).toBe(JSON.stringify(shipped))
+    }
+  })
+
+  it('⚖ exclusion is GESTURE-ONLY — a lifted card is lifted from ONE snapshot', () => {
+    const { lane, id } = hand!
+    // The committed instance is built without an `excludeId` and must stay the
+    // settled board's answer: the same call, byte for byte, whatever the hand is
+    // doing. (The screen passes the hand to the board-world instance alone —
+    // TodayScreen.tsx's `heldBoard` — and this is that law in the module's own
+    // terms: nothing here reads a gesture it was not handed.)
+    const committed = maskOf(LANES, GUARD, 'standard', BOOK)
+    const board2 = maskOf(LANES, GUARD, 'standard', BOOK, undefined, id)
+    expect(JSON.stringify(committed)).not.toBe(JSON.stringify(board2))
+    // …and every OTHER lane is untouched: a hand lifts one card off one lane.
+    for (const m of board2.filter((x) => x.laneKey !== lane.key)) {
+      expect(JSON.stringify(m)).toBe(JSON.stringify(committed.find((c) => c.laneKey === m.laneKey)))
     }
   })
 })

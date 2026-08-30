@@ -1450,8 +1450,28 @@ describe('7 — the fix round: the publication boundary', () => {
     expect(screen).toContain('sellCells: sellDrawn.cells,')
     expect(screen).toContain('withheld: sell.cells.filter(isHeldBound),')
     // The DERIVATION still exists and is still what the fallback's survivor set
-    // reads — the two inputs above are two halves of one fact, not two worlds.
+    // reads.
     expect(screen).toContain('survivors: sell.cells,')
+
+    // ⚖ MICROFIX N2 (delta-verify c2c5c480) — AND THE COMMENT BESIDE THEM NO
+    // LONGER CLAIMS ONE WORLD. `held` is the BOARD world's instance — the world
+    // every chip on this strip was judged in, which is what the parameter is
+    // documented to be — while `withheld` is the COMMITTED sales door's own
+    // record, the only place the withheld hours exist on this screen. The line
+    // that stood here called them "the two halves of one fact rather than two
+    // worlds"; at that call site they are two worlds. The PAIRING is right —
+    // `withheld` widens a span's REACH and never the number the sentence quotes,
+    // and `dur` stays the span's own length — so the code is unchanged and the
+    // claim is.
+    expect(screen).toContain('held: heldBoard,')
+    expect(screen).not.toContain('the two inputs are the two halves of one fact rather than two worlds')
+
+    // ⚖ MICROFIX N1 — and the board-world instance lifts the hand, which is the
+    // lift `guardRailsFor` was already making on its own pockets. Proven as
+    // behaviour in reserved-mask.test.ts §9; this is the WIRING half.
+    const memo = screen.indexOf('const heldBoard = useMemo(')
+    expect(memo).toBeGreaterThan(-1)
+    expect(screen.slice(memo, memo + 700)).toContain('excludeId: handId,')
   })
 
   /** ⚖ F2 — the release that escaped its own board. */
@@ -1647,6 +1667,15 @@ describe('7 — the fix round: the publication boundary', () => {
     // …and it is representational, exactly as the release's is: no audit write
     // is reachable from this fixture-sealed board, and nothing pretends one is.
     expect(screen).not.toMatch(/\baudit(Write|Log)\(|\btrack\(|\btelemetry\b/)
+    // ⚖ MICROFIX N3 (delta-verify c2c5c480) — AND THE PROMISE NAMES ITS REAL
+    // HOME. Both hooks used to end 「the name is on the registry now」 and no
+    // RECONNECT registry exists in this tree or anywhere under the lane's docs;
+    // the item is recorded in the round's own spec, which IS the registry. The
+    // two hooks now name that file rather than a phantom — and neither invents
+    // an in-repo registry to make the old wording true.
+    expect(screen).toContain('SPEC-SELLING-ENGINE-2026-08-30.md §7(a)')
+    expect(screen).toContain('PKT-E5-RELEASE.md')
+    expect(screen).not.toContain('the name is on the registry now')
   })
 })
 

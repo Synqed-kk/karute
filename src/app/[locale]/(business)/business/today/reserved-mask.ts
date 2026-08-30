@@ -35,9 +35,12 @@
 // `opsConfig`, never from a fixture. Same for the world: whatever lane snapshot
 // it is handed IS the world it answers for, which is how ONE builder serves the
 // two world instances spec §2 requires (the committed board for the sales door,
-// the board world for the staff door's verdicts). Locked lanes, an excluded
-// card, a hand in flight: all of that is the caller's filter on the snapshot,
-// not a second opinion in here.
+// the board world for the staff door's verdicts). Locked lanes and the
+// publication filter are the caller's own — not a second opinion in here. The
+// LIVE HAND is the single exception, and it is a PARAMETER (`excludeId`) for
+// the reason that field states: the rail cuts its pockets with the very same
+// `laneSpans` overload, and two doors that must agree may not spell one rule
+// twice.
 //
 // DARK THIS ROUND (spec §12, E1). Nothing imports it. Its consumer registry
 // (emission reconcile, rail/gate verdicts, the explanation layer) lands at E3a.
@@ -127,6 +130,30 @@ export interface ReservedMaskInput {
    *  Absent (or empty) is today's code, byte for byte — the spans array the
    *  enumeration built is the array that ships. */
   released?: readonly ReleasedWindow[]
+  /** ⚖ MICROFIX N1 (delta-verify c2c5c480, the unfixed half of blind-final
+   *  L1#5) — THE CARD IN THE OPERATOR'S HAND, lifted out of THIS snapshot's
+   *  occupancy exactly as the rail lifts it out of its pockets
+   *  (`guardRailsFor`, today-interactions.ts:1662 — the same `laneSpans`
+   *  overload, called with the same id).
+   *
+   *  WITHOUT IT THE TWO DOORS DISAGREE FOR THE LENGTH OF A GESTURE. The rail's
+   *  pockets had the held card lifted and this mask's did not, so in the three
+   *  states where the explanation layer still runs mid-gesture (a bed-row drag,
+   *  an over-shelf drag, any stretch — `inHand`'s own first line returns null
+   *  for exactly those three while `handId` stays real) the rail could protect
+   *  a window the mask did not hold, and the 確保 sentence went silent under a
+   *  chip refusing for
+   *  exactly that window. Sharing the producer is what makes that unsayable; a
+   *  second filter at the call site would be a second spelling of one rule.
+   *
+   *  ⚖ EXCLUSION IS GESTURE-ONLY (the board's standing law, TodayScreen.tsx:188):
+   *  only the LIVE hand may be lifted, and only out of the BOARD world's
+   *  instance. The committed world's instance passes nothing — prices read the
+   *  settled board.
+   *
+   *  Absent / null / '' is today's call, byte for byte (`laneSpans` tests the
+   *  id for null the same way the rail's does). */
+  excludeId?: string | null
 }
 
 const EMPTY: readonly ReservedLaneMask[] = Object.freeze([])
@@ -186,7 +213,7 @@ export function reservedMaskFor(input: ReservedMaskInput): readonly ReservedLane
       until: lane.window.until,
       close: input.closeMin,
       now: input.nowMin,
-      occupied: laneSpans(lane),
+      occupied: laneSpans(lane, input.excludeId),
     })
     const ctx: GuardContext = { protectedWindowFeasible: bedFeasibilityFor(book, lane) }
     const spans: ReservedSpan[] = []
