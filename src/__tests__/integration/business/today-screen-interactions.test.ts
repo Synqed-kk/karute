@@ -2868,7 +2868,13 @@ describe('the guided tour builds itself out of what is on screen', () => {
     for (const [title, body] of [
       ['本日の店舗状態', '金額と未処理の集計。レジ当番・金額権限のある人にだけ表示されます。'],
       ['自分の1日', 'ログイン中のスタッフ専用。次のお客様と自分の未処理だけを表示します。'],
-      ['オンライン販売中', 'いまReserveで販売中の枠数。押すと枠の一覧（時間・担当・価格）が開き、行を押すとボード上の場所を示します。'],
+      // ⚖ PIN MIGRATED at E3b, WITH the decision — RULED BY LIAM 8/30
+      // (SPEC-SELLING-ENGINE §13 Q3, 「one number」): the counter counts
+      // everything purchasable online, not the 販売可能枠 layer alone, so the
+      // sentence that teaches it had to move with the definition. Canon's own
+      // `chipLabel` is untouched; what changed is which layers the board's own
+      // counter composes (`onlineOffers`).
+      ['オンライン販売中', 'いまReserveで販売中の枠数。販売可能枠・詰め込み・スキマ枠・新規用に確保をまとめた数です。押すと種類ごとの一覧（時間・担当・価格）が開き、行を押すとボード上の場所を示します。'],
       ['ご来店中', 'いま店内にいるお客様。ここから次回予約をその場で作成できます。'],
       ['日付の移動', '日付を押すと月カレンダーで空き状況を確認できます。'],
       ['表示設定', 'カード・販売可能枠・配置ガイドの見え方と、ボードの密度を調整します。'],

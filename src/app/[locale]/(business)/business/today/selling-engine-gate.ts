@@ -1,11 +1,13 @@
 // 今日の運営 — THE SELLING ENGINE'S ROUND GATE (SPEC-SELLING-ENGINE §12).
 //
-// ⚖ E3a wires both doors to the reserved mask and the fragment fallback with
-// this OFF, and proves the gated-off board byte-identical to today's. E3b is
-// THE FLIP: withholding + fallback + reserved emission + §9's ruled 確保 chip
-// go live together, in one coherent visible change, so the board changes ONCE
-// and Liam previews the law whole. Flipping this constant is that round's first
-// line — and its only switch.
+// ⚖ E3a wired both doors to the reserved mask and the fragment fallback with
+// this OFF, and proved the gated-off board byte-identical to today's. E3b IS
+// THE FLIP, and this line is it: withholding + fallback + reserved emission +
+// §9's ruled 確保 chip + the counter's ruled definition all go live together,
+// in one coherent visible change, so the board changes ONCE and Liam previews
+// the law whole. Every seam below still takes the mask as a parameter, so the
+// off path did not become dead code — it became the shape of a store that
+// holds nothing.
 //
 // IT IS NOT A PRODUCT SWITCH. The store's dial is `gap_guard_mode` (core's
 // `StoreBookingPolicy`, default OFF), and it is already in the inputs: a
@@ -20,9 +22,9 @@
 // layer or a handler would put the round's state in two places and is a
 // review-fail.
 //
-// `boolean` rather than `false as const` deliberately: `as const` makes every
-// ON branch statically dead, so the type-checker stops checking the code this
-// round exists to land, and the eventual flip would be the first time any of it
-// was compiled honestly. The suite pins the value instead (one assertion, and
-// it is the thing that actually matters: shipped OFF).
-export const SELLING_ENGINE_LAW: boolean = false
+// `boolean` rather than `true as const` deliberately, and for the mirror image
+// of E3a's reason: `as const` would make every OFF branch statically dead, and
+// those branches are the ones the gated-off parity proof is written against.
+// The suite pins the value instead (one assertion, and it is the thing that
+// actually matters: shipped ON from E3b).
+export const SELLING_ENGINE_LAW: boolean = true

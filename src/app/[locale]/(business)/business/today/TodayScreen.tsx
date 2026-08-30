@@ -101,6 +101,7 @@ import {
   needsPrivateRoom,
   offerableCell,
   nextSpan,
+  onlineOffers,
   overrideCaption,
   onShownBoard,
   pairLanesOf,
@@ -108,8 +109,10 @@ import {
   pinInViewport,
   restCueStarts,
   explainRails,
+  reservedSentence,
   sameStore,
   sharesStore,
+  sellDrawnFor,
   sellLayerFor,
   sidesAt,
   seedBed,
@@ -1404,6 +1407,26 @@ export function TodayScreen(props: TodayProps) {
     ],
   )
 
+  /** ⚖ SPEC-SELLING-ENGINE §4.2 Q4 (E3b, THE FLIP) — THE SELL LAYER AS THE
+   *  BOARD PUBLISHES IT: the standard hours inside a 新規用に確保 window taken
+   *  out, so no surface counts, prices or paints an hour a regular customer
+   *  cannot buy. `sell` above stays the DERIVATION — the fallback's survivor set
+   *  and the explanation layer read it, and §6's rank dial will sell out of it.
+   *  Nothing held ⇒ the same object, by identity. */
+  const sellDrawn = useMemo(() => (heldCommitted ? sellDrawnFor(sell, showSlotPrice) : sell), [sell, heldCommitted, showSlotPrice])
+
+  /** ⚖ §9's ruled 案B — THE HELD WINDOWS THE BOARD SHOWS AND COUNTS, which is
+   *  the mask minus the lanes nobody can buy from: シフトロック says in as many
+   *  words 「オンライン空き枠からも除外されます」, and the sell and gap layers
+   *  already drop a locked lane inside `sellStaffLanes`. A 確保 chip on a locked
+   *  row would be the only kind of offer still standing there, and the counter
+   *  would be counting a window that is not for sale to anybody. */
+  const heldDrawn = useMemo(
+    () => (heldCommitted ?? []).filter((m) => !locked.includes(m.laneKey)),
+    [heldCommitted, locked],
+  )
+  const heldDrawnByLane = useMemo(() => new Map(heldDrawn.map((m) => [m.laneKey, m.spans])), [heldDrawn])
+
   /** ⚖ SPEC-SELLING-ENGINE §5 + §4.5 — THE REST OF THE SALES DOOR, in the one
    *  order the council's cycle analysis allows: the gap layer promised, the sell
    *  layer reconciled against those promises, and only THEN the fallback over
@@ -1445,6 +1468,29 @@ export function TodayScreen(props: TodayProps) {
   const drawnClaims = useMemo(
     () => (salesDoor ? [...gapClaims, ...salesDoor.fallback.claims] : gapClaims),
     [gapClaims, salesDoor],
+  )
+
+  /** ⚖ SPEC-SELLING-ENGINE §8, RULED 8/30 (§13 Q3 — 「one number」) — WHAT IS ON
+   *  SALE ONLINE, counted over all four kinds. Composed HERE, out of the four
+   *  lists the board actually draws, so the chip and the boxes under it can
+   *  never disagree; the arithmetic and the label live in `onlineOffers`, where
+   *  they are provable without a renderer. Gate off ⇒ canon's own chipLabel and
+   *  today's sell-only list, by the same absent-mask rule as every other seam. */
+  const shelf = useMemo(
+    () =>
+      onlineOffers({
+        sell: sellDrawn.staffBands,
+        // Gate off ⇒ the sell layer alone under its own heading, and canon's
+        // own label back on the chip: the mask is the only thing that makes the
+        // other three kinds part of the number, so an absent one is today's
+        // counter by construction rather than by a second composer.
+        packed: heldCommitted ? gapDrawn.packed : [],
+        scraps: heldCommitted ? gapDrawn.scraps : [],
+        held: heldDrawn,
+        lanes: committedLanes,
+        showPrice: showSlotPrice,
+      }),
+    [heldCommitted, sellDrawn, gapDrawn, heldDrawn, committedLanes, showSlotPrice],
   )
 
   /** The 配置ガイド. `guardOn` is the STORE's protection policy; `guideMode` is
@@ -1861,7 +1907,9 @@ export function TodayScreen(props: TodayProps) {
         for (const i of lane.items) {
           spans.push({ id: i.caseId ?? i.key, x: i.x, w: i.w, title: i.title, derived: i.kind === 'cleanup', parked: false })
         }
-        for (const c of sell.cells) {
+        // ⚖ E3b — the PUBLISHED layer: a check row naming a 販売可能枠 that the
+        // law is withholding would point at a box the board is not drawing.
+        for (const c of sellDrawn.cells) {
           if ((lane.group === 'staff' ? c.laneKey : c.resourceKey) !== lane.key) continue
           const cell = place(c.h, c.h + 60, hours)
           spans.push({ id: `sell-${c.h}-${lane.key}`, x: cell.x, w: cell.w, title: '販売可能枠', derived: true, parked: false })
@@ -1898,7 +1946,7 @@ export function TodayScreen(props: TodayProps) {
       }
       return checks
     },
-    [boardLanes, sell.cells, hours, locked],
+    [boardLanes, sellDrawn.cells, hours, locked],
   )
 
   /** canon `syncPendingUI` (:3673): while the board is showing a DIFFERENT day
@@ -4169,6 +4217,11 @@ export function TodayScreen(props: TodayProps) {
     .filter(Boolean)
     .join(' ')
 
+  /** The lane whose first 確保 chip carries the tour registration — the placement
+   *  strip's own rule (one entry for a repeated section, on the first in DOM
+   *  order), so the walk gets one step rather than one per staff member. */
+  const firstHeldLane = heldDrawn.find((m) => m.spans.length > 0 && !locked.includes(m.laneKey))?.laneKey
+
   function renderLane(lane: BoardLane) {
     if (view !== 'both' && ((view === 'staff' && lane.group !== 'staff') || (view === 'beds' && lane.group !== 'beds'))) return null
     if (collapsed.includes(lane.group)) return null
@@ -4194,7 +4247,11 @@ export function TodayScreen(props: TodayProps) {
     // (:4862) and the 公開価格 button (:5077) — were computed from boxes this line
     // then declined to draw. One box per span still holds; it is now true of the
     // LAYER rather than of the paint, which is what makes those four honest.
-    const cells = sell.cells.filter(onThisLane)
+    // ⚖ spec §1's withholding clause — `sellDrawn` is the sell layer WITHOUT the
+    // hours the law is holding for a 新規 (both rows: the pair carries one staff
+    // lane key). The 確保 chip below paints over their span instead.
+    const cells = sellDrawn.cells.filter(onThisLane)
+    const heldHere = lane.group === 'staff' ? (heldDrawnByLane.get(lane.key) ?? []) : []
     const rail = railByLane.get(lane.key)
     /** ⚖ flag 44 (2) — WHERE THE INVISIBLE BLOCKER ACTUALLY IS. A chip wearing
      *  満室/清掃/新規 is refusing over something that is not drawn on this row,
@@ -4409,6 +4466,46 @@ export function TodayScreen(props: TodayProps) {
                   <span className="cell-nametag">{packedHere ? '詰め込み' : 'スキマ枠'}</span>
                   {c.group === 'staff' && <i>{packedHere ? `${money(c.price)}（${c.e - c.s}分）` : money(c.price)}</i>}
                 </span>
+              )
+            })}
+          {/* ⚖ SPEC-SELLING-ENGINE §9 — OPTION B, RULED BY LIAM 8/30 with the
+              mock open (「I thought B was better」): a held window is not empty
+              track, it is a STATE the store put there, and the explain round
+              exists because unexplained empty space is a defect. So it draws —
+              quietly. The mock's grammar (light blue-gray wash, thin dashed
+              border, the title over its sub-line, centred) adapted to this
+              board's own box geometry, which every other layer here shares.
+              ⚖ R13 / one-way accent: a STATE is a light wash and never a fill,
+              and the border is the neutral family — nothing here is the accent,
+              because the chip is not an action even though it answers a press
+              (the 44 precedent for the rail chips exactly).
+              ⚖ 8/23 guided-tour law: the FIRST chip on the board registers the
+              section, once — one entry, not one per staff member, the same rule
+              the placement strip follows. */}
+          {!isLocked &&
+            heldHere.map((h) => {
+              const span = place(h.start, h.end, hours)
+              return (
+                <button
+                  type="button"
+                  className="cell-held"
+                  key={`held-${h.start}`}
+                  style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
+                  data-guide-title={firstHeldLane === lane.key && h === heldHere[0] ? '新規用に確保' : undefined}
+                  data-guide={
+                    firstHeldLane === lane.key && h === heldHere[0]
+                      ? '新規のお客様のために空けている時間です。押すと確保している理由と、販売に戻る条件が出ます。'
+                      : undefined
+                  }
+                  // ⚖ PKT-E3B-FLIP §5 — the press answers with the LAW: the
+                  // window, the store's own duration and the release rule. One
+                  // composer with the rail chip's clause under it, so the board
+                  // cannot word its own rule two ways.
+                  onClick={() => show(reservedSentence(h.start, h.end))}
+                >
+                  <span className="held-title">新規用に確保</span>
+                  <span className="held-sub">{h.end - h.start}分・オンラインで新規のお客様に販売中</span>
+                </button>
               )
             })}
           {landing?.laneKey === lane.key && landing.w > 0 && (
@@ -4852,7 +4949,7 @@ export function TodayScreen(props: TodayProps) {
         <div className="ops-right">
           <span className="chip ok">Reserve 正常 {ops.syncLabel}</span>
           <span className="chip warn">通知未達 {ops.undelivered}件</span>
-          <span className="chip ok">公開中 {sell.staffBands.length}枠</span>
+          <span className="chip ok">公開中 {sellDrawn.staffBands.length}枠</span>
           <button className="btn" type="button" onClick={() => closingRef.current?.showModal()}>閉店準備を確認</button>
         </div>
       </header>
@@ -4890,25 +4987,42 @@ export function TodayScreen(props: TodayProps) {
                   className="online-chip"
                   aria-expanded={pop === 'shelf'}
                   data-guide-title="オンライン販売中"
-                  data-guide="いまReserveで販売中の枠数。押すと枠の一覧（時間・担当・価格）が開き、行を押すとボード上の場所を示します。"
+                  // ⚖ RULED BY LIAM 8/30 (spec §13 Q3) — ONE NUMBER for
+                  // everything on sale online, so the sentence had to move with
+                  // the definition: it counted the 販売可能枠 layer alone while
+                  // 詰め込み and スキマ枠 boxes sat on the board being just as
+                  // buyable, and 新規用に確保 windows are on sale to a 新規.
+                  data-guide="いまReserveで販売中の枠数。販売可能枠・詰め込み・スキマ枠・新規用に確保をまとめた数です。押すと種類ごとの一覧（時間・担当・価格）が開き、行を押すとボード上の場所を示します。"
                   hidden={sellMode === 'off'}
                   onClick={() => setPop((p) => (p === 'shelf' ? '' : 'shelf'))}
                 >
-                  {sell.chipLabel}
+                  {shelf.label}
                 </button>
                 {pop === 'shelf' && (
                   <div className="fields-pop sell-shelf" aria-label="販売可能枠の一覧">
-                    <strong>販売可能枠 {sell.staffBands.length}窓</strong>
-                    {sell.staffBands.map((b) => (
-                      <button
-                        key={`${b.laneKey}-${b.hStart}`}
-                        type="button"
-                        onClick={() => { setPop(''); show(`${hhmm(b.hStart)}–${hhmm(b.hEnd)} · ${b.staff} — この枠は${props.lensLabel}のボード上にあります`) }}
-                      >
-                        {hhmm(b.hStart)}–{hhmm(b.hEnd)} · {b.staff} · {b.lo == null ? '価格未設定' : b.lo === b.hi ? money(b.lo) : `${money(b.lo)}〜${money(b.hi!)}`}
-                      </button>
-                    ))}
-                    {sell.staffBands.length === 0 && <span>販売中の枠はありません</span>}
+                    {/* ⚖ Q3's breakdown — the same four words the boxes wear
+                        (案C's name tags) and §9's 確保 wording, each group over
+                        its own rows. A group with nothing in it is not drawn:
+                        an empty heading is a question the operator has to
+                        answer for themselves. */}
+                    {shelf.groups
+                      .filter((g) => g.rows.length > 0)
+                      .map((g) => (
+                        <Fragment key={g.kind}>
+                          <strong>{g.label} {g.rows.length}窓</strong>
+                          {g.rows.map((r) => (
+                            <button
+                              key={`${g.kind}-${r.laneKey}-${r.start}`}
+                              type="button"
+                              onClick={() => { setPop(''); show(`${hhmm(r.start)}–${hhmm(r.end)} · ${r.staff} — この枠は${props.lensLabel}のボード上にあります`) }}
+                            >
+                              {hhmm(r.start)}–{hhmm(r.end)} · {r.staff}
+                              {r.lo == null ? (g.kind === 'reserved' ? '' : ' · 価格未設定') : ` · ${r.lo === r.hi ? money(r.lo) : `${money(r.lo)}〜${money(r.hi!)}`}`}
+                            </button>
+                          ))}
+                        </Fragment>
+                      ))}
+                    {shelf.total === 0 && <span>販売中の枠はありません</span>}
                   </div>
                 )}
               </span>
@@ -5379,7 +5493,7 @@ export function TodayScreen(props: TodayProps) {
           <div className="incident-stat"><span>影響</span><b>{props.incident.affected}</b></div>
           <div className="incident-stat"><span>未判断</span><b className="warn">{props.incident.undecided}件</b></div>
           <div className="incident-stat"><span>連絡待ち</span><b>{proposalSent ? 0 : props.incident.waitingContact}件</b></div>
-          <div className="incident-stat"><span>安全な空き</span><b>{sell.staffBands.length}枠</b></div>
+          <div className="incident-stat"><span>安全な空き</span><b>{sellDrawn.staffBands.length}枠</b></div>
           <div className="incident-action">
             <button className="btn" type="button" onClick={() => setSelected(props.incident!.caseId)}>影響を確認</button>
           </div>
@@ -5568,7 +5682,7 @@ export function TodayScreen(props: TodayProps) {
             </div>
             <span className="framing-sample">{framingSample(liveClamp.hi, liveClamp.lo, framing)}</span>
           </div>
-          {sell.staffBands.map((b) => (
+          {sellDrawn.staffBands.map((b) => (
             <div className="slot-row" key={`${b.laneKey}-${b.hStart}`}>
               <span><strong>{hhmm(b.hStart)}–{hhmm(b.hEnd)} / {b.staff}</strong><span>基準 {yen(dialogs.pricing.base)} / 10円単位四捨五入</span></span>
               <b>{b.lo == null ? '—' : b.lo === b.hi ? money(b.lo) : `${money(b.lo)}〜${money(b.hi!)}`}</b>
@@ -5587,14 +5701,14 @@ export function TodayScreen(props: TodayProps) {
           <button
             className="btn primary"
             type="button"
-            disabled={sell.staffBands.length === 0 || !liveChanged}
+            disabled={sellDrawn.staffBands.length === 0 || !liveChanged}
             onClick={() => {
               setAppliedPrice({ hi: liveClamp.hi, lo: liveClamp.lo })
               reserveRef.current?.close()
-              show(`${sell.staffBands.length}枠の公開価格をHQ範囲内で更新しました。再読み込みすると戻ります`)
+              show(`${sellDrawn.staffBands.length}枠の公開価格をHQ範囲内で更新しました。再読み込みすると戻ります`)
             }}
           >
-            {priceButtonCaption(sell.staffBands.length, liveChanged)}
+            {priceButtonCaption(sellDrawn.staffBands.length, liveChanged)}
           </button>
         </div>
       </dialog>

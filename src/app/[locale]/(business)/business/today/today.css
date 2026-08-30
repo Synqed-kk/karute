@@ -765,6 +765,65 @@
    on .cell-price above. */
 .biz .lane.locked .cell-gapfill, .biz .lane.locked .cell-packed { display: none; }
 
+/* ── 新規用に確保 (⚖ SPEC-SELLING-ENGINE §9, OPTION B — Liam 8/30) ──────────
+   The ruled mock's own grammar (mock-held-state/held-state-mock.html,
+   `.block-held-b`): a light blue-gray wash, a THIN DASHED border, the word over
+   its sub-line, centred. Dashed is the whole visual argument — every other box
+   on this track is a solid offer and this one is a state, so it reads as
+   "reserved, not sold" before anybody has read the word.
+
+   THE GEOMETRY IS THE LAYER'S, to the pixel: `top/bottom: 4px`,
+   `left: calc(var(--x) + 1px)`, `width: calc(var(--w) - 2px)`, `border-radius:
+   4px` — the same inset `.cell-price`, `.cell-packed`, `.cell-gapfill` and the
+   rest cue all share, because a second geometry on a layer whose point is that
+   it is one layer is what flag 44's fix round had to undo.
+
+   ⚖ R13 + the one-way accent law: a STATE is a light wash and NEVER a fill, and
+   nothing here is the accent — slate wash, slate dashes, slate text. It IS
+   pressable (⚖ 44's precedent: the rail chips are buttons that answer with a
+   sentence and wear no button dress), so `cursor: pointer` and the UA dress
+   taken back off, and `pointer-events` stays default while every other box on
+   this track keeps `none`: the chip is the one thing here with something to say.
+
+   z-index 1 — level with `.cell-packed`, above the rest cue and the wash, under
+   every card. Nothing else can be inside a held span, so it never competes. */
+.biz .cell-held {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: calc(var(--x) + 1px);
+  width: calc(var(--w) - 2px);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  margin: 0;
+  padding: 2px 4px;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px dashed #94a3b8;
+  border-radius: 4px;
+  background: #eef2f7;
+  font-family: inherit;
+  text-align: center;
+  overflow: hidden;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.biz .cell-held .held-title { font-size: 10px; font-weight: 700; line-height: 1; color: #475569; white-space: nowrap; }
+.biz .cell-held .held-sub { font-size: 9px; line-height: 1.2; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+/* 表示設定 ▸ 空き枠表示「非表示」 takes the whole sell layer off the board, and
+   the 確保 chip goes with it — the operator asked for a board with no window
+   layer on it. 淡色表示/ドラッグ時のみ are about a SALE being loud or quiet and
+   deliberately do not touch this: a held window is a state, and hiding the
+   reason a stretch is empty is flag 44's defect. A locked lane sells nothing
+   online at all (the toggle's own words), so it holds nothing to show. */
+.biz .timeline.sell-off .cell-held { display: none; }
+.biz .lane.locked .cell-held { display: none; }
+
 /* ── スキマガード 60分配置ガイド (canon :626–686) ──────────────────────────
    An 18px status rail follows each staff lane: every exact 30-minute start,
    judged by the guard engine, without covering a card or a price. Purple ✓ =

@@ -501,10 +501,16 @@ const staffLanesOf = (lanes: BoardLane[]) => lanes.filter((l) => l.group === 'st
 // ── 1 · THE GATE ────────────────────────────────────────────────────────────
 
 describe('1 — the round gate', () => {
-  it('ships OFF, and E3b is the round that flips it', () => {
-    expect(SELLING_ENGINE_LAW).toBe(false)
+  // ⚖ PIN MIGRATED at E3b, WITH the decision (SPEC-SELLING-ENGINE §12): E3b IS
+  // the flip, and this line is the round's first and only switch. What the pin
+  // is for has not changed — the shipped value is a FACT the suite states out
+  // loud rather than something a reader has to open a file to learn — and the
+  // clauses under it (no env var, one home, read at the boundary only, every
+  // seam parameterised) are untouched and still the things that matter.
+  it('ships ON from E3b — the flip is this line', () => {
+    expect(SELLING_ENGINE_LAW).toBe(true)
     const gate = SRC('selling-engine-gate.ts')
-    expect(gate).toContain('export const SELLING_ENGINE_LAW: boolean = false')
+    expect(gate).toContain('export const SELLING_ENGINE_LAW: boolean = true')
     // It is the ROUND's gate, not the store's. `gap_guard_mode` is the product
     // switch and it is already in the inputs — no env var, no second dial.
     expect(gate).not.toMatch(/process\.env/)

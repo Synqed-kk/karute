@@ -412,7 +412,17 @@ describe('§2 — reconciled before the layer is built, never in the renderer', 
     )
     // The dead per-lane suppression is GONE, not commented out.
     expect(src).not.toContain('!gapHere.some((g) => g.s < c.h + 60 && c.h < g.e)')
-    expect(src).toContain('const cells = sell.cells.filter(onThisLane)')
+    // ⚖ PIN MIGRATED at E3b, WITH the decision (SPEC-SELLING-ENGINE §1's
+    // withholding clause, ⚖ Q4): the renderer still does not filter — it reads
+    // a DIFFERENT LAYER. `sellDrawn` is `sell` with the hours inside a 新規用に
+    // 確保 window removed, and the removal happens to the LAYER for exactly the
+    // reason this test exists: R4 moved the reconcile out of the renderer
+    // because the four counting surfaces were counting boxes the paint then
+    // declined to draw. Withholding at the renderer would rebuild that defect,
+    // so `sellDrawn` feeds the paint AND all four counts together. Nothing
+    // held ⇒ the same object by identity.
+    expect(src).toContain('const cells = sellDrawn.cells.filter(onThisLane)')
+    expect(src).toContain('sellDrawnFor(sell, showSlotPrice)')
     // The gap layer computes first, and the sell layer is handed its cells.
     // ⚖ flag 44 — the memo now returns the layer AND what building it dropped
     // (⚖ 75(i)'s collector); the ORDER this pin exists for is unchanged.
@@ -438,9 +448,26 @@ describe('§2 — reconciled before the layer is built, never in the renderer', 
     expect(src.match(/sellLayerFor\(committedLanes/g)).toHaveLength(1)
     // The four surfaces that read the count read the LAYER, so they cannot
     // disagree with the paint any more.
-    for (const surface of ['公開中 {sell.staffBands.length}枠', '販売可能枠 {sell.staffBands.length}窓', '<b>{sell.staffBands.length}枠</b>', 'priceButtonCaption(sell.staffBands.length']) {
+    //
+    // ⚖ PIN MIGRATED at E3b, WITH the decision: same four surfaces, same law,
+    // one layer along — they read `sellDrawn`, the PUBLISHED layer (⚖ Q4: the
+    // standard hours inside a 新規用に確保 window are withheld from a regular
+    // customer, so they are not 公開中 and not 安全な空き either). The 販売可能枠
+    // heading is now the sell GROUP of the ruled by-kind breakdown (⚖ 8/30 Q3),
+    // and its rows are fed from this same `sellDrawn.staffBands` — the counter's
+    // own memo is the fourth line below, which is where that surface now lives.
+    for (const surface of [
+      '公開中 {sellDrawn.staffBands.length}枠',
+      '<b>{sellDrawn.staffBands.length}枠</b>',
+      'priceButtonCaption(sellDrawn.staffBands.length',
+      'sell: sellDrawn.staffBands,',
+    ]) {
       expect(src).toContain(surface)
     }
+    // …and no surface is left reading the pre-withholding layer: the derivation
+    // is for the fallback's survivor set and the explanation layer, both of
+    // which want what was DERIVED, and for nothing that counts or paints.
+    expect(src.match(/sell\.staffBands/g)).toBeNull()
   })
 
   it('the per-room turnaround dial reaches the screen from the page, not from today-board', () => {
