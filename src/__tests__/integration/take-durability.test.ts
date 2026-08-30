@@ -165,7 +165,10 @@ import { globalRecorder } from '@/lib/global-recorder'
 import {
   clearOwnTakes,
   getRecoverableTake,
+  listOwnTakes,
+  listPendingDiscardTakes,
   loadTakeBlob,
+  stampDiscardPending,
   stampTakeOutcome,
 } from '@/lib/karute/take-store'
 import { wipeSessionVault } from '@/lib/karute/logout-wipe'
@@ -593,5 +596,80 @@ describe('take durability — outcome survives the crash (R-B3)', () => {
       stampTakeOutcome(takeId, { status: 'pending' }),
     ).resolves.toBeUndefined()
     failWrites = false
+  })
+})
+
+// ── A2-2 — the discard-transcript register ──────────────────────────────────
+// A take that has ALREADY been discarded with a written reason is kept only
+// long enough for its words to be transcribed onto the discard record. For as
+// long as it is kept it must be INVISIBLE to every recovery surface: re-offering
+// it would hand back the exact recording the staff member deliberately threw
+// away (⚖ 8/20 doctrine R2). One filter in listOwnTakes covers them all — the
+// banner, the 録音履歴 fold and the fold's own 保存する re-read.
+
+describe('take durability — the discard-transcript register (A2-2)', () => {
+  const PENDING = {
+    recordingSessionId: 'sess-9',
+    customerId: 'cust-1',
+    durationSeconds: 62,
+    locale: 'ja',
+    stampedAt: 1_756_000_000_000,
+  }
+
+  async function recoverableTake() {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    globalRecorder.discard({ keepTake: true })
+    await drain()
+    await passGrace()
+    return takeId
+  }
+
+  it('a registered take is offered NOWHERE — not the banner, not the inbox fold', async () => {
+    const takeId = await recoverableTake()
+    // Both directions: offered before the stamp…
+    expect((await getRecoverableTake([]))?.takeId).toBe(takeId)
+    expect((await listOwnTakes()).map((t) => t.takeId)).toEqual([takeId])
+
+    expect(await stampDiscardPending(takeId, PENDING)).toBe(true)
+
+    // …and offered by nothing after it.
+    expect(await getRecoverableTake([])).toBeNull()
+    expect(await listOwnTakes()).toEqual([])
+    // The AUDIO is still readable — that is the whole point of keeping it.
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length)
+  })
+
+  it('the sweep list carries the discard back verbatim, and is owner-gated like every other read', async () => {
+    const takeId = await recoverableTake()
+    await stampDiscardPending(takeId, PENDING)
+
+    expect(await listPendingDiscardTakes()).toEqual([
+      { takeId, discardPending: PENDING },
+    ])
+    // Another staff member on the same shared device sees nothing of it — and
+    // it is left untouched for its rightful owner's own sweep.
+    mockUid = 'staff-B'
+    expect(await listPendingDiscardTakes()).toEqual([])
+    mockUid = null
+    expect(await listPendingDiscardTakes()).toEqual([])
+    mockUid = 'staff-A'
+    expect(await listPendingDiscardTakes()).toHaveLength(1)
+  })
+
+  it('a registered take still expires on the normal TTL — a never-collected discard cannot linger', async () => {
+    const takeId = await recoverableTake()
+    await stampDiscardPending(takeId, PENDING)
+    expect(takes().size).toBe(1)
+
+    await jest.advanceTimersByTimeAsync(7 * 24 * 60 * 60 * 1000 + 1)
+    await listOwnTakes() // the read-time prune
+    await drain()
+    expect(takes().size).toBe(0)
+  })
+
+  it('stamping a take that is already gone reports false — the caller must not hold audio back', async () => {
+    expect(await stampDiscardPending('take-that-never-existed', PENDING)).toBe(false)
   })
 })

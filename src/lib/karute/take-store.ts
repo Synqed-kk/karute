@@ -82,6 +82,24 @@ export type TakeMeta = {
    *  the karute saved anyway. Cleared to null the moment the leg is done, so a
    *  later crash can never re-mint from a stale payload. */
   outcomeNewPack?: { size: number; unitPrice: number } | null
+  /** A2-2: this take has ALREADY been discarded with a written reason, and its
+   *  WORDS are still owed to that discard record. Set = the audio is kept only
+   *  long enough to be transcribed onto the discarded session; it is deleted the
+   *  moment that lands. */
+  discardPending?: DiscardPending
+}
+
+/** What a pending discard-transcript needs to finish after a reload — the
+ *  discard's own session id and duration, not the take's (the gate may have
+ *  re-minted the session id, and the discard's duration is what the receipt
+ *  recorded). */
+export type DiscardPending = {
+  recordingSessionId: string
+  /** null for a walk-in / customer-less take — the consent gate refuses those. */
+  customerId: string | null
+  durationSeconds: number
+  locale: string
+  stampedAt: number
 }
 
 /** What the recovery banner needs — everything except the audio itself. */
@@ -256,6 +274,53 @@ export async function stampTakeOutcome(
   }
 }
 
+/** A2-2: mark a take as "discarded, words still owed". Written BEFORE anything
+ *  can delete the audio, so a crash between the discard landing and the
+ *  transcript landing still leaves a take the sweep can finish.
+ *  Best-effort, no-throw, no-op-if-gone — same contract as stampTakeSession.
+ *  Returns false when nothing was stamped: the caller must then let the take be
+ *  deleted as it always was, rather than keeping audio nothing will collect. */
+export async function stampDiscardPending(
+  takeId: string,
+  discardPending: DiscardPending,
+): Promise<boolean> {
+  try {
+    const db = await openDb()
+    if (!db) return false
+    const tx = db.transaction(TAKES, 'readwrite')
+    const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
+    if (!meta) return false
+    await req(tx.objectStore(TAKES).put({ ...meta, discardPending }))
+    return true
+  } catch (err) {
+    console.error('[take-store] stampDiscardPending failed:', err)
+    return false
+  }
+}
+
+/** A2-2: every take of the SIGNED-IN user whose discard still owes its words.
+ *  Owner-gated like every other read here — another staffer's pending take is
+ *  invisible (and untouched: their own sweep finishes it). */
+export async function listPendingDiscardTakes(): Promise<
+  { takeId: string; discardPending: DiscardPending }[]
+> {
+  try {
+    const db = await openDb()
+    if (!db) return []
+    const uid = await currentUserId()
+    if (!uid) return []
+    const metas = (await req(
+      db.transaction(TAKES).objectStore(TAKES).getAll(),
+    )) as TakeMeta[]
+    return metas
+      .filter((m) => m.ownerUid === uid && m.discardPending)
+      .map((m) => ({ takeId: m.takeId, discardPending: m.discardPending as DiscardPending }))
+  } catch (err) {
+    console.error('[take-store] listPendingDiscardTakes failed:', err)
+    return []
+  }
+}
+
 /** F-2: read back a stamped answer by take id — the durable seam a recovered
  *  DRAFT uses (it carries the take id it deletes on save, so its answer can
  *  survive a reload too). Deliberately NOT owner-filtered differently from the
@@ -373,6 +438,15 @@ export async function listOwnTakes(
         continue
       }
       if (m.ownerUid !== uid || exclude.has(m.takeId)) continue
+      // A2-2 — THE recovery exclusion. A take that has already been discarded
+      // with a written reason is kept ONLY so its words can be transcribed onto
+      // the discard record; re-offering it as recoverable audio would hand back
+      // the very recording the staff member deliberately threw away (doctrine
+      // R2). One filter here covers every offer surface — the banner
+      // (getRecoverableTake), the 録音履歴 fold and its 保存する re-read all
+      // route through this function. Placed AFTER the TTL prune above so a
+      // pending take that is never collected still expires on schedule.
+      if (m.discardPending) continue
       if (m.lastSeq < 0) continue
       // Recently flushed = possibly live in another tab; wait out the grace.
       if (now - lastActivity < ACTIVE_GRACE_MS) continue
