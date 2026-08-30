@@ -541,6 +541,42 @@ describe('the fixture data door', () => {
         'react',
       ],
       'src/app/[locale]/(business)/business/register/loading.tsx': ['@/business/i18n'],
+      // カルテ. The room's own RECORD plane plus the derivations that BORROW
+      // every other fact it shows: the booking's date/store/staff/menu, the
+      // customer's name and 顧客番号, the world's own day index. The plane
+      // imports the store ids and nothing else; the screen imports its own types
+      // and the shared tour engine, and reaches into `src/lib/karute/*` NOWHERE
+      // — the phone's contract is mirrored by shape in `karute.ts`, with a cite,
+      // because Business territory may not import phone runtime.
+      // ⚠ THE EMPTY INVENTORY IS THE FENCE, MADE MACHINE-READABLE. A record
+      // plane that imported the world could restate a fact the world already
+      // states — a customer's name, a store, a date — and that is the W7 breach
+      // class this room is pinned against. It imports nothing, so it can only
+      // ADD: an appointment id, and what the session itself produced.
+      'src/business/lib/fixtures-karute.ts': [],
+      'src/business/lib/karute.ts': ['./clock', './fixtures', './fixtures-karute'],
+      'src/app/[locale]/(business)/business/karute/page.tsx': [
+        './KaruteScreen',
+        './karute-props',
+        './karute.css',
+        '@/business/lib/admission',
+      ],
+      'src/app/[locale]/(business)/business/karute/karute-props.ts': [
+        './KaruteScreen',
+        '@/business/lib/clock',
+        '@/business/lib/data',
+        '@/business/lib/fixtures',
+        '@/business/lib/fixtures-karute',
+        '@/business/lib/karute',
+        '@/business/lib/today-board',
+      ],
+      'src/app/[locale]/(business)/business/karute/KaruteScreen.tsx': [
+        '@/business/lib/guide',
+        '@/business/lib/karute',
+        'next/link',
+        'react',
+      ],
+      'src/app/[locale]/(business)/business/karute/loading.tsx': ['@/business/i18n'],
     }
     for (const [file, expected] of Object.entries(INVENTORY)) {
       const src = readFileSync(join(process.cwd(), file), 'utf8')

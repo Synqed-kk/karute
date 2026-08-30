@@ -87,7 +87,7 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
     group: '記録・AI',
     items: [
       { key: 'recording', segment: null, label: '録音', mini: '録音', live: false },
-      { key: 'karute', segment: null, label: 'カルテ', mini: 'カルテ', live: false },
+      { key: 'karute', segment: 'karute', label: 'カルテ', mini: 'カルテ', live: true },
       { key: 'askAi', segment: null, label: 'AI相談', mini: 'AI相談', live: false },
       { key: 'coaching', segment: null, label: 'コーチング', mini: 'コーチ', live: false },
     ],

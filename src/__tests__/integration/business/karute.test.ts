@@ -1,0 +1,1174 @@
+/**
+ * カルテ — the transplanted room's pins.
+ *
+ * THE ONE THING THIS SUITE IS FOR: A RECORD IS THE PHONE APP'S RECORD, AND THIS
+ * ROOM ONLY READS IT BACK. Not one fact about a person, a day, a store, a staff
+ * member or a menu is written down in this room's own plane — every one of them
+ * is READ through the booking a record joins, so the computer door and the phone
+ * cannot disagree about what happened in a session. That is asserted as
+ * EQUALITIES AGAINST THE WORLD rather than as spot checks, and as a SOURCE SCAN
+ * against the plane, because the W7 candidate's breach was exactly this: a plane
+ * that restated the world, and deleted two of the world's own assertions to make
+ * itself fit.
+ *
+ * Second job: TWO REDACTIONS, BOTH ABOVE THE SERIALIZER. Another store's records
+ * never enter the props, and a 破棄済み record's content never enters them for a
+ * reader who may not read it — so neither can be in the browser's payload for a
+ * screen to "hide". Both are proven by scanning the SERIALIZED props for strings
+ * that must not be anywhere in them.
+ *
+ * Third job: EVERY EDIT IS A WRITE and this room has none. Every control canon
+ * carries — 記入内容の編集, AIで再生成, 詳細記録を編集, メッセージの編集・送信,
+ * 結果を変更, 顧客変更 — ships refused with its OWN reason, and there is no
+ * delete lever anywhere (⚖ #547).
+ */
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { jstDayKey, jstSlot, jstYmd } from '@/business/lib/clock'
+import { appointments, customers, menus, operator, staff, STORE_A, STORE_B, type FixtureAppointment } from '@/business/lib/fixtures'
+import { records as recordPlane, type FixtureKaruteRecord } from '@/business/lib/fixtures-karute'
+import {
+  accessFor,
+  buildRecords,
+  CATEGORY_LABEL,
+  CATEGORY_ORDER,
+  FILTERS,
+  matchesFilter,
+  matchesReveal,
+  matchesSearch,
+  monthCensus,
+  normalizeForSearch,
+  permissionNotice,
+  revealCandidates,
+  searchHay,
+  OUTCOME_PILL,
+  STATE_PILL,
+  stateOf,
+  weekWindow,
+  WINDOW_DAYS,
+  windowRows,
+  type KaruteRecordModel,
+} from '@/business/lib/karute'
+import { karuteProps } from '@/app/[locale]/(business)/business/karute/karute-props'
+
+const ROOM_DIR = 'src/app/[locale]/(business)/business/karute'
+const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
+const PLANE_SRC = read('src/business/lib/fixtures-karute.ts')
+const LIB_SRC = read('src/business/lib/karute.ts')
+const SCREEN_SRC = read(`${ROOM_DIR}/KaruteScreen.tsx`)
+const PROPS_SRC = read(`${ROOM_DIR}/karute-props.ts`)
+const PAGE_SRC = read(`${ROOM_DIR}/page.tsx`)
+const CSS_SRC = read(`${ROOM_DIR}/karute.css`)
+const WORLD_SRC = read('src/business/lib/fixtures.ts')
+
+/** Source pins read CODE, not prose: this room documents its own rules in
+ *  comments that quote the very strings the pins look for. */
+const stripComments = (src: string) =>
+  src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+const PLANE_CODE = stripComments(PLANE_SRC)
+const SCREEN_CODE = stripComments(SCREEN_SRC)
+const PROPS_CODE = stripComments(PROPS_SRC)
+const CSS_CODE = CSS_SRC.replace(/\/\*[\s\S]*?\*\//g, '')
+
+const NOW = new Date()
+const TODAY = jstDayKey(NOW)
+const YMD = jstYmd(NOW)
+const MANAGER = accessFor('店舗管理者')
+const STAFF = accessFor('スタッフ')
+
+const world = (over: Partial<Parameters<typeof buildRecords>[0]> = {}) =>
+  buildRecords({
+    records: recordPlane,
+    appointments: appointments(NOW).filter((a) => a.store_id === STORE_A),
+    customers,
+    menus,
+    staff,
+    todayKey: TODAY,
+    todayWeekday: YMD.wd,
+    access: MANAGER,
+    ...over,
+  })
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚠ THE FIXTURE FENCE — the plane ADDS, and states nothing the world states', () => {
+  // The W7 breach class, pinned from both sides.
+
+  it('the plane names no customer, no store, no staff, no menu and no date', () => {
+    const forbidden = [
+      ...customers.map((c) => c.name),
+      ...customers.map((c) => c.member_number),
+      ...customers.flatMap((c) => (c.furigana ? [c.furigana] : [])),
+      ...staff.map((s) => s.full_name),
+      ...menus.map((m) => m.name),
+      STORE_A,
+      STORE_B,
+      'テスト銀座店',
+      'テスト代官山店',
+    ]
+    const hits = forbidden.filter((needle) => PLANE_CODE.includes(needle))
+    expect({ hits }).toEqual({ hits: [] })
+    // …and no absolute date either (⚖ L-6): the booking owns the calendar.
+    expect(PLANE_CODE).not.toMatch(/\b20\d\d-\d\d-\d\d\b/)
+  })
+
+  it('the plane imports nothing at all — it cannot reach the world to restate it', () => {
+    expect(PLANE_CODE).not.toMatch(/\bimport\b/)
+  })
+
+  it('the dependency is ONE WAY — the world knows nothing about karute', () => {
+    // The breach was a plane that made the WORLD fit it. A world that cannot
+    // name this room cannot have been edited to accommodate it.
+    expect(WORLD_SRC.toLowerCase()).not.toContain('karute')
+  })
+
+  it('every record joins a booking the world ALREADY had, with a customer and a staff member', () => {
+    const byId = new Map(appointments(NOW).map((a) => [a.id, a]))
+    for (const r of recordPlane) {
+      const booking = byId.get(r.appointment_id)
+      expect({ record: r.id, booking: booking?.id }).toEqual({ record: r.id, booking: r.appointment_id })
+      expect(customers.some((c) => c.id === booking!.customer_id)).toBe(true)
+      expect(booking!.staff_id).not.toBeNull()
+    }
+  })
+
+  it('no record describes a session that has not happened (⚖ 8/9 demo-data-product-truth)', () => {
+    const byId = new Map(appointments(NOW).map((a) => [a.id, a]))
+    for (const r of recordPlane) {
+      expect({ record: r.id, status: byId.get(r.appointment_id)!.status }).toEqual({ record: r.id, status: 'done' })
+    }
+  })
+
+  it('two records never share one booking, and no カルテ番号 repeats', () => {
+    expect(new Set(recordPlane.map((r) => r.appointment_id)).size).toBe(recordPlane.length)
+    expect(new Set(recordPlane.map((r) => r.id)).size).toBe(recordPlane.length)
+  })
+
+  it('the world census is exactly what it was — nothing was deleted to make a record fit', () => {
+    // The W7 candidate deleted two canonical fixture assertions. Pinning the
+    // world's own ids means removing or renaming one to accommodate this plane
+    // fails HERE rather than silently.
+    expect(customers.map((c) => c.id)).toEqual([
+      'cus-01', 'cus-02', 'cus-03', 'cus-04', 'cus-05', 'cus-06', 'cus-07',
+      'cus-08', 'cus-09', 'cus-10', 'cus-11', 'thin-01', 'thin-02',
+    ])
+    expect(staff.map((s) => s.id)).toEqual(['p-01', 'p-02', 'c-03', 'p-04', 'p-05', 'p-06', 'p-09'])
+    expect(appointments(NOW).length).toBe(33)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('the record model — read through the booking, never restated', () => {
+  it('every fact on a row comes from the world, matching the booking it joins', () => {
+    const rows = world()
+    const byId = new Map(appointments(NOW).map((a) => [a.id, a]))
+    for (const row of rows) {
+      const plane = recordPlane.find((r) => r.id === row.id)!
+      const booking = byId.get(plane.appointment_id)!
+      const customer = customers.find((c) => c.id === booking.customer_id)!
+      expect(row.customerName).toBe(customer.name)
+      expect(row.memberNumber).toBe(customer.member_number)
+      expect(row.furigana).toBe(customer.furigana)
+      expect(row.staffName).toBe(staff.find((s) => s.id === booking.staff_id)!.full_name)
+      expect(row.service).toBe(menus.find((m) => m.id === booking.menu_id)!.name)
+      expect(row.bookingNo).toBe(booking.display_no)
+      expect(row.dayKey).toBe(jstDayKey(booking.starts_at))
+      expect(row.storeId).toBe(booking.store_id)
+    }
+  })
+
+  it('rows come back newest first, and a tie is broken by カルテ番号 rather than by luck', () => {
+    const rows = world()
+    for (let i = 1; i < rows.length; i += 1) {
+      expect(rows[i - 1].dayKey).toBeGreaterThanOrEqual(rows[i].dayKey)
+      if (rows[i - 1].dayKey === rows[i].dayKey) {
+        expect(rows[i - 1].id < rows[i].id).toBe(true)
+      }
+    }
+  })
+
+  it('来店回数 counts the customer’s own completed visits up to this session', () => {
+    const rows = world()
+    const done = appointments(NOW)
+      .filter((a) => a.store_id === STORE_A && a.status === 'done')
+      .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+    for (const row of rows) {
+      const plane = recordPlane.find((r) => r.id === row.id)!
+      const mine = done.filter((a) => a.customer_id === row.customerId)
+      expect(row.visitNumber).toBe(mine.findIndex((a) => a.id === plane.appointment_id) + 1)
+    }
+    // 見本 いつき has exactly two completed 銀座 sessions: the 22-day-old one is
+    // her first, today's is her second — a number the room DERIVES from the
+    // world's bookings rather than a number anybody stored.
+    expect(rows.find((r) => r.id === 'K-0010')!.visitNumber).toBe(1)
+    expect(rows.find((r) => r.id === 'K-0001')!.visitNumber).toBe(2)
+  })
+
+  it('前回 is the session before this one, and a first visit has none', () => {
+    const rows = world()
+    expect(rows.find((r) => r.id === 'K-0010')!.previousDayKey).toBeNull()
+    const first = rows.find((r) => r.id === 'K-0001')!
+    expect(first.previousDayKey).toBe(jstDayKey(jstSlot(-22, 11, 0, NOW)))
+  })
+
+  it('the eight drawers render in the PHONE’s order, and carry the phone’s labels', () => {
+    expect(CATEGORY_ORDER).toEqual(['concern', 'condition', 'lifestyle', 'treatment', 'preference', 'product', 'next', 'note'])
+    // messages/ja.json karuteDetail.currentSession.categories.* — the labels a
+    // staff member sees on the phone when they write the line.
+    expect(CATEGORY_LABEL).toEqual({
+      concern: '気になる点', condition: '部位', lifestyle: 'ライフスタイル', treatment: '施術',
+      preference: '好み', product: '製品', next: '次回', note: 'メモ',
+    })
+    const rich = world().find((r) => r.id === 'K-0001')!
+    expect(rich.entries.map((e) => e.label)).toEqual(CATEGORY_ORDER.map((c) => CATEGORY_LABEL[c]))
+  })
+
+  it('手書き marks the lines a person wrote, and only those', () => {
+    const rich = world().find((r) => r.id === 'K-0001')!
+    const plane = recordPlane.find((r) => r.id === 'K-0001')!
+    for (const e of rich.entries) {
+      const source = plane.entries.find((x) => CATEGORY_LABEL[x.category] === e.label)!
+      expect(e.handwritten).toBe(source.author === 'staff')
+    }
+    expect(rich.entries.filter((e) => e.handwritten).length).toBeGreaterThan(0)
+  })
+
+  it('a rewritten summary is the one that shows, and the amber pencil says so', () => {
+    const edited = world().find((r) => r.id === 'K-0008')!
+    const plane = recordPlane.find((r) => r.id === 'K-0008')!
+    expect(edited.summaryEdited).toBe(true)
+    expect(edited.summaryBullets.join('\n')).toBe(plane.summary_edited)
+    expect(edited.summaryBullets.join('\n')).not.toBe(plane.summary_ai)
+    expect(world().find((r) => r.id === 'K-0001')!.summaryEdited).toBe(false)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('the record’s state — one home, canon’s own precedence', () => {
+  it('nothing written beats every other question (canon aiChipHtml)', () => {
+    expect(stateOf({ entries: [], summary_ai: 'x', summary_state: 'confirmed', discarded: null })).toBe('provisional')
+  })
+  it('破棄 beats even that — a thrown-away record is not a 下書き to finish', () => {
+    expect(stateOf({
+      entries: [], summary_ai: null, summary_state: null,
+      discarded: { minute: 1, by_staff_id: 'p-01', reason: '誤って別の予約に作成' },
+    })).toBe('discarded')
+  })
+  it('no summary yet = AI補完待ち; unconfirmed = 下書き; confirmed = AI要約済', () => {
+    const e = [{ category: 'note' as const, text: 'x', author: 'ai' as const }]
+    expect(stateOf({ entries: e, summary_ai: null, summary_state: null, discarded: null })).toBe('pending')
+    expect(stateOf({ entries: e, summary_ai: 'x', summary_state: 'draft', discarded: null })).toBe('draft')
+    expect(stateOf({ entries: e, summary_ai: 'x', summary_state: 'confirmed', discarded: null })).toBe('summarized')
+  })
+  it('⚖ 破棄済み IS NEVER A WARNING COLOUR (Liam 8/25 ruling B’s rendering law)', () => {
+    // A staffer must never hesitate to throw away a genuinely bad take in order
+    // to protect the colour of a row.
+    expect(STATE_PILL.discarded).toBe('pill')
+    expect(STATE_PILL.discarded).not.toMatch(/alert|warn|bad/)
+    expect(CSS_CODE).not.toMatch(/is-discarded[^{]*\{[^}]*var\(--red/)
+  })
+  it('the demo world carries every state a records desk has to show', () => {
+    const seen = new Set(world().map((r) => r.state))
+    expect([...seen].sort()).toEqual(['discarded', 'draft', 'pending', 'provisional', 'summarized'])
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ THE DISCARD DOCTRINE (Liam 8/20 ①②③ + R2 + 8/25 ruling B)', () => {
+  it('① the row EXISTS for everyone, including a staff member', () => {
+    const asStaff = world({ access: STAFF })
+    expect(asStaff.some((r) => r.id === 'K-0005')).toBe(true)
+    expect(asStaff.find((r) => r.id === 'K-0005')!.state).toBe('discarded')
+    // …and it keeps the census facts, which is what makes the list the store's
+    // own truth: the person it was bound to at record time (⚖ R3 — facts, not
+    // choice), the day, the staff member and the service.
+    const row = asStaff.find((r) => r.id === 'K-0005')!
+    expect(row.customerName).toBe('見本 そら')
+    expect(row.staffName).toBe('見本 はなこ')
+  })
+
+  it('② the CONTENT is a 店舗管理者 read — and it is withheld, never hidden', () => {
+    const asStaff = world({ access: STAFF }).find((r) => r.id === 'K-0005')!
+    expect(asStaff.entries).toEqual([])
+    expect(asStaff.summaryBullets).toEqual([])
+    expect(asStaff.photos).toEqual([])
+    expect(asStaff.aiMessage).toBeNull()
+    expect(asStaff.preview).toBeNull()
+    expect(asStaff.discarded).toEqual({ at: expect.any(Number), by: '見本 はなこ', reason: null })
+
+    const asManager = world().find((r) => r.id === 'K-0005')!
+    expect(asManager.discarded!.reason).toContain('別のお客様の予約')
+    expect(asManager.entries.length).toBe(1)
+  })
+
+  it('③ the written reason is free text, attached to the row, and never a menu', () => {
+    const reason = recordPlane.find((r) => r.id === 'K-0005')!.discarded!.reason
+    expect(reason.length).toBeGreaterThan(20)
+    // No category vocabulary survives anywhere in the plane (⚖ 8/17: per-category
+    // discards were killed — every discard is a sentence somebody wrote).
+    expect(PLANE_CODE).not.toMatch(/'(quality|duplicate|wrong_target|not_session)'/)
+  })
+
+  it('⚖ R2 — A DISCARDED RECORD FEEDS NOTHING, for EVERY reader, manager included', () => {
+    // ⚠ THE FIXTURE HAS TO HOLD SOMETHING FOR THE GUARD TO STRIP, or this pin is
+    // true because the data is empty rather than because the rule works — which
+    // is exactly how it read until the battery's M12 survived. Asserted FIRST,
+    // so emptying the fixture can never quietly re-create the blind spot.
+    const plane = recordPlane.find((r) => r.id === 'K-0005')!
+    expect(plane.outcome).not.toBeNull()
+    expect(plane.ticket_redeemed).toBe(true)
+    for (const access of [MANAGER, STAFF]) {
+      const row = world({ access }).find((r) => r.id === 'K-0005')!
+      expect(row.outcome).toBeNull()
+      expect(row.ticketRedeemed).toBe(false)
+    }
+  })
+
+  it('the discarded row is COUNTED in the census and NAMED apart from it', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    // Existence is never hidden (①), so the month total includes it — and ⚖ R2
+    // means a reader must be able to take it back out without arithmetic.
+    expect(props.monthLabel).toMatch(/^カルテ 今月 \d+件（うち破棄 \d+件）$/)
+    // …but ONLY when there is one. A parenthesis about zero discards would be
+    // an editorial about nothing.
+    const quiet = await karuteProps({
+      locale: 'ja', store: STORE_A,
+      world: { records: recordPlane.filter((r) => r.discarded === null) },
+    })
+    expect(quiet.props.monthLabel).toMatch(/^カルテ 今月 \d+件$/)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ STORE ISOLATION, both directions, and LEAVES NOTHING BEHIND', () => {
+  it('a 銀座 lens returns only 銀座 records; a 代官山 lens only 代官山 ones', async () => {
+    const a = await karuteProps({ locale: 'ja', store: STORE_A })
+    const b = await karuteProps({ locale: 'ja', store: STORE_B })
+    expect(a.props.rows.map((r) => r.id).sort()).toEqual([
+      'K-0001', 'K-0002', 'K-0003', 'K-0004', 'K-0005', 'K-0006', 'K-0007', 'K-0008', 'K-0009', 'K-0010',
+    ])
+    expect(b.props.rows.map((r) => r.id).sort()).toEqual(['K-0011', 'K-0012', 'K-0013'])
+  })
+
+  it('the OTHER store’s customer names, カルテ番号 and summaries are nowhere in the payload', async () => {
+    const a = JSON.stringify((await karuteProps({ locale: 'ja', store: STORE_A })).props)
+    const b = JSON.stringify((await karuteProps({ locale: 'ja', store: STORE_B })).props)
+    // The 銀座 payload must not carry 代官山's records, in any field.
+    for (const id of ['K-0011', 'K-0012', 'K-0013']) expect(a).not.toContain(id)
+    for (const id of ['K-0001', 'K-0005', 'K-0010']) expect(b).not.toContain(id)
+    // …nor the other store's own name, nor a summary only the other store has.
+    expect(a).not.toContain('テスト代官山店')
+    expect(a).not.toContain('目の疲れ')
+    expect(b).not.toContain('テスト銀座店')
+    expect(b).not.toContain('肩から背中の張り')
+    // …nor a customer only the other store ever served.
+    expect(b).not.toContain('見本 そら')
+  })
+
+  it('a 破棄済み record’s reason and content are nowhere in a staff member’s payload', async () => {
+    const staffView = JSON.stringify(
+      (await karuteProps({ locale: 'ja', store: STORE_A, world: { role: 'スタッフ' } })).props,
+    )
+    expect(staffView).not.toContain('別のお客様の予約に紐づけて')
+    expect(staffView).not.toContain('別のお客様の内容を書き始めて')
+    // …and the row itself is still there, which is the whole point of ⚖ ①.
+    expect(staffView).toContain('K-0005')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('search — six fields, canon’s normaliser, and nothing else', () => {
+  it('canon’s normaliser: NFKC · case · hiragana→katakana · spaces · the dash family', () => {
+    expect(normalizeForSearch('ミホン アカリ')).toBe(normalizeForSearch('みほんあかり'))
+    expect(normalizeForSearch('Ｃ-3001')).toBe(normalizeForSearch('c3001'))
+    expect(normalizeForSearch('K‐0001')).toBe(normalizeForSearch('k0001'))
+    expect(normalizeForSearch('ﾃｽﾄ')).toBe(normalizeForSearch('テスト'))
+    expect(normalizeForSearch(null)).toBe('')
+  })
+
+  it('all SIX promised fields find their record', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    const rich = props.rows.find((r) => r.id === 'K-0001')!
+    for (const q of [rich.customerName, rich.furigana!, rich.memberNumber, rich.id, rich.service, rich.staffName]) {
+      expect(matchesSearch(rich, q)).toBe(true)
+    }
+    // …and the placeholder promises exactly those six, in that order.
+    expect(SCREEN_CODE).toContain('顧客名・かな・顧客番号・カルテ番号・サービス・スタッフで検索')
+  })
+
+  it('THE SUMMARY IS NOT INDEXED — the box matches six fields, and says six', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    const rich = props.rows.find((r) => r.id === 'K-0001')!
+    expect(rich.preview).toContain('肩から背中の張り')
+    // A staff member typing a phrase out of a record's content must not be able
+    // to surface it through the search box — that is the ⚖ 8/20 ② read, taken
+    // by the back door.
+    expect(matchesSearch(rich, '肩から背中の張り')).toBe(false)
+    expect(searchHay(rich)).not.toContain(normalizeForSearch(rich.preview!))
+  })
+
+  it('an empty query matches everything, and never narrows by accident', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    expect(props.rows.every((r) => matchesSearch(r, '   '))).toBe(true)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ THE PILL/COUNT LAW — a count is what its own tap reveals', () => {
+  it('every filter’s count equals the rows that filter contains, under every scope', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    for (const scope of [null, props.selfStaffId]) {
+      const scoped = scope === null ? props.rows : props.rows.filter((r) => r.staffId === scope)
+      for (const f of FILTERS) {
+        const revealed = scoped.filter((r) => matchesFilter(r, f.key))
+        // The count the chip prints IS this number, computed by this predicate.
+        expect(revealed.every((r) => matchesFilter(r, f.key))).toBe(true)
+        expect(scoped.filter((r) => matchesFilter(r, f.key)).length).toBe(revealed.length)
+      }
+    }
+  })
+
+  it('すべて really is all of them, and the three narrow strictly', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    expect(props.rows.filter((r) => matchesFilter(r, 'all')).length).toBe(props.rows.length)
+    for (const key of ['week', 'pending', 'draft'] as const) {
+      expect(props.rows.filter((r) => matchesFilter(r, key)).length).toBeLessThan(props.rows.length)
+    }
+  })
+
+  it('AI補完待ち and 下書き name the state they filter, and nothing near it', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    expect(props.rows.filter((r) => matchesFilter(r, 'pending')).every((r) => r.state === 'pending')).toBe(true)
+    expect(props.rows.filter((r) => matchesFilter(r, 'draft')).every((r) => r.state === 'draft')).toBe(true)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('今週 — canon’s Monday-start week, on every weekday', () => {
+  it('a Monday-start window, seven days long, on all seven weekdays', () => {
+    // The naive `1 - getDay()` is six days wrong on a SUNDAY, which is the one
+    // day a shop is most likely to be reading a week's records on.
+    for (let wd = 0; wd < 7; wd += 1) {
+      const { from, to } = weekWindow(1000, wd)
+      expect(to - from).toBe(6)
+      expect(from).toBeLessThanOrEqual(1000)
+      expect(to).toBeGreaterThanOrEqual(1000)
+    }
+    expect(weekWindow(1000, 0)).toEqual({ from: 994, to: 1000 }) // Sunday closes its week
+    expect(weekWindow(1000, 1)).toEqual({ from: 1000, to: 1006 }) // Monday opens it
+  })
+
+  it('今週 on a row is the window’s own answer, never a second opinion', () => {
+    const rows = world()
+    const { from, to } = weekWindow(TODAY, YMD.wd)
+    for (const r of rows) expect(r.thisWeek).toBe(r.dayKey >= from && r.dayKey <= to)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('今月 — a JST CALENDAR month, not a 30-day window', () => {
+  it('counts the rows whose session falls in the render’s own JST month', () => {
+    const rows = world()
+    const census = monthCensus(rows, YMD.y, YMD.m)
+    const byHand = rows.filter((r) => {
+      const d = new Date(r.dayKey * 86_400_000)
+      return d.getUTCFullYear() === YMD.y && d.getUTCMonth() + 1 === YMD.m
+    })
+    expect(census.total).toBe(byHand.length)
+    expect(census.discarded).toBe(byHand.filter((r) => r.discarded !== null).length)
+  })
+
+  it('the 60-day-old record is outside 今月 under every calendar', () => {
+    const all = buildRecords({
+      records: recordPlane, appointments: appointments(NOW), customers, menus, staff,
+      todayKey: TODAY, todayWeekday: YMD.wd, access: MANAGER,
+    })
+    const old = all.find((r) => r.id === 'K-0013')!
+    const d = new Date(old.dayKey * 86_400_000)
+    expect(d.getUTCFullYear() === YMD.y && d.getUTCMonth() + 1 === YMD.m).toBe(false)
+    expect(monthCensus([old], YMD.y, YMD.m).total).toBe(0)
+  })
+
+  it('the PAGE reads the JST calendar, never the server’s own month', () => {
+    // `monthCensus` is proven below on its own; this is the other half — that the
+    // room FEEDS it JST values. A render that took the month off `getUTCMonth()`
+    // agrees with JST for most of the day and disagrees for the nine hours that
+    // matter, which is why nothing behavioural caught it (battery M16 survived
+    // its first run): the pin has to be on the read itself.
+    expect(PROPS_CODE).toContain('const { y, m, wd } = jstYmd(now)')
+    expect(PROPS_CODE).toContain('monthCensus(models, y, m)')
+    expect(PROPS_CODE).not.toMatch(/getUTCMonth|getUTCFullYear|\.getMonth\(|\.getFullYear\(/)
+  })
+
+  it('the boundary is JST’s, so a record at 00:30 JST on the 1st belongs to the NEW month', () => {
+    // 2026-08-31T15:30Z is already 00:30 JST on 9/1. Read in UTC that is still
+    // August; read in JST it is September, and the census must say September.
+    const dayKey = jstDayKey('2026-08-31T15:30:00Z')
+    const row = { dayKey, discarded: null } as unknown as KaruteRecordModel
+    expect(monthCensus([row], 2026, 9).total).toBe(1)
+    expect(monthCensus([row], 2026, 8).total).toBe(0)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ CHUNK-LOADING + ANY-ROSTER-SIZE — the windowed backward walk at scale', () => {
+  /** 200 records on 200 synthetic bookings, driven through the REAL derivations
+   *  — one session per day walking backwards, so the window arithmetic has
+   *  something honest to be exact about. */
+  const synthetic = (count: number) => {
+    const appts: FixtureAppointment[] = Array.from({ length: count }, (_, i) => ({
+      id: `apt-syn-${i}`,
+      store_id: STORE_A,
+      customer_id: customers[i % customers.length].id,
+      staff_id: staff[i % 5].id,
+      menu_id: menus[i % 3].id,
+      starts_at: jstSlot(-i, 10, 0, NOW),
+      ends_at: jstSlot(-i, 11, 0, NOW),
+      booked_price: 6600,
+      status: 'done',
+      display_no: `R-9${String(i).padStart(3, '0')}`,
+      board_state: null,
+      settlement: null,
+      resource_id: null,
+      source: '合成',
+      reassigned_from: null,
+      taken_days_ago: 1,
+      updated_minute: null,
+    }))
+    const recs: FixtureKaruteRecord[] = appts.map((a, i) => ({
+      id: `K-9${String(i).padStart(3, '0')}`,
+      appointment_id: a.id,
+      entries: [{ category: 'treatment', text: `合成記録 ${i}`, author: 'ai' }],
+      summary_ai: `合成要約 ${i}`,
+      summary_edited: null,
+      summary_edits: [],
+      summary_state: i % 3 === 0 ? 'confirmed' : i % 3 === 1 ? 'draft' : null,
+      photos: [],
+      ai_message: null,
+      recording: { consent: true },
+      outcome: { status: 'revisit', reason: null },
+      ticket_redeemed: false,
+      discarded: null,
+    }))
+    return { appts, recs }
+  }
+
+  it('200 records: every window step is exact, and the walk covers all of them', async () => {
+    const { appts, recs } = synthetic(200)
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A, world: { records: recs, appointments: appts } })
+    expect(props.rows.length).toBe(200)
+
+    // One session per day, newest first: step N covers exactly N*14 days, which
+    // is N*14 rows until the set runs out.
+    let seen = 0
+    for (let step = 1; step <= 15; step += 1) {
+      const walk = windowRows(props.rows, step)
+      const expected = Math.min(step * WINDOW_DAYS, 200)
+      expect({ step, visible: walk.visible.length, hidden: walk.hidden }).toEqual({
+        step, visible: expected, hidden: 200 - expected,
+      })
+      expect(walk.visible.length).toBeGreaterThanOrEqual(seen)
+      seen = walk.visible.length
+    }
+    expect(windowRows(props.rows, 15).hidden).toBe(0)
+  })
+
+  it('the visible set is always a PREFIX of the list — the walk never skips a record', () => {
+    const rows = Array.from({ length: 200 }, (_, i) => ({ dayKey: 1000 - i }))
+    for (let step = 1; step <= 15; step += 1) {
+      const walk = windowRows(rows, step)
+      expect(walk.visible).toEqual(rows.slice(0, walk.visible.length))
+    }
+  })
+
+  it('a window that reveals nothing is not a step the reader has to press twice', () => {
+    // A quiet six weeks between two records: one press must cross it.
+    const rows = [{ dayKey: 1000 }, { dayKey: 940 }]
+    expect(windowRows(rows, 1).visible.length).toBe(1)
+    expect(windowRows(rows, 2).visible.length).toBe(2)
+    expect(windowRows(rows, 2).hidden).toBe(0)
+  })
+
+  it('an empty list has no walk, and a walk past the oldest record simply ends', () => {
+    expect(windowRows([], 1)).toEqual({ visible: [], hidden: 0, cutoff: null })
+    const rows = [{ dayKey: 10 }, { dayKey: 9 }]
+    expect(windowRows(rows, 99).hidden).toBe(0)
+    expect(windowRows(rows, 0).visible.length).toBe(2)
+  })
+
+  it('the demo world’s own walk shows the recent fortnight and names the rest', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    const walk = windowRows(props.rows, 1)
+    expect(walk.visible.length + walk.hidden).toBe(props.rows.length)
+    expect(walk.hidden).toBeGreaterThan(0)
+    expect(walk.visible.every((r) => r.dayKey >= props.rows[0].dayKey - WINDOW_DAYS + 1)).toBe(true)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ §7a — a page for RECORDS shows records', () => {
+  it('the fixture world HOLDS zero-record customers, so the absence is provable', () => {
+    const withRecords = new Set(world().map((r) => r.customerId))
+    const withoutInStoreA = customers.filter((c) => !withRecords.has(c.id))
+    expect(withoutInStoreA.length).toBeGreaterThan(0)
+    expect(withoutInStoreA.map((c) => c.id)).toContain('cus-11')
+  })
+
+  it('not one row in the list belongs to a customer with no record', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    // Every row IS a record, by construction: it carries a カルテ番号 the plane
+    // holds. A zero-karute row could only exist if something invented one.
+    for (const row of props.rows) {
+      expect(recordPlane.some((r) => r.id === row.id)).toBe(true)
+    }
+    expect(props.rows.some((r) => r.customerId === 'cus-11')).toBe(false)
+    expect(props.rows.some((r) => r.customerId === 'cus-10')).toBe(false)
+  })
+
+  it('the reveal is the ONLY place a record-less customer appears, and only on a search', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    expect(props.reveals.some((c) => c.customerId === 'cus-11')).toBe(true)
+    // …and it fires on a query, never on an empty box.
+    const sakura = props.reveals.find((c) => c.customerId === 'cus-11')!
+    expect(matchesReveal(sakura, '')).toBe(false)
+    expect(matchesReveal(sakura, 'さくら')).toBe(true)
+    expect(matchesReveal(sakura, 'サクラ')).toBe(true)
+    expect(matchesReveal(sakura, 'C-3011')).toBe(true)
+    expect(matchesReveal(sakura, 'かえる')).toBe(false)
+  })
+
+  it('the reveal is STORE-SCOPED — it never names another store’s customer', async () => {
+    const a = await karuteProps({ locale: 'ja', store: STORE_A })
+    const b = await karuteProps({ locale: 'ja', store: STORE_B })
+    // 見本 うみ books only in 代官山, so 銀座 must not learn she exists.
+    expect(a.props.reveals.some((c) => c.customerId === 'cus-03')).toBe(false)
+    expect(JSON.stringify(a.props)).not.toContain('見本 うみ')
+    expect(b.props.reveals.some((c) => c.customerId === 'cus-03')).toBe(true)
+    // A customer with no booking ANYWHERE belongs to no store: hidden from both
+    // clamped lenses, and visible only to a lens with no store to be outside of.
+    expect(a.props.reveals.some((c) => c.customerId === 'cus-10')).toBe(false)
+    expect(b.props.reveals.some((c) => c.customerId === 'cus-10')).toBe(false)
+    const wide = revealCandidates({ appointments: appointments(NOW), customers, records: world(), clamped: false })
+    expect(wide.some((c) => c.customerId === 'cus-10')).toBe(true)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('permissions — fail-closed, and the notice says the TRUE rule', () => {
+  it('an unknown role gets nothing, and a prototype key is not a role', () => {
+    for (const key of ['', 'unknown', 'constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf']) {
+      expect(accessFor(key)).toEqual({ discardContent: false, reassign: false })
+    }
+  })
+
+  it('店舗管理者 and オーナー read discards and may re-point a record; スタッフ does neither', () => {
+    expect(accessFor('店舗管理者')).toEqual({ discardContent: true, reassign: true })
+    expect(accessFor('オーナー')).toEqual({ discardContent: true, reassign: true })
+    expect(accessFor('スタッフ')).toEqual({ discardContent: false, reassign: false })
+  })
+
+  it('⚖ D3 — the transcript line follows the STORE’S SETTING, and the room never hardcodes a rule', () => {
+    for (const access of [MANAGER, STAFF]) {
+      const lines = permissionNotice(access)
+      expect(lines[0]).toContain('文字起こしの閲覧は店舗の設定に従います（未接続）')
+    }
+    // The forbidden claim, in any spelling this room could reach for.
+    // CODE, not prose: the comment that FORBIDS the sentence quotes it.
+    const everything = [stripComments(LIB_SRC), SCREEN_CODE, PROPS_CODE].join('\n')
+    expect(everything).not.toContain('管理者も文字起こし')
+    expect(everything).not.toContain('管理者は文字起こしを見られません')
+    expect(everything).not.toContain('管理者は閲覧できません')
+  })
+
+  it('a staff member is told WHY the discard content is missing, in one sentence', () => {
+    expect(permissionNotice(STAFF).some((l) => l.includes('店舗管理者のみが確認できます'))).toBe(true)
+    expect(permissionNotice(MANAGER).some((l) => l.includes('店舗管理者のみが確認できます'))).toBe(false)
+  })
+
+  it('the person header carries the customer-profile identity header’s STRUCTURE', () => {
+    // ⚖ Liam 8/23 final: one component spelling for the family. Business has no
+    // customer-profile header yet, so this room builds the one the 顧客 room
+    // adopts in the sweep (K-6) — and the skeleton it clones is the phone's
+    // `CustomerHeaderCard`, which is itself the exact clone of
+    // `CustomerIdentityCard`: avatar · name with the record number BESIDE it in
+    // the same line · a wrapping meta row · the 担当 line · a top-right action
+    // slot. The number sitting under the name instead of beside it is the shape
+    // the clone rules out, so the pin is about CONTAINMENT, not mere presence.
+    const nameline = /<div className="kr-id-nameline">([\s\S]*?)<\/div>/.exec(SCREEN_CODE)?.[1] ?? ''
+    expect(nameline).toContain('<h2 id="krIdentityName">')
+    expect(nameline).toContain('className="kr-id-no"')
+    for (const slot of ['kr-avatar', 'kr-id-meta', 'kr-id-staff', 'kr-id-actions']) {
+      expect(SCREEN_CODE).toContain(slot)
+    }
+    // …in the clone's own order: avatar, then the name block, then the actions.
+    const at = (s: string) => SCREEN_CODE.indexOf(s)
+    expect(at('kr-avatar')).toBeLessThan(at('kr-id-nameline'))
+    expect(at('kr-id-nameline')).toBeLessThan(at('kr-id-meta'))
+    expect(at('kr-id-meta')).toBeLessThan(at('kr-id-staff'))
+    expect(at('kr-id-staff')).toBeLessThan(at('kr-id-actions'))
+  })
+
+  it('⇆ 顧客変更 is HIDDEN for a role without the right, never shown-and-refused', async () => {
+    const asStaff = await karuteProps({ locale: 'ja', store: STORE_A, world: { role: 'スタッフ' } })
+    const asManager = await karuteProps({ locale: 'ja', store: STORE_A })
+    expect(asStaff.props.canReassign).toBe(false)
+    expect(asManager.props.canReassign).toBe(true)
+    // …and the screen gates the whole control on that flag rather than dimming it.
+    expect(SCREEN_CODE).toContain('{props.canReassign && (')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('every write is REFUSED, with its own reason, and there is no delete lever', () => {
+  it('all eight refusals are distinct sentences that name what they would have done', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    const reasons = Object.values(props.refusals)
+    expect(reasons.length).toBe(8)
+    expect(new Set(reasons).size).toBe(8)
+    for (const r of reasons) {
+      expect(r.length).toBeGreaterThan(30)
+      expect(r).toMatch(/できません|開けません/)
+      // Every one says what has to happen before it works — a refusal with no
+      // path is a wall, not an explanation.
+      expect(r).toMatch(/あとに有効になります|接続後に有効になります/)
+    }
+    expect(props.actionFootnote).toContain('実データ接続後に有効になります')
+  })
+
+  it('every refused control carries its reason on its ACCESSIBLE NAME, not on title alone', () => {
+    // A title-only refusal is invisible to exactly the reader who cannot see
+    // that the button is dead (the room-3 F4 lesson).
+    expect(SCREEN_CODE).toContain("'aria-label': `${label} — ${reason}`")
+    expect(SCREEN_CODE).toContain("'aria-disabled': 'true'")
+    // aria-disabled, never `disabled`: the control stays focusable so the reason
+    // is reachable.
+    expect(SCREEN_CODE).not.toMatch(/\bdisabled=\{?true/)
+  })
+
+  it('⚖ #547 — NO DELETE LEVER ANYWHERE, in any spelling', () => {
+    // CODE, not prose: page.tsx's own comment EXPLAINS why there is no 削除
+    // control, and a pin that read the comment would fail on its own reasoning.
+    const everything = [SCREEN_CODE, PROPS_CODE, stripComments(LIB_SRC), stripComments(PAGE_SRC)].join('\n')
+    for (const word of ['削除', 'カルテを消', '完全に消']) {
+      expect({ word, found: everything.includes(word) }).toEqual({ word, found: false })
+    }
+    // The verb this product HAS is 破棄, which keeps the record.
+    expect(SCREEN_SRC).toContain('破棄')
+  })
+
+  it('no ＋新規カルテ lever either — records are created on the phone, in the session', () => {
+    expect(SCREEN_CODE).not.toContain('新規カルテ')
+  })
+
+  it('the reassign flow stops at the WARNING, in the phone app’s own words', () => {
+    for (const line of [
+      'このカルテ（施術記録）を、別のお客様に付け替えます。',
+      '誤って別のお客様に保存してしまった場合の修正専用です。',
+      'この操作は監査ログに記録されます。',
+    ]) {
+      expect(SCREEN_CODE).toContain(line)
+    }
+    // …and the step after the warning is refused rather than half-built: there
+    // is no picker and no confirm in this room (registry ②).
+    expect(SCREEN_CODE).not.toContain('pickerSearchPlaceholder')
+    expect(SCREEN_CODE).toContain("refused('続ける', props.refusals.reassign)")
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('the props the screen is handed — strings, and no second clock', () => {
+  it('the screen holds no clock, no formatter and no data access', () => {
+    expect(SCREEN_CODE).not.toMatch(/new Date\(|Date\.now\(|Intl\./)
+    expect(SCREEN_CODE).not.toContain('@/business/lib/data')
+    expect(SCREEN_CODE).not.toContain('fixtures')
+  })
+
+  it('every date on a row is already a string, and the only number is the day axis', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    for (const r of props.rows) {
+      expect(typeof r.dateLabel).toBe('string')
+      expect(typeof r.dateLongLabel).toBe('string')
+      expect(typeof r.timeLabel).toBe('string')
+      expect(r.dateLabel).toMatch(/^\d+月\d+日$/)
+      expect(r.timeLabel).toMatch(/^\d\d:\d\d$/)
+      expect(Number.isInteger(r.dayKey)).toBe(true)
+    }
+  })
+
+  it('formats in JST regardless of the server clock', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    const today = props.rows.filter((r) => r.dayKey === TODAY)
+    expect(today.length).toBe(3)
+    // apt-12 starts 10:00 JST. A UTC formatter would print 01:00.
+    expect(props.rows.find((r) => r.id === 'K-0001')!.timeLabel).toBe('10:00')
+  })
+
+  it('⚖ SILENT FAILURE IS A BUG — an empty preview says WHICH reason it is', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    for (const r of props.rows) {
+      if (r.preview === null) expect(r.previewFallback.length).toBeGreaterThan(5)
+    }
+    expect(props.rows.find((r) => r.id === 'K-0007')!.previewFallback).toBe('まだ何も記入されていません')
+    expect(props.rows.find((r) => r.id === 'K-0003')!.previewFallback).toBe('AIの要約はまだ作成されていません')
+    // ⚖ A8 — the discard is said ONCE, where it belongs. A 店舗管理者 CAN read
+    // this record, so their empty line has an ordinary cause; only a reader who
+    // may NOT read it is told 破棄 here, because for them that IS the reason.
+    // K-0005 HAS a written line but no AI summary, so a manager's honest cause
+    // is the missing summary — not the discard, and not "nothing written".
+    expect(props.rows.find((r) => r.id === 'K-0005')!.previewFallback).toBe('AIの要約はまだ作成されていません')
+    const asStaff = await karuteProps({ locale: 'ja', store: STORE_A, world: { role: 'スタッフ' } })
+    expect(asStaff.props.rows.find((r) => r.id === 'K-0005')!.previewFallback).toBe('破棄されたカルテです（内容は店舗管理者のみ）')
+  })
+
+  it('⚖ SELF-EXPLAINING NUMBERS — every count on the page says what it counts', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    expect(props.monthLabel).toMatch(/^カルテ 今月 /)
+    expect(props.rows.every((r) => r.photoCountLabel.startsWith('このセッションの写真 '))).toBe(true)
+    // The chips print 「N件」, never a bare figure.
+    expect(SCREEN_CODE).toMatch(/<b>\{scopeCounts\.all\}<\/b>件/)
+    expect(SCREEN_CODE).toMatch(/<b>\{filterCounts\.get\(f\.key\) \?\? 0\}<\/b>件/)
+    // ⚠ THREE LABELLED FACTS, NOT TWO. 「今月 30件・表示中 200件」 is what the
+    // 200-record world printed on the first probe run: both true, and side by
+    // side they read as a contradiction because 今月 is a MONTH and 表示中 is a
+    // LIST. The middle number is what 表示中 is a fraction OF.
+    expect(SCREEN_CODE).toContain('条件に一致 {matched.length}件・表示中 {visible.length}件')
+  })
+
+  it('録音 has three states and three sentences — 「なし」 is not 「同意なし」', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    expect(props.rows.find((r) => r.id === 'K-0004')!.recordingLine).toBe('この記録に紐づく録音はありません。')
+    expect(props.rows.find((r) => r.id === 'K-0001')!.recordingLine).toBe('録音の同意を確認済みです。')
+    expect(props.rows.find((r) => r.id === 'K-0010')!.recordingLine).toBe('録音はありますが、同意の記録がありません。')
+    expect(props.rows.find((r) => r.id === 'K-0004')!.consentLabel).toBeNull()
+    expect(props.rows.find((r) => r.id === 'K-0010')!.consentLabel).toBeNull()
+    expect(props.rows.find((r) => r.id === 'K-0001')!.consentLabel).toBe('同意確認済')
+  })
+
+  it('the outcome vocabulary is the PHONE’s, and 通常ご来店 never carries a reason', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    const labels = new Set(props.rows.map((r) => r.outcomeLabel))
+    expect([...labels].sort()).toEqual(['不成約', '仮カルテ', '成約', '結果 未記録', '通常ご来店'])
+    const revisit = props.rows.find((r) => r.outcomeLabel === '通常ご来店')!
+    expect(revisit.outcomeNote).toContain('成約率の集計に含めません')
+    const declined = props.rows.find((r) => r.outcomeLabel === '不成約')!
+    expect(declined.outcomeNote).toBe('お断りの理由: 予算')
+  })
+
+  it('⚖ TYPE TIER 1 — the 回数券 line exists only where the record holds a burn', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    for (const r of props.rows) {
+      const plane = recordPlane.find((x) => x.id === r.id)!
+      expect(r.ticketLine !== null).toBe(plane.ticket_redeemed && plane.discarded === null)
+    }
+    expect(props.rows.some((r) => r.ticketLine !== null)).toBe(true)
+    // No business-type branch anywhere: a shop that does not sell 回数券 has
+    // records that never hold one, and the same code renders nothing.
+    for (const src of [SCREEN_CODE, PROPS_CODE, stripComments(LIB_SRC)]) {
+      expect(src).not.toMatch(/businessType|業種|storeType/)
+    }
+  })
+
+  it('a store that has recorded nothing gets a DESIGNED screen, not an empty page', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A, world: { records: [] } })
+    expect(props.rows).toEqual([])
+    expect(props.monthLabel).toBe('カルテ 今月 0件')
+    expect(SCREEN_CODE).toContain('この店舗のカルテはまだありません')
+  })
+
+  it('the page passes NO world override — the harness branch is the harness’s alone', () => {
+    expect(PAGE_SRC).toContain('await karuteProps({ locale, store: query.store })')
+    expect(PAGE_SRC).not.toContain('world')
+    // …and the harness's booking set still goes through the lens's own rule.
+    expect(PROPS_CODE).toContain('world.appointments.filter((a) => (clamped ? a.store_id === storeId : true))')
+  })
+
+  it('the screen is keyed by the resolved lens, so nothing survives a store switch', () => {
+    expect(PAGE_SRC).toContain('<KaruteScreen key={storeKey}')
+    expect(PROPS_CODE).toContain("storeKey: clamped ? storeId! : 'all-stores'")
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () => {
+  it('no wrapper caps a height, owns overflow-y, or sets overscroll-behavior', () => {
+    expect(CSS_CODE).not.toMatch(/overflow-y\s*:/)
+    expect(CSS_CODE).not.toMatch(/overscroll-behavior/)
+    expect(CSS_CODE).not.toMatch(/max-height\s*:/)
+    // `overflow: <one value>` would set BOTH axes — the shorthand is the trap.
+    expect(CSS_CODE).not.toMatch(/[^-]overflow\s*:\s*(auto|scroll)\s*;/)
+  })
+
+  it('NOT ONE container owns an axis — not even X (deviation K-9)', () => {
+    // The packet asked for a table that pans sideways with a frozen 日付 column.
+    // It was built, and then MEASURED: the shell collapses its rail to 76px
+    // below 1024, so the narrowest reachable content box is ~628px against a
+    // five-column minimum of ~556px — the columns fit at every width, in both
+    // rail states, and below 744 the phone band turns the table into cards. The
+    // pan engaged by FOUR PIXELS, which no reader can perform and which cannot
+    // discriminate a correct sticky inset from a wrong one, so the mechanism is
+    // gone rather than shipped as a lever nobody can operate.
+    expect(CSS_CODE).not.toMatch(/overflow-x\s*:/)
+    expect(CSS_CODE).not.toMatch(/position:\s*sticky/)
+    // Declarations only — `@media (min-width: 1400px)` is a BAND, not a floor.
+    const declarations = CSS_CODE.replace(/@media[^{]*\{/g, '{')
+    expect(declarations).not.toMatch(/min-width\s*:\s*[1-9]\d\dpx/)
+    expect(SCREEN_CODE).not.toContain('kr-table-wrap')
+  })
+
+  it('NO container holding a focusable clips — a ring the room clips is not a ring', () => {
+    // `overflow: hidden` is legal on ONE selector and only there: the list
+    // preview's single-line clamp, which is a SPAN INSIDE the row button. The
+    // ring is painted on the button, outside the button's own box, so a clamp on
+    // one of its children cannot reach it. Every other clip would.
+    const clippers = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*overflow\s*:\s*hidden[^}]*\}/g)].map((m) => m[1].trim())
+    expect(clippers).toEqual(['.biz .pg-karute .kr-preview'])
+  })
+
+  it('the phone band turns the five columns into one card per record', () => {
+    const phone = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 743px)'))
+    expect(phone).toMatch(/\.kr-thead\s*\{\s*display:\s*none/)
+    expect(phone).toMatch(/grid-template-areas:\s*"cust cust" "date state" "service staff"/)
+  })
+
+  it('the fence states this room’s value at FOUR levels for every shared name', () => {
+    for (const rule of [
+      '.biz .page.pg-karute {',
+      '.biz .page.pg-karute h1 {',
+      '.biz .page.pg-karute .btn {',
+      '.biz .page.pg-karute .btn.primary {',
+    ]) {
+      expect(CSS_CODE).toContain(rule)
+    }
+  })
+
+  it('every rule is scoped — nothing here can reach a neighbour', () => {
+    const selectors = CSS_CODE.split('}')
+      .map((b) => b.slice(0, b.indexOf('{')).trim())
+      .filter((s) => s !== '' && !s.startsWith('@'))
+      .flatMap((s) => s.split(',').map((x) => x.trim()))
+      .filter(Boolean)
+    const unscoped = selectors.filter((s) => !s.includes('pg-karute'))
+    expect({ unscoped }).toEqual({ unscoped: [] })
+  })
+
+  it('⚖ R13 — no black-filled interactive element anywhere in the room', () => {
+    expect(CSS_CODE).not.toMatch(/background:\s*(#000|#111|#18181b|black)/)
+    expect(CSS_CODE).not.toMatch(/background:\s*var\(--ink/)
+  })
+
+  it('the ALL-SCREEN ladder states every band the law names', () => {
+    for (const band of [
+      '@media (min-width: 1400px)',
+      '@media (max-width: 1279px)',
+      '@media (max-width: 1099px)',
+      '@media (max-width: 1023px)',
+      '@media (min-width: 800px) and (max-width: 1023px)',
+      '@media (max-width: 743px)',
+      '@media (prefers-reduced-motion: reduce)',
+    ]) {
+      expect(CSS_SRC).toContain(band)
+    }
+  })
+
+  it('the room joins the shell’s 1180px floor opt-in list, and only the SHELL states it', () => {
+    const shell = read('src/app/[locale]/(business)/business-shell.css')
+    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute) { min-width: 0; }')
+    expect(CSS_CODE).not.toContain('.biz .app')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () => {
+  const BIZ = join(process.cwd(), 'src/app/[locale]/(business)')
+  const selectorsOf = (src: string) =>
+    src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('}')
+      .flatMap((block) => {
+        const i = block.indexOf('{')
+        return i < 0 ? [] : block.slice(0, i).split(',').map((s) => s.trim()).filter(Boolean)
+      })
+      .filter((s) => !s.startsWith('@'))
+  const classesIn = (sel: string) => [...sel.matchAll(/\.([a-zA-Z][\w-]*)/g)].map((m) => m[1]).filter((n) => n !== 'biz')
+
+  const SIBLING_DIRS = readdirSync(join(BIZ, 'business')).filter((d) => {
+    if (d === 'karute') return false
+    try {
+      readFileSync(join(BIZ, 'business', d, `${d}.css`))
+      return true
+    } catch {
+      return false
+    }
+  })
+
+  /** Every class name this room's own sheet uses, plus the shell's vocabulary
+   *  this room deliberately reuses. */
+  const mine = new Set<string>(['pill', 'good', 'warn', 'alert', 'indigo', 'btn', 'primary', 'danger', 'page'])
+  for (const sel of selectorsOf(CSS_SRC)) {
+    if (!sel.includes('pg-karute')) continue
+    for (const c of classesIn(sel)) if (c !== 'pg-karute') mine.add(c)
+  }
+
+  it('the neighbours are all here — SEVEN sheets, read from disk, never restated', () => {
+    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'customers', 'inbox', 'register', 'reservations', 'shifts', 'today'])
+  })
+
+  it('every sibling rule that could reach this room is FENCED at four levels', () => {
+    const collisions: string[] = []
+    for (const dir of SIBLING_DIRS) {
+      const src = readFileSync(join(BIZ, 'business', dir, `${dir}.css`), 'utf8')
+      for (const sel of selectorsOf(src)) {
+        if (!sel.startsWith('.biz') || sel.includes('.pg-')) continue
+        const names = classesIn(sel)
+        if (names.length && names.every((n) => mine.has(n))) collisions.push(`${dir}::${sel}`)
+      }
+    }
+    // Derived, not copied: if a neighbour ever states a bare rule on a name this
+    // room renders, it appears here and the fence has to grow in the same pass.
+    expect(collisions.sort()).toEqual([
+      'customers::.biz .page .btn',
+      'reservations::.biz .btn',
+      'reservations::.biz .btn.primary',
+    ])
+    // …and this room states its own value for each of them, at FOUR levels, so a
+    // sibling's three-level rule cannot win on insertion order.
+    expect(CSS_CODE).toContain('.biz .page.pg-karute .btn { font-weight: 500; }')
+    expect(CSS_CODE).toContain('.biz .page.pg-karute .btn.primary { font-weight: 600; }')
+  })
+
+  it('the room’s own PAGE rule is four levels — never three, which ties', () => {
+    const base = CSS_CODE.slice(0, CSS_CODE.indexOf('@media'))
+    expect(base).toContain('.biz .page.pg-karute { padding:')
+    expect(base).not.toMatch(/\.biz \.pg-karute \{/)
+    expect(base).toContain('.biz .page.pg-karute h1 {')
+  })
+
+  it('every class name the SCREEN renders is this room’s own, or one of the shell’s', () => {
+    // The collision list above is derived from the SHEET, so a class name that
+    // appears only in the MARKUP would be invisible to it while being exactly
+    // the kind of shared name a neighbour states bare rules on (the room-4 M10
+    // lesson, inherited).
+    const rendered = new Set<string>()
+    for (const m of SCREEN_CODE.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)) {
+      // A template literal's `${…}` holes are EXPRESSIONS, not class names.
+      for (const name of (m[1] ?? m[2]).replace(/\$\{[^}]*\}/g, ' ').split(/\s+/)) {
+        if (name && /^[a-z][\w-]*$/.test(name)) rendered.add(name)
+      }
+    }
+    // `long` is the 顧客 room's own state class for a 3-character person mark,
+    // carried verbatim rather than re-invented — it rides a kr- element and this
+    // sheet states it only under `.pg-karute`, so nothing can collide on it.
+    const SHELL = new Set(['page', 'pg-karute', 'btn', 'primary', 'danger', 'pill', 'good', 'warn', 'alert', 'indigo', 'long'])
+    const strays = [...rendered].filter((n) => !n.startsWith('kr-') && !SHELL.has(n))
+    expect(strays).toEqual([])
+    expect([...rendered].filter((n) => n.startsWith('kr-')).length).toBeGreaterThan(30)
+  })
+
+  it('this room’s own names exist NOWHERE else in the family', () => {
+    const own = [...mine].filter((n) => n.startsWith('kr-'))
+    expect(own.length).toBeGreaterThan(30)
+    for (const dir of SIBLING_DIRS) {
+      const src = readFileSync(join(BIZ, 'business', dir, `${dir}.css`), 'utf8')
+      for (const n of own) {
+        expect({ dir, name: n, used: src.includes(`.${n}`) }).toEqual({ dir, name: n, used: false })
+      }
+    }
+    // …nor in the shell, which is the one sheet every room shares.
+    const shell = readFileSync(join(BIZ, 'business-shell.css'), 'utf8')
+    for (const n of own) expect({ name: n, inShell: shell.includes(`.${n}`) }).toEqual({ name: n, inShell: false })
+  })
+
+  it('every SHELL class the room renders is either fenced or never restated here', () => {
+    // The other direction of the same question, and the one that decides a
+    // collision: a neighbour's bare rule can only reach a node this room paints
+    // if this room ALSO states a property on that name — otherwise there is
+    // nothing to fight over, whatever the neighbour says.
+    const rendered = new Set<string>()
+    for (const m of SCREEN_CODE.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)) {
+      for (const name of (m[1] ?? m[2]).replace(/\$\{[^}]*\}/g, ' ').split(/\s+/)) {
+        if (name && !name.startsWith('kr-') && /^[a-z][\w-]*$/.test(name)) rendered.add(name)
+      }
+    }
+    expect([...rendered].sort()).toEqual(['btn', 'good', 'indigo', 'pill'])
+    // …plus the two the screen does not spell as a literal: the ROUTE WRAPPER,
+    // and the pill TONES, which arrive as props because the state that picks
+    // them is decided once in `karute.ts` and rendered wherever it is needed.
+    expect(SCREEN_CODE).toContain("const ROOT = 'page pg-karute'")
+    for (const tone of [...Object.values(STATE_PILL), ...Object.values(OUTCOME_PILL)]) {
+      expect({ tone, shell: /^pill( (good|warn|alert|indigo))?$/.test(tone) }).toEqual({ tone, shell: true })
+    }
+    // `long` never appears as a LITERAL class name — it arrives through a
+    // conditional expression, which the scan above strips with the rest of the
+    // `${…}` hole. Named here so it is still counted as something this room
+    // renders and therefore fences.
+    expect(SCREEN_CODE).toContain("r.mark.length > 2 ? ' long' : ''")
+    const all = new Set([...rendered, 'page', 'pg-karute', 'warn', 'alert', 'long'])
+    // The sheet restates a property on exactly three of them, and each is stated
+    // at four levels above. `pill` and its four tones are rendered and NEVER
+    // restated, so this room has nothing there for a sibling to collide with.
+    const restated = [...all].filter((n) =>
+      selectorsOf(CSS_SRC).some((sel) => sel.includes('pg-karute') && classesIn(sel).includes(n)),
+    )
+    expect(restated.sort()).toEqual(['btn', 'long', 'page', 'pg-karute'])
+    // …and `long` is stated ONLY beside a kr- name, so no neighbour's bare rule
+    // can reach it (顧客 states it beside `.person-mark`, which this room never
+    // renders).
+    for (const sel of selectorsOf(CSS_SRC)) {
+      if (classesIn(sel).includes('long')) expect(sel).toMatch(/pg-karute .*\.kr-/)
+    }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('the room reaches into no phone runtime, and mirrors the contract with a cite', () => {
+  it('no import of src/lib/karute/* anywhere in the room', () => {
+    for (const src of [LIB_SRC, SCREEN_SRC, PROPS_SRC, PAGE_SRC, PLANE_SRC]) {
+      expect(src).not.toMatch(/from '@\/lib\//)
+      expect(src).not.toMatch(/from '@\/components\//)
+    }
+  })
+
+  it('the mirrored shapes NAME the phone file they mirror', () => {
+    expect(LIB_SRC).toContain('CurrentSessionCard.tsx')
+    expect(LIB_SRC).toContain('outcome-types.ts')
+    expect(LIB_SRC).toContain('detail-screen.ts')
+  })
+
+  it('react-dom is nowhere in the room’s runtime', () => {
+    for (const src of [LIB_SRC, SCREEN_SRC, PROPS_SRC, PAGE_SRC, PLANE_SRC]) {
+      expect(src).not.toContain('react-dom')
+    }
+  })
+
+  it('the operator the 自分 scope means is the world’s own signed-in persona', async () => {
+    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+    expect(props.selfStaffId).toBe(operator.staff_id)
+    expect(props.selfLabel).toBe(`自分（${operator.name}）`)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('the room survives real time passing (⚖ L-6)', () => {
+  it('is still populated 30 days from now', () => {
+    const later = new Date(NOW.getTime() + 30 * 86_400_000)
+    const rows = buildRecords({
+      records: recordPlane,
+      appointments: appointments(later).filter((a) => a.store_id === STORE_A),
+      customers, menus, staff,
+      todayKey: jstDayKey(later), todayWeekday: jstYmd(later).wd, access: MANAGER,
+    })
+    expect(rows.length).toBe(10)
+  })
+
+  it('is still populated 400 days from now', () => {
+    const later = new Date(NOW.getTime() + 400 * 86_400_000)
+    const rows = buildRecords({
+      records: recordPlane,
+      appointments: appointments(later).filter((a) => a.store_id === STORE_A),
+      customers, menus, staff,
+      todayKey: jstDayKey(later), todayWeekday: jstYmd(later).wd, access: MANAGER,
+    })
+    expect(rows.length).toBe(10)
+    // …and the newest one is still today's, not a date that expired in 2026.
+    expect(rows[0].dayKey).toBe(jstDayKey(later))
+  })
+})

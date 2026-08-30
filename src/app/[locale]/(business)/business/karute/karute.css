@@ -1,0 +1,497 @@
+/* カルテ — the room's sheet. Tokens, type scale, pill colours and Japanese copy
+   are the shell's and canon's (MOCK-karute-list.html / MOCK-karute-detail.html);
+   what this sheet states is ONE PAGE, TWO SCREENS.
+
+   THE SHAPE, IN THE ORDER THE PAGE READS:
+     · the head, the permission note and the three narrowing rows are always the
+       same three questions — 担当, 検索, 状態 — and every one of them carries the
+       count its own press produces (⚖ the pill/count law);
+     · below them the page is EITHER the full-page search table (⚖ Liam 8/30 D2 —
+       canon's five columns, never a 380px queue column) OR one record, with
+       ← カルテ一覧 between them. One screen at a time, at EVERY width: canon is
+       two pages, and squeezing the table into a column to fit a detail beside it
+       is the exact shape D2 rules out;
+     · inside a record, the template's grammar — the person header first, facts
+       left / evidence right, the standing refusal under them, 記録の履歴 full
+       width beneath.
+
+   ── TWO SCOPING JOBS, AND THEY ARE DIFFERENT PROBLEMS ───────────────────────
+
+   OUTGOING (this sheet reaching another room). Every rule below is scoped under
+   `.pg-karute`, and the screen puts that class on exactly one node — so nothing
+   here can restyle 今日の運営 / 顧客 / 予約一覧 / 売上分析 / スタッフ・シフト /
+   受信トレイ / 売上・レジ after a client-side navigation leaves this sheet in the
+   document.
+
+   INCOMING (another room's sheet reaching THIS one) — the room-2 BLOCKER class.
+   `.pg-karute` does nothing about it: App Router keeps every sibling sheet
+   loaded, and the neighbours state BARE `.biz .<name>` rules on the exact names
+   canon's カルテ pages use — `.panel`, `.panel-head`, `.panel-body`, `.fact`,
+   `.fact-list`, `.summary`, `.filters`, `.chip`, `.empty`, `.identity`,
+   `.history-row`, `.avatar`, `.count-line`, `.toast`, `.spot-card`,
+   `.spot-foot`… 今日の運営 even owns `.biz .spot-*`, which is this room's own
+   tour spelled in the neighbour's words.
+
+   THE FENCE HERE IS STRUCTURAL RATHER THAN ENUMERATED: every element this room
+   owns carries a `kr-` name that exists nowhere else in the family, so there is
+   no rule to collide with — a fence that cannot rot as the neighbours grow.
+   `page` / `h1` / `btn` are the shell's AND restated here, so those three are
+   fenced below at four levels; `pill` is also the shell's, but this sheet never
+   restates a property on it, so there is nothing here to collide. The room's own
+   suite DERIVES the collision list from the seven sibling route sheets and this
+   screen's own markup — freshly, on every run — and fails if a neighbour ever
+   states a bare rule on a name this room renders.
+
+   ⚖ FOCUS IS THE SHELL'S, AND IT IS ALREADY RIGHT (`business-shell.css:107-111`,
+   3px accent at 2px offset, `:focus-visible` only). Restating it here would be a
+   second home for one verdict, so it is deliberately NOT carried.
+
+   ⚠ …BUT A RING THE ROOM CLIPS IS NOT A RING (the room-3 F2 lesson). The shell
+   paints 3px OUTSIDE the control at 2px offset — 5px of paint beyond the box —
+   so no container this room owns clips: rounded corners are stated on the CORNER
+   CHILDREN, never as `overflow: hidden` on a wrapper.
+
+   ⚖ PAGE-SCROLL (Liam 8/22, ruled twice): NOT ONE container in this room owns an
+   axis at all. No height cap, no overflow-y, no overscroll-behavior — and no
+   overflow-x either.
+
+   ⚠ THE HORIZONTAL PAN AND ITS FROZEN COLUMN WERE BUILT, MEASURED, AND REMOVED
+   (deviation K-9, numbers in the build report). The packet asks for a table that
+   pans sideways with a sticky 日付 column, and the probe went looking for the
+   pan: it does not exist at any width this room can be read at. The shell
+   collapses its rail to 76px below 1024, so the narrowest reachable content box
+   is ~628px against a five-column minimum of ~556px — the columns FIT, at every
+   width, in both rail states; below 744 the phone band turns the table into
+   cards and the question stops existing. The pan engaged by FOUR PIXELS in the
+   tightest state, which is a scroll no reader can perform and a proof that
+   cannot tell a correct sticky inset from a wrong one. A mechanism nobody can
+   observe working is the dead-lever class, so it is gone rather than shipped
+   with a pin that would be true for the wrong reason. The columns are
+   minmax()-based and WRAP, which the longest-string world proves at every
+   width. */
+
+/* ── the fence: the three shared names this room still uses ────────────────── */
+/* Four levels (`.biz .page.pg-karute …`) rather than three, because a sibling's
+   own three-level rule (`.biz .page .btn`, customers.css:23) ties at three and a
+   tie is decided by whichever sheet App Router happened to insert last. Derived
+   FRESH from today's seven sibling route sheets: `.biz .page .btn` (customers) ·
+   `.biz .btn` and `.biz .btn.primary` (reservations). */
+.biz .page.pg-karute { padding: 24px 28px 40px; }
+.biz .page.pg-karute h1 { margin: 0; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
+.biz .page.pg-karute .btn { font-weight: 500; }
+.biz .page.pg-karute .btn.primary { font-weight: 600; }
+
+/* ── page head ────────────────────────────────────────────────────────────── */
+.biz .pg-karute .kr-head { margin-bottom: 12px; }
+.biz .pg-karute .kr-eyebrow { margin-bottom: 4px; color: var(--ink-3); font-size: 13px; font-weight: 700; }
+.biz .pg-karute .kr-titleline { display: flex; align-items: center; gap: 9px; }
+.biz .pg-karute .kr-subtitle { margin: 5px 0 0; color: var(--muted); font-size: 14px; line-height: 1.55; max-width: 64ch; }
+/* ⚖ the honest status line. Tabular figures so the count does not jitter as the
+   walk grows, and never bold — it is a fact about the page, not a headline. */
+.biz .pg-karute .kr-status { margin: 6px 0 0; color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+/* A hairline circle, never a filled one — ⚖ R13, and a help mark that shouts is
+   worse than the paragraph it replaced. `[aria-expanded="true"]` means the
+   GUIDED TOUR is running, which is why the mark stays lit for the whole walk. */
+.biz .pg-karute .kr-help {
+  flex: 0 0 auto; width: 21px; height: 21px; display: grid; place-items: center;
+  border: 1px solid #c9c9d2; border-radius: 50%; background: #fff;
+  color: var(--muted); font-size: 12px; font-weight: 700; line-height: 1; padding: 0;
+}
+.biz .pg-karute .kr-help:hover,
+.biz .pg-karute .kr-help[aria-expanded="true"] { border-color: var(--indigo); color: var(--indigo); background: var(--indigo-soft); }
+
+/* canon's own permission note, in the family's amber. Not pressable, so it stays
+   a wash rather than an accent (⚖ the one-way accent law). */
+.biz .pg-karute .kr-notice {
+  margin-bottom: 12px; padding: 9px 12px; border: 1px solid #efd2b7; border-radius: 9px;
+  background: var(--orange-soft); color: var(--orange); font-size: 12.5px; font-weight: 600; line-height: 1.6;
+}
+.biz .pg-karute .kr-notice p { margin: 0; }
+.biz .pg-karute .kr-notice p + p { margin-top: 4px; }
+
+/* ── the three narrowing rows ──────────────────────────────────────────────── */
+.biz .pg-karute .kr-scope,
+.biz .pg-karute .kr-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-bottom: 8px; }
+.biz .pg-karute .kr-label { color: var(--quiet); font-size: 11.5px; font-weight: 800; letter-spacing: .04em; }
+.biz .pg-karute .kr-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; }
+
+/* QUIET TEXT, NOT BUTTONS. A filter narrows a view, it does not act — so no
+   border, no fill, and selected is an accent label plus a 2px accent underline
+   (⚖ R13: never a black or solid-filled control for a state). */
+.biz .pg-karute .kr-chip,
+.biz .pg-karute .kr-filter {
+  display: inline-block; padding: 6px 0; border: 0; background: none; color: var(--muted);
+  font-size: 13px; line-height: 20px; white-space: nowrap;
+  text-decoration-line: underline; text-decoration-color: transparent;
+  text-decoration-thickness: 2px; text-underline-offset: 5px;
+}
+.biz .pg-karute .kr-chip b,
+.biz .pg-karute .kr-filter b { font-weight: 700; font-variant-numeric: tabular-nums; }
+.biz .pg-karute .kr-chip:hover,
+.biz .pg-karute .kr-filter:hover { color: var(--ink); }
+.biz .pg-karute .kr-chip[aria-pressed="true"],
+.biz .pg-karute .kr-filter[aria-pressed="true"] { color: var(--select-ink); font-weight: 700; text-decoration-color: var(--select-line); }
+
+.biz .pg-karute .kr-search { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.biz .pg-karute .kr-input {
+  flex: 1 1 280px; min-width: 0; min-height: 40px; padding: 0 12px;
+  border: 1px solid var(--control); border-radius: 8px; background: #fff; color: var(--ink); font-size: 13.5px;
+}
+
+/* ── the table ─────────────────────────────────────────────────────────────── */
+.biz .pg-karute .kr-sec-title { margin: 0; font-size: 14.5px; font-weight: 700; line-height: 1.4; }
+.biz .pg-karute .kr-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.biz .pg-karute .kr-table-sec { margin-top: 4px; }
+.biz .pg-karute .kr-table-sec > .kr-sec-title { margin-bottom: 8px; }
+
+.biz .pg-karute .kr-table {
+  border: 1px solid var(--section); border-radius: 12px; background: #fff;
+}
+.biz .pg-karute .kr-thead,
+.biz .pg-karute .kr-row { display: grid; grid-template-columns: 76px minmax(220px, 1.5fr) 116px 150px 96px; gap: 12px; align-items: start; }
+.biz .pg-karute .kr-thead {
+  padding: 10px 14px; border-bottom: 1px solid var(--section); background: var(--row);
+  color: var(--quiet); font-size: 11.5px; font-weight: 800; border-radius: 11px 11px 0 0;
+}
+.biz .pg-karute .kr-row {
+  width: 100%; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--row);
+  background: #fff; color: var(--ink); font: inherit; text-align: left; cursor: pointer;
+  transition: background-color .12s ease;
+}
+.biz .pg-karute .kr-row:last-child { border-bottom: 0; border-radius: 0 0 11px 11px; }
+.biz .pg-karute .kr-row:hover { background: #fafafb; }
+/* ⚖ 破棄済み IS GRAY, AND GRAY IS ALL IT IS (Liam 8/25 ruling B's rendering law):
+   a plain fact, never a warning — no red, no threshold, no grade. A staffer must
+   never hesitate to throw away a genuinely bad take to protect a row's colour. */
+.biz .pg-karute .kr-row.is-discarded { background: #f7f7f8; color: var(--muted); }
+.biz .pg-karute .kr-row.is-discarded:hover { background: #f2f2f4; }
+.biz .pg-karute .kr-row.is-discarded .kr-name { color: var(--ink-3); font-weight: 600; }
+
+.biz .pg-karute .kr-c-date { color: var(--ink-3); font-size: 13px; font-weight: 700; }
+.biz .pg-karute .kr-c-cust { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.biz .pg-karute .kr-mark {
+  flex: 0 0 34px; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%;
+  background: #f0f0f3; color: var(--ink-3); font-size: 11.5px; font-weight: 800;
+}
+/* A THREE-CHARACTER MARK WRAPS INSIDE THE CIRCLE — 「テスト」 came out as テス/ト
+   in the 1280 shot. The 顧客 room already solved this and its answer is carried
+   here rather than re-invented (customers.css `.person-mark.long`): the same
+   10px and the same −0.5px tracking, applied by the same length test. */
+.biz .pg-karute .kr-mark.long,
+.biz .pg-karute .kr-avatar.long { font-size: 10px; letter-spacing: -.5px; }
+.biz .pg-karute .kr-avatar.long { font-size: 13px; }
+.biz .pg-karute .kr-cust-text { min-width: 0; }
+.biz .pg-karute .kr-name { display: block; font-size: 13.5px; font-weight: 700; }
+.biz .pg-karute .kr-ids { display: block; margin-top: 1px; color: var(--muted); font-size: 11.5px; font-weight: 500; }
+.biz .pg-karute .kr-preview {
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
+  margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.5;
+}
+.biz .pg-karute .kr-preview.is-none { color: var(--quiet); font-style: italic; }
+.biz .pg-karute .kr-c-state { display: flex; flex-wrap: wrap; gap: 4px; }
+.biz .pg-karute .kr-c-service,
+.biz .pg-karute .kr-c-staff { color: var(--ink-2); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+
+.biz .pg-karute .kr-empty { padding: 44px 20px; text-align: center; color: var(--muted); }
+.biz .pg-karute .kr-empty strong { display: block; margin-bottom: 5px; font-size: 15px; color: var(--ink); }
+.biz .pg-karute .kr-empty span { display: block; margin-bottom: 12px; font-size: 13px; }
+
+.biz .pg-karute .kr-more { display: flex; justify-content: center; margin-top: 12px; }
+
+.biz .pg-karute .kr-zero { margin-top: 8px; }
+.biz .pg-karute .kr-zero-card {
+  margin: 40px auto 32px; max-width: 520px; padding: 44px 28px 46px; text-align: center;
+  border: 1px solid var(--section); border-radius: 14px; background: #fafafb;
+}
+.biz .pg-karute .kr-zero-card strong { display: block; margin-bottom: 8px; font-size: 17px; }
+.biz .pg-karute .kr-zero-card p { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.7; }
+
+/* ⚖ §7a — the quiet reveal. One row, only while searching, and quiet enough that
+   it never competes with the records above it. */
+.biz .pg-karute .kr-reveal {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 12px; padding: 10px 14px; border: 1px dashed var(--control); border-radius: 10px; background: #fafafb;
+}
+.biz .pg-karute .kr-reveal-text { flex: 1 1 240px; min-width: 0; }
+.biz .pg-karute .kr-reveal-text strong { font-size: 13.5px; }
+.biz .pg-karute .kr-reveal-text span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+/* ── the record ────────────────────────────────────────────────────────────── */
+/* ONE SCREEN AT A TIME, at every width (⚖ D2). Not a media-query behaviour: the
+   room shows the table or the record, and `is-detail` is which. */
+.biz .pg-karute .kr-detail { display: none; }
+.biz .pg-karute.is-detail .kr-list-view { display: none; }
+.biz .pg-karute.is-detail .kr-detail { display: block; }
+
+.biz .pg-karute .kr-back {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 40px; margin-bottom: 10px;
+  padding: 0 12px 0 9px; border: 1px solid var(--control); border-radius: 8px; background: #fff;
+  color: var(--ink-2); font-size: 13.5px; font-weight: 600;
+}
+.biz .pg-karute .kr-back:hover { border-color: #cfcfd8; background: #fafafb; }
+
+.biz .pg-karute .kr-identity,
+.biz .pg-karute .kr-outcome,
+.biz .pg-karute .kr-session,
+.biz .pg-karute .kr-summary,
+.biz .pg-karute .kr-photos,
+.biz .pg-karute .kr-message,
+.biz .pg-karute .kr-recording,
+.biz .pg-karute .kr-history {
+  margin-bottom: 14px; padding: 13px 15px 15px; border: 1px solid var(--section); border-radius: 11px; background: #fff;
+}
+
+.biz .pg-karute .kr-id-row { display: flex; align-items: flex-start; gap: 14px; }
+.biz .pg-karute .kr-avatar {
+  flex: 0 0 52px; display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%;
+  background: var(--indigo); color: #fff; font-size: 15px; font-weight: 800;
+}
+.biz .pg-karute .kr-id-main { min-width: 0; flex: 1 1 auto; }
+.biz .pg-karute .kr-id-nameline { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.biz .pg-karute .kr-id-nameline h2 { margin: 0; font-size: 19px; line-height: 1.35; }
+.biz .pg-karute .kr-id-no { color: var(--muted); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.biz .pg-karute .kr-id-meta { display: flex; flex-wrap: wrap; gap: 3px 14px; margin-top: 4px; color: var(--ink-3); font-size: 12.5px; }
+.biz .pg-karute .kr-id-staff { margin-top: 5px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.biz .pg-karute .kr-id-staff b { color: var(--ink-2); font-weight: 700; }
+.biz .pg-karute .kr-id-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; align-self: flex-start; flex-wrap: wrap; }
+/* canon's quiet ⇆ — no pill, no border, no background (Liam 8/23). Accent on a
+   pressable is exactly what the one-way accent law reserves it for. */
+.biz .pg-karute .kr-swap {
+  display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0;
+  border: 0; background: none; color: var(--indigo); font-size: 16px; line-height: 1;
+}
+.biz .pg-karute .kr-swap:hover { color: var(--commit-hover); }
+
+.biz .pg-karute .kr-warn {
+  margin-top: 12px; padding: 11px 13px; border-left: 3px solid var(--orange-line); border-radius: 0 9px 9px 0;
+  background: var(--orange-soft); color: var(--ink-3); font-size: 12.5px; line-height: 1.65;
+}
+.biz .pg-karute .kr-warn strong { display: block; margin-bottom: 4px; color: var(--orange); font-size: 13px; }
+.biz .pg-karute .kr-warn p { margin: 0; }
+.biz .pg-karute .kr-warn-foot { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
+.biz .pg-karute .kr-discarded {
+  margin-bottom: 14px; padding: 12px 14px; border: 1px solid var(--card); border-left: 3px solid var(--quiet);
+  border-radius: 0 11px 11px 0; background: #f7f7f8; color: var(--ink-3); font-size: 12.5px; line-height: 1.65;
+}
+.biz .pg-karute .kr-discarded strong { display: block; margin-bottom: 3px; color: var(--ink-2); font-size: 14px; }
+.biz .pg-karute .kr-discarded p { margin: 0; }
+.biz .pg-karute .kr-discard-reason { margin-top: 4px; color: var(--ink-2); font-weight: 600; }
+.biz .pg-karute .kr-discard-note { margin-top: 6px; color: var(--muted); font-size: 12px; }
+
+.biz .pg-karute .kr-outcome-body { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.biz .pg-karute .kr-note { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+
+.biz .pg-karute .kr-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.biz .pg-karute .kr-col { min-width: 0; }
+
+.biz .pg-karute .kr-entries { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.biz .pg-karute .kr-entries li { padding: 9px 11px; border: 1px solid var(--row); border-radius: 9px; background: #fafafb; }
+.biz .pg-karute .kr-entry-head { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; }
+.biz .pg-karute .kr-entry-label { color: var(--ink-2); font-size: 12px; font-weight: 800; }
+.biz .pg-karute .kr-entries p { margin: 0; font-size: 13.5px; line-height: 1.65; overflow-wrap: anywhere; }
+/* The pencil is a BUTTON that refuses; it keeps the shell's `.btn` chrome so a
+   refused control looks like every other refused control in the family, only
+   square. Never a filled dark square (⚖ R13). */
+.biz .pg-karute .kr-pencil {
+  flex: 0 0 auto; margin-left: auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; min-height: 0; padding: 0; font-size: 13px; line-height: 1;
+}
+/* AMBER MEANS A PERSON REWROTE IT — the phone's own signal, carried. */
+.biz .pg-karute .kr-pencil.is-edited { border-color: var(--orange-line); background: var(--orange-soft); color: var(--orange); }
+
+.biz .pg-karute .kr-bullets { margin: 0; padding: 12px 13px 12px 30px; display: flex; flex-direction: column; gap: 7px;
+  border: 1px solid var(--proof-border); border-radius: 9px; background: var(--proof); }
+.biz .pg-karute .kr-bullets li { font-size: 13.5px; line-height: 1.65; overflow-wrap: anywhere; }
+.biz .pg-karute .kr-none { margin: 0; color: var(--quiet); font-size: 12.5px; font-style: italic; line-height: 1.6; }
+.biz .pg-karute .kr-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.biz .pg-karute .kr-photo-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.biz .pg-karute .kr-photo {
+  display: grid; gap: 2px; min-height: 56px; padding: 8px 11px; border: 1px solid var(--control); border-radius: 9px;
+  background: #fff; color: var(--ink-2); text-align: left; font: inherit;
+}
+.biz .pg-karute .kr-photo[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+.biz .pg-karute .kr-photo-cat { color: var(--quiet); font-size: 11px; font-weight: 800; letter-spacing: .04em; }
+.biz .pg-karute .kr-photo-cap { font-size: 12.5px; }
+
+.biz .pg-karute .kr-draft {
+  margin: 0 0 10px; padding: 11px 12px; border: 1px solid var(--proof-border); border-radius: 9px; background: var(--proof);
+  font-size: 13.5px; line-height: 1.65; overflow-wrap: anywhere;
+}
+.biz .pg-karute .kr-act-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.biz .pg-karute .kr-recording .kr-note + .kr-note { margin-top: 4px; }
+
+.biz .pg-karute .kr-footnote { margin: 0 0 14px; color: var(--quiet); font-size: 12px; line-height: 1.6; }
+
+.biz .pg-karute .kr-order { color: var(--quiet); font-size: 11.5px; font-weight: 700; }
+.biz .pg-karute .kr-hist-rows { display: grid; gap: 0; }
+.biz .pg-karute .kr-hist-row { display: grid; grid-template-columns: 116px minmax(0, 1fr); gap: 10px; padding: 8px 0; border-top: 1px solid var(--row); }
+.biz .pg-karute .kr-hist-row:first-child { border-top: 0; }
+.biz .pg-karute .kr-hist-row time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.biz .pg-karute .kr-hist-row strong { display: block; font-size: 12.5px; }
+.biz .pg-karute .kr-hist-row > span > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+
+/* ── ⚖ Liam 8/23 — 画面の説明 (the guided tour's four layers) ───────────────── */
+/* Every name is `kr-`-prefixed like the rest of this room: 今日の運営 states BARE
+   `.biz .spot-*` rules on all five of these names, and App Router leaves its
+   sheet in the document after a soft-nav — so a shared name here would be two
+   rooms' overlays fighting over one paint (the ⚖ sibling-sheet fence).
+   NO SCROLLER, NO HEIGHT CAP, NO `overscroll-behavior` (⚖ page-scroll). */
+.biz .pg-karute .kr-spot-hole {
+  position: fixed;
+  z-index: 70;
+  pointer-events: none;
+  border-radius: 12px;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 9999px rgba(24, 24, 27, .42);
+  transition: top .24s cubic-bezier(.2, .7, .1, 1), left .24s cubic-bezier(.2, .7, .1, 1), width .24s cubic-bezier(.2, .7, .1, 1), height .24s cubic-bezier(.2, .7, .1, 1);
+}
+.biz .pg-karute .kr-spot-catch { position: fixed; inset: 0; z-index: 69; cursor: pointer; }
+.biz .pg-karute .kr-spot-hover { position: fixed; z-index: 70; pointer-events: none; border: 2px dashed rgba(255, 255, 255, .9); border-radius: 12px; }
+.biz .pg-karute .kr-spot-card {
+  position: fixed;
+  z-index: 72;
+  width: 300px;
+  max-width: calc(100vw - 20px);
+  padding: 12px 14px 10px;
+  border: 1.5px solid var(--control);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 40px rgba(24, 24, 27, .3);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+.biz .pg-karute .kr-spot-card b { display: block; margin-bottom: 2px; font-size: 13.5px; color: var(--ink); }
+.biz .pg-karute .kr-spot-text { display: block; }
+.biz .pg-karute .kr-spot-hint { margin-top: 6px; color: var(--quiet); font-size: 11px; }
+.biz .pg-karute .kr-spot-foot { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--section); }
+.biz .pg-karute .kr-spot-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.biz .pg-karute .kr-spot-foot button { min-height: 30px; padding: 0 11px; border: 1px solid var(--control); border-radius: 7px; background: #fff; color: var(--ink-2); font-size: 12px; font-weight: 600; cursor: pointer; }
+.biz .pg-karute .kr-spot-foot button:hover { background: #f4f4f5; }
+.biz .pg-karute .kr-spot-foot button:disabled { opacity: .4; cursor: default; }
+.biz .pg-karute .kr-spot-foot .kr-spot-done { margin-left: auto; }
+
+/* ⚖ ALL-SCREEN ADAPTIVITY (Liam 8/23) — the ladder, band by band. Only the
+   PAGE's own rules live here; the shell's own bands (`.biz .app`'s 1180px floor,
+   the rail, the topbar) are the family CSS sweep's, and this room joins the
+   floor's opt-in list in business-shell.css the round its ladder is measured. */
+
+/* ═══ ≥1400 — big external displays: comfort, with line lengths capped ═══ */
+@media (min-width: 1400px) {
+  .biz .page.pg-karute { padding-left: 32px; padding-right: 32px; }
+  .biz .pg-karute .kr-grid { gap: 22px; }
+  /* ultra-wide must not mean unreadably long lines */
+  .biz .pg-karute .kr-draft,
+  .biz .pg-karute .kr-bullets li,
+  .biz .pg-karute .kr-entries p { max-width: 66ch; }
+  .biz .pg-karute .kr-hist-row > span > span { max-width: 62ch; }
+  .biz .pg-karute .kr-thead,
+  .biz .pg-karute .kr-row { grid-template-columns: 84px minmax(260px, 1.5fr) 124px 176px 112px; }
+}
+
+/* ═══ ≤1279 — small laptop / iPad landscape. The room loses ~200px, so the
+   table's fixed columns tighten before its flexible one has to. ═══ */
+@media (max-width: 1279px) {
+  .biz .page.pg-karute { padding-left: 20px; padding-right: 20px; }
+  .biz .pg-karute .kr-thead,
+  .biz .pg-karute .kr-row { grid-template-columns: 68px minmax(190px, 1.4fr) 108px 128px 84px; gap: 10px; }
+  /* fr-based, never fixed px: minmax(0, …) columns SHRINK past their ideal
+     rather than overflowing the card, so the record's pair can never clip. */
+  .biz .pg-karute .kr-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, .95fr); gap: 14px; }
+  .biz .pg-karute .kr-hist-row { grid-template-columns: 104px minmax(0, 1fr); }
+}
+
+/* ── ≤1099 — the record's pair genuinely runs out of width: stack it ───────── */
+@media (max-width: 1099px) {
+  .biz .pg-karute .kr-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+}
+
+/* ═══ 744–1023 — iPad portrait / iPad mini / foldable INNER display ═══
+   ⚖ VERIFIED DEVICE DATA (2026-08-23): the iPhone Fold's inner display is 4:3
+   landscape-leaning (~930×655 logical) and a Galaxy Z Fold's inner is near-square
+   at ~840–980. Those interiors are iPad-grade canvases, so the two-column
+   treatment reaches DOWN to 800 rather than stopping at 1024. Nothing in this
+   band assumes a TALL portrait viewport (no vh-based heights), so a 655px-high
+   landscape interior simply scrolls the page like any other. */
+@media (max-width: 1023px) {
+  .biz .pg-karute .kr-subtitle { max-width: none; }
+  .biz .pg-karute .kr-thead,
+  .biz .pg-karute .kr-row { grid-template-columns: 62px minmax(170px, 1.4fr) 100px 112px 76px; gap: 9px; }
+  .biz .pg-karute .kr-id-row { flex-wrap: wrap; }
+  .biz .pg-karute .kr-id-actions { width: 100%; }
+}
+
+/* ── 800–1023: the near-square canvases keep the record's two columns ──────── */
+/* ⚖ VERIFIED (2026-08-23): the boundary is 800, not 840, because the Galaxy Z
+   Fold 8 "Wide" inner panel (1848×2448, 4:3) resolves to ≈820 logical — a
+   near-square canvas that would waste its whole point on one stretched column.
+   Below 800 sits the genuinely 3:4 PORTRAIT tablet (iPad 768), and a portrait
+   tablet is the shape a single column was made for. The split is about SHAPE. */
+@media (min-width: 800px) and (max-width: 1023px) {
+  .biz .pg-karute .kr-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+}
+
+/* ═══ ≤743 — smartphones / folded cover screens: THE LIST IS THE PAGE ═══
+   The five columns stop being columns and become one card per record: the
+   customer on top, then the date and state, then the service and the staff
+   member. No pan at all down here — a phone reader should never have to drag a
+   table sideways to find out who a record belongs to.
+
+   ⚖ VERIFIED DEVICE DATA (2026-08-23): this band must stay comfortable up to
+   ~500px, not just 390–430. The iPhone Fold's FOLDED cover screen is a 4:3 5.49"
+   panel at roughly 470–490 logical, a Galaxy S26 Ultra sits at ~412–448 and an
+   opened Z Flip 8 at ~412. Every rule here sizes from the CONTENT rather than
+   from a 390px assumption, so 480 gains air instead of gaining truncation. */
+@media (max-width: 743px) {
+  .biz .page.pg-karute { padding: 16px 16px 32px; }
+  .biz .page.pg-karute h1 { font-size: 23px; }
+  /* ⚖ ≥44px on a thumb WITHOUT growing the mark. A 44px help circle beside a
+     23px title would shout louder than the title; the hit box is extended past
+     the paint instead, which is what a touch target is for. */
+  .biz .pg-karute .kr-help { position: relative; }
+  .biz .pg-karute .kr-help::after {
+    content: ""; position: absolute; top: 50%; left: 50%; width: 44px; height: 44px;
+    transform: translate(-50%, -50%);
+  }
+  .biz .pg-karute .kr-chip,
+  .biz .pg-karute .kr-filter { padding: 12px 0; }
+  .biz .pg-karute .kr-search .btn { flex: 1 1 auto; min-height: 44px; }
+
+  /* the table becomes cards */
+  .biz .pg-karute .kr-thead { display: none; }
+  .biz .pg-karute .kr-row {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: "cust cust" "date state" "service staff";
+    gap: 5px 10px; padding: 13px 14px; min-height: 76px;
+  }
+  .biz .pg-karute .kr-c-cust { grid-area: cust; }
+  .biz .pg-karute .kr-c-date { grid-area: date; }
+  .biz .pg-karute .kr-c-state { grid-area: state; justify-content: flex-end; }
+  .biz .pg-karute .kr-c-service { grid-area: service; }
+  .biz .pg-karute .kr-c-staff { grid-area: staff; text-align: right; }
+  .biz .pg-karute .kr-name { font-size: 15px; }
+
+  .biz .pg-karute .kr-back { min-height: 44px; }
+  .biz .pg-karute .kr-id-row { gap: 11px; }
+  .biz .pg-karute .kr-avatar { flex-basis: 44px; width: 44px; height: 44px; font-size: 13px; }
+  .biz .pg-karute .kr-id-nameline h2 { font-size: 18px; }
+  .biz .pg-karute .kr-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .biz .pg-karute .kr-act-row .btn,
+  .biz .pg-karute .kr-warn-foot .btn { flex: 1 1 auto; width: 100%; min-height: 46px; }
+  .biz .pg-karute .kr-swap { width: 44px; height: 44px; }
+  /* history reads as label-above-value on a phone: a 116px time column plus a
+     wrapped detail turns every row into a four-line ragged block. */
+  .biz .pg-karute .kr-hist-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .biz .pg-karute .kr-photo-list li { flex: 1 1 100%; }
+  .biz .pg-karute .kr-photo { min-height: 44px; }
+  .biz .pg-karute .kr-zero-card { margin: 28px auto 24px; padding: 34px 20px 36px; }
+}
+
+/* The two motions in the room — the row's own hover fade and the spotlight
+   sliding from one section to the next — both removed outright for a reader who
+   asked for less. The tour still walks; the hole simply arrives. */
+@media (prefers-reduced-motion: reduce) {
+  .biz .pg-karute .kr-row { transition: none; }
+  .biz .pg-karute .kr-spot-hole { transition: none; }
+}
