@@ -1001,6 +1001,20 @@ export function RecordPageView({
       // here, pre-await, off THIS render's closure — the same freshness the
       // shipped takeChanged check gets from reading globalRecorder.takeId
       // live; no new ref needed.
+      //
+      // THE FULL SEAL (Greptile P1, resolved): this check alone does not
+      // cover a save that starts DURING the awaits below (the mint retry).
+      // It doesn't need to — the awaits are protected from the OTHER side.
+      // discardReasonSubmittingRef.current is set true above, before any
+      // await, and startRecoveryFlow refuses to start ANY save (tap, inbox,
+      // auto-finish, repoint continuation — every entry routes through it)
+      // while that ref is true. So a save can exist at this gate only if it
+      // started BEFORE this confirm call began, which this pre-await check
+      // already catches on the live ref. A dedicated post-await recheck was
+      // built and mutation-tested here first; the mutation run proved it
+      // vacuous (removing it changed no test outcome), because the reverse
+      // guard already makes its precondition unreachable. Removed rather
+      // than shipped as armor that cannot fire.
       if (
         origin === 'banner' &&
         (recoverySavingRef.current ||
@@ -1611,7 +1625,25 @@ export function RecordPageView({
    *  argument; nothing re-reads `offer`/`destination`/`ticket` from render
    *  scope, so the flow survives whatever the page does underneath it. */
   function startRecoveryFlow(dest: RecoveryDestination, autoFinish = false) {
-    if (recoverySavingRef.current || !offer || !offerDayYmd || factsBlockSave) return
+    // Greptile P1, reverse direction: a save must not START while a discard
+    // gate is mid-commit — confirmDiscardReason's pre-await check (above the
+    // mint retry) only catches a save already running BEFORE the confirm;
+    // this closes the other side by refusing any NEW save for as long as
+    // discardReasonSubmittingRef stays true, which spans the discard's own
+    // server round-trip too. The two guards together are the whole seal — no
+    // save can start anywhere between a discard confirm and its landing.
+    // Accepted: if this spends the auto-finish attempt (autoRunRef) while a
+    // discard is submitting, that's fine — a failed discard leaves the take
+    // at the banner for a manual save, a successful one leaves nothing to
+    // save.
+    if (
+      recoverySavingRef.current ||
+      discardReasonSubmittingRef.current ||
+      !offer ||
+      !offerDayYmd ||
+      factsBlockSave
+    )
+      return
     // Recomputed for THIS destination rather than reusing the render's
     // `ticket`: a pick made in the picker lands here before React has
     // re-rendered with the new destination, and a stale null pack would hide a

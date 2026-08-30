@@ -913,6 +913,56 @@ describe('a below-floor take offered at the banner (banner origin)', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('discardReason.takeChanged')
       expect(reasonGate()).not.toBeNull()
     })
+
+    // Greptile P1's OTHER half — the reverse direction: a save must not be
+    // able to START while a discard is mid-commit, because that window
+    // (the discardRecordingWithReason network call itself) is invisible to
+    // BOTH of the checks above. startRecoveryFlow now refuses while
+    // discardReasonSubmittingRef.current is true — proven directly against
+    // its own entry guard, the same way the two tests above prove the
+    // discard side.
+    it('a save entry refuses to start while a discard is submitting (reverse direction)', async () => {
+      mockRecoverableTake = BELOW_FLOOR_TAKE
+      let releaseDiscard: (v: unknown) => void = () => {}
+      mockDiscardWithReason.mockImplementationOnce(
+        () =>
+          new Promise((res) => {
+            releaseDiscard = res
+          }) as never,
+      )
+      await renderPage()
+      await waitFor(() => screen.getByText('discardTakeAction'))
+      await tapDiscard('discardTakeAction')
+      await writeReason()
+      // Confirm dispatches the discard's own network call and holds there —
+      // discardReasonSubmittingRef.current is true for the whole hold.
+      await act(async () => {
+        fireEvent.click(screen.getByText('discardReason.confirm'))
+        for (let i = 0; i < 4; i++) await Promise.resolve()
+      })
+
+      // A save entry, attempted while the discard is still submitting. The
+      // mount's own auto-finish attempt already read consent once (and
+      // stood down) before this — count from here, not from zero.
+      const { getCustomerConsent } = jest.requireMock('@/actions/customers') as {
+        getCustomerConsent: jest.Mock
+      }
+      const consentCallsBefore = getCustomerConsent.mock.calls.length
+      await act(async () => {
+        fireEvent.click(screen.getByText('recoverSaveAction'))
+        for (let i = 0; i < 4; i++) await Promise.resolve()
+      })
+      expect(mockPipelineStart).not.toHaveBeenCalled()
+      // The refusal is at startRecoveryFlow's own entry — the save never
+      // even reaches its first await (the consent read).
+      expect(getCustomerConsent.mock.calls.length).toBe(consentCallsBefore)
+
+      await act(async () => {
+        releaseDiscard({ ok: true, receiptId: 'row-1', duplicate: false })
+        for (let i = 0; i < 8; i++) await Promise.resolve()
+      })
+      expect(mockDiscardWithReason).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('the shared submitting latch guards this origin too — a same-tick double tap files ONE discard', async () => {
