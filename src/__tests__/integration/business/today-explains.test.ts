@@ -805,3 +805,155 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     expect(guide).not.toContain('ふさがっているという意味')
   })
 })
+
+// ── §8 ─────────────────────────────────────────────────────────────────────
+// ⚖ LABELS RULING (Liam 8/30) — THE BOX SAYS WHAT KIND IT IS.
+//
+// Three washes on one staff row are three different products — an hour on
+// sale, a session packed into a pocket, a discounted leftover — and until this
+// round the board said so in colour alone. Liam read the difference as one
+// price moving on its own. 案C, chosen off the mock: the word on every box, and
+// its meaning in the band, once.
+//
+// Same shape as §6 and for the same reason — this folder's import fence allows
+// only react/next/node specifiers, so there is no renderer here and the render
+// pass is pinned at its source. What that buys is real all the same: the three
+// mutations this section is built against (a word mapped to the wrong layer, a
+// tag leaking onto the bed rows, the legend dropped) each change one of these
+// exact strings.
+describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains it', () => {
+  const SRC = readFileSync(
+    join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'),
+    'utf8',
+  )
+  const CSS = readFileSync(
+    join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'),
+    'utf8',
+  )
+
+  it('each layer wears its own word — and a crumb is 詰め込み, off the same value as its colour', () => {
+    // 販売可能枠 is its own render pass and says so outright.
+    expect(SRC).toContain(`{c.group === 'staff' && <span className="cell-nametag">販売可能枠</span>}`)
+    // The gap pass carries BOTH remaining words, and the branch that picks
+    // between them is `packedHere` — the SAME value the class attribute above it
+    // uses to choose `cell-packed` over `cell-gapfill`. One read, so the word
+    // and the fill cannot drift apart.
+    expect(SRC).toContain(
+      `{c.group === 'staff' && <span className="cell-nametag">{packedHere ? '詰め込み' : 'スキマ枠'}</span>}`,
+    )
+    expect(SRC).toContain(
+      "className={`${packedHere ? 'cell-packed' : 'cell-gapfill'}${crumbHere ? ' crumb' : ''}",
+    )
+    // …and `crumbHere` is NOT in the word's branch. A crumb is a 詰め込み box
+    // that happens to be short of a session: the orange reports the SHAPE of the
+    // leftover, not a fourth kind of thing (the mock's own masthead). It gets
+    // the word through `packedHere`, which is exactly what has to stay true.
+    expect(SRC).not.toContain("crumbHere ? '詰め込み'")
+    expect(SRC).not.toMatch(/cell-nametag">\{crumbHere/)
+  })
+
+  it('the tag is the STAFF row’s alone — every one of them is behind that guard', () => {
+    // ⚖ Fable default (overturnable): bed-row boxes stay wordless. They carry no
+    // text at all today, and the mock's own footnote left them an open question
+    // rather than answering it. Machine-checked rather than spot-checked: every
+    // occurrence of the class in the file is preceded by the staff guard, so a
+    // fourth tag added anywhere without one fails here.
+    const tags = SRC.match(/className="cell-nametag"/g) ?? []
+    const guarded = SRC.match(/\{c\.group === 'staff' && <span className="cell-nametag"/g) ?? []
+    expect(tags).toHaveLength(2)
+    expect(guarded).toHaveLength(tags.length)
+    // The bed rows' own wordlessness is the same guard on the price text, which
+    // has been there all along — the tag simply joined it.
+    expect(SRC).toContain(`{c.group === 'staff' && c.price != null && <i>{money(c.price)}</i>}`)
+  })
+
+  it('the band carries the three words and their three meanings, verbatim from the mock', () => {
+    // ⚖ NATIVE PASS (2026-08-26, three rounds on the mock). These glosses are
+    // carried, never re-written: re-writing them here would spend that pass.
+    expect(SRC).toContain(
+      `<span className="lk lk-sell"><i /><b>販売可能枠</b><span>いま出ている価格で売り出している1時間</span></span>`,
+    )
+    expect(SRC).toContain(
+      `<span className="lk lk-packed"><i /><b>詰め込み</b><span>空きに収めた1回分（満額）</span></span>`,
+    )
+    expect(SRC).toContain(
+      `<span className="lk lk-scrap"><i /><b>スキマ枠</b><span>余った時間の割引枠</span></span>`,
+    )
+    // Three, and only three: the legend names the layers the board can draw.
+    expect((SRC.match(/className="lk lk-/g) ?? [])).toHaveLength(3)
+    // The word in the legend wears the colour the word ON THE BOX wears — that
+    // pairing is the whole mechanism, so both ends are pinned.
+    expect(CSS).toContain('.biz .layer-legend .lk-sell b, .biz .layer-legend .lk-packed b { color: var(--indigo); }')
+    expect(CSS).toContain('.biz .layer-legend .lk-scrap b { color: var(--orange-line); }')
+    expect(CSS).toContain('.biz .cell-price .cell-nametag, .biz .cell-packed .cell-nametag { color: var(--indigo); }')
+    expect(CSS).toContain('.biz .cell-packed.crumb .cell-nametag, .biz .cell-gapfill .cell-nametag { color: var(--orange-line); }')
+  })
+
+  it('a guard-OFF store keeps the legend, in the same one container', () => {
+    // ⚖ Fable default (overturnable). The band used to be gated on `guardOn`
+    // whole. The legend is not about the guard — a store with no protection
+    // policy still draws all three kinds of box — so the CONTAINER is
+    // unconditional now and the guard KEYS are what comes and goes.
+    expect(SRC).toContain(
+      '          <div\n            className="guard-band"\n            role="note"\n' +
+        `            data-guide-title={guardOn ? 'スキマガード' : '価格箱'}`,
+    )
+    // The old gating shape is pinned dead: the whole band behind `guardOn`.
+    expect(SRC).not.toContain('{guardOn && (\n            <div\n              className="guard-band"')
+    // One legend, and it is OUTSIDE the guarded fragment.
+    expect((SRC.match(/className="layer-legend"/g) ?? [])).toHaveLength(1)
+    const band = SRC.slice(SRC.indexOf('className="guard-band"'))
+    expect(band.indexOf('className="layer-legend"')).toBeGreaterThan(band.indexOf('{guardOn && ('))
+    expect(band.indexOf('className="layer-legend"')).toBeGreaterThan(band.indexOf('className="guard-band-note"'))
+    // And no guard wording reaches a guard-off store's tour entry: the clause is
+    // the WHOLE sentence there, so it had to be true standing alone.
+    expect(SRC).toContain('const LAYER_LEGEND_GUIDE =')
+    expect(SRC).toContain('スタッフの行に並ぶ価格箱には種類の名前が付いていて、その言葉の意味はこの帯に書いてあります。')
+    expect(SRC).toContain('各スタッフの下に細い帯が出ているときは、その帯の説明をご覧ください。${LAYER_LEGEND_GUIDE}`')
+    expect(SRC).toContain('                : LAYER_LEGEND_GUIDE')
+  })
+
+  it('価格を隠す leaves the word standing; 空き枠表示 off takes it with the box', () => {
+    // ⚖ Fable default (overturnable): the tag names the KIND, not the price, so
+    // the price dial has no business hiding it. The three `hide-slot-prices`
+    // rules each end in ` i `, and none of them reaches the tag — pinned by the
+    // absence, because a fourth rule is exactly how this default would be lost.
+    for (const box of ['cell-price', 'cell-gapfill', 'cell-packed']) {
+      expect(CSS).toContain(`.biz .timeline.hide-slot-prices .${box} i { display: none; }`)
+    }
+    expect(CSS).not.toMatch(/hide-slot-prices[^\n]*cell-nametag/)
+    // Nothing hides the tag on its own at all: it lives INSIDE the box, so the
+    // dials that remove a box remove it, and there is no second switch to keep
+    // in sync with them.
+    expect(CSS).not.toMatch(/^[^\n]*\.cell-nametag[^\n]*display: none/m)
+    expect(CSS).toContain('.biz .timeline.sell-off .cell-price { display: none; }')
+    expect(CSS).toContain('.biz .timeline.sell-off .cell-packed { display: none; }')
+    expect(CSS).toContain('.biz .lane.locked .cell-price { display: none; }')
+  })
+
+  it('the tag adds no colour and cannot grow a box', () => {
+    // The mock's `.nametag`, to the value: the box's own text colour at 55%, and
+    // out of the flex flow so the price stays pinned to the bottom of the box.
+    expect(CSS).toContain(
+      '.biz .cell-nametag { position: absolute; top: 3px; left: 5px; right: 3px; font-size: 8px; font-weight: 700; line-height: 1; letter-spacing: -.2px; white-space: nowrap; overflow: hidden; opacity: .55; pointer-events: none; }',
+    )
+    // The price sits at the BOTTOM of every box, which is what makes a top-left
+    // tag collision-proof rather than merely lucky.
+    for (const box of ['.biz .cell-gapfill {', '.biz .cell-packed {']) {
+      expect(CSS.slice(CSS.indexOf(box), CSS.indexOf(box) + 260)).toContain('align-items: flex-end;')
+    }
+    expect(CSS).toContain('.biz .cell-price {\n  position: absolute;')
+    expect(CSS.slice(CSS.indexOf('.biz .cell-price {'), CSS.indexOf('.biz .cell-price {') + 400)).toContain('align-items: flex-end;')
+    // A narrow box CLIPS the word; it never widens to fit one. The offer's
+    // length is the box's width and a label may not move it.
+    expect(CSS).not.toMatch(/\.cell-nametag[^\n]*(min-width|white-space: normal)/)
+    // The legend's swatches are the boxes' own fills — the sell one at tier 2,
+    // which is `calc(.04 + var(--tier) * .03)` = .10.
+    expect(CSS).toContain('.biz .layer-legend .lk-sell i { background: rgba(130, 151, 233, .10);')
+    expect(CSS).toContain('.biz .layer-legend .lk-packed i { background: rgba(130, 151, 233, .18);')
+    expect(CSS).toContain('.biz .layer-legend .lk-scrap i { background: rgba(232, 130, 60, .09);')
+    expect(CSS).toContain('background: rgba(130, 151, 233, calc(.04 + var(--tier) * .03));')
+    expect(CSS).toContain('.biz .cell-packed { position: absolute; top: 4px; bottom: 4px; left: calc(var(--x) + 1px); width: calc(var(--w) - 2px); border-radius: 4px; pointer-events: none; display: flex; align-items: flex-end; padding: 3px 5px; background: rgba(130, 151, 233, .18);')
+    expect(CSS).toContain('background: rgba(232, 130, 60, .09); z-index: 0; }')
+  })
+})
