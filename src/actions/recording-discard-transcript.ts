@@ -23,7 +23,7 @@
 // different gate (`staff.manage`, in recording-discards.ts).
 
 import type { SynqedClient } from '@synqed-kk/client'
-import { requireCapability } from '@/lib/auth/require-permission'
+import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { newSynqedClient, getSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -47,18 +47,44 @@ export type DiscardTranscriptWrite =
 type Core = Pick<SynqedClient, 'recordings' | 'recordingDiscards' | 'customers'>
 
 /**
- * A capability denial is TERMINAL and must say so. `requireCapability` throws,
- * and letting that land in the outer catch answered `failed` — which the client
- * reads as "try again later": a caller who can never succeed re-staged the whole
- * audio on every record-page mount until the take-store TTL pruned it.
- * `forbidden` is this union's settled refusal, and the client drops the take.
+ * TRI-STATE, and the shape is decided by a COST ASYMMETRY, not by tidiness.
+ *
+ * A capability denial is TERMINAL and must say so: reported as `failed`, a
+ * caller who can never succeed re-staged the whole audio on every record-page
+ * mount until the take-store TTL pruned it. `forbidden` is this union's settled
+ * refusal, and the client drops the take.
+ *
+ * But an EMPTY capability set has TWO causes and cannot tell them apart, which
+ * is why the old blanket `requireCapability`-throws-so-it-is-forbidden shape was
+ * wrong: an identity that could not be RESOLVED also reaches
+ * `getMyCapabilities` as an empty set (require-permission.ts:31-33), because
+ * `getCurrentUserStaffId` swallows an auth blip, a rotated JWT and a failed
+ * staff-list read alike (staff.ts:209-216, :259-264). Answering
+ * `forbidden` there is the same mistake `consentAllows` refuses to make one
+ * function down: a probe that cannot READ is not an answer. Wrong `failed` costs
+ * one wasted upload per mount, for ≤7 days, and the words survive. Wrong
+ * `forbidden` deletes the take on the device and the words are gone forever —
+ * exactly the evidence this action exists to keep. So the doubt goes to
+ * `failed`, and only a RESOLVED identity that genuinely lacks `records.write`
+ * earns the terminal answer.
+ *
+ * The two calls compose because both are React `cache()`d per request: the id
+ * this checks is the id `getMyCapabilities` resolves against, so once it is
+ * non-null an empty set can only mean a real denial. Nothing here re-implements
+ * the auth module — a throw out of capability resolution is caught and is a
+ * retry too.
+ *
+ * ponytail: `capabilitiesForUser`'s own DB fallback degrades to the
+ * `practitioner` preset, which HOLDS `records.write` — so a profiles-read
+ * failure fails OPEN into the write path rather than into a false `forbidden`.
+ * That is the auth module's call, not this action's, and is out of scope here.
  */
-async function recordsWriteDenied(): Promise<boolean> {
+async function recordsWriteGate(): Promise<DiscardTranscriptWrite | null> {
   try {
-    await requireCapability('records.write')
-    return false
+    if (!(await getCurrentUserStaffId())) return { error: 'failed' }
+    return (await getMyCapabilities()).has('records.write') ? null : { error: 'forbidden' }
   } catch {
-    return true
+    return { error: 'failed' }
   }
 }
 
@@ -191,7 +217,8 @@ export async function persistDiscardTranscript(input: {
   transcript: string
   durationSeconds: number
 }): Promise<DiscardTranscriptWrite> {
-  if (await recordsWriteDenied()) return { error: 'forbidden' }
+  const denied = await recordsWriteGate()
+  if (denied) return denied
   try {
     const text = input.transcript.trim()
     if (!text) return { skipped: 'empty' }
@@ -228,7 +255,8 @@ export async function transcribeAndPersistDiscard(input: {
   durationSeconds: number
   locale: string
 }): Promise<DiscardTranscriptWrite> {
-  if (await recordsWriteDenied()) return { error: 'forbidden' }
+  const denied = await recordsWriteGate()
+  if (denied) return denied
   try {
     const businessId = await getBusinessId()
     // Tenant fence on a CLIENT-SUPPLIED key — the same invariant

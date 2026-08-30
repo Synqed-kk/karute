@@ -89,16 +89,27 @@ jest.mock('@/lib/synqed/client', () => ({
 }))
 
 const capabilities = { current: new Set<string>(['records.write', 'staff.manage']) }
+/** The IDENTITY, separately steerable from the capability set. `null` is what
+ *  getCurrentUserStaffId returns for an auth blip, a rotated JWT and a failed
+ *  staff-list read alike — it is not a denial, and the gate must not read it as
+ *  one. */
+const identity = { current: 'staff-A' as string | null }
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'business-1'),
-  getCurrentUserStaffId: jest.fn(async () => 'staff-A'),
+  getCurrentUserStaffId: jest.fn(async () => identity.current),
   staffListByBusinessOrThrow: jest.fn(async () => []),
 }))
 jest.mock('@/lib/auth/require-permission', () => {
   const actual = jest.requireActual('@/lib/auth/require-permission')
   return {
     ...actual,
-    getMyCapabilities: jest.fn(async () => capabilities.current),
+    // Mirrors the real one: an unresolved identity yields an EMPTY set
+    // (require-permission.ts:31-33), which is byte-identical to a real denial.
+    // A fake that kept handing back the full set while the identity was null
+    // would hide the very ambiguity D-1 is about.
+    getMyCapabilities: jest.fn(async () =>
+      identity.current ? capabilities.current : new Set<string>(),
+    ),
     requireCapability: jest.fn(async (cap: string) => {
       if (!capabilities.current.has(cap)) throw new Error('forbidden')
     }),
@@ -147,6 +158,9 @@ import {
   transcribeAndPersistDiscard,
 } from '@/actions/recording-discard-transcript'
 import { getDiscardTranscript } from '@/actions/recording-discards'
+import { getMyCapabilities } from '@/lib/auth/require-permission'
+
+const mockGetMyCapabilities = getMyCapabilities as jest.Mock
 
 const SESSION = 'sess-1'
 const OWN_PATH = 'app_business-1_11111111-2222-3333-4444-555555555555.webm'
@@ -184,6 +198,7 @@ beforeEach(() => {
   recordingRow = { duration_seconds: null, customer_id: 'cust-1' }
   consentByCustomer = { 'cust-1': { policy_version: RECORDING_CONSENT_POLICY_VERSION } }
   capabilities.current = new Set(['records.write', 'staff.manage'])
+  identity.current = 'staff-A'
   ledger.push({ recording_session_id: SESSION, source: 'STAFF', reason: '録り直します' })
 })
 
@@ -357,6 +372,34 @@ describe('records.write is required, and a denial is TERMINAL', () => {
     capabilities.current = new Set(['staff.manage'])
     await expect(review()).resolves.toEqual({ error: 'forbidden' })
     expect(segmentSets).toEqual([])
+  })
+
+  it('an identity that could not be RESOLVED is a RETRY, not a denial — both doors', async () => {
+    // The mirror of the consent probe's own "a row that cannot be READ is not an
+    // answer". `getCurrentUserStaffId` returns null for an auth blip, a rotated
+    // JWT and a failed staff-list read alike, and the empty capability set that
+    // follows is indistinguishable from a real denial. Called `forbidden`, the
+    // client deletes the take on the device (retryable() = `failed` only) and the
+    // words behind a reasoned discard are gone forever from a salon-wifi hiccup.
+    identity.current = null
+    await expect(staged()).resolves.toEqual({ error: 'failed' })
+    await expect(review()).resolves.toEqual({ error: 'failed' })
+    expect(mockRunTranscription).not.toHaveBeenCalled()
+    expect(segmentSets).toEqual([])
+    // Still a pre-fence exit: nothing in storage is touched on either answer.
+    expect(removed).toEqual([])
+  })
+
+  it('capability resolution that THROWS is a retry too — both doors', async () => {
+    // The one identity-side failure that propagates instead of degrading:
+    // createServiceClient() throwing inside capabilitiesForUser.
+    mockGetMyCapabilities.mockRejectedValueOnce(new Error('service client unavailable'))
+    await expect(staged()).resolves.toEqual({ error: 'failed' })
+    mockGetMyCapabilities.mockRejectedValueOnce(new Error('service client unavailable'))
+    await expect(review()).resolves.toEqual({ error: 'failed' })
+    expect(mockRunTranscription).not.toHaveBeenCalled()
+    expect(segmentSets).toEqual([])
+    expect(removed).toEqual([])
   })
 })
 
