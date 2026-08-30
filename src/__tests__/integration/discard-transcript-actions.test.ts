@@ -2,7 +2,7 @@
  * A2-2 / A2-4 server halves — persisting and reading the WORDS of a reasoned
  * discard (packet P5-A2, ⚖ 8/20 doctrine ⑤, ⚖ 8/25 ruling A).
  *
- * Four properties, and they are all refusals:
+ * Five properties, and they are all refusals:
  *
  *   1. CONSENT, FAIL CLOSED. No current consent — or no customer at all — and
  *      NOTHING is transcribed and nothing is kept. The gate has to sit ahead of
@@ -16,6 +16,11 @@
  *      a session a staff member has already discarded WITH a written reason.
  *   4. THE READ IS MANAGER-ONLY, enforced server-side — the same `staff.manage`
  *      lock as the reason list it renders beside.
+ *   5. THE WORDS LAND ONCE. `records.write` belongs to the recorder, so the
+ *      staffer who discarded the take could otherwise call either action again
+ *      and replace the transcript a manager checks their claim against. The
+ *      assertions below read the surviving TEXT, not the segment count — an
+ *      overwrite leaves exactly one segment set too.
  */
 process.env.SYNQED_CORE_URL ??= 'https://core.test'
 process.env.SYNQED_CORE_API_KEY ??= 'test-core-key'
@@ -104,7 +109,11 @@ jest.mock('@/lib/ai/transcribe', () => ({
   loadStaffReferenceForStaff: jest.fn(async () => null),
 }))
 
+/** `removeThrows` is the janitor failing: storage cleanup must never decide the
+ *  outcome the caller reads, or a dead sweep re-runs a transcription that
+ *  already landed. */
 const removed: string[] = []
+let removeThrows = false
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
     storage: {
@@ -114,6 +123,7 @@ jest.mock('@/lib/supabase/service', () => ({
           error: null,
         }),
         remove: async (paths: string[]) => {
+          if (removeThrows) throw new Error('storage unreachable')
           removed.push(...paths)
           return { error: null }
         },
@@ -148,6 +158,7 @@ beforeEach(() => {
   segmentSets.length = 0
   upsertSeen.length = 0
   removed.length = 0
+  removeThrows = false
   recordingRow = null
   consentRow = { policy_version: RECORDING_CONSENT_POLICY_VERSION }
   capabilities.current = new Set(['records.write', 'staff.manage'])
@@ -252,6 +263,7 @@ describe('what actually lands', () => {
       ],
     ])
     expect(removed).toEqual([OWN_PATH])
+    expect(upsertSeen).toEqual([{ id: SESSION, options: { replace: true } }])
   })
 
   it('silence is answered honestly — nothing is written for an empty transcript', async () => {
@@ -259,13 +271,6 @@ describe('what actually lands', () => {
     await expect(staged()).resolves.toEqual({ skipped: 'empty' })
     expect(segmentSets).toEqual([])
     expect(removed).toEqual([OWN_PATH])
-  })
-
-  it('a double persist leaves ONE segment set, never two copies of the same words', async () => {
-    await staged()
-    await staged()
-    expect(upsertSeen.map((u) => u.options)).toEqual([{ replace: true }, { replace: true }])
-    expect(segmentSets).toHaveLength(1)
   })
 
   it('the review path writes the words it was handed, without transcribing anything', async () => {
@@ -282,7 +287,58 @@ describe('what actually lands', () => {
   })
 })
 
-// ── 5. The manager read (A2-4) ───────────────────────────────────────────
+// ── 5. The words land ONCE ───────────────────────────────────────────────
+
+const LANDED = 'こんにちは、本日はありがとうございます'
+
+describe('a transcript that already landed is never replaced', () => {
+  it('a retry of the staged persist keeps the first text, sweeps its own audio, spends nothing', async () => {
+    await expect(staged()).resolves.toEqual({ ok: true })
+    await expect(staged()).resolves.toEqual({ ok: true })
+    expect(segmentSets).toHaveLength(1)
+    expect(segmentSets[0][0].text).toBe(LANDED)
+    expect(upsertSeen).toHaveLength(1)
+    // The retry staged a fresh object of its own — nothing else collects it.
+    expect(removed).toEqual([OWN_PATH, OWN_PATH])
+    // The probe sits ahead of the transcription, so the retry costs nothing.
+    expect(mockRunTranscription).toHaveBeenCalledTimes(1)
+  })
+
+  it('the review door cannot overwrite the landed words with a friendlier account', async () => {
+    await staged()
+    await expect(
+      persistDiscardTranscript({
+        recordingSessionId: SESSION,
+        transcript: 'お客様は特に何もおっしゃっていませんでした',
+        durationSeconds: 62,
+        customerId: 'cust-1',
+      }),
+    ).resolves.toEqual({ ok: true })
+    expect(segmentSets).toHaveLength(1)
+    expect(segmentSets[0][0].text).toBe(LANDED)
+    expect(upsertSeen).toHaveLength(1)
+  })
+})
+
+// ── 6. The sweep never decides the outcome ───────────────────────────────
+
+describe('a failed staged-audio sweep does not fail the persist', () => {
+  it('the words landed, so the answer is ok and the caller drops its take', async () => {
+    removeThrows = true
+    await expect(staged()).resolves.toEqual({ ok: true })
+    expect(segmentSets[0][0].text).toBe(LANDED)
+  })
+
+  it('a consent refusal stays a settled skip, never a retryable error', async () => {
+    consentRow = null
+    removeThrows = true
+    await expect(staged()).resolves.toEqual({ skipped: 'consent' })
+    expect(mockRunTranscription).not.toHaveBeenCalled()
+    expect(segmentSets).toEqual([])
+  })
+})
+
+// ── 7. The manager read (A2-4) ───────────────────────────────────────────
 
 describe('getDiscardTranscript — the manager-only read', () => {
   it('refuses a caller without staff.manage', async () => {

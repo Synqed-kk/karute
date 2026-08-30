@@ -491,10 +491,12 @@ class GlobalRecorder {
   }
 
   /**
-   * `keepTake` is for the pipeline handoff ONLY (handleUseRecording): the
-   * recorder is cleared but the persisted audio stays in take-store until the
-   * karute record actually SAVES — a reload during transcription can then
-   * re-offer the audio. A plain discard() deletes the persisted take too.
+   * `keepTake` has two callers, and both mean "the audio is owed to something
+   * that has not finished yet": the pipeline handoff (handleUseRecording) keeps
+   * it until the karute record actually SAVES, so a reload during transcription
+   * can re-offer it; the reasoned discard (proceedDiscard, A2-2) keeps it for
+   * the persist run that transcribes the words behind the discard and deletes
+   * the object itself. A plain discard() deletes the persisted take too.
    */
   discard(opts?: { keepTake?: boolean }) {
     this.clearRunawayGuard()

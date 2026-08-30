@@ -171,6 +171,12 @@ export type GetDiscardTranscriptResult =
  * Missing pieces degrade to nulls rather than failing the read — a discard from
  * before A2-2, a consent-refused take and a swept session row are all legitimate
  * "no words" answers, and the section says so honestly instead of guessing.
+ *
+ * SCOPE, deliberately: this reads segments for ANY session id a `staff.manage`
+ * caller names. That equals the discard doctrine's intent only because the A2-2
+ * actions are the sole writers of segments in this repo — a kept recording's
+ * transcript lives on its karute record, never here. Any FUTURE segments writer
+ * puts other recordings' words behind this gate and must revisit the scope.
  */
 export async function getDiscardTranscript(
   recordingSessionId: string,

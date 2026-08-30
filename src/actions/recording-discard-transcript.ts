@@ -73,12 +73,34 @@ async function hasStaffDiscard(synqed: Core, recordingSessionId: string): Promis
 }
 
 /**
+ * WRITE-ONCE. `records.write` is the RECORDER's own capability, so without this
+ * probe the staffer who discarded the take could call either action again and
+ * replace the words a manager is about to check their written claim against.
+ * A landed transcript is evidence, and a second write is not a retry.
+ *
+ * A hit is `{ ok: true }`, not an error: honest retries and double-taps converge
+ * on the same settled outcome, and it sits ahead of the consent gate because an
+ * already-landed transcript needs no consent re-answer.
+ *
+ * Residual, stated honestly: the FIRST write is still client-trusted — nothing
+ * app-side proves the text came off the take that was discarded. Custody of that
+ * claim is core-side work (P5-B), not something this action can close.
+ *
+ * A probe that cannot read fails the action rather than falling through to the
+ * write — an unreadable ledger is not permission to overwrite.
+ */
+async function alreadyLanded(synqed: Core, recordingSessionId: string): Promise<boolean> {
+  const res = await synqed.recordings.listSegments(recordingSessionId)
+  return (res?.segments ?? []).length > 0
+}
+
+/**
  * ONE segment carrying the whole text.
  * ponytail: PipelineResult and the worker's transcript are both flat
  * speaker-labeled text with no timestamps, and A2-4 renders text, not a
  * timeline. Upgrade path: real paragraph segments if a timeline surface ever
- * exists. `replace: true` makes a retry idempotent — a double persist leaves
- * one segment, never two copies of the same words.
+ * exists. `replace: true` stays behind `alreadyLanded`, where it is retry
+ * safety — never two copies of the same words — and not an overwrite door.
  */
 async function writeTranscript(
   synqed: Core,
@@ -119,6 +141,7 @@ export async function persistDiscardTranscript(input: {
     if (!(await hasStaffDiscard(synqed, input.recordingSessionId))) {
       return { error: 'not_discarded' }
     }
+    if (await alreadyLanded(synqed, input.recordingSessionId)) return { ok: true }
     // Same gate as the transcribe twin: the doctrine question is whether the
     // customer's words may be KEPT, not merely whether transcribing costs money.
     if (!(await consentAllows(synqed, input.customerId))) return { skipped: 'consent' }
@@ -161,10 +184,19 @@ export async function transcribeAndPersistDiscard(input: {
     }
 
     const supabase = createServiceClient()
-    if (!(await consentAllows(synqed, input.customerId))) {
-      // Nothing is transcribed — but the staged object is still ours to sweep.
-      await supabase.storage.from('recordings').remove([input.audioPath])
-      return { skipped: 'consent' }
+    // Two refusals, one janitor. `||` short-circuits on purpose: consent is not
+    // re-asked once the words have landed. Either arm leaves this run's freshly
+    // staged object with nothing else to collect it, and a failed sweep must
+    // not become the outcome — the caller would keep the take and come back for
+    // a second transcription of words that already exist.
+    const landed = await alreadyLanded(synqed, input.recordingSessionId)
+    if (landed || !(await consentAllows(synqed, input.customerId))) {
+      try {
+        await supabase.storage.from('recordings').remove([input.audioPath])
+      } catch (err) {
+        console.warn('[discard-transcript] staged audio sweep failed:', err)
+      }
+      return landed ? { ok: true } : { skipped: 'consent' }
     }
 
     const { data: signed, error: signErr } = await supabase.storage
@@ -216,8 +248,14 @@ export async function transcribeAndPersistDiscard(input: {
 
     if (text) await writeTranscript(synqed, input.recordingSessionId, text, input.durationSeconds)
     // Read-then-delete, the worker's posture. After the write, so a failed write
-    // still has its audio for the next sweep.
-    await supabase.storage.from('recordings').remove([input.audioPath])
+    // still has its audio for the next sweep. Wrapped for the same reason as the
+    // refusal arm: the outcome the caller reads must reflect the WRITE, never
+    // the janitor. Leaked objects are the flat-key cleanup cron's job.
+    try {
+      await supabase.storage.from('recordings').remove([input.audioPath])
+    } catch (err) {
+      console.warn('[discard-transcript] staged audio sweep failed:', err)
+    }
     // Silence is an honest answer — A2-4 renders "no words" rather than a lie.
     return text ? { ok: true } : { skipped: 'empty' }
   } catch (err) {
