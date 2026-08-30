@@ -5148,7 +5148,11 @@ describe('BATCH-10 W1 — the trivial trio: bed solve, proxy paint, block step',
     // count went stale the moment ⚖ 87 added three comment lines above the
     // guard, which is a pin measuring the wrong thing.
     const nudge = SRC.slice(SRC.indexOf('const land = (override: string | null) => {'))
-    expect(nudge.slice(0, nudge.indexOf('stage(id, on, next,'))).toContain("if (lane.group !== 'beds') {")
+    // If the `stage(id, on, next,` literal ever drifts, indexOf returns -1 and
+    // slice(0, -1) would silently widen the window instead of failing loudly.
+    const stageIdx = nudge.indexOf('stage(id, on, next,')
+    expect(stageIdx).toBeGreaterThan(0)
+    expect(nudge.slice(0, stageIdx)).toContain("if (lane.group !== 'beds') {")
     // …and NEITHER landing still tests the carried room before solving.
     expect(SRC).not.toContain("!== 'beds' && on.bedLane")
   })
