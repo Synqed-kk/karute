@@ -4270,6 +4270,13 @@ export function TodayScreen(props: TodayProps) {
               // is true of a HARD floor and false of a policy one, where
               // 注意して配置 places exactly what the × sat on. The passed wording
               // is true on both: the drop does not land, and the board says why.
+              //
+              // ⚖ LIAM RULING (2026-08-30) — the quoted chip label below is 新規用
+              // now, for the reason `railExplain` records: bare 新規 is this board's
+              // own カテゴリー word and it inverted on him live. This note sits ABOVE
+              // the key deliberately — §8's tour pin reads a fixed-length slice from
+              // `'data-guide':`, so prose added UNDER it pushes the sentence's own
+              // tail out of the window the pin can see.
               'data-guide':
                 // ⚖ FLAGS 25c precedent again (flag 44, 2026-08-26): the strip
                 // grew a third face — a word at rest, a press that answers, and
@@ -4279,12 +4286,12 @@ export function TodayScreen(props: TodayProps) {
                 // explained in, which is why it is named here explicitly.
                 //
                 // ⚖ NATIVE PASS (2026-08-26) — ふさがっている WAS FALSE FOR ONE
-                // OF THE THREE. 新規 is a guard HOLD — the slot is empty and
+                // OF THE THREE. 新規用 is a guard HOLD — the slot is empty and
                 // being kept that way for a 新規 window — so "occupied" was a
                 // plain untruth about it. 置けない is true of all three, and the
                 // hatch is now its own sentence: it APPEARS, it is not a
                 // standing mark the operator should hunt for.
-                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、何時から何時までを判定したかと、その理由を表示します。「満室」「清掃」「新規」の小さな文字と点が付いたコマは、この行には見えない事情で置けないという意味です。そのときは、すぐ上の行に薄い斜線が出て、その30分を示します。`,
+                `このスタッフの行で、30分ごとの開始時刻から${railDur}分の予約を新しく入れられるかを表示します。記号の意味は、上の「スキマガード」の帯に書いてあります。仮押さえ中の予約も、ほかの予約と同じように枠をふさぎます。ボードのカードをドラッグしている間は、その1枚だけを外した状態で判定し直します。置けない場所には×が付き、離すと配置されずに理由が表示されます。どのコマも押すと、何時から何時までを判定したかと、その理由を表示します。「満室」「清掃」「新規用」の小さな文字と点が付いたコマは、この行には見えない事情で置けないという意味です。そのときは、すぐ上の行に薄い斜線が出て、その30分を示します。`,
             }
           : {})}
       >

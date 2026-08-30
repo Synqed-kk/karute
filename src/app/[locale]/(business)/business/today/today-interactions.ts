@@ -1530,8 +1530,15 @@ export function railExplain(
     cell.reason === 'bed'
       ? roomWord
       : cell.reason === 'guard'
-        // ⚖ NATIVE PASS (2026-08-26) — 新規 confirmed as ruled (chip vocabulary).
-        ? '新規'
+        // ⚖ LIAM RULING (2026-08-30) — 新規用, and the JP lens called it before he
+        // did. 新規 alone is a CATEGORY word on this board (it is the カテゴリー
+        // colour in the legend, and 新規予約を作成 is what an empty track opens), so
+        // on a chip it reads as 「a new customer goes HERE」 — the exact inversion of
+        // what the chip means, which is that the start is being HELD EMPTY for one
+        // and cannot be sold. Liam read it that way live on 8/30. 用 names WHOSE the
+        // space is rather than what may be put in it, and there is no way to read it
+        // backwards. This is his ruled vocabulary now, not a Fable default.
+        ? '新規用'
         // ⚖ Fable-accepted default (overturnable): a no-pocket-fit chip keeps
         // the bare 「—」. Its blocker — a booking, a 予定ブロック, a shift wall —
         // is DRAWN on the row directly above it, so a word would be labelling

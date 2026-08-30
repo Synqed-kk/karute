@@ -238,7 +238,7 @@ describe('§1 — WHICH KIND of blocker is a field, never a sentence read back',
 })
 
 describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
-  it('bed → 満室, all-清掃 → 清掃, guard → 新規, no-fit → no word at all', () => {
+  it('bed → 満室, all-清掃 → 清掃, guard → 新規用, no-fit → no word at all', () => {
     const busy = sceneWith([booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)])
     expect(explainOn(busy, at(railOn(busy), 780)).word).toBe('満室')
 
@@ -257,7 +257,10 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
 
     const guarded = railOn([lane({ key: 'p-01', group: 'staff', items: [booking({ key: 's1', caseId: 'y1' }, 900, 960)] })])
       .cells.find((c) => c.reason === 'guard')!
-    expect(explainOn([], guarded).word).toBe('新規')
+    // ⚖ LIAM RULING (2026-08-30) — 新規用, not 新規. Bare 新規 is the board's
+    // カテゴリー word, so on a chip it read as 「put a new customer here」 —
+    // the inversion of a HOLD. The 用 is what makes the word un-invertible.
+    expect(explainOn([], guarded).word).toBe('新規用')
 
     // ⚖ Fable-accepted default (overturnable, noted in the PR body): a
     // no-pocket-fit chip keeps the bare 「—」. Its blocker is drawn on the row.
@@ -771,7 +774,7 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // source of all three faces is still the one value.
     const mixed: ReadonlyMap<number, { word: string | null }> = new Map([
       [600, { word: null }],
-      [630, { word: '新規' }],
+      [630, { word: '新規用' }],
     ])
     expect(restCueStarts(mixed, [], [])).toEqual([630])
     // A box that ENDS at the cue's start is not over it…
@@ -867,7 +870,12 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     const guide = SRC.slice(SRC.indexOf("'data-guide':"), SRC.indexOf("'data-guide':") + 1400)
     expect(guide).toContain('どのコマも押すと、何時から何時までを判定したかと、その理由を表示します')
     expect(guide).toContain('薄い斜線')
-    expect(guide).toContain('「満室」「清掃」「新規」')
+    // ⚖ LIAM RULING (2026-08-30) — the tour quotes the chips' OWN labels, so the
+    // guard one moved with the chip. Bare 「新規」 is pinned dead in the quoted
+    // list: a tour that teaches a word the board no longer wears is worse than
+    // no entry at all.
+    expect(guide).toContain('「満室」「清掃」「新規用」')
+    expect(guide).not.toContain('「満室」「清掃」「新規」')
     // ⚖ NATIVE PASS (2026-08-26) — ふさがっている was FALSE of 新規, which is a
     // guard HOLD on an empty slot, not an occupied one. 置けない is true of all
     // three, and the retired word is pinned dead so it cannot come back.
