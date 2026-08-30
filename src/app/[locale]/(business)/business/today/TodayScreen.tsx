@@ -4876,7 +4876,8 @@ export function TodayScreen(props: TodayProps) {
                       <span><i />確定・施術</span>
                       <span className="needs"><i />要対応</span>
                       <span className="hold"><i />仮押さえ</span>
-                      <span className="public"><i />販売可能</span>
+                      <span className="public"><i />販売可能枠</span>
+                      <span className="packed"><i />詰め込み</span>
                       <span className="gapfill"><i />スキマ枠</span>
                       {guardOn && <span className="guard"><i />スキマガード</span>}
                       <span className="cat-legend" aria-label="店舗設定の予約カテゴリー色">

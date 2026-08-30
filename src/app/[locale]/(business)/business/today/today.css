@@ -226,6 +226,9 @@
 .biz .legend .needs i { background: var(--red-soft); border-color: #e6a09a; }
 .biz .legend .hold i { background: var(--orange-soft); border-color: #ecc9a4; }
 .biz .legend .public i { background: #f7f9ff; border: 1px dashed #a9b7ef; }
+/* 詰め込み — no new colour: the exact fill .cell-packed paints itself, with a
+   dashed ring in the box's own text colour (var(--indigo), same as .cell-packed i). */
+.biz .legend .packed i { background: rgba(130, 151, 233, .18); border: 1px dashed var(--indigo); }
 /* canon :427-429 — the two window layers get their own swatches, and the guard
    row only exists while the store's protection policy is on. */
 .biz .legend .gapfill i { background: var(--orange-soft); border: 1px dashed var(--orange-line); }

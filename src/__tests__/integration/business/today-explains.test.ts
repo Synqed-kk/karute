@@ -1089,6 +1089,23 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
     // pinned by the absence of any rule that reaches the legend from the class.
     expect(CSS).not.toMatch(/hide-nametags[^\n]*(layer-legend|guard-band|lk-)/)
   })
+
+  // ⚖ LIAM RULING (2026-08-30, 案C) — the 表示設定 ▸ 色の意味 key names the boxes
+  // by the same words as everywhere else. It was pinned dropping 詰め込み and
+  // still saying bare 販売可能; both are fixed at the source and pinned exact.
+  it('表示設定 ▸ 色の意味 carries the ruled words, 詰め込み included', () => {
+    const legend = SRC.slice(SRC.indexOf('<strong>色の意味</strong>'), SRC.indexOf('</div>\n\n                    <div className="pop-divider" role="presentation" />\n                    <strong>密度</strong>'))
+    expect(legend).toContain('<span className="public"><i />販売可能枠</span>')
+    expect(legend).toContain('<span className="packed"><i />詰め込み</span>')
+    expect(legend).toContain('<span className="gapfill"><i />スキマ枠</span>')
+    // order: 販売可能枠, then 詰め込み, then スキマ枠 — the box order on the board.
+    expect(legend.indexOf('販売可能枠')).toBeLessThan(legend.indexOf('詰め込み'))
+    expect(legend.indexOf('詰め込み')).toBeLessThan(legend.indexOf('スキマ枠'))
+    // the bare, unruled word is pinned dead.
+    expect(legend).not.toContain('>販売可能<')
+    // the swatch is .cell-packed's own fill, no new colour.
+    expect(CSS).toContain('.biz .legend .packed i { background: rgba(130, 151, 233, .18); border: 1px dashed var(--indigo); }')
+  })
 })
 
 // ── §9 ─────────────────────────────────────────────────────────────────────
