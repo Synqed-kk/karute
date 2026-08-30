@@ -4815,12 +4815,14 @@ export function TodayScreen(props: TodayProps) {
                         the three COLOURS, which are still on the board — hiding
                         the key to a code the board is still speaking would be the
                         opposite of what this switch is for.
-                        ⚠ JP-DRAFT — the tour title and its sentence below are
-                        Claude-drafted and await the native micro-pass. The row's
-                        own label 「種類の名札」 is Liam's ruled wording. */}
+                        ⚖ NATIVE PASS (2026-08-30) — tour sentence set to its
+                        native-confirmed final wording. Register matches the
+                        表示/非表示 pair used by this row's siblings; 小さな文字 →
+                        名札 ties the sentence back to the row's own label
+                        「種類の名札」 (confirmed). */}
                     <label
                       data-guide-title="種類の名札"
-                      data-guide="価格箱に付く「販売可能枠」「詰め込み」「スキマ枠」の小さな文字を出すかどうかを切り替えます。消しても箱の色と、下の帯にある色の説明はそのまま残ります。"
+                      data-guide="価格箱に付く「販売可能枠」「詰め込み」「スキマ枠」の名札を表示するかどうかを切り替えます。非表示にしても、箱の色と下の帯にある色の説明はそのまま残ります。"
                     >
                       <input type="checkbox" checked={showNametags} onChange={() => setShowNametags((v) => !v)} /> 種類の名札
                     </label>

@@ -1078,10 +1078,10 @@ describe('§8 — ⚖ LABELS RULING: the box wears its layer, the band explains 
     expect(pop.indexOf('種類の名札')).toBeGreaterThan(pop.indexOf('空き枠の価格'))
 
     // ⚖ 8/23 GUIDED-TOUR LAW — a new function declares itself the same round.
-    // ⚠ JP-DRAFT: both strings await the native micro-pass.
+    // ⚖ NATIVE PASS (2026-08-30): the tour sentence is native-confirmed final.
     expect(SRC).toContain('data-guide-title="種類の名札"')
     expect(SRC).toContain(
-      'data-guide="価格箱に付く「販売可能枠」「詰め込み」「スキマ枠」の小さな文字を出すかどうかを切り替えます。消しても箱の色と、下の帯にある色の説明はそのまま残ります。"',
+      'data-guide="価格箱に付く「販売可能枠」「詰め込み」「スキマ枠」の名札を表示するかどうかを切り替えます。非表示にしても、箱の色と下の帯にある色の説明はそのまま残ります。"',
     )
 
     // THE DEFAULT THE RULING NAMES: the band legend is NOT hidden with the tags.
