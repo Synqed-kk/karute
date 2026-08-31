@@ -607,6 +607,36 @@ describe('the fixture data door', () => {
         'react',
       ],
       'src/app/[locale]/(business)/business/karute/loading.tsx': ['@/business/i18n'],
+      // コーチング. The room's own COACHING plane plus the derivations that turn
+      // it into two models, one per viewer. The plane imports the store ids and
+      // NOTHING ELSE: a coaching row states what a coaching run produced and
+      // never a fact the world already states (a name, a store, a roster), which
+      // is the W7 breach class this room is pinned against. `coaching.ts` reaches
+      // into `src/lib/karute/coaching/*` NOWHERE — the phone's contract is
+      // mirrored by SHAPE with cites, because Business territory may not import
+      // phone runtime.
+      'src/business/lib/fixtures-coaching.ts': ['./fixtures'],
+      'src/business/lib/coaching.ts': ['./fixtures-coaching'],
+      'src/app/[locale]/(business)/business/coaching/page.tsx': [
+        './CoachingScreen',
+        './coaching-props',
+        './coaching.css',
+        '@/business/lib/admission',
+      ],
+      'src/app/[locale]/(business)/business/coaching/coaching-props.ts': [
+        './CoachingScreen',
+        '@/business/lib/clock',
+        '@/business/lib/coaching',
+        '@/business/lib/data',
+        '@/business/lib/fixtures',
+        '@/business/lib/fixtures-coaching',
+      ],
+      'src/app/[locale]/(business)/business/coaching/CoachingScreen.tsx': [
+        '@/business/lib/coaching',
+        '@/business/lib/guide',
+        'react',
+      ],
+      'src/app/[locale]/(business)/business/coaching/loading.tsx': ['@/business/i18n'],
     }
     for (const [file, expected] of Object.entries(INVENTORY)) {
       const src = readFileSync(join(process.cwd(), file), 'utf8')

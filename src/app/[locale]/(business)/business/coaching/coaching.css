@@ -1,0 +1,541 @@
+/* コーチング — the room's sheet. ONE PAGE, TWO SCREENS (自分のコーチング /
+   全スタッフ表示), one at a time, wearing the family's clothes.
+
+   THE SHAPE, IN THE ORDER THE PAGE READS:
+     · the head — what this page is, and the window the numbers are taken over.
+       The ? and コーチングの設定 live on its title line;
+     · then EITHER the two tabs (a reader who may see the roster) or canon's
+       boundary-rights sentence (a reader who may not) — never both;
+     · 自分のコーチング: the spine across the top (five plain facts, each saying
+       WHAT it counts), the single next move, then the findings with their one
+       verbatim moment and the numbers that back them;
+     · 全スタッフ表示: the framing line and the four counts, the roster as bands
+       with their paired help actions, and the sharing aggregate below;
+     · the standing refusal footnote, and the standing 見え方 notice.
+
+   ── ⚖ THE THREE LAWS THIS ROOM WAS DESIGNED UNDER ───────────────────────────
+
+   (a) HONEST STATES ARE DESIGNED STATES. 未導入 (the module was never switched
+       on), and the findings run's own four statuses — findings /
+       routine_excellence / capture_gap / insufficient_data
+       (personal-findings.ts:222) — are not empty cards with a grey sentence in
+       them. Each is a composed panel that says the real reason, because ⚖ silent
+       failure is a bug and a blank is the loudest silence a page can make.
+
+   (b) DESKTOP SURPASSES PHONE (⚖ Liam 8/30). The phone stacks seven cards; the
+       desk reads the findings and the numbers that back them SIDE BY SIDE, so
+       the receipt for 「12回中8回」 and the 成約率 it moved are in one glance
+       instead of four scrolls. Same design language, same vocabulary, more
+       visible — never more cluttered: this page shows FEWER things than the
+       phone's coaching stack, not more.
+
+   (c) EVERY BAND IS ITS OWN COMPOSITION (⚖ Liam 9/1). Not one layout squeezed
+       four ways — THREE deliberate compositions, named below with the width each
+       is for and the reason it is that shape. A fold is not a narrow desktop and
+       an iPad is not a big phone.
+
+   ── THE THREE COMPOSITIONS, AND THE TWO THRESHOLDS BETWEEN THEM ─────────────
+
+   ① STACKED  (container < 700 — phones, iPad portrait/mini)
+      One column, list-is-the-page. The findings lead; the supporting cards
+      follow in reading order. Touch targets ≥44px from 1023 down, because every
+      one of these is a finger on glass.
+
+   ② FOLD     (700 ≤ container < 880 — opened foldables, near-square)
+      The findings stay FULL WIDTH — a quoted moment needs the line — and the
+      four supporting cards pair up two-across beneath them. A near-square screen
+      is wide and SHORT: stacking four cards down it is the stretched-phone look
+      Liam named, and a master–detail split at this width leaves a detail column
+      one card wide, which is not a composition either.
+
+   ③ DESK     (container ≥ 880 — laptops and externals)
+      The findings LEFT with their receipts, the numbers that back them RIGHT.
+      One glance instead of four scrolls.
+
+   ⚖ ONE BLUE, AND IT IS #2563eb (R13, CLAUDE.md + globals.css:99 --primary).
+   The shell's --indigo is a DIFFERENT blue (#3f5be8) and is not spent here. The
+   accent goes ONLY on pressables — the selected tab, the ? when the tour is up —
+   and every band chip is a NEUTRAL wash. That last part is a rule, not a taste:
+   ⚖ 8/25's B family forbids a red or a threshold tone on a per-person number,
+   and サポートが必要 is a place to send help, not a failing grade. There is no
+   red anywhere on this page.
+
+   ── TYPOGRAPHY (apple-design §15) ───────────────────────────────────────────
+   Tracking is SIZE-SPECIFIC, never one value for all sizes: the 26px title
+   carries −.02em because letters read too far apart as they grow, section
+   titles −.01em, body 0, and the 11.5px labels +.01em because small text needs
+   the opposite correction. Leading runs inversely to size — 1.25 on the title,
+   1.85 on body copy — and hierarchy is built from weight + size + leading as a
+   SET rather than from size alone. The face is the shell's own system stack.
+
+   ── TWO SCOPING JOBS, AND THEY ARE DIFFERENT PROBLEMS ───────────────────────
+
+   OUTGOING (this sheet reaching another room). Every rule below is scoped under
+   `.pg-coaching`, and the screen puts that class on exactly one node.
+
+   INCOMING (another room's sheet reaching THIS one) — the room-2 BLOCKER class.
+   `.pg-coaching` does nothing about it: App Router keeps every sibling sheet
+   loaded, and the neighbours state BARE `.biz .<name>` rules on the exact names
+   a coaching page would want — `.panel`, `.stat`, `.card`, `.chip`, `.row`,
+   `.summary`, `.empty`, `.spot-card`…
+
+   THE FENCE HERE IS STRUCTURAL RATHER THAN ENUMERATED: every element this room
+   owns carries a `cg-` name that exists nowhere else in the family, so there is
+   no rule to collide with — a fence that cannot rot as the neighbours grow.
+   `page` / `h1` / `btn` are the only shell names this sheet states, and those
+   three are fenced immediately below at FOUR levels, because a sibling's own
+   three-level rule (`.biz .page .btn`, customers.css:23) ties at three and a tie
+   is decided by whichever sheet App Router happened to insert last.
+
+   ⚖ FOCUS IS THE SHELL'S (business-shell.css:107-111, 3px ring at 2px offset,
+   :focus-visible only) and is deliberately NOT restated — a second home for one
+   verdict. ⚠ …but a ring the room CLIPS is not a ring (the room-3 F2 lesson), so
+   no container here uses `overflow: hidden`.
+
+   ⚖ PAGE-SCROLL (Liam 8/22, ruled twice): NOT ONE container in this room owns
+   an axis. No height cap, no overflow-y, no overscroll-behavior, no overflow-x.
+   The roster grows down the page and the PAGE scrolls, at any roster size. */
+
+/* ── the fence: the three shared names this room states ────────────────────── */
+.biz .page.pg-coaching { padding: 24px 28px 40px; }
+.biz .page.pg-coaching h1 { margin: 0; font-size: 26px; line-height: 1.25; letter-spacing: -.02em; font-weight: 700; }
+.biz .page.pg-coaching .btn { font-weight: 500; }
+.biz .page.pg-coaching .btn.primary { font-weight: 600; }
+
+/* ── the room's tokens ─────────────────────────────────────────────────────── */
+.biz .page.pg-coaching {
+  --cg-accent: #2563eb;                       /* globals.css:99 --primary (⚖ R13) */
+  --cg-accent-wash: rgba(37, 99, 235, .08);   /* ⚖ R13's selected recipe: /8, never a fill */
+  --cg-panel: #fff;
+  --cg-panel-line: #e4e4e9;                   /* shell --line */
+  --cg-soft: #f7f7f9;
+  /* The severity tones are DATA tones, not accents — they encode which KIND of
+     finding a card is, exactly as a chart's series colours encode which series
+     (the one-way accent law's own carve-out). Amber and emerald are the phone's
+     own coaching values (DataDrivenStaffView.tsx:148-152). 重点 is deliberately
+     the SAME amber family as 注目 rather than the phone's rose: on the computer
+     door this page is read beside a manager, and a red card next to a person's
+     name is the punishment stick ⚖ 8/25 rules out. */
+  --cg-priority: #8a4c0f;                     /* shell --amber */
+  --cg-priority-soft: #fbecd9;                /* shell --amber-soft */
+  --cg-watch: #6d5716;                        /* shell --yellow */
+  --cg-watch-soft: #f7edcb;                   /* shell --yellow-soft */
+  --cg-strength: #1d5c39;                     /* shell --green-dark */
+  --cg-strength-soft: #dcf0e4;                /* shell --green-soft */
+
+  /* ⚖ THE LADDER'S ARITHMETIC, STATED SO IT CAN BE READ RATHER THAN REMEMBERED
+     (the room-6 B4-1 law: a literal threshold goes stale the moment one of its
+     terms moves, and the suite parses these numbers and asserts each threshold
+     against their SUM).
+
+     THRESHOLD ②→③ (fold → desk):
+         520  the findings column, with a quoted moment readable inside it
+       + 320  the side column (a bar chart, a reason list, a skill row)
+       +  24  the gap between them
+       ─────
+         864  the width at which the master–detail SHAPE first fits
+         880  ships — 864 plus 16px of slack, because at exactly 864 the
+              available width EQUALS the two minima and a fractional page (zoom,
+              a scrollbar) would land the grid on the wrong side of an equality.
+
+     THRESHOLD ①→② (stacked → fold):
+         320  a supporting card, at the same floor the side column uses
+       + 320  its neighbour
+       +  18  the gap between them
+       ─────
+         658  the width at which two cards first sit side by side
+         700  ships — 658 plus 42px, so the pair arrives at the FOLD (Liam's own
+              800 boundary, ≈724 of page at 800 with the rail collapsed) and not
+              one band earlier on an iPad in portrait, where ⚖ ALL-SCREEN asks
+              for a single column.
+
+     BOTH ARE CONTAINER QUERIES, and container width is monotonic in page width,
+     so each threshold is crossed EXACTLY ONCE across a sweep — the room never
+     gains a column, loses it and gains it again. */
+  --cg-main-min: 520px;
+  --cg-side-min: 320px;
+  --cg-cols-gap: 24px;
+  --cg-card-gap: 18px;
+
+  container: cg-page / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+
+  /* ⚠ ONE UNBROKEN LATIN RUN PUSHES THE WHOLE PAGE SIDEWAYS, and an
+     all-Japanese demo hides it completely: Japanese breaks at any character, so
+     every fixture string in this room wraps by luck. A finding written in
+     romaji, a product code coming back from transcription, an email address in
+     a quoted moment — any of them is a single unbreakable word wider than its
+     column. MEASURED, not feared: the probe's hostile world scrolled the PAGE
+     horizontally at 1586, 1280, 1024 and 820 before this line, and stopped at
+     all four after it.
+
+     `anywhere` rather than `break-word` on purpose — the two differ exactly
+     where it matters here: `anywhere` also lets the break count toward the
+     element's MIN-CONTENT width, so a grid or flex track can shrink past the
+     long word instead of being sized by it. */
+  overflow-wrap: anywhere;
+}
+
+/* ── the head ──────────────────────────────────────────────────────────────── */
+.biz .pg-coaching .cg-head { display: flex; flex-direction: column; gap: 6px; }
+.biz .pg-coaching .cg-eyebrow { color: var(--quiet); font-size: 12px; letter-spacing: .01em; }
+.biz .pg-coaching .cg-titleline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.biz .pg-coaching .cg-spacer { flex: 1 1 auto; }
+.biz .pg-coaching .cg-help {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; min-width: 26px;
+  border: 1.5px solid var(--control); border-radius: 50%;
+  background: #fff; color: var(--ink-3);
+  font-size: 13px; font-weight: 700; line-height: 1;
+}
+.biz .pg-coaching .cg-help:hover { border-color: var(--cg-accent); color: var(--cg-accent); }
+.biz .pg-coaching .cg-help[aria-expanded="true"] { border-color: var(--cg-accent); background: var(--cg-accent-wash); color: var(--cg-accent); }
+.biz .pg-coaching .cg-sub { margin: 0; max-width: 72ch; color: var(--ink-2); font-size: 13.5px; line-height: 1.8; }
+.biz .pg-coaching .cg-window { margin: 0; color: var(--muted); font-size: 12px; letter-spacing: .01em; }
+
+/* ⚠ FEEDBACK LIVES ON THE PRESS, NOT THE RELEASE (apple-design §1). A control
+   that only changes on `click` reads as dead for the length of the press — the
+   moment lag appears, directness falls off a cliff. 100ms, `ease-out`, on
+   `transform` only (a compositor property, §11). REFUSED controls get none:
+   nothing happens when they are pressed, so nothing should look like it did. */
+.biz .pg-coaching .cg-tab:active,
+.biz .pg-coaching .cg-help:active { transform: scale(.97); transition: transform 100ms ease-out; }
+
+/* ── the tabs (⚖ R13: a light accent wash, never a black or filled tab) ────── */
+.biz .pg-coaching .cg-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.biz .pg-coaching .cg-tab {
+  min-height: 38px; padding: 0 16px;
+  border: 1px solid var(--control); border-radius: 9px;
+  background: #fff; color: var(--ink-2);
+  font-size: 13.5px; font-weight: 600; letter-spacing: 0;
+}
+.biz .pg-coaching .cg-tab:hover { background: #fafafb; }
+.biz .pg-coaching .cg-tab.is-on { border-color: var(--cg-accent); background: var(--cg-accent-wash); color: var(--cg-accent); }
+.biz .pg-coaching .cg-boundary {
+  margin: 0; padding: 11px 14px;
+  border: 1px solid var(--cg-panel-line); border-radius: 10px;
+  background: var(--cg-soft); color: var(--ink-2);
+  font-size: 12.5px; line-height: 1.75;
+}
+
+/* ── panels, shared furniture ──────────────────────────────────────────────── */
+.biz .pg-coaching .cg-panel { display: flex; flex-direction: column; gap: var(--cg-card-gap); }
+.biz .pg-coaching .cg-spine,
+.biz .pg-coaching .cg-focus,
+.biz .pg-coaching .cg-findings,
+.biz .pg-coaching .cg-trend,
+.biz .pg-coaching .cg-outcomes,
+.biz .pg-coaching .cg-skills,
+.biz .pg-coaching .cg-learn,
+.biz .pg-coaching .cg-share,
+.biz .pg-coaching .cg-state,
+.biz .pg-coaching .cg-framing,
+.biz .pg-coaching .cg-board,
+.biz .pg-coaching .cg-adoption,
+.biz .pg-coaching .cg-dormant {
+  padding: 18px 20px;
+  border: 1px solid var(--cg-panel-line); border-radius: 12px;
+  background: var(--cg-panel);
+}
+.biz .pg-coaching .cg-sec-title { margin: 0 0 10px; font-size: 15px; font-weight: 700; line-height: 1.45; letter-spacing: -.01em; color: var(--ink); }
+.biz .pg-coaching .cg-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.biz .pg-coaching .cg-sec-head .cg-sec-title { margin-bottom: 0; }
+
+/* A kicker and a category name — the two quiet labels this room repeats. Both
+   are NEUTRAL: they name a thing, they are not pressable (the one-way accent
+   law), and the accent stays on the controls. */
+.biz .pg-coaching .cg-kicker { display: inline-block; padding: 3px 9px; border-radius: 999px; background: var(--section); color: var(--ink-3); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; }
+/* ⚠ THE CATEGORY NAME IS WRITTEN BY THE GENERATOR, not chosen from an enum
+   (personal-findings.ts:235 — 「business-native pattern name; not a fixed
+   enum」), so it can be any length in any script and it MUST wrap. The chips
+   beside it — the severity word, the band, the score — carry short strings this
+   room controls, and those keep `nowrap` so a two-word label never breaks in
+   half. Measured: with `nowrap` here the hostile world scrolled the page
+   sideways at 744 and 390. */
+.biz .pg-coaching .cg-cat { display: inline-block; padding: 2px 8px; border-radius: 6px; background: var(--cg-soft); color: var(--ink-3); font-size: 11.5px; font-weight: 600; line-height: 1.6; letter-spacing: .01em; min-width: 0; }
+.biz .pg-coaching .cg-note-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--cg-soft); color: var(--muted); font-size: 11px; letter-spacing: .01em; white-space: nowrap; }
+
+/* ── the dormant state ─────────────────────────────────────────────────────── */
+.biz .pg-coaching .cg-dormant { background: var(--cg-soft); }
+.biz .pg-coaching .cg-dormant h2 { margin: 8px 0; font-size: 17px; font-weight: 700; line-height: 1.4; letter-spacing: -.01em; color: var(--ink); }
+.biz .pg-coaching .cg-dormant p { margin: 0; max-width: 66ch; color: var(--ink-2); font-size: 13.5px; line-height: 1.85; }
+
+/* ── the spine: five plain facts ───────────────────────────────────────────── */
+/* ⚠ INTRINSIC, THRESHOLDLESS: `auto-fit` + a floor means the tiles reflow with
+   the room instead of at a number this sheet would have to keep in sync with
+   the ladder. Five across a desk, two or three on a phone, and never a partial
+   tile at any width in between. */
+/* ⚠ THE FLOOR IS 132, NOT 148, AND THE 16px MATTERS. Five facts inside a card
+   whose own padding takes 40px: at the fold band (page 824, so 744 inside the
+   card) a 148px floor fits FOUR and orphans the fifth on a row of its own —
+   measured in the ladder shot. 132 fits all five across the whole fold band and
+   still fits TWO on a phone. 110 rather than 132 for that second reason: at 390
+   the shell keeps its 76px rail, so the card holds 244px, and a 132 floor put
+   each of the five facts on a row of its own — five screens of scrolling for
+   five numbers. `auto-fit` never makes more tracks than there are items, so a
+   lower floor changes the narrow bands and nothing else. */
+.biz .pg-coaching .cg-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-top: 12px; }
+.biz .pg-coaching .cg-stat { padding: 11px 13px; border-radius: 10px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-stat-label { color: var(--muted); font-size: 11.5px; font-weight: 600; line-height: 1.5; letter-spacing: .01em; }
+.biz .pg-coaching .cg-stat-value { margin-top: 3px; color: var(--ink); font-size: 22px; font-weight: 700; line-height: 1.2; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-basis { margin: 11px 0 0; color: var(--muted); font-size: 12px; line-height: 1.75; }
+
+/* ── the single next move ──────────────────────────────────────────────────── */
+.biz .pg-coaching .cg-focus { border-color: #e7dcc6; background: linear-gradient(180deg, #fdf8ef 0%, #fff 62%); }
+.biz .pg-coaching .cg-focus-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 7px; }
+.biz .pg-coaching .cg-focus .cg-kicker { background: var(--cg-priority-soft); color: var(--cg-priority); }
+.biz .pg-coaching .cg-focus p { margin: 0; max-width: 68ch; color: var(--ink-2); font-size: 13px; line-height: 1.85; }
+
+/* ── the ladder: THREE compositions, TWO thresholds ────────────────────────── */
+/* ① STACKED is the base — one column, no query needed. */
+.biz .pg-coaching .cg-cols { display: grid; grid-template-columns: 1fr; gap: var(--cg-cols-gap); align-items: start; }
+.biz .pg-coaching .cg-side { display: grid; grid-template-columns: 1fr; gap: var(--cg-card-gap); align-content: start; }
+
+/* ② FOLD — the near-square band. The findings keep the full width (a quoted
+   moment needs the line) and the four supporting cards pair up beneath them. */
+@container cg-page (min-width: 700px) {
+  .biz .pg-coaching .cg-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ③ DESK — findings left, the numbers that back them right. The side column
+   returns to ONE track because it is now a column, not a row of cards. */
+@container cg-page (min-width: 880px) {
+  .biz .pg-coaching .cg-cols {
+    grid-template-columns: minmax(var(--cg-main-min), 1.5fr) minmax(var(--cg-side-min), 1fr);
+  }
+  .biz .pg-coaching .cg-side { grid-template-columns: 1fr; }
+}
+
+/* ── the findings, with their receipts ─────────────────────────────────────── */
+.biz .pg-coaching .cg-find-list { display: flex; flex-direction: column; gap: 12px; }
+.biz .pg-coaching .cg-find { padding: 14px 15px; border: 1px solid var(--cg-panel-line); border-radius: 11px; background: #fff; }
+.biz .pg-coaching .cg-find.is-priority { border-color: #ecd9bd; background: #fffdf9; }
+.biz .pg-coaching .cg-find.is-watch { border-color: #e8e0c2; background: #fffef8; }
+.biz .pg-coaching .cg-find.is-strength { border-color: #c9e5d5; background: #fbfefc; }
+.biz .pg-coaching .cg-find-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.biz .pg-coaching .cg-find h3 { margin: 7px 0 0; font-size: 15px; font-weight: 700; line-height: 1.6; letter-spacing: -.005em; color: var(--ink); }
+.biz .pg-coaching .cg-sev { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+.biz .pg-coaching .cg-sev.is-priority { background: var(--cg-priority-soft); color: var(--cg-priority); }
+.biz .pg-coaching .cg-sev.is-watch { background: var(--cg-watch-soft); color: var(--cg-watch); }
+.biz .pg-coaching .cg-sev.is-strength { background: var(--cg-strength-soft); color: var(--cg-strength); }
+.biz .pg-coaching .cg-find-impact { margin: 9px 0 0; color: var(--ink-2); font-size: 13px; line-height: 1.85; }
+.biz .pg-coaching .cg-find-count { margin: 5px 0 0; color: var(--ink-3); font-size: 12px; font-weight: 700; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-find-warn { margin: 5px 0 0; color: var(--cg-priority); font-size: 11.5px; line-height: 1.7; }
+.biz .pg-coaching .cg-find-check { margin: 9px 0 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.8; }
+.biz .pg-coaching .cg-find-check b { display: block; color: var(--ink-3); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; }
+.biz .pg-coaching .cg-find-fix { margin: 9px 0 0; color: var(--ink-2); font-size: 13px; line-height: 1.85; }
+.biz .pg-coaching .cg-find-fix b { display: block; color: var(--ink-3); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; }
+.biz .pg-coaching .cg-find-caveat { margin: 8px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.7; }
+
+/* ONE moment per finding (personal-findings.ts:202) — a quiet quoted block, set
+   apart by a rule and a wash rather than a heavier border, so the receipt reads
+   as evidence beside the claim rather than as a second card. */
+.biz .pg-coaching .cg-quote { display: block; margin: 11px 0 0; padding: 10px 13px; border-left: 2.5px solid var(--section); border-radius: 0 8px 8px 0; background: var(--cg-soft); }
+.biz .pg-coaching .cg-quote-meta { display: block; color: var(--quiet); font-size: 11px; line-height: 1.6; letter-spacing: .01em; }
+.biz .pg-coaching .cg-quote-text { display: block; margin-top: 5px; color: var(--ink); font-size: 13px; line-height: 1.9; }
+
+/* the run's non-finding statuses */
+.biz .pg-coaching .cg-status { padding: 14px 15px; border: 1px dashed var(--cg-panel-line); border-radius: 11px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-status-head { margin: 0; color: var(--ink); font-size: 13.5px; font-weight: 700; line-height: 1.75; }
+.biz .pg-coaching .cg-status-body { margin: 7px 0 0; max-width: 62ch; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
+
+/* ── the side column's cards ───────────────────────────────────────────────── */
+.biz .pg-coaching .cg-bars { display: flex; align-items: flex-end; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-bar { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1 1 0; min-width: 0; }
+.biz .pg-coaching .cg-bar-track { display: flex; align-items: flex-end; width: 100%; height: 74px; border-radius: 6px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-bar-fill { width: 100%; min-height: 3px; border-radius: 6px; background: #9db4e8; }
+.biz .pg-coaching .cg-bar:last-child .cg-bar-fill { background: var(--cg-accent); }
+.biz .pg-coaching .cg-bar-value { color: var(--ink); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-bar-label { color: var(--quiet); font-size: 11px; letter-spacing: .01em; }
+
+.biz .pg-coaching .cg-reasons { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-reason { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 7px 10px; border-radius: 8px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-reason-label { color: var(--ink-2); font-size: 12.5px; line-height: 1.6; }
+.biz .pg-coaching .cg-reason-count { color: var(--ink); font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-pending { margin: 11px 0 0; padding: 10px 12px; border: 1px solid #e8e0c2; border-radius: 9px; background: #fffef8; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
+
+.biz .pg-coaching .cg-skill-list { display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-skill { display: flex; flex-direction: column; gap: 5px; }
+.biz .pg-coaching .cg-skill-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.biz .pg-coaching .cg-skill-label { color: var(--ink-2); font-size: 12.5px; font-weight: 600; line-height: 1.5; }
+.biz .pg-coaching .cg-skill-value { color: var(--ink); font-size: 12px; font-weight: 700; letter-spacing: .01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.biz .pg-coaching .cg-skill-value em { color: var(--muted); font-style: normal; font-weight: 600; }
+.biz .pg-coaching .cg-skill-track { position: relative; display: block; height: 7px; border-radius: 999px; background: var(--section); }
+.biz .pg-coaching .cg-skill-fill { display: block; height: 100%; border-radius: 999px; background: #9db4e8; }
+.biz .pg-coaching .cg-skill-mark { position: absolute; top: -3px; width: 2px; height: 13px; border-radius: 2px; background: var(--ink-3); }
+.biz .pg-coaching .cg-skill-note { color: var(--muted); font-size: 11px; line-height: 1.6; }
+
+.biz .pg-coaching .cg-learn-list { display: flex; flex-direction: column; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-learn-item { padding: 11px 13px; border-radius: 9px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-learn-behavior { display: block; color: var(--ink); font-size: 12.5px; line-height: 1.85; }
+.biz .pg-coaching .cg-learn-note { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; letter-spacing: .01em; }
+
+.biz .pg-coaching .cg-share-state { margin: 0; color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.6; }
+.biz .pg-coaching .cg-share-body { margin: 7px 0 12px; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
+
+/* ── the empty state ───────────────────────────────────────────────────────── */
+.biz .pg-coaching .cg-state { background: var(--cg-soft); }
+.biz .pg-coaching .cg-state p { margin: 0; max-width: 62ch; color: var(--ink-2); font-size: 13.5px; line-height: 1.85; }
+
+/* ── the triage board ──────────────────────────────────────────────────────── */
+.biz .pg-coaching .cg-framing-line { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.85; }
+.biz .pg-coaching .cg-rows { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+/* ⚠ A GRID, NOT A WRAPPING FLEX ROW — and that is a CRAFT decision, not a
+   preference (apple-design §16). With flex, a longer name pushed the band chip
+   23px right on two rows out of six and the trajectory sentences started at
+   ragged x positions; a desk reads a COLUMN, and ragged columns read as
+   unfinished. Fixed tracks line the name, the band and the sentence up on every
+   row whatever the roster is called.
+   ⚠ AND IT WRAPS RATHER THAN PANS: ⚖ ANY-ROSTER-SIZE is answered by the page
+   growing down, never by a scroller this room owns (⚖ page-scroll). */
+.biz .pg-coaching .cg-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--cg-panel-line); border-radius: 10px;
+  background: #fff;
+}
+.biz .pg-coaching .cg-row.is-support { border-color: #e7dcc6; background: #fffdf9; }
+.biz .pg-coaching .cg-row-name { color: var(--ink); font-size: 13.5px; font-weight: 700; line-height: 1.5; letter-spacing: -.005em; }
+.biz .pg-coaching .cg-row-band { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.biz .pg-coaching .cg-row-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.biz .pg-coaching .cg-row-line { color: var(--ink-2); font-size: 12.5px; line-height: 1.75; }
+.biz .pg-coaching .cg-row-focus { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 12px; line-height: 1.75; }
+.biz .pg-coaching .cg-chip { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+/* ⚖ NEUTRAL WASHES, ALL FOUR. No red, no alarm, no threshold tone on a person. */
+.biz .pg-coaching .cg-band-grow { background: var(--green-soft); color: var(--green-dark); }
+.biz .pg-coaching .cg-band-steady { background: var(--section); color: var(--ink-3); }
+.biz .pg-coaching .cg-band-support { background: var(--cg-priority-soft); color: var(--cg-priority); }
+.biz .pg-coaching .cg-band-building { background: var(--cg-soft); color: var(--muted); }
+
+/* THE BOARD'S OWN COLUMNS, from the fold band up: name · band · what to do
+   about it · the action. Below it the row stacks, which is the phone's
+   list-is-the-page shape and needs no rule of its own. */
+@container cg-page (min-width: 700px) {
+  .biz .pg-coaching .cg-row {
+    grid-template-columns: minmax(96px, 148px) minmax(96px, max-content) minmax(0, 1fr);
+    align-items: start;
+    gap: 14px;
+  }
+  .biz .pg-coaching .cg-row-act { grid-column: 3; justify-self: start; }
+}
+@container cg-page (min-width: 880px) {
+  .biz .pg-coaching .cg-row {
+    grid-template-columns: minmax(110px, 168px) minmax(110px, max-content) minmax(0, 1fr) max-content;
+    align-items: center;
+  }
+  .biz .pg-coaching .cg-row-act { grid-column: auto; justify-self: end; }
+}
+
+.biz .pg-coaching .cg-adoption-line { margin: 0; color: var(--ink); font-size: 14px; font-weight: 700; line-height: 1.6; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-adoption-note { margin: 6px 0 12px; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
+.biz .pg-coaching .cg-limit { margin: 12px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.8; }
+
+/* ── the standing sentences ────────────────────────────────────────────────── */
+.biz .pg-coaching .cg-foot { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.75; }
+.biz .pg-coaching .cg-notice { display: flex; flex-direction: column; gap: 5px; padding: 12px 14px; border: 1px dashed var(--cg-panel-line); border-radius: 10px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-notice p { margin: 0; color: var(--ink-2); font-size: 12px; line-height: 1.8; }
+
+/* ── ⚖ Liam 8/23 — 画面の説明 (the guided tour) ────────────────────────────── */
+/* z-indices sit above the shell's sticky topbar (z 5) and below nothing else in
+   this room — one room's overlay is never on screen with another's (the ⚖
+   sibling-sheet fence). NO SCROLLER, NO HEIGHT CAP (⚖ page-scroll). */
+.biz .pg-coaching .cg-spot-hole {
+  position: fixed; z-index: 70; pointer-events: none; border-radius: 12px;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 9999px rgba(24, 24, 27, .42);
+  transition: top .24s cubic-bezier(.2, .7, .1, 1), left .24s cubic-bezier(.2, .7, .1, 1), width .24s cubic-bezier(.2, .7, .1, 1), height .24s cubic-bezier(.2, .7, .1, 1);
+}
+.biz .pg-coaching .cg-spot-catch { position: fixed; inset: 0; z-index: 69; cursor: pointer; }
+.biz .pg-coaching .cg-spot-hover { position: fixed; z-index: 70; pointer-events: none; border: 2px dashed rgba(255, 255, 255, .9); border-radius: 12px; }
+.biz .pg-coaching .cg-spot-card {
+  position: fixed; z-index: 72;
+  width: 300px; max-width: calc(100vw - 20px);
+  padding: 12px 14px 10px;
+  border: 1.5px solid var(--control); border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 40px rgba(24, 24, 27, .3);
+  font-size: 12.5px; line-height: 1.7; color: var(--ink-2);
+}
+.biz .pg-coaching .cg-spot-card b { display: block; margin-bottom: 2px; font-size: 13.5px; line-height: 1.45; letter-spacing: -.01em; color: var(--ink); }
+.biz .pg-coaching .cg-spot-text { display: block; }
+.biz .pg-coaching .cg-spot-hint { margin-top: 6px; color: var(--quiet); font-size: 11px; letter-spacing: .01em; }
+.biz .pg-coaching .cg-spot-foot { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--section); }
+.biz .pg-coaching .cg-spot-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-spot-foot button { min-height: 30px; padding: 0 11px; border: 1px solid var(--control); border-radius: 7px; background: #fff; color: var(--ink-2); font-size: 12px; font-weight: 600; }
+.biz .pg-coaching .cg-spot-foot button:hover { background: #f4f4f5; }
+.biz .pg-coaching .cg-spot-foot button:disabled { opacity: .4; cursor: default; }
+.biz .pg-coaching .cg-spot-foot .cg-spot-done { margin-left: auto; }
+
+/* ⚖ REDUCED MOTION IS NOT NO FEEDBACK — it is a gentler equivalent
+   (apple-design §14). The spotlight still MOVES to the next section, because
+   where it lands is the information; what goes is the 240ms travel across the
+   page, which is the vestibular part. The press feedback stays: it is a
+   transform on a control the reader is touching, not a journey across a screen. */
+@media (prefers-reduced-motion: reduce) {
+  .biz .pg-coaching .cg-spot-hole { transition: none; }
+}
+
+/* ── ⚖ ALL-SCREEN ADAPTIVITY (Liam 8/23 + 9/1) — the bands ─────────────────── */
+/* Only the PAGE's own rules live here; the shell's bands (`.biz .app`'s 1180px
+   floor, the rail, the topbar) are the family CSS sweep's, and this room joins
+   the floor's opt-in list in business-shell.css. The three COMPOSITIONS are the
+   container queries above, once each — never restated in a media band, so a
+   viewport rule can never disagree with the shape the container decided. */
+
+/* ═══ ≥1400 — big external displays: comfort, with line lengths capped ═══ */
+@media (min-width: 1400px) {
+  .biz .page.pg-coaching { padding-left: 32px; padding-right: 32px; }
+  .biz .pg-coaching .cg-find-impact,
+  .biz .pg-coaching .cg-find-fix,
+  .biz .pg-coaching .cg-quote-text,
+  .biz .pg-coaching .cg-row-line,
+  .biz .pg-coaching .cg-dormant p,
+  .biz .pg-coaching .cg-state p { max-width: 66ch; }
+}
+
+/* ═══ ≤1279 — small laptop / iPad landscape ═══ */
+@media (max-width: 1279px) {
+  .biz .page.pg-coaching { padding-left: 20px; padding-right: 20px; }
+}
+
+/* ═══ ≤1023 — EVERY TOUCH DEVICE, not just the phone. ⚖ ALL-SCREEN names ≥44px
+   at ≤743, and that is its FLOOR rather than its ceiling: 744–1023 is the iPad
+   portrait / mini / opened-foldable band, which is a finger on glass exactly as
+   743 is. The probe measured the difference — at 744 the ? was 26px and every
+   button 38–42px, all under the target a thumb needs, on a device the law's own
+   list names. So the target rule keys off TOUCH, and the ≤743 band keeps only
+   what is about LAYOUT. ═══ */
+@media (max-width: 1023px) {
+  .biz .pg-coaching .cg-tab { min-height: 44px; }
+  .biz .pg-coaching .cg-help { width: 44px; height: 44px; min-width: 44px; font-size: 16px; }
+  .biz .page.pg-coaching .btn { min-height: 44px; }
+  .biz .pg-coaching .cg-spot-foot button { min-height: 44px; }
+}
+
+/* ═══ ≤743 — phone. list-is-the-page: the tabs take the full width so either
+   screen is one thumb away, and the head's own action drops below the title
+   rather than squeezing it. ═══ */
+@media (max-width: 743px) {
+  .biz .page.pg-coaching { padding: 18px 14px 32px; }
+  .biz .page.pg-coaching h1 { font-size: 22px; letter-spacing: -.018em; }
+  .biz .pg-coaching .cg-tab { flex: 1 1 auto; }
+  .biz .pg-coaching .cg-spacer { flex-basis: 100%; height: 0; }
+  .biz .pg-coaching .cg-settings { width: 100%; }
+  .biz .pg-coaching .cg-row-act { width: 100%; }
+  .biz .pg-coaching .cg-spine,
+  .biz .pg-coaching .cg-focus,
+  .biz .pg-coaching .cg-findings,
+  .biz .pg-coaching .cg-trend,
+  .biz .pg-coaching .cg-outcomes,
+  .biz .pg-coaching .cg-skills,
+  .biz .pg-coaching .cg-learn,
+  .biz .pg-coaching .cg-share,
+  .biz .pg-coaching .cg-state,
+  .biz .pg-coaching .cg-framing,
+  .biz .pg-coaching .cg-board,
+  .biz .pg-coaching .cg-adoption,
+  .biz .pg-coaching .cg-dormant { padding: 15px 14px; }
+}

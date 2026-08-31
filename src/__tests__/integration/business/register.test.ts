@@ -2345,11 +2345,12 @@ describe('⚖ the sibling-sheet fence, derived FRESH from today’s sheets', () 
   }
 
   it('the neighbours are all here — the list is read from disk, never restated', () => {
-    // `karute` joined the family in room 5 (2026-08-30). The list is READ from
+    // `karute` joined in room 5 (2026-08-30), `coaching` in room 8
+    // (2026-09-01). The list is READ from
     // disk and this line is the pin on what was read — a new neighbour is meant
     // to fail here once, so the room that added it re-derives the collision list
     // below in the same pass rather than discovering the bleed in a browser.
-    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'customers', 'inbox', 'karute', 'reservations', 'shifts', 'today'])
+    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'coaching', 'customers', 'inbox', 'karute', 'reservations', 'shifts', 'today'])
   })
 
   it('every sibling rule that could reach this room is FENCED at four levels', () => {
