@@ -203,9 +203,15 @@ async function walkRecordingsNewestFirst(
     const slice = await paginateDedupe(
       (page) => {
         used += 1
-        // ISO datetime strings on `from`/`to` — the shape the shipped 録音履歴
-        // read already sends core (lib/recordings/inbox-read.ts), not an
-        // assumption about the validator.
+        // `from` as an ISO datetime string is the shape the shipped 録音履歴
+        // read already sends core and production already accepts
+        // (lib/recordings/inbox-read.ts) — proven precedent, not an assumption
+        // about the validator. `to` is this code's OWN addition: same endpoint
+        // and same validator family, but that read sends no `to` at all, so
+        // nothing in this repo exercises its bound semantics. Worth one live
+        // check on a preview — and cheap to be wrong about, since a window core
+        // reads differently costs detail the rows already state as absences and
+        // can never produce a wrong value.
         return synqed.recordings
           .list({
             from: new Date(sliceFromMs).toISOString(),

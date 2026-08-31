@@ -928,13 +928,17 @@ function TranscriptPanel({
   // On the computer the two halves are EQUAL CARDS (⚖ 8/25 A), and that has to
   // hold in every state: a bare line of text beside a bordered reason card
   // reads as the subordinate of it, which is the one relationship this pairing
-  // must never suggest. On the phone the states keep exactly the markup they
-  // shipped with — there is no second column for them to balance against.
+  // must never suggest. The card SHELL is wide-only: on the phone there is no
+  // second column for a state to balance against.
   const shell = wide ? 'rounded-xl border border-border/60 p-4' : undefined
   // …and the card carries its NAME in every state, not only when there are
   // words. A bordered box holding one line of grey text beside a labelled
   // 理由（スタッフ記入） card is an anonymous box, and a manager cannot tell what
-  // it is refusing to show. The phone keeps its shipped markup.
+  // it is refusing to show. Wide-only because it is the PAIRING's problem, so
+  // the loading and failed states keep their shipped phone markup. The ABSENCE
+  // branch below is the exception and labels on BOTH doors — it gained the
+  // title in the redesign to match the approved mock's own labelled absence
+  // card, and that behaviour is adjudicated KEPT.
   const title = wide ? (
     <p className="mb-2 text-[11px] font-semibold text-muted-foreground">{t('transcriptTitle')}</p>
   ) : null
