@@ -11,9 +11,11 @@
  *
  *   · every fact is LABELLED — a bare 「4分12秒」 tells a reader nothing
  *   · every ABSENT fact renders as nothing, never as a zero or a guess
+ *   · an absent NAME says WHICH kind of absence it is, never 顧客未選択 for all
  *   · 「同日」 is only ever said when it is true
  *   · a long transcript stays INSIDE its panel, marked every five minutes
  *   · the computer shows the whole reason NEXT TO the whole transcript
+ *   · the composition is chosen by the SECTION's own measured width
  *
  * Asserted against the real ja.json copy, so a missing key fails here.
  */
@@ -45,13 +47,26 @@ jest.mock('@/actions/recording-discards', () => ({
 import { DiscardReasonsSection } from '@/components/settings/redesign/sections/DiscardReasonsSection'
 
 const t = tFor('settings.discardReasons')
+const tc = tFor('common')
 const REASON = 'お客様との会話中に誤って録音を開始してしまいました'
 
-/** JST 14:28 and 14:33 — the suites run at TZ=UTC, so these are pinned as UTC
- *  instants and every expectation below formats them the same way the component
- *  does rather than hard-coding a wall clock. */
+/** Pinned as UTC INSTANTS, and every expectation below formats them the same
+ *  way the component does rather than hard-coding a wall clock — so this file
+ *  is correct in whatever zone it is run in. `jest.config.ts` sets no TZ, and
+ *  the gate runs the discard suites in both UTC and Asia/Tokyo; the header used
+ *  to state TZ=UTC as a fact, which was an assumption nothing enforced. The one
+ *  place the zone genuinely matters is 「同日」, and the cases that prove it are
+ *  built from LOCAL wall-clock parts for exactly that reason. */
 const RECORDED_AT = '2026-08-31T05:28:00.000Z'
 const DISCARDED_AT = '2026-08-31T05:33:00.000Z'
+
+/** One short transcript, used wherever a test needs the words to actually be on
+ *  screen. Module scope because both wide describes below read it. */
+const WITH_WORDS = {
+  ok: true,
+  durationSeconds: 252,
+  segments: [{ text: '本日はご来店ありがとうございます。', startTime: 4 }],
+}
 
 const BASE_ROW = {
   id: 'd1',
@@ -79,12 +94,17 @@ const fmtDateTime = new Intl.DateTimeFormat('ja-JP', {
 })
 const fmtTime = new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit' })
 
-async function renderRows(patches: RowPatch[] = [{}], counts?: Record<string, unknown>) {
+async function renderRows(
+  patches: RowPatch[] = [{}],
+  counts?: Record<string, unknown>,
+  extra?: Record<string, unknown>,
+) {
   listDiscardReasons.mockResolvedValue({
     ok: true,
     truncated: false,
     rows: patches.map((p, i) => ({ ...BASE_ROW, id: `d${i + 1}`, ...p })),
     counts: counts ?? { thisMonth: 1, total: 1, byStaff: [] },
+    ...extra,
   })
   render(<DiscardReasonsSection />)
   // Wait on the FIRST row's own reason — a fixed string here would sit green
@@ -93,27 +113,64 @@ async function renderRows(patches: RowPatch[] = [{}], counts?: Record<string, un
   await waitFor(() => screen.getAllByText(first))
 }
 
-/** The wide composition. matchMedia is absent in jsdom, so the component starts
- *  narrow by design — defining it here is what puts the master–detail pane on
- *  screen, and its absence everywhere else is what keeps the phone shape the
- *  default the rest of this file reads. */
-function useWideViewport() {
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    configurable: true,
-    value: (query: string) => ({
-      matches: true,
-      media: query,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    }),
+/** THE WIDTH HARNESS. The section decides its composition from its OWN measured
+ *  width, so driving that means answering the measurement — and jsdom has
+ *  neither a layout nor a ResizeObserver. Both are stubbed, and the stub RECORDS
+ *  what it was asked: a stub that answered `true` to any media query (which is
+ *  what this file used to do) could not tell 1024px from 640px, so the
+ *  breakpoint was structurally invisible and a build whose JS threshold had
+ *  drifted off its CSS passed every test here.
+ *
+ *  The observer's callbacks are kept so a test can RESIZE. Subscription is a
+ *  behaviour of its own: a rotated iPad, a dragged window and the settings
+ *  shell's own drill-in all change this section's width without remounting it,
+ *  and a build that measured once would freeze the composition at whatever
+ *  width the tab happened to open at. */
+const measured = { width: 0 }
+const resizeCallbacks: (() => void)[] = []
+const observedEls: Element[] = []
+
+class StubResizeObserver {
+  constructor(cb: () => void) {
+    resizeCallbacks.push(cb)
+  }
+  observe(el: Element) {
+    observedEls.push(el)
+  }
+  unobserve() {}
+  disconnect() {}
+}
+
+/** Set the section's width BEFORE rendering. */
+function setSectionWidth(px: number) {
+  measured.width = px
+}
+
+/** …and after, the way a real resize arrives. */
+async function resizeSectionTo(px: number) {
+  measured.width = px
+  await act(async () => {
+    resizeCallbacks.forEach((cb) => cb())
   })
 }
 
+beforeAll(() => {
+  Object.defineProperty(Element.prototype, 'getBoundingClientRect', {
+    configurable: true,
+    value() {
+      const w = measured.width
+      return { width: w, height: 0, top: 0, left: 0, right: w, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }
+    },
+  })
+  ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = StubResizeObserver
+})
+
 beforeEach(() => {
   jest.clearAllMocks()
-  // @ts-expect-error — removing the property is the "narrow" default.
-  delete window.matchMedia
+  // Zero width is the "narrow" default the rest of this file reads.
+  measured.width = 0
+  resizeCallbacks.length = 0
+  observedEls.length = 0
   getDiscardTranscript.mockResolvedValue({ ok: true, segments: [], durationSeconds: null })
 })
 
@@ -174,12 +231,39 @@ describe('破棄の記録 — an absent fact renders as nothing, never as a gues
     expect(screen.getByText(REASON)).toBeInTheDocument()
   })
 
-  it('no recording time: the 録音 line is dropped, never printed as Invalid Date', async () => {
-    await renderRows([{ recordingCreatedAt: null }])
+  /** The 録音 label with nothing after it. Asserted POSITIVELY, because ruling
+   *  out "Invalid Date" and "NaN" left an unfilled `{when}` — or a bare
+   *  「録音 」 with an empty run where a date belongs — perfectly green, which
+   *  is the "absence is never a placeholder" law read backwards. The length
+   *  pill carries 録音 too, so these fixtures drop it to keep the query about
+   *  the one line under test. The trailing space is load-bearing: the section's
+   *  own description opens with 「録音を破棄した…」, and a bare 録音 would match
+   *  that instead of the line being asserted about. */
+  const recordedMarker = new RegExp(t('recordedAt', { when: '' }))
 
+  it('no recording time: the 録音 line is DROPPED, not printed with an empty slot', async () => {
+    await renderRows([{ recordingCreatedAt: null, durationSeconds: null }])
+
+    expect(screen.queryByText(recordedMarker)).toBeNull()
     expect(screen.queryByText(/Invalid Date/)).toBeNull()
     expect(screen.queryByText(/NaN/)).toBeNull()
     expect(screen.getByText(REASON)).toBeInTheDocument()
+  })
+
+  it('an UNPARSEABLE timestamp is an absence too — Intl.format on it THROWS', async () => {
+    // Not a rendering nicety: `Intl.DateTimeFormat.prototype.format` on an
+    // Invalid Date raises RangeError rather than printing "Invalid Date", so
+    // one bad string anywhere in the ledger replaced the whole screen with an
+    // error card. `z.string()` at the door accepts any string, including one no
+    // clock can read, and the WEB door has no parse at all.
+    await renderRows([
+      { recordingCreatedAt: 'いつだったか', createdAt: 'いつだったか', durationSeconds: null },
+    ])
+
+    expect(screen.getByText(REASON)).toBeInTheDocument()
+    expect(screen.queryByText(/Invalid Date/)).toBeNull()
+    expect(screen.getByText(t('discardedAt', { when: t('unknownValue') }), { exact: false }))
+      .toBeInTheDocument()
   })
 
   it('no store: the 録音 line still states the time, without inventing a place', async () => {
@@ -208,7 +292,12 @@ describe('破棄の記録 — an absent fact renders as nothing, never as a gues
 
     expect(screen.queryByText(/NaN/)).toBeNull()
     expect(screen.queryByText(/Invalid Date/)).toBeNull()
-    expect(screen.getByText(t('customerNone'))).toBeInTheDocument()
+    expect(screen.queryByText(recordedMarker)).toBeNull()
+    // …and it says 不明, NOT 顧客未選択. This is the case where the screen knows
+    // the LEAST — an old wire told us nothing about the recording — and it used
+    // to be the case where it claimed the most.
+    expect(screen.getByText(t('unknownValue'))).toBeInTheDocument()
+    expect(screen.queryByText(t('customerNone'))).toBeNull()
     expect(screen.getByText(REASON)).toBeInTheDocument()
   })
 
@@ -223,6 +312,56 @@ describe('破棄の記録 — an absent fact renders as nothing, never as a gues
     await renderRows([{ staffName: null }])
 
     expect(screen.getByText(t('unknownStaff'))).toBeInTheDocument()
+  })
+})
+
+// ⚖ B1. 「顧客未選択」 is a sentence about what a STAFFER did — "no customer was
+// selected" — and three genuinely different populations used to print it on the
+// one screen whose job is checking a staffer's claim. A manager reading eight
+// such rows concludes the staffer keeps recording without attaching a customer;
+// six of those rows may be sessions whose recordings merely fell outside our own
+// read window. Compare the staff field, which has always got this right:
+// unresolvable staff read 担当者不明 (unknown), never 担当者なし (there was none).
+describe('破棄の記録 — an absent NAME says WHICH kind of absence it is', () => {
+  it('the recording read fine and carried no customer: 顧客未選択, the genuine state', async () => {
+    await renderRows([{ customerId: null, customerName: null }])
+
+    expect(screen.getByText(t('customerNone'))).toBeInTheDocument()
+    expect(screen.queryByText(t('customerNameUnknown'))).toBeNull()
+  })
+
+  it('the recording was never read: 不明 — nothing can be said about its customer', async () => {
+    await renderRows([{ customerId: null, customerName: null, recordingCreatedAt: null }])
+
+    expect(screen.getByText(t('unknownValue'))).toBeInTheDocument()
+    expect(screen.queryByText(t('customerNone'))).toBeNull()
+  })
+
+  it('a customer WAS attached and only the NAME failed: 顧客名不明', async () => {
+    // The sharpest of the three, and the one nothing covered. The row is still
+    // CARRYING the id — positive evidence a customer was attached — and the
+    // server keeps that split deliberately ("keeps its ID and loses only the
+    // name"). The screen used to throw it away at the last step.
+    await renderRows([{ customerId: 'cus-1', customerName: null }])
+
+    expect(screen.getByText(t('customerNameUnknown'))).toBeInTheDocument()
+    expect(screen.queryByText(t('customerNone'))).toBeNull()
+  })
+
+  it('a BLANK name is not a name — it takes the same honest answer', async () => {
+    await renderRows([{ customerId: 'cus-1', customerName: '   ' }])
+
+    expect(screen.getByText(t('customerNameUnknown'))).toBeInTheDocument()
+  })
+
+  it('a supplementary-plane surname keeps its own character on the avatar', async () => {
+    // 𠮷 (as in 𠮷田), 𡈽 and 𠀋 are surrogate pairs and appear in real family
+    // registers, so `name[0]` handed the avatar a lone high surrogate and drew
+    // a replacement glyph beside a correctly rendered name — a customer seeing
+    // their own name broken on the manager's screen.
+    await renderRows([{ customerName: '𠮷田 花子' }])
+
+    expect(screen.getByText('𠮷')).toBeInTheDocument()
   })
 })
 
@@ -259,6 +398,38 @@ describe('破棄の記録 — 「同日」 is only ever said when it is true', (
 
     expect(screen.queryByText(new RegExp(t('sameDay')))).toBeNull()
   })
+
+  // THE ZONE. 「同日」 is decided on the viewer's CALENDAR day, because the dates
+  // printed beside it come from Intl in that same zone — but every fixture above
+  // is same-day and cross-day in UTC and JST alike, so a UTC-day implementation
+  // was indistinguishable from a correct one and a mutation proved it. These two
+  // are built from LOCAL wall-clock parts: in a runtime offset from UTC (the
+  // Asia/Tokyo half of the gate, and every real viewer) they straddle a UTC
+  // midnight while staying on one local day, and vice versa.
+  it('two instants on the same LOCAL day are 同日, however UTC divides them', async () => {
+    const rec = new Date(2026, 7, 31, 0, 30)
+    const disc = new Date(2026, 7, 31, 23, 30)
+    await renderRows([{ recordingCreatedAt: rec.toISOString(), createdAt: disc.toISOString() }])
+
+    expect(
+      screen.getByText(
+        t('discardedAt', { when: `${t('sameDay')} ${fmtTime.format(disc)}` }),
+        { exact: false },
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('…and two LOCAL days are never 同日, however UTC joins them', async () => {
+    // The nightly-shift salon's ordinary case: a take recorded before midnight
+    // and cleaned up after it. A UTC-day implementation prints 「破棄 同日 01:00」
+    // directly under a 録音 line reading the previous date — the screen
+    // contradicting itself on the one fact a manager is trying to establish.
+    const rec = new Date(2026, 7, 31, 23, 30)
+    const disc = new Date(2026, 8, 1, 0, 30)
+    await renderRows([{ recordingCreatedAt: rec.toISOString(), createdAt: disc.toISOString() }])
+
+    expect(screen.queryByText(new RegExp(t('sameDay')))).toBeNull()
+  })
 })
 
 describe('破棄の記録 — the summary band states labelled facts', () => {
@@ -285,6 +456,22 @@ describe('破棄の記録 — the summary band states labelled facts', () => {
     expect(
       screen.getByText(t('byStaffItem', { name: t('unknownStaff'), count: 1 })),
     ).toBeInTheDocument()
+  })
+
+  it('partial enrichment says so ONCE, in the same quiet register as the list', async () => {
+    // Past the recordings budget some listed rows carry absences that are ours,
+    // beside complete neighbours. `truncated` covers only the discard ledger,
+    // so the screen used to say nothing at all — which a manager reads as a
+    // system fault rather than a boundary.
+    await renderRows([{}], undefined, { detailTruncated: true })
+
+    expect(screen.getAllByText(t('detailTruncated'))).toHaveLength(1)
+  })
+
+  it('a fully enriched read carries no such line (control)', async () => {
+    await renderRows([{}], undefined, { detailTruncated: false })
+
+    expect(screen.queryByText(t('detailTruncated'))).toBeNull()
   })
 })
 
@@ -329,6 +516,40 @@ describe('破棄の記録 — a long transcript stays inside its panel', () => {
     expect(screen.queryByText(t('transcriptMinutes', { n: 0 }))).toBeNull()
   })
 
+  it('a segment landing EXACTLY on the boundary has crossed it', async () => {
+    // The one value the constant names, and no fixture had ever landed on it.
+    await openLong({
+      ok: true,
+      durationSeconds: 700,
+      segments: [
+        { text: '直前です。', startTime: 299 },
+        { text: 'ちょうどです。', startTime: 300 },
+      ],
+    })
+
+    expect(screen.getByText(t('transcriptMinutes', { n: 5 }))).toBeInTheDocument()
+  })
+
+  it('a jump over several boundaries names the LAST one crossed, not the first', async () => {
+    // A gap in the words — a silence, a pause, a stretch nothing was kept from
+    // — skips 5分 and 10分 and lands past 15分. Naming the boundary just crossed
+    // is right, because the marker tells a reader WHERE THEY ARE; a prev-based
+    // implementation would say 5分 and render identically against every other
+    // fixture in this file.
+    await openLong({
+      ok: true,
+      durationSeconds: 1200,
+      segments: [
+        { text: 'はじめのほう。', startTime: 100 },
+        { text: 'だいぶあと。', startTime: 1000 },
+      ],
+    })
+
+    expect(screen.getByText(t('transcriptMinutes', { n: 15 }))).toBeInTheDocument()
+    expect(screen.queryByText(t('transcriptMinutes', { n: 5 }))).toBeNull()
+    expect(screen.queryByText(t('transcriptMinutes', { n: 10 }))).toBeNull()
+  })
+
   it('the panel header states the length beside the words', async () => {
     await openLong()
 
@@ -371,23 +592,23 @@ describe('破棄の記録 — a long transcript stays inside its panel', () => {
 })
 
 describe('破棄の記録 — the computer reads the claim NEXT TO the evidence', () => {
-  const WITH_WORDS = {
-    ok: true,
-    durationSeconds: 252,
-    segments: [{ text: '本日はご来店ありがとうございます。', startTime: 4 }],
-  }
-
   it('the newest row opens on arrival — a detail pane with no selection shows nothing', async () => {
-    useWideViewport()
+    setSectionWidth(1200)
     getDiscardTranscript.mockResolvedValue(WITH_WORDS)
     await renderRows([{}, { id: 'd2', reason: 'ふたつめ' }])
 
     await waitFor(() => expect(getDiscardTranscript).toHaveBeenCalledWith('rs-1'))
     expect(screen.getByText(t('defRecordedAt'))).toBeInTheDocument()
+    // ONCE. `toHaveBeenCalledWith` is satisfied by one call or by five hundred,
+    // and the effect depends on the resolved selection while `openRow` sets the
+    // state that recomputes it — the guard is the only thing between this and a
+    // fetch loop hammering core once per render, with the assertion above still
+    // green. The sibling suite already uses this idiom for the same class.
+    expect(getDiscardTranscript).toHaveBeenCalledTimes(1)
   })
 
   it('the whole reason and the whole transcript are both on screen at once (⚖ 8/25 A)', async () => {
-    useWideViewport()
+    setSectionWidth(1200)
     getDiscardTranscript.mockResolvedValue(WITH_WORDS)
     await renderRows()
 
@@ -400,7 +621,7 @@ describe('破棄の記録 — the computer reads the claim NEXT TO the evidence'
   })
 
   it('the four facts about the take get named columns', async () => {
-    useWideViewport()
+    setSectionWidth(1200)
     await renderRows()
 
     await waitFor(() => screen.getByText(t('defRecordedAt')))
@@ -410,7 +631,7 @@ describe('破棄の記録 — the computer reads the claim NEXT TO the evidence'
   })
 
   it('an unreadable fact reads 不明 in the definition row — a gap would misalign the grid', async () => {
-    useWideViewport()
+    setSectionWidth(1200)
     await renderRows([{ storeName: null, durationSeconds: null, recordingCreatedAt: null }])
 
     await waitFor(() => screen.getByText(t('defStore')))
@@ -420,7 +641,7 @@ describe('破棄の記録 — the computer reads the claim NEXT TO the evidence'
   })
 
   it('pressing another row moves the selection — and never empties the pane', async () => {
-    useWideViewport()
+    setSectionWidth(1200)
     getDiscardTranscript.mockResolvedValue(WITH_WORDS)
     await renderRows([{}, { id: 'd2', recordingSessionId: 'rs-2', reason: 'ふたつめの理由' }])
 
@@ -441,7 +662,7 @@ describe('破棄の記録 — the computer reads the claim NEXT TO the evidence'
   })
 
   it('the selected row is marked with the accent, never a dark fill (R13)', async () => {
-    useWideViewport()
+    setSectionWidth(1200)
     await renderRows()
 
     await waitFor(() => screen.getByText(t('defRecordedAt')))
@@ -449,6 +670,165 @@ describe('破棄の記録 — the computer reads the claim NEXT TO the evidence'
     expect(selected).not.toBeNull()
     expect(selected?.className).toContain('bg-primary/8')
     expect(selected?.className).toContain('border-primary')
+  })
+
+  it('the definition cell states the length WITHOUT repeating its own label', async () => {
+    // 録音時間 over 「録音 47分18秒」 is the label said twice; in English it read
+    // "Length / Recording 47m 18s". The pill and the panel header keep the
+    // prefix, where it is doing work.
+    setSectionWidth(1200)
+    await renderRows()
+
+    await waitFor(() => screen.getByText(t('defDuration')))
+    expect(screen.getByText(t('durationValue', { m: '4', s: '12' }))).toBeInTheDocument()
+    expect(t('durationValue', { m: '4', s: '12' })).not.toContain('録音')
+  })
+
+  it('a failed transcript read is NAMED and RECOVERABLE on the computer', async () => {
+    // The failed row is already selected, so pressing it again looks like a
+    // no-op — the one gesture that would retry is the one a manager has no
+    // reason to try, and their only exit was to select another discard and come
+    // back. A sentence that will not move reads as "the words are gone", which
+    // is the conclusion this screen's absence doctrine exists to prevent.
+    setSectionWidth(1200)
+    getDiscardTranscript.mockRejectedValueOnce(new Error('offline'))
+    await renderRows()
+
+    await waitFor(() => screen.getByText(t('transcriptFailed')))
+    // …and the card carries its name, so a bordered box of grey text beside a
+    // labelled 理由 card is not an anonymous one (⚖ 8/25 A, two EQUAL cards).
+    expect(screen.getByText(t('transcriptTitle'))).toBeInTheDocument()
+
+    getDiscardTranscript.mockResolvedValue(WITH_WORDS)
+    await act(async () => {
+      fireEvent.click(screen.getByText(tc('retry')))
+    })
+
+    expect(screen.getByText('本日はご来店ありがとうございます。')).toBeInTheDocument()
+    expect(screen.queryByText(t('transcriptFailed'))).toBeNull()
+  })
+
+  it('selecting another discard REMOUNTS the transcript panel', async () => {
+    // Reconciled in place, the scroll container is the SAME DOM node across
+    // selections and the browser keeps its scrollTop: a manager who scrolled to
+    // minute 40 of a 90-minute take and then clicked the next row opened it
+    // already scrolled into the middle, with the sticky header not moving and
+    // nothing on screen saying they were not at the start. The phone door never
+    // had this — each panel mounts inside its own row.
+    setSectionWidth(1200)
+    getDiscardTranscript.mockResolvedValue(WITH_WORDS)
+    await renderRows([{}, { id: 'd2', recordingSessionId: 'rs-2', reason: 'ふたつめの理由' }])
+
+    await waitFor(() => screen.getByText('本日はご来店ありがとうございます。'))
+    const before = document.querySelector('[role="region"]')
+    expect(before).not.toBeNull()
+
+    const list = document.querySelector('ul')
+    await act(async () => {
+      fireEvent.click(within(list as HTMLElement).getByText('ふたつめの理由'))
+    })
+    await waitFor(() => screen.getByText('本日はご来店ありがとうございます。'))
+
+    const after = document.querySelector('[role="region"]')
+    expect(after).not.toBeNull()
+    expect(after).not.toBe(before)
+  })
+
+  it('the transcript scroller is reachable and named for a keyboard', async () => {
+    // Safari and WKWebView — the two engines this product ships through — do
+    // not make an overflow container focusable on their own, so a keyboard-only
+    // manager could open the longest discard on the list and then move it by
+    // exactly nothing.
+    setSectionWidth(1200)
+    getDiscardTranscript.mockResolvedValue(WITH_WORDS)
+    await renderRows()
+
+    await waitFor(() => screen.getByText('本日はご来店ありがとうございます。'))
+    const region = document.querySelector('[role="region"]')
+    expect(region?.getAttribute('tabindex')).toBe('0')
+    expect(region?.getAttribute('aria-label')).toBe(t('transcriptTitle'))
+  })
+})
+
+// ⚖ B2. Every threshold in this component used to read the VIEWPORT, while the
+// surface it paints on is capped at ~928px by the settings chrome — a 244px
+// sidebar, then max-w-5xl, then two nested p-6. So master–detail switched on at
+// a section width of 684px, where ⚖ 8/25's "two equal cards" are 160px each:
+// about six Japanese glyphs per line of transcript, and strictly worse than the
+// inline composition one pixel earlier.
+describe('破棄の記録 — the composition is decided by the SECTION, not the window', () => {
+  it('below 880px of section width the inline composition holds', async () => {
+    setSectionWidth(879)
+    await renderRows()
+
+    expect(screen.queryByText(t('defRecordedAt'))).toBeNull()
+    expect(screen.getByText(t('transcriptShow'))).toBeInTheDocument()
+  })
+
+  it('at 880px the master–detail composition takes over', async () => {
+    setSectionWidth(880)
+    await renderRows()
+
+    await waitFor(() => screen.getByText(t('defRecordedAt')))
+    expect(screen.queryByText(t('transcriptShow'))).toBeNull()
+  })
+
+  it('it SUBSCRIBES: a resize re-decides, it is not measured once at mount', async () => {
+    // A rotated iPad, a dragged desktop window and the settings shell's own
+    // drill-in all change this width without remounting the section.
+    setSectionWidth(600)
+    await renderRows()
+    expect(screen.queryByText(t('defRecordedAt'))).toBeNull()
+    expect(observedEls.length).toBeGreaterThan(0)
+
+    await resizeSectionTo(1200)
+
+    expect(screen.getByText(t('defRecordedAt'))).toBeInTheDocument()
+  })
+
+  it('crossing back to the inline door drops the selection nobody asked for', async () => {
+    // The wide pane opens the newest row by itself, because an empty pane shows
+    // nothing. `openId` used to survive the switch, so an iPad rotated out of
+    // landscape landed on the inline list with a customer's transcript sitting
+    // open — the exact state this file's own doctrine forbids on that door.
+    setSectionWidth(1200)
+    getDiscardTranscript.mockResolvedValue(WITH_WORDS)
+    await renderRows()
+    await waitFor(() => screen.getByText('本日はご来店ありがとうございます。'))
+
+    await resizeSectionTo(600)
+
+    expect(screen.queryByText('本日はご来店ありがとうございます。')).toBeNull()
+    expect(screen.getByText(t('transcriptShow'))).toBeInTheDocument()
+  })
+
+  it('a row the MANAGER pressed stays open across the same crossing', async () => {
+    setSectionWidth(600)
+    getDiscardTranscript.mockResolvedValue(WITH_WORDS)
+    await renderRows()
+    await act(async () => {
+      fireEvent.click(screen.getByText(t('transcriptShow')))
+    })
+    expect(screen.getByText('本日はご来店ありがとうございます。')).toBeInTheDocument()
+
+    await resizeSectionTo(700)
+
+    expect(screen.getByText('本日はご来店ありがとうございます。')).toBeInTheDocument()
+  })
+
+  it('four definition columns wait until the PANE can hold four', async () => {
+    // Keyed to `xl` this fired at a viewport of 1280, where the chrome leaves
+    // the pane 518px and four columns are 114px each — 「8月31日(月) 14:28」
+    // wrapping to three lines in every one of them, which is the exact squeeze
+    // the old comment claimed to have prevented.
+    setSectionWidth(1000)
+    await renderRows()
+    await waitFor(() => screen.getByText(t('defRecordedAt')))
+    expect(document.querySelector('dl')?.className).toContain('grid-cols-2')
+
+    await resizeSectionTo(1400)
+
+    expect(document.querySelector('dl')?.className).toContain('grid-cols-4')
   })
 })
 

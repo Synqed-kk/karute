@@ -125,6 +125,18 @@ describe('破棄の記録 — the row opens onto what was recorded', () => {
     expect(screen.getByText('二つ目。')).toBeInTheDocument()
     expect(screen.getByText('0:04')).toBeInTheDocument()
     expect(screen.getByText('1:11')).toBeInTheDocument()
+    // …and IN ORDER. Before the redesign this test asserted one joined node
+    // ('一つ目。 二つ目。'), which caught a reordering for free; each segment is
+    // now its own line, so a pair of presence queries passes in either
+    // direction. The twin sorts on `segment_index` precisely because that is
+    // the order the words were written in, and this is the suite that owns
+    // that claim — read the rendered lines back positionally.
+    const lines = Array.from(document.querySelectorAll('p'))
+      .map((p) => p.textContent ?? '')
+      .filter((line) => line.includes('一つ目。') || line.includes('二つ目。'))
+    expect(lines).toHaveLength(2)
+    expect(lines[0]).toContain('一つ目。')
+    expect(lines[1]).toContain('二つ目。')
   })
 
   it('under the accidental-tap floor: says nothing was ever recorded, not "no transcript"', async () => {

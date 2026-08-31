@@ -36,6 +36,7 @@ const LIST = {
   rows: [ROW],
   counts: { thisMonth: 1, total: 1, byStaff: [{ staffId: 'card-A', staffName: '原 奏恵', thisMonth: 1 }] },
   truncated: false,
+  detailTruncated: false,
 }
 
 describe('DiscardReasonsListDTO — the row the phone is promised', () => {
@@ -68,6 +69,25 @@ describe('DiscardReasonsListDTO — the row the phone is promised', () => {
     delete row[field]
 
     expect(() => DiscardReasonsListDTO.parse({ ...LIST, rows: [row] })).toThrow()
+  })
+
+  it.each(['truncated', 'detailTruncated'])(
+    '%s may NOT be absent — the two caveats are a required part of the shape',
+    (field) => {
+      // Both say a number or a row set is a FLOOR rather than the whole answer,
+      // and an optional caveat is one a rename can silently delete. The phone's
+      // own old-wire tolerance lives at the thin port, not here.
+      const list: Record<string, unknown> = { ...LIST }
+      delete list[field]
+
+      expect(() => DiscardReasonsListDTO.parse(list)).toThrow()
+    },
+  )
+
+  it('detailTruncated:true parses — partial enrichment is a shape, not an error', () => {
+    expect(DiscardReasonsListDTO.parse({ ...LIST, detailTruncated: true })).toMatchObject({
+      detailTruncated: true,
+    })
   })
 
   it('a wrongly TYPED join value is refused rather than shipped', () => {
