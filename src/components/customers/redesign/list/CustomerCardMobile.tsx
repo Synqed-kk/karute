@@ -31,8 +31,11 @@ interface CustomerCardMobileProps {
    */
   hrefBase?: string
   /** Entrance stagger position within the current page (decorative;
-   *  reduced motion renders instantly with no delay). */
-  entranceIndex?: number
+   *  reduced motion renders instantly with no delay). `null` = this render
+   *  is not part of a cascade, so the row carries no entrance animation and
+   *  no delay at all — the list gates that (see ./entrance-once), a re-visit
+   *  must not replay the cascade. */
+  entranceIndex?: number | null
 }
 
 /**
@@ -54,18 +57,26 @@ export function CustomerCardMobile({
   c,
   karuteContext = false,
   hrefBase = '/customers',
-  entranceIndex = 0,
+  entranceIndex = null,
 }: CustomerCardMobileProps) {
   const t = useTranslations('customers.list')
   const status = STATUS_STYLES[c.status]
   const honorific = t('row.honorific')
+  const entrance =
+    entranceIndex === null
+      ? ''
+      : 'motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-[6px] motion-safe:fill-mode-backwards motion-safe:animation-duration-(--duration-base) motion-safe:ease-(--ease-out)'
   return (
     <Link
       href={`${hrefBase}/${c.id}` as Parameters<typeof Link>[0]['href']}
-      className={`relative flex items-center gap-3 border-b border-border transition-colors hover:bg-muted/30 active:bg-muted/50 last:border-b-0 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-[6px] motion-safe:fill-mode-backwards motion-safe:animation-duration-(--duration-base) motion-safe:ease-(--ease-out) ${
+      className={`relative flex items-center gap-3 border-b border-border transition-colors hover:bg-muted/30 active:bg-muted/50 last:border-b-0 ${entrance} ${
         karuteContext ? 'px-4 py-2.5' : 'px-4 py-3'
       }`}
-      style={{ animationDelay: `${entranceIndex * 40}ms` }}
+      style={
+        entranceIndex === null
+          ? undefined
+          : { animationDelay: `${entranceIndex * 40}ms` }
+      }
     >
       {/* Avatar — smaller in karute context (size-8 / 32px) to match
        *  the spike's tighter karute-tab density; full size (size-10 /

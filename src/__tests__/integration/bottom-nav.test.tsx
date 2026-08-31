@@ -238,3 +238,40 @@ describe('BottomNav center button — live recording name line', () => {
     expect(container.querySelector('.text-\\[9\\.5px\\]')).toBeNull()
   })
 })
+
+// ─────────────────────────────────────────────────────────────
+// Tab icon — no snap on tap (TABCALM, 2026-09-01)
+// ─────────────────────────────────────────────────────────────
+// Liam, 2026-09-01: "the little icon like jiggles when I click on them."
+// Measured at 393px in a real browser (.build-evidence/repro/before/
+// report.json): the icon's box never moves by even 0.01px — what changes is
+// stroke-width, and it used to jump 2px → 2.5px in ONE frame while the colour
+// beside it eased over the default 150ms. Putting stroke-width on the same
+// transition clock makes the tap read as one calm change; both resting states
+// are untouched. The transition class must sit OUTSIDE the active branch, or
+// only the activating direction eases and de-activating snaps back.
+describe('BottomNav tab icons — the active-state stroke transition', () => {
+  const tabIcon = (container: HTMLElement, label: string) =>
+    [...container.querySelectorAll('a')]
+      .find((a) => a.textContent?.includes(label))!
+      .querySelector('svg')!
+
+  it('both the active and the inactive tab icon carry the stroke-width transition', () => {
+    mockPathname = '/customers'
+    const { container } = render(<BottomNav nextCustomer={null} locale="ja" />)
+
+    const active = tabIcon(container, 'customers')
+    const inactive = tabIcon(container, 'karute')
+
+    expect(active.getAttribute('class')).toContain('transition-[stroke-width]')
+    expect(inactive.getAttribute('class')).toContain('transition-[stroke-width]')
+  })
+
+  it('the resting weights are unchanged: active is stroke-[2.5], inactive is not', () => {
+    mockPathname = '/customers'
+    const { container } = render(<BottomNav nextCustomer={null} locale="ja" />)
+
+    expect(tabIcon(container, 'customers').getAttribute('class')).toContain('stroke-[2.5]')
+    expect(tabIcon(container, 'karute').getAttribute('class')).not.toContain('stroke-[2.5]')
+  })
+})
