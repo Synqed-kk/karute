@@ -895,7 +895,6 @@ export function RecordingScreen(props: RecordingProps) {
                   <span className="rc-c-dur rc-num">{t.durationLabel}</span>
                   <span className="rc-c-state">
                     <span className={t.stateChip}>{t.stateLabel}</span>
-                    {t.reasonLine && <span className="rc-c-reason">{t.reasonLine}</span>}
                   </span>
                   <span className="rc-c-act">
                     {/* ⚖ R2 + A2-3 — a 破棄済み row offers NOTHING: no 開く, no
@@ -909,6 +908,14 @@ export function RecordingScreen(props: RecordingProps) {
                       </button>
                     )}
                   </span>
+                  {/* ⚠ THE REASON IS THE ROW'S OWN SUB-LINE, spanning it, which
+                      is also the phone's own shape (RecordingsInboxCard renders
+                      it as a `<p>` under the row). It used to live INSIDE the
+                      state cell, where its sentence sized that cell's track: at
+                      390 the two rows carrying a long reason squeezed 顧客未設定
+                      to one character per line. Caught in my own read of the
+                      390 shot. */}
+                  {t.reasonLine && <span className="rc-c-reason">{t.reasonLine}</span>}
                 </div>
               ))}
               {walk.hidden > 0 && (
@@ -957,25 +964,23 @@ export function RecordingScreen(props: RecordingProps) {
       {/* ═══ THE MANAGER'S 破棄の記録 REVIEW — ITS OWN SCREEN (F5-1) ═══ */}
       {props.canReviewDiscards && (
         <div className="rc-review-view">
-          <nav
-            className="rc-crumb"
-            aria-label="いまいる場所"
-            data-guide-title="いまいる場所"
-            data-guide="いま開いている画面の場所です。「録音」を押すと、録音の画面に戻ります。"
-          >
-            <span className="rc-crumb-cur">破棄の記録</span>
-            <button className="rc-back" type="button" ref={backRef} onClick={() => setScreen('record')}>
-              ← 録音
-            </button>
-          </nav>
-
+          {/* ⚠ ONE NAME, ONE PLACE (⚖ A8). The screen used to print 「破棄の記録」
+              twice — once as a breadcrumb line and again as the heading right
+              under it — which is a page saying the same thing to itself. The
+              back control moves onto the heading's own row instead, which is
+              where a reader looks for the way out anyway. */}
           <section
             className="rc-review-head"
             aria-labelledby="rcReviewTitle"
             data-guide-title="破棄の記録"
-            data-guide="破棄された録音の記録です。スタッフが書いた理由と、その録音の文字起こしを並べて確認できます。文字起こしがない場合は、なぜないのかを書いています。承認や確認の操作はありません — 読むための画面です。"
+            data-guide="破棄された録音の記録です。スタッフが書いた理由と、その録音の文字起こしを並べて確認できます。文字起こしがない場合は、なぜないのかを書いています。承認や確認の操作はありません — 読むための画面です。右上の「録音」から録音の画面に戻れます。"
           >
-            <h2 className="rc-sec-title" id="rcReviewTitle">破棄の記録</h2>
+            <div className="rc-review-title">
+              <h2 className="rc-sec-title" id="rcReviewTitle">破棄の記録</h2>
+              <button className="rc-back" type="button" ref={backRef} onClick={() => setScreen('record')}>
+                ← 録音
+              </button>
+            </div>
             <p className="rc-note">
               録音を破棄したときの理由と、その録音の文字起こしです。破棄した録音は一覧から消えず、記録として残ります。
             </p>
@@ -1051,7 +1056,7 @@ export function RecordingScreen(props: RecordingProps) {
                     </span>
                   </button>
                   {openRow === r.takeId && (
-                    <div className="rc-review-open">
+                    <div className="rc-review-body">
                       {r.transcript && r.transcript.length > 0 ? (
                         <>
                           <p className="rc-review-label">文字起こし（全文）</p>

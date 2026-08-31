@@ -44,7 +44,6 @@ import {
   takes as takePlane,
   BELOW_FLOOR_SEC,
   CONSENT_POLICY_VERSION,
-  type FixtureConsentGrant,
   type FixtureTake,
 } from '@/business/lib/fixtures-recording'
 import {
@@ -266,6 +265,16 @@ describe('⚖ W7-1 — the consent floor has exactly one predicate', () => {
     // widens the gate, and the third occurrence is the prop's own declaration.
     expect([...SCREEN_CODE.matchAll(/current\.canStart/g)].length).toBe(2)
     expect(SCREEN_CODE).not.toMatch(/\b(forceStart|allowStart|bypassConsent|overrideConsent|skipConsent)\b/)
+    // ⚠ AND THE GATE EXPRESSION IS PINNED WHOLE, not merely scanned for known
+    // bad words. The W7 candidate's defect was a permissive field read BESIDE
+    // the consent — `|| mode === 'x'`, `|| row.optional` — and no denylist can
+    // anticipate the next spelling of that. Pinning the expression means ANY
+    // extra term fails the round, and a legitimate new prerequisite has to be
+    // added as an `&&` here with its own argument.
+    const gate = SCREEN_CODE.match(/const consentOk = ([^\n]+)/)?.[1]
+    expect(gate).toBe(
+      "current !== null && (current.canStart || demoConsent[current.appointmentId] === true)",
+    )
   })
 
   it('the read-aloud script is the CURRENT v2 one — it includes the photo clause', () => {
@@ -509,19 +518,81 @@ describe('⚖ R2 — a discarded take feeds no number and offers no lever', () =
 // ═══ THE ROLE SPLIT, PROVEN ABOVE SERIALIZATION ═════════════════════════════
 
 describe('⚖ the three redactions happen above the serializer', () => {
-  it('a STAFF reader’s props contain no colleague content at all', async () => {
+  it('a STAFF reader’s props contain their OWN takes and no others', async () => {
     const { props } = await recordingProps({ locale: 'ja', store: STORE_A, world: { role: 'スタッフ' } })
+    // ⚠ THE EXPECTED SET IS DERIVED FROM THE PLANE, NOT FROM `buildTakes`. The
+    // first cut computed it by calling the same function the props go through,
+    // so a mutation that widened the scope moved BOTH sides and the pin stayed
+    // green — a pin true for the reason it was meant to catch. The plane says
+    // who recorded what; the props must say the same thing about the operator
+    // and nothing about anybody else.
+    const bookings = new Map(appointments().map((a) => [a.id, a]))
+    const mine = takePlane
+      .filter((t) => t.by_staff_card_id === selfCard)
+      .filter((t) => (t.appointment_id ? bookings.get(t.appointment_id)?.store_id === STORE_A : t.store_id === STORE_A))
+      .map((t) => t.id)
+    expect(mine.length).toBeGreaterThan(0)
+    expect(props.takes.map((t) => t.id).sort()).toEqual([...mine].sort())
+    // …and every take the plane says belongs to somebody ELSE is absent BY ID.
+    const theirs = takePlane.filter((t) => t.by_staff_card_id !== selfCard).map((t) => t.id)
     const payload = JSON.stringify(props)
-    // every take in the props is the operator's own
-    const mine = models({ access: staffAccess }).map((m) => m.id)
-    expect(props.takes.map((t) => t.id).sort()).toEqual(mine.sort())
-    // and no colleague's discard reason, transcript or name is anywhere in it
+    for (const id of theirs) expect({ id, leaked: payload.includes(id) }).toEqual({ id, leaked: false })
+  })
+
+  it('the REDACTION happens above the serializer — a staff-access MODEL carries no reason and no transcript', () => {
+    // ⚠ THE MODEL, NOT THE PAYLOAD, AND THAT IS THE POINT. The serialized take
+    // row has no reason field at all, so a mutation that removes the redaction
+    // inside `buildTakes` is invisible in the props — the outer gate holds and
+    // the pin below stays green for a reason that is not the one it claims.
+    // Both gates are real and both are stated: this one pins the INNER one,
+    // which is the one the room's own comment says exists.
+    const world = takePlane.map((t) =>
+      t.id === 'rs-0003'
+        ? { ...t, by_staff_card_id: selfCard!, discarded: { ...t.discarded!, by_staff_card_id: selfCard! } }
+        : t,
+    )
+    const staffModels = models({ takes: world, access: staffAccess })
+    const mine = staffModels.find((m) => m.id === 'rs-0003')
+    expect(mine).toBeDefined()
+    // the ROW survives — existence is never hidden, from anyone, including the
+    // person who discarded it (⚖ 8/20 ①)…
+    expect(mine!.state).toBe('discarded')
+    expect(mine!.discarded).not.toBeNull()
+    expect(mine!.discarded!.byName.length).toBeGreaterThan(0)
+    // …and its CONTENT is withheld, because the room opens no door to it for a
+    // reader without the 破棄の記録 review (⚖ 8/20 ②).
+    expect({ reason: mine!.discarded!.reason, transcript: mine!.discarded!.transcript }).toEqual({
+      reason: null, transcript: null,
+    })
+    // the same reader WITH the review gets both.
+    const managerView = models({ takes: world }).find((m) => m.id === 'rs-0003')!
+    expect(managerView.discarded!.reason).not.toBeNull()
+    expect(managerView.discarded!.transcript).not.toBeNull()
+  })
+
+  it('a STAFF reader is handed NO discard reason and NO transcript — not even their own', async () => {
+    // ⚠ THE DEMO WORLD HAS NO STAFF-OWNED DISCARD, so a pin taken on it would be
+    // green for the wrong reason: the content is absent because the ROW is
+    // absent. This world gives the operator a discard of her own, so the only
+    // thing that can keep the reason out of the payload is the redaction.
+    const world = takePlane.map((t) =>
+      t.id === 'rs-0003'
+        ? { ...t, by_staff_card_id: selfCard!, discarded: { ...t.discarded!, by_staff_card_id: selfCard! } }
+        : t,
+    )
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A, world: { role: 'スタッフ', takes: world } })
+    expect(props.takes.some((t) => t.id === 'rs-0003')).toBe(true)
+    const payload = JSON.stringify(props)
+    const source = world.find((t) => t.id === 'rs-0003')!
+    expect(payload).not.toContain(source.discarded!.reason)
+    for (const line of source.discarded!.transcript ?? []) expect(payload).not.toContain(line)
+    // …and no colleague content either, in the demo world.
+    const plain = JSON.stringify((await recordingProps({ locale: 'ja', store: STORE_A, world: { role: 'スタッフ' } })).props)
     for (const t of takePlane) {
       if (t.discarded === null) continue
-      if (t.discarded.by_staff_card_id === selfCard) continue
-      expect({ take: t.id, leaked: payload.includes(t.discarded.reason) }).toEqual({ take: t.id, leaked: false })
+      expect({ take: t.id, leaked: plain.includes(t.discarded.reason) }).toEqual({ take: t.id, leaked: false })
       for (const line of t.discarded.transcript ?? []) {
-        expect({ take: t.id, leaked: payload.includes(line) }).toEqual({ take: t.id, leaked: false })
+        expect({ take: t.id, leaked: plain.includes(line) }).toEqual({ take: t.id, leaked: false })
       }
     }
   })
@@ -856,13 +927,11 @@ describe('the pinned-clock matrix — a JST calendar question, answered in JST',
   const RealDate = Date
   const at = (iso: string) => {
     const fixed = new RealDate(iso)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     global.Date = class extends RealDate {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       constructor(...args: any[]) {
         if (args.length === 0) super(fixed.getTime())
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        else super(...(args as [any]))
+        else super(...(args as [number]))
       }
       static now() { return fixed.getTime() }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

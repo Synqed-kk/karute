@@ -310,6 +310,7 @@ describe('⚖ ALL-SCREEN — the ladder and the thumb', () => {
       '@media (max-width: 1099px)',
       '@media (max-width: 1023px)',
       '@media (min-width: 800px) and (max-width: 1023px)',
+      '@media (max-width: 900px)',
       '@media (max-width: 743px)',
     ]) {
       expect(CSS_CODE).toContain(q)
@@ -325,10 +326,18 @@ describe('⚖ ALL-SCREEN — the ladder and the thumb', () => {
     expect(phone).toMatch(/width: 46px; height: 46px/)
   })
 
-  it('the list becomes cards at phone width — no sideways drag to read a row', () => {
-    const phone = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 743px)'))
-    expect(phone).toContain('.rc-rowhead { display: none; }')
-    expect(phone).toContain('grid-template-areas: "cust state" "date dur" "by act"')
+  it('the list becomes cards from 900 down — no sideways drag to read a row', () => {
+    // ⚠ 900, NOT 743, AND THAT IS MEASURED. The rail is 76px at every width
+    // below 1024 (the shell's own ≤1023 band), so a 744px viewport leaves the
+    // page 668px and the six tracks 628px of content — less than the row needs.
+    // The card treatment therefore starts where six columns stop being
+    // readable rather than where a phone starts.
+    const cards = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 900px)'), CSS_CODE.indexOf('@media (max-width: 743px)'))
+    expect(cards).toContain('.rc-rowhead { display: none; }')
+    expect(cards).toContain('grid-template-areas: "cust state" "date dur" "by act" "reason reason"')
+    // …and the reason is its OWN spanning line at EVERY band, never a child of
+    // the state cell whose sentence would size that cell's track.
+    expect(CSS_CODE).toContain('". reason reason reason reason reason"')
   })
 
   it('THE SHELL’S 1180px FLOOR IS LIFTED FOR THIS ROOM (⚖ R6-1)', () => {

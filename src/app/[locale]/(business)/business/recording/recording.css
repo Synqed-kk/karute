@@ -442,8 +442,36 @@
 .biz .pg-recording .rc-own-count { margin: 0 0 8px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 
 .biz .pg-recording .rc-rows { border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+/* ⚠ EVERY TRACK IS `minmax(0, …)`, AND THAT IS A MEASURED FIX RATHER THAN A
+   STYLE. A bare `140px` track cannot shrink and a bare `minmax(160px, 1.4fr)`
+   cannot go under its floor, so at the two bands where the page is narrowest for
+   its viewport — 1024 with the rail OPEN (a 760px page inside a 1024px media
+   query) and 744 — the six tracks plus their gaps came to MORE than the card,
+   and the last cell pushed the PAGE sideways by 1px and 92px respectively. With
+   a zero floor the tracks give way instead, which is what the カルテ room's own
+   ≤1279 note says in the same words. The cells carry `min-width: 0` for the
+   other half of it: a track that can shrink still overflows if its CONTENT
+   cannot. */
 .biz .pg-recording .rc-rowhead,
-.biz .pg-recording .rc-row { display: grid; grid-template-columns: 140px minmax(160px, 1.4fr) 116px 132px 176px 132px; gap: 14px; align-items: start; }
+.biz .pg-recording .rc-row { display: grid; grid-template-columns: minmax(0, 140px) minmax(0, 1.4fr) minmax(0, 116px) minmax(0, 132px) minmax(0, 150px) minmax(0, 158px); gap: 14px; align-items: start; }
+.biz .pg-recording .rc-row {
+  /* ⚠ THE SUB-LINE STARTS UNDER THE CUSTOMER, not under the date: it is a
+     sentence ABOUT this take, and hanging it off the far-left date column left
+     it reading as a stray line between two rows. */
+  grid-template-areas: "date cust by dur state act" ". reason reason reason reason reason";
+  row-gap: 5px;
+}
+.biz .pg-recording .rc-c-date { grid-area: date; }
+.biz .pg-recording .rc-c-cust { grid-area: cust; }
+.biz .pg-recording .rc-c-by { grid-area: by; }
+.biz .pg-recording .rc-c-dur { grid-area: dur; }
+.biz .pg-recording .rc-c-state { grid-area: state; }
+.biz .pg-recording .rc-c-act { grid-area: act; }
+/* ⚠ THE REASON SPANS THE ROW — the phone's own shape, and the fix for a real
+   defect: inside the state cell its sentence SIZED that cell's track, and at 390
+   the two rows carrying a long reason squeezed 顧客未設定 to one character per
+   line. A spanning sub-line cannot size a column. */
+.biz .pg-recording .rc-c-reason { grid-area: reason; }
 .biz .pg-recording .rc-rowhead {
   padding: 10px 16px; border-bottom: 1px solid var(--line); background: #fafafa;
   color: var(--quiet); font-size: 11.5px; font-weight: 700; letter-spacing: .05em; border-radius: 11px 11px 0 0;
@@ -454,14 +482,17 @@
    a plain fact, never a warning — no red, no threshold, no grade. A staffer must
    never hesitate to throw away a genuinely bad take to protect a row's colour. */
 .biz .pg-recording .rc-row.is-discarded { background: #fbfbfc; color: var(--quiet); }
-.biz .pg-recording .rc-c-date { color: var(--ink-3); font-size: 12.5px; font-weight: 700; }
+.biz .pg-recording .rc-c-date { min-width: 0; color: var(--ink-3); font-size: 12.5px; font-weight: 700; }
 .biz .pg-recording .rc-c-cust { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
 .biz .pg-recording .rc-c-rec { display: block; margin-top: 2px; color: var(--quiet); font-size: 11.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .biz .pg-recording .rc-c-by,
-.biz .pg-recording .rc-c-dur { color: var(--ink-3); font-size: 12.5px; overflow-wrap: anywhere; }
-.biz .pg-recording .rc-c-state { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
-.biz .pg-recording .rc-c-reason { color: var(--muted); font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
-.biz .pg-recording .rc-c-act { display: flex; justify-content: flex-end; }
+.biz .pg-recording .rc-c-dur { min-width: 0; color: var(--ink-3); font-size: 12.5px; overflow-wrap: anywhere; }
+.biz .pg-recording .rc-c-state { display: flex; min-width: 0; }
+.biz .pg-recording .rc-c-reason { min-width: 0; color: var(--muted); font-size: 11.5px; line-height: 1.55; overflow-wrap: anywhere; }
+.biz .pg-recording .rc-c-act { display: flex; min-width: 0; justify-content: flex-end; }
+/* …and the action itself gives way rather than pushing the page: a CJK label
+   breaks at any character, so a narrow cell wraps it instead of overflowing. */
+.biz .pg-recording .rc-c-act > * { max-width: 100%; overflow-wrap: anywhere; }
 
 /* the six chips — washes on non-pressables, never solid fills (⚖ R13) */
 .biz .pg-recording .rc-chip {
@@ -476,9 +507,13 @@
 .biz .pg-recording .rc-chip.is-failed { border-color: #fecaca; background: var(--rc-fail-bg); color: var(--rc-fail-ink); }
 /* 破棄済み keeps the base — the quietest chip on the card, deliberately. */
 
-.biz .pg-recording .rc-quiet { border-color: transparent; background: none; color: var(--rc-accent); font-weight: 600; }
+/* ⚠ TIGHTER SIDE PADDING THAN THE FAMILY `.btn`, and it is a measured fix:
+   at 1280 the shell's 15px sides pushed 「カルテ一覧を開く」 past its track and
+   the label wrapped after the seventh character. A quiet text action does not
+   need the padding a bordered button does. */
+.biz .pg-recording .rc-quiet { padding: 0 8px; border-color: transparent; background: none; color: var(--rc-accent); font-weight: 600; white-space: nowrap; }
 .biz .pg-recording .rc-quiet:hover { background: var(--rc-accent-wash); border-color: transparent; }
-.biz .pg-recording .rc-row-save { display: inline-flex; align-items: center; gap: 5px; }
+.biz .pg-recording .rc-row-save { display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; white-space: nowrap; }
 .biz .pg-recording .rc-more { display: flex; justify-content: center; padding: 12px 16px; border-top: 1px solid var(--line-2); background: #fafafa; }
 
 .biz .pg-recording .rc-empty {
@@ -524,6 +559,9 @@
 }
 .biz .pg-recording .rc-back:hover { border-color: #cfcfd8; background: #fafafb; }
 .biz .pg-recording .rc-review-head { margin-bottom: 14px; }
+.biz .pg-recording .rc-review-title { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.biz .pg-recording .rc-review-title .rc-sec-title { font-size: 18px; }
+.biz .pg-recording .rc-review-title .rc-back { margin-left: auto; }
 .biz .pg-recording .rc-review-head .rc-note { margin-top: 6px; max-width: 72ch; }
 
 /* ⚖ 8/25 RULING B — LABELLED PLAIN FACTS in neutral type. No red, no threshold,
@@ -559,7 +597,12 @@
    reason a pasted URL or a spoken product code has no break opportunity. */
 .biz .pg-recording .rc-review-reason { font-size: 13.5px; line-height: 1.7; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
 .biz .pg-recording .rc-review-toggle { color: var(--rc-accent); font-size: 11.5px; font-weight: 600; }
-.biz .pg-recording .rc-review-open { padding: 0 16px 14px; border-top: 1px solid var(--line-2); padding-top: 12px; }
+/* ⚠ THE EXPANDED ROW IS `rc-review-body`, NOT `rc-review-open`. It carried the
+   same name as the BUTTON that opens the 破棄の記録 screen, and one name for two
+   different things is ⚖ A8's disease in miniature: the probe's own
+   `querySelector('.rc-review-open')` found the door instead of the panel and
+   reported an expanded row with no transcript in it. Caught by the harness. */
+.biz .pg-recording .rc-review-body { padding: 12px 16px 14px; border-top: 1px solid var(--line-2); }
 .biz .pg-recording .rc-review-text { margin: 6px 0 0; font-size: 13.5px; line-height: 1.75; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 .biz .pg-recording .rc-review-absent { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
 /* ⚖ 8/20 (b) — money never auto-reverses, so this is an ACTION the manager owns.
@@ -661,7 +704,7 @@
   .biz .pg-recording .rc-review-reason,
   .biz .pg-recording .rc-review-text { max-width: 78ch; }
   .biz .pg-recording .rc-rowhead,
-  .biz .pg-recording .rc-row { grid-template-columns: 156px minmax(200px, 1.4fr) 132px 148px 200px 140px; gap: 16px; }
+  .biz .pg-recording .rc-row { grid-template-columns: minmax(0, 156px) minmax(0, 1.4fr) minmax(0, 132px) minmax(0, 148px) minmax(0, 160px) minmax(0, 176px); gap: 16px; }
 }
 
 /* ═══ ≤1279 — small laptop / iPad landscape. The room loses ~200px, so the
@@ -669,7 +712,7 @@
 @media (max-width: 1279px) {
   .biz .page.pg-recording { padding-left: 20px; padding-right: 20px; }
   .biz .pg-recording .rc-rowhead,
-  .biz .pg-recording .rc-row { grid-template-columns: 112px minmax(130px, 1.3fr) 86px 104px 138px 104px; gap: 10px; }
+  .biz .pg-recording .rc-row { grid-template-columns: minmax(0, 112px) minmax(0, 1.3fr) minmax(0, 86px) minmax(0, 104px) minmax(0, 112px) minmax(0, 132px); gap: 10px; }
   .biz .pg-recording .rc-two { grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 14px; }
   .biz .pg-recording .rc-trace-row { grid-template-columns: 136px minmax(0, 1fr); gap: 10px; }
 }
@@ -688,7 +731,7 @@
 @media (max-width: 1023px) {
   .biz .pg-recording .rc-subtitle { max-width: none; }
   .biz .pg-recording .rc-rowhead,
-  .biz .pg-recording .rc-row { grid-template-columns: 100px minmax(118px, 1.3fr) 76px 92px 124px 92px; gap: 9px; }
+  .biz .pg-recording .rc-row { grid-template-columns: minmax(0, 100px) minmax(0, 1.3fr) minmax(0, 76px) minmax(0, 92px) minmax(0, 104px) minmax(0, 116px); gap: 9px; }
   .biz .pg-recording .rc-trace-row { grid-template-columns: 118px minmax(0, 1fr); }
   .biz .pg-recording .rc-picker { flex: 1 1 260px; }
 }
@@ -701,6 +744,28 @@
    single column was made for. The split is about SHAPE. */
 @media (min-width: 800px) and (max-width: 1023px) {
   .biz .pg-recording .rc-two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+}
+
+/* ═══ ≤900 — WHERE SIX COLUMNS STOP BEING READABLE ═══
+   ⚠ MEASURED, NOT GUESSED. The rail is 76px at every width below 1024 (the
+   shell's own ≤1023 band forces the collapsed state), so a 744px viewport gives
+   the page 668px and the six tracks 628px of content — less than the row needs.
+   Rather than squeezing every column until 録音者 is two characters wide, the
+   row becomes ONE CARD per take from 900 down: the customer and the state on
+   top, then the day and the length, then the recorder and the one action. Every
+   field survives, in the same order and the same words — the recognition floor
+   is about WHAT is said, not about how many columns say it. */
+@media (max-width: 900px) {
+  .biz .pg-recording .rc-rowhead { display: none; }
+  .biz .pg-recording .rc-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+    grid-template-areas: "cust state" "date dur" "by act" "reason reason";
+    gap: 6px 10px; padding: 13px 14px;
+  }
+  .biz .pg-recording .rc-c-cust { font-size: 14px; }
+  .biz .pg-recording .rc-c-state { justify-content: flex-end; }
+  .biz .pg-recording .rc-c-dur { text-align: right; }
+  .biz .pg-recording .rc-c-act { justify-content: flex-end; }
 }
 
 /* ═══ ≤743 — smartphones / folded cover screens: THE LIST IS THE PAGE ═══
@@ -749,25 +814,11 @@
   .biz .pg-recording .rc-dlg-foot { flex-direction: column-reverse; }
   .biz .pg-recording .rc-wave { height: 34px; }
 
-  /* the list becomes cards */
-  .biz .pg-recording .rc-rowhead { display: none; }
-  .biz .pg-recording .rc-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "cust state" "date dur" "by act";
-    gap: 6px 10px; padding: 13px 14px;
-  }
-  .biz .pg-recording .rc-c-cust { grid-area: cust; font-size: 14px; }
-  .biz .pg-recording .rc-c-state { grid-area: state; align-items: flex-end; }
-  .biz .pg-recording .rc-c-date { grid-area: date; }
-  .biz .pg-recording .rc-c-dur { grid-area: dur; text-align: right; }
-  .biz .pg-recording .rc-c-by { grid-area: by; }
-  .biz .pg-recording .rc-c-act { grid-area: act; }
-
   .biz .pg-recording .rc-trace-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .biz .pg-recording .rc-receipt dl > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .biz .pg-recording .rc-target > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .biz .pg-recording .rc-recovery-facts > div { flex-wrap: wrap; }
-  .biz .pg-recording .rc-review-open { padding-left: 14px; padding-right: 14px; }
+  .biz .pg-recording .rc-review-body { padding-left: 14px; padding-right: 14px; }
   .biz .pg-recording .rc-zero-card { margin: 24px auto 20px; padding: 32px 20px 34px; }
 }
 
