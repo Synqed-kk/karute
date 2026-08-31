@@ -56,8 +56,18 @@ jest.mock('@/lib/synqed/staff-map', () => ({
  *  instead, the untouched web suite's own idiom
  *  (discard-reasons-read.test.ts), which is what lets those assertions be
  *  EXACT numbers rather than expect.any(Number). */
-const now = new Date()
-const CREATED_AT = new Date(now.getFullYear(), now.getMonth(), 2, 10, 0, 0).toISOString()
+/** …and anchored on the JST calendar, because the twin's month floor is (⚖ M12)
+ *  while this runtime's zone is whatever it happens to be. A local-zone fixture
+ *  seeded rows the Tokyo floor had already left behind for the last nine hours
+ *  of every UTC month. Built from Intl parts rather than the app's own helper,
+ *  so the fixture cannot agree with a broken implementation by construction. */
+const jstToday = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Tokyo',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+}).format(new Date())
+const CREATED_AT = new Date(`${jstToday.slice(0, 7)}-02T10:00:00+09:00`).toISOString()
 
 type LedgerPage = {
   events: {
@@ -207,12 +217,25 @@ describe('GET /api/app/v1/recordings/discards', () => {
           id: 'row-1',
           recordingSessionId: 'rs-1',
           createdAt: CREATED_AT,
+          // The recording behind the row (⚖ 8/31). Null across the board here
+          // because this fixture's client serves no recordings — which is the
+          // honest answer, and the one the section renders as absences.
+          customerId: null,
+          customerName: null,
+          recordingCreatedAt: null,
+          durationSeconds: null,
+          storeName: null,
           staffId: 'card-A',
           staffName: '原 奏恵',
           reason: 'お客様が席を外したため録り直します',
         },
       ],
       truncated: false,
+      // The enrichment walk never ran out of budget — this fixture's client
+      // serves no recordings at all, which is a total degrade and not a partial
+      // one. Asserted so a flag folded to a constant `true` cannot ride out to
+      // a phone and caveat a complete screen.
+      detailTruncated: false,
       counts: {
         thisMonth: 1,
         total: 1,
@@ -298,8 +321,43 @@ describe('GET /api/app/v1/recordings/discards/transcript', () => {
     const res = await TRANSCRIPT(transcriptReq(), noParams)
     expect(res.status).toBe(200)
     expect(listSegments).toHaveBeenCalledWith('rs-1')
+    // A segment with NO usable clock still serves, with startTime null. These
+    // fixture segments carry no `start_time`, and that is the point: the route
+    // must answer 200 with the words. Trusting the field cost a 500 here — the
+    // phone being told we could not look at a transcript we were holding — so
+    // the twin normalises the VALUE while the DTO stays strict on the KEY.
     expect(await res.json()).toEqual({
-      segments: [{ text: 'ひとつめ' }, { text: 'ふたつめ' }],
+      segments: [
+        { text: 'ひとつめ', startTime: null },
+        { text: 'ふたつめ', startTime: null },
+      ],
+      durationSeconds: 42,
+    })
+  })
+
+  it('a REAL clock survives the route as a number — the markers arrive through here', async () => {
+    // The fixture above carries no `start_time` at all, so both transcript
+    // assertions expect null — which a twin emitting a CONSTANT null would also
+    // satisfy, dropping the clock for every segment with this whole suite
+    // green. The phone's five-minute markers come through THIS door, so the
+    // numeric path needs its own end-to-end case rather than living only on the
+    // web action and a hand-built port body.
+    listSegments.mockResolvedValueOnce({
+      segments: [
+        { segment_index: 1, text: 'ふたつめ', start_time: 331 },
+        { segment_index: 0, text: 'ひとつめ', start_time: 0 },
+      ],
+    } as unknown as { segments: { segment_index: number; text: string }[] })
+
+    const res = await TRANSCRIPT(transcriptReq(), noParams)
+    expect(res.status).toBe(200)
+    // …and `0` rides out as 0, not as null: the falsy trap a `|| null` would
+    // introduce silently on the very first segment of every recording.
+    expect(await res.json()).toEqual({
+      segments: [
+        { text: 'ひとつめ', startTime: 0 },
+        { text: 'ふたつめ', startTime: 331 },
+      ],
       durationSeconds: 42,
     })
   })
@@ -346,7 +404,10 @@ describe('GET /api/app/v1/recordings/discards/transcript', () => {
     const res = await TRANSCRIPT(transcriptReq(), noParams)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
-      segments: [{ text: 'ひとつめ' }, { text: 'ふたつめ' }],
+      segments: [
+        { text: 'ひとつめ', startTime: null },
+        { text: 'ふたつめ', startTime: null },
+      ],
       durationSeconds: null,
     })
   })

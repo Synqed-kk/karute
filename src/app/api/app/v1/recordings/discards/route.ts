@@ -13,6 +13,16 @@
 // hides no write (unlike stores.list / audit.list), like every other pure
 // facade read.
 //
+// STORE DIMENSION, recorded deliberately: there is no store clamp here, and the
+// ⚖ 8/31 redesign adds a store NAME to every row. That rides the SAME precedent
+// this route already cites — the 監査ログ viewer (src/actions/audit-log.ts) fills
+// store names from an unclamped stores.list() on a business-wide row set. The
+// action's docstring adjudicates WHICH discards are listed (business-wide, while
+// a clamped caller's roster is not); this line is the store half of the same
+// ruling, so the next reader does not have to re-derive it and cannot mistake it
+// for an oversight. Narrowing it to `stores.viewAll` would be a behaviour change
+// on an adjudicated surface and belongs with Liam, not here.
+//
 // audit: 'recordings.discards.list' is a deliberate 'skip' in FACADE_AUDIT_MAP
 // — a manager LIST read never logs (web parity: the web action emits nothing),
 // and ⚖ 8/17 doc law keeps the reason text out of audit details regardless.

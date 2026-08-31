@@ -1,6 +1,12 @@
+import { SETTINGS_CONTENT_MAX_W } from '@/components/settings/settings-frame'
+
 export default function SettingsLoading() {
   return (
-    <div className="mx-auto flex w-full max-w-5xl animate-pulse flex-col gap-6 p-4 md:p-6">
+    // Same ceiling as the loaded page (settings-frame.ts) — a skeleton one
+    // width and a page another is a visible jump at the end of every load.
+    <div
+      className={`mx-auto flex w-full ${SETTINGS_CONTENT_MAX_W} animate-pulse flex-col gap-6 p-4 md:p-6`}
+    >
       {/* Page header */}
       <div className="h-7 w-32 rounded bg-muted md:h-8 md:w-36" />
 
