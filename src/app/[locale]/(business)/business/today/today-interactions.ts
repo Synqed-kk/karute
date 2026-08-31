@@ -25,7 +25,7 @@ import {
   type SellStaffLane,
 } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext, type GuardReason } from '@/business/lib/canon-logic/gap-guard'
-import { gapFillPrice, packedPrice, priceAt, priceLabel, SELL_SLOT_MIN, type PriceFrame } from '@/business/lib/canon-logic/pricing'
+import { gapFillPrice, money, packedPrice, priceAt, priceLabel, SELL_SLOT_MIN, type PriceFrame } from '@/business/lib/canon-logic/pricing'
 import {
   computeChecks,
   confirmCaption,
@@ -1529,6 +1529,21 @@ export interface RailCell {
   alternativeKind: 'safe' | 'least-loss' | null
   /** canon's `ackAllowed`: standard mode lets the 操作者 place anyway. */
   ackAllowed: boolean
+  /** ⚖ LIAM flag 92 (2026-08-31) — THE FACT UNDER THE SENTENCE, for the warn
+   *  card's impact panel.
+   *
+   *  `sentence` is the ENGINE'S OWN WORDS and stays that (⚖ GAP-6/FIX-6 bind
+   *  the check rows to it, byte-untouched). The warn card is the ⚖-approved NEW
+   *  surface and says the consequence in its own approved shape — so it needs
+   *  the DATA, not the prose, and the alternative would be string-editing the
+   *  engine's sentence back into numbers: flag 54's disease, one layer down.
+   *
+   *  Only `railCell` sets it, at the two branches where the engine has actually
+   *  weighed the protected window (`degraded`, and a guard refusal); every other
+   *  cell leaves it absent, which is the honest answer for a cell that never
+   *  reached the capacity question. `code` is the engine's own class, carried
+   *  rather than re-derived from the words. */
+  impact?: { code: GuardReason['code']; capacityBefore: number; capacityAfter: number }
 }
 
 export interface GuardRail {
@@ -1778,6 +1793,8 @@ function railCell(
       alternatives: v.alternatives,
       alternativeKind: v.alternativeKind,
       ackAllowed: true,
+      // ⚖ 92 — the same two numbers the sentence above spells, carried as data.
+      impact: { code: 'DEGRADED', capacityBefore: v.protectedCapacityBefore, capacityAfter: v.protectedCapacityAfter },
     }
   }
   return {
@@ -1785,6 +1802,9 @@ function railCell(
     alternatives: v.alternatives,
     alternativeKind: v.alternativeKind,
     ackAllowed: v.reason?.ackAllowed === true,
+    // ⚖ 92 — the engine's own class (R-REP / R-DEAD / R-SALV), carried rather
+    // than read back out of the sentence it produced.
+    ...(v.reason ? { impact: { code: v.reason.code, capacityBefore: v.protectedCapacityBefore, capacityAfter: v.protectedCapacityAfter } } : {}),
   }
 }
 
@@ -3256,6 +3276,250 @@ export const canReleaseHeld = (roles: readonly string[], operator: { role: strin
 export function overrideCaption(checks: Check[], override: string | null): { enabled: boolean; label: string } {
   return confirmCaption(override == null ? checks : checks.filter((c) => c.ok || c.label !== override))
 }
+
+// ── ⚖ LIAM flag 92 — 警告カード: the confirm surface's warn face ─────────────
+
+/** ⚖ LIAM flag 92 (2026-08-31, design-approved on `warncard-design.html`) — ONE
+ *  CARD, COMPOSED BY THE STORE'S SETTINGS.
+ *
+ *  Today a placement that costs the store its protected 新規 window stages a
+ *  仮押さえ whose confirm card shows four green ✓s and one quiet △ — it reads
+ *  "all clear" for a move that is about to make the day worse. His ruling is
+ *  that the SAME popover re-composes when the staged card carries a warn-grade
+ *  fact: the consequence leads, the safe alternative is the biggest control on
+ *  the card, and the commit says out loud what it commits to.
+ *
+ *  IT IS A COMPOSER, NOT A RENDERER, for this file's own stated reason: an
+ *  answer the operator acts on has to be provable without a renderer. Every
+ *  branch of the ruling set — the three permission faces, the long-press dial,
+ *  the name line, the three alternative shapes, the ¥ — is decided HERE, and
+ *  TodayScreen paints the model it hands back.
+ *
+ *  THE CLEAN FACE IS UNTOUCHED. `face: 'clean'` is the byte-identical card that
+ *  ships today, and the screen keeps its existing render for it — this function
+ *  only ever ADDS a second face to a surface that had one. */
+export interface WarnCardInput {
+  /** The confirm surface's own rows, in its own ✓/×/△ grammar — composed once,
+   *  by the screen, so the two faces can never disagree about what was checked.
+   *  `''` = ✓ passed, `'bad'` = × still blocking, `'warn'` = △ walked past. */
+  rows: Array<{ label: string; tone: '' | 'bad' | 'warn' }>
+  /** The guard's verdict at the staged start. `null` = the guard is off, or the
+   *  lane owns no cell there. */
+  cell: RailCell | null
+  /** The red sentence this landing was placed THROUGH (`pending.override`). */
+  override: string | null
+  /** ⚖ ruling 91's three levels, threaded whole (see `overrideLevel` on
+   *  TodayProps for why the boolean could not carry this). */
+  level: OverrideLevel
+  /** ⚠SETTINGS-BATCH — `storeBookingPolicy.overrideHoldToConfirm`. */
+  holdToConfirm: boolean
+  /** `BoardLane.mine` on the lane the staged card now sits on (today-board :548,
+   *  already computed from `operatorStaffId` — READ ONLY, never re-derived). */
+  targetLaneMine: boolean
+  operatorName: string
+  /** The staff lane's own `listPrice`. `<= 0` = this store prices nothing here,
+   *  and the card says nothing about money rather than guessing a zero. */
+  listPrice: number
+  /** 新規のお客様のために確保する長さ (`props.guard.protectedDurationMin`). */
+  protectedDur: number
+  /** `overrideCaption`'s answer, carried in. ⚖ 50(d)'s gate is UNTOUCHED and is
+   *  still the only thing that decides whether a commit may fire. */
+  confirmEnabled: boolean
+}
+
+/** The commit control, which on a warn face is never the neutral この内容で確定:
+ *  a button that commits to a cost has to name the cost. */
+export interface WarnCardCommit {
+  /** `hold` = the store's 0.6-秒 long press · `press` = a plain warn button ·
+   *  `approval` = the UNREACHABLE 承認 request (see the level branch below). */
+  kind: 'hold' | 'press' | 'approval'
+  label: string
+  enabled: boolean
+  /** The small line under the 承認 control. `null` on the two live kinds. */
+  note: string | null
+}
+
+export interface WarnCardModel {
+  face: 'clean' | 'warn'
+  /** The amber impact panel, split at the money so the ¥ can carry its own
+   *  emphasis (the approved page's `.yen`). `yen: null` omits the parenthetical
+   *  ENTIRELY, and `head + tail` then reads as one unbroken sentence. */
+  impact: { head: string; yen: string | null; tail: string }
+  /** Where the authority came from, and whose name the record will carry. */
+  provenance: string | null
+  /** The 店長のみ line. Exclusive with `provenance` — the approved design lets
+   *  the red line carry the source itself rather than saying it twice. */
+  lock: string | null
+  /** The safe answer, and it is always the biggest control on the card. `place`
+   *  is a real alternative start; `info` is the engine saying this start already
+   *  IS the least-loss one; `null` omits the slot (⚖ 31c — never a dead button). */
+  safePrimary: { kind: 'place'; start: number; main: string; sub: string } | { kind: 'info'; label: string } | null
+  commit: WarnCardCommit | null
+  /** ⚖ 52 / 73-74 — every row the panel did NOT consume, in the board's existing
+   *  grammar. A record may never go invisible because a nicer face was drawn. */
+  rows: Array<{ label: string; tone: '' | 'bad' | 'warn' }>
+  /** The passed rows, as one muted sentence. `null` when nothing passed. */
+  greensLine: string | null
+}
+
+/** ⚖ 92 — WHAT THE GREEN TICKS REDUCE TO. Four ✓ rows saying four true things
+ *  are four things to read on a card whose whole point is the ONE thing that is
+ *  wrong, so the approved design demotes them to a single muted line.
+ *
+ *  Keyed on a stable fragment of `computeChecks`' own labels (drag-rules
+ *  :206-228, FROZEN) rather than on the whole sentence, because the sentences
+ *  carry names and clock times. A row that matches nothing here is not
+ *  guessed at — the line falls to the count form below, which is honest for any
+ *  row the frozen engine grows next. */
+const GREEN_SUBJECTS: ReadonlyArray<[fragment: string, subject: string]> = [
+  ['時間帯の重複なし', '時間の重複'],
+  ['勤務時間内', '勤務時間'],
+  ['資格', '資格'],
+  ['価格を保持', '価格'],
+]
+
+function greensLineOf(oks: ReadonlyArray<{ label: string }>): string | null {
+  if (oks.length === 0) return null
+  const subjects = oks.map((r) => GREEN_SUBJECTS.find(([fragment]) => r.label.includes(fragment))?.[1] ?? null)
+  return subjects.every((s) => s !== null)
+    ? `${subjects.join('・')}は問題ありません`
+    : `その他の確認（${oks.length}件）は問題ありません`
+}
+
+/** ⚖ 92 — THE CONSEQUENCE, IN THE APPROVED SENTENCE SHAPE, FROM THE DATA.
+ *
+ *  ⚖ LAW BOUNDARY, spelled out because it is the one thing easy to get wrong
+ *  here: ⚖ GAP-6 / FIX-6 bind the CHECK ROWS to the engine's own sentence
+ *  (`guardCheckRow` / `…BesideOffer`, byte-untouched above) — the rail and the
+ *  consult box keep the engine's words exactly. This panel is the ⚖-approved
+ *  NEW surface, so it composes from `cell.impact`'s numbers (⚖ 92's own field)
+ *  and never by string-editing the engine's sentence back into data.
+ *
+ *  A class the approved design gave no shape to — R-DEAD / R-SALV, a pocket
+ *  that cannot hold the session, a room that cannot — keeps the ENGINE'S
+ *  SENTENCE VERBATIM as the headline. Inventing a fifth sentence for a case
+ *  nobody ruled on is how a surface starts disagreeing with the board. */
+function impactOf(cell: RailCell, yen: string | null, protectedDur: number): WarnCardModel['impact'] {
+  const head = `ここに置くと、新規のお客様の${protectedDur}分`
+  if (cell.impact?.code === 'DEGRADED') {
+    const { capacityBefore, capacityAfter } = cell.impact
+    return { head, yen, tail: `の空きが${capacityBefore}枠から${capacityAfter}枠に減ります。` }
+  }
+  if (cell.impact?.code === 'R-REP') return { head, yen, tail: 'が入らなくなります。' }
+  return { head: cell.sentence, yen: null, tail: '' }
+}
+
+export function warnFaceFor(input: WarnCardInput): WarnCardModel {
+  const { cell, rows, level, protectedDur, operatorName } = input
+  const guardWarn = cell != null && cell.state !== 'safe'
+  // The trigger, and it is the OR the ruling names: the guard found a fact, or a
+  // row was already walked past. `tone === 'warn'` is the △ row itself, so a
+  // future warn-grade row lights this face without a second predicate.
+  const warn = guardWarn || rows.some((r) => r.tone === 'warn')
+  const oks = rows.filter((r) => r.tone === '')
+  if (!warn) {
+    return { face: 'clean', impact: { head: '', yen: null, tail: '' }, provenance: null, lock: null, safePrimary: null, commit: null, rows, greensLine: null }
+  }
+
+  // ⚖ 92 — ONE WINDOW'S WORTH, at the store's own list price, rounded to ten
+  // yen because a card that says 約 may not then print a figure to the digit.
+  // `<= 0` is a store that prices nothing here, and it omits the parenthetical
+  // entirely rather than printing 約¥0 — a wrong number is worse than no number.
+  const value = Math.round((input.listPrice * protectedDur) / 60 / 10) * 10
+  const yen = input.listPrice > 0 && value > 0 ? `約${money(value)}` : null
+
+  // ⚖ 92, THE STRONGEST FACT LEADS. The guard's verdict is the store's own law
+  // about the day and outranks a sentence the operator already walked past; with
+  // no guard fact, the overridden sentence IS the fact. Whichever one does NOT
+  // lead stays a △ row below (⚖ 73-74 — a record may never go invisible), which
+  // is also why the row list is filtered rather than the panel doubled.
+  const overrideRow = input.override == null ? null : `注意して配置: ${input.override}`
+  const impact = guardWarn
+    ? impactOf(cell, yen, protectedDur)
+    : { head: input.override ?? '', yen: null, tail: '' }
+  const kept = rows.filter((r) => r.tone !== '' && !(!guardWarn && r.label === overrideRow))
+
+  // ⚖ 92 — the safe answer, from the ENGINE'S own alternatives. Three shapes and
+  // no fourth: a start it can name, the engine saying this start already is the
+  // least-loss one (a degraded cell with nothing better to offer), or nothing at
+  // all. ⚖ 31c binds the third — a button that cannot perform what it names must
+  // not exist, so the slot is omitted rather than filled with a dead control.
+  const alt = cell?.alternatives[0]
+  const safePrimary: WarnCardModel['safePrimary'] =
+    alt != null
+      ? { kind: 'place', start: alt, main: `${clockOf(alt)}に置く`, sub: cell!.alternativeKind === 'safe' ? '（確保を壊さない）' : '（損が最少）' }
+      : cell?.state === 'degraded'
+        ? { kind: 'info', label: 'ここが、損が最少の開始です' }
+        : null
+
+  // ⚖ 92 — THE NAME LINE IS AUTOMATIC AND OTHER-LANE-ONLY (the approved page's
+  // own rule: 「記録の名前は、他の人のシフトに置くときだけ表示されます（自動）」).
+  // Printing the operator's own name back at them on their own shift is noise;
+  // on someone else's shift it is the whole point of the line.
+  const recorded = input.targetLaneMine ? '。記録されます' : `。${operatorName}の名前で記録されます`
+
+  // ⚖ 92 / ruling 91 — THREE LEVELS, THREE FACES, and they are not flattened.
+  //
+  // ⚖ 'needs-approval' IS COMPOSED AND UNREACHABLE, deliberately, exactly as the
+  // level itself is (`overrideLevelFor` above cannot return it and its comment
+  // says why: a real request→approve moment needs server-backed request state
+  // this board does not have). The face exists so the settings round LIGHTS it
+  // rather than inventing it, and nothing here creates a way to reach it: no
+  // policy value, no server state, no second dial.
+  if (level === 'refuse') {
+    // The lock face carries the source in the red line itself (approved design),
+    // so it has no provenance line — saying 店舗の設定 twice on one small card is
+    // the badge-repeating-a-label defect. The safe primary and 元に戻す stay:
+    // being unable to place HERE is not being unable to place.
+    return { face: 'warn', impact, provenance: null, lock: 'この場所への配置は店長のみ（店舗の設定）', safePrimary, commit: null, rows: kept, greensLine: greensLineOf(oks) }
+  }
+  const commit: WarnCardCommit =
+    level === 'needs-approval'
+      ? { kind: 'approval', label: '店長に許可を求める', enabled: input.confirmEnabled, note: '承認フロー — 設定の回で接続' }
+      // ⚖ 92 — NEVER the neutral この内容で確定 on a warn face, and the store's
+      // dial decides only HOW the press is made, never whether it is allowed:
+      // `confirmEnabled` is `overrideCaption`'s answer, untouched, and a second
+      // blocker standing after the override still kills the button (canon R11-7).
+      : { kind: input.holdToConfirm ? 'hold' : 'press', label: input.holdToConfirm ? '長押しで注意して配置' : '注意して配置する', enabled: input.confirmEnabled, note: null }
+  const provenance =
+    (level === 'needs-approval' ? '店舗の設定で、上書きには店長の承認が必要です' : '店舗の設定で、スタッフの上書きが許可されています') + recorded
+  return { face: 'warn', impact, provenance, lock: null, safePrimary, commit, rows: kept, greensLine: greensLineOf(oks) }
+}
+
+/** ⚖ 92 — THE LONG PRESS, AS ARITHMETIC. Ported from the approved page's own
+ *  mechanics (`warncard-design.html`, the HOLD/W block) so the feel Liam signed
+ *  off on is the feel that ships, and kept out here so 600ms / resume / cancel
+ *  are provable without a DOM or a fake clock in a renderer.
+ *
+ *  `hold` is a plain ratio of elapsed time, which is what makes RESUME free: the
+ *  caller re-seeds `t0` through `holdResumeAt` and the same expression continues
+ *  from where the finger left off. `spring` is the critically-damped release the
+ *  page uses to run the fill back to zero — it carries the press's own velocity
+ *  out, so a cancelled hold recoils instead of snapping. */
+export const HOLD_MS = 600
+/** Critically-damped rate — the page's own W: ~280ms to settle. */
+export const HOLD_SPRING_W = 24
+/** The velocity the cancel carries out: one full fill per HOLD_MS, in units/sec. */
+export const HOLD_CANCEL_V = 1000 / HOLD_MS
+
+export function holdClock(
+  s: { mode: 'hold' | 'spring'; t0: number; x0: number },
+  now: number,
+): { progress: number; done: boolean } {
+  if (s.mode === 'hold') {
+    const progress = Math.min(1, (now - s.t0) / HOLD_MS)
+    return { progress, done: progress >= 1 }
+  }
+  const t = (now - s.t0) / 1000
+  const x = (s.x0 + (HOLD_CANCEL_V + HOLD_SPRING_W * s.x0) * t) * Math.exp(-HOLD_SPRING_W * t)
+  // The page's own two exits: close enough to zero to be zero, or long enough
+  // that a numerically odd start may not keep a fill on screen for ever.
+  return x <= 0.002 || t > 0.6 ? { progress: 0, done: true } : { progress: x, done: false }
+}
+
+/** The `t0` a hold resumes from, so a second press continues the first one's
+ *  fill rather than restarting it (the page's `performance.now() - prog * HOLD`). */
+export const holdResumeAt = (progress: number, now: number): number => now - progress * HOLD_MS
 
 /** ⚖ Liam 2026-08-20 — LENGTH-MATCHED DRAG EMPHASIS, and the one place the rule
  *  lives. Canon deepens EVERY derived window while a card is in flight (CSS

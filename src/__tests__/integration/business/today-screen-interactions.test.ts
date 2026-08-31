@@ -79,6 +79,12 @@ import {
   nearestFreeStarts,
   needsPrivateRoom,
   overrideLevelFor,
+  warnFaceFor,
+  holdClock,
+  holdResumeAt,
+  HOLD_MS,
+  HOLD_CANCEL_V,
+  type WarnCardInput,
   pinInViewport,
   type GuardRail,
   type LandingVerdict,
@@ -6883,5 +6889,279 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // Plain-create's drop STAYS: nothing stages there, so there is nothing to
     // stamp and nothing that could lie.
     expect(SRC).toContain('(s) => openCreateAt({ staffId: lane.key, start: s }),')
+  })
+})
+
+/** ⚖ LIAM flag 92 (2026-08-31) — 警告カード: the confirm surface's second face.
+ *
+ *  The whole ruling set is composed renderer-free by `warnFaceFor`, so every
+ *  branch of it is pinned here: the trigger, the three permission faces, the
+ *  long-press dial, the automatic name line, the three alternative shapes, the
+ *  ¥ and the greens line. The CLEAN face is pinned too — the card that ships
+ *  today may not move because a second face was added beside it.
+ *
+ *  The guard cells are the REAL ENGINE'S wherever the engine can produce the
+ *  case (⚖ the file's own habit: a synthetic fixture proves the composer, not
+ *  the board). Only the shapes the engine cannot reach on an ack-allowed cell
+ *  are built by hand, and they say so. */
+describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store’s settings', () => {
+  const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+  const GUARD = {
+    services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
+    newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
+    mode: 'standard' as const,
+  }
+  const railIn = {
+    open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
+    nowMinute: null, locked: [] as string[], guard: GUARD,
+  }
+  const boardOf = (items: BoardItem[] = [], over: Partial<BoardLane> = {}) => [
+    lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'], items, ...over }),
+    lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
+  ]
+  const cellAt = (start: number, items: BoardItem[] = [], over: Partial<BoardLane> = {}) => {
+    const cell = guardVerdictAt(boardOf(items, over), 'p-01', start, railIn)
+    expect(cell).not.toBeNull()
+    return cell!
+  }
+  /** A one-hour shift: the pocket never held a protectable 90 window, so the
+   *  engine says 配置できます and the card has no fact to lead with. */
+  const SAFE = () => cellAt(600, [], { window: { from: 600, until: 660 }, untilLabel: '11:00' })
+  /** 10:30 on a free 10:00–19:00 day: the R-REP refusal Liam photographed, and
+   *  the engine's own least-loss answer beside it (10:00). */
+  const REP = () => cellAt(630)
+  /** 10:00 on the same free day: DEGRADED, and the engine offers nothing better
+   *  because this start already IS the least-loss one. */
+  const DEG = () => cellAt(600)
+  /** 12:30 with 10:00–11:00 and 11:00–12:00 already booked: an ack-allowed R-REP
+   *  whose alternatives are ZERO-LOSS, so the engine marks them `safe`. */
+  const SAFE_ALT = () => cellAt(750, [booking({ key: 'a', caseId: 'apt-a' }, 600, 660), booking({ key: 'b', caseId: 'apt-b' }, 660, 720)])
+
+  const GREENS = [
+    { label: '時間帯の重複なし', tone: '' as const },
+    { label: '見本 あずさの勤務時間内（〜19:00）', tone: '' as const },
+    { label: '整体資格 一致', tone: '' as const },
+    { label: '予約時価格を保持（動的価格は適用しません）', tone: '' as const },
+  ]
+  const input = (over: Partial<WarnCardInput> = {}): WarnCardInput => ({
+    rows: GREENS, cell: null, override: null, level: 'allow-warned', holdToConfirm: true,
+    targetLaneMine: false, operatorName: '見本 あずさ', listPrice: 7000, protectedDur: 90,
+    confirmEnabled: true, ...over,
+  })
+
+  it('the engine really carries the fact under its sentence — ⚖ 92’s `impact`, not a re-read of the words', () => {
+    // The panel composes from DATA. If this field ever goes missing the headline
+    // silently falls back to the engine's sentence, which is a real regression
+    // wearing a true sentence — so the field is pinned at its source.
+    expect(REP().impact).toEqual({ code: 'R-REP', capacityBefore: 6, capacityAfter: 5 })
+    expect(DEG().impact).toEqual({ code: 'DEGRADED', capacityBefore: 6, capacityAfter: 5 })
+    // A safe start never reached the capacity question, so it honestly carries
+    // nothing — and the composer never asks it to.
+    expect(SAFE().state).toBe('safe')
+    expect(SAFE().impact).toBeUndefined()
+    // ⚖ GAP-6/FIX-6's law boundary, machine-checked: the engine's own sentence
+    // is still the CHECK ROW's, byte-untouched.
+    expect(guardCheckRow(REP())).toEqual({ label: 'ここに置くと新規（90分）が入らなくなります', tone: 'warn' })
+  })
+
+  it('the trigger is the guard fact OR a walked-past row — and nothing else re-faces the card', () => {
+    // No guard fact, no △: today's card, unchanged.
+    expect(warnFaceFor(input()).face).toBe('clean')
+    // A SAFE guard cell is not a fact — a check that always passes is noise.
+    expect(warnFaceFor(input({ cell: SAFE() })).face).toBe('clean')
+    // A × row alone does not re-face the card either: a blocked confirm is
+    // already answered by the disabled 確定, and the warn face is about a cost
+    // the operator is being allowed to pay.
+    expect(warnFaceFor(input({ rows: [...GREENS, { label: '時間帯が重複: 見本 きり', tone: 'bad' }], confirmEnabled: false })).face).toBe('clean')
+    // Either warn-grade fact flips it.
+    expect(warnFaceFor(input({ cell: REP() })).face).toBe('warn')
+    expect(warnFaceFor(input({ rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }], override: '満室です' })).face).toBe('warn')
+  })
+
+  it('the clean face is byte-identical to the card that ships today', () => {
+    const clean = warnFaceFor(input())
+    expect(clean).toEqual({
+      face: 'clean',
+      impact: { head: '', yen: null, tail: '' },
+      provenance: null, lock: null, safePrimary: null, commit: null,
+      rows: GREENS, greensLine: null,
+    })
+    // The rows come back UNTOUCHED — the clean face renders them exactly as it
+    // did before this round existed.
+    expect(clean.rows).toBe(GREENS)
+  })
+
+  it('the consequence leads, in the approved sentence, from the engine’s numbers', () => {
+    // R-REP — the design page's own sentence: 7000 × 90/60 = 10,500.
+    expect(warnFaceFor(input({ cell: REP() })).impact).toEqual({
+      head: 'ここに置くと、新規のお客様の90分', yen: '約¥10,500', tail: 'が入らなくなります。',
+    })
+    // DEGRADED — the same shape, carrying the before→after fact the engine's own
+    // sentence spells.
+    expect(warnFaceFor(input({ cell: DEG() })).impact).toEqual({
+      head: 'ここに置くと、新規のお客様の90分', yen: '約¥10,500', tail: 'の空きが6枠から5枠に減ります。',
+    })
+    // ⚖ 92 — a class the approved design gave NO shape to keeps the engine's own
+    // words rather than a fifth sentence invented here. (Synthetic: the engine
+    // reaches R-SALV only through pockets this fixture day does not build.)
+    const salv: RailCell = {
+      start: 630, state: 'blocked', label: '—', sentence: 'ここに置くと30分の割引でしか売れない空きが残ります',
+      reason: 'guard', alternatives: [], alternativeKind: null, ackAllowed: true,
+      impact: { code: 'R-SALV', capacityBefore: 6, capacityAfter: 6 },
+    }
+    expect(warnFaceFor(input({ cell: salv })).impact).toEqual({
+      head: 'ここに置くと30分の割引でしか売れない空きが残ります', yen: null, tail: '',
+    })
+  })
+
+  it('the ¥ is one window at the lane’s own price, rounded to ten — and absent when the store prices nothing', () => {
+    const yenOf = (listPrice: number, protectedDur = 90) => warnFaceFor(input({ cell: REP(), listPrice, protectedDur })).impact.yen
+    expect(yenOf(7000)).toBe('約¥10,500')
+    // 8,333 × 90/60 = 12,499.5 → the ten-yen round the 約 promises.
+    expect(yenOf(8333)).toBe('約¥12,500')
+    expect(yenOf(6600, 60)).toBe('約¥6,600')
+    // A store that prices nothing here says nothing about money — 約¥0 is a
+    // wrong number, and a wrong number is worse than no number.
+    expect(yenOf(0)).toBeNull()
+    expect(yenOf(-1)).toBeNull()
+    // …and the sentence still reads whole without it.
+    const none = warnFaceFor(input({ cell: REP(), listPrice: 0 })).impact
+    expect(none.head + none.tail).toBe('ここに置くと、新規のお客様の90分が入らなくなります。')
+  })
+
+  it('the biggest control is always the safe one — three shapes, and never a dead button', () => {
+    // The engine's least-loss start, from the real refusal at 10:30.
+    expect(warnFaceFor(input({ cell: REP() })).safePrimary).toEqual({
+      kind: 'place', start: 600, main: '10:00に置く', sub: '（損が最少）',
+    })
+    // A zero-loss alternative wears the other sub-line — the store's 確保 survives.
+    expect(warnFaceFor(input({ cell: SAFE_ALT() })).safePrimary).toEqual({
+      kind: 'place', start: 720, main: '12:00に置く', sub: '（確保を壊さない）',
+    })
+    // Nothing better exists and this start already IS the least-loss one: the
+    // slot says so in words rather than offering a button to where you are.
+    expect(DEG().alternatives).toEqual([])
+    expect(warnFaceFor(input({ cell: DEG() })).safePrimary).toEqual({ kind: 'info', label: 'ここが、損が最少の開始です' })
+    // ⚖ 31c — no alternative and no least-loss claim: the slot is OMITTED. A
+    // button that cannot perform what it names must not exist.
+    expect(warnFaceFor(input({ rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }], override: '満室です' })).safePrimary).toBeNull()
+  })
+
+  it('the store’s three levels compose three faces — and the middle one is unreachable on purpose', () => {
+    // (a) スタッフOK, long press ON — the shipped default.
+    const staffHold = warnFaceFor(input({ cell: REP() }))
+    expect(staffHold.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+    expect(staffHold.lock).toBeNull()
+    // …and the dial changes only HOW the press is made.
+    expect(warnFaceFor(input({ cell: REP(), holdToConfirm: false })).commit)
+      .toEqual({ kind: 'press', label: '注意して配置する', enabled: true, note: null })
+    // NEVER the neutral この内容で確定 on a warn face — a button that commits to
+    // a cost has to name the cost.
+    expect(JSON.stringify(staffHold)).not.toContain('この内容で確定')
+
+    // (c) 店長のみ / 名指しロック — no commit at all, and the red line carries the
+    // source itself, so there is no second sentence saying 店舗の設定 twice.
+    const locked = warnFaceFor(input({ cell: REP(), level: 'refuse' }))
+    expect(locked.commit).toBeNull()
+    expect(locked.lock).toBe('この場所への配置は店長のみ（店舗の設定）')
+    expect(locked.provenance).toBeNull()
+    // Being unable to place HERE is not being unable to place: the safe answer
+    // and the greens stay exactly as they are on the staff face.
+    expect(locked.safePrimary).toEqual(staffHold.safePrimary)
+    expect(locked.greensLine).toBe(staffHold.greensLine)
+
+    // (b) 店長承認 — COMPOSED AND UNREACHABLE. The face exists so the settings
+    // round lights it; nothing in this tree can dial a store to it.
+    const approval = warnFaceFor(input({ cell: REP(), level: 'needs-approval' }))
+    expect(approval.commit).toEqual({ kind: 'approval', label: '店長に許可を求める', enabled: true, note: '承認フロー — 設定の回で接続' })
+    expect(approval.provenance).toBe('店舗の設定で、上書きには店長の承認が必要です。見本 あずさの名前で記録されます')
+    // The level's own home still cannot return it — ⚖ ruling 91's comment, and
+    // the two branches that are the whole of the function.
+    expect(overrideLevelFor({ roles: ['スタッフ'], lockedOut: [] }, { role: 'スタッフ', staff_id: 'p-06' })).toBe('allow-warned')
+    expect(overrideLevelFor({ roles: [], lockedOut: [] }, { role: 'スタッフ', staff_id: 'p-06' })).toBe('refuse')
+    expect(overrideLevelFor({ roles: ['スタッフ'], lockedOut: ['p-06'] }, { role: 'スタッフ', staff_id: 'p-06' })).toBe('refuse')
+    expect(INT).toContain("if (policy.lockedOut.includes(operator.staff_id)) return 'refuse'")
+    expect(INT).toContain("return policy.roles.includes(operator.role) ? 'allow-warned' : 'refuse'")
+    // …and no policy value anywhere spells the middle level into existence.
+    expect(readFileSync(join(process.cwd(), 'src/business/lib/fixtures-today.ts'), 'utf8')).not.toContain('needs-approval')
+  })
+
+  it('the name line is automatic, and only when the shift belongs to somebody else', () => {
+    expect(warnFaceFor(input({ cell: REP(), targetLaneMine: false })).provenance)
+      .toBe('店舗の設定で、スタッフの上書きが許可されています。見本 あずさの名前で記録されます')
+    // Own shift: the record still happens, the name is simply not news.
+    expect(warnFaceFor(input({ cell: REP(), targetLaneMine: true })).provenance)
+      .toBe('店舗の設定で、スタッフの上書きが許可されています。記録されます')
+    // ⚖ 92 — the other-lane test is `BoardLane.mine`, which today-board already
+    // computes from the operator's own staff_id. Nothing here re-derives it.
+    expect(readFileSync(join(process.cwd(), 'src/business/lib/today-board.ts'), 'utf8'))
+      .toContain('mine: member.id === input.operatorStaffId,')
+  })
+
+  it('the greens become one muted line, and an unknown row makes it count instead of guess', () => {
+    expect(warnFaceFor(input({ cell: REP() })).greensLine).toBe('時間の重複・勤務時間・資格・価格は問題ありません')
+    // The four subjects are `computeChecks`' own four passing rows — proven
+    // against the FROZEN engine rather than against a copy of its wording.
+    const oks = computeChecks(place(630, 690, HOURS), {
+      spans: [], bookingId: 'apt-1', staffName: '見本 あずさ', staffUntil: '19:00',
+      laneLocked: false, minutesOf: (x) => minuteOf(x, HOURS),
+    }).filter((c) => c.ok)
+    expect(oks).toHaveLength(4)
+    expect(warnFaceFor(input({ cell: REP(), rows: oks.map((c) => ({ label: c.label, tone: '' as const })) })).greensLine)
+      .toBe('時間の重複・勤務時間・資格・価格は問題ありません')
+    // A row this line has no name for is COUNTED, never guessed at — which is
+    // also the honest answer the day the frozen engine grows a fifth row.
+    expect(warnFaceFor(input({ cell: REP(), rows: [...GREENS, { label: '空き枠・清掃は確定時に自動再配置（清掃バッファは設定に従う）', tone: '' }] })).greensLine)
+      .toBe('その他の確認（5件）は問題ありません')
+    // Nothing passed: no line at all rather than an empty sentence.
+    expect(warnFaceFor(input({ cell: REP(), rows: [] })).greensLine).toBeNull()
+  })
+
+  it('⚖ 52 / 73-74 — a record never goes invisible because a nicer face was drawn', () => {
+    // The overridden sentence IS the fact when there is no guard fact, so the
+    // panel says it and the row does not repeat it.
+    const overOnly = warnFaceFor(input({ rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }], override: '満室です' }))
+    expect(overOnly.impact).toEqual({ head: '満室です', yen: null, tail: '' })
+    expect(overOnly.rows).toEqual([])
+    // With BOTH, the guard's verdict leads (it is the store's law about the day)
+    // and the walked-past sentence stays a △ row — visible, in the board's own
+    // grammar, exactly where ⚖ 73-74 put it.
+    const both = warnFaceFor(input({ cell: REP(), rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }], override: '満室です' }))
+    expect(both.impact.tail).toBe('が入らなくなります。')
+    expect(both.rows).toEqual([{ label: '注意して配置: 満室です', tone: 'warn' }])
+    // A × row survives the re-face too, and it still kills the commit — the
+    // ⚖ 50(d) gate is carried in, never re-decided here.
+    const blocked = warnFaceFor(input({
+      cell: REP(), confirmEnabled: false,
+      rows: [...GREENS, { label: '見本 あずさは18:00以降勤務不可', tone: 'bad' }],
+    }))
+    expect(blocked.rows).toEqual([{ label: '見本 あずさは18:00以降勤務不可', tone: 'bad' }])
+    expect(blocked.commit!.enabled).toBe(false)
+    // …and the safe answer stays live: the blocker is about THIS start.
+    expect(blocked.safePrimary).not.toBeNull()
+  })
+
+  it('the long press is 600ms of arithmetic — it resumes, it recoils, it completes', () => {
+    // Fills linearly across the store's 0.6 秒.
+    expect(holdClock({ mode: 'hold', t0: 1000, x0: 0 }, 1000)).toEqual({ progress: 0, done: false })
+    expect(holdClock({ mode: 'hold', t0: 1000, x0: 0 }, 1300)).toEqual({ progress: 0.5, done: false })
+    // The threshold is reached, never overrun.
+    expect(holdClock({ mode: 'hold', t0: 1000, x0: 0 }, 1600)).toEqual({ progress: 1, done: true })
+    expect(holdClock({ mode: 'hold', t0: 1000, x0: 0 }, 9000)).toEqual({ progress: 1, done: true })
+    // RESUME: a second press continues the first one's fill rather than
+    // restarting it — the finger already did that work.
+    expect(holdResumeAt(0.5, 5000)).toBe(5000 - HOLD_MS / 2)
+    expect(holdClock({ mode: 'hold', t0: holdResumeAt(0.5, 5000), x0: 0 }, 5000).progress).toBe(0.5)
+    expect(holdClock({ mode: 'hold', t0: holdResumeAt(0.5, 5000), x0: 0 }, 5300).progress).toBe(1)
+    // CANCEL: the fill springs back carrying the press's own velocity, so it
+    // recoils past its start rather than snapping to zero…
+    const first = holdClock({ mode: 'spring', t0: 0, x0: 0.5 }, 10)
+    expect(first.done).toBe(false)
+    expect(first.progress).toBeGreaterThan(0.5)
+    expect(HOLD_CANCEL_V).toBeCloseTo(1.6667, 3)
+    // …and it always settles, inside the page's own budget.
+    expect(holdClock({ mode: 'spring', t0: 0, x0: 0.5 }, 400)).toEqual({ progress: 0, done: true })
+    // The runaway guard: even an absurd start is over by 600ms.
+    expect(holdClock({ mode: 'spring', t0: 0, x0: 99 }, 601).done).toBe(true)
   })
 })
