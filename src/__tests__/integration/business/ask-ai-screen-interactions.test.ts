@@ -312,13 +312,13 @@ describe('⚖ ALL-SCREEN ADAPTIVITY — the ladder is declared, band by band', (
 
   it('every required band has a rule of its own', () => {
     expect(bands).toEqual([
-      '(min-width: 1400px) ',
-      '(max-width: 1279px) ',
-      '(max-width: 1099px) ',
-      '(max-width: 1023px) ',
-      '(min-width: 800px) and (max-width: 1023px) ',
-      '(max-width: 743px) ',
-      '(prefers-reduced-motion: reduce) ',
+      '(min-width: 1400px)',
+      '(max-width: 1279px)',
+      '(max-width: 1099px)',
+      '(max-width: 1023px)',
+      '(min-width: 800px) and (max-width: 1023px)',
+      '(max-width: 743px)',
+      '(prefers-reduced-motion: reduce)',
     ])
   })
 

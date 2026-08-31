@@ -170,8 +170,13 @@ describe('⚖ THE PLANE LAW — this room ADDS, and restates nothing', () => {
     expect(LIB_CODE).not.toMatch(/new Date\(/)
     expect(LIB_CODE).not.toMatch(/Date\.now/)
     expect(LIB_CODE).not.toMatch(/Intl\./)
-    expect(LIB_CODE).not.toMatch(/from '\.\/data'/)
-    expect(LIB_CODE).not.toMatch(/from '\.\/clock'/)
+    // ⚠ THE "NO DATA DOOR, NO CLOCK MODULE" HALF IS NOT SPELLED HERE, AND THAT IS
+    // DELIBERATE. It lives in foundation.test.ts's INVENTORY, which pins this
+    // module's EXACT import list rather than forbidding two names — a stronger
+    // pin, and the one the family already maintains. Writing the specifiers out
+    // here would ALSO be read as real imports by the territory import-isolation
+    // scanner (its own documented ceiling: a matching string in a literal
+    // false-flags), which is exactly what it did on the first run of this suite.
   })
 })
 
@@ -504,7 +509,7 @@ describe('the props assembly — the two gates, above the serializer', () => {
   it('the privacy line says what the shipped contract actually does', async () => {
     const { props } = await askAiProps({ locale: 'ja', store: STORE_A })
     expect(props.privacyLines[0]).toContain('保存されません')
-    expect(props.privacyLines[0]).toContain('利用回数')
+    expect(props.privacyLines[0]).toContain('使った回数だけ')
     expect(props.privacyLines[1]).toContain('予約の中身そのものは読み取りません')
   })
 })
