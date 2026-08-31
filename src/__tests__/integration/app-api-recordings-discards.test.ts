@@ -207,6 +207,14 @@ describe('GET /api/app/v1/recordings/discards', () => {
           id: 'row-1',
           recordingSessionId: 'rs-1',
           createdAt: CREATED_AT,
+          // The recording behind the row (⚖ 8/31). Null across the board here
+          // because this fixture's client serves no recordings — which is the
+          // honest answer, and the one the section renders as absences.
+          customerId: null,
+          customerName: null,
+          recordingCreatedAt: null,
+          durationSeconds: null,
+          storeName: null,
           staffId: 'card-A',
           staffName: '原 奏恵',
           reason: 'お客様が席を外したため録り直します',
@@ -298,8 +306,16 @@ describe('GET /api/app/v1/recordings/discards/transcript', () => {
     const res = await TRANSCRIPT(transcriptReq(), noParams)
     expect(res.status).toBe(200)
     expect(listSegments).toHaveBeenCalledWith('rs-1')
+    // A segment with NO usable clock still serves, with startTime null. These
+    // fixture segments carry no `start_time`, and that is the point: the route
+    // must answer 200 with the words. Trusting the field cost a 500 here — the
+    // phone being told we could not look at a transcript we were holding — so
+    // the twin normalises the VALUE while the DTO stays strict on the KEY.
     expect(await res.json()).toEqual({
-      segments: [{ text: 'ひとつめ' }, { text: 'ふたつめ' }],
+      segments: [
+        { text: 'ひとつめ', startTime: null },
+        { text: 'ふたつめ', startTime: null },
+      ],
       durationSeconds: 42,
     })
   })
@@ -346,7 +362,10 @@ describe('GET /api/app/v1/recordings/discards/transcript', () => {
     const res = await TRANSCRIPT(transcriptReq(), noParams)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
-      segments: [{ text: 'ひとつめ' }, { text: 'ふたつめ' }],
+      segments: [
+        { text: 'ひとつめ', startTime: null },
+        { text: 'ふたつめ', startTime: null },
+      ],
       durationSeconds: null,
     })
   })

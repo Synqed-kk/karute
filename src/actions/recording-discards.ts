@@ -426,7 +426,10 @@ export type GetDiscardTranscriptResult =
 export async function getDiscardTranscriptWithClient(
   synqed: ReturnType<typeof newSynqedClient>,
   recordingSessionId: string,
-): Promise<{ segments: { text: string; startTime: number }[]; durationSeconds: number | null }> {
+): Promise<{
+  segments: { text: string; startTime: number | null }[]
+  durationSeconds: number | null
+}> {
   const [segments, recording] = await Promise.all([
     // A FAILED READ IS NOT AN ABSENCE. A blanket catch here answered
     // `{ok:true, segments:[]}` for a 500, a timeout or a mid-deploy blip, and
@@ -450,11 +453,22 @@ export async function getDiscardTranscriptWithClient(
   return {
     segments: segments
       .sort((a, b) => a.segment_index - b.segment_index)
-      // `start_time` is a REQUIRED number on core's segment (SDK 1.28.0), which
-      // is what lets the panel place its 5-minute markers at all. Carried
-      // through as-is — the sort key stays segment_index, because that is the
-      // order the words were written in and a clock is not a guarantee of it.
-      .map((s) => ({ text: s.text, startTime: s.start_time }))
+      // `start_time` is a REQUIRED number on core's segment (SDK 1.28.0) and is
+      // what lets the panel place its 5-minute markers at all — but it is
+      // NORMALISED here rather than trusted, because the cost of trusting it is
+      // wrong. A segment that arrives without a usable clock would otherwise
+      // reach the facade's DTO as `undefined`, fail the parse, and answer the
+      // phone 500 — telling a manager we could not look at words we are
+      // holding. A missing clock costs the MARKERS. It must never cost the
+      // WORDS. (The DTO stays strict on the KEY, which is what catches a rename
+      // on our own side; this only softens the VALUE.)
+      //
+      // The sort key stays segment_index — that is the order the words were
+      // written in, and a clock is not a guarantee of it.
+      .map((s) => ({
+        text: s.text,
+        startTime: typeof s.start_time === 'number' ? s.start_time : null,
+      }))
       .filter((s) => !!s.text?.trim()),
     durationSeconds: recording?.duration_seconds ?? null,
   }
