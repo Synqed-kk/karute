@@ -3782,9 +3782,31 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
    *  strict-mode R-REP with a real loss is guard-lit and stays commit-less (⚖ 73
    *  intact); an impact-less blocked cell is guardWarn-false by construction, so a
    *  face lit by a walked-past override alone composes its commit from ⚖ 50(d)'s
-   *  gate exactly as the clean face always did. */
+   *  gate exactly as the clean face always did.
+   *
+   *  ⚖ 92 fix round 9 W1 (breaker #8 #1) — AND IT SAYS SO, IN THE CLEAN FACE'S
+   *  OWN WORDS. Round 4 returned `commit: null` here, so a strict-mode card
+   *  printed the ruled cost sentence — ¥ and all — and then simply had no control
+   *  under it: a face that names a price the operator cannot pay and never says
+   *  WHY the button is missing. The clean face has always answered this exact
+   *  state honestly with `confirmCaption`'s 「この位置では確定できません」
+   *  (drag-rules :234, FROZEN), and the F10 arm below already says those same
+   *  words on the warn face, so this branch says them too rather than going mute.
+   *
+   *  ⚖ 73 IS INTACT, AND IT IS PINNED IN THE CODE: `enabled` is the literal
+   *  `false`, NOT `input.confirmEnabled`. The manager still cannot be given
+   *  authority over a floor the engine calls impossible — this branch's disabled
+   *  state is UNCONDITIONAL, because physics outranks the checks gate, so no
+   *  dial and no gate anywhere can turn this control live. The kind follows the
+   *  store's dial exactly as every other commit does (the hold physics are inert
+   *  when disabled), and `provenance` / `lock` stay null: nothing is being
+   *  permitted here, so nothing on the card claims it is. */
   if (guardWarn && cell.state === 'blocked' && cell.ackAllowed === false) {
-    return { face: 'warn', impact, provenance: null, lock: null, safePrimary, commit: null, rows: kept, greensLine: greensLineOf(oks) }
+    return {
+      face: 'warn', impact, provenance: null, lock: null, safePrimary,
+      commit: { kind: input.holdToConfirm ? 'hold' : 'press', label: 'この位置では確定できません', enabled: false, note: null },
+      rows: kept, greensLine: greensLineOf(oks),
+    }
   }
   /** ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — THE LOCK FACE IS DELETED, AND THE
    *  READING THAT BUILT IT IS OVERTURNED.

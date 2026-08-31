@@ -8154,8 +8154,15 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
    *  store PERMITS the override. Latent on today's board (it needs the cell to
    *  move under a staged card, or the mode dial to flip) — but the whole thesis
    *  of this branch is settings-composed honesty, so it is fixed at the
-   *  composer rather than left to a future round to trip over. */
-  it('⚖ 92 fix round 4 U3 — a floor the engine calls impossible wears no commit and no permission line', () => {
+   *  composer rather than left to a future round to trip over.
+   *
+   *  ⚖ 92 fix round 9 W1 (breaker #8 #1) — AND THE DEAD CONTROL SAYS WHY. U3
+   *  returned NO commit, which left a card printing the ruled cost sentence with
+   *  nothing under it — honest about the price, mute about the missing button.
+   *  The pins below now read the clean face's own frozen 「この位置では確定できま
+   *  せん」 (drag-rules :234), and ⚖ 73 is asserted where it actually lives: the
+   *  `enabled` here is the literal `false`, unconditional, never the checks gate. */
+  it('⚖ 92 fix round 4 U3 — a floor the engine calls impossible wears a DEAD commit and no permission line', () => {
     // The REAL engine, on the store's own strict dial: the same 10:30 refusal
     // Liam photographed, with the one field that changes — nothing synthetic
     // about the branch this fires.
@@ -8169,9 +8176,13 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
 
     const face = warnFaceFor(input({ cell: strict }))
     expect(face.face).toBe('warn')
-    // Nothing is being permitted, so nothing says it is: no live control, and
+    // Nothing is being permitted, so nothing says it is: no LIVE control, and
     // no 「スタッフの上書きが許可されています」 under it.
-    expect(face.commit).toBeNull()
+    // ⚖ 92 fix round 9 W1 (breaker #8 #1) — and the dead control SAYS SO. Round
+    // 4 returned no commit at all, so the card printed the ruled cost sentence
+    // and then had nothing under it explaining why there was no button. The
+    // clean face's own frozen words now stand there instead.
+    expect(face.commit).toEqual({ kind: 'hold', label: 'この位置では確定できません', enabled: false, note: null })
     expect(face.provenance).toBeNull()
     // The lock line stays null too — 「この場所への配置は店長のみ（店舗の設定）」
     // would be FALSE here: this is physics, not the dial, and naming the manager
@@ -8200,9 +8211,14 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     }
     const dead = warnFaceFor(input({ cell: unavailable }))
     expect(dead.impact).toEqual({ head: 'この時間には配置できません', yen: null, tail: '' })
-    expect(dead.commit).toBeNull()
+    expect(dead.commit).toEqual({ kind: 'hold', label: 'この位置では確定できません', enabled: false, note: null })
     expect(dead.provenance).toBeNull()
     expect(dead.lock).toBeNull()
+    // ⚖ 92 fix round 9 W1 (breaker #8 #1) — THE KIND FOLLOWS THE STORE'S DIAL,
+    // like every other commit on this card. The hold physics are inert when the
+    // control is disabled, so nothing is promised by the shape.
+    expect(warnFaceFor(input({ cell: unavailable, holdToConfirm: false })).commit)
+      .toEqual({ kind: 'press', label: 'この位置では確定できません', enabled: false, note: null })
 
     // ⚖ 92 fix round 5 V2 (breaker #4) — PHYSICS OUTRANKS THE DIAL, and ⚖ 9/1
     // ruling 1/2 is the sharpest version of that: the dial's own lock face is
@@ -8212,17 +8228,29 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // true 置けない looks like.
     const locked = warnFaceFor(input({ cell: strict, level: 'refuse' }))
     expect(locked.lock).toBeNull()
-    expect(locked.commit).toBeNull()
+    expect(locked.commit).toEqual({ kind: 'hold', label: 'この位置では確定できません', enabled: false, note: null })
     expect(locked.provenance).toBeNull()
     expect(locked.impact).toEqual(face.impact)
     // …and the middle level cannot dress it up either: an approval request for
-    // something no manager can approve is the same lie in a different control.
-    expect(warnFaceFor(input({ cell: strict, level: 'needs-approval' })).commit).toBeNull()
+    // something no manager can approve is the same lie in a different control,
+    // so the physics branch answers before the level branch is ever reached.
+    expect(warnFaceFor(input({ cell: strict, level: 'needs-approval' })).commit)
+      .toEqual({ kind: 'hold', label: 'この位置では確定できません', enabled: false, note: null })
     expect(warnFaceFor(input({ cell: strict, level: 'needs-approval' })).lock).toBeNull()
+    // ⚖ 92 fix round 9 W1 (breaker #8 #1) — AND ⚖ 73 IS PINNED AS UNCONDITIONAL.
+    // The disabled state here is the LITERAL `false`, never `confirmEnabled`: a
+    // checks gate that says GO cannot hand a manager authority over a floor the
+    // engine calls impossible. Physics outranks the gate, so a passing gate
+    // changes nothing about this control — asserted at every level, and read off
+    // the composer's own line so a future `input.confirmEnabled` here goes red.
+    expect(warnFaceFor(input({ cell: strict, confirmEnabled: true })).commit!.enabled).toBe(false)
+    expect(warnFaceFor(input({ cell: strict, level: 'refuse', confirmEnabled: true })).commit!.enabled).toBe(false)
+    expect(INT).toContain("      commit: { kind: input.holdToConfirm ? 'hold' : 'press', label: 'この位置では確定できません', enabled: false, note: null },\n")
     // AND THE OTHER HALF OF HIS RULE, on the same pair of cells: a landing the
     // engine calls PLACEABLE is not the dial's to wall any more. `ackAllowed` is
-    // still the whole of the difference — it now decides whether there is a
-    // commit at all, where the level used to decide it too.
+    // still the whole of the difference — it decides whether the commit is LIVE,
+    // where the level used to decide it too (⚖ 92 fix round 9 W1: the dead half
+    // is a disabled control saying why, not an absent one).
     expect(REP().ackAllowed).toBe(true)
     const costly = warnFaceFor(input({ cell: REP(), level: 'refuse' }))
     expect(costly.lock).toBeNull()
@@ -8455,6 +8483,13 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
 
   it('the safe answer is a LANDING — judged by the one verdict, staged by the one door', () => {
     const fn = SRC.slice(SRC.indexOf('function placePendingAt('), SRC.indexOf('// ── ⚖ LIAM flag 92 — the long press'))
+    // ⚖ 92 fix round 9 W2 (breaker #8 #3) — THE LENGTH IS THE STAGED CARD'S OWN,
+    // and it was the one number in this door nothing read. `dur` is the staged
+    // span's width in minutes; skew it and the landing keeps the engine's start
+    // but takes a length the operator never staged — a card silently growing or
+    // shrinking as it moves, past a verdict that was asked about the wrong span.
+    // Pinned as the exact line so the arithmetic itself is what goes red.
+    expect(fn).toContain('    const dur = minuteOf(at.x + at.w, hours) - minuteOf(at.x, hours)\n')
     // The engine's start becomes a real span on the board's own clock.
     expect(fn).toContain('const span = place(start, start + dur, hours)')
     // ⚖ 50 — the ONE verdict home, not a trusted offer.
