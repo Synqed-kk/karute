@@ -92,7 +92,11 @@ describe('SettingsShell — drill-in opens at the top (7/24 back-button field re
     // Drilled: the mobile list is unmounted, so 'theme.label' matches only
     // the desktop tab chip. The CSS-hidden DrillInView stays MOUNTED across
     // desktop tab switches — the reset must re-run per section change, not
-    // only on mount (Greptile #595 finding).
+    // only on mount (Greptile #595 finding). jsdom has no matchMedia, so the
+    // shell stays unmeasured and keeps both branches, which is exactly the
+    // state that keeps this path reachable (fix/settings-single-mount drops
+    // the hidden branch once a real browser reports the breakpoint; the
+    // per-section reset stays required for the mobile list⇄drill swap).
     container.scrollTop = 250
     fireEvent.click(screen.getAllByText('theme.label')[0])
     expect(screen.getAllByTestId('section-theme').length).toBeGreaterThan(0)

@@ -1,6 +1,6 @@
 'use client'
 
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
 import {
   ArrowLeft,
@@ -182,6 +182,44 @@ const TABS: TabDef[] = [
   },
 ]
 
+// The `md` breakpoint, spelled ONCE. Tailwind v4 default (src/app/globals.css
+// declares no `--breakpoint-md` override), and kept in rem — not the 768px it
+// resolves to at a 16px root — so this tracks Tailwind's own
+// `@media (width >= 48rem)` exactly, at any root font size.
+const MD_QUERY = '(min-width: 48rem)'
+
+/** null = not measured yet: SSR and the first client render, where BOTH shell
+ *  branches render and the `md:hidden` / `hidden md:block` classes do the
+ *  hiding exactly as they always have (identical server HTML → no hydration
+ *  mismatch, no first-paint flash). Measured → true above `md`, false below,
+ *  and only the matching branch stays mounted from then on.
+ *
+ *  A host without matchMedia (jsdom; anything non-browser) simply stays
+ *  unmeasured, i.e. keeps the CSS-gated dual render — the safe direction.
+ *
+ *  KNOWN RESIDUAL, deliberate: because measuring is a post-mount effect, a
+ *  `?tab=`-deep-linked section is mounted in both branches for that first
+ *  render and so still reads twice on that one paint (React flushes the
+ *  children's passive effects before the measurement's re-render — a
+ *  useLayoutEffect measurement was probed and behaves identically). Measuring
+ *  during render instead WOULD fix it and WOULD cost a hydration mismatch, so
+ *  it isn't done. Every tab opened after that paint mounts once, which is the
+ *  whole of a normal visit. Pinned in settings-shell-single-mount.test.tsx. */
+function useIsWide(): boolean | null {
+  const [wide, setWide] = useState<boolean | null>(null)
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const mq = window.matchMedia(MD_QUERY)
+    const handler = () => setWide(mq.matches)
+    handler()
+    // Resize/rotation across the breakpoint swaps branches live; `activeTab`
+    // lives above this hook, so the selected section survives the swap.
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+  return wide
+}
+
 interface SettingsShellProps {
   orgSettings: OrgSettings | null
   staffList: StaffMember[]
@@ -295,6 +333,10 @@ export function SettingsShell({
   serviceNoun,
 }: SettingsShellProps) {
   const t = useTranslations('settings')
+  // Which branch is actually VISIBLE. Both trees used to stay mounted, hidden
+  // only by CSS, so every section's data-reading effect ran twice per visit
+  // (2 監査ログ rows per open, 2 破棄の記録 ledger walks, …). Mount one.
+  const isWide = useIsWide()
   // null = mobile list view (no section drilled into).
   // On desktop, `null` resolves to the first visible tab so the tab
   // strip always has something selected.
@@ -430,23 +472,28 @@ export function SettingsShell({
        *  + the section content (drill-in view).
        *  Hidden on md+ in favor of the tab strip below.
        *  ───────────────────────────────────────────────────────── */}
-      <div className="md:hidden">
-        {activeTab === null ? (
-          <ListView
-            tabs={visibleTabs}
-            onSelect={(id) => setActiveTab(id)}
-            t={t}
-          />
-        ) : (
-          <DrillInView
-            tab={drilledTab}
-            onBack={() => setActiveTab(null)}
-            backLabel={t('backToList')}
-          >
-            {renderSection(activeTab)}
-          </DrillInView>
-        )}
-      </div>
+      {/* Mounted only while `isWide` is false or still unmeasured. The
+       *  `md:hidden` class stays put, so the unmeasured window (SSR +
+       *  first paint) renders byte-identically to before. */}
+      {isWide !== true && (
+        <div className="md:hidden">
+          {activeTab === null ? (
+            <ListView
+              tabs={visibleTabs}
+              onSelect={(id) => setActiveTab(id)}
+              t={t}
+            />
+          ) : (
+            <DrillInView
+              tab={drilledTab}
+              onBack={() => setActiveTab(null)}
+              backLabel={t('backToList')}
+            >
+              {renderSection(activeTab)}
+            </DrillInView>
+          )}
+        </div>
+      )}
 
       {/* ─────────────────────────────────────────────────────────
        *  DESKTOP — tab strip + section panel (existing pattern).
@@ -454,23 +501,27 @@ export function SettingsShell({
        *  chip. activeTab defaults to first visible tab when null.
        *  Hidden below md so mobile only sees the list/drill.
        *  ───────────────────────────────────────────────────────── */}
-      <div className="hidden md:block">
-        <div className="flex items-center gap-1 rounded-xl border border-border/30 bg-muted/30 p-1 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]">
-          {visibleTabs.map((tab) => (
-            <TabButton
-              key={tab.id}
-              tab={tab}
-              active={desktopActiveTab === tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              label={t(tab.labelKey)}
-            />
-          ))}
-        </div>
+      {/* Mirror of the mobile guard: mounted only while `isWide` is true or
+       *  still unmeasured, `hidden md:block` left in place. */}
+      {isWide !== false && (
+        <div className="hidden md:block">
+          <div className="flex items-center gap-1 rounded-xl border border-border/30 bg-muted/30 p-1 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]">
+            {visibleTabs.map((tab) => (
+              <TabButton
+                key={tab.id}
+                tab={tab}
+                active={desktopActiveTab === tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                label={t(tab.labelKey)}
+              />
+            ))}
+          </div>
 
-        <div className="mt-6">
-          <SectionPanel>{renderSection(desktopActiveTab)}</SectionPanel>
+          <div className="mt-6">
+            <SectionPanel>{renderSection(desktopActiveTab)}</SectionPanel>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

@@ -16,9 +16,19 @@
 // row unconditionally, so each independently-mounted AuditLogSection's first
 // fetch still means two rows per open, matching the sim drive's 4-for-2 (2
 // mounts today; a load-more would add MORE rows now, not zero — the
-// unconditional write is the whole point of the contract change). Per the
-// packet: do NOT change SettingsShell (its dual-tree render is deliberate,
-// tested, shared with web) — this test PINS today's actual mount/fetch count.
+// unconditional write is the whole point of the contract change).
+//
+// UPDATE (fix/settings-single-mount): SettingsShell no longer keeps both trees
+// mounted — it measures the `md` breakpoint after mount and drops the branch
+// that isn't visible, so opening a tab now costs ONE read
+// (settings-shell-single-mount.test.tsx). This fixture is the ONE case that
+// still reads twice, and legitimately so: `initialTab: 'audit'` is the
+// ?tab=audit dispute deep link, i.e. the section is already mounted in both
+// branches when the FIRST render commits, before the measurement lands. The
+// count below therefore still pins real behavior — it just has a narrower
+// cause now (one pre-measurement paint) than the old permanent dual tree.
+// jsdom has no matchMedia at all, so this file also exercises the unmeasured
+// fallback, which renders both branches by design.
 import { render, waitFor } from '@testing-library/react'
 
 jest.mock('next-intl', () => ({
