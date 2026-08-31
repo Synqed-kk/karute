@@ -24,13 +24,23 @@
 // they are read side by side — in the same row on a phone, in two equal cards
 // on a computer.
 //
-// TWO COMPOSITIONS, ONE TREE (⚖ 8/30, desktop surpasses phone). Below `lg` the
-// row IS the record: everything about a discard is in it, opened in place.
-// At `lg` and up the same rows become a master list beside a detail pane, which
-// is the shape a desk actually reads — the whole reason next to the whole
-// transcript, no scroll hunt between them. Only ONE composition is ever in the
-// DOM: the width is decided in JS (`useIsWide`) rather than by hiding a second
-// copy, because a duplicated row list would double the open row's transcript.
+// TWO COMPOSITIONS, ONE TREE (⚖ 8/30, desktop surpasses phone). Narrow, the row
+// IS the record: everything about a discard is in it, opened in place. Wide,
+// the same rows become a master list beside a detail pane, which is the shape a
+// desk actually reads — the whole reason next to the whole transcript, no
+// scroll hunt between them. Only ONE composition is ever in the DOM: the width
+// is decided in JS rather than by hiding a second copy, because a duplicated
+// row list would double the open row's transcript.
+//
+// THE WIDTH THAT DECIDES IS THIS SECTION'S OWN, not the viewport's (⚖ B2, fix
+// round 1). The settings chrome caps content at ~928px — a 244px sidebar, then
+// max-w-5xl, then two nested p-6 — so a viewport breakpoint at 1024 switched
+// the master–detail composition ON at a section width of 684px, where ⚖ 8/25's
+// "two equal cards" are 160px each: about six Japanese glyphs per line of
+// transcript. The phone composition one pixel earlier was strictly more
+// readable. Every threshold in this file is therefore measured off the section
+// element, and the same number decides the CSS and the JS instead of two
+// sources of truth drifting apart.
 //
 // ABSENCE IS NEVER A PLACEHOLDER. Three honest answers, no invention: the words
 // when they were kept, "the recording was never transcribed" when the take was
@@ -60,7 +70,7 @@
 // home. It stays in the mock as a spec line for core rather than shipping here
 // as a control that would forget what it was told.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { Loader2 } from 'lucide-react'
 import {
@@ -89,26 +99,52 @@ type T = (key: string, values?: Record<string, string | number>) => string
  *  two-minute one gets none at all. */
 const MARKER_STEP_SEC = 300
 
-/** The `lg` breakpoint, in the one place both the CSS and the JS must agree on
- *  it (Tailwind's default lg = 1024px). */
-const WIDE_QUERY = '(min-width: 1024px)'
+/** The section width at which the master–detail composition earns its place.
+ *  Below it the two equal cards (⚖ 8/25 A) fall under ~240px each and the
+ *  transcript column stops being able to carry prose, so the inline row —
+ *  which reads correctly at every width — is honestly the better answer. */
+const WIDE_MIN_PX = 880
 
-/** Which composition to render. Starts NARROW and only widens once the browser
- *  has answered, so a runtime without matchMedia (the server pass, and jsdom)
- *  renders the phone shape rather than throwing — the inline row is the
- *  composition that works at every width, so it is the safe default.
- *  Same local-hook idiom as BookingActionSheetWrapper's own useIsMobile. */
-function useIsWide() {
-  const [isWide, setIsWide] = useState(false)
+/** The master column takes the mock's own 360px only where the section is as
+ *  wide as the mock was drawn; below that it gives the 60px back to the pane,
+ *  where the two cards need it more than the list does. */
+const MOCK_SECTION_PX = 1180
+const MASTER_COL_PX = 300
+const MASTER_COL_MOCK_PX = 360
+
+/** The detail pane's own box: `px-6` on both sides, `gap-5` between definition
+ *  columns, and a definition value like 「8月31日(月) 14:28」 needs ~160px to
+ *  sit on one line at 13px semibold. Four columns therefore need 700px of pane
+ *  — measured, not assumed from a viewport breakpoint that said `xl` and meant
+ *  114px per column. */
+const DETAIL_PANE_PADDING_PX = 48
+const DEFS_GAP_PX = 20
+const DEFS_COL_MIN_PX = 160
+const DEFS_FOUR_UP_MIN_PANE_PX = DEFS_COL_MIN_PX * 4 + DEFS_GAP_PX * 3
+
+/** This element's own width, measured. Null until the browser has answered, so
+ *  the server pass and any runtime without ResizeObserver (jsdom included)
+ *  render the inline composition — the one that works at every width, and so
+ *  the safe default. Same guarded-ResizeObserver idiom as CustomerTabBar and
+ *  the bottom nav. */
+function useMeasuredWidth(ref: RefObject<HTMLElement | null>): number | null {
+  const [width, setWidth] = useState<number | null>(null)
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
-    const mq = window.matchMedia(WIDE_QUERY)
-    const handler = () => setIsWide(mq.matches)
-    handler()
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
-  }, [])
-  return isWide
+    const el = ref.current
+    if (!el) return
+    const measure = () => setWidth(el.getBoundingClientRect().width)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    // SUBSCRIBED, not measured once: the settings shell opens a drill-in, the
+    // sidebar collapses, a desktop window is dragged narrower and an iPad is
+    // rotated — all of which change this section's width without remounting
+    // it. A one-shot measure freezes the composition at whatever width the tab
+    // happened to open at.
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [ref])
+  return width
 }
 
 /** Whole minutes + zero-padded seconds, the mock's 「4分12秒」 shape. Negative
@@ -138,20 +174,86 @@ function isSameLocalDay(a: Date, b: Date): boolean {
 
 /** The avatar's letter. The first character of the name a manager already reads
  *  on the row — never initials parsed out of a Japanese name, which has no
- *  reliable given/family split. `？` when there is no customer at all. */
-function initialOf(name: string | null): string {
-  return name?.trim()?.[0] ?? '？'
+ *  reliable given/family split. `？` when there is no name to stand for.
+ *
+ *  Spread, not `[0]`: `[0]` indexes UTF-16 code units, and the supplementary-
+ *  plane kanji that appear in real family registers — 𠮷 (𠮷田), 𡈽, 𠀋 — are
+ *  surrogate pairs, so it handed the avatar half a character and drew a
+ *  replacement glyph beside a correctly rendered name. */
+function initialOf(name: string | null | undefined): string {
+  return [...(name?.trim() ?? '')][0] ?? '？'
+}
+
+/** Whether this row has a customer NAME we actually resolved — a blank string
+ *  is not one, which is the truthiness the avatar beside it already used. */
+function customerNamed(row: DiscardReasonRow): boolean {
+  return !!row.customerName?.trim()
+}
+
+/** WHICH kind of no-name this is (⚖ B1). Three genuinely different populations
+ *  used to collapse into 「顧客未選択」 — a sentence about what a STAFFER did —
+ *  on the one screen whose job is checking a staffer's claim. A manager reading
+ *  it on rows whose recording had merely fallen outside our read window would
+ *  conclude a staffer keeps recording without selecting a customer, which is a
+ *  fact about our read and not about them. All three are decided from the row
+ *  itself; nothing new is asked of core.
+ *
+ *  `recordingCreatedAt` is the discriminator (`Recording.created_at` is a
+ *  required string, so a recording we resolved always carries it), and
+ *  `customerId` survives a failed NAME batch — the server already keeps that
+ *  split honestly, and the screen used to throw it away at the last step. */
+function customerLabel(row: DiscardReasonRow, t: T): string {
+  if (customerNamed(row)) return row.customerName as string
+  // Nothing about the recording was read, so nothing can be said about its
+  // customer either. The same 不明 the definition row already uses for a fact
+  // we could not look up.
+  if (!row.recordingCreatedAt) return t('unknownValue')
+  // A customer WAS attached — we are holding their id — and only the name did
+  // not resolve.
+  if (row.customerId) return t('customerNameUnknown')
+  // The recording read fine and carried no customer: the genuine state, and
+  // now the only one that gets the sentence.
+  return t('customerNone')
+}
+
+/** Format an ISO instant, or NULL when no clock can read it. `Intl.format` on
+ *  an Invalid Date THROWS `RangeError` — it does not render "Invalid Date" —
+ *  so a single unparseable timestamp anywhere in the ledger replaced the whole
+ *  screen with an error card. Absence is a state every branch below already
+ *  states honestly, so an unreadable value is routed into it rather than into a
+ *  crash. One helper because there are four format sites and a guard on three
+ *  of them is a guard on none. */
+function formatAt(fmt: Intl.DateTimeFormat, iso: string | null | undefined): string | null {
+  if (typeof iso !== 'string') return null
+  const at = Date.parse(iso)
+  return Number.isFinite(at) ? fmt.format(at) : null
 }
 
 export function DiscardReasonsSection() {
   const t = useTranslations('settings.discardReasons') as T
   const tc = useTranslations('common')
   const locale = useLocale()
-  const isWide = useIsWide()
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const sectionWidth = useMeasuredWidth(rootRef)
+  const isWide = sectionWidth !== null && sectionWidth >= WIDE_MIN_PX
+  const masterColPx =
+    sectionWidth !== null && sectionWidth >= MOCK_SECTION_PX ? MASTER_COL_MOCK_PX : MASTER_COL_PX
+  /** Four definition columns only where the PANE can give each one a line it
+   *  can hold. On today's chrome (a 928px ceiling) that means two-up, which is
+   *  the honest answer rather than four ragged three-line cells. */
+  const defsFourUp =
+    sectionWidth !== null &&
+    sectionWidth - masterColPx - DETAIL_PANE_PADDING_PX >= DEFS_FOUR_UP_MIN_PANE_PX
   const [state, setState] = useState<
     | { kind: 'loading' }
     | { kind: 'error' }
-    | { kind: 'ready'; rows: DiscardReasonRow[]; counts: DiscardReasonCounts; truncated: boolean }
+    | {
+        kind: 'ready'
+        rows: DiscardReasonRow[]
+        counts: DiscardReasonCounts
+        truncated: boolean
+        detailTruncated: boolean
+      }
   >({ kind: 'loading' })
   /** Bumped by the error state's retry — the load effect below re-runs on it.
    *  On the COMPUTER a failed load has the browser's own reload behind it; on
@@ -166,6 +268,10 @@ export function DiscardReasonsSection() {
    *  is the row that is SELECTED — the same state, because on both doors it
    *  answers the same question: which discard is being read. */
   const [openId, setOpenId] = useState<string | null>(null)
+  /** The id the WIDE pane opened by itself, so the narrow door can drop it
+   *  again. Nobody asked for that transcript; the pane opened it only because
+   *  an empty pane shows nothing, and the inline door has no such problem. */
+  const autoOpenedRef = useRef<string | null>(null)
   /** Kept per row once fetched: re-opening a row must not re-read core. */
   const [transcripts, setTranscripts] = useState<Record<string, TranscriptState>>({})
 
@@ -174,9 +280,10 @@ export function DiscardReasonsSection() {
    *  nowhere for a closed selection to go, so a press only ever moves the
    *  selection; a pane that could be emptied by pressing its own row would just
    *  be a way to make the screen show less. */
-  function openRow(row: DiscardReasonRow, toggle: boolean) {
+  function openRow(row: DiscardReasonRow, toggle: boolean, auto = false) {
     const next = toggle && openId === row.id ? null : row.id
     setOpenId(next)
+    autoOpenedRef.current = auto ? next : null
     // A cached SUCCESS is kept — re-opening a row must not re-read core. A
     // cached ERROR is not an answer, so re-opening retries it: the row is the
     // only retry affordance this screen has, and a failure that stuck until a
@@ -205,7 +312,16 @@ export function DiscardReasonsSection() {
         if (!alive) return
         setState(
           res.ok
-            ? { kind: 'ready', rows: res.rows, counts: res.counts, truncated: res.truncated }
+            ? {
+                kind: 'ready',
+                rows: res.rows,
+                counts: res.counts,
+                truncated: res.truncated,
+                // `=== true` for the old-wire reason the port uses: a server
+                // that predates this field sends nothing, and "we have no
+                // report of partial detail" is not "there is one".
+                detailTruncated: res.detailTruncated === true,
+              }
             : { kind: 'error' },
         )
       },
@@ -240,11 +356,22 @@ export function DiscardReasonsSection() {
     // to press to fill it. Asking the question the pane actually cares about
     // costs nothing and does not have to be revisited then.
     if (!isWide || selected !== null || rows.length === 0) return
-    openRow(rows[0], false)
+    openRow(rows[0], false, true)
     // openRow closes over state this effect must not re-run on; the guard above
     // is the real condition (it fires once, when a selection is missing).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isWide, selected, rows])
+
+  // …and the narrow door takes it back. `openId` survived the composition
+  // switch, so a rotated iPad or a dragged desktop window landed on the inline
+  // list with an auto-selected row EXPANDED — transcript and all — which is the
+  // exact state this file's own doctrine forbids on that door. Only the
+  // auto-opened id is dropped: a row the manager pressed themselves stays open,
+  // because they asked for it.
+  useEffect(() => {
+    if (isWide) return
+    setOpenId((cur) => (cur !== null && cur === autoOpenedRef.current ? null : cur))
+  }, [isWide])
 
   const dateTimeFmt = new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'ja-JP', {
     month: 'long',
@@ -262,21 +389,26 @@ export function DiscardReasonsSection() {
    *  which is nearly every real discard — and the full date when it was not,
    *  because "同日" against a different day would be a lie. */
   const discardedWhen = (row: DiscardReasonRow) => {
-    const at = new Date(row.createdAt)
-    const rec = row.recordingCreatedAt ? new Date(row.recordingCreatedAt) : null
-    return rec && isSameLocalDay(rec, at)
+    const atMs = Date.parse(row.createdAt)
+    // An unreadable discard time is a fact we do not have, not a crash and not
+    // a guess — same answer the definition row gives every other unknown.
+    if (!Number.isFinite(atMs)) return t('unknownValue')
+    const at = new Date(atMs)
+    const recMs =
+      typeof row.recordingCreatedAt === 'string' ? Date.parse(row.recordingCreatedAt) : NaN
+    return Number.isFinite(recMs) && isSameLocalDay(new Date(recMs), at)
       ? `${t('sameDay')} ${timeFmt.format(at)}`
       : dateTimeFmt.format(at)
   }
 
   return (
-    <div className="space-y-4">
+    <div ref={rootRef} className="space-y-4">
       <div className="lg:flex lg:items-start lg:justify-between lg:gap-8">
         <div className="min-w-0">
-          {/* The drill-in shell already titles this section above `md` — a
+          {/* The drill-in shell already titles this section BELOW `md` — a
               second 破棄の記録 under its own heading was the triple stack Liam
               read in the field. Above `md` the shell shows only a tab chip, so
-              here the heading is the page's own and has to be rendered. */}
+              there the heading is the page's own and has to be rendered. */}
           <h2 className="hidden text-base font-semibold text-foreground md:block">{t('title')}</h2>
           <p className="text-xs leading-relaxed text-muted-foreground md:mt-2">
             {t('description')}
@@ -320,11 +452,18 @@ export function DiscardReasonsSection() {
             {t('empty')}
           </p>
         ) : isWide ? (
-          // The master column gives ground back to the detail pane on a narrow
-          // desktop: at the mock's own 1280 it is the mock's 360px, and between
-          // 1024 and there it yields 60px so the pane's two cards keep their
-          // width rather than the list keeping its own.
-          <div className="grid grid-cols-[300px_minmax(0,1fr)] overflow-hidden rounded-xl border border-border bg-card xl:grid-cols-[360px_minmax(0,1fr)]">
+          // The master column takes the mock's own 360px where the section is
+          // as wide as the mock was drawn, and gives those 60px to the pane
+          // below that — the two cards need the room more than the list does.
+          // Measured off the section, not an `xl:` viewport class, so the CSS
+          // and the JS cannot disagree about which shape is on screen.
+          <div
+            className={`grid overflow-hidden rounded-xl border border-border bg-card ${
+              masterColPx === MASTER_COL_MOCK_PX
+                ? 'grid-cols-[360px_minmax(0,1fr)]'
+                : 'grid-cols-[300px_minmax(0,1fr)]'
+            }`}
+          >
             <ul className="max-h-[660px] divide-y divide-border/60 overflow-y-auto border-r border-border">
               {rows.map((r) => (
                 <li key={r.id}>
@@ -332,11 +471,7 @@ export function DiscardReasonsSection() {
                     row={r}
                     selected={r.id === openId}
                     onSelect={() => openRow(r, false)}
-                    recordedWhen={
-                      r.recordingCreatedAt
-                        ? dateTimeFmt.format(new Date(r.recordingCreatedAt))
-                        : null
-                    }
+                    recordedWhen={formatAt(dateTimeFmt, r.recordingCreatedAt)}
                     discardedWhen={discardedWhen(r)}
                     t={t}
                   />
@@ -344,15 +479,21 @@ export function DiscardReasonsSection() {
               ))}
             </ul>
             {selected && (
+              // KEYED ON THE ROW. Without it React reconciles the pane in
+              // place, the transcript's scroll container is the SAME DOM node
+              // across selections, and the browser keeps its scrollTop: a
+              // manager who scrolled to minute 40 of a 90-minute take and then
+              // picked the next discard opened it already scrolled into the
+              // middle, with nothing on screen saying so. The phone door never
+              // had this — each panel mounts inside its own row.
               <DetailPane
+                key={selected.id}
                 row={selected}
                 transcript={transcripts[selected.id]}
-                recordedWhen={
-                  selected.recordingCreatedAt
-                    ? dateTimeFmt.format(new Date(selected.recordingCreatedAt))
-                    : null
-                }
+                recordedWhen={formatAt(dateTimeFmt, selected.recordingCreatedAt)}
                 discardedWhen={discardedWhen(selected)}
+                fourUpDefs={defsFourUp}
+                onRetry={() => openRow(selected, false)}
                 t={t}
               />
             )}
@@ -366,11 +507,7 @@ export function DiscardReasonsSection() {
                   open={r.id === openId}
                   onToggle={() => openRow(r, true)}
                   transcript={transcripts[r.id]}
-                  recordedWhen={
-                    r.recordingCreatedAt
-                      ? dateTimeFmt.format(new Date(r.recordingCreatedAt))
-                      : null
-                  }
+                  recordedWhen={formatAt(dateTimeFmt, r.recordingCreatedAt)}
                   discardedWhen={discardedWhen(r)}
                   t={t}
                 />
@@ -381,6 +518,16 @@ export function DiscardReasonsSection() {
 
       {state.kind === 'ready' && state.truncated && (
         <p className="px-1 text-[11px] text-muted-foreground">{t('truncated')}</p>
+      )}
+
+      {/* Partial enrichment, said once and quietly. Past the recordings page
+          budget some listed rows carry absences that are OURS — no customer, no
+          length, no store — beside complete neighbours, and a screen that says
+          nothing about that reads as a system fault rather than a boundary. A
+          plain fact in the same register as the line above it: no colour, no
+          alarm, and nothing that implies the records themselves are damaged. */}
+      {state.kind === 'ready' && state.detailTruncated && (
+        <p className="px-1 text-[11px] text-muted-foreground">{t('detailTruncated')}</p>
       )}
     </div>
   )
@@ -399,11 +546,26 @@ function SummaryBand({
   t: T
 }) {
   return (
-    <div className="mt-3 shrink-0 rounded-xl bg-muted/40 px-3.5 py-3 lg:mt-0 lg:bg-transparent lg:px-0 lg:py-0 lg:text-right">
+    // `min-w-0`, never `shrink-0`. Pinned at max-content the band grew with the
+    // roster: at seven staff it took ~856px of a 928px ceiling and squeezed
+    // 破棄の記録 into a one-glyph column; at eight the row overflowed and the
+    // settings page gained a horizontal scrollbar. The mock does pin its own
+    // band, but the mock is a picture with three hard-coded names and 1128px to
+    // draw them in — it was never a claim about real rosters. Let it shrink and
+    // let the staff line wrap.
+    <div className="mt-3 min-w-0 rounded-xl bg-muted/40 px-3.5 py-3 lg:mt-0 lg:bg-transparent lg:px-0 lg:py-0 lg:text-right">
+      {/* The counts carry the mock's own emphasis: they are the reason this
+          band exists, so they sit a tier above the label and the separator
+          rather than flat inside one muted run. Weight and neutral colour only
+          — no accent, which the one-way law reserves for pressables. */}
       <p className="text-xs leading-relaxed text-muted-foreground">
-        <span className="whitespace-nowrap">{t('countThisMonth', { count: counts.thisMonth })}</span>
+        <span className="whitespace-nowrap font-semibold text-foreground">
+          {t('countThisMonth', { count: counts.thisMonth })}
+        </span>
         <span className="mx-1.5 text-muted-foreground/60">・</span>
-        <span className="whitespace-nowrap">{t('countTotal', { count: counts.total })}</span>
+        <span className="whitespace-nowrap font-semibold text-foreground">
+          {t('countTotal', { count: counts.total })}
+        </span>
       </p>
       {counts.byStaff.length > 0 && (
         <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground/80">
@@ -465,12 +627,17 @@ function DurationPill({ seconds, t }: { seconds: number | null; t: T }) {
   )
 }
 
-/** The name a row leads with, or the honest 顧客未選択 when no customer was
- *  ever attached to the take. */
-function CustomerName({ name, className, t }: { name: string | null; className: string; t: T }) {
+/** The name a row leads with — or, when there is none, WHICH kind of none it is
+ *  (see `customerLabel`). All three no-name answers are muted: none of them is
+ *  a name, and only a name gets a name's weight. */
+function CustomerName({ row, className, t }: { row: DiscardReasonRow; className: string; t: T }) {
   return (
-    <span className={`${className} ${name ? 'font-semibold' : 'font-medium text-muted-foreground'}`}>
-      {name ?? t('customerNone')}
+    <span
+      className={`${className} ${
+        customerNamed(row) ? 'font-semibold' : 'font-medium text-muted-foreground'
+      }`}
+    >
+      {customerLabel(row, t)}
     </span>
   )
 }
@@ -507,7 +674,7 @@ function InlineRow({
         <span className="flex items-center justify-between gap-2.5">
           <span className="flex min-w-0 items-center gap-2.5">
             <Avatar name={row.customerName} />
-            <CustomerName name={row.customerName} className="truncate text-sm" t={t} />
+            <CustomerName row={row} className="truncate text-sm" t={t} />
           </span>
           <DurationPill seconds={row.durationSeconds} t={t} />
         </span>
@@ -601,8 +768,8 @@ function CompactRow({
     >
       <span className="flex items-center justify-between gap-2.5">
         <CustomerName
-          name={row.customerName}
-          className={`truncate text-[13px] ${selected && row.customerName ? 'text-primary' : ''}`}
+          row={row}
+          className={`truncate text-[13px] ${selected && customerNamed(row) ? 'text-primary' : ''}`}
           t={t}
         />
         <DurationPill seconds={row.durationSeconds} t={t} />
@@ -635,22 +802,29 @@ function DetailPane({
   transcript,
   recordedWhen,
   discardedWhen,
+  fourUpDefs,
+  onRetry,
   t,
 }: {
   row: DiscardReasonRow
   transcript: TranscriptState | undefined
   recordedWhen: string | null
   discardedWhen: string
+  fourUpDefs: boolean
+  onRetry: () => void
   t: T
 }) {
   const defs: { k: string; v: string }[] = [
     { k: t('defRecordedAt'), v: recordedWhen ?? t('unknownValue') },
     {
       k: t('defDuration'),
-      // Same `typeof` guard as the pill, for the same old-wire reason.
+      // `durationValue`, not `durationLabel`: the label is already the 録音時間
+      // above the cell, and the pill's own 録音 prefix repeated inside it read
+      // 「録音時間 / 録音 47分18秒」. Same `typeof` guard as the pill, for the
+      // same old-wire reason.
       v:
         typeof row.durationSeconds === 'number' && Number.isFinite(row.durationSeconds)
-          ? t('durationLabel', durationParts(row.durationSeconds))
+          ? t('durationValue', durationParts(row.durationSeconds))
           : t('unknownValue'),
     },
     { k: t('defStore'), v: row.storeName ?? t('unknownValue') },
@@ -667,13 +841,21 @@ function DetailPane({
     <div className="min-w-0 px-6 py-5">
       <div className="flex items-center gap-2.5">
         <Avatar name={row.customerName} large />
-        <CustomerName name={row.customerName} className="truncate text-base" t={t} />
+        <CustomerName row={row} className="truncate text-base" t={t} />
       </div>
 
-      {/* Four columns is the mock's shape and it needs the mock's width. Below
-          1280 the same four facts sit two-up rather than squeezing a
-          「8月31日(月) 14:28」 into a column too narrow to hold it. */}
-      <dl className="mt-4 grid grid-cols-2 gap-5 border-y border-border/60 py-3.5 xl:grid-cols-4">
+      {/* Four columns is the mock's shape and it needs the mock's width — which
+          is the PANE's width, not the window's. Keyed to `xl` this fired at a
+          viewport of 1280, where the settings chrome leaves the pane 518px and
+          four columns are 114px each: 「8月31日(月) 14:28」 wraps to three lines
+          in every one of them, the exact squeeze the old comment claimed to
+          prevent. Four-up now waits until each column really has ~160px, and
+          until then the same four facts sit two-up and read. */}
+      <dl
+        className={`mt-4 grid gap-5 border-y border-border/60 py-3.5 ${
+          fourUpDefs ? 'grid-cols-4' : 'grid-cols-2'
+        }`}
+      >
         {defs.map((d) => (
           <div key={d.k} className="min-w-0">
             <dt className="text-[11px] font-medium text-muted-foreground">{d.k}</dt>
@@ -689,7 +871,7 @@ function DetailPane({
             {row.reason}
           </p>
         </div>
-        <TranscriptPanel state={transcript} t={t} wide />
+        <TranscriptPanel state={transcript} onRetry={onRetry} t={t} wide />
       </div>
     </div>
   )
@@ -705,23 +887,35 @@ function DetailPane({
  *  420px frame would look like something was withheld. */
 function TranscriptPanel({
   state,
+  onRetry,
   t,
   wide,
 }: {
   state: TranscriptState | undefined
+  /** Wide only — see the error branch. */
+  onRetry?: () => void
   t: T
   wide?: boolean
 }) {
+  const tc = useTranslations('common')
   // On the computer the two halves are EQUAL CARDS (⚖ 8/25 A), and that has to
   // hold in every state: a bare line of text beside a bordered reason card
   // reads as the subordinate of it, which is the one relationship this pairing
   // must never suggest. On the phone the states keep exactly the markup they
   // shipped with — there is no second column for them to balance against.
   const shell = wide ? 'rounded-xl border border-border/60 p-4' : undefined
+  // …and the card carries its NAME in every state, not only when there are
+  // words. A bordered box holding one line of grey text beside a labelled
+  // 理由（スタッフ記入） card is an anonymous box, and a manager cannot tell what
+  // it is refusing to show. The phone keeps its shipped markup.
+  const title = wide ? (
+    <p className="mb-2 text-[11px] font-semibold text-muted-foreground">{t('transcriptTitle')}</p>
+  ) : null
 
   if (!state || state.kind === 'loading') {
     return (
       <div className={shell}>
+        {title}
         <p className="flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="size-4 animate-spin" aria-hidden />
           {t('transcriptLoading')}
@@ -732,15 +926,38 @@ function TranscriptPanel({
   if (state.kind === 'error') {
     return (
       <div className={shell}>
+        {title}
         <p className="text-xs text-muted-foreground">{t('transcriptFailed')}</p>
+        {/* A failed read is recoverable, and on the COMPUTER the row that would
+            retry it is the one already selected — pressing it again looks like
+            a no-op, so the only gesture that works is the one nobody has a
+            reason to try. Without this the manager's exit was to select another
+            discard and come back, and the honest reading of a stuck sentence is
+            that the words are gone: the one conclusion this screen's absence
+            doctrine exists to prevent. The phone needs none of it — 表示/隠す is
+            a visible gesture and re-opening already retries. Quiet bordered
+            control, the same one the list's own error card uses. */}
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-3 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted"
+          >
+            {tc('retry')}
+          </button>
+        )}
       </div>
     )
   }
   if (state.segments.length === 0) {
     // Under the floor NOTHING was ever transcribed (the ⚖ spend gate), which is
     // a different fact from "the words were not kept" — say which one it is.
+    // `typeof`, matching the two length formatters: an older server sends the
+    // key absent, and `undefined !== null` is true. The outcome happened to be
+    // right by accident here; this is the one place in the file the old-wire
+    // rule was not applied, and an accident is not a guard.
     const belowFloor =
-      state.durationSeconds !== null && state.durationSeconds < BELOW_FLOOR_SEC
+      typeof state.durationSeconds === 'number' && state.durationSeconds < BELOW_FLOOR_SEC
     return (
       <div className={shell}>
         <p className="text-[11px] font-semibold text-muted-foreground">{t('transcriptTitle')}</p>
@@ -761,8 +978,19 @@ function TranscriptPanel({
           scrollbar is drawn thin but ALWAYS visible: macOS hides overlay bars,
           and a bounded panel that gives no sign of being scrollable reads as a
           truncated transcript. */}
+      {/* FOCUSABLE and NAMED. Firefox and Chrome ≥127 make an overflow
+          container keyboard-reachable on their own; Safari and WKWebView — the
+          two engines this product actually ships through — do not, so a
+          keyboard-only manager could open the longest discard on the list and
+          then read only its first few lines. `scrollbar-width` beside the
+          WebKit rules for the same reason the sibling scroller in this shell
+          pairs them: without it Firefox paints a full-width default bar and the
+          fade offset below misaligns with it. */}
       <div
-        className={`overflow-y-auto overscroll-contain [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-[3px] [&::-webkit-scrollbar-thumb]:border-solid [&::-webkit-scrollbar-thumb]:border-card [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:bg-clip-padding [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-[11px] ${
+        tabIndex={0}
+        role="region"
+        aria-label={t('transcriptTitle')}
+        className={`overflow-y-auto overscroll-contain [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-[3px] [&::-webkit-scrollbar-thumb]:border-solid [&::-webkit-scrollbar-thumb]:border-card [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:bg-clip-padding [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-[11px] ${
           wide ? 'max-h-[460px]' : 'max-h-[420px]'
         }`}
       >
@@ -777,7 +1005,14 @@ function TranscriptPanel({
           )}
         </div>
 
-        <div className="space-y-2 px-3.5 pb-6 pt-3">
+        {/* Padding ≥ fade at BOTH ends. The fades are 20px and 44px; against
+            12px and 24px of padding they washed the top of the first line and
+            at least 20px of the last — and on a three-line transcript that does
+            not scroll at all, a gradient meaning "there is more below" sat over
+            words with nothing below them. Matching the two makes the fade cover
+            only padding at rest and only cover text mid-scroll, which is when
+            it is telling the truth. */}
+        <div className="space-y-2 px-3.5 pb-11 pt-5">
           {state.segments.map((s, i) => {
             const prev = i > 0 ? state.segments[i - 1] : null
             // A marker only where the words CROSS a five-minute boundary, and
@@ -824,7 +1059,7 @@ function TranscriptPanel({
           off the scrollbar's own track on the right. */}
       <span
         aria-hidden
-        className="pointer-events-none absolute inset-x-px top-9 h-5 bg-gradient-to-b from-card to-transparent"
+        className="pointer-events-none absolute left-px right-[11px] top-9 h-5 bg-gradient-to-b from-card to-transparent"
       />
       <span
         aria-hidden
