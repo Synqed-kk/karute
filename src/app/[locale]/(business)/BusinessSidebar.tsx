@@ -92,7 +92,7 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
       { key: 'coaching', segment: null, label: 'コーチング', mini: 'コーチ', live: false },
     ],
   },
-  { group: '設定', items: [{ key: 'settings', segment: null, label: '設定', mini: '設定', live: false }] },
+  { group: '設定', items: [{ key: 'settings', segment: 'settings', label: '設定', mini: '設定', live: true }] },
 ]
 
 const RAIL_KEY = 'synqedBizRail'

@@ -69,7 +69,22 @@ const CRUMB: Record<string, string> = {
   analytics: '売上分析',
   shifts: 'スタッフ・シフト',
   karute: 'カルテ',
+  settings: '設定',
 }
+
+/** The crumb's GROUP word. Canon's store pages all read 「店舗フロア / 店 / 画面」
+ *  and its settings family reads 「設定 / 店 / 画面」 (fable-settings-store-hours
+ *  .html:415), so the group is a per-screen fact rather than a constant.
+ *
+ *  `null` DROPS the group entirely, and 設定 is why: this room is ONE route with
+ *  its own category rail inside it, so its leaf IS 設定 — and 「設定 / 店 / 設定」
+ *  is the same word twice with a store between them. Every other screen keeps
+ *  the value the bar has always printed, byte for byte, so no merged room's
+ *  crumb moves. (⚠ カルテ and コーチング belong under 記録・AI by canon and still
+ *  read 店舗フロア here; that changes a MERGED room's visible crumb, so it rides
+ *  the family sweep rather than this packet — the same call room 8 made.) */
+const CRUMB_GROUP: Record<string, string | null> = { settings: null }
+const DEFAULT_GROUP = '店舗フロア'
 
 export function BusinessTopbar({ stores, syncLabel }: { stores: ShellStore[]; syncLabel: string }) {
   const pathname = usePathname()
@@ -78,6 +93,7 @@ export function BusinessTopbar({ stores, syncLabel }: { stores: ShellStore[]; sy
 
   const segment = pathname.split('/business/')[1]?.split('/')[0] ?? ''
   const leaf = CRUMB[segment] ?? '顧客'
+  const group = segment in CRUMB_GROUP ? CRUMB_GROUP[segment] : DEFAULT_GROUP
   // No ?store= opens on the operator's own store, matching the sidebar's
   // switcher since すべての店舗 left it (⚖ Liam 2026-08-20).
   const store = stores.find((s) => s.id === search.get('store')) ?? stores[0]
@@ -85,7 +101,8 @@ export function BusinessTopbar({ stores, syncLabel }: { stores: ShellStore[]; sy
   return (
     <header className="topbar">
       <div className="crumb">
-        店舗フロア / {store ? store.name : 'すべての店舗'} / <b>{leaf}</b>
+        {group === null ? '' : `${group} / `}
+        {store ? store.name : 'すべての店舗'} / <b>{leaf}</b>
       </div>
       <div className="top-actions">
         <span className="honesty" role="note" aria-label="サンプルデータ — 実データではありません">

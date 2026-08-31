@@ -5866,8 +5866,13 @@ describe('BATCH-10b X4 — the two copy items', () => {
     // settings on this page. It shouldn't be 準備中」. The guard IS live on this
     // profile; what is unbuilt is the per-store control, and by the one-home law
     // it belongs in the 設定 room. The badge says so instead of saying nothing.
-    expect(SRC).toContain('<span className="chip">変更は「設定」ルームで（準備中）</span>')
+    // ⚠ AND THE 準備中 CAME OFF WHEN THE ROOM SHIPPED (room 9, 2026-09-01). The
+    // chip now names the SECTION the dial is on, because it is there to be read:
+    // a signpost that still says 準備中 after the destination opened is the
+    // 「checks lying about state」 class, not a stale word.
+    expect(SRC).toContain('<span className="chip">変更は「設定」＞店舗情報・営業時間で</span>')
     expect(SRC).not.toContain('<span className="chip">店舗設定は準備中</span>')
+    expect(SRC).not.toContain('変更は「設定」ルームで（準備中）')
     // The policy word itself is still the STORE's, read-only, unchanged.
     expect(SRC).toContain('<span>保護ルール: {POLICY_WORD[props.guard.mode]}</span>')
   })

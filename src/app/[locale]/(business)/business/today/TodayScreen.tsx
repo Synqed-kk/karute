@@ -5426,7 +5426,7 @@ export function TodayScreen(props: TodayProps) {
                           the 設定 room. Naming the room turns a broken-looking
                           badge into a signpost. */}
                       <span>保護ルール: {POLICY_WORD[props.guard.mode]}</span>
-                      <span className="chip">変更は「設定」ルームで（準備中）</span>
+                      <span className="chip">変更は「設定」＞店舗情報・営業時間で</span>
                     </div>
 
                     <div className="pop-divider" role="presentation" />

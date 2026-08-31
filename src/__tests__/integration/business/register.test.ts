@@ -1260,7 +1260,10 @@ describe('閉店できるか is ONE call, rendered wherever the page asks it', (
     const props = await room({ store: STORE_A })
     expect(props.close!.cash.toleranceLinkLabel).toBe('店舗設定で変更')
     expect(props.close!.cash.toleranceLinkRefusal).toContain('店舗設定')
-    expect(props.close!.cash.toleranceLinkRefusal).toContain('準備中')
+    // ⚠ THE ROOM SHIPPED (room 9, 2026-09-01): the sentence names the SECTION the
+    // value is shown on, and no longer calls the destination 準備中.
+    expect(props.close!.cash.toleranceLinkRefusal).toContain('「設定」＞決済')
+    expect(props.close!.cash.toleranceLinkRefusal).not.toContain('準備中')
     // The DIAL itself stays registry ④ — the room reads it, never hardcodes it.
     expect(props.close!.cash.tolerance).toContain(yen(cashTolerance))
   })
@@ -2345,11 +2348,12 @@ describe('⚖ the sibling-sheet fence, derived FRESH from today’s sheets', () 
   }
 
   it('the neighbours are all here — the list is read from disk, never restated', () => {
-    // `karute` joined the family in room 5 (2026-08-30). The list is READ from
+    // `karute` joined in room 5 (2026-08-30), `settings` in room 9 (2026-09-01).
+    // The list is READ from
     // disk and this line is the pin on what was read — a new neighbour is meant
     // to fail here once, so the room that added it re-derives the collision list
     // below in the same pass rather than discovering the bleed in a browser.
-    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'customers', 'inbox', 'karute', 'reservations', 'shifts', 'today'])
+    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'customers', 'inbox', 'karute', 'reservations', 'settings', 'shifts', 'today'])
   })
 
   it('every sibling rule that could reach this room is FENCED at four levels', () => {

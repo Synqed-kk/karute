@@ -1,0 +1,528 @@
+/* 設定 — the room's sheet. A CATEGORY RAIL and ONE SECTION AT A TIME, wearing
+   the family's clothes and canon's own settings IA.
+
+   THE SHAPE, IN THE ORDER THE PAGE READS:
+     · the head — what this page is, with the ? that opens 画面の説明;
+     · the rail — canon's five groups and twenty entries, each carrying its own
+       state (準備中 / 権限がありません / 自分だけ);
+     · the panel — one section: its kicker, title and lead, then its dials, then
+       (on a desk) the trace card that says where every value came from;
+     · the standing 「この画面からは保存できません」 line, on store sections only.
+
+   ── ⚖ THE LAWS THIS ROOM WAS DESIGNED UNDER ────────────────────────────────
+
+   (a) GATING IS SECTION-SCOPED, AND THE SHEET CANNOT UNDO IT. There is no
+       page-level boundary rule here — no `.pg-settings.is-locked`, no
+       `.st-body[hidden]`. A closed section renders `.st-boundary` INSIDE the
+       panel, beside a rail that still works, so 自分の表示設定 stays reachable
+       for a reader who may change nothing else. That is the DIAL-HOME-MAP's (d)
+       gap, closed in the markup rather than by positional discipline.
+
+   (b) STATE IS NOT ACTION (⚖ R13 + the one-way accent law, and this room needed
+       the distinction more than most). Almost every control here is REFUSED: it
+       shows the value the product is really using and cannot change it. So the
+       accent is spent ONLY where a press really does something — the rail
+       (navigation), the ? (opens the tour), and 自分の表示設定's two live
+       controls. A refused control's current value is marked with a NEUTRAL wash
+       and weight instead. Accent would be the page promising an action it does
+       not have. No black fills anywhere, on anything.
+
+   (c) EVERY BAND IS ITS OWN COMPOSITION (⚖ Liam 9/1). Three deliberate
+       compositions, named below with the width each is for and the reason it is
+       that shape.
+
+   ── THE THREE COMPOSITIONS, AND THE TWO THRESHOLDS BETWEEN THEM ─────────────
+
+   ① STACKED (`.st-main` < 380 — phones in portrait)
+      The label, the control, the guardrails and the reason each take the full
+      width, in reading order. Touch targets ≥44px from 1023 down, because every
+      one of these is a finger on glass.
+
+   ② LEVEL (`.st-main` ≥ 380 — foldables, iPads, laptops)
+      The label and its control sit on ONE line, canon's own `.set-row` shape,
+      with the description and the three guardrail lines beneath them. A dial is
+      read as 「this thing → is set to that」, and that sentence wants one line.
+
+   ③ DESK (`.st-panel` ≥ 720 — laptops and externals; ② still holds inside it)
+      The trace card moves from under the dials to BESIDE them, so 「the value」
+      and 「where the value comes from」 are one glance apart instead of a scroll.
+      ⚖ 8/30, desktop surpasses phone: the width buys the reader the receipts,
+      not more rows.
+
+   ── THE ARITHMETIC, STATED SO IT CAN BE READ RATHER THAN REMEMBERED ─────────
+   (the room-6 B4-1 law: a literal threshold goes stale the moment one of its
+   terms moves, and the suite parses these numbers and asserts each threshold
+   against their SUM.)
+
+     THRESHOLD ①→② (stacked → level), on `.st-main`:
+         140  the label column — 「予定ブロックの移動単位」 on one line
+       +  16  the gap between label and control
+       + 220  the widest control: a four-option 分 segment (4×50 + 3×5 + slack)
+       ─────
+         376  the width at which the level SHAPE first fits
+         380  ships — 376 plus 4px of slack, so a fractional page (zoom, a
+              scrollbar) cannot land the row on the wrong side of an equality.
+
+     THRESHOLD ②→③ (level → desk), on `.st-panel`:
+         440  the dial column, with a refusal sentence readable inside it
+       +  20  the gap between the columns
+       + 250  the trace card (a label/value list, two words per line)
+       ─────
+         710  the width at which the master–detail SHAPE first fits
+         720  ships — 710 plus 10px of slack.
+              ⚠ 780 SHIPPED FIRST AND WAS WRONG BY 52px, which only the shots
+              showed: at 1280 with the shell's own rail OPEN the panel is 728, so
+              the reference laptop — the width this product is actually read on —
+              lost the trace card to a scroll. ⚖ 8/30 says the desk earns its
+              width by showing MORE, and 728 really does hold both columns.
+
+     MONOTONIC, AND CROSSED EXACTLY ONCE ACROSS A SWEEP. `.st-main` is the panel
+     minus the 220px rail and its 20px gap from 744 up, and the whole page below
+     it; `.st-panel` is the same minus nothing. Worked, at the shell's real rail
+     widths (76px closed, 264px open ≥1024, always 76px below):
+       390 → main 286 ①    ·  744 → main 392 ②   ·  1024 open → main 472 ②
+       743 → main 639 ②    ·  800 → main 448 ②   ·  1024 closed → main 660 ②
+       1180c → panel 816 ③ · 1280o → panel 728 ③ · 1586c → panel 1214 ③
+     The ①→② crossing happens once (inside the phone band) and the ②→③ crossing
+     once (between 1024 and 1180); neither shape is gained, lost and gained again.
+
+   ── THE ONE MEDIA-DRIVEN SWAP, AND WHY IT IS NOT A CONTAINER QUESTION ───────
+   ⚖ ALL-SCREEN's ≤743 clause is 「list-is-the-page, detail as its own screen with
+   back」. That is a DEVICE law about how a phone is held, not a question about
+   how much room a box has, so it is a media query: below 744 the rail is the
+   page and a chosen section replaces it, with a ← back. From 744 up both are on
+   screen at once. No container rule disagrees with it, because the container
+   rules only ever decide what happens INSIDE the panel.
+
+   ── TYPOGRAPHY (apple-design §15) ──────────────────────────────────────────
+   Tracking is SIZE-SPECIFIC, never one value for all sizes: the 26px title
+   carries −.02em because letters read too far apart as they grow, section titles
+   −.01em, body 0, and the 11.5px labels +.01em because small text needs the
+   opposite correction. Leading runs inversely to size — 1.25 on the title, 1.85
+   on the guardrail sentences, which are the lines a manager has to actually
+   read. The face is the shell's own system stack.
+
+   ── TWO SCOPING JOBS, AND THEY ARE DIFFERENT PROBLEMS ──────────────────────
+
+   OUTGOING (this sheet reaching another room). Every rule below is scoped under
+   `.pg-settings`, and the screen puts that class on exactly one node.
+
+   INCOMING (another room's sheet reaching THIS one) — the room-2 BLOCKER class.
+   `.pg-settings` does nothing about it: App Router keeps every sibling sheet
+   loaded, and the neighbours state BARE `.biz .<name>` rules on the exact names
+   a settings page would want — `.panel`, `.card`, `.row`, `.chip`, `.seg`,
+   `.switch`, `.spot-card`…
+
+   THE FENCE HERE IS STRUCTURAL RATHER THAN ENUMERATED: every element this room
+   owns carries an `st-` name that exists nowhere else in the family, so there is
+   no rule to collide with — a fence that cannot rot as the neighbours grow.
+   `page` / `h1` / `btn` are the only shell names this sheet states, and those
+   are fenced immediately below at FOUR levels, because a sibling's own
+   three-level rule (`.biz .page .btn`, customers.css:23) ties at three and a tie
+   is decided by whichever sheet App Router happened to insert last.
+
+   ⚖ FOCUS IS THE SHELL'S (business-shell.css, 3px ring at 2px offset,
+   :focus-visible only) and is deliberately NOT restated — a second home for one
+   verdict. ⚠ …but a ring the room CLIPS is not a ring (the room-3 F2 lesson), so
+   no container here uses `overflow: hidden`.
+
+   ⚖ PAGE-SCROLL (Liam 8/22, ruled twice): NOT ONE container in this room owns an
+   axis. No height cap, no overflow-y, no overscroll-behavior, no overflow-x. The
+   rail grows down the page and the PAGE scrolls. */
+
+/* ── the fence: the three shared names this room states ────────────────────── */
+.biz .page.pg-settings { padding: 24px 28px 40px; }
+.biz .page.pg-settings h1 { margin: 0; font-size: 26px; line-height: 1.25; letter-spacing: -.02em; font-weight: 700; }
+.biz .page.pg-settings .btn { font-weight: 500; }
+.biz .page.pg-settings .btn.primary { font-weight: 600; }
+
+/* ── the room's tokens ─────────────────────────────────────────────────────── */
+.biz .page.pg-settings {
+  --st-accent: #2563eb;                       /* globals.css --primary (⚖ R13) */
+  --st-accent-wash: rgba(37, 99, 235, .08);   /* ⚖ R13's selected recipe: /8, never a fill */
+  --st-panel-bg: #fff;
+  --st-line: #e4e4e9;                         /* shell --line */
+  --st-soft: #f7f7f9;
+  /* ⚠ THE 「CURRENT VALUE」 MARK IS NEUTRAL, AND THAT IS LAW (b) IN A TOKEN. A
+     refused control's selected option is STATE, not something the reader chose,
+     so it is a grey wash with weight rather than the accent. The accent below is
+     spent only on the rail, the ?, and the two live preference controls. */
+  --st-current-bg: #ececf0;                   /* shell --section */
+  --st-current-ink: #18181b;                  /* shell --ink */
+  --st-current-line: #c9c9d2;
+
+  /* THE LADDER'S TERMS. Read the arithmetic in the header; the suite parses
+     these four and asserts 380 = 140+16+220+4 and 720 = 440+20+250+10. */
+  --st-what-min: 140px;
+  --st-what-gap: 16px;
+  --st-ctl-min: 220px;
+  --st-main-min: 440px;
+  --st-cols-gap: 20px;
+  --st-aside-min: 250px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+
+  /* ⚠ ONE UNBROKEN LATIN RUN PUSHES THE WHOLE PAGE SIDEWAYS, and an all-Japanese
+     demo hides it completely: Japanese breaks at any character, so every fixture
+     string in this room wraps by luck. A capability token in a refusal
+     (`settings.manage`), a staff id in a lockout list, a language tag — any of
+     them is a single unbreakable word wider than a 140px label column.
+     `anywhere` rather than `break-word` on purpose: `anywhere` also lets the
+     break count toward the element's MIN-CONTENT width, so a grid track can
+     shrink past the long word instead of being sized by it. */
+  overflow-wrap: anywhere;
+}
+
+/* ── the head ──────────────────────────────────────────────────────────────── */
+.biz .pg-settings .st-head { display: flex; flex-direction: column; gap: 6px; }
+.biz .pg-settings .st-eyebrow { color: var(--quiet); font-size: 12px; letter-spacing: .01em; }
+.biz .pg-settings .st-titleline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.biz .pg-settings .st-help {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; min-width: 26px;
+  border: 1.5px solid var(--control); border-radius: 50%;
+  background: #fff; color: var(--ink-3);
+  font-size: 13px; font-weight: 700; line-height: 1;
+}
+.biz .pg-settings .st-help:hover { border-color: var(--st-accent); color: var(--st-accent); }
+.biz .pg-settings .st-help[aria-expanded="true"] { border-color: var(--st-accent); background: var(--st-accent-wash); color: var(--st-accent); }
+.biz .pg-settings .st-sub { margin: 0; max-width: 72ch; color: var(--ink-2); font-size: 13.5px; line-height: 1.8; }
+
+/* ⚠ FEEDBACK LIVES ON THE PRESS, NOT THE RELEASE (apple-design §1). A control
+   that only changes on `click` reads as dead for the length of the press.
+   100ms, `ease-out`, on `transform` only (a compositor property, §11).
+   ⚠ REFUSED CONTROLS GET NONE, DELIBERATELY: nothing happens when they are
+   pressed, so nothing should look like it did. Only the rail, the ?, and the two
+   live preference controls answer a press here. */
+.biz .pg-settings .st-rail-item:active,
+.biz .pg-settings .st-back:active,
+.biz .pg-settings .st-prefs .st-opt:active,
+.biz .pg-settings .st-help:active { transform: scale(.98); transition: transform 100ms ease-out; }
+
+/* ── the body: rail + panel ────────────────────────────────────────────────── */
+.biz .pg-settings .st-body { display: grid; grid-template-columns: 1fr; gap: var(--st-cols-gap); align-items: start; }
+
+/* ── the rail ──────────────────────────────────────────────────────────────── */
+.biz .pg-settings .st-rail {
+  border: 1px solid var(--st-line); border-radius: 13px;
+  background: var(--st-panel-bg);
+  align-self: start;
+}
+.biz .pg-settings .st-rail-head { padding: 13px 16px; border-bottom: 1px solid var(--line-2); font-size: 14.5px; font-weight: 700; line-height: 1.45; letter-spacing: -.01em; }
+.biz .pg-settings .st-rail-label { padding: 12px 16px 5px; color: var(--quiet); font-size: 11.5px; font-weight: 700; letter-spacing: .04em; }
+.biz .pg-settings .st-rail-item {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  width: 100%; min-height: 44px; padding: 6px 16px;
+  border: 0; border-left: 3px solid transparent;
+  background: transparent; color: var(--ink-2);
+  font-size: 13.5px; font-weight: 600; line-height: 1.5; text-align: left;
+}
+.biz .pg-settings .st-rail-item:hover { background: var(--row); }
+/* ⚖ THE RAIL IS REAL NAVIGATION, so this one gets the accent (law (b)). */
+.biz .pg-settings .st-rail-item.is-on { border-left-color: var(--st-accent); background: var(--st-accent-wash); color: var(--st-accent); }
+.biz .pg-settings .st-rail-name { flex: 1 1 auto; min-width: 0; }
+.biz .pg-settings .st-flag {
+  padding: 2px 8px; border-radius: 999px;
+  background: var(--section); color: var(--ink-3);
+  font-size: 10.5px; font-weight: 700; letter-spacing: .01em; white-space: nowrap;
+}
+.biz .pg-settings .st-flag.is-rights { background: var(--st-soft); color: var(--muted); }
+.biz .pg-settings .st-flag.is-self { background: var(--green-soft); color: var(--green-dark); }
+.biz .pg-settings .st-rail-group + .st-rail-group { border-top: 1px solid var(--line-2); }
+
+/* ── the panel ─────────────────────────────────────────────────────────────── */
+.biz .pg-settings .st-panel {
+  container: st-panel / inline-size;
+  display: flex; flex-direction: column; gap: 16px;
+  min-width: 0;
+}
+/* The back button belongs to the phone band; it is rendered always and hidden
+   here, never conditionally mounted — a target that appears with a resize is a
+   target that moves under a thumb. */
+.biz .pg-settings .st-back { display: none; }
+
+.biz .pg-settings .st-sec-head { display: flex; flex-direction: column; gap: 6px; }
+.biz .pg-settings .st-sec-head h2 { margin: 0; font-size: 19px; font-weight: 700; line-height: 1.4; letter-spacing: -.01em; color: var(--ink); }
+.biz .pg-settings .st-kicker {
+  align-self: flex-start;
+  padding: 3px 9px; border-radius: 999px;
+  background: var(--section); color: var(--ink-3);
+  font-size: 11.5px; font-weight: 700; letter-spacing: .01em;
+}
+.biz .pg-settings .st-lead { margin: 0; max-width: 68ch; color: var(--ink-2); font-size: 13.5px; line-height: 1.85; }
+
+/* ③ DESK lives here — one rule, one threshold. Below it the trace card simply
+   follows the dials down the page, which needs no rule of its own. */
+.biz .pg-settings .st-cols { display: grid; grid-template-columns: 1fr; gap: var(--st-cols-gap); align-items: start; }
+.biz .pg-settings .st-main { container: st-main / inline-size; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+@container st-panel (min-width: 720px) {
+  .biz .pg-settings .st-cols {
+    grid-template-columns: minmax(var(--st-main-min), 2.2fr) minmax(var(--st-aside-min), 1fr);
+  }
+}
+
+/* ── a dial ────────────────────────────────────────────────────────────────── */
+.biz .pg-settings .st-dial,
+.biz .pg-settings .st-prefs,
+.biz .pg-settings .st-soon,
+.biz .pg-settings .st-boundary,
+.biz .pg-settings .st-aside {
+  padding: 16px 18px;
+  border: 1px solid var(--st-line); border-radius: 12px;
+  background: var(--st-panel-bg);
+}
+/* ① STACKED is the base — the whole row is one column, no query needed. */
+.biz .pg-settings .st-dial { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.biz .pg-settings .st-dial-what { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.biz .pg-settings .st-dial-what b { font-size: 15px; font-weight: 700; line-height: 1.5; letter-spacing: -.005em; color: var(--ink); }
+.biz .pg-settings .st-dial-desc { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.8; max-width: 46em; }
+/* ⚠ 事業全体 / この店舗 — the one label a manager must not have to infer. */
+.biz .pg-settings .st-scope {
+  align-self: flex-start;
+  padding: 2px 8px; border-radius: 6px;
+  background: var(--st-soft); color: var(--ink-3);
+  font-size: 11px; font-weight: 700; letter-spacing: .01em; white-space: nowrap;
+}
+.biz .pg-settings .st-dial-ctl { display: flex; min-width: 0; }
+
+/* ② LEVEL — the label and its control on one line. The description, the
+   guardrails and the reason stay full width beneath, because they are sentences
+   and a sentence in a 140px column is a column of syllables.
+   ⚠ EVERY CHILD IS PLACED EXPLICITLY, never by `order` or `display: contents`.
+   Auto-placement plus `order` is the arrangement that looks right until one row
+   has a two-line label, and then a description quietly moves into the control's
+   column; explicit rows and columns cannot do that at any string length. */
+@container st-main (min-width: 380px) {
+  .biz .pg-settings .st-dial {
+    grid-template-columns: minmax(var(--st-what-min), 1fr) minmax(0, max-content);
+    column-gap: var(--st-what-gap);
+    align-items: start;
+  }
+  .biz .pg-settings .st-dial > .st-dial-what { grid-column: 1; grid-row: 1; }
+  .biz .pg-settings .st-dial > .st-dial-ctl { grid-column: 2; grid-row: 1; justify-content: flex-end; }
+  .biz .pg-settings .st-dial > .st-dial-desc { grid-column: 1 / -1; grid-row: 2; }
+  .biz .pg-settings .st-dial > .st-trio { grid-column: 1 / -1; grid-row: 3; }
+  .biz .pg-settings .st-dial > .st-why { grid-column: 1 / -1; grid-row: 4; }
+}
+
+/* ── the controls ──────────────────────────────────────────────────────────── */
+.biz .pg-settings .st-seg { display: flex; gap: 5px; flex-wrap: wrap; }
+.biz .pg-settings .st-opt {
+  min-height: 34px; padding: 0 12px;
+  border: 1px solid var(--control); border-radius: 8px;
+  background: #fff; color: var(--ink-2);
+  font-size: 13px; font-weight: 600; white-space: nowrap;
+}
+.biz .pg-settings .st-opt:hover { background: #fafafb; }
+/* ⚖ LAW (b): a REFUSED control's current value is neutral-strong — this is how
+   things ARE, not something the reader did. */
+.biz .pg-settings .st-opt[aria-pressed="true"] { background: var(--st-current-bg); border-color: var(--st-current-line); color: var(--st-current-ink); font-weight: 700; }
+.biz .pg-settings .st-opt[aria-disabled="true"] { cursor: default; }
+.biz .pg-settings .st-opt[aria-disabled="true"]:hover { background: #fff; }
+.biz .pg-settings .st-opt[aria-disabled="true"][aria-pressed="true"]:hover { background: var(--st-current-bg); }
+/* …and 自分の表示設定's are LIVE, so they get the accent (⚖ R13's own recipe). */
+.biz .pg-settings .st-prefs .st-opt[aria-pressed="true"] { background: var(--st-accent-wash); border-color: var(--st-accent); color: var(--st-accent); font-weight: 700; }
+
+.biz .pg-settings .st-switchline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.biz .pg-settings .st-state { color: var(--ink-2); font-size: 12.5px; font-weight: 700; line-height: 1.5; }
+.biz .pg-settings .st-state.is-on { color: var(--ink); }
+.biz .pg-settings .st-switch {
+  position: relative; flex-shrink: 0;
+  width: 52px; height: 30px; padding: 0;
+  border: 1px solid var(--control); border-radius: 999px;
+  background: #e9e9ee;
+}
+.biz .pg-settings .st-switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(24, 24, 27, .25);
+}
+/* Neutral again, for the same reason: the knob's position IS the store's value. */
+.biz .pg-settings .st-switch[aria-checked="true"] { background: var(--st-current-line); border-color: var(--st-current-line); }
+.biz .pg-settings .st-switch[aria-checked="true"]::after { left: 24px; }
+
+.biz .pg-settings .st-readout { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
+.biz .pg-settings .st-readout b { color: var(--ink); font-size: 20px; font-weight: 700; line-height: 1.25; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+/* ⚠ A PHRASE IS NOT A FIGURE (apple-design §15: hierarchy is weight + size +
+   leading as a SET). 「¥0」 at 20px is the number a manager scans for; 「オーナー・
+   店舗管理者・スタッフ」 at 20px is a headline shouting over the section title —
+   which is exactly how the スタッフ管理 shot read before this rule. */
+.biz .pg-settings .st-readout.is-phrase b { font-size: 14px; line-height: 1.6; letter-spacing: -.005em; }
+.biz .pg-settings .st-readout span { color: var(--muted); font-size: 11.5px; line-height: 1.6; letter-spacing: .01em; }
+
+/* ── the mistake-proofing trio, and the reason ─────────────────────────────── */
+/* ⚠ NO CODES, AND THAT IS A RULE RATHER THAN A TASTE. The first cut marked the
+   three lines with single-kanji glyphs (初 / 限 / 業) — which is a legend a
+   receptionist has to learn, and ⚖ 「plain names, never codes」 rules it out. The
+   sentences already name themselves (「初期値: …」, 「業種による初期値…」), so the
+   hierarchy does the rest of the work: the GUARDRAIL is the line a manager must
+   not miss, so it is the darkest and carries the rule's own marker; the default
+   is quiet; the 業種 note is quieter still. Weight + colour + leading as a SET
+   (apple-design §15), never a decoder ring. */
+.biz .pg-settings .st-trio { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-settings .st-trio li { font-size: 12px; line-height: 1.85; }
+.biz .pg-settings .st-trio-base { color: var(--ink-3); font-weight: 600; }
+.biz .pg-settings .st-trio-rail { padding-left: 11px; border-left: 2px solid var(--st-current-line); color: var(--ink-2); }
+.biz .pg-settings .st-trio-type { color: var(--muted); }
+.biz .pg-settings .st-why {
+  margin: 0; padding: 9px 12px;
+  border-left: 2.5px solid var(--section); border-radius: 0 8px 8px 0;
+  background: var(--st-soft); color: var(--ink-3);
+  font-size: 11.5px; line-height: 1.85;
+}
+
+/* ── the trace card ────────────────────────────────────────────────────────── */
+.biz .pg-settings .st-aside { background: var(--st-soft); }
+.biz .pg-settings .st-aside h3 { margin: 0 0 9px; font-size: 13.5px; font-weight: 700; line-height: 1.45; letter-spacing: -.005em; color: var(--ink); }
+.biz .pg-settings .st-trace { display: flex; flex-direction: column; gap: 8px; margin: 0; }
+.biz .pg-settings .st-trace-row { display: flex; flex-direction: column; gap: 2px; }
+.biz .pg-settings .st-trace-row dt { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .01em; }
+.biz .pg-settings .st-trace-row dd { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.7; }
+.biz .pg-settings .st-aside-note { margin: 11px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.8; }
+
+/* ── 準備中, the boundary, and the standing line ───────────────────────────── */
+.biz .pg-settings .st-soon { background: var(--st-soft); }
+.biz .pg-settings .st-soon h3 { margin: 0 0 8px; font-size: 13.5px; font-weight: 700; line-height: 1.45; color: var(--ink); }
+.biz .pg-settings .st-soon-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-settings .st-soon-list li { padding: 3px 10px; border-radius: 999px; background: #fff; border: 1px solid var(--st-line); color: var(--ink-2); font-size: 12px; line-height: 1.7; }
+.biz .pg-settings .st-soon-today { margin: 11px 0 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
+.biz .pg-settings .st-boundary { background: var(--st-soft); }
+.biz .pg-settings .st-boundary p { margin: 0; max-width: 62ch; color: var(--ink-2); font-size: 13px; line-height: 1.85; }
+.biz .pg-settings .st-foot { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.8; }
+
+/* ── 自分の表示設定 — the one live block ───────────────────────────────────── */
+.biz .pg-settings .st-prefs { display: flex; flex-direction: column; gap: 14px; }
+.biz .pg-settings .st-pref-row { display: grid; grid-template-columns: 1fr; gap: 10px; }
+@container st-main (min-width: 380px) {
+  .biz .pg-settings .st-pref-row {
+    grid-template-columns: minmax(var(--st-what-min), 1fr) minmax(0, max-content);
+    column-gap: var(--st-what-gap);
+    align-items: center;
+  }
+}
+.biz .pg-settings .st-preview { padding: 12px 14px; border: 1px solid var(--st-line); border-radius: 10px; background: var(--st-soft); }
+.biz .pg-settings .st-pv-note { margin-bottom: 8px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .01em; }
+.biz .pg-settings .st-pv-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 12px; margin-bottom: 8px;
+  border: 1px solid var(--st-line); border-radius: 9px; background: #fff;
+  color: var(--ink-2); font-size: 12.5px; line-height: 1.6;
+}
+.biz .pg-settings .st-pv-row:last-child { margin-bottom: 0; }
+/* ⚠ THE PREVIEW IS THE LIVE CONTROL'S VISIBLE EFFECT (the dead-lever law). The
+   two attributes below are written by the screen from the reader's own saved
+   preference, so pressing 密度 really changes what is on screen. */
+.biz .pg-settings .st-preview[data-density="compact"] .st-pv-row { padding: 6px 10px; margin-bottom: 5px; }
+.biz .pg-settings .st-preview[data-density="spacious"] .st-pv-row { padding: 15px 14px; margin-bottom: 11px; }
+.biz .pg-settings .st-preview[data-emphasis="subtle"] .st-pv-row { border-color: var(--line-2); }
+.biz .pg-settings .st-preview[data-emphasis="strong"] .st-pv-row { border-width: 2px; border-color: var(--st-current-line); }
+.biz .pg-settings .st-pref-saved { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.7; }
+
+/* ── ⚖ Liam 8/23 — 画面の説明 (the guided tour) ────────────────────────────── */
+/* z-indices sit above the shell's sticky topbar (z 5); one room's overlay is
+   never on screen with another's (the ⚖ sibling-sheet fence). NO SCROLLER, NO
+   HEIGHT CAP (⚖ page-scroll). */
+.biz .pg-settings .st-spot-hole {
+  position: fixed; z-index: 70; pointer-events: none; border-radius: 12px;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 9999px rgba(24, 24, 27, .42);
+  transition: top .24s cubic-bezier(.2, .7, .1, 1), left .24s cubic-bezier(.2, .7, .1, 1), width .24s cubic-bezier(.2, .7, .1, 1), height .24s cubic-bezier(.2, .7, .1, 1);
+}
+.biz .pg-settings .st-spot-catch { position: fixed; inset: 0; z-index: 69; cursor: pointer; }
+.biz .pg-settings .st-spot-hover { position: fixed; z-index: 70; pointer-events: none; border: 2px dashed rgba(255, 255, 255, .9); border-radius: 12px; }
+.biz .pg-settings .st-spot-card {
+  position: fixed; z-index: 72;
+  width: 300px; max-width: calc(100vw - 20px);
+  padding: 12px 14px 10px;
+  border: 1.5px solid var(--control); border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 40px rgba(24, 24, 27, .3);
+  font-size: 12.5px; line-height: 1.7; color: var(--ink-2);
+}
+.biz .pg-settings .st-spot-card b { display: block; margin-bottom: 2px; font-size: 13.5px; line-height: 1.45; letter-spacing: -.01em; color: var(--ink); }
+.biz .pg-settings .st-spot-text { display: block; }
+.biz .pg-settings .st-spot-hint { margin-top: 6px; color: var(--quiet); font-size: 11px; letter-spacing: .01em; }
+.biz .pg-settings .st-spot-foot { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--section); }
+.biz .pg-settings .st-spot-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.biz .pg-settings .st-spot-foot button { min-height: 30px; padding: 0 11px; border: 1px solid var(--control); border-radius: 7px; background: #fff; color: var(--ink-2); font-size: 12px; font-weight: 600; }
+.biz .pg-settings .st-spot-foot button:hover { background: #f4f4f5; }
+.biz .pg-settings .st-spot-foot button:disabled { opacity: .4; cursor: default; }
+.biz .pg-settings .st-spot-foot .st-spot-done { margin-left: auto; }
+
+/* ⚖ REDUCED MOTION IS NOT NO FEEDBACK — it is a gentler equivalent
+   (apple-design §14). The spotlight still MOVES to the next section, because
+   where it lands is the information; what goes is the 240ms travel across the
+   page, which is the vestibular part. The press feedback stays: it is a
+   transform on a control the reader is touching, not a journey across a screen. */
+@media (prefers-reduced-motion: reduce) {
+  .biz .pg-settings .st-spot-hole { transition: none; }
+}
+
+/* ── ⚖ ALL-SCREEN ADAPTIVITY (Liam 8/23 + 9/1) — the bands ─────────────────── */
+/* Only the PAGE's own rules live here; the shell's bands (`.biz .app`'s 1180px
+   floor, the rail, the topbar) are the family CSS sweep's, and this room joins
+   the floor's opt-in list in business-shell.css. The three COMPOSITIONS are the
+   container queries above, once each — never restated in a media band, so a
+   viewport rule can never disagree with the shape the container decided. */
+
+/* ═══ ≥1400 — big external displays: comfort, with line lengths capped ═══ */
+@media (min-width: 1400px) {
+  .biz .page.pg-settings { padding-left: 28px; padding-right: 28px; }
+  .biz .pg-settings .st-lead,
+  .biz .pg-settings .st-dial-desc,
+  .biz .pg-settings .st-why,
+  .biz .pg-settings .st-boundary p,
+  .biz .pg-settings .st-soon-today { max-width: 66ch; }
+}
+
+/* ═══ ≤1399 — laptops. The page keeps a 24px gutter so the rail never touches
+   the shell's own rail. ═══ */
+@media (max-width: 1399px) {
+  .biz .page.pg-settings { padding-left: 24px; padding-right: 24px; }
+}
+
+/* ═══ ≤1023 — EVERY TOUCH DEVICE, not just the phone (room 8's C8-7). ⚖
+   ALL-SCREEN names ≥44px at ≤743, and that is its FLOOR rather than its
+   ceiling: 744–1023 is the iPad portrait / mini / opened-foldable band, which is
+   a finger on glass exactly as 743 is. ═══ */
+@media (max-width: 1023px) {
+  .biz .page.pg-settings { padding-left: 18px; padding-right: 18px; }
+  .biz .pg-settings .st-opt { min-height: 44px; }
+  .biz .pg-settings .st-help { width: 44px; height: 44px; min-width: 44px; font-size: 16px; }
+  .biz .pg-settings .st-switch { height: 44px; width: 68px; border-radius: 999px; }
+  .biz .pg-settings .st-switch::after { top: 8px; width: 26px; height: 26px; }
+  .biz .pg-settings .st-switch[aria-checked="true"]::after { left: 33px; }
+  .biz .pg-settings .st-back { min-height: 44px; }
+  .biz .pg-settings .st-spot-foot button { min-height: 44px; }
+}
+
+/* ═══ ≤743 — phone / folded cover screen. ⚖ list-is-the-page: the rail IS the
+   page, and a chosen section replaces it with a way back. This is the ONE
+   media-driven composition swap in the room, and it is a device law rather than
+   a width question — see the sheet's header. ═══ */
+@media (max-width: 743px) {
+  .biz .page.pg-settings { padding: 18px 14px 32px; }
+  .biz .page.pg-settings h1 { font-size: 22px; letter-spacing: -.018em; }
+  .biz .pg-settings .st-panel { display: none; }
+  .biz .pg-settings.is-detail .st-rail { display: none; }
+  .biz .pg-settings.is-detail .st-panel { display: flex; }
+  .biz .pg-settings .st-back {
+    display: inline-flex; align-items: center; align-self: flex-start;
+    min-height: 44px; padding: 0 14px;
+    border: 1px solid var(--control); border-radius: 9px;
+    background: #fff; color: var(--ink-2);
+    font-size: 13px; font-weight: 600;
+  }
+  .biz .pg-settings .st-dial,
+  .biz .pg-settings .st-prefs,
+  .biz .pg-settings .st-soon,
+  .biz .pg-settings .st-boundary,
+  .biz .pg-settings .st-aside { padding: 14px 13px; }
+}
+
+/* ═══ ≥744 — the rail and the panel share the page. ═══ */
+@media (min-width: 744px) {
+  .biz .pg-settings .st-body { grid-template-columns: 220px minmax(0, 1fr); }
+}

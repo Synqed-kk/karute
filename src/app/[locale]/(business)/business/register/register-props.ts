@@ -76,9 +76,12 @@ const REFUSAL = {
   // ledger is; the screen it opens — choosing the item, the quantity, the
   // payment — is registry ⑪ and is not built here.
   sell: '見本データのため店頭販売を記録できません。売上の記録は在庫と決済に触れる操作のため、商品の登録と実データをつないだあとに有効になります。',
-  // ⑥ しきい値 の変更先. The 店舗設定 room is not live, so the row says where the
-  // dial lives instead of pointing at a route that would 404 (registry ④).
-  tolerance: '現金差異の承認しきい値は店舗設定で変更します。設定の画面はまだ準備中のため、ここからは開けません。',
+  // ⑥ しきい値 の変更先. The 設定 room SHIPPED (room 9, 2026-09-01) and shows this
+  // exact value on its 決済 section, so the sentence names the section rather
+  // than calling the room 準備中 — a signpost that outlives its destination's
+  // opening is a check lying about state. The WRITE is still refused, which is
+  // what this sentence is for (registry ④).
+  tolerance: '現金差異の承認しきい値は店舗設定で変更します。いまの値は「設定」＞決済で確認できます。見本データのため、この画面からは変更できません。',
 } as const
 
 const FOOTNOTE = '見本データのため実行・記録はできません — 実データ接続後に有効になります。'

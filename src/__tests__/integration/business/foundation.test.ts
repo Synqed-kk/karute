@@ -607,6 +607,39 @@ describe('the fixture data door', () => {
         'react',
       ],
       'src/app/[locale]/(business)/business/karute/loading.tsx': ['@/business/i18n'],
+      // 設定 (room 9). ⚠ THE PROPS FILE'S INVENTORY IS THE ROOM'S OWN ONE-TRUTH
+      // PIN, and it is meant to be long: every plane listed there is a dial value
+      // this room READS from the room that ships it, instead of keeping a second
+      // copy. `fixtures-settings` is the ADD-only plane for the dials no room
+      // owns a value for — its own inventory is `./fixtures` and nothing else,
+      // because a plane that imported a derivation could restate a fact.
+      'src/business/lib/fixtures-settings.ts': ['./fixtures'],
+      // The rules are PURE, and the empty inventory is the pin on that: the gate,
+      // the clamps and the refusal table decide things about values they are
+      // handed, never values they fetch.
+      'src/business/lib/settings.ts': [],
+      'src/app/[locale]/(business)/business/settings/page.tsx': [
+        './SettingsScreen',
+        './settings-props',
+        './settings.css',
+        '@/business/lib/admission',
+      ],
+      'src/app/[locale]/(business)/business/settings/settings-props.ts': [
+        './SettingsScreen',
+        '@/business/lib/data',
+        '@/business/lib/fixtures',
+        '@/business/lib/fixtures-register',
+        '@/business/lib/fixtures-settings',
+        '@/business/lib/fixtures-shifts',
+        '@/business/lib/fixtures-today',
+        '@/business/lib/settings',
+      ],
+      'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx': [
+        '@/business/lib/guide',
+        '@/business/lib/settings',
+        'react',
+      ],
+      'src/app/[locale]/(business)/business/settings/loading.tsx': ['@/business/i18n'],
     }
     for (const [file, expected] of Object.entries(INVENTORY)) {
       const src = readFileSync(join(process.cwd(), file), 'utf8')
