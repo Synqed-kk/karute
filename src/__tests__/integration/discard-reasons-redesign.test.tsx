@@ -570,6 +570,29 @@ describe('破棄の記録 — a long transcript stays inside its panel', () => {
     expect(scroller?.className).toContain('overscroll-contain')
   })
 
+  it('the fades never wash the words: padding matches the fade at both ends', async () => {
+    await openLong()
+
+    // The fades are h-5 (20px) and h-11 (44px). Against pt-3/pb-6 the bottom
+    // one covered at least 20px of text and the top one 8px of the first line
+    // — and on a three-line transcript, which does not scroll at all, a
+    // gradient meaning "there is more below" sat over words with nothing below
+    // them: a false signal on top of an obscured line, inherited from a mock
+    // whose demo transcripts were long enough to hide it.
+    const content = document.querySelector('.overflow-y-auto > div:last-of-type')
+    expect(content?.className).toContain('pt-5')
+    expect(content?.className).toContain('pb-11')
+
+    // …and BOTH are held off the scrollbar's own track, which the comment
+    // beside them has always claimed and only the bottom one did — the top 20px
+    // of the thumb was washed out by the gradient.
+    const fades = Array.from(document.querySelectorAll('span[aria-hidden]'))
+      .map((s) => s.className)
+      .filter((c) => c.includes('bg-gradient-to-'))
+    expect(fades).toHaveLength(2)
+    expect(fades.every((c) => c.includes('right-[11px]'))).toBe(true)
+  })
+
   it('no clocks on the wire: the words still read, with NO markers invented', async () => {
     // An older deployment answers without startTime — the thin port normalises
     // it to null, and the panel must then place nothing rather than compute
@@ -718,20 +741,29 @@ describe('破棄の記録 — the computer reads the claim NEXT TO the evidence'
     setSectionWidth(1200)
     getDiscardTranscript.mockResolvedValue(WITH_WORDS)
     await renderRows([{}, { id: 'd2', recordingSessionId: 'rs-2', reason: 'ふたつめの理由' }])
-
     await waitFor(() => screen.getByText('本日はご来店ありがとうございます。'))
-    const before = document.querySelector('[role="region"]')
-    expect(before).not.toBeNull()
 
-    const list = document.querySelector('ul')
+    const list = document.querySelector('ul') as HTMLElement
+    // Open the second row so ITS transcript is cached too. The move that
+    // actually discriminates is between two rows whose words are both already
+    // held: a first open passes through a loading state, and that unmount
+    // replaces the scroll container whether the pane is keyed or not — so a
+    // test built on the first transition would go green over a missing key.
     await act(async () => {
-      fireEvent.click(within(list as HTMLElement).getByText('ふたつめの理由'))
+      fireEvent.click(within(list).getByText('ふたつめの理由'))
     })
     await waitFor(() => screen.getByText('本日はご来店ありがとうございます。'))
+    const onSecond = document.querySelector('[role="region"]')
+    expect(onSecond).not.toBeNull()
 
-    const after = document.querySelector('[role="region"]')
-    expect(after).not.toBeNull()
-    expect(after).not.toBe(before)
+    // Back to the first, from cache: no loading state in between, so the only
+    // thing that can hand back a different node is the remount.
+    await act(async () => {
+      fireEvent.click(within(list).getByText(REASON))
+    })
+    const onFirst = document.querySelector('[role="region"]')
+    expect(onFirst).not.toBeNull()
+    expect(onFirst).not.toBe(onSecond)
   })
 
   it('the transcript scroller is reachable and named for a keyboard', async () => {
