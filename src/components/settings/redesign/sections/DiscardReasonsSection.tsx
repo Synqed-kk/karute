@@ -712,16 +712,29 @@ function TranscriptPanel({
   t: T
   wide?: boolean
 }) {
+  // On the computer the two halves are EQUAL CARDS (⚖ 8/25 A), and that has to
+  // hold in every state: a bare line of text beside a bordered reason card
+  // reads as the subordinate of it, which is the one relationship this pairing
+  // must never suggest. On the phone the states keep exactly the markup they
+  // shipped with — there is no second column for them to balance against.
+  const shell = wide ? 'rounded-xl border border-border/60 p-4' : undefined
+
   if (!state || state.kind === 'loading') {
     return (
-      <p className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" aria-hidden />
-        {t('transcriptLoading')}
-      </p>
+      <div className={shell}>
+        <p className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" aria-hidden />
+          {t('transcriptLoading')}
+        </p>
+      </div>
     )
   }
   if (state.kind === 'error') {
-    return <p className="text-xs text-muted-foreground">{t('transcriptFailed')}</p>
+    return (
+      <div className={shell}>
+        <p className="text-xs text-muted-foreground">{t('transcriptFailed')}</p>
+      </div>
+    )
   }
   if (state.segments.length === 0) {
     // Under the floor NOTHING was ever transcribed (the ⚖ spend gate), which is
@@ -729,12 +742,12 @@ function TranscriptPanel({
     const belowFloor =
       state.durationSeconds !== null && state.durationSeconds < BELOW_FLOOR_SEC
     return (
-      <>
+      <div className={shell}>
         <p className="text-[11px] font-semibold text-muted-foreground">{t('transcriptTitle')}</p>
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
           {belowFloor ? t('transcriptBelowFloor', { n: BELOW_FLOOR_SEC }) : t('transcriptNone')}
         </p>
-      </>
+      </div>
     )
   }
 
