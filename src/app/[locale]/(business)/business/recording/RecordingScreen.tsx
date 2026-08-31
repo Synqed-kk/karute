@@ -961,6 +961,35 @@ export function RecordingScreen(props: RecordingProps) {
         <p className="rc-footnote" id="rcFootnote">{props.actionFootnote}</p>
       </div>
 
+      {/* ═══ CANON'S BOUNDARY MARKUP — PRESENT, AND INERT ═══════════════════
+          (fable-record-session.html:470-485; the ⚖ 8/24 TYPE-TIER doctrine line
+          asks for both variants on ONE mount.)
+
+          TWO REAL PRODUCT STATES this room will one day stand in, and neither
+          has a plane to read from yet:
+            · ENTITLEMENT — the business is on Reserve only, so 録音 is not part
+              of what it bought;
+            · RIGHTS — the person is signed in but has no recording capability.
+          Canon renders one panel and swaps the copy in place, so that is what
+          this is: ONE mount, both sentences, `hidden` + `aria-hidden` so it
+          paints nothing, takes no space, joins no tour step and reaches no
+          keyboard. Registry ⑨ owns the switch that will choose between them.
+
+          ⚖ 8/17 (the disconnected-depth overturn) is why it is INERT rather than
+          wired to a flag this room could invent: a speculative surface ships off
+          and reconnects on Liam's word. It is here rather than absent because
+          the shape a reconnect lands on should be designed once, not guessed
+          twice — and because a reader of this file should be able to see what
+          the two states say without opening canon. */}
+      <div className="rc-boundary" hidden aria-hidden="true" data-boundary="entitlement-and-rights">
+        <p data-variant="entitlement">
+          録音は Karute プランでご利用いただけます。いまの事業（Reserveのみ）には含まれていません。
+        </p>
+        <p data-variant="rights">
+          この操作には録音の記録権限が必要です。店舗の管理者にご相談ください。
+        </p>
+      </div>
+
       {/* ═══ THE MANAGER'S 破棄の記録 REVIEW — ITS OWN SCREEN (F5-1) ═══ */}
       {props.canReviewDiscards && (
         <div className="rc-review-view">

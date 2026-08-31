@@ -347,6 +347,33 @@ describe('⚖ ALL-SCREEN — the ladder and the thumb', () => {
   })
 })
 
+// ═══ CANON'S BOUNDARY MOUNT — PRESENT AND INERT ════════════════════════════
+
+describe('the boundary panel (⚖ the 8/24 TYPE-TIER doctrine line)', () => {
+  it('is ONE mount carrying BOTH variants, and it is inert', () => {
+    const block = SRC_CODE.slice(SRC_CODE.indexOf('rc-boundary'), SRC_CODE.indexOf('</div>', SRC_CODE.indexOf('rc-boundary')))
+    // one mount, not two
+    expect([...SRC_CODE.matchAll(/rc-boundary/g)].length).toBe(1)
+    // both product states are spelled out
+    expect(block).toContain('data-variant="entitlement"')
+    expect(block).toContain('data-variant="rights"')
+    expect(block).toContain('Karute プラン')
+    expect(block).toContain('録音の記録権限')
+    // …and it paints nothing, takes no space, joins no tour step and reaches no
+    // keyboard: `hidden` + `aria-hidden`, no `data-guide`, no control inside.
+    expect(SRC_CODE).toContain('<div className="rc-boundary" hidden aria-hidden="true"')
+    expect(block).not.toContain('data-guide')
+    expect(block).not.toMatch(/<button|<a |href=/)
+  })
+
+  it('⚖ 8/17 — it is DISCONNECTED: no flag in this room chooses between the variants', () => {
+    // A speculative surface ships off and reconnects on Liam's word; registry ⑨
+    // owns the switch. A room-invented flag would be the depth-grant the 8/17
+    // ruling overturned.
+    expect(SRC_CODE).not.toMatch(/entitlement\s*[?&|=]|hasRecordingPlan|canRecordCapability/)
+  })
+})
+
 // ═══ ⚖ 8/25 — THE NAV ITEM NEVER BLINKS WHILE THE DEMO RECORDS ══════════════
 
 describe('⚖ 8/25 — a live-state indicator in a NAV bar never blinks', () => {

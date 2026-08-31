@@ -544,6 +544,11 @@
 .biz .pg-recording .rc-trace-row a:hover { color: var(--rc-accent-hover); }
 .biz .pg-recording .rc-trace-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 
+/* canon's boundary mount — present and inert. `hidden` already paints nothing;
+   the rule is stated so a future sibling cannot un-hide it by accident, and so
+   the suite has a selector to pin. */
+.biz .pg-recording .rc-boundary[hidden] { display: none; }
+
 .biz .pg-recording .rc-footnote {
   margin: 2px 0 14px; padding: 11px 16px; border: 1px dashed #d8d8de; border-radius: 10px; background: #fafafa;
   color: var(--muted); font-size: 12px; line-height: 1.6;
@@ -793,6 +798,13 @@
   .biz .pg-recording .rc-recovery-save { min-height: 46px; }
   .biz .pg-recording .rc-recovery-discard { display: inline-flex; align-items: center; min-height: 44px; }
   .biz .pg-recording .rc-review-toggle { display: inline-flex; align-items: center; min-height: 44px; }
+  /* ⚠ CAUGHT BY THE PROBE'S MEASURED SWEEP, not by the rules above: the trace
+     card's one real link is a bare `<a>` inside a `<dd>`, so none of the
+     control-shaped floors reached it — it measured 100×13 at 743, 480 AND 390.
+     REAL PAINT rather than a 46px ::after, because these rows WRAP and two
+     invisible hit boxes on adjacent wrapped lines steal each other's centre
+     (the カルテ room's own F-K3 lesson about its crumb and contact links). */
+  .biz .pg-recording .rc-trace-row a { display: inline-flex; align-items: center; min-height: 44px; }
   .biz .pg-recording .rc-review-row { padding: 8px 14px 12px; }
   /* ⚖ ≥44px WITHOUT GROWING THE PAINT. A 44px help circle beside a 23px title
      would shout louder than the title; the hit box is extended past the paint
