@@ -208,6 +208,11 @@ export interface RecordingProps {
    *  is not a person, and the receipt's own field says 担当者. */
   operatorName: string
   subtitle: string
+  /** ⚠ THE HEAD'S 画面の説明 SENTENCE, ASSEMBLED FROM ACCESS like
+   *  `historyCaption`, `noticeLines` and `ownDiscardLine` (B1-9). It used to be
+   *  hardcoded and promised 破棄の記録 to a スタッフ reader, for whom that screen
+   *  does not exist. */
+  headGuide: string
   contexts: RecordingContextProps[]
   defaultAppointmentId: string | null
   takes: RecordingTakeProps[]
@@ -233,6 +238,10 @@ export interface RecordingProps {
     lengthLabel: string | null
     recordedByLabel: string
     belowFloor: boolean
+    /** ⚠ 保存する FOR A BOUND TAKE, 「お客様を選んで保存する」 FOR AN UNBOUND ONE —
+     *  the phone's own branch (`RecoveryBanner.tsx:181-187`). An unbound take has
+     *  no destination yet, so the next step is not the same step. */
+    saveLabel: string
     caption: string
     stopNote: string
   } | null
@@ -241,7 +250,12 @@ export interface RecordingProps {
   traceNote: string
   consentInstructions: string
   contactDisclaimer: string
-  transcriptFailedLine: string
+  /** ⚖ W7-2 — THE REFUSED WRITE'S OWN RENDERING, behind `?discardFail=`. `null`
+   *  on every ordinary render: a dialog that always fails would be claiming a
+   *  failure that did not happen. When it is set, the confirm goes 破棄中... and
+   *  then this sentence renders inline with the typed reason still in the field,
+   *  the dialog still open and nothing discarded. */
+  discardFail: { submitLabel: string; errorLine: string } | null
   actionFootnote: string
   refusals: {
     use: string
@@ -273,6 +287,11 @@ const samePos = (a: { hole: SpotRect; top: number; left: number }, b: { hole: Sp
  *  wider trace reads as a steadier signal. Same bar, same 3px, same gap. */
 const BARS = 40
 
+/** How long the `?discardFail=` demo spends in 破棄中... before the refusal
+ *  arrives. Long enough that the waiting state is a state a reader (and the
+ *  probe) can actually see, short enough that nobody wonders. */
+const WRITE_MS = 500
+
 export function RecordingScreen(props: RecordingProps) {
   // ── which booking, and which screen ───────────────────────────────────────
   const [pickedId, setPickedId] = useState<string | null>(props.defaultAppointmentId)
@@ -286,6 +305,15 @@ export function RecordingScreen(props: RecordingProps) {
   // ── the dialogs, and the ONE piece of typed text in the room ──────────────
   const [dialog, setDialog] = useState<'none' | 'consent' | 'discard' | 'use'>('none')
   const [reason, setReason] = useState('')
+  /** ⚖ W7-2 — THE REFUSED WRITE, WHICH IS A DESIGNED STATE AND NOT AN ACCIDENT.
+   *  Only reachable behind `?discardFail=` (`props.discardFail`), because a
+   *  dialog that always failed would claim a failure that did not happen. While
+   *  `submitting` the confirm reads 破棄中... and every exit is shut, exactly as
+   *  the phone's own dialog does it; `submitError` then renders inline and the
+   *  typed reason is STILL THERE — the confirm is the final commitment gate, so
+   *  a write that did not land must leave the staffer where they were. */
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   /** ⚠ WHO OPENED THE DISCARD DIALOG, AND ABOUT WHAT.
    *
    *  The dialog used to be parameterless while TWO different controls opened it
@@ -403,12 +431,19 @@ export function RecordingScreen(props: RecordingProps) {
    *  rather than dropping to `<body>`. The focus is taken BEFORE the state
    *  change lands, while the dialog is still on screen. */
   const closeDiscard = useCallback(() => {
+    // ⚠ AND AN IN-FLIGHT WRITE IS NOT A MOMENT TO LEAVE, whichever exit is
+    // taken. The guard is HERE rather than on the button, because cancel, the
+    // backdrop and Escape all land in this one function — the phone puts the
+    // same `if (!submitting)` on all three of its own exits.
+    if (submitting) return
     // …and it returns focus to WHICHEVER control opened it — the recorder's 破棄
     // or the banner's discard link.
     ;(discardOf === 'recovery' ? recoveryDiscardRef : discardBtnRef).current?.focus()
     setDialog('none')
     setReason('')
-  }, [discardOf])
+    // the refusal belongs to the attempt that was made, not to the next one
+    setSubmitError(null)
+  }, [discardOf, submitting])
 
   const closeDialog = useCallback(() => {
     if (dialog === 'discard') {
@@ -429,6 +464,16 @@ export function RecordingScreen(props: RecordingProps) {
   const settleDiscard = () => {
     const text = reason.trim()
     if (text === '') return
+    // ⚠ THE REFUSED WRITE, AND IT REFUSES BEFORE ANYTHING SETTLES. Nothing is
+    // discarded until the trace has landed, so this returns above every line
+    // that mints a receipt, resolves the banner or resets the machine — a
+    // failure that had already changed one of those would be the exact defect
+    // the phone's own dialog comment names (:20-23).
+    if (props.discardFail !== null) {
+      setSubmitError(null)
+      setSubmitting(true)
+      return
+    }
     // ⚠ 日時 IS THE DISCARD'S OWN MOMENT, not the booking's start time. The two
     // used to be the same string, so the receipt stated the session's hour twice
     // and never stated the one the dialog had just promised to keep.
@@ -594,6 +639,20 @@ export function RecordingScreen(props: RecordingProps) {
     if (dialog === 'discard') reasonRef.current?.focus()
   }, [dialog])
 
+  /** The pretend round trip the `?discardFail=` demo stands in for. ONE timer,
+   *  owned by the state that started it and torn down with it — the demo clock's
+   *  own shape, for the same reason. It exists because 破棄中... is a state a
+   *  reader has to be able to SEE: a refusal that arrived in the same frame as
+   *  the press would show the error and never the wait. */
+  useEffect(() => {
+    if (!submitting || props.discardFail === null) return
+    const id = window.setTimeout(() => {
+      setSubmitting(false)
+      setSubmitError(props.discardFail!.errorLine)
+    }, WRITE_MS)
+    return () => window.clearTimeout(id)
+  }, [submitting, props.discardFail])
+
   /** A refused control, spelled ONCE. `aria-disabled` rather than `disabled`:
    *  the control stays focusable so its reason is reachable by keyboard and
    *  screen reader. The reason rides the ACCESSIBLE NAME as well as the title,
@@ -618,7 +677,11 @@ export function RecordingScreen(props: RecordingProps) {
   }
 
   const live = phase === 'recording'
-  const ended = phase === 'stopped' || phase === 'committed'
+  /** ⚠ FOUR STATES, AND 停止 IS THE LAST ONE (R6-18). ⚖ R6-D3's commit refuses,
+   *  so nothing can put this machine into canon's 反映済み — the branch used to
+   *  read `phase === 'stopped' || phase === 'committed'`, where the second term
+   *  was unreachable by construction. The fifth returns with registry ⑦. */
+  const ended = phase === 'stopped'
 
   return (
     <div className={`${ROOT}${onDiscardScreen ? ' is-review' : ''}`} ref={rootRef}>
@@ -631,7 +694,7 @@ export function RecordingScreen(props: RecordingProps) {
       <header
         className="rc-head"
         data-guide-title="録音"
-        data-guide="施術中の会話を録音して、その録音からカルテを作る画面です。録音そのものはスマホのアプリでも行えます。この画面では、録音を始める前の同意の確認、録音の履歴、そして破棄された録音の記録をまとめて見られます。"
+        data-guide={props.headGuide}
       >
         <div className="rc-eyebrow">{props.dateline}</div>
         <div className="rc-titleline">
@@ -694,8 +757,13 @@ export function RecordingScreen(props: RecordingProps) {
               )}
               <div><dt>録音者</dt><dd>{recovery.recordedByLabel}</dd></div>
             </dl>
-            <button {...refused('保存する', props.refusals.save, { className: 'rc-recovery-save' })}>
-              <Icon name="save" size={16} />保存する
+            {/* ⚠ THE LABEL BRANCHES ON WHETHER THE TAKE HAS A DESTINATION and
+                the REFUSAL does not — an unbound residue's next step is picking
+                the customer, and telling a staffer 保存する for a take with
+                nowhere to save it is the wrong instruction rather than a
+                shorter one (B1-11, the phone's own branch). */}
+            <button {...refused(recovery.saveLabel, props.refusals.save, { className: 'rc-recovery-save' })}>
+              <Icon name="save" size={16} />{recovery.saveLabel}
             </button>
             <p className="rc-recovery-caption">{recovery.caption}</p>
             <p className="rc-recovery-caption">{recovery.stopNote}</p>
@@ -873,26 +941,29 @@ export function RecordingScreen(props: RecordingProps) {
                     </div>
                   )}
 
-                  {/* ⚠ 停止 CARRIES THE WEIGHT IN BOTH PHASES, and 再開 does not.
-                      The row used to put a SOLID ACCENT on 再開 — the action that
-                      changes the least — while 停止, which ends the take and
-                      hands it to the resolve flow, was a neutral outline. The
-                      phone's own hierarchy is the other way round. Neither is
-                      solid accent: this room's commit-shaped fill is reserved
-                      for a commit, and the big red circle is already the
-                      canonical stop. */}
+                  {/* ⚠ NO SIDE CONTROL EVER REPEATS THE BIG BUTTON'S CURRENT
+                      VERB (B4-4). §2f's whole argument is that the control a
+                      staffer presses to stop IS the control they pressed to
+                      start — and a labelled 停止 forty pixels under a morphing
+                      record button that is ALSO a stop dilutes exactly that: two
+                      stops, and no way to tell which one is canonical.
+                      ONE VERDICT, ONE HOME, so the row carries whatever the big
+                      button does NOT:
+                        · recording — the big button stops, so the row offers
+                          一時停止 alone (canon's genuine extra state, which the
+                          phone has no room for and a desk does);
+                        · paused    — the big button resumes, so the row offers
+                          停止 alone, the take's real ending.
+                      The phone's hierarchy survives it: there is still exactly
+                      ONE way to end a take, and it is the loudest thing on the
+                      panel. Neither side control is solid accent — this room's
+                      commit-shaped fill is reserved for a commit. */}
                   <div className="rc-controls">
                     {phase === 'recording' && (
-                      <>
-                        <button className="btn" type="button" onClick={() => setPhase('paused')}>一時停止</button>
-                        <button className="btn rc-stop" type="button" onClick={stop}>停止</button>
-                      </>
+                      <button className="btn" type="button" onClick={() => setPhase('paused')}>一時停止</button>
                     )}
                     {phase === 'paused' && (
-                      <>
-                        <button className="btn" type="button" onClick={() => setPhase('recording')}>再開</button>
-                        <button className="btn rc-stop" type="button" onClick={stop}>停止</button>
-                      </>
+                      <button className="btn rc-stop" type="button" onClick={stop}>停止</button>
                     )}
                     {/* ⚖ B4-3 — THERE IS NO 「やり直す」 OVER AN UNRESOLVED TAKE.
                         The phone refuses exactly this path in words
@@ -1249,7 +1320,10 @@ export function RecordingScreen(props: RecordingProps) {
 
           {props.discardRows.length === 0 ? (
             <div className="rc-empty">
-              <strong>破棄の記録はまだありません</strong>
+              {/* `settings.discardReasons.empty`, verbatim — trailing 。 and all
+                  (B1-13). A shipped sentence quoted 「almost」 is a second
+                  wording for one state. */}
+              <strong>破棄の記録はまだありません。</strong>
               <span>録音を破棄すると、その理由がここに残ります。</span>
             </div>
           ) : (
@@ -1439,6 +1513,11 @@ export function RecordingScreen(props: RecordingProps) {
           <h2>録音を破棄する理由</h2>
           <p className="rc-dlg-sub">破棄は通常とは異なる操作です</p>
           <label className="rc-reason" htmlFor="rcReason">理由（必須）</label>
+          {/* ⚠ THE FIELD STAYS LIVE THROUGH A REFUSED WRITE — the phone disables
+              it while a real request is in flight; nothing is in flight here,
+              and what this state exists to prove is that the typed reason
+              SURVIVES. Disabling it would drop the keyboard to `<body>` for the
+              wait, which is a worse answer to a smaller question. */}
           <textarea
             id="rcReason"
             ref={reasonRef}
@@ -1450,15 +1529,19 @@ export function RecordingScreen(props: RecordingProps) {
             onChange={(e) => setReason(e.target.value)}
           />
           <p className="rc-disclosure">破棄の記録（日時・担当者・理由）が残ります。</p>
+          {/* ⚖ W7-2 — THE REFUSAL RENDERS INLINE, where the staffer is already
+              looking, and the dialog stays open behind it (the phone's own
+              `role="alert"` line). Retry and cancel both still work. */}
+          {submitError && <p className="rc-dlg-error" role="alert">{submitError}</p>}
           <div className="rc-dlg-foot">
-            <button className="btn" type="button" onClick={closeDiscard}>キャンセル</button>
+            <button className="btn" type="button" disabled={submitting} onClick={closeDiscard}>キャンセル</button>
             <button
               className="btn rc-danger"
               type="button"
-              disabled={reason.trim() === ''}
+              disabled={reason.trim() === '' || submitting}
               onClick={settleDiscard}
             >
-              破棄する
+              {submitting && props.discardFail ? props.discardFail.submitLabel : '破棄する'}
             </button>
           </div>
         </Overlay>

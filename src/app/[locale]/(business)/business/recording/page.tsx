@@ -35,7 +35,7 @@ export default async function RecordingPage({
   searchParams,
 }: {
   params: Promise<{ locale: string }>
-  searchParams: Promise<{ store?: string; recovery?: string }>
+  searchParams: Promise<{ store?: string; recovery?: string; discardFail?: string }>
 }) {
   await requireBusinessAdmission()
   const [{ locale }, query] = await Promise.all([params, searchParams])
@@ -46,6 +46,11 @@ export default async function RecordingPage({
     locale,
     store: query.store,
     recovery: query.recovery,
+    // ⚖ W7-2 — the refused write's rendering, behind its own named param, the
+    // `?recovery=1` precedent: a designed shape a reconnect will land on, off by
+    // default because a dialog that always fails claims a failure that did not
+    // happen.
+    discardFail: query.discardFail,
   })
 
   // ⚖ VIEW STATE IS STORE-SCOPED. `?store=` navigation keeps the same screen

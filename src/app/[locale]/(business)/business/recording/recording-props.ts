@@ -59,19 +59,21 @@ import {
   CONSENT_TONE,
   CONTACT_TAGS_DISCLAIMER,
   discardCounts,
+  discardFailLine,
   discardLedger,
   durationText,
+  feedsCounts,
   isBelowFloor,
   ownDiscardsThisMonth,
   permissionNotice,
   pickerOptions,
   takeDurationLabel,
   transcriptEntries,
+  DISCARD_SUBMITTING_LABEL,
   TAKE_REASON_LINE,
   TAKE_STATE_CHIP,
   TAKE_STATE_LABEL,
   TRANSCRIPT_ABSENCE_LINE,
-  TRANSCRIPT_FAILED_LINE,
   TRANSCRIPT_POLICY_LINE,
 } from '@/business/lib/recording'
 import { hhmm } from '@/business/lib/today-board'
@@ -119,6 +121,13 @@ export interface RecordingPropsInput {
    *  happen — and it is SINGLE-SLOT by construction: the props carry one
    *  `recovery` object or none, so a draft and a take can never render at once. */
   recovery?: string
+  /** ⚖ W7-2 — THE REFUSED WRITE, BEHIND ITS OWN NAMED QUERY PARAM (the
+   *  `?recovery=1` precedent). `?discardFail=1` renders the ordinary refusal and
+   *  `?discardFail=stale` the take-has-moved-on one, so the shape a reconnect
+   *  lands on — typed text surviving, dialog still open, nothing discarded — is
+   *  designed rather than guessed. A page that ALWAYS fails would be claiming a
+   *  failure that did not happen, which is why it is a param. */
+  discardFail?: string
   /** FIXTURE-SHAPED WORLD OVERRIDES, and the page never passes them. The
    *  evidence harness needs worlds this demo plane does not contain — a
    *  200-take desk, a store that has never recorded anything, a 25-staff counts
@@ -158,6 +167,7 @@ export async function recordingProps({
   locale,
   store,
   recovery,
+  discardFail,
   world,
 }: RecordingPropsInput): Promise<RecordingPropsResult> {
   const storeOptions = await listStoreOptions()
@@ -310,15 +320,17 @@ export async function recordingProps({
     // affordance suppression, decided from the STATE and nothing else, so no
     // later branch can read `karuteRecordId` (which stays TRUE — this room never
     // erases evidence) and hand a discarded row a lever.
-    action:
-      t.state === 'discarded'
-        ? null
-        : t.karuteRecordId !== null
-          ? { kind: 'karute' as const, label: 'カルテ一覧を開く', href: karuteHref }
-          : t.state === 'recoverable'
-            ? { kind: 'save' as const, label: '保存する', href: null }
-            : null,
-    karuteRecordLabel: t.state === 'discarded' ? null : t.karuteRecordId,
+    // ⚠ AND IT ASKS `feedsCounts`, THE NAMED GATE, rather than spelling
+    // 「破棄済み」 a third time (B1-5). One predicate, every consumer, so the next
+    // count or lever added cannot route around the rule by forgetting it.
+    action: !feedsCounts(t.state)
+      ? null
+      : t.karuteRecordId !== null
+        ? { kind: 'karute' as const, label: 'カルテ一覧を開く', href: karuteHref }
+        : t.state === 'recoverable'
+          ? { kind: 'save' as const, label: '保存する', href: null }
+          : null,
+    karuteRecordLabel: feedsCounts(t.state) ? t.karuteRecordId : null,
   }))
 
   // ⚠ THE COUNTS ARE GATED WHERE THE ROWS ARE GATED, ABOVE THE SERIALIZER. They
@@ -383,6 +395,14 @@ export async function recordingProps({
   // structural version of 「never draft and take simultaneously」.
   const recoverable = models.find((t) => t.state === 'recoverable') ?? null
   const wantRecovery = recovery === '1' && recoverable !== null
+  // ⚠ AN UNBOUND TAKE HAS NO DESTINATION YET, AND THE BANNER HAS TO SAY SO
+  // (B1-11). The room's only residue is unbound (`appointment_id: null`), and it
+  // named the customer 「未選択（保存時に選択）」 while the button underneath still
+  // said 保存する and the caption still said 「保存するまでこの案内が残ります。」 —
+  // so the one recovery state this room ships told the staffer the wrong next
+  // step. The phone branches on exactly this (`RecoveryBanner.tsx:181-187`) and
+  // both of its strings are taken verbatim.
+  const recoveryBound = recoverable !== null && recoverable.customerName !== null
   const recoveryProps = wantRecovery
     ? {
         title: 'このカルテは正しく保存されませんでした',
@@ -397,7 +417,16 @@ export async function recordingProps({
         // `isBelowFloor` is the same predicate the chip and the manager screen
         // read, so a fourth spelling of 「short」 cannot appear.
         belowFloor: isBelowFloor(recoverable!.durationSeconds),
-        caption: '録音は消えません。保存するまでこの案内が残ります。',
+        // `recoverSaveAction` / `recoverPickAndSaveAction`, verbatim. The action
+        // still REFUSES (the demo plane saves nothing) — what changes is which
+        // next step it names, and the refusal grammar is unchanged.
+        saveLabel: recoveryBound ? '保存する' : 'お客様を選んで保存する',
+        // `recoverCaption` / `recoverCaptionUnbound`, verbatim; the phone's
+        // `{date}` is the recording DAY alone, which is this room's own
+        // `fmtDayShort`.
+        caption: recoveryBound
+          ? '録音は消えません。保存するまでこの案内が残ります。'
+          : `録音日（${fmtDayShort.format(dayOf(recoverable!.dayKey))}）の予約リストからお客様を選びます。`,
         // ⚠ THE ROOM'S OWN LONG-RECORDING TRUTH (§2b-8 cross-lane crumb): the
         // phone's auto-stop copy says 「自動的に保存しました」 and the 2h cap only
         // STOPS. This room must not copy the lie, so its own sentence says
@@ -405,6 +434,8 @@ export async function recordingProps({
         stopNote: '長い録音は自動で停止します。停止しただけで保存はされないため、保存するまでこの案内は消えません。',
       }
     : null
+
+  const failLine = discardFailLine(discardFail)
 
   const props: RecordingProps = {
     dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
@@ -415,14 +446,30 @@ export async function recordingProps({
     // under a pinned version, and the room's picker is booking-bound.
     subtitle:
       '施術中の会話を録音し、一時停止・停止をはさんで、その録音をカルテに使います。録音を始められるのは、いまの説明文で録音の同意をいただけている予約だけです。',
+    // ⚠ THE HEAD'S TOUR SENTENCE IS ACCESS-DERIVED, like the three beside it
+    // (B1-9). It used to promise 「破棄された録音の記録」 to every reader, and the
+    // 破棄の記録 screen exists only for `discardReview` — so the room's own
+    // opening sentence was false for the スタッフ persona §2e-2 makes a proven,
+    // first-class mode of this room. What each reader is told they can see is
+    // now exactly what they can open.
+    headGuide:
+      '施術中の会話を録音して、その録音からカルテを作る画面です。録音そのものはスマホのアプリでも行えます。この画面では、録音を始める前の同意の確認と、' +
+      (access.discardReview
+        ? '録音の履歴、そして破棄された録音の記録をまとめて見られます。'
+        : '自分の録音の履歴を見られます。'),
     contexts,
     defaultAppointmentId: contexts[0]?.appointmentId ?? null,
     takes: takeRows,
     // ⚖ 8/25 ruling B, staff half — `null` renders NOTHING, never 0.
     ownDiscardLine: ownDiscards === null ? null : `自分が今月破棄した録音 ${ownDiscards}件`,
+    // ⚠ AND IT NAMES THE SPAN IT OPENS ON (B1-13). The phone's own caption is
+    // 「過去7日間の自分の録音」; this room WALKS past that on request, so it cannot
+    // claim the phone's fixed window — but saying nothing at all let the list
+    // read as the whole history. 「1週間ぶん」 is the same wording さらに表示
+    // uses, so the two surfaces state one span in one voice.
     historyCaption: access.storeWide
-      ? 'この店舗の録音（新しい順）'
-      : '自分の録音（新しい順）',
+      ? 'この店舗の録音（新しい順・まず1週間ぶん）'
+      : '自分の録音（新しい順・まず1週間ぶん）',
     // ⚖ 8/25 RULING B, kept WORD FOR WORD while the mock's SHAPE is adopted: one
     // quiet labelled band instead of two same-weight count cards. The numbers
     // stay the shipped screen's own sentences (`settings.discardReasons
@@ -475,7 +522,9 @@ export async function recordingProps({
       'この画面が出している値の出どころです。まだつないでいないものは「未接続」と書いています。',
     consentInstructions: CONSENT_INSTRUCTIONS,
     contactDisclaimer: CONTACT_TAGS_DISCLAIMER,
-    transcriptFailedLine: TRANSCRIPT_FAILED_LINE,
+    // ⚖ W7-2 — the refused write's own two strings, or `null` for every render
+    // the param does not name (which is every ordinary one).
+    discardFail: failLine === null ? null : { submitLabel: DISCARD_SUBMITTING_LABEL, errorLine: failLine },
     actionFootnote: FOOTNOTE,
     refusals: {
       use: REFUSAL.use,

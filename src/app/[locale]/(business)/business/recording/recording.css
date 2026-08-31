@@ -332,7 +332,9 @@
 .biz .pg-recording .rc-state.is-recording { background: var(--rc-fail-bg); color: var(--rc-fail-ink); }
 .biz .pg-recording .rc-state.is-paused { background: var(--orange-soft); color: var(--orange); }
 .biz .pg-recording .rc-state.is-stopped { background: var(--section); color: var(--ink-3); }
-.biz .pg-recording .rc-state.is-committed { background: var(--green-soft); color: var(--green-dark); }
+/* ⚠ NO `.is-committed` RULE, and that is R6-18 rather than an omission: ⚖ R6-D3's
+   commit refuses, so 反映済み is a state nothing in this room can reach. It comes
+   back with registry ⑦. */
 
 /* canon's デモ flag (:100) — a dashed hairline, never a filled pill */
 .biz .pg-recording .rc-demo {
@@ -929,6 +931,11 @@
 .biz .pg-recording .rc-target > div:last-child { border-bottom: 0; }
 .biz .pg-recording .rc-target dt { margin: 0; color: var(--muted); }
 .biz .pg-recording .rc-target dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+/* ⚖ W7-2 — THE REFUSED WRITE'S OWN LINE. Red INK on the page's own ground, never
+   a filled alarm card: the message is 「this did not save」, and the reader's next
+   move is the button right under it. Same tier as the phone's own
+   `text-red-600` alert line (RecordingDiscardReasonDialog.tsx:162-165). */
+.biz .pg-recording .rc-dlg-error { margin: 0; color: var(--rc-danger); font-size: 12px; line-height: 1.6; }
 .biz .pg-recording .rc-dlg-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 /* IRREVERSIBLE, SO IT STAYS SOLID RED — never the accent fill. The phone's own
    explicit red-600/white (RecordingDiscardReasonDialog.tsx:206). */

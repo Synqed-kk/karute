@@ -57,10 +57,18 @@ const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '')
 const SRC_CODE = stripComments(SRC).replace(/^\s*\/\/.*$/gm, '')
 const CSS_CODE = stripComments(CSS)
 
-type Declaration = { title: string; text: string; at: number }
+/** ⚠ A DECLARATION'S TEXT MAY BE ASSEMBLED RATHER THAN WRITTEN, and exactly one
+ *  of them is (B1-9): the HEAD's sentence names 破棄の記録 only to a reader who
+ *  can open it, so it is derived in `recording-props.ts` and arrives as a prop.
+ *  The census counts it like every other declaration and marks it `derived`, and
+ *  its CONTENT is pinned where it is built (`recording.test.ts` — both personas'
+ *  wording, and the promise matched against the access). Silently dropping it
+ *  would let a section stop declaring itself by turning its text into an
+ *  expression, which is the hole this census exists to close. */
+type Declaration = { title: string; text: string; derived: boolean; at: number }
 const DECLARATIONS: Declaration[] = [
-  ...SRC_CODE.matchAll(/data-guide-title="([^"]*)"\s*\n\s*data-guide="([^"]*)"/g),
-].map((m) => ({ title: m[1], text: m[2], at: m.index ?? 0 }))
+  ...SRC_CODE.matchAll(/data-guide-title="([^"]*)"\s*\n\s*data-guide=(?:"([^"]*)"|\{([^}]+)\})/g),
+].map((m) => ({ title: m[1], text: m[2] ?? m[3], derived: m[2] === undefined, at: m.index ?? 0 }))
 
 // ═══ THE TOUR CENSUS ════════════════════════════════════════════════════════
 
@@ -80,12 +88,19 @@ describe('⚖ 8/23 — 画面の説明, the census from the source side', () => 
 
   it('every declaration is PAIRED, non-empty and UNIQUE', () => {
     expect(DECLARATIONS.length).toBe([...SRC_CODE.matchAll(/data-guide-title="/g)].length)
-    expect(DECLARATIONS.length).toBe([...SRC_CODE.matchAll(/data-guide="/g)].length)
+    expect(DECLARATIONS.length).toBe([...SRC_CODE.matchAll(/data-guide[=]/g)].length)
     for (const d of DECLARATIONS) {
       expect(d.title.trim().length).toBeGreaterThan(0)
-      expect(d.text.trim().length).toBeGreaterThan(20)
+      // a DERIVED one carries an expression here; its wording is pinned where it
+      // is assembled, and the browser probe reads what actually landed in the DOM
+      expect(d.text.trim().length).toBeGreaterThan(d.derived ? 0 : 20)
     }
     expect(new Set(DECLARATIONS.map((d) => d.title)).size).toBe(DECLARATIONS.length)
+    // ⚠ EXACTLY ONE is derived, and it is the head's (B1-9). A second one
+    // appearing without an argument is a section quietly leaving the literal
+    // census.
+    expect(DECLARATIONS.filter((d) => d.derived).map((d) => d.title)).toEqual(['録音'])
+    expect(DECLARATIONS.find((d) => d.derived)!.text.trim()).toBe('props.headGuide')
   })
 
   it('EVERY HEADING sits inside a declared element — a reader taps the WORD', () => {
@@ -115,7 +130,9 @@ describe('⚖ 8/23 — 画面の説明, the census from the source side', () => 
   })
 
   it('the tour copy is PLAIN — no jargon, no code words, no room codes', () => {
-    const all = DECLARATIONS.map((d) => `${d.title} ${d.text}`).join(' ')
+    // the DERIVED one's text is an expression here; the same scan runs on the
+    // strings it assembles, in `recording.test.ts`, where they exist
+    const all = DECLARATIONS.filter((d) => !d.derived).map((d) => `${d.title} ${d.text}`).join(' ')
     expect(all).not.toMatch(/registry|props|fixture|API|DTO|W7|registry ⑦|SDK/i)
     // …and it never spells a threshold the data already says (one home).
     expect(all).not.toMatch(/\d+秒未満/)
@@ -239,9 +256,15 @@ describe('⚖ §2f — the phone is the DESIGN source, quoted rather than approx
     expect(CSS_CODE).not.toMatch(/\.rc-bar \{[^}]*transition/)
   })
 
-  it('the ended state DIMS and FREEZES the bars', () => {
+  it('the ended state DIMS and FREEZES the bars — on scaleY too', () => {
     expect(CSS_CODE).toMatch(/\.rc-wave\.is-frozen \{[^}]*opacity: \.5/)
     expect(SRC_CODE).toContain('setFrozen(bars)')
+    // ⚠ B3-6 — THE FROZEN WAVE GETS ITS OWN ASSERTION. The composite-only pin
+    // above matched BOTH renders of the bar span, so the live and the frozen
+    // mutant shared one killer and neither proved the other's site. This reads
+    // the FROZEN map alone.
+    expect(SRC_CODE).toMatch(/\{frozen\.map\([\s\S]{0,160}transform: `scaleY\(/)
+    expect(SRC_CODE).not.toMatch(/\{frozen\.map\([\s\S]{0,160}height: `/)
   })
 
   it('the BREATHE keyframe is the house style for 「quietly live」, at its own numbers', () => {
@@ -290,7 +313,9 @@ describe('⚖ §2f — the phone is the DESIGN source, quoted rather than approx
     }
     // …and all three ARE commits: two of them refuse, and the third opens the
     // confirm whose commit refuses.
-    expect(SRC_CODE).toContain("refused('保存する', props.refusals.save, { className: 'rc-recovery-save' })")
+    // the banner's label is BRANCHED (B1-11: an unbound take is told to pick a
+    // customer first) — what is not branched is the refusal it carries
+    expect(SRC_CODE).toContain("refused(recovery.saveLabel, props.refusals.save, { className: 'rc-recovery-save' })")
     expect(SRC_CODE).toContain("refused(t.action.label, props.refusals.save, { className: 'rc-row-save' })")
     expect(CSS_CODE).not.toMatch(/background:\s*(#000|#18181b|var\(--ink\))/)
     // the selected/wash recipe is /8, never /10 (accent on /10 computes 4.49:1)
@@ -420,7 +445,10 @@ describe('⚖ ALL-SCREEN — the ladder and the thumb', () => {
 // ═══ CANON'S BOUNDARY MOUNT — PRESENT AND INERT ════════════════════════════
 
 describe('the boundary panel (⚖ the 8/24 TYPE-TIER doctrine line)', () => {
-  it('is ONE mount carrying BOTH variants, and it is inert', () => {
+  // ⚠ B3-6 — TWO TRUTHS, TWO TESTS. 「one mount, both variants」 and 「it is
+  // inert」 used to be asserted by a single `it()`, so the two mutants that break
+  // them shared one killer and neither proved its own site.
+  it('is ONE mount carrying BOTH variants', () => {
     const block = SRC_CODE.slice(SRC_CODE.indexOf('rc-boundary'), SRC_CODE.indexOf('</div>', SRC_CODE.indexOf('rc-boundary')))
     // one mount, not two
     expect([...SRC_CODE.matchAll(/rc-boundary/g)].length).toBe(1)
@@ -429,8 +457,10 @@ describe('the boundary panel (⚖ the 8/24 TYPE-TIER doctrine line)', () => {
     expect(block).toContain('data-variant="rights"')
     expect(block).toContain('Karute プラン')
     expect(block).toContain('録音の記録権限')
-    // …and it paints nothing, takes no space, joins no tour step and reaches no
-    // keyboard: `hidden` + `aria-hidden`, no `data-guide`, no control inside.
+  })
+
+  it('…and the boundary mount is INERT — no paint, no space, no tour step, no keyboard', () => {
+    const block = SRC_CODE.slice(SRC_CODE.indexOf('rc-boundary'), SRC_CODE.indexOf('</div>', SRC_CODE.indexOf('rc-boundary')))
     expect(SRC_CODE).toContain('<div className="rc-boundary" hidden aria-hidden="true"')
     expect(block).not.toContain('data-guide')
     expect(block).not.toMatch(/<button|<a |href=/)

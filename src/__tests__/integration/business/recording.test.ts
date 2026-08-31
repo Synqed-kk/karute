@@ -56,6 +56,7 @@ import {
   consentProofLine,
   consentScript,
   discardCounts,
+  discardFailLine,
   discardLedger,
   feedsCounts,
   fmtElapsed,
@@ -72,6 +73,11 @@ import {
   durationText,
   takeDurationLabel,
   transcriptEntries,
+  DISCARD_FAILED_LINE,
+  DISCARD_STALE_LINE,
+  DISCARD_SUBMITTING_LABEL,
+  RECORDER_LABEL,
+  RECORDER_TONE,
   TAKE_REASON_LINE,
   TAKE_STATE_CHIP,
   TAKE_STATE_LABEL,
@@ -328,8 +334,61 @@ describe('⚖ W7-2 — every discard writes a reason', () => {
     expect([...SCREEN_CODE.matchAll(/setReceipt\(\{/g)].length).toBe(
       [...body.matchAll(/setReceipt\(\{/g)].length,
     )
-    // the confirm is ALSO disabled — belt and brace, and the guard above is the belt
-    expect(SCREEN_CODE).toContain("disabled={reason.trim() === ''}")
+    // the confirm is ALSO disabled — belt and brace, and the guard above is the
+    // belt. The second term is the refused write's own no-double-submit guard.
+    expect(SCREEN_CODE).toContain("disabled={reason.trim() === '' || submitting}")
+  })
+
+  it('⚖ B1-12 — THE REFUSED WRITE IS A DESIGNED STATE: nothing settles, the text survives', async () => {
+    // §4 asks for 「fail-closed submit rendering (typed text survives a refused
+    // write state)」 and the room had none: the local settle always succeeded, so
+    // the shape the reconnect lands on was the one part of the flow nobody had
+    // designed. It is behind a named param (the `?recovery=1` precedent) because
+    // a dialog that ALWAYS fails claims a failure that did not happen.
+    const off = await recordingProps({ locale: 'ja', store: STORE_A })
+    expect(off.props.discardFail).toBeNull()
+
+    // BOTH variants, and they are DIFFERENT sentences — 「we could not write it」
+    // and 「it is too late」 send a staffer to two different next steps.
+    const fail = await recordingProps({ locale: 'ja', store: STORE_A, discardFail: '1' })
+    const stale = await recordingProps({ locale: 'ja', store: STORE_A, discardFail: 'stale' })
+    expect(fail.props.discardFail).toEqual({
+      submitLabel: '破棄中...',
+      errorLine: '破棄を記録できませんでした。もう一度お試しください。',
+    })
+    expect(stale.props.discardFail).toEqual({
+      submitLabel: '破棄中...',
+      errorLine: 'この録音はすでに文字起こしに進んでいます。破棄できませんでした。',
+    })
+    expect(fail.props.discardFail!.errorLine).not.toBe(stale.props.discardFail!.errorLine)
+    // an unknown value is NOT a failure — fail-closed on the DEMO, not on the room
+    expect((await recordingProps({ locale: 'ja', store: STORE_A, discardFail: 'yes' })).props.discardFail).toBeNull()
+
+    // ⚠ THE REFUSAL RETURNS ABOVE EVERYTHING THAT CHANGES STATE. Nothing is
+    // discarded until the trace has landed, so the branch sits above the receipt,
+    // above `setRecoveryDismissed` and above `reset()` — pinned on the ORDER,
+    // because a refusal that had already reset the machine would be the exact
+    // defect the phone's own dialog comment names.
+    const settle = SCREeN_SETTLE()
+    const at = settle.indexOf('if (props.discardFail !== null) {')
+    expect(at).toBeGreaterThan(-1)
+    for (const after of ['setReceipt({', 'setRecoveryDismissed(true)', 'reset()']) {
+      expect({ line: after, before: settle.indexOf(after) > at }).toEqual({ line: after, before: true })
+    }
+    // …and the typed reason is NEVER cleared on that path: `setReason('')` lives
+    // only past the refusal, and in `closeDiscard`.
+    expect(settle.slice(0, at)).not.toContain("setReason('')")
+    // the confirm wears 破棄中... while it waits, and the error renders inline
+    expect(SCREEN_CODE).toContain("{submitting && props.discardFail ? props.discardFail.submitLabel : '破棄する'}")
+    expect(SCREEN_CODE).toContain('{submitError && <p className="rc-dlg-error" role="alert">{submitError}</p>}')
+    // every exit is shut while it waits, in ONE place — cancel, backdrop and
+    // Escape all route through `closeDiscard`.
+    expect(SCREEN_CODE).toContain('if (submitting) return')
+    expect(SCREEN_CODE).toContain('disabled={submitting} onClick={closeDiscard}')
+    // …and the two strings are the PHONE's, verbatim
+    expect(DISCARD_SUBMITTING_LABEL).toBe('破棄中...')
+    expect(DISCARD_FAILED_LINE).toBe('破棄を記録できませんでした。もう一度お試しください。')
+    expect(DISCARD_STALE_LINE).toBe('この録音はすでに文字起こしに進んでいます。破棄できませんでした。')
   })
 
   it('EVERY close path clears the field exactly once', () => {
@@ -433,6 +492,38 @@ describe('⚖ W7-3 — one recovery slot, one action', () => {
     expect([...SCREEN_CODE.matchAll(/new Date\(/g)].length).toBe(1)
     expect([...SCREEN_CODE.matchAll(/Intl\./g)].length).toBe(1)
     expect(SCREEN_CODE).not.toMatch(/toLocaleString|toLocaleDateString|fixtures/)
+  })
+
+  it('⚖ B1-11 — an UNBOUND residue is told to PICK A CUSTOMER, in the phone’s own words', async () => {
+    // The room's only recovery take is unbound (`appointment_id: null`). It
+    // correctly named the customer 「未選択（保存時に選択）」 — and then the button
+    // said 保存する and the caption said 「保存するまでこの案内が残ります。」, so the
+    // one recovery state this room ships told the staffer the wrong next step.
+    // An unbound take has no destination yet; the phone branches on exactly that
+    // (`RecoveryBanner.tsx:181-187`) and both strings are taken verbatim.
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A, recovery: '1' })
+    expect(props.recovery!.customerLabel).toBe('未選択（保存時に選択）') // recording.recoverCustomerUnset
+    expect(props.recovery!.saveLabel).toBe('お客様を選んで保存する') // recording.recoverPickAndSaveAction
+    // recording.recoverCaptionUnbound — 「録音日（{date}）の…」, and `{date}` is the
+    // recording DAY alone, exactly as the phone fills it
+    expect(props.recovery!.caption).toMatch(/^録音日（\d+月\d+日\(.\)）の予約リストからお客様を選びます。$/)
+    expect(props.recovery!.caption).not.toContain('保存するまでこの案内が残ります')
+    // …and the BOUND wording is still what a bound take gets — the branch is a
+    // branch, not a rename. Proven by handing the assembly a bound residue.
+    // `apt-23` is a 銀座 booking with NO カルテ record, so the residue stays
+    // 復元可能 (a record would make it 保存済み) and only its BINDING changes.
+    const bound = takePlane.map((t) =>
+      t.local_audio && t.appointment_id === null
+        ? { ...t, appointment_id: 'apt-23', store_id: null, day_offset: null }
+        : t,
+    )
+    const b = (await recordingProps({ locale: 'ja', store: STORE_A, recovery: '1', world: { takes: bound } })).props
+    expect(b.recovery!.saveLabel).toBe('保存する') // recording.recoverSaveAction
+    expect(b.recovery!.caption).toBe('録音は消えません。保存するまでこの案内が残ります。') // recording.recoverCaption
+    expect(b.recovery!.customerLabel).not.toBe('未選択（保存時に選択）')
+    // ⚠ THE ACTION STILL REFUSES, with the refusal grammar unchanged — what
+    // branched is the NEXT STEP it names, never whether it commits.
+    expect(SCREEN_CODE).toContain("refused(recovery.saveLabel, props.refusals.save, { className: 'rc-recovery-save' })")
   })
 
   it('the copy is accurate to the plane’s numbers, and never claims an auto-SAVE', async () => {
@@ -608,6 +699,38 @@ describe('⚖ R2 — a discarded take feeds no number and offers no lever', () =
     }
   })
 
+  it('⚖ B1-5 — …AND IT HAS CONSUMERS: every suppression ROUTES THROUGH IT, none is hand-written', () => {
+    // ⚠ THE DEFECT THIS PINS. `feedsCounts`'s own doc-comment claims 「ONE
+    // predicate, called by every consumer that counts, totals or offers an
+    // action, so a future consumer cannot forget the rule」 — and it was called
+    // by NOTHING but the test above it. The two real suppressions were
+    // hand-written `=== 'discarded'` in two different files, so the R2 property
+    // held by luck (the room has no other count surface yet) and the next
+    // number added would route around a gate that only existed on paper.
+    //
+    // Behaviour cannot see this — a hand-written copy of the rule gives the same
+    // answer — so the pin is on the SOURCE, which is where the disease is.
+    const call = /feedsCounts\(/g
+    expect([...LIB_CODE.matchAll(call)].length).toBeGreaterThanOrEqual(2) // declared + ≥1 consumer
+    expect([...stripComments(PROPS_SRC).matchAll(call)].length).toBeGreaterThanOrEqual(2)
+    // …and the two consumers the room has today are exactly the two the finding
+    // named: the ticket burn (a number's input) and the row's lever.
+    expect(LIB_CODE).toContain('ticketRedeemed: feedsCounts(state) && take.ticket_redeemed,')
+    expect(stripComments(PROPS_SRC)).toContain('action: !feedsCounts(t.state)')
+    expect(stripComments(PROPS_SRC)).toContain('karuteRecordLabel: feedsCounts(t.state) ? t.karuteRecordId : null,')
+    // ⚠ AND NO CONSUMER SPELLS THE RULE ITSELF. `'discarded'` is COMPARED in
+    // exactly two places in the whole room: inside the gate, and on the row's
+    // gray-treatment flag — which is a rendering verdict rather than a count or
+    // a lever, and says so where it is set.
+    const spellings = [
+      ...LIB_CODE.matchAll(/[!=]== 'discarded'/g),
+      ...stripComments(PROPS_SRC).matchAll(/[!=]== 'discarded'/g),
+    ].length
+    expect(spellings).toBe(2)
+    expect(LIB_CODE).toContain("return state !== 'discarded'")
+    expect(stripComments(PROPS_SRC)).toContain("isDiscarded: t.state === 'discarded',")
+  })
+
   it('the ticket burn is withheld from the MODEL’s counting field on a discarded take', () => {
     const rich = models().find((m) => m.id === 'rs-0003')!
     const source = takePlane.find((t) => t.id === 'rs-0003')!
@@ -764,6 +887,35 @@ describe('⚖ the three redactions happen above the serializer', () => {
     expect(props.canReviewDiscards).toBe(true)
     expect(props.discardRows.length).toBeGreaterThan(0)
     expect(props.historyCaption).toContain('この店舗の録音')
+  })
+
+  it('⚖ B1-9 — the HEAD’s own sentence is access-derived, and never promises a screen the reader cannot open', async () => {
+    // 破棄の記録 exists only for `discardReview`, and §2e-2 makes the スタッフ
+    // reader a proven, first-class mode of this room — so a hardcoded head
+    // sentence promising 「破棄された録音の記録」 was the page's OPENING line being
+    // false for one of its two personas. `historyCaption`, `noticeLines` and
+    // `ownDiscardLine` were all already derived; this one is now too.
+    const manager = (await recordingProps({ locale: 'ja', store: STORE_A })).props
+    const staffProps = (await recordingProps({ locale: 'ja', store: STORE_A, world: { role: 'スタッフ' } })).props
+    expect(manager.headGuide).toContain('破棄された録音の記録')
+    expect(staffProps.headGuide).not.toContain('破棄')
+    // …and what each one IS promised is exactly what they can open
+    expect({ says: manager.headGuide.includes('破棄'), can: manager.canReviewDiscards })
+      .toEqual({ says: true, can: true })
+    expect({ says: staffProps.headGuide.includes('破棄'), can: staffProps.canReviewDiscards })
+      .toEqual({ says: false, can: false })
+    // both are real tour copy, and both obey the tour's PLAIN-COPY rule — the
+    // scan the interactions suite runs on every literal declaration, run here on
+    // the two strings this one assembles.
+    for (const g of [manager.headGuide, staffProps.headGuide]) {
+      expect(g.startsWith('施術中の会話を録音して、その録音からカルテを作る画面です。')).toBe(true)
+      expect(g.length).toBeGreaterThan(60)
+      expect(g).not.toMatch(/registry|props|fixture|API|DTO|W7|SDK/i)
+      expect(g).not.toMatch(/\d+秒未満/)
+    }
+    // the screen READS it rather than restating it
+    expect(SCREEN_CODE).toContain('data-guide={props.headGuide}')
+    expect(SCREEN_CODE).not.toContain('破棄された録音の記録をまとめて')
   })
 
   it('an UNKNOWN role fails closed (Object.hasOwn, not a bare index)', () => {
@@ -984,6 +1136,22 @@ describe('⚖ 8/25 ruling A — the reason and the evidence, side by side', () =
     expect(TRANSCRIPT_FAILED_LINE).not.toBe(TRANSCRIPT_ABSENCE_LINE.none)
   })
 
+  it('⚖ B1-6 — the failed-read line is a CARRIED CONSTANT, not a prop that never renders', async () => {
+    // It used to ride `RecordingProps` and the screen's interface with NO render
+    // site anywhere, so a props census read as if THREE absence states render
+    // when two do (`TranscriptAbsence` has exactly two members). R6-6's argument
+    // is sound — a fixture plane cannot fail a read, so the fourth state has no
+    // surface — but then the string must not ride the props either. The constant
+    // stays exported, with its distinctness pin above, because the reconnect
+    // needs the distinction (⚖ #798).
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
+    expect('transcriptFailedLine' in props).toBe(false)
+    expect(JSON.stringify(props)).not.toContain(TRANSCRIPT_FAILED_LINE)
+    expect(SCREEN_CODE).not.toContain('transcriptFailedLine')
+    // …and the two states that DO render still each have their own render site.
+    expect(SCREEN_CODE).toContain('{r.absenceLine}')
+  })
+
   it('WHICH absence it is comes off the take’s own facts', () => {
     const below = models().find((m) => m.id === 'rs-0004')!
     const noConsent = models().find((m) => m.id === 'rs-0005')!
@@ -1138,6 +1306,28 @@ describe('⚖ ANY-ROSTER-SIZE — the walk, and the 200-take world', () => {
   it('the window is the span the room says it is', () => {
     expect(WINDOW_DAYS).toBe(7)
     expect(SCREEN_CODE).toContain('1週間ぶんずつさかのぼって')
+  })
+
+  it('⚖ B1-13 — the 録音履歴 caption NAMES the span it opens on, in ONE wording', async () => {
+    // The phone's caption is 「過去7日間の自分の録音」 — a fixed window it can claim
+    // because it has one. This room WALKS past 7 days on request, so it cannot
+    // borrow that sentence; it said nothing about the span instead, and a list
+    // that opens on a window and never mentions it reads as the whole history.
+    const manager = (await recordingProps({ locale: 'ja', store: STORE_A })).props
+    const staffProps = (await recordingProps({ locale: 'ja', store: STORE_A, world: { role: 'スタッフ' } })).props
+    expect(manager.historyCaption).toBe('この店舗の録音（新しい順・まず1週間ぶん）')
+    expect(staffProps.historyCaption).toBe('自分の録音（新しい順・まず1週間ぶん）')
+    // ⚠ ONE WORDING FOR ONE SPAN (⚖ A8): the caption and さらに表示 say 「1週間ぶん」,
+    // and neither surface ever spells it a second way.
+    for (const src of [stripComments(PROPS_SRC), SCREEN_CODE]) {
+      expect(src).not.toMatch(/7日ぶん|七日|過去7日間/)
+    }
+  })
+
+  it('⚖ B1-13 — the 破棄の記録 empty state is the shipped sentence, trailing 。 and all', () => {
+    // `settings.discardReasons.empty` = 「破棄の記録はまだありません。」 — the room
+    // dropped the 。, which is a second wording for one state.
+    expect(SCREEN_CODE).toContain('<strong>破棄の記録はまだありません。</strong>')
   })
 
   it('200 takes on 200 bookings walk backwards through the REAL derivations', async () => {
@@ -1320,6 +1510,62 @@ describe('the recorder’s own machine', () => {
     // …and the ended state still offers both real resolutions.
     expect(SCREEN_CODE).toContain('rc-discard')
     expect(SCREEN_CODE).toContain('この録音を使う')
+  })
+
+  it('⚖ R6-18 / B1-7 — the machine has FOUR states, and every one of them is REACHABLE', () => {
+    // ⚖ R6-D3's commit REFUSES, so nothing in this room can ever put the machine
+    // into canon's fifth state (反映済み). It was carried anyway — in the label
+    // map, in the tone map, in the `ended` branch and in the sheet — so a reader
+    // counting the room's states counted one that does not exist. Argued as
+    // R6-18 and REMOVED; registry ⑦ is where it comes back.
+    expect(Object.keys(RECORDER_LABEL)).toEqual(['idle', 'recording', 'paused', 'stopped'])
+    expect(Object.keys(RECORDER_TONE)).toEqual(['idle', 'recording', 'paused', 'stopped'])
+    // every state the maps name is one `setPhase` can produce
+    const reached = new Set([...SCREEN_CODE.matchAll(/setPhase\('(\w+)'\)/g)].map((m) => m[1]))
+    reached.add('idle') // the initial state, and `reset()`'s
+    expect([...reached].sort()).toEqual(Object.keys(RECORDER_LABEL).sort())
+    // …and 反映済み is nowhere a reader can meet it: not a label, not a tone, not
+    // a branch, not a rule. (The prose that ARGUES its absence stays — stripped
+    // here, kept in the file, which is where R6-18 is written down.)
+    const ROOM_CSS_CODE = stripComments(readFileSync(join(process.cwd(), `${ROOM_DIR}/recording.css`), 'utf8'))
+    for (const src of [LIB_CODE, SCREEN_CODE, ROOM_CSS_CODE]) {
+      expect(src).not.toContain('反映済み')
+      expect(src).not.toContain('is-committed')
+    }
+    expect(SCREEN_CODE).not.toContain('committed')
+    expect(SCREEN_CODE).toContain("const ended = phase === 'stopped'")
+  })
+
+  it('⚖ B4-4 — NO SIDE CONTROL REPEATS THE BIG BUTTON’S CURRENT VERB', () => {
+    // §2f's argument is that the control a staffer presses to stop IS the one
+    // they pressed to start. A labelled 停止 forty pixels under a morphing record
+    // button that is also a stop dilutes exactly that: two stops, and no way to
+    // tell which is canonical. ONE VERDICT, ONE HOME.
+    const row = SCREEN_CODE.slice(
+      SCREEN_CODE.indexOf('<div className="rc-controls">'),
+      SCREEN_CODE.indexOf('</div>', SCREEN_CODE.indexOf('<div className="rc-controls">')),
+    )
+    /** The visible WORDS the row offers in one phase — every `>…</button>` inside
+     *  that phase's own guard. */
+    const verbsIn = (phase: string) => {
+      const at = row.indexOf(`{phase === '${phase}' && (`)
+      if (at < 0) return ['(no branch)']
+      const next = row.indexOf('{phase ===', at + 10)
+      const block = row.slice(at, next < 0 ? undefined : next)
+      return [...block.matchAll(/>([^<>]+)<\/button>/g)].map((m) => m[1].trim())
+    }
+    // the big button's own verb, per phase, read off ITS aria-label
+    expect(SCREEN_CODE).toContain("aria-label={ended ? '録音終了' : live ? '録音停止' : '録音開始'}")
+    // recording — the big button STOPS, so the row carries 一時停止 and nothing else
+    expect(verbsIn('recording')).toEqual(['一時停止'])
+    // paused — the big button RESUMES, so the row carries the verb it does not: 停止
+    expect(verbsIn('paused')).toEqual(['停止'])
+    // …stated as a rule rather than as two examples: the row never prints 停止
+    // while the big button is a stop, and never prints 再開 at all.
+    expect(row).not.toContain('再開')
+    expect([...row.matchAll(/>停止<\/button>/g)].length).toBe(1)
+    // and the ONE way to end a take is still the loudest thing on the panel
+    expect(SCREEN_CODE).toContain('if (live) { stop(); return }')
   })
 
   it('a stop NEVER auto-saves — the staffer resolves the take', () => {
@@ -1519,6 +1765,12 @@ describe('the route entry', () => {
     expect(PAGE_SRC).toContain('await requireBusinessAdmission()')
     expect(PAGE_SRC).toContain('key={storeKey}')
     expect(PAGE_SRC).not.toMatch(/listAppointments|listCustomers|new Date\(/)
+    // ⚠ EVERY NAMED DEMO PARAM IS PASSED THROUGH, and both are OFF by default:
+    // the route reads them, the assembly decides what they mean, and the screen
+    // is handed a resolved object or `null`.
+    expect(PAGE_SRC).toContain('recovery: query.recovery,')
+    expect(PAGE_SRC).toContain('discardFail: query.discardFail,')
+    expect(discardFailLine(undefined)).toBeNull()
   })
 
   it('the screen holds no data access, and its ONE clock is the discard receipt’s own stamp', () => {

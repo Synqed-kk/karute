@@ -193,19 +193,31 @@ export const CONSENT_INSTRUCTIONS =
 
 // ── the recorder's own state machine (canon §2a) ────────────────────────────
 
-/** Canon's five (fable-record-session.html:665). The shipped phone collapses
- *  recording+paused into one visual phase because a thumb has no room for two;
- *  a DESK does, and 一時停止中 is a state a receptionist genuinely stands in, so
- *  the computer door keeps canon's five and the phone's meaning (a stop NEVER
- *  auto-saves — the staffer resolves the take). */
-export type RecorderState = 'idle' | 'recording' | 'paused' | 'stopped' | 'committed'
+/**
+ * FOUR STATES, AND THE FOURTH IS THE LAST ONE THIS ROOM CAN REACH.
+ *
+ * Canon draws five (fable-record-session.html:665) and the fifth is 反映済み —
+ * the take has been written into a カルテ. The shipped phone collapses
+ * recording+paused into one visual phase because a thumb has no room for two; a
+ * DESK does, and 一時停止中 is a state a receptionist genuinely stands in, so the
+ * computer door keeps canon's separation and the phone's meaning (a stop NEVER
+ * auto-saves — the staffer resolves the take).
+ *
+ * ⚠ 反映済み IS NOT ONE OF THEM HERE, AND THAT FOLLOWS FROM ⚖ R6-D3 (deviation
+ * R6-18). 「この録音を使う」's commit REFUSES in this room — a demo commit would
+ * claim a カルテ change the カルテ room provably does not show — so nothing can
+ * ever put the machine into 反映済み. A label and a tone for a state no reader
+ * can reach is a fifth state on paper only, and a reader counting the room's
+ * states would count one that does not exist. The fifth RETURNS with registry ⑦
+ * (カルテ記録への反映) at reconnect, when the commit lands for real.
+ */
+export type RecorderState = 'idle' | 'recording' | 'paused' | 'stopped'
 
 export const RECORDER_LABEL: Record<RecorderState, string> = {
   idle: '待機中',
   recording: '録音中',
   paused: '一時停止中',
   stopped: '停止',
-  committed: '反映済み',
 }
 
 export const RECORDER_TONE: Record<RecorderState, string> = {
@@ -213,7 +225,6 @@ export const RECORDER_TONE: Record<RecorderState, string> = {
   recording: 'is-recording',
   paused: 'is-paused',
   stopped: 'is-stopped',
-  committed: 'is-committed',
 }
 
 /** mm:ss, canon's own `fmtTime` (:668) — and the phone's `formatElapsed`
@@ -588,7 +599,11 @@ export function buildTakes(input: BuildTakesInput): TakeModel[] {
       // number's input. It is withheld from the model's counting field and
       // carried on the discard row instead (⚖ 8/20 (b): money never
       // auto-reverses, so the manager who owns the correction is still told).
-      ticketRedeemed: take.discarded ? false : take.ticket_redeemed,
+      // ⚠ THROUGH `feedsCounts`, NEVER A HAND-WRITTEN `=== 'discarded'`. The
+      // rule had two hand-written copies and the named gate had no consumer at
+      // all, which is a gate that is true today and forgotten by the next
+      // number added (B1-5).
+      ticketRedeemed: feedsCounts(state) && take.ticket_redeemed,
       discarded: take.discarded
         ? {
             minute: take.discarded.minute,
@@ -606,10 +621,12 @@ export function buildTakes(input: BuildTakesInput): TakeModel[] {
 
 // ── ⚖ THE WINDOWED WALK (ANY-ROSTER-SIZE on the take dimension) ─────────────
 
-/** The same 14-day span the カルテ room walks (`karute.ts` WINDOW_DAYS), for the
- *  same reason: a recordings desk does not page — it shows the recent stretch
- *  and walks backwards on request, because 「先週ぶん」 is a question a shop asks
- *  and 「3ページ目」 is not. */
+/** ONE WEEK per step, for the カルテ room's own reason (`karute.ts` WINDOW_DAYS,
+ *  which walks its own span the same way): a recordings desk does not page — it
+ *  shows the recent stretch and walks backwards on request, because 「先週ぶん」
+ *  is a question a shop asks and 「3ページ目」 is not. The 録音履歴 caption names
+ *  this span out loud, because a list that opens on a window and says nothing
+ *  about it reads as the whole history (B1-13). */
 export const WINDOW_DAYS = 7
 
 /** Rows within `steps` windows of the newest one, plus how many are still behind
@@ -781,6 +798,40 @@ export const TRANSCRIPT_FAILED_LINE = '文字起こしを読み込めません�
  *  not about what survived — and everything else is a plain 「ありません」. */
 export function transcriptAbsenceOf(model: TakeModel): TranscriptAbsence {
   return model.belowFloor ? 'belowFloor' : 'none'
+}
+
+// ── ⚖ W7-2 · THE REFUSED WRITE, WHICH IS ALSO A DESIGNED STATE ──────────────
+
+/**
+ * THE DISCARD'S FAIL-CLOSED SUBMIT, in the phone's own words
+ * (`messages/ja.json` recording.discardReason.submitting / .failed /
+ * .takeChanged — verbatim, all three).
+ *
+ * ⚠ WHY A REFUSED WRITE IS A SHAPE THIS ROOM OWES A DESIGN AT ALL. The confirm
+ * is the final commitment gate for the whole discard, so a write that does not
+ * land must leave the staffer exactly where they were: the reason they typed
+ * still in the field, the dialog still open, retry and cancel both still live,
+ * and NOTHING discarded — the phone's own rule
+ * (`RecordingDiscardReasonDialog.tsx:20-23`). The room's local settle always
+ * succeeds, so without these the shape a reconnect lands on would be the one
+ * part of the flow nobody had designed. Rendered behind `?discardFail=`, the
+ * `?recovery=1` precedent: a page that always shows a failure is a page
+ * claiming one that did not happen.
+ *
+ * `takeChanged` is a DIFFERENT sentence from `failed`, and the distinction is
+ * the point: 「we could not write it」 and 「it is too late, this take has moved
+ * on」 send the staffer to two different next steps.
+ */
+export const DISCARD_SUBMITTING_LABEL = '破棄中...'
+export const DISCARD_FAILED_LINE = '破棄を記録できませんでした。もう一度お試しください。'
+export const DISCARD_STALE_LINE = 'この録音はすでに文字起こしに進んでいます。破棄できませんでした。'
+
+/** Which refusal the `?discardFail=` demo renders. `null` = the ordinary flow,
+ *  which is every render the param does not name. */
+export function discardFailLine(param: string | undefined): string | null {
+  if (param === '1') return DISCARD_FAILED_LINE
+  if (param === 'stale') return DISCARD_STALE_LINE
+  return null
 }
 
 // ── the 破棄の記録 review's own rows ─────────────────────────────────────────
