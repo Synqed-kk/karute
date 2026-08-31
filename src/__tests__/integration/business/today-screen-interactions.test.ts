@@ -7408,6 +7408,11 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(SRC).not.toContain('wc-info')
     expect(INT).not.toContain('engineRow')
     expect(INT).not.toContain('rowsOut')
+    // ⚖ 92 fix round 8 Z2 — V3's law is about THIS face, and it is untouched: a
+    // GUARD-LIT card appends nothing, because the panel is already saying it.
+    // Z2's append is the opposite condition — an override-led face, where the
+    // panel is saying the override and the guard's verdict has no other home —
+    // and it is pinned in the ⚖ 52 / 73-74 test below.
     // An offer on the card changes nothing about the rows either — both faces
     // return exactly the rows the greens line did not consume.
     expect(warnFaceFor(input({ cell: REP() })).rows).toEqual([])
@@ -7439,9 +7444,13 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // clause is dropped and only the record clause stands (R-A.5).
     expect(locked.provenance).toBe('見本 あずさの名前で記録されます')
     expect(locked.provenance).not.toContain('許可されています')
-    // …and on their OWN lane it is the bare record sentence, the ⚖ 92 name rule
-    // unchanged by the ruling.
-    expect(warnFaceFor(input({ cell: REP(), level: 'refuse', targetLaneMine: true })).provenance).toBe('記録されます')
+    // …and on their OWN lane no name is printed, the ⚖ 92 name rule unchanged by
+    // the ruling. ⚖ 92 fix round 8 Z5 (JP native pass): here 「記録されます」 is the
+    // WHOLE line rather than a clause riding a lead-in, and standing alone it
+    // reads incomplete — and asymmetric beside the other-lane line above, which
+    // names a person. 「あなたの」 closes both and prints no actual name.
+    expect(warnFaceFor(input({ cell: REP(), level: 'refuse', targetLaneMine: true })).provenance).toBe('あなたの名前で記録されます')
+    expect(warnFaceFor(input({ cell: REP(), level: 'refuse', targetLaneMine: true })).provenance).not.toContain('見本')
     // The rest of the face is the staff face, line for line.
     expect(locked.safePrimary).toEqual(staffHold.safePrimary)
     expect(locked.greensLine).toBe(staffHold.greensLine)
@@ -7572,7 +7581,10 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
   it('the name line is automatic, and only when the shift belongs to somebody else', () => {
     expect(warnFaceFor(input({ cell: REP(), targetLaneMine: false })).provenance)
       .toBe('店舗の設定で、スタッフの上書きが許可されています。見本 あずさの名前で記録されます')
-    // Own shift: the record still happens, the name is simply not news.
+    // Own shift: the record still happens, the name is simply not news. The bare
+    // 「記録されます」 stands here because the permission clause leads into it —
+    // ⚖ 92 fix round 8 Z5 changed only the 'refuse' arm, where it is the whole
+    // line and reads incomplete on its own.
     expect(warnFaceFor(input({ cell: REP(), targetLaneMine: true })).provenance)
       .toBe('店舗の設定で、スタッフの上書きが許可されています。記録されます')
     // ⚖ 92 — the other-lane test is `BoardLane.mine`, which today-board already
@@ -7606,6 +7618,21 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // The count sentence is DELETED, not merely unreachable — the template that
     // built it exists nowhere in the composer any more.
     expect(INT).not.toContain('その他の確認（${oks.length}件）')
+    // ⚖ 92 fix round 8 Z4 (breaker #7 #5) — AND A SUBJECT IS NAMED ONCE. The line
+    // is keyed on FRAGMENTS of the frozen engine's labels, so two rows can carry
+    // the same subject honestly — the day `computeChecks` grows a second 資格 row
+    // the sentence read 「時間の重複・勤務時間・資格・資格・価格は問題ありません」.
+    // Synthetic and it says so: today the engine emits each subject once.
+    const twice = warnFaceFor(input({
+      cell: REP(),
+      rows: [...GREENS, { label: '着付け資格 一致', tone: '' as const }],
+    }))
+    expect(twice.greensLine).toBe('時間の重複・勤務時間・資格・価格は問題ありません')
+    expect(twice.greensLine!.match(/資格/g)).toHaveLength(1)
+    // …and the second row really was NAMED (so it is the set doing the work, not
+    // the filter): it is consumed by the line rather than left standing as a row.
+    expect(twice.rows).toEqual([])
+
     // A page of unnameable rows produces NO line and keeps every row.
     const allUnknown = warnFaceFor(input({ cell: REP(), rows: [{ label: cleanup, tone: '' }, { label: '将来の確認', tone: '' }] }))
     expect(allUnknown.greensLine).toBeNull()
@@ -8018,19 +8045,38 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // …and it stays that answer at the locked-out dial too (⚖ 9/1 ruling 1/2:
     // the level decides nothing the board has not already decided).
     expect(warnFaceFor(input({ cell: bedFixed, level: 'refuse' })).face).toBe('clean')
-    // A walked-past sentence over this same cell still warns, and the physics
-    // branch is what answers it — commit-less, provenance-less, lock-less, on
-    // the engine's own word (⚖ 92 fix round 4 U3 / 5 V2, untouched).
+    // ⚖ 92 fix round 8 Z1 (breaker #7 #1) — AND A WALKED-PAST SENTENCE OVER THIS
+    // SAME CELL KEEPS ITS COMMIT. Round 4 U3 wrote the physics branch on `cell`
+    // alone, so this face — lit by the override, over a cell the guard never
+    // weighed (`impact` absent, so it costs the store nothing) — lost its commit
+    // to ⚖ 73's law about the GUARD's own floors. ⚖ 50(d)'s gate had already
+    // cleared the landing; the card simply had no button. Now the branch asks
+    // `guardWarn` first, so this face composes normally.
     const bedWithOverride = warnFaceFor(input({
       cell: bedFixed, level: 'refuse', override: '満室です',
       rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }],
     }))
     expect(bedFixed.ackAllowed).toBe(false)
+    expect(two.lossOf(bedFixed)).toBe(0)
     expect(bedWithOverride.face).toBe('warn')
-    expect(bedWithOverride.commit).toBeNull()
-    expect(bedWithOverride.provenance).toBeNull()
+    expect(bedWithOverride.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+    // …and ⚖ 50(d) is again the whole of the gate: a second blocker still kills
+    // the button, exactly as it does on every other warn face.
+    expect(warnFaceFor(input({
+      cell: bedFixed, level: 'refuse', override: '満室です', confirmEnabled: false,
+      rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }],
+    })).commit).toEqual({ kind: 'hold', label: 'この位置では確定できません', enabled: false, note: null })
+    // The record clause stands under it (⚖ 9/1 ruling 1/2 — the dial refused
+    // them, so the line may not thank it), and no lock line is invented.
+    expect(bedWithOverride.provenance).toBe('見本 あずさの名前で記録されます')
     expect(bedWithOverride.lock).toBeNull()
     expect(bedWithOverride.safePrimary).toEqual({ kind: 'place', start: 600, main: '10:00に置く', sub: '（損を減らす）' })
+    // ⚖ 92 fix round 8 Z2 (breaker #7 #2) — AND THE GUARD'S SENTENCE IS STILL ON
+    // THE CARD. The panel here is carrying the OVERRIDE, so the engine's own
+    // verdict has no other home on this face — the screen draws `guardRow` on the
+    // CLEAN face only. It rides the rows, in the engine's own words.
+    expect(bedWithOverride.impact).toEqual({ head: '満室です', yen: null, tail: '' })
+    expect(bedWithOverride.rows).toEqual([{ label: 'この開始ではベッドを60分確保できません', tone: 'warn' }])
 
     // AND THE MOVED-START ARM IS STILL STRICT on this very cell: 13:30 is a
     // start the engine never ranked, and an impact-less staged cell has no loss
@@ -8186,7 +8232,11 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(costly.provenance).toBe('見本 あずさの名前で記録されます')
     // The composer really asks the physics branch and nothing else: no level
     // branch stands beside it any more, and `lock` has no producer at all.
-    expect(INT).toContain("if (cell != null && cell.state === 'blocked' && cell.ackAllowed === false) {")
+    // ⚖ 92 fix round 8 Z1 (breaker #7) — and it asks `guardWarn` first, so the
+    // branch answers only the floors the GUARD found. Both cells above are
+    // guard-lit (a real 6→5 loss each), which is why every assertion in this
+    // test is unchanged by that narrowing.
+    expect(INT).toContain("if (guardWarn && cell.state === 'blocked' && cell.ackAllowed === false) {")
     expect(INT.match(/lock: null/g)).toHaveLength(3)
     expect(INT).not.toContain("lock: 'この場所への配置は")
   })
@@ -8232,21 +8282,76 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(staff.provenance).toBe('店舗の設定で、スタッフの上書きが許可されています。見本 あずさの名前で記録されます')
     // ⚖ 31b's note says the same thing where the row is composed, so the two
     // laws stop reading as a contradiction to the next lens that arrives.
-    expect(SRC).toContain('degraded landing stays confirmable — at the shipped default level; ⚖ flag')
+    // ⚖ 92 fix round 8 Z3 (breaker #7 #3) — and it now says it in the RULING'S
+    // words. The clause used to end 「at the shipped default level; …a store
+    // dialled to 店長のみ refuses the press」, which is the face this very test
+    // overturned on the night it was written — a stale sentence pinned by a
+    // machine check reads as law to the next lens, so the pin moves with it.
+    expect(SRC).toContain('degraded landing stays confirmable at every override level')
+    // The overturned half is gone from the clause rather than left standing
+    // beside its correction. (Narrow on purpose: 「at the shipped default level」
+    // is still TRUE where round 4 U1 uses it, two hundred lines down, about
+    // where a defect was execution-proven.)
+    expect(SRC).not.toContain('refuses the press without any of that')
   })
 
   it('⚖ 52 / 73-74 — a record never goes invisible because a nicer face was drawn', () => {
     // The overridden sentence IS the fact when there is no guard fact, so the
-    // panel says it and the row does not repeat it.
+    // panel says it and the row does not repeat it. NO CELL AT ALL here: the
+    // guard is off, or the lane owns no cell at this start.
     const overOnly = warnFaceFor(input({ rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }], override: '満室です' }))
     expect(overOnly.impact).toEqual({ head: '満室です', yen: null, tail: '' })
     expect(overOnly.rows).toEqual([])
+
+    /** ⚖ 92 fix round 8 Z2 (breaker #7 #2) — AND THE CASE ABOVE WAS THE ONE SHAPE
+     *  WITH NOTHING TO LOSE. It is the only override-led face this test ever
+     *  asked, and `cell: null` is precisely the shape that carries no guard
+     *  verdict — so the class where the verdict EXISTS and the panel is busy
+     *  saying something else went unpinned, and the engine's sentence fell off
+     *  the card for four rounds.
+     *
+     *  The breaker's own scene, off the REAL engine: a 60分 card dropped at 19:00
+     *  on a 〜19:00 shift. The pocket ends with the shift, so the guard refuses
+     *  the start — and it never reached the capacity question, so the cell costs
+     *  the store nothing and does NOT light the face (⚖ 9/1 ruling 2/2). The
+     *  walked-past 勤務不可 row is what lights it. The panel therefore carries the
+     *  OVERRIDE, and the guard's sentence has no other home on this face: the
+     *  screen draws `guardRow` on the clean face only. */
+    const shiftEnd = cellAt(1140)
+    expect(shiftEnd.state).toBe('blocked')
+    expect(shiftEnd.ackAllowed).toBe(false)
+    expect(lossOf(shiftEnd)).toBe(0)
+    // `computeChecks`' own shift-end label (drag-rules :220) is the sentence this
+    // landing was staged THROUGH, so the 勤務 row leaves the greens and comes back
+    // as the △ the operator walked past.
+    const shiftOver = '見本 あずさは19:00以降勤務不可'
+    const overLed = warnFaceFor(input({
+      cell: shiftEnd,
+      override: shiftOver,
+      rows: [...GREENS.filter((r) => !r.label.includes('勤務時間内')), { label: `注意して配置: ${shiftOver}`, tone: 'warn' as const }],
+    }))
+    expect(overLed.face).toBe('warn')
+    expect(overLed.impact).toEqual({ head: shiftOver, yen: null, tail: '' })
+    // THE FIX: the engine's verdict is on the card, in the board's own △ grammar…
+    expect(overLed.rows).toEqual([{ label: 'この開始には60分の連続した空きがありません', tone: 'warn' }])
+    // …and it is the engine's OWN row, through the one home that composes it —
+    // never a sentence this surface wrote for itself (⚖ GAP-6/FIX-6).
+    expect(overLed.rows).toEqual([guardCheckRow(shiftEnd)])
+    // The rest of the face is untouched: the greens the line could name are still
+    // folded, and ⚖ 92 fix round 8 Z1 gives this landing its commit back.
+    expect(overLed.greensLine).toBe('時間の重複・資格・価格は問題ありません')
+    expect(overLed.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+
     // With BOTH, the guard's verdict leads (it is the store's law about the day)
     // and the walked-past sentence stays a △ row — visible, in the board's own
     // grammar, exactly where ⚖ 73-74 put it.
     const both = warnFaceFor(input({ cell: REP(), rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }], override: '満室です' }))
     expect(both.impact.tail).toBe('が入らなくなります。')
+    // …and Z2's append does NOT fire here: the panel above IS the guard's verdict
+    // in the approved shape, so repeating it as a row would be the duplication
+    // ⚖ 92 fix round 5 V3 deleted. The row list is the override's alone.
     expect(both.rows).toEqual([{ label: '注意して配置: 満室です', tone: 'warn' }])
+    expect(both.rows).not.toContainEqual(guardCheckRow(REP()))
     // A × row survives the re-face too, and it still kills the commit — the
     // ⚖ 50(d) gate is carried in, never re-decided here.
     const blocked = warnFaceFor(input({

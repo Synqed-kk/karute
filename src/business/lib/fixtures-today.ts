@@ -316,9 +316,14 @@ export const storeBookingPolicy = {
    *  (⚖ 92 micro-fix M2, JP native pass — 「置けない」 says the placement is
    *  impossible; the dial guards a placement that IS allowed but warns.)
    *
-   *  Meaningful ONLY at override level `allow-warned`: a 店長のみ store has no
-   *  staff commit for the press to guard, and the composer says so by never
-   *  building a commit control on the lock face. */
+   *  It guards EVERY warn commit the card composes — ⚖ 9/1 ruling 1/2 deleted the
+   *  lock face, so a 店長のみ store reaches the same 注意して配置 as anyone else and
+   *  the dial decides only HOW that press is made. The two faces it cannot reach
+   *  are the ones with no press to guard: 店長承認, whose control is a request, and
+   *  a floor the guard itself calls impossible, which carries no commit at all.
+   *  (⚖ 92 fix round 8 Z3 — this note used to read 「Meaningful ONLY at override
+   *  level `allow-warned`: a 店長のみ store has no staff commit for the press to
+   *  guard」, which the 9/1 ruling overturned the same night it was written.) */
   overrideHoldToConfirm: true,
 }
 

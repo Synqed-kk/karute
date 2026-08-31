@@ -2177,20 +2177,30 @@ export function TodayScreen(props: TodayProps) {
    *  is real: it joins the checks the confirm surface already shows, as one more
    *  row. It is INFORMATION — `pendingConfirm` above is untouched, so what can
    *  and cannot be confirmed is still `computeChecks`' answer alone and a
-   *  degraded landing stays confirmable — at the shipped default level; ⚖ flag
-   *  92's dial composes stricter faces above it, and a store dialled to 店長のみ
-   *  refuses the press without any of that reaching `computeChecks`' answer —
-   *  exactly as canon's own ackAllowed lets it be. Neither canon's hold bar nor
-   *  the built one showed this at all.
+   *  degraded landing stays confirmable at every override level; ⚖ flag 92's dial
+   *  changes only what the card SAYS and how the press is made, never whether the
+   *  landing may be confirmed. Neither canon's hold bar nor the built one showed
+   *  this at all.
+   *
+   *  ⚖ 92 fix round 8 Z3 (breaker #7 #3) — the clause above used to end 「at the
+   *  shipped default level; ⚖ flag 92's dial composes stricter faces above it,
+   *  and a store dialled to 店長のみ refuses the press…」, which ⚖ 9/1 ruling 1/2
+   *  overturned the same night it was written: the dial's lock face is DELETED
+   *  and a 店長のみ store reaches the same commit as anyone else. It is corrected
+   *  here rather than left to read as a second, stricter gate that no longer
+   *  exists.
    *
    *  ⚖ 92 fix round 6 X4 (breaker #5) — AND THE CLAUSE ABOVE IS ABOUT THE
    *  CONTROLS THAT RENDER. 「`computeChecks`' answer alone」 is the gate wherever
    *  a commit control EXISTS. It has no subject on the physics face: ⚖ 92 fix
-   *  round 4 U3 gives a floor the engine calls impossible (`ackAllowed: false` —
-   *  R-UNAVAILABLE, strict mode's refusals) no commit and no permission line at
-   *  all, by ⚖ 73's ruling that 「a floor the engine calls impossible is not a
-   *  floor a manager can be given authority over」. Nothing there is being gated
-   *  more strictly than `computeChecks` says; there is simply nothing to gate. */
+   *  round 4 U3 gives a floor the GUARD calls impossible (`ackAllowed: false` on
+   *  a guard-lit cell — strict mode's refusals, R-UNAVAILABLE with a real loss)
+   *  no commit and no permission line at all, by ⚖ 73's ruling that 「a floor the
+   *  engine calls impossible is not a floor a manager can be given authority
+   *  over」. Nothing there is being gated more strictly than `computeChecks`
+   *  says; there is simply nothing to gate. ⚖ 92 fix round 8 Z1 narrowed that
+   *  branch to guard-lit faces — a face lit by a walked-past row alone keeps its
+   *  commit, and ⚖ 50(d)'s gate is again the whole of the answer there. */
   /** ⚖ 92 — AND THE CELL ITSELF, not only its row. The warn card composes from
    *  the verdict's DATA (`cell.impact`, its alternatives, its state) and the row
    *  is one rendering of that same cell — deriving them together here keeps them

@@ -3482,9 +3482,14 @@ const GREEN_SUBJECTS: ReadonlyArray<[fragment: string, subject: string]> = [
 const greenSubjectOf = (label: string): string | null =>
   GREEN_SUBJECTS.find(([fragment]) => label.includes(fragment))?.[1] ?? null
 
+/** ⚖ 92 fix round 8 Z4 (breaker #7 #5) — AND EACH SUBJECT IS NAMED ONCE. The
+ *  subjects are keyed on FRAGMENTS of the frozen engine's labels, so two rows
+ *  can legitimately carry the same one — the day `computeChecks` grows a second
+ *  資格 row, the muted line reads 「…資格・資格は…」. A set is the whole fix, and
+ *  it keeps the first-seen order the four subjects are already written in. */
 function greensLineOf(oks: ReadonlyArray<{ label: string }>): string | null {
   const subjects = oks.map((r) => greenSubjectOf(r.label)).filter((s): s is string => s !== null)
-  return subjects.length > 0 ? `${subjects.join('・')}は問題ありません` : null
+  return subjects.length > 0 ? `${[...new Set(subjects)].join('・')}は問題ありません` : null
 }
 
 /** ⚖ 92 fix round 5 V1 (breaker #4) — WHAT A SET OF PROTECTED WINDOWS IS WORTH,
@@ -3659,9 +3664,34 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
   // ⚖ 92 fix round 2 S2 — and an ok row the greens line could not NAME is kept
   // beside them: the line consumed the four subjects it has words for, so
   // anything else that passed is still unsaid, and unsaid is invisible.
-  const kept = rows.filter(
-    (r) => (r.tone !== '' || greenSubjectOf(r.label) === null) && !(!guardWarn && r.label === overrideRow),
-  )
+  /** ⚖ 92 fix round 8 Z2 (breaker #7 #2) — AND THE GUARD'S SENTENCE SURVIVES A
+   *  FACE IT DID NOT LIGHT.
+   *
+   *  With `guardWarn` false the panel above is carrying the OVERRIDE, and the
+   *  guard's own verdict — a zero-loss caution, a bed that cannot be held, the
+   *  shift-end no-pocket refusal — had nowhere to go: the screen renders
+   *  `pendingGuardRow.row` on the CLEAN face only, so a warn face composed from a
+   *  walked-past row alone dropped the engine's sentence off the card entirely.
+   *  ⚖ 52 / 73-74 is exactly this law — a record may never go invisible because a
+   *  nicer face was drawn over it — and it is the engine's OWN row, through the
+   *  one home that composes it, never a sentence of this surface's own.
+   *
+   *  A GUARD-LIT face appends nothing: the panel there is already the same
+   *  verdict in the approved shape, and round 5 V3 is the precedent for not
+   *  saying it twice. The CLEAN face appends nothing either, for that same reason
+   *  one scope over — it is the face whose own `guardRow` renders precisely this
+   *  row, which is where ⚖ 9/1 ruling 2/2 sends every zero-loss fact.
+   *
+   *  `guardCheckRow` already answers null for a null cell and for a safe one, so
+   *  its own law is the whole of the condition and there is no second spelling of
+   *  「is there a verdict to show?」 here. */
+  const guardRow = guardWarn ? null : guardCheckRow(cell)
+  const kept = [
+    ...rows.filter(
+      (r) => (r.tone !== '' || greenSubjectOf(r.label) === null) && !(!guardWarn && r.label === overrideRow),
+    ),
+    ...(guardRow ? [guardRow] : []),
+  ]
 
   // ⚖ 92 — the safe answer, from the ENGINE'S own alternatives. Two shapes and
   // no third: a start it can name, or nothing at all. ⚖ 31c binds the second —
@@ -3730,8 +3760,30 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
    *  dial, so it is asked first.
    *
    *  Safe primary, rows, greens and 元に戻す are untouched — being unable to
-   *  place HERE is not being unable to place. */
-  if (cell != null && cell.state === 'blocked' && cell.ackAllowed === false) {
+   *  place HERE is not being unable to place.
+   *
+   *  ⚖ 92 fix round 8 Z1 (breaker #7 #1) — AND IT IS THE GUARD'S OWN FLOOR, NEVER
+   *  A FACE THE OVERRIDE LIT.
+   *
+   *  ⚖ 73's law is about the floors the GUARD found: a placement the engine calls
+   *  impossible is not one a manager can be given authority over. Round 4 U3 wrote
+   *  the branch on `cell` alone, so it also answered a face lit ONLY by a
+   *  walked-past row — the breaker's scene is a 60分 card dropped at 19:00 on a
+   *  〜19:00 shift and staged through the checks-policy override, whose cell is the
+   *  no-pocket refusal: `ackAllowed: false`, and impact-less, so the guard never
+   *  weighed a protected window here at all. That face lost its commit to a law
+   *  about a fact it was not carrying, and the operator was walled out of a
+   *  landing ⚖ 50(d)'s gate had already cleared. It shipped in round 4 and was
+   *  live until now; rounds 5 and 6 probed only the strict-mode and board-moved
+   *  paths and read it as latent.
+   *
+   *  So the branch asks `guardWarn` — the guard's own trigger, which since ⚖ 9/1
+   *  ruling 2/2 means a cell that actually costs the store a protected window. A
+   *  strict-mode R-REP with a real loss is guard-lit and stays commit-less (⚖ 73
+   *  intact); an impact-less blocked cell is guardWarn-false by construction, so a
+   *  face lit by a walked-past override alone composes its commit from ⚖ 50(d)'s
+   *  gate exactly as the clean face always did. */
+  if (guardWarn && cell.state === 'blocked' && cell.ackAllowed === false) {
     return { face: 'warn', impact, provenance: null, lock: null, safePrimary, commit: null, rows: kept, greensLine: greensLineOf(oks) }
   }
   /** ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — THE LOCK FACE IS DELETED, AND THE
@@ -3800,10 +3852,18 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
    *  overrides, and this ruling is what lets them confirm anyway. So at 'refuse'
    *  the permission clause is dropped and only the record clause stands, in the
    *  same words the two permitted faces already use (the ⚖ 92 name rule
-   *  unchanged: the operator's name on someone else's lane, bare on their own). */
+   *  unchanged: the operator's name on someone else's lane, bare on their own).
+   *
+   *  ⚖ 92 fix round 8 Z5 (JP native pass) — AND ON THEIR OWN LANE IT IS A WHOLE
+   *  SENTENCE. Everywhere else 「記録されます」 rides a lead-in clause; here it is
+   *  the entire line, and standing alone a native eye reads it as incomplete —
+   *  and asymmetric beside the other-lane line right next to it, which names a
+   *  person. 「あなたの名前で記録されます」 closes both: it prints no actual name,
+   *  so the ⚖ 92 rule that the name line is other-lane-only still holds. The
+   *  other-lane wording is untouched. */
   const provenance =
     level === 'refuse'
-      ? recordedBare
+      ? (input.targetLaneMine ? 'あなたの名前で記録されます' : recordedBare)
       : (level === 'needs-approval' ? '店舗の設定で、上書きには店長の承認が必要です' : '店舗の設定で、スタッフの上書きが許可されています') + `。${recordedBare}`
   return { face: 'warn', impact, provenance, lock: null, safePrimary, commit, rows: kept, greensLine: greensLineOf(oks) }
 }
