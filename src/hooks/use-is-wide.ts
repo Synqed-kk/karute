@@ -100,8 +100,14 @@ export function useIsWide(): IsWideState {
     // React StrictMode re-runs this effect on mount, and a second initial
     // measurement would otherwise latch `crossed` in dev and turn the
     // optimization off for every dev session.
-    const measure = (crossing: boolean) =>
-      setState((prev) => ({ wide: mq.matches, crossed: prev.crossed || crossing }))
+    // `mq.matches` read OUT here, not inside the updater: React may invoke an
+    // updater more than once (StrictMode double-invocation), and an updater
+    // that re-reads a live browser object is not pure — two invocations could
+    // see two different widths. Sample once, then fold.
+    const measure = (crossing: boolean) => {
+      const matches = mq.matches
+      setState((prev) => ({ wide: matches, crossed: prev.crossed || crossing }))
+    }
     measure(false)
     const onChange = () => measure(true)
     mq.addEventListener('change', onChange)

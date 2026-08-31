@@ -6,7 +6,7 @@
 // as missing. DrillInView must open at the top: its mount effect zeroes every
 // scrollable ancestor. Section mocks mirror settings-shell-pending-tabs.
 
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 
 jest.mock('next-intl', () => ({
   useTranslations: () => (k: string) => k,
@@ -89,6 +89,41 @@ function installMatchMedia(wide: boolean) {
   })) as unknown as typeof window.matchMedia
 }
 
+/** A matchMedia that can CROSS the breakpoint, so a rotation can be simulated:
+ *  flip the width, then fire the `change` listeners the shell registered. */
+function installCrossableMatchMedia(startWide: boolean) {
+  let wide = startWide
+  const handlers = new Set<() => void>()
+  window.matchMedia = ((query: string) => ({
+    get matches() {
+      return wide
+    },
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: (_t: string, fn: () => void) => void handlers.add(fn),
+    removeEventListener: (_t: string, fn: () => void) => void handlers.delete(fn),
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia
+  return (next: boolean) => {
+    wide = next
+    act(() => {
+      for (const fn of handlers) fn()
+    })
+  }
+}
+
+/** Render into a container that is ALREADY scrolled, the way arriving from a
+ *  scrolled route leaves the persistent scroll container. */
+function renderInScrolledContainer(ui: React.ReactElement, offset = 250) {
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  container.scrollTop = offset
+  const view = render(ui, { container })
+  return { container, view }
+}
+
 afterEach(() => {
   delete (window as { matchMedia?: unknown }).matchMedia
 })
@@ -130,13 +165,72 @@ describe('SettingsShell — drill-in opens at the top (7/24 back-button field re
   })
 
   it('a drill mounted directly via initialTab (deep link) also opens at the top', () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    container.scrollTop = 250
-    render(<SettingsShell {...baseProps} initialTab={'sync' as SettingsTabId} />, {
-      container,
-    })
+    const { container } = renderInScrolledContainer(
+      <SettingsShell {...baseProps} initialTab={'sync' as SettingsTabId} />,
+    )
     expect(container.scrollTop).toBe(0)
     document.body.removeChild(container)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────
+// Only a SECTION CHANGE may move the reader (round-3 verifier finding)
+// ─────────────────────────────────────────────────────────────
+describe('SettingsShell — a rotation is not a tab change, so it must not move the reader', () => {
+  it('ROTATION with the tab unchanged PRESERVES scroll — the reset is keyed on the section, not on the width', () => {
+    // The defect: `isWide` sits in the reset effect's deps for the `md` guard,
+    // so a phone rotating to landscape (isWide false→true) re-ran the effect
+    // and zeroed the position of whoever was mid-read. Probed at scrollTop 480
+    // → 0 going portrait→landscape, while the reverse (→ false, early return)
+    // kept it — a reader losing their place on one rotation direction only.
+    const crossTo = installCrossableMatchMedia(false)
+    const { container } = render(<SettingsShell {...baseProps} />)
+    // Measured phone: drill into a section from the list.
+    fireEvent.click(screen.getAllByText('theme.label')[0])
+    expect(screen.getAllByTestId('section-theme').length).toBeGreaterThan(0)
+
+    // The reader scrolls down inside that section.
+    container.scrollTop = 480
+
+    // Rotate to landscape — crosses 48rem, no tab change.
+    crossTo(true)
+    expect(container.scrollTop).toBe(480)
+
+    // …and back. Neither direction moves them.
+    crossTo(false)
+    expect(container.scrollTop).toBe(480)
+  })
+
+  it('a real tab change still resets, even right after a rotation (the ref must not latch the reset away)', () => {
+    const crossTo = installCrossableMatchMedia(false)
+    const { container } = render(<SettingsShell {...baseProps} />)
+    fireEvent.click(screen.getAllByText('theme.label')[0])
+
+    container.scrollTop = 480
+    crossTo(true)
+    expect(container.scrollTop).toBe(480)
+
+    // Now on the desktop strip, pick a DIFFERENT tab: that is a section change,
+    // so it opens at the top.
+    fireEvent.click(screen.getAllByText('organization')[0])
+    expect(screen.getAllByTestId('section-organization').length).toBeGreaterThan(0)
+    expect(container.scrollTop).toBe(0)
+  })
+
+  it('MOUNT still resets once, at BOTH widths — settings opens at the top when arriving from a scrolled route', () => {
+    // Deliberate and stated in the shell: the scroll container is shared with
+    // the route the user came from, so without this an arrival from a scrolled
+    // page opens 設定 mid-page. It is the one reset that is not a tab change.
+    installMatchMedia(true)
+    const desktop = renderInScrolledContainer(<SettingsShell {...baseProps} />, 320)
+    expect(desktop.container.scrollTop).toBe(0)
+    document.body.removeChild(desktop.container)
+    desktop.view.unmount()
+
+    delete (window as { matchMedia?: unknown }).matchMedia
+    installMatchMedia(false)
+    const phone = renderInScrolledContainer(<SettingsShell {...baseProps} />, 320)
+    expect(phone.container.scrollTop).toBe(0)
+    document.body.removeChild(phone.container)
   })
 })

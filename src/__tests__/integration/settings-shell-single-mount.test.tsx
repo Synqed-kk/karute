@@ -271,21 +271,38 @@ describe('SettingsShell — one branch mounted, so opening a section reads once'
     // the two values — silently, with no error anywhere. Read Tailwind's own
     // resolved default and assert the app neither overrides it nor drifts from
     // it, so that day is a red test instead of a blank page.
-    const themeCss = readFileSync(
-      path.join(process.cwd(), 'node_modules/tailwindcss/theme.css'),
-      'utf8',
-    )
-    const declared = [...themeCss.matchAll(/--breakpoint-md:\s*([^;]+);/g)].map((m) =>
-      m[1].trim(),
-    )
+    const abs = (p: string) => path.join(process.cwd(), p)
+    const read = (p: string) => {
+      // Existence-tolerant only in the sense that a missing file FAILS with the
+      // path in the message instead of throwing ENOENT out of the matcher. A
+      // package restructure must go red here, never quietly pass by scanning a
+      // file that no longer exists.
+      try {
+        return readFileSync(abs(p), 'utf8')
+      } catch {
+        throw new Error(`expected stylesheet is missing: ${p} — resolve it and re-point this test`)
+      }
+    }
+    const declarationsIn = (css: string) =>
+      [...css.matchAll(/--breakpoint-md:\s*([^;]+);/g)].map((m) => m[1].trim())
+
+    // globals.css says `@import "tailwindcss"`, and the tailwindcss package's
+    // "." export resolves the `style` condition to index.css — NOT theme.css.
+    // index.css carries its own inlined @theme and never imports theme.css, so
+    // index.css is the file the build actually reads. (Round-2 read theme.css:
+    // right value, wrong file — the two agree today, and nothing was checking
+    // that they still would.)
+    const declared = declarationsIn(read('node_modules/tailwindcss/index.css'))
     // Exactly one declaration, and MD_QUERY is built from it verbatim (rem
     // kept as rem — a px spelling would drift at any root font size ≠ 16).
     expect(declared).toEqual(['48rem'])
     expect(MD_QUERY).toBe(`(min-width: ${declared[0]})`)
+    // The sibling copy must agree with it. If a future tailwind splits these
+    // two apart, this reds instead of one of them drifting unnoticed.
+    expect(declarationsIn(read('node_modules/tailwindcss/theme.css'))).toEqual(declared)
 
-    // …and no app-side override, in globals.css or any other stylesheet under
-    // src (a `@theme { --breakpoint-md: … }` anywhere would move the CSS md
-    // without moving MD_QUERY).
+    // …and nothing the app imports overrides it. A `@theme { --breakpoint-md: … }`
+    // in ANY of these would move the CSS `md` without moving MD_QUERY.
     const cssFiles: string[] = []
     const walk = (dir: string) => {
       for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -293,9 +310,23 @@ describe('SettingsShell — one branch mounted, so opening a section reads once'
         else if (e.name.endsWith('.css')) cssFiles.push(path.join(dir, e.name))
       }
     }
-    walk(path.join(process.cwd(), 'src'))
-    expect(cssFiles).toContain(path.join(process.cwd(), 'src/app/globals.css'))
-    const overriding = cssFiles.filter((f) => /--breakpoint-md\s*:/.test(readFileSync(f, 'utf8')))
+    walk(abs('src'))
+    expect(cssFiles).toContain(abs('src/app/globals.css'))
+
+    // globals.css's other three @imports, resolved through each package's
+    // exports map (`style` condition), since they live outside src:
+    //   tw-animate-css                    → dist/tw-animate.css
+    //   shadcn/tailwind.css               → dist/tailwind.css
+    //   @synqed-kk/ui/src/themes/tokens.css → that bare path
+    const importedFromNodeModules = [
+      'node_modules/tw-animate-css/dist/tw-animate.css',
+      'node_modules/shadcn/dist/tailwind.css',
+      'node_modules/@synqed-kk/ui/src/themes/tokens.css',
+    ]
+    const overriding = [
+      ...cssFiles.filter((f) => /--breakpoint-md\s*:/.test(readFileSync(f, 'utf8'))),
+      ...importedFromNodeModules.filter((f) => /--breakpoint-md\s*:/.test(read(f))),
+    ]
     expect(overriding).toEqual([])
   })
 })

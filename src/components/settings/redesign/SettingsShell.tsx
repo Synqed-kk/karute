@@ -329,11 +329,27 @@ export function SettingsShell({
   // hidden branch took that away silently — a tab picked while scrolled down
   // opened mid-page. Same ancestors, same timing (before paint), stated
   // outright here instead of riding on a branch that may not be in the tree.
-  // Skipped below `md`, where DrillInView is the visible branch and owns the
-  // reset; runs while unmeasured (harmless — nothing has scrolled yet) so it
-  // never depends on `crossed`.
+  //
+  // A SECTION CHANGE is the only thing that may scroll the reader back to the
+  // top. `isWide` is in the deps for the `md` guard below, NOT as a trigger:
+  // without the ref check, rotating a phone to landscape (isWide false→true)
+  // re-ran this and threw away the position of whoever was mid-read (probed:
+  // scrollTop 480 → 0). The ref updates on EVERY run, including the ones that
+  // bail below `md`, so a tab picked on the phone can't leave a stale value
+  // behind for the next rotation to act on.
+  //
+  // Mount DOES reset once, at every width, deliberately: the scroll container
+  // is a persistent element shared with the route the user came from (see
+  // DrillInView below), so arriving from a scrolled page would otherwise open
+  // 設定 mid-page. Settings opens at the top; nothing after that moves the
+  // reader except their own tab click.
   const shellRef = useRef<HTMLDivElement>(null)
+  const lastResetTab = useRef<SettingsTabId | null | undefined>(undefined)
   useLayoutEffect(() => {
+    const sectionChanged = lastResetTab.current !== desktopActiveTab
+    lastResetTab.current = desktopActiveTab
+    if (!sectionChanged) return
+    // Below `md` DrillInView is the visible branch and owns the reset.
     if (isWide === false) return
     for (let el: HTMLElement | null = shellRef.current; el; el = el.parentElement) {
       el.scrollTop = 0
