@@ -1212,7 +1212,20 @@ async function facadeGetDiscardTranscript(
     // answer that means anything is the route's own (core's 404 — a swept
     // session). An unreadable body is not an answer about the words.
     if (!body || !Array.isArray(body.segments)) return { ok: false, error: 'failed' }
-    return { ok: true, segments: body.segments, durationSeconds: body.durationSeconds ?? null }
+    // `startTime` normalised AT THE BOUNDARY: a deployment older than the
+    // 破棄の記録 redesign answers without the key, and a malformed one with
+    // something that is not a number. Either way the panel must simply place no
+    // 5-minute markers — never compute them from a missing value. Same
+    // never-reject posture as the shape guard above: a segment whose time we
+    // cannot read still has WORDS, and the words are what this screen is for.
+    return {
+      ok: true,
+      segments: body.segments.map((s) => ({
+        text: s.text,
+        startTime: typeof s.startTime === 'number' ? s.startTime : null,
+      })),
+      durationSeconds: body.durationSeconds ?? null,
+    }
   } catch {
     return { ok: false, error: 'failed' }
   }

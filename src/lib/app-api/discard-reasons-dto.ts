@@ -28,6 +28,17 @@ const DiscardReasonRowSchema = z.object({
   staffId: z.string().nullable(),
   staffName: z.string().nullable(),
   reason: z.string(),
+  // The recording behind the row (⚖ 8/31). Nullable for the same reason the
+  // staff name is: every one of these joins is best-effort, and a row whose
+  // recording fell outside the read window is still a row worth showing.
+  // NULLABLE, not optional: the twin always emits the key, so an absent one
+  // means a field was RENAMED inside the twin — precisely the drift this parse
+  // exists to catch before it reaches a baked phone.
+  customerId: z.string().nullable(),
+  customerName: z.string().nullable(),
+  recordingCreatedAt: z.string().nullable(),
+  durationSeconds: z.number().nullable(),
+  storeName: z.string().nullable(),
 })
 
 /** Mirrors DiscardReasonCounts. Past the read cap these are FLOORS, not
@@ -52,7 +63,19 @@ export const DiscardReasonsListDTO = z.object({
 })
 
 export const DiscardTranscriptDTO = z.object({
-  segments: z.array(z.object({ text: z.string() })),
+  segments: z.array(
+    z.object({
+      text: z.string(),
+      /** Seconds into the recording — what the panel's 5-minute markers are
+       *  placed from. Nullable rather than optional for the rename reason
+       *  above: this route parses the SERVER's own object, where the key is
+       *  always emitted, so tolerating its ABSENCE here would tolerate exactly
+       *  the drift being guarded against. An older SERVER answering a newer
+       *  phone is a different boundary and is handled at the thin port, which
+       *  normalises a missing value to null. */
+      startTime: z.number().nullable(),
+    }),
+  ),
   /** null when the metadata read failed or the recording is gone — the section
    *  needs it to tell "under the accidental-tap floor" from "no transcript was
    *  kept", so it is nullable, never absent. */

@@ -108,16 +108,23 @@ describe('破棄の記録 — the row opens onto what was recorded', () => {
     expect(screen.getByText(t('transcriptTitle'))).toBeInTheDocument()
   })
 
-  it('several segments read as one passage', async () => {
+  it('several segments read as a passage — every one of them on screen', async () => {
     getDiscardTranscript.mockResolvedValue({
       ok: true,
-      segments: [{ text: '一つ目。' }, { text: '二つ目。' }],
+      segments: [
+        { text: '一つ目。', startTime: 4 },
+        { text: '二つ目。', startTime: 71 },
+      ],
       durationSeconds: 90,
     })
     await renderAndOpen()
-    // One node, both segments — testing-library's default normalizer collapses
-    // the blank line that separates them on screen.
-    expect(screen.getByText('一つ目。 二つ目。')).toBeInTheDocument()
+    // Since the 8/31 redesign each segment is its own line carrying its own
+    // time, rather than one joined paragraph. What is pinned is what always
+    // mattered: NOTHING the recording kept is dropped on the way to the screen.
+    expect(screen.getByText('一つ目。')).toBeInTheDocument()
+    expect(screen.getByText('二つ目。')).toBeInTheDocument()
+    expect(screen.getByText('0:04')).toBeInTheDocument()
+    expect(screen.getByText('1:11')).toBeInTheDocument()
   })
 
   it('under the accidental-tap floor: says nothing was ever recorded, not "no transcript"', async () => {

@@ -39,6 +39,11 @@ const LIST_BODY: ListBody = {
       staffId: 'card-A',
       staffName: '原 奏恵',
       reason: 'お客様が席を外したため録り直します',
+      customerId: 'cus-1',
+      customerName: '田中 恵子',
+      recordingCreatedAt: '2026-08-31T01:58:00.000Z',
+      durationSeconds: 252,
+      storeName: '代官山店',
     },
   ],
   counts: {
@@ -49,7 +54,13 @@ const LIST_BODY: ListBody = {
   truncated: false,
 }
 
-const TRANSCRIPT_BODY: TranscriptBody = { segments: [{ text: 'ひとつめ' }], durationSeconds: 42 }
+const TRANSCRIPT_BODY: TranscriptBody = {
+  segments: [
+    { text: 'ひとつめ', startTime: 4 },
+    { text: 'ふたつめ', startTime: 331 },
+  ],
+  durationSeconds: 42,
+}
 
 function port(res: (path: string, init?: RequestInit) => Promise<Response>) {
   const apiFetch = jest.fn(res)
@@ -161,6 +172,28 @@ describe('thin actions port — 破棄の記録 transcript', () => {
       ok: true,
       segments: [],
       durationSeconds: null,
+    })
+  })
+
+  it.each([
+    ['no startTime at all (a deployment older than the redesign)', { text: 'ひとつめ' }],
+    ['a startTime that is not a number', { text: 'ひとつめ', startTime: '0:04' }],
+    ['an explicitly null startTime', { text: 'ひとつめ', startTime: null }],
+  ])('%s degrades to null — the WORDS still arrive', async (_label, segment) => {
+    // The old-wire boundary. A baked phone newer than the server it is talking
+    // to must still show what was said; only the 5-minute markers go missing,
+    // and the panel renders none rather than placing them from a value it does
+    // not have. Rejecting here would answer 読み込めませんでした for a
+    // transcript the server sent in full.
+    port(
+      async () =>
+        new Response(JSON.stringify({ segments: [segment], durationSeconds: 42 }), { status: 200 }),
+    )
+
+    await expect(getDiscardTranscript('rs-1')).resolves.toEqual({
+      ok: true,
+      segments: [{ text: 'ひとつめ', startTime: null }],
+      durationSeconds: 42,
     })
   })
 
