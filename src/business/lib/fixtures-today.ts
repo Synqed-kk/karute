@@ -318,12 +318,19 @@ export const storeBookingPolicy = {
    *
    *  It guards EVERY warn commit the card composes — ⚖ 9/1 ruling 1/2 deleted the
    *  lock face, so a 店長のみ store reaches the same 注意して配置 as anyone else and
-   *  the dial decides only HOW that press is made. The two faces it cannot reach
-   *  are the ones with no press to guard: 店長承認, whose control is a request, and
-   *  a floor the guard itself calls impossible, which carries no commit at all.
+   *  the dial decides only HOW that press is made. The one face it cannot reach is
+   *  the one with no control at all: 店長承認, whose commit is a request rather
+   *  than a press.
    *  (⚖ 92 fix round 8 Z3 — this note used to read 「Meaningful ONLY at override
    *  level `allow-warned`: a 店長のみ store has no staff commit for the press to
-   *  guard」, which the 9/1 ruling overturned the same night it was written.) */
+   *  guard」, which the 9/1 ruling overturned the same night it was written.)
+   *  (⚖ 92 fix round 10 V4 (breaker #9 #4) — and it used to count a SECOND
+   *  unreachable face, 「a floor the guard itself calls impossible, which carries
+   *  no commit at all」. ⚖ 92 fix round 9 W1 gave that floor a control after all —
+   *  the clean face's own 「この位置では確定できません」, permanently disabled — and
+   *  its kind is composed from THIS dial like every other commit. So the dial does
+   *  reach it; what it decides there is only the shape of a button that can never
+   *  fire, which is why nothing in the settings copy above changes.) */
   overrideHoldToConfirm: true,
 }
 

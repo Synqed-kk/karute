@@ -1319,7 +1319,12 @@
 /* ⚖ 92 fix round 5 V6 (breaker #4) — .45 was this rule's own number and the
    shell already has one: `.biz button:disabled` (business-shell.css :106) dims
    every disabled control in Business to .48. One dimming value, one home. */
-.biz .wc-hold:disabled { opacity: .48; cursor: not-allowed; }
+/* ⚖ 92 fix round 10 V3 (breaker #9 #3) — …and it gives the scroll back. The
+   `touch-action: none` above is bought by a press that is going somewhere; on
+   round 9's dead 「この位置では確定できません」 pill there is no press to protect,
+   so the rule was only eating the finger's swipe on the tallest control on the
+   card. A pill that can never fire may not eat the scroll. */
+.biz .wc-hold:disabled { opacity: .48; cursor: not-allowed; touch-action: auto; }
 /* ⚖ 92 fix round F13 (blind L2#8) — THE PRESS MUST NOT SHRINK ITSELF OUT FROM
    UNDER THE FINGER. `.holding` scales the control to 98%, and hit-testing uses
    the scaled box: a press near the edge landed OUTSIDE it on the very next

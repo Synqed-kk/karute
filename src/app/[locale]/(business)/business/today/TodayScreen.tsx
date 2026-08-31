@@ -2192,15 +2192,31 @@ export function TodayScreen(props: TodayProps) {
    *
    *  ⚖ 92 fix round 6 X4 (breaker #5) — AND THE CLAUSE ABOVE IS ABOUT THE
    *  CONTROLS THAT RENDER. 「`computeChecks`' answer alone」 is the gate wherever
-   *  a commit control EXISTS. It has no subject on the physics face: ⚖ 92 fix
+   *  a commit control CAN FIRE. It has no subject on the physics face: ⚖ 92 fix
    *  round 4 U3 gives a floor the GUARD calls impossible (`ackAllowed: false` on
-   *  a guard-lit cell — strict mode's refusals, R-UNAVAILABLE with a real loss)
-   *  no commit and no permission line at all, by ⚖ 73's ruling that 「a floor the
-   *  engine calls impossible is not a floor a manager can be given authority
-   *  over」. Nothing there is being gated more strictly than `computeChecks`
-   *  says; there is simply nothing to gate. ⚖ 92 fix round 8 Z1 narrowed that
-   *  branch to guard-lit faces — a face lit by a walked-past row alone keeps its
-   *  commit, and ⚖ 50(d)'s gate is again the whole of the answer there. */
+   *  a guard-lit cell — strict mode's refusals) no permission line at all, by ⚖ 73's
+   *  ruling that 「a floor the engine calls impossible is not a floor a manager
+   *  can be given authority over」. Nothing there is being gated more strictly
+   *  than `computeChecks` says; there is simply nothing to gate. ⚖ 92 fix round 8
+   *  Z1 narrowed that branch to guard-lit faces — a face lit by a walked-past row
+   *  alone keeps its commit, and ⚖ 50(d)'s gate is again the whole of the answer
+   *  there.
+   *
+   *  ⚖ 92 fix round 10 V4 (breaker #9 #4) — TWO CORRECTIONS TO THE CLAUSE ABOVE,
+   *  both of them round 9's doing or round 4's mis-citation.
+   *
+   *  (a) 「no commit」 is no longer true: ⚖ 92 fix round 9 W1 gave that face the
+   *  clean face's own frozen 「この位置では確定できません」, disabled — a control
+   *  that SAYS why it cannot fire rather than an absent one. Its `enabled` is the
+   *  literal `false`, so ⚖ 73 is intact and `computeChecks` still has no subject
+   *  here; what changed is that the operator is told so.
+   *
+   *  (b) 「R-UNAVAILABLE with a real loss」 named a cell that cannot exist:
+   *  `railCell` answers that code through `blocked()`, which carries no `impact`
+   *  at all, so `lossOf` is 0 and `guardWarn` is false by construction — this
+   *  PR's own tests assert it, and the branch's R-UNAVAILABLE fixture is
+   *  hand-built and says so. The guard-lit impossible floors are strict mode's
+   *  own refusal classes. */
   /** ⚖ 92 — AND THE CELL ITSELF, not only its row. The warn card composes from
    *  the verdict's DATA (`cell.impact`, its alternatives, its state) and the row
    *  is one rendering of that same cell — deriving them together here keeps them
@@ -6966,7 +6982,15 @@ export function TodayScreen(props: TodayProps) {
                   // `visibility: hidden` until a cancelled press shows it, and a
                   // hidden node is pruned from the accessibility tree, so the
                   // description was absent exactly when it was needed.
-                  aria-describedby="wc-hold-hint-desc"
+                  // ⚖ 92 fix round 10 V2 (breaker #9 #2) — AND ONLY WHILE THE
+                  // PRESS IS REAL. Round 9 gave the impossible floor a DEAD hold
+                  // pill reading 「この位置では確定できません」, and the description
+                  // rode along unchanged: assistive tech heard a button that
+                  // says it cannot be confirmed describe itself as
+                  // 「押し続けると配置します」 — an instruction for a gesture that
+                  // can never fire. Same gate as the `disabled` above, so the two
+                  // cannot drift.
+                  aria-describedby={holdPop.warn.commit.enabled ? 'wc-hold-hint-desc' : undefined}
                   {...holdHandlers}
                 >
                   {/* ⚖ 92 fix round F13 (blind L2#8) — the pill's clip lives HERE
@@ -6998,8 +7022,12 @@ export function TodayScreen(props: TodayProps) {
                   in a node that is never hidden. Same words as the hint above,
                   which keeps its own show/hide behaviour for the eye; it sits
                   OUTSIDE the button so it describes the control rather than
-                  joining its accessible name. */}
-              {holdPop.warn.commit?.kind === 'hold' && <span className="wc-sr" id="wc-hold-hint-desc">押し続けると配置します</span>}
+                  joining its accessible name.
+                  ⚖ 92 fix round 10 V2 (breaker #9 #2) — and it is composed on the
+                  same `enabled` as the `aria-describedby` that points at it, so a
+                  dead pill leaves behind neither the pointer nor an orphan node
+                  carrying an instruction nothing on the card can obey. */}
+              {holdPop.warn.commit?.kind === 'hold' && holdPop.warn.commit.enabled && <span className="wc-sr" id="wc-hold-hint-desc">押し続けると配置します</span>}
               {holdPop.warn.lock && (
                 <p className="wc-lock">
                   <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d={WC_LOCK_PATH} fill="currentColor" /></svg>

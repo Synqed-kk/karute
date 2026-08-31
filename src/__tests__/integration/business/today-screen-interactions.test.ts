@@ -6826,7 +6826,15 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // NaN step, which sailed past `<= 0` into the exact arithmetic the guard
     // exists to refuse and put 「NaN:NaNに置く」 on the card's biggest control.
     expect(offerableCell(cell, Number.NaN, 780, () => true)!.alternatives).toEqual([])
-    expect(INT).toContain('if (!(stepMin > 0)) return { ...cell, alternatives: [] }')
+    // ⚖ 92 fix round 10 V1 (breaker #9 #1) — AND THE STEP MUST BE FINITE. S5's
+    // 「the only value it newly catches is the one that is not a number」 was
+    // false: Infinity is a number and it is greater than zero, so it walked the
+    // gate. `s % Infinity` is `s`, never 0, so every start took the off-lattice
+    // branch, where `Math.floor(s / Infinity) * Infinity` is `0 * Infinity` — NaN,
+    // and 「NaN:NaNに置く」 back on the card's biggest control.
+    expect(offerableCell(cell, Number.POSITIVE_INFINITY, 780, () => true)!.alternatives).toEqual([])
+    expect(offerableCell(cell, Number.NEGATIVE_INFINITY, 780, () => true)!.alternatives).toEqual([])
+    expect(INT).toContain('if (!(Number.isFinite(stepMin) && stepMin > 0)) return { ...cell, alternatives: [] }')
     // A sane dial is untouched (the ⚖ 58 rider's own behaviour).
     expect(offerableCell(cell, 30, 780, () => true)!.alternatives).toEqual([690, 750])
 
@@ -7660,6 +7668,21 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // subjects that actually passed and nothing else.
     expect(withFailing.greensLine).toBe('時間の重複・勤務時間・資格・価格は問題ありません')
     expect(JSON.stringify(withFailing.greensLine)).not.toContain('不一致')
+
+    // ⚖ 92 fix round 10 V5 (breaker #9 #5) — AND THE LINE IS BUILT FROM `oks`,
+    // NEVER FROM `rows`. Every case above hands the composer a full set of ✓ rows,
+    // so `greensLineOf(rows)` produced the identical sentence in all of them — the
+    // subject set swallows the duplicate — and the mutation survived the whole
+    // suite. The scene that separates them is a face with the FAILING 資格 row and
+    // no passing one: off `oks` there is nothing to say, off `rows` the card
+    // prints 「資格は問題ありません」 directly over its own ×.
+    const failingAlone = warnFaceFor(input({ cell: REP(), rows: [failing] }))
+    expect(failingAlone.greensLine).toBeNull()
+    expect(failingAlone.rows).toEqual([failing])
+    // …and the same at the other composer, the impossible floor's, which no
+    // behaviour above reaches with a row set of its own.
+    expect(INT.match(/greensLine: greensLineOf\(oks\)/g)).toHaveLength(2)
+    expect(INT).not.toContain('greensLineOf(rows)')
   })
 
   /** ⚖ 92 fix round 2 S1 (stress lens #2, THE find) — THE PROMISE AND THE GATE
@@ -8671,9 +8694,21 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // description was absent exactly when the operator needed it. The sr copy
     // sits OUTSIDE the button, so it describes the control instead of joining
     // its accessible name.
-    expect(SRC).toContain('aria-describedby="wc-hold-hint-desc"')
-    expect(SRC).toContain('<span className="wc-sr" id="wc-hold-hint-desc">押し続けると配置します</span>')
+    // ⚖ 92 fix round 10 V2 (breaker #9 #2) — AND ONLY WHILE THE PRESS IS REAL.
+    // Round 9's dead pill reads 「この位置では確定できません」, and the description
+    // rode along unchanged: a control that says it cannot be confirmed described
+    // itself as 「押し続けると配置します」. Both halves — the pointer and the node it
+    // points at — carry the same `enabled` the `disabled` attribute does.
+    expect(SRC).toContain("aria-describedby={holdPop.warn.commit.enabled ? 'wc-hold-hint-desc' : undefined}")
+    expect(SRC).toContain("{holdPop.warn.commit?.kind === 'hold' && holdPop.warn.commit.enabled && <span className=\"wc-sr\" id=\"wc-hold-hint-desc\">押し続けると配置します</span>}")
+    expect(SRC).not.toContain('aria-describedby="wc-hold-hint-desc"')
     expect(SRC).not.toContain('id="wc-hold-hint"')
+    // ⚖ 92 fix round 10 V5 (breaker #9 #5) — …and the VISIBLE hint keeps its own
+    // eye-only show/hide, which the sr node above deliberately does not share.
+    // Stripped to a bare `wc-hold-hint show` the copy stands permanently under
+    // the button — an instruction shouted before the operator has done anything
+    // — and every test on this card still passed. Now one does not.
+    expect(SRC).toContain('<p className={`wc-hold-hint${holdHinting ? \' show\' : \'\'}`}>押し続けると配置します</p>')
     // F13 — `.holding` scales the control to 98% and hit-testing uses the scaled
     // box, so an edge press landed outside it on the next frame and cancelled
     // itself. A halo of hit area reaching OUTSIDE the border box — it is the
@@ -8687,7 +8722,12 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // ⚖ 92 fix round 5 V6 (breaker #4) — and the disabled dim is the SHELL'S own
     // value, not a number this rule invented: one dimming figure for every
     // disabled control in Business.
-    expect(face).toContain('.biz .wc-hold:disabled { opacity: .48; cursor: not-allowed; }')
+    // ⚖ 92 fix round 10 V3 (breaker #9 #3) — …and the dead pill gives the scroll
+    // back. `touch-action: none` on the live control is bought by a press that is
+    // going somewhere; on round 9's permanently-disabled pill there is no press to
+    // protect and the rule only ate the finger's swipe over the tallest control on
+    // the card.
+    expect(face).toContain('.biz .wc-hold:disabled { opacity: .48; cursor: not-allowed; touch-action: auto; }')
     expect(readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'), 'utf8'))
       .toContain('.biz button:disabled { cursor: not-allowed; opacity: .48; }')
     // M4's clip lives in this face, and it is the sheet's own existing technique
@@ -8767,6 +8807,15 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(HOLD_CANCEL_V).toBeCloseTo(1.6667, 3)
     // …and it always settles, inside the page's own budget.
     expect(holdClock({ mode: 'spring', t0: 0, x0: 0.5 }, 400)).toEqual({ progress: 0, done: true })
+    // ⚖ 92 fix round 10 V5 (breaker #9 #5) — AND THE FLOOR IS 「close enough to
+    // zero to be zero」, not 「small enough to give up on」. The 400ms line above
+    // proves only that the floor EXISTS: raise it from .002 to .2 and the recoil
+    // is cut off at 100ms with the fill still a sixth of the way across, which is
+    // a visible snap in place of the spring the cancel was written to feel like.
+    // The one number below is the whole difference.
+    const midRecoil = holdClock({ mode: 'spring', t0: 0, x0: 0.5 }, 100)
+    expect(midRecoil.done).toBe(false)
+    expect(midRecoil.progress).toBeCloseTo(0.169, 3)
     // The runaway guard: even an absurd start is over by 600ms.
     // ⚖ 92 fix round 4 U4 (breaker #3) — AND THE TIME CLAUSE IS THE ONE DOING
     // IT. At x0 = 99 the exponential has already decayed under the 0.002

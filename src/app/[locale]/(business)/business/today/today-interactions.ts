@@ -2297,9 +2297,22 @@ export function offerableCell(
   // NOT `<= 0`. NaN fails every comparison, so a settings text input that hands
   // this a NaN step walked straight past the old gate into the same arithmetic
   // the gate exists to refuse — and the card put 「NaN:NaNに置く」 on its biggest
-  // control. Behaviour-identical for every real number; the only value it newly
-  // catches is the one that is not a number.
-  if (!(stepMin > 0)) return { ...cell, alternatives: [] }
+  // control.
+  //
+  // ⚖ 92 fix round 10 V1 (breaker #9 #1) — AND THE STEP MUST BE FINITE, NOT
+  // MERELY POSITIVE. S5's own closing claim was false: it said the only value
+  // newly caught was the one that is not a number, and Infinity IS a number
+  // greater than zero. It sailed through, `s % Infinity` is `s` — never 0 — so
+  // every start took the off-lattice branch, where `Math.floor(s / Infinity) *
+  // Infinity` is `0 * Infinity` = NaN: 「NaN:NaNに置く」 back on the biggest
+  // control, through the gate written to stop it. A settings field reaching
+  // `Number('1e400')` or a bare `Infinity` is the same text input S5 named.
+  // Behaviour-identical for every finite step; ±Infinity and NaN now share the
+  // one door. (`guardRailsFor` reads the same class of dial with the weaker
+  // `<= 0` spelling and is left alone: its walk is `start += stepMin`, so an
+  // infinite step overshoots `close` on the first step and the rail comes back
+  // short rather than wrong — a degeneracy, not a lie on a control.)
+  if (!(Number.isFinite(stepMin) && stepMin > 0)) return { ...cell, alternatives: [] }
   const out: number[] = []
   for (const s of cell.alternatives) {
     const candidates = s % stepMin === 0 ? [s] : [Math.floor(s / stepMin) * stepMin, Math.ceil(s / stepMin) * stepMin]
