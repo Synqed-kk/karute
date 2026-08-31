@@ -72,6 +72,27 @@ const baseProps = {
   initialEntitlement: null,
 }
 
+/** jsdom ships no matchMedia, so the shell stays UNMEASURED (both branches) by
+ *  default in this file — which is what tests 1 and 3 want. The desktop case
+ *  installs one that reports a fixed width, so the shell measures and keeps
+ *  only the desktop branch. */
+function installMatchMedia(wide: boolean) {
+  window.matchMedia = ((query: string) => ({
+    matches: wide,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia
+}
+
+afterEach(() => {
+  delete (window as { matchMedia?: unknown }).matchMedia
+})
+
 describe('SettingsShell — drill-in opens at the top (7/24 back-button field report)', () => {
   it('tapping a list card resets the scrolled container so 設定に戻る is visible', () => {
     const { container } = render(<SettingsShell {...baseProps} />)
@@ -85,18 +106,23 @@ describe('SettingsShell — drill-in opens at the top (7/24 back-button field re
     expect(container.scrollTop).toBe(0)
   })
 
-  it('desktop tab switch (drill view stays mounted) also resets — no inherited offset', () => {
+  it('desktop tab switch resets even with the mobile branch GONE — the shell owns the reset, it no longer rides on a hidden DrillInView', () => {
+    // This case used to be vacuous. jsdom ships no matchMedia, so the shell
+    // stayed unmeasured, kept BOTH branches, and the CSS-hidden DrillInView's
+    // own layout effect did the zeroing — the test passed without the shell
+    // ever having a reset of its own, and kept passing after the single-mount
+    // change dropped that branch on real desktops (where a tab picked while
+    // scrolled down opened mid-page, scrollTop 250). Measure DESKTOP here, so
+    // the mobile branch is genuinely absent and only the shell's explicit
+    // reset can satisfy it.
+    installMatchMedia(true)
     const { container } = render(
       <SettingsShell {...baseProps} initialTab={'organization' as SettingsTabId} />,
     )
-    // Drilled: the mobile list is unmounted, so 'theme.label' matches only
-    // the desktop tab chip. The CSS-hidden DrillInView stays MOUNTED across
-    // desktop tab switches — the reset must re-run per section change, not
-    // only on mount (Greptile #595 finding). jsdom has no matchMedia, so the
-    // shell stays unmeasured and keeps both branches, which is exactly the
-    // state that keeps this path reachable (fix/settings-single-mount drops
-    // the hidden branch once a real browser reports the breakpoint; the
-    // per-section reset stays required for the mobile list⇄drill swap).
+    // Measured wide: the drill-in branch (and its layout effect) is not in the
+    // tree at all.
+    expect(screen.queryByText('backToList')).toBeNull()
+
     container.scrollTop = 250
     fireEvent.click(screen.getAllByText('theme.label')[0])
     expect(screen.getAllByTestId('section-theme').length).toBeGreaterThan(0)
