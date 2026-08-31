@@ -1289,7 +1289,11 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
   }
 
   it('the neighbours are all here — SEVEN sheets, read from disk, never restated', () => {
-    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'customers', 'inbox', 'register', 'reservations', 'shifts', 'today'])
+    // ⚠ RE-DERIVED, NOT EXTENDED BY HABIT (room 7, AI相談): a new room shipping a
+    // sheet is a new neighbour for THIS room, and the fence's whole point is that
+    // the list is read from disk and pinned rather than remembered. ask-ai.css
+    // scopes every rule under `.pg-ask-ai`, so it adds no collision below.
+    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'ask-ai', 'customers', 'inbox', 'register', 'reservations', 'shifts', 'today'])
   })
 
   it('every sibling rule that could reach this room is FENCED at four levels', () => {
