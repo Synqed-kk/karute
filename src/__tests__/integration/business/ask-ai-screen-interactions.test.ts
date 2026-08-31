@@ -356,11 +356,40 @@ describe('⚖ ALL-SCREEN ADAPTIVITY — the ladder is declared, band by band', (
     expect(CSS_CODE).not.toMatch(/animation:/)
   })
 
-  it('break-words is stated on every surface that renders user-authored prose', () => {
-    for (const sel of ['.ak-turn-text', '.ak-evidence', '.ak-sug-text', '.ak-tpl-preview', '.ak-signal-title']) {
-      expect({ sel, breaks: new RegExp(`\\${sel}[^{]*\\{[^}]*overflow-wrap: anywhere`).test(CSS_CODE) })
-        .toEqual({ sel, breaks: true })
-    }
+  it('the room joins the shell’s 1180px floor opt-in list, and only the SHELL states it', () => {
+    // ⚠ EVERY BAND BELOW 1180 IN THIS FILE STANDS ON THIS ONE SHELL LINE. The
+    // family default is `.biz .app { min-width: 1180px }` and a room without a
+    // measured ladder PANS below it; this room's selector is on the opt-in list
+    // because probe build1–3 measured its ladder at every band in both rail
+    // states. Struck out of that line, 390 renders a 1180px page and the whole
+    // narrow ladder is a measurement of a product nobody ships — which is the
+    // red-run the probe's HARNESS-4 executes.
+    const shell = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'), 'utf8')
+    const optIn = shell.match(/\.biz \.app:has\(([^)]*)\) \{ min-width: 0; \}/)
+    expect(optIn).not.toBeNull()
+    expect(optIn![1].split(',').map((s) => s.trim())).toContain('.page.pg-ask-ai')
+    // …and the selector is SHELL-owned: no route sheet may reach up and lift
+    // its own floor.
+    expect(CSS_CODE).not.toContain('.biz .app')
+  })
+
+  it('break-words is stated ONCE, on the room root, where it reaches every surface — including the ones not written yet', () => {
+    // ⚠ THIS PIN USED TO ENUMERATE FIVE SURFACES, AND THE ENUMERATION IS WHAT
+    // FAILED. The sheet stated `overflow-wrap: anywhere` per surface, this pin
+    // listed the five somebody had remembered, and 接続済みデータ's own honesty
+    // line was on neither list — so at 390 an unbroken run there scrolled the
+    // whole document sideways (measured: probe build1 B3/B7). A list that has
+    // to be kept in sync with a growing page is the defect, not the symptom.
+    // `overflow-wrap` INHERITS, so the room states it once on its own root and
+    // every surface it has or will grow is covered by construction.
+    const root = /\.biz \.page\.pg-ask-ai \{ overflow-wrap: anywhere; \}/
+    expect(CSS_CODE).toMatch(root)
+    // …and exactly once: a second home would be a second thing to keep in sync.
+    expect([...CSS_CODE.matchAll(/overflow-wrap:/g)]).toHaveLength(1)
+    // `anywhere` rather than `break-word` is load-bearing — only `anywhere`
+    // also shrinks the MIN-CONTENT contribution, which is what lets a flex or
+    // grid track give way instead of being forced wide by one unbroken word.
+    expect(CSS_CODE).not.toMatch(/overflow-wrap:\s*break-word/)
   })
 })
 

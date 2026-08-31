@@ -1240,7 +1240,11 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
 
   it('the room joins the shell’s 1180px floor opt-in list, and only the SHELL states it', () => {
     const shell = read('src/app/[locale]/(business)/business-shell.css')
-    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute) { min-width: 0; }')
+    // RE-DERIVED as AI相談 joined the list (probe build1–3 measured its ladder).
+    // The literal stays a literal on purpose: a room joining this shell-owned
+    // line has to trip every neighbour's pin, so no room can slip onto the
+    // floor exemption without a round that looked at it.
+    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-ask-ai) { min-width: 0; }')
     expect(CSS_CODE).not.toContain('.biz .app')
   })
 })
