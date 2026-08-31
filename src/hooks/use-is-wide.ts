@@ -52,7 +52,7 @@ export interface IsWideState {
  *
  *  Why state 3 exists: switching branches on a crossing unmounts one section
  *  and mounts the other, and a mount is a READ. On 監査ログ every read also
- *  WRITES a privacy.audit_log.view row (src/lib/audit-log.ts fires per
+ *  WRITES a privacy.audit_log.view row (src/actions/audit-log.ts fires per
  *  invocation), so a phone rotating back and forth (393 portrait ↔ ~852
  *  landscape crosses 48rem) would write audit rows without bound. Falling back
  *  to the dual render after the FIRST crossing bounds it: the first crossing
