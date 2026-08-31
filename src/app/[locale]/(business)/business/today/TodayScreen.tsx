@@ -653,6 +653,12 @@ interface LiveDrag {
   mode: DragMode
 }
 
+/** ⚖ 92 fix round F4 (blind L1#6) — the padlock the approved design page draws
+ *  on both of the warn card's authority lines (`warncard-design.html`'s own
+ *  LOCK_SVG / KEY_SVG: ONE path, two sizes, and the colour taken from the line
+ *  it sits on). Kept out here so the two uses can never drift into two glyphs. */
+const WC_LOCK_PATH = 'M4 7V5a4 4 0 018 0v2h1v8H3V7h1zm2 0h4V5a2 2 0 10-4 0v2z'
+
 /** ⚖ Liam flag 34 — the 仮押さえ confirm, as data. Two very different sources
  *  (the session's staged change and the day's own hold from the incident) render
  *  ONE surface, so there is one set of buttons, one set of check marks and one
@@ -1009,7 +1015,9 @@ export function TodayScreen(props: TodayProps) {
    *  today-interactions where 600ms / resume / recoil are provable without a DOM. */
   const holdFillRef = useRef<HTMLSpanElement | null>(null)
   const [holdHinting, setHoldHinting] = useState(false)
-  const holdRef = useRef({ raf: 0, step: 0, mode: '' as '' | 'hold' | 'spring', t0: 0, x0: 0, progress: 0, completing: false, btn: null as HTMLButtonElement | null })
+  // ⚖ 92 fix round F3 (blind L2#2) — `settle` is the 250ms commit timer, held
+  // here with the hold's other clocks so ONE teardown can end all of them.
+  const holdRef = useRef({ raf: 0, step: 0, settle: 0, mode: '' as '' | 'hold' | 'spring', t0: 0, x0: 0, progress: 0, completing: false, btn: null as HTMLButtonElement | null })
   /** canon's `popOpenedAt` (:7074): a popup opened from a pointerup is followed
    *  by one synthetic click on the thing underneath, and without this window the
    *  popup would close itself the instant it appeared. */
@@ -2184,8 +2192,36 @@ export function TodayScreen(props: TodayProps) {
     if (!at) return { row: null, cell: null }
     const start = minuteOf(at.x, hours)
     const cell = verdictAt(at.laneKey, start, minuteOf(at.x + at.w, hours) - start, pending.id)
-    return { row: guardCheckRow(cell), cell }
-  }, [pending, pendingOffBoard, moves, hours, verdictAt])
+    /** ⚖ 92 fix round F2 (blind L4#3) — AND THE CARD'S OFFER GOES THROUGH ⚖ 58'S
+     *  ONE HOME LIKE EVERY OTHER OFFER ON THIS BOARD.
+     *
+     *  The guard walks a five-minute lattice, so `cell.alternatives` legitimately
+     *  answers 11:45 on a store whose bookings snap to the half hour — and the
+     *  warn face puts that start on the BIGGEST control on the card. `offerable`
+     *  is the seam that snaps an engine start to the store's own lattice and
+     *  re-verdicts each candidate (its header states the law); the rail and the
+     *  consult box have always gone through it and this surface did not, which
+     *  is ⚖ 54's disease with a button attached.
+     *
+     *  The ROW is composed from the RAW cell on purpose: the check row is the
+     *  ENGINE'S OWN SENTENCE (⚖ GAP-6/FIX-6, byte-untouched), and filtering
+     *  alternatives has no opinion about what the guard said. `placePendingAt`'s
+     *  own ⚖ 31c re-verdict at the press stays exactly where it is — this makes
+     *  the offer honest when it is DRAWN, that makes it honest when it is TAKEN. */
+    const item = boardLanes.find((l) => l.group === 'staff' && l.key === at.laneKey)?.items.find((i) => i.caseId === pending.id)
+    return {
+      row: guardCheckRow(cell),
+      cell: offerable(cell, {
+        staffLane: at.laneKey,
+        bedLane: seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null),
+        solveRoom: true,
+        id: pending.id,
+        vip: item?.category === 'vip',
+        foreignRefusal: null,
+        span: { x: at.x, w: at.w },
+      }),
+    }
+  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, offerable])
 
   // ⚖ Liam flag 50(d) + ⚖ 52 — THE OVERRIDDEN ROW STAYS ON SCREEN, and it
   // stops wearing ×. The operator did not make the reason go away, they
@@ -2397,21 +2433,6 @@ export function TodayScreen(props: TodayProps) {
    *  that brings this surface into being pins it, including paths nobody has
    *  written yet. No first-open special case exists or is needed. */
   const holdPopMounted = holdPop !== null
-  /** ⚖ 92 — WHEN THE CONTROL GOES, THE CLOCK GOES WITH IT. The hold button
-   *  unmounts on every ending the card has — 確定, 元に戻す, a re-stage that
-   *  lands on the clean face — and a frame still running would keep writing to a
-   *  node React has already detached, then refuse the NEXT press because
-   *  `completing` was never cleared. Keyed on the control's own kind so it fires
-   *  on the ending and not on every render. */
-  const holdCommitKind = holdPop?.warn?.commit?.kind ?? null
-  useEffect(() => {
-    if (holdCommitKind === 'hold') return
-    const h = holdRef.current
-    if (h.raf) cancelAnimationFrame(h.raf)
-    if (h.step) clearInterval(h.step)
-    holdRef.current = { ...h, raf: 0, step: 0, mode: '', progress: 0, completing: false, btn: null }
-    setHoldHinting(false)
-  }, [holdCommitKind])
   /** ⚖ Liam flag 48 — WHICH 60分配置 chip the confirm should try not to sit on:
    *  the one for the START THE CARD LANDED ON, in the lane it landed in. The
    *  rail draws a cell every 30 minutes, so an off-lattice landing (canon's dual
@@ -2741,7 +2762,13 @@ export function TodayScreen(props: TodayProps) {
     if (!at) return
     const dur = minuteOf(at.x + at.w, hours) - minuteOf(at.x, hours)
     const span = place(start, start + dur, hours)
-    const item = boardLanes.find((l) => l.key === at.laneKey)?.items.find((i) => i.caseId === pending.id)
+    // ⚖ 92 fix round F11 (blind L2#6) — THE VIP FLOOR IS READ OFF THE PERSON'S
+    // OWN LANE. `moves` is the STAFF side, so the lane this asks for is a staff
+    // lane; `find` by key alone would answer with a bed lane that happens to
+    // share the key and hand the verdict a `vip: false` it never checked. Every
+    // sibling derivation on this board scopes by group first (`checksFor`'s
+    // staff lookup, `holdSummary`'s) — this one now does too.
+    const item = boardLanes.find((l) => l.group === 'staff' && l.key === at.laneKey)?.items.find((i) => i.caseId === pending.id)
     // ⚖ 87 — the room the operator CHOSE outlives the gestures that follow it,
     // and taking the safe start is one of those gestures. The seed is handed to
     // the verdict as the carried room, so `allocateBed` prefers it if it is free
@@ -2807,16 +2834,22 @@ export function TodayScreen(props: TodayProps) {
     if (was === 'hold') holdComplete()
   }
 
-  function holdReset() {
+  /** ⚖ 92 fix round F3 — THE ONE TEARDOWN. Every clock the press can start is
+   *  ended here — the frame, the reduced-motion interval and (new) the settle
+   *  timer — so no ending can leave one of them running while the others stop.
+   *  Touches nothing but `holdRef`, which is why it is safe to hand to an effect
+   *  as its cleanup. */
+  const holdReset = useCallback(() => {
     const h = holdRef.current
     if (h.raf) { cancelAnimationFrame(h.raf); h.raf = 0 }
     if (h.step) { clearInterval(h.step); h.step = 0 }
+    if (h.settle) { clearTimeout(h.settle); h.settle = 0 }
     h.btn?.classList.remove('holding', 'settle')
     h.mode = ''
     h.progress = 0
     h.completing = false
     h.btn = null
-  }
+  }, [])
 
   function holdStart(btn: HTMLButtonElement) {
     const h = holdRef.current
@@ -2828,7 +2861,13 @@ export function TodayScreen(props: TodayProps) {
     setHoldHinting(false)
     if (holdReduced()) {
       h.mode = 'hold'
-      let n = Math.round(h.progress * 3)
+      // ⚖ 92 fix round F12 (blind L2#7) — REDUCED MOTION HAS NO RESUME, and it
+      // never did: `holdCancel` zeroes the progress on this path (there is no
+      // recoil to run it down), so a second press always restarts from zero.
+      // The seed used to be read back off `h.progress`, which is provably 0
+      // every time it is read — a resume that could not happen, dressed as one.
+      // This is the approved page's own behaviour, said out loud.
+      let n = 0
       h.step = window.setInterval(() => {
         n += 1
         h.progress = n / 3
@@ -2867,14 +2906,31 @@ export function TodayScreen(props: TodayProps) {
     const btn = h.btn
     if (holdReduced() || !btn) { holdReset(); confirmPending(); return }
     btn.classList.add('settle')
-    window.setTimeout(() => { holdReset(); confirmPending() }, 250)
+    // ⚖ 92 fix round F3 (blind L2#2) — AND THE TIMER IS HELD, not fired and
+    // forgotten. It carries the `confirmPending` of the render that started the
+    // press, so a 元に戻す or an Escape inside its 250ms used to commit the card
+    // the operator had just taken back — two contradictory toasts over one
+    // booking, which is the ⚖ 56 class exactly. Holding the id in `holdRef` is
+    // what lets the teardown below cancel it on every ending.
+    h.settle = window.setTimeout(() => { holdReset(); confirmPending() }, 250)
   }
 
   /** Pointer AND keyboard, because a commit control that only answers a finger
    *  is not a control. Enter/Space hold exactly as a finger does — `e.repeat` is
    *  refused so the OS key-repeat cannot fill the meter on its own. */
   const holdHandlers = {
-    onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => { e.preventDefault(); holdStart(e.currentTarget) },
+    onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => {
+      e.preventDefault()
+      // ⚖ 92 fix round F9 (blind L2#4) — A FINGER KEEPS THE ABORT GESTURE. A
+      // touch pointer gets IMPLICIT pointer capture on the element it lands on,
+      // so `pointerleave` never fires and sliding off the button — the one
+      // gesture every operator already knows for "no, stop" — could not cancel
+      // the press: it committed instead. Releasing the capture puts touch on the
+      // same road as the mouse. The mouse path is unchanged (it captures
+      // nothing), and jsdom implements neither, hence the guard.
+      try { if (e.currentTarget.hasPointerCapture?.(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* no pointer-capture support */ }
+      holdStart(e.currentTarget)
+    },
     onPointerUp: () => holdCancel(),
     onPointerLeave: () => holdCancel(),
     onPointerCancel: () => holdCancel(),
@@ -2888,6 +2944,34 @@ export function TodayScreen(props: TodayProps) {
       if (e.key === 'Enter' || e.key === ' ') holdCancel()
     },
   }
+
+  /** ⚖ 92 — WHEN THE CONTROL GOES, THE CLOCK GOES WITH IT. A frame still running
+   *  keeps writing to a node React has already detached, and then refuses the
+   *  NEXT press because `completing` was never cleared.
+   *
+   *  ⚖ 92 fix round F3 (blind L1#10 + L2#2 + L2#3) — AND "GOES" IS THE LIVE ARMED
+   *  STATE, not the commit's kind. Keyed on the kind alone, three endings were
+   *  missed and each left a stale clock armed over a card that had moved on:
+   *   · the SCREEN unmounting (a day flip remounts it) — an effect with no
+   *     cleanup function cannot hear that at all, so the cleanup below is the
+   *     whole of it;
+   *   · the button unmounting while the kind stayed 'hold' — a second finger
+   *     elsewhere clears `pendingOpen`, `asking` goes false and the ask (with
+   *     its commit control) leaves the card, kind unchanged;
+   *   · `enabled` flipping false mid-press — a disabled button swallows the
+   *     pointerup, so `holdCancel` never runs while the settle timer's
+   *     pointerdown-era `confirmPending` stays armed.
+   *  All three are the same question — "is the control the operator is pressing
+   *  still there, and still pressable?" — so they get one predicate and one
+   *  teardown rather than three special cases. */
+  const holdArmed = holdPop?.asking === true && holdPop.warn?.commit?.kind === 'hold' && holdPop.warn.commit.enabled === true
+  useEffect(() => {
+    const release = () => { holdReset(); setHoldHinting(false) }
+    if (!holdArmed) release()
+    // …and the SAME teardown as the cleanup, so the screen going away ends the
+    // clock by exactly the road the control going away ends it.
+    return release
+  }, [holdArmed, holdReset])
 
   // canon (:6941-6947): Escape puts down whatever is in the operator's hand,
   // ONE surface per press, innermost first. Armed 配置モード has no other
@@ -6627,7 +6711,20 @@ export function TodayScreen(props: TodayProps) {
                 {holdPop.warn.impact.yen && <span className="wc-yen">（{holdPop.warn.impact.yen}）</span>}
                 {holdPop.warn.impact.tail}
               </p>
-              {holdPop.warn.provenance && <p className="wc-prov">{holdPop.warn.provenance}</p>}
+              {/* ⚖ 92 fix round F4 (blind L1#6) — THE TWO GLYPHS THE APPROVED
+                  PAGE CARRIES. The ruled bar is that page's own visual, and its
+                  provenance and 店長のみ lines each open with the padlock: small
+                  and neutral where the store is granting authority, red where it
+                  is withholding it. One path, two sizes, and the colour comes
+                  from the line it sits on (`currentColor`) so the family's own
+                  tokens keep owning this card's palette. Decorative beside text
+                  that already says it, hence `aria-hidden`. */}
+              {holdPop.warn.provenance && (
+                <p className="wc-prov">
+                  <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d={WC_LOCK_PATH} fill="currentColor" /></svg>
+                  <span>{holdPop.warn.provenance}</span>
+                </p>
+              )}
               {/* ⚖ 92 — the safe answer is ALWAYS the biggest control. `place` is
                   a start the engine offered; `info` is the engine saying this
                   start already is the least-loss one, which is a sentence and
@@ -6654,9 +6751,19 @@ export function TodayScreen(props: TodayProps) {
                   className="wc-hold"
                   type="button"
                   disabled={!holdPop.warn.commit.enabled}
+                  // ⚖ 92 fix round F14 (blind L2#10) — the press instruction is
+                  // the control's description, so assistive tech hears HOW to
+                  // work a button whose whole point is that a tap will not do.
+                  aria-describedby="wc-hold-hint"
                   {...holdHandlers}
                 >
-                  <span className="wc-hold-fill" ref={holdFillRef} aria-hidden="true" />
+                  {/* ⚖ 92 fix round F13 (blind L2#8) — the pill's clip lives HERE
+                      rather than on the button, so the button can carry a hit
+                      halo that its own `overflow: hidden` would otherwise cut
+                      away. The meter is unchanged: one node, one scaleX. */}
+                  <span className="wc-hold-clip" aria-hidden="true">
+                    <span className="wc-hold-fill" ref={holdFillRef} />
+                  </span>
                   <span className="wc-hold-text">{holdPop.warn.commit.label}</span>
                 </button>
               )}
@@ -6674,8 +6781,13 @@ export function TodayScreen(props: TodayProps) {
               {/* ⚖ 92 — the press hint the approved page shows after a cancelled
                   hold: it reserves its own space so the card never reflows under
                   the operator's finger. */}
-              {holdPop.warn.commit?.kind === 'hold' && <p className={`wc-hold-hint${holdHinting ? ' show' : ''}`}>押し続けると配置します</p>}
-              {holdPop.warn.lock && <p className="wc-lock">{holdPop.warn.lock}</p>}
+              {holdPop.warn.commit?.kind === 'hold' && <p className={`wc-hold-hint${holdHinting ? ' show' : ''}`} id="wc-hold-hint">押し続けると配置します</p>}
+              {holdPop.warn.lock && (
+                <p className="wc-lock">
+                  <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d={WC_LOCK_PATH} fill="currentColor" /></svg>
+                  <span>{holdPop.warn.lock}</span>
+                </p>
+              )}
               {holdPop.warn.greensLine && <p className="wc-greens">{holdPop.warn.greensLine}</p>}
               {/* ⚖ 52 / 73-74 — every row the panel did not consume, in the SAME
                   ✓/×/△ grammar the clean face uses. A record may never go

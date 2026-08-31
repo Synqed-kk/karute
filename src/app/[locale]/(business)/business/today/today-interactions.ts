@@ -3398,15 +3398,45 @@ function greensLineOf(oks: ReadonlyArray<{ label: string }>): string | null {
  *  A class the approved design gave no shape to — R-DEAD / R-SALV, a pocket
  *  that cannot hold the session, a room that cannot — keeps the ENGINE'S
  *  SENTENCE VERBATIM as the headline. Inventing a fifth sentence for a case
- *  nobody ruled on is how a surface starts disagreeing with the board. */
-function impactOf(cell: RailCell, yen: string | null, protectedDur: number): WarnCardModel['impact'] {
+ *  nobody ruled on is how a surface starts disagreeing with the board.
+ *
+ *  ⚖ 92 fix round F1 (blind L4#1 + L4#2 + L1#3) — AND THE FACT IS THE LOSS
+ *  COUNT, NEVER THE REASON CODE. `reasonForKey` emits R-REP for TWO different
+ *  causes — a protected window actually lost (`before > after`) and a
+ *  repertoire that shrank with the count unchanged (`before === after`) — and
+ *  DEGRADED can fire on a short-pocket residue that costs the store nothing
+ *  either. Keying the approved 「が入らなくなります。」 sentence on the CODE
+ *  therefore printed a loss, with money beside it, over landings that lose
+ *  nothing. The window count is what the store actually loses, so it is what
+ *  decides the sentence:
+ *    · loses nothing → the engine's own words, and NO ¥ at all;
+ *    · loses exactly one, R-REP → the approved sentence Liam signed off on;
+ *    · loses any other number → the capacity form, which is true for all of
+ *      them (a DEGRADED loss, and an R-REP that costs more than one window).
+ *  The ¥ multiplies by the same count: one window's price beside a two-window
+ *  loss is a wrong number, and 約 does not license a wrong number. */
+function impactOf(cell: RailCell, listPrice: number, protectedDur: number): WarnCardModel['impact'] {
+  const verbatim = { head: cell.sentence, yen: null, tail: '' }
+  // The two classes the approved design gave a shape to, and no others: an
+  // unruled class keeps the engine's sentence exactly as it did before this fix
+  // (and with it, no ¥ — the queued design note about that is Liam's to rule on,
+  // not this round's to pre-empt).
+  const ruled = cell.impact?.code === 'R-REP' || cell.impact?.code === 'DEGRADED'
+  if (!cell.impact || !ruled) return verbatim
+  const { capacityBefore, capacityAfter } = cell.impact
+  const loss = capacityBefore - capacityAfter
+  if (loss <= 0) return verbatim
+  // ⚖ 92 — the store's own list price for the windows this landing costs it,
+  // rounded to ten yen because a card that says 約 may not then print a figure
+  // to the digit. `<= 0` is a store that prices nothing here, and it omits the
+  // parenthetical entirely rather than printing 約¥0 — a wrong number is worse
+  // than no number.
+  const value = Math.round((listPrice * protectedDur * loss) / 60 / 10) * 10
+  const yen = listPrice > 0 && value > 0 ? `約${money(value)}` : null
   const head = `ここに置くと、新規のお客様の${protectedDur}分`
-  if (cell.impact?.code === 'DEGRADED') {
-    const { capacityBefore, capacityAfter } = cell.impact
-    return { head, yen, tail: `の空きが${capacityBefore}枠から${capacityAfter}枠に減ります。` }
-  }
-  if (cell.impact?.code === 'R-REP') return { head, yen, tail: 'が入らなくなります。' }
-  return { head: cell.sentence, yen: null, tail: '' }
+  return cell.impact.code === 'R-REP' && loss === 1
+    ? { head, yen, tail: 'が入らなくなります。' }
+    : { head, yen, tail: `の空きが${capacityBefore}枠から${capacityAfter}枠に減ります。` }
 }
 
 export function warnFaceFor(input: WarnCardInput): WarnCardModel {
@@ -3421,13 +3451,6 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
     return { face: 'clean', impact: { head: '', yen: null, tail: '' }, provenance: null, lock: null, safePrimary: null, commit: null, rows, greensLine: null }
   }
 
-  // ⚖ 92 — ONE WINDOW'S WORTH, at the store's own list price, rounded to ten
-  // yen because a card that says 約 may not then print a figure to the digit.
-  // `<= 0` is a store that prices nothing here, and it omits the parenthetical
-  // entirely rather than printing 約¥0 — a wrong number is worse than no number.
-  const value = Math.round((input.listPrice * protectedDur) / 60 / 10) * 10
-  const yen = input.listPrice > 0 && value > 0 ? `約${money(value)}` : null
-
   // ⚖ 92, THE STRONGEST FACT LEADS. The guard's verdict is the store's own law
   // about the day and outranks a sentence the operator already walked past; with
   // no guard fact, the overridden sentence IS the fact. Whichever one does NOT
@@ -3435,7 +3458,7 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
   // is also why the row list is filtered rather than the panel doubled.
   const overrideRow = input.override == null ? null : `注意して配置: ${input.override}`
   const impact = guardWarn
-    ? impactOf(cell, yen, protectedDur)
+    ? impactOf(cell, input.listPrice, protectedDur)
     : { head: input.override ?? '', yen: null, tail: '' }
   const kept = rows.filter((r) => r.tone !== '' && !(!guardWarn && r.label === overrideRow))
 
@@ -3475,12 +3498,33 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
   }
   const commit: WarnCardCommit =
     level === 'needs-approval'
-      ? { kind: 'approval', label: '店長に許可を求める', enabled: input.confirmEnabled, note: '承認フロー — 設定の回で接続' }
+      // ⚖ 92 fix round F5 (blind L1#9) — AND IT RENDERS DISABLED. The request
+      // has nowhere to go: there is no server-backed approval state on this
+      // board, so a live-looking control would promise a message nobody
+      // receives. Its own note already says where it comes from, and the
+      // settings round is what lights it.
+      ? { kind: 'approval', label: '店長に許可を求める', enabled: false, note: '承認フロー — 設定の回で接続' }
       // ⚖ 92 — NEVER the neutral この内容で確定 on a warn face, and the store's
       // dial decides only HOW the press is made, never whether it is allowed:
       // `confirmEnabled` is `overrideCaption`'s answer, untouched, and a second
       // blocker standing after the override still kills the button (canon R11-7).
-      : { kind: input.holdToConfirm ? 'hold' : 'press', label: input.holdToConfirm ? '長押しで注意して配置' : '注意して配置する', enabled: input.confirmEnabled, note: null }
+      //
+      // ⚖ 92 fix round F10 (blind L2#5) — AND A BLOCKED COMMIT SAYS WHY. A
+      // greyed 注意して配置する still names the act, so it reads as "press this
+      // to place anyway" over a control that will never fire — the clean face
+      // has always answered this honestly, with `confirmCaption`'s own
+      // 「この位置では確定できません」 (drag-rules :234, FROZEN), and the warn
+      // face says the same words about the same state. The KIND is unchanged:
+      // the hold physics are disabled anyway, and swapping the control's shape
+      // under a blocker would move the button the operator is aiming at.
+      : {
+          kind: input.holdToConfirm ? 'hold' : 'press',
+          label: input.confirmEnabled
+            ? (input.holdToConfirm ? '長押しで注意して配置' : '注意して配置する')
+            : 'この位置では確定できません',
+          enabled: input.confirmEnabled,
+          note: null,
+        }
   const provenance =
     (level === 'needs-approval' ? '店舗の設定で、上書きには店長の承認が必要です' : '店舗の設定で、スタッフの上書きが許可されています') + recorded
   return { face: 'warn', impact, provenance, lock: null, safePrimary, commit, rows: kept, greensLine: greensLineOf(oks) }
