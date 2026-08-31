@@ -452,7 +452,12 @@ function Avatar({ name, large }: { name: string | null; large?: boolean }) {
 /** 「録音 4分12秒」. Absent when the length could not be read — a pill saying
  *  0分00秒 would be a claim about the recording rather than about us. */
 function DurationPill({ seconds, t }: { seconds: number | null; t: T }) {
-  if (seconds === null) return null
+  // `typeof`, not `=== null`. The row fields are not re-typed at the thin port
+  // (the wire is trusted for display-only strings), so a server older than this
+  // build answers with the key ABSENT — and `undefined === null` is false,
+  // which would have put 「録音 NaN分NaN秒」 on a manager's screen. Anything
+  // that is not a number is a length we do not have.
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return null
   return (
     <span className="shrink-0 whitespace-nowrap rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold tabular-nums text-muted-foreground">
       {t('durationLabel', durationParts(seconds))}
@@ -642,10 +647,11 @@ function DetailPane({
     { k: t('defRecordedAt'), v: recordedWhen ?? t('unknownValue') },
     {
       k: t('defDuration'),
+      // Same `typeof` guard as the pill, for the same old-wire reason.
       v:
-        row.durationSeconds === null
-          ? t('unknownValue')
-          : t('durationLabel', durationParts(row.durationSeconds)),
+        typeof row.durationSeconds === 'number' && Number.isFinite(row.durationSeconds)
+          ? t('durationLabel', durationParts(row.durationSeconds))
+          : t('unknownValue'),
     },
     { k: t('defStore'), v: row.storeName ?? t('unknownValue') },
     {
@@ -751,7 +757,7 @@ function TranscriptPanel({
           <span className="text-[11px] font-semibold text-muted-foreground">
             {t('transcriptTitle')}
           </span>
-          {state.durationSeconds !== null && (
+          {typeof state.durationSeconds === 'number' && (
             <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums text-muted-foreground">
               {t('durationLabel', durationParts(state.durationSeconds))}
             </span>

@@ -191,6 +191,34 @@ describe('破棄の記録 — an absent fact renders as nothing, never as a gues
     expect(screen.queryByText('代官山店', { exact: false })).toBeNull()
   })
 
+  it('a server OLDER than this build sends the fields absent — and nothing reads NaN', async () => {
+    // The row fields are not re-typed at the thin port, so an older deployment
+    // answers with the keys missing rather than null. `=== null` does not catch
+    // `undefined`, and the formatter would have put 「録音 NaN分NaN秒」 on a
+    // manager's screen — a number that is worse than no number.
+    await renderRows([
+      {
+        customerName: undefined,
+        customerId: undefined,
+        recordingCreatedAt: undefined,
+        durationSeconds: undefined,
+        storeName: undefined,
+      },
+    ])
+
+    expect(screen.queryByText(/NaN/)).toBeNull()
+    expect(screen.queryByText(/Invalid Date/)).toBeNull()
+    expect(screen.getByText(t('customerNone'))).toBeInTheDocument()
+    expect(screen.getByText(REASON)).toBeInTheDocument()
+  })
+
+  it('a malformed length is refused too — a string is not a number of seconds', async () => {
+    await renderRows([{ durationSeconds: '252' }])
+
+    expect(screen.queryByText(/NaN/)).toBeNull()
+    expect(screen.queryByText(/録音 \d+分/)).toBeNull()
+  })
+
   it('an unknown staff member still names the discard honestly', async () => {
     await renderRows([{ staffName: null }])
 
