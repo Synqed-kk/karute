@@ -724,7 +724,22 @@ describe('§6 — the cues are ONE decision, so they cannot appear apart', () =>
     // (⚖ flag 88): the SOURCE of all three is still one value, and what the
     // helper adds is a narrowing of the PAINT, never a second reading of the
     // engine. The filter is pinned at its new home.
-    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere)')
+    // ⚖ PIN MIGRATED at E3a, WITH the decision (SPEC-SELLING-ENGINE §2's
+    // consumer registry, (c)): the call grew a FOURTH argument, this lane's
+    // 新規用に確保 spans. It is the same narrowing, for the same reason flag 88
+    // gave — a quarter-strength wash under something the board is deliberately
+    // drawing says the opposite of that drawing — and E3b's 確保 chip is that
+    // something. The argument defaults to empty, so with the round gate off the
+    // cue is byte-identical to today's; nothing about "one source, three cues"
+    // moved.
+    // ⚖ PIN MIGRATED at the FIX ROUND, WITH the decision (F5, blind-final L1#5):
+    // the fourth argument is the COMMITTED world's held spans, like the second
+    // and third arguments beside it. It was the BOARD world's, and the cue's own
+    // reason for standing down is the 確保 chip drawn over it — which is drawn
+    // from the committed mask. Idle they coincide; mid-gesture they diverge, and
+    // the divergence paints flag 88's artifact. `heldHere` is that committed
+    // list, already in hand one line above in the renderer.
+    expect(SRC).toContain('restCueStarts(explainedHere, cells, gapHere, heldHere)')
     expect(INT).toContain('.filter(([, e]) => e.word != null)')
     // Both cues stand down while a card is in hand — the strip is answering a
     // different question then, and the chip wears the verdict's × instead.

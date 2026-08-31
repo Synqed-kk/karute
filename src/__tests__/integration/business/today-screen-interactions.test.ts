@@ -78,6 +78,7 @@ import {
   bedClassCell,
   nearestFreeStarts,
   needsPrivateRoom,
+  overrideLevelFor,
   pinInViewport,
   type GuardRail,
   type LandingVerdict,
@@ -1237,10 +1238,24 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     const wrapper = SRC.indexOf('export function bedViewsFor(')
     expect(wrapper).toBeGreaterThan(-1)
     expect(SRC.indexOf('bedTruthViews(', wrapper)).toBeGreaterThan(wrapper)
-    // …and the wrapper is CALLED exactly twice: the frame's book, and ⚖ 39's own
-    // book for a caller that handed in a different board. A third call site is a
-    // third world. (+1 for the definition itself.)
-    expect(SRC.split('bedViewsFor(').length - 1).toBe(3)
+    // …and the wrapper is CALLED exactly three times: the frame's book, ⚖ 39's
+    // own book for a caller that handed in a different board, and — ⚖ PIN
+    // MIGRATED at E3a, WITH the decision — the COMMITTED world's book.
+    //
+    // R3's invariant is unchanged and this is not a loophole in it: what it
+    // forbids is a reader helping itself to a world nobody named. SPEC-SELLING-
+    // ENGINE §2 names this one. It requires ONE mask builder over TWO world
+    // instances — the sales door prices the COMMITTED board (the measured WO-2d
+    // ruling, pinned two describes above) and the staff door's verdicts read the
+    // BOARD world — so a mask for the sales door cannot be answered out of the
+    // frame's book without handing the priced layers the pointer's position,
+    // which is the very thing this file's tripwire exists to stop.
+    //
+    // It is also GATED: the call sits behind `SELLING_ENGINE_LAW`, so until E3b
+    // flips it there is no third book at runtime at all. Both halves asserted —
+    // the count, and that the new site is the gated one. (+1 for the definition.)
+    expect(SRC.split('bedViewsFor(').length - 1).toBe(4)
+    expect(SRC).toContain('SELLING_ENGINE_LAW ? bedViewsFor(committedLanes, props.rooms, ledgerFrame, null).world : null')
   })
 })
 
@@ -2854,7 +2869,13 @@ describe('the guided tour builds itself out of what is on screen', () => {
     for (const [title, body] of [
       ['本日の店舗状態', '金額と未処理の集計。レジ当番・金額権限のある人にだけ表示されます。'],
       ['自分の1日', 'ログイン中のスタッフ専用。次のお客様と自分の未処理だけを表示します。'],
-      ['オンライン販売中', 'いまReserveで販売中の枠数。押すと枠の一覧（時間・担当・価格）が開き、行を押すとボード上の場所を示します。'],
+      // ⚖ PIN MIGRATED at E3b, WITH the decision — RULED BY LIAM 8/30
+      // (SPEC-SELLING-ENGINE §13 Q3, 「one number」): the counter counts
+      // everything purchasable online, not the 販売可能枠 layer alone, so the
+      // sentence that teaches it had to move with the definition. Canon's own
+      // `chipLabel` is untouched; what changed is which layers the board's own
+      // counter composes (`onlineOffers`).
+      ['オンライン販売中', 'いまReserveで販売中の枠数。販売可能枠・詰め込み・スキマ枠・新規用に確保をまとめた数です。押すと種類ごとの一覧（時間・担当・価格）が開き、行を押すとボード上の場所を示します。'],
       ['ご来店中', 'いま店内にいるお客様。ここから次回予約をその場で作成できます。'],
       ['日付の移動', '日付を押すと月カレンダーで空き状況を確認できます。'],
       ['表示設定', 'カード・販売可能枠・配置ガイドの見え方と、ボードの密度を調整します。'],
@@ -3425,7 +3446,15 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // avoid-rect. The two unmount gates this test exists for are still both here.
     // RENEGOTIATED (batch-10b): `holdPopMounted` leads. Both gates still here.
     expect(SRC).toContain('}, [holdPopMounted, holdAnchorId, holdPinned, collapsed, view, holdRailSel, moves, props.dayOffset])')
-    expect(SRC).toContain('if (collapsed.includes(lane.group)) return null')
+    // ⚖ PIN MIGRATED at the FIX ROUND, WITH the decision (F9, blind-final
+    // L2#10): `renderLane`'s two early gates are ONE named predicate now, because
+    // the 確保 chip's tour registration has to ask the same question the renderer
+    // does — picked out of the mask, it could name a lane `view` or `collapsed`
+    // had filtered out, and the 8/23 law's entry then existed on no DOM node.
+    // Both gates are still exactly here, still greppable, still enumerable for
+    // the dep array above.
+    expect(SRC).toContain("(view === 'both' || view === lane.group) && !collapsed.includes(lane.group)")
+    expect(SRC).toContain('if (!laneRendered(lane)) return null')
     // The rule is about the NODE, not about any one reason it went away.
     expect(SRC).toContain('const card = anchorId ? cardNodes(boardRef.current, anchorId)[0] : null')
     expect(SRC).toContain('      if (!at) {\n        setHoldPinned(true)')
@@ -4056,8 +4085,21 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     // one). `n` is untouched, and a REFUSAL never carries one: `refuse` passes
     // no third argument, so there is nothing to take back on a refusal by
     // construction, not by convention.
-    expect(SRC).toContain('setToast((was) => ({ text: message, ms, n: was.n + 1, undo }))')
-    expect(SRC).toContain('function show(message: string, ms = TOAST_MS, undo: (() => void) | null = null) {')
+    // ⚖ E5 (SPEC-SELLING-ENGINE §1 / ruling Q5) — the slot is NAMED now, because
+    // it has a second caller whose action is a commit rather than a way back.
+    // Still ONE optional action, still the same door, and `refuse` still passes
+    // no third argument.
+    expect(SRC).toContain('setToast((was) => ({ text: message, ms, n: was.n + 1, action }))')
+    expect(SRC).toContain('function show(message: string, ms = TOAST_MS, action: { label: string; run: () => void } | null = null) {')
+    // The label travels WITH the action, so the button cannot say 元に戻す over
+    // a release — the one thing a shared slot could get wrong.
+    // ⚖ PIN MIGRATED at the FIX ROUND, WITH the decision (F9, blind-final L2#9):
+    // the action carries `aria-live="off"`. The toast is a live region, which is
+    // right for the sentence and wrong for a control — a button announced as
+    // part of a status update is one a screen-reader user hears about rather
+    // than reaches, and since E5 this slot can carry a COMMIT. The label still
+    // travels with the action; nothing else about the slot moved.
+    expect(SRC).toContain('<button className="toast-undo" type="button" aria-live="off" onClick={toast.action.run}>{toast.action.label}</button>')
     // ONE door for refusals — every one of them, greppable by name. If a future
     // round adds a refusal through `show(` it will not carry the dwell, so the
     // known refusal sentences are pinned to the door here.
@@ -4088,18 +4130,28 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
    *  2026-08-22): at 3.2s the block-delete undo expired mid-reach and the click
    *  landed on the empty track underneath, opening 新規予約を作成. A destructive
    *  act whose way back must be FOUND inside 3.2s is the same complaint that
-   *  bought refusals their 7s. Only the undo-carrying toast joins the class. */
-  it('⚖ 47 — the toast that carries a way back lives as long as a refusal', () => {
-    expect(SRC).toContain('show(`${info.title}を削除しました`, REFUSAL_MS, () => {')
-    // The value has ONE home — the delete does not mint a dwell of its own.
+   *  bought refusals their 7s. Only an ACTION-carrying toast joins the class.
+   *
+   *  ⚖ 47's class, THIRD MEMBER (E5, SPEC-SELLING-ENGINE §1 / ruling Q5): the
+   *  manager's 確保 release. Same measured reason, arrived at from the other
+   *  side — the toast is the only place the action exists, so it has to be
+   *  REACHED rather than glanced at. The class grew WITH a ruling; it did not
+   *  grow quietly, which is what the count below exists to catch. */
+  it('⚖ 47 — the toast that carries an ACTION lives as long as a refusal', () => {
+    expect(SRC).toContain('show(`${info.title}を削除しました`, REFUSAL_MS, {')
+    expect(SRC).toContain('show(law, REFUSAL_MS, {')
+    // The value has ONE home — neither caller mints a dwell of its own.
     expect(SRC).not.toMatch(/show\([^\n]*,\s*7000/)
     // …and ORDINARY toasts are untouched: the restore confirmation that follows
-    // the undo takes the default, and nothing else in the file asks for the
-    // long dwell except `refuse` and this one line.
+    // the undo takes the default, and so does the release's own confirmation.
     expect(SRC).toContain('show(`${info.title}を元に戻しました`)')
-    // Exactly TWO callers ask for the long dwell: the refusal door and this one
-    // undo. A third would mean the class quietly grew.
-    expect(SRC.match(/, REFUSAL_MS/g)).toHaveLength(2)
+    expect(SRC).toContain("show('確保を解除しました。再読み込みすると戻ります')")
+    // Exactly THREE callers ask for the long dwell: the refusal door, the delete
+    // undo and the release action. A fourth would mean the class grew quietly.
+    expect(SRC.match(/, REFUSAL_MS/g)).toHaveLength(3)
+    // ⚖ E5 — and the staff branch is NOT in the class: no action, no long dwell,
+    // which is E3b's shipped behaviour byte for byte.
+    expect(SRC).toContain('if (!props.canReleaseHeld) {\n      show(law)\n      return\n    }')
   })
 
   it('⚖ 47 — cross-day placement is what canon promises, and nothing gates on the day', () => {
@@ -4979,6 +5031,12 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     expect(opsConfig.overridePolicy.lockedOut).toEqual([])
     expect(SRC).not.toContain('店舗管理者')
     expect(INT).not.toContain('店舗管理者')
+    // ⚖ ruling 91 / spec §7 — the same authority, read through the dial's own
+    // three-level consult. (a) is the shipped default, `lockedOut` answers
+    // first whatever the role says, and a role the store left out is refused.
+    expect(overrideLevelFor(opsConfig.overridePolicy, { role: 'スタッフ', staff_id: 'p-04' })).toBe('allow-warned')
+    expect(overrideLevelFor({ roles: ['スタッフ'], lockedOut: ['p-04'] }, { role: 'スタッフ', staff_id: 'p-04' })).toBe('refuse')
+    expect(overrideLevelFor({ roles: ['店舗管理者'], lockedOut: [] }, { role: 'スタッフ', staff_id: 'p-04' })).toBe('refuse')
   })
 
   // ── the override, and exactly what it buys ───────────────────────────────

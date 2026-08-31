@@ -84,14 +84,17 @@ import {
   proxyTransform,
   stretchOrCarry,
   gapLayerFor,
+  gapPackingDials,
   guardCheckRow,
   guardCheckRowBesideOffer,
   guardRailsFor,
   guardVerdictAt,
   blockNode,
+  heldDrawnFor,
   holdPopAnchor,
   holdSummary,
   isCrumbOffer,
+  isHeldBound,
   isOverShelf,
   laneKeyAtY,
   landingVerdict,
@@ -100,6 +103,7 @@ import {
   needsPrivateRoom,
   offerableCell,
   nextSpan,
+  onlineOffers,
   overrideCaption,
   onShownBoard,
   pairLanesOf,
@@ -107,8 +111,10 @@ import {
   pinInViewport,
   restCueStarts,
   explainRails,
+  reservedSentence,
   sameStore,
   sharesStore,
+  sellDrawnFor,
   sellLayerFor,
   sidesAt,
   seedBed,
@@ -127,7 +133,10 @@ import {
   type RoomPolicy,
   type SellDrop,
 } from './today-interactions'
-import { bedTruthViews, type BedTruth, type DayFrame } from './capacity-ledger'
+import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'
+import { fallbackCellsFor, type FallbackResult } from './fallback-cells'
+import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'
+import { SELLING_ENGINE_LAW } from './selling-engine-gate'
 
 const HINT = '見本データのため実行できません'
 
@@ -263,7 +272,12 @@ export function bedDoor(
  *  wording. An ordinary confirmation is unchanged at 3.2s. */
 const TOAST_MS = 3200
 const REFUSAL_MS = 7000
-const EMPTY_TOAST = { text: '', ms: TOAST_MS, n: 0, undo: null as (() => void) | null }
+/** ⚖ flag 64's one optional slot, NAMED for what it is (E5). It shipped as
+ *  `undo` because the delete was the only caller; ruling Q5's release is the
+ *  second, and it is a COMMIT rather than a way back — so the slot carries its
+ *  own label instead of the surface growing a second kind. Still one action,
+ *  still one button, still the toast the board already has. */
+const EMPTY_TOAST = { text: '', ms: TOAST_MS, n: 0, action: null as { label: string; run: () => void } | null }
 
 export interface DecisionCard {
   id: string
@@ -363,6 +377,11 @@ export interface TodayProps {
    *  own role and staff_id, so the board never decides authority for itself and
    *  a locked-out staff member simply never sees the action. */
   canOverride: boolean
+  /** ⚖ SPEC-SELLING-ENGINE §1 / ruling Q5 (E5). May THIS viewer release a 確保
+   *  window for sale early? Answered on the server from the operator's own role
+   *  (`canReleaseHeld`), the same way `canOverride` above is: staff see the
+   *  law sentence alone, managers see it with the one action beside it. */
+  canReleaseHeld: boolean
   closedWeekdayLabel: string
   ops: {
     total: string
@@ -769,6 +788,20 @@ export function TodayScreen(props: TodayProps) {
   const [settled, setSettled] = useState<string[]>([])
   const [resolved, setResolved] = useState<string[]>([])
   const [proposalSent, setProposalSent] = useState(false)
+  /** ⚖ SPEC-SELLING-ENGINE §1's Release clause, MANUAL half (ruling Q5, E5) —
+   *  THE 確保 WINDOWS THIS SESSION HAS PUT BACK ON SALE, beside every other
+   *  staged write on this board and exactly as real as they are: session-local,
+   *  gone on reload, and the toast says so in as many words.
+   *
+   *  It is a list of FACTS, not a mask: both world instances below take it as an
+   *  input and re-derive, so held-ness stays derived per frame (§1) and the two
+   *  doors cannot be handed two different answers.
+   *
+   *  ⚖ FIX ROUND F2 — and every fact is BOARD-STAMPED, like every other session
+   *  edit on this screen. `releasedHere` below is the scoping; see
+   *  `ReleasedWindow` for why a lane key and a minute-of-day were not an
+   *  identity. */
+  const [released, setReleased] = useState<readonly ReleasedWindow[]>([])
   const [calMonth, setCalMonth] = useState(0)
   /** ⚖ Liam flag 47 (2026-08-21) — A REFUSAL HAS TO BE READABLE. Every message
    *  on this board dwelt for the same 3.2s, which is right for 「置きました」 —
@@ -778,7 +811,7 @@ export function TodayScreen(props: TodayProps) {
    *  own dwell, and `n` re-arms the timer when the SAME refusal is earned twice
    *  in a row (pressing the same illegal slot again used to say nothing at all,
    *  because the state never changed). */
-  const [toast, setToast] = useState<{ text: string; ms: number; n: number; undo: (() => void) | null }>(EMPTY_TOAST)
+  const [toast, setToast] = useState<{ text: string; ms: number; n: number; action: { label: string; run: () => void } | null }>(EMPTY_TOAST)
   /** ⚖ Liam flag 64 — the dialog now carries a HANDLE on the block, not only
    *  strings about it. Without `key` there was nothing for 削除 to name, which
    *  is the second half of why the button was dead. */
@@ -1141,6 +1174,14 @@ export function TodayScreen(props: TodayProps) {
     () => added.filter((a) => onShownBoard(a, board)),
     [added, board],
   )
+  /** ⚖ FIX ROUND F2 — …and the manager's releases, scoped by the SAME predicate
+   *  for the same reason. Both mask instances read this and never `released`,
+   *  so a window put back on sale on today's 銀座 board is put back on sale
+   *  there and nowhere else. */
+  const releasedHere = useMemo(
+    () => released.filter((r) => onShownBoard(r, board)),
+    [released, board],
+  )
   /** ⚖ Liam flag 26 — the server's board with this session's block moves on it.
    *  One pass, ahead of the booking passes, so both the live board and the
    *  committed board see the same blocks: a 休憩 that has been dragged is where
@@ -1246,6 +1287,82 @@ export function TodayScreen(props: TodayProps) {
     [price.hi, price.lo, dialogs.pricing.hqMin, dialogs.pricing.hqMax],
   )
 
+  /** The ONE clock the book is built on — the same three numbers the sell, gap
+   *  and guard layers each read their own way (see capacity-ledger's `DayFrame`).
+   *  Its own memo so the book below is not rebuilt by an `hours` object that
+   *  merely re-rendered. */
+  const ledgerFrame = useMemo<DayFrame>(
+    () => ({ openMin: hours.open, closeMin: hours.close, nowMin: props.sell.nowMinute ?? hours.open }),
+    [hours.open, hours.close, props.sell.nowMinute],
+  )
+
+  /** ⚖ SPEC-SELLING-ENGINE §2 — THE HELD SET FOR THE SALES DOOR: the COMMITTED
+   *  world's instance, built ONCE per frame, here at the screen boundary.
+   *
+   *  WHY COMMITTED. Prices read the settled board — the measured WO-2d ruling
+   *  the tripwire pins guard — so the mask the priced layers mask themselves
+   *  against has to be the settled board's too, or a card in flight would move
+   *  what the store is holding for a 新規 while the operator is still deciding.
+   *  The staff door's instance is the BOARD world and is built below, out of the
+   *  frame's own book; one builder, two snapshots (spec §2).
+   *
+   *  WHY HERE AND NOT DEEPER. The guard probes the feasibility callback
+   *  thousands of times per frame; a mask built inside a predicate, a handler or
+   *  a pointer frame is a mask per ask. Construction is a memo — the same
+   *  discipline the capacity book itself is under — and every seam below takes
+   *  the answer as a parameter.
+   *
+   *  ⚖ E3a — `SELLING_ENGINE_LAW` is the ROUND GATE and it is read HERE and in
+   *  exactly one other place (the board world's, below). OFF ⇒ `undefined` ⇒
+   *  every seam falls through to the code that shipped, which is what the
+   *  gated-off parity proof asserts byte for byte. A guard-off STORE is a
+   *  separate and independent no-op: `reservedMaskFor` returns empty before it
+   *  touches the book. */
+  const committedBook = useMemo(
+    // ⚖ R3's ONE DOOR, obeyed rather than worked around: `bedViewsFor` is the
+    // only way into the book on this screen, and `null` is the honest hand for a
+    // world nobody is holding anything out of.
+    () => (SELLING_ENGINE_LAW ? bedViewsFor(committedLanes, props.rooms, ledgerFrame, null).world : null),
+    [committedLanes, props.rooms, ledgerFrame],
+  )
+  const heldCommitted = useMemo(
+    () =>
+      committedBook
+        ? reservedMaskFor({
+            lanes: committedLanes,
+            closeMin: hours.close,
+            nowMin: props.sell.nowMinute,
+            guard: props.guard.config,
+            gapGuardMode: props.guard.mode,
+            book: committedBook,
+            // ⚖ E5 — ONE FACT, TWO SNAPSHOTS: the same released list reaches the
+            // board world's instance below, so a window a manager put back on
+            // sale is released at both doors or at neither.
+            // ⚖ FIX ROUND F2 — and it is the BOARD-SCOPED list, at both doors.
+            released: releasedHere,
+          })
+        : undefined,
+    [committedBook, committedLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere],
+  )
+
+  /** THE PACKING DIALS, ONE SPELLING (⚖ spec §5). `gapLayerFor` derives the
+   *  layer from them and the fragment fallback calls the very same UNCHANGED
+   *  engine with them — two passes, one set of prices and one decomposition, so
+   *  a fallback fragment can never cost something the layer above it would not. */
+  const gapDials = useMemo(
+    () => ({
+      gridMin: props.sell.gridMin,
+      sessionMin: props.guard.standardSessionMin,
+      gapFillMin: props.guard.gapFillMinMin,
+      gapFillDiscountPct: props.guard.gapFillDiscountPct,
+      nowMinute: props.sell.nowMinute,
+      frame,
+      depth,
+      guard: props.guard.config,
+    }),
+    [props.sell, props.guard, frame, depth],
+  )
+
   /** スキマ枠 + 詰め込みセッション — canon renders them from the same board pass
    *  as the normal layer (renderPublicLayer → renderGapFillLayer :5402).
    *
@@ -1259,18 +1376,15 @@ export function TodayScreen(props: TodayProps) {
   const gap = useMemo(
     () =>
       gapLayerFor(committedLanes, {
-        gridMin: props.sell.gridMin,
-        sessionMin: props.guard.standardSessionMin,
-        gapFillMin: props.guard.gapFillMinMin,
-        gapFillDiscountPct: props.guard.gapFillDiscountPct,
+        ...gapDials,
         minSellableMin: props.guard.minSellableMin,
-        nowMinute: props.sell.nowMinute,
         locked,
-        frame,
-        depth,
-        guard: props.guard.config,
+        // ⚖ spec §4.1 — the held set masks the INPUT SPACE, upstream of every
+        // price. A held minute is never a candidate, so nothing downstream has
+        // to un-derive one.
+        held: heldCommitted,
       }),
-    [committedLanes, props.sell, props.guard, locked, frame, depth],
+    [committedLanes, gapDials, props.guard.minSellableMin, locked, heldCommitted],
   )
 
   /** ⚖ R4 — the スキマ枠/詰め込み boxes as ONE list of promises. Both layers
@@ -1310,6 +1424,9 @@ export function TodayScreen(props: TodayProps) {
           cleanupMinutesByBed: props.bedCleanupMinutes,
           onDrop: (d) => sellDrops.push(d),
         },
+        // ⚖ spec §4.2 Q4 — the standard hours INSIDE a held window stay derived
+        // and are marked held-bound. Nothing paints the mark this round.
+        held: heldCommitted,
       })
       return { sell, sellDrops }
     },
@@ -1325,7 +1442,103 @@ export function TodayScreen(props: TodayProps) {
       gapClaims,
       props.rooms,
       props.bedCleanupMinutes,
+      heldCommitted,
     ],
+  )
+
+  /** ⚖ SPEC-SELLING-ENGINE §4.2 Q4 (E3b, THE FLIP) — THE SELL LAYER AS THE
+   *  BOARD PUBLISHES IT: the standard hours inside a 新規用に確保 window taken
+   *  out, so no surface counts, prices or paints an hour a regular customer
+   *  cannot buy. `sell` above stays the DERIVATION — the fallback's survivor set
+   *  and the explanation layer read it, and §6's rank dial will sell out of it.
+   *  Nothing held ⇒ the same object, by identity. */
+  const sellDrawn = useMemo(() => (heldCommitted ? sellDrawnFor(sell, showSlotPrice) : sell), [sell, heldCommitted, showSlotPrice])
+
+  /** ⚖ §9's ruled 案B — THE HELD WINDOWS THE BOARD SHOWS AND COUNTS, which is
+   *  the mask minus the lanes nobody can buy from: シフトロック says in as many
+   *  words 「オンライン空き枠からも除外されます」, and the sell and gap layers
+   *  already drop a locked lane inside `sellStaffLanes`. A 確保 chip on a locked
+   *  row would be the only kind of offer still standing there, and the counter
+   *  would be counting a window that is not for sale to anybody.
+   *
+   *  ⚖ FIX ROUND F3 — and the SAME sentence is true of a lane with no list
+   *  price, which this filter used to miss. `heldDrawnFor` is the one spelling
+   *  now: it asks `sellStaffLanes` which lanes the sell door would sell from at
+   *  all, rather than repeating half of that predicate here. */
+  const heldDrawn = useMemo(
+    () => heldDrawnFor(heldCommitted, committedLanes, locked),
+    [heldCommitted, committedLanes, locked],
+  )
+  const heldDrawnByLane = useMemo(() => new Map(heldDrawn.map((m) => [m.laneKey, m.spans])), [heldDrawn])
+
+  /** ⚖ SPEC-SELLING-ENGINE §5 + §4.5 — THE REST OF THE SALES DOOR, in the one
+   *  order the council's cycle analysis allows: the gap layer promised, the sell
+   *  layer reconciled against those promises, and only THEN the fallback over
+   *  what the reconcile threw away — additions-only, against that SAME claims
+   *  context. Nothing here feeds back into the reconcile, which is what keeps
+   *  R4's one-offer-per-bed invariant closed by construction.
+   *
+   *  ⚖ FIX ROUND F4 — THE `reserved` EMISSION USED TO RIDE ALONG HERE AND
+   *  NOBODY READ IT. `reservedOffersFor(heldCommitted)` was computed every frame
+   *  and consumed nowhere, while the counter built its own reserved rows inline
+   *  out of `heldDrawn` — two emission homes for one kind, disagreeing by
+   *  exactly the lanes the publication filter removes, with §11's invariant (iv)
+   *  proven on the one the screen never read. There is one home now, at the
+   *  counter (`shelf` below), fed the PUBLISHED mask. */
+  const salesDoor = useMemo<FallbackResult | null>(() => {
+    if (!heldCommitted) return null
+    return fallbackCellsFor({
+      lanes: committedLanes,
+      closeMin: hours.close,
+      dropped: sellDrops,
+      survivors: sell.cells,
+      claims: gapClaims,
+      cleanupMinutesByBed: props.bedCleanupMinutes,
+      rooms: props.rooms,
+      held: heldCommitted,
+      dials: gapPackingDials(committedLanes, gapDials),
+    })
+  }, [heldCommitted, committedLanes, hours.close, sellDrops, sell, gapClaims, props.bedCleanupMinutes, props.rooms, gapDials])
+
+  /** WHAT THE BOARD DRAWS, and what the explanation layer reads as promised:
+   *  the gap layer plus the fallback's additions. Gate off ⇒ the same objects,
+   *  by identity, so nothing downstream can tell this seam exists. */
+  const gapDrawn = useMemo(
+    () =>
+      salesDoor
+        ? { packed: [...gap.packed, ...salesDoor.packed], scraps: [...gap.scraps, ...salesDoor.scraps] }
+        : gap,
+    [gap, salesDoor],
+  )
+  const drawnClaims = useMemo(
+    () => (salesDoor ? [...gapClaims, ...salesDoor.claims] : gapClaims),
+    [gapClaims, salesDoor],
+  )
+
+  /** ⚖ SPEC-SELLING-ENGINE §8, RULED 8/30 (§13 Q3 — 「one number」) — WHAT IS ON
+   *  SALE ONLINE, counted over all four kinds. Composed HERE, out of the four
+   *  lists the board actually draws, so the chip and the boxes under it can
+   *  never disagree; the arithmetic and the label live in `onlineOffers`, where
+   *  they are provable without a renderer. Gate off ⇒ canon's own chipLabel and
+   *  today's sell-only list, by the same absent-mask rule as every other seam. */
+  const shelf = useMemo(
+    () =>
+      onlineOffers({
+        sell: sellDrawn.staffBands,
+        // Gate off ⇒ the sell layer alone under its own heading, and canon's
+        // own label back on the chip: the mask is the only thing that makes the
+        // other three kinds part of the number, so an absent one is today's
+        // counter by construction rather than by a second composer.
+        packed: heldCommitted ? gapDrawn.packed : [],
+        scraps: heldCommitted ? gapDrawn.scraps : [],
+        // ⚖ FIX ROUND F4 — §4.5's own adapter, over the PUBLISHED mask: ONE
+        // emission home for the reserved kind, and it is the one the operator
+        // reads. Gate off ⇒ an empty mask ⇒ no rows, which is today's counter.
+        reserved: reservedOffersFor(heldDrawn),
+        lanes: committedLanes,
+        showPrice: showSlotPrice,
+      }),
+    [heldCommitted, sellDrawn, gapDrawn, heldDrawn, committedLanes, showSlotPrice],
   )
 
   /** The 配置ガイド. `guardOn` is the STORE's protection policy; `guideMode` is
@@ -1356,14 +1569,6 @@ export function TodayScreen(props: TodayProps) {
    *  actually in the operator's hand may be lifted out of the world, and only for
    *  the question "may the thing I am holding go here". */
   const handId = live?.id ?? null
-  /** The ONE clock the book is built on — the same three numbers the sell, gap
-   *  and guard layers each read their own way (see capacity-ledger's `DayFrame`).
-   *  Its own memo so the book below is not rebuilt by an `hours` object that
-   *  merely re-rendered. */
-  const ledgerFrame = useMemo<DayFrame>(
-    () => ({ openMin: hours.open, closeMin: hours.close, nowMin: props.sell.nowMinute ?? hours.open }),
-    [hours.open, hours.close, props.sell.nowMinute],
-  )
   /** THE CAPACITY BOOK, BUILT ONCE PER FRAME. Both worlds come out of one call,
    *  and the second only exists while a hand is holding something. Construction
    *  is a memo and never a predicate, a pointer frame or a drag handler: the
@@ -1384,6 +1589,46 @@ export function TodayScreen(props: TodayProps) {
       bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, props.rooms, ledgerFrame, handId), lanes, askerId),
     [boardLanes, props.rooms, ledger, ledgerFrame, handId],
   )
+  /** ⚖ SPEC-SELLING-ENGINE §2 — THE HELD SET FOR THE STAFF DOOR: the same
+   *  builder, the BOARD world's snapshot, out of the frame's own book. One
+   *  builder, two worlds; the sales door's instance is above.
+   *
+   *  It is built from `ledger.world`, which is the book `bedDoorFor(null)`
+   *  answers out of — so the mask below and the rail's own protected-window
+   *  callback are two readings of ONE bed truth and cannot disagree about what
+   *  is held. That agreement IS the law (spec §1).
+   *
+   *  ⚖ MICROFIX N1 — AND THE SAME IS NOW TRUE ON THE OCCUPANCY AXIS. The bed
+   *  truth was shared from the first day; the POCKETS were not. `guardRailsFor`
+   *  cuts its pockets with `laneSpans(lane, excludeId)` and this mask cut its
+   *  own with `laneSpans(lane)`, so while a hand was in flight the rail had the
+   *  card lifted and the mask did not — the half of blind-final L1#5 that F5 did
+   *  not reach. `excludeId` is that lift, spelled once, in the producer both
+   *  doors already share.
+   *
+   *  ⚖ EXCLUSION IS GESTURE-ONLY, so it is passed HERE and never above: the
+   *  committed instance answers for the settled board, which is what prices read. */
+  const heldBoard = useMemo(
+    () =>
+      SELLING_ENGINE_LAW
+        ? reservedMaskFor({
+            lanes: boardLanes,
+            closeMin: hours.close,
+            nowMin: props.sell.nowMinute,
+            guard: props.guard.config,
+            gapGuardMode: props.guard.mode,
+            book: ledger.world,
+            released: releasedHere,
+            excludeId: handId,
+          })
+        : undefined,
+    [boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],
+  )
+  // ⚖ FIX ROUND F5 — the board world's per-lane index is GONE, not merely
+  // unused: the rest cue was its only reader and it now reads the committed
+  // one (`heldDrawnByLane`), which is the world the chip it defers to is drawn
+  // from. Leaving a second per-lane held index on this screen is how the two
+  // worlds get mixed again.
   const rails = useMemo<GuardRail[]>(
     () =>
       guardOn
@@ -1403,6 +1648,12 @@ export function TodayScreen(props: TodayProps) {
             // here. `bedDoorFor(null)` is that question in the book's words.
             excludeId: handId,
             placementFeasible: bedDoorFor(handId),
+            // ⚖ spec §3.1 — 「does the real world publish a protected window
+            // starting here」, answered by the SAME `newClientMask` door the
+            // reserved mask above is built from. A new client is never the card
+            // in hand, so this asks `bedDoorFor(null)` — the world, not the
+            // world-minus-hand — which is exactly the book `heldBoard` reads.
+            protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,
           })
         : [],
     [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],
@@ -1488,13 +1739,44 @@ export function TodayScreen(props: TodayProps) {
         // ⚖ R3 one world — the operator's own staged card is named as theirs
         // rather than as a stranger's.
         stagedId: pending?.id ?? null,
-        sellCells: sell.cells,
-        claims: gapClaims,
+        // ⚖ FIX ROUND F1 — THE PUBLISHED LAYER, because 75(i)'s whole job is to
+        // explain EMPTY BOARD SPACE and empty board space is decided by the
+        // paint, not by the derivation. Fed `sell.cells` this map went silent
+        // over stretches the law had emptied, on the strength of boxes nobody
+        // could see.
+        sellCells: sellDrawn.cells,
+        claims: drawnClaims,
         drops: sellDrops,
         inHand: inHand != null,
         sellDisplayed: sellMode !== 'off',
+        // ⚖ spec §2(c) — the held set is FIRST-CLASS here: a 新規用に確保 window
+        // is not an unexplained hole, so 75(i)'s clauses stand down over it.
+        // THIS WORLD's instance, which is what the parameter says it is
+        // (`explainRails`, today-interactions.ts:2026): every chip on this strip
+        // was judged on the board world with the hand lifted, and after
+        // ⚖ MICROFIX N1 the mask is cut from that same occupancy — so the
+        // sentence and the chip it hangs under are one answer about one board.
+        held: heldBoard,
+        // ⚖ FIX ROUND F1 — …over exactly the extent the withholding reached.
+        // ⚖ MICROFIX N2 — AND THIS ONE IS THE SALES DOOR'S, which is a DIFFERENT
+        // world; the line that stood here claimed the two inputs were "two
+        // halves of one fact rather than two worlds", and that was not true at
+        // this call site. The withheld hours exist in exactly one place on this
+        // screen — the committed derivation `sellDrawnFor` published from (§4.2
+        // Q4: a rank-opened store or a release sells them) — because there is no
+        // board-world sell layer and there must not be one (feeding the layers
+        // `boardLanes` made prices flicker under a moving card, :1198-1213).
+        //
+        // WHY THE PAIRING IS SOUND rather than merely unavoidable: `withheld`
+        // never reaches the sentence, only its REACH. It widens a held span out
+        // to the sell slots the publication emptied and does nothing else —
+        // `dur` stays the span's own length, so the store's dial is quoted from
+        // the held set alone. At rest the two worlds ARE one board (they differ
+        // only by `liveMoves`); mid-gesture the widening is a no-op or snaps off
+        // a committed slot, bounded by one slot either way, and no number moves.
+        withheld: sell.cells.filter(isHeldBound),
       }),
-    [rails, boardLanes, railDur, handId, props.rooms, pending?.id, sell, gapClaims, sellDrops, inHand, sellMode],
+    [rails, boardLanes, railDur, handId, props.rooms, pending?.id, sell, sellDrawn, drawnClaims, sellDrops, inHand, sellMode, heldBoard],
   )
 
   const openCards = props.cards.filter((c) => c.state === 'open' && !resolved.includes(c.id))
@@ -1508,9 +1790,14 @@ export function TodayScreen(props: TodayProps) {
    *  "undo")`, :4338), so the one door grew an optional action rather than the
    *  delete growing a second surface. Every existing caller passes nothing and
    *  is byte-identical; a refusal never carries one, because there is nothing
-   *  to take back. */
-  function show(message: string, ms = TOAST_MS, undo: (() => void) | null = null) {
-    setToast((was) => ({ text: message, ms, n: was.n + 1, undo }))
+   *  to take back.
+   *
+   *  ⚖ E5 — AND IT IS THE BOARD'S CONFIRM-WITH-ONE-ACTION SURFACE, which is why
+   *  ruling Q5's release opens THIS and not a new dialog: a sentence, one
+   *  button, the operator's own choice to press it. The action now names itself
+   *  (the delete says 元に戻す, the release says what it releases). */
+  function show(message: string, ms = TOAST_MS, action: { label: string; run: () => void } | null = null) {
+    setToast((was) => ({ text: message, ms, n: was.n + 1, action }))
   }
 
   /** ⚖ Liam flag 47 — THE LANE INVARIANT, IN ONE FUNCTION: *a refusal changes
@@ -1557,6 +1844,53 @@ export function TodayScreen(props: TodayProps) {
     setProposalSent(true)
     recoveryRef.current?.close()
     show('担当変更案をこの画面の中だけで送信済みにしました。再読み込みすると戻ります')
+  }
+
+  /** ⚖ SPEC-SELLING-ENGINE §1's Release clause, MANUAL half (ruling Q5, Liam
+   *  8/30: release is automatic AND a manager button, logged) — WHAT A 確保 CHIP
+   *  DOES WHEN IT IS PRESSED.
+   *
+   *  Everybody gets the law (E3b's shipped answer, unchanged). A MANAGER gets it
+   *  with one action beside it, in the board's own confirm-with-one-action
+   *  surface — the toast that already carries the block delete's undo — because
+   *  a release deserves a decision, not a second dialog system. `canReleaseHeld`
+   *  was answered on the server (page.tsx) from the operator's own role, so a
+   *  staff member never sees an action they would only be refused for.
+   *
+   *  ⚖ 47's long dwell, third member of the class: this toast is the only place
+   *  the action exists, so it lives long enough to be REACHED — the same
+   *  measured reason the block-delete undo does. */
+  function releaseAsk(laneKey: string, span: ReservedSpan) {
+    const law = reservedSentence(span.start, span.end)
+    if (!props.canReleaseHeld) {
+      show(law)
+      return
+    }
+    show(law, REFUSAL_MS, {
+      label: 'この確保を解除して販売に出す',
+      run: () => {
+        // ⚖ THE RELEASE IS LOGGED — priced honestly as NEW work, exactly as §7(a)
+        // prices the override log: no audit write is reachable from this board
+        // today (it is fixture-sealed; the 監査 lines are demo copy). ⚠ RECONNECT
+        // — the real write lands with the board's real-data reconnection and
+        // records the operator, the lane, the window and the time; this is the
+        // site it hangs off. ⚖ MICROFIX N3 — and it is recorded in the round's
+        // SPEC, not in any registry inside this tree (none exists, and this
+        // comment used to imply one): business-release-packets/
+        // evidence-transplant-batch1-20260819/WO2-today/batch14/engine-round/
+        // PKT-E5-RELEASE.md, which prices it by mirroring §7(a) of
+        // SPEC-SELLING-ENGINE-2026-08-30.md in the same folder.
+        // ⚖ FIX ROUND F2 — STAMPED WITH THE BOARD IT WAS PRESSED ON, exactly as
+        // `added` is. The dedup test carries the stamp too: the same lane and
+        // the same window on a different day is a different fact.
+        setReleased((was) =>
+          was.some((r) => r.laneKey === laneKey && r.windowStart === span.windowStart && onShownBoard(r, board))
+            ? was
+            : [...was, { laneKey, windowStart: span.windowStart, ...board }],
+        )
+        show('確保を解除しました。再読み込みすると戻ります')
+      },
+    })
   }
 
   // ── the 仮押さえ gate ─────────────────────────────────────────────────────
@@ -1716,7 +2050,9 @@ export function TodayScreen(props: TodayProps) {
         for (const i of lane.items) {
           spans.push({ id: i.caseId ?? i.key, x: i.x, w: i.w, title: i.title, derived: i.kind === 'cleanup', parked: false })
         }
-        for (const c of sell.cells) {
+        // ⚖ E3b — the PUBLISHED layer: a check row naming a 販売可能枠 that the
+        // law is withholding would point at a box the board is not drawing.
+        for (const c of sellDrawn.cells) {
           if ((lane.group === 'staff' ? c.laneKey : c.resourceKey) !== lane.key) continue
           const cell = place(c.h, c.h + 60, hours)
           spans.push({ id: `sell-${c.h}-${lane.key}`, x: cell.x, w: cell.w, title: '販売可能枠', derived: true, parked: false })
@@ -1753,7 +2089,7 @@ export function TodayScreen(props: TodayProps) {
       }
       return checks
     },
-    [boardLanes, sell.cells, hours, locked],
+    [boardLanes, sellDrawn.cells, hours, locked],
   )
 
   /** canon `syncPendingUI` (:3673): while the board is showing a DIFFERENT day
@@ -2885,6 +3221,39 @@ export function TodayScreen(props: TodayProps) {
       // JUDGEMENT rather than a fact. Both halves stay in one expression on
       // purpose — a second gate elsewhere would split the authority across two
       // lines, which is flag 54's disease arriving at the permission layer.
+      // ⚖ FIX ROUND F11 (blind-final L4#1) — §7(a)'s OVERRIDE LOG HOOK, at the
+      // verdict site the spec names. 「The build ships the log hook at the
+      // verdict site; the REAL audit write lands with the board's real-data
+      // reconnection and is named on the RECONNECT registry now.」 That promise
+      // is QUOTED from the spec (see N3 below for where the reconnection item
+      // actually lives). It was kept for ⚖ Q5's release button and never built
+      // for the ordinary
+      // staff placement override — the level (a) every store ships with — and
+      // no step audit caught the miss.
+      //
+      // THIS ONE LINE IS THE WHOLE OVERRIDE PATH. Every 注意して配置 on this
+      // board arrives here: the drop's `land`, the keyboard nudge's `land`, and
+      // 配置モード / the shelf chip through `askGuard`'s `run(start, v.reason)`
+      // — all four hand their commit in as `run.override`, and `escalate` is
+      // where the operator's press reaches it. Hanging the hook on the two
+      // `land()` sites the blind lens named would have covered two of the four;
+      // the chokepoint covers all of them and cannot drift from the authority
+      // gate it sits on.
+      //
+      // ⚠ RECONNECT — representational today, exactly as the release hook is:
+      // no audit write is reachable from this board (it is fixture-sealed; the
+      // 監査 lines are demo copy). The real write records the operator, the
+      // lane, the span, the sentence they overrode and the time; this is the
+      // site it hangs off.
+      //
+      // ⚖ MICROFIX N3 — WHERE THE ITEM ACTUALLY LIVES. The sentence quoted above
+      // says 「named on the RECONNECT registry now」 and there is no such
+      // registry in this tree — the promise is recorded in the round's own spec,
+      // which is the docs home for every reconnection item on this lane:
+      // business-release-packets/evidence-transplant-batch1-20260819/WO2-today/
+      // batch14/engine-round/SPEC-SELLING-ENGINE-2026-08-30.md §7(a). Do not
+      // build a registry in here to make the old wording true; the docs are the
+      // registry.
       override: props.canOverride && escalate && v.floor === 'policy' ? () => { setAdvice(null); escalate() } : null,
       // ⚖ 57 — the card sits where it was dropped while the question is open.
       // 注意して配置 stages the SAME span, so it never visibly jumps; やめる and
@@ -4024,13 +4393,35 @@ export function TodayScreen(props: TodayProps) {
     .filter(Boolean)
     .join(' ')
 
+  /** ⚖ FIX ROUND F9 (blind-final L2#10) — IS THIS LANE ON THE BOARD AT ALL.
+   *  `renderLane`'s own two early gates, named once so the tour registration
+   *  below cannot answer this question differently from the renderer. */
+  const laneRendered = (lane: BoardLane) =>
+    (view === 'both' || view === lane.group) && !collapsed.includes(lane.group)
+
+  /** The lane whose first 確保 chip carries the tour registration — the placement
+   *  strip's own rule (one entry for a repeated section, on the first in DOM
+   *  order), so the walk gets one step rather than one per staff member.
+   *
+   *  ⚖ FIX ROUND F9 — CHOSEN OUT OF THE LANES THE BOARD IS WALKING, in the
+   *  board's own order. It used to be picked out of the MASK, so in ベッド view,
+   *  or with the スタッフ group collapsed, or any time that one lane alone was
+   *  filtered out, the 8/23 law's `data-guide` entry existed on no DOM node
+   *  while other lanes' chips were on screen — a section that silently fails to
+   *  self-register. (No `locked` test any more: `heldDrawn` has already dropped
+   *  those lanes, one spelling — see `heldDrawnFor`.) */
+  const firstHeldLane = drawnLanes.find(
+    (l) => l.group === 'staff' && laneRendered(l) && (heldDrawnByLane.get(l.key)?.length ?? 0) > 0,
+  )?.key
+
   function renderLane(lane: BoardLane) {
-    if (view !== 'both' && ((view === 'staff' && lane.group !== 'staff') || (view === 'beds' && lane.group !== 'beds'))) return null
-    if (collapsed.includes(lane.group)) return null
+    if (!laneRendered(lane)) return null
     const isLocked = locked.includes(lane.key)
     const onThisLane = <T extends { group: string; laneKey: string; resourceKey: string }>(c: T) =>
       c.group !== lane.group ? false : lane.group === 'staff' ? c.laneKey === lane.key : c.resourceKey === lane.key
-    const gapHere = [...gap.packed, ...gap.scraps].filter(onThisLane)
+    // ⚖ spec §5 — `gapDrawn` is the gap layer PLUS the fragment fallback's
+    // additions. Gate off it is `gap` itself, by identity.
+    const gapHere = [...gapDrawn.packed, ...gapDrawn.scraps].filter(onThisLane)
     // ⚖ R4 (2026-08-25, corrected in the fix round) — canon
     // `suppressOverlappingSellableCells` (:5039) USED TO LIVE HERE, as
     // `.filter((c) => !gapHere.some(…))`. It MOVED, both of its halves, into
@@ -4047,7 +4438,11 @@ export function TodayScreen(props: TodayProps) {
     // (:4862) and the 公開価格 button (:5077) — were computed from boxes this line
     // then declined to draw. One box per span still holds; it is now true of the
     // LAYER rather than of the paint, which is what makes those four honest.
-    const cells = sell.cells.filter(onThisLane)
+    // ⚖ spec §1's withholding clause — `sellDrawn` is the sell layer WITHOUT the
+    // hours the law is holding for a 新規 (both rows: the pair carries one staff
+    // lane key). The 確保 chip below paints over their span instead.
+    const cells = sellDrawn.cells.filter(onThisLane)
+    const heldHere = lane.group === 'staff' ? (heldDrawnByLane.get(lane.key) ?? []) : []
     const rail = railByLane.get(lane.key)
     /** ⚖ flag 44 (2) — WHERE THE INVISIBLE BLOCKER ACTUALLY IS. A chip wearing
      *  満室/清掃/新規 is refusing over something that is not drawn on this row,
@@ -4064,7 +4459,20 @@ export function TodayScreen(props: TodayProps) {
      *  honestly be advertised at one length and refused at another). */
     const explainedHere = railExplained.get(lane.key)
     const restCues =
-      lane.group === 'staff' && !inHand && explainedHere ? restCueStarts(explainedHere, cells, gapHere) : []
+      lane.group === 'staff' && !inHand && explainedHere
+        ? // ⚖ spec §2(c) — …and a 新規用に確保 span is not empty track either.
+          //
+          // ⚖ FIX ROUND F5 (blind-final L1#5) — THE CHIP'S OWN WORLD. Arguments
+          // 2 and 3 are the COMMITTED world (`sellDrawn`, `gapDrawn`) and this
+          // one was the BOARD world, and the cue's justification for standing
+          // down is the chip drawn over it — which is committed. Idle the two
+          // coincide; they diverge mid-gesture whenever a drag writes `live`
+          // without a hand (a bed-row drag, an over-shelf drag, any stretch),
+          // and the visible result was flag 88's artifact: a rest hatch under a
+          // 確保 chip, or a suppressed cue where no chip is drawn. `heldHere` is
+          // that same committed list, already in hand one line above.
+          restCueStarts(explainedHere, cells, gapHere, heldHere)
+        : []
     // canon `lane.insertAdjacentElement("afterend", rail)` (:7566): the rail is
     // the lane's SIBLING, not its child. A `.lane` is a two-column grid, so a
     // third child lands in the label column and the strip collapses to a sliver.
@@ -4227,7 +4635,7 @@ export function TodayScreen(props: TodayProps) {
           {!isLocked &&
             gapHere.map((c) => {
               const span = place(c.s, c.e, hours)
-              const packedHere = gap.packed.includes(c)
+              const packedHere = gapDrawn.packed.includes(c)
               // ⚖ Liam flag 38 / BATCH-5 R6 — COLOUR CARRIES MEANING, BORDERS
               // CARRY DRAG STATE. A full-length session is the product: blue.
               // Anything shorter is a leftover the residue broke off — the same
@@ -4259,6 +4667,46 @@ export function TodayScreen(props: TodayProps) {
                   <span className="cell-nametag">{packedHere ? '詰め込み' : 'スキマ枠'}</span>
                   {c.group === 'staff' && <i>{packedHere ? `${money(c.price)}（${c.e - c.s}分）` : money(c.price)}</i>}
                 </span>
+              )
+            })}
+          {/* ⚖ SPEC-SELLING-ENGINE §9 — OPTION B, RULED BY LIAM 8/30 with the
+              mock open (「I thought B was better」): a held window is not empty
+              track, it is a STATE the store put there, and the explain round
+              exists because unexplained empty space is a defect. So it draws —
+              quietly. The mock's grammar (light blue-gray wash, thin dashed
+              border, the title over its sub-line, centred) adapted to this
+              board's own box geometry, which every other layer here shares.
+              ⚖ R13 / one-way accent: a STATE is a light wash and never a fill,
+              and the border is the neutral family — nothing here is the accent,
+              because the chip is not an action even though it answers a press
+              (the 44 precedent for the rail chips exactly).
+              ⚖ 8/23 guided-tour law: the FIRST chip on the board registers the
+              section, once — one entry, not one per staff member, the same rule
+              the placement strip follows. */}
+          {!isLocked &&
+            heldHere.map((h) => {
+              const span = place(h.start, h.end, hours)
+              return (
+                <button
+                  type="button"
+                  className="cell-held"
+                  key={`held-${h.start}`}
+                  style={{ '--x': `${span.x}%`, '--w': `${span.w}%` } as React.CSSProperties}
+                  data-guide-title={firstHeldLane === lane.key && h === heldHere[0] ? '新規用に確保' : undefined}
+                  data-guide={
+                    firstHeldLane === lane.key && h === heldHere[0]
+                      ? '新規のお客様のために空けている時間です。押すと、確保している理由と販売に戻る条件が表示されます。'
+                      : undefined
+                  }
+                  // ⚖ PKT-E3B-FLIP §5 — the press answers with the LAW: the
+                  // window, the store's own duration and the release rule. One
+                  // composer with the rail chip's clause under it, so the board
+                  // cannot word its own rule two ways.
+                  onClick={() => releaseAsk(lane.key, h)}
+                >
+                  <span className="held-title">新規用に確保</span>
+                  <span className="held-sub">{h.end - h.start}分・オンラインで新規のお客様に販売中</span>
+                </button>
               )
             })}
           {landing?.laneKey === lane.key && landing.w > 0 && (
@@ -4641,9 +5089,12 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ 47's long dwell, second member of the class: this toast is the only way
     // back, so it lives long enough to be REACHED (see REFUSAL_MS above). The
     // restore confirmation that follows is an ordinary one and stays brief.
-    show(`${info.title}を削除しました`, REFUSAL_MS, () => {
-      setBlockDeleted((was) => was.filter((k) => k !== info.key))
-      show(`${info.title}を元に戻しました`)
+    show(`${info.title}を削除しました`, REFUSAL_MS, {
+      label: '元に戻す',
+      run: () => {
+        setBlockDeleted((was) => was.filter((k) => k !== info.key))
+        show(`${info.title}を元に戻しました`)
+      },
     })
   }
 
@@ -4702,7 +5153,16 @@ export function TodayScreen(props: TodayProps) {
         <div className="ops-right">
           <span className="chip ok">Reserve 正常 {ops.syncLabel}</span>
           <span className="chip warn">通知未達 {ops.undelivered}件</span>
-          <span className="chip ok">公開中 {sell.staffBands.length}枠</span>
+          {/* ⚖ FIX ROUND F7 (blind-final L2#4) — THIS CHIP NAMES ITS KIND NOW.
+              Before the round both this number and the board head's came off
+              `buildSellLayer` and agreed by construction. ⚖ Q3 made the board
+              head the ONE total over four kinds, and this one stayed the sell
+              layer alone — so the same viewport carried 公開中 12 and
+              オンライン販売中 22 about the same store with nothing explaining the
+              gap, which is a second total in all but name. It is not a total:
+              it is one KIND of the four, and it says so in the board's own 案C
+              word. The number and its unit are untouched. */}
+          <span className="chip ok">公開中の販売可能枠 {sellDrawn.staffBands.length}枠</span>
           <button className="btn" type="button" onClick={() => closingRef.current?.showModal()}>閉店準備を確認</button>
         </div>
       </header>
@@ -4740,25 +5200,51 @@ export function TodayScreen(props: TodayProps) {
                   className="online-chip"
                   aria-expanded={pop === 'shelf'}
                   data-guide-title="オンライン販売中"
-                  data-guide="いまReserveで販売中の枠数。押すと枠の一覧（時間・担当・価格）が開き、行を押すとボード上の場所を示します。"
+                  // ⚖ RULED BY LIAM 8/30 (spec §13 Q3) — ONE NUMBER for
+                  // everything on sale online, so the sentence had to move with
+                  // the definition: it counted the 販売可能枠 layer alone while
+                  // 詰め込み and スキマ枠 boxes sat on the board being just as
+                  // buyable, and 新規用に確保 windows are on sale to a 新規.
+                  data-guide="いまReserveで販売中の枠数。販売可能枠・詰め込み・スキマ枠・新規用に確保をまとめた数です。押すと種類ごとの一覧（時間・担当・価格）が開き、行を押すとボード上の場所を示します。"
                   hidden={sellMode === 'off'}
                   onClick={() => setPop((p) => (p === 'shelf' ? '' : 'shelf'))}
                 >
-                  {sell.chipLabel}
+                  {shelf.label}
                 </button>
                 {pop === 'shelf' && (
                   <div className="fields-pop sell-shelf" aria-label="販売可能枠の一覧">
-                    <strong>販売可能枠 {sell.staffBands.length}窓</strong>
-                    {sell.staffBands.map((b) => (
-                      <button
-                        key={`${b.laneKey}-${b.hStart}`}
-                        type="button"
-                        onClick={() => { setPop(''); show(`${hhmm(b.hStart)}–${hhmm(b.hEnd)} · ${b.staff} — この枠は${props.lensLabel}のボード上にあります`) }}
-                      >
-                        {hhmm(b.hStart)}–{hhmm(b.hEnd)} · {b.staff} · {b.lo == null ? '価格未設定' : b.lo === b.hi ? money(b.lo) : `${money(b.lo)}〜${money(b.hi!)}`}
-                      </button>
-                    ))}
-                    {sell.staffBands.length === 0 && <span>販売中の枠はありません</span>}
+                    {/* ⚖ Q3's breakdown — the same four words the boxes wear
+                        (案C's name tags) and §9's 確保 wording, each group over
+                        its own rows. A group with nothing in it is not drawn:
+                        an empty heading is a question the operator has to
+                        answer for themselves. */}
+                    {shelf.groups
+                      .filter((g) => g.rows.length > 0)
+                      .map((g) => (
+                        <Fragment key={g.kind}>
+                          <strong>{g.label} {g.rows.length}窓</strong>
+                          {g.rows.map((r) => (
+                            <button
+                              key={`${g.kind}-${r.laneKey}-${r.start}`}
+                              type="button"
+                              onClick={() => { setPop(''); show(`${hhmm(r.start)}–${hhmm(r.end)} · ${r.staff} — この枠は${props.lensLabel}のボード上にあります`) }}
+                            >
+                              {hhmm(r.start)}–{hhmm(r.end)} · {r.staff}
+                              {/* ⚖ FIX ROUND F8 (blind-final L2#5) — A 新規用に確保
+                                  ROW SAYS WHY IT HAS NO PRICE. It used to end
+                                  bare, in a list where every other row ends in a
+                                  price or in 価格未設定 — which reads as a
+                                  rendering bug rather than as 「priced at take」.
+                                  It IS priced, out of the store's own session
+                                  price, at the moment the 新規 books it
+                                  (`ReservedOffer` says so in as many words), so
+                                  the row says that instead of nothing. */}
+                              {r.lo == null ? (g.kind === 'reserved' ? ' · 価格は予約時に決定' : ' · 価格未設定') : ` · ${r.lo === r.hi ? money(r.lo) : `${money(r.lo)}〜${money(r.hi!)}`}`}
+                            </button>
+                          ))}
+                        </Fragment>
+                      ))}
+                    {shelf.total === 0 && <span>販売中の枠はありません</span>}
                   </div>
                 )}
               </span>
@@ -5229,7 +5715,7 @@ export function TodayScreen(props: TodayProps) {
           <div className="incident-stat"><span>影響</span><b>{props.incident.affected}</b></div>
           <div className="incident-stat"><span>未判断</span><b className="warn">{props.incident.undecided}件</b></div>
           <div className="incident-stat"><span>連絡待ち</span><b>{proposalSent ? 0 : props.incident.waitingContact}件</b></div>
-          <div className="incident-stat"><span>安全な空き</span><b>{sell.staffBands.length}枠</b></div>
+          <div className="incident-stat"><span>安全な空き</span><b>{sellDrawn.staffBands.length}枠</b></div>
           <div className="incident-action">
             <button className="btn" type="button" onClick={() => setSelected(props.incident!.caseId)}>影響を確認</button>
           </div>
@@ -5418,7 +5904,7 @@ export function TodayScreen(props: TodayProps) {
             </div>
             <span className="framing-sample">{framingSample(liveClamp.hi, liveClamp.lo, framing)}</span>
           </div>
-          {sell.staffBands.map((b) => (
+          {sellDrawn.staffBands.map((b) => (
             <div className="slot-row" key={`${b.laneKey}-${b.hStart}`}>
               <span><strong>{hhmm(b.hStart)}–{hhmm(b.hEnd)} / {b.staff}</strong><span>基準 {yen(dialogs.pricing.base)} / 10円単位四捨五入</span></span>
               <b>{b.lo == null ? '—' : b.lo === b.hi ? money(b.lo) : `${money(b.lo)}〜${money(b.hi!)}`}</b>
@@ -5437,14 +5923,14 @@ export function TodayScreen(props: TodayProps) {
           <button
             className="btn primary"
             type="button"
-            disabled={sell.staffBands.length === 0 || !liveChanged}
+            disabled={sellDrawn.staffBands.length === 0 || !liveChanged}
             onClick={() => {
               setAppliedPrice({ hi: liveClamp.hi, lo: liveClamp.lo })
               reserveRef.current?.close()
-              show(`${sell.staffBands.length}枠の公開価格をHQ範囲内で更新しました。再読み込みすると戻ります`)
+              show(`${sellDrawn.staffBands.length}枠の公開価格をHQ範囲内で更新しました。再読み込みすると戻ります`)
             }}
           >
-            {priceButtonCaption(sell.staffBands.length, liveChanged)}
+            {priceButtonCaption(sellDrawn.staffBands.length, liveChanged)}
           </button>
         </div>
       </dialog>
@@ -5931,8 +6417,22 @@ export function TodayScreen(props: TodayProps) {
           cost the fade the rest of this board's surfaces all have. */}
       <div className={`toast${toast.text ? ' show' : ''}`} role="status" aria-live="polite" aria-atomic="true">
         {toast.text}
-        {toast.undo && (
-          <button className="toast-undo" type="button" onClick={toast.undo}>元に戻す</button>
+        {/* ⚖ E5 — `.toast-undo` is the toast's ONE action slot and keeps its
+            shipped name and dress (accent text, never a fill — R13); what
+            changed is that the label travels with the action instead of being
+            spelled here, because the slot now has two callers. */}
+        {/* ⚖ FIX ROUND F9 (blind-final L2#9) — THE ACTION IS NAVIGATED, NOT
+            ANNOUNCED. The toast is a live region, which is right for the
+            SENTENCE: it is read out the moment it changes. It is wrong for a
+            control — a button announced as part of a status update is one a
+            screen-reader user hears about rather than reaches, and this slot now
+            carries a COMMIT (⚖ Q5's release) as well as an undo. `aria-live` on
+            a descendant governs its own subtree, so the sentence keeps the
+            announcement and the button stays a button. The dwell is unchanged
+            and is already the standing one: both callers pass `REFUSAL_MS`, ⚖
+            47's long-enough-to-be-reached. */}
+        {toast.action && (
+          <button className="toast-undo" type="button" aria-live="off" onClick={toast.action.run}>{toast.action.label}</button>
         )}
       </div>
     </div>

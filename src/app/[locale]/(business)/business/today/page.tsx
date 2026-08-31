@@ -53,6 +53,7 @@ import {
   type BoardBooking,
   type BuildInput,
 } from '@/business/lib/today-board'
+import { canReleaseHeld, overrideLevelFor } from './today-interactions'
 import { TodayScreen, type DecisionCard, type InspectorCase, type TodayProps } from './TodayScreen'
 import './today.css'
 
@@ -456,9 +457,17 @@ export default async function TodayPage({
     // ONCE, here, from the store's dial and this operator's own role/staff_id.
     // The board is handed the answer, never the policy: a locked-out staff member
     // is not shown a 「注意して配置」 they would only be refused for pressing.
-    canOverride:
-      planes.opsConfig.overridePolicy.roles.includes(shell.operator.role) &&
-      !planes.opsConfig.overridePolicy.lockedOut.includes(shell.operator.staff_id),
+    // ⚖ ruling 91 / spec §7 — the same decision, now through the dial's own
+    // three-level consult (`overrideLevelFor`, beside the verdict it answers
+    // for). At the shipped policy — (a), スタッフ in `roles`, `lockedOut` empty —
+    // this is the byte-identical answer the two lines it replaced gave; the
+    // levels are what a store's settings screen will move.
+    canOverride: overrideLevelFor(planes.opsConfig.overridePolicy, shell.operator) === 'allow-warned',
+    // ⚖ SPEC-SELLING-ENGINE §1 / ruling Q5 (E5) — WHO MAY RELEASE A 確保 WINDOW
+    // EARLY, decided ONCE, here, from this operator's own role. Same discipline
+    // as the line above: the board is handed the ANSWER, never the rule, so a
+    // staff member is never shown an action they would only be refused for.
+    canReleaseHeld: canReleaseHeld(planes.opsConfig.releaseHeldRoles, shell.operator),
     closedWeekdayLabel: WEEKDAY_WORD[planes.closedWeekday],
     ops: {
       total: yen(totals.total),

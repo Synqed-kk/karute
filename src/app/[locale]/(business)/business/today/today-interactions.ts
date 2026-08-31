@@ -17,13 +17,15 @@ import {
   deriveSellableCells,
   freePockets,
   type GapCell,
+  type GapPackingInput,
+  type SellBand,
   type SellCell,
   type SellLayer,
   type SellResourceLane,
   type SellStaffLane,
 } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext, type GuardReason } from '@/business/lib/canon-logic/gap-guard'
-import { gapFillPrice, packedPrice, priceAt, SELL_SLOT_MIN, type PriceFrame } from '@/business/lib/canon-logic/pricing'
+import { gapFillPrice, packedPrice, priceAt, priceLabel, SELL_SLOT_MIN, type PriceFrame } from '@/business/lib/canon-logic/pricing'
 import {
   computeChecks,
   confirmCaption,
@@ -37,8 +39,28 @@ import {
   type DragOrigin,
 } from '@/business/lib/canon-logic/drag-rules'
 import { minuteOf, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
+// ⚖ SPEC-SELLING-ENGINE §2 — TYPE-ONLY, and it has to stay that way: the mask
+// imports `laneSpans` from this file as a VALUE, and the capacity book imports
+// `allocateBed`, so a value import back to either would be a real module cycle.
+// `import type` is erased before it exists.
+import type { ReservedOffer } from './capacity-ledger'
+import type { ReservedLaneMask, ReservedSpan } from './reserved-mask'
 
 export type { DragMode, DragOrigin }
+
+/** ⚖ SPEC-SELLING-ENGINE §2 — THE HELD SET, INDEXED BY LANE, once per pass.
+ *
+ *  Every seam below reads the mask the same way and none of them derives it: an
+ *  ABSENT mask is the round gate OFF (`selling-engine-gate.ts`), and it means
+ *  today's board exactly — no lane has held spans, so every test below is false
+ *  and every branch falls through to the code that shipped. */
+const heldByLane = (held: readonly ReservedLaneMask[] | undefined): Map<string, readonly ReservedSpan[]> =>
+  new Map((held ?? []).map((m) => [m.laneKey, m.spans]))
+
+/** Half-open on both sides, the same `overlaps` grammar as everything else on
+ *  this board: a span that ENDS at a held window's start is not inside it. */
+const insideHeld = (spans: readonly ReservedSpan[] | undefined, s: number, e: number): boolean =>
+  spans != null && spans.some((h) => s < h.end && h.start < e)
 
 /** A card that has been moved from where the server placed it: the lane it now
  *  sits on, and the span it now covers.
@@ -1075,6 +1097,9 @@ export function sellLayerFor(
     depth: number
     /** ⚖ R4 — the other layer's finished promises. See `SellReconcile`. */
     reconcile?: SellReconcile
+    /** ⚖ SPEC-SELLING-ENGINE §4.2 Q4 — the held set for THIS world. Absent =
+     *  the round gate is off and the layer is byte-identical to today's. */
+    held?: readonly ReservedLaneMask[]
   },
 ): SellLayer {
   const staffLanes = sellStaffLanes(lanes, opts.locked)
@@ -1093,7 +1118,227 @@ export function sellLayerFor(
   // cells, and a layer built from boxes the screen then declines to draw is a
   // board that counts what it does not show.
   const cells = opts.reconcile ? reconcileSellCells(raw, lanes, opts.reconcile) : raw
-  return buildSellLayer(cells, opts.showPrice)
+  // ⚖ Q4 — TAGGED, NOT WITHHELD, and the difference is the whole ruling. A
+  // standard hour inside a held window is exactly what a rank-opened store or a
+  // release sells, so it stays derived and the layer keeps counting it; what it
+  // may not do is reach a regular customer's online feed. That filter is the
+  // offer feed's (§8) and the paint is E3b's — this seam only computes the fact.
+  return buildSellLayer(opts.held ? tagHeldBound(cells, opts.held) : cells, opts.showPrice)
+}
+
+/** ⚖ SPEC-SELLING-ENGINE §4.2 Q4 — AN ADVERTISED HOUR THAT LIES INSIDE A 新規用に
+ *  確保 WINDOW, said on the cell rather than re-derived by whoever asks.
+ *
+ *  It rides through `buildSellLayer` because canon's own tiering pass copies
+ *  each cell (`cells.map((c) => ({ ...c, tier }))`, availability.ts:206), so the
+ *  layer's `cells` carry it without canon knowing the field exists — which is
+ *  what keeps this app-side and canon frozen. Read it through `isHeldBound`;
+ *  never test the property by hand. */
+export interface HeldBoundSellCell extends SellCell {
+  readonly heldBound: true
+}
+
+/** The one reader. `SellCell` is canon's type and cannot grow a field, so the
+ *  tag is structurally invisible to the type — one narrow door beats every
+ *  consumer writing its own cast. */
+export const isHeldBound = (c: SellCell): boolean => (c as { heldBound?: unknown }).heldBound === true
+
+/** ⚖ SPEC-SELLING-ENGINE §4.2 Q4 + §1's withholding clause (E3b, THE FLIP) —
+ *  WHAT THE BOARD PUBLISHES, as opposed to what it derived.
+ *
+ *  Q4 is「inside a held window ALL online sale to regular customers is withheld」
+ *  — the dynamic crumbs (already gone, masked out of the gap layer's input
+ *  space upstream) AND the standard full-price hours. The hours are still
+ *  DERIVED, because a rank-opened store or a release sells exactly those
+ *  (`isHeldBound` is the mark, and §6's rank dial is the reader that has not
+ *  been built); what they may not do is reach a regular customer, be counted as
+ *  purchasable, or be painted.
+ *
+ *  ⚖ R4's OWN LESSON, OBEYED. The reconcile moved out of the renderer in R4
+ *  precisely because 公開中 N枠 / 販売可能枠 N窓 / 安全な空き and the 公開価格
+ *  button were counting boxes the paint then declined to draw. Withholding at
+ *  the RENDERER would rebuild that defect one law along, so it happens to the
+ *  LAYER: every surface that reads the layer stays honest for free, both rows
+ *  together (a sell offer's staff-row and bed-row copies carry the same staff
+ *  `laneKey`, so the pair is tagged together and drops together).
+ *
+ *  IDENTITY WHEN NOTHING IS HELD. No tagged cell ⇒ the very same object comes
+ *  back, so a guard-off store and the gated-off path are byte-identical to
+ *  today's board by construction rather than by a branch somebody maintains.
+ *
+ *  ⚠ THE TIERS ARE RE-ZONED, deliberately. `buildSellLayer` reads its min/max
+ *  off the cells it is given, and `--tier` is a RELATIVE band ("this hour is
+ *  dear for today"), so re-zoning over what is actually on sale is the honest
+ *  answer — a tier computed against hours no customer can buy would describe a
+ *  price range the board is not offering. */
+export function sellDrawnFor(layer: SellLayer, showPrice: boolean): SellLayer {
+  const published = layer.cells.filter((c) => !isHeldBound(c))
+  return published.length === layer.cells.length ? layer : buildSellLayer(published, showPrice)
+}
+
+/** ⚖ FIX ROUND F3 (blind-final L1#2) — THE MASK AS THE SALES DOOR MAY PUBLISH
+ *  IT: the held set minus every lane the SELL door refuses outright.
+ *
+ *  The rule was already written on the board — 「a 確保 chip on a row that sells
+ *  nothing online would be the only kind of offer still standing there, and the
+ *  counter would be counting a window that is not for sale to anybody」 — and it
+ *  was enforced against ONE of the two ways a lane can sell nothing. A locked
+ *  lane was filtered; a lane with no list price was not, and `listPrice` is
+ *  `staffListPrice[member.id] ?? 0` (today-board.ts), so a real store hits it
+ *  the first time a manager adds a member without setting their price. That
+ *  lane has no sell layer and no gap layer at all — `sellStaffLanes` drops it —
+ *  yet it drew a chip whose own sub-line said 「オンラインで新規のお客様に販売中」.
+ *
+ *  ONE SPELLING, which is why this reads the answer out of `sellStaffLanes`
+ *  rather than repeating `listPrice > 0` here: the sales door publishes exactly
+ *  what the sell door would sell, and a future condition on one is a condition
+ *  on both by construction. The `locked` half stays visible in the same
+ *  expression (the function flags rather than drops them) so §9's ruled reason
+ *  for it is still readable at the site that acts on it.
+ *
+ *  The STAFF door's mask is deliberately NOT filtered this way (`heldBoard`
+ *  stays whole): the guard protects placements whatever a lane charges, and
+ *  that asymmetry is the law, not an oversight. */
+export function heldDrawnFor(
+  held: readonly ReservedLaneMask[] | undefined,
+  lanes: BoardLane[],
+  locked: string[],
+): readonly ReservedLaneMask[] {
+  const sellable = new Set(sellStaffLanes(lanes, locked).filter((l) => !l.locked).map((l) => l.key))
+  return (held ?? []).filter((m) => sellable.has(m.laneKey))
+}
+
+function tagHeldBound(cells: SellCell[], held: readonly ReservedLaneMask[]): SellCell[] {
+  const byLane = heldByLane(held)
+  return cells.map((c) => {
+    // Both emissions of one offer carry the STAFF lane key (availability.ts
+    // :126-134), so the pair is tagged together and the bed row can never
+    // disagree with the row it is drawn under.
+    if (!insideHeld(byLane.get(c.laneKey), c.h, c.h + SELL_SLOT_MIN)) return c
+    const tagged: HeldBoundSellCell = { ...c, heldBound: true }
+    return tagged
+  })
+}
+
+/** ⚖ SPEC-SELLING-ENGINE §8, RULED BY LIAM 8/30 (§13 Q3 — 「one number」) —
+ *  WHAT IS ON SALE ONLINE RIGHT NOW, counted ONCE, in one place.
+ *
+ *  The counter used to be canon's `buildSellLayer().chipLabel`, which counts the
+ *  sell layer and NOTHING ELSE — so 詰め込み and スキマ枠 boxes, which a customer
+ *  can buy in Reserve exactly like a standard hour, were on the board and
+ *  outside the number. That was a lie before this round and the ruling names the
+ *  truth: ONE number for everything purchasable online under the law, with the
+ *  breakdown by KIND a press away. Canon's own label is untouched — the count
+ *  changes because the DEFINITION did, and the definition lives here, app-side,
+ *  where the board composes the four kinds.
+ *
+ *  ⚖ Q4 + §6's RANK DIAL — the held-bound hours are NOT here, and the reason is
+ *  a dial rather than an omission: inside a held window the standard slots are
+ *  withheld from regular customers, and only a store that OPENS them to a
+ *  customer rank (§6's per-store dial, DEFAULT CLOSED, not yet built) puts them
+ *  back on sale. `sell` arrives already published (`sellDrawnFor`), so they are
+ *  gone by construction. When the rank dial lands it counts them back — as a
+ *  fifth group marked rank-limited, per §8's counter-honesty clause — and this
+ *  is the line that will say so.
+ *
+ *  The reserved windows ARE counted: a held window is not dead space, it is the
+ *  whole protected session offered to a 新規 (spec §1's closing clause), so it
+ *  is on sale — to someone — and the ruling counts what is on sale. */
+export type OnlineKind = 'sell' | 'packed' | 'gap' | 'reserved'
+
+/** One line of the press-open list: the span, whose row it is on, and its price
+ *  if it has one. A 新規用に確保 window has none — it is priced at take, out of
+ *  the store's own session price (see `ReservedOffer`). */
+export interface OnlineRow {
+  readonly kind: OnlineKind
+  readonly laneKey: string
+  readonly staff: string
+  readonly start: number
+  readonly end: number
+  readonly lo: number | null
+  readonly hi: number | null
+}
+
+export interface OnlineGroup {
+  readonly kind: OnlineKind
+  /** The board's OWN word for the kind — the same three 案C name tags the boxes
+   *  wear, plus §9's ruled 確保 wording. No fifth vocabulary for one thing. */
+  readonly label: string
+  readonly rows: readonly OnlineRow[]
+}
+
+export interface OnlineCounter {
+  readonly groups: readonly OnlineGroup[]
+  readonly total: number
+  /** canon's own chip grammar (`buildSellLayer`, availability.ts:218): 窓, a
+   *  spaced 「 · 」, and `priceLabel`'s single-price-or-「〜」 form. */
+  readonly label: string
+}
+
+export function onlineOffers(input: {
+  /** The PUBLISHED sell layer's staff bands (`sellDrawnFor`, held-bound gone). */
+  sell: readonly SellBand[]
+  /** …and the gap layer AS DRAWN — the §5 fallback's additions included. */
+  packed: readonly GapCell[]
+  scraps: readonly GapCell[]
+  /** ⚖ FIX ROUND F4 (blind-final L1#4 ≡ L2#8) — §4.5's OWN EMISSION, not the
+   *  mask a second time.
+   *
+   *  This used to take the mask and build reserved rows out of it inline, while
+   *  `reservedOffersFor` — the named §4.5 adapter, the thing §11's invariant
+   *  (iv) is proven against — sat beside it with zero readers. Two emission
+   *  homes for one kind, disagreeing by exactly the lanes the publication
+   *  filter removes, and the invariant was being proven on the one the screen
+   *  never read. ONE home now: the screen emits through the adapter and hands
+   *  the result here, so 「reserved offers ≡ held windows」 is a statement about
+   *  the rows the operator is actually counting. */
+  reserved: readonly ReservedOffer[]
+  lanes: readonly BoardLane[]
+  showPrice: boolean
+}): OnlineCounter {
+  // The staff row is the offer; the bed row is the same offer drawn a second
+  // time (availability.ts:126-134), and the board has counted it once since R4.
+  const onStaff = <T extends { group: string }>(c: T) => c.group === 'staff'
+  const gapRows = (cells: readonly GapCell[], kind: OnlineKind): OnlineRow[] =>
+    cells
+      .filter(onStaff)
+      .map((c) => ({ kind, laneKey: c.laneKey, staff: c.staff, start: c.s, end: c.e, lo: c.price, hi: c.price }))
+  const labelOf = new Map(input.lanes.map((l) => [l.key, l.label]))
+  const groups: OnlineGroup[] = [
+    {
+      kind: 'sell',
+      label: '販売可能枠',
+      rows: input.sell
+        .filter(onStaff)
+        .map((b) => ({ kind: 'sell' as const, laneKey: b.laneKey, staff: b.staff, start: b.hStart, end: b.hEnd, lo: b.lo, hi: b.hi })),
+    },
+    { kind: 'packed', label: '詰め込み', rows: gapRows(input.packed, 'packed') },
+    { kind: 'gap', label: 'スキマ枠', rows: gapRows(input.scraps, 'gap') },
+    {
+      kind: 'reserved',
+      label: '新規用に確保',
+      rows: input.reserved.map((o) => ({
+        kind: 'reserved' as const,
+        laneKey: o.laneKey,
+        staff: labelOf.get(o.laneKey) ?? o.laneKey,
+        start: o.start,
+        end: o.end,
+        lo: null,
+        hi: null,
+      })),
+    },
+  ]
+  const total = groups.reduce((n, g) => n + g.rows.length, 0)
+  // Both ends of every row, so a merged band's spread is the chip's spread —
+  // canon reads its min/max off the CELLS and a band's `lo`/`hi` are exactly
+  // those, collapsed (availability.ts:165-172).
+  const priced = groups.flatMap((g) => g.rows.flatMap((r) => [r.lo, r.hi])).filter((p): p is number => p != null)
+  const withPrice = input.showPrice && priced.length > 0
+  return {
+    groups,
+    total,
+    label: `オンライン販売中 ${total}窓${withPrice ? ` · ${priceLabel(Math.min(...priced), Math.max(...priced))}` : ''}`,
+  }
 }
 
 /** ⚖ BATCH-5 R1 (Liam 2026-08-21) — WHICH BOXES ARE CRUMBS. A packed box the
@@ -1136,6 +1381,46 @@ function combineCrumbs(cells: GapCell[], sessionMin: number, priceUnion: (laneKe
   return out
 }
 
+/** EVERY DIAL THE PACKING ENGINE TAKES, spelled ONCE.
+ *
+ *  ⚖ SPEC-SELLING-ENGINE §5 — the fragment fallback calls the same UNCHANGED
+ *  `deriveGapPackingCells` with a clipped input lane, so it needs the identical
+ *  bundle: the same guard engine's `fillableExactly`/`fillDecomposition`, the
+ *  same two price closures over the same frame and depth. Re-spelling them at
+ *  the screen would be a second pricing home, and two homes for one price is
+ *  how a fallback box comes to cost something the layer above it does not.
+ *
+ *  So `gapLayerFor` derives them here and the fallback pass is handed the very
+ *  same function's answer. The lane list is the argument because `listPrice` is
+ *  a BoardLane fact and canon's `SellStaffLane` carries it separately. */
+export function gapPackingDials(
+  lanes: BoardLane[],
+  opts: {
+    gridMin: number
+    sessionMin: number
+    gapFillMin: number
+    gapFillDiscountPct: number
+    nowMinute: number | null
+    frame: PriceFrame
+    depth: number
+    guard: GuardConfig
+  },
+): Omit<GapPackingInput, 'staffLanes' | 'resourceLanes'> {
+  const engine = createGapGuard(opts.guard)
+  const byKey = new Map(lanes.map((l) => [l.key, l]))
+  const listOf = (lane: SellStaffLane) => byKey.get(lane.key)?.listPrice ?? 0
+  return {
+    gridMin: opts.gridMin,
+    sessionMin: opts.sessionMin,
+    gapFillMin: opts.gapFillMin,
+    now: opts.nowMinute,
+    fillableExactly: engine.fillableExactly,
+    fillDecomposition: engine.fillDecomposition,
+    packedPrice: (lane, s, e) => packedPrice(listOf(lane), s, e, opts.frame, opts.depth),
+    gapFillPrice: (lane, s, e) => gapFillPrice(listOf(lane), s, e, opts.frame, opts.depth, opts.gapFillDiscountPct),
+  }
+}
+
 /** The スキマ枠 (orange, discounted) and 詰め込みセッション (blue, full price)
  *  layers, derived from the same board reading as everything else. Canon's own
  *  label carries the LENGTH beside the price on a packed cell — ¥8,650（60分）
@@ -1159,24 +1444,40 @@ export function gapLayerFor(
      *  than two things that each fall short. A store dial (the 店舗設定 control
      *  ships with the settings batch); absent = no floor. */
     minSellableMin?: number
+    /** ⚖ SPEC-SELLING-ENGINE §4.1 — the held set for THIS world, applied
+     *  UPSTREAM (see `withheld` below). Absent = the round gate is off and the
+     *  layer is byte-identical to today's. */
+    held?: readonly ReservedLaneMask[]
   },
 ): { packed: GapCell[]; scraps: GapCell[] } {
-  const engine = createGapGuard(opts.guard)
   const byKey = new Map(lanes.map((l) => [l.key, l]))
-  const listOf = (lane: SellStaffLane) => byKey.get(lane.key)?.listPrice ?? 0
   const priceUnion = (laneKey: string, s: number, e: number) =>
     packedPrice(byKey.get(laneKey)?.listPrice ?? 0, s, e, opts.frame, opts.depth)
+  /** ⚖ SPEC-SELLING-ENGINE §4.1, council-corrected — CAPACITY PROTECTION IS
+   *  PRICE-FREE AND SITS UPSTREAM OF EMISSION. A downstream filter would have to
+   *  drop boxes the reconcile had already priced and re-bedded, which re-opens
+   *  R4's double-claim class one layer down; masking the INPUT SPACE cannot,
+   *  because a held minute is simply never a candidate.
+   *
+   *  The mask is spelled as OCCUPANCY, which is the only vocabulary
+   *  `deriveGapPackingCells` has for "this minute is not yours": it cuts its
+   *  pockets out of `lane.occupied` (availability.ts:429) exactly as the rail
+   *  does. A held span is NOT a break — no `isBreak` — so it walls nothing and a
+   *  residue beside it stays the loss it really is. */
+  const staffLanes = sellStaffLanes(lanes, opts.locked)
+  const held = opts.held ? heldByLane(opts.held) : null
+  const withheld = held
+    ? staffLanes.map((l) => {
+        const spans = held.get(l.key)
+        return spans && spans.length > 0
+          ? { ...l, occupied: [...l.occupied, ...spans.map((h) => ({ start: h.start, end: h.end }))] }
+          : l
+      })
+    : staffLanes
   const raw = deriveGapPackingCells({
-    staffLanes: sellStaffLanes(lanes, opts.locked),
+    ...gapPackingDials(lanes, opts),
+    staffLanes: withheld,
     resourceLanes: sellResourceLanes(lanes),
-    gridMin: opts.gridMin,
-    sessionMin: opts.sessionMin,
-    gapFillMin: opts.gapFillMin,
-    now: opts.nowMinute,
-    fillableExactly: engine.fillableExactly,
-    fillDecomposition: engine.fillDecomposition,
-    packedPrice: (lane, s, e) => packedPrice(listOf(lane), s, e, opts.frame, opts.depth),
-    gapFillPrice: (lane, s, e) => gapFillPrice(listOf(lane), s, e, opts.frame, opts.depth, opts.gapFillDiscountPct),
   })
   const floor = opts.minSellableMin ?? 0
   const sellable = (c: GapCell) => c.e - c.s >= floor
@@ -1300,15 +1601,42 @@ export interface RailInput {
    *  bed-feasible; leaving the field undefined reproduces it exactly, because
    *  the engine only consults a callback that is there (gap-guard :271-272). */
   placementFeasible?: (lane: BoardLane, start: number, dur: number) => boolean
+  /** ⚖ SPEC-SELLING-ENGINE §3.1 — THE GUARD IS TOLD WHETHER ITS 新規 WINDOW HAS
+   *  A ROOM, which is the OTHER half of flag 76 and the refusal side of flag 49.
+   *
+   *  `placementFeasible` above answers 「can the card being placed occupy this
+   *  span」. This one answers 「does the real world publish a protected window
+   *  starting here」 (gap-guard :52) — a different question about a different
+   *  subject, and canon has always had the slot for it (`protectedWindows`
+   *  :192-206) with nothing wired into it. Unwired, the guard counts protected
+   *  capacity it cannot deliver: it refuses a placement to save a 新規 window no
+   *  room could ever host, and it stays silent over one it could.
+   *
+   *  IT IS THE SAME QUESTION THE MASK IS BUILT FROM — the board world's
+   *  `newClientMask` through `bedDoor(…, null)` — so the rail and the sales door
+   *  answer out of one held set rather than two derivations free to disagree.
+   *  That is the whole of the law (spec §1's closing clause).
+   *
+   *  ⚠ IT ALSO MOVES THE ENUMERATION ONTO THE LATTICE. With a callback the walk
+   *  starts at `ceil(pocket.s / 5) * 5` instead of the pocket's own minute
+   *  (gap-guard :195), so counts move for TWO reasons and the §3.3 table must
+   *  keep them in two columns — see E3a-proof/RAIL-DELTA.
+   *
+   *  ABSENT = today's rail exactly (the round gate off): canon consults a
+   *  callback only when there is one, and a store with no rooms configured has
+   *  none to consult either way. */
+  protectedWindowFeasible?: (lane: BoardLane, start: number, dur: number) => boolean
 }
 
 /** The engine's ctx for ONE staff lane — canon `ctxFor` (:7278). The clock the
  *  lead-time exemption reads, and the rooms. */
 function railCtx(lane: BoardLane, input: RailInput): GuardContext {
   const feasible = input.placementFeasible
+  const held = input.protectedWindowFeasible
   return {
     now: input.nowMinute ?? undefined,
     placementFeasible: feasible ? (start, dur) => feasible(lane, start, dur) : undefined,
+    protectedWindowFeasible: held ? (start, dur) => held(lane, start, dur) : undefined,
   }
 }
 
@@ -1500,6 +1828,29 @@ function railCell(
  *  and the clause says exactly that and NOTHING MORE. Inventing a cause for an
  *  hour the derivation simply never emitted would be worse than the silence it
  *  replaces. */
+/** ⚖ SPEC-SELLING-ENGINE §9's ruled 案B (Liam 8/30, mock open) — WHAT A 確保
+ *  SPAN SAYS WHEN IT IS ASKED: the store's own duration, and the release rule.
+ *
+ *  ONE composer for both places the law is said — the chip's own press and the
+ *  rail chip's clause under it — so the two can never word the same rule
+ *  differently. `dur` is the SPAN's own length, which IS the store's protected
+ *  dial by construction (`reservedMaskFor` ends every span at
+ *  `windowStart + protectedDuration`), so no literal duration appears anywhere
+ *  and a store that moves its dial moves this sentence with it.
+ *
+ *  ⚠ DIRECTION COPY (PKT-E3B-FLIP §5) — awaiting the native pass, like every JP
+ *  line this round adds. The trailing 。 of the packet's line is dropped for the
+ *  strip's own grammar: no sentence on this rail ends in one, and one that did
+ *  would be the only one. */
+export const reservedClause = (dur: number): string =>
+  `新規のお客様のための${dur}分枠として確保しています。隣の枠が埋まれば、残りは通常どおり販売に戻ります`
+
+/** …and the chip's own press, which has no rail cell above it to have named the
+ *  window already, so it names it — in the strip's own ⚖ 44 window grammar
+ *  (「（HH:MM〜HH:MM）」, 〜 and not an en dash). */
+export const reservedSentence = (start: number, end: number): string =>
+  `新規用に確保（${clockOf(start)}〜${clockOf(end)}）。${reservedClause(end - start)}`
+
 export function railExplain(
   cell: RailCell,
   /** The length the strip is judging — ⚖ 50, it follows the gesture. */
@@ -1514,6 +1865,14 @@ export function railExplain(
     /** ⚖ 75(ii) — the lane whose promise kept the room, when a room-drop is
      *  what emptied this window. Absent = nothing was dropped for a room. */
     takerLabel?: string | null
+    /** ⚖ SPEC-SELLING-ENGINE §1 + §9 (E3b) — THE LENGTH OF THE 新規用に確保 SPAN
+     *  this chip's window falls inside, or absent when it falls inside none.
+     *
+     *  It is the span's own length rather than a flag because the sentence has
+     *  to QUOTE the store's dial (「{dur}分枠として確保しています」) and this
+     *  file may not read a config to find one — the number arrives with the
+     *  fact, from the one derivation home, or it does not arrive at all. */
+    reservedDur?: number | null
   } = {},
 ): { word: string | null; sentence: string } {
   // ⚖ NATIVE PASS (2026-08-26) — 〜, NOT AN EN DASH. The bed branch's own
@@ -1566,6 +1925,15 @@ export function railExplain(
         // something the operator is already looking at.
         : null
   const base = cell.reason === 'bed' && opts.room?.refusal ? opts.room.refusal : `${cell.sentence}${judged}`
+  // ⚖ E3b — AND THE LAW ANSWERS FIRST, wherever it applies. A window inside a
+  // 新規用に確保 span is empty for exactly one reason and the store made it: the
+  // clause states the rule and the way out of it, and it rides EVERY state
+  // rather than only the ✓ ones, because the chip an operator most wants to
+  // press here is the refused one wearing 新規用 — 44's whole complaint was a
+  // refusal that names nothing. (`adless` is false under a held span by
+  // construction — `explainRails` suppresses it there — so the two clauses can
+  // never both fire and there is no precedence to keep straight.)
+  if (opts.reservedDur != null) return { word, sentence: `${base}。${reservedClause(opts.reservedDur)}` }
   // A refused chip is already answering; ⚖ 75(i)'s clause is about a start the
   // board said YES to and then advertised nothing at.
   if (cell.state === 'blocked' || opts.adless !== true) return { word, sentence: base }
@@ -1619,7 +1987,15 @@ export function explainRails(
     rooms: RoomPolicy
     /** ⚖ R3 one world — the operator's own staged card, named as theirs. */
     stagedId: string | null
-    /** The advertised layer and the promises, as the board draws them. */
+    /** The advertised layer and the promises, as the board draws them.
+     *
+     *  ⚖ FIX ROUND F1 (blind-final L1#1 ≡ L2#1) — AS THE BOARD DRAWS THEM, and
+     *  that is now literally true. It was handed the DERIVATION, which still
+     *  contains every hour the law is withholding, so a held-bound cell nobody
+     *  can see satisfied `advertised` and 75(i)'s 「販売可能枠が出ていません」
+     *  stood down over genuinely blank track — flag 44's own defect, re-created
+     *  by the fix for flag 44's sibling. The taker lookup is unaffected: it
+     *  reads `drops`, a separate input. */
     sellCells: readonly SellCell[]
     claims: readonly GapCell[]
     /** ⚖ 75(i) — what building that layer threw away. */
@@ -1647,11 +2023,42 @@ export function explainRails(
      *  「ドラッグ中のみ」 is NOT gated here: that layer exists and is revealed by
      *  the gesture, and a gesture already empties this map. */
     sellDisplayed: boolean
+    /** ⚖ SPEC-SELLING-ENGINE §2's registry, consumer (c) — THE HELD SET FOR THIS
+     *  WORLD, so a 新規用に確保 window is FIRST-CLASS here rather than an absence
+     *  this file has to invent a reason for.
+     *
+     *  Without it the two 75(i) clauses fire over exactly the space the law is
+     *  holding: 「この開始には販売可能枠が出ていません」 under the 確保 chip E3b
+     *  paints, or worse, 「ベッドは別のスタッフ（…）の枠が使う」 — naming a
+     *  stranger for an emptiness the STORE'S OWN RULE caused. Flag 88's
+     *  suppress-under-a-box grammar, extended to the reserved kind.
+     *
+     *  Absent = the round gate is off and every sentence is byte-identical to
+     *  today's (the observational drop pin at today-explains.test.ts:393 stays
+     *  untouched and green). */
+    held?: readonly ReservedLaneMask[]
+    /** ⚖ FIX ROUND F1, second half — THE HOURS THE LAW ACTUALLY TOOK OFF THE
+     *  BOARD: the held-bound sell cells `sellDrawnFor` removed.
+     *
+     *  A held span and the sale it withholds are not the same stretch of track.
+     *  `tagHeldBound` withholds a whole SELL SLOT whenever the slot OVERLAPS a
+     *  held span, so a 90-minute hold on a 60-minute grid empties 120 minutes
+     *  of track and the chip covers 90 of them. The 30 minutes past the chip
+     *  were blank with no box, no chip and nothing said about them — and now
+     *  that `sellCells` is the PUBLISHED layer they would earn 75(i)'s bare
+     *  clause, which is true and names the wrong cause: the store's own rule
+     *  emptied that stretch, not an absent derivation.
+     *
+     *  So the clause covers exactly what the predicate took. Absent — the round
+     *  gate off, or a caller with nothing withheld — collapses the extents back
+     *  onto the held spans themselves and every sentence is unchanged. */
+    withheld?: readonly SellCell[]
   },
 ): RailExplained {
   const out: RailExplained = new Map()
   if (opts.inHand) return out
   const overlaps = (aS: number, aE: number, bS: number, bE: number) => aS < bE && bS < aE
+  const heldLanes = heldByLane(opts.held)
   for (const rail of rails) {
     const staff = lanes.find((l) => l.key === rail.laneKey && l.group === 'staff')
     // Per lane, once — the ad-less test below is asked per cell and these three
@@ -1673,13 +2080,46 @@ export function explainRails(
     const roomDrops = opts.drops.filter(
       (d) => d.laneKey === rail.laneKey && d.kind === 'room' && d.takerLaneKey != null && d.takerLaneKey !== rail.laneKey,
     )
+    const withheldHere = (opts.withheld ?? []).filter((s) => s.group === 'staff' && s.laneKey === rail.laneKey)
+    const heldHere = heldLanes.get(rail.laneKey)
+    // ⚖ FIX ROUND F1 — the held spans widened to the extent the WITHHOLDING
+    // reached, so the law explains exactly what it did. `dur` stays the SPAN's
+    // own length wherever the extent is quoted: the sentence quotes the store's
+    // protected dial, and a slot boundary is not a dial.
+    const heldExtents = (heldHere ?? []).map((h) => {
+      let start = h.start
+      let end = h.end
+      for (const c of withheldHere) {
+        if (!overlaps(c.h, c.h + SELL_SLOT_MIN, h.start, h.end)) continue
+        start = Math.min(start, c.h)
+        end = Math.max(end, c.h + SELL_SLOT_MIN)
+      }
+      return { start, end, dur: h.end - h.start }
+    })
     const per = new Map<number, { word: string | null; sentence: string }>()
     for (const c of rail.cells) {
       const end = c.start + opts.dur
       const advertised =
         sellHere.some((s) => overlaps(s.h, s.h + SELL_SLOT_MIN, c.start, end)) ||
         gapHere.some((g) => overlaps(g.s, g.e, c.start, end))
-      const taker = advertised ? undefined : roomDrops.find((d) => overlaps(d.h, d.h + SELL_SLOT_MIN, c.start, end))
+      // ⚖ §2(c) — HELD IS NOT AD-LESS. It is kept apart from `advertised`
+      // deliberately: nothing IS advertised here, and calling it so would be the
+      // second reading of one fact this file keeps warning about. What it does
+      // is answer 75(i)'s question — 「why is this window empty」 — with the law,
+      // and never a taker's name.
+      //
+      // ⚖ E3b — and the SPAN is carried rather than a boolean, because the
+      // sentence quotes its length. The first overlapping span wins: the guard's
+      // own windows are mutually non-overlapping by construction
+      // (`protectedCapacity`'s greedy is a disjoint set), so there is never a
+      // second one to choose between.
+      //
+      // ⚖ FIX ROUND F1 — asked of the EXTENT rather than the span. Two extents
+      // can touch where one 60-minute slot straddles two held windows; `find`
+      // keeps taking the first, which is the same honest ceiling the taker
+      // lookup already declares, and both windows quote the same dial anyway.
+      const reserved = heldExtents.find((h) => c.start < h.end && h.start < end)
+      const taker = advertised || reserved ? undefined : roomDrops.find((d) => overlaps(d.h, d.h + SELL_SLOT_MIN, c.start, end))
       per.set(
         c.start,
         railExplain(c, opts.dur, {
@@ -1699,8 +2139,9 @@ export function explainRails(
                   stagedId: opts.stagedId,
                 })
               : null,
-          adless: !advertised && opts.sellDisplayed,
+          adless: !advertised && reserved == null && opts.sellDisplayed,
           takerLabel: taker?.takerLaneKey != null ? (lanes.find((l) => l.key === taker.takerLaneKey)?.label ?? null) : null,
+          reservedDur: reserved ? reserved.dur : null,
         }),
       )
     }
@@ -1733,12 +2174,20 @@ export function restCueStarts(
   sellHere: readonly SellCell[],
   /** …and its 詰め込み／スキマ枠 promises, which advertise the span they draw. */
   gapHere: readonly GapCell[],
+  /** ⚖ SPEC-SELLING-ENGINE §2's registry, consumer (c) — …and its 新規用に確保
+   *  spans, which are not empty track either. E3b paints the 確保 chip over
+   *  them; a quarter-strength 清掃 wash under that chip is flag 88's artifact
+   *  reappearing one layer along, so the cue stands down over a held span for
+   *  the same reason it stands down over a price box. EMPTY = the round gate is
+   *  off and the cue is byte-identical to today's. */
+  heldHere: readonly ReservedSpan[] = [],
 ): number[] {
   // 30 is the rail's own step and so the cue's own width — the same span
   // `renderLane` gives the mark it paints from each start returned here.
   const covered = (start: number) =>
     sellHere.some((s) => s.h < start + 30 && start < s.h + SELL_SLOT_MIN) ||
-    gapHere.some((g) => g.s < start + 30 && start < g.e)
+    gapHere.some((g) => g.s < start + 30 && start < g.e) ||
+    heldHere.some((h) => h.start < start + 30 && start < h.end)
   return [...explained]
     .filter(([, e]) => e.word != null)
     .map(([start]) => start)
@@ -2736,6 +3185,61 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   if (cell && cell.state !== 'safe') return { kind: 'caution', floor: null, label: VERDICT_WORD.caution, reason: cell.sentence, cell, bedLane, checks }
   return { kind: 'clean', floor: null, label: VERDICT_WORD.clean, reason: null, cell, bedLane, checks }
 }
+
+/** ⚖ RULING 91 / SPEC-SELLING-ENGINE §7 — THE PERMISSION DIAL'S THREE LEVELS,
+ *  on the store's EXISTING home. r1 of the spec invented a second dial; the app
+ *  already had one — `storeBookingPolicy.overridePolicy` (roles + the per-staff
+ *  `lockedOut`, ⚖ Liam 2026-08-22 flag 50(d)) — so ruling 91 EXTENDS it rather
+ *  than competing with it, and there is no precedence puzzle to solve.
+ *
+ *  It sits beside the verdict because it answers the verdict's last question:
+ *  `policy` is the only floor an operator may be given authority over (a `hard`
+ *  floor is the engine's own word for impossible), and this says whether THIS
+ *  operator has it. The board is handed the answer, never the policy — a
+ *  locked-out staff member is not shown a 「注意して配置」 they would only be
+ *  refused for pressing.
+ *
+ *  ⚖ DEFAULT (a), RULED 8/30 late night: staff may override with a warning.
+ *  `lockedOut` composes with every level and answers FIRST — a store that named
+ *  a person has named them whatever their role says.
+ *
+ *  ⚖ 'needs-approval' IS EXPRESSIBLE AND UNREACHABLE, deliberately. §7(b) — a
+ *  real request→approve moment — is priced honestly: staged holds are
+ *  session-local React state (the screen's own toast says so), so (b) needs
+ *  server-backed request state that does not exist, and the request must not
+ *  alter the board until approved. It is built when a store can actually dial to
+ *  it; until the policy carries an approval level, nothing here can return it.
+ *  The word lives in the type so the dial's vocabulary is one thing, not two. */
+export type OverrideLevel = 'allow-warned' | 'needs-approval' | 'refuse'
+
+export function overrideLevelFor(
+  policy: { roles: readonly string[]; lockedOut: readonly string[] },
+  operator: { role: string; staff_id: string },
+): OverrideLevel {
+  if (policy.lockedOut.includes(operator.staff_id)) return 'refuse'
+  return policy.roles.includes(operator.role) ? 'allow-warned' : 'refuse'
+}
+
+/** ⚖ SPEC-SELLING-ENGINE §1's Release clause, MANUAL half (ruling Q5, 8/30:
+ *  release is automatic AND a manager button, logged) — WHO MAY PRESS IT.
+ *
+ *  Manager-level per Q5 — read off the ROLES HOME rather than spelled here.
+ *  ⚠SETTINGS-BATCH's law binds this exactly as it binds the override consult
+ *  above: the authority is DATA (`storeBookingPolicy.releaseHeldRoles`, beside
+ *  the override policy), never a literal on the board, so a store that names a
+ *  different set of people changes its settings and not this file. A staff
+ *  member pressing a 確保 chip gets the law sentence and nothing else, which is
+ *  E3b's shipped behaviour unchanged.
+ *
+ *  ⚖ IT IS ITS OWN LIST, NOT A READING OF THE OVERRIDE DIAL, deliberately.
+ *  `overrideLevelFor` above answers 「may this person place over a 置けない」 —
+ *  a different question about a different gesture — and a store that let
+ *  スタッフ override placements (the shipped default (a)) has not thereby said
+ *  staff may put the store's 新規 window back on sale. The settings round gives
+ *  the list its 店舗設定 control beside the override dial; this predicate is
+ *  where a LEVEL (rather than a list) would land if Liam ever asks for one. */
+export const canReleaseHeld = (roles: readonly string[], operator: { role: string }): boolean =>
+  roles.includes(operator.role)
 
 /** ⚖ LIAM flag 50(d) (2026-08-22) — WHAT AN OVERRIDE IS ALLOWED TO BUY.
  *
