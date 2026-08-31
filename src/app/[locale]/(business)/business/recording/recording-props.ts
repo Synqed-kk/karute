@@ -60,17 +60,19 @@ import {
   CONTACT_TAGS_DISCLAIMER,
   discardCounts,
   discardLedger,
+  durationText,
   isBelowFloor,
   ownDiscardsThisMonth,
   permissionNotice,
   pickerOptions,
+  takeDurationLabel,
+  transcriptEntries,
   TAKE_REASON_LINE,
   TAKE_STATE_CHIP,
   TAKE_STATE_LABEL,
   TRANSCRIPT_ABSENCE_LINE,
   TRANSCRIPT_FAILED_LINE,
   TRANSCRIPT_POLICY_LINE,
-  BELOW_FLOOR_SEC,
 } from '@/business/lib/recording'
 import { hhmm } from '@/business/lib/today-board'
 import {
@@ -289,15 +291,16 @@ export async function recordingProps({
     // 顧客未設定 is the phone's own word for an unbound take
     // (recording.inbox.unsetCustomer) — never a 「—」 that reads as broken.
     customerLabel: t.customerName ?? '顧客未設定',
+    // The row's identity anchor (the カルテ room's own list grammar): a name's
+    // first character, or the mock's ？ for a take that never got a customer.
+    customerInitial: t.customerName === null ? '？' : [...t.customerName][0],
+    hasCustomer: t.customerName !== null,
     byName: t.byName,
-    // ⚖ SELF-EXPLAINING NUMBERS (Liam 8/25): the duration says WHAT it measures.
+    // ⚖ SELF-EXPLAINING NUMBERS (Liam 8/25): the duration says WHAT it measures,
+    // and it says it EXACTLY — one home, `takeDurationLabel`, shared with the
+    // 破棄の記録 screen so the two surfaces cannot disagree about one take.
     // ⚠ AND 10秒未満 IS A PLAIN FACT beside it (W7-2), never a warning.
-    durationLabel:
-      t.durationSeconds === null
-        ? '長さ 記録なし'
-        : t.belowFloor
-          ? `長さ ${t.durationSeconds}秒（${BELOW_FLOOR_SEC}秒未満）`
-          : `長さ ${Math.max(1, Math.round(t.durationSeconds / 60))}分`,
+    durationLabel: takeDurationLabel(t.durationSeconds, t.belowFloor),
     stateLabel: TAKE_STATE_LABEL[t.state],
     stateChip: TAKE_STATE_CHIP[t.state],
     reasonLine: t.reason === null ? null : TAKE_REASON_LINE[t.reason],
@@ -317,7 +320,16 @@ export async function recordingProps({
     karuteRecordLabel: t.state === 'discarded' ? null : t.karuteRecordId,
   }))
 
-  const counts = discardCounts(models, y, m)
+  // ⚠ THE COUNTS ARE GATED WHERE THE ROWS ARE GATED, ABOVE THE SERIALIZER. They
+  // used to be computed unconditionally and written into every persona's props,
+  // and the staff screen simply never rendered them — so the redaction was the
+  // SCREEN's, not the model's, and it was empty by VALUE (the demo operator owns
+  // no discard) rather than by construction. The moment a role exists with
+  // `storeWide: true, discardReview: false` — registry ⑤ splits exactly those
+  // two questions — that reader's props would have carried every colleague's
+  // name and monthly total behind a client-side `&&`. `null` here means the
+  // props have nothing to hide.
+  const counts = access.discardReview ? discardCounts(models, y, m) : null
   const ownDiscards = ownDiscardsThisMonth(models, selfCardId, y, m)
 
   const discardRows: DiscardRowProps[] = access.discardReview
@@ -327,23 +339,34 @@ export async function recordingProps({
         // PLANE rather than off the R2-nulled model field.
         const source = (world?.takes ?? takePlane).find((x) => x.id === model.id)
         return source?.ticket_redeemed ?? false
-      }).map((r) => ({
-        takeId: r.takeId,
-        whenLabel: `${fmtDayLong.format(dayOf(r.dayKey))} ${hhmm(r.minute)}`,
-        byName: r.byName,
-        reason: r.reason,
-        transcript: r.transcript,
-        absenceLine: TRANSCRIPT_ABSENCE_LINE[r.absence],
-        durationLabel:
-          r.durationSeconds === null
-            ? '長さ 記録なし'
-            : r.belowFloor
-              ? `長さ ${r.durationSeconds}秒（${BELOW_FLOOR_SEC}秒未満）`
-              : `長さ ${Math.max(1, Math.round(r.durationSeconds / 60))}分`,
-        ticketNote: r.ticketRedeemed
-          ? '破棄前にこのセッションで回数券を1回消化していました。返却の要否をご確認ください。'
-          : null,
-      }))
+      }).map((r) => {
+        const length = durationText(r.durationSeconds)
+        return {
+          takeId: r.takeId,
+          // ⚖ THE ROW IS CUSTOMER-LED (the approved 8/31 mock). 顧客未選択 is the
+          // mock's own word for an unbound take — never a 「—」 that reads broken.
+          customerLabel: r.customerName === null ? '顧客未選択' : `${r.customerName}様`,
+          hasCustomer: r.customerName !== null,
+          // The identity anchor: a name's own first character, or the mock's ？
+          // for a take that never got one. Decorative — the name is beside it.
+          initial: r.customerName === null ? '？' : [...r.customerName][0],
+          recordedAtLabel: `${fmtDayLong.format(dayOf(r.dayKey))} ${hhmm(r.startedMinute)}`,
+          // The plane stamps a discard as a JST minute of the take's OWN session
+          // day, so 同日 is a fact rather than a shortening.
+          discardedAtLabel: `同日 ${hhmm(r.minute)}`,
+          // ⚠ THE LENGTH ALONE, one home: the row's pill, the detail's 録音時間
+          // and the reading panel's header all compose from this one string, so
+          // three surfaces cannot state three different lengths for one take.
+          lengthText: length ?? '記録なし',
+          byName: r.byName,
+          reason: r.reason,
+          transcript: r.transcript === null ? null : transcriptEntries(r.transcript),
+          absenceLine: TRANSCRIPT_ABSENCE_LINE[r.absence],
+          ticketNote: r.ticketRedeemed
+            ? '破棄前にこのセッションで回数券を1回消化していました。返却の要否をご確認ください。'
+            : null,
+        }
+      })
     : []
 
   // ── ⚖ W7-3 · THE RECOVERY SLOT ───────────────────────────────────────────
@@ -393,13 +416,26 @@ export async function recordingProps({
     historyCaption: access.storeWide
       ? 'この店舗の録音（新しい順）'
       : '自分の録音（新しい順）',
-    counts: {
-      thisMonthLine: `今月の破棄 ${counts.thisMonth}件`,
-      totalLine: `記録されている破棄 全${counts.total}件`,
-      byStaff: counts.byStaff.map((s) => ({ name: s.name, line: `今月の破棄 ${s.thisMonth}件` })),
-      truncatedLine: counts.truncated ? '古い記録を除いた件数です。' : null,
-      listTruncatedLine: counts.truncated ? '件数が多いため、古い記録は表示していません。' : null,
-    },
+    // ⚖ 8/25 RULING B, kept WORD FOR WORD while the mock's SHAPE is adopted: one
+    // quiet labelled band instead of two same-weight count cards. The numbers
+    // stay the shipped screen's own sentences (`settings.discardReasons
+    // .countThisMonth` / `.countTotal` / `.byStaffTitle`) — the mock's shorter
+    // 「累計 N件」 would break the recognition floor on a phone-daily manager and
+    // the verbatim half of ⚖ 8/25 B (deviation R6-11).
+    counts:
+      counts === null
+        ? null
+        : {
+            thisMonthLine: `今月の破棄 ${counts.thisMonth}件`,
+            totalLine: `記録されている破棄 全${counts.total}件`,
+            byStaffLabel: 'スタッフ別（今月）',
+            // ⚠ KEYED BY CARD ID, not by name: two departed staffers both resolve
+            // to 担当者不明, and a list keyed on the name would give two different
+            // people one React key — the exact case ⚖ #799 shaped this plane for.
+            byStaff: counts.byStaff.map((s) => ({ cardId: s.cardId, name: s.name, line: `${s.thisMonth}件` })),
+            truncatedLine: counts.truncated ? '古い記録を除いた件数です。' : null,
+            listTruncatedLine: counts.truncated ? '件数が多いため、古い記録は表示していません。' : null,
+          },
     discardRows,
     canReviewDiscards: access.discardReview,
     recovery: recoveryProps,

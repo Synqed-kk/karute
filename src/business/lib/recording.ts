@@ -25,6 +25,7 @@ import {
   CONSENT_POLICY_VERSION,
   type FixtureConsentGrant,
   type FixtureTake,
+  type FixtureTranscriptSegment,
 } from './fixtures-recording'
 
 // ── who may see what ────────────────────────────────────────────────────────
@@ -286,11 +287,24 @@ export const TAKE_STATE_CHIP: Record<TakeState, string> = {
  *  own `InboxReason` set and its own words (recording.inbox.reason.*, plus the
  *  ONE error core names, whose wording is shared with the pipeline card so a
  *  single failure reads the same on every surface). */
-export type TakeReason = 'transcribing' | 'unsettled' | 'emptyTranscript' | 'genericFailure' | 'localAudio' | null
+export type TakeReason =
+  | 'transcribing'
+  | 'unsettled'
+  | 'autoSaved'
+  | 'emptyTranscript'
+  | 'genericFailure'
+  | 'localAudio'
+  | null
 
 export const TAKE_REASON_LINE: Record<Exclude<TakeReason, null>, string> = {
   transcribing: 'サーバーで文字起こし中',
   unsettled: 'まだ結果が届いていません',
+  // ⚠ 確認待ち'S OWN SENTENCE, and it is NOT 「まだ結果が届いていません」. That
+  // one is 処理中's — a row that is showing a カルテ id while saying the result
+  // has not arrived contradicts itself two cells apart. The phone's word for
+  // this state (recording.inbox.reason.autoSaved) says what actually happened:
+  // the save landed by itself and nobody has confirmed it.
+  autoSaved: 'この録音は自動で保存されました（まだ確認されていません）',
   emptyTranscript: '音声が認識できませんでした。録音に音声が入っているかご確認のうえ、もう一度お試しください。',
   genericFailure: 'この録音は保存されませんでした',
   localAudio: 'この端末に音声が残っています（未保存）',
@@ -311,15 +325,27 @@ export function takeStateOf(input: {
   hasRecord: boolean
   settled: boolean
   job: FixtureTake['job']
+  /** ⚠ WHAT FAILED, as core reported it — the ONLY thing the 失敗 sentence is
+   *  allowed to read. `local_audio` says whether the DEVICE still holds the
+   *  audio, which is a different question and answers 復元可能, never 「what went
+   *  wrong」: deriving the sentence from it told a staffer their microphone
+   *  picked up nothing for an infrastructure failure. */
+  jobError: FixtureTake['job_error']
   localAudio: boolean
 }): { state: TakeState; reason: TakeReason } {
   if (input.discarded) return { state: 'discarded', reason: null }
   if (input.hasRecord) {
-    return input.settled ? { state: 'saved', reason: null } : { state: 'awaiting-check', reason: 'unsettled' }
+    return input.settled ? { state: 'saved', reason: null } : { state: 'awaiting-check', reason: 'autoSaved' }
   }
   if (input.job === 'queued' || input.job === 'running') return { state: 'processing', reason: 'transcribing' }
   if (input.job === 'failed') {
-    return { state: 'failed', reason: input.localAudio ? 'genericFailure' : 'emptyTranscript' }
+    // The phone's own mapping (`lib/recordings/inbox.ts` FAILED branch): the ONE
+    // code core names gets the pipeline's own sentence, and everything else gets
+    // the generic one. ⚖ 8/26 (a) gates on this code EXACTLY.
+    return {
+      state: 'failed',
+      reason: input.jobError === 'empty-transcript' ? 'emptyTranscript' : 'genericFailure',
+    }
   }
   if (input.localAudio) return { state: 'recoverable', reason: 'localAudio' }
   return { state: 'processing', reason: 'unsettled' }
@@ -361,6 +387,17 @@ export { BELOW_FLOOR_SEC }
  *   4. 担当者不明 — a DEPARTED staffer whose card resolves to nothing. The row
  *      still renders: who left is not a reason to lose the record of what they
  *      did.
+ *
+ * ⚠ LA-1 — ONE TIER OF THE SHIPPED READ IS MISSING HERE, AND IT IS MISSING
+ * LEGITIMATELY. The phone's manager screen tries the CARD'S OWN `name` before
+ * falling through to 担当者不明, so a departed staffer whose card still carries
+ * the name they were hired under is named rather than anonymised. This room's
+ * `FixtureStaffCard` has no `name` field — adding one would be a WORLD edit, and
+ * the plane is ADD-only against `./fixtures` (packet §2e-4) — so the tier cannot
+ * be expressed here at all. It is recorded rather than silently dropped:
+ * registry ③ carries it, so the reconnect restores the phone's real tier ORDER
+ * (user_id → email → card id → **card.name** → 担当者不明) instead of inheriting
+ * this room's four.
  */
 export function staffNameOfCard(
   cardId: string,
@@ -440,7 +477,7 @@ export interface TakeModel {
     byCardId: string
     byName: string
     reason: string | null
-    transcript: string[] | null
+    transcript: FixtureTranscriptSegment[] | null
   } | null
 }
 
@@ -528,6 +565,7 @@ export function buildTakes(input: BuildTakesInput): TakeModel[] {
       hasRecord: karuteRecordId !== null,
       settled: take.settled,
       job: take.job,
+      jobError: take.job_error,
       localAudio: take.local_audio,
     })
 
@@ -696,6 +734,43 @@ export const TRANSCRIPT_ABSENCE_LINE: Record<TranscriptAbsence, string> = {
   none: 'この録音の文字起こしはありません。',
 }
 
+// ── ⚖ Liam 8/31 · THE LONG-RECORDING LAW, AS A DERIVATION ───────────────────
+
+/** How often the reading panel puts a marker down. Five minutes is the
+ *  approved mock's own interval. */
+export const TRANSCRIPT_DIVIDER_SEC = 5 * 60
+
+/**
+ * One row of the reading panel: either a segment's words with the moment they
+ * were said, or a quiet interval marker.
+ *
+ * ⚠ THE MARKERS ARE DERIVED FROM `start_time`, NEVER FROM LINE COUNT. A panel
+ * that put a 「5分」 rule after every seventh line would be printing a clock it
+ * does not have — and a 47-minute take with eight lines in it would read as
+ * eight minutes long.
+ */
+export type TranscriptEntry =
+  | { kind: 'divider'; key: string; label: string }
+  | { kind: 'line'; key: string; at: string; text: string }
+
+export function transcriptEntries(segments: FixtureTranscriptSegment[]): TranscriptEntry[] {
+  const out: TranscriptEntry[] = []
+  let bucket = 0
+  segments.forEach((s, i) => {
+    const b = Math.floor(Math.max(0, s.start_time) / TRANSCRIPT_DIVIDER_SEC)
+    // ONE marker for the interval the words actually land in — never a run of
+    // markers for the empty intervals between two far-apart segments, which
+    // would be the panel narrating silence it cannot hear.
+    if (b > bucket) {
+      const minutes = (b * TRANSCRIPT_DIVIDER_SEC) / 60
+      out.push({ kind: 'divider', key: `d-${b}`, label: `${minutes}分` })
+      bucket = b
+    }
+    out.push({ kind: 'line', key: `l-${i}`, at: fmtElapsed(s.start_time), text: s.text })
+  })
+  return out
+}
+
 /** The read-failure line, carried so the room's copy census can prove it exists
  *  as a DISTINCT string rather than being folded into 「ありません」 — the
  *  distinction the shipped screen makes and the reconnect will need (⚖ #798). */
@@ -712,15 +787,21 @@ export function transcriptAbsenceOf(model: TakeModel): TranscriptAbsence {
 
 export interface DiscardLedgerRow {
   takeId: string
+  /** ⚖ THE ROW IS CUSTOMER-LED (the approved 8/31 mock). `null` = an unbound
+   *  take, which the room names 顧客未選択 rather than inventing a person. */
+  customerName: string | null
   byCardId: string
   byName: string
   /** The written reason — ALWAYS visible on the row, never truncated. */
   reason: string
-  transcript: string[] | null
+  transcript: FixtureTranscriptSegment[] | null
   absence: TranscriptAbsence
   durationSeconds: number | null
   belowFloor: boolean
   dayKey: number
+  /** The JST minute the RECORDING started — the mock's 録音日時. */
+  startedMinute: number
+  /** The JST minute of the DISCARD — the mock's 破棄. */
   minute: number
   ticketRedeemed: boolean
 }
@@ -744,6 +825,7 @@ export function discardLedger(
     .slice(0, pageSize)
     .map((m) => ({
       takeId: m.id,
+      customerName: m.customerName,
       byCardId: m.discarded!.byCardId,
       byName: m.discarded!.byName,
       reason: m.discarded!.reason!,
@@ -752,9 +834,42 @@ export function discardLedger(
       durationSeconds: m.durationSeconds,
       belowFloor: m.belowFloor,
       dayKey: m.dayKey,
+      startedMinute: m.startedMinute,
       minute: m.discarded!.minute,
       ticketRedeemed: ticketOf(m),
     }))
+}
+
+// ── the two derived labels a duration owes a reader ─────────────────────────
+
+/**
+ * ⚖ SELF-EXPLAINING NUMBERS (Liam 8/25) — a length says WHAT it measures, and
+ * it says it EXACTLY.
+ *
+ * ONE HOME for both surfaces (the 録音履歴 row and the 破棄の記録 screen), and it
+ * exists because the two of them used to round: `Math.round(sec / 60)分` reads a
+ * 15分40秒 take as 「16分」 and — the sharp end — an 11-second take as 「1分」,
+ * five times its real length, in exactly the band where a manager is judging
+ * whether a written reason fits the recording it explains. Minutes and seconds
+ * cannot be wrong about either.
+ *
+ * The trailing 秒 is dropped on a whole minute (「46分」, not 「46分0秒」): a zero
+ * that carries no information is noise, and 46分 is not a rounding.
+ */
+export function durationText(seconds: number | null): string | null {
+  if (seconds === null) return null
+  if (seconds < 60) return `${seconds}秒`
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return s === 0 ? `${m}分` : `${m}分${s}秒`
+}
+
+/** The 録音履歴 row's own label — the length, named, with 10秒未満 beside it as a
+ *  PLAIN FACT (⚖ W7-2), never a warning and never a pre-selected excuse. */
+export function takeDurationLabel(seconds: number | null, belowFloor: boolean): string {
+  const text = durationText(seconds)
+  if (text === null) return '長さ 記録なし'
+  return belowFloor ? `長さ ${text}（${BELOW_FLOOR_SEC}秒未満）` : `長さ ${text}`
 }
 
 // ── the tour card's room-local placement correction ─────────────────────────

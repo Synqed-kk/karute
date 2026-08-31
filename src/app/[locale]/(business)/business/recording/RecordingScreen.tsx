@@ -56,8 +56,31 @@ import {
   windowTakes,
   RECORDER_LABEL,
   RECORDER_TONE,
+  TAKE_STATE_LABEL,
   type RecorderState,
+  type TranscriptEntry,
 } from '@/business/lib/recording'
+
+/**
+ * ⚠ THE ONE CLOCK IN THIS SCREEN, AND IT EXISTS FOR EXACTLY ONE FIELD.
+ *
+ * Every other date on this page is formatted on the SERVER and crosses as a
+ * string, because a render-time date must be the same on both sides of
+ * hydration. The discard receipt's 日時 is a different kind of fact: it is the
+ * moment the staffer pressed 破棄する, which no server render can know and which
+ * only exists AFTER an interaction — so there is no first render for it to
+ * disagree with. Canon stamps it with `new Date()` at settle (:843) for the same
+ * reason, and the dialog one line above has just PROMISED it
+ * (「破棄の記録（日時・担当者・理由）が残ります。」).
+ *
+ * JST is stated explicitly rather than left to the browser: the record it stands
+ * in for is a JST record, and a staffer travelling is not a reason for a receipt
+ * to name a different hour than the ledger will.
+ */
+const JST_STAMP = new Intl.DateTimeFormat('ja-JP', {
+  year: 'numeric', month: 'long', day: 'numeric', weekday: 'short',
+  hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Tokyo',
+})
 
 /** THE ROUTE WRAPPER. Every rule in recording.css is scoped under this class, so
  *  nothing this sheet says can reach another room; `.page.pg-recording` (four
@@ -135,6 +158,10 @@ export interface RecordingTakeProps {
   dateLabel: string
   timeLabel: string
   customerLabel: string
+  /** The row's identity anchor — the customer's own first character, or 「？」 for
+   *  an unbound take. Decorative: the name is printed beside it. */
+  customerInitial: string
+  hasCustomer: boolean
   byName: string
   durationLabel: string
   stateLabel: string
@@ -150,14 +177,25 @@ export interface RecordingTakeProps {
   karuteRecordLabel: string | null
 }
 
+/** ⚖ THE APPROVED 8/31 MOCK'S ROW — CUSTOMER-LED. A manager scanning a month of
+ *  discards is looking for a session, and a session is a person at a time. */
 export interface DiscardRowProps {
   takeId: string
-  whenLabel: string
+  customerLabel: string
+  hasCustomer: boolean
+  initial: string
+  recordedAtLabel: string
+  discardedAtLabel: string
+  /** 「47分18秒」 / 「8秒」 / 「記録なし」 — the length ALONE, so the row's pill, the
+   *  detail's 録音時間 and the reading panel's header cannot disagree. */
+  lengthText: string
   byName: string
   reason: string
-  transcript: string[] | null
+  /** ⚖ Liam 8/31 — the transcript arrives ALREADY laid out for the bounded
+   *  reading panel: its lines with the moment each was said, and the 5分 markers
+   *  derived from those moments. `null` = no words were ever kept. */
+  transcript: TranscriptEntry[] | null
   absenceLine: string
-  durationLabel: string
   ticketNote: string | null
 }
 
@@ -173,13 +211,17 @@ export interface RecordingProps {
   takes: RecordingTakeProps[]
   ownDiscardLine: string | null
   historyCaption: string
+  /** ⚠ `null` FOR A READER WHO MAY NOT REVIEW DISCARDS, and that is the point:
+   *  the counts are gated where the rows are gated, above the serializer, so a
+   *  staff persona's props carry no per-staff count row for a screen to hide. */
   counts: {
     thisMonthLine: string
     totalLine: string
-    byStaff: Array<{ name: string; line: string }>
+    byStaffLabel: string
+    byStaff: Array<{ cardId: string; name: string; line: string }>
     truncatedLine: string | null
     listTruncatedLine: string | null
-  }
+  } | null
   discardRows: DiscardRowProps[]
   canReviewDiscards: boolean
   recovery: {
@@ -242,7 +284,26 @@ export function RecordingScreen(props: RecordingProps) {
   // ── the dialogs, and the ONE piece of typed text in the room ──────────────
   const [dialog, setDialog] = useState<'none' | 'consent' | 'discard' | 'use'>('none')
   const [reason, setReason] = useState('')
-  const [receipt, setReceipt] = useState<{ target: string; when: string; by: string; reason: string } | null>(null)
+  /** ⚠ WHO OPENED THE DISCARD DIALOG, AND ABOUT WHAT.
+   *
+   *  The dialog used to be parameterless while TWO different controls opened it
+   *  — the recorder's 破棄 and the recovery banner's — and the settle then read
+   *  the RECORDER's context whichever one had been pressed. Throwing away the
+   *  6-second residue from yesterday printed a receipt naming today's 10:00
+   *  booking: a different customer, a different session, a different day. The
+   *  phone parameterizes its own dialog by entry point for exactly this reason
+   *  (§2b-2), so this room does too. */
+  const [discardOf, setDiscardOf] = useState<'recorder' | 'recovery'>('recorder')
+  const [receipt, setReceipt] = useState<
+    { of: 'recorder' | 'recovery'; target: string; when: string; by: string; reason: string } | null
+  >(null)
+  /** ⚖ 8/26 (b) — THE EXIT HAS TO ACTUALLY EXIT. `props.recovery` is
+   *  server-derived, so nothing on the client can clear it; without this flag the
+   *  banner stood there after its own discard settled, still offering to save the
+   *  take the receipt had just said was thrown away. Demo-local, exactly like
+   *  `demoConsent`, and the receipt takes its place so the slot resolves rather
+   *  than merely emptying. */
+  const [recoveryDismissed, setRecoveryDismissed] = useState(false)
   /** Consents taken through the read-aloud flow IN THIS BROWSER. Demo-local and
    *  said so, canon's own honesty (:747) — a real grant is registry ⑥. */
   const [demoConsent, setDemoConsent] = useState<Record<string, true>>({})
@@ -250,6 +311,9 @@ export function RecordingScreen(props: RecordingProps) {
   // ── the 録音履歴 walk + the review's open row ──────────────────────────────
   const [steps, setSteps] = useState(1)
   const [openRow, setOpenRow] = useState<string | null>(null)
+  /** ⚖ the pill/count law — one state at a time, and the chip's number is
+   *  exactly what its press reveals. `null` = すべて. */
+  const [stateFilter, setStateFilter] = useState<string | null>(null)
 
   // ── 画面の説明 ────────────────────────────────────────────────────────────
   const [tourIdx, setTourIdx] = useState(-1)
@@ -264,6 +328,13 @@ export function RecordingScreen(props: RecordingProps) {
   const tourNextRef = useRef<HTMLButtonElement>(null)
   const reasonRef = useRef<HTMLTextAreaElement>(null)
   const discardBtnRef = useRef<HTMLButtonElement>(null)
+  /** ⚖ LA-4 / F5-3 — EVERY DIALOG RETURNS FOCUS TO THE CONTROL THAT OPENED IT.
+   *  Only the recorder's 破棄 used to; the banner's discard link, the consent
+   *  flow and the use confirm all dropped the reader to `<body>` on cancel. */
+  const recoveryDiscardRef = useRef<HTMLButtonElement>(null)
+  const consentOpenRef = useRef<HTMLButtonElement>(null)
+  const useOpenRef = useRef<HTMLButtonElement>(null)
+  const receiptCloseRef = useRef<HTMLButtonElement>(null)
 
   const current = props.contexts.find((c) => c.appointmentId === pickedId) ?? props.contexts[0] ?? null
 
@@ -305,7 +376,9 @@ export function RecordingScreen(props: RecordingProps) {
     setPhase('idle')
     setElapsed(0)
     setTick(0)
-    setReceipt(null)
+    // …the RECORDER's receipt belongs to the booking that was just left; the
+    // recovery residue's receipt belongs to no booking at all and survives.
+    setReceipt((r) => (r?.of === 'recovery' ? r : null))
     setFrozen([])
   }, [pickedId])
 
@@ -328,16 +401,20 @@ export function RecordingScreen(props: RecordingProps) {
    *  rather than dropping to `<body>`. The focus is taken BEFORE the state
    *  change lands, while the dialog is still on screen. */
   const closeDiscard = useCallback(() => {
-    discardBtnRef.current?.focus()
+    // …and it returns focus to WHICHEVER control opened it — the recorder's 破棄
+    // or the banner's discard link.
+    ;(discardOf === 'recovery' ? recoveryDiscardRef : discardBtnRef).current?.focus()
     setDialog('none')
     setReason('')
-  }, [])
+  }, [discardOf])
 
   const closeDialog = useCallback(() => {
     if (dialog === 'discard') {
       closeDiscard()
       return
     }
+    if (dialog === 'consent') consentOpenRef.current?.focus()
+    if (dialog === 'use') useOpenRef.current?.focus()
     setDialog('none')
   }, [dialog, closeDiscard])
 
@@ -349,20 +426,72 @@ export function RecordingScreen(props: RecordingProps) {
    *  cannot land a reason-free discard. */
   const settleDiscard = () => {
     const text = reason.trim()
-    if (text === '' || current === null) return
-    setReceipt({
-      target: `${current.customerName}様の録音（${current.timeLabel}）`,
-      when: `${current.dateLabel} ${current.timeLabel}`,
-      by: props.operatorName,
-      reason: text,
-    })
+    if (text === '') return
+    // ⚠ 日時 IS THE DISCARD'S OWN MOMENT, not the booking's start time. The two
+    // used to be the same string, so the receipt stated the session's hour twice
+    // and never stated the one the dialog had just promised to keep.
+    const when = JST_STAMP.format(new Date())
+    if (discardOf === 'recovery') {
+      const r = props.recovery
+      // The banner is what opened this dialog, so if it is gone the settle has
+      // nothing to be about — and it never silently no-ops with a filled field.
+      if (r === null) return
+      setReceipt({
+        of: 'recovery',
+        target: `${r.customerLabel}の録音（${r.recordedAtLabel}${r.lengthLabel === null ? '' : ` ・ ${r.lengthLabel}`}）`,
+        when,
+        by: props.operatorName,
+        reason: text,
+      })
+      // the ⚖ 8/26 (b) exit ACTUALLY EXITS — the slot resolves into the receipt
+      setRecoveryDismissed(true)
+    } else {
+      // ⚠ AND THE RECORDER PATH STILL NEEDS A BOOKING: it is the picked
+      // session's take that is being thrown away. `reset()` fires HERE and only
+      // here — the recovery banner is not the machine, and resetting a recorder
+      // that was never recording is a lever pretending to do something.
+      if (current === null) return
+      setReceipt({
+        of: 'recorder',
+        target: `${current.customerName}様の録音（${current.timeLabel}）`,
+        when,
+        by: props.operatorName,
+        reason: text,
+      })
+      reset()
+    }
     setDialog('none')
     setReason('')
-    reset()
   }
 
   // ── the 録音履歴 walk ─────────────────────────────────────────────────────
   const walk = useMemo(() => windowTakes(props.takes, steps), [props.takes, steps])
+
+  /** ⚖ THE PILL/COUNT LAW — each chip's number is EXACTLY what its press
+   *  reveals, so both are taken over the SAME set: the window the walk has
+   *  opened. Pressing さらに表示 widens the window and every number moves with
+   *  it. States with nothing in the window get no chip: a 0 that reveals
+   *  nothing is a claim, not a count. 破棄済み is always among them when there
+   *  is one — existence is never hidden (⚖ 8/20 ①) — and no chip carries a
+   *  colour, so the discard chip cannot be the loud one. */
+  const filters = useMemo(() => {
+    const n = new Map<string, number>()
+    for (const t of walk.visible) n.set(t.stateLabel, (n.get(t.stateLabel) ?? 0) + 1)
+    return Object.values(TAKE_STATE_LABEL)
+      .filter((label) => n.has(label))
+      .map((label) => ({ label, n: n.get(label)! }))
+  }, [walk])
+  const rows = stateFilter === null ? walk.visible : walk.visible.filter((t) => t.stateLabel === stateFilter)
+
+  /** The recovery residue, as the SCREEN sees it: the server's slot until its
+   *  own discard resolves it. */
+  const recovery = recoveryDismissed ? null : props.recovery
+
+  /** The receipt is the thing that just happened, so it takes the keyboard —
+   *  the dialog that owned focus has unmounted and `<body>` is not an answer. */
+  useEffect(() => {
+    if (receipt) receiptCloseRef.current?.focus()
+  }, [receipt])
 
   // ── screen swap: focus moves with it, in both directions ──────────────────
   const onDiscardScreen = screen === 'discards' && props.canReviewDiscards
@@ -547,37 +676,47 @@ export function RecordingScreen(props: RecordingProps) {
             reached this banner is a SYSTEM failure and the staffer's only job is
             to land it (⚖ 8/20 ⑦). The discard exit below it exists ONLY for a
             take under the accidental-tap floor (⚖ 8/26 (b)). */}
-        {props.recovery && (
+        {recovery && (
           <section
             className="rc-recovery"
             aria-labelledby="rcRecoveryTitle"
             data-guide-title="保存されなかった録音"
             data-guide="アプリが途中で終わってしまったなどの理由で、保存まで届かなかった録音があるときだけ出る案内です。録音そのものは消えていないので、保存すれば元どおりカルテになります。ごく短い録音のときだけ、理由を書いて破棄することもできます。"
           >
-            <strong id="rcRecoveryTitle"><Icon name="alert" size={15} />{props.recovery.title}</strong>
+            <strong id="rcRecoveryTitle"><Icon name="alert" size={15} />{recovery.title}</strong>
             <dl className="rc-recovery-facts">
-              <div><dt>お客様</dt><dd>{props.recovery.customerLabel}</dd></div>
-              <div><dt>録音日時</dt><dd className="rc-num">{props.recovery.recordedAtLabel}</dd></div>
-              {props.recovery.lengthLabel && (
-                <div><dt>長さ</dt><dd className="rc-num">{props.recovery.lengthLabel}</dd></div>
+              <div><dt>お客様</dt><dd>{recovery.customerLabel}</dd></div>
+              <div><dt>録音日時</dt><dd className="rc-num">{recovery.recordedAtLabel}</dd></div>
+              {recovery.lengthLabel && (
+                <div><dt>長さ</dt><dd className="rc-num">{recovery.lengthLabel}</dd></div>
               )}
-              <div><dt>録音者</dt><dd>{props.recovery.recordedByLabel}</dd></div>
+              <div><dt>録音者</dt><dd>{recovery.recordedByLabel}</dd></div>
             </dl>
             <button {...refused('保存する', props.refusals.save, { className: 'rc-recovery-save' })}>
               <Icon name="save" size={16} />保存する
             </button>
-            <p className="rc-recovery-caption">{props.recovery.caption}</p>
-            <p className="rc-recovery-caption">{props.recovery.stopNote}</p>
-            {props.recovery.belowFloor && (
+            <p className="rc-recovery-caption">{recovery.caption}</p>
+            <p className="rc-recovery-caption">{recovery.stopNote}</p>
+            {recovery.belowFloor && (
               <button
                 className="rc-recovery-discard"
                 type="button"
-                onClick={() => setDialog('discard')}
+                ref={recoveryDiscardRef}
+                onClick={() => { setDiscardOf('recovery'); setDialog('discard') }}
               >
                 録音を破棄する
               </button>
             )}
           </section>
+        )}
+
+        {/* ⚖ 8/26 (b) — THE RESIDUE RESOLVES INTO ITS OWN RECEIPT. The banner
+            slot is where the take was, so it is where the record of throwing it
+            away belongs; and because it lives OUTSIDE the recorder panel it is
+            reachable on a lens with no bookings at all, which is the world the
+            old settle returned silently from. */}
+        {receipt?.of === 'recovery' && (
+          <Receipt receipt={receipt} closeRef={receiptCloseRef} onClose={() => setReceipt(null)} />
         )}
 
         {current === null ? (
@@ -634,10 +773,16 @@ export function RecordingScreen(props: RecordingProps) {
                 data-guide="録音の本体です。まん中の赤いボタンで録音を始め、もう一度押すと止まります。録音中は経過時間と音の波が出ます。止めたあとは、その録音をカルテに使うか、理由を書いて破棄するかを選びます。止めただけでは保存されません。"
               >
                 <div className="rc-panel-head">
-                  <h2 className="rc-sec-title" id="rcSessionTitle">録音セッション</h2>
+                  {/* ⚖ the family's tinted section head (the カルテ room's own
+                      generation): a washed icon chip beside the name, never a
+                      solid fill and never on a pressable. */}
+                  <h2 className="rc-sec-title" id="rcSessionTitle">
+                    <span className="rc-sec-icon" aria-hidden="true"><Icon name="mic" size={14} /></span>
+                    録音セッション
+                  </h2>
                   <span className={`rc-state ${RECORDER_TONE[phase]}`}>{RECORDER_LABEL[phase]}</span>
                 </div>
-                <div className="rc-panel-body">
+                <div className={`rc-panel-body${phase === 'idle' ? ' is-idle' : ''}`}>
                   <span className="rc-demo">デモ: 実際の録音は行いません</span>
 
                   {/* ⚖ THE PHONE'S RECORD BUTTON — ONE PERSISTENT ELEMENT THAT
@@ -715,29 +860,47 @@ export function RecordingScreen(props: RecordingProps) {
                     </>
                   )}
 
+                  {/* ⚠ THE IDLE COPY IS ONE BLOCK so the stacked band can set it
+                      BESIDE the button instead of under it — a 72px circle
+                      alone in a 900px panel was the emptiest state on the
+                      ladder. */}
                   {phase === 'idle' && (
-                    <>
+                    <div className="rc-idle-copy">
                       <div className="rc-idle-title">録音開始</div>
                       <div className="rc-idle-sub">{current.customerName}様のセッションを録音します。</div>
-                    </>
+                    </div>
                   )}
 
+                  {/* ⚠ 停止 CARRIES THE WEIGHT IN BOTH PHASES, and 再開 does not.
+                      The row used to put a SOLID ACCENT on 再開 — the action that
+                      changes the least — while 停止, which ends the take and
+                      hands it to the resolve flow, was a neutral outline. The
+                      phone's own hierarchy is the other way round. Neither is
+                      solid accent: this room's commit-shaped fill is reserved
+                      for a commit, and the big red circle is already the
+                      canonical stop. */}
                   <div className="rc-controls">
                     {phase === 'recording' && (
                       <>
                         <button className="btn" type="button" onClick={() => setPhase('paused')}>一時停止</button>
-                        <button className="btn" type="button" onClick={stop}>停止</button>
+                        <button className="btn rc-stop" type="button" onClick={stop}>停止</button>
                       </>
                     )}
                     {phase === 'paused' && (
                       <>
-                        <button className="btn primary" type="button" onClick={() => setPhase('recording')}>再開</button>
-                        <button className="btn" type="button" onClick={stop}>停止</button>
+                        <button className="btn" type="button" onClick={() => setPhase('recording')}>再開</button>
+                        <button className="btn rc-stop" type="button" onClick={stop}>停止</button>
                       </>
                     )}
-                    {ended && (
-                      <button className="btn" type="button" onClick={reset}>やり直す</button>
-                    )}
+                    {/* ⚖ B4-3 — THERE IS NO 「やり直す」 OVER AN UNRESOLVED TAKE.
+                        The phone refuses exactly this path in words
+                        (RecordButtonCard.tsx:83-85: wiring a restart here would
+                        「invent a supersede path over an unsaved take」), and the
+                        ⚖ 8/20 integrity doctrine has no reason-free route out of
+                        a take. From 停止 the two resolutions are 使う and 破棄,
+                        and nothing else. After a discard settles the machine is
+                        already back at 待機中 — the reset is the RESOLUTION's,
+                        never a lever beside it. */}
                   </div>
 
                   {/* ⚖ W7-1 — the closed gate says WHICH of the two reasons it
@@ -755,7 +918,7 @@ export function RecordingScreen(props: RecordingProps) {
                           className="btn rc-discard"
                           type="button"
                           ref={discardBtnRef}
-                          onClick={() => setDialog('discard')}
+                          onClick={() => { setDiscardOf('recorder'); setDialog('discard') }}
                         >
                           <Icon name="trash" size={14} />破棄
                         </button>
@@ -765,7 +928,12 @@ export function RecordingScreen(props: RecordingProps) {
                             would touch. What refuses is the commit inside it,
                             with the reason that says why THIS one refuses while
                             the 破棄 beside it runs to the end. */}
-                        <button className="btn rc-commit" type="button" onClick={() => setDialog('use')}>
+                        <button
+                          className="btn rc-commit"
+                          type="button"
+                          ref={useOpenRef}
+                          onClick={() => setDialog('use')}
+                        >
                           この録音を使う
                         </button>
                       </div>
@@ -774,23 +942,8 @@ export function RecordingScreen(props: RecordingProps) {
 
                   {/* THE RECEIPT — ephemeral, self-contained, and only ever
                       inside the discard flow that just ran (canon :842). */}
-                  {receipt && (
-                    <section
-                      className="rc-receipt"
-                      aria-label="破棄の確認"
-                      data-guide-title="破棄の確認"
-                      data-guide="いま破棄した録音の控えです。何を・いつ・誰が・どんな理由で破棄したかを、その場で読み返せます。この控えはこの流れの中だけのもので、閉じると消えます。破棄そのものの記録は「破棄の記録」に残ります。"
-                    >
-                      <h3>録音を破棄しました（デモ）</h3>
-                      <p>この確認は、いま行った破棄の流れの中だけに表示されます。</p>
-                      <dl>
-                        <div><dt>対象</dt><dd>{receipt.target}</dd></div>
-                        <div><dt>日時</dt><dd className="rc-num">{receipt.when}</dd></div>
-                        <div><dt>担当者</dt><dd>{receipt.by}</dd></div>
-                        <div><dt>理由</dt><dd>{receipt.reason}</dd></div>
-                      </dl>
-                      <button className="btn" type="button" onClick={() => setReceipt(null)}>閉じる</button>
-                    </section>
+                  {receipt?.of === 'recorder' && (
+                    <Receipt receipt={receipt} closeRef={receiptCloseRef} onClose={() => setReceipt(null)} />
                   )}
                 </div>
               </section>
@@ -804,7 +957,10 @@ export function RecordingScreen(props: RecordingProps) {
               >
                 <div className="rc-panel-head">
                   <div>
-                    <h2 className="rc-sec-title" id="rcConsentTitle">同意状況</h2>
+                    <h2 className="rc-sec-title" id="rcConsentTitle">
+                      <span className="rc-sec-icon is-consent" aria-hidden="true"><Icon name="shield" size={14} /></span>
+                      同意状況
+                    </h2>
                     <span className="rc-panel-sub">録音に必要な同意の確認</span>
                   </div>
                   <span className={`rc-consent-pill ${consentOk ? 'is-true' : current.consentTone}`}>
@@ -829,7 +985,7 @@ export function RecordingScreen(props: RecordingProps) {
                       : current.consentProof}
                   </p>
                   {!consentOk && (
-                    <button className="btn primary rc-consent-open" type="button" onClick={() => setDialog('consent')}>
+                    <button className="btn primary rc-consent-open" type="button" ref={consentOpenRef} onClick={() => setDialog('consent')}>
                       同意取得フローを開始
                     </button>
                   )}
@@ -850,8 +1006,10 @@ export function RecordingScreen(props: RecordingProps) {
           data-guide="この画面から見える録音の一覧です。新しい順に並び、それぞれの録音がいまどうなっているか（保存済み・確認待ち・処理中・失敗・復元可能・破棄済み）が右側に出ます。破棄済みの録音には操作ボタンが出ません — 決着がついた録音だからです。"
         >
           <div className="rc-history-head">
-            <span className="rc-history-icon" aria-hidden="true"><Icon name="history" size={15} /></span>
-            <h2 className="rc-sec-title" id="rcHistoryTitle">録音履歴</h2>
+            <h2 className="rc-sec-title" id="rcHistoryTitle">
+              <span className="rc-sec-icon is-history" aria-hidden="true"><Icon name="history" size={14} /></span>
+              録音履歴
+            </h2>
             <span className="rc-history-cap">{props.historyCaption}</span>
             {props.canReviewDiscards && (
               <button
@@ -875,6 +1033,39 @@ export function RecordingScreen(props: RecordingProps) {
               <span>録音を始めると、新しい順にここへ並びます。</span>
             </div>
           ) : (
+            <>
+              {/* ⚖ COUNTERS AS FILTERS (the カルテ room's own segment row).
+                  ONE state at a time; every chip is the same quiet neutral, so
+                  the 破棄済み chip cannot be the loud one; and the number on a
+                  chip IS the number of rows its press leaves standing. */}
+              <div
+                className="rc-filters"
+                role="group"
+                aria-label="状態でしぼりこむ"
+                data-guide-title="状態でしぼりこむ"
+                data-guide="録音の状態で一覧をしぼりこめます。それぞれの数字は、押したときに残る件数そのものです。破棄済みもここに出ます — 破棄した録音を隠すことはありません。"
+              >
+                <button
+                  className={`rc-filter${stateFilter === null ? ' is-on' : ''}`}
+                  type="button"
+                  aria-pressed={stateFilter === null}
+                  onClick={() => setStateFilter(null)}
+                >
+                  すべて<span className="rc-filter-n rc-num">{walk.visible.length}</span>
+                </button>
+                {filters.map((f) => (
+                  <button
+                    key={f.label}
+                    className={`rc-filter${stateFilter === f.label ? ' is-on' : ''}`}
+                    type="button"
+                    aria-pressed={stateFilter === f.label}
+                    onClick={() => setStateFilter((was) => (was === f.label ? null : f.label))}
+                  >
+                    {f.label}<span className="rc-filter-n rc-num">{f.n}</span>
+                  </button>
+                ))}
+              </div>
+
             <div className="rc-rows">
               <div className="rc-rowhead" aria-hidden="true">
                 <span>日付</span>
@@ -884,10 +1075,11 @@ export function RecordingScreen(props: RecordingProps) {
                 <span>状態</span>
                 <span />
               </div>
-              {walk.visible.map((t) => (
+              {rows.map((t) => (
                 <div className={`rc-row${t.isDiscarded ? ' is-discarded' : ''}`} key={t.id} data-state={t.stateLabel}>
                   <span className="rc-c-date rc-num">{t.dateLabel} {t.timeLabel}</span>
                   <span className="rc-c-cust">
+                    <span className={`rc-avatar${t.hasCustomer ? '' : ' is-none'}`} aria-hidden="true">{t.customerInitial}</span>
                     {t.customerLabel}
                     {t.karuteRecordLabel && <span className="rc-c-rec">カルテ {t.karuteRecordLabel}</span>}
                   </span>
@@ -930,6 +1122,7 @@ export function RecordingScreen(props: RecordingProps) {
                 </div>
               )}
             </div>
+            </>
           )}
         </section>
 
@@ -1005,7 +1198,10 @@ export function RecordingScreen(props: RecordingProps) {
             data-guide="破棄された録音の記録です。スタッフが書いた理由と、その録音の文字起こしを並べて確認できます。文字起こしがない場合は、なぜないのかを書いています。承認や確認の操作はありません — 読むための画面です。右上の「録音」から録音の画面に戻れます。"
           >
             <div className="rc-review-title">
-              <h2 className="rc-sec-title" id="rcReviewTitle">破棄の記録</h2>
+              <h2 className="rc-sec-title" id="rcReviewTitle">
+                <span className="rc-sec-icon" aria-hidden="true"><Icon name="trash" size={14} /></span>
+                破棄の記録
+              </h2>
               <button className="rc-back" type="button" ref={backRef} onClick={() => setScreen('record')}>
                 ← 録音
               </button>
@@ -1015,38 +1211,37 @@ export function RecordingScreen(props: RecordingProps) {
             </p>
           </section>
 
-          {/* ⚖ 8/25 RULING B — LABELLED PLAIN FACTS, both ways, in neutral type.
-              No red, no threshold, no grade, no ranking control: a discard count
-              must never be the thing that makes a staff member hesitate to
-              discard a recording they should discard. */}
-          <section
-            className="rc-counts"
-            aria-label="破棄の件数"
-            data-guide-title="破棄の件数"
-            data-guide="破棄された録音の件数です。今月の件数と、記録に残っている全部の件数の両方を出しています。スタッフごとの件数も今月ぶんだけ出しますが、順位をつけるためのものではありません。"
-          >
-            <p className="rc-count">{props.counts.thisMonthLine}</p>
-            <p className="rc-count">{props.counts.totalLine}</p>
-            {props.counts.truncatedLine && <p className="rc-count is-note">{props.counts.truncatedLine}</p>}
-          </section>
-
-          {props.counts.byStaff.length > 0 && (
+          {/* ⚖ 8/25 RULING B — ONE QUIET LABELLED BAND (the approved 8/31 mock's
+              shape), and every number is the SHIPPED screen's own sentence. It
+              used to be two cards of the same weight as the list itself, which
+              is how a plain fact starts reading like a scoreboard. No red, no
+              threshold, no grade, no ranking control: a discard count must never
+              be the thing that makes a staff member hesitate to discard a
+              recording they should discard. */}
+          {props.counts && (
             <section
-              className="rc-bystaff"
-              aria-labelledby="rcByStaffTitle"
-              data-guide-title="スタッフ別（今月）"
-              data-guide="今月、誰が何件破棄したかです。多い順に並んでいますが、評価のための順位ではありません。件数そのものが問題なのではなく、理由を読むためのきっかけです。"
+              className="rc-summary"
+              aria-label="破棄の件数"
+              data-guide-title="破棄の件数"
+              data-guide="破棄された録音の件数です。今月の件数と、記録に残っている全部の件数の両方を出しています。スタッフごとの件数も今月ぶんだけ出しますが、順位をつけるためのものではありません。"
             >
-              <h3 className="rc-sec-title" id="rcByStaffTitle">スタッフ別（今月）</h3>
-              <ul>
-                {props.counts.byStaff.map((s) => (
-                  <li key={s.name}>
-                    <span>{s.name}</span>
-                    <span className="rc-num">{s.line}</span>
-                  </li>
-                ))}
-              </ul>
-              {props.counts.truncatedLine && <p className="rc-count is-note">{props.counts.truncatedLine}</p>}
+              <p className="rc-summary-main">
+                <span className="rc-num">{props.counts.thisMonthLine}</span>
+                <span className="rc-summary-sep" aria-hidden="true">・</span>
+                <span className="rc-num">{props.counts.totalLine}</span>
+              </p>
+              {props.counts.byStaff.length > 0 && (
+                <p className="rc-summary-staff">
+                  <span className="rc-summary-k">{props.counts.byStaffLabel}</span>
+                  {props.counts.byStaff.map((s, i) => (
+                    <span className="rc-summary-one" key={s.cardId}>
+                      {i > 0 && <span className="rc-summary-sep" aria-hidden="true">・</span>}
+                      {s.name} <span className="rc-num">{s.line}</span>
+                    </span>
+                  ))}
+                </p>
+              )}
+              {props.counts.truncatedLine && <p className="rc-summary-note">{props.counts.truncatedLine}</p>}
             </section>
           )}
 
@@ -1056,22 +1251,46 @@ export function RecordingScreen(props: RecordingProps) {
               <span>録音を破棄すると、その理由がここに残ります。</span>
             </div>
           ) : (
-            <ul className="rc-review-rows">
-              {props.discardRows.map((r) => (
-                <li key={r.takeId}>
-                  {/* THE ROW IS THE CONTROL, and it is deliberately quiet — the
-                      one-way accent law lets a pressable be quieter than accent,
-                      and nothing on this screen should read as an alarm. */}
+            /* ⚖ MASTER–DETAIL, THE APPROVED 8/31 MOCK'S COMPUTER COLUMN. The
+               desk's width buys STRUCTURE rather than longer lines: the month's
+               discards on the left, the one being read on the right, and the
+               list never moves when a row opens.
+               ⚠ ONE DOM, TWO SHAPES. The detail is a SIBLING of the rows, and
+               at phone widths the list wrapper becomes `display: contents` so
+               the rows and the detail share one column — `order` then puts the
+               detail directly under the row it belongs to, which is the mock's
+               own phone column. Rendering it twice would be two copies of one
+               heading, two tour steps for one thing, and two places to fix. */
+            <section
+              className="rc-panes"
+              aria-label="破棄された録音"
+              data-guide-title="破棄された録音"
+              data-guide="破棄された録音の一覧です。左（スマホでは上）の行を押すと、その録音のスタッフが書いた理由と文字起こしが読めます。文字起こしは枠の中でスクロールするので、長い録音でも画面は伸びません。"
+            >
+              <div className="rc-pane-list">
+                {props.discardRows.map((r, i) => (
+                  /* THE ROW IS THE CONTROL, and it is deliberately quiet — the
+                     one-way accent law lets a pressable be quieter than accent,
+                     and nothing on this screen should read as an alarm. */
                   <button
-                    className="rc-review-row"
+                    key={r.takeId}
+                    className={`rc-review-row${openRow === r.takeId ? ' is-open' : ''}`}
+                    style={{ order: i * 2 }}
                     type="button"
                     aria-expanded={openRow === r.takeId}
+                    aria-controls="rcDiscardDetail"
                     onClick={() => setOpenRow((was) => (was === r.takeId ? null : r.takeId))}
                   >
+                    <span className="rc-review-top">
+                      <span className={`rc-avatar${r.hasCustomer ? '' : ' is-none'}`} aria-hidden="true">{r.initial}</span>
+                      <span className={`rc-review-cust${r.hasCustomer ? '' : ' is-none'}`}>{r.customerLabel}</span>
+                      <span className="rc-dur rc-num">録音 {r.lengthText}</span>
+                    </span>
                     <span className="rc-review-when">
-                      <span className="rc-num">{r.whenLabel}</span>
+                      <span className="rc-num">録音 {r.recordedAtLabel}</span>
+                      <span className="rc-review-sep" aria-hidden="true">・</span>
+                      <span>破棄 <span className="rc-num">{r.discardedAtLabel}</span></span>
                       <span className="rc-review-by">{r.byName}</span>
-                      <span className="rc-num rc-review-dur">{r.durationLabel}</span>
                     </span>
                     {/* ⚖ 8/25 RULING A — BOTH HALVES ARE LABELLED. The manager
                         reads the staffer's CLAIM against the EVIDENCE, and an
@@ -1084,37 +1303,103 @@ export function RecordingScreen(props: RecordingProps) {
                       {openRow === r.takeId ? '閉じる' : '文字起こしを見る'}
                     </span>
                   </button>
-                  {openRow === r.takeId && (
-                    <div className="rc-review-body">
-                      {r.transcript && r.transcript.length > 0 ? (
-                        <>
-                          <p className="rc-review-label">文字起こし（全文）</p>
-                          <p className="rc-review-text">{r.transcript.join('\n\n')}</p>
-                        </>
-                      ) : (
-                        /* ⚖ ABSENCE IS NEVER A PLACEHOLDER — and never says the
-                           words were LOST. Under the floor nothing was ever
-                           transcribed (the spend gate); everything else is a
-                           plain 「ありません」. */
-                        <p className="rc-review-absent">{r.absenceLine}</p>
-                      )}
-                      {r.ticketNote && <p className="rc-review-ticket"><Icon name="ticket" size={13} />{r.ticketNote}</p>}
-                      {/* ⚖ ✓確認済み DOES NOT EXIST — registry ⑩. The lever is
-                          shown REFUSED with the honest note rather than omitted,
-                          because a manager who expects it should learn WHY it is
-                          not there. */}
-                      <div className="rc-review-acts">
-                        <button {...refused('確認済みにする', props.refusals.checked)}>
-                          <Icon name="check" size={13} />確認済みにする
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
+                ))}
+              </div>
+
+              {(() => {
+                const i = props.discardRows.findIndex((r) => r.takeId === openRow)
+                const r = i < 0 ? null : props.discardRows[i]
+                return (
+                  <div
+                    className={`rc-pane-detail${r === null ? ' is-empty' : ''}`}
+                    id="rcDiscardDetail"
+                    style={{ order: i * 2 + 1 }}
+                  >
+                    {r === null ? (
+                      <p className="rc-pane-hint">一覧から1件選ぶと、スタッフの記入した理由と、その録音の文字起こしがここに出ます。</p>
+                    ) : (
+                      <>
+                        <div className="rc-detail-head">
+                          <span className={`rc-avatar is-lg${r.hasCustomer ? '' : ' is-none'}`} aria-hidden="true">{r.initial}</span>
+                          <span className={`rc-detail-name${r.hasCustomer ? '' : ' is-none'}`}>{r.customerLabel}</span>
+                        </div>
+                        <dl className="rc-defs">
+                          <div><dt>録音日時</dt><dd className="rc-num">{r.recordedAtLabel}</dd></div>
+                          <div><dt>録音時間</dt><dd className="rc-num">{r.lengthText}</dd></div>
+                          <div><dt>破棄</dt><dd><span className="rc-num">{r.discardedAtLabel}</span>（{r.byName}）</dd></div>
+                        </dl>
+                        <div className="rc-detail-cols">
+                          <div className="rc-card">
+                            <p className="rc-review-label">スタッフの記入した理由</p>
+                            <p className="rc-review-reason-full">{r.reason}</p>
+                          </div>
+                          {r.transcript && r.transcript.length > 0 ? (
+                            /* ⚖ THE LONG-RECORDING LAW (Liam 8/31) — the words
+                               read inside a BOUNDED panel: a sticky header that
+                               names what this is and how long the take was, 5分
+                               markers derived from the segments' own start
+                               times, a fade at each edge and a visible bar. A
+                               47-minute transcript therefore costs the page no
+                               height at all. This ONE panel is the named
+                               exception to the ⚖ page-scroll ruling, which
+                               governs board and list wrappers; nothing else in
+                               this room owns an axis. */
+                            <div className="rc-tpanel">
+                              <div
+                                className="rc-tscroll"
+                                tabIndex={0}
+                                role="region"
+                                aria-label="文字起こし（全文）"
+                              >
+                                <div className="rc-tpanel-head">
+                                  <span className="rc-review-label">文字起こし（全文）</span>
+                                  <span className="rc-tlen rc-num">録音 {r.lengthText}</span>
+                                </div>
+                                <div className="rc-tbody">
+                                  {r.transcript.map((e) =>
+                                    e.kind === 'divider' ? (
+                                      <p className="rc-tdiv" key={e.key}><span>{e.label}</span></p>
+                                    ) : (
+                                      <p className="rc-tline" key={e.key}>
+                                        <span className="rc-ttime rc-num">{e.at}</span>
+                                        {e.text}
+                                      </p>
+                                    ),
+                                  )}
+                                </div>
+                              </div>
+                              <span className="rc-tfade is-top" aria-hidden="true" />
+                              <span className="rc-tfade is-bottom" aria-hidden="true" />
+                            </div>
+                          ) : (
+                            /* ⚖ ABSENCE IS NEVER A PLACEHOLDER — and never says
+                               the words were LOST. Under the floor nothing was
+                               ever transcribed (the spend gate); everything else
+                               is a plain 「ありません」. */
+                            <div className="rc-card">
+                              <p className="rc-review-label">文字起こし（全文）</p>
+                              <p className="rc-review-absent">{r.absenceLine}</p>
+                            </div>
+                          )}
+                        </div>
+                        {r.ticketNote && <p className="rc-review-ticket"><Icon name="ticket" size={13} />{r.ticketNote}</p>}
+                        {/* ⚖ ✓確認済み DOES NOT EXIST — registry ⑩. The lever is
+                            shown REFUSED with the honest note rather than
+                            omitted, because a manager who expects it should
+                            learn WHY it is not there. */}
+                        <div className="rc-review-acts">
+                          <button {...refused('確認済みにする', props.refusals.checked)}>
+                            <Icon name="check" size={13} />確認済みにする
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )
+              })()}
+            </section>
           )}
-          {props.counts.listTruncatedLine && <p className="rc-count is-note">{props.counts.listTruncatedLine}</p>}
+          {props.counts?.listTruncatedLine && <p className="rc-summary-note">{props.counts.listTruncatedLine}</p>}
 
           <p className="rc-footnote">
             {props.refusals.transcript}
@@ -1253,6 +1538,46 @@ export function RecordingScreen(props: RecordingProps) {
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * THE DISCARD RECEIPT — ephemeral, self-contained, and only ever inside the
+ * discard flow that just ran (canon :842).
+ *
+ * ⚠ ONE COMPONENT, TWO PLACES, and that is deliberate. The recorder's discard
+ * resolves inside the 録音セッション panel where it happened; the recovery
+ * banner's resolves in the banner's own slot, which is also the only place a
+ * lens with no bookings at all can show it. Writing the markup twice would be
+ * two copies of one heading, two 画面の説明 declarations for one thing, and two
+ * places for the four fields to drift apart.
+ */
+function Receipt({
+  receipt,
+  closeRef,
+  onClose,
+}: {
+  receipt: { target: string; when: string; by: string; reason: string }
+  closeRef: React.RefObject<HTMLButtonElement | null>
+  onClose: () => void
+}) {
+  return (
+    <section
+      className="rc-receipt"
+      aria-label="破棄の確認"
+      data-guide-title="破棄の確認"
+      data-guide="いま破棄した録音の控えです。何を・いつ・誰が・どんな理由で破棄したかを、その場で読み返せます。この控えはこの流れの中だけのもので、閉じると消えます。破棄そのものの記録は「破棄の記録」に残ります。"
+    >
+      <h3>録音を破棄しました（デモ）</h3>
+      <p>この確認は、いま行った破棄の流れの中だけに表示されます。</p>
+      <dl>
+        <div><dt>対象</dt><dd>{receipt.target}</dd></div>
+        <div><dt>日時</dt><dd className="rc-num">{receipt.when}</dd></div>
+        <div><dt>担当者</dt><dd>{receipt.by}</dd></div>
+        <div><dt>理由</dt><dd>{receipt.reason}</dd></div>
+      </dl>
+      <button className="btn" type="button" ref={closeRef} onClick={onClose}>閉じる</button>
+    </section>
   )
 }
 

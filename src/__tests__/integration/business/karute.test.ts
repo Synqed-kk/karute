@@ -1240,7 +1240,9 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
 
   it('the room joins the shell’s 1180px floor opt-in list, and only the SHELL states it', () => {
     const shell = read('src/app/[locale]/(business)/business-shell.css')
-    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute) { min-width: 0; }')
+    // ⚠ ONE ROOM PER LINE, ADDED THE ROUND ITS PROOF LANDS — the list grows, and
+    // this pin is about THIS room's membership in it. 録音 joined 2026-08-31.
+    expect(shell).toMatch(/\.biz \.app:has\((?=[^)]*\.page\.pg-karute)[^)]*\) \{ min-width: 0; \}/)
     expect(CSS_CODE).not.toContain('.biz .app')
   })
 })

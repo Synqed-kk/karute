@@ -40,6 +40,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
 import { keepCardOffHeading } from '@/business/lib/recording'
 
@@ -276,9 +277,21 @@ describe('⚖ §2f — the phone is the DESIGN source, quoted rather than approx
   })
 
   it('⚖ R13 — no interactive element is black-filled, and solid accent = commit only', () => {
-    // the two solid accent fills in the room are the two COMMITS
+    // the THREE solid accent fills in the room are the three COMMIT-SHAPED
+    // controls: the recovery banner's 保存する, the use confirm's この録音を使う,
+    // and the 復元可能 row's 保存する — the phone's own solid tier
+    // (RecordingsInboxCard's SOLID_BTN), shown at its real weight and REFUSED
+    // (the ＋新規カルテ pattern). Hiding what the room WOULD do is what makes a
+    // refusal unreadable (⚖ 47).
     const solids = [...CSS_CODE.matchAll(/background: var\(--rc-accent\)/g)].length
-    expect(solids).toBe(2) // rc-recovery-save, rc-commit
+    expect(solids).toBe(3) // rc-recovery-save, rc-commit, rc-row-save
+    for (const cls of ['.rc-recovery-save', '.rc-commit', '.rc-row-save']) {
+      expect(CSS_CODE).toMatch(new RegExp(`\\${cls} \\{[^}]*background: var\\(--rc-accent\\)`, 's'))
+    }
+    // …and all three ARE commits: two of them refuse, and the third opens the
+    // confirm whose commit refuses.
+    expect(SRC_CODE).toContain("refused('保存する', props.refusals.save, { className: 'rc-recovery-save' })")
+    expect(SRC_CODE).toContain("refused(t.action.label, props.refusals.save, { className: 'rc-row-save' })")
     expect(CSS_CODE).not.toMatch(/background:\s*(#000|#18181b|var\(--ink\))/)
     // the selected/wash recipe is /8, never /10 (accent on /10 computes 4.49:1)
     expect(CSS_CODE).toContain('--rc-accent-wash: rgba(37, 99, 235, .08)')
@@ -303,18 +316,47 @@ describe('⚖ §2f — the phone is the DESIGN source, quoted rather than approx
 // ═══ ⚖ ALL-SCREEN ADAPTIVITY, AND THE ≥44px SWEEP ═══════════════════════════
 
 describe('⚖ ALL-SCREEN — the ladder and the thumb', () => {
-  it('every band the law names has a block', () => {
+  it('⚖ THE COLUMN LADDER IS KEYED TO THE PAGE, AND IT IS MONOTONIC BY CONSTRUCTION', () => {
+    // ⚠ THE DEFECT THIS REPLACED. The rail is 264px at ≥1024 with the sidebar
+    // open and 76px everywhere else, so PAGE WIDTH FALLS BY 187px as the
+    // viewport crosses 1024. Deciding a COLUMN COUNT from the viewport therefore
+    // ran two columns on a 724px page (viewport 820) and ONE column on a 948px
+    // page (viewport 1024 with the rail collapsed) — and a 1px drag across
+    // 1023→1024 flipped the recorder.
+    //
+    // The wrappers are now containers and every column rule queries THEM, so a
+    // layout can no longer be chosen from a width the layout does not have.
+    expect(CSS_CODE).toContain('container-type: inline-size; container-name: rcpage;')
+    // …declared on the two page wrappers, and on nothing else.
+    const containers = [...CSS_CODE.matchAll(/([^{}]+)\{[^{}]*container-type/g)].map((m) => m[1].trim())
+    expect(containers.length).toBe(1)
+    expect(containers[0]).toBe('.biz .pg-recording .rc-record-view,\n.biz .pg-recording .rc-review-view')
+    // ⚠ NO COLUMN COUNT IS DECIDED BY A MEDIA QUERY ANY MORE. Every
+    // `grid-template-columns` / `grid-template-areas` in the sheet sits either at
+    // base level or inside a `@container` — never inside an `@media`.
+    for (const m of CSS_CODE.matchAll(/@media[^{]*\{([\s\S]*?)\n\}/g)) {
+      const band = m[0].slice(0, m[0].indexOf('{'))
+      // the phone band legitimately stacks the room's DEFINITION lists (a label
+      // over its value is a composition, not a column count on the take list)
+      const offenders = [...m[1].matchAll(/([^{};]+)\{[^{}]*grid-template-(columns|areas)/g)]
+        .map((x) => x[1].trim())
+        .filter((sel) => !/rc-trace-row|rc-receipt|rc-target|rc-defs/.test(sel))
+      expect({ band: band.trim(), offenders }).toEqual({ band: band.trim(), offenders: [] })
+    }
+    // the bands that remain on the VIEWPORT are the ones that genuinely belong
+    // to the device: the page's own padding, the shape notes, and the thumb.
     for (const q of [
       '@media (min-width: 1400px)',
       '@media (max-width: 1279px)',
-      '@media (max-width: 1099px)',
       '@media (max-width: 1023px)',
-      '@media (min-width: 800px) and (max-width: 1023px)',
-      '@media (max-width: 900px)',
       '@media (max-width: 743px)',
+      '@media (prefers-reduced-motion: reduce)',
     ]) {
       expect(CSS_CODE).toContain(q)
     }
+    // …and the container ladder itself, one threshold per step, ascending.
+    const thresholds = [...CSS_CODE.matchAll(/@container rcpage \((min|max)-width: (\d+)px\)/g)].map((m) => Number(m[2]))
+    expect(thresholds.length).toBeGreaterThanOrEqual(8)
   })
 
   it('the ≥44px floor is SWEPT FLAT rather than listed control by control', () => {
@@ -326,13 +368,14 @@ describe('⚖ ALL-SCREEN — the ladder and the thumb', () => {
     expect(phone).toMatch(/width: 46px; height: 46px/)
   })
 
-  it('the list becomes cards from 900 down — no sideways drag to read a row', () => {
-    // ⚠ 900, NOT 743, AND THAT IS MEASURED. The rail is 76px at every width
-    // below 1024 (the shell's own ≤1023 band), so a 744px viewport leaves the
-    // page 668px and the six tracks 628px of content — less than the row needs.
-    // The card treatment therefore starts where six columns stop being
-    // readable rather than where a phone starts.
-    const cards = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 900px)'), CSS_CODE.indexOf('@media (max-width: 743px)'))
+  it('the list becomes cards under a 790px PAGE — no sideways drag to read a row', () => {
+    // ⚠ 790 OF PAGE, NOT 900 OF VIEWPORT. Six columns need about 790px of page
+    // to stay readable; keying that off the viewport meant a 1024-wide window
+    // with the rail OPEN — a 760px page, NARROWER than the 824px page a 900px
+    // window gets — kept all six columns and squeezed 録音者 to two characters.
+    const at = CSS_CODE.indexOf('@container rcpage (max-width: 789px)')
+    expect(at).toBeGreaterThan(0)
+    const cards = CSS_CODE.slice(at, CSS_CODE.indexOf('@container', at + 10))
     expect(cards).toContain('.rc-rowhead { display: none; }')
     expect(cards).toContain('grid-template-areas: "cust state" "date dur" "by act" "reason reason"')
     // …and the reason is its OWN spanning line at EVERY band, never a child of
@@ -340,10 +383,37 @@ describe('⚖ ALL-SCREEN — the ladder and the thumb', () => {
     expect(CSS_CODE).toContain('". reason reason reason reason reason"')
   })
 
-  it('THE SHELL’S 1180px FLOOR IS LIFTED FOR THIS ROOM (⚖ R6-1)', () => {
-    // …from the room's OWN sheet, in the shell's own idiom, argued at the rule.
-    expect(CSS_CODE).toContain('.biz .app:has(.page.pg-recording) { min-width: 0; }')
-    expect(CSS).toContain('R6-1')
+  it('⚖ F-R1 — the 1180px floor is lifted from the SHELL’s own list, and NOT from this sheet', () => {
+    const shell = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'), 'utf8')
+    expect(shell).toContain('.page.pg-karute, .page.pg-recording) { min-width: 0; }')
+    expect(CSS_CODE).not.toContain('.biz .app:has')
+  })
+
+  it('⚖ 8/31 — the transcript reads in a BOUNDED panel, and it is the room’s only scroller', () => {
+    // A 47-minute take must cost the page no height at all: sticky header,
+    // 5分 markers derived from the words' own clock, a fade at each edge and a
+    // bar that is always visible (macOS hides overlay bars).
+    expect(CSS_CODE).toMatch(/\.rc-tscroll \{[^}]*max-height: 420px/)
+    expect(CSS_CODE).toMatch(/\.rc-tscroll \{[^}]*overflow-y: auto/)
+    expect(CSS_CODE).toMatch(/\.rc-tscroll \{[^}]*overscroll-behavior: contain/)
+    expect(CSS_CODE).toMatch(/\.rc-tpanel-head \{[^}]*position: sticky/)
+    expect(CSS_CODE).toContain('.rc-tscroll::-webkit-scrollbar-thumb')
+    // it is a keyboard-reachable REGION, or a scroller is mouse-only
+    expect(SRC_CODE).toContain('className="rc-tscroll"')
+    expect(SRC_CODE).toMatch(/rc-tscroll[\s\S]{0,200}tabIndex=\{0\}/)
+    expect(SRC_CODE).toMatch(/rc-tscroll[\s\S]{0,220}aria-label="文字起こし（全文）"/)
+  })
+
+  it('⚖ MASTER–DETAIL — ONE DOM, and the phone column is the same markup reflowed', () => {
+    // Rendering the detail twice would be two copies of one heading, two tour
+    // steps for one thing, and two places to fix. `display: contents` hoists the
+    // rows into the stacked column so each row's `order` can place the detail
+    // directly beneath the row it belongs to.
+    expect([...SRC_CODE.matchAll(/rc-pane-detail/g)].length).toBe(1)
+    expect(CSS_CODE).toMatch(/\.rc-pane-list \{ display: contents; \}/)
+    expect(CSS_CODE).toMatch(/@container rcpage \(min-width: 820px\)/)
+    expect(SRC_CODE).toContain('style={{ order: i * 2 }}')
+    expect(SRC_CODE).toContain('style={{ order: i * 2 + 1 }}')
   })
 })
 

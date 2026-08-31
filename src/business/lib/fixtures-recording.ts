@@ -69,6 +69,25 @@ export interface FixtureConsentGrant {
   method: 'VERBAL'
 }
 
+/** ⚖ ONE TRANSCRIPT SEGMENT, in the CONTRACT'S OWN SHAPE — the required fields
+ *  of the `recordings.upsertSegments` row the shipped discard-transcript action
+ *  writes (`src/actions/recording-discard-transcript.ts:200-208`:
+ *  `{ segment_index, text, start_time, end_time }`, times in SECONDS from the
+ *  start of the take). `segment_index` is the array position and is therefore
+ *  not restated (⚖ one home per fact).
+ *
+ *  ⚠ THE TIMES ARE WHY THIS IS NOT A `string[]` ANY MORE. ⚖ Liam 8/31 — a long
+ *  recording's transcript reads inside a BOUNDED panel with 5分-interval
+ *  dividers, and a divider is only honest if it is DERIVED from when the words
+ *  were actually said. A room that computed the intervals from line COUNT would
+ *  be inventing a clock. */
+export interface FixtureTranscriptSegment {
+  /** Seconds from the start of the take. */
+  start_time: number
+  end_time: number
+  text: string
+}
+
 /** ⚖ THE DISCARD ROW — the shipped `recordingDiscards.create` shape
  *  (`{ recording_session_id, source, discarded_by, reason }`), plus the two
  *  things the manager screen reads back off the session
@@ -96,7 +115,7 @@ export interface FixtureTakeDiscard {
    *  kept, and everything else is a plain 「ありません」. An EMPTY ARRAY is not
    *  used: an absence has one spelling here, and its REASON is derived from the
    *  take's own facts rather than stored twice. */
-  transcript: string[] | null
+  transcript: FixtureTranscriptSegment[] | null
 }
 
 /** One recording session. */
@@ -176,7 +195,7 @@ export const consentGrants: FixtureConsentGrant[] = [
   // third state, and the one the read-aloud flow exists for.
 ]
 
-/** THE TAKES. Eleven — nine in 銀座, two in 代官山 — and between them every
+/** THE TAKES. Twelve — ten in 銀座, two in 代官山 — and between them every
  *  state the 録音履歴 has to be able to show with the discarded-first precedence
  *  the phone seals structurally (`lib/recordings/inbox.ts`): 保存済み, 確認待ち,
  *  処理中, 失敗, 復元可能 and four different 破棄済み takes.
@@ -243,9 +262,16 @@ export const takes: FixtureTake[] = [
       minute: 12 * 60 + 20,
       by_staff_card_id: 'c-01',
       reason: '別のお客様の予約を選んだまま録音を始めてしまいました。正しい予約で録り直し、そちらをカルテに使っています。',
+      // ⚠ TIMED, and the times cross THREE 5分 boundaries on purpose: the
+      // bounded reading panel's dividers are derived from `start_time`, so a
+      // plane whose segments all sat inside one interval could not prove the
+      // derivation at all.
       transcript: [
-        'それでは本日もよろしくお願いいたします。前回から二週間ほど空きましたが、その後お変わりありませんでしたか。',
-        'すみません、いま画面を見たら別のお客様の予約になっていました。一度止めますね。',
+        { start_time: 12, end_time: 39, text: 'それでは本日もよろしくお願いいたします。前回から二週間ほど空きましたが、その後お変わりありませんでしたか。' },
+        { start_time: 96, end_time: 130, text: 'おかげさまで、肩の張りはだいぶ楽になりました。ただ夕方になるとまた重くなってしまって。' },
+        { start_time: 402, end_time: 447, text: 'では今日は肩甲骨のまわりから、ゆっくりほぐしていきますね。力加減はいかがですか。' },
+        { start_time: 655, end_time: 690, text: 'ちょうどいいです。このくらいで続けていただけると助かります。' },
+        { start_time: 1024, end_time: 1061, text: 'すみません、いま画面を見たら別のお客様の予約になっていました。一度止めますね。' },
       ],
     },
   },
@@ -320,7 +346,9 @@ export const takes: FixtureTake[] = [
       minute: 12 * 60 + 9,
       by_staff_card_id: 'c-08',
       reason: '施術の説明が長くなり、途中から別のスタッフの会話が入ってしまったため録り直しました。',
-      transcript: ['本日はご予約ありがとうございます。まず気になっているところを伺わせてください。'],
+      transcript: [
+        { start_time: 20, end_time: 58, text: '本日はご予約ありがとうございます。まず気になっているところを伺わせてください。' },
+      ],
     },
   },
   {
@@ -414,7 +442,31 @@ export const takes: FixtureTake[] = [
       minute: 13 * 60 + 15,
       by_staff_card_id: 'c-02',
       reason: '代官山側の破棄理由: 空調の音が大きく、会話がほとんど聞き取れない状態でした。',
-      transcript: ['代官山側の文字起こし: ええと、すみません、少し聞き取りにくいのですが。'],
+      transcript: [
+        { start_time: 31, end_time: 66, text: '代官山側の文字起こし: ええと、すみません、少し聞き取りにくいのですが。' },
+      ],
     },
+  },
+  {
+    // 2日前, 銀座 — THE OTHER 失敗, and it is here because the room's failure
+    // SENTENCE is derived from `job_error` rather than from whether the audio
+    // survived. `rs-0008` carries the ONE code core names
+    // (`empty-transcript`); this one carries `generic` with the SAME
+    // `local_audio: false`, so the two rows differ in exactly the field the
+    // mapping is supposed to read and in nothing else. A plane with only the
+    // first row lets a room print the right sentence by coincidence.
+    id: 'rs-0010',
+    appointment_id: null,
+    store_id: STORE_A,
+    day_offset: -2,
+    started_minute: 14 * 60 + 6,
+    by_staff_card_id: 'c-06',
+    duration_seconds: 1180,
+    job: 'failed',
+    job_error: 'generic',
+    local_audio: false,
+    settled: false,
+    ticket_redeemed: false,
+    discarded: null,
   },
 ]

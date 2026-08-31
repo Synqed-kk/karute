@@ -69,6 +69,10 @@ import {
   waveformBars,
   windowTakes,
   CONSENT_LABEL,
+  durationText,
+  takeDurationLabel,
+  transcriptEntries,
+  TAKE_REASON_LINE,
   TAKE_STATE_CHIP,
   TAKE_STATE_LABEL,
   TRANSCRIPT_ABSENCE_LINE,
@@ -90,6 +94,13 @@ const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').repl
 const SCREEN_CODE = stripComments(SCREEN)
 const PLANE_CODE = stripComments(PLANE_SRC)
 const LIB_CODE = stripComments(LIB_SRC)
+
+/** `settleDiscard`'s own body — the one function that mints every receipt. */
+function SCREeN_SETTLE(): string {
+  const at = SCREEN_CODE.indexOf('const settleDiscard = ()')
+  const body = SCREEN_CODE.slice(at)
+  return body.slice(0, body.indexOf('\n  }') + 4)
+}
 
 const managerAccess = accessFor('店舗管理者')
 const staffAccess = accessFor('スタッフ')
@@ -310,9 +321,13 @@ describe('⚖ W7-2 — every discard writes a reason', () => {
   })
 
   it('the screen has ONE discard settle path and it is guarded by the text', () => {
-    expect(SCREEN_CODE).toContain("if (text === '' || current === null) return")
-    // exactly one function that produces a receipt
-    expect([...SCREEN_CODE.matchAll(/setReceipt\(\{/g)].length).toBe(1)
+    expect(SCREEN_CODE).toContain("if (text === '') return")
+    // ONE function produces every receipt, and it is `settleDiscard`
+    const settle = SCREEN_CODE.slice(SCREEN_CODE.indexOf('const settleDiscard = ()'))
+    const body = settle.slice(0, settle.indexOf('\n  }') + 4)
+    expect([...SCREEN_CODE.matchAll(/setReceipt\(\{/g)].length).toBe(
+      [...body.matchAll(/setReceipt\(\{/g)].length,
+    )
     // the confirm is ALSO disabled — belt and brace, and the guard above is the belt
     expect(SCREEN_CODE).toContain("disabled={reason.trim() === ''}")
   })
@@ -352,10 +367,61 @@ describe('⚖ W7-3 — one recovery slot, one action', () => {
     expect(props.recovery!.belowFloor).toBe(true)
     // exactly one 保存する control in the banner's markup
     expect([...SCREEN_CODE.matchAll(/rc-recovery-save/g)].length).toBe(1)
-    expect(SCREEN_CODE).toContain('{props.recovery.belowFloor && (')
+    expect(SCREEN_CODE).toContain('{recovery.belowFloor && (')
     // …and no ✕ / no 破棄 button beside 保存する
     const banner = SCREEN_CODE.slice(SCREEN_CODE.indexOf('rc-recovery"'), SCREEN_CODE.indexOf('</section>', SCREEN_CODE.indexOf('rc-recovery"')))
     expect(banner).not.toContain('rc-danger')
+  })
+
+  it('⚖ 8/26 (b) — THE DISCARD DIALOG KNOWS WHO OPENED IT, AND THE EXIT EXITS', () => {
+    // ⚠ THE BLOCKER THIS ROUND FIXED. Two different controls opened ONE
+    // parameterless dialog, and the settle then read the RECORDER's context
+    // whichever had been pressed: throwing away yesterday's 6-second residue
+    // printed a receipt naming TODAY's 10:00 booking — a different customer, a
+    // different session, a different day — and left the banner standing.
+    //
+    // Pinned on the SOURCE because this file cannot mount a React tree; the
+    // browser probe operates BOTH entry points and reads the receipt's VALUES.
+    expect(SCREEN_CODE).toContain("const [discardOf, setDiscardOf] = useState<'recorder' | 'recovery'>('recorder')")
+    // BOTH open sites set the context — and there are exactly two of them.
+    const opens = [...SCREEN_CODE.matchAll(/setDialog\('discard'\)/g)].length
+    expect(opens).toBe(2)
+    expect([...SCREEN_CODE.matchAll(/setDiscardOf\('(recorder|recovery)'\); setDialog\('discard'\)/g)].length).toBe(2)
+    // the settle BRANCHES on it, and the recovery branch builds from
+    // `props.recovery` rather than from the picker's booking
+    const settle = SCREeN_SETTLE()
+    expect(settle).toContain("if (discardOf === 'recovery')")
+    expect(settle).toContain('const r = props.recovery')
+    expect(settle).toContain('r.recordedAtLabel')
+    // ⚠ AND `reset()` FIRES ONLY ON THE RECORDER PATH — the banner is not the
+    // machine, and resetting a recorder that was never recording is a lever
+    // pretending to have done something.
+    expect(settle.slice(settle.indexOf("if (discardOf === 'recovery')"), settle.indexOf('} else {'))).not.toContain('reset()')
+    expect(settle).toContain('setRecoveryDismissed(true)')
+    // …and the SCREEN reads the dismissible slot, never the raw prop, at the
+    // banner (a server prop cannot be cleared, which is why the exit never
+    // exited).
+    expect(SCREEN_CODE).toContain('const recovery = recoveryDismissed ? null : props.recovery')
+    expect(SCREEN_CODE).toContain('{recovery && (')
+  })
+
+  it('⚖ B1-4 — the receipt’s 日時 is the DISCARD’s moment, in JST, and it is the room’s ONE clock', () => {
+    // Two of the receipt's four fields used to state the same fact — the
+    // booking's start time — and the one the dialog had just promised
+    // (「破棄の記録（日時・担当者・理由）が残ります。」) was absent.
+    const settle = SCREeN_SETTLE()
+    expect(settle).toContain('const when = JST_STAMP.format(new Date())')
+    expect(settle).not.toContain('current.dateLabel')
+    // JST is EXPLICIT: the ledger this receipt stands in for is a JST record.
+    const stamp = SCREEN_CODE.slice(SCREEN_CODE.indexOf('const JST_STAMP'))
+    expect(stamp.slice(0, stamp.indexOf('})') + 2)).toContain("timeZone: 'Asia/Tokyo'")
+    // ⚠ AND IT IS THE ONLY CLOCK OR FORMATTER IN THE SCREEN. Every RENDER-TIME
+    // date still crosses the boundary as a server-formatted string; this one is
+    // a post-interaction fact, so there is no first render for it to disagree
+    // with (canon stamps it the same way, :843).
+    expect([...SCREEN_CODE.matchAll(/new Date\(/g)].length).toBe(1)
+    expect([...SCREEN_CODE.matchAll(/Intl\./g)].length).toBe(1)
+    expect(SCREEN_CODE).not.toMatch(/toLocaleString|toLocaleDateString|fixtures/)
   })
 
   it('the copy is accurate to the plane’s numbers, and never claims an auto-SAVE', async () => {
@@ -419,8 +485,10 @@ describe('⚖ the take states and their precedence', () => {
     for (const hasRecord of [true, false]) {
       for (const settled of [true, false]) {
         for (const job of ['queued', 'running', 'done', 'failed', null] as const) {
-          for (const localAudio of [true, false]) {
-            expect(takeStateOf({ discarded: true, hasRecord, settled, job, localAudio }).state).toBe('discarded')
+          for (const jobError of ['empty-transcript', 'generic', null] as const) {
+            for (const localAudio of [true, false]) {
+              expect(takeStateOf({ discarded: true, hasRecord, settled, job, jobError, localAudio }).state).toBe('discarded')
+            }
           }
         }
       }
@@ -429,12 +497,66 @@ describe('⚖ the take states and their precedence', () => {
 
   it('the other five read off real evidence', () => {
     const s = (o: Parameters<typeof takeStateOf>[0]) => takeStateOf(o).state
-    const base = { discarded: false, hasRecord: false, settled: false, job: null, localAudio: false } as const
+    const base = { discarded: false, hasRecord: false, settled: false, job: null, jobError: null, localAudio: false } as const
     expect(s({ ...base, hasRecord: true, settled: true })).toBe('saved')
     expect(s({ ...base, hasRecord: true, settled: false })).toBe('awaiting-check')
     expect(s({ ...base, job: 'running' })).toBe('processing')
     expect(s({ ...base, job: 'failed' })).toBe('failed')
     expect(s({ ...base, localAudio: true })).toBe('recoverable')
+  })
+
+  // ── the two SENTENCES the row prints, and where each one comes from ────────
+
+  it('確認待ち says the phone’s OWN word — 「自動で保存されました」, never 処理中’s sentence', async () => {
+    // ⚠ THE ROW USED TO CONTRADICT ITSELF TWO CELLS APART: 「カルテ K-0002」 …
+    // 「確認待ち」 … 「まだ結果が届いていません」. The result HAD arrived — the row was
+    // showing its id. `unsettled` is 処理中's reason; 確認待ち's is `autoSaved`.
+    const base = { discarded: false, hasRecord: true, settled: false, job: null, jobError: null, localAudio: false } as const
+    expect(takeStateOf(base)).toEqual({ state: 'awaiting-check', reason: 'autoSaved' })
+    expect(TAKE_REASON_LINE.autoSaved).toBe('この録音は自動で保存されました（まだ確認されていません）')
+    expect(TAKE_REASON_LINE.autoSaved).not.toBe(TAKE_REASON_LINE.unsettled)
+
+    // …and the census on the SHIPPED props: every state's sub-line is the one
+    // the phone's own map gives that state, with no state borrowing another's.
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
+    const byState = new Map<string, Set<string | null>>()
+    for (const t of props.takes) {
+      if (!byState.has(t.stateLabel)) byState.set(t.stateLabel, new Set())
+      byState.get(t.stateLabel)!.add(t.reasonLine)
+    }
+    expect([...(byState.get('確認待ち') ?? [])]).toEqual([TAKE_REASON_LINE.autoSaved])
+    expect([...(byState.get('処理中') ?? [])].every((l) => l === TAKE_REASON_LINE.transcribing || l === TAKE_REASON_LINE.unsettled)).toBe(true)
+    expect([...(byState.get('復元可能') ?? [])]).toEqual([TAKE_REASON_LINE.localAudio])
+    expect([...(byState.get('保存済み') ?? [])]).toEqual([null])
+    expect([...(byState.get('破棄済み') ?? [])]).toEqual([null])
+  })
+
+  it('the 失敗 sub-line is derived from `job_error` — never from whether the AUDIO survived', async () => {
+    // ⚠ `local_audio` says whether the DEVICE still holds the take, which is a
+    // different question and answers 復元可能. Deriving the failure SENTENCE from
+    // it told a staffer their microphone had picked up nothing for an
+    // infrastructure failure — and printed the right sentence on the demo plane
+    // only because the one failed take happened to carry the one code.
+    const base = { discarded: false, hasRecord: false, settled: false, job: 'failed', localAudio: false } as const
+    for (const localAudio of [true, false]) {
+      expect(takeStateOf({ ...base, localAudio, jobError: 'empty-transcript' }).reason).toBe('emptyTranscript')
+      expect(takeStateOf({ ...base, localAudio, jobError: 'generic' }).reason).toBe('genericFailure')
+      expect(takeStateOf({ ...base, localAudio, jobError: null }).reason).toBe('genericFailure')
+    }
+    // …and the plane carries BOTH codes with the SAME `local_audio`, so the two
+    // rows differ in exactly the field the mapping reads and in nothing else.
+    const failed = takePlane.filter((t) => t.job === 'failed')
+    expect(new Set(failed.map((t) => t.job_error))).toEqual(new Set(['empty-transcript', 'generic']))
+    expect(new Set(failed.map((t) => t.local_audio)).size).toBe(1)
+
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
+    for (const t of failed) {
+      const row = props.takes.find((r) => r.id === t.id)!
+      expect({ id: t.id, line: row.reasonLine }).toEqual({
+        id: t.id,
+        line: t.job_error === 'empty-transcript' ? TAKE_REASON_LINE.emptyTranscript : TAKE_REASON_LINE.genericFailure,
+      })
+    }
   })
 
   it('THE DEMO WORLD SHOWS ALL SIX', async () => {
@@ -585,16 +707,40 @@ describe('⚖ the three redactions happen above the serializer', () => {
     const payload = JSON.stringify(props)
     const source = world.find((t) => t.id === 'rs-0003')!
     expect(payload).not.toContain(source.discarded!.reason)
-    for (const line of source.discarded!.transcript ?? []) expect(payload).not.toContain(line)
+    for (const seg of source.discarded!.transcript ?? []) expect(payload).not.toContain(seg.text)
     // …and no colleague content either, in the demo world.
     const plain = JSON.stringify((await recordingProps({ locale: 'ja', store: STORE_A, world: { role: 'スタッフ' } })).props)
     for (const t of takePlane) {
       if (t.discarded === null) continue
       expect({ take: t.id, leaked: plain.includes(t.discarded.reason) }).toEqual({ take: t.id, leaked: false })
-      for (const line of t.discarded.transcript ?? []) {
-        expect({ take: t.id, leaked: plain.includes(line) }).toEqual({ take: t.id, leaked: false })
+      for (const seg of t.discarded.transcript ?? []) {
+        expect({ take: t.id, leaked: plain.includes(seg.text) }).toEqual({ take: t.id, leaked: false })
       }
     }
+  })
+
+  it('⚖ B2-1 — the COUNTS are gated where the ROWS are, so a staff persona’s props carry none', async () => {
+    // ⚠ THE DEMO OPERATOR OWNS NO DISCARD, so a pin taken on the demo world
+    // would be green because the block is EMPTY rather than because it is
+    // ABSENT — the same trap the reason pin above was written to avoid. This
+    // world gives her one, and a per-staff count row still never appears.
+    const world = takePlane.map((t) =>
+      t.id === 'rs-0003'
+        ? { ...t, by_staff_card_id: selfCard!, discarded: { ...t.discarded!, by_staff_card_id: selfCard! } }
+        : t,
+    )
+    const staffSide = await recordingProps({ locale: 'ja', store: STORE_A, world: { role: 'スタッフ', takes: world } })
+    expect(staffSide.props.counts).toBeNull()
+    // her OWN monthly line is ungated self-knowledge and is still there
+    expect(staffSide.props.ownDiscardLine).toMatch(/^自分が今月破棄した録音 \d+件$/)
+    // the payload carries no count sentence at all…
+    const payload = JSON.stringify(staffSide.props)
+    expect(payload).not.toContain('記録されている破棄')
+    expect(payload).not.toContain('スタッフ別')
+    // …and the manager door is unchanged.
+    const manager = await recordingProps({ locale: 'ja', store: STORE_A, world: { takes: world } })
+    expect(manager.props.counts).not.toBeNull()
+    expect(manager.props.counts!.byStaff.length).toBeGreaterThan(0)
   })
 
   it('a STAFF reader gets no 破棄の記録 screen and no ledger rows', async () => {
@@ -634,21 +780,63 @@ describe('⚖ 8/17 — the store lens is the gate, and it leaves nothing behind'
     expect(b.props.takes.some((t) => t.id === 'rs-0021')).toBe(true)
   })
 
-  it('LEAVES NOTHING BEHIND — the 銀座 payload holds no 代官山 string of any kind', async () => {
-    const payload = JSON.stringify((await recordingProps({ locale: 'ja', store: STORE_A })).props)
-    const other = takePlane.filter((t) => ['rs-0020', 'rs-0021'].includes(t.id))
-    for (const t of other) {
-      expect(payload).not.toContain(t.id)
-      for (const line of t.discarded?.transcript ?? []) expect(payload).not.toContain(line)
-      if (t.discarded) expect(payload).not.toContain(t.discarded.reason)
+  it('LEAVES NOTHING BEHIND — BOTH DIRECTIONS, ids, reasons, transcripts and store-only names', async () => {
+    // ⚠ THE SCAN RUNS BOTH WAYS. It used to run one — the 銀座 payload searched
+    // for 代官山 strings — and a one-directional pin cannot tell a real gate from
+    // a gate that only happens to face one way.
+    const props = {
+      [STORE_A]: (await recordingProps({ locale: 'ja', store: STORE_A })).props,
+      [STORE_B]: (await recordingProps({ locale: 'ja', store: STORE_B })).props,
     }
-    // and no customer only 代官山 sees
-    const bOnly = appointments().filter((a) => a.store_id === STORE_B).map((a) => a.customer_id)
-    const aAny = new Set(appointments().filter((a) => a.store_id === STORE_A).map((a) => a.customer_id))
-    for (const id of bOnly.filter((c) => !aAny.has(c))) {
-      const name = customers.find((c) => c.id === id)!.name
-      expect({ name, leaked: payload.includes(name) }).toEqual({ name, leaked: false })
+    const takesOf = (store: string) =>
+      takePlane.filter((t) =>
+        t.appointment_id
+          ? appointments().find((a) => a.id === t.appointment_id)?.store_id === store
+          : t.store_id === store,
+      )
+    const customersOf = (store: string) =>
+      new Set(appointments().filter((a) => a.store_id === store).map((a) => a.customer_id))
+
+    for (const [lens, other] of [[STORE_A, STORE_B], [STORE_B, STORE_A]] as const) {
+      const payload = JSON.stringify(props[lens])
+      const theirs = takesOf(other)
+      expect(theirs.length).toBeGreaterThan(0) // …or the direction proves nothing
+      for (const t of theirs) {
+        expect({ lens, take: t.id, leaked: payload.includes(t.id) }).toEqual({ lens, take: t.id, leaked: false })
+        for (const seg of t.discarded?.transcript ?? []) {
+          expect({ lens, take: t.id, leaked: payload.includes(seg.text) }).toEqual({ lens, take: t.id, leaked: false })
+        }
+        if (t.discarded) {
+          expect({ lens, take: t.id, leaked: payload.includes(t.discarded.reason) }).toEqual({ lens, take: t.id, leaked: false })
+        }
+      }
+      // …and no customer only the OTHER store ever sees
+      const mine = customersOf(lens)
+      for (const id of [...customersOf(other)].filter((c) => !mine.has(c))) {
+        const name = customers.find((c) => c.id === id)!.name
+        expect({ lens, name, leaked: payload.includes(name) }).toEqual({ lens, name, leaked: false })
+      }
     }
+  })
+
+  it('THE ROSTER BRIDGE IS CLAMPED TOO — a foreign store’s card resolves 担当者不明, and the pin is LIVE', async () => {
+    // The sharpest NAME question in the room: an UNBOUND take recorded by a card
+    // that belongs to the other store's staffer. `staffNameOfCard` bridges
+    // through the door's CLAMPED roster on all three tiers, so the 銀座 lens
+    // cannot name him — and the pin is live rather than vacuous, because the
+    // very same plant under the 代官山 lens DOES name him.
+    const unbound = takePlane.find((t) => t.id === 'rs-0007')!
+    const plant = (storeId: string): FixtureTake[] => [
+      ...takePlane,
+      { ...unbound, id: 'rs-9200', store_id: storeId, by_staff_card_id: 'c-02' },
+    ]
+    const a = await recordingProps({ locale: 'ja', store: STORE_A, world: { takes: plant(STORE_A) } })
+    const b = await recordingProps({ locale: 'ja', store: STORE_B, world: { takes: plant(STORE_B) } })
+    const rowA = a.props.takes.find((t) => t.id === 'rs-9200')!
+    const rowB = b.props.takes.find((t) => t.id === 'rs-9200')!
+    expect(rowB.byName).not.toBe('担当者不明') // …the probe is live
+    expect(rowA.byName).toBe('担当者不明')
+    expect(JSON.stringify(a.props)).not.toContain(rowB.byName)
   })
 
   it('an UNBOUND take is clamped by its own store, and a storeless one is hidden', () => {
@@ -711,13 +899,24 @@ describe('⚖ #799 — names bridge card ↔ profile on BOTH keys', () => {
 // ═══ ⚖ 8/25 · THE COUNTS, BOTH WAYS, AS LABELLED PLAIN FACTS ════════════════
 
 describe('⚖ 8/25 ruling B — the counts', () => {
-  it('both ways, and each number says WHAT it counts', async () => {
+  it('both ways, and each number says WHAT it counts — the SHIPPED screen’s own sentences', async () => {
     const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
     const { y, m } = jstYmd(new Date())
     const expected = discardCounts(models(), y, m)
-    expect(props.counts.thisMonthLine).toBe(`今月の破棄 ${expected.thisMonth}件`)
-    expect(props.counts.totalLine).toBe(`記録されている破棄 全${expected.total}件`)
-    for (const s of props.counts.byStaff) expect(s.line).toMatch(/^今月の破棄 \d+件$/)
+    // ⚠ VERBATIM `settings.discardReasons.countThisMonth` / `.countTotal` /
+    // `.byStaffTitle`. The 8/31 mock's shorter 「累計 N件」 is NOT adopted
+    // (deviation R6-11): the layout is the mock's, the words are the phone's, so
+    // a phone-daily manager meets the same sentence on both doors.
+    expect(props.counts!.thisMonthLine).toBe(`今月の破棄 ${expected.thisMonth}件`)
+    expect(props.counts!.totalLine).toBe(`記録されている破棄 全${expected.total}件`)
+    expect(props.counts!.byStaffLabel).toBe('スタッフ別（今月）')
+    for (const s of props.counts!.byStaff) expect(s.line).toMatch(/^\d+件$/)
+    // ⚠ AND THE PER-STAFF ROWS ARE KEYED BY CARD ID, not by name: two departed
+    // staffers both resolve to 担当者不明, and a list keyed on the name would give
+    // two different people one React key (⚖ #799's own two-space case).
+    const cardIds = props.counts!.byStaff.map((s) => s.cardId)
+    expect(new Set(cardIds).size).toBe(cardIds.length)
+    expect(cardIds.every((id) => id.length > 0)).toBe(true)
   })
 
   it('the per-staff block is heaviest-first and carries NO ranking colour or sort control', () => {
@@ -785,6 +984,52 @@ describe('⚖ 8/25 ruling A — the reason and the evidence, side by side', () =
     const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
     const rich = props.discardRows.find((r) => r.takeId === 'rs-0003')!
     expect(rich.transcript!.length).toBeGreaterThan(0)
+  })
+
+  it('⚖ 8/31 — the 5分 markers are DERIVED from the words’ own clock, never from line count', () => {
+    // The plane carries CONTRACT-SHAPED segments (`recordings.upsertSegments`'s
+    // own `{ start_time, end_time, text }`), so the reading panel's intervals are
+    // a fact about when things were said rather than a decoration.
+    const rich = takePlane.find((t) => t.id === 'rs-0003')!.discarded!.transcript!
+    const entries = transcriptEntries(rich)
+    const dividers = entries.filter((e) => e.kind === 'divider')
+    const lines = entries.filter((e) => e.kind === 'line')
+    expect(lines.length).toBe(rich.length)
+    // one marker per interval the words actually land in, and the label is that
+    // interval's own minute
+    expect(dividers.map((d) => (d.kind === 'divider' ? d.label : ''))).toEqual(
+      [...new Set(rich.map((s) => Math.floor(s.start_time / 300)))].filter((b) => b > 0).map((b) => `${b * 5}分`),
+    )
+    // …and the timestamps are the segments' own, in mm:ss
+    expect(lines.map((l) => (l.kind === 'line' ? l.at : ''))).toEqual(rich.map((s) => fmtElapsed(s.start_time)))
+    // a take whose words all sit inside the first interval gets NO marker
+    expect(transcriptEntries([{ start_time: 4, end_time: 9, text: 'あ' }, { start_time: 200, end_time: 210, text: 'い' }])
+      .filter((e) => e.kind === 'divider')).toEqual([])
+    // every key is unique, so the panel can render them as a list
+    expect(new Set(entries.map((e) => e.key)).size).toBe(entries.length)
+  })
+
+  it('⚖ 8/25 — a length says WHAT it measures, EXACTLY, and it has one home', async () => {
+    // ⚠ THE OLD LABEL ROUNDED: `Math.round(sec / 60)分` reads a 15分40秒 take as
+    // 「16分」 and an 11-second take as 「1分」 — five times its real length, in
+    // exactly the band where a manager is judging whether a written reason fits
+    // the recording it explains.
+    expect(durationText(null)).toBeNull()
+    expect(durationText(11)).toBe('11秒')
+    expect(durationText(940)).toBe('15分40秒')
+    expect(durationText(2760)).toBe('46分') // a whole minute drops the empty 秒
+    expect(takeDurationLabel(8, true)).toBe('長さ 8秒（10秒未満）')
+    expect(takeDurationLabel(null, false)).toBe('長さ 記録なし')
+    // ONE home: both surfaces compose from the same two functions.
+    expect(PROPS_SRC).not.toMatch(/Math\.round\([^)]*\/ 60\)/)
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
+    for (const r of props.discardRows) {
+      const source = takePlane.find((t) => t.id === r.takeId)!
+      expect({ id: r.takeId, len: r.lengthText }).toEqual({
+        id: r.takeId,
+        len: durationText(source.duration_seconds) ?? '記録なし',
+      })
+    }
   })
 
   it('✓確認済み DOES NOT EXIST — the lever is REFUSED with the honest note (registry ⑩)', async () => {
@@ -952,7 +1197,7 @@ describe('the pinned-clock matrix — a JST calendar question, answered in JST',
       const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
       const { y, m } = jstYmd(new Date())
       const expected = discardCounts(models(), y, m)
-      expect(props.counts.thisMonthLine).toBe(`今月の破棄 ${expected.thisMonth}件`)
+      expect(props.counts!.thisMonthLine).toBe(`今月の破棄 ${expected.thisMonth}件`)
       // The dateline is the SAME instant the counts were taken at — one clock
       // read per render, so a page cannot straddle JST midnight.
       expect(props.dateline).toContain('サンプルデータ')
@@ -982,10 +1227,34 @@ describe('every write door refuses, with its OWN reason', () => {
     expect(helper.indexOf('...rest')).toBeLessThan(helper.indexOf("className: ['btn', className]"))
   })
 
-  it('no refused control carries an onClick — a refusal changes NOTHING (⚖ 47)', () => {
-    for (const m of SCREEN_CODE.matchAll(/\{\.\.\.refused\([^)]*\)\}\s*(onClick)?/g)) {
-      expect(m[1]).toBeUndefined()
-    }
+  it('THE `refused()` HELPER ITSELF cannot emit a handler — the contract, not the call sites (⚖ 47)', () => {
+    // ⚠ THE CALL-SITE SCAN BELOW IS NOT ENOUGH, and that was proved by mutation:
+    // an `onClick` added INSIDE the helper made every refused control mutate
+    // state and all 180 tests stayed green, because the helper is where the
+    // props are actually built. The contract is pinned HERE, on the helper's own
+    // body: it returns exactly `type` / `aria-disabled` / `title` / `aria-label`
+    // / `className`, plus whatever `extra` a call site hands it — and `extra` is
+    // typed to `className` and `aria-describedby` alone, so no call site can pass
+    // a handler through it either.
+    const at = SCREEN_CODE.indexOf('const refused = (')
+    const helper = SCREEN_CODE.slice(at, SCREEN_CODE.indexOf('\n  }', at) + 4)
+    expect(helper.length).toBeGreaterThan(100)
+    expect(helper).not.toMatch(/on[A-Z]\w+\s*:/) // no handler of ANY name
+    expect(helper).toContain("type: 'button' as const")
+    expect(helper).toContain("'aria-disabled': 'true' as const")
+    expect(helper).toContain('title: reason')
+    expect(helper).toContain("'aria-label': `${label} — ${reason}`")
+    // the escape hatch is typed shut
+    const sig = SCREEN_CODE.slice(at, SCREEN_CODE.indexOf('=> {', at))
+    expect(sig).toContain("extra?: { className?: string; 'aria-describedby'?: string }")
+    // …and the ONE spread is the typed `rest`, never an untyped props bag
+    expect(helper).toContain('...rest')
+  })
+
+  it('no refused control carries an onClick — the call sites too', () => {
+    const sites = [...SCREEN_CODE.matchAll(/\{\.\.\.refused\([^)]*\)\}\s*(onClick)?/g)]
+    expect(sites.length).toBeGreaterThanOrEqual(5) // …or the scan proves nothing
+    for (const m of sites) expect(m[1]).toBeUndefined()
   })
 
   it('the standing footnote is on screen before anyone reaches for a control', async () => {
@@ -1022,6 +1291,24 @@ describe('the recorder’s own machine', () => {
     // no clock, no random — a hydration mismatch would be the cost of either
     const fn = LIB_CODE.slice(LIB_CODE.indexOf('export function waveformBars'))
     expect(fn.slice(0, fn.indexOf('\n}') + 2)).not.toMatch(/Math\.random|Date/)
+  })
+
+  it('⚖ B4-3 — an UNRESOLVED stopped take offers NO reset lever, only 破棄 and 使う', () => {
+    // The phone refuses exactly this path in words (RecordButtonCard.tsx:83-85:
+    // wiring a restart here would 「invent a supersede path over an unsaved
+    // take」), and the ⚖ 8/20 integrity doctrine has no reason-free route out of
+    // a take. 「やり直す」 sat ABOVE the 破棄 / この録音を使う row — the no-paperwork
+    // exit offered first and the recorded one second.
+    expect(SCREEN_CODE).not.toContain('やり直す')
+    // `reset` is called by the RESOLUTION and by the picker's own effect, and by
+    // nothing a reader can press.
+    const calls = [...SCREEN_CODE.matchAll(/[^a-zA-Z]reset\(\)/g)].length
+    expect(calls).toBe(1)
+    expect(SCREeN_SETTLE()).toContain('reset()')
+    expect(SCREEN_CODE).not.toMatch(/onClick=\{reset\}|onClick=\{\(\) => reset\(\)\}/)
+    // …and the ended state still offers both real resolutions.
+    expect(SCREEN_CODE).toContain('rc-discard')
+    expect(SCREEN_CODE).toContain('この録音を使う')
   })
 
   it('a stop NEVER auto-saves — the staffer resolves the take', () => {
@@ -1163,18 +1450,54 @@ describe('⚖ the sibling-sheet fence', () => {
     expect(roomClasses.size).toBeGreaterThan(40)
   })
 
-  it('⚖ PAGE-SCROLL — not one container in this room owns an axis', () => {
+  it('⚖ PAGE-SCROLL — ONE named exception owns an axis, and NOTHING ELSE does', () => {
     // The DECLARATIONS, not the prose: the sheet's own header argues about
     // overflow and sticky at length, and a scan that read comments would be
     // pinned on a paragraph rather than on the CSS.
+    //
+    // ⚠ THE EXEMPTION IS BY NAME, AND IT IS EXACTLY ONE PANEL. ⚖ Liam 8/31
+    // approved the 破棄の記録 transcript's BOUNDED READING panel — sticky header,
+    // 5分 markers, fade, visible bar — precisely so a 47-minute transcript costs
+    // the page no height. The ⚖ 8/22 law it sits beside governs BOARD and LIST
+    // wrappers, and every one of those in this room still scrolls with the page.
     const decls = ROOM_CSS.replace(/\/\*[\s\S]*?\*\//g, '')
-    expect(decls).not.toMatch(/overflow-y\s*:\s*(auto|scroll)/)
+    // every INNERMOST rule, with its own selector — an at-rule's prelude carries
+    // no declarations of its own, so this walks the real ones.
+    const blocks = [...decls.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1].trim(), body: m[2] }))
+    expect(blocks.length).toBeGreaterThan(80)
+    const rulesWith = (re: RegExp) => blocks.filter((b) => re.test(b.body)).map((b) => b.sel)
+    // whichever selector states each of them, it is the reading panel's
+    for (const [prop, re] of [
+      ['overflow-y', /overflow-y\s*:\s*(auto|scroll)/],
+      ['overscroll-behavior', /overscroll-behavior/],
+      ['max-height', /max-height\s*:\s*(?!none)/],
+      ['position: sticky', /position\s*:\s*sticky/],
+    ] as const) {
+      const owners = rulesWith(re)
+      expect({ prop, owners }).toEqual({
+        prop,
+        owners: owners.filter((s) => /\.rc-tscroll\b|\.rc-tpanel-head\b/.test(s)),
+      })
+      expect({ prop, any: owners.length > 0 }).toEqual({ prop, any: true })
+    }
+    // …and NOTHING pans sideways, anywhere, ever.
     expect(decls).not.toMatch(/overflow-x\s*:\s*(auto|scroll)/)
-    expect(decls).not.toMatch(/overscroll-behavior/)
-    expect(decls).not.toMatch(/max-height\s*:\s*(?!none)/)
-    expect(decls).not.toMatch(/position\s*:\s*sticky/)
     // …and no `overflow: hidden` either, or a focus ring would be clipped (F2)
     expect(decls).not.toMatch(/overflow\s*:\s*hidden/)
+  })
+
+  it('⚖ F-R1 — the 1180px floor is lifted from the SHELL’s own opt-in list, not from here', () => {
+    // The shell's own comment states the rule: 「the selector is SHELL-owned, so
+    // no route sheet can ever reach up and lift its own floor」. This room used to
+    // carry a copy of the rule in its own sheet, which is exactly that reach
+    // however carefully it was scoped.
+    const shell = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'), 'utf8')
+    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording) { min-width: 0; }')
+    expect(ROOM_CSS).not.toMatch(/\.biz \.app:has/)
+    // …and the room's sheet reaches OUTSIDE its own subtree nowhere at all:
+    // every selector it states is scoped by `pg-recording`.
+    const unscoped = selectorsOf(ROOM_CSS).filter((s) => !s.includes('pg-recording'))
+    expect(unscoped).toEqual([])
   })
 })
 
@@ -1187,8 +1510,17 @@ describe('the route entry', () => {
     expect(PAGE_SRC).not.toMatch(/listAppointments|listCustomers|new Date\(/)
   })
 
-  it('the screen holds no clock, no formatter and no data access', () => {
-    expect(SCREEN_CODE).not.toMatch(/new Date\(|Intl\.|toLocaleString|fixtures/)
+  it('the screen holds no data access, and its ONE clock is the discard receipt’s own stamp', () => {
+    expect(SCREEN_CODE).not.toMatch(/toLocaleString|toLocaleDateString|fixtures/)
+    // ⚠ EVERY RENDER-TIME DATE STILL CROSSES AS A SERVER-FORMATTED STRING —
+    // that is what keeps the two renders from disagreeing about a day. The one
+    // exception is the moment the staffer pressed 破棄する, which no server render
+    // can know and which only exists AFTER an interaction, so there is no first
+    // render for it to differ from (canon stamps it the same way, :843). It is
+    // read in `settleDiscard` and nowhere else.
+    expect([...SCREEN_CODE.matchAll(/new Date\(/g)].length).toBe(1)
+    expect([...SCREEN_CODE.matchAll(/Intl\./g)].length).toBe(1)
+    expect(SCREeN_SETTLE()).toContain('JST_STAMP.format(new Date())')
   })
 
   it('react-dom never enters the room’s runtime', () => {
