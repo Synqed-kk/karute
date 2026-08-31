@@ -253,7 +253,20 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // whatever `node scripts/thin/check-bundle-budget.mjs` prints against a fresh
 // build TODAY; the numbers worth writing down are the ones a raise actually
 // measured. Prior entries keep theirs as history.
-const BUDGET_BYTES = 2_009_000
+// Raised 2026-08-31 at the 破棄の記録 redesign — the manager screen gains the
+// RECORDING behind each discard (customer, session time, length, store) and a
+// bounded transcript panel with a sticky header and 5-minute markers. The
+// section is a rebuild rather than an edit, and its i18n block grew by 15 keys
+// in BOTH locales (ja rides the main chunk, en its own) — the data-layer joins
+// themselves cost the phone nothing, being server-side and port-substituted.
+// Measured with the emptied-thin/dist method, byte-identical across two clean
+// builds on BOTH sides: base e987ef47 = 2,005,223 B, tip e68fc0a6 =
+// 2,014,405 B, feature cost +9,182 B. The prior 2,009,000 ceiling had 3,777 B
+// left at that base, so the overage is 5,405 B. Report-only per ⚖ 8/25: a
+// ceiling a real feature has outgrown gets raised and reported, never held for
+// an approval round. The SCRIPT still gates — it runs in CI and exits non-zero
+// against whatever ceiling stands below.
+const BUDGET_BYTES = 2_019_000
 
 let dir
 try {

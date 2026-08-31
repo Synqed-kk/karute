@@ -45,7 +45,7 @@ import { DiscardReasonsSection } from '@/components/settings/redesign/sections/D
 const t = tFor('settings.discardReasons')
 const REASON = 'お客様を間違えて録音を開始してしまいました'
 
-async function renderAndOpen() {
+async function renderAndOpen(rowPatch: Record<string, unknown> = {}) {
   listDiscardReasons.mockResolvedValue({
     ok: true,
     truncated: false,
@@ -57,6 +57,7 @@ async function renderAndOpen() {
         staffId: 'staff-A',
         staffName: '原 奏恵',
         reason: REASON,
+        ...rowPatch,
       },
     ],
     counts: { thisMonth: 1, total: 1, byStaff: [] },
@@ -108,16 +109,35 @@ describe('破棄の記録 — the row opens onto what was recorded', () => {
     expect(screen.getByText(t('transcriptTitle'))).toBeInTheDocument()
   })
 
-  it('several segments read as one passage', async () => {
+  it('several segments read as a passage — every one of them on screen', async () => {
     getDiscardTranscript.mockResolvedValue({
       ok: true,
-      segments: [{ text: '一つ目。' }, { text: '二つ目。' }],
+      segments: [
+        { text: '一つ目。', startTime: 4 },
+        { text: '二つ目。', startTime: 71 },
+      ],
       durationSeconds: 90,
     })
     await renderAndOpen()
-    // One node, both segments — testing-library's default normalizer collapses
-    // the blank line that separates them on screen.
-    expect(screen.getByText('一つ目。 二つ目。')).toBeInTheDocument()
+    // Since the 8/31 redesign each segment is its own line carrying its own
+    // time, rather than one joined paragraph. What is pinned is what always
+    // mattered: NOTHING the recording kept is dropped on the way to the screen.
+    expect(screen.getByText('一つ目。')).toBeInTheDocument()
+    expect(screen.getByText('二つ目。')).toBeInTheDocument()
+    expect(screen.getByText('0:04')).toBeInTheDocument()
+    expect(screen.getByText('1:11')).toBeInTheDocument()
+    // …and IN ORDER. Before the redesign this test asserted one joined node
+    // ('一つ目。 二つ目。'), which caught a reordering for free; each segment is
+    // now its own line, so a pair of presence queries passes in either
+    // direction. The twin sorts on `segment_index` precisely because that is
+    // the order the words were written in, and this is the suite that owns
+    // that claim — read the rendered lines back positionally.
+    const lines = Array.from(document.querySelectorAll('p'))
+      .map((p) => p.textContent ?? '')
+      .filter((line) => line.includes('一つ目。') || line.includes('二つ目。'))
+    expect(lines).toHaveLength(2)
+    expect(lines[0]).toContain('一つ目。')
+    expect(lines[1]).toContain('二つ目。')
   })
 
   it('under the accidental-tap floor: says nothing was ever recorded, not "no transcript"', async () => {
@@ -148,6 +168,42 @@ describe('破棄の記録 — the row opens onto what was recorded', () => {
     getDiscardTranscript.mockResolvedValue({ ok: true, segments: [], durationSeconds: null })
     await renderAndOpen()
     expect(screen.getByText(t('transcriptNone'))).toBeInTheDocument()
+  })
+
+  it('the ROW\'s length explains a too-short take when the transcript read lost it', async () => {
+    // The below-floor answer used to hang on the transcript read's OWN
+    // recordings.get, which is best-effort and fails by itself. The list holds
+    // a length for the same recording and is rendering it in the pill directly
+    // above, so falling through to 「文字起こしはありません」 made the screen
+    // contradict itself: 「録音 0分08秒」 over a sentence a manager reads as
+    // "the system lost the words of an 8-second take", when the truth two lines
+    // up is that we never transcribe one that short.
+    getDiscardTranscript.mockResolvedValue({ ok: true, segments: [], durationSeconds: null })
+    await renderAndOpen({ durationSeconds: 8 })
+
+    expect(screen.getByText(t('transcriptBelowFloor', { n: 10 }))).toBeInTheDocument()
+    expect(screen.queryByText(t('transcriptNone'))).toBeNull()
+  })
+
+  it('the transcript read\'s OWN length WINS when it has one', async () => {
+    // Ordering, not just presence. The panel's own read is authoritative
+    // because it is the read that went looking for the words; the row's value
+    // is the fallback behind it. Reversed, a 4-second row value would overrule
+    // a 600-second answer the read had just succeeded in getting, and a
+    // ten-minute take would be explained away as too short to transcribe.
+    getDiscardTranscript.mockResolvedValue({ ok: true, segments: [], durationSeconds: 600 })
+    await renderAndOpen({ durationSeconds: 4 })
+
+    expect(screen.getByText(t('transcriptNone'))).toBeInTheDocument()
+    expect(screen.queryByText(t('transcriptBelowFloor', { n: 10 }))).toBeNull()
+  })
+
+  it('an old wire sends the row length ABSENT, and that is not a zero', async () => {
+    getDiscardTranscript.mockResolvedValue({ ok: true, segments: [], durationSeconds: null })
+    await renderAndOpen({ durationSeconds: undefined })
+
+    expect(screen.getByText(t('transcriptNone'))).toBeInTheDocument()
+    expect(screen.queryByText(t('transcriptBelowFloor', { n: 10 }))).toBeNull()
   })
 
   it('a long-enough recording with no words kept is NOT the too-short answer', async () => {

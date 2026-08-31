@@ -39,6 +39,11 @@ const LIST_BODY: ListBody = {
       staffId: 'card-A',
       staffName: '原 奏恵',
       reason: 'お客様が席を外したため録り直します',
+      customerId: 'cus-1',
+      customerName: '田中 恵子',
+      recordingCreatedAt: '2026-08-31T01:58:00.000Z',
+      durationSeconds: 252,
+      storeName: '代官山店',
     },
   ],
   counts: {
@@ -47,9 +52,16 @@ const LIST_BODY: ListBody = {
     byStaff: [{ staffId: 'card-A', staffName: '原 奏恵', thisMonth: 1 }],
   },
   truncated: false,
+  detailTruncated: false,
 }
 
-const TRANSCRIPT_BODY: TranscriptBody = { segments: [{ text: 'ひとつめ' }], durationSeconds: 42 }
+const TRANSCRIPT_BODY: TranscriptBody = {
+  segments: [
+    { text: 'ひとつめ', startTime: 4 },
+    { text: 'ふたつめ', startTime: 331 },
+  ],
+  durationSeconds: 42,
+}
 
 function port(res: (path: string, init?: RequestInit) => Promise<Response>) {
   const apiFetch = jest.fn(res)
@@ -114,6 +126,22 @@ describe('thin actions port — 破棄の記録 list', () => {
     await expect(listDiscardReasons()).resolves.toEqual({ ok: false, error: 'failed' })
   })
 
+  it('an OLD server sending no detailTruncated is "no report", not a report', async () => {
+    // The other side of the boundary the DTO is strict about. A deployment that
+    // predates the flag omits the key entirely, and the honest answer then is
+    // that we have no report of partial detail — never that there IS one, which
+    // would put a caveat on a screen with nothing behind it.
+    const old: Record<string, unknown> = { ...LIST_BODY }
+    delete old.detailTruncated
+    port(async () => new Response(JSON.stringify(old), { status: 200 }))
+
+    await expect(listDiscardReasons()).resolves.toEqual({
+      ok: true,
+      ...old,
+      detailTruncated: false,
+    })
+  })
+
   it.each([
     ['an unreadable body', '<html>gateway</html>'],
     ['a body with no rows', JSON.stringify({ counts: LIST_BODY.counts })],
@@ -126,6 +154,25 @@ describe('thin actions port — 破棄の記録 list', () => {
     [
       'a counts whose byStaff is not an array',
       JSON.stringify({ rows: [], counts: { thisMonth: 0, total: 0, byStaff: {} } }),
+    ],
+    // …and shape reaches the ELEMENTS. The redesign took the section from four
+    // dereferenced fields per row to nine, and the FIRST of them is
+    // `rows.find((r) => r.id === openId)` in the component body — so a null
+    // element throws during render, before a row is drawn and outside every
+    // catch this file has. Reachable through anything that can answer 200 with
+    // JSON on that path: a gateway interstitial, a cached body from a
+    // differently-shaped deployment, a future route that serves before parsing.
+    [
+      'a rows array holding a null element',
+      JSON.stringify({ rows: [null], counts: LIST_BODY.counts }),
+    ],
+    [
+      'a rows array holding a non-object element',
+      JSON.stringify({ rows: ['row-1'], counts: LIST_BODY.counts }),
+    ],
+    [
+      'a byStaff array holding a null element',
+      JSON.stringify({ rows: [], counts: { thisMonth: 0, total: 0, byStaff: [null] } }),
     ],
   ])('a 2xx with %s is a FAILURE, never an empty ledger', async (_label, body) => {
     port(async () => new Response(body, { status: 200 }))
@@ -161,6 +208,47 @@ describe('thin actions port — 破棄の記録 transcript', () => {
       ok: true,
       segments: [],
       durationSeconds: null,
+    })
+  })
+
+  it.each([
+    ['no startTime at all (a deployment older than the redesign)', { text: 'ひとつめ' }],
+    ['a startTime that is not a number', { text: 'ひとつめ', startTime: '0:04' }],
+    ['an explicitly null startTime', { text: 'ひとつめ', startTime: null }],
+  ])('%s degrades to null — the WORDS still arrive', async (_label, segment) => {
+    // The old-wire boundary. A baked phone newer than the server it is talking
+    // to must still show what was said; only the 5-minute markers go missing,
+    // and the panel renders none rather than placing them from a value it does
+    // not have. Rejecting here would answer 読み込めませんでした for a
+    // transcript the server sent in full.
+    port(
+      async () =>
+        new Response(JSON.stringify({ segments: [segment], durationSeconds: 42 }), { status: 200 }),
+    )
+
+    await expect(getDiscardTranscript('rs-1')).resolves.toEqual({
+      ok: true,
+      segments: [{ text: 'ひとつめ', startTime: null }],
+      durationSeconds: 42,
+    })
+  })
+
+  it.each([
+    ['a text that is not a string', { text: 42, startTime: 4 }],
+    ['a null text', { text: null, startTime: 4 }],
+  ])('%s becomes the empty string — the same guard the clock beside it has', async (_l, segment) => {
+    // Guarding `startTime` and trusting `text` read as an oversight rather than
+    // a decision, and a non-string renders raw into the panel. Not a rejection:
+    // the never-reject posture holds for display-only values.
+    port(
+      async () =>
+        new Response(JSON.stringify({ segments: [segment], durationSeconds: 42 }), { status: 200 }),
+    )
+
+    await expect(getDiscardTranscript('rs-1')).resolves.toEqual({
+      ok: true,
+      segments: [{ text: '', startTime: 4 }],
+      durationSeconds: 42,
     })
   })
 
