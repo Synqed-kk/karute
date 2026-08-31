@@ -79,6 +79,7 @@ import {
   nearestFreeStarts,
   needsPrivateRoom,
   overrideLevelFor,
+  lossOf,
   warnFaceFor,
   holdClock,
   holdResumeAt,
@@ -7059,6 +7060,73 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(warnFaceFor(input({ rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }], override: '満室です' })).face).toBe('warn')
   })
 
+  /** ⚖ 9/1 ruling 2/2 (Liam, merge-gate) — ZERO-LOSS IS QUIET, and the guard
+   *  half of the trigger is now the LOSS rather than the state.
+   *
+   *  The face used to fire on any non-safe cell, so the amber panel and the
+   *  0.6-秒 hold stood over facts that cost the store NOTHING — a 0枠減 DEGRADED
+   *  residue, R-DEAD, R-SALV, a repertoire R-REP whose window count never moved.
+   *  His pick at the gate: warn only where protected 新規 windows are actually
+   *  lost, or where a red sentence was walked past. Everything else goes back to
+   *  the clean face's quiet △ row, which is where those facts lived before flag
+   *  92 and where `pendingGuardRow.row` still renders them. */
+  it('⚖ 9/1 ruling 2 — a guard fact that costs the store nothing stays on the quiet row', () => {
+    /** The engine's own shape, with the loss dialled: `windowsAfter` is the
+     *  before-set with the lost ones taken off the head, so a 6→6 cell really
+     *  is a landing that changes no count at all. */
+    const at = (code: string, capacityBefore: number, capacityAfter: number): RailCell => ({
+      start: 630, state: 'blocked', label: '—', sentence: 'ここに置くと新規（90分）が入らなくなります',
+      reason: 'guard', alternatives: [], alternativeKind: null, ackAllowed: true,
+      impact: {
+        code, capacityBefore, capacityAfter,
+        windowsBefore: windows(capacityBefore),
+        windowsAfter: windows(capacityBefore).slice(capacityBefore - capacityAfter),
+      } as RailCell['impact'],
+    })
+    // ZERO LOSS, every class that can reach it → the clean face…
+    for (const code of ['DEGRADED', 'R-DEAD', 'R-SALV', 'R-REP']) {
+      expect(lossOf(at(code, 6, 6))).toBe(0)
+      expect(warnFaceFor(input({ cell: at(code, 6, 6) })).face).toBe('clean')
+    }
+    // …and a cell the engine never weighed at all (no `impact`) is the same
+    // answer for the same reason — `lossOf` reads 0 exactly where the engine
+    // never asked the capacity question.
+    const bare = at('R-REP', 0, 0)
+    delete (bare as { impact?: unknown }).impact
+    expect(lossOf(bare)).toBe(0)
+    expect(warnFaceFor(input({ cell: bare })).face).toBe('clean')
+    // ONE window lost → the warn face, unchanged. The real engine's own R-REP,
+    // so the boundary is drawn on a cell the board actually produces.
+    expect(lossOf(REP())).toBe(1)
+    expect(warnFaceFor(input({ cell: REP() })).face).toBe('warn')
+    for (const code of ['DEGRADED', 'R-DEAD', 'R-SALV', 'R-REP']) {
+      expect(warnFaceFor(input({ cell: at(code, 6, 5) })).face).toBe('warn')
+    }
+    // ⚖ 73-74 — AND THE QUIET CASE DID NOT GO SILENT. The clean face hands the
+    // rows straight back and the screen renders the guard's own sentence beside
+    // them, which is the △ row the operator saw before flag 92 existed.
+    const quiet = warnFaceFor(input({ cell: at('DEGRADED', 6, 6) }))
+    expect(quiet.rows).toBe(GREENS)
+    expect(quiet.commit).toBeNull()
+    expect(guardCheckRow(at('DEGRADED', 6, 6))).toEqual({ label: 'ここに置くと新規（90分）が入らなくなります', tone: 'warn' })
+    expect(SRC).toContain('{holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}')
+    // …and the row the screen hands it is composed from the RAW cell, so the
+    // trigger change cannot have taken it away either.
+    expect(SRC).toContain('      row: guardCheckRow(cell),')
+    // THE OVERRIDE HALF IS UNTOUCHED: a walked-past sentence with no guard cell
+    // at all still warns, because that is a record the operator made themselves.
+    expect(warnFaceFor(input({ rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }], override: '満室です' })).face).toBe('warn')
+    // …and so does one standing over a zero-loss cell — the cell went quiet, the
+    // override did not.
+    expect(warnFaceFor(input({
+      cell: at('DEGRADED', 6, 6), override: '満室です',
+      rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }],
+    })).face).toBe('warn')
+    // The trigger is the composer's own line, and `lossOf` is the ONE spelling
+    // the draw gate and the press read too (⚖ 54).
+    expect(INT).toContain("const guardWarn = cell != null && cell.state !== 'safe' && lossOf(cell) > 0")
+  })
+
   // ⚖ 92 fix round F8 — TITLED FOR WHAT IT PROVES. This is the MODEL half: a
   // composer that hands its rows back untouched when nothing warns. The render's
   // own byte-identity claim is the test further down, which reads the JSX.
@@ -7100,10 +7168,17 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // ⚖ 92 — a class the approved design gave NO shape to keeps the engine's own
     // words rather than a fifth sentence invented here. (Synthetic: the engine
     // reaches R-SALV only through pockets this fixture day does not build.)
+    //
+    // ⚖ 9/1 ruling 2/2 — and it now carries a REAL loss (6→5), because a
+    // zero-loss salvage no longer reaches this panel at all: the ruling sends
+    // every 0枠減 fact back to the clean face's quiet △ row (pinned in the
+    // trigger test above). The subject here is unchanged — an unruled class
+    // keeps the engine's sentence, ¥-free — it just has to be asked on a cell
+    // the warn face still composes.
     const salv: RailCell = {
       start: 630, state: 'blocked', label: '—', sentence: 'ここに置くと30分の割引でしか売れない空きが残ります',
       reason: 'guard', alternatives: [], alternativeKind: null, ackAllowed: true,
-      impact: { code: 'R-SALV', capacityBefore: 6, capacityAfter: 6, windowsBefore: windows(6), windowsAfter: windows(6) },
+      impact: { code: 'R-SALV', capacityBefore: 6, capacityAfter: 5, windowsBefore: windows(6), windowsAfter: windows(5, 690) },
     }
     expect(warnFaceFor(input({ cell: salv })).impact).toEqual({
       head: 'ここに置くと30分の割引でしか売れない空きが残ります', yen: null, tail: '',
@@ -7135,12 +7210,19 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     })
     const impactOf = (cell: RailCell, listPrice = 7000) => warnFaceFor(input({ cell, listPrice })).impact
 
-    // LOSES NOTHING → the engine's own words, and NO money at all. Both codes
-    // reach this state, and both used to print the approved loss sentence.
+    // LOSES NOTHING → and ⚖ 9/1 ruling 2/2 now answers this one BEFORE the panel
+    // does: the 0枠減 scene both codes reach never composes a warn face at all,
+    // so the operator meets it on the clean card's quiet △ row. F1's own law is
+    // untouched underneath (the panel is keyed on the loss count, never the
+    // reason code) — the ruling simply took the whole zero-loss class off this
+    // face, which is a stronger version of the same honesty.
     for (const code of ['R-REP', 'DEGRADED']) {
-      expect(impactOf(built(code, 6, 6))).toEqual({
-        head: 'ここに置くと新規（90分）が入らなくなります', yen: null, tail: '',
-      })
+      const zero = warnFaceFor(input({ cell: built(code, 6, 6) }))
+      expect(zero.face).toBe('clean')
+      expect(zero.impact).toEqual({ head: '', yen: null, tail: '' })
+      // …and the engine's sentence still reaches them, in the row the clean face
+      // has always drawn (⚖ 73-74 — a record may never go invisible).
+      expect(guardCheckRow(built(code, 6, 6))!.label).toBe('ここに置くと新規（90分）が入らなくなります')
     }
     // LOSES EXACTLY ONE, R-REP → the sentence Liam signed off on, one window's
     // price beside it. (The engine's real 10:30 refusal, pinned above, is this.)
@@ -7173,10 +7255,17 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(impactOf(built('R-REP', 6, 4), 0)).toEqual({
       head: 'ここに置くと、新規のお客様の90分の空き', yen: null, tail: 'が6枠から4枠に減ります。',
     })
-    // A cell with no `impact` at all keeps the engine's sentence, untouched.
+    // A cell with no `impact` at all never reaches this panel any more: ⚖ 9/1
+    // ruling 2/2 reads the same absence as "costs nothing" and sends the whole
+    // case to the clean face. `impactOf`'s own `!cell.impact` guard stays where
+    // it is — it is that function's contract about a cell, not an echo of the
+    // trigger, and a composer that stopped defending it would be one refactor
+    // away from an empty panel.
     const bare = built('R-REP', 0, 0)
     delete (bare as { impact?: unknown }).impact
-    expect(impactOf(bare)).toEqual({ head: 'ここに置くと新規（90分）が入らなくなります', yen: null, tail: '' })
+    expect(lossOf(bare)).toBe(0)
+    expect(warnFaceFor(input({ cell: bare })).face).toBe('clean')
+    expect(INT).toContain('if (!cell.impact || !ruled) return verbatim')
     // …and so does a class the approved design gave NO shape to, even when it
     // carries a real loss. R-DEAD / R-SALV keep the engine's words and no money
     // exactly as they did before this fix — the design note about that is on
@@ -7340,16 +7429,37 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // a cost has to name the cost.
     expect(JSON.stringify(staffHold)).not.toContain('この内容で確定')
 
-    // (c) 店長のみ / 名指しロック — no commit at all, and the red line carries the
-    // source itself, so there is no second sentence saying 店舗の設定 twice.
+    // (c) 店長のみ / 名指しロック — ⚖ 9/1 ruling 1/2: THE SAME COMMIT AS (a). The
+    // dial walls only true 置けない, and a merely-costly landing the engine calls
+    // placeable is not that. The red 店長のみ line is gone from the card.
     const locked = warnFaceFor(input({ cell: REP(), level: 'refuse' }))
-    expect(locked.commit).toBeNull()
-    expect(locked.lock).toBe('この場所への配置は店長のみ（店舗の設定）')
-    expect(locked.provenance).toBeNull()
-    // Being unable to place HERE is not being unable to place: the safe answer
-    // and the greens stay exactly as they are on the staff face.
+    expect(locked.commit).toEqual(staffHold.commit)
+    expect(locked.lock).toBeNull()
+    // …but the provenance may not thank a dial that refused them: the permission
+    // clause is dropped and only the record clause stands (R-A.5).
+    expect(locked.provenance).toBe('見本 あずさの名前で記録されます')
+    expect(locked.provenance).not.toContain('許可されています')
+    // …and on their OWN lane it is the bare record sentence, the ⚖ 92 name rule
+    // unchanged by the ruling.
+    expect(warnFaceFor(input({ cell: REP(), level: 'refuse', targetLaneMine: true })).provenance).toBe('記録されます')
+    // The rest of the face is the staff face, line for line.
     expect(locked.safePrimary).toEqual(staffHold.safePrimary)
     expect(locked.greensLine).toBe(staffHold.greensLine)
+    expect(locked.rows).toEqual(staffHold.rows)
+    // The dial still decides HOW the press is made, at this level too.
+    expect(warnFaceFor(input({ cell: REP(), level: 'refuse', holdToConfirm: false })).commit)
+      .toEqual({ kind: 'press', label: '注意して配置する', enabled: true, note: null })
+    // …and ⚖ 50(d)'s gate is still the only thing that can kill the button.
+    expect(warnFaceFor(input({ cell: REP(), level: 'refuse', confirmEnabled: false })).commit)
+      .toEqual({ kind: 'hold', label: 'この位置では確定できません', enabled: false, note: null })
+    // The composer keeps no branch on the level except the approval one — the
+    // lock face is DELETED, not merely unreachable, and no return site composes
+    // the red line any more. (The sentence survives in COMMENTS only, where the
+    // overturn is recorded: a ruling that reverses four rounds of pins is worth
+    // more in the file than a tidy grep.)
+    expect(INT).not.toContain("if (level === 'refuse') {")
+    expect(INT).not.toContain("lock: 'この場所への配置は")
+    expect(INT).toContain('⚖ 9/1 ruling 1/2 (Liam, merge-gate) — THE LOCK FACE IS DELETED, AND THE')
 
     // (b) 店長承認 — COMPOSED AND UNREACHABLE. The face exists so the settings
     // round lights it; nothing in this tree can dial a store to it.
@@ -7591,70 +7701,70 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // not-blocked gate, and only a start the snap MOVED faces U1's bar (or, on
     // an impact-less staged cell, the clean bar). Every line is pinned, so the
     // split cannot be quietly collapsed back to either half.
+    //
+    // ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — AND T1'S LEVEL ARM IS GONE. It was
+    // built on the lock face being the operator's wall; the ruling deletes that
+    // face, so a locked-out operator now reads the same card, the same offers
+    // and the same commit as anyone else. Three arms, one law, every level.
     expect(SRC).toContain('      cell: offerableCell(cell, props.guard.bookingStepMin, start, (s) => {\n'
       + '        const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind\n'
-      + "        if (props.overrideLevel === 'refuse') return k === 'clean'\n"
       + "        if (cell?.alternativeKind === 'safe') return k === 'clean'\n"
       + "        if (k === 'blocked') return false\n"
       + '        if (cell?.alternatives.includes(s)) return true\n'
       + "        return cell?.impact != null ? lossOf(verdictAt(at.laneKey, s, dur, pending.id)) < stagedLoss : k === 'clean'\n"
       + '      }),')
+    // …and the level leaves the dep list with the arm that read it: nothing in
+    // the memo asks the dial any more.
+    expect(SRC).toContain('props.guard.bookingStepMin, props.rooms])')
+    expect(SRC).not.toContain("if (props.overrideLevel === 'refuse')")
     // …and the RAW engine list the split reads is threaded out of the memo, for
     // the press to mirror it with (⚖ 92 fix round 6 X2).
     expect(SRC).toContain('      engineStarts: cell?.alternatives ?? [],')
   })
 
-  /** ⚖ 92 fix round 3 T1 (breaker #1, blind lens #2) — AT THE LOCK FACE EVERY
-   *  OFFER MUST BE COMMITTABLE END TO END.
+  /** ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — THE DIAL NO LONGER NARROWS THE CARD.
    *
-   *  At 'refuse' the safe primary is the operator's ONLY door — the commit is
-   *  replaced by the 店長のみ line — so an offer that lands on another degraded
-   *  cell walls them again with 元に戻す as the only way out (execution-proven).
-   *  ⚖ 31c: the buttons perform, or they do not exist. The gate therefore asks
-   *  the LEVEL first: at 'refuse' every candidate must verdict clean, whatever
-   *  the cell claimed about its pre-snap start. */
-  it('⚖ 92 fix round 3 T1 — at 店長のみ the card offers only starts it can carry all the way', () => {
-    // A least-loss cell (it promises no 確保), engine start 11:07, step-30 store:
-    // 11:00 only cautions, and the next lattice start is walled outright.
+   *  ⚖ 92 fix round 3 T1 made the DRAW clean-only at 'refuse' on one premise:
+   *  there the safe primary was the operator's ONLY door, because the commit had
+   *  been replaced by the 店長のみ line, so an offer landing on a second degraded
+   *  cell walled them again. Liam's ruling deletes that line — the locked-out
+   *  operator reaches the same warn commit as anyone else — and with the premise
+   *  gone the extra bar only ever withheld real answers from the staff with the
+   *  fewest of them. This is T1's own scene, re-pinned to the ruling: the dial
+   *  changes NOTHING about what the card draws or offers. */
+  it('⚖ 9/1 ruling 1 — 店長のみ draws the same card, the same offers, the same commit', () => {
+    // T1's scene, unchanged: a least-loss cell (it promises no 確保), engine
+    // start 11:07, step-30 store — 11:00 only cautions, and the next lattice
+    // start is walled outright.
     const kindAt = (s: number): LandingVerdict['kind'] => (s === 660 ? 'caution' : 'blocked')
     const lossy = { ...REP(), alternatives: [667] }
     expect(lossy.alternativeKind).toBe('least-loss')
-    // The gate's LEVEL arm as the screen spells it. (⚖ 92 fix round 4 U1's
-    // strictly-better-loss clause rides the least-loss arm and is pinned in its
-    // own test below; every candidate here loses the same as the staged start,
-    // so this test is about the level axis alone.)
-    const gate = (c: RailCell, level: WarnCardInput['level']) => (s: number) =>
-      level === 'refuse' ? kindAt(s) === 'clean' : (c.alternativeKind === 'safe' ? kindAt(s) === 'clean' : kindAt(s) !== 'blocked')
+    // The gate as the screen now spells it — no level arm at all. (⚖ 92 fix
+    // round 4 U1's strictly-better-loss clause rides the least-loss arm and is
+    // pinned in its own test below; every candidate here loses the same as the
+    // staged start, so this test is about the level axis alone.)
+    const gate = (c: RailCell) => (s: number) =>
+      c.alternativeKind === 'safe' ? kindAt(s) === 'clean' : kindAt(s) !== 'blocked'
 
-    // Below 'refuse' nothing changes: the cautioned snap is a real thing to
-    // offer an operator who still has a commit control under it.
-    const staff = offerableCell(lossy, 30, 750, gate(lossy, 'allow-warned'))
-    expect(staff!.alternatives).toEqual([660])
-    expect(warnFaceFor(input({ cell: staff, level: 'allow-warned' })).safePrimary)
-      .toEqual({ kind: 'place', start: 660, main: '11:00に置く', sub: '（損を減らす）' })
-
-    // At 'refuse' that same cautioned start is refused, the lattice offers
-    // nothing else, and the card shows NO offer rather than a bouncing one…
-    const locked = offerableCell(lossy, 30, 750, gate(lossy, 'refuse'))
-    expect(locked!.alternatives).toEqual([])
-    const lockedFace = warnFaceFor(input({ cell: locked, level: 'refuse' }))
-    expect(lockedFace.safePrimary).toBeNull()
-    expect(lockedFace.commit).toBeNull()
-    // ⚖ 92 fix round 5 V3 — and the gap stays a gap: T2's engine-row append is
-    // reversed, so the impact panel above is the whole of the answer.
-    expect(lockedFace.rows).toEqual([])
-
-    // A clean snap on the same lattice IS offered at 'refuse': the level
-    // tightens the gate, it does not empty the slot.
-    const kindClean = (s: number): LandingVerdict['kind'] => (s === 660 ? 'caution' : 'clean')
-    const reachable = offerableCell(lossy, 30, 750, (s) => kindClean(s) === 'clean')
-    expect(reachable!.alternatives).toEqual([690])
-    expect(warnFaceFor(input({ cell: reachable, level: 'refuse' })).safePrimary)
-      .toEqual({ kind: 'place', start: 690, main: '11:30に置く', sub: '（損を減らす）' })
-
-    // The level is a real dep of the memo that draws the offer, so a dial change
-    // alone recomputes it rather than leaving the looser answer on the card.
-    expect(SRC).toContain('props.guard.bookingStepMin, props.rooms, props.overrideLevel])')
+    // The cautioned snap is a real thing to offer, and the level does not change
+    // that: the SAME cell, the SAME offer, at both live dials.
+    const drawn = offerableCell(lossy, 30, 750, gate(lossy))
+    expect(drawn!.alternatives).toEqual([660])
+    for (const level of ['allow-warned', 'refuse'] as const) {
+      expect(warnFaceFor(input({ cell: drawn, level })).safePrimary)
+        .toEqual({ kind: 'place', start: 660, main: '11:00に置く', sub: '（損を減らす）' })
+    }
+    // …and at 'refuse' the commit is under it now, which is the whole ruling:
+    // the operator is told the cost and may confirm it, out loud.
+    const locked = warnFaceFor(input({ cell: drawn, level: 'refuse' }))
+    expect(locked.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+    expect(locked.lock).toBeNull()
+    // The two faces differ in exactly ONE field — the provenance, which may not
+    // claim a permission the store withheld (R-A.5).
+    const staff = warnFaceFor(input({ cell: drawn, level: 'allow-warned' }))
+    expect({ ...locked, provenance: null }).toEqual({ ...staff, provenance: null })
+    expect(staff.provenance).toBe('店舗の設定で、スタッフの上書きが許可されています。見本 あずさの名前で記録されます')
+    expect(locked.provenance).toBe('見本 あずさの名前で記録されます')
   })
 
   /** ⚖ 92 fix round 4 U1 (breaker #3) — A LEAST-LOSS OFFER MUST BE STRICTLY
@@ -7683,14 +7793,12 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
       foreignRefusal: null, locked: [] as string[], rooms: POLICY,
       minutesOf: (x: number) => minuteOf(x, HOURS),
     }, at(s)).kind
-    // The screen's own `lossOf`, reading the same `verdictAt` door the memo's
-    // own cell comes through: a null cell, a safe cell and a cell with no
-    // `impact` all cost the store nothing.
-    const lossOf = (c: RailCell | null) =>
-      c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter
-    /** The gate as the screen spells it — level arm, own-claim arm, least-loss
-     *  arm. `k` is injectable only so the refuse arm can be driven past a CLEAN
-     *  start this particular board never produces; the losses stay real.
+    // `lossOf` is the SHIPPED one, imported — ⚖ 9/1 ruling 2/2 re-homed it into
+    // today-interactions, so the replica this test used to carry is gone and the
+    // model below reads the very function the screen does.
+    /** The gate as the screen spells it — own-claim arm, least-loss arm. `k` is
+     *  injectable only so a CLEAN start this particular board never produces can
+     *  be driven through; the losses stay real.
      *
      *  ⚖ 92 fix round 6 X1 (breaker #5) — carried forward to the SHIPPED split:
      *  an engine-own start is trusted on the guard's full-key word, and only a
@@ -7698,8 +7806,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
      *  by that, which is exactly the point — this scene's offers are all snapped
      *  neighbours (10:45 / 12:15 are off a half-hour lattice), so U1's law is
      *  still the whole of what decides them. THE REGRESSION PIN for round 6. */
-    const gate = (cell: RailCell, staged: number, level: WarnCardInput['level'], k = kindAt) => (s: number) => {
-      if (level === 'refuse') return k(s) === 'clean'
+    const gate = (cell: RailCell, staged: number, k = kindAt) => (s: number) => {
       if (cell.alternativeKind === 'safe') return k(s) === 'clean'
       if (k(s) === 'blocked') return false
       if (cell.alternatives.includes(s)) return true
@@ -7727,7 +7834,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // so neither is offered — the slot goes empty rather than selling a bigger
     // loss on the card that is warning about the smaller one…
     expect(lossOf(at(750))).toBe(1)
-    const fixed = offerableCell(staged, 30, 660, gate(staged, lossOf(staged), 'allow-warned'))
+    const fixed = offerableCell(staged, 30, 660, gate(staged, lossOf(staged)))
     expect(fixed!.alternatives).toEqual([])
     // ⚖ 92 fix round 6 X1 (breaker #5) — and 12:00 is refused BY THE MOVED-START
     // ARM: the engine never ranked it (it is 12:15's floored neighbour), so the
@@ -7749,22 +7856,26 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // where 「損が最少」 claimed a rank of a start the guard never scored.
     const worse = at(720)!
     expect(lossOf(worse)).toBe(2)
-    const better = offerableCell(worse, 30, 720, gate(worse, lossOf(worse), 'allow-warned'))
+    const better = offerableCell(worse, 30, 720, gate(worse, lossOf(worse)))
     expect(better!.alternatives).toEqual([660, 750])
     expect(warnFaceFor(input({ cell: better })).safePrimary)
       .toEqual({ kind: 'place', start: 660, main: '11:00に置く', sub: '（損を減らす）' })
 
-    // THE REFUSE ARM IS UNTOUCHED — the loss clause never reaches it, because
-    // ⚖ 92 fix round 3 T1's clean-only bar is already stricter than any loss
-    // comparison. Injected kinds, because no start on this board verdicts
-    // clean: 12:30 is CLEAN and costs the store exactly what staying at 11:00
-    // costs, so it is NOT strictly better — and 店長のみ offers it anyway.
+    // ⚖ 9/1 ruling 1/2 — AND THE LOSS CLAUSE IS NOW THE LAW AT EVERY DIAL. Round
+    // 4 exempted 'refuse' because ⚖ 92 fix round 3 T1's clean-only bar stood in
+    // front of it; the ruling deletes that bar, so a start that is merely CLEAN
+    // faces the same question every other candidate does — is the store better
+    // off there? Injected kinds, because no start on this board verdicts clean:
+    // 12:30 is CLEAN and costs the store exactly what staying at 11:00 costs, so
+    // it is NOT strictly better and it is offered to nobody.
     const cleanAt = (s: number): LandingVerdict['kind'] => (s === 750 ? 'clean' : 'blocked')
     expect(lossOf(at(750))).toBe(lossOf(staged))
-    expect(offerableCell(staged, 30, 660, gate(staged, lossOf(staged), 'refuse', cleanAt))!.alternatives).toEqual([750])
-    // …and below 'refuse' that same start is refused BY the loss clause, which
-    // is the whole of what round 4 changed.
-    expect(offerableCell(staged, 30, 660, gate(staged, lossOf(staged), 'allow-warned', cleanAt))!.alternatives).toEqual([])
+    expect(offerableCell(staged, 30, 660, gate(staged, lossOf(staged), cleanAt))!.alternatives).toEqual([])
+    // …and the card says the same thing at both dials, which is the ruling in
+    // one line: the offer is a fact about the BOARD, never about the operator.
+    for (const level of ['allow-warned', 'refuse'] as const) {
+      expect(warnFaceFor(input({ cell: offerableCell(staged, 30, 660, gate(staged, lossOf(staged), cleanAt)), level })).safePrimary).toBeNull()
+    }
   })
 
   /** ⚖ 92 fix round 6 X1 (breaker #5) — THE GATE TRUSTS THE ENGINE WHERE THE
@@ -7789,7 +7900,10 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(SRC).toContain('        if (cell?.alternatives.includes(s)) return true\n')
     expect(SRC).toContain("        return cell?.impact != null ? lossOf(verdictAt(at.laneKey, s, dur, pending.id)) < stagedLoss : k === 'clean'\n")
 
-    /** The screen's own gate, all five arms, exactly as it now spells them. */
+    /** The screen's own gate, all three arms, exactly as it now spells them.
+     *  `lossOf` is the SHIPPED function, imported — ⚖ 9/1 ruling 2/2 re-homed it
+     *  into today-interactions, which retires the replica ⚖ 92 final hygiene F9
+     *  had to keep in step by hand. */
     const gateFor = (lanes: BoardLane[], rail: typeof railIn, dur: number) => {
       const at = (s: number) => guardVerdictAt(lanes, 'p-01', s, rail)
       const kindAt = (s: number): LandingVerdict['kind'] => landingVerdict(lanes, {
@@ -7798,15 +7912,12 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
         foreignRefusal: null, locked: [] as string[], rooms: POLICY,
         minutesOf: (x: number) => minuteOf(x, HOURS),
       }, at(s)).kind
-      const lossOf = (c: RailCell | null) =>
-        c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter
-      // ⚖ 92 final hygiene (breaker #6 F9) — the replica was missing the gate's
-      // FIRST arm: `props.overrideLevel === 'refuse'`. Left out, this helper
-      // could silently diverge from the shipped gate it is named for, so it is
-      // threaded in here as an optional param, first in the check order exactly
-      // as TodayScreen.tsx spells it (:2334) — ahead of even the 'safe' arm.
-      const shipped = (cell: RailCell, overrideLevel?: string) => (s: number) => {
-        if (overrideLevel === 'refuse') return kindAt(s) === 'clean'
+      // ⚖ 92 final hygiene (breaker #6 F9) threaded the gate's FIRST arm —
+      // `props.overrideLevel === 'refuse'` — in here so the replica could not
+      // silently diverge from the shipped gate it is named for. ⚖ 9/1 ruling 1/2
+      // DELETES that arm from the screen, so it leaves this helper by the same
+      // rule: the dial no longer narrows what the card may offer.
+      const shipped = (cell: RailCell) => (s: number) => {
         if (cell.alternativeKind === 'safe') return kindAt(s) === 'clean'
         if (kindAt(s) === 'blocked') return false
         if (cell.alternatives.includes(s)) return true
@@ -7834,11 +7945,20 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(rep.alternatives.map((s) => one.lossOf(one.at(s)))).toEqual([1, 1])
     expect(rep.alternatives.map(one.kindAt)).toEqual(['caution', 'caution'])
 
-    // ⚖ 92 final hygiene (breaker #6 F9) — THE REFUSE ARM, first in the gate's
-    // own order: it demands a clean candidate before any later arm gets a
-    // look, so even the engine's own starts (600, 690 — trusted at arm 4
-    // above) are refused here, because neither one is clean at this dial.
-    expect(rep.alternatives.map((s) => one.shipped(rep, 'refuse')(s))).toEqual([false, false])
+    // ⚖ 9/1 ruling 1/2 — AND THE DIAL NO LONGER TAKES THEM AWAY. ⚖ 92 final
+    // hygiene F9 pinned the refuse arm here: first in the gate's own order, it
+    // demanded a clean candidate before any later arm got a look, so even the
+    // engine's own starts (600, 690 — trusted at arm 3 below) were refused to a
+    // locked-out operator, and the card that was warning them about a loss
+    // offered them nothing. That arm is deleted; the gate answers the same at
+    // every dial, and the composer hands the same offer to both.
+    expect(rep.alternatives.map((s) => one.shipped(rep)(s))).toEqual([true, true])
+    const repAtDials = (['allow-warned', 'refuse'] as const).map((level) =>
+      warnFaceFor(input({ cell: offerableCell(rep, railIn.stepMin, 630, one.shipped(rep)), level })).safePrimary)
+    expect(repAtDials).toEqual([
+      { kind: 'place', start: 600, main: '10:00に置く', sub: '（損を減らす）' },
+      { kind: 'place', start: 600, main: '10:00に置く', sub: '（損を減らす）' },
+    ])
 
     // THE DEFECT: `1 < 1` is false twice, so a card whose entire subject is a
     // loss offered the operator nothing at all — no safe answer under it, and
@@ -7874,23 +7994,43 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
 
     // THE DEFECT, sharper here: no `impact` means `stagedLoss` is 0, and no
     // candidate can lose LESS than nothing. The clause was unsatisfiable, so the
-    // face lost every offer it had — a dead end with no commit under it either
-    // (⚖ 92 fix round 4 U3: physics is not a floor a manager can be given
-    // authority over), which leaves 元に戻す as the operator's whole vocabulary.
+    // GATE lost every offer it had, which left 元に戻す as the operator's whole
+    // vocabulary on the surface that drew this cell.
     expect(two.lossOf(bed)).toBe(0)
-    const bedBroken = warnFaceFor(input({ cell: offerableCell(bed, roomRail.stepMin, 720, two.roundFour(bed)) }))
-    expect(bedBroken.safePrimary).toBeNull()
-    expect(bedBroken.commit).toBeNull()
+    expect(offerableCell(bed, roomRail.stepMin, 720, two.roundFour(bed))!.alternatives).toEqual([])
 
     // THE SHIPPED GATE: the engine's own starts come back, and the operator has
-    // somewhere to go again. The impact panel is unchanged — the engine's
-    // verbatim sentence, ¥-free, exactly as `impactOf`'s unruled arm leaves it.
+    // somewhere to go again.
     const bedFixed = offerableCell(bed, roomRail.stepMin, 720, two.shipped(bed))!
     expect(bedFixed.alternatives).toEqual([600, 780])
+
+    // ⚖ 9/1 ruling 2/2 — AND THIS CELL NO LONGER RE-FACES THE CARD AT ALL. It
+    // carries no `impact`, so it costs the store no protected window, and the
+    // ruling sends every zero-loss guard fact back to the clean face's quiet △
+    // row. The record is unchanged — the engine's own sentence is what that row
+    // says (⚖ 73-74) — and the landing is walled by ⚖ 50(d)'s own gate on that
+    // face, which is where a 置けない has always been answered. The amber panel
+    // and the 0.6-秒 hold are what leave: neither was ever about a bed.
     const bedFace = warnFaceFor(input({ cell: bedFixed }))
-    expect(bedFace.safePrimary).toEqual({ kind: 'place', start: 600, main: '10:00に置く', sub: '（損を減らす）' })
+    expect(bedFace.face).toBe('clean')
     expect(bedFace.commit).toBeNull()
-    expect(bedFace.impact).toEqual({ head: 'この開始ではベッドを60分確保できません', yen: null, tail: '' })
+    expect(guardCheckRow(bedFixed)).toEqual({ label: 'この開始ではベッドを60分確保できません', tone: 'warn' })
+    // …and it stays that answer at the locked-out dial too (⚖ 9/1 ruling 1/2:
+    // the level decides nothing the board has not already decided).
+    expect(warnFaceFor(input({ cell: bedFixed, level: 'refuse' })).face).toBe('clean')
+    // A walked-past sentence over this same cell still warns, and the physics
+    // branch is what answers it — commit-less, provenance-less, lock-less, on
+    // the engine's own word (⚖ 92 fix round 4 U3 / 5 V2, untouched).
+    const bedWithOverride = warnFaceFor(input({
+      cell: bedFixed, level: 'refuse', override: '満室です',
+      rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }],
+    }))
+    expect(bedFixed.ackAllowed).toBe(false)
+    expect(bedWithOverride.face).toBe('warn')
+    expect(bedWithOverride.commit).toBeNull()
+    expect(bedWithOverride.provenance).toBeNull()
+    expect(bedWithOverride.lock).toBeNull()
+    expect(bedWithOverride.safePrimary).toEqual({ kind: 'place', start: 600, main: '10:00に置く', sub: '（損を減らす）' })
 
     // AND THE MOVED-START ARM IS STILL STRICT on this very cell: 13:30 is a
     // start the engine never ranked, and an impact-less staged cell has no loss
@@ -7909,12 +8049,13 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
    *  cautioned start under a promise it was breaking. Same refuse() door. */
   it('⚖ 92 fix round 3 T6 — a 確保を壊さない offer refuses at the press unless it is still clean', () => {
     const fn = SRC.slice(SRC.indexOf('function placePendingAt('), SRC.indexOf('// ── ⚖ LIAM flag 92 — the long press'))
-    // ⚖ 92 fix round 4 U2 (breaker #3) — AND THE LOCK FACE'S DRAW GATE RIDES THE
-    // SAME CONDITION. ⚖ 92 fix round 3 T1 made the DRAW at 'refuse' clean-only,
-    // because there the safe primary is the operator's only door and there is no
-    // commit under it to walk past a second degraded cell with — but the press
-    // kept re-judging with 'not blocked', so a board that moved between the draw
-    // and the finger landed the card exactly where T1 exists to stop it landing.
+    // ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — AND ⚖ 92 fix round 4 U2'S HALF OF
+    // THIS CONDITION IS GONE WITH THE DRAW ARM IT MIRRORED. U2 put
+    // `props.overrideLevel === 'refuse'` into `demandedClean` so the press could
+    // not land what T1's clean-only DRAW gate refused; the ruling deletes that
+    // draw arm, so keeping it here would make the press STRICTER than the draw —
+    // refusing a start the card openly offered, ⚖ 31c pointing the other way.
+    // T6's own 確保 condition is untouched and is again the whole of it.
     //
     // ⚖ 92 fix round 6 X2 (breaker #5) — AND THE THIRD ARM RIDES IT TOO. X1
     // split the DRAW's least-loss arm on who chose the start; the press kept
@@ -7924,7 +8065,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // read off the drawn cell itself — `offerableCell` rebuilds `alternatives`
     // and nothing else — so no second verdict is asked for it.
     expect(fn).toContain('    const drawn = pendingGuardRow.cell\n'
-      + "    const demandedClean = drawn?.alternativeKind === 'safe' || props.overrideLevel === 'refuse'\n"
+      + "    const demandedClean = drawn?.alternativeKind === 'safe'\n"
       + '    const movedStartRefused =\n'
       + '      !demandedClean\n'
       + '      && !pendingGuardRow.engineStarts.includes(start)\n'
@@ -7939,10 +8080,15 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(fn.match(/refuse\(again\.reason \?\? '配置できません'\)/g)).toHaveLength(2)
     expect(fn.match(/again\.kind !== 'clean'/g)).toHaveLength(1)
     // …and the loss the press compares against is the ONE `lossOf` the draw uses
-    // — hoisted to module scope by X2 precisely so the two cannot drift.
-    expect(SRC).toContain('const lossOf = (c: RailCell | null): number =>\n'
+    // — hoisted to module scope by X2 precisely so the two cannot drift, and
+    // re-homed into today-interactions by ⚖ 9/1 ruling 2/2, where the composer's
+    // own trigger now reads it too. Three readers, ONE definition (⚖ 54): the
+    // screen imports it and holds no spelling of its own.
+    expect(INT).toContain('export const lossOf = (c: RailCell | null): number =>\n'
       + "  c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter")
-    expect(SRC.match(/const lossOf = /g)).toHaveLength(1)
+    expect(INT.match(/const lossOf = /g)).toHaveLength(1)
+    expect(SRC).not.toContain('const lossOf = ')
+    expect(SRC).toContain('  lossOf,\n')
     // …and it stands BEFORE anything is staged.
     expect(fn.lastIndexOf('refuse(')).toBeLessThan(fn.indexOf('stage('))
     // A least-loss offer BELOW 'refuse' keeps the ordinary gate: 「損を減らす」
@@ -8012,15 +8158,12 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(dead.provenance).toBeNull()
     expect(dead.lock).toBeNull()
 
-    // ⚖ 92 fix round 5 V2 (breaker #4) — PHYSICS OUTRANKS THE DIAL. Round 4 put
-    // this branch UNDER 'refuse', so a locked-out operator standing on an
-    // impossible start read 「この場所への配置は店長のみ（店舗の設定）」 — the store's
-    // setting named as the obstacle on a spot no setting governs, sending them to
-    // ask a manager the same physics refuses. This branch's own law is the
-    // citation ("naming the manager sends the operator to ask for something no
-    // manager can grant"), and it does not stop being true because the dial
-    // happens to refuse them too. So the impossible-floor face answers FIRST, at
-    // every level, and the operator reads the engine's own sentence.
+    // ⚖ 92 fix round 5 V2 (breaker #4) — PHYSICS OUTRANKS THE DIAL, and ⚖ 9/1
+    // ruling 1/2 is the sharpest version of that: the dial's own lock face is
+    // DELETED, so this branch is the only thing on the card that still refuses a
+    // commit — and it refuses it for the engine's reason, at every level. His
+    // rule in his own terms: the dial walls only true 置けない, and this is what
+    // true 置けない looks like.
     const locked = warnFaceFor(input({ cell: strict, level: 'refuse' }))
     expect(locked.lock).toBeNull()
     expect(locked.commit).toBeNull()
@@ -8030,45 +8173,63 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // something no manager can approve is the same lie in a different control.
     expect(warnFaceFor(input({ cell: strict, level: 'needs-approval' })).commit).toBeNull()
     expect(warnFaceFor(input({ cell: strict, level: 'needs-approval' })).lock).toBeNull()
-    // The dial's own face is UNTOUCHED for a cell the engine calls placeable —
-    // 'refuse' still locks a landing that is merely costly (⚖ 92 fix round 2 S6
-    // pins the DEGRADED case), so V2 narrowed the lock line rather than removing
-    // it. `ackAllowed` is the whole of the difference.
+    // AND THE OTHER HALF OF HIS RULE, on the same pair of cells: a landing the
+    // engine calls PLACEABLE is not the dial's to wall any more. `ackAllowed` is
+    // still the whole of the difference — it now decides whether there is a
+    // commit at all, where the level used to decide it too.
     expect(REP().ackAllowed).toBe(true)
-    expect(warnFaceFor(input({ cell: REP(), level: 'refuse' })).lock).toBe('この場所への配置は店長のみ（店舗の設定）')
-    // …and the composer really asks the physics first, which is what a reader of
-    // the branch order can check: the ack-allowed test stands above the level.
-    expect(INT.indexOf("cell.ackAllowed === false")).toBeLessThan(INT.indexOf("if (level === 'refuse') {"))
+    const costly = warnFaceFor(input({ cell: REP(), level: 'refuse' }))
+    expect(costly.lock).toBeNull()
+    expect(costly.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+    // …and the provenance under it does not claim a permission the store
+    // withheld: the record clause alone (R-A.5).
+    expect(costly.provenance).toBe('見本 あずさの名前で記録されます')
+    // The composer really asks the physics branch and nothing else: no level
+    // branch stands beside it any more, and `lock` has no producer at all.
+    expect(INT).toContain("if (cell != null && cell.state === 'blocked' && cell.ackAllowed === false) {")
+    expect(INT.match(/lock: null/g)).toHaveLength(3)
+    expect(INT).not.toContain("lock: 'この場所への配置は")
   })
 
-  /** ⚖ 92 fix round 2 S6 — THE DEGRADED CELL UNDER 店長のみ IS THE RULING, NOT A
-   *  DEFECT. The round-2 stress lens read this face as a blocker: a landing
-   *  `computeChecks` calls confirmable, shown with no commit control at all. It
-   *  was adjudicated NO CHANGE (FIXLIST-round2 A1) — flag 92's ⚖ RULED block
-   *  extends the store's dial to the warn card's faces, and PKT-MOCK-WARN-CONFIRM
-   *  face 3 spells this exact shape: 置けない at 店長のみ, the commit replaced by
-   *  the lock line, "the alternatives row kept and promoted (staff can still do
-   *  the right thing)". Pinned here so a future round cannot fix the ruling away
-   *  by mistaking a deliberate face for an oversight. */
-  it('⚖ 92 fix round 2 S6 — a DEGRADED landing at 店長のみ locks by DESIGN, and still offers the right thing', () => {
+  /** ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — THE DEGRADED CELL UNDER 店長のみ
+   *  CONFIRMS, AND ⚖ 92 fix round 2 S6 IS OVERTURNED WITH THE FACE IT PINNED.
+   *
+   *  S6 pinned the opposite of this: a landing `computeChecks` calls confirmable,
+   *  shown at 店長のみ with the red lock line and NO commit control. The round-2
+   *  stress lens had read that as a blocker and it was adjudicated NO CHANGE
+   *  (FIXLIST-round2 A1) on PKT-MOCK-WARN-CONFIRM's face 3 — 置けない at 店長のみ,
+   *  the commit replaced by the lock line. Rounds 3 T1, 4 U2 and 6 X1 then built
+   *  a narrower card on top of that reading.
+   *
+   *  Asked the sharpened question at the merge gate, Liam picked "Loosen it": the
+   *  dial walls only true 置けない, and a cost the engine will let the store pay
+   *  is not that. The three dissenting reviewers were right; the face-3 reading
+   *  was wrong. Same cell, same dial, opposite pin — and it says out loud which
+   *  way it was decided, so the next lens reads a ruling rather than a drift. */
+  it('⚖ 9/1 ruling 1 — a DEGRADED landing at 店長のみ confirms, out loud (S6 overturned)', () => {
     // DEG is `computeChecks`-confirmable and ack-allowed: the engine says this
-    // start is placeable, and the store's dial is what refuses it.
+    // start is placeable, which is exactly why the dial may no longer refuse it.
     expect(DEG().ackAllowed).toBe(true)
     const locked = warnFaceFor(input({ cell: DEG(), level: 'refuse' }))
-    // Face 3, verbatim: the lock line carries its own source…
-    expect(locked.lock).toBe('この場所への配置は店長のみ（店舗の設定）')
-    // …the commit is REPLACED by it, not greyed beside it…
-    expect(locked.commit).toBeNull()
-    // …and the safe answer stays, because being unable to place HERE is not
-    // being unable to place. On DEG the engine has no better start to name, so
-    // the slot is empty — and (⚖ 92 fix round 5 V3) nothing is appended in its
-    // place: the impact panel already states the loss in the approved words.
+    // The red line is gone from the card…
+    expect(locked.lock).toBeNull()
+    // …and the commit that was replaced by it is back, naming its own cost.
+    expect(locked.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+    // The panel above it is unchanged — the operator is told what it costs
+    // before they are allowed to pay it, which is the whole of flag 92.
+    expect(locked.impact.head).toBe('ここに置くと、新規のお客様の90分の空き')
+    expect(locked.impact.tail).toBe('が6枠から5枠に減ります。')
+    // On DEG the engine has no better start to name, so the slot is empty — and
+    // (⚖ 92 fix round 5 V3) nothing is appended in its place.
     expect(locked.safePrimary).toBeNull()
     expect(locked.rows).toEqual([])
-    // The dial alone is the difference: the SAME cell at the shipped default
-    // level commits normally, so nothing here is a gate on the landing itself.
-    expect(warnFaceFor(input({ cell: DEG() })).commit)
-      .toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+    // The dial now changes exactly ONE thing on this card: whose authority the
+    // record carries. Everything else is the shipped default's face, field for
+    // field (R-A.5).
+    const staff = warnFaceFor(input({ cell: DEG() }))
+    expect({ ...locked, provenance: null }).toEqual({ ...staff, provenance: null })
+    expect(locked.provenance).toBe('見本 あずさの名前で記録されます')
+    expect(staff.provenance).toBe('店舗の設定で、スタッフの上書きが許可されています。見本 あずさの名前で記録されます')
     // ⚖ 31b's note says the same thing where the row is composed, so the two
     // laws stop reading as a contradiction to the next lens that arrives.
     expect(SRC).toContain('degraded landing stays confirmable — at the shipped default level; ⚖ flag')

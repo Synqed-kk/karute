@@ -3408,8 +3408,12 @@ export interface WarnCardModel {
   impact: { head: string; yen: string | null; tail: string }
   /** Where the authority came from, and whose name the record will carry. */
   provenance: string | null
-  /** The 店長のみ line. Exclusive with `provenance` — the approved design lets
-   *  the red line carry the source itself rather than saying it twice. */
+  /** The red 店長のみ line, and ⚖ 9/1 ruling 1/2 LEFT IT WITH NO PRODUCER: the
+   *  dial no longer walls a merely-costly landing, so nothing in this composer
+   *  fills it any more. Kept — slot, render and its one red CSS rule — for the
+   *  same stated reason the 'needs-approval' face is kept unreachable: the
+   *  settings round owns the presets, and a wall it may yet decide to light must
+   *  be RE-LIT rather than re-invented. Always `null` until then. */
   lock: string | null
   /** The safe answer, and it is always the biggest control on the card. `place`
    *  is a real alternative start; `null` omits the slot (⚖ 31c — never a dead
@@ -3602,9 +3606,38 @@ function impactOf(cell: RailCell, listPrice: number, protectedDur: number, frame
     : { head: `${head}の空き`, yen: null, tail: yen ? `${shrink}（${loss}枠分・${yen}）。` : `${shrink}。` }
 }
 
+/** ⚖ 92 fix round 4 U1 — WHAT A LANDING COSTS THE STORE, in the one number the
+ *  warn card is already about: protected windows before, minus after. A null
+ *  cell, a safe cell and a cell that never reached the capacity question all
+ *  cost nothing — `impact` is absent exactly where the engine never weighed it.
+ *
+ *  ⚖ 92 fix round 6 X2 (breaker #5) — LIFTED OUT so the DRAW and the PRESS read
+ *  one definition. The press re-asks the draw's own least-loss rule
+ *  (`placePendingAt`), and two spellings of "what does this cost" is ⚖ 54's
+ *  disease in the one place where the two answers must agree by construction.
+ *
+ *  ⚖ 9/1 ruling 2/2 (Liam, merge-gate) — RE-HOMED HERE, out of TodayScreen, for
+ *  that same ⚖ 54 reason one scope wider: the ruling makes this number the warn
+ *  face's own TRIGGER, so the composer, the draw gate and the press now all ask
+ *  it. Three readers, one spelling, and the screen imports it. */
+export const lossOf = (c: RailCell | null): number =>
+  c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter
+
 export function warnFaceFor(input: WarnCardInput): WarnCardModel {
   const { cell, rows, level, protectedDur, operatorName } = input
-  const guardWarn = cell != null && cell.state !== 'safe'
+  /** ⚖ 9/1 ruling 2/2 (Liam, merge-gate) — ZERO-LOSS IS QUIET. The trigger used
+   *  to be "any non-safe cell", which lit the amber face and the long press over
+   *  guard facts that cost the store NOTHING: a 0枠減 DEGRADED residue, R-DEAD,
+   *  R-SALV, a repertoire R-REP whose count never moved. His pick at the gate:
+   *  the warn face and the hold fire only where protected 新規 windows are
+   *  actually lost, and everything else goes back to the clean face's quiet △
+   *  row — which is exactly where those facts lived before flag 92, and where
+   *  `pendingGuardRow.row` still renders them.
+   *
+   *  `state !== 'safe'` is kept beside it though `lossOf` already answers 0 for a
+   *  safe cell: it is the sentence the ruling is written in, and it says out loud
+   *  that a safe cell was never a fact at all. */
+  const guardWarn = cell != null && cell.state !== 'safe' && lossOf(cell) > 0
   // The trigger, and it is the OR the ruling names: the guard found a fact, or a
   // row was already walked past. `tone === 'warn'` is the △ row itself, so a
   // future warn-grade row lights this face without a second predicate.
@@ -3659,7 +3692,7 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
   // own rule: 「記録の名前は、他の人のシフトに置くときだけ表示されます（自動）」).
   // Printing the operator's own name back at them on their own shift is noise;
   // on someone else's shift it is the whole point of the line.
-  const recorded = input.targetLaneMine ? '。記録されます' : `。${operatorName}の名前で記録されます`
+  const recordedBare = input.targetLaneMine ? '記録されます' : `${operatorName}の名前で記録されます`
 
   // ⚖ 92 / ruling 91 — THREE LEVELS, THREE FACES, and they are not flattened.
   //
@@ -3701,18 +3734,33 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
   if (cell != null && cell.state === 'blocked' && cell.ackAllowed === false) {
     return { face: 'warn', impact, provenance: null, lock: null, safePrimary, commit: null, rows: kept, greensLine: greensLineOf(oks) }
   }
-  if (level === 'refuse') {
-    // The lock face carries the source in the red line itself (approved design),
-    // so it has no provenance line — saying 店舗の設定 twice on one small card is
-    // the badge-repeating-a-label defect. The safe primary and 元に戻す stay:
-    // being unable to place HERE is not being unable to place.
-    //
-    // ⚖ 92 fix round 5 V2 (breaker #4) — and the cell is one the engine calls
-    // PLACEABLE by the time this is reached: the impossible-floor branch above
-    // has already answered, so the 店舗の設定 this line names really is the only
-    // thing standing in the operator's way.
-    return { face: 'warn', impact, provenance: null, lock: 'この場所への配置は店長のみ（店舗の設定）', safePrimary, commit: null, rows: kept, greensLine: greensLineOf(oks) }
-  }
+  /** ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — THE LOCK FACE IS DELETED, AND THE
+   *  READING THAT BUILT IT IS OVERTURNED.
+   *
+   *  A `level === 'refuse'` branch used to stand here and return the red line
+   *  「この場所への配置は店長のみ（店舗の設定）」 with no commit at all, so a
+   *  locked-out operator standing on a merely-COSTLY start (ack-allowed,
+   *  `computeChecks`-confirmable) was walled by the dial. It was composed from
+   *  PKT-MOCK-WARN-CONFIRM's face 3 and pinned as deliberate by rounds 2 S6 /
+   *  3 T1 / 4 U2 / 6 X1 against three dissenting reviewers who read it as a
+   *  blocker.
+   *
+   *  Asked the sharpened question at the merge gate, Liam picked "Loosen it".
+   *  The three reviewers were right and Fable's face-3 reading was wrong, and it
+   *  is recorded here rather than quietly deleted. His rule now: the dial walls
+   *  only TRUE 置けない — the engine's own impossible floors, which the branch
+   *  above already answers commit-less by ⚖ 73, and the consult box's
+   *  policy-floor override, which stays `canOverride`-gated on its own surface.
+   *  A cost the engine will let the store pay is not the dial's to forbid; it is
+   *  the operator's to confirm, out loud, through the warn commit.
+   *
+   *  So every level below 承認 now composes the SAME staff-OK anatomy — the
+   *  provenance line and the hold/press commit — and the level is left saying
+   *  only what it is still true about: WHOSE authority the record carries
+   *  (`provenance` below) and whether an approval is owed (`needs-approval`).
+   *  `WarnCardModel.lock` is kept as a slot with no producer, exactly as the
+   *  'needs-approval' face is kept unreachable: the settings round owns the
+   *  presets, and re-lighting a wall there must not mean re-inventing it. */
   const commit: WarnCardCommit =
     level === 'needs-approval'
       // ⚖ 92 fix round F5 (blind L1#9) — AND IT RENDERS DISABLED. The request
@@ -3745,8 +3793,18 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
           enabled: input.confirmEnabled,
           note: null,
         }
+  /** ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — AND THE LINE MAY NOT THANK A DIAL
+   *  THAT REFUSED. With the lock face gone, a 'refuse' operator reaches the same
+   *  commit as a permitted one — but 「店舗の設定で、スタッフの上書きが許可され
+   *  ています」 would be a plain lie to them: the store did NOT permit their
+   *  overrides, and this ruling is what lets them confirm anyway. So at 'refuse'
+   *  the permission clause is dropped and only the record clause stands, in the
+   *  same words the two permitted faces already use (the ⚖ 92 name rule
+   *  unchanged: the operator's name on someone else's lane, bare on their own). */
   const provenance =
-    (level === 'needs-approval' ? '店舗の設定で、上書きには店長の承認が必要です' : '店舗の設定で、スタッフの上書きが許可されています') + recorded
+    level === 'refuse'
+      ? recordedBare
+      : (level === 'needs-approval' ? '店舗の設定で、上書きには店長の承認が必要です' : '店舗の設定で、スタッフの上書きが許可されています') + `。${recordedBare}`
   return { face: 'warn', impact, provenance, lock: null, safePrimary, commit, rows: kept, greensLine: greensLineOf(oks) }
 }
 

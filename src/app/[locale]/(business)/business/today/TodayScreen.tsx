@@ -98,6 +98,7 @@ import {
   isOverShelf,
   laneKeyAtY,
   landingVerdict,
+  lossOf,
   bedClassCell,
   nearestFreeStarts,
   needsPrivateRoom,
@@ -770,18 +771,6 @@ interface GuardAdvice {
    *  own, which is exactly flag 41's: it dies with every ending. */
   attempt: { id: string; staffLane: string | null; bedLane: string | null; span: { x: number; w: number } } | null
 }
-
-/** ⚖ 92 fix round 4 U1 — WHAT A LANDING COSTS THE STORE, in the one number the
- *  warn card is already about: protected windows before, minus after. A null
- *  cell, a safe cell and a cell that never reached the capacity question all
- *  cost nothing — `impact` is absent exactly where the engine never weighed it.
- *
- *  ⚖ 92 fix round 6 X2 (breaker #5) — LIFTED OUT HERE so the DRAW and the PRESS
- *  read one definition. The press now re-asks the draw's own least-loss rule
- *  (`placePendingAt` below), and two spellings of "what does this cost" is ⚖ 54's
- *  disease in the one place where the two answers must agree by construction. */
-const lossOf = (c: RailCell | null): number =>
-  c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter
 
 export function TodayScreen(props: TodayProps) {
   const { hours, ops, dialogs } = props
@@ -2251,17 +2240,16 @@ export function TodayScreen(props: TodayProps) {
      *  not-blocked gate it always had. The shared wrapper is untouched — its
      *  other callers make no such promise about the starts they show.
      *
-     *  ⚖ 92 fix round 3 T1 (breaker #1) — AND AT THE LOCK FACE EVERY OFFER MUST
-     *  BE COMMITTABLE END TO END. At 'refuse' the card's biggest control is the
-     *  operator's ONLY door: the commit is replaced by the 店長のみ line, so a
-     *  start offered here is the whole of what they can do. The round-2 gate let
-     *  a least-loss cell offer a cautioned start, and pressing it landed the card
-     *  on a second degraded cell that walled again — the only way out being
-     *  元に戻す. ⚖ 31c: the buttons perform, or they do not exist. So the level
-     *  tightens the gate rather than the label being softened to match it: at
-     *  'refuse' EVERY candidate must verdict clean whatever the cell claimed;
-     *  the other levels keep the round-2 gate, because there the operator still
-     *  has a commit and a least-loss start is a real thing to offer them.
+     *  ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — AND THE LEVEL ARM IS GONE WITH THE
+     *  LOCK FACE IT SERVED. ⚖ 92 fix round 3 T1 made this gate clean-only at
+     *  'refuse' on one premise: there the safe primary was the operator's ONLY
+     *  door, because the commit had been replaced by the 店長のみ line, so an
+     *  offer that landed on a second degraded cell walled them again. His ruling
+     *  deletes that line — a locked-out operator now reaches the same warn commit
+     *  as anyone else (`warnFaceFor`'s own note carries the overturn) — and with
+     *  the premise gone the clean-only bar is just a stricter card for the staff
+     *  the store trusts least, withholding real answers from the people with the
+     *  fewest of them. Every level now reads the same three arms.
      *
      *  Start and duration are the wrapper's own derivation (`offerable` above):
      *  `ask.span` IS this staged move, so `start` is already that number. */
@@ -2331,7 +2319,6 @@ export function TodayScreen(props: TodayProps) {
       row: guardCheckRow(cell),
       cell: offerableCell(cell, props.guard.bookingStepMin, start, (s) => {
         const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind
-        if (props.overrideLevel === 'refuse') return k === 'clean'
         if (cell?.alternativeKind === 'safe') return k === 'clean'
         if (k === 'blocked') return false
         if (cell?.alternatives.includes(s)) return true
@@ -2348,16 +2335,17 @@ export function TodayScreen(props: TodayProps) {
     // re-verdicts each candidate start through `verdictRef`, which reads the room
     // policy, and that ref's own identity is stable — so a rooms change alone left
     // a stale offer on the card's biggest control.
-    // ⚖ 92 fix round 3 T1 — and `props.overrideLevel` is a dep for the same
-    // reason: the gate above reads it, so a dial change alone must recompute
-    // the offer rather than leave the lock face showing the looser one.
+    // ⚖ 9/1 ruling 1/2 — and `props.overrideLevel` LEAVES the list with the arm
+    // that read it (⚖ 92 fix round 3 T1's, deleted above). Nothing in this memo
+    // asks the dial any more, so keeping it here would be a dep that only ever
+    // re-runs the gate for an answer it cannot change.
     // ⚖ 92 final hygiene (breaker #6 F4) — the gate reads `verdictRef.current`
     // during render, so the rule cannot see through the ref to the room policy
     // it touches: this list is hand-maintained against `verdictAt`'s transitive
     // reads, `props.rooms` among them (micro-fix M7/delta-verify D4 above), and
     // the rule's advice here would delete the dep that keeps the offer fresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, props.guard.bookingStepMin, props.rooms, props.overrideLevel])
+  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, props.guard.bookingStepMin, props.rooms])
 
   // ⚖ Liam flag 50(d) + ⚖ 52 — THE OVERRIDDEN ROW STAYS ON SCREEN, and it
   // stops wearing ×. The operator did not make the reason go away, they
@@ -2946,15 +2934,13 @@ export function TodayScreen(props: TodayProps) {
      *  when it was pressed, which is ⚖ 31c on the time axis. Same door, same
      *  words: the button that promised the 確保 refuses rather than breaking it.
      *
-     *  ⚖ 92 fix round 4 U2 (breaker #3) — AND THE LOCK FACE'S DRAW GATE COMES
-     *  THROUGH THE SAME DOOR. ⚖ 92 fix round 3 T1 tightened the DRAW at
-     *  'refuse', where the safe primary is the operator's ONLY door: every
-     *  candidate must verdict clean end to end, because there is no commit
-     *  control under it to walk past a second degraded cell with. The press
-     *  still re-judged with the looser 'not blocked' — so a board that moved
-     *  between the draw and the finger landed the card exactly where T1 exists
-     *  to stop it landing, walled again with 元に戻す the only way out. Same
-     *  law on the time axis, same refusal, one condition.
+     *  ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — AND THE LEVEL LEAVES THIS MIRROR
+     *  TOO. ⚖ 92 fix round 4 U2 put `props.overrideLevel === 'refuse'` into
+     *  `demandedClean` so the press could not land what T1's DRAW gate refused;
+     *  the ruling deletes that draw arm, so mirroring it here would make the
+     *  press stricter than the draw — refusing a start the card openly offered,
+     *  which is ⚖ 31c pointing the other way. T6's own 確保 condition is
+     *  untouched and is again the whole of `demandedClean`.
      *
      *  ⚖ 92 fix round 6 X2 (breaker #5) — AND THE THIRD ARM COMES THROUGH IT
      *  TOO. Round 6 X1 split the DRAW's least-loss arm on who chose the start:
@@ -2970,7 +2956,7 @@ export function TodayScreen(props: TodayProps) {
      *  `alternatives`), so the staged side of the comparison needs no second
      *  verdict — ⚖ 54, one reading. */
     const drawn = pendingGuardRow.cell
-    const demandedClean = drawn?.alternativeKind === 'safe' || props.overrideLevel === 'refuse'
+    const demandedClean = drawn?.alternativeKind === 'safe'
     const movedStartRefused =
       !demandedClean
       && !pendingGuardRow.engineStarts.includes(start)
