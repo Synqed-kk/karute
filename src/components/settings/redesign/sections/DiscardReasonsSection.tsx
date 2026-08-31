@@ -70,7 +70,7 @@
 // home. It stays in the mock as a spec line for core rather than shipping here
 // as a control that would forget what it was told.
 
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useId, useRef, useState, type RefObject } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { Loader2 } from 'lucide-react'
 import {
@@ -234,6 +234,13 @@ export function DiscardReasonsSection() {
   const tc = useTranslations('common')
   const locale = useLocale()
   const rootRef = useRef<HTMLDivElement | null>(null)
+  /** The detail pane's own id, so a master row can say WHICH thing it changes.
+   *  Pressing a row rewrites a pane elsewhere on the screen and a screen reader
+   *  got no signal that anything had happened. `useId` rather than a literal:
+   *  the settings shell mounts this section twice on desktop (its drill-in
+   *  branch and its tab branch), and two panes sharing one id would point half
+   *  the rows at the wrong one. */
+  const paneId = useId()
   const sectionWidth = useMeasuredWidth(rootRef)
   const isWide = sectionWidth !== null && sectionWidth >= WIDE_MIN_PX
   const masterColPx =
@@ -471,6 +478,7 @@ export function DiscardReasonsSection() {
                     row={r}
                     selected={r.id === openId}
                     onSelect={() => openRow(r, false)}
+                    paneId={paneId}
                     recordedWhen={formatAt(dateTimeFmt, r.recordingCreatedAt)}
                     discardedWhen={discardedWhen(r)}
                     t={t}
@@ -488,6 +496,7 @@ export function DiscardReasonsSection() {
               // had this — each panel mounts inside its own row.
               <DetailPane
                 key={selected.id}
+                paneId={paneId}
                 row={selected}
                 transcript={transcripts[selected.id]}
                 recordedWhen={formatAt(dateTimeFmt, selected.recordingCreatedAt)}
@@ -730,7 +739,7 @@ function InlineRow({
 
       {open && (
         <div className="border-t border-border/60 px-4 pb-4 pt-3">
-          <TranscriptPanel state={transcript} t={t} />
+          <TranscriptPanel state={transcript} rowDurationSeconds={row.durationSeconds} t={t} />
         </div>
       )}
     </>
@@ -745,6 +754,7 @@ function CompactRow({
   row,
   selected,
   onSelect,
+  paneId,
   recordedWhen,
   discardedWhen,
   t,
@@ -752,6 +762,7 @@ function CompactRow({
   row: DiscardReasonRow
   selected: boolean
   onSelect: () => void
+  paneId: string
   recordedWhen: string | null
   discardedWhen: string
   t: T
@@ -762,6 +773,10 @@ function CompactRow({
       type="button"
       onClick={onSelect}
       aria-current={selected}
+      // Pressing this row changes something that is NOT inside it. Without
+      // naming the pane, a screen-reader user pressed a row and was told
+      // nothing had happened.
+      aria-controls={paneId}
       className={`w-full border-l-2 px-4 py-3.5 text-left transition-colors ${
         selected ? 'border-primary bg-primary/8' : 'border-transparent hover:bg-muted/40'
       }`}
@@ -799,6 +814,7 @@ function CompactRow({
  *  one is the subordinate of the other). */
 function DetailPane({
   row,
+  paneId,
   transcript,
   recordedWhen,
   discardedWhen,
@@ -807,6 +823,7 @@ function DetailPane({
   t,
 }: {
   row: DiscardReasonRow
+  paneId: string
   transcript: TranscriptState | undefined
   recordedWhen: string | null
   discardedWhen: string
@@ -838,7 +855,7 @@ function DetailPane({
   ]
 
   return (
-    <div className="min-w-0 px-6 py-5">
+    <div id={paneId} className="min-w-0 px-6 py-5">
       <div className="flex items-center gap-2.5">
         <Avatar name={row.customerName} large />
         <CustomerName row={row} className="truncate text-base" t={t} />
@@ -871,7 +888,13 @@ function DetailPane({
             {row.reason}
           </p>
         </div>
-        <TranscriptPanel state={transcript} onRetry={onRetry} t={t} wide />
+        <TranscriptPanel
+          state={transcript}
+          rowDurationSeconds={row.durationSeconds}
+          onRetry={onRetry}
+          t={t}
+          wide
+        />
       </div>
     </div>
   )
@@ -887,11 +910,15 @@ function DetailPane({
  *  420px frame would look like something was withheld. */
 function TranscriptPanel({
   state,
+  rowDurationSeconds,
   onRetry,
   t,
   wide,
 }: {
   state: TranscriptState | undefined
+  /** The LIST's own length for this recording — the fallback for the
+   *  below-floor test when the transcript read could not fetch one. */
+  rowDurationSeconds: number | null
   /** Wide only — see the error branch. */
   onRetry?: () => void
   t: T
@@ -952,12 +979,26 @@ function TranscriptPanel({
   if (state.segments.length === 0) {
     // Under the floor NOTHING was ever transcribed (the ⚖ spend gate), which is
     // a different fact from "the words were not kept" — say which one it is.
-    // `typeof`, matching the two length formatters: an older server sends the
-    // key absent, and `undefined !== null` is true. The outcome happened to be
-    // right by accident here; this is the one place in the file the old-wire
-    // rule was not applied, and an accident is not a guard.
-    const belowFloor =
-      typeof state.durationSeconds === 'number' && state.durationSeconds < BELOW_FLOOR_SEC
+    //
+    // TWO SOURCES, IN THIS ORDER. The transcript read's own `recordings.get` is
+    // authoritative because it is the read that went looking for the words —
+    // but it is best-effort and fails on its own, and the LIST already holds a
+    // length for the same recording and is rendering it in the pill directly
+    // above. Falling straight through to 「文字起こしはありません」 made the
+    // screen contradict itself: 「録音 0分08秒」 over a sentence a manager reads
+    // as "the system lost the words of an 8-second take", when the truth two
+    // lines up is that we never transcribe one that short. Both absent is the
+    // honest generic absence, unchanged.
+    //
+    // `typeof` on both, matching the two length formatters: an older server
+    // sends the key absent, and `undefined !== null` is true.
+    const seconds =
+      typeof state.durationSeconds === 'number'
+        ? state.durationSeconds
+        : typeof rowDurationSeconds === 'number'
+          ? rowDurationSeconds
+          : null
+    const belowFloor = seconds !== null && seconds < BELOW_FLOOR_SEC
     return (
       <div className={shell}>
         <p className="text-[11px] font-semibold text-muted-foreground">{t('transcriptTitle')}</p>

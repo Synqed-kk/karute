@@ -766,6 +766,27 @@ describe('破棄の記録 — the computer reads the claim NEXT TO the evidence'
     expect(onFirst).not.toBe(onSecond)
   })
 
+  it('every master row NAMES the pane it changes', async () => {
+    // Pressing a row rewrites a pane elsewhere on the screen. Without
+    // aria-controls a screen-reader user pressed a row and was told nothing had
+    // happened — the selection moved, the evidence changed, and the only signal
+    // was visual.
+    setSectionWidth(1200)
+    getDiscardTranscript.mockResolvedValue(WITH_WORDS)
+    await renderRows([{}, { id: 'd2', recordingSessionId: 'rs-2', reason: 'ふたつめの理由' }])
+    await waitFor(() => screen.getByText(t('defRecordedAt')))
+
+    const rows = Array.from(document.querySelectorAll('[aria-current]'))
+    expect(rows).toHaveLength(2)
+    const target = rows[0].getAttribute('aria-controls')
+    expect(target).toBeTruthy()
+    // …and it points at something that EXISTS. An aria-controls naming nothing
+    // is worse than none: it promises a relationship and delivers a dead end.
+    expect(document.getElementById(target as string)).not.toBeNull()
+    // One pane, so every row names the same one.
+    expect(rows.every((r) => r.getAttribute('aria-controls') === target)).toBe(true)
+  })
+
   it('the transcript scroller is reachable and named for a keyboard', async () => {
     // Safari and WKWebView — the two engines this product ships through — do
     // not make an overflow container focusable on their own, so a keyboard-only
