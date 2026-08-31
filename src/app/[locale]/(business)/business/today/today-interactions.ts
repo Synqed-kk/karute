@@ -3358,9 +3358,18 @@ export interface WarnCardModel {
    *  the red line carry the source itself rather than saying it twice. */
   lock: string | null
   /** The safe answer, and it is always the biggest control on the card. `place`
-   *  is a real alternative start; `info` is the engine saying this start already
-   *  IS the least-loss one; `null` omits the slot (⚖ 31c — never a dead button). */
-  safePrimary: { kind: 'place'; start: number; main: string; sub: string } | { kind: 'info'; label: string } | null
+   *  is a real alternative start; `null` omits the slot (⚖ 31c — never a dead
+   *  button).
+   *
+   *  ⚖ 92 fix round 3 T2 (breaker #2) — THERE IS NO THIRD SHAPE. The 'info' line
+   *  「ここが、損が最少の開始です」 was the SURFACE's own claim, and it fired on
+   *  every degraded cell whose alternatives came back empty — including the ones
+   *  EMPTIED BY THE SNAP GATE above, where the engine had named a better start
+   *  and the store's lattice could not reach it. It then stood over the engine's
+   *  own 「11:45はこの区間で損が最少の開始です」 saying the opposite. When there
+   *  is no offer the card says the ENGINE'S sentence instead (the guard row,
+   *  appended below), which is true in both cases because the engine wrote it. */
+  safePrimary: { kind: 'place'; start: number; main: string; sub: string } | null
   commit: WarnCardCommit | null
   /** ⚖ 52 / 73-74 — every row the panel did NOT consume, in the board's existing
    *  grammar. A record may never go invisible because a nicer face was drawn. */
@@ -3491,18 +3500,32 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
     (r) => (r.tone !== '' || greenSubjectOf(r.label) === null) && !(!guardWarn && r.label === overrideRow),
   )
 
-  // ⚖ 92 — the safe answer, from the ENGINE'S own alternatives. Three shapes and
-  // no fourth: a start it can name, the engine saying this start already is the
-  // least-loss one (a degraded cell with nothing better to offer), or nothing at
-  // all. ⚖ 31c binds the third — a button that cannot perform what it names must
-  // not exist, so the slot is omitted rather than filled with a dead control.
+  // ⚖ 92 — the safe answer, from the ENGINE'S own alternatives. Two shapes and
+  // no third: a start it can name, or nothing at all. ⚖ 31c binds the second —
+  // a button that cannot perform what it names must not exist, so the slot is
+  // omitted rather than filled with a dead control.
+  //
+  // ⚖ 92 fix round 3 T2 (breaker #2) — AND THE SLOT IS NEVER FILLED WITH A CLAIM
+  // OF OUR OWN. See `safePrimary` on the model above for the contradiction the
+  // deleted 'info' line printed.
   const alt = cell?.alternatives[0]
   const safePrimary: WarnCardModel['safePrimary'] =
     alt != null
       ? { kind: 'place', start: alt, main: `${clockOf(alt)}に置く`, sub: cell!.alternativeKind === 'safe' ? '（確保を壊さない）' : '（損が最少）' }
-      : cell?.state === 'degraded'
-        ? { kind: 'info', label: 'ここが、損が最少の開始です' }
-        : null
+      : null
+
+  /** ⚖ 92 fix round 3 T2 (breaker #2) — NO OFFER ⇒ THE ENGINE'S OWN SENTENCE.
+   *
+   *  ⚖ GAP-6's second clause is the row's answer to "then where?", and its own
+   *  law says 「on the HOLD popover it is the only answer there is」 — yet this
+   *  face dropped `guardRow` entirely, which is exactly the surface GAP-6 wrote
+   *  that clause for. With an offer on the card the clause would contradict it
+   *  (⚖ FIX-6's split, and the offer IS the better answer), so it joins the rows
+   *  only when the slot above is empty: same transform, same ⚖ 52 △ tone, same
+   *  ¥-free words, taken from `guardCheckRow` itself so the two can never drift.
+   *  Composed once here and appended to BOTH faces' row lists below. */
+  const engineRow = safePrimary === null && guardWarn ? guardCheckRow(cell) : null
+  const rowsOut = engineRow ? [...kept, engineRow] : kept
 
   // ⚖ 92 — THE NAME LINE IS AUTOMATIC AND OTHER-LANE-ONLY (the approved page's
   // own rule: 「記録の名前は、他の人のシフトに置くときだけ表示されます（自動）」).
@@ -3523,7 +3546,7 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
     // so it has no provenance line — saying 店舗の設定 twice on one small card is
     // the badge-repeating-a-label defect. The safe primary and 元に戻す stay:
     // being unable to place HERE is not being unable to place.
-    return { face: 'warn', impact, provenance: null, lock: 'この場所への配置は店長のみ（店舗の設定）', safePrimary, commit: null, rows: kept, greensLine: greensLineOf(oks) }
+    return { face: 'warn', impact, provenance: null, lock: 'この場所への配置は店長のみ（店舗の設定）', safePrimary, commit: null, rows: rowsOut, greensLine: greensLineOf(oks) }
   }
   const commit: WarnCardCommit =
     level === 'needs-approval'
@@ -3559,7 +3582,7 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
         }
   const provenance =
     (level === 'needs-approval' ? '店舗の設定で、上書きには店長の承認が必要です' : '店舗の設定で、スタッフの上書きが許可されています') + recorded
-  return { face: 'warn', impact, provenance, lock: null, safePrimary, commit, rows: kept, greensLine: greensLineOf(oks) }
+  return { face: 'warn', impact, provenance, lock: null, safePrimary, commit, rows: rowsOut, greensLine: greensLineOf(oks) }
 }
 
 /** ⚖ 92 — THE LONG PRESS, AS ARITHMETIC. Ported from the approved page's own

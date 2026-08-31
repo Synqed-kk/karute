@@ -2230,6 +2230,18 @@ export function TodayScreen(props: TodayProps) {
      *  not-blocked gate it always had. The shared wrapper is untouched — its
      *  other callers make no such promise about the starts they show.
      *
+     *  ⚖ 92 fix round 3 T1 (breaker #1) — AND AT THE LOCK FACE EVERY OFFER MUST
+     *  BE COMMITTABLE END TO END. At 'refuse' the card's biggest control is the
+     *  operator's ONLY door: the commit is replaced by the 店長のみ line, so a
+     *  start offered here is the whole of what they can do. The round-2 gate let
+     *  a least-loss cell offer a cautioned start, and pressing it landed the card
+     *  on a second degraded cell that walled again — the only way out being
+     *  元に戻す. ⚖ 31c: the buttons perform, or they do not exist. So the level
+     *  tightens the gate rather than the label being softened to match it: at
+     *  'refuse' EVERY candidate must verdict clean whatever the cell claimed;
+     *  the other levels keep the round-2 gate, because there the operator still
+     *  has a commit and a least-loss start is a real thing to offer them.
+     *
      *  Start and duration are the wrapper's own derivation (`offerable` above):
      *  `ask.span` IS this staged move, so `start` is already that number. */
     const item = boardLanes.find((l) => l.group === 'staff' && l.key === at.laneKey)?.items.find((i) => i.caseId === pending.id)
@@ -2247,14 +2259,17 @@ export function TodayScreen(props: TodayProps) {
       row: guardCheckRow(cell),
       cell: offerableCell(cell, props.guard.bookingStepMin, start, (s) => {
         const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind
-        return cell?.alternativeKind === 'safe' ? k === 'clean' : k !== 'blocked'
+        return props.overrideLevel === 'refuse' ? k === 'clean' : (cell?.alternativeKind === 'safe' ? k === 'clean' : k !== 'blocked')
       }),
     }
     // ⚖ 92 micro-fix M7, delta-verify D4 — `props.rooms` is a real dep: the gate
     // re-verdicts each candidate start through `verdictRef`, which reads the room
     // policy, and that ref's own identity is stable — so a rooms change alone left
     // a stale offer on the card's biggest control.
-  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, props.guard.bookingStepMin, props.rooms])
+    // ⚖ 92 fix round 3 T1 — and `props.overrideLevel` is a dep for the same
+    // reason: the gate above reads it, so a dial change alone must recompute
+    // the offer rather than leave the lock face showing the looser one.
+  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, props.guard.bookingStepMin, props.rooms, props.overrideLevel])
 
   // ⚖ Liam flag 50(d) + ⚖ 52 — THE OVERRIDDEN ROW STAYS ON SCREEN, and it
   // stops wearing ×. The operator did not make the reason go away, they
@@ -2823,6 +2838,18 @@ export function TodayScreen(props: TodayProps) {
       span,
     })
     if (again.kind === 'blocked') {
+      refuse(again.reason ?? '配置できません')
+      return
+    }
+    /** ⚖ 92 fix round 3 T6 (breaker #6) — AND THE PRESS HONOURS THE DRAW'S OWN
+     *  PROMISE. Round 2 tightened the DRAW so a cell claiming 'safe' may only
+     *  offer starts that verdict clean (the memo's gate above), but this press
+     *  re-judged with the looser 'not blocked' — so a board that moved between
+     *  the draw and the finger landed a card under 確保を壊さない on a start the
+     *  guard now only cautions. The label was true when it was written and false
+     *  when it was pressed, which is ⚖ 31c on the time axis. Same door, same
+     *  words: the button that promised the 確保 refuses rather than breaking it. */
+    if (pendingGuardRow.cell?.alternativeKind === 'safe' && again.kind !== 'clean') {
       refuse(again.reason ?? '配置できません')
       return
     }
@@ -6781,10 +6808,13 @@ export function TodayScreen(props: TodayProps) {
                   <span>{holdPop.warn.provenance}</span>
                 </p>
               )}
-              {/* ⚖ 92 — the safe answer is ALWAYS the biggest control. `place` is
-                  a start the engine offered; `info` is the engine saying this
-                  start already is the least-loss one, which is a sentence and
-                  never a button (⚖ 31c). */}
+              {/* ⚖ 92 — the safe answer is ALWAYS the biggest control, and it is
+                  a start the engine offered or nothing at all (⚖ 31c).
+                  ⚖ 92 fix round 3 T2 (breaker #2) — the third branch is GONE: the
+                  「ここが、損が最少の開始です」 line was the surface's own claim and
+                  it contradicted the engine on every cell the snap gate emptied.
+                  With no offer the engine's own sentence rides in `rows` below
+                  (⚖ GAP-6's second clause, where its law always said it belongs). */}
               {holdPop.warn.safePrimary?.kind === 'place' && holdPop.placeSafe && (
                 <button
                   className="btn primary wc-safe"
@@ -6797,7 +6827,6 @@ export function TodayScreen(props: TodayProps) {
                   <span className="wc-safe-sub">{holdPop.warn.safePrimary.sub}</span>
                 </button>
               )}
-              {holdPop.warn.safePrimary?.kind === 'info' && <p className="wc-info">{holdPop.warn.safePrimary.label}</p>}
               {/* ⚖ 92 — the commit, and on this face it is never the neutral
                   この内容で確定. `enabled` is `overrideCaption`'s untouched answer:
                   a second blocker standing after the override still kills it

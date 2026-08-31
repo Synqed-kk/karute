@@ -1256,25 +1256,11 @@
 }
 .biz .wc-safe .wc-safe-main { font-size: 14px; font-weight: 700; line-height: 1.35; }
 .biz .wc-safe .wc-safe-sub { font-size: 11.5px; font-weight: 500; line-height: 1.35; opacity: .85; }
-/* The engine saying "this start already IS the least-loss one" — a sentence in
-   the primary's slot, never a button to where you already are (⚖ 31c). */
-.biz .wc-info {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: fit-content;
-  max-width: 100%;
-  margin: 2px auto 0;
-  min-height: 46px;
-  padding: 7px 16px;
-  border: 1px dashed var(--line);
-  border-radius: 10px;
-  background: var(--row);
-  color: var(--ink-3);
-  font-size: 12.5px;
-  line-height: 1.5;
-  text-align: center;
-}
+/* ⚖ 92 fix round 3 T2 — the sentence-in-the-primary's-slot rule is DELETED with
+   the shape it painted (the card's own least-loss claim contradicted the
+   engine): with no offer the face shows the engine's sentence as a △ row, which
+   `.wc-rows` below already draws. This sheet's own header — dead CSS is worse
+   than absent CSS — is why the rule went rather than being left to rot. */
 
 /* The plain warn commit (the store's long-press dial OFF). Amber outline pill:
    a warning colour on a warning action, which the accent law names explicitly
