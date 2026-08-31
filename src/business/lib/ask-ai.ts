@@ -334,7 +334,7 @@ export const FEED_WINDOW = 6
 export function windowFeed<T>(cards: T[], steps: number): { shown: T[]; remaining: number; moreLabel: string | null } {
   const shown = cards.slice(0, Math.max(1, Math.floor(steps)) * FEED_WINDOW)
   const remaining = cards.length - shown.length
-  return { shown, remaining, moreLabel: remaining > 0 ? `さらに表示（残り${remaining}件）` : null }
+  return { shown, remaining, moreLabel: remaining > 0 ? `さらに表示（あと${remaining}件）` : null }
 }
 
 // ── the consultation ────────────────────────────────────────────────────────

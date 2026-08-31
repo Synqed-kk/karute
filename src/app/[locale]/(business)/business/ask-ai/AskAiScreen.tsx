@@ -159,7 +159,7 @@ export function AskAiScreen(props: AskAiProps) {
   const visible = props.feed.filter((c) => !dismissed.includes(c.id))
   /** ⚠ THE WINDOW IS TAKEN OFF `visible`, NOT OFF THE PROPS. A dismissal leaves
    *  the total the head counts AND the arithmetic the footer names in one pass,
-   *  so 「提案 N件」 and 「残り M件」 can never describe two different lists. */
+   *  so 「提案 N件」 and 「あと M件」 can never describe two different lists. */
   const walk = windowFeed(visible, feedSteps)
 
   /** THE COMPOSER'S OWN MECHANIC, kept from the phone (`AIInputBar.tsx:18-23`):

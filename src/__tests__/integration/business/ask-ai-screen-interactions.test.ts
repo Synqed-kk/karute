@@ -285,7 +285,7 @@ describe('the room’s controls — every one has a visible effect', () => {
 
   it('⚖ THE FEED IS WINDOWED, and the head’s count is still the TOTAL', () => {
     // L4-2. The window is browsing state like the dismissed list, taken off the
-    // list the reader can still SEE — so 「提案 N件」 above and 「残り M件」 below
+    // list the reader can still SEE — so 「提案 N件」 above and 「あと M件」 below
     // are two readings of one call and can never describe two lists.
     expect(SRC_CODE).toContain('const [feedSteps, setFeedSteps] = useState(1)')
     expect(SRC_CODE).toContain('const walk = windowFeed(visible, feedSteps)')
@@ -297,7 +297,7 @@ describe('the room’s controls — every one has a visible effect', () => {
     // the control's own label is DERIVED in the lib beside the arithmetic; this
     // file states no count of its own
     expect(SRC_CODE).toContain('{walk.moreLabel}')
-    expect(SRC_CODE).not.toMatch(/さらに表示（残り/)
+    expect(SRC_CODE).not.toMatch(/さらに表示（あと/)
     expect(SRC_CODE).toContain('onClick={() => setFeedSteps((s) => s + 1)}')
     // …and the band is the カルテ room's own footer shape, with no scroller and
     // no height cap anywhere near it (⚖ page-scroll: the WINDOW shortens the

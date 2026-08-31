@@ -323,13 +323,13 @@ describe('the feed — canon’s rules, as pure functions', () => {
       // ⚠ THE LABEL AND THE ARITHMETIC ARE ONE CALL. A remainder that disagreed
       // with total − shown is the mutation this pin exists to redden.
       expect({ steps, remaining: w.remaining }).toEqual({ steps, remaining: feed.length - w.shown.length })
-      expect(w.moreLabel).toBe(w.remaining > 0 ? `さらに表示（残り${w.remaining}件）` : null)
+      expect(w.moreLabel).toBe(w.remaining > 0 ? `さらに表示（あと${w.remaining}件）` : null)
       walked.push({ shown: w.shown.length, remaining: w.remaining, label: w.moreLabel })
       if (w.remaining === 0) break
     }
     expect(walked.map((s) => s.shown)).toEqual([6, 12, 18, 24, 30])
     expect(walked.map((s) => s.remaining)).toEqual([24, 18, 12, 6, 0])
-    expect(walked[0].label).toBe('さらに表示（残り24件）')
+    expect(walked[0].label).toBe('さらに表示（あと24件）')
     expect(walked[4].label).toBeNull()
     // A step count below one is still one window — a control cannot walk the
     // reader backwards past the page they opened on.
@@ -347,7 +347,7 @@ describe('the feed — canon’s rules, as pure functions', () => {
     const w = windowFeed(visible, 1)
     expect(visible).toHaveLength(28)
     expect(w.shown).toHaveLength(6)
-    expect(w.moreLabel).toBe('さらに表示（残り22件）')
+    expect(w.moreLabel).toBe('さらに表示（あと22件）')
     expect(w.remaining).toBe(visible.length - w.shown.length)
     // …and the row the first window pulled up to replace the dismissed one is
     // the next one in the feed's own order, never a reshuffle.
