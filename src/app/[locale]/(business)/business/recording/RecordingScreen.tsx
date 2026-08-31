@@ -56,6 +56,7 @@ import {
   windowTakes,
   RECORDER_LABEL,
   RECORDER_TONE,
+  SCRIM_SETTLE_MS,
   TAKE_STATE_LABEL,
   type RecorderState,
   type TranscriptEntry,
@@ -225,7 +226,10 @@ export interface RecordingProps {
     thisMonthLine: string
     totalLine: string
     byStaffLabel: string
-    byStaff: Array<{ cardId: string; name: string; line: string }>
+    /** ⚠ `rowKey`, NOT `cardId`: one entry of this band can stand for SEVERAL
+     *  cards — the grouped 担当者不明（N名） — so a field named after a card id
+     *  would be a quiet lie the next reader has to discover. */
+    byStaff: Array<{ rowKey: string; name: string; line: string }>
     truncatedLine: string | null
     listTruncatedLine: string | null
   } | null
@@ -874,6 +878,17 @@ export function RecordingScreen(props: RecordingProps) {
                         if (!consentOk) return
                         setElapsed(0)
                         setTick(0)
+                        // ⚠ AND THE RECEIPT DOES NOT SURVIVE INTO A LIVE TAKE.
+                        // It legitimately shows after a discard settles, and
+                        // was cleared on a picker change and on 閉じる — but
+                        // starting a NEW take was a third exit nobody cleared,
+                        // so the panel ran a live timer and a live waveform
+                        // over a receipt whose own body says 「この確認は、いま
+                        // 行った破棄の流れの中だけに表示されます。」, which at
+                        // that moment is false (F6-3). The recovery residue's
+                        // receipt belongs to no take at all and survives,
+                        // exactly as it does on a picker change.
+                        setReceipt((r) => (r?.of === 'recovery' ? r : null))
                         setPhase('recording')
                       }}
                     >
@@ -1189,7 +1204,13 @@ export function RecordingScreen(props: RecordingProps) {
                   data-guide-title="さらに表示"
                   data-guide="この一覧は新しい日付から順に、1週間ぶんずつさかのぼって読み込みます。押すと、さらに前の期間の録音が下に追加されます。"
                 >
-                  <button className="btn" type="button" onClick={() => setSteps((s) => s + 1)}>
+                  {/* ⚠ THE COUNTER STORES THE STEP THE WALK LANDED ON, not the
+                      one this screen asked for. `windowTakes` extends its own
+                      span until it gains a row; counting `s + 1` from local
+                      state re-derived a step the walk had already passed, so on
+                      a quiet fortnight the button did nothing for four presses
+                      in a row (F6-1). */}
+                  <button className="btn" type="button" onClick={() => setSteps(walk.step + 1)}>
                     さらに表示（あと{walk.hidden}件）
                   </button>
                 </div>
@@ -1307,7 +1328,7 @@ export function RecordingScreen(props: RecordingProps) {
                 <p className="rc-summary-staff">
                   <span className="rc-summary-k">{props.counts.byStaffLabel}</span>
                   {props.counts.byStaff.map((s, i) => (
-                    <span className="rc-summary-one" key={s.cardId}>
+                    <span className="rc-summary-one" key={s.rowKey}>
                       {i > 0 && <span className="rc-summary-sep" aria-hidden="true">・</span>}
                       {s.name} <span className="rc-num">{s.line}</span>
                     </span>
@@ -1695,6 +1716,21 @@ function Overlay({
   children: React.ReactNode
 }) {
   const panelRef = useRef<HTMLDivElement>(null)
+  /** ⚠ THE MOMENT THIS DIALOG APPEARED — the one fact that separates a
+   *  DECISION to dismiss from the leftover second press of a double-tap.
+   *  `SCRIM_SETTLE_MS` carries the whole argument and the measurement; this is
+   *  the ONE home for all three dialogs, which is why the fix is here and not
+   *  on any opener. Every dialog unmounts on close, so each opening gets its
+   *  own clock.
+   *
+   *  ⚠ IT STARTS FAIL-CLOSED, AND IN A LAYOUT EFFECT. `Date.now()` in the
+   *  `useRef` initializer is an impure render (react-hooks/purity, and the rule
+   *  is right — a re-render would re-read the clock). `Infinity` means the
+   *  backdrop refuses everything until the panel has actually been laid out,
+   *  and the effect below stamps the moment it was: no window exists in which
+   *  an unstamped scrim would dismiss. */
+  const openedAt = useRef(Number.POSITIVE_INFINITY)
+  useLayoutEffect(() => { openedAt.current = Date.now() }, [])
 
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (e.key !== 'Tab') return
@@ -1712,7 +1748,18 @@ function Overlay({
 
   return (
     <>
-      <div className="rc-scrim" onClick={onClose} />
+      {/* ⚠ THE BACKDROP IGNORES A PRESS THAT LANDS BEFORE THE READER COULD HAVE
+          SEEN THE PANEL. A double-tap on any opener used to close the dialog it
+          had just opened, on all three dialogs at every realistic gap: the
+          scrim mounts under a pointer already resting where the opener was, so
+          the second press's own pointerdown lands here and its click dismisses.
+          `SCRIM_SETTLE_MS` names the window and carries the measurement (F6-2).
+          Escape and cancel are untouched — this delays the one exit that can be
+          taken by accident. */}
+      <div
+        className="rc-scrim"
+        onClick={() => { if (Date.now() - openedAt.current >= SCRIM_SETTLE_MS) onClose() }}
+      />
       <div
         className="rc-dlg"
         ref={panelRef}

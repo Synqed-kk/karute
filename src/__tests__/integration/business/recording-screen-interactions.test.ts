@@ -53,9 +53,14 @@ const SIDEBAR = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/Bu
  *  unchanged by this one. */
 const GUIDE_CODE = readFileSync(join(process.cwd(), 'src/business/lib/guide.ts'), 'utf8')
 
+/** The room's own library — read here because F6-2's settle window is a NAMED
+ *  constant with the argument on it, and the screen may only reference it. */
+const LIB = readFileSync(join(process.cwd(), 'src/business/lib/recording.ts'), 'utf8')
+
 const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '')
 const SRC_CODE = stripComments(SRC).replace(/^\s*\/\/.*$/gm, '')
 const CSS_CODE = stripComments(CSS)
+const LIB_CODE = stripComments(LIB).replace(/^\s*\/\/.*$/gm, '')
 
 /** ⚠ A DECLARATION'S TEXT MAY BE ASSEMBLED RATHER THAN WRITTEN, and exactly one
  *  of them is (B1-9): the HEAD's sentence names 破棄の記録 only to a reader who
@@ -476,6 +481,62 @@ describe('⚖ ALL-SCREEN — the ladder and the thumb', () => {
       /@container rcpage \(min-width: (\d+)px\) \{\s*\n\s*\.biz \.pg-recording \.rc-review-reason \{ white-space: nowrap/.exec(CSS_CODE)![1],
     )
     expect(clamp).toBe(threshold)
+  })
+})
+
+// ═══ F6 · THE TWO INTERACTION DEFECTS A RUSHED RECEPTIONIST MEETS ══════════
+
+describe('F6 — the gestures that used to undo themselves', () => {
+  // ⚠ FOUR TRUTHS, FOUR TESTS (the B3-6 lesson): a shared killer proves no site.
+
+  it('⚖ F6-2 — the backdrop closes on a DECISION, and the gate lives in the ONE Overlay', () => {
+    // ONE scrim in the whole room, so all three dialogs inherit the same rule
+    // rather than three openers each carrying their own guard.
+    expect([...SRC_CODE.matchAll(/className="rc-scrim"/g)].length).toBe(1)
+    expect([...SRC_CODE.matchAll(/<Overlay /g)].length).toBe(3)
+    // the scrim's click is GATED on how long the panel has been on screen
+    expect(SRC_CODE).toMatch(/className="rc-scrim"\s+onClick=\{\(\) => \{ if \(Date\.now\(\) - openedAt\.current >= SCRIM_SETTLE_MS\) onClose\(\) \}\}/)
+    // …and it starts FAIL-CLOSED: the backdrop refuses every press until a
+    // layout effect has stamped the moment the panel was laid out.
+    expect(SRC_CODE).toContain('const openedAt = useRef(Number.POSITIVE_INFINITY)')
+    expect(SRC_CODE).toContain('useLayoutEffect(() => { openedAt.current = Date.now() }, [])')
+    // …and the gate is the LIBRARY's named constant, never a literal here
+    expect(SRC_CODE).not.toMatch(/rc-scrim[\s\S]{0,160}\d{3}\)/)
+    // Escape and cancel are UNTOUCHED — this delays the one exit that can be
+    // taken by accident, and closing every exit would be a different product.
+    expect(SRC_CODE).toMatch(/key === 'Escape'/)
+    expect(SRC_CODE).not.toMatch(/Escape[\s\S]{0,120}SCRIM_SETTLE_MS/)
+  })
+
+  it('⚖ F6-2 — the settle window is the PLATFORM’s own double-click interval', () => {
+    // 500ms is the macOS and Windows default double-click interval, so the
+    // window in which a second press can still belong to the first gesture is
+    // covered by construction rather than by a number chosen to fit a test.
+    expect(LIB_CODE).toContain('export const SCRIM_SETTLE_MS = 500')
+  })
+
+  it('⚖ F6-3 — starting a take clears the recorder’s receipt, and ONLY the recorder’s', () => {
+    // the record button's START branch, from `setElapsed(0)` to `setPhase`
+    const at = SRC_CODE.indexOf("if (!consentOk) return")
+    const start = SRC_CODE.slice(at, SRC_CODE.indexOf("setPhase('recording')", at))
+    expect(start).toContain("setReceipt((r) => (r?.of === 'recovery' ? r : null))")
+    // …the SAME predicate the picker effect uses: the recovery residue's receipt
+    // belongs to no take at all and survives both exits.
+    expect([...SRC_CODE.matchAll(/setReceipt\(\(r\) => \(r\?\.of === 'recovery' \? r : null\)\)/g)].length).toBe(2)
+    // and it is NOT inside `reset()`, which fires one line AFTER the receipt is
+    // minted — putting it there would wipe the receipt the discard just wrote.
+    const reset = SRC_CODE.slice(SRC_CODE.indexOf('const reset = () => {'))
+    expect(reset.slice(0, reset.indexOf('\n  }'))).not.toContain('setReceipt')
+  })
+
+  it('⚖ F6-4 — the counts band WRAPS, and only the number refuses to break', () => {
+    // `white-space: nowrap` on the entry defeated the `overflow-wrap: anywhere`
+    // beside it — the two rules contradict — and a 32-character name pushed the
+    // whole PAGE sideways at 390. Kana too: nowrap disables CJK breaking.
+    const entry = /\.rc-summary-one \{([^}]*)\}/.exec(CSS_CODE)![1]
+    expect(entry).toContain('overflow-wrap: anywhere')
+    expect(entry).not.toContain('nowrap')
+    expect(CSS_CODE).toContain('.rc-summary-one .rc-num { white-space: nowrap; }')
   })
 })
 

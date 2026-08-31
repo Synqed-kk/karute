@@ -64,6 +64,8 @@ import {
   ownDiscardsThisMonth,
   permissionNotice,
   pickerOptions,
+  hasWrittenReason,
+  staffBand,
   staffNameOfCard,
   takeStateOf,
   transcriptAbsenceOf,
@@ -106,6 +108,45 @@ function SCREeN_SETTLE(): string {
   const at = SCREEN_CODE.indexOf('const settleDiscard = ()')
   const body = SCREEN_CODE.slice(at)
   return body.slice(0, body.indexOf('\n  }') + 4)
+}
+
+/**
+ * ⚠ EVERY 今月 ASSERTION IN THIS FILE RUNS ON A PINNED CLOCK, and it is not a
+ * convenience.
+ *
+ * The demo plane dates every booking and every take RELATIVE to today, so
+ * 「今月の破棄」 is a question whose answer changes with the calendar: on the 1st
+ * or 2nd of a month every demo discard belongs to the month just gone and the
+ * per-staff block is legitimately empty. That is correct product behaviour and
+ * a broken test — and it broke two of them, at the parent tip, with nothing
+ * changed, when this round happened to run on 2026-09-01. A month-dependent
+ * assertion taken on the real clock is a test that passes 28 days out of 31.
+ *
+ * `MID_MONTH` is a JST midday well inside a month, so a relative plane built
+ * around it cannot straddle a boundary in either direction. The JST-boundary
+ * cases are their own matrix at the bottom of this file, on this same pin.
+ */
+const RealDate = Date
+const MID_MONTH = '2026-08-15T03:00:00.000Z' // 12:00 JST, 2026-08-15
+function pinClock(iso: string) {
+  const fixed = new RealDate(iso)
+  global.Date = class extends RealDate {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    constructor(...args: any[]) {
+      if (args.length === 0) super(fixed.getTime())
+      else super(...(args as [number]))
+    }
+    static now() { return fixed.getTime() }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any
+}
+function unpinClock() { global.Date = RealDate }
+/** Every describe whose numbers are a CALENDAR question calls this. */
+/** A dayKey read back as the JST day it stands for (`jstDayKey`'s inverse). */
+const dayOfKey = (dayKey: number) => new Date(dayKey * 86_400_000)
+function onAPinnedMonth(iso: string = MID_MONTH) {
+  beforeEach(() => pinClock(iso))
+  afterEach(unpinClock)
 }
 
 const managerAccess = accessFor('店舗管理者')
@@ -774,6 +815,8 @@ describe('⚖ R2 — a discarded take feeds no number and offers no lever', () =
 // ═══ THE ROLE SPLIT, PROVEN ABOVE SERIALIZATION ═════════════════════════════
 
 describe('⚖ the three redactions happen above the serializer', () => {
+  onAPinnedMonth()
+
   it('a STAFF reader’s props contain their OWN takes and no others', async () => {
     const { props } = await recordingProps({ locale: 'ja', store: STORE_A, world: { role: 'スタッフ' } })
     // ⚠ THE EXPECTED SET IS DERIVED FROM THE PLANE, NOT FROM `buildTakes`. The
@@ -871,9 +914,12 @@ describe('⚖ the three redactions happen above the serializer', () => {
     const payload = JSON.stringify(staffSide.props)
     expect(payload).not.toContain('記録されている破棄')
     expect(payload).not.toContain('スタッフ別')
-    // …and the manager door is unchanged.
+    // …and the manager door is unchanged. (This `it` and the 25-staff one below
+    // both went red AT THE PARENT TIP on 2026-09-01, on the calendar rollover
+    // alone — which is what put the whole file on a pinned clock.)
     const manager = await recordingProps({ locale: 'ja', store: STORE_A, world: { takes: world } })
     expect(manager.props.counts).not.toBeNull()
+    expect(manager.props.counts!.totalLine).toMatch(/^記録されている破棄 全[1-9]\d*件$/)
     expect(manager.props.counts!.byStaff.length).toBeGreaterThan(0)
   })
 
@@ -1062,6 +1108,8 @@ describe('⚖ #799 — names bridge card ↔ profile on BOTH keys', () => {
 // ═══ ⚖ 8/25 · THE COUNTS, BOTH WAYS, AS LABELLED PLAIN FACTS ════════════════
 
 describe('⚖ 8/25 ruling B — the counts', () => {
+  onAPinnedMonth()
+
   it('both ways, and each number says WHAT it counts — the SHIPPED screen’s own sentences', async () => {
     const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
     const { y, m } = jstYmd(new Date())
@@ -1077,9 +1125,9 @@ describe('⚖ 8/25 ruling B — the counts', () => {
     // ⚠ AND THE PER-STAFF ROWS ARE KEYED BY CARD ID, not by name: two departed
     // staffers both resolve to 担当者不明, and a list keyed on the name would give
     // two different people one React key (⚖ #799's own two-space case).
-    const cardIds = props.counts!.byStaff.map((s) => s.cardId)
-    expect(new Set(cardIds).size).toBe(cardIds.length)
-    expect(cardIds.every((id) => id.length > 0)).toBe(true)
+    const rowKeys = props.counts!.byStaff.map((s) => s.rowKey)
+    expect(new Set(rowKeys).size).toBe(rowKeys.length)
+    expect(rowKeys.every((id) => id.length > 0)).toBe(true)
   })
 
   it('the per-staff block is heaviest-first and carries NO ranking colour or sort control', () => {
@@ -1112,6 +1160,146 @@ describe('⚖ 8/25 ruling B — the counts', () => {
     // nothing at all, which is the case the screen must also handle.
     expect(props.ownDiscardLine === null || /^自分が今月破棄した録音 \d+件$/.test(props.ownDiscardLine)).toBe(true)
     expect(SCREEN_CODE).toContain('{props.ownDiscardLine && <p className="rc-own-count">')
+  })
+})
+
+// ═══ F6 · THE COUNTS CANNOT LIE, AND THE WALK CANNOT STALL ══════════════════
+
+describe('F6 — the four truths the final stress sweep bought', () => {
+  onAPinnedMonth()
+
+  /** A salon closed for a fortnight: takes on day 0, −1, −40, −41, −80. Nothing
+   *  in the demo plane has a gap wider than a week, which is exactly why no
+   *  existing pin caught F6-1. */
+  const gapped = [0, -1, -40, -41, -80].map((d) => ({ dayKey: 20000 + d }))
+
+  it('⚖ F6-1 — さらに表示 REVEALS on every press: the walk returns the step it landed on', () => {
+    // The screen stores `walk.step + 1`, so the trace below is the button.
+    const trace: Array<{ steps: number; visible: number; hidden: number }> = []
+    let steps = 1
+    for (let i = 0; i < 12; i += 1) {
+      const walk = windowTakes(gapped, steps)
+      trace.push({ steps, visible: walk.visible.length, hidden: walk.hidden })
+      if (walk.hidden === 0) break
+      steps = walk.step + 1
+    }
+    // every press strictly grows the window, and the walk reaches the end
+    const sizes = trace.map((t) => t.visible)
+    expect(sizes).toEqual([...new Set(sizes)])
+    expect([...sizes].sort((a, b) => a - b)).toEqual(sizes)
+    expect(trace[trace.length - 1].hidden).toBe(0)
+    // …and the effective step really OVERTOOK the asked-for one, or the fix
+    // would be pinning a number nothing moved.
+    expect(windowTakes(gapped, 2).step).toBeGreaterThan(2)
+    // the ordinary case is untouched: no gap, no extension
+    expect(windowTakes([{ dayKey: 20000 }, { dayKey: 19999 }], 1).step).toBe(1)
+    // …and the BUTTON really counts from the walk rather than from its own
+    // state, which is the half a pure-function test cannot see.
+    expect(SCREEN_CODE).toContain('onClick={() => setSteps(walk.step + 1)}')
+    expect(SCREEN_CODE).not.toContain('setSteps((s) => s + 1)')
+  })
+
+  it('⚖ F6-5 (A8) — ONE row-eligibility predicate, so a count can never exceed the list', () => {
+    const base = models().find((m) => m.discarded !== null)!
+    // ⚠ STAMPED TO TODAY — an arithmetic pin never inherits the plane's calendar.
+    const today = jstDayKey(new Date())
+    const R = (reason: string) => ({ ...base.discarded!, reason, hasReason: reason.trim() !== '' })
+    const world: TakeModel[] = [
+      { ...base, id: 'f6-a', dayKey: today, discarded: R('理由あり1') },
+      { ...base, id: 'f6-b', dayKey: today, discarded: R('') },
+      { ...base, id: 'f6-c', dayKey: today, discarded: R('   ') },
+      { ...base, id: 'f6-d', dayKey: today, discarded: R('理由あり2') },
+    ]
+    const { y, m } = jstYmd(new Date())
+    const counts = discardCounts(world, y, m)
+    const ledger = discardLedger(world, () => false)
+    expect(ledger.length).toBe(2)
+    expect(counts.total).toBe(ledger.length)
+    expect(counts.thisMonth).toBe(ledger.length)
+    expect(counts.byStaff.reduce((n, s) => n + s.thisMonth, 0)).toBe(ledger.length)
+    // the predicate itself, on all four shapes — trim included
+    expect(world.map(hasWrittenReason)).toEqual([true, false, false, true])
+    expect(hasWrittenReason({ ...base, discarded: null })).toBe(false)
+    // …and it is asked ONCE rather than re-spelled: neither consumer carries its
+    // own reason test any more, which is the whole point of the fix.
+    expect([...LIB_CODE.matchAll(/reason\.trim\(\) !== ''/g)].length).toBe(1)
+  })
+
+  it('⚖ F6-6 — one person’s month is ONE number: the own-count reads the SAME capped ledger', async () => {
+    const base = models().find((m) => m.discarded !== null)!
+    const mine = base.discarded!.byCardId
+    const { y, m } = jstYmd(new Date())
+    const today = jstDayKey(new Date())
+    const many: TakeModel[] = Array.from({ length: 260 }, (_, i) => ({ ...base, id: `f6-own-${i}`, dayKey: today }))
+    // past the cap the number is a FLOOR and not a count — the phone's own rule
+    // (`myDiscardCountThisMonth` returns null the moment its read is partial),
+    // so the line renders NOTHING rather than a bigger number than the band's.
+    expect(ownDiscardsThisMonth(many, mine, y, m)).toBeNull()
+    expect(discardCounts(many, y, m).truncated).toBe(true)
+    // under the cap the two agree exactly, and the own-count is still there
+    const few = many.slice(0, 30)
+    const band = discardCounts(few, y, m).byStaff.find((s) => s.cardId === mine)!
+    expect(ownDiscardsThisMonth(few, mine, y, m)).toBe(band.thisMonth)
+    // a reason-less discard is not the reader's either
+    const withBlank: TakeModel[] = [...few, { ...base, id: 'f6-blank', dayKey: today, discarded: { ...base.discarded!, reason: '  ', hasReason: false } }]
+    expect(ownDiscardsThisMonth(withBlank, mine, y, m)).toBe(band.thisMonth)
+
+    // ⚠ AND THE PREDICATE ASKS THE FACT, NOT THE REDACTED CONTENT. A staff
+    // reader's reasons are ALWAYS redacted to `null` (`buildTakes`), so a
+    // predicate that tested the content would judge every one of her own
+    // discards reason-less and hand her 「自分が今月破棄した録音 0件」 for a
+    // month in which she threw away four takes.
+    const hers = takePlane.map((t) =>
+      t.discarded !== null
+        ? { ...t, by_staff_card_id: selfCard!, discarded: { ...t.discarded, by_staff_card_id: selfCard! } }
+        : t,
+    )
+    const herModels = models({ takes: hers, access: staffAccess })
+    const herDiscards = herModels.filter((m2) => m2.discarded !== null)
+    expect(herDiscards.length).toBeGreaterThan(0)
+    // the CONTENT really is gone…
+    for (const m2 of herDiscards) expect(m2.discarded!.reason).toBeNull()
+    // …and the FACT is not, so her own count is the real one
+    expect(herDiscards.every(hasWrittenReason)).toBe(true)
+    const hersThisMonth = herDiscards.filter((m2) => jstYmd(dayOfKey(m2.dayKey)).m === m).length
+    expect(hersThisMonth).toBeGreaterThan(0)
+    expect(ownDiscardsThisMonth(herModels, selfCard, y, m)).toBe(hersThisMonth)
+    const staffSide = await recordingProps({ locale: 'ja', store: STORE_A, world: { role: 'スタッフ', takes: hers } })
+    expect(staffSide.props.ownDiscardLine).toBe(`自分が今月破棄した録音 ${hersThisMonth}件`)
+  })
+
+  it('⚖ F6-7 — the band GROUPS what the reader cannot tell apart, and says how many people it is', async () => {
+    const base = models().find((m) => m.discarded !== null)!
+    const { y, m } = jstYmd(new Date())
+    const today = jstDayKey(new Date())
+    const world: TakeModel[] = [
+      ...Array.from({ length: 25 }, (_, i) => ({
+        ...base, id: `f6-u-${i}`, dayKey: today,
+        discarded: { ...base.discarded!, byCardId: `c-gone-${i}`, byName: '担当者不明' },
+      })),
+      { ...base, id: 'f6-named', dayKey: today, discarded: { ...base.discarded!, byCardId: 'c-06', byName: '見本 あずさ' } },
+    ]
+    const counts = discardCounts(world, y, m)
+    // THE MODEL KEEPS EVERY CARD — ⚖ #799 / L1's B1-10: two departed staffers
+    // are two different people and never share a row or a React key.
+    expect(counts.byStaff.length).toBe(26)
+    // …and the BAND prints the unresolvable ones once, with their number
+    const band = staffBand(counts.byStaff)
+    expect(band.length).toBe(2)
+    const unknown = band.find((b) => b.name === '担当者不明')!
+    expect({ people: unknown.people, thisMonth: unknown.thisMonth }).toEqual({ people: 25, thisMonth: 25 })
+    expect(band.find((b) => b.name === '見本 あずさ')).toEqual({ rowKey: 'c-06', name: '見本 あずさ', thisMonth: 1, people: 1 })
+    // heaviest first is kept, and the keys stay unique
+    expect(band.map((b) => b.thisMonth)).toEqual([25, 1])
+    expect(new Set(band.map((b) => b.rowKey)).size).toBe(band.length)
+    // ONE unresolvable staffer is not a group — the departed case reads as it did
+    const one = staffBand([{ cardId: 'c-gone-1', name: '担当者不明', thisMonth: 25 }, { cardId: 'c-06', name: '見本 あずさ', thisMonth: 5 }])
+    expect(one.map((b) => ({ name: b.name, people: b.people }))).toEqual([
+      { name: '担当者不明', people: 1 }, { name: '見本 あずさ', people: 1 },
+    ])
+    // …and the rendered line names the people, never a raw id
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
+    for (const s of props.counts!.byStaff) expect(s.name).not.toMatch(/^c-|\bc-\d/)
   })
 })
 
@@ -1291,6 +1479,8 @@ describe('canon’s picker rule, and the 来店なし exclusion', () => {
 // ═══ THE WINDOWED WALK (ANY-ROSTER-SIZE on the take dimension) ══════════════
 
 describe('⚖ ANY-ROSTER-SIZE — the walk, and the 200-take world', () => {
+  onAPinnedMonth()
+
   it('a step that reveals nothing is not a step', () => {
     const rows = [{ dayKey: 100 }, { dayKey: 40 }]
     const one = windowTakes(rows, 1)
@@ -1355,9 +1545,15 @@ describe('⚖ ANY-ROSTER-SIZE — the walk, and the 200-take world', () => {
 
   it('a 25+ staff counts block stays arithmetically exact (⚖ the staff dimension)', () => {
     const base = models().find((m) => m.discarded !== null)!
+    // ⚠ STAMPED TO TODAY. This is an ARITHMETIC pin, so it may not inherit the
+    // demo plane's own calendar: every demo discard is dated relative to today,
+    // and on the 1st of a month they are all last month's — which took this
+    // `it` red at the parent tip on 2026-09-01 with nothing changed.
+    const today = jstDayKey(new Date())
     const many: TakeModel[] = Array.from({ length: 25 }, (_, i) => ({
       ...base,
       id: `syn-${i}`,
+      dayKey: today,
       discarded: { ...base.discarded!, byCardId: `c-syn-${i}`, byName: `見本 スタッフ${i}` },
     }))
     const { y, m } = jstYmd(new Date())
@@ -1370,20 +1566,10 @@ describe('⚖ ANY-ROSTER-SIZE — the walk, and the 200-take world', () => {
 // ═══ THE CLOCK MATRIX ═══════════════════════════════════════════════════════
 
 describe('the pinned-clock matrix — a JST calendar question, answered in JST', () => {
-  const RealDate = Date
-  const at = (iso: string) => {
-    const fixed = new RealDate(iso)
-    global.Date = class extends RealDate {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      constructor(...args: any[]) {
-        if (args.length === 0) super(fixed.getTime())
-        else super(...(args as [number]))
-      }
-      static now() { return fixed.getTime() }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any
-  }
-  afterEach(() => { global.Date = RealDate })
+  // the SAME pin every other calendar assertion in this file uses — one clock
+  // mechanism, so the matrix and the counts cannot drift apart.
+  const at = pinClock
+  afterEach(unpinClock)
 
   // Four instants that break a UTC-shaped month test: JST-midnight either side,
   // and the last/first day of a month read from a UTC clock in the wrong month.

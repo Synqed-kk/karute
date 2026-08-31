@@ -726,7 +726,18 @@
 .biz .pg-recording .rc-summary-main { display: flex; flex-wrap: wrap; align-items: baseline; margin: 0; color: var(--ink-3); font-size: 13px; line-height: 1.6; }
 .biz .pg-recording .rc-summary-staff { display: flex; flex-wrap: wrap; align-items: baseline; margin: 6px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.7; }
 .biz .pg-recording .rc-summary-k { margin-right: 8px; color: var(--ink-3); font-weight: 600; }
-.biz .pg-recording .rc-summary-one { max-width: 100%; white-space: nowrap; overflow-wrap: anywhere; }
+/* ⚠ WRAP WINS, AND THE NOWRAP IS SCOPED TO THE ONE PART THAT MAY NOT BREAK.
+   `white-space: nowrap` here defeated the `overflow-wrap: anywhere` beside it —
+   the two rules contradict and the overflow-wrap was dead — so a roster whose
+   name runs past ~28 latin or ~30 full-width characters pushed the WHOLE PAGE
+   sideways on a phone (390: 21px at 32 latin, 91px at 40, 156px at 40 kana; 440:
+   41px and 106px). Note the kana row: nowrap disables CJK breaking too, so this
+   was never a latin-only defect. Every other name surface in this room
+   (`.rc-review-cust`, `.rc-review-by`, `.rc-detail-name`, `.rc-c-cust`) already
+   takes `overflow-wrap: anywhere` WITHOUT nowrap and was clean under the same
+   world. The count is the only part that must not break across lines. */
+.biz .pg-recording .rc-summary-one { max-width: 100%; overflow-wrap: anywhere; }
+.biz .pg-recording .rc-summary-one .rc-num { white-space: nowrap; }
 .biz .pg-recording .rc-summary-sep { margin: 0 7px; color: var(--quiet); }
 .biz .pg-recording .rc-summary-note { margin: 6px 0 0; color: var(--muted); font-size: 11.5px; }
 

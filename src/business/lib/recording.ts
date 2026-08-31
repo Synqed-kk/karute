@@ -410,6 +410,12 @@ export { BELOW_FLOOR_SEC }
  * (user_id → email → card id → **card.name** → 担当者不明) instead of inheriting
  * this room's four.
  */
+/** The ONE string a card that resolves to nobody is named by. Exported because
+ *  a second consumer now has to RECOGNISE it — `staffBand` groups the
+ *  unresolvable entries of the counts band, and a second spelling of this word
+ *  would be a second kind of unknown person. */
+export const UNRESOLVED_STAFF_NAME = '担当者不明'
+
 export function staffNameOfCard(
   cardId: string,
   cards: FixtureStaffCard[],
@@ -426,7 +432,7 @@ export function staffNameOfCard(
   }
   const asProfile = roster.find((s) => s.id === cardId)
   if (asProfile) return asProfile.full_name
-  return '担当者不明'
+  return UNRESOLVED_STAFF_NAME
 }
 
 /** The reverse direction, for the SCOPE: which card is the signed-in staffer?
@@ -487,6 +493,11 @@ export interface TakeModel {
     minute: number
     byCardId: string
     byName: string
+    /** ⚠ WHETHER A REASON WAS WRITTEN — a FACT, not the content, so it survives
+     *  the redaction that empties `reason` for a reader without `discardReview`.
+     *  It is what `hasWrittenReason` asks, and therefore what every count and
+     *  the ledger agree on. */
+    hasReason: boolean
     reason: string | null
     transcript: FixtureTranscriptSegment[] | null
   } | null
@@ -609,6 +620,13 @@ export function buildTakes(input: BuildTakesInput): TakeModel[] {
             minute: take.discarded.minute,
             byCardId: take.discarded.by_staff_card_id,
             byName: staffNameOfCard(take.discarded.by_staff_card_id, staffCards, staff),
+            // ⚠ THE FACT SURVIVES THE REDACTION, THE CONTENT DOES NOT. 「a reason
+            // was written」 and 「here is what it said」 are two different
+            // questions, and only the second one is gated. Read off the PLANE,
+            // before `readable` — otherwise a staff reader, whose reasons are
+            // redacted to `null`, would have every one of their own discards
+            // judged reason-less and their own monthly count would read 0.
+            hasReason: take.discarded.reason.trim() !== '',
             reason: readable ? take.discarded.reason : null,
             transcript: readable ? take.discarded.transcript : null,
           }
@@ -634,15 +652,25 @@ export const WINDOW_DAYS = 7
  *
  *  A STEP THAT REVEALS NOTHING IS NOT A STEP: the walk keeps extending until the
  *  span either gains a row or reaches the oldest take there is, so a quiet
- *  fortnight does not read as a broken button. */
+ *  fortnight does not read as a broken button.
+ *
+ *  ⚠ AND IT RETURNS THE STEP IT ACTUALLY LANDED ON, WHICH IS THE WHOLE POINT.
+ *  The extension above used to be thrown away: the screen counted `steps + 1`
+ *  from its own state, so the next press re-derived a step the walk had already
+ *  walked past, landed on the same cutoff and returned the same window. On a
+ *  salon closed for a fortnight (takes on day 0, −1, −40, −41, −80) that made
+ *  さらに表示 a DEAD BUTTON for four consecutive presses — the exact class this
+ *  function's own comment says it prevents. The caller stores `step`, so every
+ *  press starts from where the walk really is (F6-1). */
 export function windowTakes<T extends { dayKey: number }>(
   rows: T[],
   steps: number,
-): { visible: T[]; hidden: number } {
-  if (rows.length === 0) return { visible: [], hidden: 0 }
+): { visible: T[]; hidden: number; step: number } {
+  const asked = Math.max(1, Math.floor(steps))
+  if (rows.length === 0) return { visible: [], hidden: 0, step: asked }
   const newest = rows[0].dayKey
   const oldest = rows[rows.length - 1].dayKey
-  let step = Math.max(1, Math.floor(steps))
+  let step = asked
   let cutoff = newest - step * WINDOW_DAYS + 1
   let visible = rows.filter((r) => r.dayKey >= cutoff)
   let before = rows.filter((r) => r.dayKey >= cutoff + WINDOW_DAYS).length
@@ -652,7 +680,7 @@ export function windowTakes<T extends { dayKey: number }>(
     cutoff = newest - step * WINDOW_DAYS + 1
     visible = rows.filter((r) => r.dayKey >= cutoff)
   }
-  return { visible, hidden: rows.length - visible.length }
+  return { visible, hidden: rows.length - visible.length, step }
 }
 
 // ── ⚖ 8/25 RULING B · THE COUNTS, BOTH WAYS, AS LABELLED PLAIN FACTS ────────
@@ -661,6 +689,32 @@ export function windowTakes<T extends { dayKey: number }>(
  *  room mirrors the cap so the honesty copy has something real to be honest
  *  ABOUT: past it, the counts say out loud that older records are not in them. */
 export const LEDGER_PAGE_SIZE = 200
+
+/**
+ * ⚖ A8 — ONE ROW-ELIGIBILITY PREDICATE, ASKED BY EVERY CONSUMER OF THE DISCARDS.
+ *
+ * A discard with no written reason is not a shape this product has: every human
+ * discard path — below-floor included — goes through the SAME required
+ * written-reason dialog (W7-2). `discardLedger` has always refused to build a
+ * row without one; `discardCounts` filtered on `discarded !== null` alone, so a
+ * reason-less row was COUNTED and never LISTED — the band said 「今月の破棄 4件」
+ * over a list of two, with nothing on the page explaining the gap.
+ *
+ * The guard lived in one consumer instead of in one predicate, which is exactly
+ * the disease `feedsCounts` exists to cure for the take states. Both counts and
+ * the list now ask this one question, so a count can never exceed what the list
+ * shows — by construction rather than by both filters happening to agree.
+ *
+ * ⚠ IT ASKS THE FACT, NEVER THE REDACTED CONTENT. `reason` is `null` for two
+ * completely different reasons — nobody wrote one, or this reader may not read
+ * it — and testing the content would collapse them, giving a staff reader (whose
+ * own reasons are always redacted) a monthly count of 0 for discards they made
+ * themselves. `hasReason` is stamped in `buildTakes` from the plane, above the
+ * redaction, so the two questions stay separate.
+ */
+export function hasWrittenReason(model: TakeModel): boolean {
+  return model.discarded !== null && model.discarded.hasReason
+}
 
 export interface DiscardCounts {
   /** 今月の破棄 — a CALENDAR month in JST, never a 30-day window. */
@@ -686,7 +740,7 @@ export function discardCounts(
   month: number,
   pageSize: number = LEDGER_PAGE_SIZE,
 ): DiscardCounts {
-  const all = models.filter((m) => m.discarded !== null)
+  const all = models.filter(hasWrittenReason)
   // The cap bites on the READ, newest first, exactly as the paginated core read
   // does — so `truncated` means 「older rows are not in these numbers」 rather
   // than 「some rows are missing from somewhere」.
@@ -708,6 +762,58 @@ export function discardCounts(
   }
 }
 
+/** One entry of the rendered スタッフ別 band. `people` is how many DISTINCT
+ *  staff cards the entry stands for — 1 for a named person, N for the grouped
+ *  unresolvable ones. */
+export interface StaffBandEntry {
+  /** The React key. A card id for a named person; the unknown word itself for
+   *  the one grouped entry — never rendered, never a raw id on screen. */
+  rowKey: string
+  name: string
+  thisMonth: number
+  people: number
+}
+
+/**
+ * ⚖ THE BAND READS HONESTLY AT SCALE WITHOUT LOSING WHAT IT COUNTS (F6-7).
+ *
+ * `discardCounts.byStaff` is per-CARD and stays that way — that is ⚖ #799's own
+ * two-space case and L1's B1-10: two departed staffers are two different people
+ * and must never share a row or a React key. But a band that PRINTS
+ * 「担当者不明 3件」 twenty-five times tells the manager nothing at all: the
+ * repetitions are indistinguishable to the reader by construction, because the
+ * name IS the absence of a name. A shop three years old with two dozen departed
+ * staff got a summary twenty-five entries tall that answered no question.
+ *
+ * So the band GROUPS what the reader cannot tell apart, and says how many
+ * people it grouped — 「担当者不明（25名）75件」. Every card is still its own
+ * entry in the model, every ledger row still names its own take, and the number
+ * of distinct unknown staffers is now a stated fact instead of a row count the
+ * reader has to do arithmetic on. The named half is untouched, and the
+ * single-unresolvable case renders exactly as it did (「担当者不明 25件」),
+ * because one person is not a group.
+ *
+ * Heaviest-first is kept: it is the existing law and ⚖ ruling B's 「no ranking
+ * CONTROL」 is about a sort the reader can press, not about a stable order.
+ */
+export function staffBand(byStaff: DiscardCounts['byStaff']): StaffBandEntry[] {
+  const rows: StaffBandEntry[] = []
+  let unknownPeople = 0
+  let unknownTotal = 0
+  for (const s of byStaff) {
+    if (s.name === UNRESOLVED_STAFF_NAME) {
+      unknownPeople += 1
+      unknownTotal += s.thisMonth
+    } else {
+      rows.push({ rowKey: s.cardId, name: s.name, thisMonth: s.thisMonth, people: 1 })
+    }
+  }
+  if (unknownPeople > 0) {
+    rows.push({ rowKey: UNRESOLVED_STAFF_NAME, name: UNRESOLVED_STAFF_NAME, thisMonth: unknownTotal, people: unknownPeople })
+  }
+  return rows.sort((a, b) => b.thisMonth - a.thisMonth || a.name.localeCompare(b.name))
+}
+
 /** `jstDayKey` counts whole JST days, so `dayKey * DAY` READ IN UTC is that JST
  *  day at 00:00 — the getUTC* reads below are therefore JST calendar values by
  *  construction, and the server's own timezone cannot shift a take into the
@@ -724,17 +830,31 @@ function inJstMonth(dayKey: number, year: number, month: number): boolean {
  * `null` renders NOTHING — never 0 — because a zero we cannot stand behind is a
  * claim, and the phone's own card obeys the same rule
  * (RecordingsInboxCard `myDiscardsThisMonth`).
+ *
+ * ⚠ AND IT READS THE SAME CAPPED LEDGER THE MANAGER'S COUNTS DO, WITH THE
+ * PHONE'S OWN TRUNCATION MEANING. It used to read the whole model list
+ * uncapped, so on a desk past the cap the 録音 screen said 「自分が今月破棄した
+ * 録音 260件」 and the 破棄の記録 screen said 「見本 あずさ 200件」 one press
+ * later — two numbers for one person's month, and only the second one admitted
+ * it was capped. The phone answers this exact question by paging the ledger and
+ * returning **null** the moment the read did not reach the end
+ * (`myDiscardCountThisMonth`, `recording-discards.ts:349-352`: 「past the cap
+ * `mine` is a FLOOR and not the count … a number we cannot back is not shown at
+ * all」). Same meaning here: past the cap the own-count is not a count, so it
+ * renders nothing rather than a bigger number than the band's.
  */
 export function ownDiscardsThisMonth(
   models: TakeModel[],
   selfCardId: string | null,
   year: number,
   month: number,
+  pageSize: number = LEDGER_PAGE_SIZE,
 ): number | null {
   if (selfCardId === null) return null
-  return models.filter(
-    (m) => m.discarded !== null && m.discarded.byCardId === selfCardId && inJstMonth(m.dayKey, year, month),
-  ).length
+  const all = models.filter(hasWrittenReason)
+  const read = all.slice(0, pageSize)
+  if (all.length > read.length) return null
+  return read.filter((m) => m.discarded!.byCardId === selfCardId && inJstMonth(m.dayKey, year, month)).length
 }
 
 // ── ⚖ 8/25 RULING A · THE THREE HONEST ABSENCE STATES ───────────────────────
@@ -799,6 +919,34 @@ export const TRANSCRIPT_FAILED_LINE = '文字起こしを読み込めません�
 export function transcriptAbsenceOf(model: TakeModel): TranscriptAbsence {
   return model.belowFloor ? 'belowFloor' : 'none'
 }
+
+// ── THE BACKDROP CLOSES ON A DECISION, NEVER ON A LEFTOVER PRESS ────────────
+
+/**
+ * How long after a dialog appears its backdrop refuses to dismiss it (F6-2).
+ *
+ * ⚠ MEASURED, NOT ASSUMED. The second press of a double-tap on 破棄 / この録音を
+ * 使う / 同意取得フローを開始 used to close the dialog the first press had just
+ * opened — 9 of 9 in the sweep's matrix, at every realistic gap. The obvious
+ * cure (「close only if the press STARTED on the backdrop」) does not work, and
+ * the event trace is why: the scrim mounts UNDER a pointer that is already
+ * resting where the opener was, so the second press's own `pointerdown` lands
+ * on the scrim, and it arrives as `detail: 1` — a fresh click sequence, not
+ * something the browser calls a double-click. Both 「the press began here」 and
+ * 「the browser called it a double-click」 are therefore true of the leftover
+ * press and cannot separate it from a decision.
+ *
+ * What separates them is that a decision takes a reader time and a double-tap
+ * takes none: to dismiss on purpose you must see a panel that was not there,
+ * decide against it, and press. 500ms is the platform's OWN double-click
+ * interval (the macOS and Windows defaults), so the window in which a second
+ * press can still belong to the first gesture is covered by construction rather
+ * than by a number chosen to fit the test.
+ *
+ * Escape, cancel and the confirm are untouched: this delays ONE exit, the one
+ * that can be taken by accident.
+ */
+export const SCRIM_SETTLE_MS = 500
 
 // ── ⚖ W7-2 · THE REFUSED WRITE, WHICH IS ALSO A DESIGNED STATE ──────────────
 
@@ -872,7 +1020,7 @@ export function discardLedger(
   pageSize: number = LEDGER_PAGE_SIZE,
 ): DiscardLedgerRow[] {
   return models
-    .filter((m) => m.discarded !== null && m.discarded.reason !== null && m.discarded.reason.trim() !== '')
+    .filter(hasWrittenReason)
     .slice(0, pageSize)
     .map((m) => ({
       takeId: m.id,

@@ -67,6 +67,7 @@ import {
   ownDiscardsThisMonth,
   permissionNotice,
   pickerOptions,
+  staffBand,
   takeDurationLabel,
   transcriptEntries,
   DISCARD_SUBMITTING_LABEL,
@@ -486,7 +487,15 @@ export async function recordingProps({
             // ⚠ KEYED BY CARD ID, not by name: two departed staffers both resolve
             // to 担当者不明, and a list keyed on the name would give two different
             // people one React key — the exact case ⚖ #799 shaped this plane for.
-            byStaff: counts.byStaff.map((s) => ({ cardId: s.cardId, name: s.name, line: `${s.thisMonth}件` })),
+            // …and `staffBand` is what makes the band READABLE once there are two
+            // dozen of them: the model keeps every card, the band prints the
+            // unresolvable ones as ONE entry that says how many people it stands
+            // for. A named person is `people: 1` and renders exactly as before.
+            byStaff: staffBand(counts.byStaff).map((s) => ({
+              rowKey: s.rowKey,
+              name: s.people > 1 ? `${s.name}（${s.people}名）` : s.name,
+              line: `${s.thisMonth}件`,
+            })),
             truncatedLine: counts.truncated ? '古い記録を除いた件数です。' : null,
             listTruncatedLine: counts.truncated ? '件数が多いため、古い記録は表示していません。' : null,
           },
