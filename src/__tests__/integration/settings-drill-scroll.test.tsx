@@ -3,8 +3,14 @@
 // scroll container persists across the list→drill content swap, so tapping a
 // card LOW in the settings list opened the section still scrolled down — the
 // 設定に戻る back button (top of the drill view) sat above the fold and read
-// as missing. DrillInView must open at the top: its mount effect zeroes every
-// scrollable ancestor. Section mocks mirror settings-shell-pending-tabs.
+// as missing. A section must open at the top.
+//
+// The reset lives in ONE place: the shell's ONE SCROLL-RESET AUTHORITY effect,
+// keyed on the section the user navigated to. DrillInView used to carry its own
+// ancestor-zeroing copy; that is DELETED (its mount fired on a breakpoint
+// crossing and reset readers who had navigated nowhere), and the "FIRST
+// ≥md→<md crossing … PRESERVES scroll" case below asserts exactly that it no
+// longer happens. Section mocks mirror settings-shell-pending-tabs.
 
 import { act, fireEvent, render, screen } from '@testing-library/react'
 
@@ -202,12 +208,16 @@ describe('SettingsShell — a rotation is not a tab change, so it must not move 
   })
 
   it('rotating UP off a scrolled LIST carries the offset onto the desktop view — only the user\'s own navigation moves the page', () => {
-    // The list is the trickiest case for the identity, and the reason it is
-    // `activeTab` and not `desktopActiveTab`: on the list activeTab is null,
-    // and `desktopActiveTab` resolves null to the first visible tab, so a
-    // width-keyed identity would read this rotation as null→'organization' —
-    // a branch swap wearing a navigation's clothes — and reset. It must not:
-    // the user navigated nowhere, so the page does not move.
+    // The user navigated nowhere, so the page must not move.
+    //
+    // This case does NOT discriminate `activeTab` from `desktopActiveTab` —
+    // off the list `activeTab` stays null and `desktopActiveTab` stays
+    // 'organization' on both sides of the crossing, so neither key resets here.
+    // (An earlier comment claimed otherwise; it was wrong. The transition that
+    // actually separates the two keys is the mobile drill-in null→'organization',
+    // pinned by the first test in this file and by the first-click case below.)
+    // What this pins is the width-independence itself: a crossing is never
+    // navigation, whichever way it goes.
     const crossTo = installCrossableMatchMedia(false)
     const { container } = render(<SettingsShell {...baseProps} />)
     // On the list (no section drilled into), scrolled well down it.
@@ -273,6 +283,32 @@ describe('SettingsShell — a rotation is not a tab change, so it must not move 
       unmount()
       delete (window as { matchMedia?: unknown }).matchMedia
     }
+  })
+
+  it('desktop FIRST click on the already-highlighted tab resets once; the second click is a no-op', () => {
+    // ADJUDICATED AS INTENDED. Arriving on desktop with activeTab null shows the
+    // first tab highlighted, but the identity is still null — so the first click
+    // on that highlighted tab moves null→'organization' and resets, even though
+    // the panel content does not change. Ruling: a tab click is the user's own
+    // navigation, so the reset stands. The second click is the same identity and
+    // does nothing.
+    //
+    // This is also the case that discriminates the two candidate identities: a
+    // null-collapsed key (`activeTab ?? visibleTabs[0].id`) maps null and
+    // 'organization' onto the same value, so it would see NO change here and
+    // skip the reset.
+    installMatchMedia(true)
+    const { container } = render(<SettingsShell {...baseProps} />)
+    // Desktop, nothing clicked yet: 組織 is the highlighted tab already.
+    expect(screen.getAllByTestId('section-organization').length).toBeGreaterThan(0)
+
+    container.scrollTop = 250
+    fireEvent.click(screen.getAllByText('organization')[0])
+    expect(container.scrollTop).toBe(0) // reset run #1
+
+    container.scrollTop = 250
+    fireEvent.click(screen.getAllByText('organization')[0])
+    expect(container.scrollTop).toBe(250) // no second run
   })
 
   it('BACK-TO-LIST resets — decided: symmetric with drilling in, the list opens at the top too', () => {

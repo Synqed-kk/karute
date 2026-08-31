@@ -337,13 +337,30 @@ export function SettingsShell({
   // remounts). DrillInView's copy is gone; this is the only writer left.
   //
   // The identity is `activeTab` — the section the USER navigated to, null =
-  // the mobile list — and NOT `desktopActiveTab`. That distinction is the
-  // whole fix: `desktopActiveTab` resolves null to the first visible tab, so
-  // rotating up off a scrolled list would read as null→'organization', a
-  // branch swap masquerading as a navigation. `activeTab` is width-independent,
-  // so a crossing is never an identity change in either direction, while all
-  // three real navigations still are: desktop tab click, mobile drill-in, and
-  // 設定に戻る back-to-list (which resets, symmetric with drilling in).
+  // the mobile list — and NOT `desktopActiveTab`.
+  //
+  // The reason is the `??` COLLISION, not the width. `desktopActiveTab` is
+  // `activeTab ?? visibleTabs[0]?.id`, it never reads `isWide`, and
+  // `visibleTabs[0]` is always 'organization' (settings-visibility filters
+  // stores/audit/sync/menus/discards and ownerOnly tabs — never this one). So
+  // it maps BOTH null and 'organization' onto 'organization', and the two keys
+  // differ on exactly two transitions:
+  //
+  //   null → 'organization'  — mobile first-card drill-in, desktop first-tab
+  //                            click. Under `desktopActiveTab` this is not a
+  //                            change, so the drill-in reset is LOST.
+  //   'organization' → null  — 設定に戻る out of 組織. Same collapse.
+  //
+  // Every other transition reads identically under both keys, rotation
+  // included: off the list `activeTab` stays null and `desktopActiveTab` stays
+  // 'organization' on both sides, so neither key resets there. (An earlier
+  // version of this comment blamed the rotation case. That was wrong — the
+  // mobile drill-in above is what `desktopActiveTab` actually costs.)
+  //
+  // What `activeTab` buys is width-independence: a crossing can never be an
+  // identity change, while all three real navigations are — desktop tab click,
+  // mobile drill-in, and 設定に戻る back-to-list (which resets, symmetric with
+  // drilling in).
   //
   // `isWide` is deliberately absent from the deps — the effect no longer reads
   // the width at all, so there is no width-triggered path left to guard, and
@@ -364,6 +381,11 @@ export function SettingsShell({
   const shellRef = useRef<HTMLDivElement>(null)
   const lastSection = useRef<SettingsTabId | null | undefined>(undefined)
   useLayoutEffect(() => {
+    // ADJUDICATED AS INTENDED: on desktop, arriving with `activeTab` null shows
+    // the first tab already highlighted, so the FIRST click on that highlighted
+    // tab moves null→'organization' and resets once while the content does not
+    // change; the second click is a no-op. A tab click is the user's own
+    // navigation, so the reset stands. Pinned in settings-drill-scroll.test.tsx.
     if (lastSection.current === activeTab) return
     lastSection.current = activeTab
     for (let el: HTMLElement | null = shellRef.current; el; el = el.parentElement) {
