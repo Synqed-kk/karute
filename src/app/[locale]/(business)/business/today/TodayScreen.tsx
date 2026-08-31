@@ -111,6 +111,9 @@ import {
   pinInViewport,
   restCueStarts,
   warnFaceFor,
+  holdClock,
+  holdResumeAt,
+  HOLD_MS,
   explainRails,
   reservedSentence,
   sameStore,
@@ -995,15 +998,18 @@ export function TodayScreen(props: TodayProps) {
   const advicePopRef = useRef<HTMLDivElement>(null)
   const blockAdvicePopRef = useRef<HTMLDivElement>(null)
   const holdPopRef = useRef<HTMLDivElement>(null)
-  /** ⚖ LIAM flag 92 — THE LONG PRESS'S OWN THREE PIECES: the layer the fill is
-   *  written onto (a ref, never state — the meter is repainted per frame and a
-   *  re-render per frame is the jank the drag path was rebuilt to remove), the
-   *  hint that appears after a cancelled press, and the handlers the button
-   *  wears. The arithmetic is `holdClock`'s (today-interactions), pinned by its
-   *  own tests; W4 wires these to it. */
+  /** ⚖ LIAM flag 92 — THE LONG PRESS'S OWN PIECES: the layer the fill is written
+   *  onto, the press's whole mutable state, and the hint that appears after a
+   *  cancelled press.
+   *
+   *  REFS, NOT STATE, for everything but the hint: the fill is repainted every
+   *  frame straight onto the node, and a re-render per frame is exactly the jank
+   *  the drag path was rebuilt to remove (WO-2d's rule, and canon's own). The
+   *  ARITHMETIC is not here at all — it is `holdClock`'s, out in
+   *  today-interactions where 600ms / resume / recoil are provable without a DOM. */
   const holdFillRef = useRef<HTMLSpanElement | null>(null)
   const [holdHinting, setHoldHinting] = useState(false)
-  const holdHandlers: Record<string, never> = {}
+  const holdRef = useRef({ raf: 0, step: 0, mode: '' as '' | 'hold' | 'spring', t0: 0, x0: 0, progress: 0, completing: false, btn: null as HTMLButtonElement | null })
   /** canon's `popOpenedAt` (:7074): a popup opened from a pointerup is followed
    *  by one synthetic click on the thing underneath, and without this window the
    *  popup would close itself the instant it appeared. */
@@ -2391,6 +2397,21 @@ export function TodayScreen(props: TodayProps) {
    *  that brings this surface into being pins it, including paths nobody has
    *  written yet. No first-open special case exists or is needed. */
   const holdPopMounted = holdPop !== null
+  /** ⚖ 92 — WHEN THE CONTROL GOES, THE CLOCK GOES WITH IT. The hold button
+   *  unmounts on every ending the card has — 確定, 元に戻す, a re-stage that
+   *  lands on the clean face — and a frame still running would keep writing to a
+   *  node React has already detached, then refuse the NEXT press because
+   *  `completing` was never cleared. Keyed on the control's own kind so it fires
+   *  on the ending and not on every render. */
+  const holdCommitKind = holdPop?.warn?.commit?.kind ?? null
+  useEffect(() => {
+    if (holdCommitKind === 'hold') return
+    const h = holdRef.current
+    if (h.raf) cancelAnimationFrame(h.raf)
+    if (h.step) clearInterval(h.step)
+    holdRef.current = { ...h, raf: 0, step: 0, mode: '', progress: 0, completing: false, btn: null }
+    setHoldHinting(false)
+  }, [holdCommitKind])
   /** ⚖ Liam flag 48 — WHICH 60分配置 chip the confirm should try not to sit on:
    *  the one for the START THE CARD LANDED ON, in the lane it landed in. The
    *  rail draws a cell every 30 minutes, so an off-lattice landing (canon's dual
@@ -2746,6 +2767,126 @@ export function TodayScreen(props: TodayProps) {
     // rides along: the operator took the safe answer, so there is no longer a
     // sentence being walked past — `stage` clears the stamp, and with it the △.
     stage(pending.id, { staffLane: at.laneKey, bedLane: again.bedLane }, span, { staff: pending.origin, bed: pending.bedOrigin ?? null })
+  }
+
+  // ── ⚖ LIAM flag 92 — the long press ────────────────────────────────────────
+
+  /** ⚖ 92 — THE PRESS THAT COSTS SOMETHING TAKES A MOMENT. Ported from the
+   *  approved design page's own mechanics so the feel Liam signed off on is the
+   *  feel that ships: 0.6 秒 of fill, a press acknowledgment the instant the
+   *  finger lands, a recoil that carries the press's own velocity out when it is
+   *  released early, and a 250ms settle before the commit fires.
+   *
+   *  ⚖ IT COMMITS THROUGH `confirmPending` — the SAME function the clean face's
+   *  確定 runs. The long press is a gesture, never a second commit path; every
+   *  re-check the ordinary confirm performs (canon R11-7, the off-board test,
+   *  `overrideCaption`'s gate) performs here because it is literally that call.
+   *
+   *  REDUCED MOTION is a real branch and not a CSS afterthought: the fill steps
+   *  in thirds on a plain interval, nothing springs, nothing settles. The CSS
+   *  block says the same thing for the transitions the browser owns. */
+  const holdFill = (p: number) => {
+    const node = holdFillRef.current
+    if (node) node.style.transform = `scaleX(${p})`
+  }
+  const holdReduced = () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  function holdFrame(now: number) {
+    const h = holdRef.current
+    h.raf = 0
+    if (h.mode === '') return
+    const { progress, done } = holdClock({ mode: h.mode, t0: h.t0, x0: h.x0 }, now)
+    h.progress = progress
+    holdFill(progress)
+    if (!done) {
+      h.raf = requestAnimationFrame(holdFrame)
+      return
+    }
+    const was = h.mode
+    h.mode = ''
+    if (was === 'hold') holdComplete()
+  }
+
+  function holdReset() {
+    const h = holdRef.current
+    if (h.raf) { cancelAnimationFrame(h.raf); h.raf = 0 }
+    if (h.step) { clearInterval(h.step); h.step = 0 }
+    h.btn?.classList.remove('holding', 'settle')
+    h.mode = ''
+    h.progress = 0
+    h.completing = false
+    h.btn = null
+  }
+
+  function holdStart(btn: HTMLButtonElement) {
+    const h = holdRef.current
+    if (h.mode === 'hold' || h.completing) return
+    h.btn = btn
+    // The acknowledgment: the control answers the finger before the fill has
+    // anything to show, so a press never feels like it was missed.
+    btn.classList.add('holding')
+    setHoldHinting(false)
+    if (holdReduced()) {
+      h.mode = 'hold'
+      let n = Math.round(h.progress * 3)
+      h.step = window.setInterval(() => {
+        n += 1
+        h.progress = n / 3
+        holdFill(h.progress)
+        if (n >= 3) { clearInterval(h.step); h.step = 0; h.mode = ''; holdComplete() }
+      }, HOLD_MS / 3)
+      return
+    }
+    h.mode = 'hold'
+    // RESUME: a second press continues the first one's fill. The finger already
+    // did that work and taking it back is the surface being pedantic.
+    h.t0 = holdResumeAt(h.progress, performance.now())
+    if (!h.raf) h.raf = requestAnimationFrame(holdFrame)
+  }
+
+  function holdCancel() {
+    const h = holdRef.current
+    if (h.completing) return
+    h.btn?.classList.remove('holding')
+    if (h.step) { clearInterval(h.step); h.step = 0 }
+    if (h.mode !== 'hold') return
+    // The one line of teaching, and only after a press that did not finish: the
+    // operator tried, so now the surface says how.
+    setHoldHinting(true)
+    if (holdReduced()) { h.mode = ''; h.progress = 0; holdFill(0); return }
+    h.x0 = h.progress
+    h.t0 = performance.now()
+    h.mode = 'spring'
+    if (!h.raf) h.raf = requestAnimationFrame(holdFrame)
+  }
+
+  function holdComplete() {
+    const h = holdRef.current
+    h.completing = true
+    holdFill(1)
+    const btn = h.btn
+    if (holdReduced() || !btn) { holdReset(); confirmPending(); return }
+    btn.classList.add('settle')
+    window.setTimeout(() => { holdReset(); confirmPending() }, 250)
+  }
+
+  /** Pointer AND keyboard, because a commit control that only answers a finger
+   *  is not a control. Enter/Space hold exactly as a finger does — `e.repeat` is
+   *  refused so the OS key-repeat cannot fill the meter on its own. */
+  const holdHandlers = {
+    onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => { e.preventDefault(); holdStart(e.currentTarget) },
+    onPointerUp: () => holdCancel(),
+    onPointerLeave: () => holdCancel(),
+    onPointerCancel: () => holdCancel(),
+    onBlur: () => holdCancel(),
+    onKeyDown: (e: React.KeyboardEvent<HTMLButtonElement>) => {
+      if (e.repeat || (e.key !== 'Enter' && e.key !== ' ')) return
+      e.preventDefault()
+      holdStart(e.currentTarget)
+    },
+    onKeyUp: (e: React.KeyboardEvent<HTMLButtonElement>) => {
+      if (e.key === 'Enter' || e.key === ' ') holdCancel()
+    },
   }
 
   // canon (:6941-6947): Escape puts down whatever is in the operator's hand,
