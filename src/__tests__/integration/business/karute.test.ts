@@ -103,6 +103,38 @@ const world = (over: Partial<Parameters<typeof buildRecords>[0]> = {}) =>
     ...over,
   })
 
+/** Pin the render clock. Only the zero-argument construction is faked; the
+ *  calendar arithmetic needs real `new Date(iso)` AND the statics (`Date.UTC`
+ *  builds every coordinate in clock.ts), so they are carried across — a stub
+ *  without them fails inside the code under test rather than proving anything
+ *  about it. Same idiom as shifts.test.ts / analytics.test.ts / register.test.ts
+ *  / inbox.test.ts.
+ *
+ *  Only ONE test in this file needs it: 「the discarded row is COUNTED in the
+ *  census…」 below reads K-0005 through `apt-10`, which fixtures.ts places at a
+ *  RELATIVE `day: -2` from whoever is looking (⚖ L-6) — 2 JST-calendar-days
+ *  before `karuteProps()`'s own `renderNow()`. That holds K-0005 inside 今月 on
+ *  every date except the 1st and 2nd of a month, where `today - 2` lands in the
+ *  PREVIOUS month and the census's `（うち破棄 N件）` parenthesis silently drops.
+ *  Every other assertion in this file either compares two sides derived from
+ *  the SAME real `NOW` (self-consistent on any date) or names a fixed relative
+ *  offset far enough from a month edge to never cross it, so only this one test
+ *  is pinned — anchored on the 22nd, the date every sibling suite already uses. */
+const RealDate = Date
+function pin(iso: string): () => void {
+  const at = new RealDate(iso)
+  const stub = function (this: unknown, ...args: unknown[]) {
+    return args.length === 0 ? new RealDate(at) : new RealDate(...(args as [string]))
+  } as unknown as DateConstructor
+  stub.UTC = RealDate.UTC
+  stub.parse = RealDate.parse
+  stub.now = () => at.getTime()
+  globalThis.Date = stub
+  return () => {
+    globalThis.Date = RealDate
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 describe('⚠ THE FIXTURE FENCE — the plane ADDS, and states nothing the world states', () => {
   // The W7 breach class, pinned from both sides.
@@ -371,17 +403,26 @@ describe('⚖ THE DISCARD DOCTRINE (Liam 8/20 ①②③ + R2 + 8/25 ruling B)', 
   })
 
   it('the discarded row is COUNTED in the census and NAMED apart from it', async () => {
-    const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
-    // Existence is never hidden (①), so the month total includes it — and ⚖ R2
-    // means a reader must be able to take it back out without arithmetic.
-    expect(props.monthLabel).toMatch(/^カルテ 今月 \d+件（うち破棄 \d+件）$/)
-    // …but ONLY when there is one. A parenthesis about zero discards would be
-    // an editorial about nothing.
-    const quiet = await karuteProps({
-      locale: 'ja', store: STORE_A,
-      world: { records: recordPlane.filter((r) => r.discarded === null) },
-    })
-    expect(quiet.props.monthLabel).toMatch(/^カルテ 今月 \d+件$/)
+    // K-0005 (apt-10) sits at a fixture `day: -2` from `renderNow()`, so it
+    // falls out of 今月 on the 1st and 2nd of any month (see the file-header
+    // comment on `pin`) — pinned to the 22nd so this assertion is true on every
+    // calendar, not just the one CI happened to run on.
+    const restore = pin('2026-08-22T03:00:00.000Z')
+    try {
+      const { props } = await karuteProps({ locale: 'ja', store: STORE_A })
+      // Existence is never hidden (①), so the month total includes it — and ⚖ R2
+      // means a reader must be able to take it back out without arithmetic.
+      expect(props.monthLabel).toMatch(/^カルテ 今月 \d+件（うち破棄 \d+件）$/)
+      // …but ONLY when there is one. A parenthesis about zero discards would be
+      // an editorial about nothing.
+      const quiet = await karuteProps({
+        locale: 'ja', store: STORE_A,
+        world: { records: recordPlane.filter((r) => r.discarded === null) },
+      })
+      expect(quiet.props.monthLabel).toMatch(/^カルテ 今月 \d+件$/)
+    } finally {
+      restore()
+    }
   })
 })
 
