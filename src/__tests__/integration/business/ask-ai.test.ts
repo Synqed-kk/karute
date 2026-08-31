@@ -17,14 +17,35 @@
  * "hide". Both are proven by scanning the SERIALIZED props for strings that must
  * not be anywhere in them.
  *
- * Third job: ASKING IS A CALL AND THIS ROOM MAKES NONE. 送信 refuses with its own
- * reason naming registry ①, nothing here fetches anything, nothing renders the
- * phone's 「確認しています…」, and 却下 is honest about being demo-local.
+ * Third job: ASKING IS A CALL AND THIS ROOM MAKES NONE. 送信 refuses in PLAIN
+ * WORDS, nothing here fetches anything, nothing renders the phone's
+ * 「確認しています…」, and 却下 is honest about being demo-local.
  */
+
+// ⚖ L2-2 — THE DENIED READER'S PROOF IS EXECUTED, NOT INFERRED. A scan of the
+// output shape alone would pass a refactor that READ the whole store and then
+// discarded it, which is the same payload and a completely different program.
+// The four data doors are wrapped so the pin can assert the assembly never
+// opened one — and assert, differentially, that an ADMITTED reader does, so the
+// green is a gate rather than a mock nobody wired. `jest.spyOn` cannot redefine
+// an ES-module namespace property (the シフト room's own note), so the module is
+// re-exported with exactly those four wrapped and everything else passed
+// through untouched.
+jest.mock('@/business/lib/data', () => {
+  const actual = jest.requireActual('@/business/lib/data')
+  return {
+    ...actual,
+    listCustomers: jest.fn(actual.listCustomers),
+    listAppointments: jest.fn(actual.listAppointments),
+    listMenus: jest.fn(actual.listMenus),
+    listStaff: jest.fn(actual.listStaff),
+  }
+})
+
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { jstDayKey } from '@/business/lib/clock'
-import { renderNow } from '@/business/lib/data'
+import { listAppointments, listCustomers, listMenus, listStaff, renderNow } from '@/business/lib/data'
 import { appointments, customers, menus, staff, STORE_A, STORE_B } from '@/business/lib/fixtures'
 import { threads as threadPlane } from '@/business/lib/fixtures-inbox'
 import { records as recordPlane } from '@/business/lib/fixtures-karute'
@@ -45,6 +66,7 @@ import {
   DISMISS_TOAST,
   evidenceLineOf,
   feedOrder,
+  FEED_WINDOW,
   keepCardOffHeading,
   LIVE_SEGMENTS,
   permissionNotice,
@@ -52,6 +74,7 @@ import {
   scopeCounts,
   todayRosterSize,
   urgencyOf,
+  windowFeed,
   type AskAiWorld,
   type FeedCard,
 } from '@/business/lib/ask-ai'
@@ -106,11 +129,16 @@ const A_ONLY_NAME = customers.find((c) => c.id === 'cus-11')!.name
 const B_ONLY_NAME = customers.find((c) => c.id === 'cus-03')!.name
 
 describe('⚖ THE PLANE LAW — this room ADDS, and restates nothing', () => {
-  it('the plane imports NOTHING, so it cannot restate the world', () => {
+  it('the plane imports NOTHING, in any spelling, so it cannot restate the world', () => {
     // The machine-readable half of this lives in foundation.test.ts's INVENTORY
     // (an empty list for this file). Here it is read directly, because a plane
     // that grew one import is the whole breach class in one line.
-    expect(PLANE_CODE).not.toMatch(/^\s*import\s/m)
+    //
+    // ⚠ AND THE PIN IS SPELLED AS WIDE AS THE NAME IT CLAIMS (L3-5). A bare
+    // `^import` sees the static form only; `export … from` re-exports a module's
+    // rows just as effectively, and `import(` reaches one at runtime. All four
+    // doors, one regex, so the pin and its title say the same thing.
+    expect(PLANE_CODE).not.toMatch(/(^\s*import\s)|(\bimport\s*\()|(^\s*export\b[^\n]*\bfrom\s)|(\brequire\s*\()/m)
   })
 
   it('every suggestion joins the world by id and states none of its facts', () => {
@@ -259,22 +287,80 @@ describe('the feed — canon’s rules, as pure functions', () => {
   })
 
   it('⚖ ANY-ROSTER-SIZE on the feed dimension — 25+ suggestions, arithmetic exact', () => {
-    const many: FixtureSuggestion[] = Array.from({ length: 30 }, (_, i) => ({
+    const feed = buildFeed(bulk(30), WORLD_A)
+    expect(feed).toHaveLength(30)
+    // none of them badged (a karute record carries no hard fact), so the order
+    // is the plane's own — a 30-row feed must not reshuffle itself.
+    expect(feed.map((c) => c.id)).toEqual(bulk(30).map((s) => s.id))
+    // …and the sheet gives the feed no scroller of its own to hide them in. The
+    // WINDOW below is what shortens the page; an axis on a box would be the ⚖
+    // page-scroll ruling broken, not the fix for it.
+    expect(CSS_CODE).not.toMatch(/\.ak-feed[^{]*\{[^}]*overflow/)
+    expect(CSS_CODE).not.toMatch(/max-height/)
+    expect(CSS_CODE).not.toMatch(/overscroll-behavior/)
+  })
+
+  /** The 25+ world, built once per call so a test that mutates its own copy
+   *  cannot reach the next one. */
+  const bulk = (n: number): FixtureSuggestion[] =>
+    Array.from({ length: n }, (_, i) => ({
       id: `bulk-${i}`,
       category: 'customer_follow' as const,
       text: `見本の提案 ${i}`,
       sourceRef: { collection: 'karuteRecords' as const, id: 'K-0001' },
       deepLink: 'karute',
     }))
-    const feed = buildFeed(many, WORLD_A)
-    expect(feed).toHaveLength(30)
-    // none of them badged (a karute record carries no hard fact), so the order
-    // is the plane's own — a 30-row feed must not reshuffle itself.
-    expect(feed.map((c) => c.id)).toEqual(many.map((s) => s.id))
-    // …and the sheet gives the feed no scroller of its own to hide them in.
-    expect(CSS_CODE).not.toMatch(/\.ak-feed[^{]*\{[^}]*overflow/)
-    expect(CSS_CODE).not.toMatch(/max-height/)
-    expect(CSS_CODE).not.toMatch(/overscroll-behavior/)
+
+  it('⚖ THE WINDOW WALKS EVERY STEP, and the remainder label is exact at each one', () => {
+    const feed = buildFeed(bulk(30), WORLD_A)
+    expect(FEED_WINDOW).toBe(6)
+    const walked: Array<{ shown: number; remaining: number; label: string | null }> = []
+    for (let steps = 1; steps <= 12; steps += 1) {
+      const w = windowFeed(feed, steps)
+      // The window is a PREFIX: it never reorders the feed the sort decided and
+      // never shows a row twice.
+      expect(w.shown.map((c) => c.id)).toEqual(feed.slice(0, w.shown.length).map((c) => c.id))
+      // ⚠ THE LABEL AND THE ARITHMETIC ARE ONE CALL. A remainder that disagreed
+      // with total − shown is the mutation this pin exists to redden.
+      expect({ steps, remaining: w.remaining }).toEqual({ steps, remaining: feed.length - w.shown.length })
+      expect(w.moreLabel).toBe(w.remaining > 0 ? `さらに表示（残り${w.remaining}件）` : null)
+      walked.push({ shown: w.shown.length, remaining: w.remaining, label: w.moreLabel })
+      if (w.remaining === 0) break
+    }
+    expect(walked.map((s) => s.shown)).toEqual([6, 12, 18, 24, 30])
+    expect(walked.map((s) => s.remaining)).toEqual([24, 18, 12, 6, 0])
+    expect(walked[0].label).toBe('さらに表示（残り24件）')
+    expect(walked[4].label).toBeNull()
+    // A step count below one is still one window — a control cannot walk the
+    // reader backwards past the page they opened on.
+    expect(windowFeed(feed, 0).shown).toHaveLength(6)
+    expect(windowFeed(feed, -3).shown).toHaveLength(6)
+  })
+
+  it('a DISMISSED card leaves the total AND the window arithmetic together', () => {
+    const feed = buildFeed(bulk(30), WORLD_A)
+    // Dismissal is browsing state on the screen, so what the window is handed is
+    // the list the reader can still SEE. Take one out of the first window and one
+    // out of the last: the head's total and the footer's remainder both move, and
+    // they still add up.
+    const visible = feed.filter((c) => c.id !== 'bulk-2' && c.id !== 'bulk-29')
+    const w = windowFeed(visible, 1)
+    expect(visible).toHaveLength(28)
+    expect(w.shown).toHaveLength(6)
+    expect(w.moreLabel).toBe('さらに表示（残り22件）')
+    expect(w.remaining).toBe(visible.length - w.shown.length)
+    // …and the row the first window pulled up to replace the dismissed one is
+    // the next one in the feed's own order, never a reshuffle.
+    expect(w.shown.map((c) => c.id)).toEqual(['bulk-0', 'bulk-1', 'bulk-3', 'bulk-4', 'bulk-5', 'bulk-6'])
+  })
+
+  it('a store whose whole feed fits shows NO control at all', () => {
+    // 銀座 has six and 代官山 three — both open complete, so the walk appears only
+    // where there is genuinely more (which is what keeps it meaningful).
+    expect(windowFeed(feedA, 1).remaining).toBe(0)
+    expect(windowFeed(feedA, 1).moreLabel).toBeNull()
+    expect(windowFeed(feedB, 1).moreLabel).toBeNull()
+    expect(feedA.length).toBeLessThanOrEqual(FEED_WINDOW)
   })
 })
 
@@ -401,19 +487,48 @@ describe('who may consult — the phone’s own rule, mirrored', () => {
 })
 
 describe('the props assembly — the two gates, above the serializer', () => {
-  it('a denied reader’s payload contains NONE of this room’s data', async () => {
+  /** The four store-clamped doors, wrapped at the top of this file. The cast is
+   *  the mock's shape asserted, not assumed — the differential test below fails
+   *  loudly if the wrapping ever stops happening. */
+  const DOORS = { listCustomers, listAppointments, listMenus, listStaff } as unknown as Record<string, jest.Mock>
+
+  it('a denied reader’s payload contains NONE of this room’s data, and NO DOOR IS EVER OPENED', async () => {
+    for (const fn of Object.values(DOORS)) fn.mockClear()
     const { props } = await askAiProps({ locale: 'ja', store: STORE_A, world: { role: '' } })
+
+    // ⚖ L2-2 — THE EXECUTED HALF, and it is the one that outranks the shape. A
+    // refactor that read the whole store and then threw it away would produce
+    // this exact payload; it would also put every customer of this store through
+    // a process that was told it may not see them.
+    for (const [name, fn] of Object.entries(DOORS)) {
+      expect({ name, calls: fn.mock.calls.length }).toEqual({ name, calls: 0 })
+    }
+
     expect(props.noticeLines.length).toBeGreaterThan(0)
     expect(props.feed).toEqual([])
     expect(props.turns).toEqual([])
     expect(props.signals).toEqual([])
     expect(props.templates).toEqual([])
     expect(props.scope).toEqual([])
-    // …and the payload itself carries no person, no record and no question.
+    // …and the payload itself carries no person, no record, no question — and
+    // (L2-6) no suggestion's own words or the id it joins the world on, which is
+    // the one shape the three scans above could not have caught.
     const json = JSON.stringify(props)
     for (const name of customers.map((c) => c.name)) expect(json).not.toContain(name)
     for (const r of recordPlane) expect(json).not.toContain(r.id)
     for (const t of conversationPlane) expect(json).not.toContain(t.text)
+    for (const s of suggestionPlane) {
+      expect({ id: s.id, leaked: json.includes(s.text) }).toEqual({ id: s.id, leaked: false })
+      expect({ id: s.id, ref: json.includes(s.sourceRef.id) }).toEqual({ id: s.id, ref: false })
+    }
+  })
+
+  it('…and the SAME doors really do open for an admitted reader (the pin is a gate, not a dead mock)', async () => {
+    for (const fn of Object.values(DOORS)) fn.mockClear()
+    await askAiProps({ locale: 'ja', store: STORE_A })
+    for (const [name, fn] of Object.entries(DOORS)) {
+      expect({ name, opened: fn.mock.calls.length > 0 }).toEqual({ name, opened: true })
+    }
   })
 
   it('an admitted reader gets the room, and the store clamp leaves NOTHING behind', async () => {
@@ -535,15 +650,43 @@ describe('⚖ ASKING IS A CALL, AND THIS ROOM MAKES NONE', () => {
     expect(SCREEN_CODE).toContain('toastTimer.current = setTimeout(() => setToast(null), 2800)')
   })
 
-  it('SEND refuses honestly, names registry ①, and changes NOTHING', () => {
+  it('SEND refuses honestly, IN PLAIN WORDS, and changes NOTHING', () => {
     expect(REFUSAL.send).toContain('回答を生成できません')
-    expect(REFUSAL.send).toContain('登録①')
+    // ⚖ L4-1 — the missing thing is named in WORDS a shop reads, and the sentence
+    // closes with the family's bare 未接続 honesty (the カルテ room's own
+    // permissionNotice shape, `karute.ts:107`). What it must never carry is the
+    // reconnect registry's internal numbering.
+    expect(REFUSAL.send).toContain('実データとAIの接続後')
+    expect(REFUSAL.send).toContain('（未接続）')
+    expect(REFUSAL.settings).toContain('AI設定を開けません')
+    expect(REFUSAL.settings).toContain('設定画面の追加後')
+    expect(REFUSAL.settings).toContain('（未接続）')
     // The composer's state is never touched on the refusal path: `refuseSend`
     // sets the refusal and nothing else, and no handler clears the draft.
+    // ⚠ ALL THREE QUOTE SPELLINGS (L3-2). A pin that only saw `setDraft('')`
+    // would go green on a refactor that typed the same statement with double
+    // quotes or a backtick — the runtime half (probe D1) is load-bearing, and
+    // this half must at least be spelled as wide as the claim it makes.
     expect(SCREEN_CODE).toContain('const refuseSend = (contextLabel: string | null = null) => {')
-    expect(SCREEN_CODE).not.toMatch(/setDraft\(''\)/)
+    expect(SCREEN_CODE).not.toMatch(/setDraft\(\s*(''|""|``)\s*\)/)
     // …and the box stays usable — `disabled` is the EMPTY-input contract only.
     expect(SCREEN_CODE).toContain("disabled={draft.trim() === ''}")
+  })
+
+  it('⚖ NO REGISTRY NUMBERING REACHES THE READER — swept across every screen-reachable string', () => {
+    // L4-1's root fix, made a rule rather than two corrected sentences: the
+    // reconnect registry is an INTERNAL index, and 「登録①」 on a shop's screen is
+    // jargon whatever string it rides in. The sweep reads CODE, so a comment may
+    // still carry the mapping — which is the point of the second half.
+    for (const [name, src] of [['lib', LIB_CODE], ['props', PROPS_CODE], ['plane', PLANE_CODE], ['screen', SCREEN_CODE], ['page', PAGE_CODE]] as const) {
+      expect({ name, token: /登録/.test(src) }).toEqual({ name, token: false })
+      expect({ name, circled: /[①-⑳]/.test(src) }).toEqual({ name, circled: false })
+    }
+    // …and the mapping stays GREP-ABLE for the reconnect spec, in the comments
+    // beside the two strings it belongs to — the seam is still named, it is just
+    // named where engineers read and shops do not.
+    expect(LIB_SRC).toContain('登録① AI応答の生成')
+    expect(LIB_SRC).toContain('登録⑦ AI設定ダイヤル接続')
   })
 
   it('Enter sends and Shift+Enter is a newline — the contract the hint documents', () => {
@@ -637,6 +780,35 @@ describe('the shell one-liners', () => {
     expect(SIDEBAR).toContain("{ key: 'recording', segment: null, label: '録音', mini: '録音', live: false }")
     expect(SIDEBAR).toContain("{ key: 'coaching', segment: null, label: 'コーチング', mini: 'コーチ', live: false }")
     expect(SIDEBAR).toContain("{ key: 'settings', segment: null, label: '設定', mini: '設定', live: false }")
+  })
+
+  it('⚖ EVERY DOOR THIS ROOM OFFERS IS OPEN IN THE RAIL ITSELF — cross-checked, never self-asserted', () => {
+    // L3-1. `LIVE_SEGMENTS` was pinned only against a hand-typed list in this
+    // file and another in the probe, so a room quietly rolled BACK to 準備中 left
+    // every card in this feed pointing at a door that no longer opens — and both
+    // "gates" stayed green because they were reading each other. The rail is
+    // read at run time instead, and it is the rail that decides.
+    const NAV = [...SIDEBAR.matchAll(
+      /\{ key: '([^']+)', segment: (null|'[^']+'), label: '[^']*', mini: '[^']*', live: (true|false) \}/g,
+    )].map((m) => ({ key: m[1], segment: m[2] === 'null' ? null : m[2].slice(1, -1), live: m[3] === 'true' }))
+    // ⚖ NAV LAW: all twelve items render, always — so a parse that found fewer
+    // is a parse that stopped working, not a rail that shrank.
+    expect(NAV).toHaveLength(12)
+
+    const liveSegments = new Set(NAV.filter((n) => n.live && n.segment).map((n) => n.segment))
+    for (const segment of Object.keys(LIVE_SEGMENTS)) {
+      expect({ segment, liveInTheRail: liveSegments.has(segment) }).toEqual({ segment, liveInTheRail: true })
+    }
+    // …and nothing the rail still calls 準備中 is on this room's list, in either
+    // spelling it could be written (the item's key, or a segment it might grow).
+    for (const item of NAV.filter((n) => !n.live)) {
+      expect({ key: item.key, offered: Object.hasOwn(LIVE_SEGMENTS, item.key) }).toEqual({ key: item.key, offered: false })
+    }
+    // The probe keeps its own copy of this list as redundancy; this is the pin
+    // that fails in THIS suite rather than in a neighbour's.
+    expect(Object.keys(LIVE_SEGMENTS).sort()).toEqual(
+      ['analytics', 'customers', 'inbox', 'karute', 'register', 'reservations', 'shifts', 'today'],
+    )
   })
 })
 
@@ -782,6 +954,88 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     // `bg-foreground`-shaped darks.
     expect(CSS_CODE).not.toMatch(/background:\s*#0{3,6}\b/)
     expect(CSS_CODE).not.toMatch(/background:\s*(black|var\(--ink\))/)
+  })
+})
+
+describe('⚖ THE TZ MATRIX — pinned clocks, and the JST day is sliced from a UTC machine', () => {
+  // L3-4, and it was an honest catch against the packet's own §4: the acceptance
+  // line claimed a TZ matrix and NO pin stood behind it. This room reads the
+  // clock in exactly one place (`ask-ai-props.ts`) and slices 本日 with
+  // `jstDayKey`; the failure it must not have is the one every server has —
+  // running on UTC, where the machine's own calendar is still yesterday for the
+  // first nine hours of every JST day.
+  //
+  // FOUR PINNED INSTANTS around ONE JST midnight (the room-5 matrix shape). The
+  // fixture world is derived from the same instant, so a correct slicer gives the
+  // SAME roster at all four and a day-key drift gives an empty one.
+  const PINNED = [
+    { at: '2026-09-14T02:00:00Z', says: '11:00 JST — mid-day, the control' },
+    { at: '2026-09-14T14:58:00Z', says: '23:58 JST — the last minutes of the JST day' },
+    { at: '2026-09-14T15:00:00Z', says: '00:00 JST, the NEXT day — the machine still reads 14 Sep' },
+    { at: '2026-09-14T15:02:00Z', says: '00:02 JST' },
+  ]
+  afterAll(() => { jest.useRealTimers() })
+
+  it('the pinned instants really do straddle a JST midnight the machine cannot see', () => {
+    const key = (iso: string) => jstDayKey(new Date(iso))
+    expect(key('2026-09-14T14:58:00Z')).toBe(key('2026-09-14T02:00:00Z'))
+    expect(key('2026-09-14T15:00:00Z')).toBe(key('2026-09-14T14:58:00Z') + 1)
+    expect(key('2026-09-14T15:02:00Z')).toBe(key('2026-09-14T15:00:00Z'))
+    // …and a UTC machine reading its own calendar sees ONE day across all four,
+    // which is exactly the mistake the matrix is here to fail.
+    expect(new Set(PINNED.map((p) => new Date(p.at).getUTCDate())).size).toBe(1)
+  })
+
+  for (const p of PINNED) {
+    it(`slices 本日 and 予約 correctly at ${p.at} — ${p.says}`, async () => {
+      jest.useFakeTimers().setSystemTime(new Date(p.at))
+      const now = new Date(p.at)
+      // The clock the assembly reads IS the pinned one — otherwise every
+      // assertion below would be measuring the wall clock and passing by luck.
+      expect(renderNow().getTime()).toBe(now.getTime())
+
+      const mine = appointments(now).filter((a) => a.store_id === STORE_A)
+      const todayKey = jstDayKey(now)
+      const roster = new Set(
+        mine.filter((a) => jstDayKey(new Date(a.starts_at)) === todayKey).map((a) => a.customer_id).filter(Boolean),
+      ).size
+      const upcoming = mine.filter((a) => a.starts_at > now.toISOString() && a.status !== 'cancelled').length
+
+      const { props } = await askAiProps({ locale: 'ja', store: STORE_A })
+
+      // 本日 — the roster chip's own number. Never zero in this world: a pin that
+      // went green because both sides were empty would prove nothing at all.
+      expect(roster).toBeGreaterThan(0)
+      expect(props.signals[0].title).toBe(`本日ご来店の${roster}名のお客様の要点まとめ`)
+      expect(props.signals[0].contextLabel).toBe(`本日ご来店のお客様${roster}名のカルテ`)
+      // 予約 — the scope strip's third fact, off the SAME instant, so one render
+      // can never put two different days on one screen.
+      expect(props.scope[2]).toEqual({ key: 'bookings', label: '予約', value: `${upcoming}件` })
+      // …and the dateline prints the JST calendar day, not the machine's.
+      expect(props.dateline).toContain(
+        new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', timeZone: 'Asia/Tokyo' }).format(now),
+      )
+    })
+  }
+
+  it('the roster is the SAME on both sides of the JST midnight — the day moved, the slicing did not', () => {
+    // Each test above proved the ROOM's roster equals the world's at its own
+    // instant; this proves the world's is one number across the straddle. So a
+    // slicer that dropped the day at 15:00Z would have to disagree with one of
+    // the two, and there is nowhere for it to hide.
+    const rosterAt = (iso: string) => {
+      const at = new Date(iso)
+      const key = jstDayKey(at)
+      return new Set(
+        appointments(at)
+          .filter((a) => a.store_id === STORE_A && jstDayKey(new Date(a.starts_at)) === key)
+          .map((a) => a.customer_id)
+          .filter(Boolean),
+      ).size
+    }
+    const all = PINNED.map((p) => rosterAt(p.at))
+    expect(all[0]).toBeGreaterThan(0)
+    expect(new Set(all).size).toBe(1)
   })
 })
 

@@ -137,6 +137,7 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
     expect(DECLARATIONS.map((d) => d.title).sort()).toEqual([
       'AI相談',
       'AIが提案する次のアクション',
+      'さらに表示',
       'この画面の値の設定元',
       'この画面の見え方',
       'じっくり相談',
@@ -150,12 +151,13 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
 
   it('the CONDITIONAL sections declare too — they are the ones the walk drops', () => {
     // 今日のヒント in a store with no signals, 業種の設定 in a shop that has chosen
-    // one, この画面の見え方 for a reader who has the permission: each renders
-    // behind a guard, and each declares, so the walk's N/M shrinks by itself.
-    for (const title of ['今日のヒント', '業種の設定', 'この画面の見え方']) {
+    // one, この画面の見え方 for a reader who has the permission, さらに表示 in a store
+    // whose whole feed already fits: each renders behind a guard, and each
+    // declares, so the walk's N/M shrinks and grows by itself.
+    for (const title of ['今日のヒント', '業種の設定', 'この画面の見え方', 'さらに表示']) {
       expect(DECLARATIONS.map((d) => d.title)).toContain(title)
     }
-    for (const guard of ['props.signals.length > 0 &&', 'props.profileHint &&', 'denied &&']) {
+    for (const guard of ['props.signals.length > 0 &&', 'props.profileHint &&', 'denied &&', 'walk.moreLabel &&']) {
       expect(SRC_CODE).toContain(guard)
     }
   })
@@ -281,6 +283,29 @@ describe('the room’s controls — every one has a visible effect', () => {
     expect(SRC_CODE).toContain('提案 {visible.length}件')
   })
 
+  it('⚖ THE FEED IS WINDOWED, and the head’s count is still the TOTAL', () => {
+    // L4-2. The window is browsing state like the dismissed list, taken off the
+    // list the reader can still SEE — so 「提案 N件」 above and 「残り M件」 below
+    // are two readings of one call and can never describe two lists.
+    expect(SRC_CODE).toContain('const [feedSteps, setFeedSteps] = useState(1)')
+    expect(SRC_CODE).toContain('const walk = windowFeed(visible, feedSteps)')
+    expect(SRC_CODE).toContain('{walk.shown.map((c) => (')
+    // the head counts the TOTAL, never the window — the two must not agree by
+    // being the same expression
+    expect(SRC_CODE).toContain('提案 {visible.length}件')
+    expect(SRC_CODE).not.toContain('提案 {walk.shown.length}件')
+    // the control's own label is DERIVED in the lib beside the arithmetic; this
+    // file states no count of its own
+    expect(SRC_CODE).toContain('{walk.moreLabel}')
+    expect(SRC_CODE).not.toMatch(/さらに表示（残り/)
+    expect(SRC_CODE).toContain('onClick={() => setFeedSteps((s) => s + 1)}')
+    // …and the band is the カルテ room's own footer shape, with no scroller and
+    // no height cap anywhere near it (⚖ page-scroll: the WINDOW shortens the
+    // page, it does not put an axis on a box).
+    expect(CSS_CODE).toContain('.biz .pg-ask-ai .ak-more {')
+    expect(CSS_CODE).not.toMatch(/\.ak-more[^{]*\{[^}]*(overflow|max-height)/)
+  })
+
   it('the 設定する CTA refuses to its own registry line, and it is reachable', () => {
     // `aria-disabled` rather than `disabled`: the control stays focusable so its
     // reason is reachable by keyboard and screen reader, and the reason rides the
@@ -390,6 +415,75 @@ describe('⚖ ALL-SCREEN ADAPTIVITY — the ladder is declared, band by band', (
     // also shrinks the MIN-CONTENT contribution, which is what lets a flex or
     // grid track give way instead of being forced wide by one unbroken word.
     expect(CSS_CODE).not.toMatch(/overflow-wrap:\s*break-word/)
+  })
+})
+
+describe('⚖ THE QUIET SECOND AXIS — a wash-tier tone per category, and nothing louder', () => {
+  const CATEGORIES = ['customer_follow', 'staffing', 'booking', 'vip']
+
+  it('the SCREEN states no colour at all — the category rides a data attribute', () => {
+    // The screen hands the sheet a fact; the sheet decides what it looks like.
+    // A className switch here would put the palette in two homes, and a category
+    // the plane grows later would arrive with no rule and no fallback.
+    expect(SRC_CODE).toContain('data-cat={c.category}')
+    expect(SRC_CODE).not.toMatch(/ak-sug-(?:cat-|tone)/)
+  })
+
+  it('every canon category has a tone, and the BASE is neutral so a new one arrives grey', () => {
+    // The neutral default is the whole reason a fifth category cannot turn up
+    // wearing a fourth's colour (the カルテ room's own note, carried).
+    expect(CSS_CODE).toMatch(/\.biz \.pg-ask-ai \.ak-sug \{ --ak-cat: 136, 135, 128; \}/)
+    for (const cat of CATEGORIES) {
+      expect({ cat, toned: new RegExp(`\\.ak-sug\\[data-cat="${cat}"\\] \\{ --ak-cat: \\d+, \\d+, \\d+; \\}`).test(CSS_CODE) })
+        .toEqual({ cat, toned: true })
+    }
+    // four tones, four categories, no fifth rule waiting for a category that
+    // does not exist
+    expect([...CSS_CODE.matchAll(/\.ak-sug\[data-cat="([^"]+)"\]/g)].map((m) => m[1]).sort()).toEqual([...CATEGORIES].sort())
+  })
+
+  it('WASH TIER ONLY — the tone is never a fill, never text, and never touches a pressable', () => {
+    // ⚖ the one-way accent law: colour on a non-pressable stays at wash level.
+    // Every use of the tone is an rgba() with an alpha well under half, so there
+    // is no solid fill and no coloured ink to be mistaken for "you can press me".
+    const uses = [...CSS_CODE.matchAll(/rgba\(var\(--ak-cat\),\s*\.(\d+)\)/g)].map((m) => Number(`0.${m[1]}`))
+    expect(uses.length).toBeGreaterThanOrEqual(2)
+    for (const alpha of uses) expect({ alpha, wash: alpha <= 0.4 }).toEqual({ alpha, wash: true })
+    // the tone never becomes ink…
+    expect(CSS_CODE).not.toMatch(/color:\s*rgba?\(var\(--ak-cat\)/)
+    // …and the card's chip keeps NEUTRAL text over its wash.
+    expect(CSS_CODE).toMatch(/\.ak-sug-cat \{[^}]*background: rgba\(var\(--ak-cat\), \.14\);[^}]*color: var\(--ink-3\)/)
+    // …and the two pressables inside a card are untouched by any of it.
+    for (const block of CSS_CODE.split('}')) {
+      if (/\.ak-open|\.ak-dismiss/.test(block.slice(0, block.indexOf('{') + 1))) {
+        expect({ block: block.slice(0, 60), tone: block.includes('--ak-cat') }).toEqual({ block: block.slice(0, 60), tone: false })
+      }
+    }
+  })
+})
+
+describe('⚖ THE DENIED PAGE IS DESIGNED, NOT LEFT OVER', () => {
+  it('the permission note is a centred card at a readable measure', () => {
+    // L4-4. A 13px bar in the top-left of an otherwise empty desk reads as a page
+    // that failed to load. This reader's page is COMPLETE — it contains one
+    // honest answer — so it is composed like one.
+    const note = CSS_CODE.slice(CSS_CODE.indexOf('.biz .pg-ask-ai .ak-notice {'))
+    const rule = note.slice(0, note.indexOf('}'))
+    expect(rule).toMatch(/margin:\s*\d+px auto/)
+    expect(rule).toMatch(/max-width:\s*\d+px/)
+    expect(rule).toContain('text-align: center')
+    // …and the sentence a reader needs first carries the weight.
+    expect(CSS_CODE).toMatch(/\.ak-notice p:first-child \{[^}]*font-size: 15px/)
+  })
+
+  it('NOTHING about the denial is cosmetic — the construction is untouched', () => {
+    // The card is a CSS treatment of a payload that already contains none of the
+    // room's data; the room-side proof of that lives in ask-ai.test.ts (zero
+    // data-door calls, empty payload). What this pin holds is that the screen
+    // still renders the note INSTEAD of the room rather than over it.
+    expect(SRC_CODE).toContain('const denied = props.noticeLines.length > 0')
+    expect(SRC_CODE).toContain('{denied && (')
+    expect(SRC_CODE).toContain('{!denied && (')
   })
 })
 
