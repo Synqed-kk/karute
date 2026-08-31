@@ -296,6 +296,27 @@ export const storeBookingPolicy = {
    *  reader is the one `isHeldBound` already names — eligibility is
    *  server-derived rank, never request-carried (the golden-time precedent). */
   heldRankAccess: 'closed' as 'closed' | 'silver' | 'gold' | 'platinum',
+  /** ⚠SETTINGS-BATCH — 「注意して配置」に長押しを求める (⚖ Liam flag 92,
+   *  2026-08-31: the warn card is ONE BLEND composed by the store's settings,
+   *  and the long press is the one launch switch in that blend).
+   *
+   *  TRUE = the warn face's commit is a 0.6 秒の長押し rather than a plain press.
+   *  It is DATA for the same reason the two dials above it are: whether a store
+   *  wants a deliberate gesture on a placement that costs it a 新規 window is
+   *  that store's judgement about its own people, and a component that spelled
+   *  the answer would make every store the same store.
+   *
+   *  ⚖ DEFAULT ON, decided on the design page itself (2026-08-31: 「長押しは ON
+   *  で出荷（この画面での確認をもって決定）」) — Fable default, OVERTURNABLE on
+   *  Liam's word. The 店舗設定 control ships with the settings round beside the
+   *  override dial, and it carries ⚖ HIS 8/31 GENERAL LAW: 「every settings entry
+   *  carries a one-line description of what it changes/turns off」 — here, 「置け
+   *  ない場所への配置に、0.6秒の長押しを求めます」.
+   *
+   *  Meaningful ONLY at override level `allow-warned`: a 店長のみ store has no
+   *  staff commit for the press to guard, and the composer says so by never
+   *  building a commit control on the lock face. */
+  overrideHoldToConfirm: true,
 }
 
 /** スキマガード / Reserve受付 dials (canon `opsConfig`). The board never
@@ -355,6 +376,11 @@ export const opsConfig = {
   overridePolicy: storeBookingPolicy.overridePolicy,
   /** DERIVED — the same alias, for ruling Q5's own list (E5). */
   releaseHeldRoles: storeBookingPolicy.releaseHeldRoles,
+  /** DERIVED — ⚖ flag 92's long-press switch, on the same one-home pattern as
+   *  the two aliases above: the value LIVES on `storeBookingPolicy` (core's
+   *  record) and this line is only the shorter name `readDayPlanes` hands the
+   *  board. The number moves house, it does not change. */
+  overrideHoldToConfirm: storeBookingPolicy.overrideHoldToConfirm,
 }
 
 /** レジ (ask T-08). The aggregates the money band shows that no booking row

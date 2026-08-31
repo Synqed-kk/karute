@@ -128,6 +128,7 @@ import {
   type LandingVerdict,
   type Move,
   type Moves,
+  type OverrideLevel,
   type PairLanes,
   type RailCell,
   type RoomPolicy,
@@ -377,6 +378,25 @@ export interface TodayProps {
    *  own role and staff_id, so the board never decides authority for itself and
    *  a locked-out staff member simply never sees the action. */
   canOverride: boolean
+  /** ⚠SETTINGS-BATCH — ⚖ flag 92 (2026-08-31). THE SAME AUTHORITY AT FULL
+   *  RESOLUTION: the warn card composes a face per level (warn commit / 承認を
+   *  求める / 店長のみ), and `canOverride` above — a boolean — cannot express the
+   *  middle one. Both come from ONE `overrideLevelFor` call at the page seam, so
+   *  the consult path and the card can never disagree about who may place.
+   *  'needs-approval' is expressible and UNREACHABLE by construction today
+   *  (`overrideLevelFor` cannot return it); the face exists so the settings round
+   *  lights it rather than inventing it. */
+  overrideLevel: OverrideLevel
+  /** ⚠SETTINGS-BATCH — ⚖ flag 92. Does the warn face's commit ask for a 0.6-秒
+   *  long press instead of a plain one? The store's own dial
+   *  (`storeBookingPolicy.overrideHoldToConfirm`, default ON), answered on the
+   *  server like every other authority this screen is handed. */
+  holdToConfirm: boolean
+  /** ⚖ flag 92 — the operator's own name, for the warn card's provenance line.
+   *  Printed ONLY when the placement lands on someone else's shift (the ⚖ 8/31
+   *  design page's own rule: 「記録の名前は、他の人のシフトに置くときだけ表示され
+   *  ます（自動）」); the screen decides whether, never who. */
+  operatorName: string
   /** ⚖ SPEC-SELLING-ENGINE §1 / ruling Q5 (E5). May THIS viewer release a 確保
    *  window for sale early? Answered on the server from the operator's own role
    *  (`canReleaseHeld`), the same way `canOverride` above is: staff see the
