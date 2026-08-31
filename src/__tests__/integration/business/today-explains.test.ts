@@ -1490,7 +1490,14 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     expect(SRC).toContain(
       "solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
     )
-    expect(SRC.match(/seedBed\(/g) ?? []).toHaveLength(2)
+    // ⚖ flag 92 — A THIRD SITE, and it is the same law rather than an exception:
+    // taking the warn card's safe start is another landing of a change that is
+    // already staged, so it re-solves from the room that change OWNS. It seeds
+    // the VERDICT'S carried room rather than a second `solveBed` — the press
+    // judges and stages in one tick, so one solve is the whole answer (⚖ 54),
+    // which is why the `solveBed` count below is unmoved.
+    expect(SRC).toContain('bedLane: seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null),')
+    expect(SRC.match(/seedBed\(/g) ?? []).toHaveLength(3)
     expect(SRC.match(/solveBed\(/g) ?? []).toHaveLength(5)
   })
 

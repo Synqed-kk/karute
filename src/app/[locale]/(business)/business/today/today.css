@@ -1183,6 +1183,217 @@
 .biz .holdbar-checks .ck.warn::before { content: "△"; background: var(--guard-soft); color: var(--guard-dark); }
 .biz .holdbar-checks .ck.warn { color: var(--guard-dark); font-weight: 700; }
 
+/* ═══ H2 — ⚖ LIAM flag 92 (2026-08-31): 警告カード, the confirm's second face ═══
+   Translated from the approved design page (warncard-design.html) into THIS
+   sheet's own tokens and grammar — the page's palette is its own; the shipped
+   card wears the family's --amber / --indigo / --red pairs, so a store that
+   retints the shell retints this card with it.
+
+   THE LAWS THAT BIND EVERY RULE BELOW:
+   · R13 / no-black — nothing here is a dark fill. The one solid fill is the
+     safe primary, which is `.btn.primary`'s own commit recipe (--commit-bg).
+   · The one-way accent law — saturated blue appears ONLY on that pressable and
+     on the 承認 control's wash; the impact panel, the greens line and the
+     provenance are neutral or semantic, never accent-as-decoration.
+   · Amber is the WARN family and nothing else; the red family appears in
+     exactly one place, the 店長のみ lock line.
+   · Natural widths. `.hp-actions .btn { flex: 1 }` stretches the clean face's
+     two buttons edge to edge, which is right for a two-button row and wrong for
+     a column of single controls — so this face's controls size to their words
+     and centre, and `.wc-foot` releases the stretch. */
+
+/* The consequence, leading. A wash panel with one strong left rule: the amber
+   says "warning" and the rule says "read this first" without a second colour. */
+.biz .wc-impact {
+  margin: 0;
+  padding: 12px 14px;
+  border-left: 3px solid var(--amber);
+  border-radius: 4px 10px 10px 4px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.8;
+  font-variant-numeric: tabular-nums;
+  text-wrap: pretty;
+}
+/* The money is the point of the sentence, so it takes the weight — and it never
+   breaks across lines, because half a price is a wrong price. */
+.biz .wc-impact .wc-yen { font-weight: 800; white-space: nowrap; }
+
+/* Where the authority came from, and whose name the record will carry. Quiet by
+   law: this is informational text, so it is neutral and never accent. */
+.biz .wc-prov {
+  margin: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line-2);
+  color: var(--quiet);
+  font-size: 11.5px;
+  line-height: 1.7;
+  text-wrap: pretty;
+}
+
+/* The safe answer — the biggest control on the card, and the only solid fill.
+   `.btn.primary` supplies the commit recipe; this adds the two-line shape and
+   the natural width. NEVER full-bleed: a bar reads as "the only thing to do",
+   and on this card the operator has three real choices. */
+.biz .wc-safe {
+  flex-direction: column;
+  gap: 1px;
+  width: fit-content;
+  min-width: 190px;
+  max-width: 100%;
+  margin: 2px auto 0;
+  min-height: 50px;
+  padding: 7px 20px;
+  border-radius: 10px;
+}
+.biz .wc-safe .wc-safe-main { font-size: 14px; font-weight: 700; line-height: 1.35; }
+.biz .wc-safe .wc-safe-sub { font-size: 11.5px; font-weight: 500; line-height: 1.35; opacity: .85; }
+/* The engine saying "this start already IS the least-loss one" — a sentence in
+   the primary's slot, never a button to where you already are (⚖ 31c). */
+.biz .wc-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  max-width: 100%;
+  margin: 2px auto 0;
+  min-height: 46px;
+  padding: 7px 16px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: var(--row);
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* The plain warn commit (the store's long-press dial OFF). Amber outline pill:
+   a warning colour on a warning action, which the accent law names explicitly
+   as a semantic colour rather than an accent. */
+.biz .wc-warn-btn {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+  border-color: var(--amber);
+  border-radius: 999px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-weight: 700;
+}
+.biz .wc-warn-btn:hover:not(:disabled) { background: #f7e2c6; }
+
+/* The 店長承認 control — COMPOSED AND UNREACHABLE today (see `warnFaceFor`).
+   R13's selected-state recipe: soft wash + accent ink + accent border. */
+.biz .wc-approve {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+  border-color: var(--indigo);
+  background: var(--indigo-soft);
+  color: var(--indigo);
+  font-weight: 700;
+}
+.biz .wc-approve:hover:not(:disabled) { background: #e3e9ff; }
+.biz .wc-note { margin: 0; color: var(--quiet); font-size: 11px; line-height: 1.6; text-align: center; }
+
+/* ── the long press ────────────────────────────────────────────────────────
+   ONE progress voice on the control, and it is the fill itself: a soft wash
+   sweeping the pill, with a feathered leading edge so it reads as filling
+   rather than as a loading bar. No second meter, no percentage, no spinner. */
+.biz .wc-hold {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+  min-height: 44px;
+  padding: 6px 18px;
+  border: 1.5px solid var(--amber);
+  border-radius: 999px;
+  background: #fff;
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  /* The press must not become a scroll or a text selection halfway through. */
+  touch-action: none;
+  transition: transform 90ms cubic-bezier(0, 0, .2, 1), box-shadow 160ms ease;
+}
+.biz .wc-hold:disabled { opacity: .45; cursor: not-allowed; }
+.biz .wc-hold-fill {
+  position: absolute;
+  inset: 0;
+  transform: scaleX(0);
+  transform-origin: left center;
+  will-change: transform;
+  background: linear-gradient(90deg, #fdf3e2 0%, #fbecd9 58%, #f7e2c6 90%, rgba(251, 236, 217, .25) 100%);
+}
+.biz .wc-hold-text { position: relative; color: var(--amber); font-size: 12.5px; font-weight: 700; line-height: 1.4; }
+.biz .wc-hold.holding { transform: scale(.98); box-shadow: 0 0 0 4px rgba(138, 76, 15, .12); }
+@keyframes wc-settle { 0% { transform: scale(1); } 44% { transform: scale(1.02); } 100% { transform: scale(1); } }
+.biz .wc-hold.settle { animation: wc-settle 250ms cubic-bezier(.34, 1.06, .62, 1); }
+/* The hint reserves its space from the start (visibility, not display), so a
+   cancelled press never reflows the card under the operator's finger. */
+.biz .wc-hold-hint {
+  margin: 0;
+  color: var(--amber);
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: center;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 120ms ease, visibility 0s 120ms;
+}
+.biz .wc-hold-hint.show { visibility: visible; opacity: 1; transition: opacity 120ms ease; }
+
+/* The 店長のみ lock — the ONLY red on this card, and it carries its own source
+   (「（店舗の設定）」) so no provenance line repeats it. */
+.biz .wc-lock {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 8px 14px;
+  /* `.btn.danger`'s own soft-red line, so the family has one red edge. */
+  border: 1px solid #e6a09a;
+  border-radius: 10px;
+  background: var(--red-soft);
+  color: var(--red-dark);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* What passed, as one muted line: four true sentences are four things to read
+   on a card whose whole subject is the one thing that is wrong. */
+.biz .wc-greens {
+  margin: 4px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-2);
+  color: var(--quiet);
+  font-size: 11.5px;
+  line-height: 1.7;
+}
+/* Whatever the panel did not consume, in the SAME ✓/×/△ grammar the clean face
+   uses — stacked rather than wrapped, because each is a whole sentence. */
+.biz .holdbar-checks.wc-rows { flex-direction: column; gap: 4px; }
+/* The footer releases `.hp-actions`' stretch: one control sized to its word. */
+.biz .hp-actions.wc-foot { justify-content: flex-end; }
+.biz .hp-actions.wc-foot .btn { flex: 0 0 auto; min-height: 36px; padding: 0 14px; font-size: 13px; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* The fill still tells the operator the press is landing — it just steps
+     there instead of sweeping, and nothing springs or settles. */
+  .biz .wc-hold, .biz .wc-hold-hint, .biz .wc-hold-hint.show { transition: none; }
+  .biz .wc-hold.settle { animation: none; }
+}
+
 /* ═══ I — incident band ═══ */
 .biz .incident {
   display: grid;

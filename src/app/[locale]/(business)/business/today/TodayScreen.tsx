@@ -110,6 +110,7 @@ import {
   parkChipText,
   pinInViewport,
   restCueStarts,
+  warnFaceFor,
   explainRails,
   reservedSentence,
   sameStore,
@@ -133,6 +134,7 @@ import {
   type RailCell,
   type RoomPolicy,
   type SellDrop,
+  type WarnCardModel,
 } from './today-interactions'
 import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'
 import { fallbackCellsFor, type FallbackResult } from './fallback-cells'
@@ -674,6 +676,18 @@ interface HoldPop {
   checks: Array<{ label: string; tone: '' | 'bad' | 'warn' }>
   /** ⚖ 31b — the guard's own row, informational, never a gate. */
   guardRow: { label: string; tone: 'warn' } | null
+  /** ⚖ LIAM flag 92 (2026-08-31) — THE SECOND FACE, composed by `warnFaceFor`
+   *  from the store's settings. `null` (and `face: 'clean'`) is the card that
+   *  ships today, rendered by the branch it has always been rendered by; a
+   *  `warn` model re-composes the SAME popover around the consequence.
+   *
+   *  Always `null` on the standing 仮押さえ below: that surface answers for the
+   *  incident's own hold, whose rows are plain sentences with no verdict behind
+   *  them, so it can never carry a warn-grade fact by construction. */
+  warn: WarnCardModel | null
+  /** ⚖ 92 — the safe primary's action, by start minute. `null` when the card
+   *  has no alternative to offer (⚖ 31c — the slot is then omitted entirely). */
+  placeSafe: ((start: number) => void) | null
   confirm: { label: string; enabled: boolean; run: () => void }
   revert: { enabled: boolean; run: () => void }
 }
@@ -981,6 +995,15 @@ export function TodayScreen(props: TodayProps) {
   const advicePopRef = useRef<HTMLDivElement>(null)
   const blockAdvicePopRef = useRef<HTMLDivElement>(null)
   const holdPopRef = useRef<HTMLDivElement>(null)
+  /** ⚖ LIAM flag 92 — THE LONG PRESS'S OWN THREE PIECES: the layer the fill is
+   *  written onto (a ref, never state — the meter is repainted per frame and a
+   *  re-render per frame is the jank the drag path was rebuilt to remove), the
+   *  hint that appears after a cancelled press, and the handlers the button
+   *  wears. The arithmetic is `holdClock`'s (today-interactions), pinned by its
+   *  own tests; W4 wires these to it. */
+  const holdFillRef = useRef<HTMLSpanElement | null>(null)
+  const [holdHinting, setHoldHinting] = useState(false)
+  const holdHandlers: Record<string, never> = {}
   /** canon's `popOpenedAt` (:7074): a popup opened from a pointerup is followed
    *  by one synthetic click on the thing underneath, and without this window the
    *  popup would close itself the instant it appeared. */
@@ -2141,16 +2164,88 @@ export function TodayScreen(props: TodayProps) {
    *  and cannot be confirmed is still `computeChecks`' answer alone and a
    *  degraded landing stays confirmable, exactly as canon's own ackAllowed lets
    *  it be. Neither canon's hold bar nor the built one showed this at all. */
-  const pendingGuardRow = useMemo(() => {
+  /** ⚖ 92 — AND THE CELL ITSELF, not only its row. The warn card composes from
+   *  the verdict's DATA (`cell.impact`, its alternatives, its state) and the row
+   *  is one rendering of that same cell — deriving them together here keeps them
+   *  one reading of one board, which is the whole of ⚖ 54's lesson. The clean
+   *  face keeps rendering `row` exactly as it did. */
+  const pendingGuardRow = useMemo((): { row: { label: string; tone: 'warn' } | null; cell: RailCell | null } => {
     // ⚖ 46 forerunner: `pendingOffBoard`, not a day-only test — `verdictAt` reads
     // the board on screen, so a 仮押さえ staged in another STORE would have its
     // row computed from this store's cards. Same predicate as the checks above.
-    if (!pending || pendingOffBoard) return null
+    if (!pending || pendingOffBoard) return { row: null, cell: null }
     const at = moves[pending.id]
-    if (!at) return null
+    if (!at) return { row: null, cell: null }
     const start = minuteOf(at.x, hours)
-    return guardCheckRow(verdictAt(at.laneKey, start, minuteOf(at.x + at.w, hours) - start, pending.id))
+    const cell = verdictAt(at.laneKey, start, minuteOf(at.x + at.w, hours) - start, pending.id)
+    return { row: guardCheckRow(cell), cell }
   }, [pending, pendingOffBoard, moves, hours, verdictAt])
+
+  // ⚖ Liam flag 50(d) + ⚖ 52 — THE OVERRIDDEN ROW STAYS ON SCREEN, and it
+  // stops wearing ×. The operator did not make the reason go away, they
+  // walked past it, so the surface says so in the wording; and because it
+  // no longer blocks 確定 it may not carry the mark that means "this line
+  // stops you" (flag 52's law, the mirror of flag 7's).
+  // ⚖ LIAM flag 73/74 (T2) — AND IT IS NEVER INVISIBLE AGAIN. The △ used
+  // to be produced by matching `pending.override` against a check LABEL,
+  // and `computeChecks` (FROZEN) emits no row for a room, no row for the
+  // VIP floor and no row for a foreign store — so an escalation over any
+  // of those staged four green ticks and no trace at all. Liam's 8/22
+  // shot is exactly that: 満室 overridden, ✓✓✓✓, 担当 X / —. The append is
+  // the same sentence from the same field, for the classes the engine has
+  // no row for; `overrideCaption` is untouched, because a warn row is a
+  // record and not a gate (⚖ 52 — × is what stops you, △ is what you were
+  // told).
+  // ⚖ 92 — LIFTED OUT OF THE SURFACE, unchanged line for line. Both faces read
+  // these rows, so they are composed ONCE: the clean face renders them as the
+  // check strip it always has, and `warnFaceFor` splits the same array into its
+  // greens line and its △/× lines. Two readings of one answer is ⚖ 54's disease.
+  const pendingRows: Array<{ label: string; tone: '' | 'bad' | 'warn' }> = pending
+    ? [
+        ...pendingChecks.map((c) =>
+          !c.ok && c.label === pending.override
+            ? { label: `注意して配置: ${c.label}`, tone: 'warn' as const }
+            : { label: c.label, tone: c.ok ? ('' as const) : ('bad' as const) },
+        ),
+        ...(pending.override && !pendingChecks.some((c) => !c.ok && c.label === pending.override)
+          ? [{ label: `注意して配置: ${pending.override}`, tone: 'warn' as const }]
+          : []),
+      ]
+    : []
+
+  /** ⚖ LIAM flag 92 (2026-08-31) — THE STORE'S SETTINGS, COMPOSED INTO A FACE.
+   *
+   *  Every judgement is `warnFaceFor`'s; this is only the board's own inputs to
+   *  it, exactly as `verdictFor` is to `landingVerdict`. The lane the staged card
+   *  now sits on answers two of them — its `listPrice` for the ¥, and its `mine`
+   *  for whether the name line prints — and both are read off the board rather
+   *  than re-derived, because today-board already computed them from the
+   *  operator's own staff_id.
+   *
+   *  `null` while nothing is staged, off-board, or on the CLEAN face: the model's
+   *  own `face` decides, and the render asks it rather than asking again here. */
+  // ponytail: no memo. This is a pure fold over half a dozen rows the surface
+  // above just built in the same frame, and `holdPop` itself is rebuilt every
+  // render — a memo here would buy nothing and would need `pendingRows` (a fresh
+  // array every render) as a dep, which is a stale-answer trap for no gain.
+  const pendingWarnLane = pending && !pendingOffBoard && moves[pending.id]
+    ? boardLanes.find((l) => l.key === moves[pending.id].laneKey)
+    : undefined
+  const pendingWarnModel = pendingWarnLane === undefined || !pending
+    ? null
+    : warnFaceFor({
+        rows: pendingRows,
+        cell: pendingGuardRow.cell,
+        override: pending.override ?? null,
+        level: props.overrideLevel,
+        holdToConfirm: props.holdToConfirm,
+        targetLaneMine: pendingWarnLane.mine,
+        operatorName: props.operatorName,
+        listPrice: pendingWarnLane.listPrice,
+        protectedDur: props.guard.protectedDurationMin,
+        confirmEnabled: pendingConfirm.enabled,
+      })
+  const pendingWarn = pendingWarnModel?.face === 'warn' ? pendingWarnModel : null
 
   /** ⚖ Liam flag 34 — THE CONFIRM COMES TO THE CARD, one surface answering for
    *  whichever 仮押さえ is live: this session's staged change, or the day's own
@@ -2213,17 +2308,11 @@ export function TodayScreen(props: TodayProps) {
         // no row for; `overrideCaption` is untouched, because a warn row is a
         // record and not a gate (⚖ 52 — × is what stops you, △ is what you were
         // told).
-        checks: [
-          ...pendingChecks.map((c) =>
-            !c.ok && c.label === pending.override
-              ? { label: `注意して配置: ${c.label}`, tone: 'warn' as const }
-              : { label: c.label, tone: c.ok ? ('' as const) : ('bad' as const) },
-          ),
-          ...(pending.override && !pendingChecks.some((c) => !c.ok && c.label === pending.override)
-            ? [{ label: `注意して配置: ${pending.override}`, tone: 'warn' as const }]
-            : []),
-        ],
-        guardRow: pendingGuardRow,
+        checks: pendingRows,
+        guardRow: pendingGuardRow.row,
+        // ⚖ 92 — the same rows, the same cell, composed into the second face.
+        warn: pendingWarn,
+        placeSafe: placePendingAt,
         confirm: { label: pendingConfirm.label, enabled: pendingConfirm.enabled, run: confirmPending },
         revert: { enabled: true, run: revertPending },
       }
@@ -2247,6 +2336,12 @@ export function TodayScreen(props: TodayProps) {
           summary: props.hold.summary,
           checks: props.hold.checks.map((label) => ({ label, tone: '' })),
           guardRow: null,
+          // ⚖ 92 — the incident's own standing 仮押さえ is UNTOUCHED. Its rows are
+          // the server's plain sentences with no verdict behind them, so it has
+          // no warn-grade fact to lead with by construction, and its 確定 stays
+          // the neutral one it has always been.
+          warn: null,
+          placeSafe: null,
           confirm: {
             label: 'この内容で確定',
             enabled: true,
@@ -2596,6 +2691,61 @@ export function TodayScreen(props: TodayProps) {
     setHoldAnswer('confirmed')
     setResolved((was) => toggleOn(was, props.cards.find((c) => c.kind === '担当変更')?.id))
     show('この画面の中だけで確定しました。再読み込みすると戻ります')
+  }
+
+  /** ⚖ LIAM flag 92 (2026-08-31) — THE SAFE ANSWER, PRESSED.
+   *
+   *  The warn card's biggest control re-stages the SAME booking at the start the
+   *  ENGINE offered, and it is judged like every other landing on this board:
+   *  `verdictAtLanding` first (⚖ 50's one verdict home), `stage` second (⚖ 45's
+   *  one door — both sides, one span). There is no second write path here; a
+   *  card placed from this button reaches `moves`/`bedMoves` through exactly the
+   *  function the drop, the keyboard nudge, 配置モード and the shelf reach them
+   *  through, so nothing about the pair's bookkeeping is re-invented.
+   *
+   *  ⚖ 31c — A REFUSAL REFUSES AND NOTHING MOVES. The offer was computed when the
+   *  card was staged and the board can have changed underneath it (another
+   *  operator, another tab, the operator's own second gesture); a button that
+   *  names a start it can no longer reach says so through ⚖ 47's one door rather
+   *  than staging a lie.
+   *
+   *  THE SUCCESS STATE IS THE CARD ITSELF. The re-stage re-runs the checks and
+   *  re-verdicts the new start, so the popover simply re-renders — at a truly
+   *  safe start that is the CLEAN face, which is the operator's answer. Nothing
+   *  announces it: a panel saying 「置きました」 over a board that already shows
+   *  the card in its new place is the demo copy this batch keeps deleting. */
+  function placePendingAt(start: number) {
+    if (!pending) return
+    const at = moves[pending.id]
+    if (!at) return
+    const dur = minuteOf(at.x + at.w, hours) - minuteOf(at.x, hours)
+    const span = place(start, start + dur, hours)
+    const item = boardLanes.find((l) => l.key === at.laneKey)?.items.find((i) => i.caseId === pending.id)
+    // ⚖ 87 — the room the operator CHOSE outlives the gestures that follow it,
+    // and taking the safe start is one of those gestures. The seed is handed to
+    // the verdict as the carried room, so `allocateBed` prefers it if it is free
+    // at the new span and re-solves if it is not — which is ⚖ 51's own rule, run
+    // ONCE. (The drop re-solves after its verdict because its red box can stand
+    // open for a while; this press judges and stages in the same tick, so a
+    // second solve would only be a second reading of one answer — ⚖ 54.)
+    const again = verdictAtLanding({
+      staffLane: at.laneKey,
+      bedLane: seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null),
+      solveRoom: true,
+      id: pending.id,
+      vip: item?.category === 'vip',
+      foreignRefusal: null,
+      span,
+    })
+    if (again.kind === 'blocked') {
+      refuse(again.reason ?? '配置できません')
+      return
+    }
+    // The origin stays the CHANGE'S own, so 元に戻す after taking the safe start
+    // still undoes the whole change (⚖ 45's two-sided snapshot). And NO override
+    // rides along: the operator took the safe answer, so there is no longer a
+    // sentence being walked past — `stage` clears the stamp, and with it the △.
+    stage(pending.id, { staffLane: at.laneKey, bedLane: again.bedLane }, span, { staff: pending.origin, bed: pending.bedOrigin ?? null })
   }
 
   // canon (:6941-6947): Escape puts down whatever is in the operator's hand,
@@ -6322,7 +6472,81 @@ export function TodayScreen(props: TodayProps) {
               directly-staged override was answered in the red box; what stays on
               screen above is the RECALL — what is staged, and the way back to the
               day it is staged on. Clicking the card asks again, in full. */}
-          {holdPop.asking && (
+          {/* ⚖ LIAM flag 92 (2026-08-31, design-approved) — TWO FACES, ONE SURFACE.
+              The head above and the chrome around it are the same in both; what
+              changes is what the card is FOR. With a warn-grade fact staged, the
+              consequence leads, the safe answer is the biggest control on the
+              card, and the commit names what it commits to. Every judgement below
+              is `warnFaceFor`'s — this branch paints the model and decides
+              nothing. */}
+          {holdPop.asking && (holdPop.warn ? (
+            <>
+              <p className="wc-impact">
+                {holdPop.warn.impact.head}
+                {holdPop.warn.impact.yen && <span className="wc-yen">（{holdPop.warn.impact.yen}）</span>}
+                {holdPop.warn.impact.tail}
+              </p>
+              {holdPop.warn.provenance && <p className="wc-prov">{holdPop.warn.provenance}</p>}
+              {/* ⚖ 92 — the safe answer is ALWAYS the biggest control. `place` is
+                  a start the engine offered; `info` is the engine saying this
+                  start already is the least-loss one, which is a sentence and
+                  never a button (⚖ 31c). */}
+              {holdPop.warn.safePrimary?.kind === 'place' && holdPop.placeSafe && (
+                <button
+                  className="btn primary wc-safe"
+                  type="button"
+                  onClick={() => holdPop.placeSafe?.((holdPop.warn!.safePrimary as { start: number }).start)}
+                >
+                  <span className="wc-safe-main">{holdPop.warn.safePrimary.main}</span>
+                  <span className="wc-safe-sub">{holdPop.warn.safePrimary.sub}</span>
+                </button>
+              )}
+              {holdPop.warn.safePrimary?.kind === 'info' && <p className="wc-info">{holdPop.warn.safePrimary.label}</p>}
+              {/* ⚖ 92 — the commit, and on this face it is never the neutral
+                  この内容で確定. `enabled` is `overrideCaption`'s untouched answer:
+                  a second blocker standing after the override still kills it
+                  (canon R11-7), and the control shows that rather than hiding. */}
+              {holdPop.warn.commit?.kind === 'hold' && (
+                <button
+                  className="wc-hold"
+                  type="button"
+                  disabled={!holdPop.warn.commit.enabled}
+                  {...holdHandlers}
+                >
+                  <span className="wc-hold-fill" ref={holdFillRef} aria-hidden="true" />
+                  <span className="wc-hold-text">{holdPop.warn.commit.label}</span>
+                </button>
+              )}
+              {holdPop.warn.commit?.kind === 'press' && (
+                <button className="btn wc-warn-btn" type="button" disabled={!holdPop.warn.commit.enabled} onClick={holdPop.confirm.run}>
+                  {holdPop.warn.commit.label}
+                </button>
+              )}
+              {holdPop.warn.commit?.kind === 'approval' && (
+                <button className="btn wc-approve" type="button" disabled={!holdPop.warn.commit.enabled}>
+                  {holdPop.warn.commit.label}
+                </button>
+              )}
+              {holdPop.warn.commit?.note && <p className="wc-note">{holdPop.warn.commit.note}</p>}
+              {/* ⚖ 92 — the press hint the approved page shows after a cancelled
+                  hold: it reserves its own space so the card never reflows under
+                  the operator's finger. */}
+              {holdPop.warn.commit?.kind === 'hold' && <p className={`wc-hold-hint${holdHinting ? ' show' : ''}`}>押し続けると配置します</p>}
+              {holdPop.warn.lock && <p className="wc-lock">{holdPop.warn.lock}</p>}
+              {holdPop.warn.greensLine && <p className="wc-greens">{holdPop.warn.greensLine}</p>}
+              {/* ⚖ 52 / 73-74 — every row the panel did not consume, in the SAME
+                  ✓/×/△ grammar the clean face uses. A record may never go
+                  invisible because a nicer face was drawn over it. */}
+              {holdPop.warn.rows.length > 0 && (
+                <div className="holdbar-checks wc-rows">
+                  {holdPop.warn.rows.map((c) => <span className={`ck${c.tone ? ` ${c.tone}` : ''}`} key={c.label}>{c.label}</span>)}
+                </div>
+              )}
+              <div className="hp-actions wc-foot">
+                <button className="btn" type="button" disabled={!holdPop.revert.enabled} onClick={holdPop.revert.run}>元に戻す</button>
+              </div>
+            </>
+          ) : (
             <>
               <div className="holdbar-checks">
                 {holdPop.checks.map((c) => <span className={`ck${c.tone ? ` ${c.tone}` : ''}`} key={c.label}>{c.label}</span>)}
@@ -6335,7 +6559,7 @@ export function TodayScreen(props: TodayProps) {
                 <button className="btn" type="button" disabled={!holdPop.revert.enabled} onClick={holdPop.revert.run}>元に戻す</button>
               </div>
             </>
-          )}
+          ))}
         </div>
       )}
 

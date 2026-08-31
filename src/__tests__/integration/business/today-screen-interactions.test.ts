@@ -3254,14 +3254,25 @@ describe('the confirm comes to the card, and the consult goes back to the placem
   // ── flag 31b ─────────────────────────────────────────────────────────────
   it('the guard’s move-assessment becomes a CHECK ROW, and never a gate', () => {
     expect(SRC).toContain('const pendingGuardRow = useMemo(')
-    expect(SRC).toContain('guardCheckRow(verdictAt(at.laneKey, start, minuteOf(at.x + at.w, hours) - start, pending.id))')
+    // ⚖ flag 92 — the memo returns the CELL beside the row now (the warn card
+    // composes from that cell's own data, ⚖ 54: one reading of one board), so
+    // the row is one expression further in. Same call, same inputs, same row.
+    expect(SRC).toContain('const cell = verdictAt(at.laneKey, start, minuteOf(at.x + at.w, hours) - start, pending.id)')
+    expect(SRC).toContain('return { row: guardCheckRow(cell), cell }')
     expect(SRC).toContain('{holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}')
     // The gate is still `computeChecks` alone — the guard row is not in it.
     // RENEGOTIATED (batch-9, ⚖ 50(d)): `overrideCaption` IS `confirmCaption` over
     // the rows still blocking, so this claim is unchanged for every landing that
     // was not explicitly escalated (`override` null → the same call, same array).
     expect(SRC).toContain(': overrideCaption(pendingChecks, pending?.override ?? null)')
-    const confirm = SRC.slice(SRC.indexOf('function confirmPending()'), SRC.indexOf('// ── card drag'))
+    // ⚖ flag 92 — scoped to `confirmPending`'s OWN body (its closing brace) now
+    // that a sibling lives beside it. The claim is about the CONFIRM GATE: the
+    // guard's row is not in it, and it does not ask the guard a second time. Its
+    // neighbour `placePendingAt` deliberately does ask — it is a landing, not a
+    // confirm — so a section-wide slice would now assert the opposite law.
+    const start = SRC.indexOf('function confirmPending()')
+    const confirm = SRC.slice(start, SRC.indexOf('\n  }\n', start))
+    expect(confirm).toContain("show('この画面の中だけで確定しました。再読み込みすると戻ります')")
     expect(confirm).not.toContain('guardRow')
     expect(confirm).not.toContain('verdictAt')
     // canon's △ for the row, beside the ✓ and × of the same one decision.
@@ -5138,7 +5149,9 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     expect(guardVerdictAt(long, 'p-01', 630, railIn())!.state).toBe('blocked')
     expect(guardCheckRow(guardVerdictAt(long, 'p-01', 630, railIn()))?.tone).toBe('warn')
     // The batch-4 row is present on the placement path — it is not missing.
-    expect(SRC).toContain('guardRow: pendingGuardRow,')
+    // ⚖ flag 92: the memo returns `{ row, cell }` now, so the surface reads
+    // `.row`. Same row, same source, still never a gate.
+    expect(SRC).toContain('guardRow: pendingGuardRow.row,')
     expect(SRC).toContain('{holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}')
   })
 
