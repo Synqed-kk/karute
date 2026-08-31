@@ -7434,6 +7434,31 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(SRC.match(/warnFaceFor\(/g)).toHaveLength(1)
   })
 
+  /** ⚖ 92 fix round 6 X3 (breaker #5) — AND THE OTHER TWO SIBLINGS ARE PINNED
+   *  TOO. M6 pinned the lookup it fixed and left its two neighbours unpinned, so
+   *  a deletion of the `l.group === 'staff'` filter from BOTH of them passed the
+   *  whole suite: lane keys are unique only WITHIN a group, and an unfiltered
+   *  find can answer with a bed lane that happens to share a staff lane's key —
+   *  handing the guard's ask, and the press's, a `vip: false` nobody checked.
+   *
+   *  Pinned per SITE, not per file: each lookup is read out of its own enclosing
+   *  block, so losing the filter at EITHER one goes red on its own. */
+  it('⚖ 92 fix round 6 X3 — the staged card’s lane is found in the STAFF group at both sibling sites', () => {
+    // The DRAW's lookup, inside the memo that composes the card.
+    const memo = SRC.slice(SRC.indexOf('const pendingGuardRow = useMemo('), SRC.indexOf('const pendingRows'))
+    expect(memo).toContain("const item = boardLanes.find((l) => l.group === 'staff' && l.key === at.laneKey)?.items.find((i) => i.caseId === pending.id)")
+    // The PRESS's lookup, inside the function that re-stages the card.
+    const press = SRC.slice(SRC.indexOf('function placePendingAt('), SRC.indexOf('// ── ⚖ LIAM flag 92 — the long press'))
+    expect(press).toContain("const item = boardLanes.find((l) => l.group === 'staff' && l.key === at.laneKey)?.items.find((i) => i.caseId === pending.id)")
+    // Both slices are real windows on the source and not empty strings — a pin
+    // that silently reads nothing is the failure mode this test exists to close.
+    expect(memo.length).toBeGreaterThan(500)
+    expect(press.length).toBeGreaterThan(500)
+    // …and the family is THREE, with M6's own pinned above: every place the
+    // staged card's lane is looked up scopes by group first.
+    expect(SRC.match(/l\.group === 'staff' && l\.key ===/g)).toHaveLength(3)
+  })
+
   it('the name line is automatic, and only when the shift belongs to somebody else', () => {
     expect(warnFaceFor(input({ cell: REP(), targetLaneMine: false })).provenance)
       .toBe('店舗の設定で、スタッフの上書きが許可されています。見本 あずさの名前で記録されます')
@@ -7560,12 +7585,23 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // ⚖ 92 fix round 4 U1 (breaker #3) — the gate is now four lines: the same
     // closure, the same single verdict read, T1's level arm, S1's own claim arm,
     // and the least-loss arm's new strictly-better-loss clause.
+    //
+    // ⚖ 92 fix round 6 X1 (breaker #5) — and the least-loss arm now SPLITS on
+    // who chose the start: the engine's own answers keep the ordinary
+    // not-blocked gate, and only a start the snap MOVED faces U1's bar (or, on
+    // an impact-less staged cell, the clean bar). Every line is pinned, so the
+    // split cannot be quietly collapsed back to either half.
     expect(SRC).toContain('      cell: offerableCell(cell, props.guard.bookingStepMin, start, (s) => {\n'
       + '        const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind\n'
       + "        if (props.overrideLevel === 'refuse') return k === 'clean'\n"
       + "        if (cell?.alternativeKind === 'safe') return k === 'clean'\n"
-      + "        return k !== 'blocked' && lossOf(verdictAt(at.laneKey, s, dur, pending.id)) < stagedLoss\n"
+      + "        if (k === 'blocked') return false\n"
+      + '        if (cell?.alternatives.includes(s)) return true\n'
+      + "        return cell?.impact != null ? lossOf(verdictAt(at.laneKey, s, dur, pending.id)) < stagedLoss : k === 'clean'\n"
       + '      }),')
+    // …and the RAW engine list the split reads is threaded out of the memo, for
+    // the press to mirror it with (⚖ 92 fix round 6 X2).
+    expect(SRC).toContain('      engineStarts: cell?.alternatives ?? [],')
   })
 
   /** ⚖ 92 fix round 3 T1 (breaker #1, blind lens #2) — AT THE LOCK FACE EVERY
@@ -7654,11 +7690,20 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
       c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter
     /** The gate as the screen spells it — level arm, own-claim arm, least-loss
      *  arm. `k` is injectable only so the refuse arm can be driven past a CLEAN
-     *  start this particular board never produces; the losses stay real. */
+     *  start this particular board never produces; the losses stay real.
+     *
+     *  ⚖ 92 fix round 6 X1 (breaker #5) — carried forward to the SHIPPED split:
+     *  an engine-own start is trusted on the guard's full-key word, and only a
+     *  start the snap moved faces U1's bar. Every assertion below is unchanged
+     *  by that, which is exactly the point — this scene's offers are all snapped
+     *  neighbours (10:45 / 12:15 are off a half-hour lattice), so U1's law is
+     *  still the whole of what decides them. THE REGRESSION PIN for round 6. */
     const gate = (cell: RailCell, staged: number, level: WarnCardInput['level'], k = kindAt) => (s: number) => {
       if (level === 'refuse') return k(s) === 'clean'
       if (cell.alternativeKind === 'safe') return k(s) === 'clean'
-      return k(s) !== 'blocked' && lossOf(at(s)) < staged
+      if (k(s) === 'blocked') return false
+      if (cell.alternatives.includes(s)) return true
+      return cell.impact != null ? lossOf(at(s)) < staged : k(s) === 'clean'
     }
 
     // THE DEFECT, on the real board. Staged 11:00 costs ONE protected window,
@@ -7684,6 +7729,13 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(lossOf(at(750))).toBe(1)
     const fixed = offerableCell(staged, 30, 660, gate(staged, lossOf(staged), 'allow-warned'))
     expect(fixed!.alternatives).toEqual([])
+    // ⚖ 92 fix round 6 X1 (breaker #5) — and 12:00 is refused BY THE MOVED-START
+    // ARM: the engine never ranked it (it is 12:15's floored neighbour), so the
+    // trust the split extends to the guard's own answers never reaches it. This
+    // line is what makes the assertion above a round-6 regression pin rather
+    // than an accident of the new gate's shape.
+    expect(staged.alternatives).not.toContain(720)
+    expect(staged.alternatives.every((s) => s % 30 !== 0)).toBe(true)
     // …and the slot simply stays empty (⚖ 92 fix round 5 V3 reversed T2's
     // engine-row append), which is honest where an offer would have been a lie.
     const empty = warnFaceFor(input({ cell: fixed }))
@@ -7715,6 +7767,129 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(offerableCell(staged, 30, 660, gate(staged, lossOf(staged), 'allow-warned', cleanAt))!.alternatives).toEqual([])
   })
 
+  /** ⚖ 92 fix round 6 X1 (breaker #5) — THE GATE TRUSTS THE ENGINE WHERE THE
+   *  ENGINE SPOKE, AND STAYS STRICT ONLY WHERE THE SNAP MOVED THE START.
+   *
+   *  Round 4 U1 re-filtered `nearestBestAlternatives`' answers on ONE term
+   *  (protected loss) of the guard's FOUR-term ranking key. The engine only ever
+   *  returns starts whose whole key beats the attempt's, so a start can be
+   *  strictly better overall and cost the same protected windows — and every one
+   *  of those died on `1 < 1`. Two faces went silent because of it: the R-REP
+   *  class Liam photographed, and every impact-less staged cell, where
+   *  `stagedLoss` is 0 and `loss < 0` is satisfiable by nothing at all.
+   *
+   *  The REAL engine end to end, both scenes — the cells, their losses and the
+   *  landing verdicts are `guardVerdictAt` / `landingVerdict`, so nothing here is
+   *  a fixture agreeing with itself. */
+  it('⚖ 92 fix round 6 X1 — the engine’s own starts are offered again, and a snapped one still is not', () => {
+    // The screen's own spelling of the split, pinned HERE as well as in S1's
+    // whole-closure pin above: the scenes below model the gate to drive the real
+    // engine through it, and a model is only evidence while the code still says
+    // the same thing. These two lines are the whole of what round 6 changed.
+    expect(SRC).toContain('        if (cell?.alternatives.includes(s)) return true\n')
+    expect(SRC).toContain("        return cell?.impact != null ? lossOf(verdictAt(at.laneKey, s, dur, pending.id)) < stagedLoss : k === 'clean'\n")
+
+    /** The screen's own gate, all four arms, exactly as it now spells them. */
+    const gateFor = (lanes: BoardLane[], rail: typeof railIn, dur: number) => {
+      const at = (s: number) => guardVerdictAt(lanes, 'p-01', s, rail)
+      const kindAt = (s: number): LandingVerdict['kind'] => landingVerdict(lanes, {
+        staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
+        start: s, end: s + dur, span: place(s, s + dur, HOURS),
+        foreignRefusal: null, locked: [] as string[], rooms: POLICY,
+        minutesOf: (x: number) => minuteOf(x, HOURS),
+      }, at(s)).kind
+      const lossOf = (c: RailCell | null) =>
+        c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter
+      const shipped = (cell: RailCell) => (s: number) => {
+        if (cell.alternativeKind === 'safe') return kindAt(s) === 'clean'
+        if (kindAt(s) === 'blocked') return false
+        if (cell.alternatives.includes(s)) return true
+        return cell.impact != null ? lossOf(at(s)) < lossOf(cell) : kindAt(s) === 'clean'
+      }
+      /** U1's gate, kept here as the BEFORE picture the two scenes are measured
+       *  against — the defect is a real difference, not an assertion rewrite. */
+      const roundFour = (cell: RailCell) => (s: number) => kindAt(s) !== 'blocked' && lossOf(at(s)) < lossOf(cell)
+      return { at, kindAt, lossOf, shipped, roundFour }
+    }
+
+    // ── SCENE 1, the breaker's p10: the photographed R-REP, staged 10:30 ──────
+    const one = gateFor(boardOf(), railIn, railIn.dur)
+    const rep = one.at(630)!
+    expect(rep).toEqual(REP())
+    // The engine's own two answers, and BOTH are already on the store's
+    // half-hour lattice — `offerableCell` passes them through as themselves, so
+    // these are the guard's own starts and not neighbours anything invented.
+    expect(rep.alternatives).toEqual([600, 690])
+    expect(rep.alternatives.every((s) => s % railIn.stepMin === 0)).toBe(true)
+    // …and each costs the store EXACTLY what standing still costs. That is the
+    // whole defect: the guard ranked them better on its other three terms, and
+    // U1 could not see any of that through the one term it compared.
+    expect(one.lossOf(rep)).toBe(1)
+    expect(rep.alternatives.map((s) => one.lossOf(one.at(s)))).toEqual([1, 1])
+    expect(rep.alternatives.map(one.kindAt)).toEqual(['caution', 'caution'])
+
+    // THE DEFECT: `1 < 1` is false twice, so a card whose entire subject is a
+    // loss offered the operator nothing at all — no safe answer under it, and
+    // 元に戻す the only way out.
+    expect(offerableCell(rep, railIn.stepMin, 630, one.roundFour(rep))!.alternatives).toEqual([])
+    expect(warnFaceFor(input({ cell: offerableCell(rep, railIn.stepMin, 630, one.roundFour(rep)) })).safePrimary).toBeNull()
+
+    // THE SHIPPED GATE: the engine spoke about both of these starts, so its word
+    // stands and the ordinary not-blocked bar is what they face.
+    const repFixed = offerableCell(rep, railIn.stepMin, 630, one.shipped(rep))!
+    expect(repFixed.alternatives).toEqual([600, 690])
+    expect(warnFaceFor(input({ cell: repFixed })).safePrimary)
+      .toEqual({ kind: 'place', start: 600, main: '10:00に置く', sub: '（損を減らす）' })
+
+    // ── SCENE 2, the p4/p7 physics face: a bed refusal, staged 12:00 ─────────
+    // The only room is taken 11:30–13:00, so the staff pocket holds and the
+    // RESOURCE does not — the engine's `R-UNAVAILABLE`, which `railCell` builds
+    // through `blocked()` and which therefore carries no `impact` at all.
+    const roomRail = {
+      ...railIn,
+      placementFeasible: (_l: BoardLane, s: number, d: number) => !(s < 780 && 690 < s + d),
+    }
+    const two = gateFor(boardOf(), roomRail, roomRail.dur)
+    const bed = two.at(720)!
+    expect(bed.state).toBe('blocked')
+    expect(bed.reason).toBe('bed')
+    expect(bed.sentence).toBe('この開始ではベッドを60分確保できません')
+    expect(bed.impact).toBeUndefined()
+    // The engine's own answers again — 10:00 before the room goes, 13:00 the
+    // moment it comes back — and both on the store's own lattice.
+    expect(bed.alternatives).toEqual([600, 780])
+    expect(bed.alternativeKind).toBe('least-loss')
+
+    // THE DEFECT, sharper here: no `impact` means `stagedLoss` is 0, and no
+    // candidate can lose LESS than nothing. The clause was unsatisfiable, so the
+    // face lost every offer it had — a dead end with no commit under it either
+    // (⚖ 92 fix round 4 U3: physics is not a floor a manager can be given
+    // authority over), which leaves 元に戻す as the operator's whole vocabulary.
+    expect(two.lossOf(bed)).toBe(0)
+    const bedBroken = warnFaceFor(input({ cell: offerableCell(bed, roomRail.stepMin, 720, two.roundFour(bed)) }))
+    expect(bedBroken.safePrimary).toBeNull()
+    expect(bedBroken.commit).toBeNull()
+
+    // THE SHIPPED GATE: the engine's own starts come back, and the operator has
+    // somewhere to go again. The impact panel is unchanged — the engine's
+    // verbatim sentence, ¥-free, exactly as `impactOf`'s unruled arm leaves it.
+    const bedFixed = offerableCell(bed, roomRail.stepMin, 720, two.shipped(bed))!
+    expect(bedFixed.alternatives).toEqual([600, 780])
+    const bedFace = warnFaceFor(input({ cell: bedFixed }))
+    expect(bedFace.safePrimary).toEqual({ kind: 'place', start: 600, main: '10:00に置く', sub: '（損を減らす）' })
+    expect(bedFace.commit).toBeNull()
+    expect(bedFace.impact).toEqual({ head: 'この開始ではベッドを60分確保できません', yen: null, tail: '' })
+
+    // AND THE MOVED-START ARM IS STILL STRICT on this very cell: 13:30 is a
+    // start the engine never ranked, and an impact-less staged cell has no loss
+    // to compare it against — so the clean bar stands in for the comparison, and
+    // a caution does not clear it. Trust for the engine's own word, never for a
+    // start we invented ourselves.
+    expect(bed.alternatives).not.toContain(810)
+    expect(two.kindAt(810)).toBe('caution')
+    expect(two.shipped(bed)(810)).toBe(false)
+  })
+
   /** ⚖ 92 fix round 3 T6 (breaker #6) — THE PRESS HONOURS THE DRAW'S PROMISE.
    *  The draw's gate (round-2 S1) may only offer CLEAN starts under a 確保を壊さ
    *  ない label, but the press re-judged with the looser 'not blocked' — so a
@@ -7728,11 +7903,34 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // commit under it to walk past a second degraded cell with — but the press
     // kept re-judging with 'not blocked', so a board that moved between the draw
     // and the finger landed the card exactly where T1 exists to stop it landing.
-    expect(fn).toContain("if ((pendingGuardRow.cell?.alternativeKind === 'safe' || props.overrideLevel === 'refuse') && again.kind !== 'clean') {\n      refuse(again.reason ?? '配置できません')\n      return\n    }")
+    //
+    // ⚖ 92 fix round 6 X2 (breaker #5) — AND THE THIRD ARM RIDES IT TOO. X1
+    // split the DRAW's least-loss arm on who chose the start; the press kept
+    // re-judging every candidate with 'not blocked' alone, so a board that moved
+    // between the draw and the finger could land the card on exactly the
+    // invented start X1 exists to refuse. The staged side of the comparison is
+    // read off the drawn cell itself — `offerableCell` rebuilds `alternatives`
+    // and nothing else — so no second verdict is asked for it.
+    expect(fn).toContain('    const drawn = pendingGuardRow.cell\n'
+      + "    const demandedClean = drawn?.alternativeKind === 'safe' || props.overrideLevel === 'refuse'\n"
+      + '    const movedStartRefused =\n'
+      + '      !demandedClean\n'
+      + '      && !pendingGuardRow.engineStarts.includes(start)\n'
+      + "      && !(drawn?.impact != null ? lossOf(verdictAt(at.laneKey, start, dur, pending.id)) < lossOf(drawn) : again.kind === 'clean')\n"
+      + "    if ((demandedClean && again.kind !== 'clean') || movedStartRefused) {\n"
+      + "      refuse(again.reason ?? '配置できません')\n"
+      + '      return\n'
+      + '    }')
     // It is the SAME door as the blocked branch — one refusal path, ⚖ 47, and
-    // still ONE condition: U2 joined T6's rather than opening a second gate.
+    // still ONE condition: U2 joined T6's rather than opening a second gate, and
+    // X2 joined the same one rather than opening a third.
     expect(fn.match(/refuse\(again\.reason \?\? '配置できません'\)/g)).toHaveLength(2)
     expect(fn.match(/again\.kind !== 'clean'/g)).toHaveLength(1)
+    // …and the loss the press compares against is the ONE `lossOf` the draw uses
+    // — hoisted to module scope by X2 precisely so the two cannot drift.
+    expect(SRC).toContain('const lossOf = (c: RailCell | null): number =>\n'
+      + "  c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter")
+    expect(SRC.match(/const lossOf = /g)).toHaveLength(1)
     // …and it stands BEFORE anything is staged.
     expect(fn.lastIndexOf('refuse(')).toBeLessThan(fn.indexOf('stage('))
     // A least-loss offer BELOW 'refuse' keeps the ordinary gate: 「損を減らす」
@@ -8234,6 +8432,15 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // The threshold is reached, never overrun.
     expect(holdClock({ mode: 'hold', t0: 1000, x0: 0 }, 1600)).toEqual({ progress: 1, done: true })
     expect(holdClock({ mode: 'hold', t0: 1000, x0: 0 }, 9000)).toEqual({ progress: 1, done: true })
+    // ⚖ 92 fix round 6 X6 (breaker #5) — AND IT IS CLAMPED AT THE OTHER END TOO.
+    // `t0` is not always in the past: `holdResumeAt` re-seeds it from a ratio,
+    // and a re-seed can land AHEAD of the frame timestamp the caller already
+    // holds. The fill's transform is `scaleX(progress)`, so a negative ratio
+    // painted one frame of the bar coming out of the wrong edge. A ratio of
+    // elapsed time is never negative, and it never was `done` either.
+    expect(holdClock({ mode: 'hold', t0: 1000, x0: 0 }, 700)).toEqual({ progress: 0, done: false })
+    expect(holdClock({ mode: 'hold', t0: 1000, x0: 0 }, 999).progress).toBe(0)
+    expect(holdClock({ mode: 'hold', t0: holdResumeAt(0.5, 5000), x0: 0 }, 4000).progress).toBe(0)
     // RESUME: a second press continues the first one's fill rather than
     // restarting it — the finger already did that work.
     expect(holdResumeAt(0.5, 5000)).toBe(5000 - HOLD_MS / 2)

@@ -3487,9 +3487,17 @@ function greensLineOf(oks: ReadonlyArray<{ label: string }>): string | null {
  *  ASKED OF CANON. `gapFillRawTotal` is the door the board's own 詰め込み price
  *  is built on (pricing.ts :128-141 — it pro-rates `priceAt` hour by hour and
  *  leaves the rounding to its caller), so the card is reading the same curve,
- *  from the same levers, as the boxes drawn behind it. Unrounded on purpose: the
- *  ¥10 round happens ONCE, on the difference, exactly as canon rounds once at
- *  the end of a span rather than per hour. */
+ *  from the same levers, as the boxes drawn behind it.
+ *
+ *  ⚖ 92 fix round 6 X5 (breaker #5) — AND THE ROUNDING SENTENCE SAYS WHAT
+ *  ACTUALLY HAPPENS HERE. 「Unrounded on purpose」 was half true and read as the
+ *  whole truth: `priceAt` (pricing :58) rounds EVERY hour to ¥10 inside canon,
+ *  so what this total carries unrounded is the PRO-RATING remainder — never the
+ *  hourly price, which canon has already rounded at its own door. The ¥10 round
+ *  the card adds is its own, applied ONCE to the difference rather than once per
+ *  window, because 約 may not license a figure to the digit and rounding per
+ *  window double-counts the remainder. Canon's door, canon's rounding; ours on
+ *  top of it, once. */
 const protectedValueOf = (starts: readonly number[], listPrice: number, protectedDur: number, frame: PriceFrame, depth: number) =>
   starts.reduce((total, s) => total + gapFillRawTotal(listPrice, s, s + protectedDur, frame, depth), 0)
 
@@ -3763,7 +3771,13 @@ export function holdClock(
   now: number,
 ): { progress: number; done: boolean } {
   if (s.mode === 'hold') {
-    const progress = Math.min(1, (now - s.t0) / HOLD_MS)
+    // ⚖ 92 fix round 6 X6 (breaker #5) — CLAMPED AT BOTH ENDS. `t0` is not
+    // always in the past: `holdResumeAt` re-seeds it from a progress ratio, and
+    // a cancel can re-seed it AHEAD of the frame timestamp the caller is already
+    // holding — one frame of `scaleX(-0.0…)`, a sliver of fill painted out of
+    // the wrong edge. A ratio of ELAPSED time cannot honestly be negative, so
+    // the floor is stated rather than left to the callers to remember.
+    const progress = Math.min(1, Math.max(0, (now - s.t0) / HOLD_MS))
     return { progress, done: progress >= 1 }
   }
   const t = (now - s.t0) / 1000

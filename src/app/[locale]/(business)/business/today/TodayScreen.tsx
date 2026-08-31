@@ -771,6 +771,18 @@ interface GuardAdvice {
   attempt: { id: string; staffLane: string | null; bedLane: string | null; span: { x: number; w: number } } | null
 }
 
+/** ⚖ 92 fix round 4 U1 — WHAT A LANDING COSTS THE STORE, in the one number the
+ *  warn card is already about: protected windows before, minus after. A null
+ *  cell, a safe cell and a cell that never reached the capacity question all
+ *  cost nothing — `impact` is absent exactly where the engine never weighed it.
+ *
+ *  ⚖ 92 fix round 6 X2 (breaker #5) — LIFTED OUT HERE so the DRAW and the PRESS
+ *  read one definition. The press now re-asks the draw's own least-loss rule
+ *  (`placePendingAt` below), and two spellings of "what does this cost" is ⚖ 54's
+ *  disease in the one place where the two answers must agree by construction. */
+const lossOf = (c: RailCell | null): number =>
+  c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter
+
 export function TodayScreen(props: TodayProps) {
   const { hours, ops, dialogs } = props
 
@@ -2180,19 +2192,28 @@ export function TodayScreen(props: TodayProps) {
    *  92's dial composes stricter faces above it, and a store dialled to 店長のみ
    *  refuses the press without any of that reaching `computeChecks`' answer —
    *  exactly as canon's own ackAllowed lets it be. Neither canon's hold bar nor
-   *  the built one showed this at all. */
+   *  the built one showed this at all.
+   *
+   *  ⚖ 92 fix round 6 X4 (breaker #5) — AND THE CLAUSE ABOVE IS ABOUT THE
+   *  CONTROLS THAT RENDER. 「`computeChecks`' answer alone」 is the gate wherever
+   *  a commit control EXISTS. It has no subject on the physics face: ⚖ 92 fix
+   *  round 4 U3 gives a floor the engine calls impossible (`ackAllowed: false` —
+   *  R-UNAVAILABLE, strict mode's refusals) no commit and no permission line at
+   *  all, by ⚖ 73's ruling that 「a floor the engine calls impossible is not a
+   *  floor a manager can be given authority over」. Nothing there is being gated
+   *  more strictly than `computeChecks` says; there is simply nothing to gate. */
   /** ⚖ 92 — AND THE CELL ITSELF, not only its row. The warn card composes from
    *  the verdict's DATA (`cell.impact`, its alternatives, its state) and the row
    *  is one rendering of that same cell — deriving them together here keeps them
    *  one reading of one board, which is the whole of ⚖ 54's lesson. The clean
    *  face keeps rendering `row` exactly as it did. */
-  const pendingGuardRow = useMemo((): { row: { label: string; tone: 'warn' } | null; cell: RailCell | null } => {
+  const pendingGuardRow = useMemo((): { row: { label: string; tone: 'warn' } | null; cell: RailCell | null; engineStarts: number[] } => {
     // ⚖ 46 forerunner: `pendingOffBoard`, not a day-only test — `verdictAt` reads
     // the board on screen, so a 仮押さえ staged in another STORE would have its
     // row computed from this store's cards. Same predicate as the checks above.
-    if (!pending || pendingOffBoard) return { row: null, cell: null }
+    if (!pending || pendingOffBoard) return { row: null, cell: null, engineStarts: [] }
     const at = moves[pending.id]
-    if (!at) return { row: null, cell: null }
+    if (!at) return { row: null, cell: null, engineStarts: [] }
     const start = minuteOf(at.x, hours)
     const cell = verdictAt(at.laneKey, start, minuteOf(at.x + at.w, hours) - start, pending.id)
     /** ⚖ 92 fix round F2 (blind L4#3) — AND THE CARD'S OFFER GOES THROUGH ⚖ 58'S
@@ -2277,9 +2298,34 @@ export function TodayScreen(props: TodayProps) {
      *  engine's own words rather than an offer that changes nothing.
      *
      *  The 'safe' and 'refuse' arms are untouched: both already demand a CLEAN
-     *  candidate, which is a stronger bar than any loss comparison. */
-    const lossOf = (c: RailCell | null): number =>
-      c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter
+     *  candidate, which is a stronger bar than any loss comparison.
+     *
+     *  ⚖ 92 fix round 6 X1 (breaker #5) — AND THE GATE TRUSTS THE ENGINE WHERE
+     *  THE ENGINE SPOKE, staying strict only where the SNAP invented the start.
+     *
+     *  U1 above re-filtered the engine's own answers on ONE term of a FOUR-term
+     *  ranking key. `nearestBestAlternatives` (gap-guard :294-317) only ever
+     *  returns starts whose whole key beats the attempt's, so two starts can be
+     *  strictly better overall and still cost the same protected windows — and
+     *  those died here on `1 < 1`. Execution-proven on the R-REP class Liam
+     *  photographed: staged 10:30, the engine's own 10:00 and 11:30 (both ON the
+     *  store's lattice, both passed through by the snap as themselves), both
+     *  withheld — a card warning about a loss with no answer under it.
+     *
+     *  Worse where the staged cell carries no `impact` at all — a bed
+     *  R-UNAVAILABLE, which is `blocked()` and so impact-less by construction:
+     *  `stagedLoss` is 0, `loss < 0` cannot be satisfied by anything, and the
+     *  physics face lost every offer it had.
+     *
+     *  So the arm splits on WHO CHOSE THE START:
+     *    · s is one of the ENGINE'S OWN (`cell.alternatives`, the RAW list this
+     *      closure is filtering — `offerableCell` passes an on-lattice start
+     *      through as itself, :2305) → the full-key guarantee already stands and
+     *      the gate is the ordinary `!== 'blocked'` it always was;
+     *    · s was MOVED by the snap (a floor/ceil neighbour the guard never
+     *      ranked) → U1's bar, and where the staged cell carries no impact to
+     *      compare against, the clean bar instead. Strict where we invented the
+     *      start; never strict about the engine's own word. */
     const stagedLoss = lossOf(cell)
     return {
       row: guardCheckRow(cell),
@@ -2287,8 +2333,16 @@ export function TodayScreen(props: TodayProps) {
         const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind
         if (props.overrideLevel === 'refuse') return k === 'clean'
         if (cell?.alternativeKind === 'safe') return k === 'clean'
-        return k !== 'blocked' && lossOf(verdictAt(at.laneKey, s, dur, pending.id)) < stagedLoss
+        if (k === 'blocked') return false
+        if (cell?.alternatives.includes(s)) return true
+        return cell?.impact != null ? lossOf(verdictAt(at.laneKey, s, dur, pending.id)) < stagedLoss : k === 'clean'
       }),
+      /** ⚖ 92 fix round 6 X2 (breaker #5) — THE RAW ENGINE STARTS, THREADED OUT.
+       *  `cell` here is the guard's own answer BEFORE the line above filters it,
+       *  so this is the list the arm split reads — and `placePendingAt` needs
+       *  exactly it to mirror the split at the press. One derivation, two
+       *  readers; re-deriving it there would be two answers to one question. */
+      engineStarts: cell?.alternatives ?? [],
     }
     // ⚖ 92 micro-fix M7, delta-verify D4 — `props.rooms` is a real dep: the gate
     // re-verdicts each candidate start through `verdictRef`, which reads the room
@@ -2894,8 +2948,28 @@ export function TodayScreen(props: TodayProps) {
      *  still re-judged with the looser 'not blocked' — so a board that moved
      *  between the draw and the finger landed the card exactly where T1 exists
      *  to stop it landing, walled again with 元に戻す the only way out. Same
-     *  law on the time axis, same refusal, one condition. */
-    if ((pendingGuardRow.cell?.alternativeKind === 'safe' || props.overrideLevel === 'refuse') && again.kind !== 'clean') {
+     *  law on the time axis, same refusal, one condition.
+     *
+     *  ⚖ 92 fix round 6 X2 (breaker #5) — AND THE THIRD ARM COMES THROUGH IT
+     *  TOO. Round 6 X1 split the DRAW's least-loss arm on who chose the start:
+     *  an engine-own start keeps the ordinary not-blocked gate, a start the SNAP
+     *  moved must be strictly better (or, on an impact-less staged cell, clean).
+     *  The press re-judged all of them with 'not blocked' alone — so a board
+     *  that moved between the draw and the finger could land the card on the
+     *  invented start X1 exists to refuse. Same door, same words, same rule read
+     *  from the same `lossOf`: the DRAW and the PRESS are one law on two clocks.
+     *
+     *  `pendingGuardRow.cell` carries the staged cell's own `state` and `impact`
+     *  through the filter untouched (`offerableCell` rebuilds only
+     *  `alternatives`), so the staged side of the comparison needs no second
+     *  verdict — ⚖ 54, one reading. */
+    const drawn = pendingGuardRow.cell
+    const demandedClean = drawn?.alternativeKind === 'safe' || props.overrideLevel === 'refuse'
+    const movedStartRefused =
+      !demandedClean
+      && !pendingGuardRow.engineStarts.includes(start)
+      && !(drawn?.impact != null ? lossOf(verdictAt(at.laneKey, start, dur, pending.id)) < lossOf(drawn) : again.kind === 'clean')
+    if ((demandedClean && again.kind !== 'clean') || movedStartRefused) {
       refuse(again.reason ?? '配置できません')
       return
     }
