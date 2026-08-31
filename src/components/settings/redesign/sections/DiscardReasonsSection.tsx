@@ -232,12 +232,19 @@ export function DiscardReasonsSection() {
   // every row is already complete without opening one, and auto-opening would
   // fetch a transcript nobody asked to read.
   useEffect(() => {
-    if (!isWide || openId !== null || rows.length === 0) return
+    // Keyed on the RESOLVED selection rather than on `openId`. The two are
+    // equivalent today — the only reload path runs through the error card,
+    // which is unreachable once a list has rendered — but they stop being
+    // equivalent the moment this list can refresh in place: a held id naming a
+    // row the new list no longer holds would leave the pane blank with nothing
+    // to press to fill it. Asking the question the pane actually cares about
+    // costs nothing and does not have to be revisited then.
+    if (!isWide || selected !== null || rows.length === 0) return
     openRow(rows[0], false)
     // openRow closes over state this effect must not re-run on; the guard above
     // is the real condition (it fires once, when a selection is missing).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isWide, openId, rows])
+  }, [isWide, selected, rows])
 
   const dateTimeFmt = new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'ja-JP', {
     month: 'long',
