@@ -1,9 +1,13 @@
 /** @jest-environment jsdom */
 // ⚖ Liam 2026-08-31: the settings screen "should adapt to whatever the screen
 // size is." It did not — the frame's `max-w-5xl` clamped the section surface to
-// 926px at EVERY viewport ≥1268, which is exactly why the discard section's
-// already-shipped wide compositions (two-up below 1048, four-up at ≥1048,
-// master column 300→360 at ≥1180) were unreachable on any real desktop.
+// 926px at EVERY viewport ≥1268 on the web door.
+//
+// Precisely what that cost: the discard section's master–detail composition and
+// its two-up definitions turn on at 880px of section width, so those WERE
+// reachable before this change (from a 1222px web window). What 926px could
+// never reach was four-up definitions (≥1048) and the mock's 360px master
+// column (≥1180). Those two are what this unlocks.
 //
 // jsdom has no layout engine, so this suite does not measure pixels — it
 // COMPUTES them from the real class chain, with every input read from the file
@@ -55,12 +59,20 @@ function sidebarWidth(): number {
   return Number(m[1])
 }
 
-/** `mx-auto max-w-7xl py-4 md:py-6` — the SHARED (app) shell wrapper. */
+/** `mx-auto max-w-7xl py-4 md:py-6` — the SHARED (app) shell wrapper, web door. */
 function appShellMaxWidth(): number {
   const m = /className="mx-auto (max-w-\S+) py-4 md:py-6"/.exec(
     readSource('src/app/[locale]/(app)/layout.tsx'),
   )
   if (!m) throw new Error('app shell wrapper not found in src/app/[locale]/(app)/layout.tsx')
+  return maxWidthPx(m[1])
+}
+
+/** The thin bundle's OWN shell wrapper — the same clamp on the phone/iPad door,
+ *  in a different file. Missing it is how "1440 binds somewhere" gets believed. */
+function thinChromeMaxWidth(): number {
+  const m = /className="mx-auto (max-w-\S+) py-4 /.exec(readSource('thin/chrome/Chrome.tsx'))
+  if (!m) throw new Error('thin chrome wrapper not found in thin/chrome/Chrome.tsx')
   return maxWidthPx(m[1])
 }
 
@@ -88,10 +100,36 @@ function frameWidth(viewport: number, ceiling: number): number {
   return Math.min(viewport - sidebarWidth(), appShellMaxWidth(), ceiling)
 }
 
+/** Same, on the thin door — which has no sidebar, so the frame widens earlier. */
+function thinFrameWidth(viewport: number, ceiling: number): number {
+  return Math.min(viewport, thinChromeMaxWidth(), ceiling)
+}
+
 /** The width the SECTION renders into — what the discard compositions read. */
 function sectionWidth(viewport: number, ceiling: number, inset: number): number {
   return frameWidth(viewport, ceiling) - 2 * inset - 2 * sectionPanelInset()
 }
+
+function thinSectionWidth(viewport: number, ceiling: number, inset: number): number {
+  return thinFrameWidth(viewport, ceiling) - 2 * inset - 2 * sectionPanelInset()
+}
+
+// The three files that PAINT this frame. Each must interpolate the shared
+// constant and spell no max-width of its own — a plain string-contains check let
+// two real mutations through: swapping `${SETTINGS_CONTENT_MAX_W}` for a literal
+// while leaving the now-unused import behind, and appending a responsive
+// override — an `md:`-variant max-width — after it. Neither the thin screen nor
+// the loading file is covered by `eslint src`, so this suite is their only guard.
+//
+// The override is described rather than spelled ON PURPOSE: Tailwind v4 scans
+// this file too (globals.css `@source "../**/*.{ts,tsx}"` covers __tests__), so a
+// class literal written in a COMMENT here emits a real rule into the shipped
+// stylesheet. Spelling one cost 46 bytes of dead CSS before this reword.
+const FRAME_WRAPPERS = [
+  'src/components/settings/SettingsPageChrome.tsx',
+  'thin/screens/SettingsScreen.tsx',
+  'src/app/[locale]/(app)/settings/loading.tsx',
+]
 
 // The ceiling that shipped before this change (`max-w-5xl`), kept so every
 // assertion below is a real before/after and not a self-referential pin.
@@ -102,26 +140,40 @@ function renderFrame(): HTMLElement {
   return container.firstElementChild as HTMLElement
 }
 
-describe('設定 frame — the ceiling has one home and the chrome reads it', () => {
-  it('the rendered frame carries the shared ceiling, not a spelled-out max-width', () => {
+describe('設定 frame — the ceiling has one home and every wrapper reads it', () => {
+  it('the rendered web frame carries exactly ONE max-width, and it is the shared one', () => {
     const frame = renderFrame()
-    expect(frame.classList.contains(SETTINGS_CONTENT_MAX_W)).toBe(true)
-    expect(frame.classList.contains('max-w-5xl')).toBe(false)
+    // Exactly one, not "contains one": an appended `md:`-variant max-width would
+    // sit right beside it and win at md+ — every viewport this suite is about.
+    const declared = [...frame.classList].filter((c) => /(?:^|:)max-w-/.test(c))
+    expect(declared).toEqual([SETTINGS_CONTENT_MAX_W])
     expect(maxWidthPx(SETTINGS_CONTENT_MAX_W)).toBe(1440)
   })
 
-  it('the thin screen and the loading skeleton read the SAME constant', () => {
-    // Three surfaces paint this frame. Two of them are invisible to the render
-    // above — a phone-bundle screen and a Next loading file — and a skeleton at
-    // one width behind a page at another is a visible jump on every load.
-    for (const rel of [
-      'thin/screens/SettingsScreen.tsx',
-      'src/app/[locale]/(app)/settings/loading.tsx',
-    ]) {
-      const src = readSource(rel)
-      expect(src).toContain('SETTINGS_CONTENT_MAX_W')
-      expect(src).not.toContain('max-w-5xl')
-    }
+  it.each(FRAME_WRAPPERS)('%s interpolates the constant and declares no max-width', (rel) => {
+    const src = readSource(rel)
+    // (a) the className really is a template that interpolates the constant —
+    //     an unused import next to a hard-coded literal does not pass.
+    expect(src).toMatch(/className=\{`[^`]*\$\{SETTINGS_CONTENT_MAX_W\}[^`]*`\}/)
+    // (b) the token appears nowhere else in the file. Deliberately strict —
+    //     it costs a wrapper nothing (the ceiling is the constant's job) and it
+    //     is what catches an appended responsive override.
+    expect(src).not.toMatch(/max-w-/)
+  })
+
+  it('the ceiling is a CONTIGUOUS literal, so Tailwind can actually see it', () => {
+    // Tailwind v4 finds classes by scanning source text. A composed string
+    // (`max-w-[${n}px]`) emits no rule at all and the ceiling silently does
+    // nothing — the page would look capped and every number here would still
+    // pass. Emission also needs globals.css's `@source "../**/*.{ts,tsx}"` to
+    // keep covering src/**.
+    // ponytail: source-level only. Reading the BUILT stylesheet would prove
+    // emission end to end but costs a full vite build per jest run — accepted
+    // residual, proven once per branch instead (both directions) in
+    // .build-evidence/FLUID-WIDTH-GATE-bundle-delta.txt.
+    expect(readSource('src/components/settings/settings-frame.ts')).toContain(
+      `SETTINGS_CONTENT_MAX_W = '${SETTINGS_CONTENT_MAX_W}'`,
+    )
   })
 })
 
@@ -145,15 +197,34 @@ describe('設定 frame — wide viewports actually get wider', () => {
     expect(frameWidth(4000, ceiling)).toBeLessThanOrEqual(ceiling)
   })
 
-  it('DISCLOSURE: the shared app shell, not settings, is what caps the top end today', () => {
-    // src/app/[locale]/(app)/layout.tsx wraps EVERY app page at max-w-7xl, so
-    // above a ~1524px viewport the frame plateaus at 1280 and never reaches
-    // 1440. Widening that wrapper is a whole-app decision and deliberately out
-    // of this change's scope. If it ever moves, this fails on purpose — the
-    // build note's numbers need revisiting with it.
+  it('DISCLOSURE: TWO shared shells, one per door, cap the top end — not settings', () => {
+    // Both doors wrap every screen at max-w-7xl, in two different files:
+    //   web  — src/app/[locale]/(app)/layout.tsx
+    //   thin — thin/chrome/Chrome.tsx
+    // So 1440 never binds anywhere today; the frame plateaus at 1280 on both.
+    // Widening either is a whole-app decision, deliberately out of scope. If
+    // either moves, this fails on purpose and the build note's numbers get
+    // revisited with it.
+    const ceiling = maxWidthPx(SETTINGS_CONTENT_MAX_W)
     expect(appShellMaxWidth()).toBe(1280)
-    expect(appShellMaxWidth()).toBeLessThan(maxWidthPx(SETTINGS_CONTENT_MAX_W))
-    expect(frameWidth(4000, maxWidthPx(SETTINGS_CONTENT_MAX_W))).toBe(appShellMaxWidth())
+    expect(thinChromeMaxWidth()).toBe(1280)
+    expect(Math.max(appShellMaxWidth(), thinChromeMaxWidth())).toBeLessThan(ceiling)
+    expect(frameWidth(4000, ceiling)).toBe(appShellMaxWidth())
+    expect(thinFrameWidth(4000, ceiling)).toBe(thinChromeMaxWidth())
+  })
+
+  it('DISCLOSURE: the iPad door widens too — this is not web-only headroom', () => {
+    // The binary ships to iPad (ios/App/App.xcodeproj: TARGETED_DEVICE_FAMILY
+    // = "1,2") and the thin door has no 244px sidebar, so its frame widens from
+    // a 1025pt viewport up — every iPad in landscape. Intended per ⚖ 8/31;
+    // pinned so nobody re-reads this change as desktop-only.
+    const inset = frameInset(renderFrame())
+    const ceiling = maxWidthPx(SETTINGS_CONTENT_MAX_W)
+    // iPad Pro 12.9" landscape.
+    expect(thinSectionWidth(1366, OLD_CEILING, inset)).toBe(926)
+    expect(thinSectionWidth(1366, ceiling, inset)).toBe(1182)
+    // Portrait phones sit far below the ceiling and do not move at all.
+    expect(thinSectionWidth(430, ceiling, inset)).toBe(thinSectionWidth(430, OLD_CEILING, inset))
   })
 })
 

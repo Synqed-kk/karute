@@ -72,8 +72,15 @@ export function SettingsScreenInner({ dto }: { dto: SettingsScreenDTOType }) {
   // parent SettingsPageChrome provides the page frame (mx-auto +
   // SETTINGS_CONTENT_MAX_W + space-y-6 p-4 md:p-6,
   // src/components/settings/SettingsPageChrome.tsx). The ceiling is shared
-  // from settings-frame.ts so the two doors cannot drift; on a phone the
-  // viewport binds long before it, so this is web-window headroom only.
+  // from settings-frame.ts so the two doors cannot drift.
+  //
+  // This is NOT web-only headroom: the binary ships to iPad too
+  // (TARGETED_DEVICE_FAMILY = "1,2"), and this door has no 244px sidebar, so
+  // the frame widens from a 1025pt viewport up — every iPad in landscape.
+  // iPad Pro 12.9" landscape (1366pt) goes 926 → 1182px of section surface,
+  // capped by Chrome.tsx's own shared 1280px wrapper rather than by 1440. That
+  // widening is intended (⚖ Liam 8/31, adapt to the screen); phones in
+  // portrait are far below the ceiling and do not move at all.
   // Mounting the shell bare shipped the binary's settings edge-to-edge
   // (Liam field report 7/24: "zoomed in, touching the corners"). Same
   // container geometry, minus PageHeader: the app's top bar already titles
