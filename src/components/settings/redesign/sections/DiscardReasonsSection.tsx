@@ -55,12 +55,22 @@ type TranscriptState =
 
 export function DiscardReasonsSection() {
   const t = useTranslations('settings.discardReasons')
+  const tc = useTranslations('common')
   const locale = useLocale()
   const [state, setState] = useState<
     | { kind: 'loading' }
     | { kind: 'error' }
     | { kind: 'ready'; rows: DiscardReasonRow[]; counts: DiscardReasonCounts; truncated: boolean }
   >({ kind: 'loading' })
+  /** Bumped by the error state's retry — the load effect below re-runs on it.
+   *  On the COMPUTER a failed load has the browser's own reload behind it; on
+   *  the phone this section is a tab inside a shell that never reloads, so
+   *  without this the only recovery was switching tabs and back, which nobody
+   *  would guess. Re-running the effect (rather than calling the read inline)
+   *  keeps ONE read path and lets the cleanup below do its job: the previous
+   *  attempt's `alive` flips false, so a slow first answer can never overwrite
+   *  a newer one, however many times the button is pressed. */
+  const [attempt, setAttempt] = useState(0)
   /** One row open at a time — the transcript is read to be read, not skimmed. */
   const [openId, setOpenId] = useState<string | null>(null)
   /** Kept per row once fetched: re-opening a row must not re-read core. */
@@ -113,7 +123,7 @@ export function DiscardReasonsSection() {
     return () => {
       alive = false
     }
-  }, [])
+  }, [attempt])
 
   const fmt = new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'ja-JP', {
     month: 'long',
@@ -138,9 +148,22 @@ export function DiscardReasonsSection() {
       )}
 
       {state.kind === 'error' && (
-        <p className="rounded-xl border border-border bg-card px-4 py-6 text-xs text-muted-foreground">
-          {t('loadFailed')}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-6">
+          <p className="text-xs text-muted-foreground">{t('loadFailed')}</p>
+          {/* A failed load is recoverable, so it gets the affordance that says
+              so — the quiet bordered control ThemeSection uses, never an accent
+              fill: nothing on this screen should read as an alarm. */}
+          <button
+            type="button"
+            onClick={() => {
+              setState({ kind: 'loading' })
+              setAttempt((n) => n + 1)
+            }}
+            className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted"
+          >
+            {tc('retry')}
+          </button>
+        </div>
       )}
 
       {state.kind === 'ready' && (
@@ -215,8 +238,12 @@ export function DiscardReasonsSection() {
                       {t('reasonLabel')}
                     </span>
                     {/* The whole reason, never truncated: a manager reading half
-                        an explanation is the failure this screen exists to fix. */}
-                    <span className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                        an explanation is the failure this screen exists to fix.
+                        `break-words` for the same reason — a pasted URL or code
+                        run has no break opportunity, and at phone width the card
+                        sits under overflow-x:hidden, so an unbroken token would
+                        carry the rest of the sentence off the screen. */}
+                    <span className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
                       {r.reason}
                     </span>
                     <span className="text-[11px] text-muted-foreground">
@@ -278,7 +305,9 @@ function TranscriptPanel({
   return (
     <>
       <p className="text-[11px] font-medium text-muted-foreground">{t('transcriptTitle')}</p>
-      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+      {/* Same break rule as the reason above — a spoken URL or product code
+          comes back from transcription as one unbroken run. */}
+      <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
         {state.segments.map((s) => s.text).join('\n\n')}
       </p>
     </>

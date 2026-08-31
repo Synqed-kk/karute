@@ -23,18 +23,15 @@ import { join } from 'node:path'
 
 // Tab id → its section file/export name. Mirrors the pairing all three
 // source files already document in their own header comments (design-parity
-// packet 12 §S1/§B-3 S2; audit removed at packet 17 §S3, staff at §S4b —
-// both tabs are live; sync moved from pending to permanently web-only at
-// packet 20 §S5, still bundle-excluded).
+// packet 12 §S1/§B-3 S2; audit removed at packet 17 §S3, staff at §S4b,
+// discards at the phone-facade packet (its two reads gained facade routes +
+// port twins) — all three tabs are live; sync moved from pending to
+// permanently web-only at packet 20 §S5, still bundle-excluded).
 const SECTION_FILE_BY_TAB: Record<string, string> = {
   sync: 'SyncSection.tsx',
   // menu-catalog lane PR-2: web-only for fork A (editing lives on the
   // computer, plan §8) — same three-way pairing as sync.
   menus: 'MenusSection.tsx',
-  // 破棄の記録 (packet P5-A A-6): 準備中 on the phone — the section reads the
-  // discard ledger through a 'use server' action, so the thin shell needs a
-  // facade route + port entry before its tab can go live here.
-  discards: 'DiscardReasonsSection.tsx',
 }
 
 function tabIdsFromConst(src: string, constName: string): string[] {

@@ -79,20 +79,25 @@ const PURCHASE_FILES = new Set(
 // guarantees never renders pushed the thin bundle over budget. StoresSection
 // moved OUT of this list at S2, AuditLogSection at packet 17 §S3,
 // StaffSection at packet 12 §B-3 S4b (StaffForm/PinSetup/
-// VoiceEnrollmentDialog/InviteStaffDialog now ship in the bundle too) — all
-// three tabs are live and their sections now ship in the bundle; the sole
-// remaining entry, SyncSection, is WEB-ONLY (webOnlyTabIds, #585 — an
-// honest Web版 copy, not 準備中), but the exclusion rationale is unchanged:
-// its tab never renders the section in-shell either way. StoreFormDialog
-// and its stores dialogs are NOT purchase surfaces (PURCHASE_FILES below
-// still excludes the two that are). Names must also exist in
-// thin/ports/pending-sections-excluded.tsx. Remove an entry the same PR its
-// tab goes live.
+// VoiceEnrollmentDialog/InviteStaffDialog now ship in the bundle too), and
+// DiscardReasonsSection at the phone-facade packet (its two reads now have
+// facade routes and port twins) — 店舗, 監査ログ, スタッフ and 破棄の記録 are
+// all live and their sections now ship in the bundle. Named rather than
+// counted: the sibling comments in thin/screens/SettingsScreen.tsx and
+// thin/ports/pending-sections-excluded.tsx track DIFFERENT lists, and three
+// running totals drift apart on the first commit that moves one of them. The
+// sole remaining entries are WEB-ONLY
+// (webOnlyTabIds — SyncSection at #585, MenusSection at the menu-catalog
+// lane's fork A; an honest Web版 copy, not 準備中), but the exclusion
+// rationale is unchanged: their tabs never render the section in-shell
+// either way. StoreFormDialog and its stores dialogs are NOT purchase
+// surfaces (PURCHASE_FILES below still excludes the two that are). Names
+// must also exist in thin/ports/pending-sections-excluded.tsx. Remove an
+// entry the same PR its tab goes live.
 const PENDING_SECTION_FILES = new Set(
   [
     'src/components/settings/redesign/sections/SyncSection.tsx',
     'src/components/settings/redesign/sections/MenusSection.tsx',
-    'src/components/settings/redesign/sections/DiscardReasonsSection.tsx',
   ].map((p) => path.resolve(root, p)),
 )
 

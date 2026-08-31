@@ -1,9 +1,13 @@
 // Import-level exclusion of the settings sections whose tabs must never
 // render in the thin shell (design-parity packet 12 §S1/§B-3 S2, packet 17
 // §S3, §S4b — 店舗 moved OUT at S2, 監査ログ at packet 17 §S3, スタッフ at
-// packet 12 §B-3 S4b, all three tabs now live; 同期 stays permanently
-// web-only per packet 20 §S5). SettingsShell.tsx imports all ten settings
-// sections unconditionally — the webOnlyTabIds/pendingTabIds runtime
+// packet 12 §B-3 S4b, 破棄の記録 at the phone-facade packet — 店舗, 監査ログ,
+// スタッフ and 破棄の記録 are all live now; 同期 stays permanently web-only per
+// packet 20 §S5, as does メニュー. Named rather than counted: the sibling
+// comments in thin/vite.config.ts and thin/screens/SettingsScreen.tsx track
+// DIFFERENT lists, and three running totals drift apart on the first commit
+// that moves one of them.) SettingsShell.tsx imports all ten settings sections
+// unconditionally — the webOnlyTabIds/pendingTabIds runtime
 // intercepts (renderSection) ensure this one never actually RENDERS in the
 // thin shell, but Rollup still has to bundle whatever it statically imports if
 // the vite config doesn't also cut it at the import graph. That extra
@@ -26,7 +30,3 @@ const Excluded = (): null => null
 export default Excluded
 export const SyncSection = Excluded
 export const MenusSection = Excluded
-// DiscardReasonsSection (packet P5-A A-6): 準備中 on the phone — the section
-// reads the discard ledger through a 'use server' action, so the thin shell
-// needs a facade route + port entry before its tab can go live here.
-export const DiscardReasonsSection = Excluded

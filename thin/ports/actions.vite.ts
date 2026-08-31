@@ -31,6 +31,13 @@ import type { VoiceRefusal } from '@/actions/voice'
 // Same type-only idiom for the 録音履歴 row shape (Build F1) — lib/recordings/
 // inbox.ts is pure, so nothing of it enters this bundle's import graph.
 import type { InboxServerSession } from '@/lib/recordings/inbox'
+// Same type-only idiom for 破棄の記録's two reads: the manager section branches
+// on these EXACT unions, so the port declares them rather than re-typing a
+// literal that can drift from the web contract.
+import type {
+  GetDiscardTranscriptResult,
+  ListDiscardReasonsResult,
+} from '@/actions/recording-discards'
 
 function notWired(name: string) {
   return async (): Promise<never> => {
@@ -1147,18 +1154,82 @@ export const persistDiscardTranscript = discardTranscriptUnsupported
 export const transcribeAndPersistDiscard = discardTranscriptUnsupported
 
 // 破棄の記録 — the staffer's OWN monthly discard count (⚖ 8/25 ruling B, staff
-// half). NOT AVAILABLE ON THE PHONE THIS ROUND: the web action reads core's
-// discard ledger through a 'use server' client, and the thin shell would need
-// its own facade route (GET /recordings/discards) before it could ask the same
-// question. `null` is the component's honest "not known" state and renders
-// NOTHING — never a 0, which would claim the staffer discarded nothing this
-// month. The 破棄の記録 manager screen is 準備中 on thin for the same reason
-// (thin/screens/SettingsScreen.tsx PENDING_TAB_IDS).
+// half). STILL NOT AVAILABLE ON THE PHONE, and no longer for the same reason as
+// the manager screen: that screen is LIVE on thin now, off the two facade reads
+// wired below. This count carries NO capability gate at all — self-knowledge by
+// ruling — so it cannot ride the staff.manage list route beside it; it needs a
+// gate-free door of its own, which is its own later piece. `null` is the
+// component's honest "not known" state and renders NOTHING — never a 0, which
+// would claim the staffer discarded nothing this month.
 //
 // This entry exists because the boundary plugin substitutes this module for
 // every src/actions/ import: without the name, the thin BUILD fails — which is
 // the gate working, not a workaround.
 export const myDiscardCountThisMonth = async (): Promise<number | null> => null
+
+// 破棄の記録 — the manager screen's two reads, now that both have facade routes.
+// The section (DiscardReasonsSection) branches ONLY on the `{ ok }`
+// discriminator, so these must resolve the web unions and NEVER reject: a
+// rejection leaves the list on its spinner and an opened row loading forever.
+// A 403 keeps its own meaning (the capability is gone) — everything else is
+// 'failed'.
+async function facadeListDiscardReasons(): Promise<ListDiscardReasonsResult> {
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/recordings/discards')
+    if (res.status === 403) return { ok: false, error: 'forbidden' }
+    if (!res.ok) return { ok: false, error: 'failed' }
+    const body = (await res.json().catch(() => null)) as
+      | Partial<Extract<ListDiscardReasonsResult, { ok: true }>>
+      | null
+    // A 200 we cannot read is a FAILURE, never an empty ledger — same rule the
+    // route itself keeps, and the same malformed-200 guard facadeLoadKaruteWindow
+    // carries: "no discards" is a claim, and we have nothing to back it with.
+    // `counts` is checked for SHAPE, not presence: the section renders
+    // `counts.byStaff.length` unguarded, so a truthy non-array would pass a
+    // presence check and throw at render — a blank tab instead of the honest
+    // 読み込めませんでした this branch exists to produce.
+    if (!body || !Array.isArray(body.rows) || !body.counts || !Array.isArray(body.counts.byStaff))
+      return { ok: false, error: 'failed' }
+    return { ok: true, rows: body.rows, counts: body.counts, truncated: body.truncated === true }
+  } catch {
+    return { ok: false, error: 'failed' }
+  }
+}
+
+async function facadeGetDiscardTranscript(
+  recordingSessionId: string,
+): Promise<GetDiscardTranscriptResult> {
+  try {
+    const res = await getDataPort().apiFetch(
+      `/api/app/v1/recordings/discards/transcript?sessionId=${enc(recordingSessionId)}`,
+    )
+    if (res.status === 403) return { ok: false, error: 'forbidden' }
+    if (!res.ok) return { ok: false, error: 'failed' }
+    const body = (await res.json().catch(() => null)) as
+      | Partial<Extract<GetDiscardTranscriptResult, { ok: true }>>
+      | null
+    // The A2-4 honesty law reaches the phone here too: the ONLY empty-segments
+    // answer that means anything is the route's own (core's 404 — a swept
+    // session). An unreadable body is not an answer about the words.
+    if (!body || !Array.isArray(body.segments)) return { ok: false, error: 'failed' }
+    return { ok: true, segments: body.segments, durationSeconds: body.durationSeconds ?? null }
+  } catch {
+    return { ok: false, error: 'failed' }
+  }
+}
+
+// Same type-only `satisfies` pin as updateKaruteOutcome above (erased by vite).
+// What it actually binds: the RETURN unions and the parameter types these ports
+// do declare — a renamed/retyped field on either result breaks tsc here. What
+// it does NOT bind is arity: a function of fewer parameters stays assignable, so
+// a web action that GAINED an argument would pass this check while the port
+// silently dropped it. The real pin on that is the port test's URL assertion
+// (thin-discard-reasons-port.test.ts), which reads the argument back off the
+// wire.
+export const listDiscardReasons =
+  facadeListDiscardReasons satisfies typeof import('@/actions/recording-discards').listDiscardReasons
+export const getDiscardTranscript =
+  facadeGetDiscardTranscript satisfies typeof import('@/actions/recording-discards').getDiscardTranscript
 
 // -- 録音履歴 inbox (Build F1). Type-only import of the row shape: inbox.ts is
 // pure (no next/*, no synqed client), so this erases at compile and the DTO
