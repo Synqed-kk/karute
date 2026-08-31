@@ -185,6 +185,8 @@ export interface DiscardRowProps {
   hasCustomer: boolean
   initial: string
   recordedAtLabel: string
+  /** The same moment without the year — the master list's own line. */
+  recordedShortLabel: string
   discardedAtLabel: string
   /** 「47分18秒」 / 「8秒」 / 「記録なし」 — the length ALONE, so the row's pill, the
    *  detail's 録音時間 and the reading panel's header cannot disagree. */
@@ -1287,10 +1289,9 @@ export function RecordingScreen(props: RecordingProps) {
                       <span className="rc-dur rc-num">録音 {r.lengthText}</span>
                     </span>
                     <span className="rc-review-when">
-                      <span className="rc-num">録音 {r.recordedAtLabel}</span>
+                      <span className="rc-num">録音 {r.recordedShortLabel}</span>
                       <span className="rc-review-sep" aria-hidden="true">・</span>
-                      <span>破棄 <span className="rc-num">{r.discardedAtLabel}</span></span>
-                      <span className="rc-review-by">{r.byName}</span>
+                      <span>破棄 <span className="rc-review-by">{r.byName}</span></span>
                     </span>
                     {/* ⚖ 8/25 RULING A — BOTH HALVES ARE LABELLED. The manager
                         reads the staffer's CLAIM against the EVIDENCE, and an

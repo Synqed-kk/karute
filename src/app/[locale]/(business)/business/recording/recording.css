@@ -724,7 +724,7 @@
 .biz .pg-recording .rc-summary-main { display: flex; flex-wrap: wrap; align-items: baseline; margin: 0; color: var(--ink-3); font-size: 13px; line-height: 1.6; }
 .biz .pg-recording .rc-summary-staff { display: flex; flex-wrap: wrap; align-items: baseline; margin: 6px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.7; }
 .biz .pg-recording .rc-summary-k { margin-right: 8px; color: var(--ink-3); font-weight: 600; }
-.biz .pg-recording .rc-summary-one { white-space: nowrap; }
+.biz .pg-recording .rc-summary-one { max-width: 100%; white-space: nowrap; overflow-wrap: anywhere; }
 .biz .pg-recording .rc-summary-sep { margin: 0 7px; color: var(--quiet); }
 .biz .pg-recording .rc-summary-note { margin: 6px 0 0; color: var(--muted); font-size: 11.5px; }
 
@@ -764,16 +764,19 @@
   .biz .pg-recording .rc-pane-list { display: block; min-width: 0; border-right: 1px solid var(--line); }
   .biz .pg-recording .rc-pane-detail { padding: 20px 22px 22px; border-top: 0; }
   .biz .pg-recording .rc-pane-detail.is-empty { display: block; }
-  /* the list's reason becomes a one-line EXCERPT, because the whole of it is
-     already on screen in the pane beside it */
-  .biz .pg-recording .rc-review-reason { white-space: nowrap; overflow: clip; text-overflow: ellipsis; }
 }
 
 /* THE ROW IS THE CONTROL, and deliberately quiet — the one-way accent law lets a
    pressable be quieter than accent, and nothing on this screen should read as an
    alarm. The SELECTED state is the R13 wash plus an inset accent edge. */
+/* ⚠ `minmax(0, 1fr)`, AND IT IS A MEASURED FIX RATHER THAN A STYLE. The row is a
+   grid, and a grid's automatic track is max-content: the excerpt below is
+   `nowrap`, so an `auto` track sized itself to the WHOLE untruncated reason and
+   panned the page sideways by however long that sentence was. A zero-floor track
+   gives way instead, which is also what makes `text-overflow: ellipsis`
+   possible at all — an unconstrained box has nothing to ellipsise into. */
 .biz .pg-recording .rc-review-row {
-  display: grid; gap: 5px; width: 100%; padding: 13px 15px 14px;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; width: 100%; padding: 13px 15px 14px;
   border: 0; border-top: 1px solid var(--line-2); background: none; color: inherit; font: inherit; text-align: left;
 }
 .biz .pg-recording .rc-pane-list > .rc-review-row:first-child { border-top: 0; }
@@ -798,7 +801,12 @@
    全文・コンピュータでは抜粋」). At phone widths the clamp is lifted and the row
    carries the whole reason, because there is no detail column beside it. */
 .biz .pg-recording .rc-review-reason {
-  font-size: 13px; line-height: 1.65; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere;
+  min-width: 0; font-size: 13px; line-height: 1.65; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+/* …and on the DESK it is a one-line excerpt, because the whole of it is already
+   on screen in the pane beside it — a month of discards has to stay scannable. */
+@container rcpage (min-width: 820px) {
+  .biz .pg-recording .rc-review-reason { white-space: nowrap; overflow: clip; text-overflow: ellipsis; }
 }
 /* ⚠ THE WHOLE REASON, NEVER TRUNCATED, and CAPPED AT A READABLE MEASURE AT EVERY
    WIDTH: a manager reading half an explanation is the failure this screen exists
@@ -827,7 +835,7 @@
 /* INTRINSIC, so it needs no threshold at all: two equal cards while each can be
    at least 260px, one column under that. A rule that cannot be told the wrong
    width cannot be wrong about it. */
-.biz .pg-recording .rc-detail-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; align-items: start; margin-top: 16px; }
+.biz .pg-recording .rc-detail-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 16px; align-items: start; margin-top: 16px; }
 .biz .pg-recording .rc-card { padding: 14px 16px 15px; border: 1px solid var(--line-2); border-radius: 12px; background: #fff; }
 
 /* ══ ⚖ THE LONG-RECORDING LAW (Liam 8/31) — THE ONE BOUNDED READING PANEL ═════

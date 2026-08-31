@@ -85,6 +85,7 @@ import {
 const JST = { timeZone: 'Asia/Tokyo' } as const
 const fmtDay = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', ...JST })
 const fmtDayLong = new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short', ...JST })
+const fmtDayShort = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', weekday: 'short', ...JST })
 
 /** ⚠ THE REFUSALS, IN ONE PLACE, AND EACH ONE SAYS WHY IN ITS OWN WORDS. One
  *  generic sentence on six different controls tells the reader nothing about
@@ -351,6 +352,12 @@ export async function recordingProps({
           // for a take that never got one. Decorative — the name is beside it.
           initial: r.customerName === null ? '？' : [...r.customerName][0],
           recordedAtLabel: `${fmtDayLong.format(dayOf(r.dayKey))} ${hhmm(r.startedMinute)}`,
+          // ⚠ THE LIST GETS THE SHORT DATE and the DETAIL the full one. A 340px
+          // master column carrying 「2026年8月29日(土) 10:04 ・ 破棄 同日 12:20 ・
+          // 見本 はなこ」 wraps to three lines and stops being scannable; the year
+          // is never the thing a manager is looking for in a list, and it is one
+          // press away where it is.
+          recordedShortLabel: `${fmtDayShort.format(dayOf(r.dayKey))} ${hhmm(r.startedMinute)}`,
           // The plane stamps a discard as a JST minute of the take's OWN session
           // day, so 同日 is a fact rather than a shortening.
           discardedAtLabel: `同日 ${hhmm(r.minute)}`,
