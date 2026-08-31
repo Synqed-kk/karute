@@ -310,8 +310,9 @@ export const storeBookingPolicy = {
    *  で出荷（この画面での確認をもって決定）」) — Fable default, OVERTURNABLE on
    *  Liam's word. The 店舗設定 control ships with the settings round beside the
    *  override dial, and it carries ⚖ HIS 8/31 GENERAL LAW: 「every settings entry
-   *  carries a one-line description of what it changes/turns off」 — here, 「置け
-   *  ない場所への配置に、0.6秒の長押しを求めます」.
+   *  carries a one-line description of what it changes/turns off」. That line,
+   *  written here so the settings round does not have to invent it:
+   *  「置けない場所への配置に、0.6秒の長押しを求めます」.
    *
    *  Meaningful ONLY at override level `allow-warned`: a 店長のみ store has no
    *  staff commit for the press to guard, and the composer says so by never

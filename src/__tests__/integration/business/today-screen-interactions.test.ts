@@ -6919,6 +6919,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
  *  are built by hand, and they say so. */
 describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store’s settings', () => {
   const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
   const GUARD = {
     services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
     newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
@@ -7152,6 +7153,159 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(blocked.commit!.enabled).toBe(false)
     // …and the safe answer stays live: the blocker is about THIS start.
     expect(blocked.safePrimary).not.toBeNull()
+  })
+
+  it('the store’s dial is DATA, on the one home, with the settings round named', () => {
+    const FIX = readFileSync(join(process.cwd(), 'src/business/lib/fixtures-today.ts'), 'utf8')
+    // ⚠SETTINGS-BATCH — the value lives on core's record beside the other two
+    // authority dials, and `opsConfig` only aliases it (§6's one dial home).
+    expect(FIX).toContain('overrideHoldToConfirm: true,')
+    expect(FIX).toContain('overrideHoldToConfirm: storeBookingPolicy.overrideHoldToConfirm,')
+    expect(opsConfig.overrideHoldToConfirm).toBe(true)
+    // ⚖ Liam's 8/31 GENERAL LAW quoted where the settings round will read it:
+    // every settings entry ships with a one-line description of what it changes.
+    expect(FIX).toContain('置けない場所への配置に、0.6秒の長押しを求めます')
+    // ⚖ 92's default is a design-page decision, and it says so — the next round
+    // may overturn it on Liam's word without hunting for where it was decided.
+    expect(FIX).toContain('OVERTURNABLE')
+  })
+
+  it('the page seam asks the dial ONCE — the boolean is a reading of the level', () => {
+    const PAGE = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
+    expect(PAGE).toContain('const overrideLevel = overrideLevelFor(planes.opsConfig.overridePolicy, shell.operator)')
+    expect(PAGE).toContain("canOverride: overrideLevel === 'allow-warned',")
+    expect(PAGE).toContain('overrideLevel,')
+    expect(PAGE).toContain('holdToConfirm: planes.opsConfig.overrideHoldToConfirm,')
+    expect(PAGE).toContain('operatorName: shell.operator.name,')
+    // ONE call, so the consult path and the card can never disagree about who
+    // may place — ⚖ 54's disease at the permission layer.
+    expect(PAGE.match(/overrideLevelFor\(/g)).toHaveLength(1)
+  })
+
+  it('the surface paints the model and decides nothing', () => {
+    // The ⚖ 71/74 ask-gate is still ONE gate; the face is chosen inside it.
+    expect(SRC).toContain('{holdPop.asking && (holdPop.warn ? (')
+    // Every piece reads off the model — no second composition in the JSX.
+    expect(SRC).toContain('<p className="wc-impact">')
+    expect(SRC).toContain('{holdPop.warn.impact.yen && <span className="wc-yen">（{holdPop.warn.impact.yen}）</span>}')
+    expect(SRC).toContain('{holdPop.warn.provenance && <p className="wc-prov">{holdPop.warn.provenance}</p>}')
+    expect(SRC).toContain("{holdPop.warn.safePrimary?.kind === 'place' && holdPop.placeSafe && (")
+    expect(SRC).toContain('{holdPop.warn.safePrimary?.kind === \'info\' && <p className="wc-info">{holdPop.warn.safePrimary.label}</p>}')
+    expect(SRC).toContain('{holdPop.warn.lock && <p className="wc-lock">{holdPop.warn.lock}</p>}')
+    expect(SRC).toContain('{holdPop.warn.greensLine && <p className="wc-greens">{holdPop.warn.greensLine}</p>}')
+    // ⚖ 52/73-74 — the unconsumed rows render in the clean face's OWN grammar.
+    expect(SRC).toContain('<div className="holdbar-checks wc-rows">')
+    expect(SRC).toContain('{holdPop.warn.rows.map((c) => <span className={`ck${c.tone ? ` ${c.tone}` : \'\'}`} key={c.label}>{c.label}</span>)}')
+    // Every commit kind carries the gate; none of them re-decides it.
+    for (const kind of ['hold', 'press', 'approval']) {
+      expect(SRC).toContain(`{holdPop.warn.commit?.kind === '${kind}'`)
+    }
+    expect(SRC.match(/disabled=\{!holdPop\.warn\.commit\.enabled\}/g)).toHaveLength(3)
+    // ⚖ 74's recall half is untouched: the head and the day-pin still render
+    // above the gate, so a closed override-stage keeps its pill either way.
+    const surface = SRC.slice(SRC.indexOf('{holdPop && ('), SRC.indexOf('{/* ⚖ Liam 19/20'))
+    expect(surface.indexOf('className="hp-head"')).toBeLessThan(surface.indexOf('{holdPop.asking && ('))
+  })
+
+  it('the CLEAN face’s own render is byte-identical to the card that ships today', () => {
+    // The exact three lines the clean branch has always been. If a future round
+    // "tidies" the warn face into this one, this is what fails.
+    const surface = SRC.slice(SRC.indexOf('{holdPop.asking && ('))
+    const clean = surface.slice(surface.indexOf('          ) : ('))
+    expect(clean).toContain('<div className="holdbar-checks">')
+    expect(clean).toContain('{holdPop.checks.map((c) => <span className={`ck${c.tone ? ` ${c.tone}` : \'\'}`} key={c.label}>{c.label}</span>)}')
+    expect(clean).toContain('{holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}')
+    expect(clean).toContain('<div className="hp-actions">')
+    expect(clean).toContain('<button className="btn primary" type="button" disabled={!holdPop.confirm.enabled} onClick={holdPop.confirm.run}>{holdPop.confirm.label}</button>')
+    expect(clean).toContain('<button className="btn" type="button" disabled={!holdPop.revert.enabled} onClick={holdPop.revert.run}>元に戻す</button>')
+    // …and the day's own standing 仮押さえ never grows a second face: its rows
+    // are the server's plain sentences with no verdict behind them.
+    expect(SRC).toContain('          warn: null,\n          placeSafe: null,')
+  })
+
+  it('the safe answer is a LANDING — judged by the one verdict, staged by the one door', () => {
+    const fn = SRC.slice(SRC.indexOf('function placePendingAt('), SRC.indexOf('// ── ⚖ LIAM flag 92 — the long press'))
+    // The engine's start becomes a real span on the board's own clock.
+    expect(fn).toContain('const span = place(start, start + dur, hours)')
+    // ⚖ 50 — the ONE verdict home, not a trusted offer.
+    expect(fn).toContain('const again = verdictAtLanding({')
+    // ⚖ 31c — refused means refused: ⚖ 47's one door, and NOTHING staged.
+    expect(fn).toContain("if (again.kind === 'blocked') {\n      refuse(again.reason ?? '配置できません')\n      return\n    }")
+    expect(fn.indexOf('refuse(')).toBeLessThan(fn.indexOf('stage('))
+    // ⚖ 45 — the ONE door, both sides, one span. No second write path exists.
+    expect(fn).toContain('stage(pending.id, { staffLane: at.laneKey, bedLane: again.bedLane }, span, { staff: pending.origin, bed: pending.bedOrigin ?? null })')
+    expect(fn).not.toContain('setMoves(')
+    expect(fn).not.toContain('setBedMoves(')
+    // The origin is the CHANGE's, so 元に戻す still undoes the whole change; and
+    // NO override rides along — `stage`'s fifth argument is absent, so the stamp
+    // is cleared and the △ goes with the reason that is now gone.
+    expect(fn).not.toContain('pending.override')
+    // ⚖ 87 — the room the operator chose survives this gesture too.
+    expect(fn).toContain('bedLane: seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null),')
+    // NO SUCCESS PANEL. The re-verdict re-renders the card at the new start —
+    // that IS the answer, and the clean face is what it looks like.
+    expect(fn).not.toContain('show(')
+  })
+
+  it('the long press commits through the SAME 確定, and answers a keyboard', () => {
+    const block = SRC.slice(SRC.indexOf('// ── ⚖ LIAM flag 92 — the long press'), SRC.indexOf('// canon (:6941-6947): Escape puts down whatever is in'))
+    // ⚖ 92 — completion is `confirmPending`, never a second commit path, so
+    // canon's R11-7 re-check and the off-board test both fire on a long press.
+    expect(SRC).toContain('btn.classList.add(\'settle\')\n    window.setTimeout(() => { holdReset(); confirmPending() }, 250)')
+    expect(SRC).toContain('if (holdReduced() || !btn) { holdReset(); confirmPending(); return }')
+    // The arithmetic is NOT in the screen — it is `holdClock`'s, pinned above.
+    expect(block).toContain('holdClock({ mode: h.mode, t0: h.t0, x0: h.x0 }, now)')
+    expect(block).toContain('h.t0 = holdResumeAt(h.progress, performance.now())')
+    expect(block).not.toContain('Math.exp(')
+    // The press acknowledgment, and the recoil that carries the press's velocity.
+    expect(block).toContain("btn.classList.add('holding')")
+    expect(block).toContain("h.mode = 'spring'")
+    // Keyboard parity, with the OS key-repeat refused so it cannot self-fill.
+    expect(block).toContain("if (e.repeat || (e.key !== 'Enter' && e.key !== ' ')) return")
+    for (const on of ['onPointerDown', 'onPointerUp', 'onPointerLeave', 'onPointerCancel', 'onBlur', 'onKeyDown', 'onKeyUp']) {
+      expect(block).toContain(`${on}:`)
+    }
+    // prefers-reduced-motion is a real branch, not only a CSS rule.
+    expect(block).toContain("window.matchMedia('(prefers-reduced-motion: reduce)').matches")
+    expect(block).toContain('}, HOLD_MS / 3)')
+    // The fill is written to the NODE, never to state: no re-render per frame.
+    expect(block).toContain('node.style.transform = `scaleX(${p})`')
+    expect(block).not.toContain('setHoldProgress')
+  })
+
+  it('the card’s colours obey the design laws — amber warns, red locks, nothing stretches', () => {
+    const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+    const face = CSS.slice(CSS.indexOf('/* ═══ H2 — ⚖ LIAM flag 92'), CSS.indexOf('/* ═══ I — incident band ═══ */'))
+    // Amber is the WARN family and appears nowhere else on this card.
+    expect(face).toContain('background: var(--amber-soft);')
+    expect(face).toContain('border: 1.5px solid var(--amber);')
+    // The red family appears in exactly one rule — the 店長のみ lock line.
+    const reds = face.split('\n').filter((l) => l.includes('var(--red'))
+    expect(reds).toHaveLength(2)
+    expect(reds.every((l) => l.includes('var(--red-soft)') || l.includes('var(--red-dark)'))).toBe(true)
+    expect(face.slice(face.indexOf('.biz .wc-lock'), face.indexOf('.biz .wc-greens'))).toContain('var(--red-soft)')
+    expect(face.slice(0, face.indexOf('.biz .wc-lock'))).not.toContain('--red')
+    // R13 — no dark fill anywhere; the ONE solid fill is `.btn.primary`'s own
+    // commit recipe, which the safe primary wears rather than redeclaring.
+    expect(SRC).toContain('className="btn primary wc-safe"')
+    expect(face).not.toContain('background: var(--ink')
+    // NATURAL WIDTHS. `.hp-actions .btn { flex: 1 }` is right for the clean
+    // face's two-button row and wrong for a column of single controls, so the
+    // warn face's footer releases it and every control sizes to its words.
+    expect(CSS).toContain('.biz .hp-actions .btn { flex: 1; justify-content: center; }')
+    expect(face).toContain('.biz .hp-actions.wc-foot .btn { flex: 0 0 auto;')
+    for (const rule of ['.biz .wc-safe', '.biz .wc-warn-btn', '.biz .wc-approve', '.biz .wc-hold', '.biz .wc-lock']) {
+      expect(face.slice(face.indexOf(rule), face.indexOf('}', face.indexOf(rule)))).toContain('width: fit-content;')
+    }
+    // ONE progress voice, and it is the fill on the control itself: exactly one
+    // rule paints a meter and exactly one node wears it. No second bar, no
+    // percentage, no spinner beside the button that already says it is filling.
+    expect(face.match(/scaleX\(0\)/g)).toHaveLength(1)
+    expect(face.match(/\.wc-hold-fill/g)).toHaveLength(1)
+    expect(SRC.match(/wc-hold-fill/g)).toHaveLength(1)
+    // Reduced motion is answered in the sheet as well as in the screen.
+    expect(face).toContain('@media (prefers-reduced-motion: reduce) {')
+    expect(face.slice(face.indexOf('@media (prefers-reduced-motion'))).toContain('.biz .wc-hold.settle { animation: none; }')
   })
 
   it('the long press is 600ms of arithmetic — it resumes, it recoils, it completes', () => {

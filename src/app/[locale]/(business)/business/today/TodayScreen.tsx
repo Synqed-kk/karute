@@ -6636,7 +6636,9 @@ export function TodayScreen(props: TodayProps) {
                 <button
                   className="btn primary wc-safe"
                   type="button"
-                  onClick={() => holdPop.placeSafe?.((holdPop.warn!.safePrimary as { start: number }).start)}
+                  // Re-read at the press: the model is rebuilt every render, so
+                  // the start this fires on is the one currently on the card.
+                  onClick={() => { const p = holdPop.warn?.safePrimary; if (p?.kind === 'place') holdPop.placeSafe?.(p.start) }}
                 >
                   <span className="wc-safe-main">{holdPop.warn.safePrimary.main}</span>
                   <span className="wc-safe-sub">{holdPop.warn.safePrimary.sub}</span>
