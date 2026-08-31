@@ -22,6 +22,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { listDiscardReasonsWithClient } from '@/actions/recording-discards'
+import { DiscardReasonsListDTO } from '@/lib/app-api/discard-reasons-dto'
 
 export const runtime = 'nodejs'
 
@@ -31,8 +32,9 @@ export const GET = facadeHandler('recordings.discards.list', async (ctx) => {
   const businessId = ctx.identity.businessId
   const synqed = newSynqedClient(businessId)
 
+  let result
   try {
-    return ok(ctx, await listDiscardReasonsWithClient(synqed, businessId))
+    result = await listDiscardReasonsWithClient(synqed, businessId)
   } catch (err) {
     // The twin THROWS on a failed read rather than answering an empty ledger,
     // so a transient core failure surfaces as 502 upstream_unavailable — the
@@ -41,6 +43,13 @@ export const GET = facadeHandler('recordings.discards.list', async (ctx) => {
     if (err instanceof AppApiError) throw err
     throw new AppApiError('upstream_unavailable', 'the discard ledger is unavailable')
   }
+
+  // Parsed at the door, the audit-log route's convention: the wire shape is a
+  // contract with a baked phone, and a rename inside the shared twin would
+  // otherwise reach it silently (see discard-reasons-dto.ts). OUTSIDE the
+  // catch on purpose — a shape drift is our own bug, and calling it an
+  // upstream outage would send a manager to check the wrong thing.
+  return ok(ctx, DiscardReasonsListDTO.parse(result))
 })
 
 export const OPTIONS = GET // facadeHandler short-circuits OPTIONS before auth.

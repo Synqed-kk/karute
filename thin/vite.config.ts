@@ -81,8 +81,12 @@ const PURCHASE_FILES = new Set(
 // StaffSection at packet 12 §B-3 S4b (StaffForm/PinSetup/
 // VoiceEnrollmentDialog/InviteStaffDialog now ship in the bundle too), and
 // DiscardReasonsSection at the phone-facade packet (its two reads now have
-// facade routes and port twins) — all four tabs are live and their sections
-// now ship in the bundle; the sole remaining entries are WEB-ONLY
+// facade routes and port twins) — 店舗, 監査ログ, スタッフ and 破棄の記録 are
+// all live and their sections now ship in the bundle. Named rather than
+// counted: the sibling comments in thin/screens/SettingsScreen.tsx and
+// thin/ports/pending-sections-excluded.tsx track DIFFERENT lists, and three
+// running totals drift apart on the first commit that moves one of them. The
+// sole remaining entries are WEB-ONLY
 // (webOnlyTabIds — SyncSection at #585, MenusSection at the menu-catalog
 // lane's fork A; an honest Web版 copy, not 準備中), but the exclusion
 // rationale is unchanged: their tabs never render the section in-shell

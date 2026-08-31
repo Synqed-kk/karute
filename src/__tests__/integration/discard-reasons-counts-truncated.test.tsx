@@ -10,7 +10,7 @@
  * says what it counts, and a number that cannot say it is complete must say it
  * is not. Asserted against the real ja.json copy, so a missing key fails here.
  */
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 function tFor(ns: string) {
   const ja = jest.requireActual('../../../messages/ja.json') as Record<string, unknown>
@@ -40,6 +40,11 @@ import { DiscardReasonsSection } from '@/components/settings/redesign/sections/D
 const QUALIFIER = tFor('settings.discardReasons')('countsTruncated')
 const LOAD_FAILED = tFor('settings.discardReasons')('loadFailed')
 const LOADING = tFor('settings.discardReasons')('loading')
+/** The shared 再試行, the same word ScreenStates' own error card uses — the
+ *  phone already taught this label; the section reuses it rather than minting
+ *  a second one for the same act. */
+const RETRY = tFor('common')('retry')
+const REASON = 'お客様を間違えて録音を開始してしまいました'
 
 async function renderWith(truncated: boolean) {
   listDiscardReasons.mockResolvedValue({
@@ -106,5 +111,41 @@ describe('破棄の記録 — the read failing at the transport layer', () => {
     } finally {
       process.off('unhandledRejection', unhandled)
     }
+  })
+
+  // On the COMPUTER a failed load has the browser's reload behind it. On the
+  // PHONE this section is a tab inside a shell that never reloads, so the only
+  // recovery was leaving the tab and coming back — undiscoverable. Liam ruled
+  // the affordance in (8/31): the error state says how to try again.
+  it('the error state offers a retry, and taking it re-reads the ledger', async () => {
+    listDiscardReasons.mockClear()
+    listDiscardReasons.mockRejectedValueOnce(new Error('network'))
+    render(<DiscardReasonsSection />)
+    await screen.findByText(LOAD_FAILED)
+
+    listDiscardReasons.mockResolvedValue({
+      ok: true,
+      truncated: false,
+      rows: [
+        {
+          id: 'd1',
+          recordingSessionId: 'rs-1',
+          createdAt: '2026-08-20T02:00:00.000Z',
+          staffId: 'staff-A',
+          staffName: '原 奏恵',
+          reason: REASON,
+        },
+      ],
+      counts: { thisMonth: 1, total: 1, byStaff: [] },
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText(RETRY))
+    })
+
+    // The SAME read the mount runs, once more — and the error state is gone,
+    // not sitting under a list that loaded behind it.
+    expect(listDiscardReasons).toHaveBeenCalledTimes(2)
+    expect(screen.getByText(REASON)).toBeInTheDocument()
+    expect(screen.queryByText(LOAD_FAILED)).toBeNull()
   })
 })

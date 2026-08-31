@@ -15,12 +15,22 @@
  * Shape follows thin-recording-discard-port.test.ts (the closest sibling).
  */
 import { setDataPort } from '@/lib/ports/data-port'
+// Type-only (erased): the fixtures below ARE the wire shape, so typing them
+// with the web actions' own success shapes makes a renamed field fail tsc
+// right here instead of passing a green suite and reaching the phone.
+import type {
+  ListDiscardReasonsResult,
+  GetDiscardTranscriptResult,
+} from '@/actions/recording-discards'
 
 jest.mock('@/lib/karute/take-store', () => ({}))
 
 import { listDiscardReasons, getDiscardTranscript } from '../../../thin/ports/actions.vite'
 
-const LIST_BODY = {
+type ListBody = Omit<Extract<ListDiscardReasonsResult, { ok: true }>, 'ok'>
+type TranscriptBody = Omit<Extract<GetDiscardTranscriptResult, { ok: true }>, 'ok'>
+
+const LIST_BODY: ListBody = {
   rows: [
     {
       id: 'row-1',
@@ -39,7 +49,7 @@ const LIST_BODY = {
   truncated: false,
 }
 
-const TRANSCRIPT_BODY = { segments: [{ text: 'ひとつめ' }], durationSeconds: 42 }
+const TRANSCRIPT_BODY: TranscriptBody = { segments: [{ text: 'ひとつめ' }], durationSeconds: 42 }
 
 function port(res: (path: string, init?: RequestInit) => Promise<Response>) {
   const apiFetch = jest.fn(res)
@@ -70,6 +80,17 @@ describe('thin actions port — 破棄の記録 list', () => {
     await expect(listDiscardReasons()).resolves.toEqual({ ok: true, ...LIST_BODY })
   })
 
+  it('truncated:true rides through — the ⚖ 8/25 floors-not-totals qualifier is the phone\'s too', async () => {
+    // The section renders the qualifier ON the count tiles off this flag. A
+    // passthrough folded to a constant `false` would leave a phone manager
+    // reading a capped number as a complete one, with every other assertion
+    // in this file still green.
+    const capped: ListBody = { ...LIST_BODY, truncated: true }
+    port(async () => new Response(JSON.stringify(capped), { status: 200 }))
+
+    await expect(listDiscardReasons()).resolves.toEqual({ ok: true, ...capped })
+  })
+
   it('403 → forbidden (the capability is gone), not a generic failure', async () => {
     port(async () => new Response(errorBody('forbidden'), { status: 403 }))
 
@@ -97,6 +118,15 @@ describe('thin actions port — 破棄の記録 list', () => {
     ['an unreadable body', '<html>gateway</html>'],
     ['a body with no rows', JSON.stringify({ counts: LIST_BODY.counts })],
     ['a body with no counts', JSON.stringify({ rows: [] })],
+    // Presence is not shape. The section reads `rows.map` and
+    // `counts.byStaff.length` unguarded, so a truthy non-array walks past a
+    // presence check and throws at RENDER — a blank tab, which is the one
+    // outcome worse than the honest error card.
+    ['rows that is not an array', JSON.stringify({ rows: {}, counts: LIST_BODY.counts })],
+    [
+      'a counts whose byStaff is not an array',
+      JSON.stringify({ rows: [], counts: { thisMonth: 0, total: 0, byStaff: {} } }),
+    ],
   ])('a 2xx with %s is a FAILURE, never an empty ledger', async (_label, body) => {
     port(async () => new Response(body, { status: 200 }))
 
@@ -157,8 +187,14 @@ describe('thin actions port — 破棄の記録 transcript', () => {
     await expect(getDiscardTranscript('rs-1')).resolves.toEqual({ ok: false, error: 'failed' })
   })
 
-  it('a 2xx with an unreadable body is NOT "there is no transcript"', async () => {
-    port(async () => new Response('<html>gateway</html>', { status: 200 }))
+  it.each([
+    ['an unreadable body', '<html>gateway</html>'],
+    // Same presence-vs-shape rule as the list above: the panel joins
+    // `segments.map(…)`, so a truthy non-array throws at render rather than
+    // rendering the honest 読み込めませんでした.
+    ['a segments that is not an array', JSON.stringify({ segments: {}, durationSeconds: null })],
+  ])('a 2xx with %s is NOT "there is no transcript"', async (_label, body) => {
+    port(async () => new Response(body, { status: 200 }))
 
     await expect(getDiscardTranscript('rs-1')).resolves.toEqual({ ok: false, error: 'failed' })
   })

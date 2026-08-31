@@ -1184,7 +1184,12 @@ async function facadeListDiscardReasons(): Promise<ListDiscardReasonsResult> {
     // A 200 we cannot read is a FAILURE, never an empty ledger — same rule the
     // route itself keeps, and the same malformed-200 guard facadeLoadKaruteWindow
     // carries: "no discards" is a claim, and we have nothing to back it with.
-    if (!body || !Array.isArray(body.rows) || !body.counts) return { ok: false, error: 'failed' }
+    // `counts` is checked for SHAPE, not presence: the section renders
+    // `counts.byStaff.length` unguarded, so a truthy non-array would pass a
+    // presence check and throw at render — a blank tab instead of the honest
+    // 読み込めませんでした this branch exists to produce.
+    if (!body || !Array.isArray(body.rows) || !body.counts || !Array.isArray(body.counts.byStaff))
+      return { ok: false, error: 'failed' }
     return { ok: true, rows: body.rows, counts: body.counts, truncated: body.truncated === true }
   } catch {
     return { ok: false, error: 'failed' }
@@ -1213,9 +1218,14 @@ async function facadeGetDiscardTranscript(
   }
 }
 
-// Same type-only `satisfies` pin as updateKaruteOutcome above (erased by vite):
-// a signature drift between the web actions and these ports would otherwise be
-// invisible at both build gates.
+// Same type-only `satisfies` pin as updateKaruteOutcome above (erased by vite).
+// What it actually binds: the RETURN unions and the parameter types these ports
+// do declare — a renamed/retyped field on either result breaks tsc here. What
+// it does NOT bind is arity: a function of fewer parameters stays assignable, so
+// a web action that GAINED an argument would pass this check while the port
+// silently dropped it. The real pin on that is the port test's URL assertion
+// (thin-discard-reasons-port.test.ts), which reads the argument back off the
+// wire.
 export const listDiscardReasons =
   facadeListDiscardReasons satisfies typeof import('@/actions/recording-discards').listDiscardReasons
 export const getDiscardTranscript =

@@ -79,6 +79,7 @@ jest.mock('@/actions/recording-discards', () => ({
 }))
 
 import { SettingsScreenInner } from '../../../thin/screens/SettingsScreen'
+import { SettingsShell, type SettingsTabId } from '@/components/settings/redesign/SettingsShell'
 import type { SettingsScreenDTOType } from '@/lib/app-api/settings-screen-dto'
 
 const dto: SettingsScreenDTOType = {
@@ -122,6 +123,14 @@ describe('thin settings wiring — 破棄の記録 tab is live on the phone', ()
     // Both the mobile list and the desktop tab strip render the label in
     // jsdom (SettingsShell's deliberate dual tree, shared with web) — either
     // entry point sets the same activeTab.
+    //
+    // That same dual tree also MOUNTS the section twice here (mobile drill-in
+    // + desktop panel), so the ledger is read twice per open — pre-existing
+    // SettingsShell behavior shared with web, not thin wiring, and pinned as
+    // such on the 監査ログ tab (thin-settings-audit-log-mount.test.tsx). No
+    // count is asserted here on purpose: one pin for the shell class is
+    // enough, and this file is about the RENDER. Harmless on this screen —
+    // both reads are GETs and neither writes an audit row.
     fireEvent.click(screen.getAllByText(TAB_LABEL)[0])
 
     await waitFor(() => {
@@ -141,5 +150,41 @@ describe('thin settings wiring — 破棄の記録 tab is live on the phone', ()
     // No waitFor to assert an absence — give any stray mount's effect a tick.
     await new Promise((r) => setTimeout(r, 0))
     expect(listDiscardReasons).not.toHaveBeenCalled()
+  })
+
+  it('…and the shell\'s own render gate holds even with the tab ALREADY active — defense in depth, not just a hidden tab', async () => {
+    // The tab filter is what the test above pins. This pins the OTHER half:
+    // SettingsShell's `canManageStaff ? <DiscardReasonsSection/> : null`. The
+    // gate is reachable because activeTab is set independently of the filtered
+    // tab list (a deep link, a stale ?tab=, a capability lost between paint
+    // and click), and deleting the guard would render the section — and read
+    // the ledger — for a staffer who may not see it. Mounted on the shell
+    // directly: the thin DTO's initialTab is deliberately narrower than
+    // SettingsTabId, so 'discards' cannot be reached through SettingsScreen.
+    render(
+      <SettingsShell
+        orgSettings={null}
+        staffList={[]}
+        activeStaffId={null}
+        locale="ja"
+        isOwner={false}
+        canViewAllStores={false}
+        canManageStaff={false}
+        canInviteStaff={false}
+        canViewAudit={false}
+        canViewSync={false}
+        canManageMenus={false}
+        initialTab={'discards' as SettingsTabId}
+        initialStores={[]}
+        menuStores={[]}
+        initialActiveStoreId={null}
+        initialMenus={[]}
+        initialEntitlement={null}
+      />,
+    )
+
+    await new Promise((r) => setTimeout(r, 0))
+    expect(listDiscardReasons).not.toHaveBeenCalled()
+    expect(screen.queryByText('お客様が席を外したため録り直します')).toBeNull()
   })
 })

@@ -28,6 +28,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { getDiscardTranscriptWithClient } from '@/actions/recording-discards'
+import { DiscardTranscriptDTO } from '@/lib/app-api/discard-reasons-dto'
 
 export const runtime = 'nodejs'
 
@@ -41,12 +42,17 @@ export const GET = facadeHandler('recordings.discards.transcript', async (ctx) =
 
   const synqed = newSynqedClient(ctx.identity.businessId)
 
+  let result
   try {
-    return ok(ctx, await getDiscardTranscriptWithClient(synqed, sessionId))
+    result = await getDiscardTranscriptWithClient(synqed, sessionId)
   } catch (err) {
     if (err instanceof AppApiError) throw err
     throw new AppApiError('upstream_unavailable', 'the discard transcript is unavailable')
   }
+
+  // Parsed at the door, same reason (and same placement outside the catch) as
+  // the list route beside it.
+  return ok(ctx, DiscardTranscriptDTO.parse(result))
 })
 
 export const OPTIONS = GET // facadeHandler short-circuits OPTIONS before auth.

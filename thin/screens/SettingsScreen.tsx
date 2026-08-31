@@ -28,8 +28,11 @@ const parse = (raw: unknown): SettingsScreenDTOType => SettingsScreenDTO.parse(r
 // Tabs not yet ported to the shell this slice — the mechanism stays for
 // future tabs even though it's empty now. 監査ログ moved OUT at packet 17
 // §S3, スタッフ at packet 12 §B-3 S4b, 破棄の記録 at the phone-facade packet
-// (its two reads now have facade routes and port twins) — all three tabs are
-// live.
+// (its two reads now have facade routes and port twins) — 監査ログ, スタッフ
+// and 破棄の記録 are all live. Named rather than counted: the sibling comments
+// in thin/vite.config.ts and thin/ports/pending-sections-excluded.tsx count
+// DIFFERENT lists, and three running totals drift apart on the first commit
+// that moves one of them.
 const PENDING_TAB_IDS: readonly SettingsTabId[] = []
 
 // Tabs that stay permanently web-only (design-parity packet 20 §S5) — 同期

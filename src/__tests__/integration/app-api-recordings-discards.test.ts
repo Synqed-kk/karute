@@ -50,12 +50,34 @@ jest.mock('@/lib/synqed/staff-map', () => ({
   synqedStaffCardsForBusiness: () => synqedStaffCardsForBusiness(),
 }))
 
-const discardsList = jest.fn(async () => ({
+/** The twin derives "this month" against `new Date()`, so an ABSOLUTE fixture
+ *  date makes this suite go red on the first of a month with nothing changed —
+ *  the count assertions below would read a last-month row. Derived from today
+ *  instead, the untouched web suite's own idiom
+ *  (discard-reasons-read.test.ts), which is what lets those assertions be
+ *  EXACT numbers rather than expect.any(Number). */
+const now = new Date()
+const CREATED_AT = new Date(now.getFullYear(), now.getMonth(), 2, 10, 0, 0).toISOString()
+
+type LedgerPage = {
+  events: {
+    id: string
+    recording_session_id: string
+    created_at: string
+    discarded_by: string
+    reason: string
+  }[]
+  total: number
+  page: number
+  page_size: number
+}
+
+const ONE_ROW_PAGE: LedgerPage = {
   events: [
     {
       id: 'row-1',
       recording_session_id: 'rs-1',
-      created_at: '2026-08-31T02:00:00.000Z',
+      created_at: CREATED_AT,
       discarded_by: 'card-A',
       reason: 'お客様が席を外したため録り直します',
     },
@@ -63,7 +85,12 @@ const discardsList = jest.fn(async () => ({
   total: 1,
   page: 1,
   page_size: 200,
-}))
+}
+/** Reassigned by the page-cap test below; beforeEach puts it back, so the
+ *  answer never leaks into a later test (clearAllMocks does not undo a
+ *  mockResolvedValue). */
+let listPage: LedgerPage = ONE_ROW_PAGE
+const discardsList = jest.fn(async () => listPage)
 const listSegments = jest.fn(async () => ({
   segments: [
     { segment_index: 1, text: 'ふたつめ' },
@@ -137,6 +164,7 @@ const upstream = (status: number) => Object.assign(new Error(`core ${status}`), 
 
 beforeEach(() => {
   jest.clearAllMocks()
+  listPage = ONE_ROW_PAGE
   mockCapabilities.mockResolvedValue(new Set(['staff.manage']))
 })
 
@@ -169,12 +197,16 @@ describe('GET /api/app/v1/recordings/discards', () => {
     expect(discardsList).toHaveBeenCalledWith(
       expect.objectContaining({ source: 'STAFF', page: 1, page_size: 200 }),
     )
+    // EXACT counts, not expect.any(Number): the fixture row is dated inside
+    // the current month by construction, so 1 is the whole answer — and a
+    // month floor that stopped counting would otherwise slip through as
+    // "still a number".
     expect(await res.json()).toEqual({
       rows: [
         {
           id: 'row-1',
           recordingSessionId: 'rs-1',
-          createdAt: '2026-08-31T02:00:00.000Z',
+          createdAt: CREATED_AT,
           staffId: 'card-A',
           staffName: '原 奏恵',
           reason: 'お客様が席を外したため録り直します',
@@ -182,11 +214,39 @@ describe('GET /api/app/v1/recordings/discards', () => {
       ],
       truncated: false,
       counts: {
-        thisMonth: expect.any(Number),
+        thisMonth: 1,
         total: 1,
-        byStaff: [{ staffId: 'card-A', staffName: '原 奏恵', thisMonth: expect.any(Number) }],
+        byStaff: [{ staffId: 'card-A', staffName: '原 奏恵', thisMonth: 1 }],
       },
     })
+  })
+
+  it('past the page cap the wire SAYS the counts are floors — truncated:true, not a short number passing as a total', async () => {
+    // ⚖ 8/25 reaching the phone end-to-end. Every page comes back full against
+    // a total the cap can never exhaust, so the twin runs MAX_PAGES and gives
+    // up honestly. Without this the passthrough could be folded to a constant
+    // false and every other assertion in this file would stay green.
+    listPage = {
+      events: Array.from({ length: 200 }, (_, i) => ({
+        id: `bulk-${i}`,
+        recording_session_id: `rs-bulk-${i}`,
+        created_at: CREATED_AT,
+        discarded_by: 'card-A',
+        reason: 'まとめて破棄した記録',
+      })),
+      total: 100_000,
+      page: 1,
+      page_size: 200,
+    }
+
+    const res = await LIST(listReq(), noParams)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { truncated: boolean; counts: { total: number } }
+    // 20 pages × 200 = the cap itself, and it stopped there rather than
+    // walking a 100,000-row ledger.
+    expect(discardsList).toHaveBeenCalledTimes(20)
+    expect(body.truncated).toBe(true)
+    expect(body.counts.total).toBe(4000)
   })
 
   it('a manager READ writes no audit row (map row is a deliberate skip — web parity)', async () => {
@@ -222,6 +282,16 @@ describe('GET /api/app/v1/recordings/discards/transcript', () => {
     const res = await TRANSCRIPT(transcriptReq(), noParams)
     expect(res.status).toBe(403)
     expect(listSegments).not.toHaveBeenCalled()
+  })
+
+  it('constructs the synqed client scoped to the Bearer identity\'s businessId', async () => {
+    // The list route beside this one holds the same assertion; without it here
+    // a literal substituted for ctx.identity.businessId would leave the WORDS
+    // door — the one that reads what a customer actually said — reachable
+    // across tenants with this whole suite still green.
+    const res = await TRANSCRIPT(transcriptReq(), noParams)
+    expect(res.status).toBe(200)
+    expect(newSynqedClient).toHaveBeenCalledWith('business-1')
   })
 
   it('serves the twin\'s segments in index order with the duration', async () => {
