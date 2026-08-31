@@ -25,6 +25,7 @@ import type { StoreRow } from '@/actions/stores'
 import type { Entitlement } from '@/lib/entitlements'
 import type { StaffMember } from '@/lib/staff'
 import type { SyncStatusDTO } from '@/lib/app-api/settings-screen-dto'
+import { useIsWide } from '@/hooks/use-is-wide'
 import { visibleSettingsTabs, visibleStaffRoster } from '@/lib/auth/settings-visibility'
 import { OrganizationSection } from './sections/OrganizationSection'
 import { StoresSection } from './sections/StoresSection'
@@ -295,6 +296,17 @@ export function SettingsShell({
   serviceNoun,
 }: SettingsShellProps) {
   const t = useTranslations('settings')
+  // Which branch is actually VISIBLE. Both trees used to stay mounted, hidden
+  // only by CSS, so every section's data-reading effect ran twice per visit
+  // (2 監査ログ rows per open, 2 破棄の記録 ledger walks, …). Mount one.
+  //
+  // `crossed` is the bounded fallback: once the viewport has crossed `md` even
+  // once, BOTH branches go back in the tree for good (CSS-gated, exactly the
+  // pre-change render). Without it each crossing would unmount one section and
+  // mount the other — a mount is a read, and on 監査ログ a read is also an
+  // audit-row WRITE, so a phone rotating back and forth wrote rows without
+  // bound. See src/hooks/use-is-wide.ts for the full arithmetic.
+  const { wide: isWide, crossed } = useIsWide()
   // null = mobile list view (no section drilled into).
   // On desktop, `null` resolves to the first visible tab so the tab
   // strip always has something selected.
@@ -310,6 +322,76 @@ export function SettingsShell({
   const drilledTab = activeTab
     ? visibleTabs.find((x) => x.id === activeTab) ?? null
     : null
+
+  // ── THE ONE SCROLL-RESET AUTHORITY ────────────────────────────────────
+  // PRINCIPLE: only the user's OWN navigation moves the page. Nothing about
+  // the viewport — a rotation, a resize, a branch swap — ever scrolls someone
+  // who is mid-read back to the top.
+  //
+  // This was split across two owners and each covered for the other's gaps.
+  // The shell reset on tab changes; DrillInView zeroed the same ancestors from
+  // its own layout effect. That effect ran on MOUNT too, so the first
+  // ≥md→<md crossing — which mounts the mobile branch — threw the reader's
+  // position away even though this effect correctly wrote nothing (probed:
+  // first down-crossing → 0, second preserved, because by then nothing
+  // remounts). DrillInView's copy is gone; this is the only writer left.
+  //
+  // The identity is `activeTab` — the section the USER navigated to, null =
+  // the mobile list — and NOT `desktopActiveTab`.
+  //
+  // The reason is the `??` COLLISION, not the width. `desktopActiveTab` is
+  // `activeTab ?? visibleTabs[0]?.id`, it never reads `isWide`, and
+  // `visibleTabs[0]` is always 'organization' (settings-visibility filters
+  // stores/audit/sync/menus/discards and ownerOnly tabs — never this one). So
+  // it maps BOTH null and 'organization' onto 'organization', and the two keys
+  // differ on exactly two transitions:
+  //
+  //   null → 'organization'  — mobile first-card drill-in, desktop first-tab
+  //                            click. Under `desktopActiveTab` this is not a
+  //                            change, so the drill-in reset is LOST.
+  //   'organization' → null  — 設定に戻る out of 組織. Same collapse.
+  //
+  // Every other transition reads identically under both keys, rotation
+  // included: off the list `activeTab` stays null and `desktopActiveTab` stays
+  // 'organization' on both sides, so neither key resets there. (An earlier
+  // version of this comment blamed the rotation case. That was wrong — the
+  // mobile drill-in above is what `desktopActiveTab` actually costs.)
+  //
+  // What `activeTab` buys is width-independence: a crossing can never be an
+  // identity change, while all three real navigations are — desktop tab click,
+  // mobile drill-in, and 設定に戻る back-to-list (which resets, symmetric with
+  // drilling in).
+  //
+  // `isWide` is deliberately absent from the deps — the effect no longer reads
+  // the width at all, so there is no width-triggered path left to guard, and
+  // the round-3 below-md bail is gone with it (one owner needs no handoff).
+  //
+  // ponytail: the `lastSection` ref is NOT load-bearing today — the deps array
+  // alone already limits this to section changes, and deleting the ref keeps
+  // every test green. It stays as armor for the one edit most likely to be made
+  // here: put a width value back in the deps and, WITH the ref, nothing happens
+  // (proved — suite stays 10/10); without it, five tests go red and the reader
+  // loses their place again. Two lines to make that edit a no-op instead of a
+  // regression.
+  //
+  // Mount DOES reset once, deliberately: the scroll container is a persistent
+  // element shared with the route the user came from, so arriving from a
+  // scrolled page would otherwise open 設定 mid-page. Layout effect, not
+  // effect — the reset lands before paint, so no old offset ever flashes.
+  const shellRef = useRef<HTMLDivElement>(null)
+  const lastSection = useRef<SettingsTabId | null | undefined>(undefined)
+  useLayoutEffect(() => {
+    // ADJUDICATED AS INTENDED: on desktop, arriving with `activeTab` null shows
+    // the first tab already highlighted, so the FIRST click on that highlighted
+    // tab moves null→'organization' and resets once while the content does not
+    // change; the second click is a no-op. A tab click is the user's own
+    // navigation, so the reset stands. Pinned in settings-drill-scroll.test.tsx.
+    if (lastSection.current === activeTab) return
+    lastSection.current = activeTab
+    for (let el: HTMLElement | null = shellRef.current; el; el = el.parentElement) {
+      el.scrollTop = 0
+    }
+  }, [activeTab])
 
   function renderSection(id: SettingsTabId | null): ReactNode {
     // Sync status card intercept (Liam ruling 7/24, packet 31) — BEFORE the
@@ -414,7 +496,7 @@ export function SettingsShell({
     // NO own px-4 — the parent SettingsPageChrome already provides
     // `p-4 md:p-6` (per-page wrapper owns horizontal padding under
     // the system rule).
-    <div className="space-y-4">
+    <div ref={shellRef} className="space-y-4">
       {/* Page subtitle — small descriptor line under the "設定"
        *  title (rendered by SettingsPageChrome above). Matches the
        *  spike's pattern of explaining what the page contains
@@ -430,23 +512,29 @@ export function SettingsShell({
        *  + the section content (drill-in view).
        *  Hidden on md+ in favor of the tab strip below.
        *  ───────────────────────────────────────────────────────── */}
-      <div className="md:hidden">
-        {activeTab === null ? (
-          <ListView
-            tabs={visibleTabs}
-            onSelect={(id) => setActiveTab(id)}
-            t={t}
-          />
-        ) : (
-          <DrillInView
-            tab={drilledTab}
-            onBack={() => setActiveTab(null)}
-            backLabel={t('backToList')}
-          >
-            {renderSection(activeTab)}
-          </DrillInView>
-        )}
-      </div>
+      {/* Mounted while `isWide` is false, still unmeasured, or the breakpoint
+       *  has been crossed at least once. The `md:hidden` class stays put, so
+       *  the unmeasured window (SSR + first paint) and the post-crossing
+       *  fallback both render byte-identically to before. */}
+      {(isWide !== true || crossed) && (
+        <div className="md:hidden">
+          {activeTab === null ? (
+            <ListView
+              tabs={visibleTabs}
+              onSelect={(id) => setActiveTab(id)}
+              t={t}
+            />
+          ) : (
+            <DrillInView
+              tab={drilledTab}
+              onBack={() => setActiveTab(null)}
+              backLabel={t('backToList')}
+            >
+              {renderSection(activeTab)}
+            </DrillInView>
+          )}
+        </div>
+      )}
 
       {/* ─────────────────────────────────────────────────────────
        *  DESKTOP — tab strip + section panel (existing pattern).
@@ -454,23 +542,28 @@ export function SettingsShell({
        *  chip. activeTab defaults to first visible tab when null.
        *  Hidden below md so mobile only sees the list/drill.
        *  ───────────────────────────────────────────────────────── */}
-      <div className="hidden md:block">
-        <div className="flex items-center gap-1 rounded-xl border border-border/30 bg-muted/30 p-1 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]">
-          {visibleTabs.map((tab) => (
-            <TabButton
-              key={tab.id}
-              tab={tab}
-              active={desktopActiveTab === tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              label={t(tab.labelKey)}
-            />
-          ))}
-        </div>
+      {/* Mirror of the mobile guard: mounted while `isWide` is true, still
+       *  unmeasured, or the breakpoint has been crossed. `hidden md:block`
+       *  left in place. */}
+      {(isWide !== false || crossed) && (
+        <div className="hidden md:block">
+          <div className="flex items-center gap-1 rounded-xl border border-border/30 bg-muted/30 p-1 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]">
+            {visibleTabs.map((tab) => (
+              <TabButton
+                key={tab.id}
+                tab={tab}
+                active={desktopActiveTab === tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                label={t(tab.labelKey)}
+              />
+            ))}
+          </div>
 
-        <div className="mt-6">
-          <SectionPanel>{renderSection(desktopActiveTab)}</SectionPanel>
+          <div className="mt-6">
+            <SectionPanel>{renderSection(desktopActiveTab)}</SectionPanel>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
@@ -536,26 +629,16 @@ function DrillInView({
   children: ReactNode
 }) {
   const Icon = tab?.icon
-  const rootRef = useRef<HTMLDivElement>(null)
-  // The scroll container (thin shell's <main>, or the web (app) layout's
-  // clamped scroll region) is a PERSISTENT element — the list's scroll offset
-  // survives the list→drill content swap, so tapping a card low in the list
-  // opened the section mid-scroll with 設定に戻る parked above the fold (read
-  // in the field as "the back button is gone"). Open every section at the top:
-  // zeroing each ancestor is a no-op on containers that aren't scrolled.
-  // Keyed on `tab` (not mount-only): on mobile list⇄drill remounts this
-  // component anyway, but on desktop this instance stays mounted (CSS-hidden)
-  // across tab switches — the reset must re-run per section change so no
-  // section inherits the previous one's offset. Layout effect, not effect:
-  // the reset lands BEFORE paint, so the old offset never flashes.
-  useLayoutEffect(() => {
-    if (!tab) return
-    for (let el = rootRef.current?.parentElement ?? null; el; el = el.parentElement) {
-      el.scrollTop = 0
-    }
-  }, [tab])
+  // NO scroll reset here. It used to live in this component (the field report
+  // was a list scrolled low, tapped, and 設定に戻る parked above the fold), but
+  // this component is only mounted on one of the two branches, so its copy fired
+  // on the mount that a breakpoint crossing causes — resetting a reader who had
+  // navigated nowhere. The shell owns the reset for both branches now; see THE
+  // ONE SCROLL-RESET AUTHORITY above. It zeroes this element's ancestors, which
+  // is the same set this effect walked minus the branch wrapper (never a scroll
+  // container itself).
   return (
-    <div ref={rootRef} className="space-y-4">
+    <div className="space-y-4">
       <button
         type="button"
         onClick={onBack}
