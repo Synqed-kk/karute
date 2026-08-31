@@ -1188,9 +1188,33 @@ async function facadeListDiscardReasons(): Promise<ListDiscardReasonsResult> {
     // `counts.byStaff.length` unguarded, so a truthy non-array would pass a
     // presence check and throw at render — a blank tab instead of the honest
     // 読み込めませんでした this branch exists to produce.
-    if (!body || !Array.isArray(body.rows) || !body.counts || !Array.isArray(body.counts.byStaff))
+    // The same rule reaches the ELEMENTS, and the redesign is what raised the
+    // stakes: the section used to read four fields per row and now reads nine,
+    // at three call sites each across two compositions. A null or non-object
+    // element passes an array check and throws at `rows.find(…)` — in the
+    // component BODY, before a row is drawn and outside every catch, which is
+    // the blank tab this branch exists to prevent. O(n) over a list already
+    // capped at MAX_PAGES × PAGE_SIZE, so it costs nothing measurable.
+    const shaped = (v: unknown) => !!v && typeof v === 'object'
+    if (
+      !body ||
+      !Array.isArray(body.rows) ||
+      !body.rows.every(shaped) ||
+      !body.counts ||
+      !Array.isArray(body.counts.byStaff) ||
+      !body.counts.byStaff.every(shaped)
+    )
       return { ok: false, error: 'failed' }
-    return { ok: true, rows: body.rows, counts: body.counts, truncated: body.truncated === true }
+    return {
+      ok: true,
+      rows: body.rows,
+      counts: body.counts,
+      truncated: body.truncated === true,
+      // `=== true` for the old-wire reason the sibling flag has: a server older
+      // than this build sends no key at all, and the honest answer then is that
+      // we have no report of partial detail — never that there IS one.
+      detailTruncated: body.detailTruncated === true,
+    }
   } catch {
     return { ok: false, error: 'failed' }
   }
@@ -1220,8 +1244,15 @@ async function facadeGetDiscardTranscript(
     // cannot read still has WORDS, and the words are what this screen is for.
     return {
       ok: true,
+      // `text` carries the SAME guard as the clock beside it. Guarding one and
+      // trusting the other read as an oversight rather than a decision, and a
+      // non-string here renders raw into the panel. Not a rejection — the
+      // never-reject posture holds for display-only values — just the honest
+      // empty string for something that is not words. The twin's own
+      // `.filter(!!s.text?.trim())` is what keeps blanks off the screen on
+      // every honest payload.
       segments: body.segments.map((s) => ({
-        text: s.text,
+        text: typeof s.text === 'string' ? s.text : '',
         startTime: typeof s.startTime === 'number' ? s.startTime : null,
       })),
       durationSeconds: body.durationSeconds ?? null,

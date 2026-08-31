@@ -60,6 +60,12 @@ export const DiscardReasonsListDTO = z.object({
   rows: z.array(DiscardReasonRowSchema),
   counts: DiscardReasonCountsSchema,
   truncated: z.boolean(),
+  /** The recordings walk ran out of page budget with sessions unresolved, so
+   *  some LISTED rows are missing detail we could not read. A required boolean
+   *  for the same reason `truncated` is: the twin always emits it, so an absent
+   *  key is a rename and not an old payload. (A NEW phone against an OLD server
+   *  is the other boundary, and the thin port tolerates the missing key there.) */
+  detailTruncated: z.boolean(),
 })
 
 export const DiscardTranscriptDTO = z.object({
