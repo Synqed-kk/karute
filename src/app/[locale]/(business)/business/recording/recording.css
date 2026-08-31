@@ -760,8 +760,33 @@
 .biz .pg-recording .rc-pane-hint { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
 
 /* …and the DESK gets the master–detail the moment the page can hold both: a
-   340px list plus a detail wide enough for the two labelled cards. */
-@container rcpage (min-width: 820px) {
+   340px list plus a detail wide enough for the two labelled cards.
+
+   ⚠ THE THRESHOLD IS THE ARITHMETIC, AND IT USED TO BE A GUESS (V-2). This rule
+   always CLAIMED 「a detail wide enough for the two labelled cards」 and then
+   opened at 820, where the detail is 434px — one card wide. So the list arriving
+   pushed `.rc-detail-cols` back BELOW its own 260px floor and the two equal cards
+   ⚖ 8/25 A rules side by side STACKED for a ~100px band (page 860→963), then
+   un-stacked again at 964: dragging the window WIDER lost a column. Measured, not
+   argued: 568 renders across page 800–1300 in both rail states, one inversion at
+   page 859(2 cols) → 860(1 col).
+
+   The number the claim implies, read off the rules below rather than assumed:
+
+       340   the list track          (`.rc-panes` grid-template-columns)
+     +   2   the panes' own borders
+     +  44   the detail's side padding (`.rc-pane-detail`, 22 + 22)
+     + 536   two 260px cards and one 16px gap (`.rc-detail-cols`)
+     ─────
+       922   the container width at which the master–detail SHAPE first fits
+
+   930 is that number plus 8px of slack, because at exactly 922 the available
+   width equals 2×260+16 and a fractional page (zoom, a scrollbar) would land the
+   `auto-fit` floor on the wrong side of an equality. Below it the room keeps the
+   stacked shape it already ships — the mock's own phone column, one DOM — which
+   is a shape a reader can hold, where a one-card-wide detail pane is not.
+   Pinned by arithmetic in the suite and by a monotonicity sweep in the probe. */
+@container rcpage (min-width: 930px) {
   .biz .pg-recording .rc-panes { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); align-items: start; }
   .biz .pg-recording .rc-pane-list { display: block; min-width: 0; border-right: 1px solid var(--line); }
   .biz .pg-recording .rc-pane-detail { padding: 20px 22px 22px; border-top: 0; }
@@ -806,8 +831,11 @@
   min-width: 0; font-size: 13px; line-height: 1.65; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere;
 }
 /* …and on the DESK it is a one-line excerpt, because the whole of it is already
-   on screen in the pane beside it — a month of discards has to stay scannable. */
-@container rcpage (min-width: 820px) {
+   on screen in the pane beside it — a month of discards has to stay scannable.
+   ⚠ THE SAME THRESHOLD AS THE PANES, AND IT HAS TO BE: the excerpt's whole
+   argument is 「the pane beside it」, so it may not begin one pixel before the
+   pane it defers to exists. Moved with the panes in the V-2 fix. */
+@container rcpage (min-width: 930px) {
   .biz .pg-recording .rc-review-reason { white-space: nowrap; overflow: clip; text-overflow: ellipsis; }
 }
 /* ⚠ THE WHOLE REASON, NEVER TRUNCATED, and CAPPED AT A READABLE MEASURE AT EVERY

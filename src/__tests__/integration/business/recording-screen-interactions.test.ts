@@ -436,9 +436,46 @@ describe('⚖ ALL-SCREEN — the ladder and the thumb', () => {
     // directly beneath the row it belongs to.
     expect([...SRC_CODE.matchAll(/rc-pane-detail/g)].length).toBe(1)
     expect(CSS_CODE).toMatch(/\.rc-pane-list \{ display: contents; \}/)
-    expect(CSS_CODE).toMatch(/@container rcpage \(min-width: 820px\)/)
+    expect(CSS_CODE).toMatch(/@container rcpage \(min-width: 930px\)/)
     expect(SRC_CODE).toContain('style={{ order: i * 2 }}')
     expect(SRC_CODE).toContain('style={{ order: i * 2 + 1 }}')
+  })
+
+  it('⚖ 8/25 A — the master list may only ARRIVE where the two equal cards still fit (V-2)', () => {
+    // ⚠ THE DEFECT THIS REPLACED, and it was a WRONG CONSTANT rather than a
+    // wrong design: the panes rule always claimed 「a detail wide enough for the
+    // two labelled cards」 and opened at a 820px container, where the detail pane
+    // is 434px — one card wide. So the list arriving pushed `.rc-detail-cols`
+    // back below its own 260px floor: page 859 two cards, page 860 ONE, two
+    // again at 964. Dragging the window WIDER lost the ruling's shape.
+    //
+    // A literal (「the threshold is 930」) would go stale the moment the list
+    // track, the pane's padding or the card floor moved. This reads all four
+    // numbers OUT OF THE SHEET and asserts the threshold against their SUM, so
+    // widening the list without moving the threshold fails here.
+    const threshold = Number(
+      /@container rcpage \(min-width: (\d+)px\) \{\s*\n\s*\.biz \.pg-recording \.rc-panes \{/.exec(CSS_CODE)![1],
+    )
+    const listTrack = Number(
+      /\.rc-panes \{ display: grid; grid-template-columns: minmax\(0, (\d+)px\)/.exec(CSS_CODE)![1],
+    )
+    const detailPad = Number(/\.rc-pane-detail \{ padding: \d+px (\d+)px/.exec(CSS_CODE)![1])
+    const cardFloor = Number(
+      /\.rc-detail-cols \{[^}]*minmax\(min\((\d+)px, 100%\), 1fr\)\)/.exec(CSS_CODE)![1],
+    )
+    const gap = Number(/\.rc-detail-cols \{[^}]*gap: (\d+)px/.exec(CSS_CODE)![1])
+    // 340 list + 2 panes borders + 44 detail padding + (260 + 260 + 16) cards
+    const fits = listTrack + 2 + detailPad * 2 + cardFloor * 2 + gap
+    expect({ listTrack, detailPad, cardFloor, gap, fits }).toEqual({
+      listTrack: 340, detailPad: 22, cardFloor: 260, gap: 16, fits: 922,
+    })
+    expect(threshold).toBeGreaterThanOrEqual(fits)
+    // …and the excerpt clamp defers to 「the pane beside it」, so it may not begin
+    // one pixel before that pane exists.
+    const clamp = Number(
+      /@container rcpage \(min-width: (\d+)px\) \{\s*\n\s*\.biz \.pg-recording \.rc-review-reason \{ white-space: nowrap/.exec(CSS_CODE)![1],
+    )
+    expect(clamp).toBe(threshold)
   })
 })
 
