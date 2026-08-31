@@ -89,6 +89,7 @@ jest.mock('@/components/settings/redesign/sections/DiscardReasonsSection', () =>
 }))
 
 import { SettingsScreenInner } from '../../../thin/screens/SettingsScreen'
+import { SETTINGS_CONTENT_MAX_W } from '@/components/settings/settings-frame'
 import { SettingsShell } from '@/components/settings/redesign/SettingsShell'
 import type { SettingsScreenDTOType } from '@/lib/app-api/settings-screen-dto'
 
@@ -126,9 +127,11 @@ describe('thin settings wiring — page frame (Liam field report 7/24)', () => {
   it('mounts SettingsShell inside the SettingsPageChrome container geometry — dropping the frame ships settings edge-to-edge again', () => {
     const { container } = render(<SettingsScreenInner dto={dto} />)
     const frame = container.firstElementChild as HTMLElement
-    // Geometry mirrors src/components/settings/SettingsPageChrome.tsx:13
-    // (p-4 is the phone gutter; max-w-5xl/space-y-6 the web rhythm).
-    for (const cls of ['mx-auto', 'max-w-5xl', 'space-y-6', 'p-4', 'md:p-6']) {
+    // Geometry mirrors src/components/settings/SettingsPageChrome.tsx (p-4 is
+    // the phone gutter; the shared ceiling + space-y-6 the web rhythm). The
+    // ceiling is read from settings-frame.ts, not spelled here, so raising it
+    // once (⚖ 8/31 fluid width) cannot leave this pin behind.
+    for (const cls of ['mx-auto', SETTINGS_CONTENT_MAX_W, 'space-y-6', 'p-4', 'md:p-6']) {
       expect(frame.classList.contains(cls)).toBe(true)
     }
   })
