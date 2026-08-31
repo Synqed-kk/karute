@@ -52,6 +52,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Keyboar
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import {
   keepCardOffHeading,
+  windowFeed,
   type ConversationTurn,
   type FeedCard,
   type ScopeFact,
@@ -137,6 +138,12 @@ export function AskAiScreen(props: AskAiProps) {
    *  switch resets it with the rest of the screen because `page.tsx` keys this
    *  component by the lens. */
   const [dismissed, setDismissed] = useState<string[]>([])
+  /** ⚖ HOW MUCH OF THE FEED IS OPEN — browsing state, exactly like the dismissed
+   *  list, and it resets with the store for the same reason (`page.tsx` keys this
+   *  component by the lens). The カルテ room's own さらに表示 walk, at the family's
+   *  shape: a step count, never a page number, because 「もっと見る」 is what a
+   *  reader is asking for and 「3 / 7ページ」 is not. */
+  const [feedSteps, setFeedSteps] = useState(1)
   const [toast, setToast] = useState<string | null>(null)
   const [tourIdx, setTourIdx] = useState(-1)
   const [tourTick, setTourTick] = useState(0)
@@ -150,6 +157,10 @@ export function AskAiScreen(props: AskAiProps) {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const visible = props.feed.filter((c) => !dismissed.includes(c.id))
+  /** ⚠ THE WINDOW IS TAKEN OFF `visible`, NOT OFF THE PROPS. A dismissal leaves
+   *  the total the head counts AND the arithmetic the footer names in one pass,
+   *  so 「提案 N件」 and 「残り M件」 can never describe two different lists. */
+  const walk = windowFeed(visible, feedSteps)
 
   /** THE COMPOSER'S OWN MECHANIC, kept from the phone (`AIInputBar.tsx:18-23`):
    *  the box grows with what is typed. `height: auto` first, or the box can only
@@ -560,8 +571,13 @@ export function AskAiScreen(props: AskAiProps) {
                   </div>
                 ) : (
                   <div className="ak-feed-list">
-                    {visible.map((c) => (
-                      <article className="ak-sug" key={c.id}>
+                    {/* ⚖ THE CATEGORY IS A DATA ATTRIBUTE, NOT A CLASS. The sheet
+                        carries one quiet tone per canon category off `data-cat`
+                        (the カルテ room's kr-cat precedent), so a category the
+                        plane adds later arrives NEUTRAL rather than mis-coloured,
+                        and this file states no colour at all. */}
+                    {walk.shown.map((c) => (
+                      <article className="ak-sug" key={c.id} data-cat={c.category}>
                         <div className="ak-sug-top">
                           <span className="ak-sug-cat">{c.categoryLabel}</span>
                           {c.badge && <span className="ak-sug-badge">{c.badge}</span>}
@@ -577,6 +593,22 @@ export function AskAiScreen(props: AskAiProps) {
                         </div>
                       </article>
                     ))}
+                    {/* ⚖ さらに表示 — the カルテ room's own footer band, and it
+                        declares itself so the walk explains it the round it
+                        lands. It renders ONLY when there is genuinely more, so a
+                        store whose whole feed fits shows no control and loses no
+                        tour step (⚖ self-registration, both directions). */}
+                    {walk.moreLabel && (
+                      <div
+                        className="ak-more"
+                        data-guide-title="さらに表示"
+                        data-guide="提案は6件ずつ表示しています。押すと続きの提案が下に追加され、ボタンには残りの件数が出ます。却下した提案は残りの件数からも外れます。"
+                      >
+                        <button className="btn" type="button" onClick={() => setFeedSteps((s) => s + 1)}>
+                          {walk.moreLabel}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </section>

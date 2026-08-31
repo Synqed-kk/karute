@@ -313,6 +313,30 @@ export function buildFeed(suggestions: FixtureSuggestion[], world: AskAiWorld): 
   return feedOrder(cards)
 }
 
+/** ⚖ THE FEED IS WINDOWED, THE カルテ ROOM'S OWN SHAPE (L4-2). Twenty-five
+ *  suggestions rendered a 9,500px monotonous rail and the two-zone desk
+ *  collapsed past the bottom of the consultation column. The family already has
+ *  the answer — a first window, then a quiet さらに表示 that reveals the next one
+ *  (`karute.ts` `windowRows` / `KaruteScreen` `kr-more`) — so this room adopts it
+ *  rather than inventing a pager or, worse, a scroller (⚖ page-scroll: the window
+ *  SHORTENS the page, it does not put an axis on a box).
+ *
+ *  SIX, because that is the demo world's own 銀座 feed: the reader opens on a
+ *  complete desk and the control only appears in a store that genuinely has more.
+ *
+ *  ⚖ 8/25 — THE REMAINDER IS LABELLED, AND IT IS DERIVED HERE. The count above
+ *  the feed stays the TOTAL and this says what is still behind the walk, so the
+ *  two can never disagree: both come out of one call, on one list (⚖ A8). The
+ *  list handed in is what the reader can still see — dismissing a card takes it
+ *  out of the total AND out of this arithmetic in the same pass. */
+export const FEED_WINDOW = 6
+
+export function windowFeed<T>(cards: T[], steps: number): { shown: T[]; remaining: number; moreLabel: string | null } {
+  const shown = cards.slice(0, Math.max(1, Math.floor(steps)) * FEED_WINDOW)
+  const remaining = cards.length - shown.length
+  return { shown, remaining, moreLabel: remaining > 0 ? `さらに表示（残り${remaining}件）` : null }
+}
+
 // ── the consultation ────────────────────────────────────────────────────────
 
 export interface AnswerSource {
@@ -505,17 +529,28 @@ export function scopeCounts(world: AskAiWorld): ScopeFact[] {
 
 // ── the refusals, in one place, each naming its registry line ───────────────
 
-/** ⚠ EVERY REFUSAL SAYS WHY IN ITS OWN WORDS, and names the seam it is waiting
- *  on. One generic sentence on three different controls tells a reader nothing
- *  about which of them would have done what (the room-3 F4 lesson).
+/** ⚠ EVERY REFUSAL SAYS WHY IN ITS OWN WORDS, and names the missing thing IN
+ *  WORDS. One generic sentence on three different controls tells a reader
+ *  nothing about which of them would have done what (the room-3 F4 lesson).
+ *
+ *  ⚠ AND THE READER NEVER SEES A REGISTRY NUMBER. The reconnect registry is an
+ *  internal index; 「登録①」 on screen is jargon reaching a shop (L4-1). The
+ *  family precedent is the カルテ room's own permissionNotice — a plain sentence
+ *  that closes with a bare 「（未接続）」 — so that is the shape here, and the
+ *  registry mapping lives in the comments beside each string, where the
+ *  reconnect spec can still grep it.
  *
  *  ⚖ AND SEND REFUSES IMMEDIATELY (D-2). No thinking state, no synthetic reply,
  *  no pretended latency: the sealed room never renders
  *  `messages/ja.json` askAi.thinking, and the typed text survives the refusal
  *  byte-identical (⚖ §A-7 — a refusal changes NOTHING). */
 export const REFUSAL = {
-  send: '見本データのため回答を生成できません。回答はAIに実際に問い合わせる操作のため、実データとAIの接続後に有効になります。（未接続：AI応答の生成 — 登録①）',
-  settings: '見本データのためAI設定を開けません。積極度・カテゴリ・回答の言語は設定画面で決める項目のため、設定画面の追加後に有効になります。（未接続：AI設定ダイヤル — 登録⑦）',
+  // RECONNECT SEAM: 登録① AI応答の生成（実モデル呼び出し） — the shipped chat
+  // contract (§2b-3, both routes, shared core) is the live door at reconnect.
+  send: '見本データのため回答を生成できません。回答はAIに実際に問い合わせる操作のため、実データとAIの接続後に有効になります（未接続）。',
+  // RECONNECT SEAM: 登録⑦ AI設定ダイヤル接続 — 積極度 + the four category
+  // switches + 回答の言語, whose home is the 設定 room (it builds LAST).
+  settings: '見本データのためAI設定を開けません。積極度・カテゴリ・回答の言語は設定画面で決める項目のため、設定画面の追加後に有効になります（未接続）。',
 } as const
 
 /** 却下 IS NOT REFUSED — it works, and it is honest about being demo-local

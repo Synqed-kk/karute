@@ -129,13 +129,23 @@
 /* The permission note. It states what this screen does and does not show, which
    is information rather than a warning — the one-way accent law wants a
    non-pressable statement neutral, and amber here would be the room claiming
-   something was broken when the answer is simply 「you do not have this」. */
+   something was broken when the answer is simply 「you do not have this」.
+
+   ⚖ AND THE DENIED PAGE IS DESIGNED, NOT LEFT OVER (L4-4). A 13px bar pinned to
+   the top-left of an otherwise empty desk reads as a page that failed to load;
+   this reader's page is COMPLETE, it just contains one honest answer. So the
+   note is the カルテ room's own zero-card shape — centred, roomy, capped at a
+   readable measure — and the sentence a person needs first is the larger one.
+   Nothing here changes what is BUILT: the props still arrive with none of the
+   room's data in them, which is the pin that matters. */
 .biz .pg-ask-ai .ak-notice {
-  margin-bottom: 12px; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 10px;
-  background: #fafafa; color: var(--ink-2); font-size: 13px; line-height: 1.65;
+  margin: 40px auto 32px; max-width: 560px; padding: 40px 30px 42px; text-align: center;
+  border: 1px solid var(--line); border-radius: 14px;
+  background: #fafafb; color: var(--muted); font-size: 13px; line-height: 1.75;
 }
 .biz .pg-ask-ai .ak-notice p { margin: 0; }
-.biz .pg-ask-ai .ak-notice p + p { margin-top: 5px; }
+.biz .pg-ask-ai .ak-notice p:first-child { color: var(--ink); font-size: 15px; line-height: 1.7; }
+.biz .pg-ask-ai .ak-notice p + p { margin-top: 10px; }
 
 /* ── 接続済みデータ ────────────────────────────────────────────────────────── */
 .biz .pg-ask-ai .ak-scope {
@@ -283,16 +293,36 @@
 .biz .pg-ask-ai .ak-feed-head h2 { margin: 0; font-size: 15.5px; }
 .biz .pg-ask-ai .ak-feed-count { color: var(--muted); font-size: 12.5px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .biz .pg-ask-ai .ak-feed-list { display: flex; flex-direction: column; }
-.biz .pg-ask-ai .ak-sug { display: grid; gap: 9px; padding: 14px 16px; border-bottom: 1px solid var(--row); }
+.biz .pg-ask-ai .ak-sug { display: grid; gap: 9px; padding: 14px 16px 14px 13px; border-bottom: 1px solid var(--row); border-left: 3px solid rgba(var(--ak-cat), .38); }
 .biz .pg-ask-ai .ak-sug:last-child { border-bottom: 0; }
 .biz .pg-ask-ai .ak-sug:hover { background: var(--ak-card-wash); }
 .biz .pg-ask-ai .ak-sug-top { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
-/* The category is a NEUTRAL wash: it says which switch in AI設定 produced the
-   row, which is a label and not a verdict. */
+/* The category chip is a WASH, and its ink stays NEUTRAL: it says which switch in
+   AI設定 produced the row, which is a label and not a verdict (the one-way accent
+   law — colour on a non-pressable stays at wash level, never saturated text). */
 .biz .pg-ask-ai .ak-sug-cat {
   display: inline-flex; align-items: center; min-height: 22px; padding: 0 8px; border-radius: 6px;
-  background: var(--row); color: var(--ink-3); font-size: 11px; font-weight: 700; white-space: nowrap;
+  background: rgba(var(--ak-cat), .14); color: var(--ink-3); font-size: 11px; font-weight: 700; white-space: nowrap;
 }
+/* ── ⚖ THE QUIET SECOND AXIS (L4-3, adopted) ──────────────────────────────────
+   A feed of one flat register reads as a rail; カルテ solved the same problem
+   with one quiet tone per category, and this room borrows FOUR of its eight for
+   canon's four AI設定 switches. WASH TIER, BOTH TIMES: the left rule is the hue
+   at .38 and the chip at .14 — a tint a reader groups by, never a fill and never
+   coloured text — and the pressables inside the card (the deep link, 却下) are
+   untouched, so the accent still means "you can press this".
+
+   Each tone is ONE rgb triple and both washes derive from it, so a card's edge
+   and its chip can never drift apart. Values are the カルテ room's own
+   (`karute.css:574-580`, themselves the phone's `CurrentSessionCard.tsx:46-61`),
+   which is why 顧客 and カルテ read as one family rather than two palettes.
+   ⚠ THE BASE IS NEUTRAL ON PURPOSE — a fifth category the plane grows later
+   arrives grey rather than wearing another category's colour. */
+.biz .pg-ask-ai .ak-sug { --ak-cat: 136, 135, 128; }            /* karute.css:580 note */
+.biz .pg-ask-ai .ak-sug[data-cat="customer_follow"] { --ak-cat: 20, 184, 166; }  /* :575 lifestyle */
+.biz .pg-ask-ai .ak-sug[data-cat="staffing"] { --ak-cat: 139, 92, 246; }         /* :574 condition */
+.biz .pg-ask-ai .ak-sug[data-cat="booking"] { --ak-cat: 236, 72, 153; }          /* :579 next */
+.biz .pg-ask-ai .ak-sug[data-cat="vip"] { --ak-cat: 216, 90, 48; }               /* :577 preference */
 /* …and the urgency badge is the family's SEMANTIC red-soft, which appears ONLY
    when the referenced record itself carries a hard fact. Canon's own tone. */
 .biz .pg-ask-ai .ak-sug-badge {
@@ -313,6 +343,21 @@
   color: var(--muted); font-size: 12.5px; font-weight: 600;
 }
 .biz .pg-ask-ai .ak-dismiss:hover { background: var(--row); color: var(--ink-2); }
+
+/* さらに表示 — the LIST's own footer band, the カルテ room's shape (its own
+   kr-more band, `karute.css:352-354`): the walk belongs to the feed it extends,
+   not to the page under it. The corner radius is stated on this child rather
+   than clipped by a wrapper, because a wrapper with `overflow: hidden` would eat
+   the shell's focus ring (the sheet's own rule, stated once at the top). */
+.biz .pg-ask-ai .ak-more {
+  display: flex; justify-content: center; padding: 11px 16px;
+  border-top: 1px solid var(--line-2); border-radius: 0 0 13px 13px; background: #fafafb;
+}
+.biz .pg-ask-ai .ak-more .btn {
+  min-height: 36px; padding: 0 16px; border: 1px solid var(--control); border-radius: 9px;
+  background: #fff; color: var(--ink-2); font-size: 12.5px;
+}
+.biz .pg-ask-ai .ak-more .btn:hover { background: var(--row); color: var(--ink); }
 
 .biz .pg-ask-ai .ak-empty { display: grid; place-content: center; padding: 34px 24px; text-align: center; }
 .biz .pg-ask-ai .ak-empty strong { font-size: 14.5px; }
@@ -474,6 +519,8 @@
 
   .biz .pg-ask-ai .ak-tpl-row { grid-template-columns: minmax(0, 1fr); }
   .biz .pg-ask-ai .ak-signal { flex: 1 1 100%; }
+  /* the denied card keeps its centred shape and loses the desk's air */
+  .biz .pg-ask-ai .ak-notice { margin: 26px auto 20px; padding: 28px 20px 30px; }
   /* the composer stacks: a 送信 sharing a row with a three-line question box is
      a 40px button beside a 90px field, which reads as an afterthought */
   .biz .pg-ask-ai .ak-input-wrap { flex-direction: column; align-items: stretch; gap: 8px; }
