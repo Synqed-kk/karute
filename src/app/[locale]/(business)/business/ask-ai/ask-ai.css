@@ -1,0 +1,481 @@
+/* AI相談 — the room's sheet. ONE PAGE, TWO PLANES, side by side at a desk.
+
+   THE SHAPE, IN THE ORDER THE PAGE READS:
+     · the head, then 接続済みデータ — the four labelled counts the AI can read
+       here, and the two lines saying what is kept (nothing) and what an answer
+       actually reads;
+     · below them the workspace: MAIN is the consultation — 会話 first, then the
+       two prompt systems, then the composer; ASIDE is canon's suggestion feed
+       over この画面の値の設定元. Both visible together from 1024 up.
+
+   ── ⚖ THE REDESIGN RULING'S TWO LAWS, AND WHICH RULE BELOW SERVES WHICH ─────
+
+   (a) THE RECOGNITION FLOOR. Where this room shows the same meaning as the
+       phone's Ask AI it uses the phone's own words — 接続済みデータ, 会話,
+       今日のヒント, じっくり相談, 出典, 送信 — so a staffer who reads the app on a
+       phone all day lands here already knowing the vocabulary. What it does NOT
+       borrow is the phone's LOOK: ⚖ Liam 8/31 ruled the phone screen is the
+       data/contract source and never the design bar.
+
+   (b) DESIGNED AS A COMPUTER PROGRAM. The two-zone workspace, the conversation
+       as CARDS rather than chat balloons, the feed as a standing aside, and the
+       evidence row shared by both planes are the desk's idioms — they exist
+       because a manager reads this at a desk for minutes, with both questions
+       and proposals in view, which is the one thing a phone column cannot do.
+
+   ⚖ ONE BLUE, AND IT IS #2563eb. R13 names the interactive accent `#2563eb`
+   (CLAUDE.md, and globals.css:99 `--primary`). The shell's `--indigo` is a
+   DIFFERENT blue (#3f5be8); this room states R13's own value under its own token
+   and never mixes the two. It is spent ONLY on pressables: the deep-link
+   primary, 送信, the evidence label's rule, and the hover wash on a suggestion
+   card — never on a heading, a badge or a status word.
+
+   ⚖ THE ONE-WAY ACCENT LAW. Every non-pressable here is neutral or a WASH: the
+   category chip is a neutral wash, the urgency badge is the family's red-soft
+   (a semantic colour, not the accent), the 未接続 note is muted, and the
+   evidence row is canon's proof wash with an accent rule down its left edge.
+   Pressables are allowed to be quieter than accent — 却下 is a quiet text
+   button on purpose, because dismissing a suggestion is not a commitment.
+
+   ── TWO SCOPING JOBS, AND THEY ARE DIFFERENT PROBLEMS ───────────────────────
+
+   OUTGOING (this sheet reaching another room). Every rule below is scoped under
+   `.pg-ask-ai`, and the screen puts that class on exactly one node — so nothing
+   here can restyle 今日の運営 / 顧客 / 予約一覧 / 売上分析 / スタッフ・シフト /
+   受信トレイ / 売上・レジ / カルテ after a client-side navigation leaves this
+   sheet in the document.
+
+   INCOMING (another room's sheet reaching THIS one) — the room-2 BLOCKER class.
+   `.pg-ask-ai` does nothing about it: App Router keeps every sibling sheet
+   loaded, and the neighbours state BARE `.biz .<name>` rules on names this room
+   would otherwise want — `.panel`, `.empty`, `.chip`, `.toast`, `.spot-card`,
+   `.evidence`… 今日の運営 owns `.biz .toast.show` AND `.biz .spot-*`, which are
+   this room's dismiss toast and this room's own tour spelled in a neighbour's
+   words.
+
+   THE FENCE HERE IS STRUCTURAL RATHER THAN ENUMERATED: every element this room
+   owns carries an `ak-` name that exists nowhere else in the family, so there is
+   no rule to collide with — a fence that cannot rot as the neighbours grow.
+   `page` / `h1` / `btn` are the only shell names this sheet states, and those
+   three are fenced below at FOUR levels. The room's own suite DERIVES the
+   collision list from the sibling route sheets and this screen's own markup —
+   freshly, on every run, and its parser is red-proven against a plant at the top
+   of an `@media` block (⚖ the fence-method amendment).
+
+   ⚖ FOCUS IS THE SHELL'S, AND IT IS ALREADY RIGHT (`business-shell.css:107-111`,
+   3px ring at 2px offset, `:focus-visible` only). Restating it here would be a
+   second home for one verdict, so it is deliberately NOT carried — and no
+   container this room owns clips it: the cards' rounded corners are stated on
+   the corner children, never as `overflow: hidden` on a wrapper.
+
+   ⚖ PAGE-SCROLL (Liam 8/22, ruled twice): NOT ONE container in this room owns an
+   axis. No height cap, no `overflow-y`, no `overscroll-behavior`, and no
+   `overflow-x` — the feed grows the PAGE at any number of suggestions, which is
+   also this room's ⚖ ANY-ROSTER-SIZE answer on the feed dimension. The ONE
+   exception is `.ak-input`, which is a TEXT CONTROL rather than a wrapper: it
+   grows with what is typed up to a ceiling and then scrolls the way an `<input>`
+   does, by UA. `position: sticky` appears nowhere. */
+
+/* ── the fence: the shared names this room uses ─────────────────────────────── */
+/* Four levels (`.biz .page.pg-ask-ai …`) rather than three, because a sibling's
+   own three-level rule (`.biz .page .btn`, customers.css:23) ties at three and a
+   tie is decided by whichever sheet App Router happened to insert last. Derived
+   FRESH from today's sibling route sheets: `.biz .page .btn` (customers) ·
+   `.biz .btn` and `.biz .btn.primary` (reservations). */
+.biz .page.pg-ask-ai { padding: 24px 28px 40px; }
+.biz .page.pg-ask-ai h1 { margin: 0; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
+.biz .page.pg-ask-ai .btn { font-weight: 500; }
+.biz .page.pg-ask-ai .btn.primary { font-weight: 600; }
+
+/* ── the room's tokens, each cited to where its value comes from ───────────── */
+.biz .page.pg-ask-ai {
+  --ak-accent: #2563eb;                      /* globals.css:99 --primary (⚖ R13) */
+  --ak-accent-hover: #1d4ed8;                /* globals.css:104 --primary-hover */
+  --ak-accent-wash: rgba(37, 99, 235, .08);  /* ⚖ R13's selected recipe: /8, not /10 */
+  --ak-card-wash: rgba(37, 99, 235, .035);   /* the pointer's own hint, quieter still */
+  --ak-proof: #fafbff;                       /* canon --proof (fable-ask-ai.html:32) */
+  --ak-proof-border: #dfe5fb;                /* canon --proof-border (:33) */
+}
+
+/* ── page head ────────────────────────────────────────────────────────────── */
+.biz .pg-ask-ai .ak-head { margin-bottom: 12px; }
+.biz .pg-ask-ai .ak-eyebrow { margin-bottom: 4px; color: var(--ink-3); font-size: 13px; font-weight: 700; }
+.biz .pg-ask-ai .ak-titleline { display: flex; align-items: center; gap: 9px; }
+.biz .pg-ask-ai .ak-subtitle { margin: 5px 0 0; color: var(--muted); font-size: 14px; line-height: 1.55; max-width: 64ch; }
+
+/* A hairline circle, never a filled one — ⚖ R13, and a help mark that shouts is
+   worse than the paragraph it replaced. `[aria-expanded="true"]` means the
+   GUIDED TOUR is running, which is why the mark stays lit for the whole walk. */
+.biz .pg-ask-ai .ak-help {
+  flex: 0 0 auto; width: 22px; height: 22px; display: grid; place-items: center;
+  border: 1px solid var(--line); border-radius: 50%; background: #fff;
+  color: var(--quiet); font-size: 12px; font-weight: 700; line-height: 1; padding: 0;
+}
+.biz .pg-ask-ai .ak-help:hover,
+.biz .pg-ask-ai .ak-help[aria-expanded="true"] { border-color: var(--ak-accent); color: var(--ak-accent); background: var(--ak-accent-wash); }
+
+/* The permission note. It states what this screen does and does not show, which
+   is information rather than a warning — the one-way accent law wants a
+   non-pressable statement neutral, and amber here would be the room claiming
+   something was broken when the answer is simply 「you do not have this」. */
+.biz .pg-ask-ai .ak-notice {
+  margin-bottom: 12px; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 10px;
+  background: #fafafa; color: var(--ink-2); font-size: 13px; line-height: 1.65;
+}
+.biz .pg-ask-ai .ak-notice p { margin: 0; }
+.biz .pg-ask-ai .ak-notice p + p { margin-top: 5px; }
+
+/* ── 接続済みデータ ────────────────────────────────────────────────────────── */
+.biz .pg-ask-ai .ak-scope {
+  margin-bottom: 16px; padding: 12px 15px; border: 1px solid var(--line-2); border-radius: 11px; background: #fafafb;
+}
+.biz .pg-ask-ai .ak-scope-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.biz .pg-ask-ai .ak-label { color: var(--quiet); font-size: 11.5px; font-weight: 800; letter-spacing: .04em; }
+.biz .pg-ask-ai .ak-scope-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+/* ⚖ 8/25 — a chip that says WHAT it counts. Neutral, because a count is a fact
+   and not a control (the one-way accent law); tabular figures so a row of four
+   does not jitter as the numbers change. */
+.biz .pg-ask-ai .ak-scope-chip {
+  display: inline-flex; align-items: baseline; gap: 5px; min-height: 26px; padding: 3px 10px;
+  border: 1px solid var(--line); border-radius: 999px; background: #fff;
+  color: var(--ink-2); font-size: 12.5px; font-variant-numeric: tabular-nums;
+}
+.biz .pg-ask-ai .ak-scope-chip b { color: var(--muted); font-size: 11.5px; font-weight: 700; }
+.biz .pg-ask-ai .ak-scope-note { margin: 8px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+
+/* ── the workspace: consultation left, feed right ──────────────────────────── */
+.biz .pg-ask-ai .ak-workspace { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.biz .pg-ask-ai .ak-main,
+.biz .pg-ask-ai .ak-aside { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+
+.biz .pg-ask-ai .ak-sec-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+.biz .pg-ask-ai .ak-sec-title { color: var(--ink); font-size: 14.5px; font-weight: 700; }
+.biz .pg-ask-ai .ak-sec-note { margin: 3px 0 0; color: var(--muted); font-size: 12.5px; }
+.biz .pg-ask-ai .ak-tuned { color: var(--muted); font-size: 12px; }
+
+/* ── 会話 ─────────────────────────────────────────────────────────────────── */
+.biz .pg-ask-ai .ak-convo { padding: 15px 17px 17px; border: 1px solid var(--section); border-radius: 13px; background: #fff; }
+.biz .pg-ask-ai .ak-start {
+  margin: 11px 0 0; padding: 26px 20px; border: 1px dashed var(--line); border-radius: 11px;
+  background: #fafafb; color: var(--muted); font-size: 13px; text-align: center;
+}
+.biz .pg-ask-ai .ak-turns { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+
+/* ⚖ DESK-CALM, NOT PHONE BALLOONS. The question and the answer are told apart by
+   STRUCTURE and by a labelled shoulder — 質問 / AIの回答 / 回答できませんでした —
+   rather than by two loud fills facing each other across a column. A desk reads
+   a transcript, and a transcript is a stack of cards. */
+.biz .pg-ask-ai .ak-turn { padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 11px; background: #fff; }
+.biz .pg-ask-ai .ak-turn-user { background: #fafafb; }
+.biz .pg-ask-ai .ak-turn-who {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 9px;
+  color: var(--quiet); font-size: 11.5px; font-weight: 800; letter-spacing: .04em;
+}
+.biz .pg-ask-ai .ak-turn-ctx { color: var(--muted); font-size: 11.5px; font-weight: 600; letter-spacing: 0; }
+/* ⚖ break-words on user-authored prose (parity feed 8/31): a pasted link or an
+   unbroken run must wrap rather than push the card past the column. */
+.biz .pg-ask-ai .ak-turn-text { margin: 6px 0 0; font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
+/* THE FAILED TURN — a quiet honest card, never an alarm banner (⚖ D-3). The red
+   is the family's SEMANTIC red at the border only, and it says which failure it
+   was rather than 「エラーが発生しました。」. */
+.biz .pg-ask-ai .ak-turn-error { border-color: var(--red-soft); background: #fffbfb; }
+.biz .pg-ask-ai .ak-turn-error .ak-turn-who { color: var(--red-dark); }
+
+/* ── the ONE evidence grammar: an answer's 出典 rows AND a card's 根拠 ─────── */
+.biz .pg-ask-ai .ak-sources { margin-top: 10px; }
+.biz .pg-ask-ai .ak-sources-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; }
+.biz .pg-ask-ai .ak-sources-label { color: var(--ink-2); font-size: 11.5px; font-weight: 800; letter-spacing: .04em; }
+.biz .pg-ask-ai .ak-sources-count { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.biz .pg-ask-ai .ak-evidence {
+  display: flex; gap: 8px; align-items: flex-start; margin: 0;
+  padding: 9px 11px; border: 1px solid var(--ak-proof-border); border-left: 3px solid var(--ak-accent);
+  border-radius: 0 8px 8px 0; background: var(--ak-proof);
+  color: var(--ink-3); font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere;
+}
+.biz .pg-ask-ai .ak-sources .ak-evidence + .ak-evidence { margin-top: 5px; }
+.biz .pg-ask-ai .ak-evidence-label { flex: 0 0 auto; color: var(--ak-accent); font-weight: 800; }
+
+/* ── 今日のヒント (a tap fills AND walks the send path) ────────────────────── */
+.biz .pg-ask-ai .ak-signals,
+.biz .pg-ask-ai .ak-templates { padding: 14px 16px 16px; border: 1px solid var(--section); border-radius: 13px; background: #fff; }
+.biz .pg-ask-ai .ak-chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.biz .pg-ask-ai .ak-signal {
+  display: grid; gap: 3px; flex: 1 1 260px; min-height: 44px; padding: 9px 12px; text-align: left;
+  border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink);
+}
+.biz .pg-ask-ai .ak-signal:hover { border-color: var(--ak-accent); background: var(--ak-card-wash); }
+.biz .pg-ask-ai .ak-signal-tag { color: var(--amber); font-size: 11px; font-weight: 800; letter-spacing: .04em; }
+.biz .pg-ask-ai .ak-signal-title { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+
+/* ── じっくり相談 (a tap FILLS ONLY — the phone's own behaviour) ───────────── */
+.biz .pg-ask-ai .ak-tpl-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.biz .pg-ask-ai .ak-tpl {
+  display: grid; gap: 4px; align-content: start; min-height: 44px; padding: 10px 12px; text-align: left;
+  border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink);
+}
+.biz .pg-ask-ai .ak-tpl:hover { border-color: var(--ak-accent); background: var(--ak-card-wash); }
+.biz .pg-ask-ai .ak-tpl-cat { color: var(--quiet); font-size: 10.5px; font-weight: 800; letter-spacing: .06em; }
+.biz .pg-ask-ai .ak-tpl-title { font-size: 13px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.biz .pg-ask-ai .ak-tpl-preview { color: var(--muted); font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
+
+/* ── 業種未設定 ───────────────────────────────────────────────────────────── */
+.biz .pg-ask-ai .ak-profile { padding: 13px 15px 15px; border: 1px solid var(--line-2); border-radius: 11px; background: #fafafb; }
+.biz .pg-ask-ai .ak-profile strong { font-size: 13.5px; }
+.biz .pg-ask-ai .ak-profile p { margin: 5px 0 10px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.biz .pg-ask-ai .ak-profile-cta { min-height: 36px; padding: 0 14px; border: 1px solid var(--control); border-radius: 9px; background: #fff; color: var(--ink-2); font-size: 13px; }
+
+/* ── the composer ─────────────────────────────────────────────────────────── */
+.biz .pg-ask-ai .ak-composer { padding: 14px 16px 15px; border: 1px solid var(--section); border-radius: 13px; background: #fff; }
+/* THE REFUSAL — beside the control that was pressed, readable, and it changes
+   nothing (⚖ §A-7). Amber-soft because it IS a "this cannot happen yet", which
+   is the family's warning tier, and never red: nothing went wrong. */
+.biz .pg-ask-ai .ak-refusal {
+  margin-bottom: 11px; padding: 10px 12px; border: 1px solid var(--amber-soft); border-left: 3px solid var(--orange-line);
+  border-radius: 0 9px 9px 0; background: var(--orange-soft); color: var(--amber); font-size: 12.5px; line-height: 1.6;
+}
+.biz .pg-ask-ai .ak-refusal p { margin: 0; }
+/* The REASON is the heavier line and the context label the quieter one: a
+   reader wants "why did this not happen" first and "what it would have read"
+   second. */
+.biz .pg-ask-ai .ak-refusal-reason { font-weight: 600; }
+.biz .pg-ask-ai .ak-refusal-ctx { margin-top: 5px; color: var(--ink-3); }
+
+.biz .pg-ask-ai .ak-input-wrap {
+  display: flex; align-items: flex-end; gap: 9px; padding: 8px; border: 1px solid var(--control); border-radius: 12px; background: #fff;
+}
+.biz .pg-ask-ai .ak-input-wrap:focus-within { border-color: var(--ak-accent); }
+/* ⚠ THE ONE SCROLLING BOX IN THE ROOM, AND IT IS A TEXT CONTROL. `resize: none`
+   because the height is the screen's job (it grows with what is typed); the
+   ceiling lives in the screen, not here, so the two cannot disagree. */
+.biz .pg-ask-ai .ak-input {
+  flex: 1 1 auto; min-width: 0; resize: none; border: 0; background: transparent; padding: 6px 6px;
+  color: var(--ink); font-size: 14px; line-height: 1.7;
+}
+.biz .pg-ask-ai .ak-input:focus { outline: none; }
+/* 送信 — ⚖ R13's approved recipe for a commit action: solid accent, white text,
+   and a hover that DARKENS within the accent (an opacity hover lightens toward
+   the page and drops white text below AA). */
+.biz .pg-ask-ai .ak-send {
+  flex: 0 0 auto; min-height: 38px; padding: 0 18px; border: 0; border-radius: 9px;
+  background: var(--ak-accent); color: #fff; font-size: 13px; font-weight: 600;
+}
+.biz .pg-ask-ai .ak-send:hover:not(:disabled) { background: var(--ak-accent-hover); }
+.biz .pg-ask-ai .ak-input-hint { margin: 7px 0 0; color: var(--muted); font-size: 11.5px; }
+.biz .pg-ask-ai .ak-footnote { margin: 4px 0 0; color: var(--quiet); font-size: 11.5px; }
+
+/* ── the suggestion feed (canon's, whole) ──────────────────────────────────── */
+.biz .pg-ask-ai .ak-feed { border: 1px solid var(--section); border-radius: 13px; background: #fff; }
+.biz .pg-ask-ai .ak-feed-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  min-height: 52px; padding: 12px 16px; border-bottom: 1px solid var(--section);
+  background: #fafafb; border-radius: 13px 13px 0 0;
+}
+.biz .pg-ask-ai .ak-feed-head h2 { margin: 0; font-size: 15.5px; }
+.biz .pg-ask-ai .ak-feed-count { color: var(--muted); font-size: 12.5px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.biz .pg-ask-ai .ak-feed-list { display: flex; flex-direction: column; }
+.biz .pg-ask-ai .ak-sug { display: grid; gap: 9px; padding: 14px 16px; border-bottom: 1px solid var(--row); }
+.biz .pg-ask-ai .ak-sug:last-child { border-bottom: 0; }
+.biz .pg-ask-ai .ak-sug:hover { background: var(--ak-card-wash); }
+.biz .pg-ask-ai .ak-sug-top { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+/* The category is a NEUTRAL wash: it says which switch in AI設定 produced the
+   row, which is a label and not a verdict. */
+.biz .pg-ask-ai .ak-sug-cat {
+  display: inline-flex; align-items: center; min-height: 22px; padding: 0 8px; border-radius: 6px;
+  background: var(--row); color: var(--ink-3); font-size: 11px; font-weight: 700; white-space: nowrap;
+}
+/* …and the urgency badge is the family's SEMANTIC red-soft, which appears ONLY
+   when the referenced record itself carries a hard fact. Canon's own tone. */
+.biz .pg-ask-ai .ak-sug-badge {
+  display: inline-flex; align-items: center; min-height: 22px; padding: 0 8px; border-radius: 6px;
+  background: var(--red-soft); color: var(--red-dark); font-size: 11px; font-weight: 800; white-space: nowrap;
+}
+.biz .pg-ask-ai .ak-sug-text { margin: 0; font-size: 13.5px; line-height: 1.65; overflow-wrap: anywhere; }
+.biz .pg-ask-ai .ak-sug-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.biz .pg-ask-ai .ak-open {
+  display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border: 0; border-radius: 9px;
+  background: var(--ak-accent); color: #fff; font-size: 12.5px; text-decoration: none;
+}
+.biz .pg-ask-ai .ak-open:hover { background: var(--ak-accent-hover); }
+/* 却下 — a QUIET text button. Dismissing a suggestion is not a commitment, and
+   the one-way accent law lets a pressable be quieter than the accent. */
+.biz .pg-ask-ai .ak-dismiss {
+  min-height: 36px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--muted); font-size: 12.5px; font-weight: 600;
+}
+.biz .pg-ask-ai .ak-dismiss:hover { background: var(--row); color: var(--ink-2); }
+
+.biz .pg-ask-ai .ak-empty { display: grid; place-content: center; padding: 34px 24px; text-align: center; }
+.biz .pg-ask-ai .ak-empty strong { font-size: 14.5px; }
+.biz .pg-ask-ai .ak-empty span { display: block; margin-top: 6px; color: var(--muted); font-size: 12.5px; max-width: 34em; line-height: 1.6; }
+
+/* ── この画面の値の設定元 ──────────────────────────────────────────────────── */
+.biz .pg-ask-ai .ak-trace { padding: 14px 16px 15px; border: 1px solid var(--section); border-radius: 13px; background: #fafafb; }
+.biz .pg-ask-ai .ak-trace-rows { margin: 9px 0 0; display: grid; gap: 7px; }
+.biz .pg-ask-ai .ak-trace-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px; font-size: 12.5px; line-height: 1.55; }
+.biz .pg-ask-ai .ak-trace-row dt { margin: 0; color: var(--muted); font-weight: 600; }
+.biz .pg-ask-ai .ak-trace-row dd { margin: 0; color: var(--ink-2); overflow-wrap: anywhere; }
+/* 未接続 is INFORMATION, so it is muted — never amber, which would read as a
+   fault the shop has to fix (the one-way accent law's own instinct). */
+.biz .pg-ask-ai .ak-trace-row dd.ak-unconnected { color: var(--quiet); }
+
+/* ── the boundary panel — present-but-inert, one mount ─────────────────────── */
+.biz .pg-ask-ai .ak-boundary { padding: 40px 0; max-width: 560px; }
+.biz .pg-ask-ai .ak-boundary h2 { margin: 6px 0 12px; font-size: 21px; }
+.biz .pg-ask-ai .ak-boundary p { margin: 0 0 16px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+
+/* ── the 却下 toast ───────────────────────────────────────────────────────── */
+/* `ak-toast`, NOT `toast`: 今日の運営 states `.biz .toast` and `.biz .toast.show`
+   bare, and App Router leaves that sheet in the document after a soft-nav — two
+   rooms' toasts fighting over one paint is the ⚖ sibling-sheet fence's own
+   worked example. No enter animation: it appears, it says what happened, it
+   goes (⚖ motion restraint — and nothing here needs a closing-disable pattern,
+   because nothing waits on it). */
+.biz .pg-ask-ai .ak-toast {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 60;
+  padding: 11px 18px; border: 1px solid var(--line); border-left: 3px solid var(--green);
+  border-radius: 10px; background: #fff; color: var(--ink); font-size: 13.5px; font-weight: 700;
+  box-shadow: 0 6px 24px rgba(24, 24, 27, .14);
+}
+
+/* ── ⚖ Liam 8/23 — 画面の説明 (the guided tour's four layers) ───────────────── */
+/* Every name is `ak-`-prefixed like the rest of this room: 今日の運営 states BARE
+   `.biz .spot-*` rules on all five of these names. NO SCROLLER, NO HEIGHT CAP,
+   NO `overscroll-behavior` (⚖ page-scroll). */
+.biz .pg-ask-ai .ak-spot-hole {
+  position: fixed;
+  z-index: 70;
+  pointer-events: none;
+  border-radius: 12px;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 9999px rgba(24, 24, 27, .42);
+  transition: top .24s cubic-bezier(.2, .7, .1, 1), left .24s cubic-bezier(.2, .7, .1, 1), width .24s cubic-bezier(.2, .7, .1, 1), height .24s cubic-bezier(.2, .7, .1, 1);
+}
+.biz .pg-ask-ai .ak-spot-catch { position: fixed; inset: 0; z-index: 69; cursor: pointer; }
+.biz .pg-ask-ai .ak-spot-hover { position: fixed; z-index: 70; pointer-events: none; border: 2px dashed rgba(255, 255, 255, .9); border-radius: 12px; }
+.biz .pg-ask-ai .ak-spot-card {
+  position: fixed;
+  z-index: 72;
+  width: 300px;
+  max-width: calc(100vw - 20px);
+  padding: 12px 14px 10px;
+  border: 1.5px solid var(--control);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 40px rgba(24, 24, 27, .3);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+.biz .pg-ask-ai .ak-spot-card b { display: block; margin-bottom: 2px; font-size: 13.5px; color: var(--ink); }
+.biz .pg-ask-ai .ak-spot-text { display: block; }
+.biz .pg-ask-ai .ak-spot-hint { margin-top: 6px; color: var(--quiet); font-size: 11px; }
+.biz .pg-ask-ai .ak-spot-foot { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--section); }
+.biz .pg-ask-ai .ak-spot-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.biz .pg-ask-ai .ak-spot-foot button { min-height: 30px; padding: 0 11px; border: 1px solid var(--control); border-radius: 7px; background: #fff; color: var(--ink-2); font-size: 12px; font-weight: 600; cursor: pointer; }
+.biz .pg-ask-ai .ak-spot-foot button:hover { background: #f4f4f5; }
+.biz .pg-ask-ai .ak-spot-foot button:disabled { opacity: .4; cursor: default; }
+.biz .pg-ask-ai .ak-spot-foot .ak-spot-done { margin-left: auto; }
+
+/* ⚖ ALL-SCREEN ADAPTIVITY (Liam 8/23) — the ladder, band by band. Only the
+   PAGE's own rules live here; the shell's own bands (`.biz .app`'s 1180px floor,
+   the rail, the topbar) are the family CSS sweep's. */
+
+/* ═══ ≥1400 — big external displays: comfort, with line lengths capped ═══ */
+@media (min-width: 1400px) {
+  .biz .page.pg-ask-ai { padding-left: 32px; padding-right: 32px; }
+  .biz .pg-ask-ai .ak-workspace { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 22px; }
+  /* ultra-wide must not mean unreadably long lines */
+  .biz .pg-ask-ai .ak-turn-text,
+  .biz .pg-ask-ai .ak-scope-note { max-width: 72ch; }
+}
+
+/* ═══ ≤1279 — small laptop / iPad landscape. The room loses ~200px, so the
+   aside tightens before the consultation has to. ═══ */
+@media (max-width: 1279px) {
+  .biz .page.pg-ask-ai { padding-left: 20px; padding-right: 20px; }
+  .biz .pg-ask-ai .ak-workspace { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 14px; }
+  .biz .pg-ask-ai .ak-trace-row { grid-template-columns: 128px minmax(0, 1fr); }
+}
+
+/* ── ≤1099 — じっくり相談's three cards stop fitting side by side ──────────── */
+@media (max-width: 1099px) {
+  .biz .pg-ask-ai .ak-tpl-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ═══ 744–1023 — iPad portrait / iPad mini / foldable INNER display ═══
+   ⚖ VERIFIED DEVICE DATA (2026-08-23): the iPhone Fold's inner display is 4:3
+   landscape-leaning (~930×655 logical) and a Galaxy Z Fold's inner is near-square
+   at ~840–980. Nothing in this band assumes a TALL portrait viewport (no
+   vh-based heights), so a 655px-high landscape interior simply scrolls the page.
+
+   ⚠ AND THE STACK ORDER IS THE PACKET'S, NOT THE DOM's LUCK: the consultation is
+   the titular function and goes FIRST; the feed is glanceable and follows; the
+   trace card is last. That is already the DOM order, so the stack needs no
+   ordering rules — which is why there are none to drift. */
+@media (max-width: 1023px) {
+  .biz .pg-ask-ai .ak-workspace { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .biz .pg-ask-ai .ak-subtitle { max-width: none; }
+  .biz .pg-ask-ai .ak-trace-row { grid-template-columns: 140px minmax(0, 1fr); }
+}
+
+/* ── 800–1023: the near-square canvases keep じっくり相談's three across ────── */
+/* ⚖ VERIFIED (2026-08-23): the boundary is 800, not 840, because the Galaxy Z
+   Fold 8 "Wide" inner panel (1848×2448, 4:3) resolves to ≈820 logical — a
+   near-square canvas that would waste its whole point on one stretched column.
+   Below 800 sits the genuinely 3:4 PORTRAIT tablet (iPad 768), and a portrait
+   tablet is the shape a single column was made for. The split is about SHAPE. */
+@media (min-width: 800px) and (max-width: 1023px) {
+  .biz .pg-ask-ai .ak-tpl-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* ═══ ≤743 — smartphones / folded cover screens: the page is one column ═══
+   ⚖ VERIFIED DEVICE DATA (2026-08-23): this band must stay comfortable up to
+   ~500px, not just 390–430. The iPhone Fold's FOLDED cover screen is a 4:3 5.49"
+   panel at roughly 470–490 logical, a Galaxy S26 Ultra sits at ~412–448 and an
+   opened Z Flip 8 at ~412. Every rule here sizes from the CONTENT rather than
+   from a 390px assumption, so 480 gains air instead of gaining truncation.
+
+   ⚠ THE COMPOSER IS NOT STICKY (⚖ page-scroll). A bottom-pinned composer needs
+   the conversation above it to own a scroller, which is exactly the container
+   the ruling forbids — so the composer rides the page flow, directly under the
+   two prompt rows, and a thumb reaches it by scrolling the page like everything
+   else. */
+@media (max-width: 743px) {
+  .biz .page.pg-ask-ai { padding: 16px 16px 32px; }
+  .biz .page.pg-ask-ai h1 { font-size: 23px; }
+  /* ⚖ ≥44px ON A THUMB WITHOUT GROWING THE MARK. A 44px help circle beside a
+     23px title would shout louder than the title; the hit box is extended past
+     the paint instead, which is what a touch target is for. */
+  .biz .pg-ask-ai .ak-help { position: relative; }
+  .biz .pg-ask-ai .ak-help::after {
+    content: ""; position: absolute; top: 50%; left: 50%; width: 46px; height: 46px;
+    transform: translate(-50%, -50%);
+  }
+  /* ⚖ ≥44px TOUCH TARGETS, SWEPT FLAT rather than control by control (the F-K3
+     lesson): these rules cover every interactive element this room can render at
+     this width, so a control added later is ≥44px the day it lands. */
+  .biz .page.pg-ask-ai .btn { min-height: 44px; }
+  .biz .pg-ask-ai .ak-send { min-height: 46px; padding: 0 16px; }
+  .biz .pg-ask-ai .ak-open { min-height: 44px; }
+  .biz .pg-ask-ai .ak-dismiss { min-height: 44px; padding: 0 14px; }
+  .biz .pg-ask-ai .ak-signal { min-height: 46px; }
+  .biz .pg-ask-ai .ak-tpl { min-height: 46px; }
+  .biz .pg-ask-ai .ak-profile-cta { min-height: 44px; }
+  .biz .pg-ask-ai .ak-spot-foot button { min-height: 44px; }
+
+  .biz .pg-ask-ai .ak-tpl-row { grid-template-columns: minmax(0, 1fr); }
+  .biz .pg-ask-ai .ak-signal { flex: 1 1 100%; }
+  /* the composer stacks: a 送信 sharing a row with a three-line question box is
+     a 40px button beside a 90px field, which reads as an afterthought */
+  .biz .pg-ask-ai .ak-input-wrap { flex-direction: column; align-items: stretch; gap: 8px; }
+  .biz .pg-ask-ai .ak-send { width: 100%; }
+  .biz .pg-ask-ai .ak-trace-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .biz .pg-ask-ai .ak-sug-actions .ak-open { flex: 1 1 auto; justify-content: center; }
+  .biz .pg-ask-ai .ak-toast { left: 16px; right: 16px; bottom: 16px; transform: none; text-align: center; }
+}
+
+/* The two motions in the room — the spotlight sliding from one section to the
+   next, and the card's own hover wash — both removed outright for a reader who
+   asked for less. The tour still walks; the hole simply arrives. */
+@media (prefers-reduced-motion: reduce) {
+  .biz .pg-ask-ai .ak-spot-hole { transition: none; }
+}
