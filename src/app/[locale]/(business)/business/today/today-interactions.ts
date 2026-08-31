@@ -3754,9 +3754,7 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
    *  「A floor the engine calls impossible is not a floor a manager can be given
    *  authority over」. So this face may carry neither a live 注意して配置 nor the
    *  affirmative 「店舗の設定で、スタッフの上書きが許可されています」: nothing is
-   *  being permitted here, and no dial ever had the authority to permit it. The
-   *  headline is already the engine's verbatim sentence (`impactOf`'s unruled
-   *  fallback, ¥-free), which is the whole answer.
+   *  being permitted here, and no dial ever had the authority to permit it.
    *
    *  The lock line stays NULL too: 「この場所への配置は店長のみ」 would be false —
    *  this is physics, not the store's setting, and naming the manager would
@@ -3813,7 +3811,21 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
    *  dial and no gate anywhere can turn this control live. The kind follows the
    *  store's dial exactly as every other commit does (the hold physics are inert
    *  when disabled), and `provenance` / `lock` stay null: nothing is being
-   *  permitted here, so nothing on the card claims it is. */
+   *  permitted here, so nothing on the card claims it is.
+   *
+   *  ⚖ 92 fix round 11 P1 (breaker #10 #1) — AND U3'S CLOSING SENTENCE GOES WITH
+   *  THE READING THAT WROTE IT. It said the headline here was 「already the
+   *  engine's verbatim sentence (`impactOf`'s unruled fallback, ¥-free), which is
+   *  the whole answer」 — true of the class U3 was looking at, and false of every
+   *  cell that can actually arrive since round 8 Z1 put `guardWarn` on the front
+   *  of this branch. Guard-lit means a REAL protected loss, and `lossOf` counts
+   *  one only off an impact the panel above rules on (`R-REP` / `DEGRADED`), so
+   *  what leads this face is the ruled sentence with the board's own ¥ beside it.
+   *  The un-ackable class U3 cited alongside strict mode — `R-UNAVAILABLE`
+   *  (gap-guard :372) — reaches the rail through `blocked()` with no `impact` at
+   *  all, so it is `guardWarn`-false by construction and never arrives here.
+   *  What answers the operator is round 9 W1's DEAD LABELED COMMIT below: the
+   *  price is named, and the button that cannot pay it says why. */
   if (guardWarn && cell.state === 'blocked' && cell.ackAllowed === false) {
     return {
       face: 'warn', impact, provenance: null, lock: null, safePrimary,

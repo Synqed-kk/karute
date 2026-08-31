@@ -4258,12 +4258,30 @@ describe('BATCH-7 — FLAGS 25c backlog: the three unregistered surfaces join th
   it('the confirm popover, the block advisor and the 60分配置 strip all declare themselves', () => {
     // The two popovers declare themselves as plain JSX attributes…
     for (const [title, body] of [
-      ['仮押さえの確認', '動かした予約はまず仮押さえになります。ここで内容を確認して確定するか、元に戻せます。再読み込みでも元に戻ります。'],
       ['予定の位置の提案', '休憩や清掃を置いた位置が新規のお客様の枠を分けてしまうとき、より良い位置を提案します。そのまま置くこともできます。'],
     ]) {
       expect(SRC).toContain(`data-guide-title="${title}"`)
       expect(SRC).toContain(`data-guide="${body}"`)
     }
+    /** ⚖ 92 fix round 11 P2 (breaker #10 #3, ⚖ 8/23 guided-tour law) — …and the
+     *  hold pop's own sentence covers BOTH of its faces. ⚖ flag 92 gave this
+     *  surface a warning face — the consequence leading, the safe start as the
+     *  biggest control, a commit that names what it commits to — and the tour
+     *  kept describing the first face alone, so the walk taught a card the board
+     *  no longer always draws. The title is untouched: one surface, one
+     *  declaration.
+     *
+     *  The long-press clause is COMPOSED ON THE STORE'S DIAL, which is why this
+     *  pin reads a template rather than a literal. `overrideHoldToConfirm` is a
+     *  real setting and the commit's own `kind` already follows it, so a tour
+     *  sentence that promised the gesture unconditionally would be false in every
+     *  store that turned it off — the exact untruth this face's rounds 9 and 10
+     *  were spent removing from the control itself. */
+    expect(SRC).toContain('data-guide-title="仮押さえの確認"')
+    expect(SRC).toContain(
+      'data-guide={`動かした予約はまず仮押さえになります。ここで内容を確認して確定するか、元に戻せます。'
+      + "新規のお客様の枠が減る場所では警告のカードに変わります。${props.holdToConfirm ? '確定は長押しです。' : ''}再読み込みでも元に戻ります。`}",
+    )
     // …and the strip through a conditional spread, because it renders per lane
     // and only the first one may carry the pair (next test).
     // ⚖ FIX-10 — the title names the strip and the strip renders `{railDur}分配置`,
@@ -8199,6 +8217,17 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
 
     const face = warnFaceFor(input({ cell: strict }))
     expect(face.face).toBe('warn')
+    /** ⚖ 92 fix round 11 P1 (breaker #10 #1) — AND THE HEADLINE IS THE RULED ONE,
+     *  MONEY AND ALL. Round 4 U3's own note said the panel here carried
+     *  `impactOf`'s unruled ¥-free fallback and that this 「is the whole answer」,
+     *  and round 8 Z1 made that false when it put `guardWarn` on the front of the
+     *  branch: guard-lit means a REAL protected loss, `lossOf` counts one only off
+     *  a ruled impact, so every cell that can arrive here leads with the ruled
+     *  sentence and the board's own ¥. Asserted as the literal the operator reads
+     *  — the same 約¥10,590 the ¥ test drives out of canon independently — so a
+     *  future round that quietly puts the fallback back goes red. */
+    expect(face.impact).toEqual({ head: 'ここに置くと、新規のお客様の90分', yen: '約¥10,590', tail: 'が入らなくなります。' })
+    expect(boardYen(7000, [600])).toBe('約¥10,590')
     // Nothing is being permitted, so nothing says it is: no LIVE control, and
     // no 「スタッフの上書きが許可されています」 under it.
     // ⚖ 92 fix round 9 W1 (breaker #8 #1) — and the dead control SAYS SO. Round
@@ -8223,24 +8252,20 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(ackable.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
     expect(ackable.provenance).toBe('店舗の設定で、スタッフの上書きが許可されています。見本 あずさの名前で記録されます')
 
-    // R-UNAVAILABLE — the engine's other un-ackable class (gap-guard :370-377).
-    // Hand-built and it says so: this fixture day builds no infeasible pocket.
-    // Its headline is `impactOf`'s UNRULED fallback, so the engine's sentence
-    // stands verbatim and ¥-free, which is the whole answer the card needs.
-    const unavailable: RailCell = {
-      start: 630, state: 'blocked', label: '—', sentence: 'この時間には配置できません',
-      reason: 'guard', alternatives: [], alternativeKind: null, ackAllowed: false,
-      impact: { code: 'R-UNAVAILABLE', capacityBefore: 6, capacityAfter: 5 } as RailCell['impact'],
-    }
-    const dead = warnFaceFor(input({ cell: unavailable }))
-    expect(dead.impact).toEqual({ head: 'この時間には配置できません', yen: null, tail: '' })
-    expect(dead.commit).toEqual({ kind: 'hold', label: 'この位置では確定できません', enabled: false, note: null })
-    expect(dead.provenance).toBeNull()
-    expect(dead.lock).toBeNull()
+    /** ⚖ 92 fix round 11 P1 (breaker #10 #1) — THE R-UNAVAILABLE FIXTURE IS
+     *  DELETED, because the cell it built cannot exist. It carried the code AND a
+     *  6→5 capacity loss, and the engine answers `R-UNAVAILABLE` through
+     *  `railCell`'s `blocked()` (gap-guard :372), which attaches no `impact` at
+     *  all — so `lossOf` is 0, `guardWarn` is false, and the real thing goes to
+     *  the clean face without ever reaching this branch. TodayScreen's own round
+     *  10 V4 note says the same in prose. Hand-building the impossible pair let
+     *  this test claim the branch answers a class it never sees, and its one
+     *  unique assertion — the store's dial choosing the commit's shape — is a
+     *  fact about the STRICT cell too, so it is asked there instead. */
     // ⚖ 92 fix round 9 W1 (breaker #8 #1) — THE KIND FOLLOWS THE STORE'S DIAL,
     // like every other commit on this card. The hold physics are inert when the
     // control is disabled, so nothing is promised by the shape.
-    expect(warnFaceFor(input({ cell: unavailable, holdToConfirm: false })).commit)
+    expect(warnFaceFor(input({ cell: strict, holdToConfirm: false })).commit)
       .toEqual({ kind: 'press', label: 'この位置では確定できません', enabled: false, note: null })
 
     // ⚖ 92 fix round 5 V2 (breaker #4) — PHYSICS OUTRANKS THE DIAL, and ⚖ 9/1
@@ -8253,7 +8278,11 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(locked.lock).toBeNull()
     expect(locked.commit).toEqual({ kind: 'hold', label: 'この位置では確定できません', enabled: false, note: null })
     expect(locked.provenance).toBeNull()
-    expect(locked.impact).toEqual(face.impact)
+    // ⚖ 92 fix round 11 P1 (breaker #10 #1) — against the SENTENCE, not against
+    // itself. `toEqual(face.impact)` compared the composer's answer with the
+    // composer's answer, so a level arm that silently swapped the headline for
+    // anything at all would have passed as long as both arms swapped together.
+    expect(locked.impact).toEqual({ head: 'ここに置くと、新規のお客様の90分', yen: '約¥10,590', tail: 'が入らなくなります。' })
     // …and the middle level cannot dress it up either: an approval request for
     // something no manager can approve is the same lie in a different control,
     // so the physics branch answers before the level branch is ever reached.
@@ -8709,6 +8738,14 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // the button — an instruction shouted before the operator has done anything
     // — and every test on this card still passed. Now one does not.
     expect(SRC).toContain('<p className={`wc-hold-hint${holdHinting ? \' show\' : \'\'}`}>押し続けると配置します</p>')
+    // ⚖ 92 fix round 11 P4 (breaker #10 #5) — …and the visible hint is gated on
+    // `enabled` too. The node is `visibility: hidden` rather than `display: none`
+    // precisely so it holds its own space, and on the permanently-disabled pill no
+    // press can ever be cancelled — so the card reserved a strip of empty space
+    // under a dead button for an instruction nothing could obey. Four things now
+    // read one flag: the `disabled` attribute, the `aria-describedby`, the sr copy
+    // and this line.
+    expect(SRC).toContain("{holdPop.warn.commit?.kind === 'hold' && holdPop.warn.commit.enabled && <p className={`wc-hold-hint")
     // F13 — `.holding` scales the control to 98% and hit-testing uses the scaled
     // box, so an edge press landed outside it on the next frame and cancelled
     // itself. A halo of hit area reaching OUTSIDE the border box — it is the
@@ -8719,15 +8756,21 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // halo away.
     const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
     const face = CSS.slice(CSS.indexOf('/* ═══ H2 — ⚖ LIAM flag 92'), CSS.indexOf('/* ═══ I — incident band ═══ */'))
-    // ⚖ 92 fix round 5 V6 (breaker #4) — and the disabled dim is the SHELL'S own
-    // value, not a number this rule invented: one dimming figure for every
-    // disabled control in Business.
-    // ⚖ 92 fix round 10 V3 (breaker #9 #3) — …and the dead pill gives the scroll
-    // back. `touch-action: none` on the live control is bought by a press that is
-    // going somewhere; on round 9's permanently-disabled pill there is no press to
+    // ⚖ 92 fix round 10 V3 (breaker #9 #3) — the dead pill gives the scroll back.
+    // `touch-action: none` on the live control is bought by a press that is going
+    // somewhere; on round 9's permanently-disabled pill there is no press to
     // protect and the rule only ate the finger's swipe over the tallest control on
     // the card.
-    expect(face).toContain('.biz .wc-hold:disabled { opacity: .48; cursor: not-allowed; touch-action: auto; }')
+    // ⚖ 92 fix round 11 P3 (breaker #10 #4) — …and it says NOTHING ELSE. Round 5
+    // V6 corrected this rule's dim to the shell's own .48 and left the pair
+    // standing here beside it — the same two-homes problem, one value later.
+    // `.biz button:disabled` owns both declarations for every disabled control in
+    // Business and out-specifies `.biz .wc-hold`'s `cursor: pointer` (one type
+    // selector against none), so the pill keeps only the thing the shell has no
+    // opinion about. The shell pin below is what makes this a re-home and not a
+    // deletion.
+    expect(face).toContain('.biz .wc-hold:disabled { touch-action: auto; }')
+    expect(face.slice(face.indexOf('.biz .wc-hold:disabled'), face.indexOf('.biz .wc-hold::after'))).not.toMatch(/opacity|cursor/)
     expect(readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'), 'utf8'))
       .toContain('.biz button:disabled { cursor: not-allowed; opacity: .48; }')
     // M4's clip lives in this face, and it is the sheet's own existing technique
@@ -8741,6 +8784,23 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // …and the meter itself is untouched: one node, one scaleX, one rule.
     expect(face.match(/scaleX\(0\)/g)).toHaveLength(1)
     expect(SRC.match(/wc-hold-fill/g)).toHaveLength(1)
+    /** ⚖ 92 fix round 11 P5 (breaker #10 #7) — TWO LINES THIS CARD'S PRESS IS
+     *  BUILT ON, NEITHER OF THEM PINNED UNTIL NOW.
+     *
+     *  (a) The one line of teaching, and WHERE it lives. `holdCancel` is the only
+     *  place the hint may be raised — the whole design of it is that the surface
+     *  says how only after a press that did not finish — and `holdStart` and the
+     *  armed teardown both lower it. Deleted or moved, the copy either never
+     *  appears or appears before the operator has touched anything, and no test
+     *  on this card noticed either way. */
+    expect(block.slice(block.indexOf('function holdCancel'), block.indexOf('function holdComplete'))).toContain('setHoldHinting(true)')
+    /** (b) …and the fill sweeps FROM THE LEADING EDGE. `scaleX` grows a box about
+     *  its origin, so the default `center` opens the wash out of the middle of
+     *  the pill in both directions — a meter that reads as a pulse rather than as
+     *  a press landing, and the gradient's own feathered edge (right-hand, 100%)
+     *  ends up on the wrong side of it. One declaration, and every other pin on
+     *  this control passes without it. */
+    expect(face.slice(face.indexOf('.biz .wc-hold-fill'), face.indexOf('.biz .wc-hold-text'))).toContain('transform-origin: left center;')
   })
 
   it('the card’s colours obey the design laws — amber warns, red locks, nothing stretches', () => {

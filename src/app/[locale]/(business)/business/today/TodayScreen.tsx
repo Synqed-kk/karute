@@ -6885,8 +6885,19 @@ export function TodayScreen(props: TodayProps) {
           // to this popover and the registration did not come with it. The bar
           // it replaced was never a tour step either, which is how three rounds
           // went by with the count stuck at 14.
+          // ⚖ 92 fix round 11 P2 (breaker #10 #3, ⚖ 8/23 guided-tour law) — ONE
+          // DECLARATION, BOTH FACES. This surface has carried a second face since
+          // ⚖ flag 92 and the tour still described only the first, so the walk
+          // taught the operator a card the board no longer always draws. The
+          // title is unchanged — one surface declares itself once — and the
+          // sentence gains the warn face in the same plain voice.
+          // The long-press clause is composed on the STORE'S OWN DIAL rather
+          // than asserted at every store: `overrideHoldToConfirm` is a real
+          // setting, the commit's `kind` already follows it, and a tour that
+          // promises a gesture this store turned off is the same untruth this
+          // whole face was rebuilt to stop telling.
           data-guide-title="仮押さえの確認"
-          data-guide="動かした予約はまず仮押さえになります。ここで内容を確認して確定するか、元に戻せます。再読み込みでも元に戻ります。"
+          data-guide={`動かした予約はまず仮押さえになります。ここで内容を確認して確定するか、元に戻せます。新規のお客様の枠が減る場所では警告のカードに変わります。${props.holdToConfirm ? '確定は長押しです。' : ''}再読み込みでも元に戻ります。`}
         >
           <div className="hp-head">
             <span className={`status ${holdPop.tone}`}>{holdPop.status}</span>
@@ -7016,8 +7027,16 @@ export function TodayScreen(props: TodayProps) {
               {holdPop.warn.commit?.note && <p className="wc-note">{holdPop.warn.commit.note}</p>}
               {/* ⚖ 92 — the press hint the approved page shows after a cancelled
                   hold: it reserves its own space so the card never reflows under
-                  the operator's finger. */}
-              {holdPop.warn.commit?.kind === 'hold' && <p className={`wc-hold-hint${holdHinting ? ' show' : ''}`}>押し続けると配置します</p>}
+                  the operator's finger.
+                  ⚖ 92 fix round 11 P4 (breaker #10 #5) — AND A DEAD PILL RESERVES
+                  NOTHING. Round 9's impossible floor wears a permanently disabled
+                  hold control, where no press can be cancelled and this line can
+                  therefore never show — so all it did was hold open a strip of
+                  empty space under the button for an instruction that cannot be
+                  obeyed. Same `enabled` as the `disabled` attribute, the
+                  `aria-describedby` and the sr copy below, so the four cannot
+                  drift apart. */}
+              {holdPop.warn.commit?.kind === 'hold' && holdPop.warn.commit.enabled && <p className={`wc-hold-hint${holdHinting ? ' show' : ''}`}>押し続けると配置します</p>}
               {/* ⚖ 92 micro-fix M4, delta-verify D1 — the button's description,
                   in a node that is never hidden. Same words as the hint above,
                   which keeps its own show/hide behaviour for the eye; it sits

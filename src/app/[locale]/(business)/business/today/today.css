@@ -1316,15 +1316,20 @@
   touch-action: none;
   transition: transform 90ms cubic-bezier(0, 0, .2, 1), box-shadow 160ms ease;
 }
-/* ⚖ 92 fix round 5 V6 (breaker #4) — .45 was this rule's own number and the
-   shell already has one: `.biz button:disabled` (business-shell.css :106) dims
-   every disabled control in Business to .48. One dimming value, one home. */
-/* ⚖ 92 fix round 10 V3 (breaker #9 #3) — …and it gives the scroll back. The
-   `touch-action: none` above is bought by a press that is going somewhere; on
-   round 9's dead 「この位置では確定できません」 pill there is no press to protect,
-   so the rule was only eating the finger's swipe on the tallest control on the
-   card. A pill that can never fire may not eat the scroll. */
-.biz .wc-hold:disabled { opacity: .48; cursor: not-allowed; touch-action: auto; }
+/* ⚖ 92 fix round 10 V3 (breaker #9 #3) — the dead pill gives the scroll back.
+   The `touch-action: none` above is bought by a press that is going somewhere;
+   on round 9's dead 「この位置では確定できません」 pill there is no press to
+   protect, so the rule was only eating the finger's swipe on the tallest control
+   on the card. A pill that can never fire may not eat the scroll.
+   ⚖ 92 fix round 11 P3 (breaker #10 #4) — …and that is ALL this rule says now.
+   Round 5 V6 replaced a .45 of this card's own invention with the shell's .48
+   and left the pair copied out here beside it — the same two-homes problem, one
+   value later: `.biz button:disabled` (business-shell.css :106)
+   already dims and re-cursors every disabled control in Business, and it
+   out-specifies `.biz .wc-hold`'s own `cursor: pointer`. The `touch-action` is
+   the only thing this pill needs said twice, because it is the only thing the
+   shell has no opinion about. */
+.biz .wc-hold:disabled { touch-action: auto; }
 /* ⚖ 92 fix round F13 (blind L2#8) — THE PRESS MUST NOT SHRINK ITSELF OUT FROM
    UNDER THE FINGER. `.holding` scales the control to 98%, and hit-testing uses
    the scaled box: a press near the edge landed OUTSIDE it on the very next
