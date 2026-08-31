@@ -153,6 +153,19 @@ describe('useEntranceOnce — the module-scope session gate', () => {
     render(<Probe />)
     expect(screen.getByTestId('play')).toHaveTextContent('true')
   })
+
+  it('the reset seam refuses to run outside tests', () => {
+    // An accidental production import must not be able to silently re-arm the
+    // cascade — the seam throws rather than quietly defeating the contract.
+    const env = process.env as { NODE_ENV?: string }
+    const prev = env.NODE_ENV
+    env.NODE_ENV = 'production'
+    try {
+      expect(() => __resetEntranceOnceForTests()).toThrow(/test-only/)
+    } finally {
+      env.NODE_ENV = prev
+    }
+  })
 })
 
 describe('CustomersListView — cascade on first mount, never on a re-visit', () => {

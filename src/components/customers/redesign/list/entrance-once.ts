@@ -41,7 +41,13 @@ export function useEntranceOnce(): boolean {
   return play
 }
 
-/** Test-only seam — a module-scope flag has no other way back to `false`. */
+/** Test-only seam — a module-scope flag has no other way back to `false`.
+ *  Guarded: an accidental production import would silently defeat the
+ *  once-per-session contract, and NODE_ENV is inlined at build time so the
+ *  throw costs the app bundle nothing. */
 export function __resetEntranceOnceForTests() {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error('__resetEntranceOnceForTests is test-only')
+  }
   entrancePlayed = false
 }
