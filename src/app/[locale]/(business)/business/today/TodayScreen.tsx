@@ -2221,7 +2221,11 @@ export function TodayScreen(props: TodayProps) {
         span: { x: at.x, w: at.w },
       }),
     }
-  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, offerable])
+    // ⚖ 92 micro-fix M7, delta-verify D4 — `props.rooms` is a real dep: `offerable`
+    // re-verdicts each candidate start through `verdictRef`, which reads the room
+    // policy, and its own identity is ref-stable — so a rooms change alone left a
+    // stale offer on the card's biggest control.
+  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, offerable, props.rooms])
 
   // ⚖ Liam flag 50(d) + ⚖ 52 — THE OVERRIDDEN ROW STAYS ON SCREEN, and it
   // stops wearing ×. The operator did not make the reason go away, they
@@ -2270,8 +2274,12 @@ export function TodayScreen(props: TodayProps) {
   // above just built in the same frame, and `holdPop` itself is rebuilt every
   // render — a memo here would buy nothing and would need `pendingRows` (a fresh
   // array every render) as a dep, which is a stale-answer trap for no gain.
+  // ⚖ 92 micro-fix M6, delta-verify D3 — the staff-group filter both sibling
+  // lookups already carry: lane keys are unique only WITHIN a group, so a bed
+  // lane sharing a staff lane's key could answer first and the card would read
+  // its price and its `mine`.
   const pendingWarnLane = pending && !pendingOffBoard && moves[pending.id]
-    ? boardLanes.find((l) => l.key === moves[pending.id].laneKey)
+    ? boardLanes.find((l) => l.group === 'staff' && l.key === moves[pending.id].laneKey)
     : undefined
   const pendingWarnModel = pendingWarnLane === undefined || !pending
     ? null
@@ -6754,7 +6762,12 @@ export function TodayScreen(props: TodayProps) {
                   // ⚖ 92 fix round F14 (blind L2#10) — the press instruction is
                   // the control's description, so assistive tech hears HOW to
                   // work a button whose whole point is that a tap will not do.
-                  aria-describedby="wc-hold-hint"
+                  // ⚖ 92 micro-fix M4, delta-verify D1 — and it points at the
+                  // ALWAYS-PRESENT copy below: the visible hint is
+                  // `visibility: hidden` until a cancelled press shows it, and a
+                  // hidden node is pruned from the accessibility tree, so the
+                  // description was absent exactly when it was needed.
+                  aria-describedby="wc-hold-hint-desc"
                   {...holdHandlers}
                 >
                   {/* ⚖ 92 fix round F13 (blind L2#8) — the pill's clip lives HERE
@@ -6781,7 +6794,13 @@ export function TodayScreen(props: TodayProps) {
               {/* ⚖ 92 — the press hint the approved page shows after a cancelled
                   hold: it reserves its own space so the card never reflows under
                   the operator's finger. */}
-              {holdPop.warn.commit?.kind === 'hold' && <p className={`wc-hold-hint${holdHinting ? ' show' : ''}`} id="wc-hold-hint">押し続けると配置します</p>}
+              {holdPop.warn.commit?.kind === 'hold' && <p className={`wc-hold-hint${holdHinting ? ' show' : ''}`}>押し続けると配置します</p>}
+              {/* ⚖ 92 micro-fix M4, delta-verify D1 — the button's description,
+                  in a node that is never hidden. Same words as the hint above,
+                  which keeps its own show/hide behaviour for the eye; it sits
+                  OUTSIDE the button so it describes the control rather than
+                  joining its accessible name. */}
+              {holdPop.warn.commit?.kind === 'hold' && <span className="wc-sr" id="wc-hold-hint-desc">押し続けると配置します</span>}
               {holdPop.warn.lock && (
                 <p className="wc-lock">
                   <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d={WC_LOCK_PATH} fill="currentColor" /></svg>

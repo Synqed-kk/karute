@@ -3433,10 +3433,14 @@ function impactOf(cell: RailCell, listPrice: number, protectedDur: number): Warn
   // than no number.
   const value = Math.round((listPrice * protectedDur * loss) / 60 / 10) * 10
   const yen = listPrice > 0 && value > 0 ? `約${money(value)}` : null
+  // ⚖ 92 micro-fix M1, JP native pass — the ¥ renders in brackets right after
+  // the head, so 「…90分（約¥21,000）の空きが…」 read as a price PER 90 分. The
+  // 空き belongs to the noun the money is about, so it joins the head and the
+  // tail opens on が: 「…90分の空き（約¥21,000）が6枠から4枠に減ります。」
   const head = `ここに置くと、新規のお客様の${protectedDur}分`
   return cell.impact.code === 'R-REP' && loss === 1
     ? { head, yen, tail: 'が入らなくなります。' }
-    : { head, yen, tail: `の空きが${capacityBefore}枠から${capacityAfter}枠に減ります。` }
+    : { head: `${head}の空き`, yen, tail: `が${capacityBefore}枠から${capacityAfter}枠に減ります。` }
 }
 
 export function warnFaceFor(input: WarnCardInput): WarnCardModel {
@@ -3503,7 +3507,10 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
       // board, so a live-looking control would promise a message nobody
       // receives. Its own note already says where it comes from, and the
       // settings round is what lights it.
-      ? { kind: 'approval', label: '店長に許可を求める', enabled: false, note: '承認フロー — 設定の回で接続' }
+      // ⚖ 92 micro-fix M3, JP native pass — the note is STAFF-FACING, so it says
+      // what the operator can act on (nothing yet) and not which build round
+      // wires it. 「設定の回で接続」 is our process, printed on their card.
+      ? { kind: 'approval', label: '店長に許可を求める', enabled: false, note: '承認機能は準備中です' }
       // ⚖ 92 — NEVER the neutral この内容で確定 on a warn face, and the store's
       // dial decides only HOW the press is made, never whether it is allowed:
       // `confirmEnabled` is `overrideCaption`'s answer, untouched, and a second

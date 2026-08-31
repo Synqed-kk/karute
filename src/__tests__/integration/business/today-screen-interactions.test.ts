@@ -7022,9 +7022,11 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
       head: 'ここに置くと、新規のお客様の90分', yen: '約¥10,500', tail: 'が入らなくなります。',
     })
     // DEGRADED — the same shape, carrying the before→after fact the engine's own
-    // sentence spells.
+    // sentence spells. ⚖ 92 micro-fix M1 (JP native pass): the 空き is part of the
+    // noun the ¥ is about, so it rides the HEAD — 「90分（約¥10,500）の空き」 read
+    // as a price per 90 minutes.
     expect(warnFaceFor(input({ cell: DEG() })).impact).toEqual({
-      head: 'ここに置くと、新規のお客様の90分', yen: '約¥10,500', tail: 'の空きが6枠から5枠に減ります。',
+      head: 'ここに置くと、新規のお客様の90分の空き', yen: '約¥10,500', tail: 'が6枠から5枠に減ります。',
     })
     // ⚖ 92 — a class the approved design gave NO shape to keeps the engine's own
     // words rather than a fifth sentence invented here. (Synthetic: the engine
@@ -7073,12 +7075,12 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // the ¥ multiplies. 「が入らなくなります」 beside 10,500 for a two-window loss
     // was a wrong sentence AND a wrong number on the same line.
     expect(impactOf(built('R-REP', 6, 4))).toEqual({
-      head: 'ここに置くと、新規のお客様の90分', yen: '約¥21,000', tail: 'の空きが6枠から4枠に減ります。',
+      head: 'ここに置くと、新規のお客様の90分の空き', yen: '約¥21,000', tail: 'が6枠から4枠に減ります。',
     })
     // A DEGRADED loss takes the capacity form at any count, as it always did.
-    expect(impactOf(built('DEGRADED', 6, 5)).tail).toBe('の空きが6枠から5枠に減ります。')
+    expect(impactOf(built('DEGRADED', 6, 5)).tail).toBe('が6枠から5枠に減ります。')
     expect(impactOf(built('DEGRADED', 4, 1))).toEqual({
-      head: 'ここに置くと、新規のお客様の90分', yen: '約¥31,500', tail: 'の空きが4枠から1枠に減ります。',
+      head: 'ここに置くと、新規のお客様の90分の空き', yen: '約¥31,500', tail: 'が4枠から1枠に減ります。',
     })
     // A cell with no `impact` at all keeps the engine's sentence, untouched.
     const bare = built('R-REP', 0, 0)
@@ -7094,7 +7096,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // …and the real engine still lands on the branches this pins by hand.
     expect(REP().impact).toEqual({ code: 'R-REP', capacityBefore: 6, capacityAfter: 5 })
     expect(warnFaceFor(input({ cell: REP() })).impact.tail).toBe('が入らなくなります。')
-    expect(warnFaceFor(input({ cell: DEG() })).impact.tail).toBe('の空きが6枠から5枠に減ります。')
+    expect(warnFaceFor(input({ cell: DEG() })).impact.tail).toBe('が6枠から5枠に減ります。')
   })
 
   it('the ¥ is one window at the lane’s own price, rounded to ten — and absent when the store prices nothing', () => {
@@ -7164,8 +7166,10 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // the request to go: no server-backed approval state exists on this board,
     // so a live-looking control would promise a message nobody receives. The
     // note under it says where it comes from; the settings round lights it.
+    // ⚖ 92 micro-fix M3 (JP native pass): the note is staff-facing, so it says
+    // what the operator can act on — never which build round wires it up.
     const approval = warnFaceFor(input({ cell: REP(), level: 'needs-approval' }))
-    expect(approval.commit).toEqual({ kind: 'approval', label: '店長に許可を求める', enabled: false, note: '承認フロー — 設定の回で接続' })
+    expect(approval.commit).toEqual({ kind: 'approval', label: '店長に許可を求める', enabled: false, note: '承認機能は準備中です' })
     // …and it stays disabled whatever the confirm gate says, because the gate is
     // not what is missing.
     expect(warnFaceFor(input({ cell: REP(), level: 'needs-approval', confirmEnabled: false })).commit!.enabled).toBe(false)
@@ -7220,7 +7224,10 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
       })`)
     // The two lane-borne fields come off the lane the card is STAGED ON, found
     // by the staged move's own lane key — not off the card's origin lane.
-    expect(SRC).toContain('? boardLanes.find((l) => l.key === moves[pending.id].laneKey)')
+    // ⚖ 92 micro-fix M6 (delta-verify D3) — and the STAFF group, like both
+    // sibling lookups: lane keys are unique only within a group, so an unfiltered
+    // find could answer with a bed lane and hand the card its price and `mine`.
+    expect(SRC).toContain("? boardLanes.find((l) => l.group === 'staff' && l.key === moves[pending.id].laneKey)")
     // …and the face the surface renders is the model's own answer, never a
     // second predicate in the screen.
     expect(SRC).toContain("const pendingWarn = pendingWarnModel?.face === 'warn' ? pendingWarnModel : null")
@@ -7291,7 +7298,9 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(opsConfig.overrideHoldToConfirm).toBe(true)
     // ⚖ Liam's 8/31 GENERAL LAW quoted where the settings round will read it:
     // every settings entry ships with a one-line description of what it changes.
-    expect(FIX).toContain('置けない場所への配置に、0.6秒の長押しを求めます')
+    // ⚖ 92 micro-fix M2 (JP native pass): 「置けない」 said the placement was
+    // impossible; the dial guards one that IS allowed and merely warns.
+    expect(FIX).toContain('注意が必要な場所への配置に、0.6秒の長押しを求めます')
     // ⚖ 92's default is a design-page decision, and it says so — the next round
     // may overturn it on Liam's word without hunting for where it was decided.
     expect(FIX).toContain('OVERTURNABLE')
@@ -7437,23 +7446,11 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(SRC).toContain('return release\n  }, [holdArmed, holdReset])')
   })
 
-  it('⚖ 92 fix round F3 — a revert inside the settle window cancels the commit rather than racing it', () => {
-    jest.useFakeTimers()
-    try {
-      // The exact shape the screen builds: a settle timer whose callback is the
-      // press-time `confirmPending`, its id parked in the hold's own record.
-      const h = { settle: 0 as number }
-      let committed = 0
-      h.settle = Number(setTimeout(() => { committed += 1 }, 250))
-      // …and the teardown every ending now runs.
-      if (h.settle) { clearTimeout(h.settle); h.settle = 0 }
-      jest.advanceTimersByTime(1000)
-      expect(committed).toBe(0)
-      expect(h.settle).toBe(0)
-    } finally {
-      jest.useRealTimers()
-    }
-  })
+  // ⚖ 92 micro-fix M5 (delta-verify D2) — the second F3 test is DELETED. 「a revert
+  // inside the settle window cancels the commit rather than racing it」 built its
+  // own timer, cleared it, and asserted the callback never ran: a test of
+  // `clearTimeout`, over zero product code. The source pins above are the whole
+  // of F3's proof — the teardown line, the armed predicate, and the cleanup.
 
   it('⚖ 92 fix round F9/F12/F13/F14 — the press answers a finger, and the control it offers stays put', () => {
     const block = SRC.slice(SRC.indexOf('// ── ⚖ LIAM flag 92 — the long press'), SRC.indexOf('// canon (:6941-6947): Escape puts down whatever is in'))
@@ -7467,8 +7464,15 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(block).toContain('let n = 0')
     expect(block).not.toContain('Math.round(h.progress * 3)')
     // F14 — the press instruction is the control's description.
-    expect(SRC).toContain('aria-describedby="wc-hold-hint"')
-    expect(SRC).toContain('id="wc-hold-hint"')
+    // ⚖ 92 micro-fix M4 (delta-verify D1) — and it points at a node that is
+    // ALWAYS in the accessibility tree. The visible hint is `visibility: hidden`
+    // until a cancelled press shows it, and a hidden node is pruned, so the
+    // description was absent exactly when the operator needed it. The sr copy
+    // sits OUTSIDE the button, so it describes the control instead of joining
+    // its accessible name.
+    expect(SRC).toContain('aria-describedby="wc-hold-hint-desc"')
+    expect(SRC).toContain('<span className="wc-sr" id="wc-hold-hint-desc">押し続けると配置します</span>')
+    expect(SRC).not.toContain('id="wc-hold-hint"')
     // F13 — `.holding` scales the control to 98% and hit-testing uses the scaled
     // box, so an edge press landed outside it on the next frame and cancelled
     // itself. A halo of hit area INSIDE the button (so `pointerleave` counts it
@@ -7476,6 +7480,9 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // `overflow: hidden` cannot cut the halo away.
     const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
     const face = CSS.slice(CSS.indexOf('/* ═══ H2 — ⚖ LIAM flag 92'), CSS.indexOf('/* ═══ I — incident band ═══ */'))
+    // M4's clip lives in this face, and it is the sheet's own existing technique
+    // (`.board-keyhelp`) rather than a second way of hiding a node.
+    expect(face).toContain('.biz .wc-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }')
     expect(face).toContain('.biz .wc-hold::after {\n  content: \'\';\n  position: absolute;\n  inset: -5px;\n  border-radius: inherit;\n}')
     expect(face.slice(face.indexOf('.biz .wc-hold {'), face.indexOf('.biz .wc-hold:disabled'))).not.toContain('overflow')
     expect(face).toContain('.biz .wc-hold-clip {')

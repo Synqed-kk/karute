@@ -312,7 +312,9 @@ export const storeBookingPolicy = {
    *  override dial, and it carries ⚖ HIS 8/31 GENERAL LAW: 「every settings entry
    *  carries a one-line description of what it changes/turns off」. That line,
    *  written here so the settings round does not have to invent it:
-   *  「置けない場所への配置に、0.6秒の長押しを求めます」.
+   *  「注意が必要な場所への配置に、0.6秒の長押しを求めます」.
+   *  (⚖ 92 micro-fix M2, JP native pass — 「置けない」 says the placement is
+   *  impossible; the dial guards a placement that IS allowed but warns.)
    *
    *  Meaningful ONLY at override level `allow-warned`: a 店長のみ store has no
    *  staff commit for the press to guard, and the composer says so by never
