@@ -7789,7 +7789,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(SRC).toContain('        if (cell?.alternatives.includes(s)) return true\n')
     expect(SRC).toContain("        return cell?.impact != null ? lossOf(verdictAt(at.laneKey, s, dur, pending.id)) < stagedLoss : k === 'clean'\n")
 
-    /** The screen's own gate, all four arms, exactly as it now spells them. */
+    /** The screen's own gate, all five arms, exactly as it now spells them. */
     const gateFor = (lanes: BoardLane[], rail: typeof railIn, dur: number) => {
       const at = (s: number) => guardVerdictAt(lanes, 'p-01', s, rail)
       const kindAt = (s: number): LandingVerdict['kind'] => landingVerdict(lanes, {
@@ -7800,7 +7800,13 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
       }, at(s)).kind
       const lossOf = (c: RailCell | null) =>
         c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter
-      const shipped = (cell: RailCell) => (s: number) => {
+      // ⚖ 92 final hygiene (breaker #6 F9) — the replica was missing the gate's
+      // FIRST arm: `props.overrideLevel === 'refuse'`. Left out, this helper
+      // could silently diverge from the shipped gate it is named for, so it is
+      // threaded in here as an optional param, first in the check order exactly
+      // as TodayScreen.tsx spells it (:2334) — ahead of even the 'safe' arm.
+      const shipped = (cell: RailCell, overrideLevel?: string) => (s: number) => {
+        if (overrideLevel === 'refuse') return kindAt(s) === 'clean'
         if (cell.alternativeKind === 'safe') return kindAt(s) === 'clean'
         if (kindAt(s) === 'blocked') return false
         if (cell.alternatives.includes(s)) return true
@@ -7827,6 +7833,12 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(one.lossOf(rep)).toBe(1)
     expect(rep.alternatives.map((s) => one.lossOf(one.at(s)))).toEqual([1, 1])
     expect(rep.alternatives.map(one.kindAt)).toEqual(['caution', 'caution'])
+
+    // ⚖ 92 final hygiene (breaker #6 F9) — THE REFUSE ARM, first in the gate's
+    // own order: it demands a clean candidate before any later arm gets a
+    // look, so even the engine's own starts (600, 690 — trusted at arm 4
+    // above) are refused here, because neither one is clean at this dial.
+    expect(rep.alternatives.map((s) => one.shipped(rep, 'refuse')(s))).toEqual([false, false])
 
     // THE DEFECT: `1 < 1` is false twice, so a card whose entire subject is a
     // loss offered the operator nothing at all — no safe answer under it, and

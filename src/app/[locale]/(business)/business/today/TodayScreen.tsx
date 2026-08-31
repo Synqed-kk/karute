@@ -2351,6 +2351,12 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ 92 fix round 3 T1 — and `props.overrideLevel` is a dep for the same
     // reason: the gate above reads it, so a dial change alone must recompute
     // the offer rather than leave the lock face showing the looser one.
+    // ⚖ 92 final hygiene (breaker #6 F4) — the gate reads `verdictRef.current`
+    // during render, so the rule cannot see through the ref to the room policy
+    // it touches: this list is hand-maintained against `verdictAt`'s transitive
+    // reads, `props.rooms` among them (micro-fix M7/delta-verify D4 above), and
+    // the rule's advice here would delete the dep that keeps the offer fresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, props.guard.bookingStepMin, props.rooms, props.overrideLevel])
 
   // ⚖ Liam flag 50(d) + ⚖ 52 — THE OVERRIDDEN ROW STAYS ON SCREEN, and it
