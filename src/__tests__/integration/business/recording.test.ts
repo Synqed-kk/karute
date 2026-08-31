@@ -396,8 +396,19 @@ describe('⚖ W7-3 — one recovery slot, one action', () => {
     // ⚠ AND `reset()` FIRES ONLY ON THE RECORDER PATH — the banner is not the
     // machine, and resetting a recorder that was never recording is a lever
     // pretending to have done something.
-    expect(settle.slice(settle.indexOf("if (discardOf === 'recovery')"), settle.indexOf('} else {'))).not.toContain('reset()')
+    const recoveryBranch = settle.slice(settle.indexOf("if (discardOf === 'recovery')"), settle.indexOf('} else {'))
+    expect(recoveryBranch).not.toContain('reset()')
     expect(settle).toContain('setRecoveryDismissed(true)')
+    // ⚠ AND THE RECOVERY BRANCH NEVER READS THE PICKER AT ALL. That is what
+    // makes the zero-booking world work: the banner renders above the
+    // 本日の予約がありません state, so `current` is null there and a settle that
+    // consulted it filled in a required field, showed a live 破棄する, and
+    // returned in silence — the standing lane law's own example of a silent
+    // failure. The ONE `current === null` guard belongs to the RECORDER branch,
+    // where it is true (it is the picked session's take being thrown away).
+    expect(recoveryBranch).not.toContain('current')
+    expect([...settle.matchAll(/current === null/g)].length).toBe(1)
+    expect(settle.slice(settle.indexOf('} else {'))).toContain('if (current === null) return')
     // …and the SCREEN reads the dismissible slot, never the raw prop, at the
     // banner (a server prop cannot be cleared, which is why the exit never
     // exited).
