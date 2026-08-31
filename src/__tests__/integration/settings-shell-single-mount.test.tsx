@@ -30,9 +30,28 @@ jest.mock('@/components/settings/redesign/sections/OrganizationSection', () => (
 jest.mock('@/components/settings/redesign/sections/StoresSection', () => ({
   StoresSection: () => null,
 }))
-jest.mock('@/components/settings/redesign/sections/ThemeSection', () => ({
-  ThemeSection: () => null,
-}))
+// 外観 is the one stub that is NOT `() => null`: it stands in for a section the
+// user is mid-edit in — a controlled input whose value lives inside the section,
+// plus a mount tally (the role listDiscardReasons plays for 破棄の記録). The
+// RULING test at the bottom needs both to tell a reused instance from a fresh
+// one. Same requireActual-React factory idiom as customer-card-rails.test.tsx.
+const mockThemeMounts = jest.fn()
+jest.mock('@/components/settings/redesign/sections/ThemeSection', () => {
+  const React = jest.requireActual('react') as typeof import('react')
+  return {
+    ThemeSection: () => {
+      const [draft, setDraft] = React.useState('')
+      React.useEffect(() => {
+        mockThemeMounts()
+      }, [])
+      return React.createElement('input', {
+        'aria-label': 'theme-draft',
+        value: draft,
+        onChange: (e: React.ChangeEvent<HTMLInputElement>) => setDraft(e.target.value),
+      })
+    },
+  }
+})
 jest.mock('@/components/settings/redesign/sections/AISection', () => ({
   AISection: () => null,
 }))
@@ -139,10 +158,12 @@ const settle = () =>
 
 /** next-intl is identity-mocked, so labels render as their own keys. */
 const DISCARDS_LABEL = 'discardReasons.label'
+const THEME_LABEL = 'theme.label'
 const BACK_LABEL = 'backToList'
 
 beforeEach(() => {
   listDiscardReasons.mockClear()
+  mockThemeMounts.mockClear()
   changeHandlers.clear()
   askedQueries.length = 0
   wide = false
@@ -230,6 +251,38 @@ describe('SettingsShell — crossing the breakpoint swaps branches live', () => 
     // Drilled into the SAME section — not bounced back to the list.
     expect(screen.getByText(BACK_LABEL)).toBeTruthy()
     expect(listDiscardReasons).toHaveBeenCalledTimes(2)
+  })
+
+  // REFUTED FINDING (PR #805 review): "crossing md remounts the section, so
+  // section-local editing state is lost." There was never state to lose across
+  // the swap — BEFORE this branch the shell rendered the section TWICE, one
+  // instance per branch, each with its own independent state, and crossing the
+  // breakpoint revealed the OTHER instance's stale state; an edit made below md
+  // stayed in the now-hidden twin. No preservation property existed to regress.
+  // Carrying state across branches would need the section reparented (portals /
+  // a single hoisted tree) — a real structural cost for a swap that only happens
+  // on a resize or rotation, so it is deliberately not attempted. Pinned here.
+  it('RULING (PR#805 review): crossing md remounts the section FRESH — deliberate; the pre-PR twin-instance render never carried edits across the swap either', async () => {
+    render(<SettingsShell {...baseProps} />)
+    await settle()
+
+    // Drill into 外観 on the phone branch and start editing inside the section.
+    fireEvent.click(screen.getByText(THEME_LABEL))
+    await settle()
+    expect(mockThemeMounts).toHaveBeenCalledTimes(1)
+
+    const editing = screen.getByLabelText('theme-draft') as HTMLInputElement
+    fireEvent.change(editing, { target: { value: '編集中' } })
+    expect(editing.value).toBe('編集中')
+
+    crossBreakpointTo(true)
+    await settle()
+
+    // Same section, NEW instance: its local state starts empty again and its
+    // mount-time read fires once more (once — not twice, not zero).
+    const afterSwap = screen.getByLabelText('theme-draft') as HTMLInputElement
+    expect(afterSwap.value).toBe('')
+    expect(mockThemeMounts).toHaveBeenCalledTimes(2)
   })
 })
 

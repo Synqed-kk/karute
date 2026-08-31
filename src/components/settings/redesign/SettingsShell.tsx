@@ -204,7 +204,16 @@ const MD_QUERY = '(min-width: 48rem)'
  *  useLayoutEffect measurement was probed and behaves identically). Measuring
  *  during render instead WOULD fix it and WOULD cost a hydration mismatch, so
  *  it isn't done. Every tab opened after that paint mounts once, which is the
- *  whole of a normal visit. Pinned in settings-shell-single-mount.test.tsx. */
+ *  whole of a normal visit. Pinned in settings-shell-single-mount.test.tsx.
+ *
+ *  KNOWN RESIDUAL, deliberate: crossing the breakpoint remounts the open
+ *  section FRESH, so section-local editing state starts over. Nothing was lost
+ *  in the change — the previous dual-tree render kept TWO independent instances
+ *  of the section, so an edit made on one side never survived the swap then
+ *  either; the twin simply came forward holding its own stale state. Preserving
+ *  state across the branches would take reparenting (portals / one hoisted
+ *  tree), which is not worth it for a resize/rotation, and is deliberately not
+ *  attempted. Pinned by the RULING test in the same file. */
 function useIsWide(): boolean | null {
   const [wide, setWide] = useState<boolean | null>(null)
   useEffect(() => {
