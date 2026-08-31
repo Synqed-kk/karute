@@ -2255,11 +2255,39 @@ export function TodayScreen(props: TodayProps) {
       span: { x: at.x, w: at.w },
     }
     const dur = minuteOf(at.x + at.w, hours) - start
+    /** ⚖ 92 fix round 4 U1 (breaker #3) — AND A LEAST-LOSS OFFER MUST BE
+     *  STRICTLY BETTER THAN STANDING STILL.
+     *
+     *  `alternatives` are the ENGINE'S OWN ranked starts, and the snap above
+     *  walks each one to the store's nearest legal step — so the start that
+     *  reaches the card is a NEIGHBOUR the guard never ranked. Rounds 2 and 3
+     *  only asked whether that neighbour was not blocked, and a caution passes:
+     *  so the biggest control on a card whose entire subject is a loss could
+     *  offer a start costing TWO protected windows where staying put cost one
+     *  (execution-proven at the shipped default level). A card that warns about
+     *  a loss may not sell a bigger one.
+     *
+     *  The least-loss arm therefore asks the guard again ABOUT THE CANDIDATE and
+     *  keeps it only if the store loses strictly less there than at the staged
+     *  start. No second ranking engine: `verdictAt` is the same door the memo's
+     *  own `cell` came through, read for the one number the card is already
+     *  about. A staged cell that loses nothing (a repertoire R-REP, where the
+     *  count is unchanged) then has nothing strictly better to offer, the slot
+     *  goes empty, and ⚖ 92 fix round 3 T2's engine row speaks instead — the
+     *  engine's own words rather than an offer that changes nothing.
+     *
+     *  The 'safe' and 'refuse' arms are untouched: both already demand a CLEAN
+     *  candidate, which is a stronger bar than any loss comparison. */
+    const lossOf = (c: RailCell | null): number =>
+      c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter
+    const stagedLoss = lossOf(cell)
     return {
       row: guardCheckRow(cell),
       cell: offerableCell(cell, props.guard.bookingStepMin, start, (s) => {
         const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind
-        return props.overrideLevel === 'refuse' ? k === 'clean' : (cell?.alternativeKind === 'safe' ? k === 'clean' : k !== 'blocked')
+        if (props.overrideLevel === 'refuse') return k === 'clean'
+        if (cell?.alternativeKind === 'safe') return k === 'clean'
+        return k !== 'blocked' && lossOf(verdictAt(at.laneKey, s, dur, pending.id)) < stagedLoss
       }),
     }
     // ⚖ 92 micro-fix M7, delta-verify D4 — `props.rooms` is a real dep: the gate
@@ -2848,8 +2876,18 @@ export function TodayScreen(props: TodayProps) {
      *  the draw and the finger landed a card under 確保を壊さない on a start the
      *  guard now only cautions. The label was true when it was written and false
      *  when it was pressed, which is ⚖ 31c on the time axis. Same door, same
-     *  words: the button that promised the 確保 refuses rather than breaking it. */
-    if (pendingGuardRow.cell?.alternativeKind === 'safe' && again.kind !== 'clean') {
+     *  words: the button that promised the 確保 refuses rather than breaking it.
+     *
+     *  ⚖ 92 fix round 4 U2 (breaker #3) — AND THE LOCK FACE'S DRAW GATE COMES
+     *  THROUGH THE SAME DOOR. ⚖ 92 fix round 3 T1 tightened the DRAW at
+     *  'refuse', where the safe primary is the operator's ONLY door: every
+     *  candidate must verdict clean end to end, because there is no commit
+     *  control under it to walk past a second degraded cell with. The press
+     *  still re-judged with the looser 'not blocked' — so a board that moved
+     *  between the draw and the finger landed the card exactly where T1 exists
+     *  to stop it landing, walled again with 元に戻す the only way out. Same
+     *  law on the time axis, same refusal, one condition. */
+    if ((pendingGuardRow.cell?.alternativeKind === 'safe' || props.overrideLevel === 'refuse') && again.kind !== 'clean') {
       refuse(again.reason ?? '配置できません')
       return
     }

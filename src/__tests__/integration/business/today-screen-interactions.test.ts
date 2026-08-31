@@ -7134,8 +7134,11 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
 
   it('the biggest control is always the safe one — a start, or nothing at all', () => {
     // The engine's least-loss start, from the real refusal at 10:30.
+    // ⚖ 92 fix round 4 U1 (breaker #3) — the sub-line is 「（損を減らす）」, canon's
+    // own aside vocabulary: the superlative 損が最少 was a rank the guard never
+    // handed us about the SNAPPED start the card actually shows.
     expect(warnFaceFor(input({ cell: REP() })).safePrimary).toEqual({
-      kind: 'place', start: 600, main: '10:00に置く', sub: '（損が最少）',
+      kind: 'place', start: 600, main: '10:00に置く', sub: '（損を減らす）',
     })
     // A zero-loss alternative wears the other sub-line — the store's 確保 survives.
     expect(warnFaceFor(input({ cell: SAFE_ALT() })).safePrimary).toEqual({
@@ -7312,6 +7315,25 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(warnFaceFor(input({ cell: REP(), rows: [] })).greensLine).toBeNull()
     // …and the named rows are still CONSUMED by the line, never printed twice.
     expect(warnFaceFor(input({ cell: REP() })).rows).toEqual([])
+
+    // ⚖ 92 fix round 4 U4 (breaker #3) — AND THE LINE FOLDS ✓ ROWS, NEVER A ROW
+    // THAT MERELY MENTIONS ONE OF ITS SUBJECTS. The greens line is keyed on
+    // FRAGMENTS of the frozen engine's labels, and a failing row can carry the
+    // same fragment — a 資格 refusal says 資格. Both halves of the filter must
+    // therefore hold: the tone test keeps the row visible, and the greens
+    // sentence is built off passing rows alone. Deleting either one silently
+    // turned a × into a 「…は問題ありません」 or made it vanish outright.
+    //
+    // Synthetic and it says so: `computeChecks` (FROZEN) emits 資格 only as a ✓
+    // today (drag-rules :226), so this is the day it grows the failing twin.
+    const failing = { label: '整体資格 不一致', tone: 'bad' as const }
+    const withFailing = warnFaceFor(input({ cell: REP(), rows: [...GREENS, failing] }))
+    // It stays a ROW, in its own × tone…
+    expect(withFailing.rows).toEqual([failing])
+    // …and it never reaches the greens sentence, which still names the four
+    // subjects that actually passed and nothing else.
+    expect(withFailing.greensLine).toBe('時間の重複・勤務時間・資格・価格は問題ありません')
+    expect(JSON.stringify(withFailing.greensLine)).not.toContain('不一致')
   })
 
   /** ⚖ 92 fix round 2 S1 (stress lens #2, THE find) — THE PROMISE AND THE GATE
@@ -7350,13 +7372,16 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(warnFaceFor(input({ cell: strict })).safePrimary)
       .toEqual({ kind: 'place', start: 690, main: '11:30に置く', sub: '（確保を壊さない）' })
 
-    // A least-loss cell promises no such thing, so its gate is UNCHANGED — a
-    // cautioned start is exactly what 「損が最少」 is allowed to mean.
+    // A least-loss cell promises no such thing, so its CLEAN-ness gate is
+    // UNCHANGED — a cautioned start is exactly what 「損を減らす」 is allowed to
+    // mean. (⚖ 92 fix round 4 U1 adds a second clause to this arm — the
+    // candidate's own loss — which is pinned in U1's own test below, on the real
+    // engine. This one is about the clean/caution axis alone.)
     const lossy = { ...REP(), alternatives: [660] }
     expect(lossy.alternativeKind).toBe('least-loss')
     expect(offerableCell(lossy, 30, 750, gate(lossy))!.alternatives).toEqual([660])
     expect(warnFaceFor(input({ cell: offerableCell(lossy, 30, 750, gate(lossy)) })).safePrimary)
-      .toEqual({ kind: 'place', start: 660, main: '11:00に置く', sub: '（損が最少）' })
+      .toEqual({ kind: 'place', start: 660, main: '11:00に置く', sub: '（損を減らす）' })
 
     // …and the screen asks it exactly this way, with the shared wrapper left
     // alone for the callers that make no promise about the starts they show.
@@ -7367,9 +7392,15 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // gate said and would have stayed green through the gate being deleted. The
     // gate is three lines and all three are pinned — the closure that opens it,
     // the single verdict read, and the level-aware return T1 rewrote.
+    //
+    // ⚖ 92 fix round 4 U1 (breaker #3) — the gate is now four lines: the same
+    // closure, the same single verdict read, T1's level arm, S1's own claim arm,
+    // and the least-loss arm's new strictly-better-loss clause.
     expect(SRC).toContain('      cell: offerableCell(cell, props.guard.bookingStepMin, start, (s) => {\n'
       + '        const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind\n'
-      + "        return props.overrideLevel === 'refuse' ? k === 'clean' : (cell?.alternativeKind === 'safe' ? k === 'clean' : k !== 'blocked')\n"
+      + "        if (props.overrideLevel === 'refuse') return k === 'clean'\n"
+      + "        if (cell?.alternativeKind === 'safe') return k === 'clean'\n"
+      + "        return k !== 'blocked' && lossOf(verdictAt(at.laneKey, s, dur, pending.id)) < stagedLoss\n"
       + '      }),')
   })
 
@@ -7388,7 +7419,10 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     const kindAt = (s: number): LandingVerdict['kind'] => (s === 660 ? 'caution' : 'blocked')
     const lossy = { ...REP(), alternatives: [667] }
     expect(lossy.alternativeKind).toBe('least-loss')
-    // The gate as the screen spells it, with the level threaded in.
+    // The gate's LEVEL arm as the screen spells it. (⚖ 92 fix round 4 U1's
+    // strictly-better-loss clause rides the least-loss arm and is pinned in its
+    // own test below; every candidate here loses the same as the staged start,
+    // so this test is about the level axis alone.)
     const gate = (c: RailCell, level: WarnCardInput['level']) => (s: number) =>
       level === 'refuse' ? kindAt(s) === 'clean' : (c.alternativeKind === 'safe' ? kindAt(s) === 'clean' : kindAt(s) !== 'blocked')
 
@@ -7397,7 +7431,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     const staff = offerableCell(lossy, 30, 750, gate(lossy, 'allow-warned'))
     expect(staff!.alternatives).toEqual([660])
     expect(warnFaceFor(input({ cell: staff, level: 'allow-warned' })).safePrimary)
-      .toEqual({ kind: 'place', start: 660, main: '11:00に置く', sub: '（損が最少）' })
+      .toEqual({ kind: 'place', start: 660, main: '11:00に置く', sub: '（損を減らす）' })
 
     // At 'refuse' that same cautioned start is refused, the lattice offers
     // nothing else, and the card shows NO offer rather than a bouncing one…
@@ -7415,11 +7449,105 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     const reachable = offerableCell(lossy, 30, 750, (s) => kindClean(s) === 'clean')
     expect(reachable!.alternatives).toEqual([690])
     expect(warnFaceFor(input({ cell: reachable, level: 'refuse' })).safePrimary)
-      .toEqual({ kind: 'place', start: 690, main: '11:30に置く', sub: '（損が最少）' })
+      .toEqual({ kind: 'place', start: 690, main: '11:30に置く', sub: '（損を減らす）' })
 
     // The level is a real dep of the memo that draws the offer, so a dial change
     // alone recomputes it rather than leaving the looser answer on the card.
     expect(SRC).toContain('props.guard.bookingStepMin, props.rooms, props.overrideLevel])')
+  })
+
+  /** ⚖ 92 fix round 4 U1 (breaker #3) — A LEAST-LOSS OFFER MUST BE STRICTLY
+   *  BETTER THAN STANDING STILL.
+   *
+   *  `alternatives` are the engine's OWN ranked starts, and `offerableCell`
+   *  snaps each to the store's lattice — so the start the card SHOWS is a
+   *  neighbour the guard never scored. The round-3 gate asked only whether that
+   *  neighbour was not blocked, and a caution passes: on the scene below, the
+   *  biggest control on a card warning about ONE lost window offered a start
+   *  costing TWO. The card doubling the loss it warns about, at the shipped
+   *  default level.
+   *
+   *  Driven by the REAL engine end to end — the cells, their losses and the
+   *  landing verdicts are all `guardVerdictAt` / `landingVerdict`, so nothing
+   *  here is a fixture agreeing with itself. */
+  it('⚖ 92 fix round 4 U1 — a least-loss offer costs the store strictly less than staying put', () => {
+    // The breaker's own scene: one 10:00–10:45 booking on a 10:00–19:00 shift,
+    // a 90-minute session, a step-30 store.
+    const rail = { ...railIn, dur: 90 }
+    const lanes = boardOf([booking({ key: 'a', caseId: 'apt-a' }, 600, 645)])
+    const at = (s: number) => guardVerdictAt(lanes, 'p-01', s, rail)
+    const kindAt = (s: number): LandingVerdict['kind'] => landingVerdict(lanes, {
+      staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
+      start: s, end: s + 90, span: place(s, s + 90, HOURS),
+      foreignRefusal: null, locked: [] as string[], rooms: POLICY,
+      minutesOf: (x: number) => minuteOf(x, HOURS),
+    }, at(s)).kind
+    // The screen's own `lossOf`, reading the same `verdictAt` door the memo's
+    // own cell comes through: a null cell, a safe cell and a cell with no
+    // `impact` all cost the store nothing.
+    const lossOf = (c: RailCell | null) =>
+      c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter
+    /** The gate as the screen spells it — level arm, own-claim arm, least-loss
+     *  arm. `k` is injectable only so the refuse arm can be driven past a CLEAN
+     *  start this particular board never produces; the losses stay real. */
+    const gate = (cell: RailCell, staged: number, level: WarnCardInput['level'], k = kindAt) => (s: number) => {
+      if (level === 'refuse') return k(s) === 'clean'
+      if (cell.alternativeKind === 'safe') return k(s) === 'clean'
+      return k(s) !== 'blocked' && lossOf(at(s)) < staged
+    }
+
+    // THE DEFECT, on the real board. Staged 11:00 costs ONE protected window,
+    // and the engine's ranked starts are 10:45 and 12:15 — neither on the
+    // store's half-hour lattice.
+    const staged = at(660)!
+    expect(staged.alternativeKind).toBe('least-loss')
+    expect(staged.alternatives).toEqual([645, 735])
+    expect(lossOf(staged)).toBe(1)
+    // 10:45 floors onto a BLOCKED 10:30 and ceils onto the attempt itself, so
+    // the snap walks on to 12:15's neighbours — and 12:00 costs TWO. The
+    // round-3 gate asked only "not blocked", and 12:00 cautions.
+    expect(kindAt(630)).toBe('blocked')
+    expect(lossOf(at(720))).toBe(2)
+    expect(kindAt(720)).toBe('caution')
+    const loose = offerableCell(staged, 30, 660, (s) => kindAt(s) !== 'blocked')
+    expect(loose!.alternatives).toEqual([720])
+    expect(warnFaceFor(input({ cell: loose })).safePrimary!.main).toBe('12:00に置く')
+
+    // THE SHIPPED GATE: 12:00 loses MORE than staying and 12:30 loses the SAME,
+    // so neither is offered — the slot goes empty rather than selling a bigger
+    // loss on the card that is warning about the smaller one…
+    expect(lossOf(at(750))).toBe(1)
+    const fixed = offerableCell(staged, 30, 660, gate(staged, lossOf(staged), 'allow-warned'))
+    expect(fixed!.alternatives).toEqual([])
+    // …and ⚖ 92 fix round 3 T2's rule fills the gap with the ENGINE'S own
+    // sentence, which is honest where an offer would have been a lie.
+    const empty = warnFaceFor(input({ cell: fixed }))
+    expect(empty.safePrimary).toBeNull()
+    expect(empty.rows).toEqual([guardCheckRow(fixed)])
+
+    // A STRICTLY BETTER CANDIDATE IS STILL OFFERED, and wears the new label.
+    // Same board, the card staged at 12:00: standing still costs TWO windows,
+    // so the engine's 10:45 snapping up to an 11:00 that costs ONE is a real
+    // improvement — and 「（損を減らす）」 is exactly what is true about it,
+    // where 「損が最少」 claimed a rank of a start the guard never scored.
+    const worse = at(720)!
+    expect(lossOf(worse)).toBe(2)
+    const better = offerableCell(worse, 30, 720, gate(worse, lossOf(worse), 'allow-warned'))
+    expect(better!.alternatives).toEqual([660, 750])
+    expect(warnFaceFor(input({ cell: better })).safePrimary)
+      .toEqual({ kind: 'place', start: 660, main: '11:00に置く', sub: '（損を減らす）' })
+
+    // THE REFUSE ARM IS UNTOUCHED — the loss clause never reaches it, because
+    // ⚖ 92 fix round 3 T1's clean-only bar is already stricter than any loss
+    // comparison. Injected kinds, because no start on this board verdicts
+    // clean: 12:30 is CLEAN and costs the store exactly what staying at 11:00
+    // costs, so it is NOT strictly better — and 店長のみ offers it anyway.
+    const cleanAt = (s: number): LandingVerdict['kind'] => (s === 750 ? 'clean' : 'blocked')
+    expect(lossOf(at(750))).toBe(lossOf(staged))
+    expect(offerableCell(staged, 30, 660, gate(staged, lossOf(staged), 'refuse', cleanAt))!.alternatives).toEqual([750])
+    // …and below 'refuse' that same start is refused BY the loss clause, which
+    // is the whole of what round 4 changed.
+    expect(offerableCell(staged, 30, 660, gate(staged, lossOf(staged), 'allow-warned', cleanAt))!.alternatives).toEqual([])
   })
 
   /** ⚖ 92 fix round 3 T6 (breaker #6) — THE PRESS HONOURS THE DRAW'S PROMISE.
@@ -7429,14 +7557,96 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
    *  cautioned start under a promise it was breaking. Same refuse() door. */
   it('⚖ 92 fix round 3 T6 — a 確保を壊さない offer refuses at the press unless it is still clean', () => {
     const fn = SRC.slice(SRC.indexOf('function placePendingAt('), SRC.indexOf('// ── ⚖ LIAM flag 92 — the long press'))
-    expect(fn).toContain("if (pendingGuardRow.cell?.alternativeKind === 'safe' && again.kind !== 'clean') {\n      refuse(again.reason ?? '配置できません')\n      return\n    }")
-    // It is the SAME door as the blocked branch — one refusal path, ⚖ 47.
+    // ⚖ 92 fix round 4 U2 (breaker #3) — AND THE LOCK FACE'S DRAW GATE RIDES THE
+    // SAME CONDITION. ⚖ 92 fix round 3 T1 made the DRAW at 'refuse' clean-only,
+    // because there the safe primary is the operator's only door and there is no
+    // commit under it to walk past a second degraded cell with — but the press
+    // kept re-judging with 'not blocked', so a board that moved between the draw
+    // and the finger landed the card exactly where T1 exists to stop it landing.
+    expect(fn).toContain("if ((pendingGuardRow.cell?.alternativeKind === 'safe' || props.overrideLevel === 'refuse') && again.kind !== 'clean') {\n      refuse(again.reason ?? '配置できません')\n      return\n    }")
+    // It is the SAME door as the blocked branch — one refusal path, ⚖ 47, and
+    // still ONE condition: U2 joined T6's rather than opening a second gate.
     expect(fn.match(/refuse\(again\.reason \?\? '配置できません'\)/g)).toHaveLength(2)
+    expect(fn.match(/again\.kind !== 'clean'/g)).toHaveLength(1)
     // …and it stands BEFORE anything is staged.
     expect(fn.lastIndexOf('refuse(')).toBeLessThan(fn.indexOf('stage('))
-    // A least-loss offer keeps the ordinary gate: 「損が最少」 never promised
-    // clean, so a cautioned landing is exactly what it is allowed to mean.
+    // A least-loss offer BELOW 'refuse' keeps the ordinary gate: 「損を減らす」
+    // never promised clean, so a cautioned landing is exactly what it is allowed
+    // to mean — the condition is guarded on both sides, never bare.
     expect(fn).not.toContain("again.kind !== 'clean')\n      refuse")
+    expect(fn).not.toContain('if (again.kind !== ')
+  })
+
+  /** ⚖ 92 fix round 4 U3 (breaker #3) — THE COMPOSER READS `ackAllowed`.
+   *
+   *  `ackAllowed: false` on a blocked cell is the engine's own word for a
+   *  placement that CANNOT be made — strict mode's refusals, R-UNAVAILABLE — and
+   *  ⚖ 73's law is already written for it: 「A floor the engine calls impossible
+   *  is not a floor a manager can be given authority over」. The card was
+   *  composing a live 注意して配置 over exactly that, under a line saying the
+   *  store PERMITS the override. Latent on today's board (it needs the cell to
+   *  move under a staged card, or the mode dial to flip) — but the whole thesis
+   *  of this branch is settings-composed honesty, so it is fixed at the
+   *  composer rather than left to a future round to trip over. */
+  it('⚖ 92 fix round 4 U3 — a floor the engine calls impossible wears no commit and no permission line', () => {
+    // The REAL engine, on the store's own strict dial: the same 10:30 refusal
+    // Liam photographed, with the one field that changes — nothing synthetic
+    // about the branch this fires.
+    const strictRail = { ...railIn, guard: { ...GUARD, mode: 'strict' as const } }
+    const strict = guardVerdictAt(boardOf(), 'p-01', 630, strictRail)!
+    expect(strict.state).toBe('blocked')
+    expect(strict.ackAllowed).toBe(false)
+    // …and the standard dial's own cell differs in that field ALONE, so this
+    // test is about `ackAllowed` and not about some other drift.
+    expect({ ...strict, ackAllowed: true }).toEqual(REP())
+
+    const face = warnFaceFor(input({ cell: strict }))
+    expect(face.face).toBe('warn')
+    // Nothing is being permitted, so nothing says it is: no live control, and
+    // no 「スタッフの上書きが許可されています」 under it.
+    expect(face.commit).toBeNull()
+    expect(face.provenance).toBeNull()
+    // The lock line stays null too — 「この場所への配置は店長のみ（店舗の設定）」
+    // would be FALSE here: this is physics, not the dial, and naming the manager
+    // sends the operator to ask for something no manager can grant.
+    expect(face.lock).toBeNull()
+    // Everything the operator can still USE is untouched: the safe answer, the
+    // rows and the greens. Being unable to place HERE is not being unable to
+    // place, and ⚖ 元に戻す is the surface's own control either way.
+    const ackable = warnFaceFor(input({ cell: REP() }))
+    expect(face.safePrimary).toEqual(ackable.safePrimary)
+    expect(face.rows).toEqual(ackable.rows)
+    expect(face.greensLine).toBe(ackable.greensLine)
+    // The same cell WITH the ack flag still commits normally — the flag alone is
+    // the difference, so nothing here is a new gate on the landing itself.
+    expect(ackable.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+    expect(ackable.provenance).toBe('店舗の設定で、スタッフの上書きが許可されています。見本 あずさの名前で記録されます')
+
+    // R-UNAVAILABLE — the engine's other un-ackable class (gap-guard :370-377).
+    // Hand-built and it says so: this fixture day builds no infeasible pocket.
+    // Its headline is `impactOf`'s UNRULED fallback, so the engine's sentence
+    // stands verbatim and ¥-free, which is the whole answer the card needs.
+    const unavailable: RailCell = {
+      start: 630, state: 'blocked', label: '—', sentence: 'この時間には配置できません',
+      reason: 'guard', alternatives: [], alternativeKind: null, ackAllowed: false,
+      impact: { code: 'R-UNAVAILABLE', capacityBefore: 6, capacityAfter: 5 } as RailCell['impact'],
+    }
+    const dead = warnFaceFor(input({ cell: unavailable }))
+    expect(dead.impact).toEqual({ head: 'この時間には配置できません', yen: null, tail: '' })
+    expect(dead.commit).toBeNull()
+    expect(dead.provenance).toBeNull()
+    expect(dead.lock).toBeNull()
+
+    // 'refuse' still wins its OWN face first: a locked-out operator reads the
+    // store's sentence, because the setting stopped them before the physics was
+    // ever reached. The commit is null either way — the lock line is what
+    // differs, and it is the true one for that operator.
+    const locked = warnFaceFor(input({ cell: strict, level: 'refuse' }))
+    expect(locked.lock).toBe('この場所への配置は店長のみ（店舗の設定）')
+    expect(locked.commit).toBeNull()
+    // …and the middle level cannot dress it up either: an approval request for
+    // something no manager can approve is the same lie in a different control.
+    expect(warnFaceFor(input({ cell: strict, level: 'needs-approval' })).commit).toBeNull()
   })
 
   /** ⚖ 92 fix round 2 S6 — THE DEGRADED CELL UNDER 店長のみ IS THE RULING, NOT A
@@ -7797,6 +8007,14 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // …and it always settles, inside the page's own budget.
     expect(holdClock({ mode: 'spring', t0: 0, x0: 0.5 }, 400)).toEqual({ progress: 0, done: true })
     // The runaway guard: even an absurd start is over by 600ms.
-    expect(holdClock({ mode: 'spring', t0: 0, x0: 99 }, 601).done).toBe(true)
+    // ⚖ 92 fix round 4 U4 (breaker #3) — AND THE TIME CLAUSE IS THE ONE DOING
+    // IT. At x0 = 99 the exponential has already decayed under the 0.002
+    // amplitude floor by 601ms, so the old assertion passed with `t > 0.6`
+    // deleted — a guard proven by the clause it is not about. At x0 = 1e7 the
+    // fill is still ~86 at 600ms, well above the floor, so ONLY the elapsed
+    // time can close it: the two lines below fail the moment either clause goes.
+    expect(holdClock({ mode: 'spring', t0: 0, x0: 1e7 }, 600).done).toBe(false)
+    expect(holdClock({ mode: 'spring', t0: 0, x0: 1e7 }, 600).progress).toBeGreaterThan(1)
+    expect(holdClock({ mode: 'spring', t0: 0, x0: 1e7 }, 601)).toEqual({ progress: 0, done: true })
   })
 })

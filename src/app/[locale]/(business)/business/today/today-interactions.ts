@@ -3508,10 +3508,21 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
   // ⚖ 92 fix round 3 T2 (breaker #2) — AND THE SLOT IS NEVER FILLED WITH A CLAIM
   // OF OUR OWN. See `safePrimary` on the model above for the contradiction the
   // deleted 'info' line printed.
+  //
+  // ⚖ 92 fix round 4 U1 (breaker #3) — AND THE SUB-LINE MAY NOT OUTRANK THE
+  // RANKING. 「（損が最少）」 is a SUPERLATIVE about a start the engine never
+  // scored: `offerableCell` snaps each ranked start to the store's own lattice,
+  // so what the card shows is a neighbour, and the screen's gate now keeps it
+  // only when the store loses strictly less there than at the staged start.
+  // 「（損を減らす）」 is exactly that, and it is canon's OWN aside vocabulary —
+  // the 「・損を減らす」 the engine writes into its sentence and `guardCheckRow`
+  // strips. True of every start this slot can now carry, and claiming no rank
+  // the guard did not hand us. The 'safe' label is unchanged: 確保を壊さない is
+  // the engine's own word about the cell, not a rank among starts.
   const alt = cell?.alternatives[0]
   const safePrimary: WarnCardModel['safePrimary'] =
     alt != null
-      ? { kind: 'place', start: alt, main: `${clockOf(alt)}に置く`, sub: cell!.alternativeKind === 'safe' ? '（確保を壊さない）' : '（損が最少）' }
+      ? { kind: 'place', start: alt, main: `${clockOf(alt)}に置く`, sub: cell!.alternativeKind === 'safe' ? '（確保を壊さない）' : '（損を減らす）' }
       : null
 
   /** ⚖ 92 fix round 3 T2 (breaker #2) — NO OFFER ⇒ THE ENGINE'S OWN SENTENCE.
@@ -3547,6 +3558,30 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
     // the badge-repeating-a-label defect. The safe primary and 元に戻す stay:
     // being unable to place HERE is not being unable to place.
     return { face: 'warn', impact, provenance: null, lock: 'この場所への配置は店長のみ（店舗の設定）', safePrimary, commit: null, rows: rowsOut, greensLine: greensLineOf(oks) }
+  }
+  /** ⚖ 92 fix round 4 U3 (breaker #3) — AND A FLOOR THE ENGINE CALLS IMPOSSIBLE
+   *  WEARS NO COMMIT AND NO PERMISSION LINE.
+   *
+   *  `ackAllowed: false` on a blocked cell is the engine's own word for a
+   *  placement that CANNOT be made — strict mode's refusals, `R-UNAVAILABLE`
+   *  (gap-guard :370-377) — and ⚖ 73's law is already written for exactly this:
+   *  「A floor the engine calls impossible is not a floor a manager can be given
+   *  authority over」. So this face may carry neither a live 注意して配置 nor the
+   *  affirmative 「店舗の設定で、スタッフの上書きが許可されています」: nothing is
+   *  being permitted here, and no dial ever had the authority to permit it. The
+   *  headline is already the engine's verbatim sentence (`impactOf`'s unruled
+   *  fallback, ¥-free), which is the whole answer.
+   *
+   *  The lock line stays NULL too: 「この場所への配置は店長のみ」 would be false —
+   *  this is physics, not the store's setting, and naming the manager would
+   *  send the operator to ask for something no manager can grant. And 'refuse'
+   *  is answered ABOVE, so a locked-out operator still reads the dial's own
+   *  sentence: the setting stopped them before the physics was ever reached.
+   *
+   *  Safe primary, rows, greens and 元に戻す are untouched — being unable to
+   *  place HERE is not being unable to place. */
+  if (cell != null && cell.state === 'blocked' && cell.ackAllowed === false) {
+    return { face: 'warn', impact, provenance: null, lock: null, safePrimary, commit: null, rows: rowsOut, greensLine: greensLineOf(oks) }
   }
   const commit: WarnCardCommit =
     level === 'needs-approval'
