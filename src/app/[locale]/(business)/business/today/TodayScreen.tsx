@@ -2176,8 +2176,11 @@ export function TodayScreen(props: TodayProps) {
    *  is real: it joins the checks the confirm surface already shows, as one more
    *  row. It is INFORMATION — `pendingConfirm` above is untouched, so what can
    *  and cannot be confirmed is still `computeChecks`' answer alone and a
-   *  degraded landing stays confirmable, exactly as canon's own ackAllowed lets
-   *  it be. Neither canon's hold bar nor the built one showed this at all. */
+   *  degraded landing stays confirmable — at the shipped default level; ⚖ flag
+   *  92's dial composes stricter faces above it, and a store dialled to 店長のみ
+   *  refuses the press without any of that reaching `computeChecks`' answer —
+   *  exactly as canon's own ackAllowed lets it be. Neither canon's hold bar nor
+   *  the built one showed this at all. */
   /** ⚖ 92 — AND THE CELL ITSELF, not only its row. The warn card composes from
    *  the verdict's DATA (`cell.impact`, its alternatives, its state) and the row
    *  is one rendering of that same cell — deriving them together here keeps them
@@ -2207,25 +2210,51 @@ export function TodayScreen(props: TodayProps) {
      *  ENGINE'S OWN SENTENCE (⚖ GAP-6/FIX-6, byte-untouched), and filtering
      *  alternatives has no opinion about what the guard said. `placePendingAt`'s
      *  own ⚖ 31c re-verdict at the press stays exactly where it is — this makes
-     *  the offer honest when it is DRAWN, that makes it honest when it is TAKEN. */
+     *  the offer honest when it is DRAWN, that makes it honest when it is TAKEN.
+     *
+     *  ⚖ 92 fix round 2 S1 (stress lens #2) — AND THE GATE IS THE CELL'S OWN
+     *  CLAIM, which is why this is `offerableCell` directly and not the shared
+     *  `offerable` wrapper.
+     *
+     *  THE LAW: a button may not promise 確保を壊さない about a start whose own
+     *  verdict is not clean. `alternativeKind` is the engine's word about the
+     *  PRE-snap start, and the sub-line under the safe primary is read off it;
+     *  the wrapper then snaps each start to the store's lattice and re-gates the
+     *  SNAPPED one with `!== 'blocked'`, which a caution passes. On a clock
+     *  offset off the lattice (now 10:07, step 30) that pair shipped 確保を壊さ
+     *  ない over a start the guard would only ever have called a caution — the
+     *  label outrunning the gate, ⚖ 31c's disease with the promise moved into
+     *  the sub-line. So the gate is tightened to match the claim instead of the
+     *  label being weakened to match the gate: a cell claiming 'safe' offers
+     *  only starts that verdict CLEAN, and a least-loss cell keeps the ordinary
+     *  not-blocked gate it always had. The shared wrapper is untouched — its
+     *  other callers make no such promise about the starts they show.
+     *
+     *  Start and duration are the wrapper's own derivation (`offerable` above):
+     *  `ask.span` IS this staged move, so `start` is already that number. */
     const item = boardLanes.find((l) => l.group === 'staff' && l.key === at.laneKey)?.items.find((i) => i.caseId === pending.id)
+    const ask: LandingAsk = {
+      staffLane: at.laneKey,
+      bedLane: seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null),
+      solveRoom: true,
+      id: pending.id,
+      vip: item?.category === 'vip',
+      foreignRefusal: null,
+      span: { x: at.x, w: at.w },
+    }
+    const dur = minuteOf(at.x + at.w, hours) - start
     return {
       row: guardCheckRow(cell),
-      cell: offerable(cell, {
-        staffLane: at.laneKey,
-        bedLane: seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null),
-        solveRoom: true,
-        id: pending.id,
-        vip: item?.category === 'vip',
-        foreignRefusal: null,
-        span: { x: at.x, w: at.w },
+      cell: offerableCell(cell, props.guard.bookingStepMin, start, (s) => {
+        const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind
+        return cell?.alternativeKind === 'safe' ? k === 'clean' : k !== 'blocked'
       }),
     }
-    // ⚖ 92 micro-fix M7, delta-verify D4 — `props.rooms` is a real dep: `offerable`
+    // ⚖ 92 micro-fix M7, delta-verify D4 — `props.rooms` is a real dep: the gate
     // re-verdicts each candidate start through `verdictRef`, which reads the room
-    // policy, and its own identity is ref-stable — so a rooms change alone left a
-    // stale offer on the card's biggest control.
-  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, offerable, props.rooms])
+    // policy, and that ref's own identity is stable — so a rooms change alone left
+    // a stale offer on the card's biggest control.
+  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, props.guard.bookingStepMin, props.rooms])
 
   // ⚖ Liam flag 50(d) + ⚖ 52 — THE OVERRIDDEN ROW STAYS ON SCREEN, and it
   // stops wearing ×. The operator did not make the reason go away, they
@@ -2846,7 +2875,16 @@ export function TodayScreen(props: TodayProps) {
    *  ended here — the frame, the reduced-motion interval and (new) the settle
    *  timer — so no ending can leave one of them running while the others stop.
    *  Touches nothing but `holdRef`, which is why it is safe to hand to an effect
-   *  as its cleanup. */
+   *  as its cleanup.
+   *
+   *  ⚖ 92 fix round 2 S3 (stress lens #4) — AND THE METER GOES WITH THEM. This
+   *  zeroes `progress`, but the fill is a NODE transform that no render rewrites
+   *  (that is the whole point of ⚖ 92's per-frame write), so a teardown that
+   *  stopped the clocks and left the bar painted froze it mid-press: the button
+   *  disabled under a finger at 70%, and the commit refused after a completed
+   *  hold at 100%, each leaving a full-looking meter over a control that will
+   *  not fire. The node guard inside `holdFill` is what makes this safe on an
+   *  unmounted button, so the reset can always ask. */
   const holdReset = useCallback(() => {
     const h = holdRef.current
     if (h.raf) { cancelAnimationFrame(h.raf); h.raf = 0 }
@@ -2855,6 +2893,7 @@ export function TodayScreen(props: TodayProps) {
     h.btn?.classList.remove('holding', 'settle')
     h.mode = ''
     h.progress = 0
+    holdFill(0)
     h.completing = false
     h.btn = null
   }, [])
@@ -6714,11 +6753,20 @@ export function TodayScreen(props: TodayProps) {
               nothing. */}
           {holdPop.asking && (holdPop.warn ? (
             <>
-              <p className="wc-impact">
-                {holdPop.warn.impact.head}
-                {holdPop.warn.impact.yen && <span className="wc-yen">（{holdPop.warn.impact.yen}）</span>}
-                {holdPop.warn.impact.tail}
-              </p>
+              {/* ⚖ 92 fix round 2 S4 (stress lens #7) — NO EMPTY PANEL. The
+                  headline is the card's reason to exist, and `warnFaceFor`
+                  composes an empty one for a face triggered by a warn ROW with
+                  no sentence behind it (`override` null, which today only the
+                  guard-fact path reaches — a future warn-grade row would land
+                  here). An empty <p> with the panel's own padding is a gap
+                  above the safe answer that says nothing. */}
+              {holdPop.warn.impact.head && (
+                <p className="wc-impact">
+                  {holdPop.warn.impact.head}
+                  {holdPop.warn.impact.yen && <span className="wc-yen">（{holdPop.warn.impact.yen}）</span>}
+                  {holdPop.warn.impact.tail}
+                </p>
+              )}
               {/* ⚖ 92 fix round F4 (blind L1#6) — THE TWO GLYPHS THE APPROVED
                   PAGE CARRIES. The ruled bar is that page's own visual, and its
                   provenance and 店長のみ lines each open with the padlock: small

@@ -2249,7 +2249,14 @@ export function offerableCell(
   // candidate is garbage and the gate is asked about starts that do not exist.
   // No lattice means nothing this function can honestly offer, so it offers
   // nothing rather than something meaningless.
-  if (stepMin <= 0) return { ...cell, alternatives: [] }
+  //
+  // ⚖ 92 fix round 2 S5 (stress lens #8) — AND THE TEST IS `!(stepMin > 0)`,
+  // NOT `<= 0`. NaN fails every comparison, so a settings text input that hands
+  // this a NaN step walked straight past the old gate into the same arithmetic
+  // the gate exists to refuse — and the card put 「NaN:NaNに置く」 on its biggest
+  // control. Behaviour-identical for every real number; the only value it newly
+  // catches is the one that is not a number.
+  if (!(stepMin > 0)) return { ...cell, alternatives: [] }
   const out: number[] = []
   for (const s of cell.alternatives) {
     const candidates = s % stepMin === 0 ? [s] : [Math.floor(s / stepMin) * stepMin, Math.ceil(s / stepMin) * stepMin]
@@ -3368,9 +3375,19 @@ export interface WarnCardModel {
  *
  *  Keyed on a stable fragment of `computeChecks`' own labels (drag-rules
  *  :206-228, FROZEN) rather than on the whole sentence, because the sentences
- *  carry names and clock times. A row that matches nothing here is not
- *  guessed at — the line falls to the count form below, which is honest for any
- *  row the frozen engine grows next. */
+ *  carry names and clock times.
+ *
+ *  ⚖ 92 fix round 2 S2 (stress lens #3) — AND A ROW THIS LINE HAS NO NAME FOR
+ *  STAYS A ROW. The count form it used to fall back to (「その他の確認（5件）は
+ *  問題ありません」) had TWO faults at once: 「その他の」 had no antecedent —
+ *  nothing else on the card named a first group for it to be other than — and
+ *  buying that sentence cost the operator the one ok row the frozen engine
+ *  emits that is actual news, the 清掃 auto-re-place notice, which vanished
+ *  into a number the moment it appeared. So the named sentence folds ONLY the
+ *  subjects it can name, and every other ✓ row keeps its place in `rows`,
+ *  rendered in the clean face's own ✓ grammar (⚖ 73-74 — a record may never go
+ *  invisible because a tidier face was drawn over it). Nothing is guessed at
+ *  either way; the day the frozen engine grows a fifth row, the card shows it. */
 const GREEN_SUBJECTS: ReadonlyArray<[fragment: string, subject: string]> = [
   ['時間帯の重複なし', '時間の重複'],
   ['勤務時間内', '勤務時間'],
@@ -3378,12 +3395,15 @@ const GREEN_SUBJECTS: ReadonlyArray<[fragment: string, subject: string]> = [
   ['価格を保持', '価格'],
 ]
 
+/** The one home for "does the muted line have a word for this row?" — asked by
+ *  the line itself and by the row filter below, so the two can never disagree
+ *  about which ✓ rows the sentence consumed. */
+const greenSubjectOf = (label: string): string | null =>
+  GREEN_SUBJECTS.find(([fragment]) => label.includes(fragment))?.[1] ?? null
+
 function greensLineOf(oks: ReadonlyArray<{ label: string }>): string | null {
-  if (oks.length === 0) return null
-  const subjects = oks.map((r) => GREEN_SUBJECTS.find(([fragment]) => r.label.includes(fragment))?.[1] ?? null)
-  return subjects.every((s) => s !== null)
-    ? `${subjects.join('・')}は問題ありません`
-    : `その他の確認（${oks.length}件）は問題ありません`
+  const subjects = oks.map((r) => greenSubjectOf(r.label)).filter((s): s is string => s !== null)
+  return subjects.length > 0 ? `${subjects.join('・')}は問題ありません` : null
 }
 
 /** ⚖ 92 — THE CONSEQUENCE, IN THE APPROVED SENTENCE SHAPE, FROM THE DATA.
@@ -3464,7 +3484,12 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
   const impact = guardWarn
     ? impactOf(cell, input.listPrice, protectedDur)
     : { head: input.override ?? '', yen: null, tail: '' }
-  const kept = rows.filter((r) => r.tone !== '' && !(!guardWarn && r.label === overrideRow))
+  // ⚖ 92 fix round 2 S2 — and an ok row the greens line could not NAME is kept
+  // beside them: the line consumed the four subjects it has words for, so
+  // anything else that passed is still unsaid, and unsaid is invisible.
+  const kept = rows.filter(
+    (r) => (r.tone !== '' || greenSubjectOf(r.label) === null) && !(!guardWarn && r.label === overrideRow),
+  )
 
   // ⚖ 92 — the safe answer, from the ENGINE'S own alternatives. Three shapes and
   // no fourth: a start it can name, the engine saying this start already is the
