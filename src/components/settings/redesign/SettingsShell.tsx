@@ -323,38 +323,53 @@ export function SettingsShell({
     ? visibleTabs.find((x) => x.id === activeTab) ?? null
     : null
 
-  // Desktop tab switches open the section at the TOP. This used to happen by
-  // accident: the mobile DrillInView was always mounted (CSS-hidden), and ITS
-  // per-section layout effect zeroed the shared scroll ancestors. Dropping the
-  // hidden branch took that away silently — a tab picked while scrolled down
-  // opened mid-page. Same ancestors, same timing (before paint), stated
-  // outright here instead of riding on a branch that may not be in the tree.
+  // ── THE ONE SCROLL-RESET AUTHORITY ────────────────────────────────────
+  // PRINCIPLE: only the user's OWN navigation moves the page. Nothing about
+  // the viewport — a rotation, a resize, a branch swap — ever scrolls someone
+  // who is mid-read back to the top.
   //
-  // A SECTION CHANGE is the only thing that may scroll the reader back to the
-  // top. `isWide` is in the deps for the `md` guard below, NOT as a trigger:
-  // without the ref check, rotating a phone to landscape (isWide false→true)
-  // re-ran this and threw away the position of whoever was mid-read (probed:
-  // scrollTop 480 → 0). The ref updates on EVERY run, including the ones that
-  // bail below `md`, so a tab picked on the phone can't leave a stale value
-  // behind for the next rotation to act on.
+  // This was split across two owners and each covered for the other's gaps.
+  // The shell reset on tab changes; DrillInView zeroed the same ancestors from
+  // its own layout effect. That effect ran on MOUNT too, so the first
+  // ≥md→<md crossing — which mounts the mobile branch — threw the reader's
+  // position away even though this effect correctly wrote nothing (probed:
+  // first down-crossing → 0, second preserved, because by then nothing
+  // remounts). DrillInView's copy is gone; this is the only writer left.
   //
-  // Mount DOES reset once, at every width, deliberately: the scroll container
-  // is a persistent element shared with the route the user came from (see
-  // DrillInView below), so arriving from a scrolled page would otherwise open
-  // 設定 mid-page. Settings opens at the top; nothing after that moves the
-  // reader except their own tab click.
+  // The identity is `activeTab` — the section the USER navigated to, null =
+  // the mobile list — and NOT `desktopActiveTab`. That distinction is the
+  // whole fix: `desktopActiveTab` resolves null to the first visible tab, so
+  // rotating up off a scrolled list would read as null→'organization', a
+  // branch swap masquerading as a navigation. `activeTab` is width-independent,
+  // so a crossing is never an identity change in either direction, while all
+  // three real navigations still are: desktop tab click, mobile drill-in, and
+  // 設定に戻る back-to-list (which resets, symmetric with drilling in).
+  //
+  // `isWide` is deliberately absent from the deps — the effect no longer reads
+  // the width at all, so there is no width-triggered path left to guard, and
+  // the round-3 below-md bail is gone with it (one owner needs no handoff).
+  //
+  // ponytail: the `lastSection` ref is NOT load-bearing today — the deps array
+  // alone already limits this to section changes, and deleting the ref keeps
+  // every test green. It stays as armor for the one edit most likely to be made
+  // here: put a width value back in the deps and, WITH the ref, nothing happens
+  // (proved — suite stays 10/10); without it, five tests go red and the reader
+  // loses their place again. Two lines to make that edit a no-op instead of a
+  // regression.
+  //
+  // Mount DOES reset once, deliberately: the scroll container is a persistent
+  // element shared with the route the user came from, so arriving from a
+  // scrolled page would otherwise open 設定 mid-page. Layout effect, not
+  // effect — the reset lands before paint, so no old offset ever flashes.
   const shellRef = useRef<HTMLDivElement>(null)
-  const lastResetTab = useRef<SettingsTabId | null | undefined>(undefined)
+  const lastSection = useRef<SettingsTabId | null | undefined>(undefined)
   useLayoutEffect(() => {
-    const sectionChanged = lastResetTab.current !== desktopActiveTab
-    lastResetTab.current = desktopActiveTab
-    if (!sectionChanged) return
-    // Below `md` DrillInView is the visible branch and owns the reset.
-    if (isWide === false) return
+    if (lastSection.current === activeTab) return
+    lastSection.current = activeTab
     for (let el: HTMLElement | null = shellRef.current; el; el = el.parentElement) {
       el.scrollTop = 0
     }
-  }, [desktopActiveTab, isWide])
+  }, [activeTab])
 
   function renderSection(id: SettingsTabId | null): ReactNode {
     // Sync status card intercept (Liam ruling 7/24, packet 31) — BEFORE the
@@ -592,26 +607,16 @@ function DrillInView({
   children: ReactNode
 }) {
   const Icon = tab?.icon
-  const rootRef = useRef<HTMLDivElement>(null)
-  // The scroll container (thin shell's <main>, or the web (app) layout's
-  // clamped scroll region) is a PERSISTENT element — the list's scroll offset
-  // survives the list→drill content swap, so tapping a card low in the list
-  // opened the section mid-scroll with 設定に戻る parked above the fold (read
-  // in the field as "the back button is gone"). Open every section at the top:
-  // zeroing each ancestor is a no-op on containers that aren't scrolled.
-  // Keyed on `tab` (not mount-only): on mobile list⇄drill remounts this
-  // component anyway, but on desktop this instance stays mounted (CSS-hidden)
-  // across tab switches — the reset must re-run per section change so no
-  // section inherits the previous one's offset. Layout effect, not effect:
-  // the reset lands BEFORE paint, so the old offset never flashes.
-  useLayoutEffect(() => {
-    if (!tab) return
-    for (let el = rootRef.current?.parentElement ?? null; el; el = el.parentElement) {
-      el.scrollTop = 0
-    }
-  }, [tab])
+  // NO scroll reset here. It used to live in this component (the field report
+  // was a list scrolled low, tapped, and 設定に戻る parked above the fold), but
+  // this component is only mounted on one of the two branches, so its copy fired
+  // on the mount that a breakpoint crossing causes — resetting a reader who had
+  // navigated nowhere. The shell owns the reset for both branches now; see THE
+  // ONE SCROLL-RESET AUTHORITY above. It zeroes this element's ancestors, which
+  // is the same set this effect walked minus the branch wrapper (never a scroll
+  // container itself).
   return (
-    <div ref={rootRef} className="space-y-4">
+    <div className="space-y-4">
       <button
         type="button"
         onClick={onBack}

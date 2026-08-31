@@ -201,6 +201,23 @@ describe('SettingsShell — a rotation is not a tab change, so it must not move 
     expect(container.scrollTop).toBe(480)
   })
 
+  it('rotating UP off a scrolled LIST carries the offset onto the desktop view — only the user\'s own navigation moves the page', () => {
+    // The list is the trickiest case for the identity, and the reason it is
+    // `activeTab` and not `desktopActiveTab`: on the list activeTab is null,
+    // and `desktopActiveTab` resolves null to the first visible tab, so a
+    // width-keyed identity would read this rotation as null→'organization' —
+    // a branch swap wearing a navigation's clothes — and reset. It must not:
+    // the user navigated nowhere, so the page does not move.
+    const crossTo = installCrossableMatchMedia(false)
+    const { container } = render(<SettingsShell {...baseProps} />)
+    // On the list (no section drilled into), scrolled well down it.
+    expect(screen.queryByText('backToList')).toBeNull()
+    container.scrollTop = 600
+
+    crossTo(true)
+    expect(container.scrollTop).toBe(600)
+  })
+
   it('a real tab change still resets, even right after a rotation (the ref must not latch the reset away)', () => {
     const crossTo = installCrossableMatchMedia(false)
     const { container } = render(<SettingsShell {...baseProps} />)
@@ -214,6 +231,64 @@ describe('SettingsShell — a rotation is not a tab change, so it must not move 
     // so it opens at the top.
     fireEvent.click(screen.getAllByText('organization')[0])
     expect(screen.getAllByTestId('section-organization').length).toBeGreaterThan(0)
+    expect(container.scrollTop).toBe(0)
+  })
+
+  it('FIRST ≥md→<md crossing with a section open PRESERVES scroll — the crossing mounts the mobile branch, and that mount must not reset', () => {
+    // The round-3 hole. The shell's own guard wrote nothing here, but the
+    // down-crossing MOUNTS the mobile branch, and DrillInView carried its own
+    // ancestor-zeroing layout effect that fired on mount. Probed: the FIRST
+    // down-crossing wrote 0, the second preserved (by then `crossed` has
+    // latched, both branches are already mounted, nothing remounts) — a reader
+    // losing their place exactly once, which is the hardest kind to report.
+    // One owner now, so there is no second writer to fire.
+    const crossTo = installCrossableMatchMedia(true)
+    const { container } = render(<SettingsShell {...baseProps} />)
+    // Desktop: pick a section from the tab strip, then read down into it.
+    fireEvent.click(screen.getAllByText('theme.label')[0])
+    expect(screen.getAllByTestId('section-theme').length).toBeGreaterThan(0)
+    container.scrollTop = 480
+
+    crossTo(false) // ≥md → <md, the first crossing: mounts the mobile branch
+    expect(screen.getAllByText('backToList').length).toBeGreaterThan(0)
+    expect(container.scrollTop).toBe(480)
+
+    crossTo(true) // and the second crossing, which never had the defect
+    expect(container.scrollTop).toBe(480)
+  })
+
+  it('NO crossing resets, in either direction, from either starting width — the width is not navigation', () => {
+    // The named cover for "a width transition must never reach the reset".
+    // Both starting widths, both directions, section open and section closed.
+    for (const startWide of [true, false]) {
+      const crossTo = installCrossableMatchMedia(startWide)
+      const { container, unmount } = render(<SettingsShell {...baseProps} />)
+      container.scrollTop = 350
+      crossTo(!startWide)
+      expect(container.scrollTop).toBe(350)
+      crossTo(startWide)
+      expect(container.scrollTop).toBe(350)
+      crossTo(!startWide)
+      expect(container.scrollTop).toBe(350)
+      unmount()
+      delete (window as { matchMedia?: unknown }).matchMedia
+    }
+  })
+
+  it('BACK-TO-LIST resets — decided: symmetric with drilling in, the list opens at the top too', () => {
+    // Explicit decision, pinned so it cannot drift silently: 設定に戻る is the
+    // user's own navigation, so it moves the page, exactly like tapping into a
+    // section does. (Round 3 did NOT reset here — the shell bailed below md and
+    // DrillInView only reset on the way in. Deliberate change.)
+    installMatchMedia(false)
+    const { container } = render(<SettingsShell {...baseProps} />)
+    fireEvent.click(screen.getAllByText('theme.label')[0])
+    expect(screen.getAllByTestId('section-theme').length).toBeGreaterThan(0)
+
+    container.scrollTop = 400
+    fireEvent.click(screen.getByText('backToList'))
+    // Back on the list…
+    expect(screen.queryByText('backToList')).toBeNull()
     expect(container.scrollTop).toBe(0)
   })
 

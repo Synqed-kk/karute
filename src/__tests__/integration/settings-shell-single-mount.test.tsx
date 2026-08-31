@@ -273,10 +273,11 @@ describe('SettingsShell — one branch mounted, so opening a section reads once'
     // it, so that day is a red test instead of a blank page.
     const abs = (p: string) => path.join(process.cwd(), p)
     const read = (p: string) => {
-      // Existence-tolerant only in the sense that a missing file FAILS with the
-      // path in the message instead of throwing ENOENT out of the matcher. A
-      // package restructure must go red here, never quietly pass by scanning a
-      // file that no longer exists.
+      // A missing file THROWS, naming the path — it is not tolerated, it is
+      // reported. The point is that a package restructure fails loudly here
+      // rather than quietly passing by scanning a file that no longer exists;
+      // the try/catch only replaces an opaque ENOENT with a message that says
+      // what to do about it.
       try {
         return readFileSync(abs(p), 'utf8')
       } catch {

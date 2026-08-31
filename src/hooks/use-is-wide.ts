@@ -103,7 +103,9 @@ export function useIsWide(): IsWideState {
     // `mq.matches` read OUT here, not inside the updater: React may invoke an
     // updater more than once (StrictMode double-invocation), and an updater
     // that re-reads a live browser object is not pure — two invocations could
-    // see two different widths. Sample once, then fold.
+    // see two different widths. Sample once, then fold. Defensive shape with no
+    // reachable failing case today, so deliberately NOT covered by a red run —
+    // a test would have to make the width change mid-flush to tell it apart.
     const measure = (crossing: boolean) => {
       const matches = mq.matches
       setState((prev) => ({ wide: matches, crossed: prev.crossed || crossing }))
