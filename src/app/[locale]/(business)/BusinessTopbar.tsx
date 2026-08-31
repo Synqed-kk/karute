@@ -68,6 +68,7 @@ const CRUMB: Record<string, string> = {
   register: '売上・レジ',
   analytics: '売上分析',
   shifts: 'スタッフ・シフト',
+  karute: 'カルテ',
 }
 
 export function BusinessTopbar({ stores, syncLabel }: { stores: ShellStore[]; syncLabel: string }) {

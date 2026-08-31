@@ -418,6 +418,13 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
     slot('apt-08', 'cus-09', STORE_A, 'p-04', 'menu-06', -21, 17, 0, 20, 3300, 'done'),
     slot('apt-10', 'thin-01', STORE_A, 'p-01', 'menu-03', -2, 10, 0, 30, 4400, 'done'),
     slot('apt-11', 'thin-02', STORE_B, 'p-02', 'menu-05', -5, 12, 0, 45, 5500, 'done'),
+    // ⚠ THE OPERATOR'S OWN COMPLETED SESSION. 見本 あずさ (p-06) treats — the world
+    // already gives her three bookings — but every one of them is today-or-ahead, so
+    // she had NO finished session anywhere in the demo world. Any surface that asks
+    // 「which of these are MINE?」 therefore had a filter that could never match, and
+    // ⚖ 8/9 says a demo state nobody can reach is fixed AT THE DATA. Ten days back,
+    // inside her store and inside opening hours, on a customer she also sees today.
+    slot('apt-35', 'thin-02', STORE_A, 'p-06', 'menu-01', -10, 11, 0, 60, 6600, 'done'),
 
     // ── today: the 今日の運営 board's own day ─────────────────────────────
     // Nine bookings, one per canon board state and category, every one of them
