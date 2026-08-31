@@ -188,6 +188,13 @@ async function readDiscardRecordingContext(
       // resolves them the same way. Chunked to the page cap and caught PER
       // CHUNK: one bad id can fail its whole batch (#743), and dropping the
       // names it carried beats dropping every name on the screen.
+      //
+      // ponytail: SEQUENTIAL. Discards are rare by nature, so a real tenant has
+      // ONE chunk and the loop runs once — where parallelism would buy nothing
+      // and cost core a burst. The tail case (thousands of discards) is already
+      // the one the recordings page cap truncates. Upgrade path if it ever
+      // matters: Promise.all over the chunks behind a small pool, the shape
+      // inbox-read.ts's PROBE_CONCURRENCY already uses.
       const { customers } = await synqed.customers.list({
         ids: chunk,
         include_deleted: true,
