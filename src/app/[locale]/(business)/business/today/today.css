@@ -1316,14 +1316,22 @@
   touch-action: none;
   transition: transform 90ms cubic-bezier(0, 0, .2, 1), box-shadow 160ms ease;
 }
-.biz .wc-hold:disabled { opacity: .45; cursor: not-allowed; }
+/* ⚖ 92 fix round 5 V6 (breaker #4) — .45 was this rule's own number and the
+   shell already has one: `.biz button:disabled` (business-shell.css :106) dims
+   every disabled control in Business to .48. One dimming value, one home. */
+.biz .wc-hold:disabled { opacity: .48; cursor: not-allowed; }
 /* ⚖ 92 fix round F13 (blind L2#8) — THE PRESS MUST NOT SHRINK ITSELF OUT FROM
    UNDER THE FINGER. `.holding` scales the control to 98%, and hit-testing uses
    the scaled box: a press near the edge landed OUTSIDE it on the very next
    frame, fired `pointerleave` and cancelled the hold the operator was still
-   holding. A halo of hit area, inside the button so `pointerleave` counts it as
-   the button, and 5px is comfortably more than the ~2px the shrink takes back.
-   It paints nothing. */
+   holding. A halo of hit area, and 5px is comfortably more than the ~2px the
+   shrink takes back. It paints nothing.
+   ⚖ 92 fix round 5 V6 (breaker #4) — the wording, which said the halo sat
+   "inside the button": `inset: -5px` puts it OUTSIDE the border box, which is
+   the whole point — it has to reach past the shrunken edge. What makes
+   `pointerleave` count it as the button is that a pseudo-element's hit area
+   belongs to its originating element, so a pointer over the halo is a pointer
+   over the button. Behaviour unchanged; only the sentence was wrong. */
 .biz .wc-hold::after {
   content: '';
   position: absolute;

@@ -2340,6 +2340,12 @@ export function TodayScreen(props: TodayProps) {
    *  than re-derived, because today-board already computed them from the
    *  operator's own staff_id.
    *
+   *  ⚖ 92 fix round 5 V1 (breaker #4) — and the ¥'s other half is the SAME frame
+   *  the sell layer is derived from (`frame` / `depth`, composed once above and
+   *  handed to `sellLayerFor` and `gapLayerFor` in this very render), so the
+   *  card's money and the board's money come off one set of levers. The card
+   *  computes no price of its own; `warnFaceFor` asks canon.
+   *
    *  `null` while nothing is staged, off-board, or on the CLEAN face: the model's
    *  own `face` decides, and the render asks it rather than asking again here. */
   // ponytail: no memo. This is a pure fold over half a dozen rows the surface
@@ -2364,6 +2370,8 @@ export function TodayScreen(props: TodayProps) {
         targetLaneMine: pendingWarnLane.mine,
         operatorName: props.operatorName,
         listPrice: pendingWarnLane.listPrice,
+        frame,
+        depth,
         protectedDur: props.guard.protectedDurationMin,
         confirmEnabled: pendingConfirm.enabled,
       })

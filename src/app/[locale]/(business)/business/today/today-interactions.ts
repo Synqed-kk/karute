@@ -25,7 +25,7 @@ import {
   type SellStaffLane,
 } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext, type GuardReason } from '@/business/lib/canon-logic/gap-guard'
-import { gapFillPrice, money, packedPrice, priceAt, priceLabel, SELL_SLOT_MIN, type PriceFrame } from '@/business/lib/canon-logic/pricing'
+import { gapFillPrice, gapFillRawTotal, money, packedPrice, priceAt, priceLabel, SELL_SLOT_MIN, type PriceFrame } from '@/business/lib/canon-logic/pricing'
 import {
   computeChecks,
   confirmCaption,
@@ -1542,8 +1542,32 @@ export interface RailCell {
    *  weighed the protected window (`degraded`, and a guard refusal); every other
    *  cell leaves it absent, which is the honest answer for a cell that never
    *  reached the capacity question. `code` is the engine's own class, carried
-   *  rather than re-derived from the words. */
-  impact?: { code: GuardReason['code']; capacityBefore: number; capacityAfter: number }
+   *  rather than re-derived from the words.
+   *
+   *  ⚖ 92 fix round 5 V1 (breaker #4) — AND THE WINDOWS THEMSELVES, not only how
+   *  many there were. The card's ¥ used to be its own arithmetic (定価 × the
+   *  protected length × the loss count), which is a SECOND BASIS for a question
+   *  the board already answers through canon's pricing door — proven −23%..+10%
+   *  off the figure the very same screen prints for the very same minutes. The
+   *  engine has always carried the window STARTS (gap-guard :84-85, its own
+   *  `.slice()` copies), so carrying them here lets the composer ask canon what
+   *  those exact spans are worth instead of inventing a price for them.
+   *
+   *  BOTH SETS, never a pre-computed difference: the after-set is re-solved by
+   *  the same earliest-finish greedy with the placement excluded, so its starts
+   *  can SHIFT rather than being a subset (a 10:00 landing on a free day turns
+   *  [10:00, 11:30, 13:00, …] into [11:00, 12:30, 14:00, …] — six starts in
+   *  「before」 and none of them in 「after」, for a loss of exactly one). What the
+   *  store loses is therefore the difference of the two sets' VALUE, and only
+   *  the two sets can answer that. Same `GuardResult`, same expression as the
+   *  counts above, so the pair can never disagree with them. */
+  impact?: {
+    code: GuardReason['code']
+    capacityBefore: number
+    capacityAfter: number
+    windowsBefore: number[]
+    windowsAfter: number[]
+  }
 }
 
 export interface GuardRail {
@@ -1794,7 +1818,15 @@ function railCell(
       alternativeKind: v.alternativeKind,
       ackAllowed: true,
       // ⚖ 92 — the same two numbers the sentence above spells, carried as data.
-      impact: { code: 'DEGRADED', capacityBefore: v.protectedCapacityBefore, capacityAfter: v.protectedCapacityAfter },
+      // ⚖ 92 fix round 5 V1 (breaker #4) — plus the window starts behind them, so
+      // the card can price the loss through canon instead of guessing at it.
+      impact: {
+        code: 'DEGRADED',
+        capacityBefore: v.protectedCapacityBefore,
+        capacityAfter: v.protectedCapacityAfter,
+        windowsBefore: v.protectedWindowsBefore,
+        windowsAfter: v.protectedWindowsAfter,
+      },
     }
   }
   return {
@@ -1804,7 +1836,18 @@ function railCell(
     ackAllowed: v.reason?.ackAllowed === true,
     // ⚖ 92 — the engine's own class (R-REP / R-DEAD / R-SALV), carried rather
     // than read back out of the sentence it produced.
-    ...(v.reason ? { impact: { code: v.reason.code, capacityBefore: v.protectedCapacityBefore, capacityAfter: v.protectedCapacityAfter } } : {}),
+    // ⚖ 92 fix round 5 V1 (breaker #4) — with the window starts, as above.
+    ...(v.reason
+      ? {
+          impact: {
+            code: v.reason.code,
+            capacityBefore: v.protectedCapacityBefore,
+            capacityAfter: v.protectedCapacityAfter,
+            windowsBefore: v.protectedWindowsBefore,
+            windowsAfter: v.protectedWindowsAfter,
+          },
+        }
+      : {}),
   }
 }
 
@@ -3327,6 +3370,17 @@ export interface WarnCardInput {
   /** The staff lane's own `listPrice`. `<= 0` = this store prices nothing here,
    *  and the card says nothing about money rather than guessing a zero. */
   listPrice: number
+  /** ⚖ 92 fix round 5 V1 (breaker #4) — THE BOARD'S OWN PRICE FRAME, threaded
+   *  rather than re-derived: `frame` and `depth` are the very objects the sell
+   *  layer is built from on the same screen (`sellLayerFor`'s `hi`/`hqMin`/
+   *  `depth` opts, composed once at TodayScreen :1341-1345), so the card's ¥ and
+   *  the board's ¥ are answers from one set of levers by construction.
+   *
+   *  `null` = a store with no pricing frame at all, and it omits the ¥ exactly as
+   *  `listPrice <= 0` does: a wrong number is worse than no number. */
+  frame: PriceFrame | null
+  /** The store's 割引の深さ, the sell layer's own `depth` opt. */
+  depth: number
   /** 新規のお客様のために確保する長さ (`props.guard.protectedDurationMin`). */
   protectedDur: number
   /** `overrideCaption`'s answer, carried in. ⚖ 50(d)'s gate is UNTOUCHED and is
@@ -3367,8 +3421,22 @@ export interface WarnCardModel {
    *  EMPTIED BY THE SNAP GATE above, where the engine had named a better start
    *  and the store's lattice could not reach it. It then stood over the engine's
    *  own 「11:45はこの区間で損が最少の開始です」 saying the opposite. When there
-   *  is no offer the card says the ENGINE'S sentence instead (the guard row,
-   *  appended below), which is true in both cases because the engine wrote it. */
+   *  is no offer the slot is simply empty.
+   *
+   *  ⚖ 92 fix round 5 V3 (breaker #4) — AND T2'S CURE BECAME THIS ROUND'S
+   *  DISEASE, so it is reversed. T2 filled the empty slot by appending the
+   *  engine's own check row, reading ⚖ GAP-6's 「on the HOLD popover it is the
+   *  only answer there is」 as a duty. On THIS face it is neither. The row's
+   *  first clause repeats the panel — the impact headline above it already
+   *  states the loss in the approved words — and its second clause names a
+   *  least-loss START, which is precisely the start the draw gates deliberately
+   *  withheld (round-2 S1's clean-only bar, round-3 T1's level bar, round-4 U1's
+   *  strictly-better-loss bar). So the card said 「11:45はこの区間で損が最少の
+   *  開始です」 in a row while refusing to offer 11:45 as a button: duplication
+   *  above, contradiction-by-absence below. FIX-6's own principle is the answer —
+   *  a surface picks the row it is ENTITLED to rather than re-authoring the
+   *  engine — and this surface is entitled to none: the panel plus 元に戻す is
+   *  the whole honest answer when there is nothing to offer. */
   safePrimary: { kind: 'place'; start: number; main: string; sub: string } | null
   commit: WarnCardCommit | null
   /** ⚖ 52 / 73-74 — every row the panel did NOT consume, in the board's existing
@@ -3415,6 +3483,16 @@ function greensLineOf(oks: ReadonlyArray<{ label: string }>): string | null {
   return subjects.length > 0 ? `${subjects.join('・')}は問題ありません` : null
 }
 
+/** ⚖ 92 fix round 5 V1 (breaker #4) — WHAT A SET OF PROTECTED WINDOWS IS WORTH,
+ *  ASKED OF CANON. `gapFillRawTotal` is the door the board's own 詰め込み price
+ *  is built on (pricing.ts :128-141 — it pro-rates `priceAt` hour by hour and
+ *  leaves the rounding to its caller), so the card is reading the same curve,
+ *  from the same levers, as the boxes drawn behind it. Unrounded on purpose: the
+ *  ¥10 round happens ONCE, on the difference, exactly as canon rounds once at
+ *  the end of a span rather than per hour. */
+const protectedValueOf = (starts: readonly number[], listPrice: number, protectedDur: number, frame: PriceFrame, depth: number) =>
+  starts.reduce((total, s) => total + gapFillRawTotal(listPrice, s, s + protectedDur, frame, depth), 0)
+
 /** ⚖ 92 — THE CONSEQUENCE, IN THE APPROVED SENTENCE SHAPE, FROM THE DATA.
  *
  *  ⚖ LAW BOUNDARY, spelled out because it is the one thing easy to get wrong
@@ -3442,9 +3520,18 @@ function greensLineOf(oks: ReadonlyArray<{ label: string }>): string | null {
  *    · loses exactly one, R-REP → the approved sentence Liam signed off on;
  *    · loses any other number → the capacity form, which is true for all of
  *      them (a DEGRADED loss, and an R-REP that costs more than one window).
- *  The ¥ multiplies by the same count: one window's price beside a two-window
- *  loss is a wrong number, and 約 does not license a wrong number. */
-function impactOf(cell: RailCell, listPrice: number, protectedDur: number): WarnCardModel['impact'] {
+ *  The ¥ follows the same count: one window's price beside a two-window loss is
+ *  a wrong number, and 約 does not license a wrong number.
+ *
+ *  ⚖ 92 fix round 5 V1 (breaker #4) — AND THE ¥ IS THE BOARD'S OWN PRICE. It
+ *  used to be this surface's own arithmetic (定価 × the protected length × the
+ *  count), which is a SECOND BASIS for a question the board already answers
+ *  through canon's pricing door — measured at −23%..+10% off the figure the
+ *  same screen prints for the same minutes. The 一つの真実 fix is to ask canon:
+ *  the engine hands over the protected windows themselves, the screen hands over
+ *  the levers the sell layer is built from, and the loss is the difference
+ *  between what that inventory was worth before and after. */
+function impactOf(cell: RailCell, listPrice: number, protectedDur: number, frame: PriceFrame | null, depth: number): WarnCardModel['impact'] {
   const verbatim = { head: cell.sentence, yen: null, tail: '' }
   // The two classes the approved design gave a shape to, and no others: an
   // unruled class keeps the engine's sentence exactly as it did before this fix
@@ -3452,24 +3539,59 @@ function impactOf(cell: RailCell, listPrice: number, protectedDur: number): Warn
   // not this round's to pre-empt).
   const ruled = cell.impact?.code === 'R-REP' || cell.impact?.code === 'DEGRADED'
   if (!cell.impact || !ruled) return verbatim
-  const { capacityBefore, capacityAfter } = cell.impact
+  /** ⚖ 92 fix round 5 V5 (breaker #4) — NO PROTECTED LENGTH, NO SENTENCE OF OUR
+   *  OWN. Every approved shape below prints 「新規のお客様の{N}分」, so a store
+   *  whose 確保する長さ is 0, negative or unset hands the operator 「0分」 or
+   *  「NaN分」 with money beside it. Written as `!(x > 0)` rather than `x <= 0`
+   *  because NaN fails every comparison — the one spelling that catches it. The
+   *  engine's own sentence is the honest answer, and it is ¥-free. */
+  if (!(protectedDur > 0)) return verbatim
+  const { capacityBefore, capacityAfter, windowsBefore, windowsAfter } = cell.impact
   const loss = capacityBefore - capacityAfter
   if (loss <= 0) return verbatim
-  // ⚖ 92 — the store's own list price for the windows this landing costs it,
-  // rounded to ten yen because a card that says 約 may not then print a figure
-  // to the digit. `<= 0` is a store that prices nothing here, and it omits the
-  // parenthetical entirely rather than printing 約¥0 — a wrong number is worse
-  // than no number.
-  const value = Math.round((listPrice * protectedDur * loss) / 60 / 10) * 10
-  const yen = listPrice > 0 && value > 0 ? `約${money(value)}` : null
+  // ⚖ 92 fix round 5 V1 (breaker #4) — THE ¥ IS THE BOARD'S OWN PRICE. What the
+  // store loses is the difference between what its protected inventory was worth
+  // before this landing and what it is worth after, both priced through canon's
+  // door — never 定価 × minutes × count, which was a second opinion about a
+  // question the board already answers on the same screen.
+  //
+  // The DIFFERENCE, never 「the starts that vanished」: the after-set is re-solved
+  // and its windows SHIFT (see `RailCell.impact`), so the starts missing from it
+  // over-count the loss by the whole set on a degraded landing. `hqMin` is a
+  // divisor inside `priceAt`, so a frame without one prices nothing rather than
+  // printing an infinity; `listPrice <= 0` is a store that prices nothing here.
+  // Both omit the money entirely rather than showing 約¥0.
+  const value = frame != null && frame.hqMin > 0 && listPrice > 0
+    ? Math.round(
+        (protectedValueOf(windowsBefore, listPrice, protectedDur, frame, depth)
+          - protectedValueOf(windowsAfter, listPrice, protectedDur, frame, depth)) / 10,
+      ) * 10
+    : 0
+  const yen = value > 0 ? `約${money(value)}` : null
   // ⚖ 92 micro-fix M1, JP native pass — the ¥ renders in brackets right after
   // the head, so 「…90分（約¥21,000）の空きが…」 read as a price PER 90 分. The
   // 空き belongs to the noun the money is about, so it joins the head and the
   // tail opens on が: 「…90分の空き（約¥21,000）が6枠から4枠に減ります。」
   const head = `ここに置くと、新規のお客様の${protectedDur}分`
-  return cell.impact.code === 'R-REP' && loss === 1
-    ? { head, yen, tail: 'が入らなくなります。' }
-    : { head: `${head}の空き`, yen, tail: `が${capacityBefore}枠から${capacityAfter}枠に減ります。` }
+  if (cell.impact.code === 'R-REP' && loss === 1) return { head, yen, tail: 'が入らなくなります。' }
+  const shrink = `が${capacityBefore}枠から${capacityAfter}枠に減ります`
+  // ⚖ 92 fix round 5 V1 (breaker #4) — AND AT A LOSS OF MORE THAN ONE THE MONEY
+  // MOVES OFF THE NOUN. 「…の90分の空き（約¥21,000）が6枠から4枠に減ります。」 puts
+  // one bracket against one 空き and then says two of them went: the figure reads
+  // as the price of the single window the noun names. Past one, the ¥ belongs to
+  // the LOSS, so it rides the 枠 clause — 「（2枠分・約¥21,000）」 — where the
+  // count it multiplies is standing right beside it.
+  //
+  // The model's contract is UNCHANGED (`{head, yen, tail}`, no fourth field) and
+  // `yen` is null on this arm, so the screen's own `{…impact.yen && <span
+  // className="wc-yen">}` simply does not fire and the JSX needs no branch. The
+  // trade is deliberate and it is the honest one: the plural loss's figure gives
+  // up the `.wc-yen` emphasis to sit where it is true. With no money at all the
+  // parenthetical goes entirely — 「6枠から4枠に減ります」 already says 2 — rather
+  // than printing a 枠分 bracket nobody ruled on.
+  return loss === 1
+    ? { head: `${head}の空き`, yen, tail: `${shrink}。` }
+    : { head: `${head}の空き`, yen: null, tail: yen ? `${shrink}（${loss}枠分・${yen}）。` : `${shrink}。` }
 }
 
 export function warnFaceFor(input: WarnCardInput): WarnCardModel {
@@ -3491,7 +3613,7 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
   // is also why the row list is filtered rather than the panel doubled.
   const overrideRow = input.override == null ? null : `注意して配置: ${input.override}`
   const impact = guardWarn
-    ? impactOf(cell, input.listPrice, protectedDur)
+    ? impactOf(cell, input.listPrice, protectedDur, input.frame, input.depth)
     : { head: input.override ?? '', yen: null, tail: '' }
   // ⚖ 92 fix round 2 S2 — and an ok row the greens line could not NAME is kept
   // beside them: the line consumed the four subjects it has words for, so
@@ -3525,19 +3647,6 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
       ? { kind: 'place', start: alt, main: `${clockOf(alt)}に置く`, sub: cell!.alternativeKind === 'safe' ? '（確保を壊さない）' : '（損を減らす）' }
       : null
 
-  /** ⚖ 92 fix round 3 T2 (breaker #2) — NO OFFER ⇒ THE ENGINE'S OWN SENTENCE.
-   *
-   *  ⚖ GAP-6's second clause is the row's answer to "then where?", and its own
-   *  law says 「on the HOLD popover it is the only answer there is」 — yet this
-   *  face dropped `guardRow` entirely, which is exactly the surface GAP-6 wrote
-   *  that clause for. With an offer on the card the clause would contradict it
-   *  (⚖ FIX-6's split, and the offer IS the better answer), so it joins the rows
-   *  only when the slot above is empty: same transform, same ⚖ 52 △ tone, same
-   *  ¥-free words, taken from `guardCheckRow` itself so the two can never drift.
-   *  Composed once here and appended to BOTH faces' row lists below. */
-  const engineRow = safePrimary === null && guardWarn ? guardCheckRow(cell) : null
-  const rowsOut = engineRow ? [...kept, engineRow] : kept
-
   // ⚖ 92 — THE NAME LINE IS AUTOMATIC AND OTHER-LANE-ONLY (the approved page's
   // own rule: 「記録の名前は、他の人のシフトに置くときだけ表示されます（自動）」).
   // Printing the operator's own name back at them on their own shift is noise;
@@ -3552,13 +3661,6 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
   // this board does not have). The face exists so the settings round LIGHTS it
   // rather than inventing it, and nothing here creates a way to reach it: no
   // policy value, no server state, no second dial.
-  if (level === 'refuse') {
-    // The lock face carries the source in the red line itself (approved design),
-    // so it has no provenance line — saying 店舗の設定 twice on one small card is
-    // the badge-repeating-a-label defect. The safe primary and 元に戻す stay:
-    // being unable to place HERE is not being unable to place.
-    return { face: 'warn', impact, provenance: null, lock: 'この場所への配置は店長のみ（店舗の設定）', safePrimary, commit: null, rows: rowsOut, greensLine: greensLineOf(oks) }
-  }
   /** ⚖ 92 fix round 4 U3 (breaker #3) — AND A FLOOR THE ENGINE CALLS IMPOSSIBLE
    *  WEARS NO COMMIT AND NO PERMISSION LINE.
    *
@@ -3574,14 +3676,34 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
    *
    *  The lock line stays NULL too: 「この場所への配置は店長のみ」 would be false —
    *  this is physics, not the store's setting, and naming the manager would
-   *  send the operator to ask for something no manager can grant. And 'refuse'
-   *  is answered ABOVE, so a locked-out operator still reads the dial's own
-   *  sentence: the setting stopped them before the physics was ever reached.
+   *  send the operator to ask for something no manager can grant.
+   *
+   *  ⚖ 92 fix round 5 V2 (breaker #4) — AND IT ANSWERS BEFORE THE DIAL DOES.
+   *  Round 4 put this branch under 'refuse', so a locked-out operator standing on
+   *  an IMPOSSIBLE start read 「この場所への配置は店長のみ（店舗の設定）」 — the
+   *  store's setting named as the obstacle over a spot no setting governs, which
+   *  sends them to ask a manager who is refused by the very same physics. This
+   *  branch's own sentence three paragraphs up is the citation: naming the
+   *  manager sends the operator after something no manager can grant, and that is
+   *  no less true when the dial happens to refuse them too. Physics outranks the
+   *  dial, so it is asked first.
    *
    *  Safe primary, rows, greens and 元に戻す are untouched — being unable to
    *  place HERE is not being unable to place. */
   if (cell != null && cell.state === 'blocked' && cell.ackAllowed === false) {
-    return { face: 'warn', impact, provenance: null, lock: null, safePrimary, commit: null, rows: rowsOut, greensLine: greensLineOf(oks) }
+    return { face: 'warn', impact, provenance: null, lock: null, safePrimary, commit: null, rows: kept, greensLine: greensLineOf(oks) }
+  }
+  if (level === 'refuse') {
+    // The lock face carries the source in the red line itself (approved design),
+    // so it has no provenance line — saying 店舗の設定 twice on one small card is
+    // the badge-repeating-a-label defect. The safe primary and 元に戻す stay:
+    // being unable to place HERE is not being unable to place.
+    //
+    // ⚖ 92 fix round 5 V2 (breaker #4) — and the cell is one the engine calls
+    // PLACEABLE by the time this is reached: the impossible-floor branch above
+    // has already answered, so the 店舗の設定 this line names really is the only
+    // thing standing in the operator's way.
+    return { face: 'warn', impact, provenance: null, lock: 'この場所への配置は店長のみ（店舗の設定）', safePrimary, commit: null, rows: kept, greensLine: greensLineOf(oks) }
   }
   const commit: WarnCardCommit =
     level === 'needs-approval'
@@ -3617,7 +3739,7 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
         }
   const provenance =
     (level === 'needs-approval' ? '店舗の設定で、上書きには店長の承認が必要です' : '店舗の設定で、スタッフの上書きが許可されています') + recorded
-  return { face: 'warn', impact, provenance, lock: null, safePrimary, commit, rows: rowsOut, greensLine: greensLineOf(oks) }
+  return { face: 'warn', impact, provenance, lock: null, safePrimary, commit, rows: kept, greensLine: greensLineOf(oks) }
 }
 
 /** ⚖ 92 — THE LONG PRESS, AS ARITHMETIC. Ported from the approved page's own
