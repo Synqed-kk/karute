@@ -607,6 +607,48 @@ describe('the fixture data door', () => {
         'react',
       ],
       'src/app/[locale]/(business)/business/karute/loading.tsx': ['@/business/i18n'],
+      // 録音. The room's own RECORDING plane plus the derivations that BORROW
+      // every other fact it shows: the booking's date/store/customer/staff/menu,
+      // the roster's names through the card↔profile bridge, and — through that
+      // SAME booking — whether the カルテ room's plane holds a record for the
+      // session. The plane imports the world's store constant and nothing else;
+      // the screen imports its own types and the shared tour engine, and reaches
+      // into `src/lib/recording/*`, `src/lib/recordings/*` and `src/lib/karute/*`
+      // NOWHERE — the phone's contracts are mirrored by shape in `recording.ts`,
+      // each with a file:line cite, because Business territory may not import
+      // phone runtime.
+      // ⚠ THE ONE-IMPORT PLANE IS THE FENCE, MADE MACHINE-READABLE. A recording
+      // plane that imported the world could restate a fact the world already
+      // states — a customer's name, a store, a date — and that is the W7 breach
+      // class this room is pinned against. It imports the STORE ID only (an
+      // unbound walk-in take has no booking to read one through), so it can
+      // otherwise only ADD: an appointment id, and what the session itself
+      // produced.
+      'src/business/lib/fixtures-recording.ts': ['./fixtures'],
+      'src/business/lib/recording.ts': ['./clock', './fixtures', './fixtures-karute', './fixtures-recording'],
+      'src/app/[locale]/(business)/business/recording/page.tsx': [
+        './RecordingScreen',
+        './recording-props',
+        './recording.css',
+        '@/business/lib/admission',
+      ],
+      'src/app/[locale]/(business)/business/recording/recording-props.ts': [
+        './RecordingScreen',
+        '@/business/lib/clock',
+        '@/business/lib/data',
+        '@/business/lib/fixtures',
+        '@/business/lib/fixtures-karute',
+        '@/business/lib/fixtures-recording',
+        '@/business/lib/recording',
+        '@/business/lib/today-board',
+      ],
+      'src/app/[locale]/(business)/business/recording/RecordingScreen.tsx': [
+        '@/business/lib/guide',
+        '@/business/lib/recording',
+        'next/link',
+        'react',
+      ],
+      'src/app/[locale]/(business)/business/recording/loading.tsx': ['@/business/i18n'],
     }
     for (const [file, expected] of Object.entries(INVENTORY)) {
       const src = readFileSync(join(process.cwd(), file), 'utf8')

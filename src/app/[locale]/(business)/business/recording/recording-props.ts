@@ -1,0 +1,449 @@
+// 録音 — the room's PROP ASSEMBLY, beside the page rather than inside it.
+//
+// WHY THIS FILE EXISTS (the room-3 F1 law, inherited from day one): the evidence
+// harness imports THIS function, so an isolated shot is the same assembly the
+// deployed page runs and a drift between them is a compile error rather than a
+// picture nobody can check. `page.tsx` keeps the admission gate, the route
+// params and the sheet import — the things a route entry owns.
+//
+// EVERY DATE CROSSES THE CLIENT BOUNDARY AS A FORMATTED STRING, and every day
+// comparison crosses it as `jstDayKey`'s integer. The screen holds no clock, no
+// formatter and no data access at all: it cannot put a different day on a take
+// from the one the server counted, and no locale or timezone can drift between
+// the two renders.
+//
+// ⚠ THE THREE REDACTIONS HAPPEN ABOVE THIS FILE, IN `recording.ts`. Another
+// store's takes never enter the model; a staff reader's model contains only
+// their OWN takes; and a discarded take's reason and transcript never enter it
+// for a reader without `discardReview`. None of the three can therefore be in
+// the serialized props for a screen to "hide" — that is what the
+// leaves-nothing-behind pins measure.
+//
+// ⚖ W7-4 — EVERY POLICY FACT ON THIS PAGE COMES FROM THE PLANE'S SAVED TRUTH.
+// The room owns no settings write, so there is no optimistic or pending policy
+// state to promote: the pinned consent version, the floor and the store's own
+// facts are read here, once, and rendered. A policy string sourced from anywhere
+// else is one of the battery's own reds.
+
+import { jstDayKey, jstMinuteOfDay, jstYmd } from '@/business/lib/clock'
+import {
+  defaultStoreId,
+  listAppointments,
+  listCustomers,
+  listMenus,
+  listStaff,
+  listStoreOptions,
+  renderNow,
+  type StoreLens,
+} from '@/business/lib/data'
+import { operator, staffCards, type FixtureAppointment } from '@/business/lib/fixtures'
+import { records as recordPlane } from '@/business/lib/fixtures-karute'
+import {
+  consentGrants as grantPlane,
+  takes as takePlane,
+  CONSENT_POLICY_VERSION,
+  type FixtureConsentGrant,
+  type FixtureTake,
+} from '@/business/lib/fixtures-recording'
+import {
+  accessFor,
+  buildTakes,
+  cardIdOfStaff,
+  canStartRecording,
+  consentGateNote,
+  consentOf,
+  consentProofLine,
+  consentScript,
+  CONSENT_INSTRUCTIONS,
+  CONSENT_LABEL,
+  CONSENT_TONE,
+  CONTACT_TAGS_DISCLAIMER,
+  discardCounts,
+  discardLedger,
+  isBelowFloor,
+  ownDiscardsThisMonth,
+  permissionNotice,
+  pickerOptions,
+  TAKE_REASON_LINE,
+  TAKE_STATE_CHIP,
+  TAKE_STATE_LABEL,
+  TRANSCRIPT_ABSENCE_LINE,
+  TRANSCRIPT_FAILED_LINE,
+  TRANSCRIPT_POLICY_LINE,
+  BELOW_FLOOR_SEC,
+} from '@/business/lib/recording'
+import { hhmm } from '@/business/lib/today-board'
+import {
+  type RecordingContextProps,
+  type RecordingProps,
+  type RecordingTakeProps,
+  type DiscardRowProps,
+} from './RecordingScreen'
+
+const JST = { timeZone: 'Asia/Tokyo' } as const
+const fmtDay = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', ...JST })
+const fmtDayLong = new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short', ...JST })
+
+/** ⚠ THE REFUSALS, IN ONE PLACE, AND EACH ONE SAYS WHY IN ITS OWN WORDS. One
+ *  generic sentence on six different controls tells the reader nothing about
+ *  which of them would have done what. They ride each control's ACCESSIBLE NAME
+ *  as well as its title, because a screen reader drops `title` once
+ *  `aria-describedby` is present (the room-3 F4 lesson).
+ *
+ *  ⚖ R6-D3 — 「この録音を使う」 REFUSES, and the reason has to say why THIS one
+ *  refuses while the discard beside it runs: a demo commit would claim a カルテ
+ *  change the カルテ room provably does not show. */
+const REFUSAL = {
+  use: '見本データのためカルテに反映できません。反映はお客様のカルテ本体を書き換える操作で、この見本ではカルテ画面に何も現れないため、実データの接続後に有効になります。（録音の破棄はこの画面で最後まで試せます。）',
+  save: '見本データのため保存できません。保存は録音をカルテとして残す操作のため、実データの接続後に有効になります。録音はこの案内が消えるまで失われません。',
+  checked: '見本データのため確認済みにできません。確認済みの印は、まだ保存できる場所がありません（破棄の記録は作成と一覧のみ）。必要かどうかを含めて検討中です。',
+  transcript: '保存された録音の文字起こしは、この画面では開けません。閲覧できる範囲は店舗の設定で決まる仕組みで、まだつないでいません。',
+  policy: '見本データのため録音の設定は変更できません。録音の設定は「設定」画面にまとまる予定で、まだつないでいません。',
+  enroll: '見本データのため音声の登録はできません。自分の声の登録は「設定」画面の録音設定にまとまる予定で、まだつないでいません。',
+} as const
+
+const FOOTNOTE = '見本データのため、カルテへの反映・保存・設定の変更はできません — 実データ接続後に有効になります。'
+
+export interface RecordingPropsInput {
+  locale: string
+  /** The raw `?store=` value. Unknown or missing opens on the operator's own
+   *  store, never the business-wide merge — `defaultStoreId` owns that rule. */
+  store?: string
+  /** ⚖ W7-3 — THE RECOVERY SLOT, BEHIND ITS OWN NAMED QUERY PARAM. `?recovery=1`
+   *  renders the ONE deterministic residue state. It is a param rather than a
+   *  standing surface because a recovery banner is what a crash LEAVES BEHIND —
+   *  a page that always shows one is a page claiming a failure that did not
+   *  happen — and it is SINGLE-SLOT by construction: the props carry one
+   *  `recovery` object or none, so a draft and a take can never render at once. */
+  recovery?: string
+  /** FIXTURE-SHAPED WORLD OVERRIDES, and the page never passes them. The
+   *  evidence harness needs worlds this demo plane does not contain — a
+   *  200-take desk, a store that has never recorded anything, a 25-staff counts
+   *  block, a staff member's own view — and the only honest way to picture any
+   *  of them is to run the REAL derivations on a different fixture world, never
+   *  a class toggle or a hand-written replica. Every field is exactly the shape
+   *  the fixture module exports. */
+  world?: {
+    takes?: FixtureTake[]
+    grants?: FixtureConsentGrant[]
+    /** The harness's own booking set, REPLACING the door's — a take resolves its
+     *  date, store, customer and staff through a booking, so a 200-take desk
+     *  needs 200 bookings to hang off. ⚠ THE LENS STILL DECIDES: the one line
+     *  below applies the door's own rule to whatever the harness supplies, so a
+     *  synthetic world cannot smuggle another store's booking past the isolation
+     *  proof — and the isolation proof itself runs on the DEMO world through the
+     *  REAL door, untouched. */
+    appointments?: FixtureAppointment[]
+    /** The role the page is being read by. The demo operator is a 店舗管理者. */
+    role?: string
+  }
+}
+
+export interface RecordingPropsResult {
+  props: RecordingProps
+  /** The RESOLVED lens, returned rather than re-derived by the caller so the
+   *  clamp keeps exactly one home. `page.tsx` keys the screen by it, which is
+   *  what makes the picker, the demo machine and the open screen reset on a
+   *  store switch instead of surviving into a desk that no longer contains
+   *  them. */
+  storeKey: string
+}
+
+/** Resolve everything RecordingScreen is handed. Server-only by construction:
+ *  every read goes through `@/business/lib/data`'s store-clamped fixture door. */
+export async function recordingProps({
+  locale,
+  store,
+  recovery,
+  world,
+}: RecordingPropsInput): Promise<RecordingPropsResult> {
+  const storeOptions = await listStoreOptions()
+  const storeId = defaultStoreId(store, storeOptions)
+  const clamped = storeId !== null
+  const lens: StoreLens = clamped ? storeId! : { viewAll: true }
+
+  // ONE CLOCK READ PER RENDER (the cycle-1 law): today's picker, the 今月 counts,
+  // every take's date and the window walk's axis all derive from this one
+  // instant, so a render crossing JST midnight cannot put two different days on
+  // one screen.
+  const now = renderNow()
+  const todayKey = jstDayKey(now)
+  const { y, m } = jstYmd(now)
+
+  const [customers, doorAppointments, menus, staff] = await Promise.all([
+    listCustomers(lens),
+    listAppointments(lens),
+    listMenus(lens),
+    listStaff(lens),
+  ])
+  const appointments = world?.appointments
+    ? world.appointments.filter((a) => (clamped ? a.store_id === storeId : true))
+    : doorAppointments
+
+  const grants = world?.grants ?? grantPlane
+  const role = world?.role ?? operator.role
+  const access = accessFor(role)
+  const selfCardId = cardIdOfStaff(operator.staff_id, staffCards, staff)
+
+  const models = buildTakes({
+    takes: world?.takes ?? takePlane,
+    appointments,
+    customers,
+    staff,
+    staffCards,
+    records: recordPlane,
+    storeId,
+    todayKey,
+    access,
+    selfCardId,
+  })
+
+  const storeName = new Map(storeOptions.map((s) => [s.id, s.name]))
+  const lensLabel = clamped ? (storeName.get(storeId!) ?? 'この店舗') : 'すべての店舗'
+  const storeQuery = clamped ? `?store=${encodeURIComponent(storeId!)}` : ''
+  const karuteHref = `/${locale}/business/karute${storeQuery}`
+  const staffHref = `/${locale}/business/shifts${storeQuery}`
+
+  const dayOf = (dayKey: number) => new Date(dayKey * 86_400_000)
+  const customerById = new Map(customers.map((c) => [c.id, c]))
+  const recordByAppointment = new Map(recordPlane.map((r) => [r.appointment_id, r]))
+
+  // ── the picker, and one context object per option ─────────────────────────
+  // Selection is CLIENT state — a receptionist changes which booking they are
+  // about to record without a round trip — so every option's whole context is
+  // resolved HERE and the screen only chooses between them. That is what keeps
+  // the screen free of a clock, a formatter and the consent rule all at once.
+  const options = pickerOptions({
+    appointments,
+    customers,
+    menus,
+    staff,
+    grants,
+    todayKey,
+    minuteOf: jstMinuteOfDay,
+  })
+
+  const contexts: RecordingContextProps[] = options.map((o) => {
+    const consent = consentOf(o.customerId, grants)
+    const customer = customerById.get(o.customerId)!
+    const record = recordByAppointment.get(o.appointmentId) ?? null
+    const timeLabel = hhmm(o.startedMinute)
+    const dateLabel = fmtDayLong.format(new Date(o.startsAt))
+    // ⚖ CANON's contact tags (:640) — the customer profile's own 連絡許可, which
+    // is NOT recording consent and says so on the line beneath.
+    const tags: string[] = []
+    if (customer.consent?.line) tags.push('LINE')
+    if (customer.consent?.sms) tags.push('SMS')
+    if (customer.consent?.email) tags.push('メール')
+    return {
+      appointmentId: o.appointmentId,
+      customerId: o.customerId,
+      customerName: o.customerName,
+      staffName: o.staffName,
+      menuName: o.menuName,
+      optionLabel: `${timeLabel} ${o.customerName}様（${o.staffName}）`,
+      timeLabel,
+      dateLabel,
+      metaLabel: `${dateLabel} ${timeLabel} ・ ${o.menuName} ・ 担当 ${o.staffName}`,
+      consentState: consent.state,
+      consentLabel: CONSENT_LABEL[consent.state],
+      consentTone: CONSENT_TONE[consent.state],
+      consentProof: consentProofLine(consent),
+      // ⚖ W7-1 — THE GATE IS ONE CALL, and its answer is serialized ONCE. The
+      // screen renders `canStart`; it never re-decides it, so there is no second
+      // home for a mode or a flag to be read in.
+      canStart: canStartRecording(consent),
+      gateNote: consentGateNote(consent, o.customerName),
+      contactTags: tags,
+      script: consentScript(o.customerName),
+      // Canon's use-block proof (:722) and its confirm rows (:804) — read from
+      // the カルテ plane through the SAME booking, so the room can name the
+      // record a commit WOULD touch rather than describing one.
+      targetRecordId: record?.id ?? null,
+      targetOutcomeLabel: record?.outcome
+        ? { success: '成約', no_deal: '不成約', pending: '仮カルテ', revisit: '通常ご来店' }[record.outcome.status]
+        : '結果 未記録',
+      targetSummaryLabel: record === null
+        ? '—'
+        : record.summary_ai === null
+          ? 'AI補完待ち'
+          : record.summary_state === 'confirmed'
+            ? '確定'
+            : '下書き',
+      useProof: record
+        ? `対象のカルテ記録: ${record.id}（${o.customerName}様 ・ 結果 ${
+            record.outcome
+              ? { success: '成約', no_deal: '不成約', pending: '仮カルテ', revisit: '通常ご来店' }[record.outcome.status]
+              : '未記録'
+          }）`
+        : `${o.customerName}様のカルテ記録はまだありません。新しいカルテ記録を作成します。`,
+    }
+  })
+
+  // ── 録音履歴 ──────────────────────────────────────────────────────────────
+  const takeRows: RecordingTakeProps[] = models.map((t) => ({
+    id: t.id,
+    dayKey: t.dayKey,
+    dateLabel: fmtDay.format(dayOf(t.dayKey)),
+    timeLabel: hhmm(t.startedMinute),
+    // 顧客未設定 is the phone's own word for an unbound take
+    // (recording.inbox.unsetCustomer) — never a 「—」 that reads as broken.
+    customerLabel: t.customerName ?? '顧客未設定',
+    byName: t.byName,
+    // ⚖ SELF-EXPLAINING NUMBERS (Liam 8/25): the duration says WHAT it measures.
+    // ⚠ AND 10秒未満 IS A PLAIN FACT beside it (W7-2), never a warning.
+    durationLabel:
+      t.durationSeconds === null
+        ? '長さ 記録なし'
+        : t.belowFloor
+          ? `長さ ${t.durationSeconds}秒（${BELOW_FLOOR_SEC}秒未満）`
+          : `長さ ${Math.max(1, Math.round(t.durationSeconds / 60))}分`,
+    stateLabel: TAKE_STATE_LABEL[t.state],
+    stateChip: TAKE_STATE_CHIP[t.state],
+    reasonLine: t.reason === null ? null : TAKE_REASON_LINE[t.reason],
+    isDiscarded: t.state === 'discarded',
+    // ⚖ R2 + A2-3 — A DISCARDED ROW OFFERS NOTHING. `null` here is the whole
+    // affordance suppression, decided from the STATE and nothing else, so no
+    // later branch can read `karuteRecordId` (which stays TRUE — this room never
+    // erases evidence) and hand a discarded row a lever.
+    action:
+      t.state === 'discarded'
+        ? null
+        : t.karuteRecordId !== null
+          ? { kind: 'karute' as const, label: 'カルテ一覧を開く', href: karuteHref }
+          : t.state === 'recoverable'
+            ? { kind: 'save' as const, label: '保存する', href: null }
+            : null,
+    karuteRecordLabel: t.state === 'discarded' ? null : t.karuteRecordId,
+  }))
+
+  const counts = discardCounts(models, y, m)
+  const ownDiscards = ownDiscardsThisMonth(models, selfCardId, y, m)
+
+  const discardRows: DiscardRowProps[] = access.discardReview
+    ? discardLedger(models, (model) => {
+        // ⚖ 8/20 (b) — R2 keeps the burn out of every NUMBER; it does not erase
+        // that one happened, and the manager owns the correction. Read off the
+        // PLANE rather than off the R2-nulled model field.
+        const source = (world?.takes ?? takePlane).find((x) => x.id === model.id)
+        return source?.ticket_redeemed ?? false
+      }).map((r) => ({
+        takeId: r.takeId,
+        whenLabel: `${fmtDayLong.format(dayOf(r.dayKey))} ${hhmm(r.minute)}`,
+        byName: r.byName,
+        reason: r.reason,
+        transcript: r.transcript,
+        absenceLine: TRANSCRIPT_ABSENCE_LINE[r.absence],
+        durationLabel:
+          r.durationSeconds === null
+            ? '長さ 記録なし'
+            : r.belowFloor
+              ? `長さ ${r.durationSeconds}秒（${BELOW_FLOOR_SEC}秒未満）`
+              : `長さ ${Math.max(1, Math.round(r.durationSeconds / 60))}分`,
+        ticketNote: r.ticketRedeemed
+          ? '破棄前にこのセッションで回数券を1回消化していました。返却の要否をご確認ください。'
+          : null,
+      }))
+    : []
+
+  // ── ⚖ W7-3 · THE RECOVERY SLOT ───────────────────────────────────────────
+  // ONE object or none, and it is built from the plane's own single recoverable
+  // take. A draft-shaped offer and a take-shaped offer can never render at once
+  // because there is exactly one field for either of them to live in — the
+  // structural version of 「never draft and take simultaneously」.
+  const recoverable = models.find((t) => t.state === 'recoverable') ?? null
+  const wantRecovery = recovery === '1' && recoverable !== null
+  const recoveryProps = wantRecovery
+    ? {
+        title: 'このカルテは正しく保存されませんでした',
+        customerLabel: recoverable!.customerName ?? '未選択（保存時に選択）',
+        recordedAtLabel: `${fmtDayLong.format(dayOf(recoverable!.dayKey))} ${hhmm(recoverable!.startedMinute)}`,
+        lengthLabel:
+          recoverable!.durationSeconds === null
+            ? null
+            : `${recoverable!.durationSeconds}秒`,
+        recordedByLabel: recoverable!.byName,
+        // ⚖ 8/26 (b) — the discard exit exists ONLY for a below-floor TAKE, and
+        // `isBelowFloor` is the same predicate the chip and the manager screen
+        // read, so a fourth spelling of 「short」 cannot appear.
+        belowFloor: isBelowFloor(recoverable!.durationSeconds),
+        caption: '録音は消えません。保存するまでこの案内が残ります。',
+        // ⚠ THE ROOM'S OWN LONG-RECORDING TRUTH (§2b-8 cross-lane crumb): the
+        // phone's auto-stop copy says 「自動的に保存しました」 and the 2h cap only
+        // STOPS. This room must not copy the lie, so its own sentence says
+        // stop-not-save.
+        stopNote: '長い録音は自動で停止します。停止しただけで保存はされないため、保存するまでこの案内は消えません。',
+      }
+    : null
+
+  const props: RecordingProps = {
+    dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
+    lensLabel,
+    operatorName: operator.name,
+    // Canon's own subtitle (fable-record-session.html:404), amended for the two
+    // things §2b-5 makes true that canon predates: consent is CURRENT-consent
+    // under a pinned version, and the room's picker is booking-bound.
+    subtitle:
+      '施術中の会話を録音し、一時停止・停止をはさんで、その録音をカルテに使います。録音を始められるのは、いまの説明文で録音の同意をいただけている予約だけです。',
+    contexts,
+    defaultAppointmentId: contexts[0]?.appointmentId ?? null,
+    takes: takeRows,
+    // ⚖ 8/25 ruling B, staff half — `null` renders NOTHING, never 0.
+    ownDiscardLine: ownDiscards === null ? null : `自分が今月破棄した録音 ${ownDiscards}件`,
+    historyCaption: access.storeWide
+      ? 'この店舗の録音（新しい順）'
+      : '自分の録音（新しい順）',
+    counts: {
+      thisMonthLine: `今月の破棄 ${counts.thisMonth}件`,
+      totalLine: `記録されている破棄 全${counts.total}件`,
+      byStaff: counts.byStaff.map((s) => ({ name: s.name, line: `今月の破棄 ${s.thisMonth}件` })),
+      truncatedLine: counts.truncated ? '古い記録を除いた件数です。' : null,
+      listTruncatedLine: counts.truncated ? '件数が多いため、古い記録は表示していません。' : null,
+    },
+    discardRows,
+    canReviewDiscards: access.discardReview,
+    recovery: recoveryProps,
+    noticeLines: permissionNotice(access),
+    // ⚖ W7-4 — the trace rows are the PLANE's saved truth and the shell's own
+    // real routes. Canon's own trace card claimed two org dials that do not
+    // exist on main (a 保持期間 org setting and a configurable consent switch);
+    // §2b-7 rewrites both for truth rather than carrying a link to a control
+    // nobody built.
+    trace: [
+      {
+        label: '録音の同意',
+        value: `この製品の決まりです（${CONSENT_POLICY_VERSION}）。店舗ごとの切り替えはありません。`,
+        href: null,
+      },
+      {
+        label: '文字起こしの公開範囲',
+        value: `${TRANSCRIPT_POLICY_LINE}保存された録音の文字起こしを開く画面は、どちらの設定でもまだありません。`,
+        href: null,
+      },
+      {
+        label: '端末に残る録音',
+        value: '保存されなかった録音は、録音した端末に7日間だけ残ります。店舗ごとの保持期間の設定はありません。',
+        href: null,
+      },
+      { label: '自分の音声登録', value: '「設定」の録音設定にまとまる予定です（未接続）。', href: null },
+      { label: '担当者の名簿', value: 'スタッフ・シフト', href: staffHref },
+    ],
+    traceNote:
+      'この画面が出している値の出どころです。まだつないでいないものは「未接続」と書いています。',
+    consentInstructions: CONSENT_INSTRUCTIONS,
+    contactDisclaimer: CONTACT_TAGS_DISCLAIMER,
+    transcriptFailedLine: TRANSCRIPT_FAILED_LINE,
+    actionFootnote: FOOTNOTE,
+    refusals: {
+      use: REFUSAL.use,
+      save: REFUSAL.save,
+      checked: REFUSAL.checked,
+      transcript: REFUSAL.transcript,
+      policy: REFUSAL.policy,
+      enroll: REFUSAL.enroll,
+    },
+    karuteHref,
+  }
+
+  return { props, storeKey: clamped ? storeId! : 'all-stores' }
+}
