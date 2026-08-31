@@ -306,14 +306,92 @@ describe('the room’s controls — every one has a visible effect', () => {
     expect(CSS_CODE).not.toMatch(/\.ak-more[^{]*\{[^}]*(overflow|max-height)/)
   })
 
-  it('the 設定する CTA refuses to its own registry line, and it is reachable', () => {
+  it('⚖ F2-5 — the 設定する CTA answers in ITS OWN section, and the composer’s slot stays send-only', () => {
     // `aria-disabled` rather than `disabled`: the control stays focusable so its
     // reason is reachable by keyboard and screen reader, and the reason rides the
     // ACCESSIBLE NAME as well as the title (a screen reader drops `title`).
     expect(SRC_CODE).toContain('aria-disabled="true"')
     expect(SRC_CODE).toContain('title={props.refusals.settings}')
     expect(SRC_CODE).toContain('aria-label={`${props.profileHint.cta} — ${props.refusals.settings}`}')
-    expect(SRC_CODE).toContain('onClick={() => setRefusal({ reason: props.refusals.settings, contextLabel: null })}')
+    expect(SRC_CODE).toContain('onClick={() => setSettingsRefused(true)}')
+
+    // S7-5: the reason used to render in the COMPOSER's slot — measured 221px
+    // below the button and off screen at the moment of the press, which is a
+    // control that looks like it did nothing. It renders inside 業種の設定 now.
+    const bodyOf = (marker: string) => {
+      const tag = SECTIONS.find((t) => t.text.includes(marker))!
+      const span = spanOf(SRC_CODE, 'section', tag)
+      return SRC_CODE.slice(span.start, span.end)
+    }
+    const profile = bodyOf('className="ak-profile"')
+    expect(profile).toContain('{settingsRefused && (')
+    expect(profile).toContain('className="ak-refusal ak-profile-refusal"')
+    expect(profile).toContain('{props.refusals.settings}')
+    // …and the composer's own slot never carries the settings reason again.
+    const composer = bodyOf('className="ak-composer"')
+    expect(composer).not.toContain('refusals.settings')
+    expect(composer).toContain('{refusal.reason}')
+    // Both slots wear the SAME family refusal treatment — one recipe, two homes
+    // for two different questions.
+    expect(CSS_CODE).toContain('.biz .pg-ask-ai .ak-profile-refusal')
+    expect(SRC_CODE).toContain('const [settingsRefused, setSettingsRefused] = useState(false)')
+  })
+
+  it('⚖ F2-3 — a 今日のヒント chip never destroys a typed question', () => {
+    // S7-3: over a half-written question the chip's fill was a silent,
+    // unrecoverable delete of the reader's own words — the exact thing the
+    // refusal path exists never to do (⚖ §A-7). Both branches are pinned.
+    const body = SRC_CODE.slice(SRC_CODE.indexOf('const takeSignal'), SRC_CODE.indexOf('const takeTemplate'))
+    expect(body).toContain("const typed = draft.trim() !== '' && draft !== chip.prompt")
+    // EMPTY BOX (or the same question already in it): today's behaviour, kept.
+    expect(body).toContain('if (!typed) setDraft(chip.prompt)')
+    // TYPED BOX: the draft is untouched and the chip's question goes into the
+    // refusal instead, where the reader can read and copy it.
+    expect(body).toContain('refuseSend(chip.contextLabel, typed ? chip.prompt : null)')
+    // …and there is exactly ONE write to the draft in this handler, the guarded
+    // one: a second, unguarded `setDraft` anywhere in the body would be the
+    // overwrite coming back by another door.
+    expect([...body.matchAll(/setDraft\(/g)]).toHaveLength(1)
+    expect(SRC_CODE).toContain('{refusal.intended && (')
+    expect(SRC_CODE).toContain('この質問を送る予定でした：{refusal.intended}')
+    // …beside the context label the same press already showed, and with its own
+    // quiet treatment.
+    expect(SRC_CODE).toContain('読み取る予定だったデータ：{refusal.contextLabel}')
+    expect(CSS_CODE).toContain('.biz .pg-ask-ai .ak-refusal-kept')
+  })
+
+  it('⚖ F2-1 — the feed has a SECOND empty state, and the tour step is true in both', () => {
+    // S7-1. Which empty is showing is a FACT about this screen, not a guess: a
+    // feed that arrived with rows and is empty now was emptied by this reader.
+    expect(SRC_CODE).toContain('const emptyState = props.feed.length > 0 ? props.feedDismissedEmpty : props.feedEmpty')
+    expect(SRC_CODE).toContain('<strong>{emptyState.title}</strong>')
+    expect(SRC_CODE).toContain('<span>{emptyState.body}</span>')
+    // Neither sentence is written here — both are props, one home each.
+    expect(SRC_CODE).not.toContain('提案はまだありません')
+    expect(SRC_CODE).not.toContain('却下は保存されない')
+    // …and the feed's own tour sentence no longer promises cards while the
+    // spotlight is sitting on an empty box.
+    const feedStep = DECLARATIONS.find((d) => d.title === 'AIが提案する次のアクション')!
+    expect(feedStep.text).not.toContain('1件ごとに根拠が付いていて')
+    expect(feedStep.text).toContain('並ぶところです')
+    expect(feedStep.text).toContain('却下はこの画面の中だけの操作')
+  })
+
+  it('⚖ F2-2 — 出典 has ONE home: the derived label, alone', () => {
+    // S7-2: the head printed a standalone 「出典」 span beside the derived
+    // 「出典 3件」, so the word appeared twice in one line and its label lived in
+    // two places. The derived string already carries the label (⚖ 8/25).
+    expect(SRC_CODE).toContain('<div className="ak-sources-head">{t.sourceCountLabel}</div>')
+    const head = SRC_CODE.slice(
+      SRC_CODE.indexOf('className="ak-sources"'),
+      SRC_CODE.indexOf('{t.sources.map'),
+    )
+    expect(head.length).toBeGreaterThan(20)
+    expect(head).not.toContain('出典')
+    expect(SRC_CODE).not.toContain('ak-sources-label')
+    expect(SRC_CODE).not.toContain('ak-sources-count')
+    expect(CSS_CODE).not.toContain('.ak-sources-label')
+    expect(CSS_CODE).not.toContain('.ak-sources-count')
   })
 
   it('the tour hands the keyboard back, and owns Escape only while it is open', () => {
@@ -365,6 +443,20 @@ describe('⚖ ALL-SCREEN ADAPTIVITY — the ladder is declared, band by band', (
     }
     // …and the ? keeps its 22px PAINT and grows its HIT BOX instead.
     expect(phone).toContain('.biz .pg-ask-ai .ak-help::after')
+  })
+
+  it('⚖ F2-9 — at ≤743 the feed count drops BELOW the wrapped title, not onto its baseline', () => {
+    // S7-10. At 390 the head's title wraps to two lines and 「提案 7件」 was
+    // pinned to the second line's baseline, hard against the wrap. The title
+    // takes the row it needs; the count takes the next one.
+    const phone = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 743px)'))
+    expect(phone).toContain('.biz .pg-ask-ai .ak-feed-head { flex-wrap: wrap; align-items: flex-start; row-gap: 3px; }')
+    expect(phone).toContain('.biz .pg-ask-ai .ak-feed-head h2 { flex: 1 1 100%; }')
+    // …and the desk band is UNTOUCHED: where there is room, the count still sits
+    // on the title's baseline at the far end of the head.
+    const desk = CSS_CODE.slice(0, CSS_CODE.indexOf('@media'))
+    expect(desk).toMatch(/\.ak-feed-head \{[^}]*align-items: baseline/)
+    expect(desk).toMatch(/\.ak-feed-head \{[^}]*justify-content: space-between/)
   })
 
   it('⚖ the composer is NOT sticky — it rides the page flow at every width', () => {

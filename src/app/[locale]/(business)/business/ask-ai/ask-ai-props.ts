@@ -38,6 +38,7 @@ import { records as recordPlane } from '@/business/lib/fixtures-karute'
 import {
   businessType as planeBusinessType,
   conversation as conversationPlane,
+  genericTemplates as genericTemplatePlane,
   signals as signalPlane,
   suggestions as suggestionPlane,
   templates as templatePlane,
@@ -114,10 +115,22 @@ const TRACE: Array<{ label: string; value: string; unconnected: boolean }> = [
   { label: '提案のもとになるデータ', value: '見本データ（未接続 — 実データの提案は接続後）', unconnected: true },
 ]
 
-/** Canon's own empty state (fable-ask-ai.html:353-356), verbatim in meaning. */
+/** Canon's own empty state (fable-ask-ai.html:353-356), verbatim in meaning —
+ *  and RESERVED for a store with genuinely nothing to show. */
 const EMPTY_FEED = {
   title: '提案はまだありません',
   body: '録音記録の確定・予約の変化・欠勤や空き待ちの発生があると、ここに新しい提案が表示されます。',
+}
+
+/** …AND THE OTHER EMPTY (F2-1). A reader who has just 却下'd the last card was
+ *  told 「提案はまだありません」 — the one sentence that is false about the state
+ *  they made, and it quietly contradicted the toast they had read four times.
+ *  The honest state is derived rather than guessed: the feed ARRIVED with rows,
+ *  and this visit emptied it. The second line is the truth the toast already
+ *  tells, said once more where the reader is now looking. */
+const EMPTY_DISMISSED = {
+  title: 'この画面で提案をすべて却下しました',
+  body: '却下は保存されないため、画面を開き直すと元に戻ります。',
 }
 
 /** Boundary markup, present-but-inert — the matrix row `nav.record_ai.ai_consult`
@@ -200,6 +213,7 @@ export async function askAiProps({ locale, store, world }: AskAiPropsInput): Pro
         startHint: PHONE.startHint,
         feed: [],
         feedEmpty: EMPTY_FEED,
+        feedDismissedEmpty: EMPTY_DISMISSED,
         trace: TRACE,
         boundary: { ...BOUNDARY, backHref: hrefOf('today') },
         composer: { placeholder: PHONE.placeholder, hint: PHONE.inputHint, sendLabel: PHONE.sendLabel },
@@ -261,7 +275,13 @@ export async function askAiProps({ locale, store, world }: AskAiPropsInput): Pro
       scope: scopeCounts(model),
       privacyLines: PRIVACY,
       signals: buildSignals(world?.signals ?? signalPlane, model),
-      templates: buildTemplates(world?.templates ?? templatePlane),
+      // ⚖ F2-4 — THE TRIO IS PICKED BY THE SAME ONE FACT the label and the hint
+      // are. A 業種未設定 desk used to print 美容整体's bridal prompts directly
+      // under its own 「業種が未設定です」 note: the page contradicting itself in
+      // one column. The shipped mechanism has a GENERIC fallback trio
+      // (`business-types.ts:100-137`) and the plane now mirrors it, so the unset
+      // state shows the note AND prompts that belong to it.
+      templates: buildTemplates(world?.templates ?? (type ? templatePlane : genericTemplatePlane)),
       // ⚖ TYPE TIER 2, through the mechanism that already exists: the business
       // type sets which prompt templates are the defaults, and says so. A shop
       // that has not chosen one gets the profileHint instead — never both.
@@ -273,6 +293,7 @@ export async function askAiProps({ locale, store, world }: AskAiPropsInput): Pro
       startHint: PHONE.startHint,
       feed,
       feedEmpty: EMPTY_FEED,
+      feedDismissedEmpty: EMPTY_DISMISSED,
       trace: TRACE,
       boundary: { ...BOUNDARY, backHref: hrefOf('today') },
       composer: { placeholder: PHONE.placeholder, hint: PHONE.inputHint, sendLabel: PHONE.sendLabel },

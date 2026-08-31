@@ -94,7 +94,12 @@ export interface AskAiProps {
   turns: ConversationTurn[]
   startHint: string
   feed: AskAiCardProps[]
+  /** The store has nothing to suggest. */
   feedEmpty: { title: string; body: string }
+  /** …and the OTHER empty: the feed arrived with rows and this visit dismissed
+   *  every one of them (⚖ F2-1 — derived from what the props carry versus what
+   *  the reader can still see, never guessed). */
+  feedDismissedEmpty: { title: string; body: string }
   trace: Array<{ label: string; value: string; unconnected: boolean }>
   boundary: { kicker: string; title: string; body: string; backLabel: string; backHref: string }
   composer: { placeholder: string; hint: string; sendLabel: string }
@@ -132,7 +137,13 @@ export function AskAiScreen(props: AskAiProps) {
    *  press came from a 今日のヒント chip, shown so the refusal says which slice of
    *  data the answer would have been built from rather than only that it did not
    *  happen. */
-  const [refusal, setRefusal] = useState<{ reason: string; contextLabel: string | null } | null>(null)
+  const [refusal, setRefusal] = useState<{ reason: string; contextLabel: string | null; intended: string | null } | null>(null)
+  /** ⚖ F2-5 — 設定する ANSWERS IN ITS OWN SECTION. Its reason used to land in the
+   *  composer's refusal slot, which on a tall desk was 221px below the button
+   *  and off screen at the moment of the press: a control that looked like it
+   *  did nothing. The composer's slot stays 送信/chip-only; this one is 業種の
+   *  設定's own, beside the button that was pressed. */
+  const [settingsRefused, setSettingsRefused] = useState(false)
   /** ⚖ DEMO-LOCAL BY DESIGN (canon's own contract): in memory, this visit only.
    *  A remount brings every card back, the toast says so out loud, and a store
    *  switch resets it with the rest of the screen because `page.tsx` keys this
@@ -157,6 +168,11 @@ export function AskAiScreen(props: AskAiProps) {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const visible = props.feed.filter((c) => !dismissed.includes(c.id))
+  /** ⚖ F2-1 — TWO EMPTIES, AND WHICH ONE IS A FACT ABOUT THIS SCREEN rather than
+   *  a guess: the feed that ARRIVED with rows and is empty now was emptied here,
+   *  by this reader, and 「提案はまだありません」 would be the one sentence that is
+   *  false about it. */
+  const emptyState = props.feed.length > 0 ? props.feedDismissedEmpty : props.feedEmpty
   /** ⚠ THE WINDOW IS TAKEN OFF `visible`, NOT OFF THE PROPS. A dismissal leaves
    *  the total the head counts AND the arithmetic the footer names in one pass,
    *  so 「提案 N件」 and 「あと M件」 can never describe two different lists. */
@@ -188,18 +204,27 @@ export function AskAiScreen(props: AskAiProps) {
    *  The typed text is not read, not trimmed into the box, not cleared and not
    *  moved: a refusal that ate the question would make the reader retype it to
    *  find out what the refusal said. */
-  const refuseSend = (contextLabel: string | null = null) => {
-    setRefusal({ reason: props.refusals.send, contextLabel })
+  const refuseSend = (contextLabel: string | null = null, intended: string | null = null) => {
+    setRefusal({ reason: props.refusals.send, contextLabel, intended })
   }
 
   /** 今日のヒント — the phone SENDS on a chip tap, with the chip's context hint
    *  (`AIAssistantView.tsx:147`). The desk walks the same path to its honest
    *  end: the question lands in the composer where the reader can see and edit
    *  it, and the send it would have made is refused with the context label the
-   *  request would have carried. */
+   *  request would have carried.
+   *
+   *  ⚖ AND IT NEVER DESTROYS A TYPED QUESTION (F2-3). Filling is only honest
+   *  into an EMPTY box: over a half-written question the fill was a silent,
+   *  unrecoverable delete of the reader's own words — the exact thing the
+   *  refusal path is designed never to do (⚖ §A-7). So when something else is
+   *  already typed the draft is left exactly as it is and the chip's question
+   *  goes INSIDE the refusal, where the reader can see what the press would have
+   *  asked and copy it if that is what they wanted. */
   const takeSignal = (chip: SignalChip) => {
-    setDraft(chip.prompt)
-    refuseSend(chip.contextLabel)
+    const typed = draft.trim() !== '' && draft !== chip.prompt
+    if (!typed) setDraft(chip.prompt)
+    refuseSend(chip.contextLabel, typed ? chip.prompt : null)
     inputRef.current?.focus()
   }
 
@@ -426,10 +451,13 @@ export function AskAiScreen(props: AskAiProps) {
                         <p className="ak-turn-text">{t.text}</p>
                         {t.sources.length > 0 && (
                           <div className="ak-sources">
-                            <div className="ak-sources-head">
-                              <span className="ak-sources-label">出典</span>
-                              <span className="ak-sources-count">{t.sourceCountLabel}</span>
-                            </div>
+                            {/* ⚖ F2-2 — 出典 HAS ONE HOME. The head used to
+                                print a standalone 「出典」 beside the derived
+                                「出典 3件」, so the word appeared twice in one
+                                line and the label lived in two places. The
+                                derived string already carries its own label
+                                (⚖ 8/25), so it renders ALONE. */}
+                            <div className="ak-sources-head">{t.sourceCountLabel}</div>
                             {/* ⚖ D-4 — ONE EVIDENCE GRAMMAR. This is the same
                                 row the feed's 根拠 line uses, reading the same
                                 resolver: a person's name and what the record
@@ -480,10 +508,20 @@ export function AskAiScreen(props: AskAiProps) {
                     aria-disabled="true"
                     title={props.refusals.settings}
                     aria-label={`${props.profileHint.cta} — ${props.refusals.settings}`}
-                    onClick={() => setRefusal({ reason: props.refusals.settings, contextLabel: null })}
+                    onClick={() => setSettingsRefused(true)}
                   >
                     {props.profileHint.cta}
                   </button>
+                  {/* ⚖ F2-5 — THE ANSWER LANDS WHERE THE PRESS HAPPENED. Same
+                      `.ak-refusal` treatment as the composer's, because it is
+                      the same family recipe; a different SLOT, because a reason
+                      a reader has to scroll to find is a reason they never
+                      read. */}
+                  {settingsRefused && (
+                    <div className="ak-refusal ak-profile-refusal" role="status" aria-live="polite">
+                      <p className="ak-refusal-reason">{props.refusals.settings}</p>
+                    </div>
+                  )}
                 </section>
               )}
 
@@ -521,6 +559,13 @@ export function AskAiScreen(props: AskAiProps) {
                 {refusal && (
                   <div className="ak-refusal" role="status" aria-live="polite">
                     <p className="ak-refusal-reason">{refusal.reason}</p>
+                    {/* ⚖ F2-3 — the chip's own question, when the box already
+                        held one: what the press WOULD have asked, kept where
+                        the reader can read and copy it, instead of written over
+                        what they were typing. */}
+                    {refusal.intended && (
+                      <p className="ak-refusal-kept">この質問を送る予定でした：{refusal.intended}</p>
+                    )}
                     {refusal.contextLabel && (
                       <p className="ak-refusal-ctx">読み取る予定だったデータ：{refusal.contextLabel}</p>
                     )}
@@ -553,12 +598,17 @@ export function AskAiScreen(props: AskAiProps) {
 
             <aside className="ak-aside">
               {/* ═══ canon's feed, whole: the count, the badge that comes only
-                  from a hard fact, the 根拠 line, the deep link and 却下 ═══ */}
+                  from a hard fact, the 根拠 line, the deep link and 却下 ═══
+                  ⚖ F2-1 — ITS TOUR SENTENCE IS TRUE IN BOTH STATES. The old one
+                  said 「1件ごとに根拠が付いていて、ボタンを押すと…」, which promises
+                  cards while the spotlight is sitting on an empty box; it
+                  describes what a 提案 IS instead, so the step reads correctly
+                  whether the feed is full, empty, or emptied by this reader. */}
               <section
                 className="ak-feed"
                 aria-label="AIが提案する次のアクション"
                 data-guide-title="AIが提案する次のアクション"
-                data-guide="記録や予約の変化からAIが提案した、次にやることの一覧です。1件ごとに根拠が付いていて、ボタンを押すとその作業をする画面へ移動します。急ぎの目印は記録そのものに期限や未対応があるときだけ付きます。却下はこの画面の中だけの操作で、保存はされません。"
+                data-guide="記録や予約の変化からAIが提案した、次にやることが並ぶところです。提案には1件ずつ根拠が付き、ボタンを押すとその作業をする画面へ移動します。急ぎの目印は、記録そのものに期限や未対応があるときだけ付きます。却下はこの画面の中だけの操作で、保存はされません。"
               >
                 <div className="ak-feed-head">
                   <h2>AIが提案する次のアクション</h2>
@@ -566,8 +616,8 @@ export function AskAiScreen(props: AskAiProps) {
                 </div>
                 {visible.length === 0 ? (
                   <div className="ak-empty">
-                    <strong>{props.feedEmpty.title}</strong>
-                    <span>{props.feedEmpty.body}</span>
+                    <strong>{emptyState.title}</strong>
+                    <span>{emptyState.body}</span>
                   </div>
                 ) : (
                   <div className="ak-feed-list">

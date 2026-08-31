@@ -203,9 +203,12 @@
 
 /* ── the ONE evidence grammar: an answer's 出典 rows AND a card's 根拠 ─────── */
 .biz .pg-ask-ai .ak-sources { margin-top: 10px; }
-.biz .pg-ask-ai .ak-sources-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; }
-.biz .pg-ask-ai .ak-sources-label { color: var(--ink-2); font-size: 11.5px; font-weight: 800; letter-spacing: .04em; }
-.biz .pg-ask-ai .ak-sources-count { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+/* ONE HOME FOR 出典 (F2-2): the head is the derived string itself — 「出典 3件」 —
+   so the word is not printed once as a label and again inside the count. */
+.biz .pg-ask-ai .ak-sources-head {
+  margin-bottom: 5px; color: var(--ink-2); font-size: 11.5px; font-weight: 800;
+  letter-spacing: .04em; font-variant-numeric: tabular-nums;
+}
 .biz .pg-ask-ai .ak-evidence {
   display: flex; gap: 8px; align-items: flex-start; margin: 0;
   padding: 9px 11px; border: 1px solid var(--ak-proof-border); border-left: 3px solid var(--ak-accent);
@@ -243,6 +246,10 @@
 .biz .pg-ask-ai .ak-profile strong { font-size: 13.5px; }
 .biz .pg-ask-ai .ak-profile p { margin: 5px 0 10px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
 .biz .pg-ask-ai .ak-profile-cta { min-height: 36px; padding: 0 14px; border: 1px solid var(--control); border-radius: 9px; background: #fff; color: var(--ink-2); font-size: 13px; }
+/* F2-5 — 設定する's reason, in 業種の設定's OWN section. Same `.ak-refusal`
+   treatment as the composer's; the margin flips because here the reason follows
+   the button it answers for instead of leading the box it guards. */
+.biz .pg-ask-ai .ak-profile-refusal { margin: 11px 0 0; }
 
 /* ── the composer ─────────────────────────────────────────────────────────── */
 .biz .pg-ask-ai .ak-composer { padding: 14px 16px 15px; border: 1px solid var(--section); border-radius: 13px; background: #fff; }
@@ -258,6 +265,9 @@
    reader wants "why did this not happen" first and "what it would have read"
    second. */
 .biz .pg-ask-ai .ak-refusal-reason { font-weight: 600; }
+/* …and the question the press WOULD have sent (F2-3), quoted rather than typed
+   over what the reader had already written. */
+.biz .pg-ask-ai .ak-refusal-kept { margin-top: 5px; color: var(--ink-3); }
 .biz .pg-ask-ai .ak-refusal-ctx { margin-top: 5px; color: var(--ink-3); }
 
 .biz .pg-ask-ai .ak-input-wrap {
@@ -516,6 +526,13 @@
   .biz .pg-ask-ai .ak-tpl { min-height: 46px; }
   .biz .pg-ask-ai .ak-profile-cta { min-height: 44px; }
   .biz .pg-ask-ai .ak-spot-foot button { min-height: 44px; }
+
+  /* F2-9 — THE COUNT DROPS BELOW THE TITLE, CLEANLY. At 390 the head's title
+     wraps to two lines and 「提案 7件」 was pinned to the SECOND line's baseline,
+     hard against the wrap. The title takes the row it needs and the count takes
+     the next one. */
+  .biz .pg-ask-ai .ak-feed-head { flex-wrap: wrap; align-items: flex-start; row-gap: 3px; }
+  .biz .pg-ask-ai .ak-feed-head h2 { flex: 1 1 100%; }
 
   .biz .pg-ask-ai .ak-tpl-row { grid-template-columns: minmax(0, 1fr); }
   .biz .pg-ask-ai .ak-signal { flex: 1 1 100%; }

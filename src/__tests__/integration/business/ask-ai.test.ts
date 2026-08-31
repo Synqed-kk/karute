@@ -51,6 +51,7 @@ import { threads as threadPlane } from '@/business/lib/fixtures-inbox'
 import { records as recordPlane } from '@/business/lib/fixtures-karute'
 import {
   conversation as conversationPlane,
+  genericTemplates as genericTemplatePlane,
   signals as signalPlane,
   suggestions as suggestionPlane,
   templates as templatePlane,
@@ -214,7 +215,7 @@ describe('the feed — canon’s rules, as pure functions', () => {
 
   it('a lens sees its OWN suggestions and no other store’s', () => {
     expect(feedA.map((c) => c.id).sort()).toEqual(
-      ['sug-absence', 'sug-change', 'sug-draft', 'sug-hold', 'sug-revisit', 'sug-vip-settle'],
+      ['sug-absence', 'sug-change', 'sug-draft', 'sug-hold', 'sug-noshow', 'sug-revisit', 'sug-vip-settle'],
     )
     expect(feedB.map((c) => c.id).sort()).toEqual(['sug-ticket', 'sug-vip-next', 'sug-waitlist'])
     // …and the two sets are disjoint, which is the isolation law stated as an
@@ -266,6 +267,20 @@ describe('the feed — canon’s rules, as pure functions', () => {
       .toBe(`予約 R-4826・${A_ONLY_NAME}様（担当 見本 しろう / テスト整体 60分）`)
     expect(evidenceLineOf({ collection: 'inbox', id: 'inb-change' }, ixA))
       .toBe('受信トレイ・テスト えいた様（予約日時の変更希望）')
+    // ⚠ THE 顧客 BRANCH IS PINNED DIRECTLY, and it is pinned here because F2-6
+    // took the last plane row that used it (turn-2's sources are three karute
+    // records now). A resolver arm nothing exercises is one a later edit can
+    // break silently — the collection is still part of the room's contract
+    // (`contextRef` reaches the lens through it), so its LINE is held too.
+    expect(evidenceLineOf({ collection: 'customers', id: 'cus-08' }, ixA))
+      .toBe('顧客 C-3008・テスト くらら様')
+    expect(evidenceLineOf({ collection: 'customers', id: 'cus-08' }, askAiIndex(WORLD_B)))
+      .toBe('顧客 C-3008・テスト くらら様')
+    // …and an unresolvable customer is DROPPED rather than printed as an id.
+    // (Which customers a LENS may cite is `refInLens`'s job, not this one's —
+    // the two are separate on purpose, and the lens half is proven by the
+    // both-directions conversation pins below.)
+    expect(evidenceLineOf({ collection: 'customers', id: 'cus-9999' }, ixA)).toBeNull()
     // ⚖ the audit-display law: not one machine id reaches a rendered string.
     for (const card of [...feedA, ...feedB]) {
       expect(card.evidence).not.toMatch(/apt-\d+/)
@@ -354,13 +369,59 @@ describe('the feed — canon’s rules, as pure functions', () => {
     expect(w.shown.map((c) => c.id)).toEqual(['bulk-0', 'bulk-1', 'bulk-3', 'bulk-4', 'bulk-5', 'bulk-6'])
   })
 
-  it('a store whose whole feed fits shows NO control at all', () => {
-    // 銀座 has six and 代官山 three — both open complete, so the walk appears only
-    // where there is genuinely more (which is what keeps it meaningful).
-    expect(windowFeed(feedA, 1).remaining).toBe(0)
-    expect(windowFeed(feedA, 1).moreLabel).toBeNull()
+  it('⚖ F2-8 — the window control is REACHABLE in the shipped demo, and absent where the feed fits', () => {
+    // S7-9, the family's own 「the demo was hiding a feature」 precedent (the
+    // board's 詰め込み layer before apt-29 moved to 14:05): the demo world's
+    // 銀座 feed was EXACTLY the window, so さらに表示 — and the tour step that
+    // explains it — could not be reached by anyone opening this room. A seventh
+    // 銀座 row, sourced at a real world record, puts both on screen.
+    expect(feedA).toHaveLength(7)
+    expect(windowFeed(feedA, 1).shown).toHaveLength(FEED_WINDOW)
+    expect(windowFeed(feedA, 1).remaining).toBe(1)
+    expect(windowFeed(feedA, 1).moreLabel).toBe('さらに表示（あと1件）')
+    // …and one press opens the rest and takes the control away with it.
+    expect(windowFeed(feedA, 2).shown).toHaveLength(7)
+    expect(windowFeed(feedA, 2).moreLabel).toBeNull()
+    // 代官山's three still fit, so it shows no control at all: the walk shrinks
+    // and grows by itself, which is what keeps the step meaningful.
+    expect(feedB.length).toBeLessThanOrEqual(FEED_WINDOW)
+    expect(windowFeed(feedB, 1).remaining).toBe(0)
     expect(windowFeed(feedB, 1).moreLabel).toBeNull()
-    expect(feedA.length).toBeLessThanOrEqual(FEED_WINDOW)
+    // The new row is a STAFFING one and carries no badge — apt-23's own hard
+    // fact is 来店なし, which is not a deadline and not an unaccepted slot.
+    const added = feedA.find((c) => c.id === 'sug-noshow')!
+    expect(added.category).toBe('staffing')
+    expect(added.badge).toBeNull()
+    expect(added.segment).toBe('shifts')
+  })
+
+  it('⚖ F2-7 — a deadline prints ONCE: the badge owns it, the 根拠 line drops it', () => {
+    // S7-7. `urgencyOf` puts an 受信トレイ 回答期限 in the badge, and the same
+    // clause rode the 根拠 line a few pixels below — one card saying one time
+    // twice. ONE derivation now knows both: `buildFeed` asks for the badge, then
+    // builds the line knowing the answer.
+    const ixA = askAiIndex(WORLD_A)
+    const ixB = askAiIndex(WORLD_B)
+    const due = threadPlane.find((t) => t.id === 'inb-wait')!.due!
+    const hh = `${String(Math.floor(due / 60)).padStart(2, '0')}:${String(due % 60).padStart(2, '0')}`
+    const card = feedB.find((c) => c.id === 'sug-waitlist')!
+    expect(card.badge).toBe(`回答期限 ${hh}`)
+    expect(card.evidence).toContain('空き待ちのお申し込み')
+    expect(card.evidence).not.toContain('回答期限')
+    // …and the UN-BADGED spelling KEEPS the clause — that is the shape an
+    // answer's 出典 row renders, where no badge exists above it and the deadline
+    // is the only place a reader can learn it.
+    expect(evidenceLineOf({ collection: 'inbox', id: 'inb-wait' }, ixB)).toContain(`回答期限 ${hh}`)
+    expect(evidenceLineOf({ collection: 'inbox', id: 'inb-wait' }, ixB, true)).not.toContain('回答期限')
+    // A thread with no deadline reads the same either way, so the flag only ever
+    // removes something that was genuinely printed twice.
+    expect(evidenceLineOf({ collection: 'inbox', id: 'inb-change' }, ixA))
+      .toBe(evidenceLineOf({ collection: 'inbox', id: 'inb-change' }, ixA, true))
+    // …swept across BOTH lenses' whole feeds: no card says its 期限 twice.
+    for (const c of [...feedA, ...feedB]) {
+      expect({ id: c.id, twice: Boolean(c.badge) && c.evidence.includes('回答期限') })
+        .toEqual({ id: c.id, twice: false })
+    }
   })
 })
 
@@ -379,22 +440,61 @@ describe('the consultation — the phone’s contract, mirrored', () => {
     const turns = buildConversation(conversationPlane, WORLD_A)
     const answer = turns.find((t) => t.role === 'assistant')!
     expect(answer.sources.map((s) => s.line)).toEqual([
-      '顧客 C-3002・見本 いつき様',
-      '顧客 C-3008・テスト くらら様',
       'カルテ K-0001・見本 いつき様（担当 見本 しろう / テスト整体 60分）',
+      'カルテ K-0014・テスト なぎ様（担当 見本 あずさ / テスト整体 60分）',
     ])
     // ⚖ 8/25 — the label says what it counts, and it counts what is printed.
     expect(answer.sourceCountLabel).toBe(`出典 ${answer.sources.length}件`)
     // …and a question carries none, never 「出典 0件」.
     expect(turns[0].sources).toEqual([])
     expect(turns[0].sourceCountLabel).toBeNull()
-    // ⚖ AND NO SENTENCE COUNTS ITS OWN SOURCES. Under 代官山 one of the three
-    // rows is out of lens; a text that said 「2名」 would then be false.
+    // ⚖ AND NO SENTENCE COUNTS ITS OWN SOURCES. Under 代官山 two of the three
+    // rows are out of lens; a text that said 「2件」 would then be false.
     const turnsB = buildConversation(conversationPlane, WORLD_B)
     const answerB = turnsB.find((t) => t.role === 'assistant')!
-    expect(answerB.sources).toHaveLength(1)
+    expect(answerB.sources.map((s) => s.line)).toEqual([
+      'カルテ K-0013・見本 きり様（担当 見本 たろう / テスト深層ケア 120分）',
+    ])
     expect(answerB.text).toBe(answer.text)
     expect(answerB.text).not.toMatch(/[0-9０-９]+\s*[名件]/)
+  })
+
+  it('⚖ F2-6 — the answer’s CLAIM is true of EVERY 出典 row, under EITHER lens', () => {
+    // S7-6, and this pin reads the WORLD row by row rather than matching a
+    // string. The earlier cut promised its sources two things — that a 次回の
+    // ご提案 was still in the karute AND that no later booking had been taken —
+    // and the world does not hold rows that carry both under both lenses
+    // (cus-08 has a 銀座 booking three days out; 代官山's one record with a 次回
+    // entry belongs to a customer booked five days out). The DATA was re-picked
+    // first, and the sentence kept only the half every row can carry.
+    for (const [lens, world] of [['銀座', WORLD_A], ['代官山', WORLD_B]] as const) {
+      const answer = buildConversation(conversationPlane, world).find((t) => t.role === 'assistant')!
+      // A claim about rows nobody can see would be vacuously "true" — each lens
+      // must genuinely render at least one.
+      expect({ lens, hasRows: answer.sources.length > 0 }).toEqual({ lens, hasRows: true })
+      for (const s of answer.sources) {
+        const [collection, id] = s.ref.split(':')
+        // The sentence says 出典のカルテ, so every row must BE a karute record —
+        // a 顧客 or 予約 row under it would be the sentence pointing elsewhere.
+        expect({ lens, ref: s.ref, collection }).toEqual({ lens, ref: s.ref, collection: 'karuteRecords' })
+        const rec = recordPlane.find((r) => r.id === id)!
+        // 「次回のご提案が残っています」 — the record's 転帰 is 再来のご提案 AND its
+        // 次回 drawer still holds the proposal. Both read from the カルテ plane.
+        expect({ lens, id, outcome: rec.outcome?.status }).toEqual({ lens, id, outcome: 'revisit' })
+        const next = rec.entries.find((e) => e.category === 'next')
+        expect({ lens, id, proposal: Boolean(next && next.text.trim()) })
+          .toEqual({ lens, id, proposal: true })
+        expect({ lens, id, discarded: rec.discarded !== null }).toEqual({ lens, id, discarded: false })
+        // …and the record really is one THIS lens can read, so the claim is
+        // being checked against the store the reader is standing in.
+        expect({ lens, id, inLens: world.appointments.some((a) => a.id === rec.appointment_id) })
+          .toEqual({ lens, id, inLens: true })
+      }
+    }
+    // AND THE HALF THE WORLD CANNOT CARRY IS GONE (deviation R7-G1).
+    const claim = buildConversation(conversationPlane, WORLD_A).find((t) => t.role === 'assistant')!.text
+    expect(claim).toContain('次回のご提案が残っています')
+    expect(claim).not.toContain('そのあとのご予約がまだ入っていない')
   })
 
   it('context_label is present ONLY when the lens can read the rows — the shipped rule', () => {
@@ -606,6 +706,50 @@ describe('the props assembly — the two gates, above the serializer', () => {
     expect(long.props.turns[0].text).toContain(RUN)
   })
 
+  it('⚖ F2-4 — 業種未設定 shows the GENERIC trio, never another type’s prompts', async () => {
+    // S7-4: the unset desk printed 「業種が未設定です」 and 美容整体's bridal
+    // prompts in one column — the page contradicting itself, and a reconnect
+    // contract gap (the shipped mechanism HAS a generic fallback and the room
+    // did not mirror it). The trio is now picked by the SAME one fact the tuned
+    // label and the profileHint are.
+    const unset = await askAiProps({ locale: 'ja', store: STORE_A, world: { businessType: null } })
+    expect(genericTemplatePlane).toHaveLength(3)
+    expect(unset.props.templates.map((t) => t.title)).toEqual(genericTemplatePlane.map((t) => t.title))
+    // NOT ONE type-specific title survives into the unset state…
+    const typed = new Set(templatePlane.map((t) => t.title))
+    for (const t of unset.props.templates) {
+      expect({ title: t.title, typeSpecific: typed.has(t.title) }).toEqual({ title: t.title, typeSpecific: false })
+    }
+    // …and the two lists genuinely differ, so the pin cannot pass by both being
+    // the same three rows.
+    expect(genericTemplatePlane.map((t) => t.title)).not.toEqual(templatePlane.map((t) => t.title))
+    // A shop that HAS chosen a type still gets its own three — the fallback is a
+    // fallback, not a replacement.
+    const set = await askAiProps({ locale: 'ja', store: STORE_A })
+    expect(set.props.templates.map((t) => t.title)).toEqual(templatePlane.map((t) => t.title))
+    // ⚖ the recognition floor: the trio is the phone's own rows, at the cite the
+    // plane carries beside them.
+    expect(genericTemplatePlane.map((t) => t.id)).toEqual(['g-analysis', 'g-customer', 'g-strategy'])
+    expect(PLANE_SRC).toContain('business-types.ts:100-137')
+  })
+
+  it('⚖ F2-1 — the feed carries TWO empty states, and the dismissed one tells the truth', async () => {
+    // S7-1: dismissing every card left 「提案はまだありません」 on a feed that
+    // ARRIVED full — the one sentence that is false about the state the reader
+    // had just made, quietly contradicting the toast they had read four times.
+    const { props } = await askAiProps({ locale: 'ja', store: STORE_A })
+    expect(props.feedEmpty.title).toBe('提案はまだありません')
+    expect(props.feedDismissedEmpty.title).toBe('この画面で提案をすべて却下しました')
+    // …and its second line is the truth the toast already tells.
+    expect(props.feedDismissedEmpty.body).toContain('保存されない')
+    expect(props.feedDismissedEmpty.body).toContain('開き直すと元に戻ります')
+    expect(DISMISS_TOAST).toContain('保存されません')
+    // The zero-suggestions copy stays RESERVED for a store with genuinely
+    // nothing to show — the two are never the same sentence.
+    expect(props.feedDismissedEmpty.title).not.toBe(props.feedEmpty.title)
+    expect(props.feedDismissedEmpty.body).not.toBe(props.feedEmpty.body)
+  })
+
   it('the trace card states something REAL or says 未接続 — never a blank', async () => {
     const { props } = await askAiProps({ locale: 'ja', store: STORE_A })
     expect(props.trace.length).toBeGreaterThan(0)
@@ -667,7 +811,7 @@ describe('⚖ ASKING IS A CALL, AND THIS ROOM MAKES NONE', () => {
     // would go green on a refactor that typed the same statement with double
     // quotes or a backtick — the runtime half (probe D1) is load-bearing, and
     // this half must at least be spelled as wide as the claim it makes.
-    expect(SCREEN_CODE).toContain('const refuseSend = (contextLabel: string | null = null) => {')
+    expect(SCREEN_CODE).toContain('const refuseSend = (contextLabel: string | null = null, intended: string | null = null) => {')
     expect(SCREEN_CODE).not.toMatch(/setDraft\(\s*(''|""|``)\s*\)/)
     // …and the box stays usable — `disabled` is the EMPTY-input contract only.
     expect(SCREEN_CODE).toContain("disabled={draft.trim() === ''}")
@@ -709,9 +853,10 @@ describe('⚖ ASKING IS A CALL, AND THIS ROOM MAKES NONE', () => {
     )
     expect(signalBody.length).toBeGreaterThan(60)
     expect(templateBody.length).toBeGreaterThan(60)
-    // 今日のヒント: fills AND walks the send path, with its context label.
-    expect(signalBody).toContain('setDraft(chip.prompt)')
-    expect(signalBody).toContain('refuseSend(chip.contextLabel)')
+    // 今日のヒント: fills AND walks the send path, with its context label —
+    // and the fill is GUARDED (⚖ F2-3: it may not type over a typed question).
+    expect(signalBody).toContain('if (!typed) setDraft(chip.prompt)')
+    expect(signalBody).toContain('refuseSend(chip.contextLabel,')
     // じっくり相談: fills ONLY — no send, no refusal.
     expect(templateBody).toContain('setDraft(pill.example)')
     expect(templateBody).toContain('setRefusal(null)')

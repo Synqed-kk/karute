@@ -211,8 +211,17 @@ const menuNameOf = (id: string | null, ix: AskAiIndex): string =>
  *
  *  `null` when the reference does not resolve: a line that fell back to
  *  「collection/id」 would be exactly the raw id the law forbids, so an
- *  unresolvable source is DROPPED instead. */
-export function evidenceLineOf(ref: AskAiSourceRef, ix: AskAiIndex): string | null {
+ *  unresolvable source is DROPPED instead.
+ *
+ *  ⚖ AND A DEADLINE PRINTS ONCE (F2-7). An 受信トレイ 回答期限 is a hard fact, so
+ *  `urgencyOf` puts it in the BADGE — and the same clause riding the 根拠 line a
+ *  few pixels below said the same time twice on one card. `badged` is the ONE
+ *  derivation's answer threaded in rather than a second rule: `buildFeed` asks
+ *  for the badge, then asks for the line, so the two can never disagree about
+ *  which of them owns the 期限. An answer's 出典 row has no badge above it and is
+ *  therefore built with `badged: false` — there the deadline is the only place
+ *  the reader can learn it. */
+export function evidenceLineOf(ref: AskAiSourceRef, ix: AskAiIndex, badged = false): string | null {
   switch (ref.collection) {
     case 'karuteRecords': {
       const rec = ix.record.get(ref.id)
@@ -235,7 +244,7 @@ export function evidenceLineOf(ref: AskAiSourceRef, ix: AskAiIndex): string | nu
       if (!t) return null
       const name = personOf(t.customer_id, ix)
       if (!name) return null
-      const due = t.due === null ? '' : ` / 回答期限 ${hhmm(t.due)}`
+      const due = t.due === null || badged ? '' : ` / 回答期限 ${hhmm(t.due)}`
       return `受信トレイ・${name}様（${t.subject}${due}）`
     }
     case 'customers': {
@@ -295,7 +304,10 @@ export function buildFeed(suggestions: FixtureSuggestion[], world: AskAiWorld): 
   const cards: FeedCard[] = []
   for (const s of suggestions) {
     if (!refInLens(s.sourceRef, ix)) continue
-    const evidence = evidenceLineOf(s.sourceRef, ix)
+    // ⚖ F2-7 — THE BADGE IS ASKED FOR FIRST, and the line is built knowing the
+    // answer: one derivation decides whether this card carries a 期限 and where.
+    const badge = urgencyOf(s.sourceRef, ix)
+    const evidence = evidenceLineOf(s.sourceRef, ix, badge !== null)
     if (evidence === null) continue
     const linkLabel = LIVE_SEGMENTS[s.deepLink]
     if (!linkLabel) continue
@@ -304,7 +316,7 @@ export function buildFeed(suggestions: FixtureSuggestion[], world: AskAiWorld): 
       category: s.category,
       categoryLabel: CATEGORY_LABEL[s.category],
       text: s.text,
-      badge: urgencyOf(s.sourceRef, ix),
+      badge,
       evidence,
       segment: s.deepLink,
       linkLabel,

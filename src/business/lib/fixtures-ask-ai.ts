@@ -159,6 +159,38 @@ export const templates: FixtureTemplate[] = [
   },
 ]
 
+/** …AND THE THREE A SHOP GETS WHEN IT HAS CHOSEN NO 業種 (F2-4). The shipped
+ *  mechanism falls back to a GENERIC trio rather than to nothing
+ *  (`src/lib/welcome/business-types.ts:100-137`
+ *  `GENERIC_CONSULTATION_QUESTIONS` — `titleJa` / `previewJa` / `exampleJa`
+ *  verbatim, same ids), so a 業種未設定 desk that showed 美容整体's bridal
+ *  prompts beside its own 「業種が未設定です」 note was the page contradicting
+ *  itself in one column. Mirrored by SHAPE with the cite, never imported
+ *  (packet §3). */
+export const genericTemplates: FixtureTemplate[] = [
+  {
+    id: 'g-analysis',
+    category: 'Analysis',
+    title: '今週のパフォーマンス概況',
+    preview: '今週のカルテ・予約・再予約の傾向まとめ',
+    example: '今週のカルテ活動、上位のお客様、フォローすべき再予約の抜けをまとめてください',
+  },
+  {
+    id: 'g-customer',
+    category: 'Customer',
+    title: 'フォローアップが必要なお客様',
+    preview: '60日以上ご来店のないお客様は？',
+    example: '60日以上予約のないお客様を一覧にして、それぞれに再来店を促すメッセージ案を提案してください',
+  },
+  {
+    id: 'g-strategy',
+    category: 'Strategy',
+    title: '来月のキャンペーン案',
+    preview: 'カルテの傾向とお客様層に合わせた販促案',
+    example: 'お客様が求めているサービスの傾向に基づいて、来月のキャンペーン案を3つ提案してください',
+  },
+]
+
 /** 今日のヒント. TWO rows reach any one store, by construction: the roster row
  *  belongs to whichever day the lens is standing on, and each store has exactly
  *  one record-backed row of its own — 銀座's 再来のご提案 and 代官山's 空き待ち
@@ -171,7 +203,7 @@ export const signals: FixtureSignal[] = [
 ]
 
 /** AIが提案する次のアクション — canon's feed, sourced at real world records.
- *  Nine rows: six resolve inside 銀座, three inside 代官山, and a lens sees only
+ *  Ten rows: seven resolve inside 銀座, three inside 代官山, and a lens sees only
  *  its own (a suggestion whose sourceRef does not resolve under the lens never
  *  ENTERS the model, exactly as a カルテ row does not — ⚖ the 8/17 isolation
  *  law, above serialization).
@@ -210,6 +242,19 @@ export const suggestions: FixtureSuggestion[] = [
     category: 'staffing',
     text: '担当が不在の枠が残っています。振り替え先を決めて、お客様にご連絡してください。',
     sourceRef: { collection: 'inbox', id: 'inb-absence' },
+    deepLink: 'shifts',
+  },
+  {
+    // apt-23's board_state is 'noshow' — the slot ran and nobody came, so the
+    // hour is the staff member's again and nothing in the world has re-planned
+    // it. ⚠ THE SEVENTH 銀座 ROW EXISTS SO THE DEMO STOPS HIDING A CONTROL
+    // (F2-8): six was exactly the window, so さらに表示 — and its tour step —
+    // were unreachable in the shipped demo, the same class of defect as the
+    // board's own 詰め込み layer before apt-29 moved to 14:05.
+    id: 'sug-noshow',
+    category: 'staffing',
+    text: '来店のなかった枠が空いたままです。担当の当日の動きを組み直せないか確認してください。',
+    sourceRef: { collection: 'bookings', id: 'apt-23' },
     deepLink: 'shifts',
   },
   {
@@ -265,7 +310,20 @@ export const suggestions: FixtureSuggestion[] = [
  *  customers is out of lens and its row never enters the model. A sentence that
  *  is only true under one lens is a surface lying about its own state (⚖ A10).
  *  The count is DERIVED beside the rows instead (`出典 N件`, ⚖ 8/25), so it can
- *  never disagree with what is printed under it. */
+ *  never disagree with what is printed under it.
+ *
+ *  ⚠ AND THE CLAIM IS TRUE OF EVERY ROW THAT RENDERS, UNDER EITHER LENS (F2-6,
+ *  deviation R7-G1). The earlier cut promised two things of its sources — that
+ *  a 次回のご提案 was still in the karute AND that no later booking had been
+ *  taken — and picked rows the world does not support: cus-08 has a 銀座 booking
+ *  three days out, and 代官山 holds NO row where both halves are true at once
+ *  (its one record carrying a 次回 entry, K-0013, belongs to a customer with a
+ *  代官山 booking five days out; its one customer with no later booking, K-0012's,
+ *  has a 記入途中 record with no proposal in it). The DATA was re-picked first —
+ *  the sources are now three karute records, each of them 転帰「再来のご提案」
+ *  with a 次回 entry still in it, two reaching 銀座 and one 代官山 — and the
+ *  sentence dropped the half the world cannot carry, keeping the booking side as
+ *  a CONDITION rather than a claim about any row. */
 export const conversation: FixtureTurn[] = [
   {
     id: 'turn-1',
@@ -277,18 +335,18 @@ export const conversation: FixtureTurn[] = [
   {
     id: 'turn-2',
     role: 'assistant',
-    text: '出典のお客様は、前回のカルテに次回のご提案が残っていて、そのあとのご予約がまだ入っていない方です。今週のうちにご案内されることをおすすめします。文面は、カルテに残っているご提案の言葉をそのまま使うと伝わりやすくなります。',
+    text: '出典のカルテには、次回のご提案が残っています。まだご予約の入っていないお客様には、今週のうちにお声がけされることをおすすめします。ご案内の文面は、カルテに残っているご提案の言葉をそのまま使うと伝わりやすくなります。',
     sources: [
-      { collection: 'customers', id: 'cus-02' },
-      { collection: 'customers', id: 'cus-08' },
       { collection: 'karuteRecords', id: 'K-0001' },
+      { collection: 'karuteRecords', id: 'K-0014' },
+      { collection: 'karuteRecords', id: 'K-0013' },
     ],
     contextRef: null,
   },
   {
     id: 'turn-3',
     role: 'user',
-    text: 'そのお客様に送る、短いご案内の文面を作ってください。',
+    text: 'いま開いているお客様のカルテをもとに、短いご案内の文面を作ってください。',
     sources: [],
     // The shipped contract returns `context_label` ONLY when the request carried
     // a hint AND in-scope rows came back (`karute-chat.ts:86-92` — customerName
