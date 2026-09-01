@@ -40,6 +40,25 @@
 // clip is only offered for a span no standard room could yield, because the
 // standard rooms are walked first and what they take is subtracted.
 //
+// IT HAS A SECOND TRIGGER NOW — THE GRID HOLE (⚖ R6 B1, 2026-09-02). The
+// reconcile's drops are one way a stretch goes unadvertised while the rooms
+// under it are free; `deriveGapPackingCells`' own GRID branch is another, and it
+// needs no drop at all. When `S === 60 && kGrid === kPack` (availability.ts:427)
+// the packer offers only what `gapFillPieces` hands back — the ends OUTSIDE
+// [gridStart, gridEnd) — and leaves the middle "to the sell layer", which sells
+// `SELL_SLOT_MIN` slots and nothing else. A leftover SHORTER than one slot is
+// therefore advertised by NOBODY. Measured (PROBE-R5R6 §3, tip 4d10d4d5): at
+// gridMin=30 / S=60 a 50-minute pocket with two beds standing empty advertises
+// ZERO of its 50 minutes at the store's shipped floor. See `gridHoleWindows`.
+//
+// THE FLOOR IS HERE NOW, and E2's own note said whose business it was: the
+// store's `minSellableMin` is a DISPLAY floor `gapLayerFor` applies to canon's
+// raw emission (today-interactions.ts:1482-1486), and until R6 nothing applied
+// it to THIS pass's emission — so a 20-minute fragment the native layer would
+// have deleted was drawn. One floor rule, one answer, applied where each pass
+// finishes: after the ledger has already spent the room, exactly as
+// `gapLayerFor` does it. Absent ⇒ no floor ⇒ byte-identical to E2's answer.
+//
 // HELD SPANS ARE DROPPED THIS ROUND, AND COUNTED (spec §5, E2 scope). A
 // fallback cell overlapping a 新規用に確保 span is not emitted; the count comes
 // back in `heldDropped` so E3's flip has the number it needs to decide tagging.
@@ -57,6 +76,9 @@
 import {
   deriveGapPackingCells,
   freePockets,
+  gapFillPieces,
+  kGridCount,
+  kPackCount,
   type GapCell,
   type GapPackingInput,
   type SellCell,
@@ -72,6 +94,7 @@ import {
   needsPrivateRoom,
   roomFitsClass,
   sharesStore,
+  type KindedGapCell,
   type RoomPolicy,
   type SellDrop,
 } from './today-interactions'
@@ -96,8 +119,10 @@ export interface FallbackProvenance {
 }
 
 /** Canon's own cell, plus where it came from. Same shape the packing layer
- *  emits, so a consumer can treat these as gap cells and nothing else. */
-export interface FallbackCell extends GapCell, FallbackProvenance {}
+ *  emits, so a consumer can treat these as gap cells and nothing else — and
+ *  since ⚖ R6 B3 that includes the KIND, because the renderer reads one field on
+ *  both producers' boxes and this pass is the second producer. */
+export interface FallbackCell extends KindedGapCell, FallbackProvenance {}
 
 /** One per-room free run handed to the packing engine.
  *
@@ -146,6 +171,10 @@ export interface FallbackInput {
   rooms: RoomPolicy
   /** The reserved mask for THIS world (spec §2). Empty for a guard-off store. */
   held: readonly ReservedLaneMask[]
+  /** ⚖ BATCH-5 R3's display floor, for THIS pass's emission (⚖ R6 B1). The same
+   *  dial `gapLayerFor` applies to the native layer, applied to the additions
+   *  the same way — at the end, over the finished cells. Absent = no floor. */
+  minSellableMin?: number
   dials: FallbackDials
 }
 
@@ -203,9 +232,46 @@ function roomsInClassOrder(
       ]
 }
 
+/** ⚖ R6 B1 — WHAT `deriveGapPackingCells`' GRID BRANCH LEFT FOR NOBODY, asked
+ *  as CANON'S OWN SUBTRACTION rather than as a second reading of the pocket.
+ *
+ *  `gapFillPieces(s, e, gridMin)` IS the packer's answer to "what of this pocket
+ *  do I offer" on that branch; the pocket minus that answer is what the branch
+ *  handed to the sell layer. The sell layer's unit is `SELL_SLOT_MIN`, so a
+ *  leftover SHORTER than one slot reaches nobody — that is the hole, and it is
+ *  the only thing this returns.
+ *
+ *  ⚠ TWO SHAPES, ONE LINE. Written as the packet's core arithmetic
+ *  (`[ceil(s/g)*g, floor(e/g)*g)`) this would catch only the first:
+ *   · gridEnd > gridStart — the grid-aligned CORE. 900–950 at gridMin=30 offers
+ *     only 930–950 and 900–930 is nobody's (PROBE-R5R6 §3, measured).
+ *   · gridEnd <= gridStart — availability.ts:312's single piece
+ *     `[s, min(s + gridMin, e))`, whose TAIL is dropped when the pocket is
+ *     longer than one grid step. 905–955 at gridMin=30 offers 905–935 and the
+ *     last 20 minutes are nobody's; the packet's core is empty there and would
+ *     have recovered nothing.
+ *  Canon's own function answers both without either being spelled here.
+ *
+ *  EMPTY AT ANY `gridMin >= SELL_SLOT_MIN`, structurally — a leftover on the
+ *  first shape is a whole number of grid steps (both ends are multiples of
+ *  `gridMin`), and on the second `kPack === 0` forces `e - s < S = 60 <= gridMin`
+ *  so `min(s + gridMin, e) === e` and nothing is left at all. That is why the
+ *  shipped board pays nothing for this trigger, and why the fast path at the top
+ *  of the pass can refuse the whole walk on one comparison. */
+export function gridHoleWindows(s: number, e: number, dials: Pick<FallbackDials, 'gridMin' | 'sessionMin'>): Iv[] {
+  const { gridMin, sessionMin } = dials
+  if (sessionMin !== SELL_SLOT_MIN || gridMin >= SELL_SLOT_MIN) return []
+  // The GRID branch's own condition. `kGrid > kPack` is canon's throw, never a
+  // mode signal (availability.ts:421-426) — not this pass's to raise, and not a
+  // branch it can be on either, so it is simply not the class.
+  if (kGridCount(s, e, gridMin, sessionMin) !== kPackCount(s, e, sessionMin)) return []
+  return subtract([{ s, e }], gapFillPieces(s, e, gridMin)).filter((w) => w.e - w.s < SELL_SLOT_MIN)
+}
+
 /** THE FRAGMENTS the reconcile's drops left behind, for every lane that lost
- *  something. Bounded by construction: only lanes with a drop, only the pockets
- *  those drops fell in, only rooms with free time inside them. */
+ *  something — plus (⚖ R6 B1) the GRID branch's uncoverable leftovers, which
+ *  need no drop. Bounded by construction: only lanes with a drop or a hole, only
+ *  the pockets those fell in, only rooms with free time inside them. */
 export function fallbackCellsFor(input: FallbackInput): FallbackResult {
   const lostByLane = new Map<string, Iv[]>()
   for (const d of input.dropped) {
@@ -214,7 +280,12 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
     if (held) held.push(span)
     else lostByLane.set(d.laneKey, [span])
   }
-  if (lostByLane.size === 0) return EMPTY
+  /** ⚖ R6 B1 — THE ONE COMPARISON THAT KEEPS THE SHIPPED BOARD FREE. See
+   *  `gridHoleWindows`: at `gridMin >= SELL_SLOT_MIN` the class is provably
+   *  empty, so a board on the shipped 60-minute grid with nothing dropped still
+   *  pays exactly what it paid before this trigger existed — nothing. */
+  const gridHoles = input.dials.sessionMin === SELL_SLOT_MIN && input.dials.gridMin < SELL_SLOT_MIN
+  if (lostByLane.size === 0 && !gridHoles) return EMPTY
 
   const turnaround = (roomKey: string) => {
     const held = input.cleanupMinutesByBed[roomKey]
@@ -260,8 +331,8 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
 
   for (const lane of input.lanes) {
     if (lane.group !== 'staff' || lane.window == null) continue
-    const lost = lostByLane.get(lane.key)
-    if (lost === undefined) continue
+    const lost = lostByLane.get(lane.key) ?? []
+    if (lost.length === 0 && !gridHoles) continue
 
     /** ⚠ B1 — WITHOUT THIS THE PASS ADVERTISES ONE PERSON ON TWO ROOMS AT ONE
      *  MINUTE. Everything already drawn on this lane, whichever layer drew it. */
@@ -282,71 +353,103 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
       occupied: laneSpans(lane),
     })) {
       const whole: Iv = { s: pocket.s, e: pocket.e }
-      if (!lost.some((l) => overlaps(l, whole))) continue
+      /** WHAT THIS POCKET IS BEING ASKED ABOUT, and why — one entry per trigger.
+       *
+       *  The drop class asks about the WHOLE pocket at the store's own grid,
+       *  exactly as it did before ⚖ R6. The grid-hole class asks only about the
+       *  minutes the GRID branch offered to nobody, and it asks at
+       *  `SELL_SLOT_MIN` — NOT to move the customer's start grid, but because
+       *  `gapFillPieces` is the only door canon has for a leftover and it hands
+       *  a run back WHOLE only when the run is shorter than the grid it is asked
+       *  about (availability.ts:312, the mechanism this file's header already
+       *  names). Every grid-hole window is shorter than one slot by
+       *  construction, so at that grid canon emits the run entire and prices it
+       *  with its own `guardTier`/`pushScrap` rules — asked at the store's 30 it
+       *  would take the `gridEnd > gridStart` path and hand back `[]`, which is
+       *  PROBE-E2's finding and the reason the naive clip recovers nothing here.
+       *  The offer's own start is unchanged either way: it is a boundary canon
+       *  itself produced, and a スキマ枠 is a fixed span rather than a grid start
+       *  (canon's head piece `[s, gridStart)` starts wherever the pocket does). */
+      const windows: Array<{ iv: Iv; gridMin: number }> = []
+      if (lost.some((l) => overlaps(l, whole))) windows.push({ iv: whole, gridMin: input.dials.gridMin })
+      if (gridHoles) {
+        for (const hole of gridHoleWindows(whole.s, whole.e, input.dials)) {
+          windows.push({ iv: hole, gridMin: SELL_SLOT_MIN })
+        }
+      }
+      if (windows.length === 0) continue
       /** What this pass has already sold on this lane. Subtracted from EVERY
-       *  later room's clip: the room is free, the person is not. */
+       *  later room's clip: the room is free, the person is not. Shared across
+       *  the pocket's windows too — a grid hole lies inside the same person's
+       *  same pocket, so the drop class's own boxes wall it. */
       const takenHere: Iv[] = []
-      for (const room of rooms) {
-        const busy = [...roomBusy(room), ...claimedOn(room)]
-        const clip = subtract(subtract([whole], advertisedOnLane), [...busy, ...takenHere])
-        if (clip.length === 0) continue
-        for (const c of clip) clips.push(Object.freeze({ laneKey: lane.key, room: room.key, s: c.s, e: c.e }))
-        const staffLane: SellStaffLane = {
-          key: lane.key,
-          name: lane.label,
-          from: pocket.s,
-          until: pocket.e,
-          locked: false,
-          occupied: subtract([whole], clip).map((b) => ({ start: b.s, end: b.e })),
-          listPrice: lane.listPrice,
-          stores: lane.stores,
-        }
-        const resource: SellResourceLane = {
-          key: room.key,
-          name: room.label,
-          // ponytail: a room belonging to every store (`stores === null`) passes
-          // `sharesStore` above but would fail canon's `canPair`, which reads one
-          // storeId. Borrowing the person's own store keeps the two rules
-          // agreeing; on the real board a room always names its store.
-          storeId: room.stores?.[0] ?? lane.stores?.[0] ?? '',
-          occupied: busy.map((b) => ({ start: b.s, end: b.e })),
-        }
-        const out = deriveGapPackingCells({
-          ...input.dials,
-          staffLanes: [staffLane],
-          resourceLanes: [resource],
-        })
-        for (const [cells, sink] of [
-          [out.packed, packed],
-          [out.scraps, scraps],
-        ] as const) {
-          for (const c of cells) {
-            if (heldSpans.some((h) => c.e > h.start && c.s < h.end)) {
-              // Counted ONCE per box, and the PERSON'S minute is still spent:
-              // the hold is on the lane, not on the room, so re-offering the
-              // same span out of the next room would be the same lost box
-              // counted twice — and would let the mask quietly change which
-              // rooms the walk reaches.
-              if (c.group === 'staff') {
-                heldDropped += 1
-                takenHere.push({ s: c.s, e: c.e })
+      for (const win of windows) {
+        for (const room of rooms) {
+          const busy = [...roomBusy(room), ...claimedOn(room)]
+          const clip = subtract(subtract([win.iv], advertisedOnLane), [...busy, ...takenHere])
+          if (clip.length === 0) continue
+          for (const c of clip) clips.push(Object.freeze({ laneKey: lane.key, room: room.key, s: c.s, e: c.e }))
+          const staffLane: SellStaffLane = {
+            key: lane.key,
+            name: lane.label,
+            from: win.iv.s,
+            until: win.iv.e,
+            locked: false,
+            occupied: subtract([win.iv], clip).map((b) => ({ start: b.s, end: b.e })),
+            listPrice: lane.listPrice,
+            stores: lane.stores,
+          }
+          const resource: SellResourceLane = {
+            key: room.key,
+            name: room.label,
+            // ponytail: a room belonging to every store (`stores === null`) passes
+            // `sharesStore` above but would fail canon's `canPair`, which reads one
+            // storeId. Borrowing the person's own store keeps the two rules
+            // agreeing; on the real board a room always names its store.
+            storeId: room.stores?.[0] ?? lane.stores?.[0] ?? '',
+            occupied: busy.map((b) => ({ start: b.s, end: b.e })),
+          }
+          const out = deriveGapPackingCells({
+            ...input.dials,
+            gridMin: win.gridMin,
+            staffLanes: [staffLane],
+            resourceLanes: [resource],
+          })
+          for (const [cells, sink, gapKind] of [
+            [out.packed, packed, 'packed'],
+            [out.scraps, scraps, 'scrap'],
+          ] as const) {
+            for (const c of cells) {
+              if (heldSpans.some((h) => c.e > h.start && c.s < h.end)) {
+                // Counted ONCE per box, and the PERSON'S minute is still spent:
+                // the hold is on the lane, not on the room, so re-offering the
+                // same span out of the next room would be the same lost box
+                // counted twice — and would let the mask quietly change which
+                // rooms the walk reaches.
+                if (c.group === 'staff') {
+                  heldDropped += 1
+                  takenHere.push({ s: c.s, e: c.e })
+                }
+                continue
               }
-              continue
-            }
-            const from = clip.find((iv) => c.s >= iv.s && c.e <= iv.e) ?? { s: c.s, e: c.e }
-            sink.push(
-              Object.freeze({
-                ...c,
-                sourceLane: lane.key,
-                room: room.key,
-                clippedFrom: Object.freeze({ start: from.s, end: from.e }),
-              }),
-            )
-            if (c.group === 'staff') {
-              takenHere.push({ s: c.s, e: c.e })
-              const held = claimedRooms.get(room.key)
-              if (held) held.push({ s: c.s, e: c.e })
-              else claimedRooms.set(room.key, [{ s: c.s, e: c.e }])
+              const from = clip.find((iv) => c.s >= iv.s && c.e <= iv.e) ?? { s: c.s, e: c.e }
+              sink.push(
+                Object.freeze({
+                  ...c,
+                  // ⚖ R6 B3 — the SINK is the kind, said on the box. This pass is
+                  // the second producer and the renderer reads one field.
+                  gapKind,
+                  sourceLane: lane.key,
+                  room: room.key,
+                  clippedFrom: Object.freeze({ start: from.s, end: from.e }),
+                }),
+              )
+              if (c.group === 'staff') {
+                takenHere.push({ s: c.s, e: c.e })
+                const held = claimedRooms.get(room.key)
+                if (held) held.push({ s: c.s, e: c.e })
+                else claimedRooms.set(room.key, [{ s: c.s, e: c.e }])
+              }
             }
           }
         }
@@ -354,10 +457,22 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
     }
   }
 
+  /** ⚖ R6 B1 — THE STORE'S DISPLAY FLOOR, APPLIED WHERE `gapLayerFor` APPLIES
+   *  ITS OWN (today-interactions.ts:1482-1486): at the END, over finished cells,
+   *  AFTER the bed ledger has already spent the room on them. Filtering earlier
+   *  would hand the same minute to the next room in the walk and quietly emit a
+   *  different, shifted box. Both rows of a box carry the same span, so the pair
+   *  goes or stays together, and `claims` is the FILTERED list because a claim
+   *  the board never draws is not a claim (today-interactions.ts:838-839). */
+  const floor = input.minSellableMin ?? 0
+  const sellable = (c: FallbackCell) => c.e - c.s >= floor
+  const drawnPacked = packed.filter(sellable)
+  const drawnScraps = scraps.filter(sellable)
+
   return Object.freeze({
-    packed: Object.freeze(packed),
-    scraps: Object.freeze(scraps),
-    claims: Object.freeze([...packed, ...scraps] as GapCell[]),
+    packed: Object.freeze(drawnPacked),
+    scraps: Object.freeze(drawnScraps),
+    claims: Object.freeze([...drawnPacked, ...drawnScraps] as GapCell[]),
     heldDropped,
     clips: Object.freeze(clips),
   })

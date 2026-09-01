@@ -51,6 +51,7 @@ import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business
 import { bedTruthViews } from '@/app/[locale]/(business)/business/today/capacity-ledger'
 import {
   fallbackCellsFor,
+  gridHoleWindows,
   type FallbackCell,
   type FallbackResult,
 } from '@/app/[locale]/(business)/business/today/fallback-cells'
@@ -58,11 +59,13 @@ import { reservedMaskFor, type ReservedLaneMask } from '@/app/[locale]/(business
 import {
   allocateBed,
   gapLayerFor,
+  laneSpans,
   sellLayerFor,
   type RoomPolicy,
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import {
+  freePockets,
   kGridCount,
   kPackCount,
   type GapCell,
@@ -545,6 +548,22 @@ describe('2 — no double-claim, across the widened matrix on two boards', () =>
   })
 })
 
+/** ⚖ R6 B1 — the GRID-hole windows on one lane, asked of the module's own
+ *  exported arithmetic over the lane's own free pockets. Re-deriving the rule
+ *  here would be a second reading of it; this asks the same function the pass
+ *  asks and only supplies the pockets. */
+function holeWindowsOn(w: World, d: Dials, laneKey: string): Array<{ s: number; e: number }> {
+  const l = w.lanes.find((x) => x.key === laneKey)
+  if (!l || l.window == null) return []
+  return freePockets({
+    from: l.window.from,
+    until: l.window.until,
+    close: w.hours.close,
+    now: w.now,
+    occupied: laneSpans(l),
+  }).flatMap((p) => gridHoleWindows(p.s, p.e, d))
+}
+
 function assertNoDoubleClaim(w: World, d: Dials) {
   const r = run(w, d)
   const emitted = boxes(r.fallback)
@@ -571,10 +590,19 @@ function assertNoDoubleClaim(w: World, d: Dials) {
     if (!(c.s >= c.clippedFrom.start && c.e <= c.clippedFrom.end)) {
       violations.push(`${span(c.s, c.e)} outside its clip ${span(c.clippedFrom.start, c.clippedFrom.end)}`)
     }
-    // (e) additions-only: a fallback cell never lands on a lane that kept its
-    //     offer without losing one.
-    if (!r.dropped.some((x) => x.laneKey === c.laneKey)) {
-      violations.push(`${c.laneKey} gained a fallback cell without losing an offer`)
+    // (e) ⚖ PIN MIGRATED at R6, WITH the decision (B1). At E2 the pass had ONE
+    //     trigger — the reconcile's drops — so "never lands on a lane that kept
+    //     its offer" WAS the additions-only statement. R6 gives it a second,
+    //     `gridHoleWindows`: minutes canon's GRID branch handed to nobody, which
+    //     need no drop at all. So the pin says what the E2 sentence stood for —
+    //     a fallback cell exists only where a TRIGGER fired, and never anywhere
+    //     else. Relaxing it to "some lanes are fine" would have thrown the
+    //     invariant away instead of moving it.
+    if (
+      !r.dropped.some((x) => x.laneKey === c.laneKey) &&
+      !holeWindowsOn(w, d, c.laneKey).some((h) => c.s >= h.s && c.e <= h.e)
+    ) {
+      violations.push(`${c.laneKey} gained a fallback cell with no drop and no grid hole`)
     }
   }
   expect({ at: `${w.name} ${dialLabel(d)}`, violations }).toEqual({ at: `${w.name} ${dialLabel(d)}`, violations: [] })

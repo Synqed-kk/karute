@@ -53,6 +53,7 @@ import { bedDoor, bedViewsFor, TodayScreen, type TodayProps } from '@/app/[local
 import {
   canReleaseHeld,
   explainRails,
+  gapKindOf,
   gapLayerFor,
   gapPackingDials,
   guardRailsFor,
@@ -985,11 +986,21 @@ describe('4 — what paints, and what stops', () => {
     const frags = [...(on.fallback?.packed ?? []), ...(on.fallback?.scraps ?? [])]
     expect(frags.length).toBeGreaterThan(0)
     // They are IN `gapDrawn`, which is the only list `renderLane` draws gap
-    // boxes from, and `gapDrawn.packed.includes(c)` is the only thing that
-    // decides 詰め込み from スキマ枠 — so a fallback cell wears whichever word
-    // its shape earns, exactly like every other box on that layer.
+    // boxes from, and ONE field decides 詰め込み from スキマ枠 — so a fallback
+    // cell wears whichever word its shape earns, exactly like every other box
+    // on that layer.
+    //
+    // ⚖ PIN MIGRATED at R6, WITH the decision (B3). The decider used to be
+    // `gapDrawn.packed.includes(c)` — object identity, which is precisely what
+    // made this pin necessary AND fragile: it held only while no pass between
+    // the producers and the renderer ever copied a cell. Both producers now tag
+    // `gapKind` at creation and the renderer reads it through `gapKindOf`, so
+    // the same claim is pinned on the FACT rather than on the array membership.
     for (const f of frags) expect([...on.gapDrawn.packed, ...on.gapDrawn.scraps]).toContain(f)
-    expect(SRC('TodayScreen.tsx')).toContain('const packedHere = gapDrawn.packed.includes(c)')
+    for (const f of on.fallback?.packed ?? []) expect(gapKindOf(f)).toBe('packed')
+    for (const f of on.fallback?.scraps ?? []) expect(gapKindOf(f)).toBe('scrap')
+    expect(SRC('TodayScreen.tsx')).toContain("const packedHere = gapKindOf(c) === 'packed'")
+    expect(SRC('TodayScreen.tsx')).not.toContain('const packedHere = gapDrawn.packed.includes(c)')
   })
 })
 

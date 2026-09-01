@@ -1421,6 +1421,36 @@ export function gapPackingDials(
   }
 }
 
+/** ⚖ R6 B3 (plan R6, perf F11) — WHICH KIND OF BOX THIS IS, SAID ON THE CELL
+ *  rather than re-derived by whoever draws it.
+ *
+ *  The renderer used to ask `gapDrawn.packed.includes(c)` (TodayScreen :5252,
+ *  and again for the React key and the 名前タグ): an O(n) scan per cell per
+ *  frame whose answer is OBJECT IDENTITY. The day any pass copies a cell on its
+ *  way to the screen — a spread for a tag, a sort into a new array, a memo that
+ *  re-freezes — every 詰め込み box silently becomes a スキマ枠: wrong wash, wrong
+ *  word, wrong price format, and nothing anywhere to fail. The kind is a fact
+ *  about the box, so it is written ON the box, at BOTH producers, at creation,
+ *  which also keeps one object identity for every downstream consumer.
+ *
+ *  Canon's `GapCell` cannot grow a field, so this is `HeldBoundSellCell`'s exact
+ *  pattern (:1137-1144): an app-side interface the tag rides in, and ONE narrow
+ *  reader. Never test the property by hand. */
+export interface KindedGapCell extends GapCell {
+  readonly gapKind: 'packed' | 'scrap'
+}
+
+/** The one reader. An untagged cell reads as 'scrap' — the same answer
+ *  `.includes` gave for anything not in `packed` — so a cell from some future
+ *  producer that has not been taught to tag degrades exactly as it did before
+ *  rather than into a shape nobody has drawn. */
+export const gapKindOf = (c: GapCell): 'packed' | 'scrap' =>
+  (c as { gapKind?: unknown }).gapKind === 'packed' ? 'packed' : 'scrap'
+
+const kinded =
+  (gapKind: 'packed' | 'scrap') =>
+  (c: GapCell): KindedGapCell => ({ ...c, gapKind })
+
 /** The スキマ枠 (orange, discounted) and 詰め込みセッション (blue, full price)
  *  layers, derived from the same board reading as everything else. Canon's own
  *  label carries the LENGTH beside the price on a packed cell — ¥8,650（60分）
@@ -1481,9 +1511,14 @@ export function gapLayerFor(
   })
   const floor = opts.minSellableMin ?? 0
   const sellable = (c: GapCell) => c.e - c.s >= floor
+  // ⚖ R6 B3 — TAGGED AT THE RETURN, which IS creation for everything downstream:
+  // `combineCrumbs` mints new objects and the floor throws some away, so tagging
+  // any earlier would tag boxes the board never draws and leave the survivors of
+  // a merge untagged. These objects are the ones `gapClaims`, the reconcile, the
+  // fallback's survivor set and the renderer all hold.
   return {
-    packed: combineCrumbs(raw.packed, opts.sessionMin, priceUnion).filter(sellable),
-    scraps: raw.scraps.filter(sellable),
+    packed: combineCrumbs(raw.packed, opts.sessionMin, priceUnion).filter(sellable).map(kinded('packed')),
+    scraps: raw.scraps.filter(sellable).map(kinded('scrap')),
   }
 }
 

@@ -83,6 +83,7 @@ import {
   liveTimeLabel,
   proxyTransform,
   stretchOrCarry,
+  gapKindOf,
   gapLayerFor,
   gapPackingDials,
   guardCheckRow,
@@ -1554,9 +1555,14 @@ export function TodayScreen(props: TodayProps) {
       cleanupMinutesByBed: props.bedCleanupMinutes,
       rooms: props.rooms,
       held: heldCommitted,
+      // ⚖ R6 B1 — ONE FLOOR RULE, ONE ANSWER. `gap` above is already floored
+      // inside `gapLayerFor`; until this line the additions merged into
+      // `gapDrawn` unfloored, so the same 20-minute orphan the native layer
+      // deletes was drawn when it came out of the fallback instead.
+      minSellableMin: props.guard.minSellableMin,
       dials: gapPackingDials(committedLanes, gapDials),
     })
-  }, [heldCommitted, committedLanes, hours.close, sellDrops, sell, gapClaims, props.bedCleanupMinutes, props.rooms, gapDials])
+  }, [heldCommitted, committedLanes, hours.close, sellDrops, sell, gapClaims, props.bedCleanupMinutes, props.rooms, props.guard.minSellableMin, gapDials])
 
   /** WHAT THE BOARD DRAWS, and what the explanation layer reads as promised:
    *  the gap layer plus the fallback's additions. Gate off ⇒ the same objects,
@@ -5249,7 +5255,12 @@ export function TodayScreen(props: TodayProps) {
           {!isLocked &&
             gapHere.map((c) => {
               const span = place(c.s, c.e, hours)
-              const packedHere = gapDrawn.packed.includes(c)
+              // ⚖ R6 B3 — READ OFF THE BOX. This was `gapDrawn.packed.includes(c)`
+              // — an O(n) identity scan per cell per frame that would have
+              // answered 'スキマ枠' for every 詰め込み box the moment any pass
+              // copied a cell. Both producers tag at creation; this is the one
+              // reader (today-interactions.ts `gapKindOf`).
+              const packedHere = gapKindOf(c) === 'packed'
               // ⚖ Liam flag 38 / BATCH-5 R6 — COLOUR CARRIES MEANING, BORDERS
               // CARRY DRAG STATE. A full-length session is the product: blue.
               // Anything shorter is a leftover the residue broke off — the same
