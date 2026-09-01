@@ -131,10 +131,20 @@ export const POST = facadeHandler('recordings.discards.transcript.write', async 
   // `forbidden`. The thin port maps 403 to the TERMINAL refusal that deletes the
   // take: wrong `forbidden` loses the words forever, wrong `failed` costs one
   // wasted upload per mount for ≤7 days. 502 is what the port reads as `failed`.
+  // The roster predicate also drops profiles with a null (or `_system_%`)
+  // full_name, so a HALF-CREATED profile reads as a non-member here — the same
+  // query getCurrentUserStaffId walks, so both doors refuse it identically.
+  //
+  // `reason` tags the log line: without it this refusal is indistinguishable
+  // from a genuine core outage on the facade_error stream, since both are
+  // `upstream_unavailable` 502. It rides the body too (errorBody merges detail),
+  // which is harmless — the thin port PARSES a non-2xx body but discards it,
+  // answering `failed` off `!res.ok` alone, so the client is byte-identical.
   if (!(await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId))) {
     throw new AppApiError(
       'upstream_unavailable',
       'no acting staff identity for this user; nothing was written',
+      { reason: 'not_on_roster' },
     )
   }
 

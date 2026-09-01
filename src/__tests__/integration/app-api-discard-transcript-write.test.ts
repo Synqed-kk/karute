@@ -330,6 +330,51 @@ describe('POST … — the ROSTER gate (#566 parity)', () => {
     expect(touched).toEqual([])
   })
 
+  it('tags the facade_error log line so it is not read as a core outage', async () => {
+    // The 502 is deliberate (below), but on the structured stream it then looked
+    // exactly like synqed-core failing: logFacadeError writes code + status and
+    // never the message. `reason` is the repo's existing label convention, and
+    // it is what lets an alert tell a removed staffer from an upstream incident.
+    roster = []
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect((await post(STAGED_BODY)).status).toBe(502)
+      const lines = warn.mock.calls
+        .map(([first]) => (typeof first === 'string' ? first : ''))
+        .filter((l) => l.includes('"evt":"facade_error"'))
+        .map((l) => JSON.parse(l) as Record<string, unknown>)
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).toMatchObject({
+        evt: 'facade_error',
+        endpoint: 'recordings.discards.transcript.write',
+        code: 'upstream_unavailable',
+        status: 502,
+        reason: 'not_on_roster',
+      })
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('an error carrying no reason logs no reason key at all', async () => {
+    // The extension must be invisible to every other error: JSON.stringify drops
+    // an undefined value, so an untagged failure's line is byte-identical to
+    // what it was before. Proven on the capability refusal beside it.
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage']))
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect((await post(REVIEW_BODY)).status).toBe(403)
+      const line = warn.mock.calls
+        .map(([first]) => (typeof first === 'string' ? first : ''))
+        .find((l) => l.includes('"evt":"facade_error"'))
+      expect(line).toBeDefined()
+      expect(line).not.toContain('reason')
+      expect(Object.keys(JSON.parse(line!) as object)).not.toContain('reason')
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   it('…and NOT as a 403, because the phone would delete the take on one', async () => {
     // staffListByBusinessOrThrow THROWS on a failed read, so a null here is the
     // web docstring's ambiguous case (a real removal, or a probe that could not

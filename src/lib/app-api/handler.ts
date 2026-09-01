@@ -315,18 +315,33 @@ function reportUnmappedEndpoint(
 }
 
 /** Structured error line — the seam metrics/alerts attach to (packet point 10).
- *  Never logs token/PII, only the classified code + labels. */
+ *  Never logs token/PII, only the classified code + labels.
+ *
+ *  `detail.reason` is forwarded because a code+status pair is not always enough
+ *  to tell two errors apart: a roster refusal and a genuine core outage are both
+ *  `upstream_unavailable` 502, and on this stream they were indistinguishable.
+ *  `reason` is the repo's existing label convention for exactly that
+ *  (store-clamp's `store_header`, redeem's `already_redeemed` /
+ *  `guard_unavailable`, karute's `CONSENT_REQUIRED`).
+ *
+ *  ONLY `reason`, never the whole `detail` bag: detail also carries record data
+ *  — customers/[id] puts `currentVersion` (a row's updated_at) there — and this
+ *  line's promise is labels, not payloads. A non-string `reason` is dropped, and
+ *  JSON.stringify omits the key entirely when it is undefined, so every error
+ *  that sets no reason logs byte-identically to before. */
 function logFacadeError(
   endpoint: string,
   err: AppApiError,
   meta: FacadeContext['meta'],
 ): void {
+  const reason = typeof err.detail?.reason === 'string' ? err.detail.reason : undefined
   console.warn(
     JSON.stringify({
       evt: 'facade_error',
       endpoint,
       code: err.code,
       status: err.status,
+      reason,
       requestId: meta.requestId,
       appVersion: meta.appVersion,
       platform: meta.platform,
