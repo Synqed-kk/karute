@@ -38,6 +38,7 @@ import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { newSynqedClient, getSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
+import { sweepStagedDiscardAudio } from '@/lib/recording/staged-audio'
 import { isConsentCurrent } from '@/lib/consent'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { runTranscription, speakerIdMode, loadStaffReferenceForStaff } from '@/lib/ai/transcribe'
@@ -396,13 +397,12 @@ export async function transcribeAndPersistDiscardWithClient(
       // another. Read-then-delete stays the worker's posture: a failed write
       // does not need this object back — the sweep re-stages from the take that
       // is still in the store.
-      // Wrapped: the outcome the caller reads must reflect the WRITE, never the
-      // janitor, and a `finally` that throws would REPLACE the answer.
-      try {
-        await supabase.storage.from('recordings').remove([input.audioPath])
-      } catch (err) {
-        console.warn('[discard-transcript] staged audio sweep failed:', err)
-      }
+      // Extracted to lib/recording/staged-audio.ts (fix round 3) so the facade
+      // route can sweep its OWN pre-body refusals through the same fenced
+      // implementation. It swallows its own failures for the reason this
+      // `finally` always did: the outcome the caller reads must reflect the
+      // WRITE, never the janitor.
+      await sweepStagedDiscardAudio(actor.businessId, input.audioPath)
     }
   } catch (err) {
     console.warn('[discard-transcript] transcribe failed:', err)

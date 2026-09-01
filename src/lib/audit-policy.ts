@@ -471,11 +471,11 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-08-31',
   },
   {
-    file: 'src/actions/recording-discard-transcript.ts',
+    file: 'src/lib/recording/staged-audio.ts',
     call: 'storage.recordings.remove',
-    symbols: ['transcribeAndPersistDiscardWithClient'],
+    symbols: ['sweepStagedDiscardAudio'],
     justification:
-      'Best-effort cleanup of the staged audio object right after the discard transcription resolves — the same timing and the same reasoning as recording-upload.ts#removeRecordingObject and the facade transcribe route below (read-then-delete; the worker posture). Not itself a business action: the audited action is the recording.discard receipt this transcription belongs to. Symbol renamed 2026-09-01 (PHONEWIRE-2C): the janitor moved into the shared body both doors run, and the cookie wrapper that kept the old name owns no storage call.',
+      'Best-effort cleanup of the staged audio object right after the discard transcription resolves — the same timing and the same reasoning as recording-upload.ts#removeRecordingObject and the facade transcribe route below (read-then-delete; the worker posture). Not itself a business action: the audited action is the recording.discard receipt this transcription belongs to. MOVED 2026-09-01 (PHONEWIRE-2C fix round 3, Greptile #813): the janitor was extracted out of src/actions/recording-discard-transcript.ts into its own non-server module because it grew a SECOND caller — the facade route must sweep its own pre-body refusals, since the phone stages its audio before it posts and every retry stages a fresh object. Same one delete call, now with the isOwnRecordingKey tenant fence inside it rather than at the call sites, so no caller can reach a key that is not its own business’s. Nothing about the justification moves: still best-effort, still not a business action.',
     dated: '2026-08-31',
   },
   {

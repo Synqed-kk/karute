@@ -400,6 +400,50 @@ describe('POST … — the ROSTER gate (#566 parity)', () => {
   })
 })
 
+describe('POST … — a refusal never strands the staged object (Greptile #813)', () => {
+  // CODE TRUTH this rests on: the phone stages BEFORE it posts, and every retry
+  // stages a FRESH object — runDiscardTranscript calls stageForJob on each run
+  // (lib/recording/discard-transcript.ts:112) and DiscardPending carries no path
+  // to reuse (take-store.ts:96-101). So a repeating route-level refusal would
+  // strand one more object per record-page mount for the take-store's 7 days.
+  it('schema refusal (400) sweeps the staged object it was handed', async () => {
+    const res = await post({ ...STAGED_BODY, businessId: 'business-2' })
+    expect(res.status).toBe(400)
+    // Judged off the RAW body — there is no parsed one on this path, which is
+    // exactly why the janitor's fence takes an `unknown`.
+    expect(removeObject).toHaveBeenCalledWith([OWN_PATH])
+  })
+
+  it('roster refusal (502) sweeps it too — the repeating case', async () => {
+    roster = []
+    expect((await post(STAGED_BODY)).status).toBe(502)
+    expect(removeObject).toHaveBeenCalledWith([OWN_PATH])
+  })
+
+  it('⛔ a FOREIGN staged key is refused and NOT deleted — it is not ours', async () => {
+    // The fence inside the janitor is what makes a blanket failure handler safe:
+    // reaching into the bucket for the object we just refused would be the same
+    // cross-tenant reach the 403 exists to prevent.
+    const res = await post({ ...STAGED_BODY, audioPath: FOREIGN_PATH })
+    expect(res.status).toBe(403)
+    expect(removeObject).not.toHaveBeenCalled()
+  })
+
+  it('the review shape has nothing staged, so nothing is swept', async () => {
+    roster = []
+    expect((await post(REVIEW_BODY)).status).toBe(502)
+    expect(removeObject).not.toHaveBeenCalled()
+  })
+
+  it('the success path sweeps EXACTLY once — no double delete', async () => {
+    // The shared body's own janitor already ran; the route's fires only on a
+    // throw, so a successful staged discard must not delete twice.
+    expect((await post(STAGED_BODY)).status).toBe(200)
+    expect(removeObject).toHaveBeenCalledTimes(1)
+    expect(removeObject).toHaveBeenCalledWith([OWN_PATH])
+  })
+})
+
 describe('POST … — tenant scope comes from the token, never the body', () => {
   // The door's `.strict()` union is the first half of this: a body cannot even
   // CARRY a tenant field, let alone have one honoured.

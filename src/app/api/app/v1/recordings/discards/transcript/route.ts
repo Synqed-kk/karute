@@ -68,6 +68,7 @@ import {
 import { DiscardTranscriptDTO } from '@/lib/app-api/discard-reasons-dto'
 import { DiscardTranscriptWriteSchema } from '@/lib/app-api/record-schemas'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
+import { sweepStagedDiscardAudio } from '@/lib/recording/staged-audio'
 
 export const runtime = 'nodejs'
 
@@ -103,73 +104,99 @@ export const POST = facadeHandler('recordings.discards.transcript.write', async 
   } catch {
     throw new AppApiError('validation', 'request body must be JSON')
   }
-  // Parsed at the DOOR and OUTSIDE the try below, same placement rule the GET
-  // obeys: a malformed body is this caller's 400, never an upstream 502.
-  const parsed = DiscardTranscriptWriteSchema.safeParse(raw)
-  if (!parsed.success) throw new AppApiError('validation', 'invalid discard transcript payload')
-  const body = parsed.data
+  // EVERY refusal from here on sweeps the staged object first (Greptile #813).
+  // The phone stages its audio BEFORE it posts (runDiscardTranscript →
+  // stageForJob, lib/recording/discard-transcript.ts:112) and every retry stages
+  // a FRESH one — DiscardPending carries no path to reuse (take-store.ts:96-101)
+  // — so a route-level refusal strands an object the shared body's own janitor
+  // never saw, and a REPEATING refusal (the roster 502, an auth blip) strands
+  // another on every record-page mount for the take-store's seven days. The web
+  // door cannot do this: it stages INSIDE the action, after its gates. Not
+  // parity, as I had claimed — the staging order genuinely differs.
+  //
+  // The SAME fenced janitor the shared body runs, never a second delete
+  // spelling, and its fence is what makes a blanket handler correct here: a
+  // foreign staged key is refused (403) and then NOT deleted, because it is not
+  // ours to delete. On the success path nothing fires — the shared body already
+  // swept, and this only runs on a throw.
+  //
+  // `raw`, not `body`: the schema refusal below has no parsed body, and
+  // isOwnRecordingKey is built to judge an unvalidated value.
+  try {
+    // Parsed at the DOOR and OUTSIDE the try below, same placement rule the GET
+    // obeys: a malformed body is this caller's 400, never an upstream 502.
+    const parsed = DiscardTranscriptWriteSchema.safeParse(raw)
+    if (!parsed.success) throw new AppApiError('validation', 'invalid discard transcript payload')
+    const body = parsed.data
 
-  // ROSTER GATE — the half of recordsWriteGate a capability check cannot carry.
-  // On web the acting id comes from getCurrentUserStaffId, which is itself a
-  // roster-membership probe (`list.some(s => s.id === userId)`), and the gate
-  // refuses outright when it answers null. `ctx.identity.authUserId` carries no
-  // such proof, so passing it raw let a records.write holder who is NOT on this
-  // business's roster reach resolveSynqedStaffIdForBusiness — whose create-on-miss
-  // would MINT a phantom synqed staff record for that profile (the #566 finding
-  // the appointments and recordings/job facades were both hardened against).
-  // resolveSelfStaffId is that same predicate, Bearer-side.
-  //
-  // Placed ahead of BOTH shapes, not just the transcribe one: the review door
-  // is gated on web by the identical `if (!(await getCurrentUserStaffId()))`
-  // line, so gating only the resolver's caller would fix the minting and leave
-  // the two doors disagreeing about who may write.
-  //
-  // NOT a 403, deliberately — that is the one divergence a status choice could
-  // still cause. `staffListByBusinessOrThrow` throws on a failed read, so a null
-  // here is ambiguous exactly as the web docstring says (a real removal, or a
-  // read that could not answer), and the web sends that doubt to `failed`, not
-  // `forbidden`. The thin port maps 403 to the TERMINAL refusal that deletes the
-  // take: wrong `forbidden` loses the words forever, wrong `failed` costs one
-  // wasted upload per mount for ≤7 days. 502 is what the port reads as `failed`.
-  // The roster predicate also drops profiles with a null (or `_system_%`)
-  // full_name, so a HALF-CREATED profile reads as a non-member here — the same
-  // query getCurrentUserStaffId walks, so both doors refuse it identically.
-  //
-  // `reason` tags the log line: without it this refusal is indistinguishable
-  // from a genuine core outage on the facade_error stream, since both are
-  // `upstream_unavailable` 502. It rides the body too (errorBody merges detail),
-  // which is harmless — the thin port PARSES a non-2xx body but discards it,
-  // answering `failed` off `!res.ok` alone, so the client is byte-identical.
-  if (!(await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId))) {
-    throw new AppApiError(
-      'upstream_unavailable',
-      'no acting staff identity for this user; nothing was written',
-      { reason: 'not_on_roster' },
+    // ROSTER GATE — the half of recordsWriteGate a capability check cannot carry.
+    // On web the acting id comes from getCurrentUserStaffId, which is itself a
+    // roster-membership probe (`list.some(s => s.id === userId)`), and the gate
+    // refuses outright when it answers null. `ctx.identity.authUserId` carries no
+    // such proof, so passing it raw let a records.write holder who is NOT on this
+    // business's roster reach resolveSynqedStaffIdForBusiness — whose create-on-miss
+    // would MINT a phantom synqed staff record for that profile (the #566 finding
+    // the appointments and recordings/job facades were both hardened against).
+    // resolveSelfStaffId is that same predicate, Bearer-side.
+    //
+    // Placed ahead of BOTH shapes, not just the transcribe one: the review door
+    // is gated on web by the identical `if (!(await getCurrentUserStaffId()))`
+    // line, so gating only the resolver's caller would fix the minting and leave
+    // the two doors disagreeing about who may write.
+    //
+    // NOT a 403, deliberately — that is the one divergence a status choice could
+    // still cause. `staffListByBusinessOrThrow` throws on a failed read, so a null
+    // here is ambiguous exactly as the web docstring says (a real removal, or a
+    // read that could not answer), and the web sends that doubt to `failed`, not
+    // `forbidden`. The thin port maps 403 to the TERMINAL refusal that deletes the
+    // take: wrong `forbidden` loses the words forever, wrong `failed` costs one
+    // wasted upload per mount for ≤7 days. 502 is what the port reads as `failed`.
+    // The roster predicate also drops profiles with a null (or `_system_%`)
+    // full_name, so a HALF-CREATED profile reads as a non-member here — the same
+    // query getCurrentUserStaffId walks, so both doors refuse it identically.
+    //
+    // `reason` tags the log line: without it this refusal is indistinguishable
+    // from a genuine core outage on the facade_error stream, since both are
+    // `upstream_unavailable` 502. It rides the body too (errorBody merges detail),
+    // which is harmless — the thin port PARSES a non-2xx body but discards it,
+    // answering `failed` off `!res.ok` alone, so the client is byte-identical.
+    if (!(await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId))) {
+      throw new AppApiError(
+        'upstream_unavailable',
+        'no acting staff identity for this user; nothing was written',
+        { reason: 'not_on_roster' },
+      )
+    }
+
+    const synqed = newSynqedClient(ctx.identity.businessId)
+    const result =
+      'transcript' in body
+        ? await persistDiscardTranscriptWithClient(synqed, body)
+        : await transcribeAndPersistDiscardWithClient(
+            synqed,
+            { staffId: ctx.identity.authUserId, businessId: ctx.identity.businessId },
+            body,
+          )
+
+    // The shared body's ONE security refusal — a staged key belonging to another
+    // tenant — is the only member of its union that is not a settled domain
+    // answer, so it leaves as a real 403 rather than riding out in a 2xx where no
+    // error log or metric would ever see it. The relay reads a 403 back as the
+    // same terminal `{ error: 'forbidden' }` the web action returns, so the take
+    // is settled identically on both doors.
+    if ('error' in result && result.error === 'forbidden') {
+      throw new AppApiError('forbidden', 'that staged audio is not this business’s')
+    }
+    // Everything else IS the answer the relay branches on (retry vs settle) —
+    // returned verbatim, so the phone and the web page read one contract.
+    return ok(ctx, result)
+  } catch (err) {
+    await sweepStagedDiscardAudio(
+      ctx.identity.businessId,
+      (raw as { audioPath?: unknown } | null)?.audioPath,
     )
+    throw err
   }
-
-  const synqed = newSynqedClient(ctx.identity.businessId)
-  const result =
-    'transcript' in body
-      ? await persistDiscardTranscriptWithClient(synqed, body)
-      : await transcribeAndPersistDiscardWithClient(
-          synqed,
-          { staffId: ctx.identity.authUserId, businessId: ctx.identity.businessId },
-          body,
-        )
-
-  // The shared body's ONE security refusal — a staged key belonging to another
-  // tenant — is the only member of its union that is not a settled domain
-  // answer, so it leaves as a real 403 rather than riding out in a 2xx where no
-  // error log or metric would ever see it. The relay reads a 403 back as the
-  // same terminal `{ error: 'forbidden' }` the web action returns, so the take
-  // is settled identically on both doors.
-  if ('error' in result && result.error === 'forbidden') {
-    throw new AppApiError('forbidden', 'that staged audio is not this business’s')
-  }
-  // Everything else IS the answer the relay branches on (retry vs settle) —
-  // returned verbatim, so the phone and the web page read one contract.
-  return ok(ctx, result)
 })
 
 export const OPTIONS = GET // facadeHandler short-circuits OPTIONS before auth.
