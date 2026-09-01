@@ -658,6 +658,17 @@ export function CoachingScreen(props: CoachingProps) {
                     <button {...refused(ready.consent.cta, props.refusals.consent, 'cg-consent-btn')}>{ready.consent.cta}</button>
                   </section>
 
+                  {/* ⚖ VL-1 — THE CARD'S OWN WORDS ARE THE GATE.
+                      `CONSENT_STATE.declined.body` tells the reader 「この画面の
+                      成績と気づきは表示されません」; `COACHING_VISIBILITY_MODEL.md:32`
+                      says the same thing structurally — consent to be coached
+                      「gates whether ANY L1 artifact is generated at all. If off,
+                      there is nothing to share」. Everything below this point is
+                      generated FROM this viewer's own analysed sessions, so a
+                      decline stops it here rather than rendering it under a card
+                      that just said it wouldn't. */}
+                  {ready.consent.status !== 'declined' && (
+                  <>
                   <section
                     className="cg-spine"
                     data-guide-title="あなたの成績"
@@ -1081,6 +1092,8 @@ export function CoachingScreen(props: CoachingProps) {
                         ))}
                       </ul>
                     </section>
+                  )}
+                  </>
                   )}
                 </>
               ) : (

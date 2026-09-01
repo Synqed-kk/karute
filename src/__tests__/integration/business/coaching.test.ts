@@ -833,6 +833,12 @@ describe('⚖ THE REFUSAL CENSUS — every lever, its own reason, its own regist
     expect(SCREEN_CODE).not.toMatch(/(?<!aria-)\bhidden\b/)
     expect(SCREEN_CODE).not.toContain('display: none')
     expect(SCREEN_CODE).not.toContain('visibility: hidden')
+    // ⚖ VL-4 — THE LAW REACHES THE STYLESHEET TOO. The identical deletion,
+    // expressed in the room's own CSS instead of a JSX prop (`.cg-x { display:
+    // none }`), is the same box-removing sentence in a different file, and
+    // nothing pinned it there.
+    expect(CSS_CODE).not.toMatch(/display:\s*none/)
+    expect(CSS_CODE).not.toMatch(/visibility:\s*hidden/)
   })
 
   it('the census is COMPLETE — every refused control on the page is one of them', async () => {
@@ -2152,6 +2158,26 @@ describe('⚖ SHAPE FIDELITY — the look-fix round’s new shapes, parsed not r
     expect(new Set(Object.values(coachingConsent).map((c) => c.status)).size).toBe(3)
   })
 
+  it('⚖ VL-1 — the declined-consent state does what its own card SAYS: nothing generated renders below it', () => {
+    // COACHING_VISIBILITY_MODEL.md:32 — consent to be coached 「gates whether
+    // ANY L1 artifact is generated at all. If off, there is nothing to share」.
+    // `CONSENT_STATE.declined.body` already tells the reader so on this exact
+    // screen; this pin is the source fact that keeps that sentence true —
+    // everything from the metric spine through the module catalog sits behind
+    // it, and the consent card itself sits ABOVE the gate so it always renders.
+    const consentAt = SCREEN_CODE.indexOf('className={`cg-consent')
+    const gate = "ready.consent.status !== 'declined' && ("
+    const gateAt = SCREEN_CODE.indexOf(gate)
+    const spineAt = SCREEN_CODE.indexOf('className="cg-spine"')
+    const modulesAt = SCREEN_CODE.indexOf('className="cg-modules"')
+    const gateCloseAt = SCREEN_CODE.indexOf('</>', modulesAt)
+    for (const at of [consentAt, gateAt, spineAt, modulesAt, gateCloseAt]) expect(at).toBeGreaterThan(-1)
+    expect(consentAt).toBeLessThan(gateAt)
+    expect(gateAt).toBeLessThan(spineAt)
+    expect(spineAt).toBeLessThan(modulesAt)
+    expect(modulesAt).toBeLessThan(gateCloseAt)
+  })
+
   it('every new mirrored shape CITES the file it mirrors', () => {
     for (const cite of ['effectiveness.ts:', 'top-performer-patterns.ts:', 'learning-module.ts:', 'coaching-consent/types.ts:']) {
       expect({ cite, inPlane: PLANE.includes(cite) }).toEqual({ cite, inPlane: true })
@@ -2183,11 +2209,28 @@ describe('⚖ SHAPE FIDELITY — the look-fix round’s new shapes, parsed not r
     expect(accessFor('店舗管理者')).toEqual({ viewTeam: true, viewRoi: false })
     expect(accessFor('スタッフ')).toEqual({ viewTeam: false, viewRoi: false })
     expect(accessFor('constructor')).toEqual({ viewTeam: false, viewRoi: false })
-    // fail-closed on the VALUE as well as on the gate (hooks.ts:88-95)
-    expect(effectiveRole('スタッフ', 'constructor')).toBe('スタッフ')
-    expect(effectiveRole('スタッフ', '__proto__')).toBe('スタッフ')
-    expect(effectiveRole('スタッフ', undefined)).toBe('スタッフ')
-    expect(effectiveRole('スタッフ', 'オーナー')).toBe(process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_ENABLE_COACHING_PREVIEW === 'true' ? 'オーナー' : 'スタッフ')
+    // fail-closed on the GATE, on the REAL (untouched) test env: NODE_ENV is
+    // 'test' and the flag is unset here, so the gate is OFF and a legal
+    // override must still be ignored (M44 — the ?as= override honoured with
+    // the preview gate off).
+    expect(effectiveRole('スタッフ', 'オーナー')).toBe('スタッフ')
+    // fail-closed on the VALUE as well as on the gate (hooks.ts:88-95).
+    // ⚖ VL-2 — pinned with the gate FORCED ON. With the gate left alone (as
+    // just proven above), `effectiveRole` returns at its FIRST line
+    // (`!isRolePreviewEnabled()`) and never reaches the value check below —
+    // every assertion here would pass just as well with that check deleted.
+    // Forcing the gate on is what makes this pin exercise the line it claims to.
+    const ORIGINAL_FLAG = process.env.NEXT_PUBLIC_ENABLE_COACHING_PREVIEW
+    process.env.NEXT_PUBLIC_ENABLE_COACHING_PREVIEW = 'true'
+    try {
+      expect(effectiveRole('スタッフ', 'constructor')).toBe('スタッフ')
+      expect(effectiveRole('スタッフ', '__proto__')).toBe('スタッフ')
+      expect(effectiveRole('スタッフ', undefined)).toBe('スタッフ')
+      // …and a LEGAL override, under the same forced-on gate, really does swap.
+      expect(effectiveRole('スタッフ', 'オーナー')).toBe('オーナー')
+    } finally {
+      process.env.NEXT_PUBLIC_ENABLE_COACHING_PREVIEW = ORIGINAL_FLAG
+    }
   })
 })
 
@@ -2383,6 +2426,11 @@ describe('⚖ THE LOOK-FIX SURFACES — each one really reaches the screen', () 
     expect(self.strengths.length).toBeGreaterThan(0)
     // staff-focus.ts:203 — the detail MUST cite the evidencing metric.
     for (const s of self.strengths) expect(s.detail).toMatch(/\d/)
+    // ⚖ VL-5 — THE REAL PLANE EXERCISES THE PLURAL CASE, not just a synthetic
+    // override: p-06's own fixture now carries two focus_recommendations, so
+    // the 「そのあとに効くもの」 list this room already renders (audit #31) is
+    // reachable in an actual rendered world, not only in the test below.
+    expect(self.focus.length).toBeGreaterThan(1)
     // the whole ≤3 list is resolved, not just the hero (audit #31)
     const view = buildSelfView({
       selfId: 'p-06',
@@ -2393,7 +2441,7 @@ describe('⚖ THE LOOK-FIX SURFACES — each one really reaches the screen', () 
       patterns: teamPatterns,
     })
     expect(view.kind).toBe('ready')
-    expect((view as { kind: 'ready'; view: { focus: unknown[] } }).view.focus.length).toBe(2)
+    expect((view as { kind: 'ready'; view: { focus: unknown[] } }).view.focus.length).toBe(3)
     expect(SCREEN_CODE).toContain('ready.focus.slice(1)')
   })
 

@@ -961,7 +961,15 @@ export interface PatternShelf {
 /** ⚖ EVERY SHELF RENDERS, EMPTY OR NOT (`PatternCategorySection.tsx:9-18`, the
  *  phone's own deliberate choice): the reader sees the SHAPE of the library, so
  *  a month with nothing new on one shelf reads as 「nothing new here」 rather
- *  than as a library that quietly changed size. */
+ *  than as a library that quietly changed size.
+ *
+ *  ⚖ VL-3 — THE L2 LEAK GUARD COVERS THIS SHELF TOO. `summaryLeaks` was built
+ *  for `TriageRow.focusAreas.summaryText` alone; `title` / `behaviorDescription`
+ *  / `anonymizedExample` / `transferability` are four more generator strings
+ *  reaching the same owner screen, and `top-performer-patterns.ts:157`
+ *  explicitly permits 「any verbatim ≤15 chars」 — exactly the width a Japanese
+ *  name rides in. Same remedy as the board: a string that fails the check is
+ *  OMITTED, not printed (staff-focus.ts:144-145's own rule, applied here). */
 export function buildPatternLibrary(
   patterns: Array<{
     category: string | null
@@ -972,13 +980,17 @@ export function buildPatternLibrary(
     transferability: string
     confidence: 'high' | 'medium' | 'low'
   }>,
+  roster: Array<{ name: string }> = [],
 ): PatternShelf[] {
+  const needles = rosterNeedles(roster)
+  const safe = (p: (typeof patterns)[number]) =>
+    ![p.title, p.behaviorDescription, p.anonymizedExample, p.transferability].some((s) => summaryLeaks(s, needles))
   return PATTERN_CATEGORIES.map((key) => ({
     key,
     title: PATTERN_SHELF[key].title,
     description: PATTERN_SHELF[key].description,
     entries: patterns
-      .filter((p) => p.category === key)
+      .filter((p) => p.category === key && safe(p))
       .map((p) => ({
         title: p.title,
         behavior: p.behaviorDescription,

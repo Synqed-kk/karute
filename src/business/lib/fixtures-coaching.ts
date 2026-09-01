@@ -344,6 +344,12 @@ export const coachingStaff: FixtureCoachingStaff[] = [
       ],
     },
     focus: {
+      // ⚖ VL-5 — TWO ENTRIES, ON PURPOSE. staff-focus.ts:199 allows up to
+      // three and the screen resolves the whole list, leading with the hero
+      // and quietly listing the rest (「そのあとに効くもの」, audit #31); with
+      // only ever one entry on any fixture row that list was code nobody's
+      // world ever rendered. The second is `mod-value-01`'s own category, a
+      // module the catalog already carries.
       focus_recommendations: [
         {
           category: 'acknowledgment',
@@ -352,6 +358,15 @@ export const coachingStaff: FixtureCoachingStaff[] = [
           confidence: 'established',
           priority: 'high',
           module_id: 'mod-ack-01',
+          suggested_new_module_title: null,
+        },
+        {
+          category: 'value_presentation',
+          label: '金額の前に、変わることを一つ話す',
+          description: '「予算」を理由にした不成約の多くが、金額の前に価値の話をしていません。',
+          confidence: 'early_signal',
+          priority: 'medium',
+          module_id: 'mod-value-01',
           suggested_new_module_title: null,
         },
       ],

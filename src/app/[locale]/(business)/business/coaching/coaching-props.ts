@@ -238,11 +238,13 @@ export interface CoachingPropsResult {
    *  reader is on reset when the store changes — the ⚖ 8/17 isolation law at the
    *  frame as well as the read.
    *
-   *  ⚠ THE ROLE IS IN THE KEY TOO, AND IT HAS TO BE. Previewing as スタッフ
-   *  while standing on 全スタッフ表示 would otherwise keep a tab open that the
-   *  new persona has no panel for — a blank screen where a refusal belongs. The
-   *  screen ALSO clamps its own tab (fail-closed twice, at the frame and at the
-   *  render), because a key is a remount and a clamp is an invariant. */
+   *  ⚠ VL-6 — THE ROLE IS *NOT* IN THIS KEY (`storeKey` below is `clamped ?
+   *  storeId! : 'all-stores'` — the store only). What keeps a persona switch
+   *  from stranding a reader on a tab their new role has no panel for is two
+   *  OTHER facts, not this key: the preview's role pill is a plain `<a href>`
+   *  (a hard navigation — nothing client-side survives it) and the screen
+   *  clamps its own `activeTab` to `'self'` whenever the capability is missing
+   *  (fail-closed at the render, regardless of what mounted before it). */
   storeKey: string
 }
 
@@ -304,7 +306,7 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
   const myModuleIds = self.kind === 'ready' ? self.view.focus.map((f) => f.moduleId) : []
   const modules = on ? buildModuleLibrary(learningModules, myModuleIds) : []
   const moduleTitle = new Map(modules.map((mod) => [mod.moduleId, mod.title]))
-  const shelves = on ? buildPatternLibrary(patternLibrary) : []
+  const shelves = on ? buildPatternLibrary(patternLibrary, roster) : []
 
   const windowStart = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
   // personal-findings.ts:219 `window.date_range`, composed from the clock.
