@@ -1236,18 +1236,48 @@ export const discardRecordingWithReason = async (
   }
 }
 
-// A2-2 — the WORDS behind a reasoned discard. NOT AVAILABLE ON THE PHONE THIS
-// ROUND: both persist actions read core through a 'use server' client and the
-// thin shell would need its own facade route before it could ask the same
-// thing. Unreachable rather than merely stubbed — the record page checks
-// `supportsDiscardTranscript` (false on this port) BEFORE it keeps any take
-// back, so a phone discard behaves exactly as it did before A2-2. These entries
-// exist because the boundary plugin substitutes this module for every
-// src/actions/ import: without the names the thin BUILD fails, which is the
-// gate working, not a workaround.
-const discardTranscriptUnsupported = async () => ({ skipped: 'unsupported' }) as const
-export const persistDiscardTranscript = discardTranscriptUnsupported
-export const transcribeAndPersistDiscard = discardTranscriptUnsupported
+// A2-2 — the WORDS behind a reasoned discard. LIVE ON THE PHONE since
+// PHONEWIRE-2C: both calls POST the ONE facade door
+// (…/recordings/discards/transcript), which runs the SAME shared bodies the web
+// actions run. This port used to answer `unsupported`, and the record page's
+// `supportsDiscardTranscript` check then deleted the take at the gate — the
+// field bug being fixed here. No Idempotency-Key: the dedupe is server-derived.
+//
+// THE STATUS MAP IS THE CONTRACT. The relay retries ONLY `error: 'failed'` and
+// settles everything else, so a wrong mapping either deletes a take whose words
+// never landed or re-stages the whole audio on every record-page mount for the
+// take-store's seven days:
+//   2xx  → the shared body's own answer, verbatim (ok / skipped / not_discarded)
+//   403  → 'forbidden', the terminal refusal the web action returns for a
+//          resolved identity without records.write, or for another tenant's key
+//   else → 'failed', the retryable one (401 blips, 5xx, an unparseable body, a
+//          dead network)
+type DiscardTranscriptWrite = Awaited<
+  ReturnType<typeof import('@/actions/recording-discard-transcript').persistDiscardTranscript>
+>
+async function facadeDiscardTranscript(input: unknown): Promise<DiscardTranscriptWrite> {
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/recordings/discards/transcript', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    if (res.status === 403) return { error: 'forbidden' }
+    const body = (await res.json().catch(() => null)) as DiscardTranscriptWrite | null
+    if (!res.ok || !body) return { error: 'failed' }
+    return body
+  } catch {
+    return { error: 'failed' }
+  }
+}
+export const persistDiscardTranscript = ((input) =>
+  facadeDiscardTranscript(
+    input,
+  )) satisfies typeof import('@/actions/recording-discard-transcript').persistDiscardTranscript
+export const transcribeAndPersistDiscard = ((input) =>
+  facadeDiscardTranscript(
+    input,
+  )) satisfies typeof import('@/actions/recording-discard-transcript').transcribeAndPersistDiscard
 
 // 破棄の記録 — the staffer's OWN monthly discard count (⚖ 8/25 ruling B, staff
 // half). STILL NOT AVAILABLE ON THE PHONE, and no longer for the same reason as

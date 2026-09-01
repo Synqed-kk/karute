@@ -183,3 +183,29 @@ export const RecordingJobEnqueueSchema = z
       .nullish(),
   })
   .strict()
+
+// ── Discard transcript write (PHONEWIRE-2C) — the two shapes the client relay
+// (lib/recording/discard-transcript.ts) actually sends, as ONE union so the door
+// can never be ambiguous about which it got: both members are `.strict()`, so a
+// body carrying BOTH `transcript` and `audioPath` matches neither and is a 400
+// rather than a silent pick. Same posture as the discard receipt beside it.
+export const DiscardTranscriptWriteSchema = z.union([
+  // `review` origin: the words are already in hand, nothing is transcribed.
+  z
+    .object({
+      recordingSessionId: z.string().max(MAX_ID_CHARS),
+      transcript: z.string().max(MAX_STORED_TRANSCRIPT_CHARS),
+      durationSeconds: z.number().finite().min(0),
+    })
+    .strict(),
+  // `recorder` origin: a STORAGE PATH, never a URL — the tenant prefix is
+  // re-proved server-side against the Bearer identity's own business.
+  z
+    .object({
+      recordingSessionId: z.string().max(MAX_ID_CHARS),
+      audioPath: z.string().max(MAX_STORAGE_PATH_CHARS),
+      durationSeconds: z.number().finite().min(0),
+      locale: z.string().max(MAX_LOCALE_CHARS),
+    })
+    .strict(),
+])
