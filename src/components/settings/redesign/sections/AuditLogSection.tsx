@@ -205,7 +205,8 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   // scrolled deep — the viewport then sits past the new (short) content, so
   // it reads as a white screen and taps hit nothing. Reset so the filter
   // chips + summary strip land in view again. SAME mechanism as #595's fix
-  // (SettingsShell.tsx's DrillInView effect): walk up from the section root
+  // (SettingsShell.tsx's ONE SCROLL-RESET AUTHORITY effect — that fix started
+  // life inside DrillInView, which no longer carries it): walk up from the section root
   // zeroing scrollTop — a no-op on an unscrolled ancestor, and this already
   // covers both targets web/thin split that fix solved (web's ancestor chain
   // ends at <html>, whose scrollTop IS the window scroll in standards mode;

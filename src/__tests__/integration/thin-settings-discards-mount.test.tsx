@@ -124,13 +124,14 @@ describe('thin settings wiring — 破棄の記録 tab is live on the phone', ()
     // jsdom (SettingsShell's deliberate dual tree, shared with web) — either
     // entry point sets the same activeTab.
     //
-    // That same dual tree also MOUNTS the section twice here (mobile drill-in
-    // + desktop panel), so the ledger is read twice per open — pre-existing
-    // SettingsShell behavior shared with web, not thin wiring, and pinned as
-    // such on the 監査ログ tab (thin-settings-audit-log-mount.test.tsx). No
-    // count is asserted here on purpose: one pin for the shell class is
-    // enough, and this file is about the RENDER. Harmless on this screen —
-    // both reads are GETs and neither writes an audit row.
+    // jsdom has no matchMedia, so the shell stays in its unmeasured state and
+    // renders BOTH branches — mounting the section twice here. In a real
+    // browser the shell measures the `md` breakpoint after mount and keeps
+    // only the visible branch, so opening a tab reads once
+    // (fix/settings-single-mount; counts pinned in
+    // settings-shell-single-mount.test.tsx). No count is asserted here on
+    // purpose: this file is about the RENDER, and both reads are GETs that
+    // write no audit row either way.
     fireEvent.click(screen.getAllByText(TAB_LABEL)[0])
 
     await waitFor(() => {

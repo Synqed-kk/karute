@@ -188,7 +188,19 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
         }`}
         aria-current={active ? 'page' : undefined}
       >
-        <Icon className={`h-5 w-5 ${active ? 'stroke-[2.5]' : ''}`} />
+        {/* The active tab thickens its icon (stroke 2 → 2.5). `transition-colors`
+         *  on the Link above eases the COLOUR over the default 150ms, but
+         *  stroke-WIDTH is not a colour, so it used to snap in a single frame:
+         *  measured 2026-09-01 (.build-evidence/repro/before/report.json), the
+         *  icon's box never moves by even 0.01px — the twitch Liam reported is
+         *  that hard ink jump landing against the smooth colour fade beside it.
+         *  Transitioning it on the same clock makes the tap read as one calm
+         *  change. Both resting states are unchanged, and the reduced-motion
+         *  block in globals.css collapses this to instant like every other
+         *  transition. */}
+        <Icon
+          className={`h-5 w-5 transition-[stroke-width] ${active ? 'stroke-[2.5]' : ''}`}
+        />
         <span className="text-[10px] font-medium leading-none">{label(route.label)}</span>
       </Link>
     )
