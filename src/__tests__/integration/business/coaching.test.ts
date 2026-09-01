@@ -793,10 +793,46 @@ describe('⚖ THE REFUSAL CENSUS — every lever, its own reason, its own regist
     for (const line of REGISTRY) {
       expect({ line, inSource: PROPS_SRC.includes(line) || LIB_SRC.includes(line) }).toEqual({ line, inSource: true })
     }
+    // ⚠ THE MAP, NOT THE MERE PRESENCE — and this is the look-fix round's own
+    // correction. The round added two levers (consent, deletion) that wait on
+    // the SAME seam as `share` (③同意の実保存), so three lines now carry ③ and a
+    // pin that only asked 「does ③ appear somewhere」 could no longer tell
+    // whether `share`'s OWN line had been deleted. Mutant M22 survived on
+    // exactly that. The pin now reads the seam map itself and requires ONE
+    // ENTRY PER LEVER, so a refusal losing its line is a refusal with no seam.
+    const seamMap = Object.fromEntries(
+      [...PROPS_SRC.matchAll(/^\s*\*\s+([a-z]+)\s+→ 登録 ([①-⑳]\S*)/gm)].map((m) => [m[1], m[2]]),
+    )
+    expect(Object.keys(seamMap).sort()).toEqual(Object.keys(props.refusals).sort())
+    const helpSeams = Object.fromEntries(
+      [...LIB_SRC.matchAll(/^\s*\*\s+([a-z-]+)\s+→ 登録 ([①-⑳]\S*)/gm)].map((m) => [m[1], m[2]]),
+    )
+    expect(Object.keys(helpSeams).sort()).toEqual(Object.keys(props.helpRefusals).sort())
     // and the tags really are in COMMENTS — stripping them leaves none behind
     expect(stripComments(PROPS_SRC).replace(/^\s*\/\/.*$/gm, '')).not.toMatch(/[①-⑳]/)
     expect(stripComments(LIB_SRC).replace(/^\s*\/\/.*$/gm, '')).not.toMatch(/[①-⑳]/)
     expect(SCREEN_CODE).not.toMatch(/登録:|[①-⑳]/)
+  })
+
+  it('⚖ NOTHING ON THIS PAGE IS RENDERED `hidden` — a poster of a state is not a state', () => {
+    // ⚖ 8/17, and the room-3 zero-state rebuild that ended the class. Canon
+    // carried a `[hidden]` boundary panel for a state the business cannot be
+    // in; this room states such boundaries in WORDS instead (deviation C8-2).
+    //
+    // ⚠ IT IS ALSO THE CHEAPEST WAY TO DELETE A TRUTH FROM THIS PAGE, which is
+    // how the look-fix round found it: mutants M39 (the ROI's honesty note) and
+    // M45 (the consent gate) both simply added `hidden` to a section, and every
+    // pin that read the SOURCE for the string, and every probe verdict that read
+    // `textContent`, stayed green — because `hidden` removes the box, not the
+    // text. One structural rule kills both, and states a law the room already
+    // lives by.
+    // ⚠ `aria-hidden` IS A DIFFERENT WORD AND A LEGITIMATE ONE — it removes a
+    // decorative mark from the accessibility tree (the chart's start line, the
+    // skill track's benchmark tick) without removing anything a reader sees.
+    // What this pin bans is the BOX-REMOVING attribute.
+    expect(SCREEN_CODE).not.toMatch(/(?<!aria-)\bhidden\b/)
+    expect(SCREEN_CODE).not.toContain('display: none')
+    expect(SCREEN_CODE).not.toContain('visibility: hidden')
   })
 
   it('the census is COMPLETE — every refused control on the page is one of them', async () => {
@@ -2028,6 +2064,15 @@ describe('⚖ SHAPE FIDELITY — the look-fix round’s new shapes, parsed not r
     }
     // the money amount is a MoneyAmount, never a bare JPY number.
     expect(Object.keys(view.monthlyValueEstimate!).sort()).toEqual(['amount', 'currency'])
+    // ⚠ THE LIFTS ARE THE PLANE'S OWN METRICS, ONE EACH — no extra row, no
+    // duplicate key, and nothing a mis-wiring could append. Mutant M38 pushed a
+    // second closingRate row onto the list and every field-shape pin stayed
+    // green, because a well-shaped extra row is still well-shaped.
+    expect(view.lifts.map((l) => l.key)).toEqual(storeRoi[STORE_A].lifts.map((l) => l.key))
+    expect(new Set(view.lifts.map((l) => l.key)).size).toBe(view.lifts.length)
+    for (const l of view.lifts) expect(['closingRate', 'rebookingRate', 'avgRevenue', 'satisfaction']).toContain(l.key)
+    // …and the hero is one OF them, never a row of its own.
+    expect(view.lifts).toContain(view.headline)
   })
 
   it('the pattern mirrors top-performer-patterns.ts’s own patterns[] item — minus the name it must never carry', () => {
