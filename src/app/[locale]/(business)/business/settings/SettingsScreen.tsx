@@ -84,8 +84,12 @@ export interface DialRow {
   /** 事業全体 / この店舗 — printed on every row, never inferred by the reader. */
   scopeLabel: string
   control: ControlKind
-  /** ⚖ 8/21's three parts, and all three are always shown. */
-  trio: { base: string; guardrail: string; businessType: string }
+  /** ⚖ 8/21's parts. The default and the guardrail are ALWAYS shown; the 業種
+   *  note is present only where a ruling actually gave one, and a dial with none
+   *  is SILENT rather than printing 「業種による初期値の決まりはありません」 —
+   *  a null sentence on twelve rows is not the third part, it is noise standing
+   *  where the guardrail should be read (DS9-10). */
+  trio: { base: string; guardrail: string; businessType?: string }
   refusal: string
 }
 
@@ -349,6 +353,17 @@ export function SettingsScreen(props: SettingsProps) {
             ← {props.railHeading}
           </button>
 
+          {/* ⚠ THIS BRANCH IS UNREACHABLE BY CONSTRUCTION TODAY, AND IT IS KEPT
+              DELIBERATELY (DS9-3). 自分の表示設定 is `live` + `scope: 'self'`, so
+              `gateOf` answers `open` for every role — including one this world
+              has never heard of — and `firstOpenSection` therefore never returns
+              null, which means `shownId` is always a real rail id and `find`
+              always matches. It stays as DEFENCE for a rail whose every row
+              could one day be gated: this room's rule is that a panel is never a
+              blank rectangle, and that rule needs somewhere to land. The suite
+              pins the CLAIM (every role opens on something) rather than the
+              presence of this string — grepping for the fallback pinned the dead
+              code, under a name that promised the opposite. */}
           {section === null ? (
             <section className="st-boundary" data-guide-title="表示できる設定がありません" data-guide="いまのアカウントの権限では、開ける設定がありません。">
               <p>{props.boundaryFallback}</p>
@@ -397,13 +412,15 @@ export function SettingsScreen(props: SettingsProps) {
                             description would be a column of syllables inside it;
                             as its own grid child it spans both columns. */}
                         <p className="st-dial-desc">{row.description}</p>
-                        {/* ⚖ 8/21 — the trio, and all three lines always show. A
+                        {/* ⚖ 8/21 — the default and the guardrail always show. A
                             dial whose guardrail is invisible is a dial a manager
-                            can hurt their own shop with. */}
+                            can hurt their own shop with. The 業種 line prints
+                            ONLY where a ruling gave one (DS9-10): absence is
+                            silence, never a sentence saying there is nothing. */}
                         <ul className="st-trio">
                           <li className="st-trio-base">{row.trio.base}</li>
                           <li className="st-trio-rail">{row.trio.guardrail}</li>
-                          <li className="st-trio-type">{row.trio.businessType}</li>
+                          {row.trio.businessType && <li className="st-trio-type">{row.trio.businessType}</li>}
                         </ul>
                         {/* ⚠ THE REASON IS VISIBLE TEXT, not only a title. A
                             refused control whose reason lives in a tooltip is a

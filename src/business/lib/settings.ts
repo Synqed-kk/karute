@@ -218,10 +218,11 @@ export function readPrefs(raw: string | null): Prefs {
 
 // ── the registry, and the refusals that name it ─────────────────────────────
 //
-// ⚖ EVERY REFUSAL SAYS WHY IN ITS OWN WORDS AND NAMES THE SEAM IT WAITS ON
+// ⚖ EVERY REFUSAL SAYS WHY IN ITS OWN WORDS AND CARRIES THE SEAM IT WAITS ON
 // (the room-6/8 law). One generic sentence on sixteen dials tells the reader
 // nothing about which of them would have done what — and the sentence on the
-// screen is the same sentence the Anthony ask is written from.
+// screen is the same sentence the Anthony ask is written from. The seam rides
+// BESIDE the sentence rather than inside it; the note on `REGISTRY` below is why.
 
 // ⚠ WHAT IS DELIBERATELY *NOT* ON THIS RAIL, AND WHY (⚖ DS-4, and the map's own
 // conflict (c)4). The board's per-feature kill switches — drag verdicts, the
@@ -235,16 +236,41 @@ export function readPrefs(raw: string | null): Prefs {
 // row. There is deliberately nothing to find here; that is the decision, not an
 // omission.
 
+// ⚠ THE REGISTRY LINE IS DATA BESIDE THE SENTENCE, NEVER A STRING INSIDE IT —
+// AND THAT IS THE RECURRENCE FIX, NOT A TIDY-UP (NS9-1 / DS9-4, the room-8 N8-1
+// class). The first cut closed all sixteen refusals AND the 事業構成 boundary
+// line with 「（登録: ①店舗ポリシーの保存）」: an internal build-registry citation
+// printed to a shop owner seventeen times, in VISIBLE copy and — through
+// `refused()`'s `aria-label` — in the accessible name a screen reader speaks
+// aloud on every focus. ⚖ 「plain names, never codes」 forbids exactly that, and
+// this room's own sheet already states the rule for the trio beside it
+// (settings.css: 「NO CODES, AND THAT IS A RULE RATHER THAN A TASTE」).
+//
+// The root cause was the shape, not the wording: while the seam's tie to a dial
+// was a SUBSTRING of the reader's sentence, every refusal had to carry the code
+// to stay pinnable. So the tie is now a FIELD the screen never renders. The
+// reader gets a sentence in their own words; the census still proves that every
+// dial names one of the eight lines and that all eight are spent; and there is
+// no string left for a tag to ride out on. The suite's tag-leak mutant is the
+// guard that keeps it that way.
+//
+// The circled numbers live HERE, in comments, and in the build report and the
+// Anthony ask — where a number is a number rather than a code stapled onto a
+// sentence a receptionist has to read.
 export const REGISTRY = {
-  storePolicyWrite: '①店舗ポリシーの保存',
-  settingsTokens: '②設定の権限トークン',
-  coachingOrgSettings: '③コーチングの店舗設定',
-  transcriptEnforcement: '④文字起こしの公開範囲の実装',
-  winBackCore: '⑤再来促しのしきい値',
-  cashToleranceWrite: '⑥現金差異の承認しきい値',
-  displayLanguage: '⑦表示言語',
-  dynamicPricingMaster: '⑧動的価格の店舗設定',
+  /** ① */ storePolicyWrite: '店舗ポリシーの保存',
+  /** ② */ settingsTokens: '設定の権限トークン',
+  /** ③ */ coachingOrgSettings: 'コーチングの店舗設定',
+  /** ④ */ transcriptEnforcement: '文字起こしの公開範囲の実装',
+  /** ⑤ */ winBackCore: '再来促しのしきい値',
+  /** ⑥ */ cashToleranceWrite: '現金差異の承認しきい値',
+  /** ⑦ */ displayLanguage: '表示言語',
+  /** ⑧ */ dynamicPricingMaster: '動的価格の店舗設定',
 } as const
+
+/** The eight seams, as a type — so a refusal cannot wait on a line that is not
+ *  one of them, and a ninth line cannot appear without the census noticing. */
+export type RegistryLine = keyof typeof REGISTRY
 
 export type DialId =
   | 'guard-mode'
@@ -264,27 +290,99 @@ export type DialId =
   | 'coaching-floor'
   | 'display-language'
 
-const REFUSAL: Record<DialId, string> = {
-  'guard-mode': `見本データのためスキマガードの設定を変えられません。オン・オフと厳しさは店舗ごとのポリシーで、いま画面が出している値は「今日の運営」が実際に使っている値です。保存先をつないだあとに変更できます（登録: ${REGISTRY.storePolicyWrite}）。`,
-  'booking-step': `見本データのため予約の移動単位を変えられません。この刻みはボードのドラッグとReserveに同時に効く店舗ポリシーのため、保存先をつないだあとに変更できます（登録: ${REGISTRY.storePolicyWrite}）。`,
-  'block-step': `見本データのため予定ブロックの移動単位を変えられません。休憩や清掃の刻みは店舗ポリシーのため、保存先をつないだあとに変更できます（登録: ${REGISTRY.storePolicyWrite}）。`,
-  'min-sellable': `見本データのため販売可能な最小の長さを変えられません。この長さより短い空きをお店として売りに出すかどうかの判断のため、保存先をつないだあとに変更できます（登録: ${REGISTRY.storePolicyWrite}）。`,
-  'breaks-paid': `見本データのため休憩の有給扱いを変えられません。この設定は人件費の金額そのものを動かすため、金額を見られる権限とあわせてサーバー側で判定する必要があります（登録: ${REGISTRY.storePolicyWrite}）。`,
-  'override-rights': `この画面からは上書き権限を変えられません。「置けない」場所に置ける役職とスタッフの指定は、権限そのものを配る操作です。いまの権限の一覧に上書き用の項目がなく、追加はサーバー側の作業になります（登録: ${REGISTRY.settingsTokens}）。`,
-  'settings-rights': `この画面からは設定の権限を変えられません。いまは「設定を変更できる」というひとつの権限ですべての設定ページをまとめて開いており、ページごとに分けるには権限の項目を増やす必要があります（登録: ${REGISTRY.settingsTokens}）。`,
-  'cash-tolerance': `見本データのため現金差異の承認しきい値を変えられません。この金額は理由なしで通せる差異の上限で、レジの締めがそのまま読んでいる値です。保存先をつないだあとに変更できます（登録: ${REGISTRY.cashToleranceWrite}）。`,
-  'win-back': `見本データのため再来促しの日数を変えられません。この日数はカルテと共通のひとつの値で、二か所に持たせないためにcore側に置く必要があります（登録: ${REGISTRY.winBackCore}）。`,
-  'dynamic-pricing': `見本データのため動的価格を切り替えられません。店舗全体の切り替え自体がまだ存在せず、いまの割引の深さは料金表から計算しています（登録: ${REGISTRY.dynamicPricingMaster}）。`,
-  'transcript-visibility': `見本データのため文字起こしの公開範囲を変えられません。誰が文字起こしを読めるかはサーバー側のデータの入口で判定する必要があり、画面側の切り替えだけでは守れません（登録: ${REGISTRY.transcriptEnforcement}）。`,
-  'coaching-enabled': `見本データのためコーチングの利用を切り替えられません。オン・オフは店舗ごとの申し込みの記録のため、店舗設定の保存先をつないだあとに変更できます（登録: ${REGISTRY.coachingOrgSettings}）。`,
-  'coaching-sharing': `見本データのため共有の方針を変えられません。共有はスタッフ本人が許可するもので、許可の記録と取り消しをサーバー側に持つ必要があります（登録: ${REGISTRY.coachingOrgSettings}）。`,
-  'coaching-retention': `見本データのため記録の保存期間を変えられません。保存期間は記録を消す操作につながるため、店舗設定の保存先をつないだあとに変更できます（登録: ${REGISTRY.coachingOrgSettings}）。`,
-  'coaching-floor': `見本データのため判断に必要なセッション数を変えられません。この数はスタッフの区分を出してよいかどうかの境目のため、店舗設定の保存先をつないだあとに変更できます（登録: ${REGISTRY.coachingOrgSettings}）。`,
-  'display-language': `見本データのため表示言語を変えられません。この画面の言葉はまだ日本語で書き込まれており、すべての画面を言語に対応させる作業をこれから行います（登録: ${REGISTRY.displayLanguage}）。`,
+/** A refusal is the SENTENCE the reader gets and the SEAM it waits on, kept
+ *  apart on purpose (see the registry note above). Only `text` ever reaches a
+ *  screen; `seam` is what the census, the build report and the Anthony ask are
+ *  written from. */
+interface Refusal {
+  seam: RegistryLine
+  text: string
+}
+
+// ⚠ 「サーバー側」 IS NOT A WORD THIS APP USES (NS9-3). It appeared SEVEN times in
+// this room — four here, three in the props file — and nowhere else in the
+// product, in a page that otherwise reaches for plain business language. The room's own idiom is 「データの入口 / データの側」 —
+// which also says the thing that matters: the check cannot live in the screen,
+// because a screen can only hide, not protect.
+const REFUSAL: Record<DialId, Refusal> = {
+  'guard-mode': {
+    seam: 'storePolicyWrite',
+    text: '見本データのためスキマガードの設定を変えられません。オン・オフと厳しさは店舗ごとのポリシーで、いま画面が出している値は「今日の運営」が実際に使っている値です。保存先をつないだあとに変更できます。',
+  },
+  'booking-step': {
+    seam: 'storePolicyWrite',
+    text: '見本データのため予約の移動単位を変えられません。この刻みはボードのドラッグとReserveに同時に効く店舗ポリシーのため、保存先をつないだあとに変更できます。',
+  },
+  'block-step': {
+    seam: 'storePolicyWrite',
+    text: '見本データのため予定ブロックの移動単位を変えられません。休憩や清掃の刻みは店舗ポリシーのため、保存先をつないだあとに変更できます。',
+  },
+  'min-sellable': {
+    seam: 'storePolicyWrite',
+    text: '見本データのため販売可能な最小の長さを変えられません。この長さより短い空きをお店として売りに出すかどうかの判断のため、保存先をつないだあとに変更できます。',
+  },
+  'breaks-paid': {
+    seam: 'storePolicyWrite',
+    text: '見本データのため休憩の有給扱いを変えられません。この設定は人件費の金額そのものを動かすため、金額を見られる権限とあわせて、データの側で判定する必要があります。',
+  },
+  'override-rights': {
+    seam: 'settingsTokens',
+    text: 'この画面からは上書き権限を変えられません。「置けない」場所に置ける役職とスタッフの指定は、権限そのものを配る操作です。いまの権限の一覧に上書き用の項目がなく、項目を増やすところから必要になります。',
+  },
+  'settings-rights': {
+    seam: 'settingsTokens',
+    text: 'この画面からは設定の権限を変えられません。いまは「設定を変更できる」というひとつの権限ですべての設定ページをまとめて開いており、ページごとに分けるには権限の項目を増やす必要があります。',
+  },
+  'cash-tolerance': {
+    seam: 'cashToleranceWrite',
+    text: '見本データのため現金差異の承認しきい値を変えられません。この金額は理由なしで通せる差異の上限で、レジの締めがそのまま読んでいる値です。保存先をつないだあとに変更できます。',
+  },
+  'win-back': {
+    seam: 'winBackCore',
+    // ⚠ 「core」 IS AN INTERNAL BACKEND CODENAME (NS9-2) and a salon owner has
+    // never heard it. The fact the reader needs is that the number has ONE home
+    // both doors read — which is sayable without naming a system.
+    text: '見本データのため再来促しの日数を変えられません。この日数はカルテと共通のひとつの値です。二か所に分かれないよう、両方が読むひとつの置き場所を用意してから変更できるようにします。',
+  },
+  'dynamic-pricing': {
+    seam: 'dynamicPricingMaster',
+    text: '見本データのため動的価格を切り替えられません。店舗全体の切り替え自体がまだ存在せず、いまの割引の深さは料金表から計算しています。',
+  },
+  'transcript-visibility': {
+    seam: 'transcriptEnforcement',
+    text: '見本データのため文字起こしの公開範囲を変えられません。誰が文字起こしを読めるかはデータの入口で判定する必要があり、画面側の切り替えだけでは守れません。',
+  },
+  'coaching-enabled': {
+    seam: 'coachingOrgSettings',
+    text: '見本データのためコーチングの利用を切り替えられません。オン・オフは店舗ごとの申し込みの記録のため、店舗設定の保存先をつないだあとに変更できます。',
+  },
+  'coaching-sharing': {
+    seam: 'coachingOrgSettings',
+    text: '見本データのため共有の方針を変えられません。共有はスタッフ本人が許可するもので、許可の記録と取り消しをデータの側に持つ必要があります。',
+  },
+  'coaching-retention': {
+    seam: 'coachingOrgSettings',
+    text: '見本データのため記録の保存期間を変えられません。保存期間は記録を消す操作につながるため、店舗設定の保存先をつないだあとに変更できます。',
+  },
+  'coaching-floor': {
+    seam: 'coachingOrgSettings',
+    text: '見本データのため判断に必要なセッション数を変えられません。この数はスタッフの区分を出してよいかどうかの境目のため、店舗設定の保存先をつないだあとに変更できます。',
+  },
+  'display-language': {
+    seam: 'displayLanguage',
+    text: '見本データのため表示言語を変えられません。この画面の言葉はまだ日本語で書き込まれており、すべての画面を言語に対応させる作業をこれから行います。',
+  },
 }
 
 export function refusalFor(dial: DialId): string {
-  return REFUSAL[dial]
+  return REFUSAL[dial].text
+}
+
+/** The seam a dial waits on. The census is proved from THIS rather than from a
+ *  substring of the reader's sentence — which is what let the code into the copy
+ *  in the first place. */
+export function seamFor(dial: DialId): RegistryLine {
+  return REFUSAL[dial].seam
 }
 
 // ── the tour card's room-local correction ───────────────────────────────────

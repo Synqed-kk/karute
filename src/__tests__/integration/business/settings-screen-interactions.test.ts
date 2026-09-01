@@ -42,7 +42,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
-import { keepCardOffHeading, PREFS_DEFAULT, readPrefs } from '@/business/lib/settings'
+import { accessFor, firstOpenSection, keepCardOffHeading, PREFS_DEFAULT, readPrefs } from '@/business/lib/settings'
 
 const ROOM_DIR = 'src/app/[locale]/(business)/business/settings'
 const SRC = readFileSync(join(process.cwd(), `${ROOM_DIR}/SettingsScreen.tsx`), 'utf8')
@@ -295,7 +295,26 @@ describe('⚖ list-is-the-page — the phone’s own screen, and the way back', 
     // this READER may open, so a staff member lands on their own preferences
     // rather than on an empty frame.
     expect(SRC_CODE).toContain('const section = props.sections.find((s) => s.id === shownId) ?? null')
+    // ⚠ RE-POINTED (DS9-3). This used to grep the source for
+    // `{props.boundaryFallback}` — under a name claiming the panel is never
+    // blank, it pinned that the code for a BLANK panel is PRESENT, and that
+    // branch cannot execute: 自分の表示設定 is `live` + `scope: 'self'`, so
+    // `gateOf` answers `open` for every role including 不明 and `firstOpenSection`
+    // can never return null. The claim itself is what is asserted now, on the
+    // rule, for every role a reader can arrive as — including one this world has
+    // never heard of.
+    for (const role of ['オーナー', '店舗管理者', 'スタッフ', '不明', '']) {
+      const opening = firstOpenSection(accessFor(role))
+      expect({ role, opens: opening?.id ?? null }).not.toEqual({ role, opens: null })
+    }
+    // …and a reader who holds NOTHING lands on their own preferences, which is
+    // the section the whole structural duty exists for.
+    expect(firstOpenSection(accessFor('スタッフ'))?.id).toBe('my-display')
+    // The fallback stays as DEFENCE for a future rail whose every row could be
+    // gated; it is unreachable by construction today, and that is stated where
+    // the branch is rather than asserted as if it ran.
     expect(SRC_CODE).toContain('{props.boundaryFallback}')
+    expect(SRC).toContain('UNREACHABLE BY CONSTRUCTION')
   })
 })
 

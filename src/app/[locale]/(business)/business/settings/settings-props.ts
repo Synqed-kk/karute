@@ -185,8 +185,11 @@ function boundaryLineFor(entry: RailEntry, role: string): string {
   // canon's roster comment names it to explain this exact row, and the honest
   // sentence says the row is not reachable for anyone yet rather than implying a
   // permission somebody could be granted.
+  // ⚠ AND IT CARRIES NO REGISTRY CODE EITHER (NS9-1 / DS9-4). This sentence rode
+  // the same 「（登録: ②…）」 tag the sixteen refusals did; the seam it waits on is
+  // `REGISTRY.settingsTokens`, recorded in the build report and the Anthony ask.
   if (entry.needs === 'business.manage') {
-    return `${entry.label}は、いまのアカウントの権限では開けません。この画面を開くための権限そのものがまだ用意されていないため、どの役職からも開けない状態です（登録: ②設定の権限トークン）。`
+    return `${entry.label}は、いまのアカウントの権限では開けません。この画面を開くための権限そのものがまだ用意されていないため、どの役職からも開けない状態です。`
   }
   return `${entry.label}は、${role}の権限では開けません。この設定を変更できる権限を持つアカウントでのみ表示されます。`
 }
@@ -194,7 +197,7 @@ function boundaryLineFor(entry: RailEntry, role: string): string {
 function selfSection(base: SectionBase): SettingsSection {
   return {
     ...base,
-    kicker: '保存範囲: 自分',
+    kicker: '自分だけの設定',
     title: '自分の表示設定',
     // canon fable-settings-colors.html:495, kept in meaning: 個人スコープ、権限ゲートなし.
     lead: 'ボードの見え方の好みは人によって分かれます。ここは自分だけの設定で、ほかの人の画面は変わりません。権限に関わらず、どのアカウントでも変更できます。',
@@ -263,7 +266,7 @@ const SOON: Record<string, { body: string; today: string; willCarry: string[] }>
   ai: {
     body: 'カルテのAIが何をどう書くかの設定です。',
     today: 'AIの要約はカルテの各記録に表示されています。',
-    willCarry: ['要約スタイル', '転帰の選択肢', 'AI相談', '業種プロファイル'],
+    willCarry: ['要約スタイル', '施術結果の選択肢', 'AI相談', '業種プロファイル'],
   },
   sync: {
     body: 'Reserveの予約をどう取り込むかの設定です。',
@@ -273,7 +276,7 @@ const SOON: Record<string, { body: string; today: string; willCarry: string[] }>
   'reserve-acceptance': {
     body: 'お客様がReserveで予約できる範囲の設定です。',
     today: 'お客様が選べる開始時刻は、このページの「予約の移動単位」とは別の設定です。',
-    willCarry: ['受付ウィンドウ', 'キャンセル規定', '価格の見え方'],
+    willCarry: ['受付期間', 'キャンセル規定', '価格の見え方'],
   },
   notifications: {
     body: 'お客様とスタッフへの通知の設定です。',
@@ -281,18 +284,18 @@ const SOON: Record<string, { body: string; today: string; willCarry: string[] }>
     willCarry: ['予約・キャンセルの通知', '価格・ガードのお知らせ', '静かな時間'],
   },
   integrations: {
-    body: '外部サービスとのつなぎ込みの設定です。',
+    body: '外部サービスとの連携の設定です。',
     today: 'いまつながっているのはReserveの予約同期だけです。',
     willCarry: ['連携の一覧', '接続と解除'],
   },
   'data-io': {
     body: 'データの書き出しと取り込みの設定です。',
     today: '顧客の書き出しはカルテのQR書き出しで行えます。',
-    willCarry: ['エクスポート', 'インポート', '書き出しの権限'],
+    willCarry: ['書き出し', '取り込み', '書き出しの権限'],
   },
   'audit-log': {
     body: '誰がいつ何を変えたかの記録です。',
-    today: '記録そのものはすでにサーバー側に残っています。読む画面がまだありません。',
+    today: '記録そのものはすでにデータの側に残っています。読む画面がまだありません。',
     willCarry: ['絞り込み', '変更記録'],
   },
   billing: {
@@ -337,7 +340,7 @@ function storeSection(base: SectionBase, entry: RailEntry, d: StoreDials, lensLa
           title: 'この値の出どころ',
           lines: [
             { label: '現在のしきい値', value: yen(cashTolerance) },
-            { label: '読んでいる画面', value: '売上・レジ の締め' },
+            { label: '読んでいる画面', value: '売上・レジの締め' },
             { label: '上限', value: `${yen(MAX_CASH_TOLERANCE)}（これ以上は設定できません）` },
           ],
           note: '支払い方法とポイント制の設定は、この画面ではまだ扱いません。',
@@ -357,9 +360,9 @@ function storeSection(base: SectionBase, entry: RailEntry, d: StoreDials, lensLa
           lines: [
             { label: 'この店舗の日数', value: days(clampWinBackDays(d.winBackDays)) },
             { label: '同じ値を使う画面', value: 'カルテ（スマホ）のお声がけの案' },
-            { label: '値の置き場所', value: 'core にひとつ（二か所には持ちません）' },
+            { label: '値の置き場所', value: 'ひとつだけ（二か所には持ちません）' },
           ],
-          note: '同じ数字がカルテとBusinessの両方に出るため、値はcore側にひとつだけ置きます。',
+          note: '同じ数字がカルテとBusinessの両方に出るため、値はひとつの置き場所にだけ持ちます。',
         },
         soon: null,
         prefs: false,
@@ -394,10 +397,10 @@ function storeSection(base: SectionBase, entry: RailEntry, d: StoreDials, lensLa
           title: 'この設定について',
           lines: [
             { label: '初期値', value: 'スタッフのみ（安全な側）' },
-            { label: '判定する場所', value: 'サーバー側のデータの入口' },
+            { label: '判定する場所', value: 'データの入口（画面側ではありません）' },
             { label: '録音の同意', value: '製品の決まりです（店舗ごとの切り替えはありません）' },
           ],
-          note: '画面側で隠すだけでは守れないため、誰が読めるかはサーバー側で判定します。設定を変えたことは記録に残ります。',
+          note: '画面側で隠すだけでは守れないため、誰が読めるかはデータの入口で判定します。設定を変えたことは記録に残ります。',
         },
         soon: null,
         prefs: false,
@@ -470,8 +473,16 @@ function storeSection(base: SectionBase, entry: RailEntry, d: StoreDials, lensLa
 //
 // ⚖ EVERY STORE DIAL CARRIES THE MISTAKE-PROOFING TRIO (Liam 8/21): the value it
 // DEFAULTS to, the GUARDRAIL that stops a store harming itself with it, and the
-// 業種 note where a ruling actually gave one. A dial with no ruled type default
-// says 「業種による初期値の決まりはありません」 rather than inventing one.
+// 業種 note WHERE A RULING ACTUALLY GAVE ONE.
+//
+// ⚠ AND WHERE NO RULING EXISTS, THE ROW SAYS NOTHING (DS9-10). The first cut
+// printed 「業種による初期値の決まりはありません。」 on the twelve unruled dials —
+// which is a third option nobody asked for: ⚖ 8/21 forbids INVENTING a type
+// default, and silence already satisfies that. Measured, the null line appeared
+// four times in the default section alone and helped push it to 2022 CSS px for
+// five dials at 1280 — the ⚖ 8/30 desk bar failing in the direction of prose. So
+// `businessType` is OPTIONAL, four dials carry a real ruled one, and the suite
+// pins that the null sentence exists nowhere in the payload.
 
 /** ⚠ A DIAL CANNOT BE BUILT WITHOUT ITS REGISTRY-NAMED REASON, and that is a
  *  COMPILE-TIME fact rather than a review note: the builders below hand over
@@ -498,7 +509,6 @@ function guardDial(): DialRow {
     trio: {
       base: '初期値: 標準',
       guardrail: 'オフにしても、どこに置いても損が避けられない区間は警告と記録が残ります。',
-      businessType: '業種による初期値の決まりはありません。',
     },
   })
 }
@@ -517,7 +527,6 @@ function bookingStepDial(): DialRow {
     trio: {
       base: '初期値: 30分',
       guardrail: '細かくするほどボードの操作は敏感になります。既にある予約は、いまの位置のまま刻みだけが変わります。',
-      businessType: '業種による初期値の決まりはありません。',
     },
   })
 }
@@ -536,7 +545,6 @@ function blockStepDial(): DialRow {
     trio: {
       base: '初期値: 5分',
       guardrail: '既にある予定ブロックは、いまの位置のまま刻みだけが変わります。近い刻みへ勝手に丸めることはしません。',
-      businessType: '業種による初期値の決まりはありません。',
     },
   })
 }
@@ -555,7 +563,6 @@ function minSellableDial(): DialRow {
     trio: {
       base: '初期値: 30分',
       guardrail: '短くしすぎると、受けきれない細切れの予約が入ります。0分にはできません。',
-      businessType: '業種による初期値の決まりはありません。',
     },
   })
 }
@@ -616,7 +623,6 @@ function dynamicPricingDial(d: StoreDials): DialRow {
     trio: {
       base: '初期値: 使わない',
       guardrail: '割引の深さには上限があり、料金表より下がらないところで止まります。',
-      businessType: '業種による初期値の決まりはありません。',
     },
   })
 }
@@ -638,7 +644,6 @@ function transcriptDial(d: StoreDials): DialRow {
     trio: {
       base: '初期値: スタッフのみ',
       guardrail: 'スタッフは録音を始める前に、いまどちらの設定かを必ず見られます。設定を変えたことは記録に残ります。',
-      businessType: '業種による初期値の決まりはありません。プライバシーは業種で変わらないためです。',
     },
   })
 }
@@ -675,7 +680,6 @@ function coachingSharingDial(d: StoreDials): DialRow {
     trio: {
       base: '初期値: 店長への共有まで',
       guardrail: 'どちらでも初期は全員オフです。断っても勤務に影響せず、断ったことは誰にも表示されません。会話の引用は許可しても渡りません。',
-      businessType: '業種による初期値の決まりはありません。',
     },
   })
 }
@@ -691,7 +695,6 @@ function coachingRetentionDial(d: StoreDials): DialRow {
     trio: {
       base: '初期値: 12か月',
       guardrail: `${months(RETENTION_MIN_MONTHS)}より短くも、${months(RETENTION_MAX_MONTHS)}より長くも設定できません。短すぎると前と比べられず、長すぎると本人が辞めたあとも記録が残ります。`,
-      businessType: '業種による初期値の決まりはありません。',
     },
   })
 }
@@ -707,7 +710,6 @@ function coachingFloorDial(d: StoreDials): DialRow {
     trio: {
       base: '初期値: 20回',
       guardrail: `${COACHING_FLOOR_MIN}回より少なくも、${COACHING_FLOOR_MAX}回より多くも設定できません。少なすぎるとまぐれが評価になり、多すぎると画面が事実上オフになります。`,
-      businessType: '業種による初期値の決まりはありません。',
     },
   })
 }
@@ -726,7 +728,6 @@ function languageDial(d: StoreDials): DialRow {
     trio: {
       base: '初期値: 端末の言語に合わせる（予定）',
       guardrail: '対応していない言語を選んでも、日本語のまま表示します。空白の画面にはしません。',
-      businessType: '業種による初期値の決まりはありません。',
     },
   })
 }
@@ -756,7 +757,6 @@ function overrideRightsDial(): DialRow {
     trio: {
       base: '初期値: オーナー・店舗管理者・スタッフ',
       guardrail: '全員を上書き不可にはできません。どこに置いても損が避けられない日に、誰も予約を入れられなくなるためです。',
-      businessType: '業種による初期値の決まりはありません。',
     },
   })
 }
@@ -771,7 +771,6 @@ function settingsRightsDial(): DialRow {
     trio: {
       base: '初期値: オーナーと店舗管理者',
       guardrail: '設定を変更できる人を全員外すことはできません。誰も設定を戻せなくなるためです。',
-      businessType: '業種による初期値の決まりはありません。',
     },
   })
 }

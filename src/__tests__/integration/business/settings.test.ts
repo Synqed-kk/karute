@@ -18,10 +18,17 @@
  * rights-less reader gets, and the screen's source.
  *
  * THIRD JOB — EVERY STORE DIAL REFUSES HONESTLY. Sixteen rows, sixteen DIFFERENT
- * reasons, each naming the registry line it reconnects through, each carrying the
- * mistake-proofing trio (⚖ 8/21: default · guardrail · business-type default
- * where one was ruled). A generic reason and a missing guardrail are both
- * mutants this file kills.
+ * reasons, each TIED to the registry line it reconnects through, each carrying
+ * the mistake-proofing trio (⚖ 8/21: default · guardrail · and a business-type
+ * line ONLY where a ruling gave one). A generic reason and a missing guardrail
+ * are both mutants this file kills.
+ *
+ * FOURTH JOB, ADDED BY THE FIX ROUND — NO INTERNAL CODE REACHES THE READER. The
+ * seam a refusal waits on is a FIELD beside the sentence rather than a substring
+ * inside it, and the last describe in this file scans every reader-facing string
+ * in every world for tags, circled indexes, codenames and tokens. That block is
+ * the recurrence guard for the room-8 N8-1 class, which this room shipped again
+ * BECAUSE the pin here required the code. Read it before adding any string.
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -42,15 +49,18 @@ import {
   PREFS_DEFAULT,
   RAIL,
   readPrefs,
+  REGISTRY,
   refusalFor,
   RETENTION_MAX_MONTHS,
   RETENTION_MIN_MONTHS,
+  seamFor,
   sectionById,
   WIN_BACK_MAX,
   WIN_BACK_MIN,
   withCurrent,
 } from '@/business/lib/settings'
 import { RENDERED_DIALS, settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
+import type { DialId } from '@/business/lib/settings'
 import type { DialRow, SettingsProps } from '@/app/[locale]/(business)/business/settings/SettingsScreen'
 
 const ROOM_DIR = 'src/app/[locale]/(business)/business/settings'
@@ -65,6 +75,10 @@ const CSS_SRC = read(`${ROOM_DIR}/settings.css`)
 const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '')
 const stripLine = (src: string) => src.replace(/^\s*\/\/.*$/gm, '')
 const CSS_CODE = stripComments(CSS_SRC)
+/** ⚠ BOTH COMMENT FORMS. `stripComments` alone leaves `//` lines, and this room
+ *  explains the codes it no longer prints — so a pin that scans the lib for a tag
+ *  would read the note about the tag as the tag. */
+const LIB_CODE = stripLine(stripComments(LIB_SRC))
 const PROPS_CODE = stripLine(stripComments(PROPS_SRC))
 const SCREEN_CODE = stripLine(stripComments(SCREEN_SRC))
 const PLANE_CODE = stripLine(stripComments(PLANE_SRC))
@@ -250,12 +264,11 @@ describe('⚖ 8/21 MISTAKE-PROOFING — every dial ships default, guardrail and 
     expect(RENDERED_DIALS).toHaveLength(16)
   })
 
-  it('all three trio lines are present, non-empty and say something specific', async () => {
+  it('the default and the guardrail are present on every dial, and say something specific', async () => {
     const props = await room({ store: STORE_A })
     for (const row of dialsOf(props)) {
       expect({ id: row.id, base: row.trio.base.length > 0 }).toEqual({ id: row.id, base: true })
       expect({ id: row.id, rail: row.trio.guardrail.length > 0 }).toEqual({ id: row.id, rail: true })
-      expect({ id: row.id, type: row.trio.businessType.length > 0 }).toEqual({ id: row.id, type: true })
       // A default that does not say what it defaults TO is not a default.
       expect({ id: row.id, names: row.trio.base.startsWith('初期値') }).toEqual({ id: row.id, names: true })
       // ⚠ A GUARDRAIL IS A SENTENCE ABOUT A LIMIT. Sixteen copies of one sentence
@@ -266,14 +279,29 @@ describe('⚖ 8/21 MISTAKE-PROOFING — every dial ships default, guardrail and 
     expect(new Set(rails).size).toBe(rails.length)
   })
 
-  it('the three RULED business-type defaults are stated, and no other dial invents one', async () => {
+  // ⚠ RE-POINTED (DS9-10). This pin used to require the SENTENCE 「業種による初期値
+  // の決まりはありません」 on every unruled dial, which is how twelve rows came to
+  // carry a null statement. ⚖ 8/21 says a dial with no ruled type default must not
+  // INVENT one — and silence already satisfies that. The pin now asserts the
+  // stronger claim in both directions: exactly the ruled dials carry a 業種 line,
+  // every other dial carries NONE, and the null sentence exists nowhere at all.
+  it('a 業種 line prints ONLY where a ruling gave one — absence is SILENCE, never a null sentence', async () => {
     const props = await room({ store: STORE_A })
-    const RULED = ['cash-tolerance', 'breaks-paid', 'win-back']
+    const RULED = ['cash-tolerance', 'breaks-paid', 'win-back', 'coaching-enabled']
     for (const row of dialsOf(props)) {
-      const invented = !row.trio.businessType.includes('業種による初期値の決まりはありません')
-      expect({ id: row.id, statesOne: invented }).toEqual({ id: row.id, statesOne: RULED.includes(row.id) || row.id === 'coaching-enabled' })
+      const states = typeof row.trio.businessType === 'string' && row.trio.businessType.length > 0
+      expect({ id: row.id, statesOne: states }).toEqual({ id: row.id, statesOne: RULED.includes(row.id) })
+      if (states) expect({ id: row.id, real: row.trio.businessType!.startsWith('業種による初期値:') }).toEqual({ id: row.id, real: true })
     }
     expect(dialOf(props, 'cash-tolerance').trio.businessType).toContain('¥0')
+    // …and the null sentence is gone from the WHOLE payload, not just from the
+    // rows this test walked — a section the census does not reach cannot smuggle
+    // it back in.
+    expect(JSON.stringify(props)).not.toContain('業種による初期値の決まりはありません')
+    expect(PROPS_CODE).not.toContain('業種による初期値の決まりはありません')
+    // The screen renders the line CONDITIONALLY, so a future dial that omits it
+    // cannot print an empty bullet.
+    expect(SCREEN_CODE).toContain('{row.trio.businessType && <li className="st-trio-type">{row.trio.businessType}</li>}')
   })
 
   it('every clamp refuses the harmful end, both ways, and survives a non-number', () => {
@@ -314,12 +342,16 @@ describe('⚖ 8/21 MISTAKE-PROOFING — every dial ships default, guardrail and 
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('⚖ EVERY REFUSAL IS ITS OWN, AND NAMES ITS SEAM', () => {
-  it('sixteen dials, sixteen different reasons, each naming a registry line', async () => {
+  it('sixteen dials, sixteen different reasons, each tied to a registry line', async () => {
     const props = await room({ store: STORE_A })
     const reasons = dialsOf(props).map((d) => d.refusal)
     expect(new Set(reasons).size).toBe(reasons.length)
     for (const row of dialsOf(props)) {
-      expect({ id: row.id, names: /登録: [①-⑧]/.test(row.refusal) }).toEqual({ id: row.id, names: true })
+      // ⚠ THE TIE IS A FIELD, NOT A SUBSTRING (NS9-1 / DS9-4). This used to be
+      // `/登録: [①-⑧]/` on the sentence itself, which is what MADE the room red
+      // without an internal code in its copy. The seam is now data beside the
+      // text, so the census is stronger AND the reader sees plain Japanese.
+      expect({ id: row.id, seam: seamFor(row.id as DialId) in REGISTRY }).toEqual({ id: row.id, seam: true })
       // ⚠ AND IT IS NOT GENERIC: the reason has to say something about THIS dial,
       // so it carries the dial's own label or the subject the label names.
       expect({ id: row.id, long: row.refusal.length >= 40 }).toEqual({ id: row.id, long: true })
@@ -329,14 +361,15 @@ describe('⚖ EVERY REFUSAL IS ITS OWN, AND NAMES ITS SEAM', () => {
     expect(PROPS_CODE).not.toMatch(/refusal:\s*['"]/)
   })
 
-  it('the eight registry lines are all spent, and none is spelled twice as a literal', () => {
-    const all = RENDERED_DIALS.map((id) => refusalFor(id)).join('\n')
-    for (const line of ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧']) {
-      expect({ line, used: all.includes(`登録: ${line}`) }).toEqual({ line, used: true })
+  it('the eight registry lines are all spent, and every one is a plain name', () => {
+    const spent = new Set(RENDERED_DIALS.map((id) => seamFor(id)))
+    expect([...spent].sort()).toEqual(Object.keys(REGISTRY).sort())
+    // ⚠ AND NOT ONE OF THEM CARRIES A CODE. The circled numbers live in the
+    // registry's own comments, the build report and the Anthony ask — never in a
+    // value that could be interpolated into a sentence by the next builder.
+    for (const [key, name] of Object.entries(REGISTRY)) {
+      expect({ key, plain: !/[①-⑳]|登録/.test(name) }).toEqual({ key, plain: true })
     }
-    // The refusal table spends REGISTRY.*, never a re-typed name.
-    expect(LIB_SRC).toMatch(/REGISTRY\.storePolicyWrite/)
-    expect(stripComments(LIB_SRC)).not.toMatch(/登録: ①店舗ポリシーの保存/)
   })
 
   it('the reason is VISIBLE TEXT, not only a tooltip', () => {
@@ -373,20 +406,23 @@ describe('⚖ EVERY REFUSAL IS ITS OWN, AND NAMES ITS SEAM', () => {
   // ⚠ ADDED BY THE BATTERY (M18 survived without it). The census above covers the
   // sixteen DIAL refusals; the BOUNDARY sentences a gated section renders were
   // held by nothing, and one of them carries the room's most easily-lost truth.
-  it('a boundary sentence names its seam too — including the token that does not exist', async () => {
+  it('a boundary sentence tells the truth about a token that does not exist', async () => {
     const props = await room({ store: STORE_A })
     const structure = props.sections.find((s) => s.id === 'business-structure')!
     expect(structure.gate).toBe('no-rights')
     // ⚠ `business.manage` is NOT one of canon's eight real tokens (DIAL-HOME-MAP
     // (c)2). The honest sentence says the row is unreachable for EVERYONE rather
-    // than implying a permission somebody could be granted, and it names the
-    // registry line that token has to be minted through.
-    expect(structure.boundaryLine).toContain('登録: ②')
+    // than implying a permission somebody could be granted.
+    // ⚠ RE-POINTED (NS9-1 / DS9-4): this pin used to require 「登録: ②」 IN the
+    // sentence, which is how a build-registry code came to be printed to a shop
+    // owner. What matters is the CLAIM, and the claim is sayable in plain words.
     expect(structure.boundaryLine).toContain('どの役職からも開けない')
+    expect(structure.boundaryLine).toContain('権限そのものがまだ用意されていない')
+    expect(structure.boundaryLine).not.toMatch(/登録|[①-⑳]/)
     // …while a row gated on a token that DOES exist stays an ordinary permission
-    // sentence, naming the reader's own role rather than a registry line.
+    // sentence, naming the reader's own role rather than a missing capability.
     const billing = props.sections.find((s) => s.id === 'billing')!
-    expect(billing.boundaryLine).not.toContain('登録:')
+    expect(billing.boundaryLine).not.toContain('どの役職からも開けない')
     expect(billing.boundaryLine).toContain(operator.role)
   })
 
@@ -394,6 +430,129 @@ describe('⚖ EVERY REFUSAL IS ITS OWN, AND NAMES ITS SEAM', () => {
     // Printing it under a block that really does save would be the page
     // contradicting the control the reader just used.
     expect(SCREEN_CODE).toContain("{section.scope === 'store' && section.gate === 'open' && <p className=\"st-foot\">")
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚠⚠ THE RECURRENCE KILLER — READ THIS BEFORE ADDING ANY STRING TO THIS ROOM.
+//
+// THE CLASS: an INTERNAL CODE reaching the reader (room 8's N8-1, which room 9
+// then shipped again). All sixteen refusals and the 事業構成 boundary sentence
+// closed with 「（登録: ①店舗ポリシーの保存）」 — a build-registry citation printed
+// to a salon owner seventeen times, in visible copy AND in the accessible name a
+// screen reader speaks on every focus — while three more lines carried 「core」,
+// this codebase's internal name for the shared backend. ⚖ 「plain names, never
+// codes」 forbids both, and the room's own sheet already stated the rule for the
+// three trio lines sitting directly beside the offending sentences.
+//
+// AND THE SUITE OF THE DAY REQUIRED IT: `/登録: [①-⑧]/` was asserted on every
+// refusal, so the room was RED without the defect. That is why this guard is
+// written at the level of the CLASS rather than of the seventeen instances.
+//
+// WHAT IT DOES: walks the payload the route really assembles — in every world —
+// and scans EVERY string a reader can see. A new field is scanned the day it
+// lands, because the walk is structural rather than a list; only keys that are
+// machine identifiers are skipped, and that skip list is short and named.
+//
+// ⚠ IF A FUTURE ROUND NEEDS A CODE IN THE COPY, IT DOES NOT. The code belongs
+// BESIDE the sentence — in `REGISTRY`, in the build report, in the Anthony ask.
+describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, killed as a class)', () => {
+  /** Keys whose values are machine identifiers, never rendered as words: the
+   *  section/rail/dial ids, the gate and scope enums, a control's `kind`.
+   *
+   *  ⚠ AND SKIPPING BY KEY NAME ALONE IS NOT ENOUGH — THE BATTERY PROVED IT ON
+   *  THIS VERY GUARD. The first cut also skipped every `value`, because a
+   *  segment option's `value` is the machine id `current` is compared against.
+   *  But the TRACE CARD's lines are `{ label, value }`, and that `value` is a
+   *  sentence the reader looks straight at — 「値の置き場所: core にひとつ」 was
+   *  one of them. Mutant M20 put the codename back into it and this guard stayed
+   *  GREEN. So the skip is by PATH: `value` and `current` are machine ids only
+   *  inside a `control`, and everywhere else they are words. */
+  const MACHINE_KEYS = new Set(['id', 'openingSectionId', 'gate', 'scope', 'state', 'kind'])
+  const isMachine = (path: string[]) => {
+    const key = path[path.length - 1] ?? ''
+    if (MACHINE_KEYS.has(key)) return true
+    return (key === 'value' || key === 'current') && path.includes('control')
+  }
+
+  const readerText = (node: unknown, path: string[] = []): string[] => {
+    if (typeof node === 'string') return isMachine(path) ? [] : [node]
+    if (Array.isArray(node)) return node.flatMap((v) => readerText(v, path))
+    if (node && typeof node === 'object') {
+      return Object.entries(node as Record<string, unknown>).flatMap(([k, v]) => readerText(v, [...path, k]))
+    }
+    return []
+  }
+
+  const FORBIDDEN: Array<[string, RegExp]> = [
+    ['a build-registry tag', /登録\s*[:：]/],
+    ['a circled index', /[①-⑳]/],
+    ['the backend codename 「core」', /\bcore\b/i],
+    ['a capability token', /settings\.manage|billing\.manage|business\.manage|guard\.override/],
+    ['a plane or fixture name', /fixtures-|storeDials|opsConfig|storeBookingPolicy|shiftsPolicy/],
+    ['a dial or section id', /guard-mode|min-sellable|coaching-floor|display-language|my-display|store-hours/],
+    ['config `=` syntax', /[^\s]=[^\s=]/],
+    ['a storage key or a code identifier', /localStorage|synqedBiz|aria-|className/],
+  ]
+
+  it('every string in every world’s payload is words, not codes', async () => {
+    const worlds: Array<[string, SettingsProps]> = [
+      ['manager', await room({ store: STORE_A })],
+      ['other store', await room({ store: STORE_B })],
+      ['rights-less staff', await room({ role: 'スタッフ' })],
+      ['owner', await room({ role: 'オーナー' })],
+      ['unknown role', await room({ role: '不明' })],
+      ['no dials', await room({ store: STORE_A, dials: null })],
+    ]
+    const hits: string[] = []
+    for (const [world, props] of worlds) {
+      const strings = readerText(props)
+      // The walk really reaches the room's copy, or every check below is vacuous.
+      expect({ world, reaches: strings.length > 40 }).toEqual({ world, reaches: true })
+      // ⚠ AND IT REACHES THE EXACT PLACES A SKIP RULE COULD SWALLOW — named, one
+      // per shape, because a key-name skip is what hid the trace card once. A
+      // collector that quietly stops seeing a field is a guard that passes on
+      // nothing, which is worse than no guard at all.
+      if (world === 'manager') {
+        for (const [shape, sample] of [
+          ['a trace-card value', 'ひとつだけ（二か所には持ちません）'],
+          ['a dial scope label', '事業全体'],
+          ['a readout’s own text', '設定ページ全体でひとつ'],
+          ['a 準備中 bullet', '書き出しの権限'],
+          ['a switch label', '有給（休憩も含めて計算）'],
+        ] as const) {
+          expect({ shape, seen: strings.includes(sample) }).toEqual({ shape, seen: true })
+        }
+        expect(strings.some((s) => s.startsWith('見本データのためスキマガード'))).toBe(true)
+      }
+      for (const s of strings) {
+        for (const [what, re] of FORBIDDEN) {
+          if (re.test(s)) hits.push(`${world} · ${what} · ${s.slice(0, 60)}`)
+        }
+      }
+    }
+    expect(hits).toEqual([])
+  })
+
+  it('the ACCESSIBLE NAME carries the same words and nothing more', () => {
+    // A screen reader drops `title` once a description is present, so the reason
+    // rides the accessible name — which means a code in the reason is a code
+    // spoken aloud on every focus. The name is composed of the dial's own label
+    // and its refusal, both of which the scan above covers; this pins that it is
+    // composed of exactly those two and never of a third, code-carrying part.
+    expect(SCREEN_CODE).toContain("'aria-label': `${label} — ${reason}`")
+    expect(SCREEN_CODE).toContain('title: reason,')
+    expect(SCREEN_CODE).not.toMatch(/aria-label[^\n]*登録/)
+  })
+
+  it('the room’s own SOURCE keeps the codes where codes belong', () => {
+    // The registry values are plain names; the numbering lives in comments.
+    expect(LIB_CODE).not.toMatch(/登録\s*[:：]/)
+    expect(PROPS_CODE).not.toMatch(/登録\s*[:：]/)
+    expect(SCREEN_CODE).not.toMatch(/登録\s*[:：]/)
+    // …and the refusal table still ties every sentence to a seam, in a field.
+    expect(LIB_SRC).toMatch(/seam: '[a-zA-Z]+',/)
+    expect(LIB_SRC).toContain('return REFUSAL[dial].seam')
   })
 })
 
@@ -519,8 +678,45 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
   it('each threshold equals the SUM of its own terms plus its stated slack', () => {
     // ⚠ THE NUMBERS ARE PARSED, NEVER RETYPED (room-6 B4-1). Move one term and
     // the threshold has to move with it or this goes red.
-    expect(tokenOf('st-what-min') + tokenOf('st-what-gap') + tokenOf('st-ctl-min') + 4).toBe(380)
+    expect(tokenOf('st-what-min') + tokenOf('st-what-gap') + tokenOf('st-ctl-min') + 4).toBe(410)
     expect(tokenOf('st-main-min') + tokenOf('st-cols-gap') + tokenOf('st-aside-min') + 10).toBe(720)
+  })
+
+  // ⚠ ADDED BY THE FIX ROUND (DS9-2), AND IT IS WHY THE PIN ABOVE MEANS ANYTHING.
+  // `--st-ctl-min` was declared, summed and consumed by NO RULE: the control
+  // track was `minmax(0, max-content)`, floor zero, so the threshold pin proved
+  // that three numbers add to 380 while the column was free to squeeze to 198 and
+  // wrap an orphan chip across 744-791. A term that nothing spends is not a term.
+  it('every term of the ①→② threshold is REALLY SPENT by a rule, not just summed', () => {
+    const declaration = /--st-ctl-min:\s*\d+px/g
+    expect((CSS_CODE.match(declaration) ?? []).length).toBe(1)
+    // The control track states the token as its own MINIMUM — that is the whole
+    // fix: the threshold now says the ROW fits, not that numbers add up.
+    expect(CSS_CODE).toMatch(
+      /\.st-dial \{\s*grid-template-columns: minmax\(var\(--st-what-min\), 1fr\) minmax\(var\(--st-ctl-min\), max-content\);/,
+    )
+    // …and nothing anywhere re-introduces a zero floor on that track.
+    expect(CSS_CODE).not.toMatch(/\.st-dial \{[^}]*minmax\(0, max-content\)/)
+    // ⚠ AND THE PREFERENCE ROWS TAKE THE SAME FLOOR — measured, after the first
+    // cut of this round deliberately left them without one. The probe, once it
+    // walked every rail row instead of the section the page opens on, found 密度
+    // WRAPPING across main 410-413: a four-pixel band at the bottom of the LEVEL
+    // composition, on the one block on this page that really saves. There is ONE
+    // level composition, so there is one rule.
+    expect(CSS_CODE).toMatch(
+      /\.st-pref-row \{\s*grid-template-columns: minmax\(var\(--st-what-min\), 1fr\) minmax\(var\(--st-ctl-min\), max-content\);/,
+    )
+    expect(CSS_CODE).not.toMatch(/\.st-pref-row \{[^}]*minmax\(0, max-content\)/)
+    // …and a segment that must wrap anyway wraps to the RIGHT, in BOTH row
+    // kinds, so a spare chip is never orphaned under the first one.
+    for (const sel of ['.st-dial > .st-dial-ctl .st-seg', '.st-pref-row > .st-seg']) {
+      expect({ sel, endWrapped: CSS_CODE.includes(`${sel} { justify-content: flex-end; }`) }).toEqual({ sel, endWrapped: true })
+    }
+    // Both other terms are spent by the same rule, in the same block.
+    for (const token of ['--st-what-min', '--st-what-gap']) {
+      const uses = (CSS_CODE.match(new RegExp(`var\\(${token}\\)`, 'g')) ?? []).length
+      expect({ token, uses: uses >= 1 }).toEqual({ token, uses: true })
+    }
   })
 
   it('exactly two container queries, both min-width, one per container', () => {
@@ -529,8 +725,8 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
     // SAME threshold; the split once. Three blocks, two distinct thresholds.
     expect(queries.map((q) => q.join(' '))).toEqual([
       'st-panel min-width: 720px',
-      'st-main min-width: 380px',
-      'st-main min-width: 380px',
+      'st-main min-width: 410px',
+      'st-main min-width: 410px',
     ])
     // ⚠ NO `max-width` CONTAINER QUERY ANYWHERE. A max-width band can be left and
     // re-entered on the way up, which is exactly the non-monotonic ladder the
@@ -558,12 +754,30 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
       return p < 720 ? p : ((p - 20) * 2.2) / 3.2
     }
 
-    // ①→② is crossed once, inside the phone band, and never given back.
-    const level = [390, 412, 480, 743, 744, 800, 1024, 1180, 1280, 1586].map((w) => main(w) >= 380)
-    expect(level).toEqual([false, false, false, true, true, true, true, true, true, true])
+    // ⚠ MONOTONIC IN THE WIDTH THAT DECIDES IT, WHICH IS NOT THE VIEWPORT. At 743
+    // the rail IS the page, so a chosen section gets the whole width (main 639);
+    // at 744 the rail comes back beside it and the panel is 247px NARROWER (main
+    // 392). Sorted by the width the container query actually reads, every shape
+    // is gained once and never given back — which is the ladder law. Sorting by
+    // VIEWPORT instead is what would call that pair a reversal.
+    const LEVEL_AT = 410
+    const sweep = [390, 412, 480, 743, 744, 768, 800, 1024, 1180, 1280, 1586]
+      .map((w) => ({ w, main: main(w), level: main(w) >= LEVEL_AT }))
+      .sort((a, b) => a.main - b.main)
+    let given = false
+    for (let i = 1; i < sweep.length; i += 1) if (!sweep[i].level && sweep[i - 1].level) given = true
+    expect({ given, walk: sweep.map((r) => `${r.w}:${Math.round(r.main)}:${r.level ? '②' : '①'}`) }).toEqual({
+      given: false,
+      walk: sweep.map((r) => `${r.w}:${Math.round(r.main)}:${r.level ? '②' : '①'}`),
+    })
+    // …and the crossing really happens INSIDE the sweep rather than never.
+    expect(sweep.some((r) => r.level) && sweep.some((r) => !r.level)).toBe(true)
+    // ⚠ iPad PORTRAIT IS ②, and 744 split view is ① — named, because that is the
+    // pair the fix round moved and the next reader will check it first.
+    expect({ p768: main(768) >= LEVEL_AT, split744: main(744) >= LEVEL_AT }).toEqual({ p768: true, split744: false })
     // The 1024 sidebar-OPEN state is the narrowest page the shell can make; it
     // must not drop a composition the closed state at the same width has.
-    expect(main(1024, true) >= 380).toBe(true)
+    expect(main(1024, true) >= LEVEL_AT).toBe(true)
     // ②→③ likewise: once, between 1024 and 1180.
     const desk = [390, 743, 744, 800, 1024, 1180, 1280, 1586].map((w) => panel(w) >= 720)
     expect(desk).toEqual([false, false, false, false, false, true, true, true])
@@ -572,7 +786,7 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
     // It did not at the first threshold, and only the shots said so.
     expect(panel(1280, true) >= 720).toBe(true)
     // …and the desk composition never arrives before the level one.
-    expect(main(1180) >= 380).toBe(true)
+    expect(main(1180) >= LEVEL_AT).toBe(true)
   })
 
   it('the ONE media-driven swap is the ⚖ list-is-the-page law, and nothing else', () => {
@@ -828,7 +1042,10 @@ describe('⚖ RECONNECT-READINESS + the three doctrine lines', () => {
     // conditional on a business type here would be Tier 3 without the named
     // capability axis the doctrine requires.
     for (const token of ['businessType ===', 'businessType ?', 'switch (type', 'salon', 'seitai']) {
-      expect({ token, branches: PROPS_CODE.includes(token) || LIB_SRC.includes(token) }).toEqual({ token, branches: false })
+      // ⚠ CODE, NOT PROSE. Read from the comment-stripped sources: the room's own
+      // notes are allowed to say the word 「salon」 while explaining a ruling; what
+      // the doctrine forbids is a BRANCH on a business type.
+      expect({ token, branches: PROPS_CODE.includes(token) || LIB_CODE.includes(token) }).toEqual({ token, branches: false })
     }
   })
 
