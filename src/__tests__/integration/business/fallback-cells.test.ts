@@ -1225,6 +1225,25 @@ describe('8 — the GRID hole is closed at sub-60 grids (⚖ R6 B1)', () => {
     expect(boxes(run(w, d).fallback)).toEqual([])
   })
 
+  it('nothing this pass emits is shorter than the store’s own display floor', () => {
+    // ⚖ R6 B1 — ONE FLOOR RULE, ONE ANSWER, asserted where it can actually bite:
+    // over the whole dial matrix on both boards, not on the one scene above
+    // (whose single box happens to be exactly the floor, so it is silent about
+    // this). `gapLayerFor` deletes a box shorter than the store's dial; until R6
+    // the very same shape was drawn when it came out of this pass instead.
+    const short: string[] = []
+    for (const make of [fixtureWorld, syntheticWorld]) {
+      const w = make()
+      expect(w.minSellableMin).toBeGreaterThan(0) // or the sweep proves nothing
+      for (const d of MATRIX) {
+        for (const c of [...run(w, d).fallback.packed, ...run(w, d).fallback.scraps]) {
+          if (c.e - c.s < w.minSellableMin) short.push(`${w.name} ${dialLabel(d)} ${c.laneKey} ${c.group} ${span(c.s, c.e)}`)
+        }
+      }
+    }
+    expect(short).toEqual([])
+  })
+
   it('IDENTITY: at the shipped dials no pocket on either board has an uncoverable core, so the pass is E2’s', () => {
     // The trigger's ONLY reach into the pass is the window list it contributes
     // (`fallbackCellsFor`'s `windows`), so "no window anywhere" IS "byte-identical
