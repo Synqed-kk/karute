@@ -119,3 +119,23 @@ describe('thin actions port — cancelCustomerDeletion', () => {
     await expect(cancelCustomerDeletion('cus-1')).resolves.toEqual({ success: false, error: 'failed' })
   })
 })
+
+// Greptile #814. These ports SUBSTITUTE for web server actions that resolve
+// { success: false, error: 'failed' } on any throw — so a native fetch
+// rejection (offline, DNS, abort) must RESOLVE here too, never escape. Today's
+// two callers happen to catch, which is exactly why this needs a test rather
+// than a field report: the contract breaks silently for the next caller.
+describe.each([
+  ['scheduleCustomerDeletion', scheduleCustomerDeletion],
+  ['cancelCustomerDeletion', cancelCustomerDeletion],
+])('%s — transport rejection', (_name, action) => {
+  it('resolves the web union’s failure, never rejects', async () => {
+    port(async () => {
+      throw new TypeError('Failed to fetch')
+    })
+    // .resolves is the assertion — a rejection fails the test here, and the
+    // explicit toEqual pins that the transport MESSAGE never becomes a guard
+    // code the UI would try to branch on.
+    await expect(action('cus-1')).resolves.toEqual({ success: false, error: 'failed' })
+  })
+})

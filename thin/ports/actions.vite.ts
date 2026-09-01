@@ -784,20 +784,33 @@ async function facadeCustomerDeletion(
   customerId: string,
   op: 'schedule' | 'cancel',
 ): Promise<ActionResult> {
-  const res = await getDataPort().apiFetch(
-    `/api/app/v1/customers/${enc(customerId)}/deletion/${op}`,
-    { method: 'POST' },
-  )
-  if (!res.ok) return { success: false, error: 'failed' }
-  const body = (await res.json().catch(() => null)) as ActionResult | null
-  if (body?.success === true && typeof body.id === 'string') return { success: true, id: body.id }
-  // A 2xx whose body proves nothing (empty, truncated, a shape drift the DTO
-  // would have caught server-side) is not an outcome — same posture as the
-  // create ports two screens up.
-  if (body?.success === false && typeof body.error === 'string') {
-    return { success: false, error: body.error }
+  // try/catch, the statusCall / facadeUpsertOrgSettings posture (#566): this
+  // port SUBSTITUTES for a web server action whose own try/catch resolves
+  // { success: false, error: 'failed' } on ANY throw, so it must resolve too —
+  // a caller without an exception handler of its own would otherwise get an
+  // unhandled rejection where the web door hands it a result. (Both of today's
+  // callers do catch, so this honors the CONTRACT rather than fixing a live
+  // symptom.) The rejection folds into 'failed' and never into `error`: that
+  // field is a guard CODE the UI branches on, and a transport message
+  // ('Failed to fetch') must never arrive dressed as one.
+  try {
+    const res = await getDataPort().apiFetch(
+      `/api/app/v1/customers/${enc(customerId)}/deletion/${op}`,
+      { method: 'POST' },
+    )
+    if (!res.ok) return { success: false, error: 'failed' }
+    const body = (await res.json().catch(() => null)) as ActionResult | null
+    if (body?.success === true && typeof body.id === 'string') return { success: true, id: body.id }
+    // A 2xx whose body proves nothing (empty, truncated, a shape drift the DTO
+    // would have caught server-side) is not an outcome — same posture as the
+    // create ports two screens up.
+    if (body?.success === false && typeof body.error === 'string') {
+      return { success: false, error: body.error }
+    }
+    return { success: false, error: 'failed' }
+  } catch {
+    return { success: false, error: 'failed' }
   }
-  return { success: false, error: 'failed' }
 }
 
 async function facadeUndoRedemption(redemptionId: string): Promise<{ ok: boolean }> {
