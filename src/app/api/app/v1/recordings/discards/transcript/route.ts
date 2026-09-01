@@ -67,6 +67,7 @@ import {
 } from '@/actions/recording-discard-transcript'
 import { DiscardTranscriptDTO } from '@/lib/app-api/discard-reasons-dto'
 import { DiscardTranscriptWriteSchema } from '@/lib/app-api/record-schemas'
+import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 
 export const runtime = 'nodejs'
 
@@ -107,6 +108,35 @@ export const POST = facadeHandler('recordings.discards.transcript.write', async 
   const parsed = DiscardTranscriptWriteSchema.safeParse(raw)
   if (!parsed.success) throw new AppApiError('validation', 'invalid discard transcript payload')
   const body = parsed.data
+
+  // ROSTER GATE — the half of recordsWriteGate a capability check cannot carry.
+  // On web the acting id comes from getCurrentUserStaffId, which is itself a
+  // roster-membership probe (`list.some(s => s.id === userId)`), and the gate
+  // refuses outright when it answers null. `ctx.identity.authUserId` carries no
+  // such proof, so passing it raw let a records.write holder who is NOT on this
+  // business's roster reach resolveSynqedStaffIdForBusiness — whose create-on-miss
+  // would MINT a phantom synqed staff record for that profile (the #566 finding
+  // the appointments and recordings/job facades were both hardened against).
+  // resolveSelfStaffId is that same predicate, Bearer-side.
+  //
+  // Placed ahead of BOTH shapes, not just the transcribe one: the review door
+  // is gated on web by the identical `if (!(await getCurrentUserStaffId()))`
+  // line, so gating only the resolver's caller would fix the minting and leave
+  // the two doors disagreeing about who may write.
+  //
+  // NOT a 403, deliberately — that is the one divergence a status choice could
+  // still cause. `staffListByBusinessOrThrow` throws on a failed read, so a null
+  // here is ambiguous exactly as the web docstring says (a real removal, or a
+  // read that could not answer), and the web sends that doubt to `failed`, not
+  // `forbidden`. The thin port maps 403 to the TERMINAL refusal that deletes the
+  // take: wrong `forbidden` loses the words forever, wrong `failed` costs one
+  // wasted upload per mount for ≤7 days. 502 is what the port reads as `failed`.
+  if (!(await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId))) {
+    throw new AppApiError(
+      'upstream_unavailable',
+      'no acting staff identity for this user; nothing was written',
+    )
+  }
 
   const synqed = newSynqedClient(ctx.identity.businessId)
   const result =
