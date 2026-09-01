@@ -261,12 +261,11 @@ export interface CoachingProps {
     deletionTitle: string
     deletionBody: string
     deletionCta: string
-    reviewCta: string
   }
   patterns: { title: string; subtitle: string; note: string | null; emptyLine: string; shelves: Array<{ key: string; title: string; description: string; entries: CoachingPatternEntry[] }> } | null
   modules: { title: string; subtitle: string; calloutTitle: string; calloutBody: string; mineLabel: string; cards: CoachingModuleCard[] } | null
   actionFootnote: string
-  refusals: { regenerate: string; share: string; depth: string; settings: string }
+  refusals: { regenerate: string; share: string; depth: string; settings: string; consent: string; deletion: string }
   helpRefusals: Record<'assign-module' | 'manager-coaching' | 'peer-pairing', string>
 }
 
@@ -656,7 +655,7 @@ export function CoachingScreen(props: CoachingProps) {
                   >
                     <h2 className="cg-sec-title">{ready.consent.title}</h2>
                     <p className="cg-consent-body">{ready.consent.body}</p>
-                    <button {...refused(ready.consent.cta, props.refusals.share, 'cg-consent-btn')}>{ready.consent.cta}</button>
+                    <button {...refused(ready.consent.cta, props.refusals.consent, 'cg-consent-btn')}>{ready.consent.cta}</button>
                   </section>
 
                   <section
@@ -1360,11 +1359,16 @@ export function CoachingScreen(props: CoachingProps) {
         {/* ⚖ A DELETION REQUEST IS A LEGAL RECORD — the same class this room
             already refuses everywhere else, so it ships refused with its own
             reason rather than half-built behind a button that only toasts. */}
+        {/* ⚠ THERE IS NO 「同意内容を見る」 BUTTON, AND THAT IS THE POINT. The
+            phone's transparency page carries one because the consent text lives
+            behind a dialog; here the whole of it — what is recorded, what the
+            owner can and cannot see, Synqed's own use, the retention period —
+            is on this page, immediately above. A control that takes the reader
+            to where the reader already is is not a feature this room is
+            missing. The one act that is NOT already here is the deletion
+            request, and it ships refused with its own reason. */}
         <div className="cg-data-actions">
-          <button {...refused(props.transparency.reviewCta, props.refusals.share, 'cg-review-btn')}>
-            {props.transparency.reviewCta}
-          </button>
-          <button {...refused(props.transparency.deletionCta, props.refusals.share, 'cg-delete-btn')}>
+          <button {...refused(props.transparency.deletionCta, props.refusals.deletion, 'cg-delete-btn')}>
             {props.transparency.deletionCta}
           </button>
           <p className="cg-delete-body">

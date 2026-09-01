@@ -93,6 +93,8 @@ const WINDOW_DAYS = 90
  *    share      → 登録 ③同意の実保存
  *    depth      → 登録 ④深掘り共有の権限
  *    settings   → 登録 ⑤店舗設定ダイヤル
+ *    consent    → 登録 ③同意の実保存
+ *    deletion   → 登録 ③同意の実保存
  *
  *  ⚠ ONE WORD FOR THE SAMPLE STATE. The shell's own honesty chip says
  *  ◈ サンプルデータ and this room's dateline says サンプルデータ; these
@@ -108,6 +110,15 @@ const REFUSAL = {
     'サンプルデータのため詳しい内容を開けません。スタッフが許可した範囲だけを開く仕組みはサーバー側で判定する必要があるため、権限の実装後に有効になります。',
   settings:
     'サンプルデータのためコーチングの設定を変えられません。オン・オフ、共有の方針、記録の保存期間は店舗ごとの設定のため、設定画面の接続後に有効になります。',
+  // ⚖ THE LOOK-FIX ROUND'S TWO NEW LEVERS GET THEIR OWN SENTENCES, because the
+  // rule above is not decoration: one generic reason on eight controls tells a
+  // reader nothing about which of them would have done what. Both are legal
+  // records and both wait on the SAME seam as `share` — 登録 ③同意の実保存 —
+  // but they are different acts and they say so.
+  consent:
+    'サンプルデータのため同意の記録を残せません。同意するかどうかはあなた自身の決定として保存され、いつ・どの文面に同意したかが履歴に残る操作のため、同意の保存をつないだあとに有効になります。',
+  deletion:
+    'サンプルデータのため削除リクエストを送れません。リクエストは受け付けた日時と内容が記録として残り、オーナーへの通知も伴う操作のため、同意の保存をつないだあとに有効になります。',
 } as const
 
 const FOOTNOTE = 'サンプルデータのため、この画面から記録・共有・割り当てはできません — 実データ接続後に有効になります。'
@@ -652,7 +663,6 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
       deletionBody:
         'コーチングで貯まったあなた固有のデータ（会話の録音・文字起こし・個別の学習提案）の削除をリクエストできます。成績などの業務データは対象外です。',
       deletionCta: 'データ削除をリクエストする',
-      reviewCta: '同意内容を見る',
     },
     // ⚖ THE PATTERN LIBRARY (audit #46-#48) — five NAMED shelves with the actual
     // line a top performer says, where the room used to show two loose anonymous
@@ -687,6 +697,8 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
       share: REFUSAL.share,
       depth: REFUSAL.depth,
       settings: REFUSAL.settings,
+      consent: REFUSAL.consent,
+      deletion: REFUSAL.deletion,
     },
     // The help actions' reasons ride the same table the ACTION does, so the
     // button a manager presses and the sentence it refuses with are decided in

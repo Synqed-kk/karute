@@ -618,7 +618,18 @@
 .biz .pg-coaching .cg-consent-body { margin: 0 0 12px; color: var(--ink-2); font-size: 13px; line-height: 1.85; }
 
 /* ── あなたの強み ──────────────────────────────────────────────────────────── */
-.biz .pg-coaching .cg-strength-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin: 12px 0 0; padding: 0; list-style: none; }
+/* ⚠ EVERY FLOOR IS `min(Npx, 100%)`, NOT A BARE PIXEL FLOOR. A bare floor wider
+   than the container makes the TRACK wider than the room and pushes the whole
+   page sideways — measured by the probe at 390, where this card holds ~274px and
+   the shelf grid below asked for 280. `min()` keeps the floor while there is
+   room for it and collapses to the container when there is not, so the grids
+   stay intrinsic and thresholdless without a media band to babysit them. */
+/* ⚠ THE CARDS CAP, THEY DO NOT STRETCH. `1fr` made a single strength a
+   1000px-wide green band holding two short lines — the emptiest thing on the
+   desk. A ceiling packs them from the left at a readable width whether the run
+   found one strength or three, which is the same judgement the lift cards and
+   the shelves make. */
+.biz .pg-coaching .cg-strength-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 380px)); gap: 10px; margin: 12px 0 0; padding: 0; list-style: none; }
 .biz .pg-coaching .cg-strength { display: flex; flex-direction: column; gap: 5px; padding: 12px 14px; border-radius: 10px; background: var(--cg-strength-soft); }
 .biz .pg-coaching .cg-strength-label { color: var(--cg-strength); font-size: 13px; font-weight: 700; line-height: 1.6; }
 /* THE RECEIPT, and it is the reason this card is not a compliment: staff-focus
@@ -645,7 +656,7 @@
 /* ⚠ INTRINSIC, THRESHOLDLESS, like the spine's tiles: the shelves reflow with
    the room rather than at a number this sheet would have to keep in sync with
    the ladder. One column on a phone, two on a fold, three on a desk. */
-.biz .pg-coaching .cg-shelves { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.biz .pg-coaching .cg-shelves { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 14px; }
 .biz .pg-coaching .cg-shelf { padding: 14px 15px; border: 1px solid var(--cg-panel-line); border-radius: 11px; background: var(--cg-soft); }
 .biz .pg-coaching .cg-shelf-title { margin: 0; font-size: 13.5px; font-weight: 700; line-height: 1.5; letter-spacing: -.005em; color: var(--ink); }
 .biz .pg-coaching .cg-shelf-desc { margin: 5px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.75; }
@@ -668,7 +679,7 @@
 .biz .pg-coaching .cg-callout { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; padding: 11px 13px; border: 1px solid var(--cg-panel-line); border-radius: 10px; background: var(--cg-soft); }
 .biz .pg-coaching .cg-callout b { color: var(--ink); font-size: 12.5px; font-weight: 700; line-height: 1.6; }
 .biz .pg-coaching .cg-callout span { color: var(--ink-2); font-size: 11.5px; line-height: 1.8; }
-.biz .pg-coaching .cg-module-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-module-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 14px; margin: 0; padding: 0; list-style: none; }
 .biz .pg-coaching .cg-module { padding: 14px 15px; border: 1px solid var(--cg-panel-line); border-radius: 11px; background: #fff; }
 /* The module the reader's OWN focus run named — the same warm treatment the
    次の一手 card gets, because it is the same recommendation seen from the
@@ -723,7 +734,7 @@
 .biz .pg-coaching .cg-roi-key.is-treated { border-top-width: 2.6px; border-top-color: var(--cg-strength); }
 .biz .pg-coaching .cg-roi-key.is-control { border-top-width: 1.8px; border-top-style: dashed; border-top-color: var(--muted); }
 
-.biz .pg-coaching .cg-lift-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-lift-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
 .biz .pg-coaching .cg-lift { display: flex; flex-direction: column; gap: 3px; padding: 13px 15px; border: 1px solid var(--cg-panel-line); border-radius: 11px; background: var(--cg-soft); }
 .biz .pg-coaching .cg-lift-label { color: var(--muted); font-size: 11.5px; font-weight: 600; letter-spacing: .01em; }
 .biz .pg-coaching .cg-lift-value { color: var(--ink); font-size: 24px; font-weight: 700; line-height: 1.2; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
@@ -750,7 +761,7 @@
    point of this block is that a reader can hold both lists in one glance and
    check that nothing appears on both sides. `auto-fit` collapses it to one
    column on a phone, where a glance is a scroll anyway. */
-.biz .pg-coaching .cg-wall { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.biz .pg-coaching .cg-wall { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; }
 .biz .pg-coaching .cg-wall-col { padding: 13px 15px; border-radius: 10px; }
 .biz .pg-coaching .cg-wall-col.is-mine { background: var(--cg-strength-soft); }
 .biz .pg-coaching .cg-wall-col.is-theirs { background: #fff; border: 1px solid var(--cg-panel-line); }

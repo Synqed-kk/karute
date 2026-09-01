@@ -2312,8 +2312,22 @@ describe('⚖ THE LOOK-FIX SURFACES — each one really reaches the screen', () 
     // the page SAYS coaching is opt-in — the gap §5 rank 6 named.
     expect(self.consent.body).toContain('取り消せます')
     expect(CONSENT_STATE.unset.body).toContain('同意しなくても仕事には影響しません')
-    // …and the control is refused, like every other write on this page.
-    expect(SCREEN_CODE).toContain("refused(ready.consent.cta, props.refusals.share, 'cg-consent-btn')")
+    // …and the control is refused with ITS OWN reason, like every other write on
+    // this page. ⚖ one generic sentence on eight controls tells a reader nothing
+    // about which of them would have done what, so the reasons are all distinct.
+    expect(SCREEN_CODE).toContain("refused(ready.consent.cta, props.refusals.consent, 'cg-consent-btn')")
+    expect(SCREEN_CODE).toContain("refused(props.transparency.deletionCta, props.refusals.deletion, 'cg-delete-btn')")
+    const reasons = Object.values(props.refusals)
+    expect(new Set(reasons).size).toBe(reasons.length)
+    for (const r of reasons) {
+      // no build-tracking code ever reaches a sentence a salon manager reads
+      expect({ r, code: /登録|PKT|CE-|registry/i.test(r) }).toEqual({ r, code: false })
+      expect(r.endsWith('。')).toBe(true)
+    }
+    // ⚠ AND 「同意内容を見る」 IS GONE, not refused: the whole of the consent text
+    // now stands on this page, so a control that took the reader to where the
+    // reader already is stopped being a control this room needs.
+    expect(SCREEN_CODE).not.toContain('reviewCta')
   })
 
   it('あなたの強み and the FULL focus list both reach the payload', async () => {
