@@ -34,6 +34,21 @@ export const CustomerProfileDTO = z.object({
 
 export type CustomerProfileDTOType = z.infer<typeof CustomerProfileDTO>
 
+/** Wire shape of the 30-day deletion pair (PHONEWIRE-2B) — parsed at the door
+ *  for this file's usual reason: both doors call one body, so a code RENAME
+ *  inside it passes tsc and lands on the phone as a generic 失敗 toast.
+ *  The `error` enum is EXACTLY the three settled domain answers — 'failed' is
+ *  an upstream failure and leaves as a 502, never a 2xx (the A2-4 honesty law
+ *  one sibling over) — so a NEW guard code reaching a door unwired fails loud
+ *  here instead of arriving as a toast nobody wrote. */
+export const CustomerDeletionResultDTO = z.discriminatedUnion('success', [
+  z.object({ success: z.literal(true), id: z.string() }),
+  z.object({
+    success: z.literal(false),
+    error: z.enum(['already_scheduled', 'not_scheduled', 'window_expired']),
+  }),
+])
+
 interface CustomerCore {
   id: string
   name: string

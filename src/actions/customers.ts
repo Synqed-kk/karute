@@ -391,16 +391,19 @@ async function emitDeletionAudit(
   })
 }
 
-/** Schedule deletion: sets core deleted_at = now. The customer drops from
- *  lists (core filters soft-deleted) and the profile banner starts the 30-day
- *  undo countdown. Data is retained in core forever; day 30 only closes the
- *  in-app undo. Error strings are codes the client maps to i18n. */
-export async function scheduleCustomerDeletion(id: string): Promise<ActionResult> {
+/** Deletion-SCHEDULE core — business-scoped client, no cookie. Shared by the
+ *  web action (cookie identity → requireCapability) and the facade POST
+ *  (Bearer identity → ensureCapability), so the two doors cannot answer the
+ *  same customer differently. Audit-free, the same Core/WithClient split
+ *  grantCustomerConsentWithClient documents: the WEB wrapper emits the
+ *  privacy.* row (emitDeletionAudit hardcodes source:'web' — it belongs to
+ *  the cookie door and nowhere else), the facade's own hook emits its row.
+ *  Never throws: the `error` strings are the codes both UIs map to i18n. */
+export async function scheduleCustomerDeletionWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
+  id: string,
+): Promise<ActionResult> {
   try {
-    // records.delete — owner / manager / senior only. Mirrors deleteKaruteRecord.
-    await requireCapability('records.delete')
-    const synqed = await getSynqedClient()
-
     // Never restart a running clock: re-scheduling would push the deadline out.
     const existing = await synqed.customers.get(id)
     if (customerDeletedAt(existing)) {
@@ -411,10 +414,6 @@ export async function scheduleCustomerDeletion(id: string): Promise<ActionResult
       deleted_at: new Date().toISOString(),
     } as Parameters<typeof synqed.customers.update>[1])
 
-    await emitDeletionAudit('privacy.customer_delete_scheduled', id)
-    revalidatePath('/customers')
-    revalidatePath(`/customers/${id}`)
-    updateTag('customers')
     return { success: true, id }
   } catch (err) {
     console.error('[scheduleCustomerDeletion] error:', err)
@@ -422,14 +421,39 @@ export async function scheduleCustomerDeletion(id: string): Promise<ActionResult
   }
 }
 
-/** Undo within the window: nulls deleted_at. Rejects once the deadline has
- *  passed — the sweep may already be destroying records, and a cancel that
- *  "succeeds" seconds before hard delete would lie to the staff. */
-export async function cancelCustomerDeletion(id: string): Promise<ActionResult> {
+/** Schedule deletion: sets core deleted_at = now. The customer drops from
+ *  lists (core filters soft-deleted) and the profile banner starts the 30-day
+ *  undo countdown. Data is retained in core forever; day 30 only closes the
+ *  in-app undo. Error strings are codes the client maps to i18n. */
+export async function scheduleCustomerDeletion(id: string): Promise<ActionResult> {
   try {
+    // records.delete — owner / manager / senior only. Mirrors deleteKaruteRecord.
     await requireCapability('records.delete')
     const synqed = await getSynqedClient()
 
+    const result = await scheduleCustomerDeletionWithClient(synqed, id)
+    // Guard refusal or core failure — nothing was written, so no row and no
+    // revalidation, at exactly the points the pre-split body returned.
+    if (!result.success) return result
+
+    await emitDeletionAudit('privacy.customer_delete_scheduled', id)
+    revalidatePath('/customers')
+    revalidatePath(`/customers/${id}`)
+    updateTag('customers')
+    return result
+  } catch (err) {
+    console.error('[scheduleCustomerDeletion] error:', err)
+    return { success: false, error: 'failed' }
+  }
+}
+
+/** Deletion-CANCEL core — the schedule twin above, same split and same
+ *  reasons: shared body, audit-free, never throws. */
+export async function cancelCustomerDeletionWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
+  id: string,
+): Promise<ActionResult> {
+  try {
     const existing = await synqed.customers.get(id)
     const deletedAt = customerDeletedAt(existing)
     if (!deletedAt) {
@@ -444,11 +468,29 @@ export async function cancelCustomerDeletion(id: string): Promise<ActionResult> 
       deleted_at: null,
     } as Parameters<typeof synqed.customers.update>[1])
 
+    return { success: true, id }
+  } catch (err) {
+    console.error('[cancelCustomerDeletion] error:', err)
+    return { success: false, error: 'failed' }
+  }
+}
+
+/** Undo within the window: nulls deleted_at. Rejects once the deadline has
+ *  passed — the sweep may already be destroying records, and a cancel that
+ *  "succeeds" seconds before hard delete would lie to the staff. */
+export async function cancelCustomerDeletion(id: string): Promise<ActionResult> {
+  try {
+    await requireCapability('records.delete')
+    const synqed = await getSynqedClient()
+
+    const result = await cancelCustomerDeletionWithClient(synqed, id)
+    if (!result.success) return result
+
     await emitDeletionAudit('privacy.customer_delete_canceled', id)
     revalidatePath('/customers')
     revalidatePath(`/customers/${id}`)
     updateTag('customers')
-    return { success: true, id }
+    return result
   } catch (err) {
     console.error('[cancelCustomerDeletion] error:', err)
     return { success: false, error: 'failed' }

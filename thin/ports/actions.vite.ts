@@ -765,6 +765,41 @@ async function facadeGrantCustomerConsent(
   return { ok: false, error: body?.error?.message ?? `Grant failed (${res.status})` }
 }
 
+// 30-day customer deletion, both doors (PHONEWIRE-2B). Until now these were
+// notWired stubs: the privacy tab's 削除 CTA and the banner's 元に戻す each
+// threw into their own catch and toasted a bare 失敗 — live-looking phone
+// controls for an act only the web could perform. No Idempotency-Key, matching
+// the routes' design ruling (idempotent set-ops with their own guards).
+//
+// The GUARD CODES are the contract: PrivacyTabContent branches on
+// 'already_scheduled', CustomerDeletionBanner on 'window_expired' and on
+// 'not_scheduled' — which it reads as SUCCESS (someone else already undid it).
+// So the 2xx body's `error` rides through VERBATIM; a re-worded message here
+// collapses all three into the generic failure toast.
+//
+// A non-2xx is the web union's own catch-all 'failed', read off `!res.ok`
+// alone and never from the body: handler.ts's error body carries `error` as an
+// OBJECT under the same key the 2xx body uses for a string code.
+async function facadeCustomerDeletion(
+  customerId: string,
+  op: 'schedule' | 'cancel',
+): Promise<ActionResult> {
+  const res = await getDataPort().apiFetch(
+    `/api/app/v1/customers/${enc(customerId)}/deletion/${op}`,
+    { method: 'POST' },
+  )
+  if (!res.ok) return { success: false, error: 'failed' }
+  const body = (await res.json().catch(() => null)) as ActionResult | null
+  if (body?.success === true && typeof body.id === 'string') return { success: true, id: body.id }
+  // A 2xx whose body proves nothing (empty, truncated, a shape drift the DTO
+  // would have caught server-side) is not an outcome — same posture as the
+  // create ports two screens up.
+  if (body?.success === false && typeof body.error === 'string') {
+    return { success: false, error: body.error }
+  }
+  return { success: false, error: 'failed' }
+}
+
 async function facadeUndoRedemption(redemptionId: string): Promise<{ ok: boolean }> {
   const res = await getDataPort().apiFetch(
     `/api/app/v1/packs/redemptions/${enc(redemptionId)}/undo`,
@@ -1944,8 +1979,14 @@ export const regenerateKarute = facadeRegenerateKarute
 // that probe the gate on mount.
 export const canUseDevRegen = async (): Promise<boolean> => false
 // Drift 7/16-18: deletion lane added these to the customer profile privacy tab.
-export const scheduleCustomerDeletion = notWired('scheduleCustomerDeletion')
-export const cancelCustomerDeletion = notWired('cancelCustomerDeletion')
+// Wired to their facade doors in PHONEWIRE-2B (see facadeCustomerDeletion).
+// The `satisfies` pins are type-only (erased by vite — same idiom as
+// updateKaruteOutcome below): a signature drift between the web actions and
+// these ports would otherwise be invisible at both build gates.
+export const scheduleCustomerDeletion = ((id: string) =>
+  facadeCustomerDeletion(id, 'schedule')) satisfies typeof import('@/actions/customers').scheduleCustomerDeletion
+export const cancelCustomerDeletion = ((id: string) =>
+  facadeCustomerDeletion(id, 'cancel')) satisfies typeof import('@/actions/customers').cancelCustomerDeletion
 export const regenerateKaruteEntries = notWired('regenerateKaruteEntries')
 export const updateKaruteSummary = notWired('updateKaruteSummary')
 // -- entry edit (edit-layer W2 PR-B — edit-save only, no delete yet)

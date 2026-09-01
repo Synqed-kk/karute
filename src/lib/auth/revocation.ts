@@ -60,6 +60,12 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   'customer.pack.create',
   'customer.pack.redeem',
   'customer.lifecycle.set',
+  // the 30-day deletion pair (PHONEWIRE-2B) — the most consequential customer
+  // write there is: one POST drops the record from every list and starts the
+  // erasure clock, the other takes it back. A just-terminated staffer must not
+  // reach either on the local fast-path.
+  'customer.deletion.schedule',
+  'customer.deletion.cancel',
   // session-detail mutations (packet 07 batch 4 — recording-privacy + AI-on-PII).
   // regenerate reads the raw transcript + runs the LLM; outcome upserts the
   // coaching label. Both re-check revocation (no local fast-path).
