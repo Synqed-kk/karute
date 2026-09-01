@@ -50,7 +50,7 @@ import {
 } from '@/business/lib/data'
 import { buildLanes, dayBookings, hhmm, minuteOf, place, type BoardLane, type BuildInput, type Hours } from '@/business/lib/today-board'
 import { guardVerdictAt, laneSpans, lossOf, type RailCell } from '../today/today-interactions'
-import { MINUTE_CHOICES, type NewClientMinutes } from './store-policy-seam'
+import { liveFieldsFrom, MINUTE_CHOICES, saveRefusal } from './store-policy-seam'
 import { SettingsScreen, type SettingsProps, type SettingsScene } from './SettingsScreen'
 import './settings.css'
 
@@ -259,6 +259,25 @@ export default async function SettingsPage({
   const sampleStaffRole =
     planes.opsConfig.overridePolicy.roles.find((r) => !managerRoles.includes(r)) ?? shell.operator.role
 
+  /** ⚖ THE TWO WIRE FIELDS, THROUGH THE SEAM. Everything else on this screen is
+   *  read straight off `opsConfig`; these two are read through
+   *  `liveFieldsFrom` in core's own field spellings, so the day the fixture is
+   *  replaced by `StorePolicyClient.get(storeId)` the change is one function
+   *  body and no reader below moves. */
+  const live = liveFieldsFrom({
+    gapGuardMode: planes.opsConfig.gapGuardMode,
+    newClientSessionMinutes: planes.opsConfig.newClientSessionMin,
+  })
+
+  /** ⚖ THE HQ SAVE GATE, from the ROLES HOME and never from a literal. The store
+   *  names its own manager-level people once (`releaseHeldRoles` — the same list
+   *  売上分析's `viewRoles` and 人件費's `laborCostRoles` are drawn from, and the
+   *  one ⚠SETTINGS-BATCH pins as DATA), so a store that names a different set
+   *  changes its settings and not this file. Decided HERE, once, like every other
+   *  authority in this family: the screen is handed the ANSWER, never the rule,
+   *  so an operator is never shown a control they would only be refused for. */
+  const refusal = saveRefusal(managerRoles, shell.operator.role)
+
   const props: SettingsProps = {
     // ⚖ VIEW STATE IS STORE-SCOPED (the 売上・レジ precedent): `?store=`
     // navigation keeps the same screen instance, so a preset chosen against one
@@ -271,9 +290,9 @@ export default async function SettingsPage({
       overrideRoles: [...planes.opsConfig.overridePolicy.roles],
       managerRoles: [...managerRoles],
       lockedOut: [...planes.opsConfig.overridePolicy.lockedOut],
-      strict: planes.opsConfig.gapGuardMode === 'strict',
+      strict: live.gap_guard_mode === 'STRICT',
       holdToConfirm: planes.opsConfig.overrideHoldToConfirm,
-      newClientMinutes: planes.opsConfig.newClientSessionMin as NewClientMinutes,
+      newClientMinutes: live.new_client_session_minutes,
       heldRankAccess: planes.opsConfig.heldRankAccess,
       // すき間の販売 — the store's own 販売可能な最小の長さ is what turns it off:
       // above zero the board advertises the leftovers, at zero it does not
@@ -307,6 +326,7 @@ export default async function SettingsPage({
     operator: { name: shell.operator.name, role: shell.operator.role, staff_id: shell.operator.staff_id },
     sampleStaffRole,
     roster: staff.map((s) => ({ id: s.id, name: s.full_name })),
+    save: { refusal, roles: [...managerRoles] },
   }
 
   return <SettingsScreen key={props.storeKey} {...props} />

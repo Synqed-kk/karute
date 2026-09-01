@@ -6827,7 +6827,23 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // with it. A refusal box is not where a store finds out it typed 0.
     expect(nearestFreeStarts(960, 0, HOURS, 60, () => true)).toEqual([])
     expect(nearestFreeStarts(960, -30, HOURS, 60, () => true)).toEqual([])
-    expect(INT).toContain('if (stepMin <= 0) return []')
+    // ⚖ 9/1, THE SETTINGS ROUND'S RIDER — the guard now reads `!(finite && > 0)`,
+    // the same shape `offerableCell` took in fix round 10 V1 and `guardRailsFor`
+    // takes below, landed in the same commit as the 予約の刻み field that can
+    // finally hand this a non-number.
+    //
+    // ⚠ AND IT IS THE HONEST HALF OF THE PAIR: unlike its two siblings, this one
+    // changes NO behaviour. `attempted + dir * NaN` is NaN and `NaN >= open` is
+    // false, so the walk never ran and this already returned `[]` — which is why
+    // the four lines below pass with or without the guard, and are kept as a
+    // CONTRACT (these inputs yield no offers) rather than claimed as a red-run.
+    // The packet's 「nearestFreeStarts can HANG on NaN」 does not reproduce; what
+    // the finite spelling buys here is that the three siblings refuse the same
+    // inputs in the same words, so none of them is safe only by accident.
+    expect(nearestFreeStarts(960, Number.NaN, HOURS, 60, () => true)).toEqual([])
+    expect(nearestFreeStarts(960, Number.POSITIVE_INFINITY, HOURS, 60, () => true)).toEqual([])
+    expect(nearestFreeStarts(960, Number.NEGATIVE_INFINITY, HOURS, 60, () => true)).toEqual([])
+    expect(INT).toContain('if (!(Number.isFinite(stepMin) && stepMin > 0)) return []')
     // …and a sane dial is untouched.
     expect(nearestFreeStarts(960, 30, HOURS, 60, () => true)).toEqual([930, 990])
   })
@@ -6878,7 +6894,18 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     const lanes = board({ staff: { window: { from: 600, until: 1140 }, untilLabel: '19:00' } })
     expect(guardRailsFor(lanes, rin(0))).toEqual([])
     expect(guardRailsFor(lanes, rin(-30))).toEqual([])
-    expect(INT).toContain('if (input.stepMin <= 0) return []')
+    // ⚖ 9/1, THE SETTINGS ROUND'S RIDER — AND THE NON-NUMBERS, which `<= 0` never
+    // caught. This is the MUTATION-WORTHY half of the pair: NaN fails every
+    // comparison, so it walked straight past the old gate, `start` began at
+    // `open`, one cell was pushed, and `start += NaN` then ended the loop — a
+    // one-cell rail rendered over a whole day. Not a hang; a SILENT WRONG ANSWER,
+    // which is worse, because the strip appeared and was a lie about every hour
+    // after the first. Restore `<= 0` and these three lines go red with a rail of
+    // length 1. Infinity rides along for `offerableCell`'s own V1 reason.
+    expect(guardRailsFor(lanes, rin(Number.NaN))).toEqual([])
+    expect(guardRailsFor(lanes, rin(Number.POSITIVE_INFINITY))).toEqual([])
+    expect(guardRailsFor(lanes, rin(Number.NEGATIVE_INFINITY))).toEqual([])
+    expect(INT).toContain('if (!(Number.isFinite(input.stepMin) && input.stepMin > 0)) return []')
     // …and canon's own 30 still draws a full rail.
     expect(guardRailsFor(lanes, rin(30))[0].cells.length).toBe((HOURS.close - HOURS.open) / 30)
   })

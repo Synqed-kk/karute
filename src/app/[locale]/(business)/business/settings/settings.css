@@ -431,3 +431,9 @@
   .biz .pg-settings .st-step-g button:active,
   .biz .pg-settings .st-btn-add:active { transform: none; }
 }
+
+/* ── 保存 ─────────────────────────────────────────────────────────────────── */
+/* The one solid fill on the page, and it is `.btn.primary`'s own commit recipe —
+   never a fill of this room's inventing (⚖ R13). `.biz button:disabled` already
+   dims and re-cursors it, so the refused state needs nothing said twice. */
+.biz .pg-settings .st-save .btn { min-height: 38px; }

@@ -77,6 +77,11 @@ export interface SettingsProps {
   operator: { name: string; role: string; staff_id: string }
   sampleStaffRole: string
   roster: Array<{ id: string; name: string }>
+  /** ⚖ THE HQ SAVE GATE, decided on the server off the ROLES HOME. `refusal` is
+   *  the one sentence the control prints when it cannot fire, `null` when it
+   *  could; `roles` is the store's own manager-level list, named on screen so an
+   *  operator who is refused knows who to ask. */
+  save: { refusal: string | null; roles: string[] }
 }
 
 // ── the mock's own presets ───────────────────────────────────────────────────
@@ -696,6 +701,33 @@ export function SettingsScreen(props: SettingsProps) {
                 <p className="st-ctrl-d">予約がそろう時間の単位</p>
                 <p className={`st-ctrl-d${slotWarn ? ' warn' : ' dim'}`} aria-live="polite">数字以外は保存されません</p>
                 <p className="st-ctrl-d dim"><span className="st-chip">準備中</span>{PENDING_NOTE}</p>
+              </section>
+
+              {/* i. 保存 — ⚖ THE HQ GATE, and an honest refusal.
+                  The control is REFUSED rather than hidden, and its own reason is
+                  on its accessible name: the family's standing pattern for an
+                  action with no wire yet (BusinessTopbar's 操作履歴,
+                  BusinessSidebar's 事業切替) is 「disabled with the reason, never a
+                  button that pretends」 (⚖ L-7). Who MAY save is the store's own
+                  manager-level list, decided on the server and named here so a
+                  refused operator knows who to ask rather than just being stopped. */}
+              <section
+                className="st-row st-save"
+                aria-labelledby="stSaveLabel"
+                data-guide-title="保存"
+                data-guide="変更を店舗の設定として保存します。保存できるのは、この店舗の責任者だけです。いまはまだ保存できないので、この画面での動きを確認したあと、そのまま閉じて大丈夫です。"
+              >
+                <p className="st-ctrl-l" id="stSaveLabel">保存</p>
+                <button
+                  className="btn primary"
+                  type="button"
+                  disabled={props.save.refusal !== null}
+                  title={props.save.refusal ?? undefined}
+                >
+                  この設定を保存
+                </button>
+                {props.save.refusal !== null && <p className="st-ctrl-d warn">{props.save.refusal}</p>}
+                <p className="st-ctrl-d dim">保存できるのは{props.save.roles.join('・')}です</p>
               </section>
             </details>
           </div>

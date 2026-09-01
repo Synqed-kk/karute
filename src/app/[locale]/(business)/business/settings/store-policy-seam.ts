@@ -75,6 +75,45 @@ export interface WriteStorePolicy {
   audit: { action: string; summary: string }
 }
 
+/** THE READ, and the whole of it. The board keeps its own lowercase spelling of
+ *  the guard mode (`storeBookingPolicy.gapGuardMode`, whose comment promises
+ *  「one mapping line at the reconnect」) — this is that line, and it lives here
+ *  so the day `StorePolicyClient.get(storeId)` replaces the fixture, only this
+ *  function's body changes and every reader keeps its shape.
+ *
+ *  A PURE MAPPER, deliberately: it reads no data of its own. The store lens is
+ *  the data door's argument (`foundation.test.ts`: 「every read requires the
+ *  store lens as its first argument」), so the caller does the reading and hands
+ *  the values here — a second door into the fixtures would be exactly the thing
+ *  that door exists to prevent.
+ *
+ *  ⚠ `new_client_session_minutes` is a plain `number` on the READ side of core's
+ *  own type and the `60 | 75 | 90` union only on the write. A store whose stored
+ *  value is off that ladder (an older row, or one HQ set another way) is
+ *  therefore READABLE and not re-offerable, which is the honest reading of
+ *  core's own asymmetry: the chips fall back to the nearest choice they can
+ *  actually save rather than showing a value pressing them would silently
+ *  change. */
+export function liveFieldsFrom(board: { gapGuardMode: 'off' | 'standard' | 'strict'; newClientSessionMinutes: number }): LiveStorePolicy {
+  return {
+    gap_guard_mode: board.gapGuardMode.toUpperCase() as GapGuardMode,
+    new_client_session_minutes: nearestChoice(board.newClientSessionMinutes),
+  }
+}
+
+/** The chip a stored minute value maps onto. Exact match wins; anything else
+ *  takes the nearest choice the wire will accept, and ties go to the LONGER one
+ *  — a store that had been holding more time for new customers should not be
+ *  quietly moved to holding less. */
+export function nearestChoice(minutes: number): NewClientMinutes {
+  if (!Number.isFinite(minutes)) return MINUTE_CHOICES[MINUTE_CHOICES.length - 1]
+  return MINUTE_CHOICES.reduce((best, m) =>
+    Math.abs(m - minutes) < Math.abs(best - minutes) || (Math.abs(m - minutes) === Math.abs(best - minutes) && m > best)
+      ? m
+      : best,
+  )
+}
+
 /** Why a save cannot happen right now, or `null` when it could. ONE sentence,
  *  because the room prints it on the control and a reader may never be left
  *  guessing which of several reasons applied.

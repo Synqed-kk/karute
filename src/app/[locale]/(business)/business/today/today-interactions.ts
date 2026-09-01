@@ -1688,7 +1688,19 @@ export function guardRailsFor(lanes: BoardLane[], input: RailInput): GuardRail[]
   // `input.close` and takes the render thread with it. Unreachable today only
   // because both call sites hardcode canon's 30 — which is exactly the kind of
   // "safe by accident" a settings dial stops being. No step, no rails.
-  if (input.stepMin <= 0) return []
+  //
+  // ⚖ 9/1, THE SETTINGS ROUND'S RIDER — AND NOW IT CATCHES NaN, which `<= 0`
+  // never could: NaN fails every comparison, so a non-numeric step walked
+  // straight past this line, painted ONE cell at `input.open`, then ended the
+  // loop the moment `start` became NaN. Not a hang — a SILENT WRONG ANSWER,
+  // which is worse: the rail rendered, and it was a lie about the rest of the
+  // day. The room shipping this round puts a real number field (予約の刻み) in
+  // front of an operator for the first time, so the shape that catches an empty
+  // or half-typed box is the one this file already uses for exactly this reason
+  // (`impactOf`'s `!(protectedDur > 0)`). Infinity goes with it: a step no
+  // arithmetic can advance is no step. Same answer as before — no step, no
+  // rails — for one more class of input.
+  if (!(Number.isFinite(input.stepMin) && input.stepMin > 0)) return []
   const engine = createGapGuard(input.guard)
   const rails: GuardRail[] = []
   for (const lane of lanes) {
@@ -2362,7 +2374,18 @@ export function nearestFreeStarts(
   // board's whole render thread with it. A refusal box is not the place to find
   // out a store typed 0 into a settings field: no step means no lattice to walk,
   // and no lattice means nothing to offer.
-  if (stepMin <= 0) return []
+  //
+  // ⚖ 9/1, THE SETTINGS ROUND'S RIDER — the SAME shape as `guardRailsFor`'s
+  // sibling guard, landed in the same commit as the 予約の刻み field that can
+  // finally produce a non-number. ⚠ AND IT IS THE HONEST HALF OF THAT PAIR:
+  // unlike the rail's, this guard changes NO behaviour. A NaN step makes
+  // `attempted + dir * stepMin` NaN, and `NaN >= hours.open` is false, so the
+  // loop never ran and this already returned `[]` — measured, not assumed. It is
+  // kept because a reader may not be left to work that out from the arithmetic:
+  // the two siblings now refuse the same inputs in the same words, and neither
+  // is safe only by accident. The packet's 「nearestFreeStarts can HANG on NaN」
+  // does not reproduce; the rail's silent-wrong-answer, next door, does.
+  if (!(Number.isFinite(stepMin) && stepMin > 0)) return []
   const out: number[] = []
   for (const dir of [-1, 1] as const) {
     for (let s = attempted + dir * stepMin; s >= hours.open && s + dur <= hours.close; s += dir * stepMin) {
