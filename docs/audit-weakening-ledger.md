@@ -201,3 +201,27 @@
   was not legal yesterday; one symbol name changed · Liam (⚖ 8/20 discard
   doctrine + ⚖ 8/12 one system two doors, packet
   PACKET-PHONEWIRE-2C-2026-09-01.md, karute-field-issues lane)
+
+- 2026-09-01 · SDK_WRITE_ALLOWLIST:src/lib/recording/staged-audio.ts::storage.recordings.remove · a
+  FILE MOVE of the entry directly above, not a new write (PHONEWIRE-2C fix
+  round 3, Greptile #813). The staged-audio janitor was extracted out of
+  src/actions/recording-discard-transcript.ts into its own module because it
+  grew a SECOND caller: the phone stages its audio BEFORE it posts and every
+  retry stages a fresh object (runDiscardTranscript → stageForJob;
+  DiscardPending carries no path to reuse), so the facade route must sweep its
+  own pre-body refusals or a repeating refusal strands one more object per
+  record-page mount for seven days. The alternative — a second
+  `storage.remove` spelling at the route — is exactly how a fence gets
+  forgotten on one caller, so there is still ONE delete implementation and the
+  old entry was pruned rather than left dead (CP3 named both halves and both
+  were done). The call is byte-unchanged: same best-effort remove of the same
+  staged object, same read-then-delete worker posture, still not a business
+  action — the audited action remains the recording.discard receipt this
+  transcription belongs to. It is STRICTLY NARROWER than what it replaced: the
+  isOwnRecordingKey tenant fence now lives INSIDE the janitor rather than at
+  the one call site, so no caller — present or future — can delete a key that
+  is not its own business's. The module carries no 'use server' for the same
+  reason lib/recording/discard.ts does not: it takes its tenant as an
+  argument, and as a client-invokable action a caller could name any business
+  · Liam (⚖ 8/20 discard doctrine + ⚖ 8/12 one system two doors, packet
+  PACKET-PHONEWIRE-2C-2026-09-01.md, karute-field-issues lane)
