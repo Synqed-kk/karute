@@ -282,6 +282,31 @@ describe('⚖ THE STRUCTURAL DUTY — gating is SECTION-scoped, and cannot be ma
     expect(payload).not.toContain('現金差異の承認しきい値')
   })
 
+  it('a boundary is a SENTENCE with a reason, naming the reader’s own role', async () => {
+    for (const [role, ids] of [
+      ['店舗管理者', ['business-structure', 'billing']],
+      ['スタッフ', ['store-hours', 'coaching', 'staff']],
+    ] as const) {
+      const props = await room({ store: STORE_A, role })
+      for (const id of ids) {
+        const s = sectionOf(props, id)
+        expect({ role, id, gate: s.gate }).toEqual({ role, id, gate: 'no-rights' })
+        const line = s.boundaryLine ?? ''
+        // ⚠ 「権限がありません」 ON ITS OWN IS NOT A REASON. The sentence has to
+        // name WHO is reading and WHAT would open it, or the reader is told they
+        // are locked out and nothing else.
+        expect({ role, id, names: line.includes(s.label) }).toEqual({ role, id, names: true })
+        expect({ role, id, long: line.length >= 40 }).toEqual({ role, id, long: true })
+        expect({ role, id, whose: line.includes(role) }).toEqual({ role, id, whose: true })
+      }
+    }
+    // …and 事業構成's own sentence carries the truth (c)2 records: the permission
+    // exists, but a store cannot hand it out from the capability grid.
+    const asManager = await room({ store: STORE_A })
+    expect(sectionOf(asManager, 'business-structure').boundaryLine).toContain('オーナーのアカウントでのみ')
+    expect(sectionOf(asManager, 'business-structure').boundaryLine).toContain('権限の一覧からは配れません')
+  })
+
   it('a rights-less reader gets the INERT half of the pages canon opens to everyone', async () => {
     const props = await room({ role: 'スタッフ' })
     const org = sectionOf(props, 'recording').blocks.find((b) => b.id === 'recording.org')!

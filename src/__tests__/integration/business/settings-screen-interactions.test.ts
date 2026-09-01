@@ -391,6 +391,36 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
     expect(SRC_CODE).toContain("{blocked ?? (dirty ? '未保存の変更があります' : savedNote[section.id] ?? '変更はありません')}")
   })
 
+  it('EVERY control shape wires its own change — a shape with no handler is a dead lever', () => {
+    // ⚠ THE DEAD-LEVER LAW, AT THE ONE PLACE IT CAN BE READ. Eight shapes, eight
+    // wirings: a shape that renders and does not report its change is a control
+    // that looks alive and is not, which is the defect the whole round exists to
+    // remove. The probe presses all of them in a real browser; this is the pin
+    // that fails in jest the day one loses its handler.
+    for (const [shape, wiring] of [
+      ['segment', 'onClick={locked ? undefined : () => onChange(c.id, opt.value)}'],
+      ['chips', 'onClick={locked ? undefined : () => onChange(c.id, on ? picked.filter((v) => v !== opt.value) : [...picked, opt.value])}'],
+      ['swatch', 'onClick={locked ? undefined : () => onChange(c.id, opt.value)}'],
+      ['switch', 'onClick={locked ? undefined : () => onChange(c.id, !on)}'],
+      ['select', 'onChange={locked ? noop : (e) => onChange(c.id, e.target.value)}'],
+      ['number commit', 'onBlur={locked ? undefined : (e) => onChange(c.id, String(commitNumber(e.target.value, k.min, k.max)))}'],
+    ] as const) {
+      expect({ shape, wired: SRC_CODE.includes(wiring) }).toEqual({ shape, wired: true })
+    }
+    // ⚠ A CONTROLLED FIELD ALWAYS GETS AN onChange, EVEN LOCKED. React treats
+    // `value` without one as read-only and says so in the console on every
+    // render — which the probe's console sweep caught on this round's own tip.
+    expect(SRC_CODE).toContain('const noop = () => {}')
+    expect(SRC_CODE).not.toMatch(/onChange=\{locked \? undefined/)
+  })
+
+  it('the preview is FILLED from the live values, never printed raw', () => {
+    // A template printed as it stands would show `{store-hours.booking-step}` to
+    // a shop owner — the dead preview and the internal-code leak in one edit.
+    expect(SRC_CODE).toContain('{fillTemplate(block.preview.template, labelFor)}')
+    expect(SRC_CODE).toContain('return labelOfValue(kind, values[id])')
+  })
+
   it('an action refuses an empty required input rather than doing nothing quietly', () => {
     // canon's own raw-string / explicit-empty law on the 書き出し page: zero
     // selections gets a message, never a silent no-op.
