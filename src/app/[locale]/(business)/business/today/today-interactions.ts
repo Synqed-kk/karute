@@ -1359,9 +1359,22 @@ export const isCrumbOffer = (c: { s: number; e: number }, sessionMin: number): b
  *
  *  R2, and the reason this cannot be done by adding the pieces up: the price is
  *  ONE `packedPrice` call over the union. Each piece is rounded to ¥10 on its
- *  own, and summing rounded pieces charges the rounding remainder twice. */
-function combineCrumbs(cells: GapCell[], sessionMin: number, priceUnion: (laneKey: string, s: number, e: number) => number): GapCell[] {
-  const out: GapCell[] = []
+ *  own, and summing rounded pieces charges the rounding remainder twice.
+ *
+ *  ⚖ R6 fix round D1 — EXPORTED, because there are TWO producers now and only
+ *  one of them was merging. The fragment fallback emits through the same canon
+ *  function and then applies the same display floor, so an un-merged pair there
+ *  meets a floor written for merged runs: canon hands a menu-exact 50-minute
+ *  residue back as [30, 20], and the floor deletes the 20 the native layer
+ *  would have kept inside a 50-minute box. Generic over the cell so the
+ *  fallback's provenance fields ride through the merge rather than being cast
+ *  back on afterwards. */
+export function combineCrumbs<T extends GapCell>(
+  cells: readonly T[],
+  sessionMin: number,
+  priceUnion: (laneKey: string, s: number, e: number) => number,
+): T[] {
+  const out: T[] = []
   // The engine emits a staff row and a bed row per piece, so the previous cell
   // in the array is never the previous cell of the same run — each run is
   // tracked by its own (group, staff lane, bed) identity. A piece that found no
@@ -1372,7 +1385,7 @@ function combineCrumbs(cells: GapCell[], sessionMin: number, priceUnion: (laneKe
     const at = lastOfRun.get(runKey)
     const prev = at == null ? null : out[at]
     if (at != null && prev && prev.e === c.s && isCrumbOffer(prev, sessionMin) && isCrumbOffer(c, sessionMin)) {
-      out[at] = { ...prev, e: c.e, price: priceUnion(prev.laneKey, prev.s, c.e) }
+      out[at] = { ...prev, e: c.e, price: priceUnion(prev.laneKey, prev.s, c.e) } as T
       continue
     }
     lastOfRun.set(runKey, out.length)
