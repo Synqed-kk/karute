@@ -1,14 +1,25 @@
-// 設定 — THE DIAL PLANE, AND IT IS ADD-ONLY.
+// 設定 — THE SETTINGS PLANE, AND IT IS ADD-ONLY.
 //
-// This file states a dial's value ONLY when no other plane in this world states
-// it already. Every dial the rooms have shipped keeps its existing home and the
+// This file states a value ONLY when no other plane in this world states it
+// already. Every dial the rooms have shipped keeps its existing home and the
 // 設定 room READS it there:
 //
-//   · スキマガード / 厳しさ           → fixtures-today `storeBookingPolicy.gapGuardMode`
-//   · 「置けない」場所への上書き権限   → fixtures-today `storeBookingPolicy.overridePolicy`
-//   · 予約の移動単位 / ブロックの刻み  → fixtures-today `opsConfig.bookingStepMin` / `.blockStepMin`
-//   · 販売可能な最小の長さ            → fixtures-today `opsConfig.minSellableMin`
-//   · 現金差異の承認しきい値          → fixtures-register `cashTolerance` / `MAX_CASH_TOLERANCE`
+//   · スキマガード / 厳しさ            → fixtures-today `storeBookingPolicy.gapGuardMode`
+//   · 「置けない」場所への上書き権限    → fixtures-today `storeBookingPolicy.overridePolicy`
+//   · 確保枠を戻せる役職 / 会員ランク   → fixtures-today `storeBookingPolicy`
+//   · 予約の移動単位 / ブロックの刻み   → fixtures-today `opsConfig`
+//   · 販売可能な最小の長さ             → fixtures-today `opsConfig.minSellableMin`
+//   · Reserveの受付の刻み・スキマ枠     → fixtures-today `opsConfig`
+//   · 新規のお客様の所要時間           → fixtures-today `storeBookingPolicy`
+//   · 部屋クラス / 部屋の割り当て       → fixtures-today `resources` / `opsConfig.roomPolicy`
+//   · 営業時間 / 定休日                → fixtures-today `operatingHours` / `closedWeekday`
+//   · 現金差異の承認しきい値           → fixtures-register `cashTolerance`
+//   · 人件費を見られる役職             → fixtures-shifts `shiftsPolicy.laborCostRoles`
+//   · 売上分析の閲覧権限 / 月間売上目標 → fixtures-analytics `analyticsPolicy` / `salesTargets`
+//   · メニュー・所要時間・定価         → fixtures `menus`
+//   · スタッフ名簿・店舗の割り当て      → fixtures `staff` / `staffAssignments`
+//   · 事業体名 / 店舗の一覧            → fixtures `business` / `stores`
+//   · Reserve同期の最終同期            → fixtures `reserveSync`
 //
 // ⚠ THAT RULE IS THE WHOLE POINT OF THE ROOM. A settings page that carried its
 // own copy of a store's dial would be the second home the ⚖ one-truth law
@@ -17,79 +28,183 @@
 // The suite pins the rule both ways: nothing below re-states a world value, and
 // every store dial the screen renders traces to a plane read.
 //
-// WHAT IS BELOW, THEREFORE, IS ONLY THE DIALS WITH NOWHERE ELSE TO LIVE — the
-// settings-batch registry lines that no shipped room owns a value for. Each one
-// carries the mistake-proofing law's THREE parts (⚖ Liam 8/21): the DEFAULT, the
-// GUARDRAIL that stops a store harming itself with it, and the業種 (business
-// type) note where a ruling actually gave one. A dial with no ruled type default
-// says so rather than inventing one.
+// WHAT IS BELOW, THEREFORE, IS ONLY THE SETTINGS THE PRODUCT HAS NOWHERE ELSE TO
+// PUT — the ones canon's nineteen pages edit and no shipped room owns.
 //
-// NO ABSOLUTE DATES, NO CLOCK, NO DERIVATION (⚖ L-6 and the plane law): values
-// only. The rules that read them live in `settings.ts`.
+// NO ABSOLUTE DATES AND NO CLOCK (⚖ L-6 and the plane law): a date is a DAY
+// OFFSET and the props file formats it against the render's own now.
+//
+// ⚠ THE TWO STORES DIFFER ON PURPOSE. A demo world where both stores hold
+// identical settings cannot show the reader that these are PER-STORE values, and
+// it would let a store-clamp defect pass every screenshot (⚖ 8/17's own test
+// shape). 代官山 runs a longer win-back cycle, has coaching switched off, takes
+// QR payments, and runs its own quiet hours.
 
 import { STORE_A, STORE_B } from './fixtures'
 
-/** 文字起こしの公開範囲 (dial #16). ⚖ Liam 8/30 D3: per-business, and the SAFE
- *  default is private — 「If they are private, only the staff can see it」.
- *  Enforcement is SERVER-side at the data door; the 録音 room states the same
- *  fact in words (`TRANSCRIPT_POLICY_LINE`) and decides nothing itself. */
+/** 文字起こしの公開範囲. ⚖ Liam 8/30 D3: per-business, and the SAFE default is
+ *  private — 「If they are private, only the staff can see it」. Enforcement is
+ *  at the data door; the 録音 room states the same fact in words and decides
+ *  nothing itself. */
 export type TranscriptVisibility = 'staff-only' | 'managers-too'
 
-/** コーチングの共有の方針 (dial #21). `manager-grant` = a staff member may grant
- *  their manager the deeper view, one person at a time; `peer` additionally
- *  opens the double-consent peer share. Neither is ON for anybody by default —
- *  the grant is always the staff member's own (room 8's anti-coercion wall). */
+/** コーチングの共有の方針. `manager-grant` = a staff member may grant their
+ *  manager the deeper view, one person at a time; `peer` additionally opens the
+ *  double-consent peer share. Neither is ON for anybody by default — the grant
+ *  is always the staff member's own (room 8's anti-coercion wall). */
 export type CoachingSharingMode = 'manager-grant' | 'peer'
 
+export interface StoreProfile {
+  /** ⚠ NOT THE STORE NAME. `fixtures.stores[].name` is the one home for that;
+   *  a second copy here is exactly the disease this file exists to avoid. */
+  address: string
+  phone: string
+  /** canon's 店舗写真 row: 未設定 until a store uploads one. */
+  photo: string | null
+}
+
+/** 臨時休業・特別営業. `dayOffset` is days from the render's own today, so the
+ *  demo is populated on any real date and no absolute date lives in a plane. */
+export interface StoreClosure {
+  dayOffset: number
+  kind: 'off' | 'extra'
+  note: string
+}
+
+export interface TicketPack {
+  name: string
+  /** 単価 — what one visit costs inside the pack. */
+  unitPrice: number
+  /** The menu the pack is measured against. */
+  menuId: string
+}
+
+export interface WalletPack {
+  price: number
+  points: number
+}
+
+export interface StaffSettings {
+  /** canon's preset key (`PRESET_GRANTS` in lib/settings.ts). */
+  preset: string
+  /** Per-account overrides on top of the preset — canon's own model. */
+  caps: string[]
+  pin: boolean
+  /** 音声同意: whether this person has registered their own voice. */
+  voice: boolean
+}
+
+export interface AuditEntry {
+  dayOffset: number
+  at: string
+  who: string
+  category: 'pricing' | 'reserve' | 'permissions' | 'store' | 'other'
+  what: string
+  subject: string
+  before: string
+  after: string
+}
+
 export interface StoreDials {
-  /** 休憩の有給扱い (dial #11). FALSE = 休憩は無給, which is what 人件費 prices
-   *  today (`shifts.ts laborCost` × `workedMinutes`, breaks excluded).
-   *  GUARDRAIL: this dial moves a MONEY figure, so it is gated to the same roles
-   *  人件費 itself is (`fixtures-shifts.shiftsPolicy.laborCostRoles`) and can
-   *  never be changed by a reader who cannot see the number it changes.
-   *  業種 (map row #11): most salons pay breaks unpaid; a shop on fixed shifts
-   *  usually pays them. */
-  breaksPaid: boolean
-  /** 動的価格 (dial #4). The store-wide master canon's 料金・ポイント page carries
-   *  (`dynSwitch`).
-   *  ⚠ FALSE HERE IS THE TRUTH, NOT A PREFERENCE: no store-wide master exists in
-   *  the product yet. 今日の運営's 販売可能枠の表示 is a PER-VIEWER display choice
-   *  and the discount depth is derived from the price list, not from a dial. The
-   *  row says so; nothing on the board changes when this value does.
+  profile: StoreProfile
+  closures: StoreClosure[]
+  /** Which menus are on sale in Reserve, keyed by the menu id `fixtures.menus`
+   *  owns. The menu's NAME, DURATION and PRICE are read from there. */
+  menuVisible: Record<string, boolean>
+  tickets: TicketPack[]
+  /** 稼働, keyed by the roster id `fixtures.staff` owns. */
+  staffActive: Record<string, boolean>
+  staffSettings: Record<string, StaffSettings>
+  /** レジで使える支払い方法. */
+  payCash: boolean
+  payCard: boolean
+  payQr: boolean
+  /** 事業体 — the contracting entity behind `fixtures.business`. */
+  companyName: string
+  representative: string
+  companyForm: string
+  /** 動的価格. ⚠ FALSE HERE IS THE TRUTH, NOT A PREFERENCE: no store-wide master
+   *  exists in the product yet. 今日の運営's 販売可能枠の表示 is a PER-VIEWER
+   *  display choice and the discount depth is derived from the price list.
    *  GUARDRAIL: the curve's depth is capped by `CURVE_MAX_DIP` in
    *  canon-logic/pricing.ts so a store cannot discount past its own floor. */
   dynamicPricing: boolean
-  /** 文字起こしの公開範囲 (dial #16). DEFAULT = private.
-   *  GUARDRAIL: staff always see the store's current mode before they record, and
-   *  a change is 監査-logged. 業種: none ruled — privacy is not a business type. */
+  /** 価格の見せ方 — 割引型 or 加算型. The real price is identical either way. */
+  priceFraming: 'discount' | 'markup'
+  /** ポイント制（前払）. */
+  pointsEnabled: boolean
+  walletPacks: WalletPack[]
+  /** AI設定. */
+  aiSummaryLength: 'short' | 'standard' | 'detailed'
+  aiTone: 'polite' | 'friendly'
+  aiLanguage: string
+  aiOutcomes: string[]
+  aiAggressiveness: 'light' | 'standard' | 'active'
+  aiCategories: Record<string, boolean>
+  /** 業種プロファイル — the 26-vertical profile the product's vocabulary rides.
+   *  Changed by support, never self-served, which canon states and this room
+   *  carries as a locked control. */
+  businessProfile: string
+  /** 録音設定. */
+  recordingConsentRequired: boolean
+  retentionClass: 'no-duty' | 'statutory'
+  /** 文字起こしの公開範囲. DEFAULT = private. GUARDRAIL: staff always see the
+   *  store's current mode before they record, and a change is 監査-logged. */
   transcriptVisibility: TranscriptVisibility
-  /** 再来促しの日数しきい値 (dial #14). ⚖ Liam 8/23: one value, two doors.
-   *  MIRRORED BY SHAPE from the phone's own constant — `REENGAGE_NUDGE_MIN_DAYS`
-   *  (src/lib/karute/ai-reengagement.ts:41) — with a cite rather than an import,
-   *  because Business territory may not import phone runtime. At reconnect the
-   *  single core value replaces both.
-   *  GUARDRAIL: `clampWinBackDays` holds it inside 14…365 — under two weeks the
-   *  nudge reaches customers who are simply not due yet, and past a year it
-   *  reaches people who have moved away.
+  voiceEnrolled: boolean
+  /** コーチング — `org_settings.coaching_enabled`, per store. */
+  coachingEnabled: boolean
+  coachingSharing: CoachingSharingMode
+  /** GUARDRAIL: `clampCoachingRetention` holds it inside 3…36 months. */
+  coachingRetentionMonths: number
+  /** GUARDRAIL: `clampCoachingFloor` holds it inside 10…60. */
+  coachingSampleFloor: number
+  coachingCadence: 'daily' | 'weekly' | 'biweekly'
+  /** 予約同期. */
+  syncIntervalMin: number
+  syncStart: string
+  syncEnd: string
+  syncConflict: 'latest' | 'reserve' | 'manual'
+  /** Reserve 受付. */
+  acceptWindowDays: number
+  acceptCutoffHours: number
+  freeCancelHours: number
+  sameDayFeePct: number
+  noShowFeePct: number
+  priceLockDuringRecalc: boolean
+  /** 通知 — event → channel. */
+  notify: Record<string, { app: boolean; mail: boolean }>
+  guardAlert: boolean
+  quietStart: string
+  quietEnd: string
+  /** 外部連携 — connector id → 未接続 / リクエスト送信済み. */
+  connectors: Record<string, 'off' | 'pending'>
+  /** データ入出力. */
+  exportScopes: string[]
+  exportFormat: 'csv' | 'json'
+  lastExport: string
+  /** 監査ログ. */
+  auditLog: AuditEntry[]
+  /** 言語・表示. ⚖ Liam 8/31, ALL SYNQED products: every product follows the
+   *  phone and is changeable in settings. Business is a RETROFIT round; this
+   *  room ships the lever and the retrofit follows. */
+  uiLanguage: string
+  karuteLanguage: string
+  /** 予約の色分け — booking category → palette key. */
+  bookingColors: Record<string, string>
+  /** 色・テーマ — the family's own token names → this store's hex. */
+  colorTokens: Record<string, string>
+  /** 再来促しの日数しきい値. ⚖ Liam 8/23: one value, two doors. MIRRORED BY
+   *  SHAPE from the phone's own constant — `REENGAGE_NUDGE_MIN_DAYS`
+   *  (src/lib/karute/ai-reengagement.ts) — with a cite rather than an import,
+   *  because Business territory may not import phone runtime.
+   *  GUARDRAIL: `clampWinBackDays` holds it inside 14…365.
    *  業種: ruled type-dependent by Liam (a 整体 cycle is not a hair cycle). */
   winBackDays: number
-  /** コーチングの利用 (dial #20) — `org_settings.coaching_enabled`, per store. */
-  coachingEnabled: boolean
-  /** コーチングの共有の方針 (dial #21). */
-  coachingSharing: CoachingSharingMode
-  /** コーチングの記録の保存期間, months (dial #22).
-   *  GUARDRAIL: `clampCoachingRetention` holds it inside 3…36 months. */
-  coachingRetentionMonths: number
-  /** 判断に必要なセッション数 (dial #23 — minted by room 9, see the build report).
-   *  Room 8's own floor for showing a band at all.
-   *  GUARDRAIL: `clampCoachingFloor` holds it inside 10…60 — a store cannot set
-   *  it to 1 and turn a coin flip into a verdict about a person, nor to 500 and
-   *  switch the board off by the back door. */
-  coachingSampleFloor: number
-  /** 表示言語 (dial #24 — minted by room 9). ⚖ Liam 8/31, ALL SYNQED products:
-   *  every product follows the phone and is changeable in settings. Business is a
-   *  RETROFIT round; this room ships the lever honestly disconnected. */
-  displayLanguage: string
+  /** 契約・請求 — which products this store is entitled to. */
+  entitlements: { karute: boolean; reserve: boolean }
+  cardLast4: string
+  cardExpiry: string
 }
 
 /** ⚠ ONE HOME AT MERGE — READ THIS BEFORE RESOLVING A CONFLICT.
@@ -99,32 +214,214 @@ export interface StoreDials {
  *  states them for the room that owns their controls. Whichever branch lands
  *  SECOND deletes its own copy and reads the other's — the 設定 room reads room
  *  8's list, or room 8 reads this one. Two copies must not survive a merge. */
-export const storeDials: Record<string, StoreDials> = {
-  [STORE_A]: {
-    breaksPaid: false,
-    dynamicPricing: false,
-    transcriptVisibility: 'staff-only',
-    winBackDays: 61,
-    coachingEnabled: true,
-    coachingSharing: 'manager-grant',
-    coachingRetentionMonths: 12,
-    coachingSampleFloor: 20,
-    displayLanguage: 'ja',
+const ginza: StoreDials = {
+  profile: { address: '東京都中央区銀座見本1-2-3 3F', phone: '03-0000-0001', photo: null },
+  closures: [
+    { dayOffset: 8, kind: 'off', note: '設備メンテナンスのため' },
+    { dayOffset: 15, kind: 'extra', note: '10:00〜22:00（通常より延長）' },
+  ],
+  menuVisible: { 'menu-01': true, 'menu-02': true, 'menu-03': false, 'menu-06': true },
+  tickets: [
+    { name: 'テスト整体60分 回数券（10回）', unitPrice: 6300, menuId: 'menu-01' },
+    { name: 'テストストレッチ30分 回数券（5回）', unitPrice: 4500, menuId: 'menu-03' },
+  ],
+  staffActive: { 'p-01': true, 'p-04': true, 'p-05': true, 'p-06': true, 'p-09': false, 'c-03': true },
+  staffSettings: {
+    'p-06': { preset: 'manager', caps: [], pin: true, voice: true },
+    'p-01': { preset: 'practitioner', caps: [], pin: true, voice: true },
+    'p-04': { preset: 'practitioner', caps: [], pin: true, voice: true },
+    'p-05': { preset: 'senior', caps: [], pin: true, voice: false },
+    'p-09': { preset: 'frontdesk', caps: [], pin: false, voice: false },
+    'c-03': { preset: 'practitioner', caps: [], pin: true, voice: true },
   },
-  // ⚠ A SECOND STORE THAT DIFFERS, DELIBERATELY. A demo world where both stores
-  // hold identical dials cannot show the reader that these are PER-STORE values,
-  // and it would let a store-clamp defect pass every screenshot (the ⚖ 8/17
-  // isolation law's own test shape). 代官山 has coaching switched off and a
-  // longer win-back cycle.
-  [STORE_B]: {
-    breaksPaid: true,
-    dynamicPricing: false,
-    transcriptVisibility: 'staff-only',
-    winBackDays: 90,
-    coachingEnabled: false,
-    coachingSharing: 'manager-grant',
-    coachingRetentionMonths: 12,
-    coachingSampleFloor: 20,
-    displayLanguage: 'ja',
+  payCash: true,
+  payCard: true,
+  payQr: false,
+  companyName: '見本サンプル整体 合同会社',
+  representative: '見本 あずさ',
+  companyForm: '法人（合同会社）・設立 2019年4月',
+  dynamicPricing: false,
+  priceFraming: 'discount',
+  pointsEnabled: false,
+  walletPacks: [
+    { price: 10000, points: 10000 },
+    { price: 20000, points: 21000 },
+  ],
+  aiSummaryLength: 'standard',
+  aiTone: 'polite',
+  aiLanguage: 'ja',
+  aiOutcomes: ['改善', '維持', '経過観察', '未評価'],
+  aiAggressiveness: 'standard',
+  aiCategories: { followup: true, staffing: true, waitlist: true, vip: false },
+  businessProfile: 'beauty_chiropractic',
+  recordingConsentRequired: true,
+  retentionClass: 'no-duty',
+  transcriptVisibility: 'staff-only',
+  voiceEnrolled: true,
+  coachingEnabled: true,
+  coachingSharing: 'manager-grant',
+  coachingRetentionMonths: 12,
+  coachingSampleFloor: 20,
+  coachingCadence: 'weekly',
+  syncIntervalMin: 15,
+  syncStart: '08:00',
+  syncEnd: '22:00',
+  syncConflict: 'latest',
+  acceptWindowDays: 30,
+  acceptCutoffHours: 2,
+  freeCancelHours: 24,
+  sameDayFeePct: 50,
+  noShowFeePct: 100,
+  priceLockDuringRecalc: false,
+  notify: {
+    'new-booking': { app: true, mail: false },
+    changed: { app: true, mail: false },
+    cancelled: { app: true, mail: true },
   },
+  guardAlert: true,
+  quietStart: '21:00',
+  quietEnd: '09:00',
+  connectors: { calendar: 'off', accounting: 'off', messaging: 'off', 'booking-site': 'off' },
+  exportScopes: [],
+  exportFormat: 'csv',
+  lastExport: 'まだ書き出していません',
+  auditLog: [
+    { dayOffset: 0, at: '12:10', who: '見本 あずさ', category: 'pricing', what: '価格帯の変更', subject: 'テスト整体 60分・最低価格', before: '¥6,180', after: '¥6,270' },
+    { dayOffset: 0, at: '09:12', who: '見本 あずさ', category: 'store', what: '営業時間の変更', subject: '定休日', before: '火曜', after: '月曜' },
+    { dayOffset: 1, at: '10:00', who: '見本 あずさ', category: 'store', what: 'スタッフの稼働状態を変更', subject: '見本 みらい', before: '稼働', after: '休止' },
+    { dayOffset: 1, at: '09:52', who: 'システム', category: 'pricing', what: '表示の自動切替', subject: 'テスト骨盤ケア 90分・比較表示', before: '割引表示', after: '価格のみ表示（基準取引不足のため）' },
+    { dayOffset: 2, at: '11:20', who: '見本 あずさ', category: 'reserve', what: '受付ウィンドウの変更', subject: '何日先まで予約可', before: '21日', after: '30日' },
+    { dayOffset: 3, at: '18:22', who: '見本 あずさ', category: 'permissions', what: '権限の変更', subject: '見本 ごろう', before: '施術スタッフ', after: '主任' },
+    { dayOffset: 4, at: '10:12', who: '見本 あずさ', category: 'other', what: '支払い方法の変更', subject: 'カード決済', before: 'オフ', after: 'オン' },
+    { dayOffset: 6, at: '14:05', who: '見本 あずさ', category: 'reserve', what: 'キャンセル規定の変更', subject: '当日キャンセル料', before: '30%', after: '50%' },
+    { dayOffset: 11, at: '10:00', who: '見本 あずさ', category: 'other', what: 'お知らせ設定の変更', subject: '表示の健全性のお知らせ', before: 'オフ', after: 'オン' },
+    { dayOffset: 16, at: '21:15', who: '見本 あずさ', category: 'other', what: '静かな時間の設定', subject: '静かな時間', before: '未設定', after: '21:00〜9:00' },
+    { dayOffset: 34, at: '09:40', who: '見本 あずさ', category: 'store', what: '会社名の表記を修正', subject: '会社名', before: '表記ゆれあり', after: '見本サンプル整体 合同会社' },
+  ],
+  uiLanguage: 'ja',
+  karuteLanguage: 'ja',
+  bookingColors: { new: 'blue', repeat: 'teal', renewal: 'purple', pack: 'pink', vip: 'navy' },
+  colorTokens: {
+    '--commit-bg': '#2563eb',
+    '--select-bg': '#eef2ff',
+    '--orange': '#b45309',
+    '--green-dark': '#166534',
+    '--red-dark': '#b91c1c',
+    '--yellow': '#a16207',
+    '--beige-dark': '#8a6a4f',
+    '--guard-dark': '#6d28d9',
+  },
+  winBackDays: 61,
+  entitlements: { karute: true, reserve: true },
+  cardLast4: '4242',
+  cardExpiry: '2028/06',
 }
+
+const daikanyama: StoreDials = {
+  ...ginza,
+  profile: { address: '東京都渋谷区代官山見本4-5-6 1F', phone: '03-0000-0002', photo: null },
+  closures: [{ dayOffset: 5, kind: 'off', note: '内装工事のため' }],
+  menuVisible: { 'menu-04': true, 'menu-05': true, 'menu-06': false },
+  tickets: [{ name: 'テストヘッドケア45分 回数券（10回）', unitPrice: 5800, menuId: 'menu-05' }],
+  staffActive: { 'p-02': true, 'p-05': true, 'c-03': true },
+  staffSettings: {
+    'p-02': { preset: 'manager', caps: [], pin: true, voice: false },
+    'p-05': { preset: 'senior', caps: [], pin: true, voice: false },
+    'c-03': { preset: 'practitioner', caps: [], pin: true, voice: true },
+  },
+  payQr: true,
+  dynamicPricing: true,
+  pointsEnabled: true,
+  coachingEnabled: false,
+  coachingCadence: 'biweekly',
+  syncIntervalMin: 30,
+  acceptWindowDays: 45,
+  acceptCutoffHours: 3,
+  freeCancelHours: 48,
+  quietStart: '22:00',
+  quietEnd: '08:00',
+  connectors: { calendar: 'pending', accounting: 'off', messaging: 'off', 'booking-site': 'off' },
+  auditLog: [
+    { dayOffset: 1, at: '11:00', who: '見本 たろう', category: 'store', what: '営業時間の変更', subject: '定休日', before: '月曜', after: '月曜（変更なし）' },
+    { dayOffset: 5, at: '16:45', who: '見本 たろう', category: 'reserve', what: '受付ウィンドウの変更', subject: '何日先まで予約可', before: '30日', after: '45日' },
+    { dayOffset: 12, at: '09:30', who: '見本 たろう', category: 'pricing', what: '動的価格の切り替え', subject: '動的価格', before: '使わない', after: '使う' },
+  ],
+  winBackDays: 90,
+  voiceEnrolled: false,
+  entitlements: { karute: true, reserve: false },
+}
+
+export const storeDials: Record<string, StoreDials> = {
+  [STORE_A]: ginza,
+  [STORE_B]: daikanyama,
+}
+
+/** 外部連携 — the categories, stated as GENERAL names rather than vendors, so
+ *  the page never claims an integration that does not exist (canon's own honest
+ *  law on that page). Business-wide, not per store. */
+export const connectorCatalog: ReadonlyArray<{ id: string; name: string; note: string }> = [
+  { id: 'calendar', name: '外部カレンダー', note: '予約の予定を外部カレンダーアプリと同期します。' },
+  { id: 'accounting', name: '会計ソフト連携', note: '売上データを会計ソフトへ書き出します。' },
+  { id: 'messaging', name: 'メッセージ配信', note: '予約確認・リマインドを外部のメッセージサービスへ送ります。' },
+  { id: 'booking-site', name: '外部予約サイト連携', note: '他の予約サイトからの予約を取り込みます。' },
+]
+
+/** 予約の色分け — the palette a store may pick from. The STATUS colours
+ *  (確定・要対応・停止) are deliberately NOT here: they are the family's own
+ *  safety rule and no store may repaint them. */
+export const bookingPalette: ReadonlyArray<{ value: string; label: string; hex: string }> = [
+  { value: 'blue', label: '青', hex: '#3b6fd4' },
+  { value: 'teal', label: '青緑', hex: '#2b8a8a' },
+  { value: 'purple', label: '紫', hex: '#7a5bd4' },
+  { value: 'pink', label: '桃', hex: '#c25a8f' },
+  { value: 'navy', label: '紺', hex: '#3f4a7d' },
+  { value: 'brown', label: '茶', hex: '#8a6a4f' },
+  { value: 'gray', label: '灰', hex: '#8a8a93' },
+]
+
+/** 色・テーマ — what each editable token PAINTS, in the reader's own words.
+ *  The token's machine name never reaches the screen (⚖ plain names). */
+export const colorTokenMeaning: Record<string, string> = {
+  '--commit-bg': '確定・保存ボタンの色',
+  '--select-bg': '選択中の行の色',
+  '--orange': '注意のしるしの色',
+  '--green-dark': '完了のしるしの色',
+  '--red-dark': '取り消し・削除のしるしの色',
+  '--yellow': '保留・仮押さえの色',
+  '--beige-dark': '準備・清掃の色',
+  '--guard-dark': 'スキマガードのしるしの色',
+}
+
+/** 業種プロファイル — the 26 verticals the product's vocabulary rides, as canon
+ *  lists them. The room shows which one is in force and says who changes it. */
+export const businessProfiles: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'esthetic_salon', label: 'エステサロン' },
+  { value: 'hair_salon', label: '美容室（ヘアサロン）' },
+  { value: 'nail_salon', label: 'ネイルサロン' },
+  { value: 'eyelash_salon', label: 'まつげサロン' },
+  { value: 'massage', label: 'マッサージ' },
+  { value: 'chiropractic', label: '整体院' },
+  { value: 'beauty_chiropractic', label: '美容整体' },
+  { value: 'acupuncture', label: '鍼灸院' },
+  { value: 'osteopathy', label: '接骨院・整骨院' },
+  { value: 'yoga_studio', label: 'ヨガスタジオ' },
+  { value: 'pilates_studio', label: 'ピラティススタジオ' },
+  { value: 'personal_gym', label: 'パーソナルジム' },
+  { value: 'dental_clinic', label: '歯科医院' },
+  { value: 'medical_clinic', label: '医科クリニック' },
+  { value: 'dermatology', label: '皮膚科' },
+  { value: 'cosmetic_surgery', label: '美容外科' },
+  { value: 'physical_therapy', label: '理学療法・リハビリ' },
+  { value: 'foot_care', label: 'フットケア' },
+  { value: 'relaxation', label: 'リラクゼーション' },
+  { value: 'aroma', label: 'アロマテラピー' },
+  { value: 'wellness_clinic', label: 'ウェルネスクリニック' },
+  { value: 'mental_health', label: 'メンタルヘルス・カウンセリング' },
+  { value: 'veterinary', label: '動物病院' },
+  { value: 'pet_grooming', label: 'ペットグルーミング' },
+  { value: 'training_school', label: 'スクール・教室' },
+  { value: 'other', label: 'その他' },
+]
+
+/** 契約・請求 — the monthly price of each product, business-wide. */
+export const planPricing = { karute: 5800, reserve: 3000 }

@@ -2,28 +2,25 @@
 
 // 設定 — the room every other room's dial was promised to.
 //
-// ⚖ ONE PAGE, ONE SECTION AT A TIME. canon's settings family is eighteen pages
+// ⚖ ONE PAGE, ONE SECTION AT A TIME. canon's settings family is nineteen pages
 // behind a category rail; this is that rail with the panel beside it, so a reader
-// never scrolls past a dial they did not come for. The rail carries canon's own
-// five groups and canon's own labels, because canon's IA is the product's IA and
-// a rail that changes shape between releases is a rail nobody learns.
+// never scrolls past a setting they did not come for. The rail carries canon's
+// own five groups and canon's own labels, because canon's IA is the product's IA
+// and a rail that changes shape between releases is a rail nobody learns.
 //
-// ⚖ NOTHING STORE-WIDE ON THIS PAGE SAVES, AND EVERY ROW SAYS SO IN ITS OWN
-// WORDS. A store dial is a decision about a business's own money, people and
-// privacy; a control that only produced a toast would be worse than no control,
-// so each one shows the value the product is REALLY using and refuses the change
-// with the registry line it reconnects through.
+// ⚖ EVERYTHING MOVES (Liam 2026-09-01). Every control on this page is LIVE: it
+// changes when it is pressed, the section it belongs to goes dirty, 保存 commits
+// it, and a preview sentence beside it is rewritten from the new value. The
+// honesty is ONE footnote per store section — 「保存はこの画面の中だけに反映され
+// ます」 — plus the page's own サンプルデータ dateline, instead of a refusal
+// paragraph under every row.
 //
-// ⚠ …WITH EXACTLY ONE EXCEPTION, AND IT IS THE POINT OF THE ROOM. 自分の表示設定
-// is self-scoped — 「個人スコープ、権限ゲートなし」 in canon's own comment — so it
-// is a LIVE control that really saves, in this browser, for this reader. It is
-// not gated by the settings permission and it does not go through the refusal
-// table, because nobody's permission is involved in how somebody likes their own
-// board to look.
-//
-// WHAT IS CLIENT STATE HERE, AND NOTHING ELSE: which section is open, whether the
-// phone is showing the list or the section, the reader's two display preferences,
-// and which step of the 画面の説明 tour they are on. All of it is browsing.
+// WHAT IS CLIENT STATE HERE: every control's value, what was last saved, which
+// section is open, whether the phone is showing the list or the section, the
+// result line of a block's action, and which step of the 画面の説明 tour the
+// reader is on. 自分の表示設定 is the one section whose values ALSO persist —
+// to this browser's own storage, for this reader, because a personal preference
+// is nobody else's permission.
 //
 // CLASS NAMES ARE PREFIXED `st-` ON PURPOSE. App Router leaves every sibling
 // room's stylesheet in the document after a client-side navigation, and the
@@ -33,17 +30,25 @@
 // cannot. `page` / `h1` / `btn` are the SHELL's and restated here, so those three
 // are fenced in settings.css at four levels.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import {
-  DENSITY_OPTIONS,
-  EMPHASIS_OPTIONS,
+  blockingError,
+  commitNumber,
+  controlIdsOf,
+  fillTemplate,
   keepCardOffHeading,
+  labelOfValue,
   PREFS_DEFAULT,
   readPrefs,
-  type Density,
-  type Emphasis,
-  type Prefs,
+  sectionDirty,
+  type ControlKind,
+  type RowControl,
+  type RowValue,
+  type SettingsBlock,
+  type SettingsProps,
+  type SettingsRow,
+  type SettingsSection,
 } from '@/business/lib/settings'
 
 /** THE ROUTE WRAPPER. Every rule in settings.css is scoped under this class, and
@@ -64,71 +69,10 @@ const ROOT = 'page pg-settings'
 const SETTLE_MS = 500
 
 /** 自分の表示設定's home. Versioned in the name so a later shape change cannot
- *  read an older one's value (the same reason the rail's own key is spelled). */
+ *  read an older one's value. */
 const PREF_KEY = 'synqedBizDisplayPrefs.v1'
-
-export type ControlKind =
-  | { kind: 'segment'; options: Array<{ value: string; label: string }>; current: string }
-  | { kind: 'switch'; on: boolean; onLabel: string; offLabel: string }
-  /** ⚠ `numeric` IS A LAYOUT FACT, NOT A TYPE HINT. A readout carries either a
-   *  MEASURE (¥0, 61日, 12か月, 20回) — which wants the big tabular figure a
-   *  reader scans for — or a phrase (a role list, 「設定ページ全体でひとつ」),
-   *  which at that size becomes a headline shouting over the section title. The
-   *  shots caught the second case; the flag is the smallest honest fix. */
-  | { kind: 'readout'; text: string; unit: string; numeric: boolean }
-
-export interface DialRow {
-  id: string
-  label: string
-  description: string
-  /** 事業全体 / この店舗 — printed on every row, never inferred by the reader. */
-  scopeLabel: string
-  control: ControlKind
-  /** ⚖ 8/21's parts. The default and the guardrail are ALWAYS shown; the 業種
-   *  note is present only where a ruling actually gave one, and a dial with none
-   *  is SILENT rather than printing 「業種による初期値の決まりはありません」 —
-   *  a null sentence on twelve rows is not the third part, it is noise standing
-   *  where the guardrail should be read (DS9-10). */
-  trio: { base: string; guardrail: string; businessType?: string }
-  refusal: string
-}
-
-export interface SettingsSection {
-  id: string
-  group: string
-  label: string
-  scope: 'store' | 'self'
-  gate: 'open' | 'no-rights'
-  boundaryLine: string | null
-  kicker: string
-  title: string
-  lead: string
-  dials: DialRow[]
-  aside: { title: string; lines: Array<{ label: string; value: string }>; note: string } | null
-  soon: { title: string; body: string; willCarry: string[] } | null
-  prefs: boolean
-}
-
-export interface RailRow {
-  id: string
-  group: string
-  label: string
-  state: 'live' | 'soon' | 'no-rights'
-  scope: 'store' | 'self'
-}
-
-export interface SettingsProps {
-  dateline: string
-  lensLabel: string
-  subtitle: string
-  rail: RailRow[]
-  railHeading: string
-  sections: SettingsSection[]
-  openingSectionId: string | null
-  noSaveLine: string
-  boundaryFallback: string
-  roleLabel: string
-}
+const DENSITY_ID = 'my-display.density'
+const EMPHASIS_ID = 'my-display.emphasis'
 
 const boxOf = (r: { left: number; top: number; width: number; height: number }): SpotRect =>
   ({ left: r.left, top: r.top, width: r.width, height: r.height })
@@ -141,18 +85,41 @@ const samePos = (a: { hole: SpotRect; top: number; left: number }, b: { hole: Sp
   a.hole.left === b.hole.left && a.hole.top === b.hole.top &&
   a.hole.width === b.hole.width && a.hole.height === b.hole.height
 
-const DENSITY_LABEL: Record<Density, string> = { spacious: 'ゆったり', standard: '標準', compact: 'コンパクト' }
-const EMPHASIS_LABEL: Record<Emphasis, string> = { subtle: '控えめ', standard: '標準', strong: '強め' }
+/** The seed every control starts from, taken once from the payload. */
+function seedOf(props: SettingsProps): Record<string, RowValue> {
+  const out: Record<string, RowValue> = {}
+  for (const section of props.sections) {
+    for (const b of section.blocks) for (const r of b.rows) for (const c of r.controls) out[c.id] = c.value
+  }
+  return out
+}
+
+function kindsOf(props: SettingsProps): Record<string, ControlKind> {
+  const out: Record<string, ControlKind> = {}
+  for (const section of props.sections) {
+    for (const b of section.blocks) for (const r of b.rows) for (const c of r.controls) out[c.id] = c.control
+  }
+  return out
+}
 
 export function SettingsScreen(props: SettingsProps) {
   // ⚠ `null` IS THE PHONE'S LIST STATE, not「nothing chosen」. On a desk the
   // panel always shows something (the opening section); on a phone the rail IS
   // the page until a reader picks a row, which is ⚖ list-is-the-page.
   const [picked, setPicked] = useState<string | null>(null)
-  const [prefs, setPrefs] = useState<Prefs>(PREFS_DEFAULT)
+  // ⚠ THE SEED IS TAKEN ONCE. `page.tsx` keys this screen by the resolved store,
+  // so a lens switch remounts it and re-seeds from the new store's payload —
+  // which is the ⚖ 8/17 isolation law at the frame as well as at the read.
+  const [values, setValues] = useState<Record<string, RowValue>>(() => seedOf(props))
+  const [saved, setSaved] = useState<Record<string, RowValue>>(() => seedOf(props))
+  const [savedNote, setSavedNote] = useState<Record<string, string>>({})
+  const [results, setResults] = useState<Record<string, string>>({})
+  const [actionErrors, setActionErrors] = useState<Record<string, string>>({})
   const [tourIdx, setTourIdx] = useState(-1)
   const [tourTick, setTourTick] = useState(0)
   const tourOpen = tourIdx >= 0
+
+  const kinds = useMemo(() => kindsOf(props), [props])
 
   const rootRef = useRef<HTMLDivElement>(null)
   const helpRef = useRef<HTMLButtonElement>(null)
@@ -168,39 +135,74 @@ export function SettingsScreen(props: SettingsProps) {
   const [tourHover, setTourHover] = useState<SpotRect | null>(null)
 
   // 自分の表示設定 — read once after mount. A refusal (private mode, storage
-  // disabled) is not a reason to break the page: the defaults stand.
+  // disabled) is not a reason to break the page: the seeded defaults stand.
   useEffect(() => {
+    let stored = PREFS_DEFAULT
     try {
-      setPrefs(readPrefs(window.localStorage.getItem(PREF_KEY)))
+      stored = readPrefs(window.localStorage.getItem(PREF_KEY))
     } catch {
-      setPrefs(PREFS_DEFAULT)
+      stored = PREFS_DEFAULT
     }
+    setValues((v) => ({ ...v, [DENSITY_ID]: stored.density, [EMPHASIS_ID]: stored.emphasis }))
+    setSaved((v) => ({ ...v, [DENSITY_ID]: stored.density, [EMPHASIS_ID]: stored.emphasis }))
   }, [])
 
-  const savePrefs = useCallback((next: Prefs) => {
-    setPrefs(next)
-    try {
-      window.localStorage.setItem(PREF_KEY, JSON.stringify(next))
-    } catch {
-      // see above — the choice still applies to this render.
-    }
+  /** ⚠ THE ONE SECTION THAT SAVES OUTSIDE THIS SCREEN WRITES ON THE PRESS, not
+   *  on a 保存 button: canon's own 自分の表示設定 has no save step either, and a
+   *  personal preference that needed committing would be the page asking
+   *  permission for something nobody else can see. */
+  const setValue = useCallback((id: string, next: RowValue) => {
+    setValues((prev) => {
+      const merged = { ...prev, [id]: next }
+      if (id === DENSITY_ID || id === EMPHASIS_ID) {
+        try {
+          window.localStorage.setItem(
+            PREF_KEY,
+            JSON.stringify({ density: merged[DENSITY_ID], emphasis: merged[EMPHASIS_ID] }),
+          )
+        } catch {
+          // see above — the choice still applies to this render.
+        }
+        setSaved((s) => ({ ...s, [id]: next }))
+      }
+      return merged
+    })
   }, [])
 
   const shownId = picked ?? props.openingSectionId
   const section = props.sections.find((s) => s.id === shownId) ?? null
   const isDetail = picked !== null
 
+  const labelFor = useCallback(
+    (id: string): string | null => {
+      const kind = kinds[id]
+      if (!kind) return null
+      return labelOfValue(kind, values[id])
+    },
+    [kinds, values],
+  )
+
+  const commitSection = useCallback((target: SettingsSection) => {
+    const ids = controlIdsOf(target)
+    setSaved((prev) => {
+      const next = { ...prev }
+      for (const id of ids) next[id] = values[id]
+      return next
+    })
+    setSavedNote((prev) => ({ ...prev, [target.id]: '保存しました（この画面の中だけ）' }))
+  }, [values])
+
   // ⚖ Liam 8/23 — 画面の説明. A section joins the walk by DECLARING
   // `data-guide-title` + `data-guide` ON ITSELF, so there is no list to keep in
   // sync: what renders is what is explained, and what the band or the open
   // section hides drops out of the walk and out of the N/M count by itself.
   //
-  // ⚠ THE WALK IS DECLARED ON ROWS, NOT ON THE WHOLE PANEL, and that is a
-  // placement decision as much as a teaching one: a target taller than the
-  // viewport leaves the engine's card nowhere to go but on top of the thing it is
-  // explaining (the room-5 F5 defect). Rows are short, so every step has a free
-  // side — and 「what does THIS dial do」 is the question a settings page is
-  // actually asked.
+  // ⚠ THE WALK IS DECLARED ON ROWS AND BLOCK HEADS, NOT ON THE WHOLE PANEL, and
+  // that is a placement decision as much as a teaching one: a target taller than
+  // the viewport leaves the engine's card nowhere to go but on top of the thing
+  // it is explaining (the room-5 F5 defect). Rows are short, so every step has a
+  // free side — and 「what does THIS control do」 is the question a settings page
+  // is actually asked.
   useLayoutEffect(() => {
     if (tourIdx < 0) { setTourStep(null); setTourPos(null); setTourHover(null); return }
     const targets = spotTargets(rootRef.current)
@@ -220,9 +222,9 @@ export function SettingsScreen(props: SettingsProps) {
     const viewport = { width: window.innerWidth, height: window.innerHeight }
     // ⚠ AND THE ENGINE'S LAST RESORT IS CORRECTED (see `keepCardOffHeading`).
     // On a desk every row has a free side and this is a pass-through; at 390 a
-    // stacked dial row is full width and taller than half the viewport, so the
-    // engine had nowhere to put the card but on top of the row — measured, and
-    // then fixed, rather than argued away.
+    // stacked row is full width and taller than half the viewport, so the engine
+    // had nowhere to put the card but on top of the row — measured, and then
+    // fixed, rather than argued away.
     const at = keepCardOffHeading(spotCardAt(boxOf(r), size, viewport), size, boxOf(r), viewport)
     const next = { hole: { left: r.left - 5, top: r.top - 5, width: r.width + 10, height: r.height + 10 }, ...at }
     setTourPos((was) => (was && samePos(was, next) ? was : next))
@@ -266,22 +268,11 @@ export function SettingsScreen(props: SettingsProps) {
     helpRef.current?.focus()
   }, [tourOpen])
 
-  /** A refused control, spelled ONCE. `aria-disabled` rather than `disabled`: the
-   *  control stays focusable so its reason is reachable by keyboard and screen
-   *  reader. The reason rides the ACCESSIBLE NAME as well as the title, because a
-   *  screen reader drops `title` once a description is present.
-   *  ⚠ THE CLASSES ARE MERGED HERE and a call site must never write `className`
-   *  after the spread — the room-5 F-K1 defect, which is why the merge is last. */
-  const refused = (label: string, reason: string, className?: string) => ({
-    type: 'button' as const,
-    'aria-disabled': 'true' as const,
-    title: reason,
-    'aria-label': `${label} — ${reason}`,
-    className: ['st-opt', className].filter(Boolean).join(' '),
-  })
-
   const groups: string[] = []
   for (const row of props.rail) if (!groups.includes(row.group)) groups.push(row.group)
+
+  const dirty = section !== null && section.gate === 'open' ? sectionDirty(section, values, saved) : false
+  const blocked = section !== null && section.gate === 'open' ? blockingError(section, values) : null
 
   return (
     <div className={`${ROOT}${isDetail ? ' is-detail' : ''}`} ref={rootRef}>
@@ -317,7 +308,7 @@ export function SettingsScreen(props: SettingsProps) {
           className="st-rail"
           aria-label={props.railHeading}
           data-guide-title="設定カテゴリー"
-          data-guide="設定の一覧です。「準備中」はこれから作るところ、「権限がありません」はいまのアカウントでは開けないところです。"
+          data-guide="設定の一覧です。「権限がありません」はいまのアカウントでは開けないところです。行を押すと、右にその設定が出ます。"
         >
           <div className="st-rail-head">{props.railHeading}</div>
           {groups.map((group) => (
@@ -334,7 +325,6 @@ export function SettingsScreen(props: SettingsProps) {
                     onClick={() => setPicked(row.id)}
                   >
                     <span className="st-rail-name">{row.label}</span>
-                    {row.state === 'soon' && <span className="st-flag">準備中</span>}
                     {row.state === 'no-rights' && <span className="st-flag is-rights">権限がありません</span>}
                     {row.scope === 'self' && <span className="st-flag is-self">自分だけ</span>}
                   </button>
@@ -354,16 +344,13 @@ export function SettingsScreen(props: SettingsProps) {
           </button>
 
           {/* ⚠ THIS BRANCH IS UNREACHABLE BY CONSTRUCTION TODAY, AND IT IS KEPT
-              DELIBERATELY (DS9-3). 自分の表示設定 is `live` + `scope: 'self'`, so
-              `gateOf` answers `open` for every role — including one this world
-              has never heard of — and `firstOpenSection` therefore never returns
-              null, which means `shownId` is always a real rail id and `find`
-              always matches. It stays as DEFENCE for a rail whose every row
-              could one day be gated: this room's rule is that a panel is never a
-              blank rectangle, and that rule needs somewhere to land. The suite
-              pins the CLAIM (every role opens on something) rather than the
-              presence of this string — grepping for the fallback pinned the dead
-              code, under a name that promised the opposite. */}
+              DELIBERATELY. 自分の表示設定 is `scope: 'self'`, so `gateOf`
+              answers `open` for every role — including one this world has never
+              heard of — and `firstOpenSection` therefore never returns null. It
+              stays as DEFENCE for a rail whose every row could one day be gated:
+              this room's rule is that a panel is never a blank rectangle, and
+              that rule needs somewhere to land. The suite pins the CLAIM (every
+              role opens on something) rather than the presence of this string. */}
           {section === null ? (
             <section className="st-boundary" data-guide-title="表示できる設定がありません" data-guide="いまのアカウントの権限では、開ける設定がありません。">
               <p>{props.boundaryFallback}</p>
@@ -389,88 +376,68 @@ export function SettingsScreen(props: SettingsProps) {
                   <p>{section.boundaryLine}</p>
                 </section>
               ) : (
-                <div className="st-cols">
-                  <div className="st-main">
-                    {section.prefs && <PrefsBlock prefs={prefs} onChange={savePrefs} />}
+                <>
+                  <div className="st-cols">
+                    <div className="st-main">
+                      {section.blocks.map((b) => (
+                        <Block
+                          key={b.id}
+                          block={b}
+                          values={values}
+                          onChange={setValue}
+                          labelFor={labelFor}
+                          result={results[b.id] ?? null}
+                          error={actionErrors[b.id] ?? null}
+                          onAction={() => runAction(b, values, setResults, setActionErrors, labelFor)}
+                          onLink={setPicked}
+                        />
+                      ))}
+                    </div>
 
-                    {section.dials.map((row) => (
-                      <section
-                        className="st-dial"
-                        key={row.id}
-                        data-guide-title={row.label}
-                        data-guide={`${row.description} ${row.trio.guardrail}`}
+                    {section.aside && (
+                      <aside
+                        className="st-aside"
+                        data-guide-title={section.aside.title}
+                        data-guide="この画面が出している値の出どころです。ほかの画面と同じ値を見ていることが、ここで確かめられます。"
                       >
-                        <div className="st-dial-what">
-                          <b>{row.label}</b>
-                          <span className="st-scope">{row.scopeLabel}</span>
-                        </div>
-                        <div className="st-dial-ctl">
-                          <Control row={row} refused={refused} />
-                        </div>
-                        {/* ⚠ A SIBLING OF THE LABEL, NOT A CHILD OF IT. At the
-                            LEVEL band the label sits in a 140px column and the
-                            description would be a column of syllables inside it;
-                            as its own grid child it spans both columns. */}
-                        <p className="st-dial-desc">{row.description}</p>
-                        {/* ⚖ 8/21 — the default and the guardrail always show. A
-                            dial whose guardrail is invisible is a dial a manager
-                            can hurt their own shop with. The 業種 line prints
-                            ONLY where a ruling gave one (DS9-10): absence is
-                            silence, never a sentence saying there is nothing. */}
-                        <ul className="st-trio">
-                          <li className="st-trio-base">{row.trio.base}</li>
-                          <li className="st-trio-rail">{row.trio.guardrail}</li>
-                          {row.trio.businessType && <li className="st-trio-type">{row.trio.businessType}</li>}
-                        </ul>
-                        {/* ⚠ THE REASON IS VISIBLE TEXT, not only a title. A
-                            refused control whose reason lives in a tooltip is a
-                            dead lever to everyone who does not hover it. */}
-                        <p className="st-why">{row.refusal}</p>
-                      </section>
-                    ))}
-
-                    {section.soon && (
-                      <section
-                        className="st-soon"
-                        data-guide-title="準備中について"
-                        data-guide="この画面はこれから作ります。いま同じことができる場所があるときは、その場所を書いています。"
-                      >
-                        <h3>{section.soon.title}</h3>
-                        <ul className="st-soon-list">
-                          {section.soon.willCarry.map((item) => (
-                            <li key={item}>{item}</li>
+                        <h3>{section.aside.title}</h3>
+                        <dl className="st-trace">
+                          {section.aside.lines.map((line) => (
+                            <div className="st-trace-row" key={line.label}>
+                              <dt>{line.label}</dt>
+                              <dd>{line.value}</dd>
+                            </div>
                           ))}
-                        </ul>
-                        <p className="st-soon-today">{section.soon.body}</p>
-                      </section>
+                        </dl>
+                        <p className="st-aside-note">{section.aside.note}</p>
+                      </aside>
                     )}
                   </div>
 
-                  {section.aside && (
-                    <aside
-                      className="st-aside"
-                      data-guide-title={section.aside.title}
-                      data-guide="この画面が出している値の出どころです。まだつないでいないものは、その行に理由を書いています。"
-                    >
-                      <h3>{section.aside.title}</h3>
-                      <dl className="st-trace">
-                        {section.aside.lines.map((line) => (
-                          <div className="st-trace-row" key={line.label}>
-                            <dt>{line.label}</dt>
-                            <dd>{line.value}</dd>
-                          </div>
-                        ))}
-                      </dl>
-                      <p className="st-aside-note">{section.aside.note}</p>
-                    </aside>
+                  {/* ⚠ 自分の表示設定 HAS NO SAVE BUTTON, AND THAT IS THE POINT:
+                      it is already saved, in this browser, the moment it is
+                      pressed. Printing 保存する under it would ask a reader to
+                      commit something nobody else can see. */}
+                  {section.persist === 'local' ? (
+                    <p className="st-foot">{props.selfSaveLine}</p>
+                  ) : (
+                    <div className="st-savebar">
+                      <span className="st-save-note" role="status">
+                        {blocked ?? (dirty ? '未保存の変更があります' : savedNote[section.id] ?? '変更はありません')}
+                      </span>
+                      <button
+                        type="button"
+                        className="st-save"
+                        disabled={!dirty || blocked !== null}
+                        onClick={() => commitSection(section)}
+                      >
+                        保存する
+                      </button>
+                    </div>
                   )}
-                </div>
+                  {section.persist !== 'local' && <p className="st-foot">{props.demoSaveLine}</p>}
+                </>
               )}
-
-              {/* ⚠ THE 保存 SENTENCE BELONGS TO STORE SECTIONS ONLY. Printing it
-                  under 自分の表示設定 — which really does save — would be the page
-                  contradicting the control the reader just used. */}
-              {section.scope === 'store' && section.gate === 'open' && <p className="st-foot">{props.noSaveLine}</p>}
             </>
           )}
         </div>
@@ -529,28 +496,258 @@ export function SettingsScreen(props: SettingsProps) {
   )
 }
 
-/** The three control shapes this room needs, and no more. Each renders the
- *  STORE'S OWN CURRENT VALUE and refuses the change — a segmented control shows
- *  which option is live, a switch shows which side it is on, and a readout is for
- *  a value that is not one of a short list of choices. */
+// ── a block ────────────────────────────────────────────────────────────────
+
+function Block({
+  block,
+  values,
+  onChange,
+  labelFor,
+  result,
+  error,
+  onAction,
+  onLink,
+}: {
+  block: SettingsBlock
+  values: Record<string, RowValue>
+  onChange: (id: string, v: RowValue) => void
+  labelFor: (id: string) => string | null
+  result: string | null
+  error: string | null
+  onAction: () => void
+  onLink: (sectionId: string) => void
+}) {
+  const rows = block.table === null ? block.table : filterTable(block, values)
+  return (
+    <section
+      className="st-block"
+      data-guide-title={block.title}
+      data-guide={block.note || `${block.title}の設定です。`}
+    >
+      <div className="st-block-head">
+        <h3>{block.title}</h3>
+        {block.flag && <span className="st-flag is-soon">{block.flag}</span>}
+      </div>
+      {block.note && <p className="st-block-note">{block.note}</p>}
+      {block.rightsNote && <p className="st-rights">{block.rightsNote}</p>}
+
+      {block.rows.map((r) => (
+        <Row key={r.id} row={r} values={values} onChange={onChange} />
+      ))}
+
+      {block.list && (
+        <div className="st-list">
+          <b>{block.list.title}</b>
+          <ul>
+            {block.list.items.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {rows && (
+        <div
+          className="st-table"
+          role="table"
+          aria-label={block.title}
+          // The column count is the TABLE's own fact, so the sheet never has to
+          // guess it: a four-column record and a two-column one share one rule.
+          style={{ ['--st-cols' as string]: String(block.table!.head.length) } as CSSProperties}
+        >
+          <div className="st-tr is-head" role="row">
+            {block.table!.head.map((h) => (
+              <span className="st-th" role="columnheader" key={h}>{h}</span>
+            ))}
+          </div>
+          {rows.length === 0 ? (
+            <p className="st-empty">この条件に一致する記録はありません。期間や種類を変えてお試しください。</p>
+          ) : (
+            rows.map((tr) => (
+              <div className="st-tr" role="row" key={tr.cells.join('|')}>
+                {tr.cells.map((cell, i) => (
+                  <span className="st-td" role="cell" key={`${i}-${cell}`}>{cell}</span>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* ⚠ THE PREVIEW IS THE DEAD-LEVER LAW, GENERALISED. It is written from
+          the LIVE values, so pressing any control in this block really rewrites
+          a sentence the reader is looking at. */}
+      {block.preview && (
+        <div
+          className="st-preview"
+          aria-live="polite"
+          {...Object.fromEntries(
+            Object.entries(block.preview.attrs ?? {}).map(([attr, id]) => [attr, String(values[id] ?? '')]),
+          )}
+        >
+          <div className="st-pv-note">いまの設定での見え方</div>
+          <p className="st-pv-text">{fillTemplate(block.preview.template, labelFor)}</p>
+          {block.preview.attrs && (
+            <div className="st-pv-board">
+              <div className="st-pv-row"><span>10:00 見本 あかり 様</span><span>テスト整体 60分</span></div>
+              <div className="st-pv-row"><span>11:30 見本 かえで 様</span><span>テスト骨盤ケア 90分</span></div>
+              <div className="st-pv-row"><span>13:00 見本 さくら 様</span><span>テストストレッチ 30分</span></div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {block.facts.map((f) => (
+        <p className="st-fact" key={f}>{f}</p>
+      ))}
+
+      {block.links.length > 0 && (
+        <div className="st-links">
+          {block.links.map((l) => (
+            <button type="button" className="st-link" key={l.sectionId + l.label} onClick={() => onLink(l.sectionId)}>
+              {l.label} →
+            </button>
+          ))}
+        </div>
+      )}
+
+      {block.action && (
+        <div className="st-action">
+          <button type="button" className="st-act" onClick={onAction}>{block.action.label}</button>
+          {error && <span className="st-act-error">{error}</span>}
+          {!error && result && <span className="st-act-result" role="status">{result}</span>}
+        </div>
+      )}
+
+      {block.audit && <p className="st-audit">{block.audit}</p>}
+    </section>
+  )
+}
+
+/** The one filtered table in the room (監査ログ). A filter whose value is `all`
+ *  matches every row, which is how canon's own 全て option behaves. */
+function filterTable(block: SettingsBlock, values: Record<string, RowValue>) {
+  const table = block.table!
+  if (block.filterBy.length === 0) return table.rows
+  return table.rows.filter((r) =>
+    block.filterBy.every((id) => {
+      const v = values[id]
+      if (typeof v !== 'string' || v === 'all') return true
+      return r.tags.includes(v)
+    }),
+  )
+}
+
+function runAction(
+  block: SettingsBlock,
+  values: Record<string, RowValue>,
+  setResults: (fn: (prev: Record<string, string>) => Record<string, string>) => void,
+  setErrors: (fn: (prev: Record<string, string>) => Record<string, string>) => void,
+  labelFor: (id: string) => string | null,
+) {
+  const action = block.action
+  if (!action) return
+  // ⚠ AN EMPTY REQUIRED INPUT GETS AN EXPLICIT MESSAGE, NEVER A SILENT NO-OP
+  // (canon's own raw-string / explicit-empty law on the 書き出し page).
+  if (action.requires) {
+    const v = values[action.requires]
+    const empty = Array.isArray(v) ? v.length === 0 : typeof v === 'string' ? v.trim() === '' : !v
+    if (empty) {
+      setErrors((prev) => ({ ...prev, [block.id]: action.requireError ?? '入力してください。' }))
+      return
+    }
+  }
+  setErrors((prev) => ({ ...prev, [block.id]: '' }))
+  setResults((prev) => ({ ...prev, [block.id]: fillTemplate(action.template, labelFor) }))
+}
+
+// ── a row ──────────────────────────────────────────────────────────────────
+
+function Row({
+  row,
+  values,
+  onChange,
+}: {
+  row: SettingsRow
+  values: Record<string, RowValue>
+  onChange: (id: string, v: RowValue) => void
+}) {
+  return (
+    <section
+      className="st-dial"
+      data-guide-title={row.label}
+      data-guide={`${row.description || row.label + 'の設定です。'} ${row.trio?.guardrail ?? ''}`.trim()}
+    >
+      <div className="st-dial-what">
+        <b>{row.label}</b>
+        {row.scopeLabel && <span className="st-scope">{row.scopeLabel}</span>}
+        {row.meta.map((m) => (
+          <span className="st-meta" key={m}>{m}</span>
+        ))}
+      </div>
+      <div className="st-dial-ctl">
+        {row.controls.map((c) => (
+          <Control key={c.id} row={row} c={c} value={values[c.id]} onChange={onChange} />
+        ))}
+      </div>
+      {/* ⚠ A SIBLING OF THE LABEL, NOT A CHILD OF IT. At the LEVEL band the label
+          sits in a 140px column and the description would be a column of
+          syllables inside it; as its own grid child it spans both columns. */}
+      {row.description && <p className="st-dial-desc">{row.description}</p>}
+      {/* ⚖ 8/21 — the default and the guardrail always show on a policy row. A
+          dial whose guardrail is invisible is a dial a manager can hurt their own
+          shop with. The 業種 line prints ONLY where a ruling gave one: absence is
+          silence, never a sentence saying there is nothing. */}
+      {row.trio && (
+        <ul className="st-trio">
+          <li className="st-trio-base">{row.trio.base}</li>
+          <li className="st-trio-rail">{row.trio.guardrail}</li>
+          {row.trio.businessType && <li className="st-trio-type">{row.trio.businessType}</li>}
+        </ul>
+      )}
+      {row.controls.filter((c) => c.locked).map((c) => (
+        <p className="st-why" key={`${c.id}-why`}>{c.locked}</p>
+      ))}
+    </section>
+  )
+}
+
+// ── a control ──────────────────────────────────────────────────────────────
+
 function Control({
   row,
-  refused,
+  c,
+  value,
+  onChange,
 }: {
-  row: DialRow
-  refused: (label: string, reason: string, className?: string) => Record<string, unknown>
+  row: SettingsRow
+  c: RowControl
+  value: RowValue
+  onChange: (id: string, v: RowValue) => void
 }) {
-  const c = row.control
-  if (c.kind === 'segment') {
+  const k = c.control
+  const locked = c.locked !== undefined
+  /** A locked control stays FOCUSABLE (`aria-disabled`, never `disabled`) so its
+   *  reason is reachable by keyboard and screen reader; the reason rides the
+   *  accessible name as well, because a screen reader drops `title` once a
+   *  description is present. */
+  const inert = locked
+    ? { 'aria-disabled': 'true' as const, title: c.locked, 'aria-label': `${c.aria} — ${c.locked}` }
+    : {}
+
+  if (k.kind === 'segment') {
     return (
-      <div className="st-seg" role="group" aria-label={row.label}>
-        {c.options.map((opt) => {
-          const on = opt.value === c.current
+      <div className="st-seg" role="group" aria-label={c.aria}>
+        {k.options.map((opt) => {
+          const on = opt.value === value
           return (
             <button
               key={opt.value}
-              {...(refused(`${row.label}を「${opt.label}」にする`, row.refusal, on ? 'is-on' : undefined) as Record<string, never>)}
+              type="button"
+              className={`st-opt${on ? ' is-on' : ''}`}
               aria-pressed={on}
+              {...inert}
+              onClick={locked ? undefined : () => onChange(c.id, opt.value)}
             >
               {opt.label}
             </button>
@@ -559,96 +756,147 @@ function Control({
       </div>
     )
   }
-  if (c.kind === 'switch') {
+
+  if (k.kind === 'chips') {
+    const picked = Array.isArray(value) ? value : []
+    return (
+      <div className="st-seg is-chips" role="group" aria-label={c.aria}>
+        {k.options.map((opt) => {
+          const on = picked.includes(opt.value)
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              className={`st-opt${on ? ' is-on' : ''}`}
+              aria-pressed={on}
+              {...inert}
+              onClick={locked ? undefined : () => onChange(c.id, on ? picked.filter((v) => v !== opt.value) : [...picked, opt.value])}
+            >
+              {opt.label}
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+
+  if (k.kind === 'swatch') {
+    return (
+      <div className="st-swatches" role="group" aria-label={c.aria}>
+        {k.options.map((opt) => {
+          const on = opt.value === value
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              className={`st-swatch${on ? ' is-on' : ''}`}
+              aria-pressed={on}
+              aria-label={opt.label}
+              title={opt.label}
+              style={{ background: opt.hex ?? opt.value }}
+              {...inert}
+              onClick={locked ? undefined : () => onChange(c.id, opt.value)}
+            />
+          )
+        })}
+      </div>
+    )
+  }
+
+  if (k.kind === 'switch') {
+    const on = value === true
     return (
       <div className="st-switchline">
-        <span className={`st-state${c.on ? ' is-on' : ''}`}>{c.on ? c.onLabel : c.offLabel}</span>
+        <span className={`st-state${on ? ' is-on' : ''}`}>{on ? k.onLabel : k.offLabel}</span>
         <button
-          {...(refused(`${row.label}を切り替える`, row.refusal, 'st-switch') as Record<string, never>)}
+          type="button"
+          className="st-switch"
           role="switch"
-          aria-checked={c.on}
+          aria-checked={on}
+          aria-label={c.aria}
+          {...inert}
+          onClick={locked ? undefined : () => onChange(c.id, !on)}
         />
       </div>
     )
   }
+
+  if (k.kind === 'select') {
+    return (
+      <select
+        className="st-select"
+        aria-label={c.aria}
+        value={String(value ?? '')}
+        {...inert}
+        onChange={locked ? undefined : (e) => onChange(c.id, e.target.value)}
+      >
+        {k.options.map((opt) => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+    )
+  }
+
+  if (k.kind === 'number') {
+    return (
+      <span className="st-numline">
+        <input
+          className="st-input is-num"
+          type="number"
+          inputMode="numeric"
+          min={k.min}
+          max={k.max}
+          step={k.step}
+          aria-label={c.aria}
+          value={String(value ?? '')}
+          {...inert}
+          onChange={locked ? undefined : (e) => onChange(c.id, e.target.value)}
+          // ⚠ THE CLAMP FIRES ON COMMIT, NOT PER KEYSTROKE. A clamp that ran on
+          // every character makes 「1」 unreachable on the way to 「14」 — the
+          // guardrail would be fighting the reader instead of protecting them.
+          onBlur={locked ? undefined : (e) => onChange(c.id, String(commitNumber(e.target.value, k.min, k.max)))}
+        />
+        {k.unit && <span className="st-unit">{k.unit}</span>}
+      </span>
+    )
+  }
+
+  if (k.kind === 'time') {
+    return (
+      <input
+        className="st-input is-time"
+        type="time"
+        aria-label={c.aria}
+        value={String(value ?? '')}
+        {...inert}
+        onChange={locked ? undefined : (e) => onChange(c.id, e.target.value)}
+      />
+    )
+  }
+
+  if (k.kind === 'text') {
+    const empty = k.required && String(value ?? '').trim() === ''
+    return (
+      <span className="st-textline">
+        <input
+          className={`st-input${empty ? ' is-empty' : ''}`}
+          type="text"
+          aria-label={c.aria}
+          placeholder={k.placeholder}
+          maxLength={k.maxLength}
+          value={String(value ?? '')}
+          {...inert}
+          onChange={locked ? undefined : (e) => onChange(c.id, e.target.value)}
+        />
+        {empty && <span className="st-field-msg">{row.label}を入力してください（空欄では保存できません）</span>}
+      </span>
+    )
+  }
+
   return (
-    <div className={`st-readout${c.numeric ? '' : ' is-phrase'}`}>
-      <b>{c.text}</b>
-      {c.unit && <span>{c.unit}</span>}
+    <div className={`st-readout${k.numeric ? '' : ' is-phrase'}`}>
+      <b>{String(value ?? '')}</b>
+      {k.unit && <span>{k.unit}</span>}
     </div>
-  )
-}
-
-/** 自分の表示設定 — THE ONE BLOCK ON THIS PAGE THAT REALLY SAVES.
- *
- *  ⚠ IT IS ALSO THE ROOM'S PROOF. It sits inside a group full of permission-gated
- *  store sections and is reachable with NO permission at all, because `gateOf`
- *  answers `open` for a self-scoped section before it looks at access. If a later
- *  round ever gates the page rather than the section, these controls disappear
- *  for a staff member — which is the map's (d) gap, and the suite's mutation
- *  battery kills exactly that edit. */
-function PrefsBlock({ prefs, onChange }: { prefs: Prefs; onChange: (p: Prefs) => void }) {
-  return (
-    <section
-      className="st-prefs"
-      data-guide-title="自分の表示設定"
-      data-guide="ボードの見え方の好みです。ここだけは本当に保存されます。保存先はこの端末のこのブラウザで、ほかのスタッフの画面は変わりません。"
-    >
-      <div className="st-pref-row">
-        <div className="st-dial-what">
-          <b>密度</b>
-          <span className="st-dial-desc">ボードの予約カードの間隔です。</span>
-        </div>
-        <div className="st-seg" role="group" aria-label="密度">
-          {DENSITY_OPTIONS.map((value) => (
-            <button
-              key={value}
-              type="button"
-              className={`st-opt${prefs.density === value ? ' is-on' : ''}`}
-              aria-pressed={prefs.density === value}
-              onClick={() => onChange({ ...prefs, density: value })}
-            >
-              {DENSITY_LABEL[value]}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="st-pref-row">
-        <div className="st-dial-what">
-          <b>強調</b>
-          <span className="st-dial-desc">予約カードの状態をどれくらい強く見せるかです。</span>
-        </div>
-        <div className="st-seg" role="group" aria-label="強調">
-          {EMPHASIS_OPTIONS.map((value) => (
-            <button
-              key={value}
-              type="button"
-              className={`st-opt${prefs.emphasis === value ? ' is-on' : ''}`}
-              aria-pressed={prefs.emphasis === value}
-              onClick={() => onChange({ ...prefs, emphasis: value })}
-            >
-              {EMPHASIS_LABEL[value]}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ⚠ A LIVE CONTROL HAS TO SHOW ITS EFFECT (the dead-lever law). canon puts
-          a preview panel under these two, and so does this room: the rows below
-          really change shape as the reader presses, which is the whole difference
-          between this block and every refused row above it. */}
-      <div className="st-preview" data-density={prefs.density} data-emphasis={prefs.emphasis} aria-label="見え方のプレビュー">
-        <div className="st-pv-note">いまの設定での見え方</div>
-        <div className="st-pv-row"><span>10:00 佐藤 様</span><span>カット</span></div>
-        <div className="st-pv-row"><span>11:30 田中 様</span><span>カラー</span></div>
-        <div className="st-pv-row"><span>13:00 鈴木 様</span><span>トリートメント</span></div>
-      </div>
-      {/* ⚠ NO `=` AND NO CODE. 「密度=ゆったり」 is how a config file talks; this
-          line is read by a receptionist. */}
-      <p className="st-pref-saved">
-        いまの設定は「{DENSITY_LABEL[prefs.density]}・{EMPHASIS_LABEL[prefs.emphasis]}」です。この端末に保存しました。
-      </p>
-    </section>
   )
 }
