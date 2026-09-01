@@ -141,3 +141,32 @@ describe('thin actions port — createQuickCustomer (booking + karute pickers)',
     })
   })
 })
+
+// ─────────────────────────────────────────────────────────────
+// Offline-catch (PHONEWIRE-3) — the #814 transport-rejection gap
+// ─────────────────────────────────────────────────────────────
+// These ports SUBSTITUTE for server actions, so a transport rejection
+// (offline, DNS, a connection dropped mid-body) must RESOLVE the union's
+// failure member, exactly as statusCall / facadeUpsertOrgSettings /
+// facadeCustomerDeletion do — never reject. 'Network error' is the constant,
+// never the engine's raw text and never an empty string (QuickCreateCustomer
+// renders result.error directly, so empty would be a silent failure).
+describe('thin actions port — the create pair never REJECTS on a dead network', () => {
+  const dead = () => port(async () => Promise.reject(new TypeError('Load failed')))
+
+  it('createCustomer resolves the failure member', async () => {
+    dead()
+    await expect(createCustomer(FORM_INPUT)).resolves.toEqual({
+      success: false,
+      error: 'Network error',
+    })
+  })
+
+  it('createQuickCustomer resolves the failure member', async () => {
+    dead()
+    await expect(createQuickCustomer('田中 一郎')).resolves.toEqual({
+      success: false,
+      error: 'Network error',
+    })
+  })
+})
