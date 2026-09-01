@@ -7,14 +7,33 @@
 // Gate 'records.write' + the other-staff 'records.delete' escalation: both are
 // the web action's own predicates, re-checked here. Assigning to YOURSELF is
 // always fine; an unresolvable self staff id fails closed (karute/route.ts's
-// attribution rule). Idempotency-Key required — a durable create, so a retry
-// on a flaky phone connection must not mint a second カルテ.
+// attribution rule). ORDERING DIVERGENCE, deliberate: web runs the escalation
+// pre-I/O, this door runs it AFTER the store clamp and tenancy proof, because
+// both of those must reject before anything about the target is trusted. Both
+// orders are fail-safe — the escalation still gates the write — so the
+// difference is recorded, not reconciled.
+//
+// Idempotency-Key required, and the guarantee level is PRESENCE/FORMAT ONLY —
+// it does NOT dedup. requireIdempotencyKey validates that a bounded key was
+// sent; this route then discards it (like karute/route.ts, unlike the money
+// paths — packs/redeem, cancel, no-show — which capture the return and spend
+// it). Nothing here forwards it to core, and a manual create has NO natural
+// dedup key the way karute.save has recording_session_id. So an ambiguous
+// response retried on a flaky phone connection CAN mint a second DRAFT. That
+// is accepted: the worst case is a duplicate draft a staffer deletes, which is
+// cheaper than inventing a dedup key. The header stays required as the
+// house convention for durable creates — never read it as a dedup promise.
 //
 // ⚖ STORE ISOLATION LAW: the store comes from the BEARER clamp
 // (resolveStoreForRequest) and NOTHING else — the two guards and which one is
 // load-bearing are documented on the shared body itself. Web parity: the
 // action's resolveKaruteStoreId(synqed, null) reads the cookie's active store;
-// the clamp is the Bearer equivalent, as karute/reveal documents.
+// the clamp is the Bearer equivalent, as karute/reveal documents. CONCRETE
+// DIVERGENCE worth knowing: a stores.viewAll caller sending NO store-id header
+// gets clamp.storeId === null, so the record is written with store_id: null —
+// the clamp has NO primary-store fallback where the web cookie scope does.
+// That absence is intentional (the #441 cross-store leak class); the rationale
+// lives in resolveStoreForRequest's own docstring in store-clamp.ts, not here.
 //
 // NO consent gate, deliberately — unlike karute/route.ts (save), which needs
 // one because it persists a RECORDING's transcript. A manual card has no
@@ -97,7 +116,12 @@ export const POST = facadeHandler('karute.manualCreate', async (ctx) => {
     {
       customerId: input.customerId,
       staffId: input.staffId,
-      // ⚖ The clamp's store — never input's, which cannot carry one.
+      // ⚖ The clamp's store — never input's, which cannot carry one. Read this
+      // line as DOCUMENTATION, not as an independently-exercised guard: what
+      // actually makes "input cannot carry a store" true today is the .strict()
+      // schema layer above (a storeId/store_id body key 400s at the door), and
+      // that layer IS tested. Mutation-round finding — if the schema ever
+      // loosens, this line alone would not stop a smuggled store.
       storeId: clamp.storeId,
       sessionDate: input.sessionDate,
       durationMinutes: input.durationMinutes,

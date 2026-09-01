@@ -547,8 +547,12 @@ async function facadeListReassignCustomerOptions(
 // -- カルテ list: search-reveal (PR-1b 検索リビール). READ, degrades to no
 // candidate on any failure — same graceful convention as
 // facadeListReassignCustomerOptions above. KaruteRecordListView renders the
-// row itself (no create button on thin — createManualKaruteRecord stays a
-// deliberate notWired stub; the row navigates to /customers/{id} instead).
+// row itself (no create button on thin — the row navigates to /customers/{id}
+// instead). ⚠ That suppression's original reason ("createManualKaruteRecord
+// stays a deliberate notWired stub") is GONE: the action IS wired as of
+// PHONEWIRE-2A, just below. The reveal-row behavior is KEPT pending Liam's
+// ruling on whether phone rows should show the create button — see the same
+// note on KaruteListRow.tsx, which owns the rendering decision.
 async function facadeRevealNoKaruteCustomer(
   query: string,
 ): Promise<{ candidate: import('@/actions/karute').KaruteRevealCandidate | null } | { error: string }> {
