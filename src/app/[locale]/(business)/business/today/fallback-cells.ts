@@ -59,6 +59,15 @@
 // finishes: after the ledger has already spent the room, exactly as
 // `gapLayerFor` does it. Absent ⇒ no floor ⇒ byte-identical to E2's answer.
 //
+// AND THE MERGE COMES FIRST, which the round's own blind review had to correct
+// (fix round D1): `gapLayerFor` runs `combineCrumbs` BEFORE its floor, so the
+// floor there judges whole runs. This pass floored canon's decomposed pieces,
+// and canon decomposes — a menu-exact 50 comes back as [30, 20] — so the same
+// dial that keeps a 50-minute native box deleted the 20-minute tail here, and
+// the split pair also paid the ¥10 rounding twice. Same function, same order.
+
+
+//
 // HELD SPANS ARE DROPPED THIS ROUND, AND COUNTED (spec §5, E2 scope). A
 // fallback cell overlapping a 新規用に確保 span is not emitted; the count comes
 // back in `heldDropped` so E3's flip has the number it needs to decide tagging.
@@ -90,6 +99,7 @@ import { SELL_SLOT_MIN } from '@/business/lib/canon-logic/pricing'
 import type { BoardLane } from '@/business/lib/today-board'
 import type { ReservedLaneMask } from './reserved-mask'
 import {
+  combineCrumbs,
   laneSpans,
   needsPrivateRoom,
   roomFitsClass,
@@ -123,6 +133,12 @@ export interface FallbackProvenance {
  *  since ⚖ R6 B3 that includes the KIND, because the renderer reads one field on
  *  both producers' boxes and this pass is the second producer. */
 export interface FallbackCell extends KindedGapCell, FallbackProvenance {}
+
+/** A cell as it comes out of canon and into this pass's sink: provenance yes,
+ *  KIND not yet. The kind is written after the merge and the floor, because a
+ *  merge mints a new object and the floor throws some away — the same reason
+ *  `gapLayerFor` tags at its own return (today-interactions ~:1517). */
+type EmittedCell = GapCell & FallbackProvenance
 
 /** One per-room free run handed to the packing engine.
  *
@@ -252,12 +268,27 @@ function roomsInClassOrder(
  *     have recovered nothing.
  *  Canon's own function answers both without either being spelled here.
  *
- *  EMPTY AT ANY `gridMin >= SELL_SLOT_MIN`, structurally — a leftover on the
- *  first shape is a whole number of grid steps (both ends are multiples of
- *  `gridMin`), and on the second `kPack === 0` forces `e - s < S = 60 <= gridMin`
- *  so `min(s + gridMin, e) === e` and nothing is left at all. That is why the
- *  shipped board pays nothing for this trigger, and why the fast path at the top
- *  of the pass can refuse the whole walk on one comparison. */
+ *  EMPTY AT `gridMin === SELL_SLOT_MIN`, and that is a THEOREM — which is what
+ *  makes the shipped board (gridMin 60) pay nothing for this trigger:
+ *   · first shape — the leftover is the grid-aligned core, both ends multiples
+ *     of `gridMin`, so its length is a whole number of 60s and never under one
+ *     slot;
+ *   · second shape — `gridEnd <= gridStart` with `e - s > 60` forces
+ *     `kGrid === 0 < kPack`, which the branch check above refuses; so the shape
+ *     survives only at `e - s <= 60`, where `min(s + gridMin, e) === e` and
+ *     canon has offered the run entire.
+ *
+ *  ⚠ ABOVE 60 IT IS NOT EMPTY, AND THE REFUSAL IS DELIBERATE (⚖ R6 fix round
+ *  D3). At `gridMin = 90` the pocket 45–155 leaves a real, sell-unreachable
+ *  20-minute leftover (canon offers 45–135) and this function still answers
+ *  `[]`. Recovering it would be a GENERALIZATION nobody has measured: above one
+ *  slot the grid stops aligning with the sell layer, so the class stops being
+ *  「minutes the GRID branch handed to nobody」 and starts including minutes the
+ *  sell layer could reach if it were asked differently. The declared ceiling is
+ *  `gridMin < SELL_SLOT_MIN`; the settings round that builds the 予約開始グリッド
+ *  dial must either constrain that dial's domain or extend this trigger WITH a
+ *  measurement (rider filed). The g=90 case is PINNED as a refusal, so the day
+ *  someone widens the guard without measuring, a test says so. */
 export function gridHoleWindows(s: number, e: number, dials: Pick<FallbackDials, 'gridMin' | 'sessionMin'>): Iv[] {
   const { gridMin, sessionMin } = dials
   if (sessionMin !== SELL_SLOT_MIN || gridMin >= SELL_SLOT_MIN) return []
@@ -280,10 +311,12 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
     if (held) held.push(span)
     else lostByLane.set(d.laneKey, [span])
   }
-  /** ⚖ R6 B1 — THE ONE COMPARISON THAT KEEPS THE SHIPPED BOARD FREE. See
-   *  `gridHoleWindows`: at `gridMin >= SELL_SLOT_MIN` the class is provably
-   *  empty, so a board on the shipped 60-minute grid with nothing dropped still
-   *  pays exactly what it paid before this trigger existed — nothing. */
+  /** ⚖ R6 B1 — THE ONE COMPARISON THAT KEEPS THE SHIPPED BOARD FREE. It is
+   *  `gridHoleWindows`' own guard, restated so the walk can be refused whole.
+   *  At `gridMin === SELL_SLOT_MIN` — the shipped 60 — the class is provably
+   *  empty, so a board with nothing dropped still pays exactly what it paid
+   *  before this trigger existed: nothing. ABOVE 60 the emptiness is a
+   *  DECLARED REFUSAL rather than a theorem — see `gridHoleWindows` (⚖ D3). */
   const gridHoles = input.dials.sessionMin === SELL_SLOT_MIN && input.dials.gridMin < SELL_SLOT_MIN
   if (lostByLane.size === 0 && !gridHoles) return EMPTY
 
@@ -309,9 +342,42 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
     ]
   }
 
+  /** ⚖ R6 fix round D1 — THE MERGED RUN'S PRICE, THROUGH THIS PASS'S OWN DIAL.
+   *
+   *  `combineCrumbs` re-prices a merged run with ONE `packedPrice` call over the
+   *  union, because summing separately-rounded pieces charges the ¥10 remainder
+   *  twice (BATCH-5 R2, and the comment on the function says so). The native
+   *  layer spells that closure over its own `BoardLane` list; this one spells it
+   *  over `input.dials.packedPrice`, which `gapPackingDials` built from the SAME
+   *  lanes — so the two producers cannot answer a merged 50-minute box in
+   *  different yen.
+   *
+   *  Canon's closure names a LANE, and the only things any spelling of it reads
+   *  off one are the key (the shipped closure's `listOf`) and the 定価 (the
+   *  battery's). Both come straight off this pass's own `input.lanes` here; the
+   *  span is the argument, so the window fields are the union's own. */
+  const laneByKey = new Map(input.lanes.map((l) => [l.key, l]))
+  const priceUnion = (laneKey: string, s: number, e: number) => {
+    const l = laneByKey.get(laneKey)
+    return input.dials.packedPrice(
+      {
+        key: laneKey,
+        name: l?.label ?? laneKey,
+        from: s,
+        until: e,
+        locked: false,
+        occupied: [],
+        listPrice: l?.listPrice ?? 0,
+        stores: l?.stores ?? null,
+      },
+      s,
+      e,
+    )
+  }
+
   const heldByLane = new Map(input.held.map((m) => [m.laneKey, m.spans]))
-  const packed: FallbackCell[] = []
-  const scraps: FallbackCell[] = []
+  const packed: EmittedCell[] = []
+  const scraps: EmittedCell[] = []
   const clips: FallbackClip[] = []
   let heldDropped = 0
 
@@ -383,9 +449,14 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
        *  the pocket's windows too — a grid hole lies inside the same person's
        *  same pocket, so the drop class's own boxes wall it. */
       const takenHere: Iv[] = []
+      /** ⚖ R6 fix round A9 — BUILT ONCE PER ROOM PER POCKET, not once per room
+       *  per WINDOW. Neither half moves inside the pocket: `roomBusy` reads only
+       *  the pass's inputs, and everything `claimedOn` could gain in here is
+       *  this same lane's own emission, which `takenHere` subtracts from every
+       *  clip anyway. Cost hygiene only — the walk's answer is unchanged. */
+      const roomsHere = rooms.map((room) => ({ room, busy: [...roomBusy(room), ...claimedOn(room)] }))
       for (const win of windows) {
-        for (const room of rooms) {
-          const busy = [...roomBusy(room), ...claimedOn(room)]
+        for (const { room, busy } of roomsHere) {
           const clip = subtract(subtract([win.iv], advertisedOnLane), [...busy, ...takenHere])
           if (clip.length === 0) continue
           for (const c of clip) clips.push(Object.freeze({ laneKey: lane.key, room: room.key, s: c.s, e: c.e }))
@@ -415,9 +486,9 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
             staffLanes: [staffLane],
             resourceLanes: [resource],
           })
-          for (const [cells, sink, gapKind] of [
-            [out.packed, packed, 'packed'],
-            [out.scraps, scraps, 'scrap'],
+          for (const [cells, sink] of [
+            [out.packed, packed],
+            [out.scraps, scraps],
           ] as const) {
             for (const c of cells) {
               if (heldSpans.some((h) => c.e > h.start && c.s < h.end)) {
@@ -436,9 +507,6 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
               sink.push(
                 Object.freeze({
                   ...c,
-                  // ⚖ R6 B3 — the SINK is the kind, said on the box. This pass is
-                  // the second producer and the renderer reads one field.
-                  gapKind,
                   sourceLane: lane.key,
                   room: room.key,
                   clippedFrom: Object.freeze({ start: from.s, end: from.e }),
@@ -457,17 +525,46 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
     }
   }
 
-  /** ⚖ R6 B1 — THE STORE'S DISPLAY FLOOR, APPLIED WHERE `gapLayerFor` APPLIES
-   *  ITS OWN (today-interactions.ts:1482-1486): at the END, over finished cells,
-   *  AFTER the bed ledger has already spent the room on them. Filtering earlier
+  /** ⚖ R6 B1, ORDER CORRECTED BY THE FIX ROUND (D1) — MERGE, THEN FLOOR, THEN
+   *  KIND: the native producer's own three steps, in its own order
+   *  (today-interactions `gapLayerFor`'s return).
+   *
+   *  THE FLOOR ONLY MEANS WHAT IT SAYS ON A MERGED RUN. canon's `guardTier`
+   *  hands a menu-exact residue back DECOMPOSED — 50 minutes come out as
+   *  [30, 20] on the fixture store's menu — and those pieces are one bookable
+   *  span, not two products. Floored first, the store's 30-minute dial deletes
+   *  the 20-minute tail of a run the native layer draws whole at 50; the two
+   *  producers then answer the same shape differently, which is the one thing
+   *  「one floor rule, one answer」 was written to prevent. Merged first, the
+   *  floor asks its question of the box the customer would actually book. The
+   *  merge also re-prices the union with ONE `packedPrice` call, so the pair no
+   *  longer charges the ¥10 rounding remainder twice (BATCH-5 R2).
+   *
+   *  A MERGE CANNOT BRIDGE A HELD SPAN, and this is why the held drop stays
+   *  upstream of it: `combineCrumbs` joins two cells only when `prev.e === c.s`
+   *  EXACTLY, and a box suppressed above leaves its minutes standing empty
+   *  between its neighbours, so the run is broken exactly where the hold is.
+   *
+   *  SCRAPS ARE NOT MERGED — the native layer does not merge them either
+   *  (`raw.scraps.filter(sellable)`), and a スキマ枠 is canon's own discounted
+   *  span rather than a piece of a decomposition.
+   *
+   *  THE FLOOR STILL LANDS LAST, AND E2'S REASON IS UNCHANGED: it runs AFTER
+   *  the bed ledger has already spent the room, so a floored box has spent its
+   *  room in this pass's walk exactly as a floored native box has spent its own
+   *  (canon's `bedLedger` semantics — measured and accepted). Filtering earlier
    *  would hand the same minute to the next room in the walk and quietly emit a
    *  different, shifted box. Both rows of a box carry the same span, so the pair
    *  goes or stays together, and `claims` is the FILTERED list because a claim
    *  the board never draws is not a claim (today-interactions.ts:838-839). */
   const floor = input.minSellableMin ?? 0
-  const sellable = (c: FallbackCell) => c.e - c.s >= floor
-  const drawnPacked = packed.filter(sellable)
-  const drawnScraps = scraps.filter(sellable)
+  const sellable = (c: EmittedCell) => c.e - c.s >= floor
+  const drawnPacked: FallbackCell[] = combineCrumbs(packed, input.dials.sessionMin, priceUnion)
+    .filter(sellable)
+    .map((c) => Object.freeze({ ...c, gapKind: 'packed' as const }))
+  const drawnScraps: FallbackCell[] = scraps
+    .filter(sellable)
+    .map((c) => Object.freeze({ ...c, gapKind: 'scrap' as const }))
 
   return Object.freeze({
     packed: Object.freeze(drawnPacked),
