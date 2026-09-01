@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl'
 import { useSearchParams } from 'next/navigation'
 import { usePathname, useRouter } from '@/i18n/navigation'
 import type { CustomerListRow } from '../types'
+import { useEntranceOnce } from './entrance-once'
 import { CustomersListHeader } from './CustomersListHeader'
 import { CustomerSearchInput } from './CustomerSearchInput'
 import {
@@ -112,6 +113,10 @@ export function CustomersListView({
 }: CustomersListViewProps) {
   const t = useTranslations('customers.list')
   const tCustomers = useTranslations('customers')
+  // The row entrance cascade plays on the first list mount of the app session
+  // and never on a tab re-visit — see ./entrance-once. Gated here, at the one
+  // list home, so both row components stay dumb about it.
+  const playEntrance = useEntranceOnce()
   // List state lives in the URL (?f=&s=&p=) via replace — no history spam,
   // no scroll jump — so the BACK button restores the exact page + filters the
   // staff left (Liam: "go into a card, come back, don't reset me to page 1").
@@ -390,7 +395,7 @@ export function CustomersListView({
                 }
                 karuteContext={karuteContext}
                 hrefBase={hrefBase}
-                entranceIndex={i}
+                entranceIndex={playEntrance ? i : null}
               />
             ))}
           </div>
@@ -410,7 +415,7 @@ export function CustomersListView({
                 }
                 karuteContext={karuteContext}
                 hrefBase={hrefBase}
-                entranceIndex={i}
+                entranceIndex={playEntrance ? i : null}
               />
             ))}
           </div>
