@@ -100,7 +100,7 @@ import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/
 import { dragOrigin, stepPct } from '@/business/lib/canon-logic/drag-rules'
 import { buildSellLayer, type SellCell } from '@/business/lib/canon-logic/availability'
 import { DENSITY_CEILING, money, packedPrice, priceAt, SELL_CURVE } from '@/business/lib/canon-logic/pricing'
-import { minuteOf, place, type BoardItem, type BoardLane } from '@/business/lib/today-board'
+import { minuteOf, place, yen, type BoardItem, type BoardLane } from '@/business/lib/today-board'
 // ⚖ R3 one world — the guard's door lives on the screen (it needs both the book
 // and the board's own types, and the book imports today-interactions). Exported
 // for the reason everything on this board's answer path is: an answer the
@@ -1993,7 +1993,21 @@ describe('the crumbs of one leftover combine into one offer', () => {
     expect(isCrumbOffer({ s: 950, e: 1010 }, 60)).toBe(false)
     expect(SRC).toContain("const crumbHere = packedHere && isCrumbOffer(c, props.guard.standardSessionMin)")
     expect(SRC).toContain("${crumbHere ? ' crumb' : ''}")
-    expect(SRC).toContain('minSellableMin: props.guard.minSellableMin')
+    // ⚖ R6 fix round A2 (L4-2) — THE FLOOR IS WIRED AT TWO SITES, AND THIS PIN
+    // KNOWS WHICH. `minSellableMin: props.guard.minSellableMin` appears once for
+    // the native gap layer and once for the fallback pass; a single
+    // occurrence-blind `toContain` let EITHER of them be deleted and stay green,
+    // which is exactly the wiring R6 added. Each site is pinned with a token
+    // only that site has, and the count is pinned so a third home cannot appear
+    // unnoticed either. (RTL rendering stays outside this file's import fence
+    // per the standing QUEUE-RIDERS rider — a source contract IS the declared
+    // armor for TodayScreen's un-rendered half; the BEHAVIOUR of the floor is
+    // proven on the layers themselves in fallback-cells.test.ts §8/§9.)
+    expect(SRC).toContain('        ...gapDials,\n        minSellableMin: props.guard.minSellableMin,\n        locked,')
+    expect(SRC).toContain(
+      '      minSellableMin: props.guard.minSellableMin,\n      dials: gapPackingDials(committedLanes, gapDials),',
+    )
+    expect(SRC.split('minSellableMin: props.guard.minSellableMin').length - 1).toBe(2)
     // ⚖ R6 — NOTHING on this layer wears a border at rest. The ring is the
     // drag's own signal and dies with it, which is the whole point: batch-4
     // proved the resting ring and the emphasis were the same picture.
@@ -9120,10 +9134,46 @@ describe('⚖ R6 B2 — the staged 次回予約 card is priced by the board, not
   const FRAME = { hi: HI, lo: BASE, hqMin: HQ_MIN, hqMax: HI }
 
   it('the spelling is `packedPrice`, and both the flat base and the hourly-only `priceAt` spelling are gone', () => {
-    expect(SRC).toContain('ticketCore: yen(packedPrice(lane.listPrice, start, end, frame, depth)),')
+    // ⚖ R6 fix round D2 — …and a lane with no 定価 says NOTHING rather than ¥0.
+    expect(SRC).toContain(
+      'ticketCore: lane.listPrice > 0 ? yen(packedPrice(lane.listPrice, start, end, frame, depth)) : null,',
+    )
+    // ⚖ A7 (L4-7) — BROADENED, because the old pins named two exact full lines
+    // and nothing else: either mistake could come back in any other punctuation,
+    // or at a THIRD `ticketCore` site, and stay green. Every ticket line the
+    // screen mints is enumerated instead. (`yen(dialogs.pricing.base)` on its
+    // own is legal elsewhere — the 基準 label in the pricing dialog is exactly
+    // that number — so the negative has to be anchored on `ticketCore`.)
+    expect(SRC.match(/ticketCore: .*/g)).toEqual([
+      'ticketCore: lane.listPrice > 0 ? yen(packedPrice(lane.listPrice, start, end, frame, depth)) : null,',
+      "ticketCore: tab === 'book' ? (menu?.price ?? '価格未記録') : null,",
+    ])
+    expect(SRC).not.toContain('yen(priceAt(')
     expect(SRC).not.toContain('ticketCore: yen(dialogs.pricing.base)')
     expect(SRC).not.toContain(
       'ticketCore: yen(priceAt(lane.listPrice, Math.floor(start / 60), price.hi, dialogs.pricing.hqMin, depth)),',
+    )
+  })
+
+  it('D2 — an unpriced staff lane stages a card with no ¥ line at all, and the bar quotes nothing either', () => {
+    // `staffListPrice[id] ?? 0` is a real store state — a staff member whose
+    // 定価 has not been set. Every price the board mints for that lane is 0, so
+    // the old spelling put 「¥0」 on the staged card's face AND inside the
+    // 仮押さえ bar's sentence, which reads as FREE to the customer at the
+    // counter rather than as 「not priced yet」.
+    expect(packedPrice(0, 900, 960, FRAME, DEPTH)).toBe(0)
+    expect(yen(0)).toBe('¥0')
+    // The board's own type says a card may carry no ticket line (today-board.ts
+    // `ticketCore: string | null`), and it draws such cards every day — so the
+    // unpriced lane joins them instead of inventing a word for the state.
+    const BOARD = readFileSync(join(process.cwd(), 'src/business/lib/today-board.ts'), 'utf8')
+    expect(BOARD).toContain('ticketCore: string | null')
+    // The 仮押さえ bar composes its sentence by dropping the empty parts, so a
+    // null core takes the ¥ out of the sentence rather than printing 「¥0」.
+    expect([null, '¥0'].filter(Boolean)).toEqual(['¥0'])
+    expect(['単発', null].filter(Boolean).join(' ')).toBe('単発')
+    expect(SRC).toContain(
+      "label: `${hhmm(start)}–${hhmm(end)} ${chip.item.title}様 / ${[chip.item.ticketCat, chip.item.ticketCore].filter(Boolean).join(' ')}",
     )
   })
 

@@ -4845,7 +4845,18 @@ export function TodayScreen(props: TodayProps) {
       // hour curve end to end, so an off-hour start and a 90-minute standard
       // session both come out honest, and the staged card and the 販売可能枠
       // box it lands on still cannot disagree.
-      ticketCore: yen(packedPrice(lane.listPrice, start, end, frame, depth)),
+      //
+      // ⚖ R6 fix round D2 — AND A LANE WITH NO 定価 SAYS NOTHING, rather than
+      // ¥0. `staffListPrice[id] ?? 0` is a real store state (a staff member
+      // whose price has not been set yet), and every price this board mints for
+      // that lane is 0 — so the staged card's face and the 仮押さえ bar beside it
+      // both read 「¥0」, which to the customer in front of the counter is not
+      // 「unpriced」 but 「free」. `ticketCore` is `string | null` (today-board.ts
+      // :255) and the board already draws priceless cards every day (a 予定
+      // ブロック, a 休憩, any booking with no ticket) — they carry null and the
+      // 「¥」 line simply is not there. This lane joins them: no new word is
+      // invented for a state the board already knows how to say nothing about.
+      ticketCore: lane.listPrice > 0 ? yen(packedPrice(lane.listPrice, start, end, frame, depth)) : null,
       held: false,
       micro: false,
       caseId: id,
