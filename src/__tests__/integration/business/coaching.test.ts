@@ -590,6 +590,19 @@ describe('⚖ EVERY MONTH AND DATE ASSERTION RUNS ON A PINNED CLOCK', () => {
     }
   })
 
+  it('D8-6 — the outcomes title claims no window: OutcomesSummary carries none', async () => {
+    // contract.ts:162-172 OutcomesSummary has no window field, so the count's
+    // own label must not borrow the run's windowLabel — a stamped window on a
+    // field the plane never scoped is the exact honesty defect this room polices
+    // everywhere else (⚖ every stat says WHAT it counts).
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    if (props.self.kind !== 'ready') throw new Error('expected ready')
+    expect(props.self.outcomes.title).not.toMatch(/直近\d+日/)
+    expect(props.self.outcomes.title).toMatch(/^不成約の理由（\d+件）$/)
+  })
+
   it('the trend’s month ticks end on the month the reader is in', async () => {
     pinClock(MID_MONTH) // 2026-08-15 JST
     const { props } = await coachingProps(GINZA)

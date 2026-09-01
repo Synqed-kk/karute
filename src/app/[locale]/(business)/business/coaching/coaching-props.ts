@@ -287,7 +287,10 @@ export async function coachingProps({ locale, store, world }: CoachingPropsInput
               confidenceNote: f.confidence === 'early_signal' ? 'まだ初期の傾向です' : null,
             })),
             outcomes: {
-              title: `不成約の理由（${windowLabel} ${self.view.noDealTotal}件）`,
+              // ⚖ D8-6 — no windowLabel here: OutcomesSummary (contract.ts:162-172)
+              // carries no window field, so the title states only what the count
+              // actually counts, not a window this plane never claimed.
+              title: `不成約の理由（${self.view.noDealTotal}件）`,
               reasons: self.view.declineReasons,
               pendingLine:
                 self.view.pendingCount > 0
