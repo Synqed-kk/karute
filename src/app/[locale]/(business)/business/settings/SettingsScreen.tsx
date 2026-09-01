@@ -686,9 +686,26 @@ function Row({
         ))}
       </div>
       <div className="st-dial-ctl">
-        {row.controls.map((c) => (
-          <Control key={c.id} row={row} c={c} value={values[c.id]} onChange={onChange} />
-        ))}
+        {groupTimes(row.controls).map((group) =>
+          group.length === 1 ? (
+            <Control key={group[0].id} row={row} c={group[0]} value={values[group[0].id]} onChange={onChange} />
+          ) : (
+            // ⚠ A TIME RANGE IS ONE THING, SO IT WRAPS AS ONE THING. Two `time`
+            // fields side by side in a 250px column left the switch beside them
+            // and pushed the second time onto its own line — 「10:00」 above
+            // 「19:00」 with nothing saying they were a range. Grouped, the pair is
+            // a single flex item that carries its own 〜 and moves together, so a
+            // forced wrap puts the switch above the range instead of splitting it.
+            <span className="st-timepair" key={group[0].id}>
+              {group.map((c, i) => (
+                <span className="st-timepart" key={c.id}>
+                  {i > 0 && <span className="st-tilde" aria-hidden="true">〜</span>}
+                  <Control row={row} c={c} value={values[c.id]} onChange={onChange} />
+                </span>
+              ))}
+            </span>
+          ),
+        )}
       </div>
       {/* ⚠ A SIBLING OF THE LABEL, NOT A CHILD OF IT. At the LEVEL band the label
           sits in a 140px column and the description would be a column of
@@ -710,6 +727,19 @@ function Row({
       ))}
     </section>
   )
+}
+
+/** Consecutive `time` controls belong to one range and travel together. Every
+ *  other control is its own group of one, so the shape of the row is unchanged
+ *  everywhere but the three places that hold a range. */
+function groupTimes(controls: RowControl[]): RowControl[][] {
+  const out: RowControl[][] = []
+  for (const c of controls) {
+    const last = out[out.length - 1]
+    if (last && c.control.kind === 'time' && last[last.length - 1].control.kind === 'time') last.push(c)
+    else out.push([c])
+  }
+  return out
 }
 
 // ── a control ──────────────────────────────────────────────────────────────
