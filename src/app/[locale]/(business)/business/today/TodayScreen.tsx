@@ -98,6 +98,7 @@ import {
   isOverShelf,
   laneKeyAtY,
   landingVerdict,
+  lossOf,
   bedClassCell,
   nearestFreeStarts,
   needsPrivateRoom,
@@ -110,6 +111,10 @@ import {
   parkChipText,
   pinInViewport,
   restCueStarts,
+  warnFaceFor,
+  holdClock,
+  holdResumeAt,
+  HOLD_MS,
   explainRails,
   reservedSentence,
   sameStore,
@@ -128,10 +133,12 @@ import {
   type LandingVerdict,
   type Move,
   type Moves,
+  type OverrideLevel,
   type PairLanes,
   type RailCell,
   type RoomPolicy,
   type SellDrop,
+  type WarnCardModel,
 } from './today-interactions'
 import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'
 import { fallbackCellsFor, type FallbackResult } from './fallback-cells'
@@ -377,6 +384,25 @@ export interface TodayProps {
    *  own role and staff_id, so the board never decides authority for itself and
    *  a locked-out staff member simply never sees the action. */
   canOverride: boolean
+  /** ⚠SETTINGS-BATCH — ⚖ flag 92 (2026-08-31). THE SAME AUTHORITY AT FULL
+   *  RESOLUTION: the warn card composes a face per level (warn commit / 承認を
+   *  求める / 店長のみ), and `canOverride` above — a boolean — cannot express the
+   *  middle one. Both come from ONE `overrideLevelFor` call at the page seam, so
+   *  the consult path and the card can never disagree about who may place.
+   *  'needs-approval' is expressible and UNREACHABLE by construction today
+   *  (`overrideLevelFor` cannot return it); the face exists so the settings round
+   *  lights it rather than inventing it. */
+  overrideLevel: OverrideLevel
+  /** ⚠SETTINGS-BATCH — ⚖ flag 92. Does the warn face's commit ask for a 0.6-秒
+   *  long press instead of a plain one? The store's own dial
+   *  (`storeBookingPolicy.overrideHoldToConfirm`, default ON), answered on the
+   *  server like every other authority this screen is handed. */
+  holdToConfirm: boolean
+  /** ⚖ flag 92 — the operator's own name, for the warn card's provenance line.
+   *  Printed ONLY when the placement lands on someone else's shift (the ⚖ 8/31
+   *  design page's own rule: 「記録の名前は、他の人のシフトに置くときだけ表示され
+   *  ます（自動）」); the screen decides whether, never who. */
+  operatorName: string
   /** ⚖ SPEC-SELLING-ENGINE §1 / ruling Q5 (E5). May THIS viewer release a 確保
    *  window for sale early? Answered on the server from the operator's own role
    *  (`canReleaseHeld`), the same way `canOverride` above is: staff see the
@@ -628,6 +654,12 @@ interface LiveDrag {
   mode: DragMode
 }
 
+/** ⚖ 92 fix round F4 (blind L1#6) — the padlock the approved design page draws
+ *  on both of the warn card's authority lines (`warncard-design.html`'s own
+ *  LOCK_SVG / KEY_SVG: ONE path, two sizes, and the colour taken from the line
+ *  it sits on). Kept out here so the two uses can never drift into two glyphs. */
+const WC_LOCK_PATH = 'M4 7V5a4 4 0 018 0v2h1v8H3V7h1zm2 0h4V5a2 2 0 10-4 0v2z'
+
 /** ⚖ Liam flag 34 — the 仮押さえ confirm, as data. Two very different sources
  *  (the session's staged change and the day's own hold from the incident) render
  *  ONE surface, so there is one set of buttons, one set of check marks and one
@@ -654,6 +686,18 @@ interface HoldPop {
   checks: Array<{ label: string; tone: '' | 'bad' | 'warn' }>
   /** ⚖ 31b — the guard's own row, informational, never a gate. */
   guardRow: { label: string; tone: 'warn' } | null
+  /** ⚖ LIAM flag 92 (2026-08-31) — THE SECOND FACE, composed by `warnFaceFor`
+   *  from the store's settings. `null` (and `face: 'clean'`) is the card that
+   *  ships today, rendered by the branch it has always been rendered by; a
+   *  `warn` model re-composes the SAME popover around the consequence.
+   *
+   *  Always `null` on the standing 仮押さえ below: that surface answers for the
+   *  incident's own hold, whose rows are plain sentences with no verdict behind
+   *  them, so it can never carry a warn-grade fact by construction. */
+  warn: WarnCardModel | null
+  /** ⚖ 92 — the safe primary's action, by start minute. `null` when the card
+   *  has no alternative to offer (⚖ 31c — the slot is then omitted entirely). */
+  placeSafe: ((start: number) => void) | null
   confirm: { label: string; enabled: boolean; run: () => void }
   revert: { enabled: boolean; run: () => void }
 }
@@ -961,6 +1005,20 @@ export function TodayScreen(props: TodayProps) {
   const advicePopRef = useRef<HTMLDivElement>(null)
   const blockAdvicePopRef = useRef<HTMLDivElement>(null)
   const holdPopRef = useRef<HTMLDivElement>(null)
+  /** ⚖ LIAM flag 92 — THE LONG PRESS'S OWN PIECES: the layer the fill is written
+   *  onto, the press's whole mutable state, and the hint that appears after a
+   *  cancelled press.
+   *
+   *  REFS, NOT STATE, for everything but the hint: the fill is repainted every
+   *  frame straight onto the node, and a re-render per frame is exactly the jank
+   *  the drag path was rebuilt to remove (WO-2d's rule, and canon's own). The
+   *  ARITHMETIC is not here at all — it is `holdClock`'s, out in
+   *  today-interactions where 600ms / resume / recoil are provable without a DOM. */
+  const holdFillRef = useRef<HTMLSpanElement | null>(null)
+  const [holdHinting, setHoldHinting] = useState(false)
+  // ⚖ 92 fix round F3 (blind L2#2) — `settle` is the 250ms commit timer, held
+  // here with the hold's other clocks so ONE teardown can end all of them.
+  const holdRef = useRef({ raf: 0, step: 0, settle: 0, mode: '' as '' | 'hold' | 'spring', t0: 0, x0: 0, progress: 0, completing: false, btn: null as HTMLButtonElement | null })
   /** canon's `popOpenedAt` (:7074): a popup opened from a pointerup is followed
    *  by one synthetic click on the thing underneath, and without this window the
    *  popup would close itself the instant it appeared. */
@@ -2119,18 +2177,279 @@ export function TodayScreen(props: TodayProps) {
    *  is real: it joins the checks the confirm surface already shows, as one more
    *  row. It is INFORMATION — `pendingConfirm` above is untouched, so what can
    *  and cannot be confirmed is still `computeChecks`' answer alone and a
-   *  degraded landing stays confirmable, exactly as canon's own ackAllowed lets
-   *  it be. Neither canon's hold bar nor the built one showed this at all. */
-  const pendingGuardRow = useMemo(() => {
+   *  degraded landing stays confirmable at every override level; ⚖ flag 92's dial
+   *  changes only what the card SAYS and how the press is made, never whether the
+   *  landing may be confirmed. Neither canon's hold bar nor the built one showed
+   *  this at all.
+   *
+   *  ⚖ 92 fix round 8 Z3 (breaker #7 #3) — the clause above used to end 「at the
+   *  shipped default level; ⚖ flag 92's dial composes stricter faces above it,
+   *  and a store dialled to 店長のみ refuses the press…」, which ⚖ 9/1 ruling 1/2
+   *  overturned the same night it was written: the dial's lock face is DELETED
+   *  and a 店長のみ store reaches the same commit as anyone else. It is corrected
+   *  here rather than left to read as a second, stricter gate that no longer
+   *  exists.
+   *
+   *  ⚖ 92 fix round 6 X4 (breaker #5) — AND THE CLAUSE ABOVE IS ABOUT THE
+   *  CONTROLS THAT RENDER. 「`computeChecks`' answer alone」 is the gate wherever
+   *  a commit control CAN FIRE. It has no subject on the physics face: ⚖ 92 fix
+   *  round 4 U3 gives a floor the GUARD calls impossible (`ackAllowed: false` on
+   *  a guard-lit cell — strict mode's refusals) no permission line at all, by ⚖ 73's
+   *  ruling that 「a floor the engine calls impossible is not a floor a manager
+   *  can be given authority over」. Nothing there is being gated more strictly
+   *  than `computeChecks` says; there is simply nothing to gate. ⚖ 92 fix round 8
+   *  Z1 narrowed that branch to guard-lit faces — a face lit by a walked-past row
+   *  alone keeps its commit, and ⚖ 50(d)'s gate is again the whole of the answer
+   *  there.
+   *
+   *  ⚖ 92 fix round 10 V4 (breaker #9 #4) — TWO CORRECTIONS TO THE CLAUSE ABOVE,
+   *  both of them round 9's doing or round 4's mis-citation.
+   *
+   *  (a) 「no commit」 is no longer true: ⚖ 92 fix round 9 W1 gave that face the
+   *  clean face's own frozen 「この位置では確定できません」, disabled — a control
+   *  that SAYS why it cannot fire rather than an absent one. Its `enabled` is the
+   *  literal `false`, so ⚖ 73 is intact and `computeChecks` still has no subject
+   *  here; what changed is that the operator is told so.
+   *
+   *  (b) 「R-UNAVAILABLE with a real loss」 named a cell that cannot exist:
+   *  `railCell` answers that code through `blocked()`, which carries no `impact`
+   *  at all, so `lossOf` is 0 and `guardWarn` is false by construction — this
+   *  PR's own tests assert it, and the branch's R-UNAVAILABLE fixture is
+   *  hand-built and says so. The guard-lit impossible floors are strict mode's
+   *  own refusal classes. */
+  /** ⚖ 92 — AND THE CELL ITSELF, not only its row. The warn card composes from
+   *  the verdict's DATA (`cell.impact`, its alternatives, its state) and the row
+   *  is one rendering of that same cell — deriving them together here keeps them
+   *  one reading of one board, which is the whole of ⚖ 54's lesson. The clean
+   *  face keeps rendering `row` exactly as it did. */
+  const pendingGuardRow = useMemo((): { row: { label: string; tone: 'warn' } | null; cell: RailCell | null; engineStarts: number[] } => {
     // ⚖ 46 forerunner: `pendingOffBoard`, not a day-only test — `verdictAt` reads
     // the board on screen, so a 仮押さえ staged in another STORE would have its
     // row computed from this store's cards. Same predicate as the checks above.
-    if (!pending || pendingOffBoard) return null
+    if (!pending || pendingOffBoard) return { row: null, cell: null, engineStarts: [] }
     const at = moves[pending.id]
-    if (!at) return null
+    if (!at) return { row: null, cell: null, engineStarts: [] }
     const start = minuteOf(at.x, hours)
-    return guardCheckRow(verdictAt(at.laneKey, start, minuteOf(at.x + at.w, hours) - start, pending.id))
-  }, [pending, pendingOffBoard, moves, hours, verdictAt])
+    const cell = verdictAt(at.laneKey, start, minuteOf(at.x + at.w, hours) - start, pending.id)
+    /** ⚖ 92 fix round F2 (blind L4#3) — AND THE CARD'S OFFER GOES THROUGH ⚖ 58'S
+     *  ONE HOME LIKE EVERY OTHER OFFER ON THIS BOARD.
+     *
+     *  The guard walks a five-minute lattice, so `cell.alternatives` legitimately
+     *  answers 11:45 on a store whose bookings snap to the half hour — and the
+     *  warn face puts that start on the BIGGEST control on the card. `offerable`
+     *  is the seam that snaps an engine start to the store's own lattice and
+     *  re-verdicts each candidate (its header states the law); the rail and the
+     *  consult box have always gone through it and this surface did not, which
+     *  is ⚖ 54's disease with a button attached.
+     *
+     *  The ROW is composed from the RAW cell on purpose: the check row is the
+     *  ENGINE'S OWN SENTENCE (⚖ GAP-6/FIX-6, byte-untouched), and filtering
+     *  alternatives has no opinion about what the guard said. `placePendingAt`'s
+     *  own ⚖ 31c re-verdict at the press stays exactly where it is — this makes
+     *  the offer honest when it is DRAWN, that makes it honest when it is TAKEN.
+     *
+     *  ⚖ 92 fix round 2 S1 (stress lens #2) — AND THE GATE IS THE CELL'S OWN
+     *  CLAIM, which is why this is `offerableCell` directly and not the shared
+     *  `offerable` wrapper.
+     *
+     *  THE LAW: a button may not promise 確保を壊さない about a start whose own
+     *  verdict is not clean. `alternativeKind` is the engine's word about the
+     *  PRE-snap start, and the sub-line under the safe primary is read off it;
+     *  the wrapper then snaps each start to the store's lattice and re-gates the
+     *  SNAPPED one with `!== 'blocked'`, which a caution passes. On a clock
+     *  offset off the lattice (now 10:07, step 30) that pair shipped 確保を壊さ
+     *  ない over a start the guard would only ever have called a caution — the
+     *  label outrunning the gate, ⚖ 31c's disease with the promise moved into
+     *  the sub-line. So the gate is tightened to match the claim instead of the
+     *  label being weakened to match the gate: a cell claiming 'safe' offers
+     *  only starts that verdict CLEAN, and a least-loss cell keeps the ordinary
+     *  not-blocked gate it always had. The shared wrapper is untouched — its
+     *  other callers make no such promise about the starts they show.
+     *
+     *  ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — AND THE LEVEL ARM IS GONE WITH THE
+     *  LOCK FACE IT SERVED. ⚖ 92 fix round 3 T1 made this gate clean-only at
+     *  'refuse' on one premise: there the safe primary was the operator's ONLY
+     *  door, because the commit had been replaced by the 店長のみ line, so an
+     *  offer that landed on a second degraded cell walled them again. His ruling
+     *  deletes that line — a locked-out operator now reaches the same warn commit
+     *  as anyone else (`warnFaceFor`'s own note carries the overturn) — and with
+     *  the premise gone the clean-only bar is just a stricter card for the staff
+     *  the store trusts least, withholding real answers from the people with the
+     *  fewest of them. Every level now reads the same three arms.
+     *
+     *  Start and duration are the wrapper's own derivation (`offerable` above):
+     *  `ask.span` IS this staged move, so `start` is already that number. */
+    const item = boardLanes.find((l) => l.group === 'staff' && l.key === at.laneKey)?.items.find((i) => i.caseId === pending.id)
+    const ask: LandingAsk = {
+      staffLane: at.laneKey,
+      bedLane: seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null),
+      solveRoom: true,
+      id: pending.id,
+      vip: item?.category === 'vip',
+      foreignRefusal: null,
+      span: { x: at.x, w: at.w },
+    }
+    const dur = minuteOf(at.x + at.w, hours) - start
+    /** ⚖ 92 fix round 4 U1 (breaker #3) — AND A LEAST-LOSS OFFER MUST BE
+     *  STRICTLY BETTER THAN STANDING STILL.
+     *
+     *  `alternatives` are the ENGINE'S OWN ranked starts, and the snap above
+     *  walks each one to the store's nearest legal step — so the start that
+     *  reaches the card is a NEIGHBOUR the guard never ranked. Rounds 2 and 3
+     *  only asked whether that neighbour was not blocked, and a caution passes:
+     *  so the biggest control on a card whose entire subject is a loss could
+     *  offer a start costing TWO protected windows where staying put cost one
+     *  (execution-proven at the shipped default level). A card that warns about
+     *  a loss may not sell a bigger one.
+     *
+     *  The least-loss arm therefore asks the guard again ABOUT THE CANDIDATE and
+     *  keeps it only if the store loses strictly less there than at the staged
+     *  start. No second ranking engine: `verdictAt` is the same door the memo's
+     *  own `cell` came through, read for the one number the card is already
+     *  about. A staged cell that loses nothing (a repertoire R-REP, where the
+     *  count is unchanged) then has nothing strictly better to offer, the slot
+     *  goes empty, and ⚖ 92 fix round 3 T2's engine row speaks instead — the
+     *  engine's own words rather than an offer that changes nothing.
+     *
+     *  The 'safe' and 'refuse' arms are untouched: both already demand a CLEAN
+     *  candidate, which is a stronger bar than any loss comparison.
+     *
+     *  ⚖ 92 fix round 6 X1 (breaker #5) — AND THE GATE TRUSTS THE ENGINE WHERE
+     *  THE ENGINE SPOKE, staying strict only where the SNAP invented the start.
+     *
+     *  U1 above re-filtered the engine's own answers on ONE term of a FOUR-term
+     *  ranking key. `nearestBestAlternatives` (gap-guard :294-317) only ever
+     *  returns starts whose whole key beats the attempt's, so two starts can be
+     *  strictly better overall and still cost the same protected windows — and
+     *  those died here on `1 < 1`. Execution-proven on the R-REP class Liam
+     *  photographed: staged 10:30, the engine's own 10:00 and 11:30 (both ON the
+     *  store's lattice, both passed through by the snap as themselves), both
+     *  withheld — a card warning about a loss with no answer under it.
+     *
+     *  Worse where the staged cell carries no `impact` at all — a bed
+     *  R-UNAVAILABLE, which is `blocked()` and so impact-less by construction:
+     *  `stagedLoss` is 0, `loss < 0` cannot be satisfied by anything, and the
+     *  physics face lost every offer it had.
+     *
+     *  So the arm splits on WHO CHOSE THE START:
+     *    · s is one of the ENGINE'S OWN (`cell.alternatives`, the RAW list this
+     *      closure is filtering — `offerableCell` passes an on-lattice start
+     *      through as itself, :2305) → the full-key guarantee already stands and
+     *      the gate is the ordinary `!== 'blocked'` it always was;
+     *    · s was MOVED by the snap (a floor/ceil neighbour the guard never
+     *      ranked) → U1's bar, and where the staged cell carries no impact to
+     *      compare against, the clean bar instead. Strict where we invented the
+     *      start; never strict about the engine's own word. */
+    const stagedLoss = lossOf(cell)
+    return {
+      row: guardCheckRow(cell),
+      cell: offerableCell(cell, props.guard.bookingStepMin, start, (s) => {
+        const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind
+        if (cell?.alternativeKind === 'safe') return k === 'clean'
+        if (k === 'blocked') return false
+        if (cell?.alternatives.includes(s)) return true
+        return cell?.impact != null ? lossOf(verdictAt(at.laneKey, s, dur, pending.id)) < stagedLoss : k === 'clean'
+      }),
+      /** ⚖ 92 fix round 6 X2 (breaker #5) — THE RAW ENGINE STARTS, THREADED OUT.
+       *  `cell` here is the guard's own answer BEFORE the line above filters it,
+       *  so this is the list the arm split reads — and `placePendingAt` needs
+       *  exactly it to mirror the split at the press. One derivation, two
+       *  readers; re-deriving it there would be two answers to one question. */
+      engineStarts: cell?.alternatives ?? [],
+    }
+    // ⚖ 92 micro-fix M7, delta-verify D4 — `props.rooms` is a real dep: the gate
+    // re-verdicts each candidate start through `verdictRef`, which reads the room
+    // policy, and that ref's own identity is stable — so a rooms change alone left
+    // a stale offer on the card's biggest control.
+    // ⚖ 9/1 ruling 1/2 — and `props.overrideLevel` LEAVES the list with the arm
+    // that read it (⚖ 92 fix round 3 T1's, deleted above). Nothing in this memo
+    // asks the dial any more, so keeping it here would be a dep that only ever
+    // re-runs the gate for an answer it cannot change.
+    // ⚖ 92 final hygiene (breaker #6 F4) — the gate reads `verdictRef.current`
+    // during render, so the rule cannot see through the ref to the room policy
+    // it touches: this list is hand-maintained against `verdictAt`'s transitive
+    // reads, `props.rooms` among them (micro-fix M7/delta-verify D4 above), and
+    // the rule's advice here would delete the dep that keeps the offer fresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, props.guard.bookingStepMin, props.rooms])
+
+  // ⚖ Liam flag 50(d) + ⚖ 52 — THE OVERRIDDEN ROW STAYS ON SCREEN, and it
+  // stops wearing ×. The operator did not make the reason go away, they
+  // walked past it, so the surface says so in the wording; and because it
+  // no longer blocks 確定 it may not carry the mark that means "this line
+  // stops you" (flag 52's law, the mirror of flag 7's).
+  // ⚖ LIAM flag 73/74 (T2) — AND IT IS NEVER INVISIBLE AGAIN. The △ used
+  // to be produced by matching `pending.override` against a check LABEL,
+  // and `computeChecks` (FROZEN) emits no row for a room, no row for the
+  // VIP floor and no row for a foreign store — so an escalation over any
+  // of those staged four green ticks and no trace at all. Liam's 8/22
+  // shot is exactly that: 満室 overridden, ✓✓✓✓, 担当 X / —. The append is
+  // the same sentence from the same field, for the classes the engine has
+  // no row for; `overrideCaption` is untouched, because a warn row is a
+  // record and not a gate (⚖ 52 — × is what stops you, △ is what you were
+  // told).
+  // ⚖ 92 — LIFTED OUT OF THE SURFACE, unchanged line for line. Both faces read
+  // these rows, so they are composed ONCE: the clean face renders them as the
+  // check strip it always has, and `warnFaceFor` splits the same array into its
+  // greens line and its △/× lines. Two readings of one answer is ⚖ 54's disease.
+  const pendingRows: Array<{ label: string; tone: '' | 'bad' | 'warn' }> = pending
+    ? [
+        ...pendingChecks.map((c) =>
+          !c.ok && c.label === pending.override
+            ? { label: `注意して配置: ${c.label}`, tone: 'warn' as const }
+            : { label: c.label, tone: c.ok ? ('' as const) : ('bad' as const) },
+        ),
+        ...(pending.override && !pendingChecks.some((c) => !c.ok && c.label === pending.override)
+          ? [{ label: `注意して配置: ${pending.override}`, tone: 'warn' as const }]
+          : []),
+      ]
+    : []
+
+  /** ⚖ LIAM flag 92 (2026-08-31) — THE STORE'S SETTINGS, COMPOSED INTO A FACE.
+   *
+   *  Every judgement is `warnFaceFor`'s; this is only the board's own inputs to
+   *  it, exactly as `verdictFor` is to `landingVerdict`. The lane the staged card
+   *  now sits on answers two of them — its `listPrice` for the ¥, and its `mine`
+   *  for whether the name line prints — and both are read off the board rather
+   *  than re-derived, because today-board already computed them from the
+   *  operator's own staff_id.
+   *
+   *  ⚖ 92 fix round 5 V1 (breaker #4) — and the ¥'s other half is the SAME frame
+   *  the sell layer is derived from (`frame` / `depth`, composed once above and
+   *  handed to `sellLayerFor` and `gapLayerFor` in this very render), so the
+   *  card's money and the board's money come off one set of levers. The card
+   *  computes no price of its own; `warnFaceFor` asks canon.
+   *
+   *  `null` while nothing is staged, off-board, or on the CLEAN face: the model's
+   *  own `face` decides, and the render asks it rather than asking again here. */
+  // ponytail: no memo. This is a pure fold over half a dozen rows the surface
+  // above just built in the same frame, and `holdPop` itself is rebuilt every
+  // render — a memo here would buy nothing and would need `pendingRows` (a fresh
+  // array every render) as a dep, which is a stale-answer trap for no gain.
+  // ⚖ 92 micro-fix M6, delta-verify D3 — the staff-group filter both sibling
+  // lookups already carry: lane keys are unique only WITHIN a group, so a bed
+  // lane sharing a staff lane's key could answer first and the card would read
+  // its price and its `mine`.
+  const pendingWarnLane = pending && !pendingOffBoard && moves[pending.id]
+    ? boardLanes.find((l) => l.group === 'staff' && l.key === moves[pending.id].laneKey)
+    : undefined
+  const pendingWarnModel = pendingWarnLane === undefined || !pending
+    ? null
+    : warnFaceFor({
+        rows: pendingRows,
+        cell: pendingGuardRow.cell,
+        override: pending.override ?? null,
+        level: props.overrideLevel,
+        holdToConfirm: props.holdToConfirm,
+        targetLaneMine: pendingWarnLane.mine,
+        operatorName: props.operatorName,
+        listPrice: pendingWarnLane.listPrice,
+        frame,
+        depth,
+        protectedDur: props.guard.protectedDurationMin,
+        confirmEnabled: pendingConfirm.enabled,
+      })
+  const pendingWarn = pendingWarnModel?.face === 'warn' ? pendingWarnModel : null
 
   /** ⚖ Liam flag 34 — THE CONFIRM COMES TO THE CARD, one surface answering for
    *  whichever 仮押さえ is live: this session's staged change, or the day's own
@@ -2193,17 +2512,11 @@ export function TodayScreen(props: TodayProps) {
         // no row for; `overrideCaption` is untouched, because a warn row is a
         // record and not a gate (⚖ 52 — × is what stops you, △ is what you were
         // told).
-        checks: [
-          ...pendingChecks.map((c) =>
-            !c.ok && c.label === pending.override
-              ? { label: `注意して配置: ${c.label}`, tone: 'warn' as const }
-              : { label: c.label, tone: c.ok ? ('' as const) : ('bad' as const) },
-          ),
-          ...(pending.override && !pendingChecks.some((c) => !c.ok && c.label === pending.override)
-            ? [{ label: `注意して配置: ${pending.override}`, tone: 'warn' as const }]
-            : []),
-        ],
-        guardRow: pendingGuardRow,
+        checks: pendingRows,
+        guardRow: pendingGuardRow.row,
+        // ⚖ 92 — the same rows, the same cell, composed into the second face.
+        warn: pendingWarn,
+        placeSafe: placePendingAt,
         confirm: { label: pendingConfirm.label, enabled: pendingConfirm.enabled, run: confirmPending },
         revert: { enabled: true, run: revertPending },
       }
@@ -2227,6 +2540,12 @@ export function TodayScreen(props: TodayProps) {
           summary: props.hold.summary,
           checks: props.hold.checks.map((label) => ({ label, tone: '' })),
           guardRow: null,
+          // ⚖ 92 — the incident's own standing 仮押さえ is UNTOUCHED. Its rows are
+          // the server's plain sentences with no verdict behind them, so it has
+          // no warn-grade fact to lead with by construction, and its 確定 stays
+          // the neutral one it has always been.
+          warn: null,
+          placeSafe: null,
           confirm: {
             label: 'この内容で確定',
             enabled: true,
@@ -2577,6 +2896,294 @@ export function TodayScreen(props: TodayProps) {
     setResolved((was) => toggleOn(was, props.cards.find((c) => c.kind === '担当変更')?.id))
     show('この画面の中だけで確定しました。再読み込みすると戻ります')
   }
+
+  /** ⚖ LIAM flag 92 (2026-08-31) — THE SAFE ANSWER, PRESSED.
+   *
+   *  The warn card's biggest control re-stages the SAME booking at the start the
+   *  ENGINE offered, and it is judged like every other landing on this board:
+   *  `verdictAtLanding` first (⚖ 50's one verdict home), `stage` second (⚖ 45's
+   *  one door — both sides, one span). There is no second write path here; a
+   *  card placed from this button reaches `moves`/`bedMoves` through exactly the
+   *  function the drop, the keyboard nudge, 配置モード and the shelf reach them
+   *  through, so nothing about the pair's bookkeeping is re-invented.
+   *
+   *  ⚖ 31c — A REFUSAL REFUSES AND NOTHING MOVES. The offer was computed when the
+   *  card was staged and the board can have changed underneath it (another
+   *  operator, another tab, the operator's own second gesture); a button that
+   *  names a start it can no longer reach says so through ⚖ 47's one door rather
+   *  than staging a lie.
+   *
+   *  THE SUCCESS STATE IS THE CARD ITSELF. The re-stage re-runs the checks and
+   *  re-verdicts the new start, so the popover simply re-renders — at a truly
+   *  safe start that is the CLEAN face, which is the operator's answer. Nothing
+   *  announces it: a panel saying 「置きました」 over a board that already shows
+   *  the card in its new place is the demo copy this batch keeps deleting. */
+  function placePendingAt(start: number) {
+    if (!pending) return
+    const at = moves[pending.id]
+    if (!at) return
+    const dur = minuteOf(at.x + at.w, hours) - minuteOf(at.x, hours)
+    const span = place(start, start + dur, hours)
+    // ⚖ 92 fix round F11 (blind L2#6) — THE VIP FLOOR IS READ OFF THE PERSON'S
+    // OWN LANE. `moves` is the STAFF side, so the lane this asks for is a staff
+    // lane; `find` by key alone would answer with a bed lane that happens to
+    // share the key and hand the verdict a `vip: false` it never checked. Every
+    // sibling derivation on this board scopes by group first (`checksFor`'s
+    // staff lookup, `holdSummary`'s) — this one now does too.
+    const item = boardLanes.find((l) => l.group === 'staff' && l.key === at.laneKey)?.items.find((i) => i.caseId === pending.id)
+    // ⚖ 87 — the room the operator CHOSE outlives the gestures that follow it,
+    // and taking the safe start is one of those gestures. The seed is handed to
+    // the verdict as the carried room, so `allocateBed` prefers it if it is free
+    // at the new span and re-solves if it is not — which is ⚖ 51's own rule, run
+    // ONCE. (The drop re-solves after its verdict because its red box can stand
+    // open for a while; this press judges and stages in the same tick, so a
+    // second solve would only be a second reading of one answer — ⚖ 54.)
+    const again = verdictAtLanding({
+      staffLane: at.laneKey,
+      bedLane: seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null),
+      solveRoom: true,
+      id: pending.id,
+      vip: item?.category === 'vip',
+      foreignRefusal: null,
+      span,
+    })
+    if (again.kind === 'blocked') {
+      refuse(again.reason ?? '配置できません')
+      return
+    }
+    /** ⚖ 92 fix round 3 T6 (breaker #6) — AND THE PRESS HONOURS THE DRAW'S OWN
+     *  PROMISE. Round 2 tightened the DRAW so a cell claiming 'safe' may only
+     *  offer starts that verdict clean (the memo's gate above), but this press
+     *  re-judged with the looser 'not blocked' — so a board that moved between
+     *  the draw and the finger landed a card under 確保を壊さない on a start the
+     *  guard now only cautions. The label was true when it was written and false
+     *  when it was pressed, which is ⚖ 31c on the time axis. Same door, same
+     *  words: the button that promised the 確保 refuses rather than breaking it.
+     *
+     *  ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — AND THE LEVEL LEAVES THIS MIRROR
+     *  TOO. ⚖ 92 fix round 4 U2 put `props.overrideLevel === 'refuse'` into
+     *  `demandedClean` so the press could not land what T1's DRAW gate refused;
+     *  the ruling deletes that draw arm, so mirroring it here would make the
+     *  press stricter than the draw — refusing a start the card openly offered,
+     *  which is ⚖ 31c pointing the other way. T6's own 確保 condition is
+     *  untouched and is again the whole of `demandedClean`.
+     *
+     *  ⚖ 92 fix round 6 X2 (breaker #5) — AND THE THIRD ARM COMES THROUGH IT
+     *  TOO. Round 6 X1 split the DRAW's least-loss arm on who chose the start:
+     *  an engine-own start keeps the ordinary not-blocked gate, a start the SNAP
+     *  moved must be strictly better (or, on an impact-less staged cell, clean).
+     *  The press re-judged all of them with 'not blocked' alone — so a board
+     *  that moved between the draw and the finger could land the card on the
+     *  invented start X1 exists to refuse. Same door, same words, same rule read
+     *  from the same `lossOf`: the DRAW and the PRESS are one law on two clocks.
+     *
+     *  `pendingGuardRow.cell` carries the staged cell's own `state` and `impact`
+     *  through the filter untouched (`offerableCell` rebuilds only
+     *  `alternatives`), so the staged side of the comparison needs no second
+     *  verdict — ⚖ 54, one reading. */
+    const drawn = pendingGuardRow.cell
+    const demandedClean = drawn?.alternativeKind === 'safe'
+    const movedStartRefused =
+      !demandedClean
+      && !pendingGuardRow.engineStarts.includes(start)
+      && !(drawn?.impact != null ? lossOf(verdictAt(at.laneKey, start, dur, pending.id)) < lossOf(drawn) : again.kind === 'clean')
+    if ((demandedClean && again.kind !== 'clean') || movedStartRefused) {
+      refuse(again.reason ?? '配置できません')
+      return
+    }
+    // The origin stays the CHANGE'S own, so 元に戻す after taking the safe start
+    // still undoes the whole change (⚖ 45's two-sided snapshot). And NO override
+    // rides along: the operator took the safe answer, so there is no longer a
+    // sentence being walked past — `stage` clears the stamp, and with it the △.
+    stage(pending.id, { staffLane: at.laneKey, bedLane: again.bedLane }, span, { staff: pending.origin, bed: pending.bedOrigin ?? null })
+  }
+
+  // ── ⚖ LIAM flag 92 — the long press ────────────────────────────────────────
+
+  /** ⚖ 92 — THE PRESS THAT COSTS SOMETHING TAKES A MOMENT. Ported from the
+   *  approved design page's own mechanics so the feel Liam signed off on is the
+   *  feel that ships: 0.6 秒 of fill, a press acknowledgment the instant the
+   *  finger lands, a recoil that carries the press's own velocity out when it is
+   *  released early, and a 250ms settle before the commit fires.
+   *
+   *  ⚖ IT COMMITS THROUGH `confirmPending` — the SAME function the clean face's
+   *  確定 runs. The long press is a gesture, never a second commit path; every
+   *  re-check the ordinary confirm performs (canon R11-7, the off-board test,
+   *  `overrideCaption`'s gate) performs here because it is literally that call.
+   *
+   *  REDUCED MOTION is a real branch and not a CSS afterthought: the fill steps
+   *  in thirds on a plain interval, nothing springs, nothing settles. The CSS
+   *  block says the same thing for the transitions the browser owns. */
+  const holdFill = (p: number) => {
+    const node = holdFillRef.current
+    if (node) node.style.transform = `scaleX(${p})`
+  }
+  const holdReduced = () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  function holdFrame(now: number) {
+    const h = holdRef.current
+    h.raf = 0
+    if (h.mode === '') return
+    const { progress, done } = holdClock({ mode: h.mode, t0: h.t0, x0: h.x0 }, now)
+    h.progress = progress
+    holdFill(progress)
+    if (!done) {
+      h.raf = requestAnimationFrame(holdFrame)
+      return
+    }
+    const was = h.mode
+    h.mode = ''
+    if (was === 'hold') holdComplete()
+  }
+
+  /** ⚖ 92 fix round F3 — THE ONE TEARDOWN. Every clock the press can start is
+   *  ended here — the frame, the reduced-motion interval and (new) the settle
+   *  timer — so no ending can leave one of them running while the others stop.
+   *  Touches nothing but `holdRef`, which is why it is safe to hand to an effect
+   *  as its cleanup.
+   *
+   *  ⚖ 92 fix round 2 S3 (stress lens #4) — AND THE METER GOES WITH THEM. This
+   *  zeroes `progress`, but the fill is a NODE transform that no render rewrites
+   *  (that is the whole point of ⚖ 92's per-frame write), so a teardown that
+   *  stopped the clocks and left the bar painted froze it mid-press: the button
+   *  disabled under a finger at 70%, and the commit refused after a completed
+   *  hold at 100%, each leaving a full-looking meter over a control that will
+   *  not fire. The node guard inside `holdFill` is what makes this safe on an
+   *  unmounted button, so the reset can always ask. */
+  const holdReset = useCallback(() => {
+    const h = holdRef.current
+    if (h.raf) { cancelAnimationFrame(h.raf); h.raf = 0 }
+    if (h.step) { clearInterval(h.step); h.step = 0 }
+    if (h.settle) { clearTimeout(h.settle); h.settle = 0 }
+    h.btn?.classList.remove('holding', 'settle')
+    h.mode = ''
+    h.progress = 0
+    holdFill(0)
+    h.completing = false
+    h.btn = null
+  }, [])
+
+  function holdStart(btn: HTMLButtonElement) {
+    const h = holdRef.current
+    if (h.mode === 'hold' || h.completing) return
+    h.btn = btn
+    // The acknowledgment: the control answers the finger before the fill has
+    // anything to show, so a press never feels like it was missed.
+    btn.classList.add('holding')
+    setHoldHinting(false)
+    if (holdReduced()) {
+      h.mode = 'hold'
+      // ⚖ 92 fix round F12 (blind L2#7) — REDUCED MOTION HAS NO RESUME, and it
+      // never did: `holdCancel` zeroes the progress on this path (there is no
+      // recoil to run it down), so a second press always restarts from zero.
+      // The seed used to be read back off `h.progress`, which is provably 0
+      // every time it is read — a resume that could not happen, dressed as one.
+      // This is the approved page's own behaviour, said out loud.
+      let n = 0
+      h.step = window.setInterval(() => {
+        n += 1
+        h.progress = n / 3
+        holdFill(h.progress)
+        if (n >= 3) { clearInterval(h.step); h.step = 0; h.mode = ''; holdComplete() }
+      }, HOLD_MS / 3)
+      return
+    }
+    h.mode = 'hold'
+    // RESUME: a second press continues the first one's fill. The finger already
+    // did that work and taking it back is the surface being pedantic.
+    h.t0 = holdResumeAt(h.progress, performance.now())
+    if (!h.raf) h.raf = requestAnimationFrame(holdFrame)
+  }
+
+  function holdCancel() {
+    const h = holdRef.current
+    if (h.completing) return
+    h.btn?.classList.remove('holding')
+    if (h.step) { clearInterval(h.step); h.step = 0 }
+    if (h.mode !== 'hold') return
+    // The one line of teaching, and only after a press that did not finish: the
+    // operator tried, so now the surface says how.
+    setHoldHinting(true)
+    if (holdReduced()) { h.mode = ''; h.progress = 0; holdFill(0); return }
+    h.x0 = h.progress
+    h.t0 = performance.now()
+    h.mode = 'spring'
+    if (!h.raf) h.raf = requestAnimationFrame(holdFrame)
+  }
+
+  function holdComplete() {
+    const h = holdRef.current
+    h.completing = true
+    holdFill(1)
+    const btn = h.btn
+    if (holdReduced() || !btn) { holdReset(); confirmPending(); return }
+    btn.classList.add('settle')
+    // ⚖ 92 fix round F3 (blind L2#2) — AND THE TIMER IS HELD, not fired and
+    // forgotten. It carries the `confirmPending` of the render that started the
+    // press, so a 元に戻す or an Escape inside its 250ms used to commit the card
+    // the operator had just taken back — two contradictory toasts over one
+    // booking, which is the ⚖ 56 class exactly. Holding the id in `holdRef` is
+    // what lets the teardown below cancel it on every ending.
+    h.settle = window.setTimeout(() => { holdReset(); confirmPending() }, 250)
+  }
+
+  /** Pointer AND keyboard, because a commit control that only answers a finger
+   *  is not a control. Enter/Space hold exactly as a finger does — `e.repeat` is
+   *  refused so the OS key-repeat cannot fill the meter on its own. */
+  const holdHandlers = {
+    onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => {
+      e.preventDefault()
+      // ⚖ 92 fix round F9 (blind L2#4) — A FINGER KEEPS THE ABORT GESTURE. A
+      // touch pointer gets IMPLICIT pointer capture on the element it lands on,
+      // so `pointerleave` never fires and sliding off the button — the one
+      // gesture every operator already knows for "no, stop" — could not cancel
+      // the press: it committed instead. Releasing the capture puts touch on the
+      // same road as the mouse. The mouse path is unchanged (it captures
+      // nothing), and jsdom implements neither, hence the guard.
+      try { if (e.currentTarget.hasPointerCapture?.(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* no pointer-capture support */ }
+      holdStart(e.currentTarget)
+    },
+    onPointerUp: () => holdCancel(),
+    onPointerLeave: () => holdCancel(),
+    onPointerCancel: () => holdCancel(),
+    onBlur: () => holdCancel(),
+    onKeyDown: (e: React.KeyboardEvent<HTMLButtonElement>) => {
+      if (e.repeat || (e.key !== 'Enter' && e.key !== ' ')) return
+      e.preventDefault()
+      holdStart(e.currentTarget)
+    },
+    onKeyUp: (e: React.KeyboardEvent<HTMLButtonElement>) => {
+      if (e.key === 'Enter' || e.key === ' ') holdCancel()
+    },
+  }
+
+  /** ⚖ 92 — WHEN THE CONTROL GOES, THE CLOCK GOES WITH IT. A frame still running
+   *  keeps writing to a node React has already detached, and then refuses the
+   *  NEXT press because `completing` was never cleared.
+   *
+   *  ⚖ 92 fix round F3 (blind L1#10 + L2#2 + L2#3) — AND "GOES" IS THE LIVE ARMED
+   *  STATE, not the commit's kind. Keyed on the kind alone, three endings were
+   *  missed and each left a stale clock armed over a card that had moved on:
+   *   · the SCREEN unmounting (a day flip remounts it) — an effect with no
+   *     cleanup function cannot hear that at all, so the cleanup below is the
+   *     whole of it;
+   *   · the button unmounting while the kind stayed 'hold' — a second finger
+   *     elsewhere clears `pendingOpen`, `asking` goes false and the ask (with
+   *     its commit control) leaves the card, kind unchanged;
+   *   · `enabled` flipping false mid-press — a disabled button swallows the
+   *     pointerup, so `holdCancel` never runs while the settle timer's
+   *     pointerdown-era `confirmPending` stays armed.
+   *  All three are the same question — "is the control the operator is pressing
+   *  still there, and still pressable?" — so they get one predicate and one
+   *  teardown rather than three special cases. */
+  const holdArmed = holdPop?.asking === true && holdPop.warn?.commit?.kind === 'hold' && holdPop.warn.commit.enabled === true
+  useEffect(() => {
+    const release = () => { holdReset(); setHoldHinting(false) }
+    if (!holdArmed) release()
+    // …and the SAME teardown as the cleanup, so the screen going away ends the
+    // clock by exactly the road the control going away ends it.
+    return release
+  }, [holdArmed, holdReset])
 
   // canon (:6941-6947): Escape puts down whatever is in the operator's hand,
   // ONE surface per press, innermost first. Armed 配置モード has no other
@@ -6278,8 +6885,25 @@ export function TodayScreen(props: TodayProps) {
           // to this popover and the registration did not come with it. The bar
           // it replaced was never a tour step either, which is how three rounds
           // went by with the count stuck at 14.
+          // ⚖ 92 fix round 11 P2 (breaker #10 #3, ⚖ 8/23 guided-tour law) — ONE
+          // DECLARATION, BOTH FACES. This surface has carried a second face since
+          // ⚖ flag 92 and the tour still described only the first, so the walk
+          // taught the operator a card the board no longer always draws. The
+          // title is unchanged — one surface declares itself once — and the
+          // sentence gains the warn face in the same plain voice.
+          // The long-press clause is composed on the STORE'S OWN DIAL rather
+          // than asserted at every store: `overrideHoldToConfirm` is a real
+          // setting, the commit's `kind` already follows it, and a tour that
+          // promises a gesture this store turned off is the same untruth this
+          // whole face was rebuilt to stop telling.
+          // ⚖ 92 fix round 12 R1 (breaker #12 #1) — AND IT SAYS WHICH CARD. The
+          // clause lands straight after the generic confirm/undo sentence, so
+          // 「確定は長押しです。」 read as a rule for EVERY confirm on this surface
+          // while the long press exists only on the warning face — the clean
+          // face's 確定 is a tap at every store, dial on or off. Naming the face
+          // scopes the promise to the control that actually asks for it.
           data-guide-title="仮押さえの確認"
-          data-guide="動かした予約はまず仮押さえになります。ここで内容を確認して確定するか、元に戻せます。再読み込みでも元に戻ります。"
+          data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、警告のカードに変わります。ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}
         >
           <div className="hp-head">
             <span className={`status ${holdPop.tone}`}>{holdPop.status}</span>
@@ -6302,7 +6926,153 @@ export function TodayScreen(props: TodayProps) {
               directly-staged override was answered in the red box; what stays on
               screen above is the RECALL — what is staged, and the way back to the
               day it is staged on. Clicking the card asks again, in full. */}
-          {holdPop.asking && (
+          {/* ⚖ LIAM flag 92 (2026-08-31, design-approved) — TWO FACES, ONE SURFACE.
+              The head above and the chrome around it are the same in both; what
+              changes is what the card is FOR. With a warn-grade fact staged, the
+              consequence leads, the safe answer is the biggest control on the
+              card, and the commit names what it commits to. Every judgement below
+              is `warnFaceFor`'s — this branch paints the model and decides
+              nothing. */}
+          {holdPop.asking && (holdPop.warn ? (
+            <>
+              {/* ⚖ 92 fix round 2 S4 (stress lens #7) — NO EMPTY PANEL. The
+                  headline is the card's reason to exist, and `warnFaceFor`
+                  composes an empty one for a face triggered by a warn ROW with
+                  no sentence behind it (`override` null, which today only the
+                  guard-fact path reaches — a future warn-grade row would land
+                  here). An empty <p> with the panel's own padding is a gap
+                  above the safe answer that says nothing. */}
+              {holdPop.warn.impact.head && (
+                <p className="wc-impact">
+                  {holdPop.warn.impact.head}
+                  {holdPop.warn.impact.yen && <span className="wc-yen">（{holdPop.warn.impact.yen}）</span>}
+                  {holdPop.warn.impact.tail}
+                </p>
+              )}
+              {/* ⚖ 92 fix round F4 (blind L1#6) — THE TWO GLYPHS THE APPROVED
+                  PAGE CARRIES. The ruled bar is that page's own visual, and its
+                  provenance and 店長のみ lines each open with the padlock: small
+                  and neutral where the store is granting authority, red where it
+                  is withholding it. One path, two sizes, and the colour comes
+                  from the line it sits on (`currentColor`) so the family's own
+                  tokens keep owning this card's palette. Decorative beside text
+                  that already says it, hence `aria-hidden`. */}
+              {holdPop.warn.provenance && (
+                <p className="wc-prov">
+                  <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d={WC_LOCK_PATH} fill="currentColor" /></svg>
+                  <span>{holdPop.warn.provenance}</span>
+                </p>
+              )}
+              {/* ⚖ 92 — the safe answer is ALWAYS the biggest control, and it is
+                  a start the engine offered or nothing at all (⚖ 31c).
+                  ⚖ 92 fix round 3 T2 (breaker #2) — the third branch is GONE: the
+                  「ここが、損が最少の開始です」 line was the surface's own claim and
+                  it contradicted the engine on every cell the snap gate emptied.
+                  With no offer the engine's own sentence rides in `rows` below
+                  (⚖ GAP-6's second clause, where its law always said it belongs). */}
+              {holdPop.warn.safePrimary?.kind === 'place' && holdPop.placeSafe && (
+                <button
+                  className="btn primary wc-safe"
+                  type="button"
+                  // Re-read at the press: the model is rebuilt every render, so
+                  // the start this fires on is the one currently on the card.
+                  onClick={() => { const p = holdPop.warn?.safePrimary; if (p?.kind === 'place') holdPop.placeSafe?.(p.start) }}
+                >
+                  <span className="wc-safe-main">{holdPop.warn.safePrimary.main}</span>
+                  <span className="wc-safe-sub">{holdPop.warn.safePrimary.sub}</span>
+                </button>
+              )}
+              {/* ⚖ 92 — the commit, and on this face it is never the neutral
+                  この内容で確定. `enabled` is `overrideCaption`'s untouched answer:
+                  a second blocker standing after the override still kills it
+                  (canon R11-7), and the control shows that rather than hiding. */}
+              {holdPop.warn.commit?.kind === 'hold' && (
+                <button
+                  className="wc-hold"
+                  type="button"
+                  disabled={!holdPop.warn.commit.enabled}
+                  // ⚖ 92 fix round F14 (blind L2#10) — the press instruction is
+                  // the control's description, so assistive tech hears HOW to
+                  // work a button whose whole point is that a tap will not do.
+                  // ⚖ 92 micro-fix M4, delta-verify D1 — and it points at the
+                  // ALWAYS-PRESENT copy below: the visible hint is
+                  // `visibility: hidden` until a cancelled press shows it, and a
+                  // hidden node is pruned from the accessibility tree, so the
+                  // description was absent exactly when it was needed.
+                  // ⚖ 92 fix round 10 V2 (breaker #9 #2) — AND ONLY WHILE THE
+                  // PRESS IS REAL. Round 9 gave the impossible floor a DEAD hold
+                  // pill reading 「この位置では確定できません」, and the description
+                  // rode along unchanged: assistive tech heard a button that
+                  // says it cannot be confirmed describe itself as
+                  // 「押し続けると配置します」 — an instruction for a gesture that
+                  // can never fire. Same gate as the `disabled` above, so the two
+                  // cannot drift.
+                  aria-describedby={holdPop.warn.commit.enabled ? 'wc-hold-hint-desc' : undefined}
+                  {...holdHandlers}
+                >
+                  {/* ⚖ 92 fix round F13 (blind L2#8) — the pill's clip lives HERE
+                      rather than on the button, so the button can carry a hit
+                      halo that its own `overflow: hidden` would otherwise cut
+                      away. The meter is unchanged: one node, one scaleX. */}
+                  <span className="wc-hold-clip" aria-hidden="true">
+                    <span className="wc-hold-fill" ref={holdFillRef} />
+                  </span>
+                  <span className="wc-hold-text">{holdPop.warn.commit.label}</span>
+                </button>
+              )}
+              {holdPop.warn.commit?.kind === 'press' && (
+                <button className="btn wc-warn-btn" type="button" disabled={!holdPop.warn.commit.enabled} onClick={holdPop.confirm.run}>
+                  {holdPop.warn.commit.label}
+                </button>
+              )}
+              {holdPop.warn.commit?.kind === 'approval' && (
+                <button className="btn wc-approve" type="button" disabled={!holdPop.warn.commit.enabled}>
+                  {holdPop.warn.commit.label}
+                </button>
+              )}
+              {holdPop.warn.commit?.note && <p className="wc-note">{holdPop.warn.commit.note}</p>}
+              {/* ⚖ 92 — the press hint the approved page shows after a cancelled
+                  hold: it reserves its own space so the card never reflows under
+                  the operator's finger.
+                  ⚖ 92 fix round 11 P4 (breaker #10 #5) — AND A DEAD PILL RESERVES
+                  NOTHING. Round 9's impossible floor wears a permanently disabled
+                  hold control, where no press can be cancelled and this line can
+                  therefore never show — so all it did was hold open a strip of
+                  empty space under the button for an instruction that cannot be
+                  obeyed. Same `enabled` as the `disabled` attribute, the
+                  `aria-describedby` and the sr copy below, so the four cannot
+                  drift apart. */}
+              {holdPop.warn.commit?.kind === 'hold' && holdPop.warn.commit.enabled && <p className={`wc-hold-hint${holdHinting ? ' show' : ''}`}>押し続けると配置します</p>}
+              {/* ⚖ 92 micro-fix M4, delta-verify D1 — the button's description,
+                  in a node that is never hidden. Same words as the hint above,
+                  which keeps its own show/hide behaviour for the eye; it sits
+                  OUTSIDE the button so it describes the control rather than
+                  joining its accessible name.
+                  ⚖ 92 fix round 10 V2 (breaker #9 #2) — and it is composed on the
+                  same `enabled` as the `aria-describedby` that points at it, so a
+                  dead pill leaves behind neither the pointer nor an orphan node
+                  carrying an instruction nothing on the card can obey. */}
+              {holdPop.warn.commit?.kind === 'hold' && holdPop.warn.commit.enabled && <span className="wc-sr" id="wc-hold-hint-desc">押し続けると配置します</span>}
+              {holdPop.warn.lock && (
+                <p className="wc-lock">
+                  <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d={WC_LOCK_PATH} fill="currentColor" /></svg>
+                  <span>{holdPop.warn.lock}</span>
+                </p>
+              )}
+              {holdPop.warn.greensLine && <p className="wc-greens">{holdPop.warn.greensLine}</p>}
+              {/* ⚖ 52 / 73-74 — every row the panel did not consume, in the SAME
+                  ✓/×/△ grammar the clean face uses. A record may never go
+                  invisible because a nicer face was drawn over it. */}
+              {holdPop.warn.rows.length > 0 && (
+                <div className="holdbar-checks wc-rows">
+                  {holdPop.warn.rows.map((c) => <span className={`ck${c.tone ? ` ${c.tone}` : ''}`} key={c.label}>{c.label}</span>)}
+                </div>
+              )}
+              <div className="hp-actions wc-foot">
+                <button className="btn" type="button" disabled={!holdPop.revert.enabled} onClick={holdPop.revert.run}>元に戻す</button>
+              </div>
+            </>
+          ) : (
             <>
               <div className="holdbar-checks">
                 {holdPop.checks.map((c) => <span className={`ck${c.tone ? ` ${c.tone}` : ''}`} key={c.label}>{c.label}</span>)}
@@ -6315,7 +7085,7 @@ export function TodayScreen(props: TodayProps) {
                 <button className="btn" type="button" disabled={!holdPop.revert.enabled} onClick={holdPop.revert.run}>元に戻す</button>
               </div>
             </>
-          )}
+          ))}
         </div>
       )}
 
