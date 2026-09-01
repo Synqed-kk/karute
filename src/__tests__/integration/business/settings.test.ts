@@ -757,21 +757,21 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
     // ⚠ MONOTONIC IN THE WIDTH THAT DECIDES IT, WHICH IS NOT THE VIEWPORT. At 743
     // the rail IS the page, so a chosen section gets the whole width (main 639);
     // at 744 the rail comes back beside it and the panel is 247px NARROWER (main
-    // 392). Sorted by the width the container query actually reads, every shape
-    // is gained once and never given back — which is the ladder law. Sorting by
-    // VIEWPORT instead is what would call that pair a reversal.
+    // 392) — a real ① at a wider viewport than the ② right next to it. Checked
+    // against a HARDCODED expectation, not one derived by sorting the same values
+    // this pin exists to catch: a sort-then-walk is monotonic by construction no
+    // matter what `main()` returns, which is why that shape shipped once already
+    // (this is the DS9-3 disease) and had to be re-pinned as a literal array.
     const LEVEL_AT = 410
-    const sweep = [390, 412, 480, 743, 744, 768, 800, 1024, 1180, 1280, 1586]
-      .map((w) => ({ w, main: main(w), level: main(w) >= LEVEL_AT }))
-      .sort((a, b) => a.main - b.main)
-    let given = false
-    for (let i = 1; i < sweep.length; i += 1) if (!sweep[i].level && sweep[i - 1].level) given = true
-    expect({ given, walk: sweep.map((r) => `${r.w}:${Math.round(r.main)}:${r.level ? '②' : '①'}`) }).toEqual({
-      given: false,
-      walk: sweep.map((r) => `${r.w}:${Math.round(r.main)}:${r.level ? '②' : '①'}`),
-    })
+    const widths = [390, 412, 480, 743, 744, 768, 800, 1024, 1180, 1280, 1586]
+    const level = widths.map((w) => `${w}:${Math.round(main(w))}:${main(w) >= LEVEL_AT ? '②' : '①'}`)
+    expect(level).toEqual([
+      '390:286:①', '412:308:①', '480:376:①', '743:639:②',
+      '744:392:①', '768:416:②', '800:448:②', '1024:660:②',
+      '1180:547:②', '1280:616:②', '1586:821:②',
+    ])
     // …and the crossing really happens INSIDE the sweep rather than never.
-    expect(sweep.some((r) => r.level) && sweep.some((r) => !r.level)).toBe(true)
+    expect(level.some((r) => r.endsWith('②')) && level.some((r) => r.endsWith('①'))).toBe(true)
     // ⚠ iPad PORTRAIT IS ②, and 744 split view is ① — named, because that is the
     // pair the fix round moved and the next reader will check it first.
     expect({ p768: main(768) >= LEVEL_AT, split744: main(744) >= LEVEL_AT }).toEqual({ p768: true, split744: false })

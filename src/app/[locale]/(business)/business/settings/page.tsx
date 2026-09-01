@@ -24,8 +24,9 @@
 //    counts, through registry ①. It is not built, and no per-store dial value
 //    crosses a store boundary today.
 //  · TYPE — Tier 2, and only where a ruling actually gave one: 現金差異 (a
-//    treatment shop's ¥0 against a cash shop's few hundred yen), 休憩の有給扱い
-//    and 再来促しの日数. Nothing on this page BRANCHES on a business type — the
+//    treatment shop's ¥0 against a cash shop's few hundred yen), 休憩の有給扱い,
+//    再来促しの日数 and コーチングの利用 (its wording, not the switch itself, changes
+//    by business type). Nothing on this page BRANCHES on a business type — the
 //    type note is printed beside the dial, and the suite pins that.
 
 import { requireBusinessAdmission } from '@/business/lib/admission'
