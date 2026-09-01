@@ -109,6 +109,10 @@ export interface CoachingSelfReady {
   categories: Array<{ key: string; label: string; score: number; topBenchmark: number | null; confidenceNote: string | null }>
   /** contract.ts:176-183 TeamPattern. */
   learnFromTop: Array<{ id: string; behavior: string; adoptionNote: string }>
+  /** ⚖ THE VIEWER'S OWN GRANT, RESOLVED. Three strings rather than a boolean,
+   *  because the screen holds no copy table — the same reason every band tone
+   *  and every trajectory line arrives as a prop. */
+  share: { stateLine: string; body: string; buttonLabel: string }
 }
 
 export type CoachingSelf = CoachingSelfReady | { kind: 'none'; statusTitle: string; statusBody: string }
@@ -121,6 +125,8 @@ export interface CoachingTriageRowProps {
   bandTone: string
   maturityNote: string | null
   focusAreas: Array<{ label: string; summaryText: string; priority: 'high' | 'medium' | 'low' }>
+  /** staff-focus.ts:144-145's OMIT remedy, said out loud rather than swallowed. */
+  summaryWarning: string | null
   trajectoryLine: string
   action: { kind: 'assign-module' | 'manager-coaching' | 'peer-pairing'; label: string } | null
 }
@@ -315,11 +321,17 @@ export function CoachingScreen(props: CoachingProps) {
           >
             ?
           </button>
-          <span className="cg-spacer" />
-          <button {...refused('コーチングの設定', props.refusals.settings, 'cg-settings')}>コーチングの設定</button>
         </div>
         <p className="cg-sub">{props.subtitle}</p>
         <p className="cg-window">{props.windowLabel}のセッションを見ています</p>
+        {/* ⚠ THE HEAD'S OWN ACTION IS THE LAST THING IN THE HEAD, and the sheet
+            decides where it SITS. On a desk it rides the title line, right; at
+            ≤743 it used to be pushed onto a full-width row BETWEEN the h1 and
+            the sentence that explains the page, so the most prominent element
+            under the title on a phone was a permanently refused control. Now
+            the reading order is the same at every width: what this page is,
+            what it covers, and only then the lever that is waiting on a seam. */}
+        <button {...refused('コーチングの設定', props.refusals.settings, 'cg-settings')}>コーチングの設定</button>
       </header>
 
       {!props.moduleOn ? (
@@ -433,8 +445,6 @@ export function CoachingScreen(props: CoachingProps) {
                               </div>
                               <h3>{f.headline}</h3>
                               <p className="cg-find-impact">{f.impact}</p>
-                              <p className="cg-find-count">{f.countLabel}</p>
-                              {f.countWarning && <p className="cg-find-warn">{f.countWarning}</p>}
                               {f.checklistItemMatched && (
                                 <p className="cg-find-check">
                                   <b>該当した確認項目</b>
@@ -445,6 +455,25 @@ export function CoachingScreen(props: CoachingProps) {
                                 <b>次にやること</b>
                                 {f.recommendation}
                               </p>
+                              {/* ⚠ THE COUNT IS THE RECEIPT, NOT A SECOND
+                                  SENTENCE. `impact` and `comparison` are two
+                                  generator fields with the same job — 「the
+                                  quantified cost in plain words」 and 「the
+                                  quantified impact in words」 — and rendered as
+                                  adjacent paragraphs every card said its own
+                                  numbers twice, back to back, which is the
+                                  first thing a reader at the desk bar sees.
+                                  Neither field is dropped (the room composes no
+                                  sentence a generator owns): the count moves
+                                  into the EVIDENCE group beside the quoted
+                                  moment and takes a label, so it reads as the
+                                  arithmetic behind the claim instead of a
+                                  restatement of it. */}
+                              <p className="cg-find-count">
+                                <b>該当した回数</b>
+                                {f.countLabel}
+                              </p>
+                              {f.countWarning && <p className="cg-find-warn">{f.countWarning}</p>}
                               {f.moment && (
                                 <blockquote className="cg-quote">
                                   <span className="cg-quote-meta">
@@ -539,11 +568,23 @@ export function CoachingScreen(props: CoachingProps) {
                         </section>
                       )}
 
+                      {/* ⚠ THE TOUR SENTENCE DESCRIBES THE PAYLOAD, and the
+                          payload only. It used to add 「本人が許可したものだけが
+                          並びます」 — a consent gate `TeamPattern`
+                          (contract.ts:176-183) carries no field for and nothing
+                          in this room applies, which broke this file's own
+                          header rule three lines into it. What is left is what
+                          the shape really guarantees: no name rides with a
+                          technique. (VISIBILITY_MODEL §5's double consent
+                          governs ATTRIBUTION, and these patterns are anonymous
+                          by construction — so the promise was not merely
+                          unbacked, it was a promise about a gate the design
+                          does not need.) */}
                       {ready.learnFromTop.length > 0 && (
                         <section
                           className="cg-learn"
                           data-guide-title="上位層から学ぶ"
-                          data-guide="成績の良いスタッフがやっていることを、名前を伏せた形で共有しています。誰のやり方かは分かりませんし、本人が許可したものだけが並びます。"
+                          data-guide="成績の良いスタッフがやっていることを、名前を伏せた形で共有しています。誰のやり方かは分かりません。"
                         >
                           <h2 className="cg-sec-title">上位層から学ぶ</h2>
                           <ul className="cg-learn-list">
@@ -557,7 +598,13 @@ export function CoachingScreen(props: CoachingProps) {
                         </section>
                       )}
 
-                      {/* ⚖ THE GRANT IS THE STAFF MEMBER'S OWN, AND IT IS OFF.
+                      {/* ⚖ THE GRANT IS THE STAFF MEMBER'S OWN, AND IT IS READ
+                          — the state sentence, the body and the button label
+                          all come from `SelfView.grant`, the viewer's own plane
+                          row. It used to be a hardcoded 「現在オフ」, which told
+                          a staff member whose row says `granted` that nothing
+                          was shared while the same payload counted them among
+                          the staff who had allowed it.
                           Default OFF for everyone, always; a manager can only
                           ask a person face to face — there is deliberately no
                           request button on this page, because an in-app nag is
@@ -568,11 +615,11 @@ export function CoachingScreen(props: CoachingProps) {
                         data-guide="自分から許可したときだけ、店長が「どの場面を伸ばすとよいか」を見られるようになります。会話の引用は許可しても渡りません。断っても勤務には影響せず、断ったことは誰にも表示されません。"
                       >
                         <h2 className="cg-sec-title">マネージャーへの共有</h2>
-                        <p className="cg-share-state">現在オフ（あなたの詳しい内容は誰にも共有されていません）</p>
-                        <p className="cg-share-body">
-                          共有をオンにすると、店長はあなたが「どの場面を伸ばすとよいか」だけを見られます。会話の引用と録音は、オンにしても渡りません。いつでも取り消せます。断っても勤務には影響しませんし、断ったことは表示されません。
-                        </p>
-                        <button {...refused('共有をオンにする', props.refusals.share, 'cg-share-btn')}>共有をオンにする</button>
+                        <p className="cg-share-state">{ready.share.stateLine}</p>
+                        <p className="cg-share-body">{ready.share.body}</p>
+                        <button {...refused(ready.share.buttonLabel, props.refusals.share, 'cg-share-btn')}>
+                          {ready.share.buttonLabel}
+                        </button>
                       </section>
                     </div>
                   </div>
@@ -637,6 +684,9 @@ export function CoachingScreen(props: CoachingProps) {
                               <span>{f.summaryText}</span>
                             </span>
                           ))}
+                          {/* ⚠ AN OMITTED SENTENCE IS SAID, NOT SWALLOWED —
+                              the L2 leak guard's own honesty half. */}
+                          {r.summaryWarning && <span className="cg-row-warn">{r.summaryWarning}</span>}
                         </span>
                         {r.action && (
                           <button {...refused(r.action.label, props.helpRefusals[r.action.kind], 'cg-row-act')}>{r.action.label}</button>

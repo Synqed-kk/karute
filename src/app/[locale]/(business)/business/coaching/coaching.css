@@ -53,9 +53,19 @@
       One glance instead of four scrolls.
 
    ⚖ ONE BLUE, AND IT IS #2563eb (R13, CLAUDE.md + globals.css:99 --primary).
-   The shell's --indigo is a DIFFERENT blue (#3f5be8) and is not spent here. The
-   accent goes ONLY on pressables — the selected tab, the ? when the tour is up —
-   and every band chip is a NEUTRAL wash. That last part is a rule, not a taste:
+   The shell's --indigo is a DIFFERENT blue (#3f5be8) and is not spent here.
+
+   WHERE THE ACCENT IS SPENT, EXACTLY — two places, and the second is a
+   CARVE-OUT, not an exception this sheet invented:
+     · PRESSABLES — the selected tab, the ? when the tour is up. That is the
+       one-way accent law's main clause.
+     · ONE DATA MARK — the LAST bar of the 成約率 trend (`.cg-bar:last-child
+       .cg-bar-fill`), which is the month the reader is in. CLAUDE.md's own law
+       carves out 「chart/data colours」, and a series highlight is that: it
+       encodes WHICH point, exactly as the severity tones encode WHICH kind of
+       finding. It is not pressable and nothing about it invites a press.
+   Nothing else. Every band chip is a NEUTRAL wash — that last part is a rule
+   rather than a taste:
    ⚖ 8/25's B family forbids a red or a threshold tone on a per-person number,
    and サポートが必要 is a place to send help, not a failing grade. There is no
    red anywhere on this page.
@@ -179,10 +189,22 @@
 }
 
 /* ── the head ──────────────────────────────────────────────────────────────── */
-.biz .pg-coaching .cg-head { display: flex; flex-direction: column; gap: 6px; }
+/* ⚠ A GRID, SO THE HEAD'S OWN ACTION IS PLACED RATHER THAN PUSHED. The button
+   is the LAST child in the DOM — after the sentence that explains the page —
+   and the sheet lifts it onto the title line on a desk. It used to sit inside
+   the title line with a flex spacer, and at ≤743 that spacer wrapped it onto a
+   full-width row BETWEEN the h1 and the subtitle: on a phone the most prominent
+   element under the title was a permanently refused control, and the 3-second
+   receptionist read landed on a lever that will never do anything. DOM order is
+   now the reading order at every width, and only the placement changes. */
+.biz .pg-coaching .cg-head { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; align-items: start; }
+.biz .pg-coaching .cg-eyebrow,
+.biz .pg-coaching .cg-titleline,
+.biz .pg-coaching .cg-sub,
+.biz .pg-coaching .cg-window { grid-column: 1; }
+.biz .pg-coaching .cg-settings { grid-column: 1; justify-self: stretch; margin-top: 4px; }
 .biz .pg-coaching .cg-eyebrow { color: var(--quiet); font-size: 12px; letter-spacing: .01em; }
 .biz .pg-coaching .cg-titleline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.biz .pg-coaching .cg-spacer { flex: 1 1 auto; }
 .biz .pg-coaching .cg-help {
   display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; min-width: 26px;
@@ -297,6 +319,21 @@
    moment needs the line) and the four supporting cards pair up beneath them. */
 @container cg-page (min-width: 700px) {
   .biz .pg-coaching .cg-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* ⚠ AND NO ORPHAN IN THE LAST ROW. The side column carries FIVE cards when a
+     run has everything (推移 / 不成約の理由 / 会話スキル / 上位層から学ぶ /
+     マネージャーへの共有) and the pair grid leaves the fifth alone beside half a
+     row of white — the same defect the fifth STAT TILE had one level down.
+     `:last-child:nth-child(odd)` is the count read off the DOM rather than a
+     number this sheet would have to keep in sync: last AND odd can only be true
+     when the total is odd, so the orphan — and only the orphan — takes the
+     whole row. A run with four cards is untouched. */
+  .biz .pg-coaching .cg-side > *:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  /* …and the head's own action rejoins the title line, right, once there is a
+     line to rejoin. This is a CONTAINER rule like every other shape in this
+     room — the head's width is the page's width, so a viewport band could only
+     disagree with what the container already decided. */
+  .biz .pg-coaching .cg-head { grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; }
+  .biz .pg-coaching .cg-settings { grid-column: 2; grid-row: 2; justify-self: end; margin-top: 0; }
 }
 
 /* ③ DESK — findings left, the numbers that back them right. The side column
@@ -321,7 +358,12 @@
 .biz .pg-coaching .cg-sev.is-watch { background: var(--cg-watch-soft); color: var(--cg-watch); }
 .biz .pg-coaching .cg-sev.is-strength { background: var(--cg-strength-soft); color: var(--cg-strength); }
 .biz .pg-coaching .cg-find-impact { margin: 9px 0 0; color: var(--ink-2); font-size: 13px; line-height: 1.85; }
-.biz .pg-coaching .cg-find-count { margin: 5px 0 0; color: var(--ink-3); font-size: 12px; font-weight: 700; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+/* THE COUNT IS THE RECEIPT'S ARITHMETIC, wearing the same labelled shape as
+   該当した確認項目 and 次にやること, and sitting with the quoted moment rather
+   than under the impact sentence it used to restate. */
+.biz .pg-coaching .cg-find-count { margin: 11px 0 0; color: var(--ink-2); font-size: 12.5px; font-weight: 600; line-height: 1.8; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-find-count b { display: block; color: var(--ink-3); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; }
+.biz .pg-coaching .cg-find-count ~ .cg-quote { margin-top: 7px; }
 .biz .pg-coaching .cg-find-warn { margin: 5px 0 0; color: var(--cg-priority); font-size: 11.5px; line-height: 1.7; }
 .biz .pg-coaching .cg-find-check { margin: 9px 0 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.8; }
 .biz .pg-coaching .cg-find-check b { display: block; color: var(--ink-3); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; }
@@ -404,6 +446,9 @@
 .biz .pg-coaching .cg-row-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .biz .pg-coaching .cg-row-line { color: var(--ink-2); font-size: 12.5px; line-height: 1.75; }
 .biz .pg-coaching .cg-row-focus { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 12px; line-height: 1.75; }
+/* The L2 leak guard's honesty half — amber, like every other 「this number/this
+   sentence did not check out」 line in the room, and never red on a person. */
+.biz .pg-coaching .cg-row-warn { color: var(--cg-priority); font-size: 11.5px; line-height: 1.7; }
 .biz .pg-coaching .cg-chip { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
 /* ⚖ NEUTRAL WASHES, ALL FOUR. No red, no alarm, no threshold tone on a person. */
 .biz .pg-coaching .cg-band-grow { background: var(--green-soft); color: var(--green-dark); }
@@ -422,12 +467,24 @@
   }
   .biz .pg-coaching .cg-row-act { grid-column: 3; justify-self: start; }
 }
+/* ⚠ THE DESK ROW IS THREE COLUMNS, NOT FOUR, AND THAT IS A CORRECTION.
+   It used to add a fourth `max-content` track for the action — which is 0px
+   wide on every row that has no action and ~200px on the one that does, and
+   `.cg-row` is a grid PER `<li>`, so the tracks are not shared between rows.
+   The sentence column therefore stopped ~200px short on the flagged row and ran
+   to the card edge on all the others: on a desk that ragged RIGHT edge is the
+   edge the eye follows down a column, and a ragged column reads as unfinished —
+   the same craft judgement that made this row a grid in the first place.
+   A reserved fixed track would only trade the raggedness for a magic number
+   that goes stale the day a label changes (the room-6 B4-1 class), so the track
+   goes and the action keeps the place the FOLD band already gives it: under the
+   sentence it acts on, on the row it acts on. The desk band still recomposes —
+   wider name and band tracks, and the roster's longest name no longer squeezes
+   the sentence. */
 @container cg-page (min-width: 880px) {
   .biz .pg-coaching .cg-row {
-    grid-template-columns: minmax(110px, 168px) minmax(110px, max-content) minmax(0, 1fr) max-content;
-    align-items: center;
+    grid-template-columns: minmax(110px, 168px) minmax(110px, max-content) minmax(0, 1fr);
   }
-  .biz .pg-coaching .cg-row-act { grid-column: auto; justify-self: end; }
 }
 
 .biz .pg-coaching .cg-adoption-line { margin: 0; color: var(--ink); font-size: 14px; font-weight: 700; line-height: 1.6; font-variant-numeric: tabular-nums; }
@@ -522,8 +579,6 @@
   .biz .page.pg-coaching { padding: 18px 14px 32px; }
   .biz .page.pg-coaching h1 { font-size: 22px; letter-spacing: -.018em; }
   .biz .pg-coaching .cg-tab { flex: 1 1 auto; }
-  .biz .pg-coaching .cg-spacer { flex-basis: 100%; height: 0; }
-  .biz .pg-coaching .cg-settings { width: 100%; }
   .biz .pg-coaching .cg-row-act { width: 100%; }
   .biz .pg-coaching .cg-spine,
   .biz .pg-coaching .cg-focus,

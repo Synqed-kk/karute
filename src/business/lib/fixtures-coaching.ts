@@ -528,6 +528,14 @@ export const coachingStaff: FixtureCoachingStaff[] = [
     focus: {
       focus_recommendations: [],
       strengths: [],
+      // ⚠ THE SENTENCE AGREES WITH THE BAND IT SITS BESIDE (⚖ demo data =
+      // product truth). It used to read 「まだ判断材料が足りません」 under a
+      // 安定 chip, so a manager's 3-second read got a verdict and 「we cannot
+      // judge yet」 side by side. Both halves were true inside the model — a
+      // steady closing rate can sit on thin category evidence — but the board
+      // is read in three seconds, not reasoned through. What is wrong here is
+      // the RECORDING, and that is what the sentence now says; the band, which
+      // is computed from the closing-rate history the plane really has, stands.
       focus_areas: [
         {
           category: 'questioning_depth',
@@ -535,7 +543,7 @@ export const coachingStaff: FixtureCoachingStaff[] = [
           priority: 'medium',
           maturity: 'early',
           summary_text:
-            '記録が残っているセッションが少なく、まだ判断材料が足りません。録音の運用を一緒に見直すところから始めると、次の月から傾向が見えるようになります。',
+            '録音が残っていないセッションが多く、会話の中身から見えることがまだ限られています。記録の残し方を一緒に整えるところから始めると、次の月からもっと具体的に見えるようになります。',
         },
       ],
     },

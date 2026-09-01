@@ -163,23 +163,52 @@ export interface HelpAction {
   moduleId: string | null
 }
 
-export function helpActionFor(band: PerformanceBand | null, moduleId: string | null): HelpAction | null {
+/** ⚖ ALL THREE KINDS ARE REACHABLE. `peer-pairing` used to be a key nothing
+ *  could return — a refusal sentence written for a lever no reader could ever
+ *  press, counted by the census as if it were live. COACHING_VISIBILITY_MODEL
+ *  §4 names three help actions and the third is 「pair with a top performer」,
+ *  so the third arm exists rather than the key being deleted.
+ *
+ *  `peerAvailable` is a BOOLEAN, never the pattern itself: the caller asks
+ *  「is anybody in this store already doing the thing this person's focus run
+ *  named」, and the answer that comes back cannot say who. The pattern plane is
+ *  anonymous by construction (contract.ts:176-183 has no source field) and this
+ *  argument keeps it that way. */
+export function helpActionFor(
+  band: PerformanceBand | null,
+  moduleId: string | null,
+  peerAvailable = false,
+): HelpAction | null {
   if (band !== 'needs-support') return null
   // A staff member whose own focus run named a module gets that named module
-  // assigned; one without gets a person instead, which is the Japan-side default
-  // (develop, don't judge).
-  return moduleId
-    ? { kind: 'assign-module', label: '学習モジュールを割り当てる', moduleId }
-    : { kind: 'manager-coaching', label: '1対1の時間をつくる', moduleId: null }
+  // assigned; without one, a colleague already doing that exact thing is the
+  // next most concrete help the design names; failing both, a person instead,
+  // which is the Japan-side default (develop, don't judge).
+  if (moduleId) return { kind: 'assign-module', label: '学習モジュールを割り当てる', moduleId }
+  if (peerAvailable) return { kind: 'peer-pairing', label: 'ペアを組んで学ぶ', moduleId: null }
+  return { kind: 'manager-coaching', label: '1対1の時間をつくる', moduleId: null }
 }
 
+/** ⚠ THE REGISTRY LINE LIVES IN THE CODE, NEVER IN THE SENTENCE A READER GETS.
+ *  Each reason below used to end with a build-tracking tag — 「（登録: ①集計の
+ *  実データ接続）」 — glued onto a sentence a salon manager reads, and the
+ *  refused-control helper concatenates that whole sentence into the button's
+ *  accessible NAME, so a screen reader voiced the ticket code as part of one
+ *  unbroken utterance on every disabled control on the page. ⚖ plain names: a
+ *  reader is not owed our vocabulary. The seam each lever waits on is kept
+ *  HERE, beside the string it belongs to, so the sentence on the screen and the
+ *  Anthony ask in build-report §9 are still the same seam:
+ *
+ *    assign-module    → 登録 ①集計の実データ接続
+ *    manager-coaching → 登録 ①集計の実データ接続
+ *    peer-pairing     → 登録 ⑦ピア共有 */
 export const HELP_REFUSAL: Record<HelpAction['kind'], string> = {
   'assign-module':
-    '見本データのため学習モジュールを割り当てられません。割り当てはスタッフに通知が届く操作のため、実データの接続後に有効になります（登録: ①集計の実データ接続）。',
+    'サンプルデータのため学習モジュールを割り当てられません。割り当てはスタッフに通知が届く操作のため、実データの接続後に有効になります。',
   'manager-coaching':
-    '見本データのため1対1の予定をつくれません。予定の作成はスタッフの勤務に関わる操作のため、シフトの実データ接続後に有効になります（登録: ①集計の実データ接続）。',
+    'サンプルデータのため1対1の予定をつくれません。予定の作成はスタッフの勤務に関わる操作のため、シフトの実データ接続後に有効になります。',
   'peer-pairing':
-    '見本データのためペアを組めません。ペア学習は両者の同意が必要な操作のため、同意の保存をつないだあとに有効になります（登録: ⑦ピア共有）。',
+    'サンプルデータのためペアを組めません。ペア学習は両者の同意が必要な操作のため、同意の保存をつないだあとに有効になります。',
 }
 
 // ── the category token table (the 26-type law) ──────────────────────────────
@@ -298,6 +327,16 @@ export interface SelfFinding {
 
 export interface SelfView {
   scope: 'staff-self'
+  /** ⚖ THE VIEWER'S OWN GRANT, READ FROM THE PLANE.
+   *  COACHING_VISIBILITY_MODEL:21 lists 「own grant/consent history」 as L1
+   *  content the staff member is ENTITLED to see, and this is a lookup by the
+   *  viewer's own id — their own field, so no wall is crossed. It used to be a
+   *  hardcoded 「現在オフ」 on the screen, which told a staff member whose plane
+   *  row says `granted` that their detail was shared with nobody, while
+   *  `sharingAdoption` in the same payload counted them among the staff who
+   *  had allowed it: two truths for one question inside one payload (⚖ A8),
+   *  and the false one a privacy statement to the person the wall protects. */
+  grant: 'granted' | 'declined' | 'none'
   /** personal-findings.ts:216-223 — the run's own window and status. */
   sessionsReviewed: number
   status: 'findings' | 'routine_excellence' | 'capture_gap' | 'insufficient_data'
@@ -346,6 +385,8 @@ export function buildSelfView(input: {
     kind: 'ready',
     view: {
       scope: 'staff-self',
+      // The viewer's OWN row, by the same lookup — never the roster's.
+      grant: mine.grant,
       sessionsReviewed: run.sessions_reviewed,
       status: run.status,
       headline: run.headline,
@@ -436,6 +477,45 @@ export const STATUS_BODY: Record<SelfView['status'], string | null> = {
 
 // ── L2 — the owner's triage board (BANDS ONLY) ──────────────────────────────
 
+/** ⚖ THE ONE FREE STRING THAT REACHES AN OWNER IS CHECKED BEFORE IT DOES, AND
+ *  THE MODULE THAT OWNS THE FIELD SAYS THE CHECK IS THIS APP'S JOB.
+ *  staff-focus.ts:12-24 is unusually explicit, and says why a shape-match will
+ *  not do: 「the app-side guard MUST substring/fuzzy-diff summary_text against
+ *  the real strings it already has — this staff's actual customer names …, the
+ *  FULL staff roster (including THIS staff member's own name) … — and reject on
+ *  a hit」, because 三割 / 半分 / 二回 are quantities with no ASCII digit and a
+ *  Japanese name carries no capitalisation signal. staff-focus.ts:144-145 hands
+ *  the room the remedy in the same breath: 「If you can't write an L2 entry that
+ *  passes every rule, OMIT it. A missing row is safe; a leaking row is not.」
+ *
+ *  This is the SIBLING of `countChecks` (personal-findings.ts:26-27) — the same
+ *  「the app re-checks what the model promised」 duty — and like that one its
+ *  failure is SAID OUT LOUD rather than swallowed: the row carries
+ *  `summaryChecks`, and the props file turns a false into a sentence.
+ *
+ *  ⚠ A QUANTITY, NOT A BARE CHARACTER. 「一緒に」 is not a number, and two of
+ *  this plane's own honest sentences carry it — a bare `[一二三…]` class would
+ *  drop real rows and call it safety. A kanji numeral is a quantity only when a
+ *  COUNTER follows it, which is what this pattern asks for. */
+const L2_QUANTITY = /[0-9０-９]|[一二三四五六七八九十百千]\s*[割分回件名人倍点％%]|半[分数]/
+
+/** True when `text` must NOT be printed to an owner. `names` is the roster this
+ *  board is being built for — the ONLY name list this room has, and the one the
+ *  module names first. */
+export function summaryLeaks(text: string, names: string[]): boolean {
+  if (L2_QUANTITY.test(text)) return true
+  return names.some((n) => text.includes(n))
+}
+
+/** Every form of every roster name this room can check against: the full name
+ *  as stated, and each of its parts, because a leak is far likelier to say
+ *  「あずさ さんは」 than to print a full name. One character is not a name. */
+function rosterNeedles(roster: Array<{ name: string }>): string[] {
+  const out = new Set<string>()
+  for (const m of roster) for (const part of [m.name, ...m.name.split(/\s+/)]) if (part.length >= 2) out.add(part)
+  return [...out]
+}
+
 /** contract.ts:236-245 OwnerTriageRow, plus the two fields staff-focus.ts's own
  *  L2 half carries: `status` (:183 — 「skipped = insufficient data; NOT an
  *  error」) and `maturity` (:190).
@@ -461,6 +541,10 @@ export interface TriageRow {
   band: PerformanceBand | null
   maturity: Maturity
   focusAreas: Array<{ category: string; label: string; band: PerformanceBand; priority: 'high' | 'medium' | 'low'; maturity: Maturity; summaryText: string }>
+  /** ⚠ FALSE = at least one focus area was OMITTED by the L2 leak guard above.
+   *  The omission is the module's own remedy; SAYING it is this room's rule
+   *  (silent failure is a bug), exactly as `countChecks` says a short count. */
+  summaryChecks: boolean
   needsSupport: boolean
   /** contract.ts:244 — paired 1:1 with `needsSupport`, by construction. */
   suggestedAction: HelpAction | null
@@ -481,9 +565,15 @@ export function buildTriage(input: {
   roster: Array<{ id: string; name: string }>
   rows: FixtureCoachingStaff[]
   floor: number
+  /** The CATEGORY KEYS this store's anonymised top-performer patterns cover
+   *  (contract.ts:176-183 TeamPattern). Keys only — no id, no name, nothing
+   *  that could say WHO — because all this board needs to know is whether the
+   *  third help action has anybody behind it. */
+  patternCategories?: string[]
 }): TriageView {
-  const { roster, rows, floor } = input
+  const { roster, rows, floor, patternCategories = [] } = input
   const byStaff = new Map(rows.map((r) => [r.staffId, r]))
+  const needles = rosterNeedles(roster)
   const out: TriageRow[] = roster.map((member) => {
     const row = byStaff.get(member.id)
     // staff-focus.ts:238 — the run itself is skipped below its own bar; the
@@ -491,30 +581,39 @@ export function buildTriage(input: {
     const generated = Boolean(row) && sessionsOf(row!) >= FOCUS_MIN_SESSIONS
     const band = generated ? bandOf(row!.history, sessionsOf(row!), floor) : null
     const needsSupport = band === 'needs-support'
-    const moduleId = row?.focus.focus_recommendations[0]?.module_id ?? null
+    const focusOne = row?.focus.focus_recommendations[0]
+    const moduleId = focusOne?.module_id ?? null
+    // ⚠ THE FOCUS AREAS RIDE ONLY WHEN A BAND DOES. A summary_text under a
+    // 「まだ判断できません」 row would be the board saying something specific
+    // about a person it just said it could not judge.
+    const areas =
+      band === null
+        ? []
+        : row!.focus.focus_areas.map((f) => ({
+            category: f.category,
+            label: categoryLabel(f.category),
+            band: f.trajectory_band,
+            priority: f.priority,
+            maturity: f.maturity,
+            summaryText: f.summary_text,
+          }))
+    // …and one that would print a quantity or a name does not ride at all.
+    const safe = areas.filter((f) => !summaryLeaks(f.summaryText, needles))
     return {
       staffLabel: member.name,
       status: generated ? 'generated' : 'skipped',
       band,
       maturity: maturityOf(row ? sessionsOf(row) : 0),
-      // ⚠ THE FOCUS AREAS RIDE ONLY WHEN A BAND DOES. A summary_text under a
-      // 「まだ判断できません」 row would be the board saying something specific
-      // about a person it just said it could not judge.
-      focusAreas:
-        band === null
-          ? []
-          : row!.focus.focus_areas.map((f) => ({
-              category: f.category,
-              label: categoryLabel(f.category),
-              band: f.trajectory_band,
-              priority: f.priority,
-              maturity: f.maturity,
-              summaryText: f.summary_text,
-            })),
+      focusAreas: safe,
+      summaryChecks: safe.length === areas.length,
       needsSupport,
       // ⚖ THE PAIRING IS THE FUNCTION'S RETURN, so a flag without an action is
       // not a bug this room could ship — it is a value this room cannot build.
-      suggestedAction: helpActionFor(band, moduleId),
+      suggestedAction: helpActionFor(
+        band,
+        moduleId,
+        focusOne !== undefined && patternCategories.includes(focusOne.category),
+      ),
     }
   })
   return {

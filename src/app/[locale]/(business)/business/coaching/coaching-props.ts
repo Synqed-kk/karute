@@ -59,22 +59,64 @@ const fmtMonth = new Intl.DateTimeFormat('ja-JP', { month: 'long', ...JST })
 const WINDOW_DAYS = 90
 
 /** ⚖ EVERY REFUSAL SAYS WHY IN ITS OWN WORDS, AND NAMES THE SEAM IT IS WAITING
- *  ON. One generic sentence on six controls tells the reader nothing about which
- *  of them would have done what. Each reason ends with the registry line the
- *  build report reconnects it through, so the sentence on the screen and the
- *  Anthony ask are the same sentence. */
+ *  ON — IN THE CODE. One generic sentence on six controls tells the reader
+ *  nothing about which of them would have done what.
+ *
+ *  ⚠ THE SEAM IS NAMED HERE, NOT IN THE SENTENCE. Each reason used to end with
+ *  a build-tracking tag — 「（登録: ②コーチング生成）」 — on a sentence a salon
+ *  manager reads, and `refused()` folds that whole sentence into the button's
+ *  accessible NAME, so a screen reader voiced the ticket code on every disabled
+ *  control. ⚖ plain names: a reader is not owed our vocabulary. The registry
+ *  line stays beside the string it belongs to, so the sentence on the screen
+ *  and the Anthony ask in build-report §9 are still the same seam:
+ *
+ *    regenerate → 登録 ②コーチング生成
+ *    share      → 登録 ③同意の実保存
+ *    depth      → 登録 ④深掘り共有の権限
+ *    settings   → 登録 ⑤店舗設定ダイヤル
+ *
+ *  ⚠ ONE WORD FOR THE SAMPLE STATE. The shell's own honesty chip says
+ *  ◈ サンプルデータ and this room's dateline says サンプルデータ; these
+ *  sentences said 見本データ for the identical thing, three lines apart on one
+ *  screen. The Business family still says 見本データ in its other rooms' refusal
+ *  copy — a one-word family sweep is owed and is named in the build report. */
 const REFUSAL = {
   regenerate:
-    '見本データのため気づきを作り直せません。作り直しはあなたのセッションをAIにかけ直す操作で、料金の発生する処理のため、実データとAIの接続後に有効になります（登録: ②コーチング生成）。',
+    'サンプルデータのため気づきを作り直せません。作り直しはあなたのセッションをAIにかけ直す操作で、料金の発生する処理のため、実データとAIの接続後に有効になります。',
   share:
-    '見本データのため共有の設定を変えられません。この切り替えはあなた自身が許可を出す記録で、取り消しも履歴も残る操作のため、同意の保存をつないだあとに有効になります（登録: ③同意の実保存）。',
+    'サンプルデータのため共有の設定を変えられません。この切り替えはあなた自身が許可を出す記録で、取り消しも履歴も残る操作のため、同意の保存をつないだあとに有効になります。',
   depth:
-    '見本データのため詳しい内容を開けません。スタッフが許可した範囲だけを開く仕組みはサーバー側で判定する必要があるため、権限の実装後に有効になります（登録: ④深掘り共有の権限）。',
+    'サンプルデータのため詳しい内容を開けません。スタッフが許可した範囲だけを開く仕組みはサーバー側で判定する必要があるため、権限の実装後に有効になります。',
   settings:
-    '見本データのためコーチングの設定を変えられません。オン・オフ、共有の方針、記録の保存期間は店舗ごとの設定のため、設定画面の接続後に有効になります（登録: ⑤店舗設定ダイヤル）。',
+    'サンプルデータのためコーチングの設定を変えられません。オン・オフ、共有の方針、記録の保存期間は店舗ごとの設定のため、設定画面の接続後に有効になります。',
 } as const
 
-const FOOTNOTE = '見本データのため、この画面から記録・共有・割り当てはできません — 実データ接続後に有効になります。'
+const FOOTNOTE = 'サンプルデータのため、この画面から記録・共有・割り当てはできません — 実データ接続後に有効になります。'
+
+/** ⚖ THE SHARE STATE IS THE VIEWER'S OWN GRANT, AND IT IS READ, NOT ASSUMED.
+ *  The state line, the body and the button label all resolve from
+ *  `SelfView.grant` — the viewer's own plane row, looked up by their own id.
+ *
+ *  `declined` and `none` are ONE state HERE on purpose: to the person
+ *  themselves the question is 「is my detail shared」, and the honest answer is
+ *  no either way. The two stay different facts in the plane and collapse
+ *  separately in the owner aggregate, which is where the anti-coercion rule
+ *  lives — this is the person's own screen, not a manager's.
+ *
+ *  ⚠ NEITHER STATE CARRIES A REQUEST OR A NAG (COACHING_VISIBILITY_MODEL §3):
+ *  turning it ON is the staff member's, and turning it OFF is theirs too. */
+const SHARE_STATE = {
+  on: {
+    stateLine: '現在オン（店長は「どの場面を伸ばすとよいか」だけを見られます）',
+    body: '店長が見られるのは「どの場面を伸ばすとよいか」だけです。会話の引用と録音は渡っていません。いつでも取り消せます。取り消しても勤務には影響しませんし、取り消したことは表示されません。',
+    buttonLabel: '共有をやめる',
+  },
+  off: {
+    stateLine: '現在オフ（あなたの詳しい内容は誰にも共有されていません）',
+    body: '共有をオンにすると、店長はあなたが「どの場面を伸ばすとよいか」だけを見られます。会話の引用と録音は、オンにしても渡りません。いつでも取り消せます。断っても勤務には影響しませんし、断ったことは表示されません。',
+    buttonLabel: '共有をオンにする',
+  },
+} as const
 
 export interface CoachingPropsInput {
   locale: string
@@ -141,7 +183,10 @@ export async function coachingProps({ locale, store, world }: CoachingPropsInput
   // ⚖ (2) THE TEAM BOARD IS ONLY BUILT FOR A READER WHO HOLDS THE CAPABILITY.
   // Not filtered afterwards — never built, so there is nothing in the payload
   // for a mis-wired component to find.
-  const team: TriageView | null = on && access.viewTeam ? buildTriage({ roster, rows, floor }) : null
+  const team: TriageView | null =
+    on && access.viewTeam
+      ? buildTriage({ roster, rows, floor, patternCategories: teamPatterns.map((p) => p.categoryKey) })
+      : null
 
   const windowStart = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
   // personal-findings.ts:219 `window.date_range`, composed from the clock.
@@ -260,6 +305,9 @@ export async function coachingProps({ locale, store, world }: CoachingPropsInput
               confidenceNote: c.confidence === 'low' ? '記録が少なく、参考値です' : null,
             })),
             learnFromTop: self.view.learnFromTop,
+            // ⚖ D8-1 — the viewer's OWN grant decides what this section says
+            // and what its button offers, instead of a hardcoded 「現在オフ」.
+            share: SHARE_STATE[self.view.grant === 'granted' ? 'on' : 'off'],
           }
         : {
             kind: 'none',
@@ -288,6 +336,13 @@ export async function coachingProps({ locale, store, world }: CoachingPropsInput
             maturityNote: r.band !== null && r.maturity === 'early' ? '初期の傾向' : null,
             // staff-focus.ts:159 — 「categorical only, no number, no name」.
             focusAreas: r.focusAreas.map((f) => ({ label: f.label, summaryText: f.summaryText, priority: f.priority })),
+            // ⚠ AN OMITTED SENTENCE IS SAID OUT LOUD, exactly as a short count
+            // is (`countWarning` above). staff-focus.ts:144-145's remedy is to
+            // OMIT a leaking L2 entry; a board that just went quiet about one
+            // person would be the silent failure this room rules out.
+            summaryWarning: r.summaryChecks
+              ? null
+              : '重点項目の文に数字か名前が入っていたため、この行では表示していません。',
             trajectoryLine: r.band ? TRAJECTORY_LINE[r.band] : 'セッションの回数が判断できる数に届いていません。',
             action: r.suggestedAction ? { kind: r.suggestedAction.kind, label: r.suggestedAction.label } : null,
           })),
