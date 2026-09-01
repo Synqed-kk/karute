@@ -106,7 +106,15 @@ export function liveFieldsFrom(board: { gapGuardMode: 'off' | 'standard' | 'stri
  *  — a store that had been holding more time for new customers should not be
  *  quietly moved to holding less. */
 export function nearestChoice(minutes: number): NewClientMinutes {
-  if (!Number.isFinite(minutes)) return MINUTE_CHOICES[MINUTE_CHOICES.length - 1]
+  // NaN carries no value at all, so it keeps the LONGEST choice — the hold-more-
+  // time doctrine this comment states, applied to a store whose stored value
+  // tells us nothing. ±Infinity is different: it carries a DIRECTION, and every
+  // `|m − ±∞|` is equally Infinite, so the reduce below ties all three and hands
+  // back the longest either way — 「shorter than every choice we offer」 answered
+  // with the longest window. The two ends are named instead of tied.
+  if (!Number.isFinite(minutes)) {
+    return minutes === -Infinity ? MINUTE_CHOICES[0] : MINUTE_CHOICES[MINUTE_CHOICES.length - 1]
+  }
   return MINUTE_CHOICES.reduce((best, m) =>
     Math.abs(m - minutes) < Math.abs(best - minutes) || (Math.abs(m - minutes) === Math.abs(best - minutes) && m > best)
       ? m
@@ -131,5 +139,25 @@ export function saveRefusal(roles: readonly string[], operatorRole: string): str
   // The family's own standing hint for a control whose action has no wire yet
   // (BusinessTopbar's 操作履歴, BusinessSidebar's 事業切替): refuse honestly,
   // never a button that pretends (⚖ L-7).
-  return '見本データのため保存できません'
+  //
+  // ⚖ 9/1 JP native pass (JP2) — AND IT SAYS WHEN. A refusal with no when-clause
+  // reads as a permanent property of the screen; the house pattern names the
+  // moment the control comes alive, so the manager knows they are waiting rather
+  // than blocked.
+  return '見本データのため保存できません。実データの接続後に有効になります。'
 }
+
+/** ⚖ 9/1 (fix round 1 F4) — THE THIRD STATE, AND THE ONE PLACE IT IS NOT THROWN
+ *  AWAY. `gap_guard_mode` is 'OFF' | 'STANDARD' | 'STRICT'; the ENGINE has two
+ *  modes and no third (`createGapGuard`: 'standard' | 'strict'), so a room that
+ *  asked it about an OFF store would have to invent a state for it — and the
+ *  first cut of this room did exactly that, with `strict: mode === 'STRICT'`,
+ *  which answers an off store as though it were running standard warnings.
+ *
+ *  OFF is answered BEFORE the engine instead: `null` — there is no verdict to
+ *  preview, so the preview draws no card at all and the dial shows neither of
+ *  its two positions. That is the store's own truth rather than a fabricated
+ *  one, and the day the wire reconnects an OFF store stays OFF unless the
+ *  operator moves the dial on purpose. */
+export const sceneKeyFor = (mode: GapGuardMode, minutes: NewClientMinutes): string | null =>
+  mode === 'OFF' ? null : `${mode === 'STRICT' ? 'strict' : 'standard'}:${minutes}`

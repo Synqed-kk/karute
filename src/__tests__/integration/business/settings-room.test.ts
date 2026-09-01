@@ -22,8 +22,11 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
-import { overrideLevelFor, warnFaceFor, type RailCell } from '@/app/[locale]/(business)/business/today/today-interactions'
-import { liveFieldsFrom, MINUTE_CHOICES, nearestChoice, saveRefusal } from '@/app/[locale]/(business)/business/settings/store-policy-seam'
+import { overrideLevelFor, protectedCapacityOf, warnFaceFor, type RailCell } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { createGapGuard } from '@/business/lib/canon-logic/gap-guard'
+import { freePockets } from '@/business/lib/canon-logic/availability'
+import type { BoardLane } from '@/business/lib/today-board'
+import { liveFieldsFrom, MINUTE_CHOICES, nearestChoice, saveRefusal, sceneKeyFor } from '@/app/[locale]/(business)/business/settings/store-policy-seam'
 
 const ROOM_DIR = 'src/app/[locale]/(business)/business/settings'
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
@@ -79,6 +82,35 @@ function openingTags(src: string, tag: string): string[] {
     }
     out.push(src.slice(i, j + 1))
     i = src.indexOf(`<${tag}`, j)
+  }
+  return out
+}
+
+/** ⚖ R13 — EVERY DARK FILL THIS SHEET DECLARES, in every spelling a stylesheet
+ *  has for one. Reads the VALUE of each `background` / `background-color`
+ *  declaration and judges the colours inside it, rather than pattern-matching one
+ *  shape of one property: 3- and 6-digit hex, `rgb()`/`rgba()`, and the `black`
+ *  keyword all name the same fill, and the first cut of this check saw only the
+ *  narrowest of them. Dark = every channel at or under half (`0x7f`), which is
+ *  the tier the law is about; a soft wash sits far above it. */
+const DARK_MAX = 0x7f
+const isDark = (r: number, g: number, b: number) => r <= DARK_MAX && g <= DARK_MAX && b <= DARK_MAX
+function darkFills(css: string): string[] {
+  const out: string[] = []
+  for (const decl of css.matchAll(/background(?:-color)?\s*:\s*([^;{}]+)/gi)) {
+    const value = decl[1]
+    let dark = /\bblack\b/i.test(value)
+    for (const hex of value.matchAll(/#([0-9a-f]{3}|[0-9a-f]{6})\b/gi)) {
+      const h = hex[1]
+      const parts = h.length === 3 ? [...h].map((c) => c + c) : [h.slice(0, 2), h.slice(2, 4), h.slice(4, 6)]
+      const [r, g, b] = parts.map((p) => parseInt(p, 16))
+      if (isDark(r, g, b)) dark = true
+    }
+    for (const rgb of value.matchAll(/rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/gi)) {
+      const [r, g, b] = [rgb[1], rgb[2], rgb[3]].map(Number)
+      if (isDark(r, g, b)) dark = true
+    }
+    if (dark) out.push(decl[0].trim())
   }
   return out
 }
@@ -169,6 +201,68 @@ describe('⚖ Liam 8/23 — the guided ?-tour ships in the SAME round as the roo
     expect(spotHitIndex(300, 300, rects)).toBe(0)
     expect(spotHitIndex(900, 900, rects)).toBe(-1)
   })
+
+  it('⚖ F12 — a COLLAPSED 詳細設定 does not silently shorten the walk', () => {
+    // THE MECHANISM, driven: `spotTargets` drops zero-sized nodes, which is the
+    // right law (a hidden dial is not explained) and is exactly what a closed
+    // `<details>` does to all nine dials inside it. A manager who folded the
+    // section away and then pressed ? was walked through 3 steps instead of 12,
+    // with the counter reading 「1 / 3」 as though that were the page.
+    const root = document.createElement('div')
+    const box = (h: number) => () => ({ left: 0, top: 0, width: h === 0 ? 0 : 100, height: h, right: 100, bottom: h, x: 0, y: 0, toJSON: () => ({}) })
+    DECLARATIONS.forEach((d, i) => {
+      const el = document.createElement('section')
+      el.dataset.guideTitle = d.title
+      el.dataset.guide = d.text
+      // The three outside 詳細設定 keep a box; the rest are folded away.
+      el.getBoundingClientRect = box(i < 3 ? 20 : 0) as unknown as () => DOMRect
+      root.appendChild(el)
+    })
+    expect(spotTargets(root).length).toBe(3)
+    expect(DECLARATIONS.length).toBeGreaterThanOrEqual(12)
+
+    // THE FIX, and it is room-local — no edit to the shared engine. `<details>`
+    // is controlled, and launching the walk opens it before anything is measured.
+    expect(SCREEN_CODE).toContain('const [advOpen, setAdvOpen] = useState(true)')
+    expect(SCREEN_CODE).toContain('<details className="st-adv" open={advOpen} onToggle={(e) => setAdvOpen(e.currentTarget.open)}>')
+    expect(SCREEN_CODE).toContain('onClick={() => { setAdvOpen(true); setTourIdx(0) }}')
+  })
+})
+
+// ── ⚖ 8/17 store isolation, in the 名指しロック row ──────────────────────────
+
+describe('⚖ F14 — 名指しロック never renders a person this store cannot see', () => {
+  it('a foreign staff_id is HIDDEN, not printed as a raw key', () => {
+    // ⚖ 8/17 STORE ISOLATION — existence is hidden across stores. `lockedOut` is
+    // the store policy's list and this screen opens under one store's lens, so an
+    // id from another roster found no name and fell through to `?? id`: 「p-05 ×」
+    // on screen, which is the very existence the law hides.
+    expect(SCREEN_CODE).toContain('const rosterIds = new Set(props.roster.map((s) => s.id))')
+    expect(SCREEN_CODE).toContain('const shownLocks = locks.filter((id) => rosterIds.has(id))')
+    expect(SCREEN_CODE).toContain('{shownLocks.length === 0')
+    expect(SCREEN_CODE).toContain(': shownLocks.map((id) => (')
+    // DISPLAY only: the id stays in `locks`, so nothing this screen does erases a
+    // lock it is not allowed to show.
+    expect(SCREEN_CODE).toContain('const [locks, setLocks] = useState<string[]>(policy.lockedOut)')
+
+    // The filter itself, driven on the shapes the room actually holds.
+    const roster = [{ id: 'p-01', name: '見本 しろう' }, { id: 'p-02', name: '見本 あずさ' }]
+    const ids = new Set(roster.map((s) => s.id))
+    expect(['p-01', 'p-99', 'p-02'].filter((id) => ids.has(id))).toEqual(['p-01', 'p-02'])
+  })
+
+  it('an EMPTY roster is not a store down to its last person', () => {
+    // `lockable.length <= 1` answered TRUE at zero, so a lens with no staff at
+    // all printed 「全員を名指しロックにはできません」 and disabled 追加 — a
+    // guardrail firing about people who are not there.
+    expect(SCREEN_CODE).toContain('const lastOneStanding = props.roster.length > 0 && lockable.length <= 1')
+    const standing = (roster: string[], locks: string[]) =>
+      roster.length > 0 && roster.filter((id) => !locks.includes(id)).length <= 1
+    expect(standing([], [])).toBe(false)
+    expect(standing(['p-01'], [])).toBe(true)
+    expect(standing(['p-01', 'p-02'], ['p-01'])).toBe(true)
+    expect(standing(['p-01', 'p-02'], [])).toBe(false)
+  })
 })
 
 // ── ⚖ 1b — the three chips ARE the wire's enum ──────────────────────────────
@@ -205,6 +299,17 @@ describe('⚖ 1b RULED — 新規のお客様の確保 is three fixed choices, a
     expect(nearestChoice(82.5)).toBe(90)
   })
 
+  it('⚖ F7 — the two INFINITE ends carry a direction, and NaN carries none', () => {
+    // Every `|m − ±∞|` is equally Infinite, so the nearest-choice reduce ties all
+    // three and the tie-break hands back the longest — which answers 「shorter
+    // than every choice we offer」 with the longest window. NaN is the value that
+    // genuinely says nothing, and that is the one the hold-more-time doctrine is
+    // written for.
+    expect(nearestChoice(-Infinity)).toBe(60)
+    expect(nearestChoice(Infinity)).toBe(90)
+    expect(nearestChoice(Number.NaN)).toBe(90)
+  })
+
   it('the two live fields cross the seam in CORE’s own spellings', () => {
     expect(liveFieldsFrom({ gapGuardMode: 'standard', newClientSessionMinutes: 90 }))
       .toEqual({ gap_guard_mode: 'STANDARD', new_client_session_minutes: 90 })
@@ -212,8 +317,42 @@ describe('⚖ 1b RULED — 新規のお客様の確保 is three fixed choices, a
     expect(liveFieldsFrom({ gapGuardMode: 'off', newClientSessionMinutes: 75 }).gap_guard_mode).toBe('OFF')
     // …and the page reads them THROUGH it, so the reconnect is one function body.
     expect(PAGE_CODE).toContain('liveFieldsFrom({')
-    expect(PAGE_CODE).toContain("live.gap_guard_mode === 'STRICT'")
     expect(PAGE_CODE).toContain('live.new_client_session_minutes')
+  })
+
+  it('⚖ F4 — the guard’s THIRD state crosses whole, and is never collapsed into STANDARD', () => {
+    // `strict: live.gap_guard_mode === 'STRICT'` threw OFF away at the very seam
+    // this room builds: an off store would have opened on a dial claiming it ran
+    // standard warnings, and a save built off that dial would have turned the
+    // guard on with nobody pressing anything.
+    expect(PAGE_CODE).toContain('mode: live.gap_guard_mode')
+    expect(PAGE_CODE).not.toContain("live.gap_guard_mode === 'STRICT'")
+    expect(SCREEN_CODE).toContain('mode: GapGuardMode')
+    expect(SCREEN_CODE).toContain('useState<GapGuardMode>(policy.mode)')
+
+    // THE MAPPING ITSELF, driven. The engine has two modes and no third
+    // (`createGapGuard`: standard | strict), so OFF is answered BEFORE the engine
+    // — `null`, meaning there is no verdict to preview at all.
+    for (const m of MINUTE_CHOICES) {
+      expect(sceneKeyFor('OFF', m)).toBeNull()
+      expect(sceneKeyFor('STANDARD', m)).toBe(`standard:${m}`)
+      expect(sceneKeyFor('STRICT', m)).toBe(`strict:${m}`)
+    }
+    // …and a null key is what makes the preview draw NO warn face: the room does
+    // not fall back to a standard scene, it stops.
+    expect(SCREEN_CODE).toContain('const sceneKey = sceneKeyFor(mode, minutes)')
+    expect(SCREEN_CODE).toContain('const guardOff = sceneKey === null')
+    expect(SCREEN_CODE).toContain('const card = sample === null || guardOff ? null : warnFaceFor({')
+    // …the OFF store gets its own sentence rather than a borrowed one…
+    expect(SCREEN_CODE).toContain('確保枠の見張りそのものを止めています')
+    // …and the strict dial shows NEITHER position at OFF, so nothing on screen
+    // claims a state the store is not in.
+    expect(SCREEN_CODE).toContain("aria-pressed={mode === 'STRICT'}")
+    expect(SCREEN_CODE).toContain("aria-pressed={mode === 'STANDARD'}")
+    expect(SCREEN_CODE).not.toMatch(/aria-pressed=\{!strict\}/)
+    // The page builds its scene keys through the SAME function, so the two sides
+    // of the map cannot spell a key two ways.
+    expect(PAGE_CODE).toContain("scenes[sceneKeyFor(strict ? 'STRICT' : 'STANDARD', minutes)!]")
   })
 })
 
@@ -234,7 +373,11 @@ describe('⚖ the save gate is DATA, and its refusal is readable', () => {
     // refused with its reason rather than pretending, which is the family's own
     // L-7 pattern; the day the seam reconnects, THIS is the assertion that has to
     // change, deliberately.
-    expect(saveRefusal(['オーナー', '店舗管理者'], '店舗管理者')).toBe('見本データのため保存できません')
+    // ⚖ 9/1 JP native pass (JP2) — with the house WHEN-clause: a refusal with no
+    // 「…のあと有効になります」 reads as a permanent property of the screen rather
+    // than a fence the manager is waiting behind.
+    expect(saveRefusal(['オーナー', '店舗管理者'], '店舗管理者'))
+      .toBe('見本データのため保存できません。実データの接続後に有効になります。')
   })
 
   it('the room reads the gate’s ANSWER and never the rule', () => {
@@ -323,16 +466,80 @@ describe('the preview is composed by the BOARD’s own function, not by this roo
     }
   })
 
-  it('店長のみでも警告を止める really changes the card — the dial is not a dead lever', () => {
-    // STANDARD: the engine allows the acknowledgement, so the commit is live.
-    const standard = cardFor({ cell: repCell(true) })
-    expect(standard.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
-    // STRICT: `ackAllowed` is false, so the same landing goes commit-less — the
-    // dial's own promise (「安全な時間の提案と元に戻すだけになります」), and the
-    // safe answer survives, which is what makes the strict card usable at all.
-    const strict = cardFor({ cell: repCell(false) })
-    expect(strict.commit?.enabled).toBe(false)
-    expect(strict.safePrimary).toEqual({ kind: 'place', start: 1020, main: '17:00に置く', sub: '（確保を壊さない）' })
+  /** ⚖ 9/1 STRICT-SWITCH RULING (fix round 1 F1) — THE FOUR-CELL MATRIX, and the
+   *  reason it is a matrix at all.
+   *
+   *  The first cut of this dial was ROLE-BLIND: `ackAllowed = mode === 'standard'`
+   *  is set by the engine from the store's mode alone, so at STRICT the card went
+   *  commit-less for EVERYONE — 店長・オーナー included. The approved page says
+   *  the opposite in as many words (「確保枠を壊す場所に置けるのは店長だけです」),
+   *  and so does the dial's own description (「権限のないスタッフは…確定できなく
+   *  なります」). Both are about the people the 上書きの権限 dial EXCLUDES.
+   *
+   *  So the wall now asks ruling 91's `level`, and the four cells are pinned
+   *  together — a one-sided pin is exactly how the role-blind version passed. */
+  it('⚖ 9/1 — 店長のみでも警告を止める walls the UNPERMITTED, and only them', () => {
+    // The two seats, produced by the dial rather than asserted: 店長のみ takes the
+    // staff role off the override list, which is what makes that operator
+    // 'refuse' — the same consult the room composes the preview level from.
+    const MANAGERS = ['オーナー', '店舗管理者']
+    const permitted = overrideLevelFor({ roles: [...MANAGERS, 'スタッフ'], lockedOut: [] }, { role: 'スタッフ', staff_id: 'p-05' })
+    const unpermitted = overrideLevelFor({ roles: MANAGERS, lockedOut: [] }, { role: 'スタッフ', staff_id: 'p-05' })
+    expect([permitted, unpermitted]).toEqual(['allow-warned', 'refuse'])
+
+    // ── STANDARD (`ackAllowed: true`) — UNCHANGED by this ruling. ⚖ ruling 1/2's
+    // loosen stands: the dial walls only true 置けない, so both seats commit.
+    const stdOk = cardFor({ cell: repCell(true), level: permitted })
+    const stdNo = cardFor({ cell: repCell(true), level: unpermitted })
+    expect(stdOk.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+    expect(stdNo.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+
+    // ── STRICT (`ackAllowed: false`) — the wall, and it is the DIAL'S wall.
+    // The permitted operator keeps the whole standard warn face…
+    const strictOk = cardFor({ cell: repCell(false), level: permitted })
+    expect(strictOk.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+    expect(strictOk.provenance).toContain('スタッフの上書きが許可されています')
+    // …and it really is the SAME card the standard dial draws for them: the mode
+    // alone may not change what a permitted operator sees, which is the whole of
+    // the finding.
+    expect(strictOk).toEqual(stdOk)
+
+    // …while the excluded one loses the commit, in the clean face's own frozen
+    // words (`confirmCaption`, drag-rules) rather than a mute card.
+    const strictNo = cardFor({ cell: repCell(false), level: unpermitted })
+    expect(strictNo.commit).toEqual({ kind: 'hold', label: 'この位置では確定できません', enabled: false, note: null })
+    // ⚖ 73 — the dead state is UNCONDITIONAL, never the checks gate: a passing
+    // gate cannot hand back a commit the store's dial refused.
+    expect(cardFor({ cell: repCell(false), level: unpermitted, confirmEnabled: true }).commit!.enabled).toBe(false)
+    // The safe answer survives, which is what makes the walled card usable at all
+    // — the dial's own promise 「安全な時間の提案と元に戻すだけになります」.
+    expect(strictNo.safePrimary).toEqual({ kind: 'place', start: 1020, main: '17:00に置く', sub: '（確保を壊さない）' })
+    // Nothing is being permitted here, so nothing on the card claims it is.
+    expect(strictNo.provenance).toBeNull()
+
+    // 名指しロック answers FIRST, so a store that named a person walls them at
+    // STRICT whatever their role says — the 名指しロック row's own sentence.
+    const named = overrideLevelFor({ roles: [...MANAGERS, 'スタッフ'], lockedOut: ['p-05'] }, { role: 'スタッフ', staff_id: 'p-05' })
+    expect(named).toBe('refuse')
+    expect(cardFor({ cell: repCell(false), level: named }).commit!.enabled).toBe(false)
+  })
+
+  it('⚖ 9/1 — and the room’s COPY is true in both strict states', () => {
+    // The three sentences the lens caught. 「誰が置けるか」 was false at the
+    // loosened setting (everyone places; the dial changes whose authority the
+    // record carries), and the tour repeated it — so both now name what the perm
+    // dial does at each of the strict dial's two positions.
+    expect(SCREEN).toContain('確保枠を壊す場所に、誰が自分の権限で置けるか')
+    expect(SCREEN).not.toContain('「店長のみ」にすると、スタッフには安全な時間の提案だけが出ます')
+    for (const half of ['選ばれていない人も、いまは確認のうえで置けます', '選ばれていない人は確定できなくなります']) {
+      // Said on the DIAL and again in its tour step, so a manager who never opens
+      // the walk still reads both halves.
+      expect(SCREEN.split(half).length - 1).toBeGreaterThanOrEqual(2)
+    }
+    // …and the preset that PROMISES the wall is the one that turns both dials:
+    // 店長のみ + STRICT is what makes 「置けるのは店長だけです」 true.
+    expect(SCREEN).toContain('確保枠を壊す場所に置けるのは店長だけです。')
+    expect(SCREEN_CODE).toContain("watch: { perm: 'manager', hold: true, mode: 'STRICT'")
   })
 
   it('長押しで確定 decides only HOW the press is made, never whether it is allowed', () => {
@@ -369,22 +576,129 @@ describe('the preview is composed by the BOARD’s own function, not by this roo
     expect(SCREEN_CODE).toContain('sample === null || card === null ?')
     expect(SCREEN_CODE).toContain('確保枠を壊してしまう配置がありません')
   })
+
+  it('⚖ 44(3) — the card is READ ALOUD, never collapsed into a picture', () => {
+    // ⚖ 9/1 (fix round 1 F2). `role="img"` is children-presentational, so the
+    // whole preview — the impact line, the ¥, the provenance, the commit label,
+    // the check rows — became its own 12-character label to a screen reader:
+    // the manager asking 「what will my staff actually see?」 was answered
+    // 「a picture」. The board's own rail had this exact defect taken off it by
+    // ⚖ flag 44(3); the mirror negative lives here (today-explains.test.ts :842).
+    // Read off the COMMENT-STRIPPED source: the fix's own note has to name the
+    // role it deleted, and this room documents itself in comments that quote the
+    // very strings these pins look for (see the header).
+    expect(SCREEN_CODE).not.toContain('role="img"')
+    // The region keeps its NAME — `group` labels it without silencing what is
+    // inside it.
+    expect(SCREEN_CODE).toContain('className="hold-pop st-pv-card" role="group" aria-label="スタッフが見るカードの見本"')
+    // …and every line the card prints is still a real node the reader reaches,
+    // which is what the label was hiding.
+    const card = cardFor()
+    expect(card.impact.head.length).toBeGreaterThan(0)
+    expect(card.provenance).not.toBeNull()
+    expect(card.commit?.label.length).toBeGreaterThan(0)
+    expect(card.rows.length + (card.greensLine ? 1 : 0)).toBeGreaterThan(0)
+  })
 })
 
 // ── ⚖ 54 — the guardrail has ONE basis ──────────────────────────────────────
 
+/** A staff lane the guard can actually be asked about — the fields
+ *  `protectedCapacityOf` reads and nothing else invented around them. Hand-built
+ *  for the same reason `repCell` is: the point of the drive below is the ENGINE'S
+ *  arithmetic at a known occupancy, and a fixture-derived day would move the
+ *  moment the sample day does. */
+const laneOf = (key: string, from: number, until: number, busy: Array<[number, number]> = []): BoardLane => ({
+  key,
+  group: 'staff',
+  label: key,
+  sub: '',
+  absentNote: null,
+  mine: false,
+  items: busy.map(([startMin, endMin], i) => ({
+    key: `${key}-${i}`, kind: 'booking' as const, state: 'confirmed' as const, category: null,
+    x: 0, w: 0, startMin, endMin, title: '', tag: '', time: '', ticketCat: null, ticketCore: null,
+    held: false, micro: false, caseId: null, label: '',
+  })),
+  window: { from, until },
+  untilLabel: null,
+  listPrice: 7000,
+  stores: null,
+  roomClass: null,
+})
+
+const capacityIn = (minutes: number) => ({
+  open: 600,
+  close: 1200,
+  stepMin: 30,
+  dur: 60,
+  protectedDur: minutes,
+  nowMinute: null,
+  locked: [] as string[],
+  guard: {
+    services: [{ name: '見本', dur: 60 }],
+    newClientSessionMin: minutes,
+    protectedLabel: '新規',
+    gapFillMinMin: 0,
+    blockStepMin: 15,
+    leadTimeMin: 0,
+    mode: 'standard' as const,
+  },
+})
+
 describe('⚖ the guardrail counts what the ENGINE counts', () => {
   it('capacity comes from the guard’s own protectedCapacity, never a count this room derives', () => {
-    expect(PAGE_CODE).toContain('engine.protectedCapacity(pocket, null, { now: planes.boardNow }).before')
-    expect(PAGE_CODE).toContain('freePockets({')
-    expect(PAGE_CODE).toContain('createGapGuard(guardConfigFor(')
+    // ⚖ 9/1 (fix round 1 F5) — THE NUMBER IS NOW DRIVABLE, which is the whole
+    // finding: spelled inline in the server component it was a value no test in
+    // this repo could reach, and a fabricated capacity shipped green through the
+    // entire suite. The page hands the walk to the board's own function…
+    expect(PAGE_CODE).toContain('const capacity = protectedCapacityOf(lanes, railInputFor(minutes, false))')
+    // …and the function really is the engine's own count, summed over the day's
+    // own pockets. The expectation is derived HERE, in its own spelling, off
+    // `protectedCapacity` directly — so a walk that drops a lane, ignores the
+    // locked list, or answers a literal goes red against the engine rather than
+    // against itself. (⚠ `.before` → `.after` is NOT such a mutation and was
+    // proven green: the call passes `placement: null`, so the engine has nothing
+    // to remove and the two counts are equal by construction. Recorded rather
+    // than claimed — see redruns-round1/F5b-REFUTED.log.)
+    for (const minutes of MINUTE_CHOICES) {
+      const lanes = [laneOf('p-01', 600, 1140, [[720, 780]]), laneOf('p-02', 660, 1080), laneOf('bed-1', 600, 1140)]
+      lanes[2] = { ...lanes[2], group: 'beds', window: null }
+      const input = capacityIn(minutes)
+      const engine = createGapGuard(input.guard)
+      let expected = 0
+      for (const lane of lanes) {
+        if (lane.group !== 'staff' || lane.window == null) continue
+        for (const pocket of freePockets({
+          from: lane.window.from, until: lane.window.until, close: input.close, now: input.nowMinute,
+          occupied: lane.items.map((i) => ({ start: i.startMin, end: i.endMin, isBreak: false })),
+        })) {
+          expected += engine.protectedCapacity(pocket, null, {}).before
+        }
+      }
+      expect(protectedCapacityOf(lanes, input)).toBe(expected)
+      // …and it is a REAL count on this day, not a zero that would match anything.
+      expect(expected).toBeGreaterThan(0)
+    }
+    // A LONGER 確保 cannot fit MORE windows into the same day — the monotonicity
+    // the dial's own guardrail line is about, asserted without pinning 6/5/4
+    // (which move with the fixture).
+    const counts = MINUTE_CHOICES.map((m) => protectedCapacityOf([laneOf('p-01', 600, 1140)], capacityIn(m)))
+    expect(counts).toEqual([...counts].sort((a, b) => b - a))
+    // A locked lane is not a lane the rail draws on, so it holds nothing either.
+    expect(protectedCapacityOf([laneOf('p-01', 600, 1140)], { ...capacityIn(90), locked: ['p-01'] })).toBe(0)
+
     // The screen reads the number; it does not compute one.
     expect(SCREEN_CODE).toContain('scene.capacity')
     expect(SCREEN_CODE).not.toMatch(/Math\.floor\([^)]*minutes/)
   })
 
   it('the sentence says WHAT it counts, and has an honest zero (⚖ 8/25)', () => {
-    expect(SCREEN_CODE).toContain('新規のお客様の確保枠を${scene.capacity}枠つくれます')
+    // ⚖ 9/1 JP native pass (JP1) — 「この店舗の1日では…つくれます」 put the day
+    // inside the store's own clause and left the particle doing two jobs; the
+    // store is the topic and the day is when.
+    expect(SCREEN_CODE).toContain('この店舗では、1日に新規のお客様の確保枠を${scene.capacity}枠作れます')
+    expect(SCREEN).not.toContain('この店舗の1日では、新規のお客様の確保枠を')
     expect(SCREEN_CODE).toContain('scene.capacity === 0')
     expect(SCREEN_CODE).toContain('ひとつも作れません（0枠）')
   })
@@ -394,7 +708,10 @@ describe('⚖ the guardrail counts what the ENGINE counts', () => {
     // arithmetic in the browser.
     expect(PAGE_CODE).toContain('for (const minutes of MINUTE_CHOICES)')
     expect(PAGE_CODE).toContain('for (const strict of [false, true])')
-    expect(SCREEN_CODE).toContain("props.scenes[`${strict ? 'strict' : 'standard'}:${minutes}`]")
+    // ⚖ 9/1 (fix round 1 F4) — and the READ side asks the seam for the key, so
+    // the third state has one home rather than a template literal on each side.
+    expect(SCREEN_CODE).toContain('props.scenes[sceneKey]')
+    expect(SCREEN_CODE).not.toContain("`${strict ? 'strict' : 'standard'}:${minutes}`")
   })
 
   it('the sample landing is FOUND BY RULE, never written down', () => {
@@ -417,6 +734,21 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // …and the field itself refuses non-digits at the keystroke, so the clamp is
     // the second line of defence rather than the only one.
     expect(SCREEN_CODE).toContain("replace(/[^0-9]/g, '')")
+  })
+
+  it('⚖ F10 — the rejection is SAID, not only coloured (WCAG 1.4.1)', () => {
+    // A polite live region whose TEXT never changes announces nothing, so the
+    // only signal that a keystroke had been thrown away was quiet→orange — colour
+    // as the sole carrier of information, on the one field in this room an
+    // operator actually types into. The sentence itself moves now, inside the
+    // region that was already there.
+    expect(SCREEN_CODE).toContain("{slotWarn ? '数字以外は保存されません。いま入力された数字以外の文字は消しました' : '数字以外は保存されません'}")
+    // The two states are DIFFERENT text, which is the whole of the fix — a region
+    // that re-renders the same string is silent to a screen reader.
+    expect(SCREEN_CODE).toContain('aria-live="polite"')
+    expect(SCREEN_CODE).toContain('setSlotWarn(true)')
+    // …and the colour still moves with it: the class is the same expression.
+    expect(SCREEN_CODE).toContain("`st-ctrl-d${slotWarn ? ' warn' : ' dim'}`")
   })
 
   it('and its two siblings in the engine now refuse the same inputs', () => {
@@ -467,6 +799,24 @@ describe('the room is wired into the door like its siblings', () => {
     expect(CSS_CODE).toContain('.biz .page.pg-settings .btn { font-weight: 500; }')
   })
 
+  it('⚖ F3 — a BORROWED name is COPIED, not left to a sibling route sheet', () => {
+    // The 仮押さえ badge at the head of the preview card wears `status waiting`,
+    // and those rules lived ONLY in today.css — a route-scoped sheet. A cold load
+    // of /ja/business/settings therefore rendered the badge as bare unstyled
+    // text, and it only looked right when the operator happened to arrive from
+    // 今日の運営. The card names it, so the sheet owns it.
+    expect(SCREEN_CODE).toContain('className="status waiting"')
+    expect(CSS_CODE).toContain('.biz .pg-settings .st-pv-card .status {')
+    expect(CSS_CODE).toContain('.biz .pg-settings .st-pv-card .status.waiting {')
+    // ⚖ flag 40's own rule comes with it: the badge is a chip, and a chip that
+    // wraps mid-word stops reading as one.
+    expect(/\.status \{[^}]*white-space: nowrap/.test(CSS_CODE)).toBe(true)
+    // …and the sheet's header enumerates what it borrowed, which is the checklist
+    // that would have caught this one. (ponytail: one assertion, not a general
+    // borrowed-selector scanner — the hole is real and this closes it.)
+    expect(CSS).toContain('`wc-*` / `hold-pop` / `holdbar-checks` / `status`')
+  })
+
   it('the room’s own class names exist nowhere else in the family', () => {
     const own = [...new Set([...CSS_CODE.matchAll(/\.(st-[\w-]+)/g)].map((m) => m[1]))]
     expect(own.length).toBeGreaterThan(20)
@@ -486,7 +836,24 @@ describe('the room is wired into the door like its siblings', () => {
     // this room writes plain CSS, so its own recipe is pinned here.)
     expect(CSS_CODE).toContain('.biz .pg-settings .st-seg button.on { background: var(--select-bg); color: var(--select-ink); }')
     expect(CSS_CODE).toContain('.biz .pg-settings .st-pcard.on { border-color: var(--select-line); background: var(--select-bg);')
-    expect(CSS_CODE).not.toMatch(/background:\s*(?:#(?:[0-3][0-9a-f]){3}\b|black\b)/i)
+    // ⚖ 9/1 (fix round 1 F6) — AND THE GUARD READS EVERY SPELLING OF A FILL.
+    // The first cut was `/background:\s*(#[0-3][0-9a-f]{5}|black)/`, which is
+    // four holes wide: `background-color:` (the property this sheet's own hover
+    // rules use), three-digit hex, `rgb()`, and every dark from #4… up. The
+    // lens's own mutation — `.st-btn-add:hover { background-color: #000 }` —
+    // sailed through it and shipped green.
+    expect(darkFills(CSS_CODE)).toEqual([])
+    // …proven against the mutation itself, so the guard is measured rather than
+    // assumed. (The repo-wide auditor still does not read .css at all; extending
+    // `check-dark-interactive.mjs` over 805 files is its own round.)
+    for (const mutant of [
+      '.biz .pg-settings .st-btn-add:hover { background-color: #000; }',
+      '.biz .pg-settings .st-btn-add:hover { background: #444; }',
+      '.biz .pg-settings .st-btn-add:hover { background-color: rgb(20, 20, 24); }',
+      '.biz .pg-settings .st-btn-add:hover { background: black; }',
+    ]) {
+      expect({ mutant, caught: darkFills(mutant).length > 0 }).toEqual({ mutant, caught: true })
+    }
     // The room's own commit control wears the shell's class rather than a fill of
     // its own.
     expect(SCREEN_CODE).toContain('className="btn primary"')

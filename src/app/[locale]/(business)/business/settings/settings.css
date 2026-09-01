@@ -9,11 +9,18 @@
    document after a soft-nav, so two route sheets defining one selector tie-break
    on VISIT order (scripts/audit/check-route-css-collisions.mjs is the machine).
    Every rule below is therefore scoped under `.pg-settings`, INCLUDING the
-   `wc-*` / `hold-pop` / `holdbar-checks` names the preview card reuses: today.css
-   states those BARE, so the extra class both raises this room's specificity above
-   it and keeps the audit's one-owner-per-selector rule true. The class NAMES stay
-   the shipped card's, which is what makes the preview the same card rather than a
-   drawing of it.
+   `wc-*` / `hold-pop` / `holdbar-checks` / `status` names the preview card
+   reuses: today.css states those BARE, so the extra class both raises this room's
+   specificity above it and keeps the audit's one-owner-per-selector rule true.
+   The class NAMES stay the shipped card's, which is what makes the preview the
+   same card rather than a drawing of it.
+
+   ⚖ 9/1 (fix round 1 F3) — AND THE ENUMERATION IS THE CHECKLIST. `.status` was
+   BORROWED and never copied: the 仮押さえ badge at the head of the preview card
+   is styled by today.css, a ROUTE-scoped sheet, so a cold load of
+   /ja/business/settings rendered it as bare unstyled text and it only looked
+   right when the operator happened to arrive from 今日の運営. Every borrowed name
+   in this list has a rule below; a name that joins the card joins this line.
 
    ⚖ R13 / no-black — nothing pressable here is a dark fill: a selected chip is
    the wash + accent-ink recipe (`--select-bg` / `--select-ink`), and the one
@@ -290,6 +297,12 @@
 .biz .pg-settings .st-pv-card .st-off { opacity: .48; }
 .biz .pg-settings .st-pv-card .hp-head { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; }
 .biz .pg-settings .st-pv-card .hp-head strong { min-width: 0; line-height: 1.5; overflow-wrap: anywhere; }
+/* The 仮押さえ badge, copied from today.css rather than borrowed off it — a
+   route sheet is not loaded on a cold /settings visit. ⚖ flag 40's
+   `white-space: nowrap` comes with it: the badge is a chip, and a chip that
+   wraps mid-word stops reading as one. */
+.biz .pg-settings .st-pv-card .status { padding: 3px 7px; border-radius: 5px; background: var(--orange-soft); color: var(--orange); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.biz .pg-settings .st-pv-card .status.waiting { background: var(--orange-soft); color: var(--orange); }
 .biz .pg-settings .st-pv-card .hp-actions { display: flex; gap: 7px; justify-content: flex-end; }
 .biz .pg-settings .st-pv-card .hp-actions .btn { flex: 1; justify-content: center; }
 .biz .pg-settings .st-pv-card .holdbar-checks { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-3); font-size: 12px; }

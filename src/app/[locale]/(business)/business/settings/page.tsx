@@ -31,8 +31,7 @@
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import { jstDayKey } from '@/business/lib/clock'
 import { computeChecks, confirmCaption, type CheckSpan } from '@/business/lib/canon-logic/drag-rules'
-import { freePockets } from '@/business/lib/canon-logic/availability'
-import { createGapGuard, type GuardConfig } from '@/business/lib/canon-logic/gap-guard'
+import { type GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 import type { PriceFrame } from '@/business/lib/canon-logic/pricing'
 import {
   defaultStoreId,
@@ -49,8 +48,8 @@ import {
   type StoreLens,
 } from '@/business/lib/data'
 import { buildLanes, dayBookings, hhmm, minuteOf, place, type BoardLane, type BuildInput, type Hours } from '@/business/lib/today-board'
-import { guardVerdictAt, laneSpans, lossOf, type RailCell } from '../today/today-interactions'
-import { liveFieldsFrom, MINUTE_CHOICES, saveRefusal } from './store-policy-seam'
+import { guardVerdictAt, lossOf, protectedCapacityOf, type RailCell } from '../today/today-interactions'
+import { liveFieldsFrom, MINUTE_CHOICES, saveRefusal, sceneKeyFor } from './store-policy-seam'
 import { SettingsScreen, type SettingsProps, type SettingsScene } from './SettingsScreen'
 import './settings.css'
 
@@ -78,10 +77,20 @@ function guardConfigFor(
     gapFillMinMin: opsConfig.gapFillMinMin,
     blockStepMin: opsConfig.blockStepMin,
     leadTimeMin: opsConfig.leadTimeMin,
-    // ⚖ 9/1 — core `gap_guard_mode`. STRICT is the engine half of the mock's
+    // ⚖ 9/1 — core `gap_guard_mode`, and the ENGINE half of the mock's
     // 「店長のみでも警告を止める」 dial: `reason.ackAllowed = mode === 'standard'`
-    // (gap-guard), so at STRICT a refused start carries no commit at all, which
-    // is exactly what that dial's own description promises.
+    // (gap-guard), so at STRICT a refused start comes back un-ackable.
+    //
+    // ⚖ 9/1 STRICT-SWITCH RULING (fix round 1 F1) — THAT IS HALF THE DIAL, and
+    // the engine's half is role-blind on purpose: canon knows nothing about
+    // operators. WHO the un-ackable start actually walls is decided at the
+    // composer, from ruling 91's `level` (`warnFaceFor`) — the unpermitted lose
+    // the commit, the permitted keep the warn press. Which is what the dial's own
+    // description promises: 「権限のないスタッフは…確定できなくなります」.
+    //
+    // OFF has no engine spelling at all (`GuardConfig.mode` is standard | strict),
+    // which is why the room answers it before the engine rather than here — see
+    // `sceneKeyFor`.
     mode: strict ? 'strict' : 'standard',
   }
 }
@@ -203,26 +212,23 @@ export default async function SettingsPage({
    *  over the day's own `freePockets` — never a count this room derives — for
    *  the same reason the warn card's ¥ is asked of canon's pricing door: a
    *  second spelling of 「how many 新規 windows does this day hold」 is ⚖ 54's
-   *  disease, and it is exactly the number the guardrail line is about. */
+   *  disease, and it is exactly the number the guardrail line is about.
+   *
+   *  ⚖ 9/1 (fix round 1 F5) — AND THE WALK ITSELF NOW LIVES BESIDE `lossOf`,
+   *  drivable. Spelled out here it was a number no test could reach, so a
+   *  fabricated capacity shipped green through 1676 of them; as
+   *  `protectedCapacityOf` it is the board's own function on the board's own
+   *  inputs, and the room's suite drives it against the engine directly. */
   const scenes: Record<string, SettingsScene> = {}
   for (const minutes of MINUTE_CHOICES) {
-    const engine = createGapGuard(guardConfigFor(planes.opsConfig, menus, minutes, false))
-    let capacity = 0
-    for (const lane of staffLanes) {
-      for (const pocket of freePockets({
-        from: lane.window!.from,
-        until: lane.window!.until,
-        close: hours.close,
-        now: planes.boardNow,
-        occupied: laneSpans(lane),
-      })) {
-        capacity += engine.protectedCapacity(pocket, null, { now: planes.boardNow }).before
-      }
-    }
+    const capacity = protectedCapacityOf(lanes, railInputFor(minutes, false))
     for (const strict of [false, true]) {
       const cell: RailCell | null =
         sampleLane === null ? null : guardVerdictAt(lanes, sampleLane.key, sampleStart, railInputFor(minutes, strict))
-      scenes[`${strict ? 'strict' : 'standard'}:${minutes}`] = { capacity, cell }
+      // ⚖ 9/1 (fix round 1 F4) — the key is the SEAM'S, so the room has one
+      // spelling of 「which scene do these dials ask for」 and the OFF store's
+      // answer (there is no scene) is decided in the same place.
+      scenes[sceneKeyFor(strict ? 'STRICT' : 'STANDARD', minutes)!] = { capacity, cell }
     }
   }
 
@@ -290,7 +296,12 @@ export default async function SettingsPage({
       overrideRoles: [...planes.opsConfig.overridePolicy.roles],
       managerRoles: [...managerRoles],
       lockedOut: [...planes.opsConfig.overridePolicy.lockedOut],
-      strict: live.gap_guard_mode === 'STRICT',
+      // ⚖ 9/1 (fix round 1 F4) — THE WHOLE ENUM CROSSES, never a boolean. `strict:
+      // mode === 'STRICT'` collapsed OFF into STANDARD at the very seam this room
+      // exists to build: an off store would have opened on a dial claiming it was
+      // running standard warnings, and a save built off that dial would have
+      // turned the guard ON without anyone pressing anything.
+      mode: live.gap_guard_mode,
       holdToConfirm: planes.opsConfig.overrideHoldToConfirm,
       newClientMinutes: live.new_client_session_minutes,
       heldRankAccess: planes.opsConfig.heldRankAccess,

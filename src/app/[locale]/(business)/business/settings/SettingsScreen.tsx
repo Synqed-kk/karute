@@ -23,7 +23,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { overrideLevelFor, warnFaceFor, type OverrideLevel, type RailCell } from '../today/today-interactions'
 import type { PriceFrame } from '@/business/lib/canon-logic/pricing'
-import { MINUTE_CHOICES, type NewClientMinutes } from './store-policy-seam'
+import { MINUTE_CHOICES, sceneKeyFor, type GapGuardMode, type NewClientMinutes } from './store-policy-seam'
 
 const ROOT = 'page pg-settings'
 
@@ -50,8 +50,10 @@ export interface SettingsProps {
     managerRoles: string[]
     /** ⚠SETTINGS-BATCH — `overridePolicy.lockedOut`, staff_id で名指し. */
     lockedOut: string[]
-    /** core `gap_guard_mode` === 'STRICT'. */
-    strict: boolean
+    /** core `gap_guard_mode`, WHOLE — 'OFF' | 'STANDARD' | 'STRICT'. ⚖ 9/1 (fix
+     *  round 1 F4): a boolean here threw the third state away, so an off store
+     *  opened on a dial claiming it ran standard warnings. */
+    mode: GapGuardMode
     /** ⚠SETTINGS-BATCH — `overrideHoldToConfirm`. */
     holdToConfirm: boolean
     /** core `new_client_session_minutes`. */
@@ -90,16 +92,16 @@ type Perm = 'staff' | 'approve' | 'manager'
 type Rank = SettingsProps['policy']['heldRankAccess']
 /** One dial state, and the mock's own key set — 名指しロック is deliberately NOT
  *  in it (see `PRESETS`). */
-interface Dials { perm: Perm; hold: boolean; strict: boolean; gaps: boolean; minutes: NewClientMinutes; rank: Rank; slot: number }
+interface Dials { perm: Perm; hold: boolean; mode: GapGuardMode; gaps: boolean; minutes: NewClientMinutes; rank: Rank; slot: number }
 
 /** ⚖ the mock's three presets, value for value. 名指しロック is a PER-PERSON
  *  exception rather than a policy dial, so it lives outside this set and
  *  choosing a preset never silently frees a locked staff member — the mock's own
  *  adjudicated rule, carried. */
 const PRESETS: Record<string, Dials> = {
-  auto: { perm: 'staff', hold: true, strict: false, gaps: true, minutes: 90, rank: 'closed', slot: 30 },
-  trust: { perm: 'staff', hold: false, strict: false, gaps: true, minutes: 90, rank: 'closed', slot: 30 },
-  watch: { perm: 'manager', hold: true, strict: true, gaps: true, minutes: 90, rank: 'closed', slot: 30 },
+  auto: { perm: 'staff', hold: true, mode: 'STANDARD', gaps: true, minutes: 90, rank: 'closed', slot: 30 },
+  trust: { perm: 'staff', hold: false, mode: 'STANDARD', gaps: true, minutes: 90, rank: 'closed', slot: 30 },
+  watch: { perm: 'manager', hold: true, mode: 'STRICT', gaps: true, minutes: 90, rank: 'closed', slot: 30 },
 }
 
 const PRESET_CARDS: Array<{ key: string; name: string; lines: string[] }> = [
@@ -151,7 +153,9 @@ export function SettingsScreen(props: SettingsProps) {
   // match no preset opens on カスタム, which is the truth about it.
   const [perm, setPerm] = useState<Perm>(policy.overrideRoles.includes(props.sampleStaffRole) ? 'staff' : 'manager')
   const [hold, setHold] = useState(policy.holdToConfirm)
-  const [strict, setStrict] = useState(policy.strict)
+  // ⚖ 9/1 (fix round 1 F4) — the WHOLE enum, so a store that arrives OFF stays
+  // OFF until the operator presses one of the dial's two positions on purpose.
+  const [mode, setMode] = useState<GapGuardMode>(policy.mode)
   const [gaps, setGaps] = useState(policy.gapSelling)
   const [minutes, setMinutes] = useState<NewClientMinutes>(policy.newClientMinutes)
   const [rank, setRank] = useState<Rank>(policy.heldRankAccess)
@@ -164,6 +168,13 @@ export function SettingsScreen(props: SettingsProps) {
   const [lockPick, setLockPick] = useState('')
   // The preview's sample operator — the mock's 見本の操作者 segment.
   const [op, setOp] = useState<'staff' | 'manager'>('staff')
+  /** ⚖ 9/1 (fix round 1 F12) — 詳細設定 IS CONTROLLED, so the tour can open it.
+   *  `spotTargets` drops zero-sized nodes (which is the right law: a hidden dial
+   *  is not explained), and a collapsed `<details>` makes all nine of them zero —
+   *  so a manager who folded the section away and then pressed ? was walked
+   *  through 3 steps instead of 12, with the count reading 「1 / 3」 as though
+   *  that were the page. The walk opens the section it is about to explain. */
+  const [advOpen, setAdvOpen] = useState(true)
 
   // ⚖ Liam 8/23 — 画面の説明. The step the tour is on, `-1` when it is closed.
   // View state: the walk explains the page and writes nothing.
@@ -176,17 +187,17 @@ export function SettingsScreen(props: SettingsProps) {
   const tourCardRef = useRef<HTMLDivElement>(null)
   const tourNextRef = useRef<HTMLButtonElement>(null)
 
-  const dials: Dials = { perm, hold, strict, gaps, minutes, rank, slot: Number(slotText) }
+  const dials: Dials = { perm, hold, mode, gaps, minutes, rank, slot: Number(slotText) }
   const activePreset =
     Object.keys(PRESETS).find((k) => {
       const p = PRESETS[k]
-      return p.perm === dials.perm && p.hold === dials.hold && p.strict === dials.strict &&
+      return p.perm === dials.perm && p.hold === dials.hold && p.mode === dials.mode &&
         p.gaps === dials.gaps && p.minutes === dials.minutes && p.rank === dials.rank && p.slot === dials.slot
     }) ?? null
 
   function choosePreset(key: string) {
     const p = PRESETS[key]
-    setPerm(p.perm); setHold(p.hold); setStrict(p.strict); setGaps(p.gaps)
+    setPerm(p.perm); setHold(p.hold); setMode(p.mode); setGaps(p.gaps)
     setMinutes(p.minutes); setRank(p.rank); setSlotText(String(p.slot))
   }
 
@@ -223,13 +234,20 @@ export function SettingsScreen(props: SettingsProps) {
     return perm === 'approve' && base === 'allow-warned' ? 'needs-approval' : base
   })()
 
-  const scene = props.scenes[`${strict ? 'strict' : 'standard'}:${minutes}`] ?? { capacity: 0, cell: null }
+  /** ⚖ 9/1 (fix round 1 F4) — WHICH SCENE THESE DIALS ASK FOR, and `null` when
+   *  they ask for none: the guard is OFF for this store, so there is no verdict
+   *  to preview and the card below is not drawn at all. The seam owns the mapping
+   *  so the page (which BUILDS the scenes) and this screen (which reads them)
+   *  cannot spell the key two ways. */
+  const sceneKey = sceneKeyFor(mode, minutes)
+  const guardOff = sceneKey === null
+  const scene = (sceneKey === null ? null : props.scenes[sceneKey]) ?? { capacity: 0, cell: null }
 
   /** THE CARD, composed by the BOARD'S OWN function. Every branch of it —
    *  the three faces, the hold/press/approval commit, the provenance line, the
    *  safe answer, the ¥ — is `warnFaceFor`'s; this room decides nothing about
    *  what a staff member sees, which is the only way a preview can be trusted. */
-  const card = sample === null ? null : warnFaceFor({
+  const card = sample === null || guardOff ? null : warnFaceFor({
     rows: sample.rows,
     cell: scene.cell,
     // The preview stages a landing directly; nothing was walked past on the way,
@@ -340,7 +358,19 @@ export function SettingsScreen(props: SettingsProps) {
    *  The last un-locked person on the roster cannot be added, and the control
    *  says so instead of going quietly dead. */
   const lockable = props.roster.filter((s) => !locks.includes(s.id))
-  const lastOneStanding = lockable.length <= 1
+  /** ⚖ 9/1 (fix round 1 F14) — AND AN EMPTY ROSTER IS NOT A STORE DOWN TO ITS
+   *  LAST PERSON. `<= 1` answered TRUE at zero, so a lens with no staff at all
+   *  printed 「全員を名指しロックにはできません」 and disabled 追加 — a guardrail
+   *  firing about people who are not there, over a picker that is empty anyway. */
+  const lastOneStanding = props.roster.length > 0 && lockable.length <= 1
+  /** ⚖ 8/17 STORE ISOLATION (fix round 1 F14) — A FOREIGN staff_id NEVER RENDERS.
+   *  `lockedOut` is the STORE POLICY's list and this screen is opened under one
+   *  store's lens, so an id belonging to another store's roster found no name and
+   *  fell back to printing the raw key — 「p-05 ×」 — which is precisely the
+   *  existence the isolation law hides. Filtered for DISPLAY only: the id stays in
+   *  `locks`, so nothing this screen does erases a lock it is not allowed to show. */
+  const rosterIds = new Set(props.roster.map((s) => s.id))
+  const shownLocks = locks.filter((id) => rosterIds.has(id))
   const nameOf = (id: string) => props.roster.find((s) => s.id === id)?.name ?? id
 
   return (
@@ -369,7 +399,7 @@ export function SettingsScreen(props: SettingsProps) {
               aria-haspopup="dialog"
               aria-expanded={tourOpen}
               aria-controls="stTour"
-              onClick={() => setTourIdx(0)}
+              onClick={() => { setAdvOpen(true); setTourIdx(0) }}
             >
               ?
             </button>
@@ -430,14 +460,28 @@ export function SettingsScreen(props: SettingsProps) {
               <p className="st-ctrl-d">誰がこの操作をしているかで、出てくるカードが変わります</p>
             </div>
 
-            {sample === null || card === null ? (
+            {guardOff ? (
+              // ⚖ 9/1 (fix round 1 F4) — AND AN OFF STORE SAYS SO. `gap_guard_mode`
+              // has a third state, and a store that turned the 確保 guard off has
+              // no warning card at all — not a standard one. Its own sentence,
+              // rather than a scene borrowed from the mode next door.
+              <p className="st-pv-none">この店舗では、確保枠の見張りそのものを止めています。下の「店長のみでも警告を止める」でONかOFFを選ぶと、ここにスタッフが見るカードが出ます。</p>
+            ) : sample === null || card === null ? (
               // ⚖ HONEST WHEN THERE IS NOTHING TO SHOW. No landing on this
               // store's day costs it a protected window, so there is no warning
               // card to preview — said out loud rather than drawn from a scene
               // this room invented.
               <p className="st-pv-none">いまの1日には、確保枠を壊してしまう配置がありません。設定を変えると、ここにスタッフが見るカードが出ます。</p>
             ) : (
-              <div className="hold-pop st-pv-card" role="img" aria-label="スタッフが見るカードの見本">
+              /* ⚖ 9/1 (fix round 1 F2) — `role="img"` IS DELETED. ARIA img is
+                 children-presentational, so the whole card — the impact line, the
+                 ¥, the provenance, the commit label, the check rows — collapsed
+                 into its own 12-character label for a screen reader: the manager
+                 asking 「what will my staff actually see?」 was answered 「a
+                 picture」. It is the exact pattern ⚖ flag 44(3) took off the
+                 board's own rail. `group` keeps the region NAMED and leaves every
+                 child readable. */
+              <div className="hold-pop st-pv-card" role="group" aria-label="スタッフが見るカードの見本">
                 <div className="hp-head">
                   <span className="status waiting">仮押さえ</span>
                   <strong>{sample.summary}</strong>
@@ -512,7 +556,7 @@ export function SettingsScreen(props: SettingsProps) {
 
           {/* ============ 詳細設定 ============ */}
           <div className="st-col-adv">
-            <details className="st-adv" open>
+            <details className="st-adv" open={advOpen} onToggle={(e) => setAdvOpen(e.currentTarget.open)}>
               <summary><span className="st-caret" aria-hidden="true" />詳細設定<span className="st-sum-d">一つずつ変えられます</span></summary>
 
               {/* a. 上書きの権限 */}
@@ -520,7 +564,7 @@ export function SettingsScreen(props: SettingsProps) {
                 className="st-row"
                 aria-labelledby="stPermLabel"
                 data-guide-title="上書きの権限"
-                data-guide="確保枠を壊す場所に、誰が置けるかを決めます。「店長のみ」にすると、スタッフには安全な時間の提案だけが出ます。"
+                data-guide="確保枠を壊す場所に、誰が自分の権限で置けるかを決めます。ここで選ばれていない人も、いまは確認のうえで置けます。下の「店長のみでも警告を止める」をONにすると、選ばれていない人は確定できなくなります。"
               >
                 <p className="st-ctrl-l" id="stPermLabel">上書きの権限</p>
                 <div className="st-seg" role="group" aria-labelledby="stPermLabel">
@@ -528,7 +572,15 @@ export function SettingsScreen(props: SettingsProps) {
                   <button type="button" className={perm === 'approve' ? 'on' : undefined} aria-pressed={perm === 'approve'} onClick={() => setPerm('approve')}>店長の承認</button>
                   <button type="button" className={perm === 'manager' ? 'on' : undefined} aria-pressed={perm === 'manager'} onClick={() => setPerm('manager')}>店長のみ</button>
                 </div>
-                <p className="st-ctrl-d">確保枠を壊す場所に、誰が置けるか</p>
+                {/* ⚖ 9/1 (fix round 1 F1) — AND IT SAYS WHAT THIS DIAL DOES IN
+                    BOTH STRICT STATES. 「誰が置けるか」 was false at the loosened
+                    setting: ⚖ ruling 1/2 lets everyone place through a merely
+                    costly landing, and what this dial changes there is WHOSE
+                    authority the record carries. It becomes a wall only when the
+                    dial below is ON, and that is the half worth naming — a
+                    manager reading one sentence about two states deserves both. */}
+                <p className="st-ctrl-d">確保枠を壊す場所に、誰が自分の権限で置けるか</p>
+                <p className="st-ctrl-d dim">選ばれていない人も、いまは確認のうえで置けます（操作した人の名前が記録に残ります）。下の「店長のみでも警告を止める」をONにすると、選ばれていない人は確定できなくなります</p>
                 <p className="st-ctrl-d dim"><span className="st-chip">準備中</span>「店長の承認」の承認フローは、近日追加予定です</p>
                 <p className="st-ctrl-d dim"><span className="st-chip">準備中</span>{PENDING_NOTE}</p>
               </section>
@@ -542,9 +594,9 @@ export function SettingsScreen(props: SettingsProps) {
               >
                 <p className="st-ctrl-l" id="stLockLabel">名指しロック</p>
                 <div className="st-locks">
-                  {locks.length === 0
+                  {shownLocks.length === 0
                     ? <span className="st-locks-empty">まだ誰も指定していません</span>
-                    : locks.map((id) => (
+                    : shownLocks.map((id) => (
                         <span className="st-lockchip" key={id}>
                           {nameOf(id)}
                           <button type="button" aria-label={`${nameOf(id)} を名指しロックから外す`} onClick={() => setLocks((was) => was.filter((x) => x !== id))}>×</button>
@@ -604,11 +656,18 @@ export function SettingsScreen(props: SettingsProps) {
                 data-guide="ONにすると、権限のないスタッフは注意が必要な場所に確定できなくなります。カードには安全な時間の提案と元に戻すだけが残ります。"
               >
                 <p className="st-ctrl-l" id="stStrictLabel">店長のみでも警告を止める</p>
+                {/* ⚖ 9/1 (fix round 1 F4) — THREE STATES, TWO BUTTONS, AND NO
+                    FABRICATED POSITION. A store whose guard is OFF is neither ON
+                    nor OFF on this dial, so neither button is pressed and the
+                    line below says why — rather than lighting OFF, which would
+                    read as 「the guard is running, without the wall」 and would
+                    quietly turn the guard ON the moment anything saved. */}
                 <div className="st-seg" role="group" aria-labelledby="stStrictLabel">
-                  <button type="button" className={strict ? 'on' : undefined} aria-pressed={strict} onClick={() => setStrict(true)}>ON</button>
-                  <button type="button" className={!strict ? 'on' : undefined} aria-pressed={!strict} onClick={() => setStrict(false)}>OFF</button>
+                  <button type="button" className={mode === 'STRICT' ? 'on' : undefined} aria-pressed={mode === 'STRICT'} onClick={() => setMode('STRICT')}>ON</button>
+                  <button type="button" className={mode === 'STANDARD' ? 'on' : undefined} aria-pressed={mode === 'STANDARD'} onClick={() => setMode('STANDARD')}>OFF</button>
                 </div>
                 <p className="st-ctrl-d">ONにすると、権限のないスタッフは注意が必要な場所に確定できなくなります（安全な時間の提案と元に戻すだけになります）</p>
+                {guardOff && <p className="st-ctrl-d warn">いまこの店舗は、確保枠の見張りそのものを止めています。ONとOFFのどちらを押しても、見張りは動き出します</p>}
               </section>
 
               {/* e. すき間の販売 */}
@@ -649,7 +708,7 @@ export function SettingsScreen(props: SettingsProps) {
                 <p className={`st-ctrl-d${scene.capacity === 0 ? ' warn' : ' dim'}`} aria-live="polite">
                   {scene.capacity === 0
                     ? `この長さでは、この店舗の1日に新規のお客様の確保枠をひとつも作れません（0枠）`
-                    : `この店舗の1日では、新規のお客様の確保枠を${scene.capacity}枠つくれます`}
+                    : `この店舗では、1日に新規のお客様の確保枠を${scene.capacity}枠作れます`}
                 </p>
               </section>
 
@@ -699,13 +758,30 @@ export function SettingsScreen(props: SettingsProps) {
                   <span className="st-step-u">分</span>
                 </div>
                 <p className="st-ctrl-d">予約がそろう時間の単位</p>
-                <p className={`st-ctrl-d${slotWarn ? ' warn' : ' dim'}`} aria-live="polite">数字以外は保存されません</p>
+                {/* ⚖ 9/1 (fix round 1 F10) — THE REJECTION IS SAID, NOT ONLY
+                    COLOURED. A polite live region whose TEXT never changes
+                    announces nothing, so the only signal that a keystroke was
+                    thrown away was quiet→orange: WCAG 1.4.1, colour as the sole
+                    carrier of information, on the one field in this room an
+                    operator actually types into. The sentence itself changes now,
+                    inside the region that was already there. */}
+                <p className={`st-ctrl-d${slotWarn ? ' warn' : ' dim'}`} aria-live="polite">
+                  {slotWarn ? '数字以外は保存されません。いま入力された数字以外の文字は消しました' : '数字以外は保存されません'}
+                </p>
                 <p className="st-ctrl-d dim"><span className="st-chip">準備中</span>{PENDING_NOTE}</p>
               </section>
 
               {/* i. 保存 — ⚖ THE HQ GATE, and an honest refusal.
-                  The control is REFUSED rather than hidden, and its own reason is
-                  on its accessible name: the family's standing pattern for an
+                  The control is REFUSED rather than hidden, and its own reason
+                  rides its accessible DESCRIPTION: per accname the button's text
+                  content wins the NAME (この設定を保存), and `title` supplies the
+                  description — which is the correct place for a reason, and is
+                  what every sibling in this family already does. (⚖ 9/1 fix round
+                  1 F9 — this note used to claim the reason was on the NAME. The
+                  behaviour was right and the sentence describing it was wrong,
+                  which is the kind of comment a later round builds on.) The
+                  refusal is also PRINTED under the control, so it does not depend
+                  on a tooltip at all. The family's standing pattern for an
                   action with no wire yet (BusinessTopbar's 操作履歴,
                   BusinessSidebar's 事業切替) is 「disabled with the reason, never a
                   button that pretends」 (⚖ L-7). Who MAY save is the store's own

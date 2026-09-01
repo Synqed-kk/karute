@@ -2320,10 +2320,15 @@ export function offerableCell(
   // control, through the gate written to stop it. A settings field reaching
   // `Number('1e400')` or a bare `Infinity` is the same text input S5 named.
   // Behaviour-identical for every finite step; ±Infinity and NaN now share the
-  // one door. (`guardRailsFor` reads the same class of dial with the weaker
-  // `<= 0` spelling and is left alone: its walk is `start += stepMin`, so an
-  // infinite step overshoots `close` on the first step and the rail comes back
-  // short rather than wrong — a degeneracy, not a lie on a control.)
+  // one door.
+  //
+  // ⚖ 9/1, THE SETTINGS ROUND (fix round 1 F8) — AND THE CLAUSE THAT USED TO
+  // STAND HERE IS DELETED, NOT CORRECTED. It said `guardRailsFor` could keep the
+  // weaker `<= 0` spelling because 「the rail comes back short rather than wrong
+  // — a degeneracy, not a lie on a control」. The settings round's own M1 red-run
+  // disproved it on a NaN step: the rail painted ONE cell at `input.open` and
+  // then ended, so it did not come back short, it came back WRONG about the rest
+  // of the day. That sibling now carries this same guard (:1703) and says so.
   if (!(Number.isFinite(stepMin) && stepMin > 0)) return { ...cell, alternatives: [] }
   const out: number[] = []
   for (const s of cell.alternatives) {
@@ -3664,6 +3669,40 @@ function impactOf(cell: RailCell, listPrice: number, protectedDur: number, frame
 export const lossOf = (c: RailCell | null): number =>
   c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter
 
+/** ⚖ 54 — HOW MANY 新規 WINDOWS A DAY HOLDS, and it is the ENGINE'S count.
+ *
+ *  The 設定 room's guardrail line 「…確保枠を◯枠作れます」 is about exactly this
+ *  number, and a room that counted pockets of its own would be a second spelling
+ *  of the question `protectedCapacity` already answers — the same disease ⚖ 54
+ *  names and the same reason `lossOf` above was lifted out of a screen.
+ *
+ *  So it lives beside `lossOf`, on the same inputs the rail is drawn from
+ *  (`RailInput`), and the lane walk is `guardRailsFor`'s own — staff lanes with a
+ *  window, minus the locked ones — so the number counts precisely the lanes the
+ *  rail would draw on. `.before` is the day AS IT STANDS: nothing is being placed
+ *  here, the question is what the day can still hold. */
+export function protectedCapacityOf(lanes: BoardLane[], input: RailInput): number {
+  const engine = createGapGuard(input.guard)
+  let total = 0
+  for (const lane of lanes) {
+    if (lane.group !== 'staff' || lane.window == null || input.locked.includes(lane.key)) continue
+    const pockets = freePockets({
+      from: lane.window.from,
+      until: lane.window.until,
+      close: input.close,
+      now: input.nowMinute,
+      occupied: laneSpans(lane, input.excludeId),
+    })
+    // `railCtx` is this file's one ctx home, so the capacity question is asked in
+    // exactly the ctx the rail's own verdicts are — a caller that supplies the
+    // bed callbacks is answered by them here too, rather than by a second,
+    // callback-less ctx spelled beside it.
+    const ctx = railCtx(lane, input)
+    for (const pocket of pockets) total += engine.protectedCapacity(pocket, null, ctx).before
+  }
+  return total
+}
+
 export function warnFaceFor(input: WarnCardInput): WarnCardModel {
   const { cell, rows, level, protectedDur, operatorName } = input
   /** ⚖ 9/1 ruling 2/2 (Liam, merge-gate) — ZERO-LOSS IS QUIET. The trigger used
@@ -3849,7 +3888,38 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
    *  all, so it is `guardWarn`-false by construction and never arrives here.
    *  What answers the operator is round 9 W1's DEAD LABELED COMMIT below: the
    *  price is named, and the button that cannot pay it says why. */
-  if (guardWarn && cell.state === 'blocked' && cell.ackAllowed === false) {
+  /** ⚖ 9/1 STRICT-SWITCH RULING (settings round, fix round 1 F1) — AND THE WALL
+   *  IS THE DIAL'S, SO IT ANSWERS THE DIAL'S OWN QUESTION: WHO.
+   *
+   *  `ackAllowed` is role-BLIND — gap-guard sets it from the store's mode alone
+   *  (`reason.ackAllowed = mode === 'standard'`, :398, FROZEN) — so this branch
+   *  walled EVERYONE at STRICT, 店長・オーナー included. The approved settings
+   *  page says the opposite in as many words: its 店長がしっかり見る preset reads
+   *  「確保枠を壊す場所に置けるのは店長だけです」, and 「店長のみでも警告を止める」
+   *  promises 「権限のないスタッフは…確定できなくなります」. Both are about the
+   *  people the 上書きの権限 dial EXCLUDES; the permitted keep the warn commit.
+   *  The copy is the ruling, and the code drifted when ruling 1/2's lock face was
+   *  deleted — the wall lost the only branch that knew whose it was.
+   *
+   *  So the role half is composed HERE rather than in the engine, which is where
+   *  it has to live anyway: gap-guard is canon and knows nothing about operators,
+   *  and this composer is already handed `level` — ruling 91's answer about THIS
+   *  operator (`overrideLevelFor`: the store's own override roles, with
+   *  `lockedOut` answering first). `refuse` is exactly 「the store did not give
+   *  this person the override」, by role or by name, so it is the whole of the
+   *  test. A store at STRICT whose dial admits everyone is a coherent no-op, and
+   *  STANDARD is untouched (`ackAllowed` is true there, so this branch never
+   *  fired for anyone: ⚖ ruling 1/2's loosen stands, walls only true 置けない).
+   *
+   *  ⚖ 73 IS UNTOUCHED. Its floor — `R-UNAVAILABLE`, the physically impossible
+   *  placement — reaches the rail through `railCell`'s `blocked()` with NO
+   *  `impact` at all (gap-guard :372 → :1747), so `lossOf` is 0, `guardWarn` is
+   *  false, and it has never arrived at this branch since round 8 Z1 put
+   *  `guardWarn` on the front of it (round 11 P1 says so in its own words). What
+   *  survives here is the STRICT refusal and nothing else, which is why the level
+   *  may decide it: a cost the engine WILL let the store pay is the dial's to
+   *  govern, and this is the dial governing it. */
+  if (guardWarn && cell.state === 'blocked' && cell.ackAllowed === false && level === 'refuse') {
     return {
       face: 'warn', impact, provenance: null, lock: null, safePrimary,
       commit: { kind: input.holdToConfirm ? 'hold' : 'press', label: 'この位置では確定できません', enabled: false, note: null },

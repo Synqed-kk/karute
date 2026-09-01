@@ -8237,6 +8237,23 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
    *  The pins below now read the clean face's own frozen 「この位置では確定できま
    *  せん」 (drag-rules :234), and ⚖ 73 is asserted where it actually lives: the
    *  `enabled` here is the literal `false`, unconditional, never the checks gate. */
+  /** ⚖ 9/1 STRICT-SWITCH RULING (settings round, fix round 1 F1) — AND THE WALL
+   *  IS THE DIAL'S, SO IT ASKS WHO.
+   *
+   *  Everything below was written when this branch was ROLE-BLIND, and the branch
+   *  was role-blind because `ackAllowed` is: gap-guard sets it from the store's
+   *  mode alone, so STRICT took the commit away from 店長 and オーナー too. The
+   *  approved settings page promises the opposite in as many words — its
+   *  店長がしっかり見る preset reads 「確保枠を壊す場所に置けるのは店長だけです」,
+   *  and the dial says 「権限のないスタッフは…確定できなくなります」 — and both are
+   *  about the people the 上書きの権限 dial EXCLUDES.
+   *
+   *  So `level === 'refuse'` joins the branch, and the assertions below split in
+   *  two: the walled arms move to the excluded operator, and the permitted one
+   *  keeps the standard warn face. What did NOT move is ⚖ 73 — its floor
+   *  (`R-UNAVAILABLE`) carries no `impact`, so it is `guardWarn`-false and has
+   *  never reached this branch at all (round 11 P1 established exactly that). The
+   *  only class here is the STRICT refusal, which is the dial's own to govern. */
   it('⚖ 92 fix round 4 U3 — a floor the engine calls impossible wears a DEAD commit and no permission line', () => {
     // The REAL engine, on the store's own strict dial: the same 10:30 refusal
     // Liam photographed, with the one field that changes — nothing synthetic
@@ -8249,7 +8266,10 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // test is about `ackAllowed` and not about some other drift.
     expect({ ...strict, ackAllowed: true }).toEqual(REP())
 
-    const face = warnFaceFor(input({ cell: strict }))
+    // ⚖ 9/1 F1 — THE OPERATOR THE DIAL EXCLUDED. `level: 'refuse'` is what the
+    // 上書きの権限 dial answers for a staff member the store left off the list
+    // (or named in `lockedOut`), and it is the whole of the wall's condition.
+    const face = warnFaceFor(input({ cell: strict, level: 'refuse' }))
     expect(face.face).toBe('warn')
     /** ⚖ 92 fix round 11 P1 (breaker #10 #1) — AND THE HEADLINE IS THE RULED ONE,
      *  MONEY AND ALL. Round 4 U3's own note said the panel here carried
@@ -8271,9 +8291,22 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(face.commit).toEqual({ kind: 'hold', label: 'この位置では確定できません', enabled: false, note: null })
     expect(face.provenance).toBeNull()
     // The lock line stays null too — 「この場所への配置は店長のみ（店舗の設定）」
-    // would be FALSE here: this is physics, not the dial, and naming the manager
-    // sends the operator to ask for something no manager can grant.
+    // would name the manager as somewhere to appeal, over a start the store's own
+    // strict dial closed rather than a manager's discretion.
     expect(face.lock).toBeNull()
+
+    /** ⚖ 9/1 F1 — AND THE PERMITTED OPERATOR IS NOT WALLED AT ALL. Same cell,
+     *  same strict store, the shipped default level: the whole standard warn
+     *  face, which is what the approved page has always said the 店長 gets. The
+     *  two are asserted TOGETHER because a one-sided pin is exactly how the
+     *  role-blind version passed for two rounds. */
+    const strictOk = warnFaceFor(input({ cell: strict }))
+    expect(strictOk.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+    expect(strictOk.provenance).toBe('店舗の設定で、スタッフの上書きが許可されています。見本 あずさの名前で記録されます')
+    // …and the mode alone changes NOTHING for them: the strict card and the
+    // standard card are the same card, field for field.
+    expect(strictOk).toEqual(warnFaceFor(input({ cell: REP() })))
+
     // Everything the operator can still USE is untouched: the safe answer, the
     // rows and the greens. Being unable to place HERE is not being unable to
     // place, and ⚖ 元に戻す is the surface's own control either way.
@@ -8299,15 +8332,12 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // ⚖ 92 fix round 9 W1 (breaker #8 #1) — THE KIND FOLLOWS THE STORE'S DIAL,
     // like every other commit on this card. The hold physics are inert when the
     // control is disabled, so nothing is promised by the shape.
-    expect(warnFaceFor(input({ cell: strict, holdToConfirm: false })).commit)
+    expect(warnFaceFor(input({ cell: strict, level: 'refuse', holdToConfirm: false })).commit)
       .toEqual({ kind: 'press', label: 'この位置では確定できません', enabled: false, note: null })
 
-    // ⚖ 92 fix round 5 V2 (breaker #4) — PHYSICS OUTRANKS THE DIAL, and ⚖ 9/1
-    // ruling 1/2 is the sharpest version of that: the dial's own lock face is
-    // DELETED, so this branch is the only thing on the card that still refuses a
-    // commit — and it refuses it for the engine's reason, at every level. His
-    // rule in his own terms: the dial walls only true 置けない, and this is what
-    // true 置けない looks like.
+    // ⚖ 92 fix round 5 V2 (breaker #4) — the lock LINE never comes back, at any
+    // level: ⚖ 9/1 ruling 1/2 deleted that face, and this branch answers with a
+    // dead labelled commit instead of a red sentence about who to ask.
     const locked = warnFaceFor(input({ cell: strict, level: 'refuse' }))
     expect(locked.lock).toBeNull()
     expect(locked.commit).toEqual({ kind: 'hold', label: 'この位置では確定できません', enabled: false, note: null })
@@ -8317,19 +8347,19 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // composer's answer, so a level arm that silently swapped the headline for
     // anything at all would have passed as long as both arms swapped together.
     expect(locked.impact).toEqual({ head: 'ここに置くと、新規のお客様の90分', yen: '約¥10,590', tail: 'が入らなくなります。' })
-    // …and the middle level cannot dress it up either: an approval request for
-    // something no manager can approve is the same lie in a different control,
-    // so the physics branch answers before the level branch is ever reached.
+    // ⚖ 9/1 F1 — AND THE MIDDLE LEVEL IS PERMITTED, so it is not walled either.
+    // 'needs-approval' is composed only from an operator the dial DOES admit
+    // (`perm === 'approve' && base === 'allow-warned'`, the settings room), so
+    // the strict dial has nothing to say to them; their own approval control —
+    // disabled, with its own honest note — is what answers.
     expect(warnFaceFor(input({ cell: strict, level: 'needs-approval' })).commit)
-      .toEqual({ kind: 'hold', label: 'この位置では確定できません', enabled: false, note: null })
+      .toEqual({ kind: 'approval', label: '店長に許可を求める', enabled: false, note: '承認機能は準備中です' })
     expect(warnFaceFor(input({ cell: strict, level: 'needs-approval' })).lock).toBeNull()
-    // ⚖ 92 fix round 9 W1 (breaker #8 #1) — AND ⚖ 73 IS PINNED AS UNCONDITIONAL.
-    // The disabled state here is the LITERAL `false`, never `confirmEnabled`: a
-    // checks gate that says GO cannot hand a manager authority over a floor the
-    // engine calls impossible. Physics outranks the gate, so a passing gate
-    // changes nothing about this control — asserted at every level, and read off
-    // the composer's own line so a future `input.confirmEnabled` here goes red.
-    expect(warnFaceFor(input({ cell: strict, confirmEnabled: true })).commit!.enabled).toBe(false)
+    // ⚖ 92 fix round 9 W1 (breaker #8 #1) — AND THE WALL IS UNCONDITIONAL ON THE
+    // CHECKS GATE. The disabled state is the LITERAL `false`, never
+    // `confirmEnabled`: a gate that says GO cannot hand back a commit the store's
+    // own dial refused this operator. Read off the composer's line too, so a
+    // future `input.confirmEnabled` here goes red.
     expect(warnFaceFor(input({ cell: strict, level: 'refuse', confirmEnabled: true })).commit!.enabled).toBe(false)
     expect(INT).toContain("      commit: { kind: input.holdToConfirm ? 'hold' : 'press', label: 'この位置では確定できません', enabled: false, note: null },\n")
     // AND THE OTHER HALF OF HIS RULE, on the same pair of cells: a landing the
@@ -8350,7 +8380,9 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // branch answers only the floors the GUARD found. Both cells above are
     // guard-lit (a real 6→5 loss each), which is why every assertion in this
     // test is unchanged by that narrowing.
-    expect(INT).toContain("if (guardWarn && cell.state === 'blocked' && cell.ackAllowed === false) {")
+    // ⚖ 9/1 F1 — and `level === 'refuse'` is on the front of it with them, which
+    // is the line that makes this whole test a matrix rather than a mode switch.
+    expect(INT).toContain("if (guardWarn && cell.state === 'blocked' && cell.ackAllowed === false && level === 'refuse') {")
     expect(INT.match(/lock: null/g)).toHaveLength(3)
     expect(INT).not.toContain("lock: 'この場所への配置は")
   })
