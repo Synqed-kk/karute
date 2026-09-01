@@ -660,6 +660,48 @@ async function facadeSaveKarute(input: SaveKaruteInput): Promise<{ error: string
   throw new Error('NEXT_REDIRECT')
 }
 
+// ＋新規カルテ manual create (PHONEWIRE-2A) — the web action's twin, shape for
+// shape: it redirects OUTSIDE its try/catch because redirect() throws a
+// control-flow exception a catch would swallow, and this port keeps that exact
+// structure — a NEXT_REDIRECT thrown INSIDE the try would come back out as an
+// { error }, turning a durable success into a visible failure.
+//
+// A 2xx alone is NOT a create: handler.ts stringifies its ERRORS, so a facade
+// 502 arrives with a parseable JSON body (the thin-recording-discard-port
+// lesson). The id is what proves a カルテ exists.
+//
+// FAILURE RETURNS { error }, never throws: NewKaruteDialog renders only
+// RETURNED errors — a throw inside its transition bypasses the inline
+// role="alert" and leaves the dialog hanging (Greptile P1 on #484). That is
+// also why the request is try/caught: a dropped-wifi rejection must land as
+// that same { error }.
+async function facadeCreateManualKaruteRecord(input: {
+  customerId: string
+  staffId: string
+  sessionDate: string
+  durationMinutes: number
+  service: string
+}): Promise<{ error: string } | void> {
+  let id: string
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/karute/manual', idemPost(input))
+    const body = (await res.json().catch(() => null)) as
+      | { id?: string; error?: { message?: string } }
+      | null
+    if (!res.ok || !body?.id) {
+      return { error: body?.error?.message ?? `Create failed (${res.status})` }
+    }
+    id = body.id
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+  // web redirects by throwing NEXT_REDIRECT; thin navigates then throws the
+  // same marker, so the action's never-returns-on-success contract holds
+  // identically on both doors (facadeSaveKarute above, same pattern).
+  thinRedirect(`/karute/${id}`)
+  throw new Error('NEXT_REDIRECT')
+}
+
 async function facadeSaveKaruteInline(
   input: SaveKaruteInput,
 ): Promise<{ id: string } | { error: string }> {
@@ -1724,17 +1766,11 @@ export const removeStaffPin = facadeRemoveStaffPin
 export const setStaffPin = facadeSetStaffPin
 export const enrollVoiceAction = facadeEnrollVoice
 export const revokeVoiceAction = facadeRevokeVoice
-// -- karute (sessions list — packet 05; New カルテ create is unwired in the
-//    read-only batch, but speaks the action's own { error } | void contract:
-//    NewKaruteDialog only renders RETURNED errors — a throw inside its
-//    transition bypasses the error UI and leaves the dialog hanging (Greptile
-//    P1 on #484). Honest failure through the dialog's own path, never a
-//    silent success.
-export const createManualKaruteRecord = async (): Promise<{ error: string }> => ({
-  error:
-    '[thin] createManualKaruteRecord is not wired to a facade endpoint yet ' +
-    '(BFF is a backend dependency — see thin/ports/actions.vite.ts).',
-})
+// -- karute (sessions list — packet 05). ＋新規カルテ manual create, wired in
+//    PHONEWIRE-2A; it was a deliberate SOFT stub until now. See the port body
+//    above for the failure-returns-{error} ruling (Greptile P1 on #484).
+export const createManualKaruteRecord = facadeCreateManualKaruteRecord satisfies
+  typeof import('@/actions/karute').createManualKaruteRecord
 // -- appointments (design-parity P-B 2/2). The mutation routes are RPC-style:
 //    the web action's result shape rides the 2xx body VERBATIM, so these
 //    ports pass it through — CancelBookingSheet branches on `code`/`burnError`

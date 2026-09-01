@@ -60,6 +60,7 @@ export const AUDIT_ACTIONS = [
   'karute.entries_regenerate',
   'karute.entry_edit',
   'karute.entry_edits_view',
+  'karute.manual_create',
   'karute.outcome_set',
   'karute.save',
   'karute.summary_edit',
@@ -441,10 +442,10 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/actions/karute.ts',
     call: 'karuteRecords.create',
-    symbols: ['createOrUpdateKaruteRecord', 'createManualKaruteRecord'],
+    symbols: ['createOrUpdateKaruteRecord', 'createManualKaruteRecordWithClient'],
     justification:
-      'createOrUpdateKaruteRecord (AUDITED_CORES — this specific call site is its own fresh-record branch, dominated by its emitSave call-through, already proven by CP2/CP7) and createManualKaruteRecord (the "+ 新規カルテ" manual-entry dialog — a separate creation path with no audit() call today, genuinely untracked, not pendingWave).',
-    dated: '2026-07-27',
+      'createOrUpdateKaruteRecord (AUDITED_CORES — this specific call site is its own fresh-record branch, dominated by its emitSave call-through, already proven by CP2/CP7) and createManualKaruteRecordWithClient (PHONEWIRE-2A: the "+ 新規カルテ" manual-entry create body, moved into a WithClient twin so the web action and the new facade POST run ONE body — the same Core/WithClient split as createCustomerWithClient. The shared body stays audit-free; the FACADE door IS now covered — karute.manualCreate is a LIVE FACADE_AUDIT_MAP mutation row emitting karute.manual_create with the target from ctx.auditTargetId. The WEB wrapper createManualKaruteRecord remains genuinely untracked, exactly as it was before this refactor — a pre-existing gap this build narrows rather than widens, not pendingWave).',
+    dated: '2026-09-01',
   },
   {
     file: 'src/actions/org-settings.ts',
