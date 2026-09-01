@@ -44,6 +44,7 @@ import {
   fractionIn,
   allocateBed,
   bedFeasibility,
+  dialAdmits,
   gapLayerFor,
   guardRailsFor,
   guardVerdictAt,
@@ -5485,9 +5486,83 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     // two tiers finally being told apart.
     const floor = { ...cell, ackAllowed: false }
     expect(landingVerdict([staff(), ...beds], askAt(630), floor).kind).toBe('blocked')
-    // ONE predicate, in the ONE home.
-    expect(INT).toContain("if (cell?.state === 'blocked' && !cell.ackAllowed) return stop(cell.sentence, 'hard')")
+    // ONE predicate, in the ONE home. (⚖ 9/1 fix round 2 D1 gave it a second
+    // tier — see the matrix below; the ack-allowed arm here is untouched.)
+    expect(INT).toContain("if (cell?.state === 'blocked' && !cell.ackAllowed) {")
     expect(INT).toContain("if (cell && cell.state !== 'safe') return { kind: 'caution', floor: null, label: VERDICT_WORD.caution, reason: cell.sentence, cell, bedLane, checks }")
+  })
+
+  /** ⚖ 9/1 STRICT-SWITCH RULING (fix round 2 D1) — THE BOARD HALF, AS A MATRIX.
+   *
+   *  Round 1 taught the CARD that the strict dial walls only the people the
+   *  上書きの権限 dial excludes, and the delta-verifier then proved the BOARD
+   *  never learned it: `landingVerdict` had no operator at all, so a strict store
+   *  hard-stopped every drag, nudge and rail tap for everyone — and the composer's
+   *  permitted arm was reachable only if the board moved under an already-staged
+   *  hold. The settings page shipped 「確保枠を壊す場所に置けるのは店長だけです」
+   *  over a board where the 店長 could not place there either.
+   *
+   *  Both classes and both modes are asserted TOGETHER, because the danger of
+   *  this fix is the opposite of the bug: a split that read the store's MODE
+   *  instead of the engine's own signal would soften physics, and ⚖ 73 is the
+   *  law that must not move. Every cell below comes off the REAL engine. */
+  it('⚖ 9/1 D1 — the strict dial escalates for the ADMITTED operator, and physics still stops everyone', () => {
+    // The two classes, from the engine rather than by hand.
+    const costed = ackAllowedCell()                                   // guard-warn: carries an impact
+    const strict = { ...costed, ackAllowed: false }                   // the same cell at a STRICT store
+    const physics = guardVerdictAt([staff([booking({ key: 'x', caseId: 'apt-x' }, 660, 720)]), ...beds], 'p-01', 630, railIn())!
+    expect(costed.impact).toBeDefined()
+    expect(lossOf(strict)).toBeGreaterThan(0)
+    // ⚖ 73's floor is impact-LESS — that is the whole basis of the split, so it
+    // is proven rather than assumed.
+    expect(physics.ackAllowed).toBe(false)
+    expect(physics.impact).toBeUndefined()
+    expect(lossOf(physics)).toBe(0)
+
+    const at = (cell: RailCell, level?: 'allow-warned' | 'needs-approval' | 'refuse') =>
+      landingVerdict([staff(), ...beds], { ...askAt(630), overrideLevel: level }, cell)
+
+    // ── STANDARD (ack-allowed) — untouched at every level: ⚖ ruling 1/2's loosen.
+    for (const level of ['allow-warned', 'needs-approval', 'refuse'] as const) {
+      expect({ level, kind: at(costed, level).kind }).toEqual({ level, kind: 'caution' })
+      expect(at(costed, level).floor).toBeNull()
+    }
+
+    // ── STRICT (the store's dial) — by ruling-91 level.
+    // The excluded operator keeps the hard stop: the sentence, the safe
+    // suggestions and 元に戻す, and no button onto a card they could not commit.
+    expect(at(strict, 'refuse').kind).toBe('blocked')
+    expect(at(strict, 'refuse').floor).toBe('hard')
+    // The admitted one gets the ESCALATION floor — the same one a failed 勤務 row
+    // uses, so the board finally does what the preset copy says the 店長 can do.
+    // Still `blocked` until they press: 'policy' is a path, not a grant.
+    for (const level of ['allow-warned', 'needs-approval'] as const) {
+      expect({ level, floor: at(strict, level).floor }).toEqual({ level, floor: 'policy' })
+      expect(at(strict, level).kind).toBe('blocked')
+      // …and the sentence never changes with the permission: it is the engine's.
+      expect(at(strict, level).reason).toBe(costed.sentence)
+    }
+
+    // ── PHYSICS — 'hard' at EVERY level and at both modes. A floor the engine
+    // calls impossible is not one a manager may be given authority over (⚖ 73),
+    // and the mode-only mutation of the split is red for exactly this row.
+    for (const level of [undefined, 'allow-warned', 'needs-approval', 'refuse'] as const) {
+      expect({ level, floor: at(physics, level).floor }).toEqual({ level, floor: 'hard' })
+    }
+
+    // ⚠ ABSENT IS NOT ADMITTED — the fail-closed default, which is what keeps
+    // every geometry-only caller of this question at today's answer.
+    expect(at(strict, undefined).floor).toBe('hard')
+    expect(dialAdmits(undefined)).toBe(false)
+
+    // ONE predicate for both seams: the card's commit gate and this landing gate
+    // ask the same question, so they cannot drift apart again.
+    expect(INT).toContain("      ? stop(cell.sentence, 'policy')")
+    expect(INT).toContain('lossOf(cell) > 0 && dialAdmits(q.overrideLevel)')
+    expect(INT).toContain("&& cell.ackAllowed === false && !dialAdmits(level)) {")
+    // …and the screen really hands the operator over, which is the half that was
+    // missing entirely.
+    expect(SRC).toContain('overrideLevel: props.overrideLevel,')
   })
 
   it('ROOT A — the cursor word, the rail mark and the release are the same call, on this class too', () => {
@@ -6278,8 +6353,11 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     expect(v.floor).toBe('policy')
     expect(v.reason).toBe('見本 あずさは16:30以降勤務不可')
     // The ORDER is what guarantees it, and it is one file, two adjacent lines.
+    // (⚖ 9/1 fix round 2 D1 split the guard stop into two tiers; the ORDER this
+    // pin is about — policy rows before the guard — is unchanged, so it now
+    // quotes that branch's opening line.)
     expect(INT.indexOf('if (failed) return stop(failed.label')).toBeLessThan(
-      INT.indexOf("if (cell?.state === 'blocked' && !cell.ackAllowed) return stop(cell.sentence, 'hard')"),
+      INT.indexOf("if (cell?.state === 'blocked' && !cell.ackAllowed) {"),
     )
     // The lane pair that makes them inseparable, at its source.
     const boardSrc = readFileSync(join(process.cwd(), 'src/business/lib/today-board.ts'), 'utf8')
@@ -8390,7 +8468,10 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // test is unchanged by that narrowing.
     // ⚖ 9/1 F1 — and `level === 'refuse'` is on the front of it with them, which
     // is the line that makes this whole test a matrix rather than a mode switch.
-    expect(INT).toContain("if (guardWarn && cell.state === 'blocked' && cell.ackAllowed === false && level === 'refuse') {")
+    // ⚖ 9/1 (fix round 2 D1) — the level test is now the SHARED predicate, so this
+    // seam and the landing seam ask one question. `!dialAdmits(level)` is the same
+    // set as the round-1 `level === 'refuse'` over a three-member union.
+    expect(INT).toContain("if (guardWarn && cell.state === 'blocked' && cell.ackAllowed === false && !dialAdmits(level)) {")
     expect(INT.match(/lock: null/g)).toHaveLength(3)
     expect(INT).not.toContain("lock: 'この場所への配置は")
   })

@@ -479,7 +479,7 @@ export function SettingsScreen(props: SettingsProps) {
               // has a third state, and a store that turned the 確保 guard off has
               // no warning card at all — not a standard one. Its own sentence,
               // rather than a scene borrowed from the mode next door.
-              <p className="st-pv-none">この店舗では、確保枠の見張りそのものを止めています。下の「店長のみでも警告を止める」でONかOFFを選ぶと、ここにスタッフが見るカードが出ます。</p>
+              <p className="st-pv-none">この店舗では、確保枠の見張りそのものを止めています。詳細設定の「店長のみでも警告を止める」でONかOFFを選ぶと、ここにスタッフが見るカードが出ます。</p>
             ) : sample === null || card === null ? (
               // ⚖ HONEST WHEN THERE IS NOTHING TO SHOW. No landing on this
               // store's day costs it a protected window, so there is no warning
@@ -578,7 +578,7 @@ export function SettingsScreen(props: SettingsProps) {
                 className="st-row"
                 aria-labelledby="stPermLabel"
                 data-guide-title="上書きの権限"
-                data-guide="確保枠を壊す場所に、誰が自分の権限で置けるかを決めます。ここで選ばれていない人も、いまは確認のうえで置けます。下の「店長のみでも警告を止める」をONにすると、選ばれていない人は確定できなくなります。"
+                data-guide="確保枠を壊す場所に、誰が自分の権限で置けるかを決めます。下の「店長のみでも警告を止める」がOFFのあいだは、権限のないスタッフも確認のうえで置けます。ONにすると、権限のないスタッフは確定できなくなります。"
               >
                 <p className="st-ctrl-l" id="stPermLabel">上書きの権限</p>
                 <div className="st-seg" role="group" aria-labelledby="stPermLabel">
@@ -594,7 +594,7 @@ export function SettingsScreen(props: SettingsProps) {
                     dial below is ON, and that is the half worth naming — a
                     manager reading one sentence about two states deserves both. */}
                 <p className="st-ctrl-d">確保枠を壊す場所に、誰が自分の権限で置けるか</p>
-                <p className="st-ctrl-d dim">選ばれていない人も、いまは確認のうえで置けます（操作した人の名前が記録に残ります）。下の「店長のみでも警告を止める」をONにすると、選ばれていない人は確定できなくなります</p>
+                <p className="st-ctrl-d dim">下の「店長のみでも警告を止める」がOFFのあいだは、権限のないスタッフも確認のうえで置けます（操作した人の名前が記録に残ります）。ONにすると、権限のないスタッフは確定できなくなります</p>
                 <p className="st-ctrl-d dim"><span className="st-chip">準備中</span>「店長の承認」の承認フローは、近日追加予定です</p>
                 <p className="st-ctrl-d dim"><span className="st-chip">準備中</span>{PENDING_NOTE}</p>
               </section>
@@ -762,7 +762,15 @@ export function SettingsScreen(props: SettingsProps) {
                       value={slotText}
                       onChange={(e) => {
                         const clean = e.target.value.replace(/[^0-9]/g, '')
-                        if (clean !== e.target.value) setSlotWarn(true)
+                        // ⚖ 9/1 (fix round 2 D3) — SET EVERY KEYSTROKE, never only
+                        // on rejection. `setSlotWarn(true)` alone cleared only on
+                        // blur, so 「…消しました」 stood over the NEXT, clean
+                        // keystroke — a sentence about something that just did not
+                        // happen, which is worse than the colour-only state F10
+                        // replaced. (ponytail: two identical rejections in a row
+                        // still cannot re-announce — aria-live fires on change, and
+                        // the text is unchanged. Known ceiling, accepted.)
+                        setSlotWarn(clean !== e.target.value)
                         setSlotText(clean)
                       }}
                       onBlur={() => { setSlotText(String(clampSlot(Number(slotText)))); setSlotWarn(false) }}
@@ -780,7 +788,7 @@ export function SettingsScreen(props: SettingsProps) {
                     operator actually types into. The sentence itself changes now,
                     inside the region that was already there. */}
                 <p className={`st-ctrl-d${slotWarn ? ' warn' : ' dim'}`} aria-live="polite">
-                  {slotWarn ? '数字以外は保存されません。いま入力された数字以外の文字は消しました' : '数字以外は保存されません'}
+                  {slotWarn ? '数字以外は保存されません。いま入力した文字から、数字以外を消しました' : '数字以外は保存されません'}
                 </p>
                 <p className="st-ctrl-d dim"><span className="st-chip">準備中</span>{PENDING_NOTE}</p>
               </section>

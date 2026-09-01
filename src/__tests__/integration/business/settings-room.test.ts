@@ -87,17 +87,23 @@ function openingTags(src: string, tag: string): string[] {
 }
 
 /** ⚖ R13 — EVERY DARK FILL THIS SHEET DECLARES, in every spelling a stylesheet
- *  has for one. Reads the VALUE of each `background` / `background-color`
- *  declaration and judges the colours inside it, rather than pattern-matching one
- *  shape of one property: 3- and 6-digit hex, `rgb()`/`rgba()`, and the `black`
- *  keyword all name the same fill, and the first cut of this check saw only the
- *  narrowest of them. Dark = every channel at or under half (`0x7f`), which is
- *  the tier the law is about; a soft wash sits far above it. */
+ *  has for one. Reads the VALUE of each `background` / `background-color` /
+ *  `background-image` declaration and judges the colours inside it, rather than
+ *  pattern-matching one shape of one property: 3- and 6-digit hex,
+ *  `rgb()`/`rgba()`, and the `black` keyword all name the same fill, and the
+ *  first cut of this check saw only the narrowest of them. Dark = every channel
+ *  at or under half (`0x7f`), which is the tier the law is about; a soft wash
+ *  sits far above it.
+ *
+ *  ⚖ 9/1 (fix round 2 D5) — `background-image` JOINS THEM. A gradient is a fill
+ *  like any other, and `linear-gradient(#111, #222)` on a pressable is the exact
+ *  black button R13 forbids, spelled in the one property this reader still could
+ *  not see. One token; the colours inside the value are already judged. */
 const DARK_MAX = 0x7f
 const isDark = (r: number, g: number, b: number) => r <= DARK_MAX && g <= DARK_MAX && b <= DARK_MAX
 function darkFills(css: string): string[] {
   const out: string[] = []
-  for (const decl of css.matchAll(/background(?:-color)?\s*:\s*([^;{}]+)/gi)) {
+  for (const decl of css.matchAll(/background(?:-color|-image)?\s*:\s*([^;{}]+)/gi)) {
     const value = decl[1]
     let dark = /\bblack\b/i.test(value)
     for (const hex of value.matchAll(/#([0-9a-f]{3}|[0-9a-f]{6})\b/gi)) {
@@ -553,7 +559,15 @@ describe('the preview is composed by the BOARD’s own function, not by this roo
     // dial does at each of the strict dial's two positions.
     expect(SCREEN).toContain('確保枠を壊す場所に、誰が自分の権限で置けるか')
     expect(SCREEN).not.toContain('「店長のみ」にすると、スタッフには安全な時間の提案だけが出ます')
-    for (const half of ['選ばれていない人も、いまは確認のうえで置けます', '選ばれていない人は確定できなくなります']) {
+    // ⚖ 9/1 JP native pass (JP3/JP4) — AND THE 「いまは」 IS GONE, because it was
+    // not true: at a strict store the unpermitted CANNOT place, so an
+    // unconditional 「いまは確認のうえで置けます」 promised the opposite of the
+    // dial standing right below it. Both halves are now conditioned on that dial.
+    expect(SCREEN).not.toContain('いまは確認のうえで置けます')
+    for (const half of [
+      '「店長のみでも警告を止める」がOFFのあいだは、権限のないスタッフも確認のうえで置けます',
+      'ONにすると、権限のないスタッフは確定できなくなります',
+    ]) {
       // Said on the DIAL and again in its tour step, so a manager who never opens
       // the walk still reads both halves.
       expect(SCREEN.split(half).length - 1).toBeGreaterThanOrEqual(2)
@@ -764,11 +778,23 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // as the sole carrier of information, on the one field in this room an
     // operator actually types into. The sentence itself moves now, inside the
     // region that was already there.
-    expect(SCREEN_CODE).toContain("{slotWarn ? '数字以外は保存されません。いま入力された数字以外の文字は消しました' : '数字以外は保存されません'}")
+    expect(SCREEN_CODE).toContain("{slotWarn ? '数字以外は保存されません。いま入力した文字から、数字以外を消しました' : '数字以外は保存されません'}")
     // The two states are DIFFERENT text, which is the whole of the fix — a region
     // that re-renders the same string is silent to a screen reader.
     expect(SCREEN_CODE).toContain('aria-live="polite"')
-    expect(SCREEN_CODE).toContain('setSlotWarn(true)')
+
+    // ⚖ 9/1 (fix round 2 D3) — AND THE SENTENCE IS NEVER STALE. `setSlotWarn(true)`
+    // cleared only on blur, so 「…消しました」 stood over the next CLEAN keystroke,
+    // announcing something that had just not happened. The flag now answers the
+    // keystroke it is about.
+    expect(SCREEN_CODE).toContain('setSlotWarn(clean !== e.target.value)')
+    expect(SCREEN_CODE).not.toContain('if (clean !== e.target.value) setSlotWarn(true)')
+    // Driven on the keystroke rule itself: rejected → true, and the very next
+    // clean keystroke → false, which is the stale case.
+    const warns = (typed: string) => typed.replace(/[^0-9]/g, '') !== typed
+    expect(warns('1a')).toBe(true)
+    expect(warns('15')).toBe(false)
+    expect(warns('')).toBe(false)
     // …and the colour still moves with it: the class is the same expression.
     expect(SCREEN_CODE).toContain("`st-ctrl-d${slotWarn ? ' warn' : ' dim'}`")
   })
@@ -873,6 +899,9 @@ describe('the room is wired into the door like its siblings', () => {
       '.biz .pg-settings .st-btn-add:hover { background: #444; }',
       '.biz .pg-settings .st-btn-add:hover { background-color: rgb(20, 20, 24); }',
       '.biz .pg-settings .st-btn-add:hover { background: black; }',
+      // ⚖ 9/1 (fix round 2 D5) — and a GRADIENT is a fill: `background-image` was
+      // the one property this reader still could not see.
+      '.biz .pg-settings .st-btn-add:hover { background-image: linear-gradient(#111, #222); }',
     ]) {
       expect({ mutant, caught: darkFills(mutant).length > 0 }).toEqual({ mutant, caught: true })
     }

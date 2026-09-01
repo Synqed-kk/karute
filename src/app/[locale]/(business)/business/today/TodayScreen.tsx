@@ -2010,10 +2010,17 @@ export function TodayScreen(props: TodayProps) {
           // ⚖ R3 one world — the one thing the sentence cannot read off the
           // board: which of these cards is the operator's own 仮押さえ.
           stagedId: pending?.id ?? null,
+          // ⚖ 9/1 STRICT-SWITCH RULING (fix round 2 D1) — AND WHO IS ASKING.
+          // The strict dial refuses a costed landing for the people the 上書きの
+          // 権限 dial excludes, and only for them; the verdict home cannot know
+          // that from geometry. This component has held the answer since ruling
+          // 91 and passed it only to the card — so the card said 長押しで注意して
+          // 配置 while the board underneath refused to stage anything for anyone.
+          overrideLevel: props.overrideLevel,
         },
         cell,
       ),
-    [boardLanes, hours, locked, props.rooms, pending?.id],
+    [boardLanes, hours, locked, props.rooms, pending?.id, props.overrideLevel],
   )
 
   /** The same question when the guard has NOT already been asked — a gesture

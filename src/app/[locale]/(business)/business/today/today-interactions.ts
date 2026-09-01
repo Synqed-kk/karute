@@ -3130,6 +3130,18 @@ export interface LandingQuestion {
    *  honest default: a board with nothing staged has no such occupant, and every
    *  caller that genuinely has one passes it. */
   stagedId?: string | null
+  /** ⚖ 9/1 STRICT-SWITCH RULING (fix round 2 D1) — WHO IS ASKING, at the only
+   *  landing class where the store's dial has anything to say about it.
+   *
+   *  Every other field here is geometry, and that was the whole bug: with no
+   *  operator in the question, a STRICT store's guard refusal was `'hard'` for
+   *  everyone, so 「確保枠を壊す場所に置けるのは店長だけです」 shipped over a board
+   *  where the 店長 could not place there either. `TodayScreen` has had the answer
+   *  all along (`props.overrideLevel`) and simply never handed it over.
+   *
+   *  OPTIONAL, and absent means NOT ADMITTED (`dialAdmits`): the callers that ask
+   *  this question about pure geometry keep working and keep the closed answer. */
+  overrideLevel?: OverrideLevel
 }
 
 /** ⚖ LIAM flag 50 (2026-08-22) — THE ONE VERDICT HOME.
@@ -3292,7 +3304,40 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   // ⚖ 73 — `ackAllowed: false` is the engine's own word for physically
   // impossible (gap-guard :371, `R-UNAVAILABLE`). A floor the engine calls
   // impossible is not a floor a manager can be given authority over.
-  if (cell?.state === 'blocked' && !cell.ackAllowed) return stop(cell.sentence, 'hard')
+  //
+  /** ⚖ 9/1 STRICT-SWITCH RULING (fix round 2 D1) — AND THE STRICT DIAL'S REFUSAL
+   *  IS NOT THAT FLOOR, SO IT IS NOT EVERYONE'S.
+   *
+   *  `ackAllowed: false` arrives from TWO different places and this line read
+   *  them as one:
+   *    · gap-guard :372 — `R-UNAVAILABLE`, a placement that cannot be made. It
+   *      comes through `railCell`'s `blocked()` with NO `impact` at all, because
+   *      the engine never weighed a protected window there.
+   *    · gap-guard :398 — `ackAllowed = mode === 'standard'`, i.e. the STORE'S
+   *      strict dial refusing a landing the engine has costed. It always carries
+   *      an `impact`: that is what the refusal is about.
+   *  Collapsing them made the store's own dial as absolute as physics, so at
+   *  STRICT no drag, nudge or rail tap could place for ANYONE — while this very
+   *  round ships 「確保枠を壊す場所に置けるのは店長だけです」 on the settings page.
+   *
+   *  THE SPLIT IS THE ENGINE'S OWN SIGNAL, NEVER THE MODE. `lossOf(cell) > 0` is
+   *  the identical test `warnFaceFor` calls `guardWarn`, so the card and the board
+   *  classify one cell one way. Reading `mode` instead would soften physics: an
+   *  `R-UNAVAILABLE` at a strict store would become escalatable, and ⚖ 73 says a
+   *  floor the engine calls impossible is not one a manager may be given
+   *  authority over. The mutation is pinned red for exactly that reason.
+   *
+   *  'policy' is not a grant — it is the floor the board already escalates
+   *  through (a failed 勤務/ロック row lands here), so the operator still reads
+   *  置けない and still has to press 注意して配置; `canOverride` is the authority
+   *  gate, untouched. For a `refuse` operator the stop stays `'hard'`, which is
+   *  the dial's promise word for word: the sentence, the safe suggestions and
+   *  元に戻す, and no button onto a card they could not commit. */
+  if (cell?.state === 'blocked' && !cell.ackAllowed) {
+    return lossOf(cell) > 0 && dialAdmits(q.overrideLevel)
+      ? stop(cell.sentence, 'policy')
+      : stop(cell.sentence, 'hard')
+  }
   if (cell && cell.state !== 'safe') return { kind: 'caution', floor: null, label: VERDICT_WORD.caution, reason: cell.sentence, cell, bedLane, checks }
   return { kind: 'clean', floor: null, label: VERDICT_WORD.clean, reason: null, cell, bedLane, checks }
 }
@@ -3330,6 +3375,30 @@ export function overrideLevelFor(
   if (policy.lockedOut.includes(operator.staff_id)) return 'refuse'
   return policy.roles.includes(operator.role) ? 'allow-warned' : 'refuse'
 }
+
+/** ⚖ 9/1 STRICT-SWITCH RULING (fix round 2 D1) — DOES THE 上書きの権限 DIAL ADMIT
+ *  THIS OPERATOR? One spelling, because TWO seams now gate on the answer and they
+ *  may never disagree: the LANDING (`landingVerdict`, whether the strict store
+ *  even offers the escalation) and the CARD (`warnFaceFor`, whether the staged
+ *  commit is live). Round 1 fixed only the second, and the delta-verifier proved
+ *  the first still walled everyone — the board hard-stopped 店長 at the landing,
+ *  so the composer's permitted arm was reachable only when the board moved under
+ *  an already-staged hold. Two questions, one predicate, no drift.
+ *
+ *  ⚠ ABSENT IS NOT ADMITTED. `LandingQuestion.overrideLevel` is optional (most
+ *  callers of that shape are asking about geometry, not people), so this answers
+ *  `false` for `undefined` — a caller that has not been taught the question gets
+ *  the CLOSED answer. A permission gate that fails open on a forgotten field is
+ *  the defect this round exists to remove, not one to introduce next to it.
+ *
+ *  'needs-approval' IS admitted here, deliberately (⚖ D2, which refused the
+ *  verifier's `level !== 'allow-warned'`): the dial promises 確定できなくなります,
+ *  and a DISABLED 店長に許可を求める is not a 確定 — the sentence stays literally
+ *  true while the approval tier keeps the middle ground it was designed for. It
+ *  is unreachable today at BOTH seams (`overrideLevelFor` cannot return it), so
+ *  this states the contract rather than lighting a path. */
+export const dialAdmits = (level: OverrideLevel | undefined): boolean =>
+  level === 'allow-warned' || level === 'needs-approval'
 
 /** ⚖ SPEC-SELLING-ENGINE §1's Release clause, MANUAL half (ruling Q5, 8/30:
  *  release is automatic AND a manager button, logged) — WHO MAY PRESS IT.
@@ -3919,7 +3988,7 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
    *  survives here is the STRICT refusal and nothing else, which is why the level
    *  may decide it: a cost the engine WILL let the store pay is the dial's to
    *  govern, and this is the dial governing it. */
-  if (guardWarn && cell.state === 'blocked' && cell.ackAllowed === false && level === 'refuse') {
+  if (guardWarn && cell.state === 'blocked' && cell.ackAllowed === false && !dialAdmits(level)) {
     return {
       face: 'warn', impact, provenance: null, lock: null, safePrimary,
       commit: { kind: input.holdToConfirm ? 'hold' : 'press', label: 'この位置では確定できません', enabled: false, note: null },
