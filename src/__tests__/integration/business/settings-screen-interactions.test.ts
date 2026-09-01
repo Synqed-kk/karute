@@ -407,6 +407,14 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
     ] as const) {
       expect({ shape, wired: SRC_CODE.includes(wiring) }).toEqual({ shape, wired: true })
     }
+    // ⚠ AND THE COUNT IS PART OF THE PIN, BECAUSE THE BATTERY PROVED THE LIST
+    // ALONE IS NOT. The segment and the swatch spell their handler identically,
+    // so a mutant that killed the SEGMENT's wiring left the swatch's copy behind
+    // and this test stayed green — M19 survived on the round's own tip. Nine
+    // wirings is the whole vocabulary: segment · chips · swatch · switch ·
+    // select · number (change + commit) · time · text. Lose one and the number
+    // moves, whichever shape it was.
+    expect((SRC_CODE.match(/onChange\(c\.id/g) ?? [])).toHaveLength(9)
     // ⚠ A CONTROLLED FIELD ALWAYS GETS AN onChange, EVEN LOCKED. React treats
     // `value` without one as read-only and says so in the console on every
     // render — which the probe's console sweep caught on this round's own tip.
