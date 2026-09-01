@@ -38,6 +38,11 @@ import type {
   GetDiscardTranscriptResult,
   ListDiscardReasonsResult,
 } from '@/actions/recording-discards'
+// Same type-only idiom for the two customer-create results — the port must
+// answer the EXACT unions CustomerForm and QuickCreateCustomer branch on
+// (incl. createCustomer's optional duplicateWarning), not a re-typed literal
+// that can drift from the web contract.
+import type { ActionResult as CustomerActionResult, QuickCustomerResult } from '@/actions/customers'
 
 function notWired(name: string) {
   return async (): Promise<never> => {
@@ -64,6 +69,45 @@ async function facadeUpdateCustomer(id: string, input: unknown): Promise<ActionR
   if (res.ok) return { success: true, id }
   const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
   return { success: false, error: body?.error?.message ?? `Update failed (${res.status})` }
+}
+
+// 新規顧客 create, both doors (PHONEWIRE-1). Until now these were notWired
+// stubs: the customers facade tree had `[id]/*` subroutes but no create door,
+// so every phone 新規顧客 save threw. Both POST the collection-level routes
+// that run the SAME shared bodies the web actions run
+// (createCustomerWithClient / createQuickCustomerWithClient).
+//
+// idemPost, like every other create in this file: a retried POST on a flaky
+// phone connection must not mint a second 顧客 (the routes require the header).
+//
+// A 2xx is NOT enough — the discard-port lesson (thin-recording-discard-port
+// .test.ts): handler.ts stringifies its ERRORS, so a facade 502 arrives with a
+// perfectly parseable JSON body. The id is what proves a customer was created.
+async function facadeCreateCustomer(input: unknown): Promise<CustomerActionResult> {
+  const res = await getDataPort().apiFetch('/api/app/v1/customers', idemPost(input))
+  const body = (await res.json().catch(() => null)) as
+    | { id?: string; duplicateWarning?: string; error?: { message?: string } }
+    | null
+  if (res.ok && body?.id) {
+    // duplicateWarning is FORWARDED, not dropped: CustomerForm toasts it, and
+    // a phone that silently lost it would be a quieter surface than web.
+    return {
+      success: true,
+      id: body.id,
+      ...(body.duplicateWarning ? { duplicateWarning: body.duplicateWarning } : {}),
+    }
+  }
+  return { success: false, error: body?.error?.message ?? `Create failed (${res.status})` }
+}
+
+async function facadeCreateQuickCustomer(name: string): Promise<QuickCustomerResult> {
+  const res = await getDataPort().apiFetch('/api/app/v1/customers/quick', idemPost({ name }))
+  const body = (await res.json().catch(() => null)) as
+    | { id?: string; name?: string; error?: { message?: string } }
+    | null
+  // The picker selects the row by the name core STORED, same as web.
+  if (res.ok && body?.id) return { success: true, id: body.id, name: body.name ?? name }
+  return { success: false, error: body?.error?.message ?? `Create failed (${res.status})` }
 }
 
 const enc = encodeURIComponent
@@ -857,8 +901,14 @@ export default proxy
 // name the aliased modules (customers / packs / memory / regenerate-karute) export
 // must exist. This list IS the mutation-RPC surface one screen depends on.
 // -- customers
-export const createCustomer = notWired('createCustomer')
-export const createQuickCustomer = notWired('createQuickCustomer')
+// Same type-only `satisfies` pins as the discard pair below: they bind the
+// RETURN unions and the declared parameter types, NOT arity — the real pin on
+// the argument reaching the wire is the port test's URL/body assertion
+// (thin-customer-create-port.test.ts).
+export const createCustomer =
+  facadeCreateCustomer satisfies typeof import('@/actions/customers').createCustomer
+export const createQuickCustomer =
+  facadeCreateQuickCustomer satisfies typeof import('@/actions/customers').createQuickCustomer
 export const updateCustomer = facadeUpdateCustomer
 export const deleteCustomer = notWired('deleteCustomer')
 export const listCustomerPhotos = facadeListCustomerPhotos
