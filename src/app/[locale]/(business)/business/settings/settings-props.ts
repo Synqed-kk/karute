@@ -397,10 +397,10 @@ function storeSection(base: SectionBase, entry: RailEntry, d: StoreDials, lensLa
           title: 'この設定について',
           lines: [
             { label: '初期値', value: 'スタッフのみ（安全な側）' },
-            { label: '判定する場所', value: 'データの入口（画面側ではありません）' },
+            { label: '判定する場所', value: 'データの側（画面側ではありません）' },
             { label: '録音の同意', value: '製品の決まりです（店舗ごとの切り替えはありません）' },
           ],
-          note: '画面側で隠すだけでは守れないため、誰が読めるかはデータの入口で判定します。設定を変えたことは記録に残ります。',
+          note: '画面側で隠すだけでは守れないため、誰が読めるかはデータの側で判定します。設定を変えたことは記録に残ります。',
         },
         soon: null,
         prefs: false,

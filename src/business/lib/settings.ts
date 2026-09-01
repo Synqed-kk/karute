@@ -301,9 +301,12 @@ interface Refusal {
 
 // ⚠ 「サーバー側」 IS NOT A WORD THIS APP USES (NS9-3). It appeared SEVEN times in
 // this room — four here, three in the props file — and nowhere else in the
-// product, in a page that otherwise reaches for plain business language. The room's own idiom is 「データの入口 / データの側」 —
+// product, in a page that otherwise reaches for plain business language. The room's own idiom is 「データの側」 —
 // which also says the thing that matters: the check cannot live in the screen,
-// because a screen can only hide, not protect.
+// because a screen can only hide, not protect. (A native-copy pass caught this
+// round's first cut splitting the retirement into two unreconciled coinages,
+// 「データの入口」 and 「データの側」 — consolidated to one term, the one that
+// actually parallels 「画面側」 in the two sentences that contrast them.)
 const REFUSAL: Record<DialId, Refusal> = {
   'guard-mode': {
     seam: 'storePolicyWrite',
@@ -327,7 +330,7 @@ const REFUSAL: Record<DialId, Refusal> = {
   },
   'override-rights': {
     seam: 'settingsTokens',
-    text: 'この画面からは上書き権限を変えられません。「置けない」場所に置ける役職とスタッフの指定は、権限そのものを配る操作です。いまの権限の一覧に上書き用の項目がなく、項目を増やすところから必要になります。',
+    text: 'この画面からは上書き権限を変えられません。「置けない」場所に置ける役職とスタッフの指定は、権限そのものを配る操作です。いまの権限の一覧に上書き用の項目がなく、まず項目を増やす必要があります。',
   },
   'settings-rights': {
     seam: 'settingsTokens',
@@ -350,7 +353,7 @@ const REFUSAL: Record<DialId, Refusal> = {
   },
   'transcript-visibility': {
     seam: 'transcriptEnforcement',
-    text: '見本データのため文字起こしの公開範囲を変えられません。誰が文字起こしを読めるかはデータの入口で判定する必要があり、画面側の切り替えだけでは守れません。',
+    text: '見本データのため文字起こしの公開範囲を変えられません。誰が文字起こしを読めるかはデータの側で判定する必要があり、画面側の切り替えだけでは守れません。',
   },
   'coaching-enabled': {
     seam: 'coachingOrgSettings',
