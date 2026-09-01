@@ -223,6 +223,18 @@ export function readPrefs(raw: string | null): Prefs {
 // nothing about which of them would have done what — and the sentence on the
 // screen is the same sentence the Anthony ask is written from.
 
+// ⚠ WHAT IS DELIBERATELY *NOT* ON THIS RAIL, AND WHY (⚖ DS-4, and the map's own
+// conflict (c)4). The board's per-feature kill switches — drag verdicts, the
+// block advisor, crumb-coalescing offers — are ENGINEERING ROLLBACK LEVERS, not
+// decisions a shop owner makes about their business. Putting them on the rail
+// would be the option wall big-tech simplicity forbids, and would ask a
+// receptionist to rule on a question that is not theirs. They belong to the
+// standing 「discovered surfaces ship disconnected behind named off-switches,
+// default OFF, one registry」 rule, on a NON-RAIL advanced surface that is
+// RECONNECT-ERA work — so this room mints no registry line for them and shows no
+// row. There is deliberately nothing to find here; that is the decision, not an
+// omission.
+
 export const REGISTRY = {
   storePolicyWrite: '①店舗ポリシーの保存',
   settingsTokens: '②設定の権限トークン',
