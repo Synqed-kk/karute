@@ -226,10 +226,15 @@ function ConversionChip({ status }: { status: KaruteConversionStatus }) {
 // with a second data shape.
 //
 // Web renders a カルテを作成 button (opens NewKaruteDialog preselected —
-// wired by the caller via onCreateClick); the phone shell has no wired
-// create action (createManualKaruteRecord is a deliberate notWired stub
-// there), so it makes the whole row a Link to the customer hub instead —
-// same destination the pre-PR-1a placeholder rows used. isNativeShell() is
+// wired by the caller via onCreateClick); the phone makes the whole row a Link
+// to the customer hub instead — same destination the pre-PR-1a placeholder
+// rows used. ⚠ THE ORIGINAL REASON FOR THAT SUPPRESSION IS GONE: it read "the
+// phone shell has no wired create action (createManualKaruteRecord is a
+// deliberate notWired stub there)", and as of PHONEWIRE-2A the action IS wired
+// (POST /api/app/v1/karute/manual). The suppression is KEPT here pending
+// Liam's ruling on whether phone rows should now show the create button —
+// a design call, not a comment fix. Behavior deliberately unchanged.
+// isNativeShell() is
 // the existing app-wide "are we in the Capacitor shell" signal (src/lib/
 // platform.ts, e.g. WebOnly) — deferred to a post-mount effect so SSR and
 // the shell agree on the FIRST paint (same defensive posture WebOnly uses).

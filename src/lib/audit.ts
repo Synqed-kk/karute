@@ -271,6 +271,7 @@ export type FacadeEndpointKey =
   | 'karute.ai.suggestedMessage'
   | 'karute.entry.update'
   | 'karute.entryEdits.list'
+  | 'karute.manualCreate'
   | 'karute.outcome.set'
   | 'karute.read'
   | 'karute.reassign'
@@ -363,6 +364,15 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // has a path param, so the target id comes from ctx.auditTargetId.
   'customer.create': { kind: 'mutation', category: 'customer', action: 'customer.create', targetType: 'customer' },
   'customer.quickCreate': { kind: 'mutation', category: 'customer', action: 'customer.create', targetType: 'customer' },
+  // ＋新規カルテ manual create (PHONEWIRE-2A). A LIVE row, and deliberately
+  // unlike 'karute.save' directly below: manual create does NOT pass through
+  // the createOrUpdateKaruteRecord choke point — it calls karuteRecords.create
+  // directly — so there is no other writer and no double-log risk. This is the
+  // ONE emit for the action, and it CLOSES a real gap: the web action emits
+  // nothing at all (SDK_WRITE_ALLOWLIST has recorded createManualKaruteRecord
+  // as "genuinely untracked" since 2026-07-27). The route has no path param,
+  // so the target id comes from ctx.auditTargetId.
+  'karute.manualCreate': { kind: 'mutation', category: 'karute', action: 'karute.manual_create', targetType: 'karute' },
   // karute.save is NOT a row here (deliberately, packet 30 §3): it logs at
   // the shared choke point createOrUpdateKaruteRecord (src/actions/karute.ts)
   // instead — that ONE emit covers the web save actions AND this facade
