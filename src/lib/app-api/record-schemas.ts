@@ -112,6 +112,23 @@ const SaveEntrySchema = z.object({
   isManual: z.boolean().optional(),
 })
 
+// ── Manual karute create (PHONEWIRE-2A) — the ＋新規カルテ dialog's write.
+// staffId IS accepted (unlike RecordingJobEnqueueSchema below): the dialog's
+// dropdown can name ANOTHER staff, re-checked against records.delete at the
+// route. The STORE is never a field — .strict() 400s a storeId/store_id key
+// (⚖ STORE ISOLATION LAW). durationMinutes/sessionDate stay as loose as the
+// dialog sends them (0 and '' are its "unset", normalised to null in the
+// shared body) — this door must not be stricter than web.
+export const ManualKaruteCreateSchema = z
+  .object({
+    customerId: z.string().max(MAX_ID_CHARS),
+    staffId: z.string().max(MAX_ID_CHARS),
+    sessionDate: z.string().max(MAX_DATE_CHARS),
+    durationMinutes: z.number(),
+    service: z.string().max(MAX_NAME_CHARS),
+  })
+  .strict()
+
 export const SaveKaruteSchema = z
   .object({
     customerId: z.string().max(MAX_ID_CHARS),

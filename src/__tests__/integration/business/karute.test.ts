@@ -1329,8 +1329,12 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     for (const c of classesIn(sel)) if (c !== 'pg-karute') mine.add(c)
   }
 
-  it('the neighbours are all here — SEVEN sheets, read from disk, never restated', () => {
-    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'customers', 'inbox', 'register', 'reservations', 'shifts', 'today'])
+  it('the neighbours are all here — EIGHT sheets, read from disk, never restated', () => {
+    // `settings` joined the family in the 予約と確保 round (⚖ Liam 9/1). The list
+    // is READ from disk and this line is the pin on what was read; the new room
+    // states every rule under `.pg-settings`, so the collision list below is
+    // unchanged and this room's fence needs nothing new.
+    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'customers', 'inbox', 'register', 'reservations', 'settings', 'shifts', 'today'])
   })
 
   it('every sibling rule that could reach this room is FENCED at four levels', () => {

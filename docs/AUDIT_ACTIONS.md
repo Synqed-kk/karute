@@ -45,6 +45,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `karute.entries_regenerate` | karute | live | `settings.auditLog.actions.karute.entries_regenerate` |
 | `karute.entry_edit` | karute | live | `settings.auditLog.actions.karute.entry_edit` |
 | `karute.entry_edits_view` | karute | live | `settings.auditLog.actions.karute.entry_edits_view` |
+| `karute.manual_create` | karute | live | `settings.auditLog.actions.karute.manual_create` |
 | `karute.outcome_set` | karute | live | `settings.auditLog.actions.karute.outcome_set` |
 | `karute.save` | karute | live | `settings.auditLog.actions.karute.save` |
 | `karute.summary_edit` | karute | live | `settings.auditLog.actions.karute.summary_edit` |

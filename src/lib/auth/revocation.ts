@@ -112,6 +112,10 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // the karute SAVE (customer voice → durable record; consent-gated) and the
   // pack-redemption UNDO — both effectful writes → server round-trip.
   'karute.save',
+  // ＋新規カルテ manual create (PHONEWIRE-2A) — a durable karute write, the
+  // same class as karute.save above; a just-terminated staffer must not keep
+  // filing session records.
+  'karute.manualCreate',
   'customer.pack.undoRedemption',
   // booking mutations (design-parity P-B 2/2): status writes + the guarded
   // ticket burn (cancel/no-show can consume a 回数券 session — money). A
