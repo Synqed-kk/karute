@@ -1,0 +1,124 @@
+/* 予約と確保 — the settings room's own sheet.
+   ⚖ Liam 9/1 (PKT-BUILD-SETTINGS §1): a NEW 設定 room hosts the approved mock's
+   anatomy — presets → live preview → 詳細設定. The mock (settings-mock.html)
+   ships its OWN palette (`--blue`, `--ink`, hand-picked hexes); this sheet is
+   that anatomy translated into the FAMILY'S tokens, exactly as today.css's warn
+   card was, so a store that retints the shell retints this room with it.
+
+   ⚖ flag 69 — THE SIBLING-SHEET FENCE. App Router leaves a route sheet in the
+   document after a soft-nav, so two route sheets defining one selector tie-break
+   on VISIT order (scripts/audit/check-route-css-collisions.mjs is the machine).
+   Every rule below is therefore scoped under `.pg-settings`, INCLUDING the
+   `wc-*` / `hold-pop` / `holdbar-checks` names the preview card reuses: today.css
+   states those BARE, so the extra class both raises this room's specificity above
+   it and keeps the audit's one-owner-per-selector rule true. The class NAMES stay
+   the shipped card's, which is what makes the preview the same card rather than a
+   drawing of it.
+
+   ⚖ R13 / no-black — nothing pressable here is a dark fill: a selected chip is
+   the wash + accent-ink recipe (`--select-bg` / `--select-ink`), and the one
+   solid fill on the page is `.btn.primary`'s own commit recipe.
+   ⚖ the one-way accent law — saturated accent appears only on pressables and
+   their selected state; section labels, descriptions and notes stay neutral.
+
+   NO SCROLLER, NO HEIGHT CAP (⚖ page-scroll): the page scrolls, the preview
+   column is `position: sticky` and nothing owns `overflow-y`. */
+
+/* ── the fence: the shared names this room uses ───────────────────────────── */
+/* Four levels for the same reason 受信トレイ states four: a sibling's own
+   three-level `.biz .page .btn` ties at three, and a tie is decided by whichever
+   sheet App Router happened to insert last. */
+.biz .page.pg-settings { padding: 24px 28px 44px; }
+.biz .page.pg-settings h1 { margin: 0; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
+.biz .page.pg-settings .btn { font-weight: 500; }
+.biz .page.pg-settings .btn.primary { font-weight: 600; }
+
+/* The mock's centred measure. The shell's own 1180px floor is what the room
+   pans on below it (⚖ the shell-owned opt-in list — this room has no measured
+   narrow ladder yet, so it keeps the family default). */
+.biz .pg-settings .st-measure { max-width: 1180px; }
+
+/* ── page head ────────────────────────────────────────────────────────────── */
+.biz .pg-settings .st-head { margin-bottom: 22px; }
+.biz .pg-settings .st-titleline { display: flex; align-items: center; gap: 9px; }
+.biz .pg-settings .st-lead { margin: 8px 0 0; max-width: 960px; color: var(--muted); font-size: 13.5px; line-height: 1.8; }
+/* A hairline circle, never a filled one — ⚖ R13, the family's own ? mark. */
+.biz .pg-settings .st-help {
+  flex: 0 0 auto; width: 21px; height: 21px; display: grid; place-items: center;
+  border: 1px solid #c9c9d2; border-radius: 50%; background: #fff;
+  color: var(--muted); font-size: 12px; font-weight: 700; line-height: 1; padding: 0;
+}
+.biz .pg-settings .st-help:hover { border-color: var(--indigo); color: var(--indigo); background: var(--indigo-soft); }
+.biz .pg-settings .st-help[aria-expanded="true"] { border-color: var(--indigo); color: var(--indigo); background: var(--indigo-soft); }
+
+/* ── the two columns: dials left, the live card sticky right ──────────────── */
+/* The mock's own grid (`1fr 420px`, 32px gap, the preview spanning both rows).
+   `align-items: start` is what lets the preview stick rather than stretch. */
+.biz .pg-settings .st-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 32px; align-items: start; }
+.biz .pg-settings .st-col-presets { grid-column: 1; grid-row: 1; }
+.biz .pg-settings .st-col-preview { grid-column: 2; grid-row: 1 / span 2; position: sticky; top: 78px; }
+.biz .pg-settings .st-col-adv { grid-column: 1; grid-row: 2; min-width: 0; }
+
+/* ── section headings ─────────────────────────────────────────────────────── */
+.biz .pg-settings .st-sec-h { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; }
+.biz .pg-settings .st-sec-l { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .01em; }
+.biz .pg-settings .st-sec-d { margin: 0 0 14px; color: var(--muted); font-size: 11.5px; line-height: 1.7; }
+
+/* The mock's small soft chip — 準備中 / 表示のみ / カスタム. Non-interactive, so
+   it stays neutral (the one-way accent law); カスタム takes the warn family
+   because it is telling the operator the presets no longer describe the store. */
+.biz .pg-settings .st-chip {
+  display: inline-block; padding: 1px 6px; border: 1px solid var(--line); border-radius: 5px;
+  background: #f3f4f6; color: var(--muted);
+  font-size: 9.5px; font-weight: 700; letter-spacing: .06em; line-height: 1.6;
+}
+.biz .pg-settings .st-chip.custom { border-color: var(--orange); background: var(--orange-soft); color: var(--orange); }
+
+/* ═══ ⚖ Liam 8/23 — 画面の説明 (the guided tour) ═══════════════════════════
+   A SPOTLIGHT, NOT A MODAL: the hole is one big box-shadow, so the section being
+   explained stays fully lit and the rest of the page dims behind it without a
+   single element being moved. `.st-spot-catch` is the click surface that makes
+   every declared region jumpable, and it sits UNDER the hole and the card so
+   neither is swallowed by it.
+
+   `st-`-prefixed for the sibling-sheet fence at the top of this file: 今日の運営
+   states BARE `.biz .spot-*` on these five names, and 受信トレイ took `ib-` for
+   exactly this reason. Nothing else in the family renders an `st-spot-*` node. */
+.biz .pg-settings .st-spot-hole {
+  position: fixed;
+  z-index: 70;
+  pointer-events: none;
+  border-radius: 12px;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 9999px rgba(24, 24, 27, .42);
+  transition: top .24s cubic-bezier(.2, .7, .1, 1), left .24s cubic-bezier(.2, .7, .1, 1), width .24s cubic-bezier(.2, .7, .1, 1), height .24s cubic-bezier(.2, .7, .1, 1);
+}
+.biz .pg-settings .st-spot-catch { position: fixed; inset: 0; z-index: 69; cursor: pointer; }
+.biz .pg-settings .st-spot-hover { position: fixed; z-index: 70; pointer-events: none; border: 2px dashed rgba(255, 255, 255, .9); border-radius: 12px; }
+.biz .pg-settings .st-spot-card {
+  position: fixed;
+  z-index: 72;
+  width: 300px;
+  max-width: calc(100vw - 20px);
+  padding: 12px 14px 10px;
+  border: 1.5px solid var(--control);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 40px rgba(24, 24, 27, .3);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+.biz .pg-settings .st-spot-card b { display: block; margin-bottom: 2px; font-size: 13.5px; color: var(--ink); }
+.biz .pg-settings .st-spot-text { display: block; }
+.biz .pg-settings .st-spot-hint { margin-top: 6px; color: var(--quiet); font-size: 11px; }
+.biz .pg-settings .st-spot-foot { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--section); }
+.biz .pg-settings .st-spot-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.biz .pg-settings .st-spot-foot button { min-height: 30px; padding: 0 11px; border: 1px solid var(--control); border-radius: 7px; background: #fff; color: var(--ink-2); font-size: 12px; font-weight: 600; cursor: pointer; }
+.biz .pg-settings .st-spot-foot button:hover { background: #f4f4f5; }
+.biz .pg-settings .st-spot-foot button:disabled { opacity: .4; cursor: default; }
+.biz .pg-settings .st-spot-foot .st-spot-done { margin-left: auto; }
+
+@media (prefers-reduced-motion: reduce) {
+  .biz .pg-settings .st-spot-hole { transition: none; }
+}
+
