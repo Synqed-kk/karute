@@ -391,6 +391,14 @@ export const opsConfig = {
   overridePolicy: storeBookingPolicy.overridePolicy,
   /** DERIVED — the same alias, for ruling Q5's own list (E5). */
   releaseHeldRoles: storeBookingPolicy.releaseHeldRoles,
+  /** DERIVED — ⚖ Liam 9/1, the settings round. The value LIVES on
+   *  `storeBookingPolicy` (⚠SETTINGS-BATCH, whose own note says 「The screen
+   *  joins the settings round beside the other guard dials」) and this line is
+   *  only the shorter name `readDayPlanes` hands a screen, on the same one-home
+   *  pattern as the three aliases above it. The number moves house, it does not
+   *  change: the dial still has ZERO readers on the board, so nothing about how
+   *  the day is drawn moves a byte. */
+  heldRankAccess: storeBookingPolicy.heldRankAccess,
   /** DERIVED — ⚖ flag 92's long-press switch, on the same one-home pattern as
    *  the two aliases above: the value LIVES on `storeBookingPolicy` (core's
    *  record) and this line is only the shorter name `readDayPlanes` hands the

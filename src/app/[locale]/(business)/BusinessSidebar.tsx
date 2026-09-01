@@ -92,7 +92,10 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
       { key: 'coaching', segment: null, label: 'コーチング', mini: 'コーチ', live: false },
     ],
   },
-  { group: '設定', items: [{ key: 'settings', segment: null, label: '設定', mini: '設定', live: false }] },
+  // ⚖ Liam 9/1 (PKT-BUILD-SETTINGS §1) — the settings ROOM is built, so its one
+  // item flips live exactly as the NAV LAW above promises: one `live: true`, one
+  // segment, nothing else in this file moves.
+  { group: '設定', items: [{ key: 'settings', segment: 'settings', label: '設定', mini: '設定', live: true }] },
 ]
 
 const RAIL_KEY = 'synqedBizRail'
