@@ -6897,7 +6897,7 @@ export function TodayScreen(props: TodayProps) {
           // promises a gesture this store turned off is the same untruth this
           // whole face was rebuilt to stop telling.
           data-guide-title="仮押さえの確認"
-          data-guide={`動かした予約はまず仮押さえになります。ここで内容を確認して確定するか、元に戻せます。新規のお客様の枠が減る場所では警告のカードに変わります。${props.holdToConfirm ? '確定は長押しです。' : ''}再読み込みでも元に戻ります。`}
+          data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、警告のカードに変わります。ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '確定は長押しです。' : ''}再読み込みでも元に戻ります。`}
         >
           <div className="hp-head">
             <span className={`status ${holdPop.tone}`}>{holdPop.status}</span>

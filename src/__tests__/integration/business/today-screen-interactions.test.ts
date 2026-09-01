@@ -4278,9 +4278,12 @@ describe('BATCH-7 — FLAGS 25c backlog: the three unregistered surfaces join th
      *  store that turned it off — the exact untruth this face's rounds 9 and 10
      *  were spent removing from the control itself. */
     expect(SRC).toContain('data-guide-title="仮押さえの確認"')
+    // ⚖ 92 round 11 P2 native-pass reorder — the native JP pass found the warning
+    // sentence split the confirm/undo pair and 「場所では」 under-specified the
+    // destination; warning now leads, and 「移動先で…場合は」 names it.
     expect(SRC).toContain(
-      'data-guide={`動かした予約はまず仮押さえになります。ここで内容を確認して確定するか、元に戻せます。'
-      + "新規のお客様の枠が減る場所では警告のカードに変わります。${props.holdToConfirm ? '確定は長押しです。' : ''}再読み込みでも元に戻ります。`}",
+      'data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、'
+      + "警告のカードに変わります。ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '確定は長押しです。' : ''}再読み込みでも元に戻ります。`}",
     )
     // …and the strip through a conditional spread, because it renders per lane
     // and only the first one may carry the pair (next test).
