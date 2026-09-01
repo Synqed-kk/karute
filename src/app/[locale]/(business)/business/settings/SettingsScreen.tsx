@@ -734,6 +734,13 @@ function Control({
   const inert = locked
     ? { 'aria-disabled': 'true' as const, title: c.locked, 'aria-label': `${c.aria} — ${c.locked}` }
     : {}
+  /** ⚠ A CONTROLLED FIELD ALWAYS GETS AN `onChange`, EVEN WHEN IT IS LOCKED.
+   *  React treats `value` without one as a read-only field and warns on every
+   *  render — the probe's console sweep caught exactly that. `readOnly` would
+   *  silence it too, but a no-op handler keeps the shape of every other control
+   *  and leaves `aria-disabled` (never `disabled`) to carry the meaning, so the
+   *  reason stays reachable by keyboard. */
+  const noop = () => {}
 
   if (k.kind === 'segment') {
     return (
@@ -828,7 +835,7 @@ function Control({
         aria-label={c.aria}
         value={String(value ?? '')}
         {...inert}
-        onChange={locked ? undefined : (e) => onChange(c.id, e.target.value)}
+        onChange={locked ? noop : (e) => onChange(c.id, e.target.value)}
       >
         {k.options.map((opt) => (
           <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -850,7 +857,7 @@ function Control({
           aria-label={c.aria}
           value={String(value ?? '')}
           {...inert}
-          onChange={locked ? undefined : (e) => onChange(c.id, e.target.value)}
+          onChange={locked ? noop : (e) => onChange(c.id, e.target.value)}
           // ⚠ THE CLAMP FIRES ON COMMIT, NOT PER KEYSTROKE. A clamp that ran on
           // every character makes 「1」 unreachable on the way to 「14」 — the
           // guardrail would be fighting the reader instead of protecting them.
@@ -869,7 +876,7 @@ function Control({
         aria-label={c.aria}
         value={String(value ?? '')}
         {...inert}
-        onChange={locked ? undefined : (e) => onChange(c.id, e.target.value)}
+        onChange={locked ? noop : (e) => onChange(c.id, e.target.value)}
       />
     )
   }
@@ -886,7 +893,7 @@ function Control({
           maxLength={k.maxLength}
           value={String(value ?? '')}
           {...inert}
-          onChange={locked ? undefined : (e) => onChange(c.id, e.target.value)}
+          onChange={locked ? noop : (e) => onChange(c.id, e.target.value)}
         />
         {empty && <span className="st-field-msg">{row.label}を入力してください（空欄では保存できません）</span>}
       </span>

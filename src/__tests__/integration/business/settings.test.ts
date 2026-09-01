@@ -956,7 +956,11 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
     // rows. If a later round turns one back into a segment, the probe will find
     // the wrap; this is the pin that says it was a decision.
     const props = await room({ store: STORE_A, role: 'オーナー' })
-    for (const id of ['store-hours.rank', 'pricing.framing', 'reserve.cutoff', 'reserve.gapfill', 'reserve.gapdisc', 'reserve.lead']) {
+    // ⚠ THE LAST TWO WERE FOUND BY THE PROBE ON THIS ROUND'S OWN TIP, not by
+    // reading: 所要時間 and 無料キャンセル期限 measured 261px — the widest segment
+    // anywhere in the room — and wrapped at main 416 and 448. A geometry claim is
+    // a fact about rects, and the browser is the only place it can be settled.
+    for (const id of ['store-hours.rank', 'pricing.framing', 'reserve.cutoff', 'reserve.gapfill', 'reserve.gapdisc', 'reserve.lead', 'services.new-client', 'reserve.free']) {
       expect({ id, shape: controlOf(props, id).control.kind }).toEqual({ id, shape: 'select' })
     }
     // …and the segments that REMAIN are the short ones: no single-choice segment

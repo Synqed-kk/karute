@@ -596,7 +596,7 @@ function services(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
       }),
       block('services.new-client', '新規のお客様の所要時間', '問診を含めた予約枠の長さです。この長さが、スキマガードが守る新規枠の長さになります。', [
         row('services.row-new-client', '所要時間', '新規のお客様の予約には、この長さの枠を確保します。短くすると、スキマガードが守る新規枠も短くなります。', [
-          seg('services.new-client', '新規のお客様の所要時間', minuteOpts([60, 75, 90, 120], storeBookingPolicy.newClientSessionMinutes), String(storeBookingPolicy.newClientSessionMinutes)),
+          sel('services.new-client', '新規のお客様の所要時間', minuteOpts([60, 75, 90, 120], storeBookingPolicy.newClientSessionMinutes), String(storeBookingPolicy.newClientSessionMinutes)),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {
@@ -1328,7 +1328,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
       }),
       block('reserve.cancel', 'キャンセル規定', 'お客様都合のキャンセルと、ご連絡のないキャンセルの扱いです。', [
         row('reserve.row-free', '無料キャンセル期限', 'この時刻より前のキャンセルは、キャンセル料がかかりません。', [
-          seg('reserve.free', '無料キャンセル期限', opts([['12', '12時間前'], ['24', '24時間前'], ['48', '48時間前']]), String(d.freeCancelHours)),
+          sel('reserve.free', '無料キャンセル期限', opts([['12', '12時間前'], ['24', '24時間前'], ['48', '48時間前']]), String(d.freeCancelHours)),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
