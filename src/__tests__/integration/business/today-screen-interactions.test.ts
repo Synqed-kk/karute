@@ -8254,7 +8254,15 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
    *  (`R-UNAVAILABLE`) carries no `impact`, so it is `guardWarn`-false and has
    *  never reached this branch at all (round 11 P1 established exactly that). The
    *  only class here is the STRICT refusal, which is the dial's own to govern. */
-  it('⚖ 92 fix round 4 U3 — a floor the engine calls impossible wears a DEAD commit and no permission line', () => {
+  /** ⚠ THE TITLE MOVED WITH THE BEHAVIOUR (fix round 1). It read 「a floor the
+   *  engine calls impossible wears a DEAD commit」 — the round-4 U3 reading, and
+   *  stale twice over: round 11 P1 already established that the impossible floor
+   *  (`R-UNAVAILABLE`) is impact-less and never reaches this branch, and F1 above
+   *  makes the one class that DOES reach it — the strict refusal — answer to the
+   *  override dial. A name that re-teaches the conflation this round untangled is
+   *  a comment that will be built on, so it says what it now proves. The U3 / W1 /
+   *  V2 lineage is kept in the docblock above rather than in the name. */
+  it('⚖ 9/1 F1 — the strict dial walls the EXCLUDED operator, and the permitted one keeps the standard face', () => {
     // The REAL engine, on the store's own strict dial: the same 10:30 refusal
     // Liam photographed, with the one field that changes — nothing synthetic
     // about the branch this fires.

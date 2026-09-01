@@ -241,7 +241,21 @@ export function SettingsScreen(props: SettingsProps) {
    *  cannot spell the key two ways. */
   const sceneKey = sceneKeyFor(mode, minutes)
   const guardOff = sceneKey === null
-  const scene = (sceneKey === null ? null : props.scenes[sceneKey]) ?? { capacity: 0, cell: null }
+  /** ⚖ 9/1 (fix round 1 F4b) — AND AT OFF THE CAPACITY IS STILL THE REAL ONE.
+   *  The `{ capacity: 0 }` fallback made the guardrail line print the amber
+   *  「この長さでは…ひとつも作れません（0枠）」 at every OFF store — a room-tight
+   *  alarm about a day that is not tight, invented by a missing key rather than
+   *  measured. The number does not depend on the mode at all (the page computes
+   *  it once per 長さ and stores the same value under both keys), so the honest
+   *  one is right there under STANDARD. CAPACITY ONLY: `cell` stays null, so the
+   *  card is suppressed exactly as an off store's card must be.
+   *
+   *  It is also the point of the line at OFF — 作れます is a potential, true in
+   *  every mode, and an owner deciding whether to switch the guard ON deserves to
+   *  see what the day can hold BEFORE they switch it (⚖ 8/21 mistake-proofing). */
+  const scene = sceneKey === null
+    ? { capacity: props.scenes[sceneKeyFor('STANDARD', minutes)!]?.capacity ?? 0, cell: null }
+    : props.scenes[sceneKey] ?? { capacity: 0, cell: null }
 
   /** THE CARD, composed by the BOARD'S OWN function. Every branch of it —
    *  the three faces, the hold/press/approval commit, the provenance line, the

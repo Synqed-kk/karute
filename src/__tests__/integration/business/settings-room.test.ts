@@ -343,6 +343,28 @@ describe('⚖ 1b RULED — 新規のお客様の確保 is three fixed choices, a
     expect(SCREEN_CODE).toContain('const sceneKey = sceneKeyFor(mode, minutes)')
     expect(SCREEN_CODE).toContain('const guardOff = sceneKey === null')
     expect(SCREEN_CODE).toContain('const card = sample === null || guardOff ? null : warnFaceFor({')
+
+    // ⚖ 9/1 (fix round 1 F4b) — AND THE OFF STORE DOES NOT GET A FABRICATED
+    // ROOM-TIGHT ALARM. A `{ capacity: 0 }` fallback printed the amber 「この長さ
+    // では…ひとつも作れません（0枠）」 at every OFF store — a warning about a day
+    // that is not tight, invented by a missing key. The number is MODE-FREE (the
+    // page computes it once per 長さ, outside the strict loop, and stores the same
+    // value under both keys), so the honest one is under STANDARD.
+    expect(PAGE_CODE).toMatch(/const capacity = protectedCapacityOf\([^\n]*\n\s*for \(const strict of/)
+    expect(SCREEN_CODE).toContain("{ capacity: props.scenes[sceneKeyFor('STANDARD', minutes)!]?.capacity ?? 0, cell: null }")
+
+    // The rule itself, driven: at OFF the capacity is the engine's number and the
+    // cell is still gone, so the line tells the truth and the card stays away.
+    const scenes = { 'standard:90': { capacity: 6, cell: repCell(true) }, 'strict:90': { capacity: 6, cell: repCell(false) } }
+    const pick = (m: 'OFF' | 'STANDARD' | 'STRICT') => {
+      const key = sceneKeyFor(m, 90)
+      return key === null
+        ? { capacity: scenes[sceneKeyFor('STANDARD', 90) as keyof typeof scenes]?.capacity ?? 0, cell: null }
+        : scenes[key as keyof typeof scenes] ?? { capacity: 0, cell: null }
+    }
+    expect(pick('OFF')).toEqual({ capacity: 6, cell: null })
+    expect(pick('STANDARD').capacity).toBe(6)
+    expect(pick('STRICT').cell).not.toBeNull()
     // …the OFF store gets its own sentence rather than a borrowed one…
     expect(SCREEN_CODE).toContain('確保枠の見張りそのものを止めています')
     // …and the strict dial shows NEITHER position at OFF, so nothing on screen
