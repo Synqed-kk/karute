@@ -158,3 +158,22 @@
   the twins) and CP3 requires its own registration · Liam (⚖ 8/12 one system
   two doors, packet PACKET-PHONEWIRE-1-2026-09-01.md, adjudication
   ADJUDICATION-PHONEWIRE-1-2026-09-01, karute-field-issues lane)
+
+- 2026-09-01 · SDK_WRITE_ALLOWLIST:src/actions/recording-discard-transcript.ts::storage.recordings.remove#transcribeAndPersistDiscardWithClient · phone
+  discard-transcript wiring (PHONEWIRE-2C): a SYMBOL RENAME, not a new
+  write. The identical entry already stood at
+  `…::storage.recordings.remove#transcribeAndPersistDiscard` since 2026-08-31;
+  wiring the phone split that action into a `*WithClient` body plus its cookie
+  wrapper (the same Core/WithClient shape as the customers.create entry above),
+  and the janitor moved into the shared body — so the ledger key follows the
+  symbol that now owns the call. The cookie wrapper keeping the old name owns
+  no storage call at all. The call itself is unchanged in every respect: a
+  best-effort `storage.recordings.remove` of the staged audio object on every
+  exit past the tenant fence, read-then-delete, the worker's own posture. It is
+  not a business action and its justification is unmoved — the audited action is
+  the recording.discard receipt this transcription belongs to
+  (src/lib/recording/discard.ts, AUDITED_CORES), and both doors refuse to write
+  at all unless that STAFF discard row already exists. Nothing became legal that
+  was not legal yesterday; one symbol name changed · Liam (⚖ 8/20 discard
+  doctrine + ⚖ 8/12 one system two doors, packet
+  PACKET-PHONEWIRE-2C-2026-09-01.md, karute-field-issues lane)
