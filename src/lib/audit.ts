@@ -287,6 +287,7 @@ export type FacadeEndpointKey =
   | 'recordings.discard'
   | 'recordings.discards.list'
   | 'recordings.discards.transcript'
+  | 'recordings.discards.transcript.write'
   | 'recordings.inbox'
   | 'recordings.job.enqueue'
   | 'recordings.job.status'
@@ -504,6 +505,19 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // discard itself is audited at its own choke point ('recordings.discard').
   'recordings.discards.list': { kind: 'skip', category: 'recording', action: '' },
   'recordings.discards.transcript': { kind: 'skip', category: 'recording', action: '' },
+  // …and the WRITE beside them (PHONEWIRE-2C) skips for the reason the shared
+  // body's own SDK_WRITE_ALLOWLIST row states, not for the reads' one: the
+  // staff discard that authorises this write already emitted its own
+  // recording.discard receipt (AUDITED_CORES) and both bodies refuse to write
+  // at all unless that row exists, so a row here would double-count one act —
+  // and ⚖ 8/17 doc law forbids the CONTENT this call persists reaching an
+  // audit detail. Same ruling, same act, whichever door files it.
+  'recordings.discards.transcript.write': {
+    kind: 'skip',
+    category: 'recording',
+    action: '',
+    coveredBy: 'src/lib/recording/discard.ts#discardRecordingWithClient',
+  },
 
   // screens.dashboard (§3.1 D4, Liam-confirmed): the attention cards render a
   // one-line per-customer memo preview (attention.ts:142-144) and AI-generated

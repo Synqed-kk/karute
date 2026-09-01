@@ -21,6 +21,16 @@
 // GATE: `records.write` — the RECORDER's own capability, the same one staging
 // and enqueue carry. Reading these words back is a different question with a
 // different gate (`staff.manage`, in recording-discards.ts).
+//
+// TWO DOORS, ONE BODY (PHONEWIRE-2C). The phone reaches server code only through
+// facade routes, so each action below is split the repo's usual way (discard.ts,
+// recording-discards.ts): a `*WithClient` body taking its client — and, where it
+// needs one, its ACTOR — from the caller, plus the cookie wrapper the web page
+// still calls. The facade twin (…/recordings/discards/transcript POST) resolves
+// both from the verified Bearer identity. The capability gate stays OUTSIDE the
+// shared body deliberately: cookies answer it one way (recordsWriteGate below,
+// tri-state) and a Bearer route another (ensureCapability) — a body that trusted
+// a caller-supplied actor for the gate would be a door with no lock.
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
@@ -29,7 +39,7 @@ import { newSynqedClient, getSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
 import { isConsentCurrent } from '@/lib/consent'
-import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
+import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { runTranscription, speakerIdMode, loadStaffReferenceForStaff } from '@/lib/ai/transcribe'
 import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
 
@@ -37,14 +47,36 @@ import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
  * `skipped` is a SETTLED outcome, not a failure: the words are deliberately not
  * kept, so the caller deletes its take exactly as it would on success. Only
  * `error` means "try again later" — the take stays, stamped, for the sweep.
- * 'unsupported' is produced by the thin port alone (no facade route yet).
+ *
+ * A fourth answer, `skipped: 'unsupported'`, was the thin port's alone while the
+ * phone had no facade route. It has one now (PHONEWIRE-2C), so nothing can
+ * produce that value and it is gone rather than left as a contract nobody keeps.
  */
 export type DiscardTranscriptWrite =
   | { ok: true }
-  | { skipped: 'consent' | 'empty' | 'unsupported' }
+  | { skipped: 'consent' | 'empty' }
   | { error: 'forbidden' | 'not_discarded' | 'failed' }
 
 type Core = Pick<SynqedClient, 'recordings' | 'recordingDiscards' | 'customers'>
+/** The transcribe door reads org settings too (diarization + business type). */
+type TranscribeCore = Core & Pick<SynqedClient, 'orgSettings'>
+
+/**
+ * WHO is writing — resolved by the CALLER, never by the shared body, exactly as
+ * DiscardRecordingActor is (lib/recording/discard.ts). `staffId` is the
+ * auth-user uuid both doors already hold (getCurrentUserStaffId on web,
+ * `identity.authUserId` on the facade) and decides ONE thing, whose voice
+ * reference the transcription gets; `null` means "no reference". `businessId` is
+ * the tenant fence the staged key is checked against.
+ *
+ * Only the transcribe door needs one — the review door writes words already in
+ * hand and reads nothing outside the client's own tenant scope, the same reason
+ * getDiscardTranscriptWithClient takes no actor either.
+ */
+export interface DiscardTranscriptActor {
+  staffId: string | null
+  businessId: string
+}
 
 /**
  * TRI-STATE, and the shape is decided by a COST ASYMMETRY, not by tidiness.
@@ -216,17 +248,17 @@ async function writeTranscript(
  * IN HAND and this costs zero transcription spend. Nothing is uploaded and
  * nothing is transcribed here.
  */
-export async function persistDiscardTranscript(input: {
-  recordingSessionId: string
-  transcript: string
-  durationSeconds: number
-}): Promise<DiscardTranscriptWrite> {
-  const denied = await recordsWriteGate()
-  if (denied) return denied
+export async function persistDiscardTranscriptWithClient(
+  synqed: Core,
+  input: {
+    recordingSessionId: string
+    transcript: string
+    durationSeconds: number
+  },
+): Promise<DiscardTranscriptWrite> {
   try {
     const text = input.transcript.trim()
     if (!text) return { skipped: 'empty' }
-    const synqed = await getSynqedClient()
     if (!(await hasStaffDiscard(synqed, input.recordingSessionId))) {
       return { error: 'not_discarded' }
     }
@@ -236,6 +268,22 @@ export async function persistDiscardTranscript(input: {
     if (!(await consentAllows(synqed, input.recordingSessionId))) return { skipped: 'consent' }
     await writeTranscript(synqed, input.recordingSessionId, text, input.durationSeconds)
     return { ok: true }
+  } catch (err) {
+    console.warn('[discard-transcript] persist failed:', err)
+    return { error: 'failed' }
+  }
+}
+
+/** Cookie door for the above — the web record page's own call. */
+export async function persistDiscardTranscript(input: {
+  recordingSessionId: string
+  transcript: string
+  durationSeconds: number
+}): Promise<DiscardTranscriptWrite> {
+  const denied = await recordsWriteGate()
+  if (denied) return denied
+  try {
+    return await persistDiscardTranscriptWithClient(await getSynqedClient(), input)
   } catch (err) {
     console.warn('[discard-transcript] persist failed:', err)
     return { error: 'failed' }
@@ -255,26 +303,26 @@ export async function persistDiscardTranscript(input: {
  * client-reported duration — so it is a record of what the client said, not an
  * authoritative measurement to floor against (see alreadyLanded).
  */
-export async function transcribeAndPersistDiscard(input: {
-  recordingSessionId: string
-  audioPath: string
-  durationSeconds: number
-  locale: string
-}): Promise<DiscardTranscriptWrite> {
-  const denied = await recordsWriteGate()
-  if (denied) return denied
+export async function transcribeAndPersistDiscardWithClient(
+  synqed: TranscribeCore,
+  actor: DiscardTranscriptActor,
+  input: {
+    recordingSessionId: string
+    audioPath: string
+    durationSeconds: number
+    locale: string
+  },
+): Promise<DiscardTranscriptWrite> {
   try {
-    const businessId = await getBusinessId()
     // Tenant fence on a CLIENT-SUPPLIED key — the same invariant
     // enqueueRecordingJob enforces. The service-role client below bypasses RLS,
     // so this is the only thing standing between a caller and another tenant's
     // audio. AHEAD of the janitor below on purpose: a foreign key is the one
     // exit that must never touch the object it names.
-    if (!isOwnRecordingKey(input.audioPath, businessId)) return { error: 'forbidden' }
+    if (!isOwnRecordingKey(input.audioPath, actor.businessId)) return { error: 'forbidden' }
 
     const supabase = createServiceClient()
     try {
-      const synqed = newSynqedClient(businessId)
       if (!(await hasStaffDiscard(synqed, input.recordingSessionId))) {
         return { error: 'not_discarded' }
       }
@@ -296,11 +344,15 @@ export async function transcribeAndPersistDiscard(input: {
       const org = await synqed.orgSettings.get().catch(() => null)
       const settings = (org?.settings ?? null) as Parameters<typeof loadStaffReferenceForStaff>[0]
       const mode = speakerIdMode()
-      // Voice reference = the DISCARDING staffer's own enrollment clip (#401),
-      // resolved from the cookie session — they are the recorder.
-      const selfStaffId = await getCurrentUserStaffId()
+      // Voice reference = the DISCARDING staffer's own enrollment clip (#401) —
+      // they are the recorder. The id arrives on the actor (cookie session on
+      // web, Bearer `sub` on the facade); the map lookup is the tenant-explicit
+      // twin, so neither door has to reach for a cookie to know its business.
+      const selfStaffId = actor.staffId
       const staffId = selfStaffId
-        ? await resolveSynqedStaffId(selfStaffId).catch(() => selfStaffId)
+        ? await resolveSynqedStaffIdForBusiness(selfStaffId, actor.businessId).catch(
+            () => selfStaffId,
+          )
         : null
       const reference = mode === 'off' ? null : await loadStaffReferenceForStaff(settings, staffId)
       const transcription = (await runTranscription({
@@ -352,6 +404,36 @@ export async function transcribeAndPersistDiscard(input: {
         console.warn('[discard-transcript] staged audio sweep failed:', err)
       }
     }
+  } catch (err) {
+    console.warn('[discard-transcript] transcribe failed:', err)
+    return { error: 'failed' }
+  }
+}
+
+/**
+ * Cookie door for the above — the web record page's own call.
+ *
+ * The two identity reads move AHEAD of the tenant fence, which the fence's own
+ * docstring is unaffected by: it guards the SERVICE-ROLE storage client, and
+ * neither read touches storage. Both are React `cache()`d and both were already
+ * resolved by recordsWriteGate one line up, so a foreign key costs the same
+ * nothing it always did.
+ */
+export async function transcribeAndPersistDiscard(input: {
+  recordingSessionId: string
+  audioPath: string
+  durationSeconds: number
+  locale: string
+}): Promise<DiscardTranscriptWrite> {
+  const denied = await recordsWriteGate()
+  if (denied) return denied
+  try {
+    const businessId = await getBusinessId()
+    return await transcribeAndPersistDiscardWithClient(
+      newSynqedClient(businessId),
+      { staffId: await getCurrentUserStaffId(), businessId },
+      input,
+    )
   } catch (err) {
     console.warn('[discard-transcript] transcribe failed:', err)
     return { error: 'failed' }

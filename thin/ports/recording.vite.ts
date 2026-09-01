@@ -17,10 +17,13 @@ export const viteRecordingPort: RecordingPipelinePort = {
   // stageForJob uses the upload-url facade, which mints a tenant-scoped
   // `app_${businessId}_*` key — so the worker can prove ownership. Server path ON.
   supportsServerJob: true,
-  // A2-2 discard transcripts are WEB-ONLY this round — no facade route exists
-  // for the persist actions yet, so the phone must not keep a discarded take
-  // back waiting for a collection that cannot happen.
-  supportsDiscardTranscript: false,
+  // A2-2 discard transcripts, LIVE on the phone since PHONEWIRE-2C: the persist
+  // actions have a facade door now (…/recordings/discards/transcript POST, wired
+  // in actions.vite.ts), so the collection this flag guards can actually happen.
+  // Flipping it is the whole fix — the record page's discard arm, take-store
+  // stamp and collection sweep are SHARED code that was already correct and now
+  // simply runs. stageForJob above is the audio leg it uses.
+  supportsDiscardTranscript: true,
   async prepareTranscription(blob) {
     // 1. Service-minted signed upload URL (tenant-prefixed path).
     const res = await getDataPort().apiFetch('/api/app/v1/recordings/upload-url', {

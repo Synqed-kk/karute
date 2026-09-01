@@ -28,11 +28,11 @@ export interface RecordingPipelinePort {
   supportsServerJob: boolean
   /**
    * Whether this world can persist the WORDS of a reasoned discard (A2-2).
-   * Web: yes — the record page calls the server actions directly. Thin: no —
-   * the phone reaches server code only through facade routes and this family
-   * has none yet, so a phone discard behaves exactly as it did before A2-2
-   * (reason row only, take deleted at the gate). Read BEFORE any take is kept
-   * back, so the phone never holds audio for a collection that cannot happen.
+   * Web: yes — the record page calls the server actions directly. Thin: yes
+   * since PHONEWIRE-2C — the phone reaches the same shared bodies through the
+   * …/recordings/discards/transcript POST facade. Read BEFORE any take is kept
+   * back, so a world that ever answers FALSE again never holds audio for a
+   * collection that cannot happen.
    */
   supportsDiscardTranscript: boolean
   /**

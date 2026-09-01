@@ -115,8 +115,14 @@ jest.mock('@/lib/auth/require-permission', () => {
     }),
   }
 })
+// MOCK SURFACE ONLY (PHONEWIRE-2C): the shared body now calls the
+// tenant-explicit twin, because the facade door has no cookie to read a
+// business id from. Same stand-in, same identity mapping — every assertion,
+// fixture and expectation in this file is byte-identical to the pre-refactor
+// suite, which is what makes it the equivalence proof.
 jest.mock('@/lib/synqed/staff-map', () => ({
   resolveSynqedStaffId: jest.fn(async (id: string) => id),
+  resolveSynqedStaffIdForBusiness: jest.fn(async (id: string) => id),
 }))
 
 /** THE spend counter. Every consent case below asserts on this, not just on the

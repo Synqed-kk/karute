@@ -467,15 +467,15 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'recordings.upsertSegments',
     symbols: ['writeTranscript'],
     justification:
-      "A2-2 (packet P5-A2): the WORDS of an ALREADY-AUDITED action. The staff discard that authorises this write emitted its own recording.discard receipt moments earlier (src/lib/recording/discard.ts, AUDITED_CORES — carrying discard_row_id, duration_sec and below_floor), and both callers refuse to write at all unless that STAFF discard row already exists. A second row here would double-count one act. ⚖ 8/17 doc law also forbids the CONTENT reaching an audit detail, which is exactly what this call persists — the segments are read back through getDiscardTranscript's staff.manage gate, never through the audit log.",
+      "A2-2 (packet P5-A2): the WORDS of an ALREADY-AUDITED action. The staff discard that authorises this write emitted its own recording.discard receipt moments earlier (src/lib/recording/discard.ts, AUDITED_CORES — carrying discard_row_id, duration_sec and below_floor), and both callers refuse to write at all unless that STAFF discard row already exists. A second row here would double-count one act. ⚖ 8/17 doc law also forbids the CONTENT reaching an audit detail, which is exactly what this call persists — the segments are read back through getDiscardTranscript's staff.manage gate, never through the audit log. EXTENDED 2026-09-01 (PHONEWIRE-2C): the call now has a THIRD caller, the phone. persistDiscardTranscriptWithClient / transcribeAndPersistDiscardWithClient are the shared bodies the cookie wrappers and the facade route (src/app/api/app/v1/recordings/discards/transcript/route.ts POST, FACADE_AUDIT_MAP['recordings.discards.transcript.write'] — a 'skip' citing this same ruling) both run. Nothing about the justification moves: the facade door writes only after the SAME hasStaffDiscard fence proves the audited recording.discard receipt already landed, so a phone discard is still one act with one row.",
     dated: '2026-08-31',
   },
   {
     file: 'src/actions/recording-discard-transcript.ts',
     call: 'storage.recordings.remove',
-    symbols: ['transcribeAndPersistDiscard'],
+    symbols: ['transcribeAndPersistDiscardWithClient'],
     justification:
-      'Best-effort cleanup of the staged audio object right after the discard transcription resolves — the same timing and the same reasoning as recording-upload.ts#removeRecordingObject and the facade transcribe route below (read-then-delete; the worker posture). Not itself a business action: the audited action is the recording.discard receipt this transcription belongs to.',
+      'Best-effort cleanup of the staged audio object right after the discard transcription resolves — the same timing and the same reasoning as recording-upload.ts#removeRecordingObject and the facade transcribe route below (read-then-delete; the worker posture). Not itself a business action: the audited action is the recording.discard receipt this transcription belongs to. Symbol renamed 2026-09-01 (PHONEWIRE-2C): the janitor moved into the shared body both doors run, and the cookie wrapper that kept the old name owns no storage call.',
     dated: '2026-08-31',
   },
   {
