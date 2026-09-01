@@ -9099,10 +9099,15 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
 // peak at 17:00), so a ¥7,700 staff member's staged card read ¥6,600 at every
 // hour of every day — and the 仮押さえ bar's own sentence quotes the same field.
 //
-// ⚖ THE LAW IT IS FIXED UNDER: ¥ is the board's own price BY CONSTRUCTION.
-// `priceAt` is the one home the sell layer prices with (today-interactions
-// :1114); minting the staged card through it means the card and the 販売可能枠
-// box it lands on cannot disagree.
+// ⚖ F1 (line audit) — THE FIRST FIX WAS STILL WRONG. `priceAt` prices ONE
+// clock hour; a staged card is not an hourly sell slot — its start sits on
+// the 5-minute lattice (often off the hour) and its length is the store's
+// `standardSessionMin` (90 for some stores), not always 60. Pricing the
+// start's hour alone was wrong for an off-hour start and for a ≠60-minute
+// session. `packedPrice` is the span-true home the multi-hour packing pass
+// already prices through (today-interactions :1419/:1485): it prices the
+// whole span across the hour curve end to end, so an off-hour start and a
+// 90-minute standard session both come out honest.
 describe('⚖ R6 B2 — the staged 次回予約 card is priced by the board, not by the flat base', () => {
   const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
   /** The store's own levers, exactly as TodayScreen composes them from the HQ
@@ -9112,12 +9117,14 @@ describe('⚖ R6 B2 — the staged 次回予約 card is priced by the board, not
   const HQ_MIN = 6600
   const DEPTH = 9
   const BASE = 6600
+  const FRAME = { hi: HI, lo: BASE, hqMin: HQ_MIN, hqMax: HI }
 
-  it('the spelling is `priceAt`, and the flat base is gone', () => {
-    expect(SRC).toContain(
+  it('the spelling is `packedPrice`, and both the flat base and the hourly-only `priceAt` spelling are gone', () => {
+    expect(SRC).toContain('ticketCore: yen(packedPrice(lane.listPrice, start, end, frame, depth)),')
+    expect(SRC).not.toContain('ticketCore: yen(dialogs.pricing.base)')
+    expect(SRC).not.toContain(
       'ticketCore: yen(priceAt(lane.listPrice, Math.floor(start / 60), price.hi, dialogs.pricing.hqMin, depth)),',
     )
-    expect(SRC).not.toContain('ticketCore: yen(dialogs.pricing.base)')
   })
 
   it('and it is a real difference — the ¥7,700 staff member’s card was wrong at every hour', () => {
@@ -9138,9 +9145,41 @@ describe('⚖ R6 B2 — the staged 次回予約 card is priced by the board, not
     expect(priceAt(7000, 15, HI, HQ_MIN, DEPTH)).toBeLessThan(priceAt(LIST, 15, HI, HQ_MIN, DEPTH))
   })
 
-  it('the staged card asks the SAME function the 販売可能枠 box under it asks', () => {
-    // One home, proven at the two call sites rather than asserted in prose.
-    expect(readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8'))
-      .toContain('priceFor: (lane, hour) => priceAt(lane.listPrice, hour, opts.hi, opts.hqMin, opts.depth),')
+  it('F1 — an off-hour start with a 90-minute session prices differently than `priceAt` alone would', () => {
+    // A staged card never starts on the hour (the 5-minute lattice) and its
+    // length is the store's own `standardSessionMin`, not always 60 — exactly
+    // the shape `priceAt`'s one-hour assumption gets wrong. 16:30–18:00 is a
+    // 90-minute span straddling hour 16 (curve dip, 0.92) and hour 17 (peak, 1).
+    const LIST = 7700
+    const START = 16 * 60 + 30 // 16:30 — off the hour
+    const SESSION_MIN = 90
+    const END = START + SESSION_MIN // 18:00
+
+    // The OLD (F1) spelling: `priceAt` on the start's hour alone, blind to the
+    // end and to the session length.
+    const oldSpelling = priceAt(LIST, Math.floor(START / 60), HI, HQ_MIN, DEPTH)
+    expect(oldSpelling).toBe(8060)
+
+    // The fixed spelling: `packedPrice`, priced hour by hour across the whole
+    // span — computed here independently, from the same two `priceAt` calls
+    // the span decomposes into (30 of the 90 minutes in hour 16, 60 in hour
+    // 17), not by calling `packedPrice` and comparing it to itself.
+    const inHour16 = priceAt(LIST, 16, HI, HQ_MIN, DEPTH)
+    const inHour17 = priceAt(LIST, 17, HI, HQ_MIN, DEPTH)
+    const expected = Math.round((inHour16 * 0.5 + inHour17 * 1) / 10) * 10
+    expect(expected).toBe(12500)
+    expect(packedPrice(LIST, START, END, FRAME, DEPTH)).toBe(expected)
+
+    // The two spellings disagree — proof this pin actually distinguishes them.
+    expect(packedPrice(LIST, START, END, FRAME, DEPTH)).not.toBe(oldSpelling)
+  })
+
+  it('the staged card asks the SAME span-true function the packing layer already uses, not the hourly sell box’s', () => {
+    // `packedPrice` is the one home for a SPAN (today-interactions :1419/:1485);
+    // `priceAt` stays the hourly 販売可能枠 box's own job (:1114) — a different
+    // question, proven at both call sites rather than asserted in prose.
+    const INTERACTIONS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+    expect(INTERACTIONS).toContain('packedPrice: (lane, s, e) => packedPrice(listOf(lane), s, e, opts.frame, opts.depth),')
+    expect(INTERACTIONS).toContain('priceFor: (lane, hour) => priceAt(lane.listPrice, hour, opts.hi, opts.hqMin, opts.depth),')
   })
 })

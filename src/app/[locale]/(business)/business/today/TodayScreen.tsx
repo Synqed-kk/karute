@@ -49,7 +49,7 @@ import {
   framingSample,
   discountNote,
   hqNote,
-  priceAt,
+  packedPrice,
   priceButtonCaption,
   money,
 } from '@/business/lib/canon-logic/pricing'
@@ -4835,11 +4835,17 @@ export function TodayScreen(props: TodayProps) {
       // read `yen(dialogs.pricing.base)` — the store's FLAT 基準価格, which is
       // neither this person's 定価 nor this hour's. A ¥7,700 staff member's
       // staged card said ¥6,600 at every hour of the day, and the 仮押さえ bar
-      // beside it quoted the same wrong number. `priceAt` is the one home the
-      // sell layer prices with (today-interactions.ts:1114) — the same list
-      // price, the same 最高価格 lever, the same hour curve at the same depth —
-      // so the staged card and the 販売可能枠 box it lands on cannot disagree.
-      ticketCore: yen(priceAt(lane.listPrice, Math.floor(start / 60), price.hi, dialogs.pricing.hqMin, depth)),
+      // beside it quoted the same wrong number. `priceAt` was the first fix
+      // (F1 line audit, this pin) but a staged card is not an hourly sell slot:
+      // its start sits on the 5-minute lattice and its length is the store's
+      // `standardSessionMin`, so pricing the START'S HOUR ONLY was wrong for an
+      // off-hour start and for a ≠60-minute session. `packedPrice` is the same
+      // span-true home the multi-hour packing pass already prices through
+      // (today-interactions.ts:1419/1485) — it prices the whole span across the
+      // hour curve end to end, so an off-hour start and a 90-minute standard
+      // session both come out honest, and the staged card and the 販売可能枠
+      // box it lands on still cannot disagree.
+      ticketCore: yen(packedPrice(lane.listPrice, start, end, frame, depth)),
       held: false,
       micro: false,
       caseId: id,
